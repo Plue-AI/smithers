@@ -1,71 +1,101 @@
-import * as SubagentCard from "@smthrs/rpc/SubagentCard"
 import { expect, test } from "bun:test"
 import type { Run } from "../src/flows.ts"
-import { rows } from "../src/toasts.ts"
+import { rows, Settlements } from "../src/toasts.ts"
 import type { Tab } from "../src/workspace.ts"
 
 const tab: Tab = {
-  id: "worker",
-  depth: 0,
-  title: "Work",
-  prompt: "Work",
-  seat: "test",
-  file: "session",
-  status: "requested",
-  startedAt: 0
+  id: "worker", depth: 0, title: "Work", prompt: "Work", seat: "test", file: "session", status: "running", startedAt: 0
 }
-const run: Run = {
-  id: "flow",
-  flow: "test",
-  by: "agent",
-  input: {},
-  requested: "{}",
-  status: "requested",
-  startedAt: 0
-}
-const project = (tabs: Tab[], runs: Run[], now: number) =>
-  rows({ tabs, runs, now, tick: "*", search: undefined, undoing: undefined, toast: undefined })
+const run: Run = { id: "flow", flow: "test", by: "user", input: {}, requested: "{}", status: "running", startedAt: 0 }
+const update = (
+  tracker: Settlements,
+  tabs: ReadonlyArray<Tab>,
+  runs: ReadonlyArray<Run> = [],
+  visible: ReadonlySet<string> = new Set(),
+  opened = "summary",
+  now = 65_000
+) => tracker.update({ tabs, runs, visible, opened, now })
+const doneTab = { ...tab, status: "done" as const, endedAt: 64_000 }
+const doneRun = { ...run, status: "done" as const, endedAt: 64_000 }
 
-test("requests remain in the terminal stack through launch and execution", () => {
-  expect(project([tab], [run], 299)).toHaveLength(0)
-  expect(project([tab], [run], 300).map((row) => row.id)).toEqual(["worker", "flow:flow"])
-  expect(project([{ ...tab, status: "running" }], [{ ...run, status: "running" }], 100000)).toHaveLength(2)
+test("requested, queued, running and parked work never generates progress toasts", () => {
+  const tracker = new Settlements()
+  for (const status of ["requested", "queued", "running", "parked"] as const) {
+    expect(update(tracker, [{ ...tab, status }], [{ ...run, status }])).toEqual([])
+  }
+  expect(rows({
+    now: 65_000, tick: "*", search: undefined, undoing: undefined, toast: undefined
+  })).toEqual([])
 })
 
-test("a person's own run stays out of the stack unless its form waits", () => {
-  const own = { ...run, by: "user" as const }
-  expect(project([], [own, { ...own, id: "done", status: "done", endedAt: 1000 }], 2000)).toHaveLength(0)
-  expect(project([], [{ ...own, status: "input" }], 0).map((row) => row.id)).toEqual(["flow:flow"])
+test.each(["done", "failed", "cancelled"] as const)("visible %s settlements remain quiet", (status) => {
+  const tracker = new Settlements([tab], [run])
+  const tabs = [{ ...doneTab, status }]
+  const runs = [{ ...doneRun, status }]
+  expect(update(tracker, tabs, runs, new Set(["tab:worker", "flow:flow"]))).toEqual([])
+  // Moving away later does not turn an already seen outcome into a notice.
+  expect(update(tracker, tabs, runs)).toEqual([])
 })
 
-test("terminal failures remain visible and retries restart the debounce", () => {
-  const failedTab = { ...tab, status: "failed" as const, endedAt: 1 }
-  const failedRun = { ...run, status: "failed" as const, endedAt: 1 }
-  expect(project([failedTab], [failedRun], 1).map((row) => row.tone)).toEqual(["danger", "danger"])
-  expect(project([failedTab], [failedRun], 100000)).toHaveLength(2)
-  expect(project([{ ...tab, startedAt: 100000 }], [{ ...run, startedAt: 100000 }], 100001)).toHaveLength(0)
+test.each(["done", "failed", "cancelled"] as const)("off-screen %s settlements appear once with their Open destination", (status) => {
+  const tracker = new Settlements([tab], [run])
+  const tabs = [{ ...doneTab, status }]
+  const runs = [{ ...doneRun, status }]
+  const notices = update(tracker, tabs, runs)
+  expect(notices.map((row) => row.surface)).toEqual(["tab:worker", "flow:flow"])
+  expect(notices.map((row) => row.tone)).toEqual(status === "failed" ? ["danger", "danger"] : ["info", "info"])
+  expect(notices[0]!.text).toContain("Work")
+  expect(notices[1]!.text).toContain("test")
+  expect(notices.every((row) => !("worker" in row))).toBe(true)
+  expect(update(tracker, tabs, runs)).toEqual(notices)
 })
 
-test("fast successful work stays quiet and visible successes expire after settlement", () => {
-  expect(project([{ ...tab, status: "done", endedAt: 100 }], [{ ...run, status: "done", endedAt: 100 }], 300))
-    .toHaveLength(0)
-  const tabs = [{ ...tab, status: "done" as const, endedAt: 1000 }]
-  const runs = [{ ...run, status: "done" as const, endedAt: 1000 }]
-  expect(project(tabs, runs, 4999)).toHaveLength(2)
-  expect(project(tabs, runs, 5000)).toHaveLength(0)
+test("opening or showing an outcome clears it permanently without clearing unrelated outcomes", () => {
+  const tracker = new Settlements([tab], [run])
+  update(tracker, [doneTab], [doneRun])
+  expect(update(tracker, [doneTab], [doneRun], new Set(), "tab:worker").map((row) => row.surface))
+    .toEqual(["flow:flow"])
+  expect(update(tracker, [doneTab], [doneRun], new Set(["flow:flow"]))).toEqual([])
+  expect(update(tracker, [doneTab], [doneRun])).toEqual([])
 })
 
-test("a worker's toast says what its card says and offers the card's Stop and Steer", () => {
-  const running = { ...tab, status: "running" as const, agent: { name: "review" } }
-  const [row] = project([running], [], 42_150)
-  expect(row?.text).toBe(SubagentCard.toast({ ...running, title: "review: Work" }, 42_150).line)
-  expect(row?.text).toBe("◓ review: Work · 42s")
-  expect(row?.worker?.actions.map((action) => action.id)).toEqual(["stop", "steer"])
-  const [settled] = project([{ ...tab, status: "done", endedAt: 64_000 }], [], 65_000)
-  expect(settled?.text).toBe("● Work · Done 1m 04s")
-  expect(settled?.worker?.actions).toEqual([])
-  const [queued] = project([{ ...tab, status: "queued" }], [], 1_000)
-  expect(queued?.worker?.actions.map((action) => action.id)).toEqual(["stop"])
+test("retrying work clears its previous outcome, and a later settlement reports the new duration", () => {
+  const tracker = new Settlements([tab])
+  update(tracker, [doneTab])
+  const retry = { ...tab, startedAt: 70_000 }
+  expect(update(tracker, [retry], [], new Set(), "summary", 71_000)).toEqual([])
+  const [notice] = update(tracker, [{ ...retry, status: "done", endedAt: 72_000 }], [], new Set(), "summary", 73_000)
+  expect(notice?.surface).toBe("tab:worker")
+  expect(notice?.text).toContain("2s")
+  expect(notice?.text).not.toContain("1m")
+})
+
+test("a newer request with the same title supersedes an older settle notice", () => {
+  const tracker = new Settlements([tab])
+  update(tracker, [doneTab])
+  expect(update(tracker, [doneTab, { ...tab, id: "replacement", startedAt: 70_000 }])).toEqual([])
+  const flows = new Settlements([], [run])
+  update(flows, [], [doneRun])
+  expect(update(flows, [], [doneRun, { ...run, id: "replacement", startedAt: 70_000 }])).toEqual([])
+})
+
+test("restored outcomes never become toasts and restored running work still reports its later outcome", () => {
+  const restored = new Settlements([doneTab], [doneRun])
+  expect(update(restored, [doneTab], [doneRun])).toEqual([])
+  const resumed = new Settlements([tab], [run])
+  expect(update(resumed, [tab], [run])).toEqual([])
+  expect(update(resumed, [doneTab], [doneRun]).map((row) => row.surface)).toEqual(["tab:worker", "flow:flow"])
+})
+
+test("search and undo retain their debounce and an ordinary notice remains last", () => {
+  const settled = [{ id: "worker", surface: "tab:worker", text: "Work", tone: "info" as const }]
+  const input = {
+    settlements: settled, tick: "*", undoing: 0,
+    search: { query: "needle", status: "running" as const, startedAt: 0, hits: [], truncated: false },
+    toast: { text: "Copied", tone: "info" as const }
+  }
+  expect(rows({ ...input, now: 299 }).map((row) => row.id)).toEqual(["worker", "notice"])
+  expect(rows({ ...input, now: 300 }).map((row) => row.id)).toEqual(["worker", "search", "undo", "notice"])
 })
 
 test("a run whose chat card is on screen gets no toast, at any status; other runs keep theirs", () => {

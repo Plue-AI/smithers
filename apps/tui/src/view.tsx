@@ -18,12 +18,10 @@ import * as Keys from "./keys.ts"
 import type * as Panels from "./panels.ts"
 import * as Scrubber from "./scrubber.ts"
 import { flowGlyph } from "./surfaces.ts"
-import type * as Tabs from "./tabs.ts"
 import { color, mix, syntax } from "./theme.ts"
 import type * as Toasts from "./toasts.ts"
 import { TranscriptRail } from "./transcript-rail.tsx"
 import * as Transcript from "./transcript.ts"
-import type { Tab } from "./workspace.ts"
 
 type Cell = Extract<Transcript.Item, { kind: "cell" }>
 type ShellItem = Extract<Transcript.Item, { kind: "shell" }>
@@ -1039,26 +1037,22 @@ export const toastStackRows = (
   compact: boolean
 ): number =>
   rows.reduce((total, row) => {
-    // The bar, the padding and each action leave this much for the text.
-    const text = Math.max(
-      1,
-      Math.min(60, columns) - 4 -
-        (row.worker?.actions ?? []).reduce((width, action) => width + 2 + stringWidth(action.label), 0)
-    )
+    // The bar, the padding and an open key leave this much for the text.
+    const text = Math.max(1, Math.min(60, columns) - 4 - (row.surface === undefined ? 0 : 2 + stringWidth("enter")))
     return total + (compact ? 0 : 1) +
       row.text.split("\n").reduce((lines, line) => lines + Math.max(1, Math.ceil(stringWidth(line) / text)), 0)
   }, 0)
 
 /**
  * Toasts stack right-aligned above the composer, like the app's toast stack,
- * and never cover content. A worker's toast carries its card's Stop and Steer.
+ * and never cover content. Off-screen settlement notices open their run.
  */
 export function ToastStack(
   props: {
     readonly rows: ReadonlyArray<Toasts.Row>
     readonly height: number
     readonly compact: boolean
-    readonly onAction?: (tab: Tab, action: Tabs.ActionId) => void
+    readonly onOpen?: (surface: string) => void
   }
 ) {
   if (props.rows.length === 0) return null
@@ -1083,17 +1077,9 @@ export function ToastStack(
         >
           <box style={{ flexDirection: "row", paddingLeft: 1, paddingRight: 2 }} backgroundColor={color.element}>
             <text fg={color.text}>{row.text}</text>
-            {row.worker?.actions.map((action) => (
-              <text
-                key={action.id}
-                wrapMode="none"
-                fg={action.id === "stop" ? color.danger : color.info}
-                style={{ marginLeft: 2, flexShrink: 0 }}
-                onMouseDown={() => props.onAction?.(row.worker!.tab, action.id)}
-              >
-                {action.label}
-              </text>
-            ))}
+            {row.surface === undefined ? null : (
+              <text fg={color.info} style={{ marginLeft: 2 }} onMouseDown={() => props.onOpen?.(row.surface!)}>enter</text>
+            )}
           </box>
         </TranscriptRail>
       ))}

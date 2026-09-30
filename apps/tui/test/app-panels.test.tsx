@@ -181,6 +181,33 @@ test("updating a live card replaces its visible content in place without running
   expect(turns).toHaveLength(1)
 })
 
+test.each(["card", "tab"] as const)("an unbound %s status panel is dropped before rendering or persistence", async (placement) => {
+  await type("Keep draft")
+  for (const rows of [[], [{ id: "worker", label: "Worker running", status: "running" as const, details: [] }]]) {
+    await publish({ kind: "panel", placement, panel: panel(rows) })
+    expect(frame()).not.toContain("Audit view")
+    expect(frame()).not.toContain("Worker running")
+    expect(frame()).toContain("Keep draft")
+    expect(records().filter((record) => record.type === "card" || record.type === "panel")).toEqual([])
+  }
+  expect(turns).toHaveLength(1)
+})
+
+test("a bound status panel and an unbound evidence panel remain useful custom views", async () => {
+  const bound = { ...panel([{ id: "worker", label: "Bound work", status: "running" as const, details: [] }]), bind: { tree: "root" } }
+  await publish({ kind: "panel", placement: "card", panel: bound })
+  expect(frame()).toContain("Bound work")
+  await publish({
+    kind: "panel", placement: "card", panel: {
+      ...panel([{ id: "result", label: "Captured result", status: "done", details: [{ kind: "text", text: "Actual receipt" }] }]),
+      id: "evidence", title: "Evidence"
+    }
+  })
+  expect(frame()).toContain("Captured result")
+  expect(records().filter((record) => record.type === "card").map((record) => record.panel.id)).toEqual(["audit", "evidence"])
+  expect(turns).toHaveLength(1)
+})
+
 test.each(["legacy", "typed"] as const)(
   "%s row action runs only after opening, selecting and explicitly activating its owning row",
   async (kind) => {

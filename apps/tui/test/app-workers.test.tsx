@@ -179,6 +179,43 @@ test("delegation persists its requested receipt before worker admission and pres
   expect(worker.cancelled).toBe(0)
 })
 
+test("three background workers keep Chat at its original width with one strip count and no progress toasts", async () => {
+  const promptColumn = () => frame().split("\n").find((line) => line.includes("Coordinate a review"))!.indexOf("Coordinate a review")
+  const before = promptColumn()
+  await delegate(turns[0]!.input)
+  await delegate(turns[0]!.input, { id: "queue", title: "Fix seat queue", prompt: "Fix the queue." })
+  await delegate(turns[0]!.input, { id: "strip", title: "Refactor tab strip", prompt: "Refactor the strip." })
+  // Exercise the former progress-toast delay with unresolved work.
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 350)) })
+  await render()
+  expect(promptColumn()).toBe(before)
+  expect(frame().match(/Review one file/g)).toHaveLength(1)
+  expect(frame().match(/Fix seat queue/g)).toHaveLength(1)
+  expect(frame().match(/Refactor tab strip/g)).toHaveLength(1)
+  expect(frame().split("\n")[1]).toMatch(/◐3|◓3|◑3|◒3/)
+  expect(frame()).not.toContain("Stop  Steer")
+  expect(turns).toHaveLength(4)
+})
+
+test("an off-screen settle reports one notice whose Enter opens the worker and clears it", async () => {
+  await delegate(turns[0]!.input)
+  await finish(0, { _tag: "done", answer: "" })
+  await key("s", { ctrl: true })
+  await finish(1, { _tag: "done", answer: "Review complete." })
+  const notice = () => frame().split("\n").filter((line) => /Review one file ·.+enter/.test(line))
+  const deadline = Date.now() + 2_000
+  while (notice().length === 0 && Date.now() < deadline) {
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 10)) })
+    await render()
+  }
+  expect(notice()).toHaveLength(1)
+  await key("RETURN")
+  expect(frame()).toContain("Subagent · Review one file")
+  expect(notice()).toHaveLength(0)
+  await command("/chat")
+  expect(notice()).toHaveLength(0)
+})
+
 test("a settled coordinator admits the next chat while its worker remains unresolved", async () => {
   await delegate(turns[0]!.input)
   await finish(0, { _tag: "done", answer: "Review delegated" })

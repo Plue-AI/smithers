@@ -1,18 +1,11 @@
-import { noticeDismissDelay, WORK_NOTICE_DELAY_MS, workNoticeVisible } from "@smthrs/ui/notification-policy"
-/**
- * The toast stack: one notice (`setStatus`), plus a row for each piece of
- * background work that has run long enough to mention and has not been
- * settled long; a person's own flow run is a chat card instead, so it shows
- * here only while its form waits. A notice clears itself after 4 s; a failure stays until
- * another notice replaces it or the next submit. A worker's row says what its
- * subagent card says (`SubagentCard.toast`) and carries the card's Stop and Steer.
- */
-import * as SubagentCard from "@smthrs/rpc/SubagentCard"
+import { noticeDismissDelay, WORK_NOTICE_DELAY_MS } from "@smthrs/ui/notification-policy"
+/** Off-screen settles, command feedback, search and undo notices. */
 import { useCallback, useEffect, useState } from "react"
-import { type Run, running as flowRunning } from "./flows.ts"
+import type { Run } from "./flows.ts"
 import type { TextSearch } from "./picker.ts"
 import { flowGlyph, tabTitle } from "./surfaces.ts"
 import * as Tabs from "./tabs.ts"
+import * as Lifecycle from "./lifecycle.ts"
 import type { Tab } from "./workspace.ts"
 
 export interface Toast {
@@ -20,13 +13,70 @@ export interface Toast {
   readonly tone: "info" | "warning" | "danger"
 }
 
-/** The card actions a worker's toast offers, while its status allows them. */
-const offered: ReadonlyArray<Tabs.ActionId> = ["stop", "steer", "raise"]
-
 export interface Row extends Toast {
   readonly id: string
-  /** A worker's row: the tab its buttons act on, and those buttons. */
-  readonly worker?: { readonly tab: Tab; readonly actions: ReadonlyArray<Tabs.Action> }
+  /** Opening this settle notice dismisses it. */
+  readonly surface?: string
+}
+
+/** Ephemeral settlement notices. Seeding observes restored work without announcing it. */
+export class Settlements {
+  private observed = new Map<string, string>()
+  private notices = new Map<string, Row>()
+  constructor(tabs: ReadonlyArray<Tab> = [], runs: ReadonlyArray<Run> = []) {
+    for (const work of this.work(tabs, runs)) this.observed.set(work.surface, work.stamp)
+  }
+  private work(tabs: ReadonlyArray<Tab>, runs: ReadonlyArray<Run>) {
+    return [
+      ...tabs.map((tab) => ({
+        surface: `tab:${tab.id}`, title: tabTitle(tab), status: tab.status,
+        startedAt: tab.startedAt, endedAt: tab.endedAt,
+        stamp: `${tab.startedAt}:${tab.endedAt}:${tab.status}`,
+        glyph: Tabs.style(tab.status, tab.endedAt ?? tab.startedAt).glyph
+      })),
+      ...runs.map((run) => ({
+        surface: `flow:${run.id}`, title: run.flow, status: run.status,
+        startedAt: run.startedAt, endedAt: run.endedAt,
+        stamp: `${run.startedAt}:${run.endedAt}:${run.status}`,
+        glyph: flowGlyph(run.status).trim()
+      }))
+    ]
+  }
+  update(input: {
+    readonly tabs: ReadonlyArray<Tab>
+    readonly runs: ReadonlyArray<Run>
+    readonly visible: ReadonlySet<string>
+    readonly opened: string
+    readonly now: number
+  }): ReadonlyArray<Row> {
+    const work = this.work(input.tabs, input.runs)
+    for (const each of work) {
+      for (const other of work) {
+        if (other.surface.startsWith(each.surface.split(":")[0]! + ":") &&
+          other.title === each.title && other.startedAt < each.startedAt) this.notices.delete(other.surface)
+      }
+      const previous = this.observed.get(each.surface)
+      if (previous !== each.stamp) {
+        this.notices.delete(each.surface)
+        this.observed.set(each.surface, each.stamp)
+        if (Lifecycle.settled(each.status) && each.endedAt !== undefined &&
+          !input.visible.has(each.surface) && input.opened !== each.surface) {
+          const ms = Math.max(0, each.endedAt - each.startedAt)
+          const clock = ms < 1000 ? `${ms}ms` : `${Math.floor(ms / 1000)}s`
+          this.notices.set(each.surface, {
+            id: each.surface, surface: each.surface,
+            text: `${each.glyph} ${each.title} · ${clock}`,
+            tone: each.status === "failed" ? "danger" : "info"
+          })
+        }
+      }
+      if (input.visible.has(each.surface) || input.opened === each.surface || !Lifecycle.settled(each.status)) {
+        this.notices.delete(each.surface)
+      }
+    }
+    for (const id of this.notices.keys()) if (!work.some((each) => each.surface === id)) this.notices.delete(id)
+    return [...this.notices.values()]
+  }
 }
 
 export const useToast = () => {
@@ -46,8 +96,7 @@ export const useToast = () => {
 
 /** The stack, oldest work first and the notice last. */
 export const rows = (input: {
-  readonly tabs: ReadonlyArray<Tab>
-  readonly runs: ReadonlyArray<Run>
+  readonly settlements?: ReadonlyArray<Row>
   readonly search: TextSearch | undefined
   /** When a running undo started. */
   readonly undoing: number | undefined
@@ -59,22 +108,7 @@ export const rows = (input: {
 }): ReadonlyArray<Row> => {
   const { now, tick, search, undoing, toast } = input
   return [
-    ...input.tabs.filter((tab) => workNoticeVisible(tab, now))
-      .map((tab) => ({
-        id: tab.id,
-        text: SubagentCard.toast({ ...tab, title: tabTitle(tab) }, now).line,
-        tone: tab.status === "failed" ? "danger" as const : "info" as const,
-        worker: { tab, actions: Tabs.actions(tab).filter((action) => offered.includes(action.id)) }
-      })),
-    // A person's run reports in chat; its input notice appears while the form is closed.
-    ...input.runs.filter((run) =>
-      input.carded?.has(run.id) !== true &&
-      (run.status === "input" || (run.by === "agent" && workNoticeVisible(run, now)))
-    ).map((run) => ({
-      id: `flow:${run.id}`,
-      text: `${flowRunning(run) ? `${tick} ` : flowGlyph(run.status)}${run.flow} · ${run.status}`,
-      tone: run.status === "failed" ? "danger" as const : "info" as const
-    })),
+    ...input.settlements ?? [],
     ...(search?.status === "running" && now - search.startedAt >= WORK_NOTICE_DELAY_MS
       ? [{ id: "search", text: `${tick} text: ${search.query}`, tone: "info" as const }]
       : []),

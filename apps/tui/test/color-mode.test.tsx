@@ -4,10 +4,9 @@ import { afterEach, describe, expect, it } from "bun:test"
 import { act, type ReactNode } from "react"
 import type * as Inbox from "../src/inbox.ts"
 import { chat, Overview } from "../src/subagent-view.tsx"
-import { TabStrip, WorkerList } from "../src/tabs-view.tsx"
+import { TabStrip } from "../src/tabs-view.tsx"
 import { applyColorMode, color, type ColorMode, colorModeOf } from "../src/theme.ts"
 import * as View from "../src/view.tsx"
-import type { Tab } from "../src/workspace.ts"
 
 let setup: Awaited<ReturnType<typeof testRender>> | undefined
 afterEach(async () => {
@@ -161,25 +160,6 @@ describe("NO_COLOR frames", () => {
     await act(async () => setup!.renderer.destroy())
     lines = await draw("none", summary("flow:deploy", "cards"), 80, 10)
     expect(reversed(lines, "Deploy")).toBe(false)
-  })
-
-  it("show the selected worker in reverse video", async () => {
-    const worker = (id: string) =>
-      ({ id, title: `Worker ${id}`, seat: "openai:gpt-6.1-sol", status: "running", startedAt: 0 }) as Tab
-    const lines = await draw(
-      "none",
-      <WorkerList
-        tabs={[worker("a"), worker("b")]}
-        active="tab:b"
-        models={[]}
-        now={0}
-        onSelect={() => {}}
-      />,
-      24,
-      8
-    )
-    expect(has(spanOf(lines, "Worker b"), TextAttributes.INVERSE)).toBe(true)
-    expect(has(spanOf(lines, "Worker a"), TextAttributes.INVERSE)).toBe(false)
   })
 
   it("show the focused transcript card in reverse video", async () => {

@@ -96,12 +96,6 @@ export function TabStrip(props: {
   )
 }
 
-/** Reported model and elapsed time; `sol · waiting 0:12` while it asks the person. */
-const facts = (tab: Tab, models: ReadonlyArray<Model>, now: number, ask?: Asks.Ask): string =>
-  ask !== undefined
-    ? `${seatName(tab, models)} · waiting ${Inbox.waited(now - ask.askedAt)}`
-    : `${seatName(tab, models)} · ${Transcript.duration(Tabs.elapsed(tab, now))}`
-
 /** A worker's glyph: `◆` in the needs color while the person holds its ask. */
 export const styleOf = (tab: Tab, now: number, ask?: Asks.Ask): { readonly glyph: string; readonly tone: string } =>
   ask === undefined ? Tabs.styleOf(tab, now) : { glyph: "◆", tone: color.needs }
@@ -118,45 +112,6 @@ export const chip = (tab: Tab, now: number, ask?: Asks.Ask): Chip => {
       ? Transcript.duration(Tabs.elapsed(tab, now))
       : `waiting ${Inbox.waited(now - ask.askedAt)}`
   }
-}
-
-/** The workers beside the chat, drawn as their tabs are. */
-export function WorkerList(props: {
-  readonly tabs: ReadonlyArray<Tab>
-  readonly active: string
-  readonly models: ReadonlyArray<Model>
-  readonly now: number
-  /** The ask the person holds from a worker. */
-  readonly ask?: (id: string) => Asks.Ask | undefined
-  readonly onSelect: (id: string) => void
-}) {
-  return (
-    <box style={{ flexDirection: "column" }}>
-      {props.tabs.map((tab) => {
-        const ask = props.ask?.(tab.id)
-        const { glyph, tone } = styleOf(tab, props.now, ask)
-        const selected = props.active === `tab:${tab.id}`
-        return (
-          <box
-            key={tab.id}
-            style={{ border: ["left"], paddingLeft: 1, marginBottom: 1 }}
-            borderColor={selected ? color.brand : tone}
-            customBorderChars={View.bar}
-            backgroundColor={selected ? color.selected : color.page}
-            onMouseDown={() => props.onSelect(`tab:${tab.id}`)}
-          >
-            <text wrapMode="word">
-              <span fg={tone}>{glyph}</span>{" "}
-              <span fg={selected ? color.text : color.muted}>{tab.description ?? tab.title}</span>
-            </text>
-            <text fg={color.faint} wrapMode="none">
-              {facts(tab, props.models, props.now, ask)}
-            </text>
-          </box>
-        )
-      })}
-    </box>
-  )
 }
 
 function Button(props: { readonly keys: string; readonly label: string; readonly onPress: () => void }) {

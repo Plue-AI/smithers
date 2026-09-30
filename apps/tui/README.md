@@ -390,12 +390,11 @@ A worker tab's own children show the same way. `◉ <worker> done` or
 settled; its focused card offers `[r Resume]`. `/filter` shows or hides each kind of row;
 `/grep <text>` keeps rows containing the text and `/grep` alone clears it. Chat receives every unsettled worker and the newest
 five settled answers (1,500 characters each) as context, and remains usable
-while workers run. Progress uses the shared toast stack,
-with a 300 ms delay and real completion/failure as its end. Ctrl+S shows
-every worker's tree.
+while workers run. Chat cards carry live progress; Ctrl+S shows every worker's tree.
+Only work that settles off-screen produces a run toast. Enter opens that run
+and clears the notice; a new attempt supersedes it. Run toasts never restore.
 
-Each worker's header, and its row in the list beside the chat at 100 columns or
-wider, shows the status glyph subagent cards share (`@smthrs/rpc/SubagentCard`):
+Each worker's header shows the status glyph subagent cards share (`@smthrs/rpc/SubagentCard`):
 `◐◓◑◒` turning while requested, running or waiting on children, `■` once
 stopped, else `●`, in
 the color of its state (running, waiting for queued, parked or children, done,
@@ -410,8 +409,7 @@ status allows:
 Steer. Its composer starts focused; typing and pasting return to it after Tab
 selects transcript rows. Its transcript is drawn with the chat's own cells;
 **Alt+V** and **Alt+U** review and undo its run. Esc closes file completion
-before returning to Chat. A worker's toast reads like its card
-(`◐ title · 42s`) with Stop and Steer.
+before returning to Chat. There is no automatic worker rail or running-work toast.
 
 Type in a finished worker's tab to continue its conversation. Wrapped workers
 resume the same Claude Code or Codex session. Delegating a failed or stopped

@@ -690,11 +690,13 @@ export const restore = (records: ReadonlyArray<Record>): {
         transcript = Transcript.note(transcript, record.text, record.at)
         break
       case "panel":
+        if (Panels.unboundStatus(record.panel)) break
         Panels.keep(panels, record.panel)
         if (record.placement === "card") cards.add(record.panel.id)
         else cards.delete(record.panel.id)
         break
       case "card":
+        if (Panels.unboundStatus(record.panel)) break
         Panels.keep(panels, record.panel)
         cards.add(record.panel.id)
         transcript = Transcript.card(transcript, record.panel, record.at)

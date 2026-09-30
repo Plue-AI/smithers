@@ -21,7 +21,7 @@ await ctx.call("ui.publish", {
 })
 ```
 
-Ctrl+K lists each view by title. Blocks are `text`, `code`, `table`, or `diff`. Wrap a panel as `{ kind: "panel", placement: "card", panel }` to show it as a card in chat.
+The host owns run status and drops unbound panels that contain only status. Ctrl+K lists each useful view by title. Blocks are `text`, `code`, `table`, or `diff`. Wrap a panel as `{ kind: "panel", placement: "card", panel }` to show it as a card in chat.
 
 <AppScreenshot src="/images/learn/tui-custom-view.gif" alt="A published Checks view in the TUI." caption="The TUI with a scripted test model." width={880} height={480} />
 

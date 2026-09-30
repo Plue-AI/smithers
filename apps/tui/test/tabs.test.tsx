@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "bun:test"
 import { act } from "react"
 import * as Keys from "../src/keys.ts"
 import * as Models from "../src/models.ts"
-import { TabStrip, WorkerList, WorkerView } from "../src/tabs-view.tsx"
+import { TabStrip, WorkerView } from "../src/tabs-view.tsx"
 import * as Tabs from "../src/tabs.ts"
 import { color } from "../src/theme.ts"
 import * as Transcript from "../src/transcript.ts"
@@ -272,30 +272,6 @@ describe("TabStrip", () => {
       />
     )
     expect(after.captureCharFrame()).toBe(before)
-  })
-})
-
-describe("WorkerList", () => {
-  it("lists each worker with its glyph, model and elapsed time, and opens one on click", async () => {
-    const opened: Array<string> = []
-    const { captureCharFrame, mockMouse } = await mount(
-      <WorkerList
-        tabs={[tab("a", "running"), tab("b", "queued")]}
-        active="tab:a"
-        models={models}
-        now={4_000}
-        onSelect={(id) => opened.push(id)}
-      />,
-      24,
-      8
-    )
-    const frame = captureCharFrame()
-    expect(frame).toContain(`${Tabs.style("running", 4_000).glyph} Worker a`)
-    expect(frame).toContain("GPT-6.1 Sol · 3.0s")
-    expect(frame).toContain(`${Tabs.style("queued", 4_000).glyph} Worker b`)
-    const row = find(frame, "Worker b")
-    await mockMouse.click(row.x, row.y)
-    expect(opened).toEqual(["tab:b"])
   })
 })
 

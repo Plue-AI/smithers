@@ -67,7 +67,7 @@ import * as Subagents from "./subagents.ts"
 import * as Summary from "./summary.ts"
 import * as Surfaces from "./surfaces.ts"
 import { tabTitle } from "./surfaces.ts"
-import { chip as workerChip, TabStrip, WorkerList, WorkerView } from "./tabs-view.tsx"
+import { chip as workerChip, TabStrip, WorkerView } from "./tabs-view.tsx"
 import * as Tabs from "./tabs.ts"
 import type * as TargetApprovals from "./target-approvals.ts"
 import { color, spinner } from "./theme.ts"
@@ -823,13 +823,11 @@ export function App(props: AppProps) {
     return keys.length === 0 ? [] : [{ ...binding, keys, context: panelFocus ? "panel" : "composer" }]
   })
   const dimensions = useTerminalDimensions()
-  const activeTabs = snapshot.tabs.filter((tab) => Tabs.live(tab.status))
   const sideChat = focusMain && dimensions.width >= 120
   const chatHeight = focusMain && !sideChat ? Math.floor(dimensions.height * 0.55) : dimensions.height
   const short = chatHeight <= 24
-  const showSidebar = dimensions.width >= 100 && activeTabs.length > 0 && (!focusMain || sideChat)
-  const width = sideChat ? 40 : Math.max(20, Math.min(columnWidth, dimensions.width - 2 - (showSidebar ? 26 : 0)))
-  const mainWidth = Math.max(20, dimensions.width - width - (showSidebar ? 26 : 0) - 2)
+  const width = sideChat ? 40 : Math.max(20, Math.min(columnWidth, dimensions.width - 2))
+  const mainWidth = Math.max(20, dimensions.width - width - 2)
   const {
     scroll,
     dragScroll,
@@ -869,6 +867,29 @@ export function App(props: AppProps) {
     panelFocus,
     width
   })
+  const settlements = useMemo(() => new Toasts.Settlements(workspace.snapshot().tabs, runs.snapshot()), [workspace, runs])
+  const [settleNotices, setSettleNotices] = useState<ReadonlyArray<Toasts.Row>>([])
+  useEffect(() => {
+    const visible = new Set<string>()
+    const box = scroll.current
+    if (surface === "chat" && !focusMain && box !== null) {
+      const shown = (id: string) => {
+        const child = box.content.findDescendantById(id)
+        return child !== undefined && child.y < box.viewport.y + box.viewport.height &&
+          child.y + child.height > box.viewport.y
+      }
+      for (const tab of snapshot.tabs) if (shown(Subagents.cardKey(tab.id))) visible.add(`tab:${tab.id}`)
+      for (const row of chatRows) {
+        if (row.item.kind === "card" && row.item.panel.id.startsWith("flow:") && shown(row.key)) {
+          visible.add(row.item.panel.id)
+        }
+      }
+    }
+    const next = settlements.update({ tabs: snapshot.tabs, runs: flowRuns, visible, opened: surface, now })
+    setSettleNotices((current) =>
+      current.length === next.length && current.every((row, index) => row === next[index]) ? current : next
+    )
+  }, [revision, surface, now, settlements, focusMain, snapshot.tabs, flowRuns, chatRows, scroll])
   const inboxRows = Inbox.flat(inbox, overview.failedOpen === true)
   const inboxKeys = Inbox.keys(inbox, overview.failedOpen === true)
   const overviewShown = surface === "summary" && inboxKeys.length > 0 && !focusMain
@@ -1181,6 +1202,7 @@ export function App(props: AppProps) {
       runtime: {
         publish: (contribution) => {
           if (contribution.kind !== "panel") return contribute("runtime:chat", contribution)
+          if (Panels.unboundStatus(contribution.panel)) return
           if (contribution.placement === "tab") {
             const first = !workspace.snapshot().panels.some((shown) => shown.id === contribution.panel.id)
             const panel = workspace.publish(contribution.panel)
@@ -2083,6 +2105,12 @@ export function App(props: AppProps) {
         inspect: (seq) => flushSync(() => inspectActivity(seq))
       })
     ) return
+    if ((key.name === "return" || key.name === "kpenter") && text === "" &&
+      open === undefined && liveForm.current === undefined && !key.ctrl && !key.meta && !key.option &&
+      settleNotices[0]?.surface !== undefined) {
+      key.preventDefault()
+      return clickTab(settleNotices[0].surface)
+    }
     if (
       focusedCard !== undefined && open === undefined && !key.ctrl &&
       (!(key.meta || key.option) || Keys.bindingFor(key, "panel") !== undefined)
@@ -2733,24 +2761,7 @@ export function App(props: AppProps) {
     const run = surface.startsWith("flow:") ? runs.get(surface.slice(5)) : undefined
     return run !== undefined && form?.id === run.id ? { ...run, message: undefined } : run
   }
-  const toastRows = Toasts.rows({
-    tabs: snapshot.tabs,
-    runs: flowRuns,
-    search,
-    undoing,
-    toast,
-    now,
-    tick,
-    ...(surface === "chat" && panel === undefined
-      ? {
-        carded: new Set(
-          transcript.items.flatMap((item) =>
-            item.kind === "run" && item.surface.startsWith("flow:") ? [item.surface.slice(5)] : []
-          )
-        )
-      }
-      : {})
-  })
+  const toastRows = Toasts.rows({ settlements: settleNotices, search, undoing, toast, now, tick })
   /** What every subagent card in the chat reads and does. */
   const cards: SubagentView.Cards = {
     transcript: workspace.transcript,
@@ -2813,20 +2824,6 @@ export function App(props: AppProps) {
           justifyContent: "center"
         }}
       >
-        {showSidebar ?
-          (
-            <box style={{ width: 24, marginRight: 2, paddingTop: 3, flexDirection: "column", flexShrink: 0 }}>
-              <WorkerList
-                tabs={activeTabs.map((tab) => ({ ...tab, title: tabTitle(tab) }))}
-                active={surface}
-                models={props.models}
-                now={now}
-                ask={(id) => workspace.asks.fromPerson(id)}
-                onSelect={clickTab}
-              />
-            </box>
-          ) :
-          null}
         {focusMain && panel !== undefined ?
           (
             <box
@@ -3117,7 +3114,7 @@ export function App(props: AppProps) {
             )}
           {sideChat ?
             null :
-            <View.ToastStack rows={toastRows} height={toastLimit} compact={short} onAction={workerAction} />}
+            <View.ToastStack rows={toastRows} height={toastLimit} compact={short} onOpen={clickTab} />}
           {approvals[0] === undefined ? null : (
             <View.Approval
               width={width}
@@ -3228,7 +3225,7 @@ export function App(props: AppProps) {
               height: toastHeight
             }}
           >
-            <View.ToastStack rows={toastRows} height={toastLimit} compact={short} onAction={workerAction} />
+            <View.ToastStack rows={toastRows} height={toastLimit} compact={short} onOpen={clickTab} />
           </box>
         )
         : null}
