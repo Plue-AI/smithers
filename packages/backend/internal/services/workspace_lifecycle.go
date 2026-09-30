@@ -317,32 +317,78 @@ func (s *WorkspaceService) CleanupOverQuotaWorkspaces(ctx context.Context) error
 	// Resolve each owner's plan and metering once per pass. A failed read leaves
 	// that owner's workspaces running; returning the error lets the cleaner count
 	// the failure and retry on its next tick.
-	exhausted := make(map[int64]bool)
+	limits := make(map[int64]*pkgerrors.APIError)
 	var errs []error
 	for _, workspace := range workspaces {
 		if err := ctx.Err(); err != nil {
 			return errors.Join(append(errs, err)...)
 		}
-		overQuota, checked := exhausted[workspace.UserID]
+		limit, checked := limits[workspace.UserID]
 		if !checked {
 			entitlement, err := sandboxEntitlementForUser(ctx, s.billing, workspace.UserID)
 			if err != nil {
 				slog.Warn("sandbox hours check failed", "user_id", workspace.UserID, "error", err)
+				if recorder, ok := s.sandboxMetrics.(SandboxHoursMeteringRecorder); ok {
+					recorder.AddSandboxHoursMeteringError()
+				}
 				errs = append(errs, fmt.Errorf("sandbox hours for user %d: %w", workspace.UserID, err))
 			} else {
-				overQuota = sandboxDailyHoursExhausted(entitlement)
+				limit = sandboxDailyHoursError(entitlement)
 			}
-			exhausted[workspace.UserID] = overQuota
+			limits[workspace.UserID] = limit
 		}
-		if !overQuota {
+		if limit == nil {
 			continue
 		}
 		if err := s.suspendWorkspace(ctx, workspace); err != nil {
 			slog.Warn("over-quota workspace suspend failed", "workspace_id", workspace.ID, "user_id", workspace.UserID, "error", err)
 			errs = append(errs, fmt.Errorf("suspend over-quota workspace %s: %w", workspace.ID, err))
+			continue
 		}
+		s.auditHoursCapSuspension(ctx, workspace, limit)
 	}
 	return errors.Join(errs...)
+}
+
+// SandboxHoursMeteringRecorder counts sweep passes that could not read an
+// owner's sandbox-hours metering and so left that owner's workspaces running.
+type SandboxHoursMeteringRecorder interface {
+	AddSandboxHoursMeteringError()
+}
+
+// auditHoursCapSuspension records a sweep suspension with the plan-limit error
+// the owner receives when resuming before reset_at.
+func (s *WorkspaceService) auditHoursCapSuspension(ctx context.Context, workspace db.Workspace, limit *pkgerrors.APIError) {
+	if s.audit == nil {
+		return
+	}
+	ownerID := workspace.UserID
+	metadata := map[string]any{
+		"code":          limit.Code,
+		"limit_kind":    limit.LimitKind,
+		"plan_key":      limit.PlanKey,
+		"message":       limit.Message,
+		"repository_id": workspace.RepositoryID,
+		"vm_id":         workspace.VmID,
+	}
+	if limit.Limit != nil {
+		metadata["limit"] = *limit.Limit
+	}
+	if limit.UpgradePlanKey != "" {
+		metadata["upgrade_plan_key"] = limit.UpgradePlanKey
+	}
+	if limit.ResetAt != nil {
+		metadata["reset_at"] = limit.ResetAt.UTC().Format(time.RFC3339)
+	}
+	s.audit.Log(ctx, AuditEvent{
+		EventType:  "workspace.suspend",
+		ActorName:  "system",
+		TargetType: "user",
+		TargetID:   &ownerID,
+		TargetName: workspace.ID,
+		Action:     limit.LimitKind,
+		Metadata:   metadata,
+	})
 }
 
 // CleanupStalePendingWorkspaces marks stale pending/starting workspaces without a VM as failed.

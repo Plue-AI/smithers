@@ -564,6 +564,7 @@ type WorkspaceService struct {
 	// with the pending ticket; see workspaceSessionProvisionGrace.
 	sessionProvisionGrace time.Duration
 	billing               BillingPolicy
+	audit                 *AuditService
 	sourceReader          WorkspaceSourceReader
 	refDeleter            WorkspaceRefDeleter
 	q                     WorkspaceQuerier
@@ -1494,4 +1495,10 @@ func (s *WorkspaceService) scrubRuntimeWorkspaceLogins(ctx context.Context, row 
 		return pkgerrors.Internal(fmt.Sprintf("sign out derived workspace failed with status %d: %s", result.ExitCode, strings.TrimSpace(result.Stderr)))
 	}
 	return nil
+}
+
+// WithWorkspaceAuditService records system workspace actions, such as
+// sandbox-hours suspensions, in the audit log.
+func WithWorkspaceAuditService(audit *AuditService) WorkspaceServiceOption {
+	return func(s *WorkspaceService) { s.audit = audit }
 }

@@ -113,18 +113,33 @@ func authorizeSandboxEntitlement(entitlement SandboxEntitlement) error {
 		}
 		return sandboxPlanLimitError(entitlement, "concurrent_sandboxes", entitlement.ConcurrentSandboxes, upgrade, message)
 	}
-	if sandboxDailyHoursExhausted(entitlement) {
-		message := fmt.Sprintf("Your %s plan includes %d sandbox-hours per day; you have used them. ", name, entitlement.HoursPerDay)
-		if upgrade != "" {
-			message += fmt.Sprintf("Upgrade to %s for unlimited hours, or try again after %s.", billingPlanDisplayName(upgrade), entitlement.DayResetsAt.Format(time.RFC3339))
-		} else {
-			message += fmt.Sprintf("Try again after %s.", entitlement.DayResetsAt.Format(time.RFC3339))
-		}
-		e := sandboxPlanLimitError(entitlement, "sandbox_hours_per_day", entitlement.HoursPerDay, upgrade, message)
-		e.ResetAt = &entitlement.DayResetsAt
+	if e := sandboxDailyHoursError(entitlement); e != nil {
 		return e
 	}
 	return nil
+}
+
+// sandboxDailyHoursError is the sandbox_hours_per_day plan-limit error, or nil
+// while today's allowance remains. Start admission and the running-workspace
+// sweep share it, so both report the same limit and reset_at.
+func sandboxDailyHoursError(entitlement SandboxEntitlement) *pkgerrors.APIError {
+	if !sandboxDailyHoursExhausted(entitlement) {
+		return nil
+	}
+	upgrade := ""
+	if entitlement.PlanKey == BillingPlanFree {
+		upgrade = BillingPlanPro
+	}
+	message := fmt.Sprintf("Your %s plan includes %d sandbox-hours per day; you have used them. ", billingPlanDisplayName(entitlement.PlanKey), entitlement.HoursPerDay)
+	if upgrade != "" {
+		message += fmt.Sprintf("Upgrade to %s for unlimited hours, or try again after %s.", billingPlanDisplayName(upgrade), entitlement.DayResetsAt.Format(time.RFC3339))
+	} else {
+		message += fmt.Sprintf("Try again after %s.", entitlement.DayResetsAt.Format(time.RFC3339))
+	}
+	e := sandboxPlanLimitError(entitlement, "sandbox_hours_per_day", entitlement.HoursPerDay, upgrade, message)
+	resetAt := entitlement.DayResetsAt
+	e.ResetAt = &resetAt
+	return e
 }
 
 func sandboxDailyHoursExhausted(entitlement SandboxEntitlement) bool {

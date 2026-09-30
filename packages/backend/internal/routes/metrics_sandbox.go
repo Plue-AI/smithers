@@ -30,6 +30,10 @@ type SandboxLegacyMetrics struct {
 	// it) or "legacy_env" (plaintext in the guest environment). The legacy
 	// series is the number that has to reach zero.
 	AgentSecretDeliveryTotal *prometheus.CounterVec
+
+	// HoursMeteringErrorsTotal counts owners whose sandbox-hours metering the
+	// running-workspace sweep could not read; their workspaces kept running.
+	HoursMeteringErrorsTotal prometheus.Counter
 }
 
 // NewSandboxLegacyMetrics creates a new SandboxLegacyMetrics instance and registers all
@@ -87,6 +91,12 @@ func NewSandboxLegacyMetrics(reg prometheus.Registerer) *SandboxLegacyMetrics {
 			},
 			[]string{"path"},
 		),
+		HoursMeteringErrorsTotal: prometheus.NewCounter(
+			prometheus.CounterOpts{
+				Name: "smithers_sandbox_hours_metering_errors_total",
+				Help: "Owners whose sandbox-hours metering the daily-cap sweep could not read; their running workspaces were left running.",
+			},
+		),
 	}
 
 	if reg != nil {
@@ -98,6 +108,7 @@ func NewSandboxLegacyMetrics(reg prometheus.Registerer) *SandboxLegacyMetrics {
 			m.APIRequestDurationSeconds,
 			m.APIErrorsTotal,
 			m.AgentSecretDeliveryTotal,
+			m.HoursMeteringErrorsTotal,
 		)
 	}
 

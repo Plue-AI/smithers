@@ -491,6 +491,15 @@ func (m *SmithersMetrics) AddAgentSecretDelivery(path string, count int) {
 	m.Sandbox.AgentSecretDeliveryTotal.WithLabelValues(path).Add(float64(count))
 }
 
+// AddSandboxHoursMeteringError counts one owner the daily sandbox-hours sweep
+// could not meter (services.SandboxHoursMeteringRecorder).
+func (m *SmithersMetrics) AddSandboxHoursMeteringError() {
+	if m == nil || m.Sandbox == nil {
+		return
+	}
+	m.Sandbox.HoursMeteringErrorsTotal.Inc()
+}
+
 // ObserveSandboxVMSuspend records Microsandbox suspend/resume latency.
 func (m *SmithersMetrics) ObserveSandboxVMSuspend(seconds float64) {
 	if m == nil {
