@@ -785,6 +785,13 @@ type GithubMainPull struct {
 	FactoryError        string             `json:"factory_error"`
 }
 
+type GithubMirrorRefresh struct {
+	RepositoryID   int64              `json:"repository_id"`
+	RefreshedAt    pgtype.Timestamptz `json:"refreshed_at"`
+	ClaimToken     pgtype.Text        `json:"claim_token"`
+	ClaimExpiresAt pgtype.Timestamptz `json:"claim_expires_at"`
+}
+
 type GithubMirrorSyncRefResult struct {
 	ID           int64     `json:"id"`
 	RunID        int64     `json:"run_id"`
