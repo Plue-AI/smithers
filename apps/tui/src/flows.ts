@@ -614,6 +614,8 @@ export class FlowRuns {
     queueMicrotask(() => void this.prepare(id, attempt))
     return { id, status: "requested" }
   }
+  /** A run's events as far as its watch and history read them, in order. */
+  journal = (id: string): ReadonlyArray<ControlEvent> => this.events.get(id) ?? []
   /** A run's node calls as far as its events show, in order: the graph's children of a flow run. */
   nodes = (
     id: string

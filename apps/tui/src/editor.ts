@@ -74,6 +74,7 @@ export const commands: ReadonlyArray<Command> = [
   { name: "grep", args: "[text]", description: "Show only rows containing text" },
   { name: "ui", args: "[id]", description: "Open a custom view" },
   { name: "smithers", description: "Flows and runs" },
+  { name: "devtools", args: "[id] [node]", description: "Inspect a run's nodes" },
   { name: "flows", description: "Run a flow" },
   { name: "flow", args: "<name> [json|key=value]", description: "Run a flow" },
   { name: "agent", args: "[name] [prompt]", description: "Run a custom agent" },

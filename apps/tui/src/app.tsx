@@ -34,6 +34,7 @@ import * as Composer from "./composer.ts"
 import * as Context from "./context.ts"
 import * as Contributions from "./contributions.ts"
 import * as Cursor from "./cursor.ts"
+import * as DevTools from "./devtools.ts"
 import * as Editor from "./editor.ts"
 import * as Estimate from "./estimate.ts"
 import * as Extension from "./extension.ts"
@@ -1532,6 +1533,15 @@ export function App(props: AppProps) {
       }
       case "hotkeys":
         setTranscript((current) => Transcript.note(current, Keys.sheet(), Date.now()))
+        return true
+      case "devtools":
+        setTranscript((current) =>
+          Transcript.note(
+            current,
+            DevTools.note(argument, { activity: current.activity, run: runs.get, journal: runs.journal, width }),
+            Date.now()
+          )
+        )
         return true
       case "quit":
       case "exit":
