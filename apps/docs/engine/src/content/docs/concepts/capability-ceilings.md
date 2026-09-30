@@ -6,10 +6,14 @@ editUrl: "https://github.com/smithersai/smithers/edit/main/packages/smithers/flo
 
 Omitted capability declarations inherit authority; explicit empty declarations
 deny guarded operations. The engine intersects each declaration with its callers
-and persists admission authority for recovery. A join answers the result the
-admitted authority produced, so a caller joins an existing execution ID only when
-its ceiling covers the admitted one; otherwise both engines die with
-`FlowEngine.ExecutionIdentityConflict` on field `capabilities`. Cross-run cache keys include the
+and persists admission authority for recovery. Joining, polling, or
+resuming an existing execution ID answers or drives what the admitted authority
+produced, so each requires the caller's ceiling, narrowed by the flow's current
+declaration, to provably cover the authority the execution recorded
+(`FlowEngine.joinable`). A declaration narrowed since admission does not reopen
+a wider result. Otherwise both engines die with
+`FlowEngine.ExecutionIdentityConflict` on field `capabilities`. A handoff
+successor records its own declaration when this process registers it. Cross-run cache keys include the
 effective authority for both string and object idempotency keys.
 
 Existing durable executions without persisted authority refuse further dispatch.

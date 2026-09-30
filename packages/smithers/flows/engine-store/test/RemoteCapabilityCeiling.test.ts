@@ -225,6 +225,18 @@ describe("remote execution under a carried capability ceiling", () => {
     expect(String((defect as { message: string }).message)).toContain("ExecutionIdentityConflict")
     expect(String((defect as { message: string }).message)).toContain("capabilities")
 
+    // A remote resume is refused on the serving engine the same way.
+    const resumed = await run(Effect.gen(function*() {
+      const context = yield* caller(port, parent("resume"))
+      const runtime = Context.get(context as Context.Context<FlowRuntime.FlowRuntime>, FlowRuntime.FlowRuntime)
+      return yield* Effect.exit(
+        CapabilitySet.attenuate(readOnly)(runtime.resume(RemoteWrite, "joined-wide")).pipe(onCaller(context))
+      )
+    }))
+    const resumeRefusal = String(Exit.isFailure(resumed) ? Cause.squash(resumed.cause) : undefined)
+    expect(resumeRefusal).toContain("ExecutionIdentityConflict")
+    expect(resumeRefusal).toContain("capability ceiling does not cover")
+
     expect(await direct("joined-narrow.txt", "joined-narrow", readOnly)).toEqual(
       Exit.succeed("denied:PermissionDenied")
     )

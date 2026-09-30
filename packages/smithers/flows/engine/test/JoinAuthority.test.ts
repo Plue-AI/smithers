@@ -7,8 +7,8 @@
 import { describe, expect, it } from "@effect/vitest"
 import { Capability, CapabilityPattern } from "@smthrs/capability/Capability"
 import * as CapabilitySet from "@smthrs/capability/CapabilitySet"
-import { Action, Flow, Interpreter } from "@smthrs/flow"
-import { Cause, Effect, Exit, Layer, Schema } from "effect"
+import { Action, Flow, FlowRuntime, Interpreter } from "@smthrs/flow"
+import { Cause, Effect, Exit, Layer, Option, Schema } from "effect"
 import { FlowEngine } from "../src/index.ts"
 import { withCrypto } from "./Crypto.ts"
 
@@ -96,10 +96,44 @@ describe("joining an execution under a capability ceiling", () => {
       }).pipe(Effect.provide(layer))
     })))
 
-  it("joinable treats a flow this process does not declare as undeclared", () => {
+  it.effect("does not reopen a wider result through a declaration narrowed since admission", () =>
+    withCrypto(Effect.gen(function*() {
+      const { flow, layer } = setup()
+      yield* Effect.gen(function*() {
+        expect(yield* flow.execute({ id: "a" }, { executionId: "redeclared" })).toBe("secret contents")
+        const Narrowed = flow.annotate(Flow.Capabilities, [])
+        const exit = yield* Effect.exit(Narrowed.execute({ id: "a" }, { executionId: "redeclared" }))
+        expect(conflictOf(exit)).toMatchObject({ field: "capabilities" })
+        const polled = yield* Effect.exit(Narrowed.poll("redeclared"))
+        expect(conflictOf(polled)).toMatchObject({ field: "capabilities" })
+      }).pipe(Effect.provide(layer))
+    })))
+
+  it.effect("refuses a narrower caller's poll and resume of a wider run", () =>
+    withCrypto(Effect.gen(function*() {
+      const { flow, layer, runs } = setup()
+      yield* Effect.gen(function*() {
+        expect(yield* flow.execute({ id: "a" }, { executionId: "polled" })).toBe("secret contents")
+        const polled = yield* Effect.exit(under(readSource)(flow.poll("polled")))
+        expect(conflictOf(polled)).toMatchObject({ field: "capabilities", executionId: "polled" })
+        const runtime = yield* FlowRuntime.FlowRuntime
+        const resumed = yield* Effect.exit(under(readSource)(runtime.resume(flow, "polled")))
+        expect(conflictOf(resumed)).toMatchObject({ field: "capabilities" })
+        const polledWide = yield* flow.poll("polled")
+        expect(Option.isSome(polledWide)).toBe(true)
+        yield* runtime.resume(flow, "polled")
+        // An unknown id is left to the engine's own not-found answer.
+        const unknown = yield* Effect.flip(under(readSource)(flow.poll("never-admitted")))
+        expect(unknown).toMatchObject({ code: "execution_not_found" })
+        expect(runs()).toBe(1)
+      }).pipe(Effect.provide(layer))
+    })))
+
+  it("joinable compares the admitted authority as recorded", () => {
     const narrow = CapabilitySet.fromPatterns(readSource).groups
-    expect(FlowEngine.joinable(undefined, narrow, [])).toBe(true)
-    expect(FlowEngine.joinable(undefined, [], narrow)).toBe(false)
-    expect(FlowEngine.joinable(undefined, [[]], narrow)).toBe(true)
+    expect(FlowEngine.joinable(narrow, [])).toBe(true)
+    expect(FlowEngine.joinable([], narrow)).toBe(false)
+    expect(FlowEngine.joinable([[]], narrow)).toBe(true)
+    expect(FlowEngine.joinable(narrow, narrow)).toBe(true)
   })
 })

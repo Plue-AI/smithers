@@ -673,4 +673,5 @@ ceilings during recovery. Neither can widen the current authority. An empty
 outer array inherits; an empty group denies all capabilities. `fromPatterns`,
 `fromGroups`, `intersect`, `allows`, `equals`, and `none` operate on the same
 immutable values. `within(inner, outer)` conservatively proves that `inner`
-allows nothing `outer` rejects; it answers `false` when it cannot prove it.
+allows nothing `outer` rejects; it answers `false` when it cannot prove it, so
+unrestricted authority is within only unrestricted authority.

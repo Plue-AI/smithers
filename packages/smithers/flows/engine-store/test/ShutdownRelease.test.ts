@@ -220,8 +220,9 @@ describe("shutdown releases instead of cancelling (issue #26)", () => {
           get: (runId) =>
             Effect.suspend(() => {
               reads++
-              // The admission read succeeds; the coordinator's first read stalls.
-              return reads === 1 ? store.get(runId) : Latch.open(reading).pipe(Effect.andThen(Effect.never))
+              // The resume's authority read and its wake read succeed; the
+              // coordinator's first read stalls.
+              return reads <= 2 ? store.get(runId) : Latch.open(reading).pipe(Effect.andThen(Effect.never))
             })
         }),
         Scope.provide(driverScope)

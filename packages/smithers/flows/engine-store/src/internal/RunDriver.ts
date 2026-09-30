@@ -1498,8 +1498,7 @@ export const make = (
       readonly lineageId: string
       readonly roundOrdinal: number
       readonly parentRunId?: string | undefined
-      /** The declaration being admitted, and the authority the new row would persist. */
-      readonly flow: Flow.Any | undefined
+      /** The authority the new row would persist, which a join must cover. */
       readonly capabilityCeilings: NonNullable<RunState["capabilityCeilings"]>
       readonly onCreated: Effect.Effect<void, never, never>
     }): Effect.Effect<void, never, never> =>
@@ -1546,9 +1545,6 @@ export const make = (
             actual: "a different encoded payload"
           }
           : !FlowEngine.joinable(
-              // A handoff target this process does not run has no declaration
-              // here; its row then compares only the authority it persisted.
-              options.flow,
               // A row with no persisted authority ran unrestricted, and is
               // refused further dispatch; only an unrestricted caller joins it.
               persisted.capabilityCeilings ?? [],
@@ -1679,7 +1675,15 @@ export const make = (
         const nextCeilings = [
           // The execution guard rejects missing persisted authority before a handler can hand off.
           ...seam.state.capabilityCeilings!,
-          ...(seam.handoff.capabilityCeilings ?? [[]])
+          ...(seam.handoff.capabilityCeilings ?? [[]]),
+          // The successor records its own declaration, as admission would, so
+          // a later join compares against the authority it actually runs
+          // under. A target this process does not run has none here; the root
+          // caller's re-entry then carries a declaration the row lacks and is
+          // refused rather than trusted.
+          ...(target === undefined
+            ? []
+            : Flow.parseCapabilityCeilings(Flow.capabilityCeilings(target.flow.annotations)))
         ]
         const nextStateJson = yield* encodeState({
           version: 1,
@@ -1712,7 +1716,6 @@ export const make = (
               lineageId: advanced.round.rootExecutionId,
               roundOrdinal: advanced.round.ordinal,
               parentRunId: seam.executionId,
-              flow: target?.flow,
               capabilityCeilings: nextCeilings,
               onCreated: emitDecision(advanced.executionId, {
                 decision: "created",
@@ -2490,9 +2493,7 @@ export const make = (
             version: 1,
             flowName: flow._tag,
             payload,
-            capabilityCeilings:
-              (yield* Flow.attenuateCapabilities(Flow.capabilityCeilings(flow.annotations))(CapabilitySet.current))
-                .groups,
+            capabilityCeilings: yield* FlowEngine.requestedAuthority(flow),
             onParentExit,
             ...(options.parent === undefined
               ? {}
@@ -2502,7 +2503,6 @@ export const make = (
           const createdStateJson = yield* encodeState(state)
           yield* ensureCreatedRun({
             flowName: flow._tag,
-            flow,
             capabilityCeilings: state.capabilityCeilings!,
             executionId: options.executionId,
             stateJson: createdStateJson,
@@ -2598,18 +2598,20 @@ export const make = (
 
     const readResult = (flow: Flow.Any, executionId: string, followLineage = false) =>
       Effect.annotateCurrentSpan({ executionId, flow: flow._tag }).pipe(
-        Effect.andThen(
-          followLineage
-            ? store.latestRound(executionId)
-            : store.get(executionId)
+        Effect.andThen(FlowEngine.requestedAuthority(flow)),
+        Effect.flatMap((requested) =>
+          Effect.map(followLineage ? store.latestRound(executionId) : store.get(executionId), (row) => ({
+            row,
+            requested
+          }))
         ),
         Effect.catch((error) =>
           error.code === "not_found_row"
             ? Effect.succeed(undefined)
             : Effect.die(error)
         ),
-        Effect.flatMap((row) => {
-          if (row === undefined) {
+        Effect.flatMap((found) => {
+          if (found === undefined) {
             // No run row at all is a typed not-found; `Option.none` is
             // reserved for a known run that has not settled yet.
             return Effect.fail(
@@ -2619,6 +2621,7 @@ export const make = (
               })
             )
           }
+          const { row, requested } = found
           return decodeState(row.stateJson).pipe(
             Effect.flatMap((state) => {
               if (
@@ -2626,6 +2629,11 @@ export const make = (
                 state.result === undefined
               ) {
                 return Effect.succeedNone
+              }
+              // A result is what the admitted authority produced; a caller
+              // whose authority does not cover it never reads it.
+              if (!FlowEngine.joinable(state.capabilityCeilings ?? [], requested)) {
+                return Effect.die(FlowEngine.capabilityConflict(executionId))
               }
               const resultFlow = state.flowName === flow._tag ? flow : registrations.get(state.flowName)?.flow
               if (resultFlow === undefined) {
@@ -2649,6 +2657,24 @@ export const make = (
           )
         })
       )
+
+    /**
+     * Refuses a resume of `executionId` for `flow` by a caller whose authority
+     * does not cover the authority the row was admitted with. An unknown id,
+     * or a row another declaration owns, is left to the resume path.
+     */
+    const authorizeResume = (flow: Flow.Any, executionId: string): Effect.Effect<void> =>
+      Effect.gen(function*() {
+        const row = yield* store.get(executionId).pipe(
+          Effect.catch((error) => error.code === "not_found_row" ? Effect.succeed(undefined) : Effect.die(error))
+        )
+        if (row === undefined) return
+        const state = yield* decodeState(row.stateJson)
+        if (state.flowName !== flow._tag) return
+        if (!FlowEngine.joinable(state.capabilityCeilings ?? [], yield* FlowEngine.requestedAuthority(flow))) {
+          return yield* Effect.die(FlowEngine.capabilityConflict(executionId))
+        }
+      })
 
     const poll: Service["poll"] = Effect.fn("FlowEngine.poll")((flow, executionId) =>
       Effect.map(readResult(flow, executionId), (observed) => observed.result)
@@ -2928,6 +2954,9 @@ export const make = (
       ),
       resume: Effect.fn("FlowEngine.resume")((flow, executionId, options) =>
         Effect.annotateCurrentSpan({ executionId, flow: flow._tag }).pipe(
+          // A resume drives the run under its admitted authority, so a caller
+          // whose authority does not cover it may not wake or join it.
+          Effect.andThen(authorizeResume(flow, executionId)),
           Effect.andThen(
             options?.poll === true
               ? Effect.void

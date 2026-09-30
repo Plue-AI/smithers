@@ -9,7 +9,6 @@
  * @since 1.0.0
  */
 
-import * as CapabilitySet from "@smthrs/capability/CapabilitySet"
 import { Flow, FlowRuntime } from "@smthrs/flow"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
@@ -19,18 +18,7 @@ import type * as Scope from "effect/Scope"
 import { RpcClientError } from "effect/unstable/rpc/RpcClientError"
 import * as FlowProxy from "../FlowProxy.ts"
 import { type Binding, Hosts } from "../Hosts.ts"
-
-/**
- * The authority a placed request carries: the caller's ceiling narrowed by
- * the flow's own declaration, exactly what a local admission would persist.
- * The serving engine intersects it with its own authority, so the wire can
- * only narrow what the remote host already allows, never widen it.
- */
-const requestCeilings = (flow: Flow.Any): Effect.Effect<CapabilitySet.CapabilitySet["groups"]> =>
-  Effect.map(
-    Flow.attenuateCapabilities(Flow.capabilityCeilings(flow.annotations))(CapabilitySet.current),
-    (set) => set.groups
-  )
+import { requestedAuthority } from "./Authority.ts"
 
 /**
  * A binding to another engine.
@@ -123,7 +111,7 @@ export const callRemote = (
             : Effect.void
         )
       }
-      const capabilityCeilings = yield* requestCeilings(flow)
+      const capabilityCeilings = yield* requestedAuthority(flow)
       const wire = { payload: request.payload, executionId: request.executionId, capabilityCeilings }
       const ask = request.discard === true
         ? Effect.as(client[operation.discard]!(wire), request.executionId)
@@ -163,7 +151,7 @@ export const placeResume = (
       // delegated resume through it would promote it to recovery consent.
       ? Effect.die(new Error(`A delegated resume of ${flow._tag} cannot cross a remote placement`))
       : remote(binding, flow, (client, operation) =>
-        Effect.flatMap(requestCeilings(flow), (capabilityCeilings) =>
+        Effect.flatMap(requestedAuthority(flow), (capabilityCeilings) =>
           Effect.orDie(
             client[operation.resume]!({
               executionId,

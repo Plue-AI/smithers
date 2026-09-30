@@ -489,7 +489,11 @@ describe("declared capability ceilings at the guarded host boundary", () => {
           if (legacy) {
             const exit = await Effect.runPromiseExit(phase("ceiling-after-restart", true))
             expect(Exit.isFailure(exit)).toBe(true)
-            expect(String(exit)).toContain("Missing persisted capabilityCeilings")
+            // A row with no recorded authority ran unrestricted, so this narrower
+            // caller's join is refused before any dispatch; the drive the
+            // completed deferred wakes refuses dispatch on its own.
+            expect(String(exit)).toContain("ExecutionIdentityConflict")
+            expect(String(exit)).toContain("capabilities")
             expect(dispatches).toBe(beforeResume)
             const status = await Effect.runPromise(
               Effect.flatMap(RunStore.RunStore, (runs) => runs.get(executionId)).pipe(

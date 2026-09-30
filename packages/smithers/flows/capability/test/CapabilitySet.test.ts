@@ -372,9 +372,14 @@ describe("CapabilitySet", () => {
     const write = new CapabilityPattern({ action: "fs:write", resource: "src/**" })
     const readSrc = CapabilitySets.fromPatterns([read])
     const declared = CapabilitySets.fromPatterns([universal])
-    // Omitted and declared `*` are both the whole authority.
+    // A declared `*` is within unrestricted authority, but not the reverse: `*`
+    // still rejects an absolute resource with a dot segment.
     expect(CapabilitySets.within(declared, unrestricted)).toBe(true)
-    expect(CapabilitySets.within(unrestricted, declared)).toBe(true)
+    expect(CapabilitySets.within(unrestricted, declared)).toBe(false)
+    const dotted = new Capability({ action: "fs:read", resource: "/w/../secret" })
+    expect(CapabilitySets.allows(unrestricted, dotted)).toBe(true)
+    expect(CapabilitySets.allows(declared, dotted)).toBe(false)
+    expect(CapabilitySets.within(declared, declared)).toBe(true)
     // Narrower within wider, not the reverse.
     expect(CapabilitySets.within(readSrc, CapabilitySets.fromPatterns([readAll]))).toBe(true)
     expect(CapabilitySets.within(CapabilitySets.fromPatterns([readAll]), readSrc)).toBe(false)
@@ -393,9 +398,18 @@ describe("CapabilitySet", () => {
     const star = CapabilitySets.fromPatterns([new CapabilityPattern({ action: "fs:read", resource: "src/*.ts" })])
     expect(CapabilitySets.within(readSrc, star)).toBe(false)
     check([setArbitrary], (set) => CapabilitySets.within(set, set))
-    // Soundness: a proven containment never admits a capability outer rejects.
+    // Soundness: a proven containment never admits a capability outer rejects,
+    // including dot-segment resources the matcher treats specially.
+    const withDots = FastCheck.oneof(
+      capabilityArbitrary,
+      FastCheck.tuple(
+        FastCheck.constantFrom(...actions),
+        FastCheck.constantFrom("/w/../secret", "src/../secret", "./src/main.ts", "/workspace/./file.txt", "..")
+      ).map(([action, resource]) => new Capability({ action, resource }))
+    )
+    const withUnrestricted = FastCheck.oneof(setArbitrary, FastCheck.constant(unrestricted))
     check(
-      [setArbitrary, setArbitrary, capabilityArbitrary],
+      [withUnrestricted, withUnrestricted, withDots],
       (inner, outer, capability) =>
         !CapabilitySets.within(inner, outer) || !CapabilitySets.allows(inner, capability) ||
         CapabilitySets.allows(outer, capability)

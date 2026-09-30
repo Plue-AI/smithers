@@ -177,15 +177,14 @@ export const fromGroups = (
   groups: ReadonlyArray<ReadonlyArray<CapabilityPattern>>
 ): CapabilitySet => make(groups)
 
-const isUniversalGroup = (group: ReadonlyArray<CapabilityPattern>): boolean =>
-  group.some((pattern) => pattern.action === "*" && pattern.resource === "**")
-
 /**
  * Conservatively proves that every capability `inner` allows is also allowed
- * by `outer`: each group of `outer` either admits everything or covers, by
- * `subsumes`, every pattern of some group of `inner`. It returns `false` for
- * any containment its syntactic checks cannot prove, so a `true` never lets
- * `inner` stand for authority `outer` lacks.
+ * by `outer`: each group of `outer` covers, by `subsumes`, every pattern of
+ * some group of `inner`. It returns `false` for any containment its syntactic
+ * checks cannot prove, so a `true` never lets `inner` stand for authority
+ * `outer` lacks. Even a `*` pattern rejects some resources an unrestricted set
+ * allows (an absolute path with a dot segment), so unrestricted `inner` is
+ * within only an unrestricted `outer`.
  *
  * @category predicates
  * @since 1.0.0
@@ -195,7 +194,6 @@ export const within = (
   outer: CapabilitySet
 ): boolean =>
   outer.groups.every((group) =>
-    isUniversalGroup(group) ||
     inner.groups.some((candidate) => candidate.every((pattern) => group.some((cover) => subsumes(cover, pattern))))
   )
 

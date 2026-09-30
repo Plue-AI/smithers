@@ -16,6 +16,7 @@ import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import type * as Scope from "effect/Scope"
 import * as Semaphore from "effect/Semaphore"
+import { joinable, requestedAuthority } from "./Authority.ts"
 import { makeInstance } from "./FlowInstance.ts"
 import { makeUnsafe } from "./make.ts"
 import type * as Round from "./Round.ts"
@@ -40,33 +41,6 @@ export class ExecutionIdentityConflict extends Schema.TaggedError<ExecutionIdent
     message: Schema.String
   }
 ) {}
-
-/**
- * Whether a request under `requested` authority may join an execution of
- * `flow` admitted under `admitted`: a join answers the result the admitted
- * authority produced, so that authority must be provably within what the
- * caller could have run itself. A wider caller may join a narrower run; a
- * narrower caller never reads what a wider run produced.
- *
- * Both sides are compared as the flow runs them, narrowed by the flow's own
- * declaration: a round a handoff opened persists only the authority it
- * inherited, while a caller's request already carries the declaration. A flow
- * this process does not declare compares only the persisted authority.
- *
- * @category predicates
- * @since 1.0.0
- */
-export const joinable = (
-  flow: Flow.Any | undefined,
-  admitted: CapabilitySet.CapabilitySet["groups"],
-  requested: CapabilitySet.CapabilitySet["groups"]
-): boolean => {
-  const declared = flow === undefined ? [] : Flow.parseCapabilityCeilings(Flow.capabilityCeilings(flow.annotations))
-  return CapabilitySet.within(
-    CapabilitySet.fromGroups([...admitted, ...declared]),
-    CapabilitySet.fromGroups([...requested, ...declared])
-  )
-}
 
 /**
  * The refusal of a join whose caller's capability ceiling does not cover the
@@ -134,6 +108,20 @@ export const layerMemory: Layer.Layer<FlowRuntime.FlowRuntime> = Layer.effect(Fl
       bodyFiber: Fiber.Fiber<unknown, unknown> | undefined
     }
     const executions = new Map<string, ExecutionState>()
+    /**
+     * Refuses a poll or resume of `executionId` for `flow` whose caller's
+     * authority does not cover the authority the execution was admitted with.
+     * An unknown id, or one another declaration owns, is left to the caller.
+     */
+    const authorize = (flow: Flow.Any, executionId: string): Effect.Effect<void> =>
+      Effect.suspend(() => {
+        const state = executions.get(executionId)
+        if (state === undefined || state.instance.flow._tag !== flow._tag) return Effect.void
+        return Effect.flatMap(requestedAuthority(flow), (requested) =>
+          joinable(state.capabilityCeilings, requested)
+            ? Effect.void
+            : Effect.die(capabilityConflict(executionId)))
+      })
     // Payload constructors and identity codecs may suspend. Serialize only
     // admission and drive installation for one id, never the body or another id.
     const executionLocks = new Map<string, { readonly semaphore: Semaphore.Semaphore; users: number }>()
@@ -485,11 +473,7 @@ export const layerMemory: Layer.Layer<FlowRuntime.FlowRuntime> = Layer.effect(Fl
                 })
               )
             }
-            // The authority this request would admit the run under: the
-            // caller's ceiling, narrowed by the flow's own declaration.
-            const requestedCeilings =
-              (yield* Flow.attenuateCapabilities(Flow.capabilityCeilings(flow.annotations))(CapabilitySet.current))
-                .groups
+            const requestedCeilings = yield* requestedAuthority(flow)
             if (state !== undefined) {
               const requestedPayload = yield* snapshot(flow, options.payload)
               if (!(yield* samePayload(flow, state.payload, requestedPayload))) {
@@ -505,7 +489,7 @@ export const layerMemory: Layer.Layer<FlowRuntime.FlowRuntime> = Layer.effect(Fl
                 )
               }
               // A join answers the result the run's admitted authority produced.
-              if (!joinable(flow, state.capabilityCeilings, requestedCeilings)) {
+              if (!joinable(state.capabilityCeilings, requestedCeilings)) {
                 return yield* Effect.die(capabilityConflict(options.executionId))
               }
             }
@@ -601,8 +585,8 @@ export const layerMemory: Layer.Layer<FlowRuntime.FlowRuntime> = Layer.effect(Fl
           return state === undefined ? Effect.void : Fiber.interrupt(state.fiber!)
         }, { concurrency: "unbounded", discard: true })
       }),
-      resume(_flow, executionId) {
-        return resume(executionId)
+      resume(flow, executionId) {
+        return Effect.andThen(authorize(flow, executionId), resume(executionId))
       },
       resumeSignal: (_flow, executionId) =>
         Effect.suspend(() => {
@@ -691,13 +675,18 @@ export const layerMemory: Layer.Layer<FlowRuntime.FlowRuntime> = Layer.effect(Fl
           // this flow's view. `none` matches the durable driver's posture and
           // avoids presenting another flow's encoded result under this one.
           if (state.instance.flow._tag !== flow._tag) return Effect.succeedNone
-          const exit = state.fiber?.pollUnsafe()
-          if (!exit) {
-            return Effect.succeedNone
-          }
-          return exit._tag === "Success"
-            ? Effect.map(settlement(flow, executionId, exit.value), Option.some)
-            : Effect.die(exit.cause)
+          return Effect.andThen(
+            authorize(flow, executionId),
+            Effect.suspend(() => {
+              const exit = state.fiber?.pollUnsafe()
+              if (!exit) {
+                return Effect.succeedNone
+              }
+              return exit._tag === "Success"
+                ? Effect.map(settlement(flow, executionId, exit.value), Option.some)
+                : Effect.die(exit.cause)
+            })
+          )
         }),
       // Untraced because deferred polling is a flow scheduler hot path.
       deferredResult: Effect.fnUntraced(function*(deferred) {
