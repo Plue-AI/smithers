@@ -210,6 +210,31 @@ export const sentence = (act: Act, error: unknown): string =>
   }).sentence
 
 /**
+ * What makes two failures the same one: each link of the cause chain's tag,
+ * name, message or primitive text, never a stack frame. Cycles and chains
+ * deeper than eight links stop the walk.
+ */
+export const identity = (error: unknown): string => {
+  const parts: Array<string> = []
+  const seen = new Set<unknown>()
+  let current = error
+  for (let depth = 0; depth < 8 && !seen.has(current); depth++) {
+    if (typeof current !== "object" || current === null) {
+      parts.push(
+        typeof current === "symbol" ? `symbol:${current.description ?? ""}` : `${typeof current}:${String(current)}`
+      )
+      break
+    }
+    seen.add(current)
+    const each = current as { readonly _tag?: unknown; readonly name?: unknown; readonly message?: unknown }
+    parts.push([each._tag, each.name, each.message].map((part) => typeof part === "string" ? part : "").join(":"))
+    if (!("cause" in current)) break
+    current = (current as { readonly cause?: unknown }).cause
+  }
+  return parts.join("\n")
+}
+
+/**
  * Presents one failure and writes its raw detail to the log. A failure the
  * person caused needs no detail; any other names where the detail is.
  */

@@ -89,6 +89,19 @@ export class FlowDiscoveryFailed extends Data.TaggedError("FlowDiscoveryFailed")
   }
 }
 /**
+ * A discovery failure notice, by `Failures.identity`: an unchanged failure is
+ * shown once, across session switches, until a listing succeeds.
+ */
+export const discoveryNotice = (
+  shown: string | undefined,
+  failure: FlowDiscoveryFailed | undefined,
+  listed: boolean
+): { readonly shown: string | undefined; readonly show: boolean } => {
+  if (failure === undefined) return { shown: listed ? undefined : shown, show: false }
+  const next = Failures.identity(failure)
+  return { shown: next, show: next !== shown }
+}
+/**
  * A flow refusal or failure. The message is for the model and the log; a
  * person sees the sentence `Failures` builds from `code` and `subject`.
  * `stopped` is a person's own stop, never shown as a failure.

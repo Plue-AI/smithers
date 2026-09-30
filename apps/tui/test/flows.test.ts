@@ -5,6 +5,8 @@ import * as Agents from "../src/agents.ts"
 import {
   actions,
   type Card,
+  discoveryNotice,
+  FlowDiscoveryFailed,
   FlowError,
   FlowRuns,
   interrupted,
@@ -917,4 +919,29 @@ it("refuses cross-registry ids before persisting or launching in either order", 
   expect(f.calls).toEqual([])
   workspace.dispose()
   await runs.dispose()
+})
+
+describe("discoveryNotice", () => {
+  const failed = (message: string) => new FlowDiscoveryFailed(new Error(message))
+
+  it("shows an unchanged failure once across controllers until a listing succeeds", () => {
+    const first = discoveryNotice(undefined, failed("helper missing"), false)
+    expect(first.show).toBe(true)
+    // A new session's controller has neither listed nor failed yet: nothing to show, nothing forgotten.
+    const fresh = discoveryNotice(first.shown, undefined, false)
+    expect(fresh).toEqual({ shown: first.shown, show: false })
+    // Its own copy of the same failure does not bury a newer acknowledgment.
+    expect(discoveryNotice(fresh.shown, failed("helper missing"), false)).toEqual({ shown: first.shown, show: false })
+    expect(discoveryNotice(fresh.shown, failed("helper missing"), true).show).toBe(false)
+  })
+
+  it("shows a changed failure, and the same failure again after a successful listing", () => {
+    const first = discoveryNotice(undefined, failed("helper missing"), false)
+    const changed = discoveryNotice(first.shown, failed("helper crashed"), false)
+    expect(changed.show).toBe(true)
+    expect(changed.shown).not.toBe(first.shown)
+    const recovered = discoveryNotice(changed.shown, undefined, true)
+    expect(recovered).toEqual({ shown: undefined, show: false })
+    expect(discoveryNotice(recovered.shown, failed("helper crashed"), true).show).toBe(true)
+  })
 })

@@ -40,7 +40,7 @@ import * as Extension from "./extension.ts"
 import * as External from "./external.ts"
 import * as Factory from "./factory.ts"
 import * as Files from "./files.ts"
-import { actions as flowActions, FlowRuns, type Port as FlowPort } from "./flows.ts"
+import { actions as flowActions, discoveryNotice, FlowRuns, type Port as FlowPort } from "./flows.ts"
 import * as Home from "./home.ts"
 import type * as Host from "./host.ts"
 import * as Improve from "./improve.ts"
@@ -857,9 +857,14 @@ export function App(props: AppProps) {
     for (const id of announcedAsks.current) if (!ids.has(id)) announcedAsks.current.delete(id)
   }, [revision, workspace, setStatus])
   const discoveryFailure = runs.failure()
+  const discoveryListed = runs.known() !== undefined
+  // Outlives a session switch, so the next session's controller does not bury its acknowledgment.
+  const shownDiscovery = useRef<string | undefined>(undefined)
   useEffect(() => {
-    if (discoveryFailure !== undefined) setStatus(Failures.sentence("flow", discoveryFailure), "danger")
-  }, [discoveryFailure, setStatus])
+    const notice = discoveryNotice(shownDiscovery.current, discoveryFailure, discoveryListed)
+    shownDiscovery.current = notice.shown
+    if (notice.show) setStatus(Failures.sentence("flow", discoveryFailure), "danger")
+  }, [discoveryFailure, discoveryListed, setStatus])
   deliver.current = (delivery) => {
     const text = `${delivery.title}: ${
       delivery._tag === "update" ? delivery.text : Failures.sentence("monitor", delivery.failure)

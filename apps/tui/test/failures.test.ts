@@ -177,3 +177,42 @@ describe("surfaces", () => {
     expect(Cli.parse(["--continue=1"], "/")).toEqual({ error: "--continue takes no value" })
   })
 })
+
+describe("identity", () => {
+  const nested = (message: string, stack: string) => {
+    const inner = new Error(message)
+    inner.stack = stack
+    return new FlowDiscoveryFailed(new Error("listing failed", { cause: inner }))
+  }
+
+  it("tells failures apart by nested cause text and ignores stack frames", () => {
+    const first = nested("helper missing", "at a.ts:1")
+    expect(Failures.identity(first)).toBe(Failures.identity(nested("helper missing", "at b.ts:9")))
+    expect(Failures.identity(first)).not.toBe(Failures.identity(nested("helper crashed", "at a.ts:1")))
+    expect(Failures.identity(first)).toContain("helper missing")
+    expect(Failures.identity(first)).not.toContain("a.ts")
+  })
+
+  it("reads primitive causes and symbol descriptions", () => {
+    expect(Failures.identity(new FlowDiscoveryFailed("ENOENT"))).not.toBe(
+      Failures.identity(new FlowDiscoveryFailed("EACCES"))
+    )
+    expect(Failures.identity(new FlowDiscoveryFailed(Symbol("gone")))).toContain("symbol:gone")
+    expect(Failures.identity(new FlowDiscoveryFailed(Symbol()))).toContain("symbol:")
+    expect(Failures.identity(new FlowDiscoveryFailed(7))).toContain("number:7")
+    expect(Failures.identity(new FlowDiscoveryFailed(undefined))).toContain("undefined:undefined")
+    expect(Failures.identity(null)).toBe("object:null")
+  })
+
+  it("stops at a cycle and at eight links", () => {
+    const cyclic: { message: string; cause?: unknown } = { message: "loop" }
+    cyclic.cause = cyclic
+    expect(Failures.identity(cyclic)).toBe("::loop")
+    let deep: unknown = "bottom"
+    for (let index = 0; index < 20; index++) deep = { message: `link ${index}`, cause: deep }
+    const parts = Failures.identity(deep).split("\n")
+    expect(parts).toHaveLength(8)
+    expect(parts[0]).toBe("::link 19")
+    expect(Failures.identity(deep)).not.toContain("bottom")
+  })
+})
