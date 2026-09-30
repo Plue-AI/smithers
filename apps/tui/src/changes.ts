@@ -280,15 +280,21 @@ const sameStat = (a: FileStat | null | undefined, b: FileStat | null | undefined
   a === null && b === null || a !== null && b !== null && a !== undefined && b !== undefined &&
     a.size === b.size && a.mtimeNs === b.mtimeNs && a.ctimeNs === b.ctimeNs && a.ino === b.ino && a.mode === b.mode
 
-/** Paths with pre-call bytes that differ from the index, including untracked files. */
+/**
+ * Paths with pre-call bytes that differ from the index, including untracked
+ * files, relative to `cwd`: `git status` names them from the repository root.
+ */
 const dirtyPaths = async (cwd: string): Promise<Array<string> | undefined> => {
+  const prefix = await git(cwd, ["rev-parse", "--show-prefix"])
   const output = await git(cwd, ["status", "--porcelain=v1", "-z", "--untracked-files=all", "--", "."])
-  if (output === undefined) return undefined
+  if (prefix === undefined || output === undefined) return undefined
+  const under = prefix.replace(/\n$/, "")
   const entries = output.split("\0").filter(Boolean)
   const paths: Array<string> = []
   for (let at = 0; at < entries.length; at++) {
     const entry = entries[at]!
-    paths.push(entry.slice(3))
+    const path = entry.slice(3)
+    if (path.startsWith(under)) paths.push(path.slice(under.length))
     if (entry[0] === "R" || entry[1] === "R" || entry[0] === "C" || entry[1] === "C") at++
   }
   return paths

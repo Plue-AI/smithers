@@ -506,6 +506,24 @@ describe("undo", () => {
     expect(existsSync(join(cwd, "check.log"))).toBe(false)
   })
 
+  it("keeps uncommitted edits when undoing a shell write from a subdirectory", async () => {
+    const root = gitRepo()
+    put(root, "sub/a.ts", "committed\n")
+    gitCommit(root)
+    put(root, "sub/a.ts", "mine, uncommitted\n")
+    const cwd = join(root, "sub")
+    const r = recorder(cwd)
+    r.prompt("Run the generator")
+    r.cell()
+    const shell = await r.call("bash", { command: "gen" }, write(cwd, "a.ts", "agent\n"))
+    expect(shell.receipts[0]!.patches[0]!.patch).toContain("-mine, uncommitted")
+    r.settle()
+    const plan = await Undo.plan(cwd, Undo.run(r.transcript())) as Undo.Plan
+    expect(plan.entries.map((entry) => `${entry.path} ${Undo.counts(entry)}`)).toEqual(["a.ts +1 −1"])
+    expect(await Undo.commit(cwd, Undo.chosen(plan, Undo.ready(plan)))).toBeUndefined()
+    expect(get(cwd, "a.ts")).toBe("mine, uncommitted\n")
+  })
+
   for (
     const [label, spelled] of [
       ["./a.ts", (_cwd: string) => "./a.ts"],
