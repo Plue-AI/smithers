@@ -87,7 +87,7 @@ export const liveLocalSeats = (baseUrl: string) =>
           Effect.gen(function*() {
             const modelId = Seat.modelIdOf(id)
             const routeConfig = yield* Effect.fromResult(
-              Route.openaiChatCompatible({ id: "local", baseUrl, apiKey: Redacted.make("local") })
+              Route.openaiChatCompatible({ id: "local", providerName: "openai", baseUrl, apiKey: Redacted.make("local") })
             ).pipe(
               Effect.mapError((error) => new Seat.SeatUnresolved({ seat: id, message: error.message }))
             )

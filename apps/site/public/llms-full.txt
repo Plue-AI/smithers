@@ -544,7 +544,7 @@ open → fixed → verified → closed
 | Fixed by | Who marked it fixed. |
 | Verified by | Who confirmed the fix. Never the fixer. |
 | Assignees, labels, milestone | Who owns it and how it is grouped. |
-| Owner, due date, priority, parent | Who answers for it, when, how urgent (`0`–`3`), and the issue it belongs under. |
+| Owner, due date, priority, parent | Who answers for it, when, how urgent (`0` to `3`), and the issue it belongs under. |
 
 **Available now.** The issue card has **Fixed**, **Verify**, **Close**, and **Reopen**; `/issues.fix 42` and `/issues.verify 42` do the same, and so does the API.
 
@@ -1120,7 +1120,7 @@ curl -X PATCH "$SMITHERS_API/api/repos/acme/app/issues/42" \
 
 Verifying your own fix fails with `self_verification`. Verifying an issue that is not `fixed` fails with `invalid_transition`.
 
-`owner` (a username), `due` (`YYYY-MM-DD`), `priority` (`0`–`3`) and `parent` (an issue number in the same repository) are set the same way; `null` clears one. A parent that would loop fails with `cycle`. An unknown field fails with `400`.
+`owner` (a username), `due` (`YYYY-MM-DD`), `priority` (`0` to `3`) and `parent` (an issue number in the same repository) are set the same way; `null` clears one. A parent that would loop fails with `cycle`. An unknown field fails with `400`.
 
 ## Next
 
@@ -1460,9 +1460,9 @@ smthrs flow start review --data '{"args":"Review main"}' --detached
 
 The TUI with a scripted test model.
 
-A worker can start its own workers, three levels deep. A `tree:` tab shows them together.
+A worker can start its own workers, three levels deep. Ctrl+S shows them together.
 
-![A lead worker with a child worker in a TUI tree tab.](/images/learn/tui-worker-tree.gif)
+![A lead worker and its child workers in the TUI Summary tree.](/images/learn/tui-worker-tree.gif)
 
 The TUI with a scripted test model.
 
@@ -2710,7 +2710,7 @@ Repository and runtime [extensions](/docs/tui/extend/) add keys under their owne
 https://smithers.sh/docs/tui/cli/
 
 ```text
-smthrs tui [directory] [--model provider:modelId] [-c | -r] [-p "prompt"] [--approve all|ask|deny] [--budget-tokens n]
+smthrs tui [directory] [--model provider:modelId] [-c | -r] [-p "prompt"] [--approve all|ask|deny] [--budget-tokens n] [--environment name]
 ```
 
 From a source checkout, use `bun run tui` with the same arguments.
@@ -2726,6 +2726,7 @@ From a source checkout, use `bun run tui` with the same arguments.
 | `--approve ask` | | Ask first. Interactive only. |
 | `--approve deny` | | Refuse them. |
 | `--budget-tokens n` | | Refuse a model call when its estimated total would exceed `n` tokens per turn or worker. Unbounded by default. |
+| `--environment name` | | Run on a saved execution location. |
 | `--help` | `-h` | Show options. |
 
 The token budget uses reported usage to estimate the next call. An admitted call can consume more than its estimate.
@@ -2770,6 +2771,18 @@ smthrs tui /path/to/project
 ## Exit
 
 `/quit` or `/exit`. Ctrl+D exits with an empty editor; Ctrl+C twice within 500 ms exits. Stop background work with its own controls first.
+
+## Execution environment
+
+Run the TUI on a saved machine with its existing agents and login state:
+
+```bash
+smthrs tui --environment dev
+```
+
+Create the location with `smthrs environment add`. The machine must have `smthrs`
+and the agent tools installed. Other CLI commands use the same location through
+`smthrs environment exec dev -- smthrs ...`.
 
 ---
 
@@ -3204,10 +3217,13 @@ A paused run resumes from its run card: [Steer or stop](/docs/learn/watch-an-age
 The flow reviews a document, and its one declared step does the assessing. Create `review.ts` with the imports this file needs and both declarations:
 
 ```ts title="review.ts"
+import * as DurableEngineState from "@smthrs/engine-store/DurableEngineState"
 import { Action, DurableDeferred, Flow, FlowRuntime, Interpreter } from "@smthrs/flow"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Layer from "effect/Layer"
+import * as Option from "effect/Option"
+import * as Schedule from "effect/Schedule"
 import * as Schema from "effect/Schema"
 import { durableEngine } from "./durable-layer.ts"
 
@@ -3278,13 +3294,18 @@ Build an engine layer per drive, then run the first drive. Each drive builds its
 
     // Phase one: run until the deferred, suspend, and drop the engine.
     yield* Effect.scoped(
-      Review.execute({ document: "rfc" }, { executionId: "review-1", discard: true }).pipe(
-        Effect.provide(engine("worker-a"))
-      )
+      Effect.gen(function*() {
+        yield* Review.execute({ document: "rfc" }, { executionId: "review-1", discard: true })
+        const state = yield* DurableEngineState.DurableEngineState
+        yield* state.waiting("review-1").pipe(
+          Effect.repeat({ until: Option.isSome, schedule: Schedule.spaced(10) }),
+          Effect.timeout(30_000)
+        )
+      }).pipe(Effect.provide(engine("worker-a")))
     )
 ```
 
-`DurableDeferred.await` finds no recorded completion, so the engine suspends the run and releases its claim. With `discard: true`, `execute` returns once the suspension is durable rather than waiting out the wait. When the `Effect.scoped` block ends, the engine layer is released: that is the crash this tutorial simulates, one process boundary over one SQLite file.
+`DurableDeferred.await` finds no recorded completion, so the engine suspends the run and releases its claim. With `discard: true`, `execute` returns once the run is admitted and scheduled, not once it has parked, so the drive polls the run's waiting row until the suspension is durable. When the `Effect.scoped` block ends, the engine layer is released: that is the crash this tutorial simulates, one process boundary over one SQLite file.
 
 ## 4. Resume from durable state
 
@@ -3568,6 +3589,7 @@ import { Action, DurableDeferred, Flow, HumanTask, Interpreter } from "@smthrs/f
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
+import * as Schedule from "effect/Schedule"
 import * as Schema from "effect/Schema"
 import { durableEngine } from "./durable-layer.ts"
 
@@ -3603,23 +3625,25 @@ export const tokenFor = (executionId: string, attempt: number): DurableDeferred.
 
 ## 3. Ask and watch the run park
 
-Build one engine per drive over the same SQLite file, as in [Crash and resume a run](/docs/tutorials/crash-and-resume/), and add a helper that reads back which attempt the engine says the question is open on. A human task declares its own park, so the run's waiting row carries the `approval` reason and the token of the attempt that is waiting. Add to `release.ts`:
+Build one engine per drive over the same SQLite file, as in [Crash and resume a run](/docs/tutorials/crash-and-resume/), and add a helper that waits for the run to park on a later attempt and reads back which attempt the engine says the question is open on. A human task declares its own park, so the run's waiting row carries the `approval` reason and the token of the attempt that is waiting. Add to `release.ts`:
 
 ```ts title="release.ts"
-const parkedAttempt = (executionId: string, attempts: number) =>
+const parkedAttempt = (executionId: string, attempts: number, after: number) =>
   Effect.gen(function*() {
     const state = yield* DurableEngineState.DurableEngineState
     const row = yield* state.waiting(executionId)
-    if (Option.isNone(row)) return yield* Effect.die(`the run "${executionId}" is not parked`)
+    if (Option.isNone(row)) return 0
     const { reason, token } = row.value
-    if (reason !== "approval" || token === null) {
-      return yield* Effect.die(`the run "${executionId}" is not waiting on an answer`)
-    }
+    if (reason !== "approval" || token === null) return 0
     for (let attempt = 1; attempt <= attempts; attempt++) {
       if (tokenFor(executionId, attempt) === token) return attempt
     }
     return yield* Effect.die(`the run "${executionId}" parked on a token no attempt owns`)
-  })
+  }).pipe(
+    Effect.repeat({ until: (attempt) => attempt > after, schedule: Schedule.spaced(10) }),
+    Effect.timeout(30_000),
+    Effect.orDie
+  )
 
 export interface Summary {
   readonly result: unknown
@@ -3640,18 +3664,18 @@ export const main = (filename: string): Effect.Effect<Summary> =>
     yield* Effect.scoped(
       Effect.gen(function*() {
         yield* Release.execute({ build: "v1.4.0" }, { executionId, discard: true })
-        parkedOn.push(yield* parkedAttempt(executionId, 3))
+        parkedOn.push(yield* parkedAttempt(executionId, 3, 0))
       }).pipe(Effect.provide(engine("worker-a")))
     )
 ```
 
-With `discard: true`, `execute` returns once the park is durable, and the run waits at waiting-approval: its row reads parked with the `approval` waiting reason and the current attempt's token. A human task is the one wait that routinely outlives the process holding it; a reviewer answers tomorrow, and whatever asked them is long gone.
+With `discard: true`, `execute` returns once the run is admitted and scheduled, so `parkedAttempt` polls the waiting row until the park is durable, and the run waits at waiting-approval: its row reads parked with the `approval` waiting reason and the current attempt's token. A human task is the one wait that routinely outlives the process holding it; a reviewer answers tomorrow, and whatever asked them is long gone.
 
 Two different waits answer to two different tools. A plan approval, or an in-run ask raised through the control plane, journals a `control.approval.requested` event whose `payload` field is the exact argument for [`smthrs approvals approve`](/docs/reference/cli/approvals/); [Plan, approve, run](/docs/guides/plan-approve-run/) walks that gate end to end. A `system/human-task` wait is different: the run parks with the `approval` waiting reason and the attempt's token, and the only thing that completes it is `HumanTask.answer` against that exact token (`packages/smithers/flows/flow/src/HumanTask.ts`). `smthrs approvals approve` does not resolve a human-task token, which is why this tutorial answers programmatically and keeps the whole lifecycle in one file.
 
 ## 4. Refuse an answer and re-ask
 
-A `confirm` accepts only a boolean, so a prose answer is refused. The re-drive replays the recorded answer, refuses it, and parks on the second attempt's wait point, because a durable deferred keeps its first completion and re-asking needs a wait point that has none. Add after phase one:
+A `confirm` accepts only a boolean, so a prose answer is refused. `resume` re-drives the parked run. The re-drive replays the recorded answer, refuses it, and parks on the second attempt's wait point, because a durable deferred keeps its first completion and re-asking needs a wait point that has none. Add after phase one:
 
 ```ts title="release.ts"
     // Phase two: answer attempt one with prose, which a confirm cannot
@@ -3659,8 +3683,8 @@ A `confirm` accepts only a boolean, so a prose answer is refused. The re-drive r
     yield* Effect.scoped(
       Effect.gen(function*() {
         yield* HumanTask.answer({ token: tokenFor(executionId, 1), value: "yes, ship it" })
-        yield* Release.execute({ build: "v1.4.0" }, { executionId, discard: true })
-        parkedOn.push(yield* parkedAttempt(executionId, 3))
+        yield* Release.resume(executionId)
+        parkedOn.push(yield* parkedAttempt(executionId, 3, 1))
       }).pipe(Effect.provide(engine("worker-b")))
     )
 ```
@@ -8594,7 +8618,7 @@ Every operation fails as a `TimeTravelError` discriminated by a closed `code`, s
 
 ## Limits and why they exist
 
-Every read is capped by `maxHistoryEntries` (default 100,000), so one call's cost is bounded rather than a function of the journal's length; `pageSize` is a throughput knob and never changes a derived answer. The durable store is the SQLite dialect only. The engine is the producer of everything the service reads: anchors reach the snapshot tables through a projection of journal records, so the engine never writes this package's tables and the dependency arrow stays one way.
+Every read is capped by `maxHistoryEntries` (default 100,000), so one call's cost is bounded rather than a function of the journal's length; `pageSize` is a throughput knob and never changes a derived answer. The durable store runs on an injected SQLite or PostgreSQL client. The engine is the producer of everything the service reads: anchors reach the snapshot tables through a projection of journal records, so the engine never writes this package's tables and the dependency arrow stays one way.
 
 ## Related
 
@@ -13335,32 +13359,32 @@ Every other export of `Smithers.ts`, in source order:
 
 Every tagged error and coded refusal the package defines, with the module each one lives in named in the Sources section. The first nineteen are `Schema.TaggedError` classes or a tagged schema; the last six are `Error` subclasses carrying a `name` and a `code` or a field, not a `_tag`:
 
-| Tag                                   | Raised when                                                                                                                                              | Fields                                                          |
-| ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
-| `smithers-build/AgentSessionError`    | An agent execution fails while resolving, diffing, reading, spawning, parsing, applying, gating, settling, or consulting the verdict cache.              | `phase`, `message`                                              |
-| `smithers-build/AgentNeedsInput`      | A required payload input is missing or invalid, before any session spawn.                                                                                | `field`, `expected`, `message`                                  |
-| `smithers-build/AgentMcpUnreachable`  | A declared MCP server does not answer the reachability precheck, before any session spawn.                                                               | `name`, `url`, `message`                                        |
-| `smithers-build/AgentWriteEscape`     | A session proposes a write outside its declared write-set. The candidate is rejected whole.                                                              | `path`, `writeSet`, `message`                                   |
-| `smithers-build/AgentFindingsError`   | A check-mode `Agent.Lint` completes and the agent reports findings.                                                                                      | `findings`, `message`                                           |
-| `smithers-build/AgentRoundsExhausted` | The candidate and gate loop uses `maxRounds` without a green gate set.                                                                                   | `rounds`, `diff`, `gateReport`, `message`                       |
-| `smithers-build/AgentPrSettleRefused` | An `Agent.Pr` loop converges and the pull-request settle action is not bound.                                                                            | `diff`, `gateReport`, `message`                                 |
-| `smithers-build/ImportClosureError`   | An import closure cannot be resolved: an entry is missing, a file is unreadable, the resolver configuration is invalid, or a bound is hit.               | `message`                                                       |
-| `smithers-build/FilesTestError`       | A file-algebra assertion fails, or cannot be answered completely.                                                                                        | `message`, `leftover`, `unresolved`, `dynamic`                  |
-| `smithers-build/FilegroupError`       | Expanding a group's declared sources fails on a filesystem error.                                                                                        | `message`                                                       |
-| `smithers-build/DocsParityError`      | A package's documentation is missing or too thin to describe the package.                                                                                | `path`, `message`                                               |
-| `smithers-build/DriftError`           | A checked-in generated file is missing, drifted, or unreadable.                                                                                          | `path`, `message`, `reason`                                     |
-| `smithers-build/WriteFileError`       | A generated file cannot be written.                                                                                                                      | `path`, `message`                                               |
-| `smithers-build/OutputError`          | Digesting one declared output fails.                                                                                                                     | `path`, `message`                                               |
-| `smithers-build/ModelCliMissing`      | The engine CLI executable is not found on the host.                                                                                                      | `engine`, `executable`, `message`                               |
-| `smithers-build/LlmReviewError`       | A review round fails before producing findings, in the `diff`, `read`, `review`, or `parse` phase.                                                       | `phase`, `message`                                              |
-| `smithers-build/FindingsError`        | A review completes and at least one finding meets the `failOn` threshold.                                                                                | `failOn`, `findings`                                            |
-| `smithers-build/NotImplemented`       | A catalog stub is executed under a bare Flow runtime instead of the package executor.                                                                    | `target`, `message`                                             |
-| `smithers-build/ExecError`            | A tool run fails. `code` is one of `invalid_payload`, `spawn_failed`, `timed_out`, `signaled`, `stream_failed`, `secret_proxy_failed`, or `exit_status`. | `argv`, `cwd`, `exitCode`, `stdout`, `stderr`, `code`, `signal` |
-| `Refused`                             | An outward invocation is refused before any outward action, with `code` `missing_secret` or `approval_unsatisfied`.                                      | `code`, `rule`                                                  |
-| `SecretUnavailable`                   | A declared secret has no value on this host.                                                                                                             | `env`                                                           |
-| `SecretAudienceDenied`                | A placeholder is used for an origin the declaration does not authorize.                                                                                  | `env`, `audience`                                               |
-| `SecretValueInvalid`                  | A host value cannot safely cross an HTTP request boundary.                                                                                               | `env`                                                           |
-| `WorkflowParseError`                  | A workflow file cannot be read as a GitHub Actions workflow.                                                                                             | `line`                                                          |
+| Tag                                   | Raised when                                                                                                                                                             | Fields                                                          |
+| ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| `smithers-build/AgentSessionError`    | An agent execution fails while resolving, diffing, reading, spawning, parsing, applying, gating, settling, or consulting the verdict cache.                             | `phase`, `message`                                              |
+| `smithers-build/AgentNeedsInput`      | A required payload input is missing or invalid, before any session spawn.                                                                                               | `field`, `expected`, `message`                                  |
+| `smithers-build/AgentMcpUnreachable`  | A declared MCP server does not answer the reachability precheck, before any session spawn.                                                                              | `name`, `url`, `message`                                        |
+| `smithers-build/AgentWriteEscape`     | A session proposes a write outside its declared write-set. The candidate is rejected whole.                                                                             | `path`, `writeSet`, `message`                                   |
+| `smithers-build/AgentFindingsError`   | A check-mode `Agent.Lint` completes and the agent reports findings.                                                                                                     | `findings`, `message`                                           |
+| `smithers-build/AgentRoundsExhausted` | The candidate and gate loop uses `maxRounds` without a green gate set.                                                                                                  | `rounds`, `diff`, `gateReport`, `message`                       |
+| `smithers-build/AgentPrSettleRefused` | An `Agent.Pr` loop converges and the pull-request settle action is not bound.                                                                                           | `diff`, `gateReport`, `message`                                 |
+| `smithers-build/ImportClosureError`   | An import closure cannot be resolved: an entry is missing, a file is unreadable, the resolver configuration is invalid, or a bound is hit.                              | `message`                                                       |
+| `smithers-build/FilesTestError`       | A file-algebra assertion fails, or cannot be answered completely.                                                                                                       | `message`, `leftover`, `unresolved`, `dynamic`                  |
+| `smithers-build/FilegroupError`       | Expanding a group's declared sources fails on a filesystem error.                                                                                                       | `message`                                                       |
+| `smithers-build/DocsParityError`      | A package's documentation is missing or too thin to describe the package.                                                                                               | `path`, `message`                                               |
+| `smithers-build/DriftError`           | A checked-in generated file is missing, drifted, or unreadable.                                                                                                         | `path`, `message`, `reason`                                     |
+| `smithers-build/WriteFileError`       | A generated file cannot be written.                                                                                                                                     | `path`, `message`                                               |
+| `smithers-build/OutputError`          | Digesting one declared output fails.                                                                                                                                    | `path`, `message`                                               |
+| `smithers-build/ModelCliMissing`      | The engine CLI executable is not found on the host.                                                                                                                     | `engine`, `executable`, `message`                               |
+| `smithers-build/LlmReviewError`       | A review round fails before producing findings, in the `diff`, `read`, `review`, or `parse` phase.                                                                      | `phase`, `message`                                              |
+| `smithers-build/FindingsError`        | A review completes and at least one finding meets the `failOn` threshold.                                                                                               | `failOn`, `findings`                                            |
+| `smithers-build/NotImplemented`       | A catalog stub is executed under a bare Flow runtime instead of the package executor.                                                                                   | `target`, `message`                                             |
+| `smithers-build/ExecError`            | A tool run fails. `code` is one of `invalid_payload`, `spawn_failed`, `timed_out`, `signaled`, `stream_failed`, `secret_proxy_failed`, or `exit_status`.                | `argv`, `cwd`, `exitCode`, `stdout`, `stderr`, `code`, `signal` |
+| `smithers-build/Refused`              | An outward invocation is refused before any outward action, with `code` `missing_secret` or `approval_unsatisfied`.                                                     | `rule`, `code`, `detail`                                        |
+| `smithers-build/SecretUnavailable`    | A declared secret has no value on this host.                                                                                                                            | `env`                                                           |
+| `smithers-build/SecretAudienceDenied` | A placeholder is used for an origin the declaration does not authorize.                                                                                                 | `env`, `audience`                                               |
+| `smithers-build/SecretValueInvalid`   | A host value cannot safely cross an HTTP request boundary.                                                                                                              | `env`                                                           |
+| `smithers-build/WorkflowParseError`   | A workflow file cannot be read as a GitHub Actions workflow. `reason` is one of `too_large`, `invalid_yaml`, `unsupported`, `duplicate`, `missing`, or `invalid_shape`. | `line`, `reason`, `detail`                                      |
 
 ## Example
 
@@ -13394,7 +13418,7 @@ export const Package = S.Package({ targets: { test, reviewChangedFiles } })
 ```
 
 Run `smthrs test //packages/core:test` for the tests and
-`smthrs review //packages/core:reviewChangedFiles --policy-revision <approved-commit-sha>` for the review.
+`smthrs review //packages/core:reviewChangedFiles` for the review.
 
 ## See also
 
@@ -18895,7 +18919,7 @@ no promise.
 | `Journal`     | The append-only journal port: `append(event, expectedPosition)` and `read`. `layerMemory` is the in-process stand-in tests run on. |
 | `Event`       | The event vocabulary and the pure folds over it. Every projection a host shows is a fold, never a second store.                    |
 | `CallKey`     | The replay key: link, script digest, ordinal, and the entry's declaration digest.                                                  |
-| `Outcome`     | What a link returns: `done`, `to`, `park`, and the terminal subset a run resolves to.                                              |
+| `Outcome`     | What a link returns: `done`, `to`, `park`, the terminal subset, and the approval wait a run can stop at.                           |
 | `Observation` | The typed rejection a gate journals so the next author can route around it.                                                        |
 
 ## Authoring and scripts
@@ -19032,9 +19056,11 @@ The chain trampoline: bootstrap, links, gates, and prefix replay.
 
 ### Execution
 
-- `run(options: Options): Effect.Effect<Outcome.Terminal, RunError, Services>`:
-  runs a chain to a terminal outcome, resuming from whatever the journal
-  already holds. A finished chain returns its terminal without executing
+- `run(options: Options): Effect.Effect<Outcome.RunResult, RunError, Services>`:
+  runs a chain to a terminal outcome or an in-place `Outcome.ApprovalWait`,
+  resuming from whatever the journal already holds. An `ApprovalWait` is an
+  unsettled call waiting on a grant, not a terminal: after the grant, running
+  the same chain again re-enters that call. A finished chain returns its terminal without executing
   anything; a half-finished link replays its settled calls by ordinal before
   running live. The error channel and the service requirement are fixed:
 
@@ -19195,6 +19221,12 @@ The trampoline outcomes a link can end with.
 - `Terminal = Done | Park`: a chain-ending outcome. Parked lineages stop
   (wake is out of the slice's scope) and completed lineages return their
   value.
+- `ApprovalWait`: `{ _tag: "ApprovalWait", reason: { code: "approval",
+  message: string } }`. An unsettled approval boundary a run stops at. It is
+  never a script outcome or a journal event; a grant and a resume re-enter
+  the same call.
+- `RunResult = Terminal | ApprovalWait`: what `Chain.run` returns. The
+  persisted `Outcome` format contains only script outcomes.
 
 ### Constructors
 
@@ -19732,10 +19764,14 @@ primitive.
   Author.Author | ScriptRunner.ScriptRunner>`: the recursive catalog layer.
 
 The `agent` entry takes `{ goal, context? }` and runs the child under the
-derived id `parent-chain/link.ordinal`. A child's `done` and non-approval
-parks settle as data; a child's approval park bubbles as a `CallError` whose
-`cause` is `approval_required`; a failing child run dies as a defect so the
-parent fails un-settled and resumes at the child's settled prefix.
+derived id `parent-chain/link.ordinal`. A child's `done` and every terminal
+`park(...)`, including a script's own `park("approval", ...)`, settle as data
+on the parent call. Only a child's unsettled `ApprovalWait` bubbles, as a
+`CallError` whose `cause` is `approval_required`, so the parent waits in place
+and a later grant resumes the child through the same slot. A failing child run
+is not a defect: its original typed error reaches the parent's error channel
+with its `_tag`, `code`, and `cause` intact, the spawning call stays
+unsettled, and a resume re-enters the child at its settled prefix.
 
 ## `Authorize`
 
@@ -19836,7 +19872,7 @@ https://smithers.sh/docs/reference/api/cli/
 
 > **Source:** [implementation](https://github.com/smithersai/smithers/tree/main/packages/smithers/src) · [reference source](https://github.com/smithersai/smithers/blob/main/packages/smithers/docs/api.md) · [package docs](https://cli.smithers.sh)
 
-> **Related APIs:** [`@smthrs/agent`](/docs/reference/api/agent/) · [`@smthrs/build-cli`](/docs/reference/api/build-cli/) · [`@smthrs/canonical`](/docs/reference/api/canonical/) · [`@smthrs/capability`](/docs/reference/api/capability/) · [`@smthrs/control`](/docs/reference/api/control/) · [`@smthrs/crypto`](/docs/reference/api/crypto/) · [`@smthrs/database`](/docs/reference/api/database/) · [`@smthrs/engine`](/docs/reference/api/engine/) · [`@smthrs/engine-store`](/docs/reference/api/engine-store/) · [`@smthrs/evals`](/docs/reference/api/evals/) · [`@smthrs/flow`](/docs/reference/api/flow/) · [`@smthrs/flows`](/docs/reference/api/flows/) · [`@smthrs/gateway`](/docs/reference/api/gateway/) · [`@smthrs/harness`](/docs/reference/api/harness/) · [`@smthrs/integrations`](/docs/reference/api/integrations/) · [`@smthrs/jj`](/docs/reference/api/jj/) · [`@smthrs/journal`](/docs/reference/api/journal/) · [`@smthrs/kernel`](/docs/reference/api/kernel/) · [`@smthrs/mcp`](/docs/reference/api/mcp/) · [`@smthrs/memory`](/docs/reference/api/memory/) · [`@smthrs/migrate`](/docs/reference/api/migrate/) · [`@smthrs/model`](/docs/reference/api/model/) · [`@smthrs/notifications`](/docs/reference/api/notifications/) · [`@smthrs/observability`](/docs/reference/api/observability/) · [`@smthrs/plan`](/docs/reference/api/plan/) · [`@smthrs/platform-node`](/docs/reference/api/platform-node/) · [`@smthrs/registry`](/docs/reference/api/registry/) · [`@smthrs/run-store`](/docs/reference/api/run-store/) · [`@smthrs/sandbox`](/docs/reference/api/sandbox/) · [`@smthrs/std`](/docs/reference/api/std/) · [`@smthrs/step-cache`](/docs/reference/api/step-cache/) · [`@smthrs/sync`](/docs/reference/api/sync/) · [`@smthrs/targets`](/docs/reference/api/targets/) · [`@smthrs/time-travel`](/docs/reference/api/time-travel/) · [`@smthrs/triggers`](/docs/reference/api/triggers/)
+> **Related APIs:** [`@smthrs/agent`](/docs/reference/api/agent/) · [`@smthrs/build-cli`](/docs/reference/api/build-cli/) · [`@smthrs/canonical`](/docs/reference/api/canonical/) · [`@smthrs/capability`](/docs/reference/api/capability/) · [`@smthrs/control`](/docs/reference/api/control/) · [`@smthrs/crypto`](/docs/reference/api/crypto/) · [`@smthrs/database`](/docs/reference/api/database/) · [`@smthrs/engine`](/docs/reference/api/engine/) · [`@smthrs/engine-store`](/docs/reference/api/engine-store/) · [`@smthrs/evals`](/docs/reference/api/evals/) · [`@smthrs/flow`](/docs/reference/api/flow/) · [`@smthrs/flows`](/docs/reference/api/flows/) · [`@smthrs/gateway`](/docs/reference/api/gateway/) · [`@smthrs/harness`](/docs/reference/api/harness/) · [`@smthrs/integrations`](/docs/reference/api/integrations/) · [`@smthrs/jj`](/docs/reference/api/jj/) · [`@smthrs/journal`](/docs/reference/api/journal/) · [`@smthrs/kernel`](/docs/reference/api/kernel/) · [`@smthrs/mcp`](/docs/reference/api/mcp/) · [`@smthrs/memory`](/docs/reference/api/memory/) · [`@smthrs/migrate`](/docs/reference/api/migrate/) · [`@smthrs/model`](/docs/reference/api/model/) · [`@smthrs/notifications`](/docs/reference/api/notifications/) · [`@smthrs/observability`](/docs/reference/api/observability/) · [`@smthrs/plan`](/docs/reference/api/plan/) · [`@smthrs/platform-node`](/docs/reference/api/platform-node/) · [`@smthrs/registry`](/docs/reference/api/registry/) · [`@smthrs/run-store`](/docs/reference/api/run-store/) · [`@smthrs/sandbox`](/docs/reference/api/sandbox/) · [`@smthrs/scorers`](/docs/reference/api/scorers/) · [`@smthrs/std`](/docs/reference/api/std/) · [`@smthrs/step-cache`](/docs/reference/api/step-cache/) · [`@smthrs/sync`](/docs/reference/api/sync/) · [`@smthrs/targets`](/docs/reference/api/targets/) · [`@smthrs/time-travel`](/docs/reference/api/time-travel/) · [`@smthrs/triggers`](/docs/reference/api/triggers/)
 
 The root entry point exports each public module as a namespace. Import a module directly with `@smthrs/cli/<Module>`.
 
@@ -19898,15 +19934,15 @@ groups, machine output, and local-only features.
 `Audience` is also available from `@smthrs/cli/Audience`. It re-exports the
 shared build/control presentation policy, without acquiring runtime services.
 
-| Export | Purpose |
-| --- | --- |
-| `Mode` | Explicit `auto`, `human`, or `agent` selection. |
-| `Options` | Injected environment, stream capabilities, format, MCP, and verbosity choices. |
-| `Policy` | Audience, selection source, matched harness names, result encoding policy, progress mode, and prompt capability. |
-| `Marker`, `markers` | Source-verified runtime marker registry; no credential or installation probing. |
-| `resolve(options?)` | Pure audience and presentation resolution; evidence contains names, never environment values. |
-| `fromArguments(argv, options?)` | Resolves presentation flags without loading a workspace. |
-| `incurArguments(argv, policy)` | Selects structured Incur formatting for agent-owned terminals; logs default to incremental JSONL. |
+| Export                          | Purpose                                                                                                          |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `Mode`                          | Explicit `auto`, `human`, or `agent` selection.                                                                  |
+| `Options`                       | Injected environment, stream capabilities, format, MCP, and verbosity choices.                                   |
+| `Policy`                        | Audience, selection source, matched harness names, result encoding policy, progress mode, and prompt capability. |
+| `Marker`, `markers`             | Source-verified runtime marker registry; no credential or installation probing.                                  |
+| `resolve(options?)`             | Pure audience and presentation resolution; evidence contains names, never environment values.                    |
+| `fromArguments(argv, options?)` | Resolves presentation flags without loading a workspace.                                                         |
+| `incurArguments(argv, policy)`  | Selects structured Incur formatting for agent-owned terminals; logs default to incremental JSONL.                |
 
 Explicit selection overrides detection, and MCP always remains machine-clean.
 This policy affects rendering only, not approvals or permissions. See
@@ -19917,13 +19953,13 @@ This policy affects rendering only, not approvals or permissions. See
 The retained Effect CLI compatibility tree, used by hidden flat aliases.
 New hosts should use `Cli.makeCli` for the unified public surface.
 
-| Export | Signature | Meaning |
-| --- | --- | --- |
-| `cli` | `Command` | The root command: every shipped verb with a handler, every removed verb and flag as a hidden refusal. |
-| `migrationCli` | `Command` | Local migration inspection tree, composed without opening execution databases. |
-| `doctorCli` | `Command` | Local diagnostics tree using the discovery snapshot without opening execution databases. |
-| `signalKey` | `(runId: string, payload: SignalPayload) => string` | The idempotency key of one signal delivery: `cli:signal:<run-id>:<digest>`. The payload digest is part of the key because two different signals to one run are two mutations. |
-| `latestSequence` | `<E, R>(events: Stream<{ sequence: number }, E, R>) => Effect<number \| undefined, E, R>` | The greatest sequence in a stream, folded without retaining history. Stream failures are preserved, so a caller never substitutes a weaker cursor after a failed read. |
+| Export           | Signature                                                                                 | Meaning                                                                                                                                                                       |
+| ---------------- | ----------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cli`            | `Command`                                                                                 | The root command: every shipped verb with a handler, every removed verb and flag as a hidden refusal.                                                                         |
+| `migrationCli`   | `Command`                                                                                 | Local migration inspection tree, composed without opening execution databases.                                                                                                |
+| `doctorCli`      | `Command`                                                                                 | Local diagnostics tree using the discovery snapshot without opening execution databases.                                                                                      |
+| `signalKey`      | `(runId: string, payload: SignalPayload) => string`                                       | The idempotency key of one signal delivery: `cli:signal:<run-id>:<digest>`. The payload digest is part of the key because two different signals to one run are two mutations. |
+| `latestSequence` | `<E, R>(events: Stream<{ sequence: number }, E, R>) => Effect<number \| undefined, E, R>` | The greatest sequence in a stream, folded without retaining history. Stream failures are preserved, so a caller never substitutes a weaker cursor after a failed read.        |
 
 Run-control handlers use `Control` for local and remote execution. Local
 diagnostic and filesystem commands retain their documented remote refusals.
@@ -19932,12 +19968,12 @@ diagnostic and filesystem commands retain their documented remote refusals.
 
 The transport-neutral composition.
 
-| Export | Signature | Meaning |
-| --- | --- | --- |
-| `Config` | interface | Connection and project settings (`remote`, `credential`, `mcpServers`, `root`, `migrationRoot`), plus trusted host options (`health`, `stateRoot`, `executionRoot`, `approvalAuthority`, `principal`). Host options are supplied in code, not decoded from CLI flags. |
-| `Engine` | interface | `runtime` and `journal`: where a local composition's runs and events are recorded. The journal is required, not optional. |
-| `engineMemory` | `Engine` | A deterministic runtime over an in-memory SQLite journal. Nothing it records survives the process. |
-| `layer` | `(config, registry?, engine?, executor?) => Layer<Control, never, HttpClient \| RpcSerialization \| Socket>` | Local `Control` when `config.remote` is unset, the RPC client otherwise. Also supplies `ExecutorOwnership`. |
+| Export         | Signature                                                                                                    | Meaning                                                                                                                                                                                                                                                               |
+| -------------- | ------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Config`       | interface                                                                                                    | Connection and project settings (`remote`, `credential`, `mcpServers`, `root`, `migrationRoot`), plus trusted host options (`health`, `stateRoot`, `executionRoot`, `approvalAuthority`, `principal`). Host options are supplied in code, not decoded from CLI flags. |
+| `Engine`       | interface                                                                                                    | `runtime` and `journal`: where a local composition's runs and events are recorded. The journal is required, not optional.                                                                                                                                             |
+| `engineMemory` | `Engine`                                                                                                     | A deterministic runtime over an in-memory SQLite journal. Nothing it records survives the process.                                                                                                                                                                    |
+| `layer`        | `(config, registry?, engine?, executor?) => Layer<Control, never, HttpClient \| RpcSerialization \| Socket>` | Local `Control` when `config.remote` is unset, the RPC client otherwise. Also supplies `ExecutorOwnership`.                                                                                                                                                           |
 
 `executor` must be passed here rather than provided from outside, because
 `ControlLive` resolves it with `Effect.serviceOption` while its own layer is
@@ -19974,60 +20010,60 @@ still release the workspace. Deletion failures fail release. See the
 
 The Node composition for the command tree.
 
-| Export | Signature | Meaning |
-| --- | --- | --- |
-| `Environment` | `Environment.Source` | The environment shape configuration helpers read. |
-| `ServerOptions` | `ListenOptions & { disablePreemptiveShutdown?, listen? }` | Node listen options, with the explicit non-loopback opt-in. |
-| `makeConfig` | `(args, environment, cwd) => Application.Config` | The pure configuration boundary. Throws `CliError.UsageError` for a bad `--remote` URL or an unreadable, malformed, or wrongly shaped `--mcp-config` file. |
-| `configFromArguments` | `(args) => Effect<Application.Config, CliError.UsageError>` | Resolves and validates raw arguments or a shared parse using the ambient environment and working directory. |
-| `config` | `Effect<Application.Config, CliError.UsageError>` | `makeConfig` applied to the ambient process, with the throw converted into a typed failure. |
-| `workspaceSshPrefix` | `(environment, reference, signal?) => Promise<Array<string>>` | Resolves fresh Cloud workspace SSH argv with pinned host keys; the optional signal cancels readiness polling. |
-| `projectSources` | `(root: string) => ReadonlyArray<Descriptor.Source>` | The one flow source a local CLI discovers: `<root>/flows`, named by path. |
-| `layerHostPlatform` | `Layer` | Node's services plus the descriptor-relative, no-follow filesystem the kernel needs. Unguarded; only host equipment that carries its own confinement argument runs on it. |
-| `layerGrantStore` | `(root: string) => Layer<GrantStore>` | The local CLI's real permission store: an allow policy, with the fiber's capability ceiling still enforced. |
-| `layerGuardedPlatform` | `(root: string, grants?) => Layer` | The kernel-guarded platform over one workspace root. Every filesystem operation is resolved, authorized, re-resolved, and executed relative to a pinned root descriptor. |
-| `layerObserver` | `(root: string, options?: WorkspaceObservation.Options) => Layer<WorkspaceObservation.Observer>` | The workspace observer a run's mutation accounting is measured with. Options can omit exact host-owned runtime paths. |
-| `layerRegistry` | `(root: string) => Layer<Registry>` | Flow discovery from `<root>/flows`. A missing directory discovers nothing; any other failure is a startup defect. |
-| `databasePath` | `(root: string) => string` | `<root>/.flows/control.db`. |
-| `executionDatabasePath` | `(root: string) => string` | `<root>/.flows/engine.db`. |
-| `EngineDurable` | `Application.Engine & { stores }` | The durable engine plus the shared database seam other stores hang off. |
-| `engineDurable` | `(root: string, registry?, authority?) => EngineDurable` | The real project engine. `authority` accepts `approvalAuthority`, `principal`, `credential`, and `stateRoot`. Open, migration, and journal startup failures are promoted to defects. |
-| `layerSeatEvaluator` | layer | The native judge: Jev through the Vercel AI Gateway (`AI_GATEWAY_API_KEY`; a missing key reads as unreachable) over its own egress HTTP client (fetch under Bun), backed up by the `luna` seat (`openai:gpt-6-luna`) only when Jev is unreachable, times out, or answers 5xx or 429 through its retries. Luna resolves through the seat resolver and the host `RequestExecutor` at judgment time, including account pools; if it cannot resolve either, the judgment fails `unreachable`. A gateway refusal (401, 403) or an invalid Jev answer fails without a fallback. |
-| `seatResolver`, `layerSeatResolver` | constructor, layer | Resolves a declared seat string into a credentialed model. A `claude-code:<model>` seat runs on the user's signed-in Claude Code through the Claude Agent SDK, one locked-down, tool-less session per conversation whose turns are the frames' new messages; it resolves only without `ANTHROPIC_API_KEY`, and this process never reads a Claude credential. Its session is discarded unless `SMITHERS_HIJACKABLE=1`, which keeps it on disk so `claude --resume <sessionId>`, run in the system temporary directory, opens it; the journaled `model-settled` row carries the `sessionId`. |
-| `seatCandidates`, `layerSeatCatalog` | constructor, layer | The routing graph's seats an undeclared or `auto` run may route to: each `SeatRouter.seats` alias whose provider the environment holds a credential for, by the rules `seatResolver` signs with. A Claude seat is offered on `ANTHROPIC_API_KEY` or on a Claude subscription signed in to Claude Code, never as a `claude-code` seat. |
-| `supervisorStance` | `(environment) => "careful" \| "paranoid"` | The stance a judged run on this host is taught: `SMITHERS_SUPERVISOR_STANCE`, `careful` when unset. Any other value throws a `UsageError`. |
-| `testRunner`, `testFlows`, `checkpointStore` | constructors | The `test` flow's runner, the flows it registers, and the checkpoint store. `testRunner(environment, root, workspaceRoot?)` declares the runner for `workspaceRoot`, named inside the mount `SMITHERS_TEST_CWD` gives `root`. |
-| `rebuildableTransport` | constructor | The replaceable HTTP dispatcher a model captures and uses after seat resolution returns. |
-| `environmentDispatcher`, `layerRebuildableRequestExecutor` | constructor, layer | The Undici connection pool an environment's proxy settings describe, and the model transport built over it. The executor throws the pool away after three consecutive transport failures and builds another, which is the only repair for a session the provider destroyed. Node hosts share this pool lifecycle. `RequestExecutor.layer` over a plain client cannot replace anything. |
-| `ModuleRegistration` | `Layer<Executable.Catalog, never, host registration services>` | Optional trusted native module registrations; see [native module hosts](https://cli.smithers.sh/guides/native-module-host/) for authority and single-executor requirements. |
-| `layerExecutor` | `(registry, engine, root, options: { environment, mcpServers?, grants?, requestExecutor?, quotaPolicy?, executionRoot?, stateRoot?, modules? }) => Layer<ControlExecutor, never, ControlRuntime \| Journal \| NotificationQueue \| Registry>` | The production run executor. Pass the same `GrantStore` the filesystem gets. `executionRoot` selects the execution checkout; `stateRoot` selects the directory containing `.flows/engine.db`. Both default to `root`. |
-| `layerControl` | `(config, registry?, engine?, modules?) => Layer` | `Control` alone, over the registry and engine you supply. |
-| `layerOutput` | `Layer<Output>` | Deterministic rendering that also publishes its status as `process.exitCode`. |
-| `layer` | `(config, modules?) => Layer` | The complete command-handler environment. This is the production layer for `smthrs`. |
-| `layerMemory` | `(root, engine?) => Layer<MemoryStore>` | The durable memory store over the control database. |
-| `layerMemoryRemote` | `Layer<MemoryStore>` | The store a `--remote` invocation gets: none, said out loud. |
-| `layerServer` | `(auth, options?) => Layer` | The control HTTP and WebSocket router on a scoped Node server. A non-loopback host without `listen: true` is rejected synchronously. |
-| `layerGateway` | `(health, options, root, engine, journal?) => Layer` | The whole workspace gateway on one socket. |
-| `layerServerBearerAuth`, `layerServerNoopAuth` | `(options?) => Layer` | The two authentication choices for `layerServer`. |
-| `CompositionRootsAreComplete` | type | A compile-time assertion that the executor and both control compositions owe nothing. |
+| Export                                                     | Signature                                                                                                                                                                                                                                     | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `Environment`                                              | `Environment.Source`                                                                                                                                                                                                                          | The environment shape configuration helpers read.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `ServerOptions`                                            | `ListenOptions & { disablePreemptiveShutdown?, listen? }`                                                                                                                                                                                     | Node listen options, with the explicit non-loopback opt-in.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `makeConfig`                                               | `(args, environment, cwd) => Application.Config`                                                                                                                                                                                              | The pure configuration boundary. Throws `CliError.UsageError` for a bad `--remote` URL or an unreadable, malformed, or wrongly shaped `--mcp-config` file.                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `configFromArguments`                                      | `(args) => Effect<Application.Config, CliError.UsageError>`                                                                                                                                                                                   | Resolves and validates raw arguments or a shared parse using the ambient environment and working directory.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `config`                                                   | `Effect<Application.Config, CliError.UsageError>`                                                                                                                                                                                             | `makeConfig` applied to the ambient process, with the throw converted into a typed failure.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `workspaceSshPrefix`                                       | `(environment, reference, signal?) => Promise<Array<string>>`                                                                                                                                                                                 | Resolves fresh Cloud workspace SSH argv with pinned host keys; the optional signal cancels readiness polling.                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `projectSources`                                           | `(root: string) => ReadonlyArray<Descriptor.Source>`                                                                                                                                                                                          | The one flow source a local CLI discovers: `<root>/flows`, named by path.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `layerHostPlatform`                                        | `Layer`                                                                                                                                                                                                                                       | Node's services plus the descriptor-relative, no-follow filesystem the kernel needs. Unguarded; only host equipment that carries its own confinement argument runs on it.                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `layerGrantStore`                                          | `(root: string) => Layer<GrantStore>`                                                                                                                                                                                                         | The local CLI's real permission store: an allow policy, with the fiber's capability ceiling still enforced.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `layerGuardedPlatform`                                     | `(root: string, grants?) => Layer`                                                                                                                                                                                                            | The kernel-guarded platform over one workspace root. Every filesystem operation is resolved, authorized, re-resolved, and executed relative to a pinned root descriptor.                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `layerObserver`                                            | `(root: string, options?: WorkspaceObservation.Options) => Layer<WorkspaceObservation.Observer>`                                                                                                                                              | The workspace observer a run's mutation accounting is measured with. Options can omit exact host-owned runtime paths.                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `layerRegistry`                                            | `(root: string) => Layer<Registry>`                                                                                                                                                                                                           | Flow discovery from `<root>/flows`. A missing directory discovers nothing; any other failure is a startup defect.                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `databasePath`                                             | `(root: string) => string`                                                                                                                                                                                                                    | `<root>/.flows/control.db`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `executionDatabasePath`                                    | `(root: string) => string`                                                                                                                                                                                                                    | `<root>/.flows/engine.db`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `EngineDurable`                                            | `Application.Engine & { stores }`                                                                                                                                                                                                             | The durable engine plus the shared database seam other stores hang off.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `engineDurable`                                            | `(root: string, registry?, authority?) => EngineDurable`                                                                                                                                                                                      | The real project engine. `authority` accepts `approvalAuthority`, `principal`, `credential`, and `stateRoot`. Open, migration, and journal startup failures are promoted to defects.                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `layerSeatEvaluator`                                       | layer                                                                                                                                                                                                                                         | The native judge: Jev through the Vercel AI Gateway (`AI_GATEWAY_API_KEY`; a missing key reads as unreachable) over its own egress HTTP client (fetch under Bun), backed up by the `luna` seat (`openai:gpt-6-luna`) only when Jev is unreachable, times out, or answers 5xx or 429 through its retries. Luna resolves through the seat resolver and the host `RequestExecutor` at judgment time, including account pools; if it cannot resolve either, the judgment fails `unreachable`. A gateway refusal (401, 403) or an invalid Jev answer fails without a fallback.                  |
+| `seatResolver`, `layerSeatResolver`                        | constructor, layer                                                                                                                                                                                                                            | Resolves a declared seat string into a credentialed model. A `claude-code:<model>` seat runs on the user's signed-in Claude Code through the Claude Agent SDK, one locked-down, tool-less session per conversation whose turns are the frames' new messages; it resolves only without `ANTHROPIC_API_KEY`, and this process never reads a Claude credential. Its session is discarded unless `SMITHERS_HIJACKABLE=1`, which keeps it on disk so `claude --resume <sessionId>`, run in the system temporary directory, opens it; the journaled `model-settled` row carries the `sessionId`. |
+| `seatCandidates`, `layerSeatCatalog`                       | constructor, layer                                                                                                                                                                                                                            | The routing graph's seats an undeclared or `auto` run may route to: each `SeatRouter.seats` alias whose provider the environment holds a credential for, by the rules `seatResolver` signs with. A Claude seat is offered on `ANTHROPIC_API_KEY` or on a Claude subscription signed in to Claude Code, never as a `claude-code` seat.                                                                                                                                                                                                                                                      |
+| `supervisorStance`                                         | `(environment) => "careful" \| "paranoid"`                                                                                                                                                                                                    | The stance a judged run on this host is taught: `SMITHERS_SUPERVISOR_STANCE`, `careful` when unset. Any other value throws a `UsageError`.                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `testRunner`, `testFlows`, `checkpointStore`               | constructors                                                                                                                                                                                                                                  | The `test` flow's runner, the flows it registers, and the checkpoint store. `testRunner(environment, root, workspaceRoot?)` declares the runner for `workspaceRoot`, named inside the mount `SMITHERS_TEST_CWD` gives `root`.                                                                                                                                                                                                                                                                                                                                                              |
+| `rebuildableTransport`                                     | constructor                                                                                                                                                                                                                                   | The replaceable HTTP dispatcher a model captures and uses after seat resolution returns.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `environmentDispatcher`, `layerRebuildableRequestExecutor` | constructor, layer                                                                                                                                                                                                                            | The Undici connection pool an environment's proxy settings describe, and the model transport built over it. The executor throws the pool away after three consecutive transport failures and builds another, which is the only repair for a session the provider destroyed. Node hosts share this pool lifecycle. `RequestExecutor.layer` over a plain client cannot replace anything.                                                                                                                                                                                                     |
+| `ModuleRegistration`                                       | `Layer<Executable.Catalog, never, host registration services>`                                                                                                                                                                                | Optional trusted native module registrations; see [native module hosts](https://cli.smithers.sh/guides/native-module-host/) for authority and single-executor requirements.                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `layerExecutor`                                            | `(registry, engine, root, options: { environment, mcpServers?, grants?, requestExecutor?, quotaPolicy?, executionRoot?, stateRoot?, modules? }) => Layer<ControlExecutor, never, ControlRuntime \| Journal \| NotificationQueue \| Registry>` | The production run executor. Pass the same `GrantStore` the filesystem gets. `executionRoot` selects the execution checkout; `stateRoot` selects the directory containing `.flows/engine.db`. Both default to `root`.                                                                                                                                                                                                                                                                                                                                                                      |
+| `layerControl`                                             | `(config, registry?, engine?, modules?) => Layer`                                                                                                                                                                                             | `Control` alone, over the registry and engine you supply.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `layerOutput`                                              | `Layer<Output>`                                                                                                                                                                                                                               | Deterministic rendering that also publishes its status as `process.exitCode`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `layer`                                                    | `(config, modules?) => Layer`                                                                                                                                                                                                                 | The complete command-handler environment. This is the production layer for `smthrs`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `layerMemory`                                              | `(root, engine?) => Layer<MemoryStore>`                                                                                                                                                                                                       | The durable memory store over the control database.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `layerMemoryRemote`                                        | `Layer<MemoryStore>`                                                                                                                                                                                                                          | The store a `--remote` invocation gets: none, said out loud.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `layerServer`                                              | `(auth, options?) => Layer`                                                                                                                                                                                                                   | The control HTTP and WebSocket router on a scoped Node server. A non-loopback host without `listen: true` is rejected synchronously.                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `layerGateway`                                             | `(health, options, root, engine, journal?) => Layer`                                                                                                                                                                                          | The whole workspace gateway on one socket.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `layerServerBearerAuth`, `layerServerNoopAuth`             | `(options?) => Layer`                                                                                                                                                                                                                         | The two authentication choices for `layerServer`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `CompositionRootsAreComplete`                              | type                                                                                                                                                                                                                                          | A compile-time assertion that the executor and both control compositions owe nothing.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 
 ## Output
 
 Deterministic rendering, and the status a process exits on.
 
-| Export | Signature | Meaning |
-| --- | --- | --- |
-| `Format` | `"human" \| "json"` | Indented, or compact. Member order is UTF-16 code-unit order in both. |
-| `Rendered` | `{ text: string; exitCode: number }` | Text ready for stdout, with the status the process should publish. |
-| `Service` | `{ render: (value, format) => Effect<Rendered, RenderingError> }` | The rendering service handlers consume. |
-| `Output` | `Context.Service` | The service key, `/cli/Output`. |
-| `make` | `() => Service` | Builds the service for a platform layer or a focused test. |
-| `layer` | `Layer<Output>` | The default layer, with no exit-code transfer. |
-| `renderValue` | `(value: unknown) => RenderValue` | Marks caller-controlled data as output, never as a receipt. A wrapped value always exits 0. |
-| `exitCode` | `(value: unknown) => number` | The status one value implies. Only a validated `ControlSchema.Receipt` returns nonzero. |
-| `maximumDepth` | `128` | Maximum object and array nesting in one render. |
-| `maximumMembers` | `10_000` | Maximum enumerable data members in one render. |
-| `maximumOutputBytes` | `4 * 1024 * 1024` | Maximum UTF-8 bytes in one rendered document. |
+| Export               | Signature                                                         | Meaning                                                                                     |
+| -------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `Format`             | `"human" \| "json"`                                               | Indented, or compact. Member order is UTF-16 code-unit order in both.                       |
+| `Rendered`           | `{ text: string; exitCode: number }`                              | Text ready for stdout, with the status the process should publish.                          |
+| `Service`            | `{ render: (value, format) => Effect<Rendered, RenderingError> }` | The rendering service handlers consume.                                                     |
+| `Output`             | `Context.Service`                                                 | The service key, `/cli/Output`.                                                             |
+| `make`               | `() => Service`                                                   | Builds the service for a platform layer or a focused test.                                  |
+| `layer`              | `Layer<Output>`                                                   | The default layer, with no exit-code transfer.                                              |
+| `renderValue`        | `(value: unknown) => RenderValue`                                 | Marks caller-controlled data as output, never as a receipt. A wrapped value always exits 0. |
+| `exitCode`           | `(value: unknown) => number`                                      | The status one value implies. Only a validated `ControlSchema.Receipt` returns nonzero.     |
+| `maximumDepth`       | `128`                                                             | Maximum object and array nesting in one render.                                             |
+| `maximumMembers`     | `10_000`                                                          | Maximum enumerable data members in one render.                                              |
+| `maximumOutputBytes` | `4 * 1024 * 1024`                                                 | Maximum UTF-8 bytes in one rendered document.                                               |
 
 Rendering snapshots inert plain data and refuses executable or unbounded
 structures before any output is written, with a stable code and the path of the
@@ -20038,22 +20074,22 @@ first refusing member. See
 
 Interactive terminal rendering, with a plain-line fallback.
 
-| Export | Signature | Meaning |
-| --- | --- | --- |
-| `brand` | `string` | The line `intro` prints when a verb gives it no title: `smthrs <version>`. |
-| `Check` | `{ name, level: "ok" \| "warn" \| "fail", detail }` | One line of a checklist. |
-| `Spinner` | interface | `start`, `message`, `stop`, `cancel`, `error`. Imperative by nature; the Effect boundary sits around the whole span. |
-| `StreamOptions`, `Streamed` | interfaces | How a streamed list is labelled and settled, and what the scan produced. |
-| `PickOptions`, `ConfirmOptions` | interfaces | How a pick and a confirmation are presented. `ConfirmOptions.nonInteractive` is required, because the safe answer differs per question. |
-| `Service` | interface | `interactive`, `text`, `intro`, `outro`, `note`, `info`, `success`, `step`, `warn`, `error`, `checklist`, `spinner`, `streamSuggestions`, `pickSuggestion`, `confirm`. |
-| `Ui` | `Context.Service` | The service key, `/cli/Ui`. |
-| `Options` | `{ output, input?, interactive }` | The streams and the interactivity decision one service is built on. |
-| `isInteractive` | `(output, input, environment) => boolean` | Both streams are terminals, `CI` is not `"true"`, and `TERM` is not `dumb`. |
-| `make` | `(options: Options) => Service` | Builds a service on explicit streams. |
-| `layer` | `(environment) => Layer<Ui>` | Builds one on the process streams. |
-| `prompting` | `Effect<Service>` | Uses a supplied service, or prompts on stderr whenever stdin is a terminal, keeping stdout available for documents. |
-| `current` | `Effect<Service>` | The provided service, or a fallback on the process streams. |
-| `renderChecklist` | `(title, checks, { interactive, columns? }) => string` | The pure checklist rendering `smthrs doctor` prints. Non-interactive output is byte-identical to `Doctor.render`. |
+| Export                          | Signature                                              | Meaning                                                                                                                                                                |
+| ------------------------------- | ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `brand`                         | `string`                                               | The line `intro` prints when a verb gives it no title: `smthrs <version>`.                                                                                             |
+| `Check`                         | `{ name, level: "ok" \| "warn" \| "fail", detail }`    | One line of a checklist.                                                                                                                                               |
+| `Spinner`                       | interface                                              | `start`, `message`, `stop`, `cancel`, `error`. Imperative by nature; the Effect boundary sits around the whole span.                                                   |
+| `StreamOptions`, `Streamed`     | interfaces                                             | How a streamed list is labelled and settled, and what the scan produced.                                                                                               |
+| `PickOptions`, `ConfirmOptions` | interfaces                                             | How a pick and a confirmation are presented. `ConfirmOptions.nonInteractive` is required, because the safe answer differs per question.                                |
+| `Service`                       | interface                                              | `interactive`, `text`, `intro`, `outro`, `note`, `info`, `success`, `step`, `warn`, `error`, `checklist`, `spinner`, `streamSuggestions`, `pickSuggestion`, `confirm`. |
+| `Ui`                            | `Context.Service`                                      | The service key, `/cli/Ui`.                                                                                                                                            |
+| `Options`                       | `{ output, input?, interactive }`                      | The streams and the interactivity decision one service is built on.                                                                                                    |
+| `isInteractive`                 | `(output, input, environment) => boolean`              | Both streams are terminals, `CI` is not `"true"`, and `TERM` is not `dumb`.                                                                                            |
+| `make`                          | `(options: Options) => Service`                        | Builds a service on explicit streams.                                                                                                                                  |
+| `layer`                         | `(environment) => Layer<Ui>`                           | Builds one on the process streams.                                                                                                                                     |
+| `prompting`                     | `Effect<Service>`                                      | Uses a supplied service, or prompts on stderr whenever stdin is a terminal, keeping stdout available for documents.                                                    |
+| `current`                       | `Effect<Service>`                                      | The provided service, or a fallback on the process streams.                                                                                                            |
+| `renderChecklist`               | `(title, checks, { interactive, columns? }) => string` | The pure checklist rendering `smthrs doctor` prints. Non-interactive output is byte-identical to `Doctor.render`.                                                      |
 
 A cancelled `text` or `pickSuggestion` is `None` and a cancelled `confirm` is `false`.
 `text` requires a nonblank value; in a non-interactive session it returns `None` without reading stdin.
@@ -20064,14 +20100,14 @@ not a signal.
 
 The failures the command-line projection adds on top of the control plane's.
 
-| Export | Exits | Raised when |
-| --- | --- | --- |
-| `UsageError` | 2 | The invocation is wrong: an unparseable flag value, a payload that does not match its schema, an argument outside the accepted set. Carries no cause. |
-| `UnsupportedError` | 1 | The invocation is spelled correctly and this projection cannot perform it: a removed verb or flag, a reserved system flow, a local-only operation asked of a `--remote` composition. |
-| `ResourceLimitError` | 1 | A correct read would exceed a published bound. Carries `operation`, `subject`, `limit`, and `unit`. Both labels are inert, so the failure is safe to print over MCP. |
-| `RenderingError` | 1 | Caller-controlled output was not inert bounded data. Carries a stable `code`, the `path` of the first refusing member, and a message. |
-| `CliError` | | The union of the four. |
-| `exitCode` | | `(error: CliError) => number`. 2 for a usage error, 1 otherwise. |
+| Export               | Exits | Raised when                                                                                                                                                                          |
+| -------------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `UsageError`         | 2     | The invocation is wrong: an unparseable flag value, a payload that does not match its schema, an argument outside the accepted set. Carries no cause.                                |
+| `UnsupportedError`   | 1     | The invocation is spelled correctly and this projection cannot perform it: a removed verb or flag, a reserved system flow, a local-only operation asked of a `--remote` composition. |
+| `ResourceLimitError` | 1     | A correct read would exceed a published bound. Carries `operation`, `subject`, `limit`, and `unit`. Both labels are inert, so the failure is safe to print over MCP.                 |
+| `RenderingError`     | 1     | Caller-controlled output was not inert bounded data. Carries a stable `code`, the `path` of the first refusing member, and a message.                                                |
+| `CliError`           |       | The union of the four.                                                                                                                                                               |
+| `exitCode`           |       | `(error: CliError) => number`. 2 for a usage error, 1 otherwise.                                                                                                                     |
 
 Statuses 3, 130, and 143 belong to run outcomes rather than failures, and come
 from `Output.exitCode`.
@@ -20080,13 +20116,13 @@ from `Output.exitCode`.
 
 The shipped command catalog.
 
-| Export | Signature | Meaning |
-| --- | --- | --- |
-| `Verb` | `{ name, help, aliases, flowId?, builtin? }` | One shipped command. `aliases` are accepted by the parser and hidden from `--help`. `flowId` names the reserved system flow when the control catalog reserves one. |
-| `shipped` | `ReadonlyArray<Verb>` | Every command that ships. |
-| `subcommands` | `ReadonlyArray<Verb>` | `shipped` minus the built-in ones, which is every verb the command tree registers. |
-| `names` | `ReadonlyArray<string>` | Every shipped command name. |
-| `find` | `(name: string) => Verb \| undefined` | One shipped verb by name. |
+| Export        | Signature                                    | Meaning                                                                                                                                                            |
+| ------------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `Verb`        | `{ name, help, aliases, flowId?, builtin? }` | One shipped command. `aliases` are accepted by the parser and hidden from `--help`. `flowId` names the reserved system flow when the control catalog reserves one. |
+| `shipped`     | `ReadonlyArray<Verb>`                        | Every command that ships.                                                                                                                                          |
+| `subcommands` | `ReadonlyArray<Verb>`                        | `shipped` minus the built-in ones, which is every verb the command tree registers.                                                                                 |
+| `names`       | `ReadonlyArray<string>`                      | Every shipped command name.                                                                                                                                        |
+| `find`        | `(name: string) => Verb \| undefined`        | One shipped verb by name.                                                                                                                                          |
 
 `completions` is the only `builtin` entry: `effect/unstable/cli` provides it as
 the global `--completions <shell>` flag rather than as a subcommand.
@@ -20095,188 +20131,188 @@ the global `--completions <shell>` flag rather than as a subcommand.
 
 The removal surface.
 
-| Export | Signature | Meaning |
-| --- | --- | --- |
-| `migrationUrl` | `string` | The base every removal message links into. |
-| `RemovedVerb`, `removedVerbs` | `{ name, group, reason, subcommands? }` | Every verb removed in 1.0.0-rc.0, grouped by what it belonged to. |
-| `RemovedFlag`, `removedFlags` | `{ parent, flag, reason, anchor }` | Every removed flag, declared hidden on the command that used to carry it. `parent: ""` names the shared globals. |
-| `message`, `flagMessage` | `(...) => string` | The removal sentence for a verb, and for a flag. |
-| `verbError`, `flagError` | `(...) => UnsupportedError` | Those sentences as failures. |
-| `findFlag` | `(parent, flag) => RemovedFlag` | One removed flag, so a handler cannot cite the wrong entry. |
-| `refusal` | `(args: ReadonlyArray<string>) => UnsupportedError \| undefined` | The refusal for one raw argv, matched before the parser runs, so a removed verb never opens a database on its way to being refused. |
-| `isReservedFlow` | `(flowId: string) => boolean` | Whether an id starts with `system/`. |
-| `reservedFlowError` | `(verb, flowId) => UnsupportedError` | The refusal for one. |
+| Export                        | Signature                                                        | Meaning                                                                                                                             |
+| ----------------------------- | ---------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `migrationUrl`                | `string`                                                         | The base every removal message links into.                                                                                          |
+| `RemovedVerb`, `removedVerbs` | `{ name, group, reason, subcommands? }`                          | Every verb removed in 1.0.0-rc.0, grouped by what it belonged to.                                                                   |
+| `RemovedFlag`, `removedFlags` | `{ parent, flag, reason, anchor }`                               | Every removed flag, declared hidden on the command that used to carry it. `parent: ""` names the shared globals.                    |
+| `message`, `flagMessage`      | `(...) => string`                                                | The removal sentence for a verb, and for a flag.                                                                                    |
+| `verbError`, `flagError`      | `(...) => UnsupportedError`                                      | Those sentences as failures.                                                                                                        |
+| `findFlag`                    | `(parent, flag) => RemovedFlag`                                  | One removed flag, so a handler cannot cite the wrong entry.                                                                         |
+| `refusal`                     | `(args: ReadonlyArray<string>) => UnsupportedError \| undefined` | The refusal for one raw argv, matched before the parser runs, so a removed verb never opens a database on its way to being refused. |
+| `isReservedFlow`              | `(flowId: string) => boolean`                                    | Whether an id starts with `system/`.                                                                                                |
+| `reservedFlowError`           | `(verb, flowId) => UnsupportedError`                             | The refusal for one.                                                                                                                |
 
 ## Project
 
 Where an invocation decides it is running.
 
-| Export | Signature | Meaning |
-| --- | --- | --- |
-| `root` | `(explicit, cwd, exists?) => string` | `--root`, else the nearest ancestor that anchors a project, else the invocation directory. |
-| `legacyRoot` | `(explicit, cwd, exists?) => string` | The same walk anchored on 0.x markers, for `smthrs migrate`. |
-| `legacyMarkers` | `ReadonlyArray<string>` | `.smithers`, `smithers.db`, and its WAL and shared-memory files. |
-| `stateDirectory`, `logDirectory`, `logFile`, `flowsDirectory` | `(root, ...) => string` | `.flows/`, `.flows/logs/`, `.flows/logs/<run-id>.log`, and `flows/`. |
-| `legacyState` | `(cwd, exists?) => ReadonlyArray<string>` | 0.x markers beside a project, skipping any directory that already holds `.flows/`. The notice's input. |
-| `legacyDatabases` | `(cwd, exists?) => ReadonlyArray<string>` | Every 0.x `smithers.db` beside a project, not gated on `.flows/`. The report's and the refusal's input. |
-| `legacyNotice` | `(path: string) => string` | The one-line stderr notice. |
-| `ProjectRoot`, `MigrationRoot`, `LegacyState` | `Context.Reference` | The three answers, as services. |
-| `layer` | `(projectRoot, migrationRoot) => Layer` | Provides all three. The 0.x sample is taken while the layers are described, before anything creates `.flows/`. |
-| `assertRoot` | `(projectRoot: string) => void` | Throws `UsageError` if the selected root is not an accessible directory, before a command creates durable state. |
+| Export                                                        | Signature                                 | Meaning                                                                                                          |
+| ------------------------------------------------------------- | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `root`                                                        | `(explicit, cwd, exists?) => string`      | `--root`, else the nearest ancestor that anchors a project, else the invocation directory.                       |
+| `legacyRoot`                                                  | `(explicit, cwd, exists?) => string`      | The same walk anchored on 0.x markers, for `smthrs migrate`.                                                     |
+| `legacyMarkers`                                               | `ReadonlyArray<string>`                   | `.smithers`, `smithers.db`, and its WAL and shared-memory files.                                                 |
+| `stateDirectory`, `logDirectory`, `logFile`, `flowsDirectory` | `(root, ...) => string`                   | `.flows/`, `.flows/logs/`, `.flows/logs/<run-id>.log`, and `flows/`.                                             |
+| `legacyState`                                                 | `(cwd, exists?) => ReadonlyArray<string>` | 0.x markers beside a project, skipping any directory that already holds `.flows/`. The notice's input.           |
+| `legacyDatabases`                                             | `(cwd, exists?) => ReadonlyArray<string>` | Every 0.x `smithers.db` beside a project, not gated on `.flows/`. The report's and the refusal's input.          |
+| `legacyNotice`                                                | `(path: string) => string`                | The one-line stderr notice.                                                                                      |
+| `ProjectRoot`, `MigrationRoot`, `LegacyState`                 | `Context.Reference`                       | The three answers, as services.                                                                                  |
+| `layer`                                                       | `(projectRoot, migrationRoot) => Layer`   | Provides all three. The 0.x sample is taken while the layers are described, before anything creates `.flows/`.   |
+| `assertRoot`                                                  | `(projectRoot: string) => void`           | Throws `UsageError` if the selected root is not an accessible directory, before a command creates durable state. |
 
 ## Environment
 
 The closed set of variables rc.0 reads.
 
-| Export | Signature | Meaning |
-| --- | --- | --- |
-| `Name`, `names` | `{ name, purpose }` | Every `SMITHERS_*` variable the CLI reads, with what it is for. |
-| `Source` | `Readonly<Record<string, string \| undefined>>` | The shape this module reads. `process.env` satisfies it. |
-| `read` | `(environment, name) => string \| undefined` | One name. An empty value is treated exactly like an unset one. |
-| `readInteger` | `(environment, name) => number \| undefined` | One name as a positive integer. The whole value must be digits, so `30s` is ignored rather than read as 30. |
-| `unsupportedBackendMessage` | `string` | The whole refusal sentence, fixed by the release policy. |
-| `unsupportedBackend` | `(value) => string \| undefined` | The refusal, or `undefined` for `sqlite`, empty, and unset. |
-| `ambientWorkingDirectory` | `() => string` | The process directory. Belongs only in explicit process-backed service defaults; project operations take their root as an argument. |
+| Export                      | Signature                                       | Meaning                                                                                                                             |
+| --------------------------- | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `Name`, `names`             | `{ name, purpose }`                             | Every `SMITHERS_*` variable the CLI reads, with what it is for.                                                                     |
+| `Source`                    | `Readonly<Record<string, string \| undefined>>` | The shape this module reads. `process.env` satisfies it.                                                                            |
+| `read`                      | `(environment, name) => string \| undefined`    | One name. An empty value is treated exactly like an unset one.                                                                      |
+| `readInteger`               | `(environment, name) => number \| undefined`    | One name as a positive integer. The whole value must be digits, so `30s` is ignored rather than read as 30.                         |
+| `unsupportedBackendMessage` | `string`                                        | The whole refusal sentence, fixed by the release policy.                                                                            |
+| `unsupportedBackend`        | `(value) => string \| undefined`                | The refusal, or `undefined` for `sqlite`, empty, and unset.                                                                         |
+| `ambientWorkingDirectory`   | `() => string`                                  | The process directory. Belongs only in explicit process-backed service defaults; project operations take their root as an argument. |
 
 ## ExecutorOwnership
 
-| Export | Signature | Meaning |
-| --- | --- | --- |
-| `ExecutorOwnership` | `Context.Reference<boolean>` | Whether this process drives accepted runs. Defaults to `false`, so a composition that forgets to declare it refuses to wait rather than waiting forever. |
-| `layer` | `(ownsExecutor: boolean) => Layer` | Declares it for one command scope. `Application.layer` supplies it from what it actually built. |
+| Export              | Signature                          | Meaning                                                                                                                                                  |
+| ------------------- | ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ExecutorOwnership` | `Context.Reference<boolean>`       | Whether this process drives accepted runs. Defaults to `false`, so a composition that forgets to declare it refuses to wait rather than waiting forever. |
+| `layer`             | `(ownsExecutor: boolean) => Layer` | Declares it for one command scope. `Application.layer` supplies it from what it actually built.                                                          |
 
 ## Detached
 
 The `flow start -d` launch.
 
-| Export | Signature | Meaning |
-| --- | --- | --- |
-| `admissionVariable` | `"SMITHERS_INTERNAL_DETACHED_ADMISSION"` | The nonce the parent passes to the child. |
-| `defaultTimeoutMs` | `30_000` | How long the parent waits for the admission line. |
-| `defaultTerminationGraceMs` | `2_000` | How long a terminated child gets before it is killed. |
-| `admissionLine` | `(nonce, runId) => string` | The line the child writes once the run row is durable. |
-| `admittedRunId` | `(tail, nonce) => string \| undefined` | Accepts only IDs matching `[A-Za-z0-9][A-Za-z0-9._-]{0,127}` from this nonce's admission line. An unsafe ID returns `undefined`. |
-| `logTail` | `(file, maxBytes?) => string` | The end of a log file. |
-| `terminate` | `(...) => Promise<...>` | Ends a child that never reached admission. |
-| `Launched`, `Rejected`, `Options` | interfaces | The two outcomes of a launch, and its inputs. |
-| `launch` | `(options) => Promise<Launched \| Rejected>` | Spawns the child and waits for admission. |
-| `isLaunched` | `(result) => result is Launched` | Which outcome it was. |
-| `discard` | `(rejected: Rejected) => void` | Cleans up after a rejection. |
+| Export                            | Signature                                    | Meaning                                                                                                                          |
+| --------------------------------- | -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `admissionVariable`               | `"SMITHERS_INTERNAL_DETACHED_ADMISSION"`     | The nonce the parent passes to the child.                                                                                        |
+| `defaultTimeoutMs`                | `30_000`                                     | How long the parent waits for the admission line.                                                                                |
+| `defaultTerminationGraceMs`       | `2_000`                                      | How long a terminated child gets before it is killed.                                                                            |
+| `admissionLine`                   | `(nonce, runId) => string`                   | The line the child writes once the run row is durable.                                                                           |
+| `admittedRunId`                   | `(tail, nonce) => string \| undefined`       | Accepts only IDs matching `[A-Za-z0-9][A-Za-z0-9._-]{0,127}` from this nonce's admission line. An unsafe ID returns `undefined`. |
+| `logTail`                         | `(file, maxBytes?) => string`                | The end of a log file.                                                                                                           |
+| `terminate`                       | `(...) => Promise<...>`                      | Ends a child that never reached admission.                                                                                       |
+| `Launched`, `Rejected`, `Options` | interfaces                                   | The two outcomes of a launch, and its inputs.                                                                                    |
+| `launch`                          | `(options) => Promise<Launched \| Rejected>` | Spawns the child and waits for admission.                                                                                        |
+| `isLaunched`                      | `(result) => result is Launched`             | Which outcome it was.                                                                                                            |
+| `discard`                         | `(rejected: Rejected) => void`               | Cleans up after a rejection.                                                                                                     |
 
 ## Doctor
 
 Readiness as one report.
 
-| Export | Signature | Meaning |
-| --- | --- | --- |
-| `Level` | `"ok" \| "warn" \| "fail"` | A `warn` stops nothing; a `fail` will stop the next command. |
-| `Check`, `Report` | `{ name, level, detail }`, `{ root, checks }` | The report is data. `--json` prints it verbatim. |
-| `minimumNode` | `"26.4.0"` | The floor the durable engine requires. |
-| `supportedNodeRange` | `">=26.4.0"` | The Node range supported by the CLI's runtime dependencies. |
-| `satisfiesNode` | `(version, minimum?) => boolean` | Whether a Node version is supported and clears an optional higher floor. |
-| `Options` | interface | Every host fact is a parameter, so the report is deterministic in a test. |
-| `inspect` | `(options) => Report` | Runs every check. |
-| `render` | `(report) => string` | One line per check. |
-| `failed` | `(report) => boolean` | Whether any check failed, which decides the command's status. |
+| Export               | Signature                                     | Meaning                                                                   |
+| -------------------- | --------------------------------------------- | ------------------------------------------------------------------------- |
+| `Level`              | `"ok" \| "warn" \| "fail"`                    | A `warn` stops nothing; a `fail` will stop the next command.              |
+| `Check`, `Report`    | `{ name, level, detail }`, `{ root, checks }` | The report is data. `--json` prints it verbatim.                          |
+| `minimumNode`        | `"26.4.0"`                                    | The floor the durable engine requires.                                    |
+| `supportedNodeRange` | `">=26.4.0"`                                  | The Node range supported by the CLI's runtime dependencies.               |
+| `satisfiesNode`      | `(version, minimum?) => boolean`              | Whether a Node version is supported and clears an optional higher floor.  |
+| `Options`            | interface                                     | Every host fact is a parameter, so the report is deterministic in a test. |
+| `inspect`            | `(options) => Report`                         | Runs every check.                                                         |
+| `render`             | `(report) => string`                          | One line per check.                                                       |
+| `failed`             | `(report) => boolean`                         | Whether any check failed, which decides the command's status.             |
 
 ## Forensics
 
 Read-only projections of a run's events. Nothing here opens a database, so
 `--remote` renders exactly what a local run renders.
 
-| Export | Signature | Meaning |
-| --- | --- | --- |
-| `Refusal` | `{ message, count }` | One refused flow call, aggregated by message. |
-| `Digest` | interface | Status, cause, seat, turns, calls, refusals, duplicate calls, edits, tokens, flow counts, parked approval, final output. |
-| `digest` | `(events) => Digest` | Computes it. Missing or malformed fields become optional or zero values rather than failing. |
-| `renderDiagnosis` | `(run, digest) => string` | The diagnosis card: verdict, activity, refusals, cause, and the exact next commands. |
-| `eventLine` | `(event) => string` | One follow-mode line. |
-| `renderTranscript` | `(events) => string` | The turn-by-turn transcript `smthrs runs logs` prints. |
-| `shellQuote` | `(value) => string` | Quotes a value for the card's copy-paste commands. |
+| Export             | Signature                 | Meaning                                                                                                                  |
+| ------------------ | ------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `Refusal`          | `{ message, count }`      | One refused flow call, aggregated by message.                                                                            |
+| `Digest`           | interface                 | Status, cause, seat, turns, calls, refusals, duplicate calls, edits, tokens, flow counts, parked approval, final output. |
+| `digest`           | `(events) => Digest`      | Computes it. Missing or malformed fields become optional or zero values rather than failing.                             |
+| `renderDiagnosis`  | `(run, digest) => string` | The diagnosis card: verdict, activity, refusals, cause, and the exact next commands.                                     |
+| `eventLine`        | `(event) => string`       | One follow-mode line.                                                                                                    |
+| `renderTranscript` | `(events) => string`      | The turn-by-turn transcript `smthrs runs logs` prints.                                                                   |
+| `shellQuote`       | `(value) => string`       | Quotes a value for the card's copy-paste commands.                                                                       |
 
 ## NodeOutput
 
-| Export | Signature | Meaning |
-| --- | --- | --- |
-| `resultNodeId` | `"result"` | The conventional node id of a flow's final output. |
-| `Node` | interface | One registered node output. |
-| `project` | `(events) => ReadonlyArray<Node>` | The node-output projection of a run's events. |
-| `find` | `(...)` | One node by id. |
-| `notFound` | `(runId, nodeId, nodes) => string` | The usage message for a node the run does not have. |
-| `render` | `(node) => string` | One node's human rendering. |
+| Export         | Signature                          | Meaning                                             |
+| -------------- | ---------------------------------- | --------------------------------------------------- |
+| `resultNodeId` | `"result"`                         | The conventional node id of a flow's final output.  |
+| `Node`         | interface                          | One registered node output.                         |
+| `project`      | `(events) => ReadonlyArray<Node>`  | The node-output projection of a run's events.       |
+| `find`         | `(...)`                            | One node by id.                                     |
+| `notFound`     | `(runId, nodeId, nodes) => string` | The usage message for a node the run does not have. |
+| `render`       | `(node) => string`                 | One node's human rendering.                         |
 
 ## CloudSession
 
 The signed-in Smithers Cloud session for hosts other than the CLI (the terminal UI reads the factory's issue list with it). The token and origin come from where `smthrs auth login` and `smthrs config` put them.
 
-| Export | Signature | Meaning |
-| --- | --- | --- |
-| `Cloud` | interface | `origin`, and `get(path, signal?)` for a `/api/…` path on that origin as the signed-in person: no redirects, 30 s, at most 4 MiB. |
-| `signedIn` | `(env) => Promise<Cloud \| undefined>` | The session, or undefined without an origin or a login. |
-| `repository` | `(directory, env) => string \| undefined` | The `owner/name` a checkout's git or jj remote names, as `smthrs open` reads it. |
+| Export       | Signature                                 | Meaning                                                                                                                           |
+| ------------ | ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `Cloud`      | interface                                 | `origin`, and `get(path, signal?)` for a `/api/…` path on that origin as the signed-in person: no redirects, 30 s, at most 4 MiB. |
+| `signedIn`   | `(env) => Promise<Cloud \| undefined>`    | The session, or undefined without an origin or a login.                                                                           |
+| `repository` | `(directory, env) => string \| undefined` | The `owner/name` a checkout's git or jj remote names, as `smthrs open` reads it.                                                  |
 
 ## Agents
 
 The agent configurations `smthrs mcp add` writes into.
 
-| Export | Signature | Meaning |
-| --- | --- | --- |
-| `serverName` | `"smithers"` | The registered server name. |
-| `codexConfigString` | `(text: string) => string` | A TOML basic string for Codex overrides; refuses malformed Unicode. |
-| `Agent`, `agents` | `{ id, mcpConfig }` | `claude` at `~/.claude.json`, `codex` at `$CODEX_HOME/config.toml` (default `~/.codex/config.toml`). |
-| `find` | `(id) => Agent \| undefined` | One agent by id. |
-| `launchCommand` | `(execPath?, entry?) => { command, args }` | The current executable and entry, verbatim, so a local development install registers itself rather than a package runner. |
-| `Wired` | `{ agent, path, status, reason? }` | What one wiring attempt did. |
-| `addMcp` | `(agent, home?, environment?) => Wired` | Registers through the Codex CLI and verifies discovery, or writes Claude JSON under a lock with atomic replacement. An explicit home isolates Codex unless the supplied environment sets `CODEX_HOME`. |
-| `manualInstructions` | `(targets?) => string` | What to do by hand when every write failed. |
+| Export               | Signature                                  | Meaning                                                                                                                                                                                                |
+| -------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `serverName`         | `"smithers"`                               | The registered server name.                                                                                                                                                                            |
+| `codexConfigString`  | `(text: string) => string`                 | A TOML basic string for Codex overrides; refuses malformed Unicode.                                                                                                                                    |
+| `Agent`, `agents`    | `{ id, mcpConfig }`                        | `claude` at `~/.claude.json`, `codex` at `$CODEX_HOME/config.toml` (default `~/.codex/config.toml`).                                                                                                   |
+| `find`               | `(id) => Agent \| undefined`               | One agent by id.                                                                                                                                                                                       |
+| `launchCommand`      | `(execPath?, entry?) => { command, args }` | The current executable and entry, verbatim, so a local development install registers itself rather than a package runner.                                                                              |
+| `Wired`              | `{ agent, path, status, reason? }`         | What one wiring attempt did.                                                                                                                                                                           |
+| `addMcp`             | `(agent, home?, environment?) => Wired`    | Registers through the Codex CLI and verifies discovery, or writes Claude JSON under a lock with atomic replacement. An explicit home isolates Codex unless the supplied environment sets `CODEX_HOME`. |
+| `manualInstructions` | `(targets?) => string`                     | What to do by hand when every write failed.                                                                                                                                                            |
 
 ## Serve
 
 The gateway bind rule and its banner.
 
-| Export | Signature | Meaning |
-| --- | --- | --- |
-| `loopbackHosts` | `["127.0.0.1", "::1", "localhost"]` | The addresses that need no opt-in. |
-| `defaultBind` | `{ host: "127.0.0.1", port: 3000 }` | The default. |
-| `Mount`, `mounts` | `{ protocol, path, serves }` | Every route the gateway hosts, in banner order. The banner is rendered from this list, so it cannot advertise a 404. |
-| `isLoopback` | `(host) => boolean` | Whether a host needs the opt-in. |
-| `Bind` | `{ host, port, listen, credential }` | What the verb was asked to do. |
-| `refuse` | `(bind) => UnsupportedError \| undefined` | The refusal for a bind that is not allowed. Non-loopback needs both `--listen` and a bearer token. |
-| `workspaceHash` | `(root) => string` | 16 hex characters of the SHA-256 of the resolved root. The path itself is never published. |
-| `health` | `(root) => GatewayServer.Health` | What `GET /health` answers. |
-| `banner` | `(bind) => string` | The line printed once the server is listening. |
-| `GatewayHost`, `GatewayHostService` | `Context.Service` | The already-composed Node gateway, supplied by the platform composition so serving reuses the open control database. |
-| `host` | `(bind, root) => Effect` | Hosts the gateway until the process is interrupted. |
+| Export                              | Signature                                 | Meaning                                                                                                              |
+| ----------------------------------- | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `loopbackHosts`                     | `["127.0.0.1", "::1", "localhost"]`       | The addresses that need no opt-in.                                                                                   |
+| `defaultBind`                       | `{ host: "127.0.0.1", port: 3000 }`       | The default.                                                                                                         |
+| `Mount`, `mounts`                   | `{ protocol, path, serves }`              | Every route the gateway hosts, in banner order. The banner is rendered from this list, so it cannot advertise a 404. |
+| `isLoopback`                        | `(host) => boolean`                       | Whether a host needs the opt-in.                                                                                     |
+| `Bind`                              | `{ host, port, listen, credential }`      | What the verb was asked to do.                                                                                       |
+| `refuse`                            | `(bind) => UnsupportedError \| undefined` | The refusal for a bind that is not allowed. Non-loopback needs both `--listen` and a bearer token.                   |
+| `workspaceHash`                     | `(root) => string`                        | 16 hex characters of the SHA-256 of the resolved root. The path itself is never published.                           |
+| `health`                            | `(root) => GatewayServer.Health`          | What `GET /health` answers.                                                                                          |
+| `banner`                            | `(bind) => string`                        | The line printed once the server is listening.                                                                       |
+| `GatewayHost`, `GatewayHostService` | `Context.Service`                         | The already-composed Node gateway, supplied by the platform composition so serving reuses the open control database. |
+| `host`                              | `(bind, root) => Effect`                  | Hosts the gateway until the process is interrupted.                                                                  |
 
 ## Init
 
 `smthrs init`.
 
-| Export | Signature | Meaning |
-| --- | --- | --- |
-| `ignoreRule` | `".flows/"` | The line added to `.gitignore`. |
-| `IgnoreStatus` | `"created" \| "updated" \| "unchanged" \| "skipped"` | What happened to that file. |
-| `isRepository`, `ensureIgnored` | `(root, ...) => ...` | Whether the directory is a repository, and the ignore write. |
-| `nameProblem`, `isValidName` | `(name) => ...` | Why a flow name is rejected, and whether it is. |
-| `defaultName` | `(root) => string` | The slug of the project directory, or `flow`. |
-| `Seat`, `defaultSeat` | `{ seat, variable, resolved }` | The seat the scaffold declares, chosen from the same provider keys `doctor` reports. A directory with no key still gets a `model:` line, so the launch refuses by naming the key instead of leaving a run nothing drives. |
-| `template` | `(name, seat) => string` | The scaffolded `flow.mdx`: markdown, so it needs no build step in the directory `init` just created. |
-| `Scaffolded`, `scaffold` | `(root, name, environment) => Scaffolded` | Writes `flows/<name>/flow.mdx` and creates `.flows/`. An existing flow file is left exactly as it is. |
+| Export                          | Signature                                            | Meaning                                                                                                                                                                                                                   |
+| ------------------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ignoreRule`                    | `".flows/"`                                          | The line added to `.gitignore`.                                                                                                                                                                                           |
+| `IgnoreStatus`                  | `"created" \| "updated" \| "unchanged" \| "skipped"` | What happened to that file.                                                                                                                                                                                               |
+| `isRepository`, `ensureIgnored` | `(root, ...) => ...`                                 | Whether the directory is a repository, and the ignore write.                                                                                                                                                              |
+| `nameProblem`, `isValidName`    | `(name) => ...`                                      | Why a flow name is rejected, and whether it is.                                                                                                                                                                           |
+| `defaultName`                   | `(root) => string`                                   | The slug of the project directory, or `flow`.                                                                                                                                                                             |
+| `Seat`, `defaultSeat`           | `{ seat, variable, resolved }`                       | The seat the scaffold declares, chosen from the same provider keys `doctor` reports. A directory with no key still gets a `model:` line, so the launch refuses by naming the key instead of leaving a run nothing drives. |
+| `template`                      | `(name, seat) => string`                             | The scaffolded `flow.mdx`: markdown, so it needs no build step in the directory `init` just created.                                                                                                                      |
+| `Scaffolded`, `scaffold`        | `(root, name, environment) => Scaffolded`            | Writes `flows/<name>/flow.mdx` and creates `.flows/`. An existing flow file is left exactly as it is.                                                                                                                     |
 
 ## Suggest
 
 `smthrs suggest`: read the project, stream the ways Smithers can help, and
 implement the one the operator picks.
 
-| Export | Signature | Meaning |
-| --- | --- | --- |
-| `Implementation` | `{ kind, suggestion, followUp?, files, command, notes }` | What one implementation wrote, and which of the three briefs it answered. |
-| `Outcome`, `outcomeDocument`, `exitStatus` | | The result of one pass, its `--json` document, and its status: 130 when cancelled, 0 otherwise. |
-| `Implement` | `(brief: string) => Effect<Implemented, Error>` | The seam the agent is called through. |
-| `Options`, `run` | `(options) => Effect<Outcome, CliError>` | The order the scan, the pick, and the implementation happen in. |
-| `isDirectory` | `(path) => boolean` | Whether the target is a directory. |
-| `suggestionDocument`, `seatDocument` | | The `--json` documents for one suggestion and the chosen seat. |
-| `introLine`, `streamLabel`, `wroteNote` | | The three human lines. |
+| Export                                     | Signature                                                | Meaning                                                                                         |
+| ------------------------------------------ | -------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `Implementation`                           | `{ kind, suggestion, followUp?, files, command, notes }` | What one implementation wrote, and which of the three briefs it answered.                       |
+| `Outcome`, `outcomeDocument`, `exitStatus` |                                                          | The result of one pass, its `--json` document, and its status: 130 when cancelled, 0 otherwise. |
+| `Implement`                                | `(brief: string) => Effect<Implemented, Error>`          | The seam the agent is called through.                                                           |
+| `Options`, `run`                           | `(options) => Effect<Outcome, CliError>`                 | The order the scan, the pick, and the implementation happen in.                                 |
+| `isDirectory`                              | `(path) => boolean`                                      | Whether the target is a directory.                                                              |
+| `suggestionDocument`, `seatDocument`       |                                                          | The `--json` documents for one suggestion and the chosen seat.                                  |
+| `introLine`, `streamLabel`, `wroteNote`    |                                                          | The three human lines.                                                                          |
 
 The implementation writes under the project root and never commits: the grant
 store denies `.git/` and `.flows/`, and there is no process-spawn grant at all.
@@ -20285,41 +20321,41 @@ store denies `.git/` and `.flows/`, and there is no process-spawn grant at all.
 
 Which seats this machine can run.
 
-| Export | Signature | Meaning |
-| --- | --- | --- |
-| `Candidate`, `order` | | The seats considered, in preference order. |
-| `Detection`, `detect` | `(host) => ReadonlyArray<Detection>` | What this machine has, from host facts passed in. |
-| `ClaudeCodeLogin`, `claudeCodeLogin` | `(environment) => Promise<ClaudeCodeLogin \| undefined>` | The `claude` on `PATH` and what `claude auth status` reports; never a token or credentials file. Concurrent probes share one result per login environment; token-backed environments are isolated by object. Subscription statuses persist and other statuses expire after 30 seconds. Invalid status reports the executable's redacted stderr. |
-| `CodexLogin`, `codexLogin`, `codexModel` | `(environment) => Promise<CodexLogin \| undefined>` | Vendor `codex login status` and the model an OpenAI alias names. Only Codex reads its login; API-key logins are refused. |
-| `claudeCode` | `(host) => Promise<{ available, reason, setupHint, executable? }>` | Whether the `claude-code` seats run: a subscription signed in to Claude Code, and no `ANTHROPIC_API_KEY`. |
-| `claudeCodeSeats`, `claudeCodeModel` | | `claude-code:<alias>` for each Anthropic alias, and the model Claude Code runs for one. |
-| `Chosen`, `chooseSeat` | | The seat picked, and why. |
-| `compatible`, `compatibleKey` | | The provider compatibility table and its lookup. |
-| `defaultSeat` | `Record<Candidate, string>` | The seat string each candidate resolves to. |
-| `starterSeats` | `ReadonlyArray<readonly [variable: string, seat: string]>` | Ordered credential-variable and model-seat pairs used by scaffolding, aligned with the executor's supported provider routes. |
-| `NoSeatError`, `SeatSyntaxError`, `noSeatMessage` | | The two refusals, and the sentence that names what to set. |
+| Export                                            | Signature                                                          | Meaning                                                                                                                                                                                                                                                                                                                                         |
+| ------------------------------------------------- | ------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Candidate`, `order`                              |                                                                    | The seats considered, in preference order.                                                                                                                                                                                                                                                                                                      |
+| `Detection`, `detect`                             | `(host) => ReadonlyArray<Detection>`                               | What this machine has, from host facts passed in.                                                                                                                                                                                                                                                                                               |
+| `ClaudeCodeLogin`, `claudeCodeLogin`              | `(environment) => Promise<ClaudeCodeLogin \| undefined>`           | The `claude` on `PATH` and what `claude auth status` reports; never a token or credentials file. Concurrent probes share one result per login environment; token-backed environments are isolated by object. Subscription statuses persist and other statuses expire after 30 seconds. Invalid status reports the executable's redacted stderr. |
+| `CodexLogin`, `codexLogin`, `codexModel`          | `(environment) => Promise<CodexLogin \| undefined>`                | Vendor `codex login status` and the model an OpenAI alias names. Only Codex reads its login; API-key logins are refused.                                                                                                                                                                                                                        |
+| `claudeCode`                                      | `(host) => Promise<{ available, reason, setupHint, executable? }>` | Whether the `claude-code` seats run: a subscription signed in to Claude Code, and no `ANTHROPIC_API_KEY`.                                                                                                                                                                                                                                       |
+| `claudeCodeSeats`, `claudeCodeModel`              |                                                                    | `claude-code:<alias>` for each Anthropic alias, and the model Claude Code runs for one.                                                                                                                                                                                                                                                         |
+| `Chosen`, `chooseSeat`                            |                                                                    | The seat picked, and why.                                                                                                                                                                                                                                                                                                                       |
+| `compatible`, `compatibleKey`                     |                                                                    | The provider compatibility table and its lookup.                                                                                                                                                                                                                                                                                                |
+| `defaultSeat`                                     | `Record<Candidate, string>`                                        | The seat string each candidate resolves to.                                                                                                                                                                                                                                                                                                     |
+| `starterSeats`                                    | `ReadonlyArray<readonly [variable: string, seat: string]>`         | Ordered credential-variable and model-seat pairs used by scaffolding, aligned with the executor's supported provider routes.                                                                                                                                                                                                                    |
+| `NoSeatError`, `SeatSyntaxError`, `noSeatMessage` |                                                                    | The two refusals, and the sentence that names what to set.                                                                                                                                                                                                                                                                                      |
 
 ## Gc
 
 Retention.
 
-| Export | Signature | Meaning |
-| --- | --- | --- |
-| `defaultRetention` | `"30d"` | The default `--older-than`. |
-| `duration` | `(value) => number \| undefined` | A duration string as milliseconds. `0s` is not a retention policy and is refused. |
-| `databases` | `(root) => ReadonlyArray<string>` | The files a sweep opens. |
-| `Failure`, `failureMessage` | | A database the sweep could not open, and the sentence naming them. |
-| `Sweep`, `sweep` | `(root, { olderThan, dryRun }) => Effect<Sweep>` | The pass, and what it deleted or would delete. |
+| Export                      | Signature                                        | Meaning                                                                           |
+| --------------------------- | ------------------------------------------------ | --------------------------------------------------------------------------------- |
+| `defaultRetention`          | `"30d"`                                          | The default `--older-than`.                                                       |
+| `duration`                  | `(value) => number \| undefined`                 | A duration string as milliseconds. `0s` is not a retention policy and is refused. |
+| `databases`                 | `(root) => ReadonlyArray<string>`                | The files a sweep opens.                                                          |
+| `Failure`, `failureMessage` |                                                  | A database the sweep could not open, and the sentence naming them.                |
+| `Sweep`, `sweep`            | `(root, { olderThan, dryRun }) => Effect<Sweep>` | The pass, and what it deleted or would delete.                                    |
 
 ## Memory, mirrors, and credentials
 
-| Module | Export summary |
-| --- | --- |
-| `Legacy` | `read(path)` opens a 0.x `smithers.db` read-only; `refusal(databases)` is the sentence that names its non-terminal runs; `terminalStatuses` is the vocabulary it counts against. |
+| Module         | Export summary                                                                                                                                                                                                                                                                                        |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Legacy`       | `read(path)` opens a 0.x `smithers.db` read-only; `refusal(databases)` is the sentence that names its non-terminal runs; `terminalStatuses` is the vocabulary it counts against.                                                                                                                      |
 | `ClaudeMirror` | The Claude Code plugin mirror protocol: `contract`, `subscriptionsPath`, `subscriptionTtlMs`, `Subscription`, `readSubscriptions`, `subscribe`, `unsubscribe`, `MirrorNode`, `Frame`, `frame`, `defaultMaxOutputChars`, `terminalStatuses`, `isTerminal`, `Transition`, `notableKinds`, `transition`. |
-| `Update` | `packageName`, `registryUrl`, `Status`, `isNewer`, `compare(current, tags)`, `render(status)`. Compares the installed version against the `next` and `latest` dist-tags, `next` first, and prints the install line. It changes nothing. |
-| `Bug` | `defaultEndpoint`, `timeoutMs`, `scrubText`, `scrub`, `Report`, `report`. Everything collected takes the diagnostic redaction rules (`Redaction.redactDiagnostic`) before it leaves the machine, and a value carrying a callable, a proxy, or a `toJSON` member is refused rather than rendered. |
-| `Version` | `packageVersion`, read from the shipped manifest. The module throws at import when the manifest declares no version, because printing `undefined` to an operator is worse than refusing to start. |
+| `Update`       | `packageName`, `registryUrl`, `Status`, `isNewer`, `compare(current, tags)`, `render(status)`. Compares the installed version against the `next` and `latest` dist-tags, `next` first, and prints the install line. It changes nothing.                                                               |
+| `Bug`          | `defaultEndpoint`, `timeoutMs`, `scrubText`, `scrub`, `Report`, `report`. Everything collected takes the diagnostic redaction rules (`Redaction.redactDiagnostic`) before it leaves the machine, and a value carrying a callable, a proxy, or a `toJSON` member is refused rather than rendered.      |
+| `Version`      | `packageVersion`, read from the shipped manifest. The module throws at import when the manifest declares no version, because printing `undefined` to an operator is worse than refusing to start.                                                                                                     |
 
 ## The executable
 
@@ -20338,6 +20374,16 @@ The per-command reference is generated from `--help` and lives on smithers.sh:
 [`smthrs flow`](/docs/reference/cli/flow/), [`smthrs runs`](/docs/reference/cli/runs/), [`smthrs run`](/docs/reference/cli/run/),
 and the rest. This page documents the library surface used to compose or embed
 that executable.
+
+## ExecutionEnvironment
+
+`ExecutionEnvironment` shares saved local, SSH, and Cloud command locations between
+CLI consumers. `list/get/add/remove` read and update the private location registry;
+`plan(profile, argv, source, options)` assembles a command, and `run` executes it with
+inherited I/O and returns its exit status. A `Profile` supplies `name`, `transport`,
+`directory`, optional `destination`, and optional `home`. `Options` selects a
+terminal, cancellation signal, or loopback port forwarding for an SSH profile. Tool credentials remain
+managed by tools on the execution machine.
 
 ---
 
@@ -20535,10 +20581,16 @@ ordering keys, not numeric offsets. Control-launched runs retain launch order;
 engine-created runs follow in creation-time and run-id order. Removing a prior
 row does not skip the next row. Listings are live, not a fixed snapshot.
 
-Paginated run filters use durable summary fields. The runtime selects at most
-`limit` rows before decoding summaries, reading their ancestry, or observing
-execution. Executor observations and pending steering counts enrich only those
-rows, so an observed status may be newer than the status used for selection.
+A run page returns at most `limit` rows; `limit` does not bound the work done
+to fill it. Without a `status` or `terminal` filter, the runtime selects at most
+`limit` rows on durable summary fields before decoding summaries, reading their
+ancestry, or observing execution, and executor observations enrich only those
+rows. When the executor reports observed status, a `status` or `terminal`
+filter applies to that observed status instead: the runtime selects on the
+remaining filters, observes each selected row, and keeps walking the source
+until the page is full or no runs remain. One page can therefore observe many
+more runs than `limit`, so a host cannot treat the page size as a bound on
+`readExecution` calls. Pending steering counts enrich only the returned rows.
 An exact `runId` filter keeps the direct lookup and applies the remaining
 filters to that observation.
 
@@ -36091,6 +36143,16 @@ The model test suite uses local fixtures by default. Live evaluator, Gemini,
 and Cerebras cases require `SMITHERS_LIVE_MODEL_TESTS=1` and their matching
 provider key. An ambient key alone does not enable provider traffic.
 
+## Chat span provider
+
+Routes declare `providerName` independently of their route id and protocol.
+`Route.anthropic` declares `anthropic`; `Route.openai` and `OpenAIChatGPT.make`
+declare `openai`. Custom routes and compatible constructors require an explicit
+OpenTelemetry provider name, such as `gcp.gemini` or `openrouter`.
+`Route.toModel` carries that name to the agent chat span as `gen_ai.provider.name`.
+Custom model implementations can declare `providerName`; provider-neutral test
+models omit it. Prompt and response content remain absent from spans.
+
 ---
 
 # @smthrs/notifications
@@ -37353,9 +37415,8 @@ A dry run omits `apply` and reports `applied: undefined`. The optional approval
 callback retains its separate contract described in [Teams](https://smithers-patterns.smithers.sh/teams/#intervene).
 
 `Kanban` columns receive `{ item, column, previous }`. Successful predecessors
-are the card values, unwrapped from the quarantine protocol. A declared later
-column still receives a `Quarantined` marker after a failure; `run` skips that
-card instead. Both completion callbacks receive `{ items, board }`, where
+are the card values, unwrapped from the quarantine protocol. A failed card
+makes no further column call, in the declared form and in `run` alike. Both completion callbacks receive `{ items, board }`, where
 `board` contains `board`, `completed`, `failed`, and `iterations`. The declared
 pass reports `iterations: 1`, retains each successful column value, and records
 each card's first failure. Runtime iterations report the final pass.
@@ -40327,7 +40388,14 @@ single answer to copy.
    `**` keeps the root and its files while pruning every directory.
    Node empties the answer instead.
 3. **A dotted segment after `**`.** Node 22 matched nothing for `**/.hidden`;
-   Node 24 and later match the dotfiles. The adapter follows the newer reading.
+   Node 24 and later match the dotfiles. The adapter follows the newer reading
+   for the dotfiles themselves, but a `**` never spans a hidden directory, so
+   Node's further step of walking into a hidden directory that the next segment
+   matches is refused. With `.hidden/.secret` and `.hidden/.nested/.wanted`
+   present, Node returns `.hidden/.secret` for `**/.*` and `.hidden/.nested` for
+   `**/.*/**`; the adapter returns `.hidden` alone for both. Only a segment that
+   names the hidden directory enters it: `.hidden/.*` returns `.hidden/.nested`
+   and `.hidden/.secret`.
 
 **Removal.** `remove(path, { recursive: true })` walks iteratively with an
 explicit descriptor stack: depth is bounded at 512 levels and the total number
@@ -47580,7 +47648,7 @@ const program = Effect.gen(function*() {
 | Import                                   | Source                                                                                                                                      | Notes                                                                                |
 | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
 | `@smthrs/time-travel`                    | [src/index.ts](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/time-travel/src/index.ts)                           | The barrel is a browser-contract entry point and bundles without a `node:` built-in. |
-| `@smthrs/time-travel/SqlTimeTravelStore` | [src/SqlTimeTravelStore.ts](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/time-travel/src/SqlTimeTravelStore.ts) | SQLite dialect only. Any SQLite-speaking `SqlClient` runs it.                        |
+| `@smthrs/time-travel/SqlTimeTravelStore` | [src/SqlTimeTravelStore.ts](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/time-travel/src/SqlTimeTravelStore.ts) | Runs on an injected SQLite or PostgreSQL `SqlClient`.                                |
 
 The barrel exports `TimeTravel` and `ReadOnlyTimeTravel` flat, and
 the other modules as namespaces. It re-exports the rest of the `TimeTravel`
@@ -47871,8 +47939,11 @@ The coordinate system. Import as `Frame` from the barrel, or from
 | `forkCreatedEventType` | `"flows.time-travel.fork-created"`, the journal event type marking a run as fork-created.      |
 | `ForkCreated`          | Schema and type: `{ parentRunId, forkJournalOffset, childRunId }`, the payload of that record. |
 
-`seq` counts journal records, so frame `n` means "after the first `n` records
-were durable", and `0` is the state before the run wrote anything. `attached`
+`seq` is the zero-based journal sequence of the last record a frame includes:
+frame `n` covers every record with `seq <= n`, so frame `0` is the state after
+the first record. On an empty history `replay` and `inspect` refuse every frame
+`not_found`, while `rewind` accepts frame `0` and has nothing to truncate. No
+frame addresses the state before a written first record. `attached`
 distinguishes a descendant that still depends on the history under a frame from
 one already cut loose.
 
@@ -47985,7 +48056,7 @@ lineageId?, payload, eventType? }`. `MemoryState` is the whole world as
 
 ## SqlTimeTravelStore
 
-The durable store, SQLite dialect only.
+The durable store, over an injected SQLite or PostgreSQL `SqlClient`.
 
 ```ts
 const migrate: Effect<void, unknown, SqlClient>
@@ -48114,12 +48185,12 @@ as its identity, classification, and reason, never as the effect's `input`,
 
 ## Limits
 
-- The durable store is SQLite dialect only. Its DDL uses `typeof()` and
-  `json_valid` CHECK constraints, and its reads use `json_extract` with `$`
-  paths, so any SQLite-speaking `SqlClient` runs it and nothing else does.
-  PostgreSQL and PGlite are unsupported. Archive writes use strict `INSERT`
-  keyed by `(run_id, generation, seq)`; a collision rolls back the archive
-  transaction.
+- The durable store runs on the SQL client it is given, SQLite or PostgreSQL.
+  The client's dialect selects its CHECK constraints, JSON extraction, and
+  recursive lineage queries; the migration rungs are the same on both. Other
+  dialects, including MySQL, are unsupported. Archive writes use strict
+  `INSERT` keyed by `(run_id, generation, seq)`; a collision rolls back the
+  archive transaction.
 - Journal reads page at 100 entries by default. `pageSize` is a throughput knob
   and never changes a derived answer.
 - Every read is capped by `maxHistoryEntries`. The default is 100,000 entries;
@@ -54284,6 +54355,243 @@ Global Options:
 
 ---
 
+# smthrs environment
+https://smithers.sh/docs/reference/cli/environment/
+
+```text
+smthrs environment — Run commands in saved local, SSH, or Cloud environments
+
+Usage: smthrs environment <command>
+
+Commands:
+  add      Save an execution location
+  exec     Run a command: environment exec NAME -- COMMAND [ARGS...]
+  forward  Forward a loopback port over SSH
+  list     List saved execution locations
+  remove   Forget an execution location
+  shell    Open a terminal in the execution environment
+  view     Show an execution location
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
+
+## environment add
+
+```text
+smthrs environment add — Save an execution location
+
+Usage: smthrs environment add <name> [options]
+
+Arguments:
+  name  Saved execution environment
+
+Options:
+  --local               Run on this machine
+  --ssh <string>        SSH alias or user@host; uses your SSH configuration and known_hosts
+  --workspace <string>  Cloud workspace OWNER/REPO/ID
+  --directory <string>  Absolute working directory on the execution machine
+  --home <string>       Persistent home on the execution machine
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
+
+## environment exec
+
+```text
+smthrs environment exec — Run a command: environment exec NAME -- COMMAND [ARGS...]
+
+Usage: smthrs environment exec <name> [options]
+
+Arguments:
+  name  Saved execution environment
+
+Options:
+  --arg <array>  Command arguments; use -- followed by the command
+  --terminal     Allocate a remote terminal for an interactive command
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
+
+## environment forward
+
+```text
+smthrs environment forward — Forward a loopback port over SSH
+
+Usage: smthrs environment forward <name> [options]
+
+Arguments:
+  name  Saved execution environment
+
+Options:
+  --local-port <number>   Local port on 127.0.0.1
+  --remote-port <number>  Remote port on 127.0.0.1
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
+
+## environment list
+
+```text
+smthrs environment list — List saved execution locations
+
+Usage: smthrs environment list
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
+
+## environment remove
+
+```text
+smthrs environment remove — Forget an execution location
+
+Usage: smthrs environment remove <name>
+
+Arguments:
+  name  Saved execution environment
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
+
+## environment shell
+
+```text
+smthrs environment shell — Open a terminal in the execution environment
+
+Usage: smthrs environment shell <name>
+
+Arguments:
+  name  Saved execution environment
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
+
+## environment view
+
+```text
+smthrs environment view — Show an execution location
+
+Usage: smthrs environment view <name>
+
+Arguments:
+  name  Saved execution environment
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
+
+---
+
 # smthrs eval
 https://smithers.sh/docs/reference/cli/eval/
 
@@ -58988,6 +59296,7 @@ Options:
   --print, -p <string>      Answer one prompt, print it, and exit
   --approve <all|ask|deny>  Consequential calls: all, ask, or deny
   --budget-tokens <string>  Token ceiling per turn and worker; unbounded by default
+  --environment <string>    Run the TUI app in a saved execution environment
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -60269,6 +60578,7 @@ flow is a durable program built with `Flow.make`, and a run is a persisted flow 
 | [`credentials`](/docs/reference/cli/credentials/) | Manage encrypted local credentials without printing secret values |
 | [`docs`](/docs/reference/cli/docs/) | Execute the documentation targets selected by a pattern: parity checks, freshness stamps, and Docs.Page writers |
 | [`doctor`](/docs/reference/cli/doctor/) | Check project discovery, providers, tools, and durable-state compatibility |
+| [`environment`](/docs/reference/cli/environment/) | Run commands in saved local, SSH, or Cloud environments |
 | [`eval`](/docs/reference/cli/eval/) | Run fixed evaluation suites and compare committed score baselines |
 | [`explain`](/docs/reference/cli/explain/) | Explain a target's actual planned cache key and local cache state |
 | [`extension`](/docs/reference/cli/extension/) | extension |
@@ -61479,15 +61789,18 @@ Vitest reports the assertions that passed, failed, or were skipped. Examples tha
 
 ## Related reference
 
-[`@smthrs/flow`](/docs/reference/api/flow/)
+[`@smthrs/engine-store`](/docs/reference/api/engine-store/) · [`@smthrs/flow`](/docs/reference/api/flow/)
 
 ## Source
 
 ```ts title="examples/src/03-crash-and-resume.ts"
+import * as DurableEngineState from "@smthrs/engine-store/DurableEngineState"
 import { Action, DurableDeferred, Flow, FlowRuntime, Interpreter } from "@smthrs/flow"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Layer from "effect/Layer"
+import * as Option from "effect/Option"
+import * as Schedule from "effect/Schedule"
 import * as Schema from "effect/Schema"
 import { durableEngine } from "./durable-layer.ts"
 
@@ -61543,10 +61856,17 @@ export const main = (filename: string): Effect.Effect<Summary> =>
       )
 
     // Phase one: the run suspends at the deferred and releases its claim.
+    // `discard` returns once the run is admitted and scheduled, so the drive
+    // waits for the durable park before it drops the engine.
     yield* Effect.scoped(
-      Review.execute({ document: "rfc" }, { executionId: "review-1", discard: true }).pipe(
-        Effect.provide(engine("worker-a"))
-      )
+      Effect.gen(function*() {
+        yield* Review.execute({ document: "rfc" }, { executionId: "review-1", discard: true })
+        const state = yield* DurableEngineState.DurableEngineState
+        yield* state.waiting("review-1").pipe(
+          Effect.repeat({ until: Option.isSome, schedule: Schedule.spaced(10) }),
+          Effect.timeout(30_000)
+        )
+      }).pipe(Effect.provide(engine("worker-a")))
     )
 
     // Phase two: a fresh engine completes the deferred and finishes the run.
@@ -63017,7 +63337,7 @@ export const liveLocalSeats = (baseUrl: string) =>
           Effect.gen(function*() {
             const modelId = Seat.modelIdOf(id)
             const routeConfig = yield* Effect.fromResult(
-              Route.openaiChatCompatible({ id: "local", baseUrl, apiKey: Redacted.make("local") })
+              Route.openaiChatCompatible({ id: "local", providerName: "openai", baseUrl, apiKey: Redacted.make("local") })
             ).pipe(
               Effect.mapError((error) => new Seat.SeatUnresolved({ seat: id, message: error.message }))
             )
@@ -63223,6 +63543,7 @@ export const liveGeminiSeats = (baseUrl: string, apiKey: string) =>
             const routeConfig = yield* Effect.fromResult(
               Route.openaiChatCompatible({
                 id: "gemini",
+                providerName: "gcp.gemini",
                 baseUrl,
                 path: "/chat/completions",
                 apiKey: Redacted.make(apiKey)
@@ -63397,7 +63718,7 @@ export const executorLayer = RequestExecutor.layer.pipe(
  */
 export const ask = (question: string, modelId: string, baseUrl: string, apiKey: Redacted.Redacted<string>) =>
   Effect.gen(function*() {
-    const routeConfig = yield* Effect.fromResult(Route.openaiChatCompatible({ id: "smoke", baseUrl, apiKey }))
+    const routeConfig = yield* Effect.fromResult(Route.openaiChatCompatible({ id: "smoke", providerName: "openai", baseUrl, apiKey }))
     const model = yield* Route.toModel(routeConfig)
     const request = ModelRequest.make({
       modelId,
@@ -64107,6 +64428,7 @@ import { Node } from "@smthrs/plan"
 import { Registry } from "@smthrs/registry"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
+import * as Schedule from "effect/Schedule"
 import * as Schema from "effect/Schema"
 import { durableEngine } from "./durable-layer.ts"
 
@@ -64415,14 +64737,24 @@ export const main = (filename: string): Effect.Effect<Summary> =>
         )
 
         // -------------------------------------------------------- the run gates
-        // A real durable run that parks. `execute` returns the moment the park
-        // is durable; nothing is driving the run after that.
+        const observe = (runId: string, ready: (row: { readonly status: string }) => boolean) =>
+          control.list({ _tag: "runs", filters: { runId } }).pipe(
+            Effect.map((listed) => listed._tag === "runs" ? listed.items[0] : undefined),
+            Effect.repeat({
+              until: (row) => row !== undefined && ready(row),
+              schedule: Schedule.spaced(10)
+            }),
+            Effect.timeout(30_000)
+          )
+
+        // A real durable run that parks. `discard` returns once the run is
+        // admitted and scheduled, so `observe` waits for the park to be
+        // durable; nothing is driving the run after that.
         //
         // Drive one reaches the clearance step, which registers its own token,
         // finds it undecided, and parks the run under `approval`.
         yield* Ship.execute({ build: "v1.4.0" }, { executionId: shipRunId, discard: true })
-        const first = yield* control.list({ _tag: "runs", filters: { runId: shipRunId } })
-        const firstRow = first._tag === "runs" ? first.items[0] : undefined
+        const firstRow = yield* observe(shipRunId, (row) => row.status === "waiting-approval")
 
         // The decision, taken from outside the run against the token the STEP
         // registered. `approve` looks the token up rather than creating one, so
@@ -64439,9 +64771,8 @@ export const main = (filename: string): Effect.Effect<Summary> =>
         // Drive two: the same step runs again, reads the resolved token, and
         // lets the run through to its next wait instead of asking a second
         // time.
-        yield* Ship.execute({ build: "v1.4.0" }, { executionId: shipRunId, discard: true })
-        const listed = yield* control.list({ _tag: "runs", filters: { runId: shipRunId } })
-        const row = listed._tag === "runs" ? listed.items[0] : undefined
+        yield* Ship.resume(shipRunId)
+        const row = yield* observe(shipRunId, (candidate) => candidate.status === "parked")
 
         // The signal. It records a fact and resumes nothing.
         yield* control.signal({
@@ -64459,6 +64790,7 @@ export const main = (filename: string): Effect.Effect<Summary> =>
         // before the following signal wait can be activated.
         const deniedRunId = `${shipRunId}-denied`
         yield* Ship.execute({ build: "v1.4.1" }, { executionId: deniedRunId, discard: true })
+        yield* observe(deniedRunId, (row) => row.status === "waiting-approval")
         yield* control.deny({
           target: clearanceRequest(deniedRunId),
           scope: "once",
@@ -68038,6 +68370,7 @@ import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
+import * as Schedule from "effect/Schedule"
 import * as Schema from "effect/Schema"
 import { durableEngine } from "./durable-layer.ts"
 
@@ -68068,25 +68401,29 @@ export const tokenFor = (executionId: string, attempt: number): DurableDeferred.
  * A suspended run has a waiting row, and a human task declares its own park, so
  * the row carries `approval` and the token of the attempt that is waiting. The
  * token is opaque, so the attempt is recovered by asking which attempt's wait
- * point that token addresses.
+ * point that token addresses. `discard` returns once the run is admitted, so the
+ * read repeats until the run has parked on an attempt after `after`.
  */
 const parkedAttempt = (
   executionId: string,
-  attempts: number
+  attempts: number,
+  after: number
 ): Effect.Effect<number, never, DurableEngineState.DurableEngineState> =>
   Effect.gen(function*() {
     const state = yield* DurableEngineState.DurableEngineState
     const row = yield* state.waiting(executionId)
-    if (Option.isNone(row)) return yield* Effect.die(`the run "${executionId}" is not parked`)
+    if (Option.isNone(row)) return 0
     const { reason, token } = row.value
-    if (reason !== "approval" || token === null) {
-      return yield* Effect.die(`the run "${executionId}" parked under ${reason} rather than on an answer`)
-    }
+    if (reason !== "approval" || token === null) return 0
     for (let attempt = 1; attempt <= attempts; attempt++) {
       if (tokenFor(executionId, attempt) === token) return attempt
     }
     return yield* Effect.die(`the run "${executionId}" parked on a token no attempt of its question owns`)
-  })
+  }).pipe(
+    Effect.repeat({ until: (attempt) => attempt > after, schedule: Schedule.spaced(10) }),
+    Effect.timeout(30_000),
+    Effect.orDie
+  )
 
 /** What a recorded refusal looks like when it is read back off its step. */
 const Refusal = Schema.Struct({
@@ -68154,7 +68491,7 @@ export const main = (filename: string): Effect.Effect<Summary> =>
     yield* Effect.scoped(
       Effect.gen(function*() {
         yield* Release.execute({ build: "v1.4.0" }, { executionId, discard: true })
-        parkedOn.push(yield* parkedAttempt(executionId, 3))
+        parkedOn.push(yield* parkedAttempt(executionId, 3, 0))
       }).pipe(Effect.provide(engine("worker-a")))
     )
 
@@ -68163,8 +68500,8 @@ export const main = (filename: string): Effect.Effect<Summary> =>
     const refusals = yield* Effect.scoped(
       Effect.gen(function*() {
         yield* HumanTask.answer({ token: tokenFor(executionId, 1), value: "yes, ship it" })
-        yield* Release.execute({ build: "v1.4.0" }, { executionId, discard: true })
-        parkedOn.push(yield* parkedAttempt(executionId, 3))
+        yield* Release.resume(executionId)
+        parkedOn.push(yield* parkedAttempt(executionId, 3, 1))
         return yield* refusalsRecorded(executionId)
       }).pipe(Effect.provide(engine("worker-b")))
     )
@@ -68208,14 +68545,17 @@ Vitest reports the assertions that passed, failed, or were skipped. Examples tha
 
 ## Related reference
 
-[`@smthrs/flow`](/docs/reference/api/flow/)
+[`@smthrs/engine-store`](/docs/reference/api/engine-store/) · [`@smthrs/flow`](/docs/reference/api/flow/)
 
 ## Source
 
 ```ts title="examples/src/34-poll.ts"
+import * as DurableEngineState from "@smthrs/engine-store/DurableEngineState"
 import { Action, Interpreter, Poll, Sleep } from "@smthrs/flow"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
+import * as Option from "effect/Option"
+import * as Schedule from "effect/Schedule"
 import * as Schema from "effect/Schema"
 import { durableEngine } from "./durable-layer.ts"
 
@@ -68264,10 +68604,17 @@ export const main = (filename: string): Effect.Effect<Summary> =>
       )
 
     // Phase one: the first attempt runs and the round parks on its timer.
+    // `discard` returns once the run is admitted and scheduled, so the drive
+    // waits for the durable park before it drops the engine.
     yield* Effect.scoped(
-      Deployment.execute({ id: "web" }, { executionId: "deploy-1", discard: true }).pipe(
-        Effect.provide(engine("worker-a"))
-      )
+      Effect.gen(function*() {
+        yield* Deployment.execute({ id: "web" }, { executionId: "deploy-1", discard: true })
+        const state = yield* DurableEngineState.DurableEngineState
+        yield* state.waiting("deploy-1").pipe(
+          Effect.repeat({ until: Option.isSome, schedule: Schedule.spaced(10) }),
+          Effect.timeout(30_000)
+        )
+      }).pipe(Effect.provide(engine("worker-a")))
     )
 
     const checksBeforeRestart = [...checks]

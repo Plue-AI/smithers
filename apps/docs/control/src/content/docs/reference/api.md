@@ -191,10 +191,16 @@ ordering keys, not numeric offsets. Control-launched runs retain launch order;
 engine-created runs follow in creation-time and run-id order. Removing a prior
 row does not skip the next row. Listings are live, not a fixed snapshot.
 
-Paginated run filters use durable summary fields. The runtime selects at most
-`limit` rows before decoding summaries, reading their ancestry, or observing
-execution. Executor observations and pending steering counts enrich only those
-rows, so an observed status may be newer than the status used for selection.
+A run page returns at most `limit` rows; `limit` does not bound the work done
+to fill it. Without a `status` or `terminal` filter, the runtime selects at most
+`limit` rows on durable summary fields before decoding summaries, reading their
+ancestry, or observing execution, and executor observations enrich only those
+rows. When the executor reports observed status, a `status` or `terminal`
+filter applies to that observed status instead: the runtime selects on the
+remaining filters, observes each selected row, and keeps walking the source
+until the page is full or no runs remain. One page can therefore observe many
+more runs than `limit`, so a host cannot treat the page size as a bound on
+`readExecution` calls. Pending steering counts enrich only the returned rows.
 An exact `runId` filter keeps the direct lookup and applies the remaining
 filters to that observation.
 

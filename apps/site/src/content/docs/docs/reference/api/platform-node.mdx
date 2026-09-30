@@ -344,7 +344,14 @@ single answer to copy.
    `**` keeps the root and its files while pruning every directory.
    Node empties the answer instead.
 3. **A dotted segment after `**`.** Node 22 matched nothing for `**/.hidden`;
-   Node 24 and later match the dotfiles. The adapter follows the newer reading.
+   Node 24 and later match the dotfiles. The adapter follows the newer reading
+   for the dotfiles themselves, but a `**` never spans a hidden directory, so
+   Node's further step of walking into a hidden directory that the next segment
+   matches is refused. With `.hidden/.secret` and `.hidden/.nested/.wanted`
+   present, Node returns `.hidden/.secret` for `**/.*` and `.hidden/.nested` for
+   `**/.*/**`; the adapter returns `.hidden` alone for both. Only a segment that
+   names the hidden directory enters it: `.hidden/.*` returns `.hidden/.nested`
+   and `.hidden/.secret`.
 
 **Removal.** `remove(path, { recursive: true })` walks iteratively with an
 explicit descriptor stack: depth is bounded at 512 levels and the total number

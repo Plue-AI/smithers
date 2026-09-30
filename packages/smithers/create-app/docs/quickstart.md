@@ -33,7 +33,7 @@ and the agent's teaching. The command reports what it copied:
   "directory": "/work/ledger",
   "name": "ledger",
   "template": "default",
-  "files": 33
+  "files": 34
 }
 ```
 

@@ -17,7 +17,7 @@ no promise.
 | `Journal`     | The append-only journal port: `append(event, expectedPosition)` and `read`. `layerMemory` is the in-process stand-in tests run on. |
 | `Event`       | The event vocabulary and the pure folds over it. Every projection a host shows is a fold, never a second store.                    |
 | `CallKey`     | The replay key: link, script digest, ordinal, and the entry's declaration digest.                                                  |
-| `Outcome`     | What a link returns: `done`, `to`, `park`, and the terminal subset a run resolves to.                                              |
+| `Outcome`     | What a link returns: `done`, `to`, `park`, the terminal subset, and the approval wait a run can stop at.                           |
 | `Observation` | The typed rejection a gate journals so the next author can route around it.                                                        |
 
 ## Authoring and scripts
@@ -154,9 +154,11 @@ The chain trampoline: bootstrap, links, gates, and prefix replay.
 
 ### Execution
 
-- `run(options: Options): Effect.Effect<Outcome.Terminal, RunError, Services>`:
-  runs a chain to a terminal outcome, resuming from whatever the journal
-  already holds. A finished chain returns its terminal without executing
+- `run(options: Options): Effect.Effect<Outcome.RunResult, RunError, Services>`:
+  runs a chain to a terminal outcome or an in-place `Outcome.ApprovalWait`,
+  resuming from whatever the journal already holds. An `ApprovalWait` is an
+  unsettled call waiting on a grant, not a terminal: after the grant, running
+  the same chain again re-enters that call. A finished chain returns its terminal without executing
   anything; a half-finished link replays its settled calls by ordinal before
   running live. The error channel and the service requirement are fixed:
 
@@ -317,6 +319,12 @@ The trampoline outcomes a link can end with.
 - `Terminal = Done | Park`: a chain-ending outcome. Parked lineages stop
   (wake is out of the slice's scope) and completed lineages return their
   value.
+- `ApprovalWait`: `{ _tag: "ApprovalWait", reason: { code: "approval",
+  message: string } }`. An unsettled approval boundary a run stops at. It is
+  never a script outcome or a journal event; a grant and a resume re-enter
+  the same call.
+- `RunResult = Terminal | ApprovalWait`: what `Chain.run` returns. The
+  persisted `Outcome` format contains only script outcomes.
 
 ### Constructors
 
@@ -854,10 +862,14 @@ primitive.
   Author.Author | ScriptRunner.ScriptRunner>`: the recursive catalog layer.
 
 The `agent` entry takes `{ goal, context? }` and runs the child under the
-derived id `parent-chain/link.ordinal`. A child's `done` and non-approval
-parks settle as data; a child's approval park bubbles as a `CallError` whose
-`cause` is `approval_required`; a failing child run dies as a defect so the
-parent fails un-settled and resumes at the child's settled prefix.
+derived id `parent-chain/link.ordinal`. A child's `done` and every terminal
+`park(...)`, including a script's own `park("approval", ...)`, settle as data
+on the parent call. Only a child's unsettled `ApprovalWait` bubbles, as a
+`CallError` whose `cause` is `approval_required`, so the parent waits in place
+and a later grant resumes the child through the same slot. A failing child run
+is not a defect: its original typed error reaches the parent's error channel
+with its `_tag`, `code`, and `cause` intact, the spawning call stays
+unsettled, and a resume re-enters the child at its settled prefix.
 
 ## `Authorize`
 
