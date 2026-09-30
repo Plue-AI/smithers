@@ -214,3 +214,38 @@ test("rejects duplicate and cross-repository assigned issues", () => {
     assert.deepEqual(result.commits, [])
   }
 })
+
+for (const event of ["turn.failed", "error"] as const) {
+  test(`Codex ${event} retains rate-limit status with a zero process exit`, () => {
+    const output = jsonl(
+      { type: "item.completed", item: { type: "agent_message", text: `READY ${first}` } },
+      { type: event, error: { message: "Rate limit reached for this account" } }
+    )
+    const result = parse(output)
+    assert.equal(result.status, "limited")
+    assert.deepEqual(result.commits, [])
+    assert.match(result.notes, /Rate limit reached/)
+  })
+}
+
+test("Claude structured rate-limit errors stay limited with a zero process exit", () => {
+  const result = parse(claude("You've hit your limit; try again later", {
+    subtype: "error_during_execution", is_error: true,
+    errors: ["Rate limit reached for this account"]
+  }), 0, "claude")
+  assert.equal(result.status, "limited")
+  assert.deepEqual(result.commits, [])
+  assert.match(result.notes, /hit your limit|Rate limit reached/)
+})
+
+test("Codex does not reuse an earlier READY after an empty completed turn", () => {
+  const result = parse(jsonl(
+    { type: "turn.started" },
+    { type: "item.completed", item: { type: "agent_message", text: `READY ${first}` } },
+    { type: "turn.completed" },
+    { type: "turn.started" },
+    { type: "turn.completed" }
+  ))
+  assert.equal(result.status, "failed")
+  assert.deepEqual(result.commits, [])
+})

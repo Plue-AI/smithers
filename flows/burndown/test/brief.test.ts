@@ -129,3 +129,10 @@ test("author trailer follows a nondefault assignment model", () => {
   assert.ok(text.includes("Co-Authored-By: Claude claude-fable-5-1 <noreply@anthropic.com>"))
   assert.ok(!text.includes("Co-Authored-By: Claude Opus"))
 })
+
+
+test("Cloud product bug review requires Fable without an Opus fallback", () => {
+  const text = brief({ ...options, execution: "cloud" })
+  assert.match(text, /Mandatory final product-bug review is Fable/)
+  assert.match(text, /never[^\n]*fall back to Opus/)
+})

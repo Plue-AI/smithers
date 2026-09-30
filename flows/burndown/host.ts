@@ -6,7 +6,7 @@
 import { FlowInstance } from "@smthrs/flow/FlowRuntime"
 import { Cause, Effect, Exit, Layer, Option } from "effect"
 import { execFile } from "node:child_process"
-import { mkdir, writeFile } from "node:fs/promises"
+import { mkdir, statfs, writeFile } from "node:fs/promises"
 import { homedir, hostname } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -26,6 +26,9 @@ const claimScript = process.env.BURNDOWN_ISSUE_CLAIM_SCRIPT ??
 
 /** Burn horizon: pace each window to the sooner of its reset and this many hours. */
 const horizonHours = Number(process.env.BURNDOWN_HORIZON_HOURS ?? 12)
+
+/** Local launches wait while free disk is below this many GiB; running workers continue. */
+const minFreeGiB = () => Number(process.env.BURNDOWN_MIN_FREE_GIB ?? 8)
 
 const models = { claude: "claude-opus-5-5", codex: "gpt-6.1-sol" } as const
 
@@ -205,6 +208,14 @@ const launch = (
   Effect.gen(function*() {
     // Keys are unique per round execution: a later run re-launching the same issue is a new worker.
     const round = (yield* FlowInstance).executionId.slice(0, 8)
+    if (state.options.placement === "local" && launches.length > 0) {
+      const disk = yield* Effect.promise(() => statfs(homedir()))
+      const freeGiB = (disk.bavail * disk.bsize) / 2 ** 30
+      if (freeGiB < minFreeGiB()) {
+        yield* Effect.logWarning(`burndown: ${freeGiB.toFixed(1)} GiB free < ${minFreeGiB()} GiB; not launching`)
+        return []
+      }
+    }
     const room = Math.max(0, Math.min(state.target, state.options.maxAgents) - observation.inFlight.length)
     // Computed slots are remaining capacity, after already-running workers.
     const remaining = new Map(observation.capacity.map((c) => [

@@ -351,6 +351,29 @@ if (!process.execArgv.includes("--experimental-test-module-mocks")) {
     assert.equal((starts[0]!.assignment as typeof assignment).lead.n, 3001)
   })
 
+  for (const placement of ["local", "cloud"] as const) {
+    test(`${placement} launch ${placement === "local" ? "waits without claiming" : "continues"} below the free-disk floor`, async () => {
+      starts.length = 0
+      claims.length = 0
+      const saved = process.env.BURNDOWN_MIN_FREE_GIB
+      process.env.BURNDOWN_MIN_FREE_GIB = String(Number.MAX_SAFE_INTEGER)
+      try {
+        const launched = await invoke(Launch.name, {
+          state: { ...initial(), options: { ...initial().options, placement } },
+          observation: { ...observation(), candidates: [candidate(3101)], capacity: [capacity(1)] },
+          plan: { launches: [{ repo: assignment.repo, n: 3101, account: assignment.account }], nextTarget: 4, note: "disk" }
+        })
+        const expected = placement === "local" ? 0 : 1
+        assert.equal((launched as Array<unknown>).length, expected)
+        assert.equal(starts.length, expected)
+        assert.equal(claims.filter((args) => args[1] === "claim").length, expected)
+      } finally {
+        if (saved === undefined) delete process.env.BURNDOWN_MIN_FREE_GIB
+        else process.env.BURNDOWN_MIN_FREE_GIB = saved
+      }
+    })
+  }
+
   test("observation refreshes running, READY and quarantined claims without taking over foreign hosts", async () => {
     const held = {
       ...initial(),

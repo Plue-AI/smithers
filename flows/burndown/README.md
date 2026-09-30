@@ -55,6 +55,14 @@ zero at 97% or more. `rate` starts at 2 points per Sol agent-hour of a weekly
 window and is re-estimated each round from consecutive readings divided by the
 agent-hours spent on that account. Opus chooses launches within the ceilings.
 
+## Local disk
+
+Each local worker gets `TMPDIR` in `~/Smithers-Ops/burndown/runs/<key>/tmp`,
+deleted when the agent exits; `brief.md` and `agent.log` stay. All local
+workers share one Go build cache, `~/.cache/burndown/go-build`. Local launches
+wait while the home volume has less than `BURNDOWN_MIN_FREE_GIB` (default 8)
+free; running workers continue.
+
 ## Accounts
 
 Every directory `~/.smithers/accounts/{claude,codex}-*` with a login is an

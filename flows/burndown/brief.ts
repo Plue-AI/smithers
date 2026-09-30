@@ -75,7 +75,7 @@ ${
 
 ${
     execution === "cloud"
-      ? "REVIEW: the launcher runs Fable on your committed changes with a separately selected Claude account, retains the verdict, and refuses handoff on failure. Your coding command receives only its own temporary login. Report READY as a prepared commit pending launcher Fable and host queue CI; this is not validation or landing success."
+      ? "REVIEW: the launcher runs Fable on your committed changes with a separately selected Claude account, retains the verdict, and refuses handoff on failure. Mandatory final product-bug review is Fable; never fall back to Opus. If unavailable, the launcher holds the candidate blocked on review. Your coding command receives only its own temporary login. Report READY as a prepared commit pending launcher Fable and host queue CI; this is not validation or landing success."
       : `REVIEW: review critical/high, security or hard changes in the foreground with claude -p --model claude-fable-5-1, pinned via CLAUDE_CONFIG_DIR to a non-operator account. Never use will@codeplane.app, ~/.claude, ~/.smithers/accounts/claude-4 or claude-6. Verify the chosen account identity before invoking it. Require a final VERDICT line, retain the receipt, and fix findings. Mandatory final product-bug review is Fable. If Fable is unavailable, retain the candidate and report blocked on review with exact account/quota evidence; never silently fall back to Opus.`
   }
 

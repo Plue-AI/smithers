@@ -90,6 +90,7 @@ type MonitorFlow = Flow.Flow<
 >
 
 export const Loop: MonitorFlow = Flow.make("burndown/monitor/loop", {
+  modelInvocable: false,
   description: "Watches a burndown run on a schedule and reports whether it is healthy.",
   capabilities: ["fs:read:**", "fs:write:**", "proc:spawn:*", "net:get:*", "net:post:*", "model:call:*"],
   effects: { reads: ["**"], writes: ["**"], mode: "expected", onConflict: "serialize", tier: "sealed" },

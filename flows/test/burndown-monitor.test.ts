@@ -1,7 +1,7 @@
 import { NodeCrypto } from "@effect/platform-node"
 import * as Seat from "@smthrs/agent/Seat"
-import { Action, FlowRuntime, Graph, Interpreter, Sleep } from "@smthrs/flow"
-import { Effect, Layer } from "effect"
+import { Action, Flow, FlowRuntime, Graph, Interpreter, Sleep } from "@smthrs/flow"
+import { Context, Effect, Layer } from "effect"
 import assert from "node:assert/strict"
 import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
@@ -376,4 +376,9 @@ test("monitor public handoff resolves host and report roots and pins the default
       everyMinutes: 10
     })
   }
+})
+
+test("both monitor entry points require an explicit operator launch", () => {
+  assert.equal(Context.get(Monitor.annotations, Flow.ModelInvocable), false)
+  assert.equal(Context.get(Loop.annotations, Flow.ModelInvocable), false)
 })

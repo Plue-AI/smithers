@@ -12,7 +12,8 @@ that root explicitly and clears inherited remote and database connection overrid
 `reportRoot` selects the directory containing `status.txt`, `NEEDS-YOU.md`, and
 append-only `monitor.log`; its default is `<hostRoot>/.smithers/burndown`.
 An explicit relative `reportRoot` resolves from the monitor checkout.
-The default seat remains `claude-code:sonnet`.
+The default seat remains `claude-code:sonnet`. Both monitor entry points require
+an explicit operator launch and are excluded from model invocation.
 
 CLI inspections stop after 15 seconds. Missing runs, mismatched identities,
 unrecognized statuses, malformed output, and command failures produce unknown

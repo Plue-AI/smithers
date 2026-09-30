@@ -19,7 +19,7 @@ import { Assignment, WorkerResult } from "./schema.ts"
  * re-running hours of agent work.
  */
 export const RunAgent = Action.make("burndown/run-agent", {
-  implementationVersion: "burndown/run-agent/v3",
+  implementationVersion: "burndown/run-agent/v4",
   payload: Assignment,
   success: WorkerResult,
   error: Schema.String,
@@ -98,7 +98,7 @@ export const agentArgv = (assignment: Assignment, workdir: string): ReadonlyArra
 const limitPattern = /usage limit|rate limit|hit your limit|limit reached|429 Too Many Requests/i
 
 /** Only the CLI's completed assistant channel can report queue results. */
-const finalReport = (tool: Assignment["tool"], output: string): string | undefined => {
+const finalReport = (tool: Assignment["tool"], output: string): { readonly text?: string; readonly failure?: string } => {
   const records: Array<Record<string, unknown>> = []
   try {
     const value = JSON.parse(output)
@@ -114,12 +114,13 @@ const finalReport = (tool: Assignment["tool"], output: string): string | undefin
   if (tool === "claude") {
     const result = records.filter((record) => record.type === "result").at(-1)
     return result?.subtype === "success" && result.is_error === false && typeof result.result === "string"
-      ? result.result : undefined
+      ? { text: result.result } : { failure: JSON.stringify(result) ?? "" }
   }
   let message: string | undefined
   let completed = false
+  let failure: string | undefined
   for (const record of records) {
-    if (record.type === "turn.started") { message = undefined; completed = false }
+    if (record.type === "turn.started") { message = undefined; completed = false; failure = undefined }
     if (record.type === "item.completed") {
       const item = record.item as Record<string, unknown> | undefined
       if (item?.type === "agent_message") {
@@ -128,9 +129,12 @@ const finalReport = (tool: Assignment["tool"], output: string): string | undefin
       }
     }
     if (record.type === "turn.completed") completed = true
-    if (record.type === "turn.failed" || record.type === "error") completed = false
+    if (record.type === "turn.failed" || record.type === "error") {
+      completed = false
+      failure = JSON.stringify(record)
+    }
   }
-  return completed ? message : undefined
+  return failure !== undefined ? { failure } : completed && message !== undefined ? { text: message } : {}
 }
 
 /** Validate final report mappings; worker text cannot prove host-side closure. */
@@ -141,13 +145,17 @@ export const parseReport = (
   agentHours: number,
   diagnostics = ""
 ): WorkerResult => {
-  const report = finalReport(assignment.tool, output)
+  const final = finalReport(assignment.tool, output)
+  const report = final.text
   const notes = `${exitCode !== 0 ? output : report ?? output}\n${diagnostics}`.slice(-2000)
   const result = (status: WorkerResult["status"], commits: WorkerResult["commits"] = [], why = ""): WorkerResult => ({
     key: assignment.key, status, commits, notes: `${notes}${why ? `\n${why}` : ""}`, agentHours
   })
   if (exitCode !== 0) return result(limitPattern.test(output + diagnostics) ? "limited" : "failed")
-  if (report === undefined) return result("failed", [], "No completed final assistant report")
+  if (report === undefined) {
+    return result(final.failure !== undefined && limitPattern.test(final.failure + diagnostics) ? "limited" : "failed", [],
+      "No completed final assistant report")
+  }
   if ([assignment.lead, ...assignment.extras].some((issue) => issue.repo !== assignment.repo)) {
     return result("failed", [], "Inconsistent assigned repositories")
   }
@@ -222,6 +230,7 @@ export const layerRunAgent = (brief: (assignment: Assignment, machine: Machine) 
           ...machine.scratch === undefined ? [] : [
             `mkdir -p ${shellQuote(machine.scratch)}`,
             `trap ${shellQuote(`rm -rf ${shellQuote(machine.scratch)}`)} EXIT`,
+            // dash runs EXIT traps on exit only; turn the usual stop signals into exits.
             `trap 'exit 129' HUP; trap 'exit 130' INT; trap 'exit 143' TERM`
           ],
           `cd ${shellQuote(machine.workdir)}`,
@@ -286,5 +295,5 @@ export const layerRunAgent = (brief: (assignment: Assignment, machine: Machine) 
           Effect.mapError((cause) => `agent ${assignment.key} could not run: ${String(cause)}`)
         )
       }),
-    { implementationVersion: "burndown/run-agent/v3" }
+    { implementationVersion: "burndown/run-agent/v4" }
   )
