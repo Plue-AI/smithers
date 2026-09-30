@@ -229,6 +229,7 @@ export function Lines(props: {
   readonly width: number
   readonly cards: Cards
   readonly row: (line: Extract<Subagents.Line, { kind: "row" }>) => ReactNode
+  readonly onEarlier: () => void
 }) {
   return (
     <>
@@ -237,6 +238,24 @@ export function Lines(props: {
           ? props.row(line)
           : line.kind === "grid"
           ? <Batch key={line.key} batch={line.batch} width={props.width} cards={props.cards} />
+          : line.kind === "earlier"
+          ? (
+            <box
+              key={line.key}
+              id={line.key}
+              style={{ height: 1, flexShrink: 0 }}
+              onMouseDown={(event) => {
+                // Disclosure keeps the native composer focused.
+                event.preventDefault()
+                props.onEarlier()
+              }}
+              {...(props.cards.focused === line.key ? { backgroundColor: color.selected } : {})}
+            >
+              <text fg={color.muted} wrapMode="none">
+                {SubagentCard.clip(SubagentCard.earlierLine(line.batches), props.width)}
+              </text>
+            </box>
+          )
           : <Finished key={line.key} tab={line.tab} tone={props.cards.lane(line.tab.id)} />
       )}
     </>

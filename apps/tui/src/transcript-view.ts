@@ -28,6 +28,8 @@ const chat = "chat"
 
 export const useTranscriptView = (options: {
   readonly renderer: CliRenderer
+  /** Disclosure chrome belongs to this conversation. */
+  readonly conversation: string
   /** The chat's own transcript. */
   readonly transcript: Transcript.Transcript
   readonly tabs: ReadonlyArray<Tab>
@@ -45,6 +47,13 @@ export const useTranscriptView = (options: {
   const { renderer, transcript, tabs, worker, filter, surface, setSurface, panel, setPanelFocus } = options
   /** The chat card `tab` focused, by its key; `enter` opens it. */
   const [cardFocus, setCardFocus] = useState<string | undefined>()
+  const [earlierOpened, setEarlierOpened] = useState<ReadonlySet<string>>(() => new Set())
+  const earlierContext = (parent?: string) => JSON.stringify([options.conversation, parent ?? null])
+  const earlierOpen = (parent?: string) => earlierOpened.has(earlierContext(parent))
+  const showEarlier = (parent?: string) => {
+    setCardFocus(undefined)
+    setEarlierOpened((before) => new Set([...before, earlierContext(parent)]))
+  }
   const [inspection, setInspection] = useState<
     { source: string; seq: number; first: Activity.Activity["records"][number] } | undefined
   >()
@@ -66,7 +75,14 @@ export const useTranscriptView = (options: {
   const lane = (id: string): string => laneColor(Math.max(0, tabs.findIndex((tab) => tab.id === id)))
   const chatRows = useMemo(() => Timeline.cached(), [])
   const rows = chatRows(transcript, filter)
-  const lines = Subagents.lines(rows, Subagents.batches(transcript, tabs))
+  const lines = Subagents.lines(rows, Subagents.batches(transcript, tabs), earlierOpen())
+  const workerTab = surface.startsWith("tab:") ? tabs.find((tab) => `tab:${tab.id}` === surface) : undefined
+  const workerEarlier = workerTab === undefined ? undefined : Subagents.lines(
+    Timeline.rows(worker(workerTab.id)),
+    Subagents.batches(worker(workerTab.id), tabs, workerTab.id),
+    earlierOpen(workerTab.id),
+    workerTab.id
+  ).find((line) => line.kind === "earlier")
   const grids = lines.flatMap((line) =>
     line.kind === "grid" ? [line.batch.tabs.map((tab) => Subagents.cardKey(tab.id))] : []
   )
@@ -77,8 +93,12 @@ export const useTranscriptView = (options: {
         ? line.row.item.kind === "card" ? [line.key] : []
         : line.kind === "grid"
         ? line.batch.tabs.map((tab) => Subagents.cardKey(tab.id))
+        : line.kind === "earlier"
+        ? [line.key]
         : []
     )
+    : panel?.placement !== "main" && workerEarlier !== undefined
+    ? [workerEarlier.key]
     : []
   const focusedCard = cardFocus !== undefined && cardKeys.includes(cardFocus) ? cardFocus : undefined
   /** The worker whose card has focus. */
@@ -159,6 +179,10 @@ export const useTranscriptView = (options: {
     focusedCard,
     focusedWorker,
     setCardFocus,
+    earlierOpen,
+    showEarlier,
+    /** Expand the focused earlier row in its own parent transcript. */
+    openEarlier: () => showEarlier(workerTab?.id),
     /** Moves the focused card and scrolls it into view. */
     moveCard: (direction: Subagents.Direction) => {
       if (focusedCard === undefined) return

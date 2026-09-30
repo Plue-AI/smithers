@@ -274,6 +274,8 @@ const settled = (end: (transcript: Transcript.Transcript) => Transcript.Transcri
 const chrome = {
   path: ["chat"],
   onBack: () => {},
+  earlierOpen: false,
+  onEarlier: () => {},
   tabs: [],
   cards: {
     transcript: () => Transcript.empty,

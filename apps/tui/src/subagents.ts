@@ -157,13 +157,24 @@ export type Line =
   | { readonly kind: "row"; readonly key: string; readonly row: Timeline.Row }
   | { readonly kind: "grid"; readonly key: string; readonly batch: Batch }
   | { readonly kind: "finished"; readonly key: string; readonly tab: Tab }
+  | { readonly kind: "earlier"; readonly key: string; readonly batches: number }
 
 /**
  * `rows` with each batch's grid after its anchor row (or the last row before
  * it when the anchor is filtered out), and a `◉ title done` row where
  * each settled worker ended, never above its own grid.
  */
-export const lines = (rows: ReadonlyArray<Timeline.Row>, groups: ReadonlyArray<Batch>): ReadonlyArray<Line> => {
+export const earlierKey = (parent?: string): string =>
+  parent === undefined ? "subagents:earlier" : `subagents:earlier:${parent}`
+
+export const lines = (
+  rows: ReadonlyArray<Timeline.Row>,
+  groups: ReadonlyArray<Batch>,
+  open = false,
+  parent?: string
+): ReadonlyArray<Line> => {
+  const earlier = SubagentCard.earlierBatches(groups.toSorted((a, b) => a.at - b.at), open)
+  const hidden = new Set(earlier)
   const before = (at: number) => rows.findLastIndex((row) => row.at <= at)
   const slots = new Map<number, Array<Line>>()
   const place = (slot: number, line: Line) => slots.set(slot, [...slots.get(slot) ?? [], line])
@@ -171,6 +182,10 @@ export const lines = (rows: ReadonlyArray<Timeline.Row>, groups: ReadonlyArray<B
   for (const batch of groups) {
     const anchored = batch.anchor === undefined ? -1 : rows.findIndex((row) => row.item.id === batch.anchor)
     const slot = anchored >= 0 ? anchored : before(batch.at)
+    if (hidden.has(batch)) {
+      if (batch === earlier[0]) place(slot, { kind: "earlier", key: earlierKey(parent), batches: earlier.length })
+      continue
+    }
     place(slot, { kind: "grid", key: batch.key, batch })
     for (const tab of batch.tabs) {
       if (WorkerControls.live(tab.status) || tab.endedAt === undefined) continue

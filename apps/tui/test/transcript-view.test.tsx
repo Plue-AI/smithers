@@ -54,6 +54,7 @@ const mount = async (options: Partial<Input> = {}) => {
   setup = await testRender(
     <Harness
       initial={{
+        conversation: "fixture-conversation",
         transcript: Transcript.empty,
         tabs: [],
         worker: () => Transcript.empty,
@@ -415,4 +416,101 @@ test("a later inspection retains its own target after both delayed deadlines", a
   expect(current().scroll.current!.scrollTop).toBe(position)
   await setup!.renderOnce()
   expect(setup!.captureCharFrame()).toContain("chat:22")
+})
+
+const batchHistory = (count: number, parent?: string) => {
+  let transcript = Transcript.empty
+  const tabs: Tab[] = []
+  for (let index = 0; index < count; index++) {
+    transcript = Transcript.note(transcript, `ask ${index}`, index * 10)
+    tabs.push({
+      id: `child-${index}`,
+      title: `Child ${index}`,
+      prompt: "Work",
+      seat: "replay:test",
+      file: `child-${index}.jsonl`,
+      status: "done",
+      startedAt: index * 10 + 1,
+      endedAt: index * 10 + 2,
+      depth: parent === undefined ? 0 : 1,
+      ...(parent === undefined ? {} : { parent })
+    })
+  }
+  return { transcript, tabs }
+}
+
+test("earlier row joins native card focus only after ten batches and expands in its own conversation", async () => {
+  const ten = batchHistory(10), eleven = batchHistory(11)
+  await mount({ ...ten })
+  expect(current().cardKeys).not.toContain("subagents:earlier")
+  await change(eleven)
+  expect(current().cardKeys[0]).toBe("subagents:earlier")
+  expect(current().cardKeys).toHaveLength(11)
+  await action((view) => view.setCardFocus("subagents:earlier"))
+  expect(current().focusedCard).toBe("subagents:earlier")
+  await action((view) => view.openEarlier())
+  expect(current().lines.filter((line) => line.kind === "grid")).toHaveLength(11)
+  expect(current().cardKeys).not.toContain("subagents:earlier")
+  expect(current().focusedCard).toBeUndefined()
+  await change({ conversation: "other-conversation" })
+  expect(current().cardKeys[0]).toBe("subagents:earlier")
+})
+
+test("a worker's earlier row expands without opening the parent's batches or a main panel", async () => {
+  const root = batchHistory(11), children = batchHistory(11, "parent")
+  const parent: Tab = { ...tabs[0]!, id: "parent" }
+  await mount({
+    ...root,
+    tabs: [...root.tabs, parent, ...children.tabs],
+    worker: () => children.transcript,
+    surface: "tab:parent",
+    panel
+  })
+  expect(current().cardKeys).toEqual(["subagents:earlier:parent"])
+  await action((view) => view.setCardFocus("subagents:earlier:parent"))
+  expect(current().focusedCard).toBe("subagents:earlier:parent")
+  await action((view) => view.openEarlier())
+  expect(current().earlierOpen("parent")).toBe(true)
+  expect(current().earlierOpen()).toBe(false)
+  expect(current().cardKeys).toEqual([])
+  expect(current().lines.some((line) => line.kind === "earlier")).toBe(true)
+  await change({ surface: "chat", panel: undefined })
+  expect(current().cardKeys[0]).toBe("subagents:earlier")
+  await change({ surface: "tab:parent", panel: { ...panel, placement: "main" } })
+  expect(current().cardKeys).toEqual([])
+})
+
+test("root and worker disclosures keep independent chrome, including a worker named chat and conversation switches", async () => {
+  const root = batchHistory(11), children = batchHistory(11, "chat")
+  const parent: Tab = { ...tabs[0]!, id: "chat" }
+  await mount({ ...root, tabs: [...root.tabs, parent, ...children.tabs], worker: () => children.transcript })
+  await action((view) => view.showEarlier())
+  expect(current().earlierOpen()).toBe(true)
+  expect(current().earlierOpen("chat")).toBe(false)
+  await change({ surface: "tab:chat", panel })
+  expect(current().cardKeys).toEqual(["subagents:earlier:chat"])
+  await action((view) => view.openEarlier())
+  expect(current().earlierOpen()).toBe(true)
+  expect(current().earlierOpen("chat")).toBe(true)
+  await change({ conversation: "other" })
+  expect(current().earlierOpen()).toBe(false)
+  expect(current().earlierOpen("chat")).toBe(false)
+  await change({ conversation: "fixture-conversation" })
+  expect(current().earlierOpen()).toBe(true)
+  expect(current().earlierOpen("chat")).toBe(true)
+})
+
+test("growing from ten to eleven batches hides the oldest focus, and mouse expansion cannot revive it", async () => {
+  const ten = batchHistory(10), eleven = batchHistory(11)
+  await mount(ten)
+  await action((view) => view.setCardFocus("agent:child-0"))
+  expect(current().focusedCard).toBe("agent:child-0")
+  await change(eleven)
+  expect(current().focusedCard).toBeUndefined()
+  expect(current().cardKeys).not.toContain("agent:child-0")
+  await action((view) => view.showEarlier())
+  expect(current().cardKeys).toContain("agent:child-0")
+  expect(current().focusedCard).toBeUndefined()
+  await change(ten)
+  expect(current().lines.some((line) => line.kind === "earlier")).toBe(false)
 })

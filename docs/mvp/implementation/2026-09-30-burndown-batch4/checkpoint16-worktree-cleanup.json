@@ -1,0 +1,30 @@
+{
+  "ownedWorktrees": [
+    "/private/tmp/smithers-burndown-20260930"
+  ],
+  "removedUnused": [
+    {
+      "slot": "01",
+      "removed": "/Users/williamcory/.issue-pool/smithers/slot-01",
+      "head": "4b80565cf1bf119c2851a33e0e53c9e69a55020e",
+      "trackedChanges": 0,
+      "untrackedFiles": 0,
+      "unlandedCommits": 0,
+      "ignoredRegenerableCacheFiles": 147613,
+      "activeProcesses": 0,
+      "force": false
+    },
+    {
+      "slot": "10",
+      "removed": "/Users/williamcory/.issue-pool/smithers/slot-10",
+      "head": "2aea7c31f310f01d0e990b222440e973b9944417",
+      "trackedChanges": 0,
+      "untrackedFiles": 0,
+      "unlandedCommits": 0,
+      "ignoredRegenerableCacheFiles": 298067,
+      "activeProcesses": 0,
+      "force": false
+    }
+  ],
+  "preserved": "Original active checkout, leased pool slots, live scratch namespace and worktrees with unlanded commits, unique dirty files or durable state."
+}

@@ -497,3 +497,80 @@ describe("the Summary overview's tree row", () => {
     expect(`${line.title}${" ".repeat(line.gap)}${line.aside}`).toMatch(/… +Claude … +11m 43s *$/)
   })
 })
+
+/** Separate messages make separate real delegation batches. */
+const manyBatches = (count: number, parent?: string) => {
+  let transcript = Transcript.empty
+  const workers: Tab[] = []
+  for (let index = 0; index < count; index++) {
+    transcript = Transcript.note(transcript, `message ${index}`, index * 10)
+    workers.push(tab(`batch-${index}`, "done", {
+      startedAt: index * 10 + 1,
+      endedAt: index * 10 + 2,
+      ...(parent === undefined ? {} : { parent })
+    }))
+  }
+  return {
+    transcript,
+    workers,
+    rows: Timeline.rows(transcript),
+    groups: Subagents.batches(transcript, workers, parent)
+  }
+}
+
+describe("earlier subagent batches (#3033)", () => {
+  it("shows ten batches and their finished rows without a disclosure", () => {
+    const { rows, groups } = manyBatches(10)
+    const lines = Subagents.lines(rows, groups)
+    expect(lines.filter((line) => line.kind === "grid")).toHaveLength(10)
+    expect(lines.filter((line) => line.kind === "finished")).toHaveLength(10)
+    expect(lines.some((line) => line.kind === "earlier")).toBe(false)
+  })
+
+  it("folds the eleventh's oldest grid and finished row in its original slot, preserving messages", () => {
+    const { rows, groups } = manyBatches(11)
+    const lines = Subagents.lines(rows, groups)
+    expect(lines.slice(0, 3).map((line) => line.key)).toEqual([rows[0]!.key, Subagents.earlierKey(), rows[1]!.key])
+    expect(lines.filter((line) => line.kind === "earlier")).toEqual([{
+      kind: "earlier",
+      key: Subagents.earlierKey(),
+      batches: 1
+    }])
+    expect(lines.filter((line) => line.kind === "grid")).toHaveLength(10)
+    expect(lines.filter((line) => line.kind === "finished")).toHaveLength(10)
+    expect(lines.map((line) => line.key)).not.toContain("finished:batch-0")
+    expect(lines.filter((line) => line.kind === "row").map((line) => line.key)).toEqual(rows.map((row) => row.key))
+    expect(Subagents.lines(rows, groups, true).filter((line) => line.kind === "grid")).toHaveLength(11)
+    expect(Subagents.lines(rows, groups, true).filter((line) => line.kind === "finished")).toHaveLength(11)
+  })
+
+  it("counts multiple older batches once and selects them by time even if restored groups arrive out of order", () => {
+    const { rows, groups } = manyBatches(13)
+    const lines = Subagents.lines(rows, groups.toReversed())
+    expect(lines.filter((line) => line.kind === "earlier")).toEqual([{
+      kind: "earlier",
+      key: Subagents.earlierKey(),
+      batches: 3
+    }])
+    expect(lines.filter((line) => line.kind === "grid").map((line) => line.batch.at)).toEqual(
+      groups.slice(3).map((group) => group.at)
+    )
+    expect(lines.filter((line) => line.kind === "row")).toHaveLength(13)
+    expect(
+      lines.some((line) =>
+        line.key === "finished:batch-0" || line.key === "finished:batch-1" || line.key === "finished:batch-2"
+      )
+    ).toBe(false)
+    const opened = Subagents.lines(rows, groups, true)
+    expect(opened.filter((line) => line.kind === "grid")).toHaveLength(13)
+    expect(opened.some((line) => line.kind === "earlier")).toBe(false)
+  })
+
+  it("places a filtered oldest anchor at its time and scopes a worker's disclosure separately", () => {
+    const { rows, groups } = manyBatches(11, "parent")
+    const lines = Subagents.lines(rows.slice(1), groups, false, "parent")
+    expect(lines[0]).toEqual({ kind: "earlier", key: Subagents.earlierKey("parent"), batches: 1 })
+    expect(Subagents.earlierKey("parent")).not.toBe(Subagents.earlierKey())
+    expect(Subagents.lines([], [])).toEqual([])
+  })
+})

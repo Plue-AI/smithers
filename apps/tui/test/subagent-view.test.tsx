@@ -169,6 +169,7 @@ it("keeps parent rows, completed worker grids and settlement markers in supplied
       ]}
       width={80}
       cards={recorder().cards}
+      onEarlier={() => {}}
       row={(line) => {
         rows.push(line)
         return <text key={line.key}>Parent receipt</text>
@@ -214,3 +215,28 @@ it("summarizes earlier activity and retains a failed tool's visible result", asy
   expect(frame).not.toContain("file0.ts")
   expect(frame).toContain("└ Read file7.ts ✗")
 })
+
+for (const width of [18, 80]) {
+  it(`renders one bounded native earlier row and activates it by mouse at ${width} columns`, async () => {
+    let opened = 0
+    const mounted = await mount(
+      <View.Lines
+        lines={[{ kind: "earlier", key: "subagents:earlier", batches: 3 }]}
+        width={width}
+        cards={{ ...recorder().cards, focused: "subagents:earlier" }}
+        row={() => {
+          throw new Error("Earlier row must not render a transcript item")
+        }}
+        onEarlier={() => opened++}
+      />,
+      width,
+      2
+    )
+    const lines = mounted.captureCharFrame().split("\n")
+    expect(lines[0]).toContain("3 earlier")
+    for (const line of lines) expect(stringWidth(line)).toBeLessThanOrEqual(width)
+    expect(lines[1]!.trim()).toBe("")
+    await act(() => mounted.mockMouse.click(2, 0))
+    expect(opened).toBe(1)
+  })
+}

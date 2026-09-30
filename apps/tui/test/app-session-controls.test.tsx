@@ -378,3 +378,53 @@ test("inspecting and cancelling a fork selection does not create a conversation 
   expect(turns[0]!.input.history).toEqual([{ kind: "exchange", user: "Earlier question", answer: "Earlier answer" }])
   expect(Session.list(cwd)).toHaveLength(2)
 })
+
+test("eleven restored batches fold, keyboard activation expands, and immediate following chat input remains intact (#3033)", async () => {
+  const batchSession = Session.create(cwd)
+  batchSession.append({ type: "name", name: "Eleven batches" })
+  for (let index = 0; index < 11; index++) {
+    batchSession.append({ type: "note", at: index * 10, text: `batch request ${index}` })
+    const worker = Session.create(cwd, "worker")
+    worker.append({
+      type: "outcome",
+      at: index * 10 + 2,
+      prompt: `work ${index}`,
+      outcome: { _tag: "done", answer: `result ${index}` }
+    })
+    batchSession.append({
+      type: "tab",
+      tab: {
+        id: `batch-${index}`,
+        title: `Batch ${index}`,
+        prompt: `work ${index}`,
+        seat: "replay:worker",
+        file: worker.file,
+        status: "done",
+        startedAt: index * 10 + 1,
+        endedAt: index * 10 + 2,
+        depth: 0
+      }
+    })
+  }
+  const before = readFileSync(batchSession.file, "utf8")
+  await command("/resume")
+  await type("Eleven batches")
+  await key("RETURN")
+  await waitFor(() => frame().includes("Batch 10"))
+  await key("TAB")
+  await key("TAB")
+  expect(frame()).toContain("1 earlier subagent batch")
+  expect(frame()).not.toContain("Batch 0 finished")
+  await act(async () => {
+    setup!.mockInput.pressKey("RETURN")
+    await setup!.mockInput.typeText("chat after expansion")
+  })
+  await render()
+  expect(frame()).not.toContain("1 earlier subagent batch")
+  expect(frame()).toContain("chat after expansion")
+  expect(readFileSync(batchSession.file, "utf8")).toBe(before)
+  await key("RETURN")
+  await waitFor(() => turns.length === 1)
+  expect(turns[0]!.input.prompt).toBe("chat after expansion")
+  await finish(0)
+})

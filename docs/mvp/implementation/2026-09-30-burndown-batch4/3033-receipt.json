@@ -1,0 +1,113 @@
+{
+  "issue": 3033,
+  "candidateBase": "fbc96729acd623bfc35feecf2cdfeaf4ae72b10e",
+  "manifestSha256": "b8c0072e6aedf1c80040364d12dea7e557444fb21d38243bf07921fa9f7d013a",
+  "sourceSha256": {
+    "apps/tui/src/app.tsx": "36450513cc39cc63d6296d342f202075da315646563a9d5340cb7bb7b37ccdd4",
+    "apps/tui/src/subagent-view.tsx": "55ce1a83ef1fc18aebc25960b492c017abca74708c710afc659b11ea7d9c5017",
+    "apps/tui/src/subagents.ts": "2f93c58571d1c211c0388f4f314a0389d9d786304aaaa623c0ca92c3ba88dea7",
+    "apps/tui/src/tabs-view.tsx": "78f5f5ea3e87113776fc98b2ed829ceb8e1b6bd7e7806e9a1fa2e3a0f0d3c9e0",
+    "apps/tui/src/transcript-view.ts": "bd893f06538f0a3293be32c179e1b2de6e26cea37b66e258acdc8552c6ffcefe",
+    "apps/tui/test/app-session-controls.test.tsx": "49b057c2ce006bd47bfd3f23818884fc5868daa3e4f8b49bda01b79e635158f7",
+    "apps/tui/test/subagent-view.test.tsx": "35b0d691e8f7990279278ae7b59c239a7682bafe4c53d62546b59bc97d9512c2",
+    "apps/tui/test/subagents.test.tsx": "9c69c22bb38ce2756b3b70331ca7b9e19b4c34686065b739f1b1213cbeca4365",
+    "apps/tui/test/tabs.test.tsx": "042e7f70680b796e31190c3d8c936640fb1ed75d2363c332e057591aed231d6d",
+    "apps/tui/test/transcript-view.test.tsx": "ce9d5ffed4b0257e7e8f1b4c097875779174cffd348215fcccdd5d81ae3016c1",
+    "apps/tui/e2e/subagent-fold.test.ts": "abc93a8edf2b2204f192ed05da075b40dbe444530b581a6b72b116351123b092"
+  },
+  "archiveSha256": "8c653d19a0fdab2c691f7db099815638f0a4eea1cfd1075369920a8618fa657b",
+  "rawReceipts": {
+    "3033-focused-final.log": "b9b8e2814fa1ce451056a27c8ac2b5d532028f8bd825f6c259a41ab7117b9509",
+    "3033-format-final.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3033-gui-qualification.log": "fcc4a3ef7512a07f78803931f58dbe0ab19449c44ce0ffa772bf0a4609c27897",
+    "3033-live-issue.json": "c39aa89273a711bcf84252d91b49e30f09f1e084fc27e376851a7333300b01e6",
+    "3033-owning-tui-final.log": "9fabf1f430edda05bf70d0a0de6c0134cd077b5938b32f55ee44751d9d584156",
+    "3033-pty-disclosure-flush.log": "a3212254c565a928decc298c9a8d2d78df9c2ad3b186657927a31de3b2160090",
+    "3033-pty-draft.log": "26c10760e071167d81e9cdec59a468e1dcd565f77235e501eacec7e75dab3785",
+    "3033-pty-enter-red.log": "4242f4435c46e2d136ff78f1a515ac5d53d2bdc93d26f28aebb80b8587b6fdd4",
+    "3033-pty-final-source.log": "946dcdb13d63df77e710204353fb62a16c5a379ae574e65c4e22bbd87f19b4c1",
+    "3033-ready.json": "b8c0072e6aedf1c80040364d12dea7e557444fb21d38243bf07921fa9f7d013a",
+    "3033-source-gate-start.json": "8c16c96f38f8b1cbc1b384657d2fa9cbe6a89b5d07ad4860675aca142f90b0b4",
+    "3033-types-owning.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "behavior": [
+    "Uses shared RPC SubagentCard.earlierBatches and earlierLine; oldest batches beyond ten collapse into one row.",
+    "Keeps transcript messages, latest ten grids and finished rows; expansion restores earlier grids/finished rows without journal writes.",
+    "Disclosure state and focus fenced by conversation and parent worker; ten/eleven growth/shrink and root/worker alias controls.",
+    "Actual production main.tsx PTY proves ten visible, eleven keyboard/mouse disclosure, Enter+entire draft in one PTY write, unchanged journal before real replayed chat completion.",
+    "Mouse default autofocus stole native composer focus in retained red. Disclosure now prevents that default. Existing Enter path independently passes without added synchronous flush."
+  ],
+  "validation": [
+    {
+      "cwd": "apps/tui",
+      "command": "bun test ./test",
+      "exit": 1,
+      "result": "1921 pass / 4 fail, 1925 tests, 10884 assertions, 122 files, 98.87s"
+    },
+    {
+      "cwd": "apps/tui",
+      "command": "bun test ./e2e/subagent-fold.test.ts",
+      "exit": 0,
+      "result": "3 pass, 12 assertions, production PTY"
+    },
+    {
+      "cwd": "apps/tui",
+      "command": "node_modules/.bin/tsc -p tsconfig.json --noEmit",
+      "exit": 0
+    },
+    {
+      "cwd": "apps/app",
+      "command": "bun test src/mainview/state/ChatTimeline.test.ts src/mainview/state/ChatShell.test.tsx",
+      "exit": 0,
+      "result": "23 pass, 152 assertions; GUI source already landed"
+    },
+    {
+      "cwd": ".",
+      "command": "bun test apps/tui/test/{subagent-view,transcript-view,subagents,tabs,key-dispatch,app-session-controls}.test.*",
+      "exit": 0,
+      "result": "295 pass, 1127 assertions; subsequently owning suite reran final formatted source"
+    },
+    {
+      "cwd": ".",
+      "command": "packages/smithers/node_modules/.bin/dprint check --config apps/tui/dprint.json <eleven owned paths>",
+      "exit": 0
+    },
+    {
+      "cwd": ".",
+      "command": "git diff --check -- <eleven owned paths>",
+      "exit": 0
+    }
+  ],
+  "checks": null,
+  "limitations": [
+    "Replayed local chat completion establishes input routing, not live provider/cloud subagent execution.",
+    "Headless App control-plane/provider ports are explicit doubles; production PTY uses actual native renderer and session files.",
+    "No Linux/Docker terminal claim. No aggregate release green claim, no threshold or inventory weakening.",
+    "Initial combined Tab+Tab and Escape+draft bursts expose existing card navigation paths; later independent navigation isolates new disclosure activation. Retained initial logs are not claimed as Enter regression.",
+    "No fresh native helper rebuild, no executed coverage percentage claim."
+  ],
+  "foreignFailures": [
+    {
+      "test": "raw-error-render.test.ts:93",
+      "diagnostic": "allowlist drift: factory.ts +3, issue-views.ts +3, log.ts 4\u21926, run-history.ts +1; no edits to these paths or inventory",
+      "issues": [
+        3181,
+        3266
+      ]
+    },
+    {
+      "test": "models.integration.test.ts:102",
+      "diagnostic": "child exits1 Model could not be chosen: seat returned an invalid judgment; Models.detect real pool discovery passed"
+    },
+    {
+      "test": "flows.module-layer.integration.test.ts:83",
+      "diagnostic": "child fixture sanitizes environment and misses native helper despite parent configured absolute helper; no fresh rebuild claim"
+    },
+    {
+      "test": "flow-control.test.ts payload refusal",
+      "diagnostic": "NativeControl InvalidInput currently rejects start; fixture expects settled failed run",
+      "issue": 3260
+    }
+  ],
+  "review": "Root reviewed canonical shared batch rule, focus and native activation controls."
+}

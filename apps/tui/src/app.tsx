@@ -807,6 +807,9 @@ export function App(props: AppProps) {
     focusedCard,
     focusedWorker,
     setCardFocus,
+    earlierOpen,
+    showEarlier,
+    openEarlier,
     moveCard,
     reveal,
     monitored,
@@ -819,6 +822,7 @@ export function App(props: AppProps) {
     clearInspection
   } = TranscriptView.useTranscriptView({
     renderer,
+    conversation: writer.current.file,
     transcript,
     tabs: snapshot.tabs,
     worker: workspace.transcript,
@@ -2072,6 +2076,7 @@ export function App(props: AppProps) {
           move: moveCard,
           leave: () => setCardFocus(undefined),
           open: () => {
+            if (focusedCard.startsWith("subagents:earlier")) return openEarlier()
             if (focusedWorker !== undefined) return clickTab(`tab:${focusedWorker.id}`)
             const row = chatRows.find((each) => each.key === focusedCard)
             if (row?.item.kind !== "card") return
@@ -2695,7 +2700,13 @@ export function App(props: AppProps) {
                 onBack={() =>
                   clickTab(workerTab.parent === undefined ? "chat" : `tab:${workerTab.parent}`)}
                 tabs={snapshot.tabs}
-                cards={{ ...cards, focused: undefined }}
+                cards={{
+                  ...cards,
+                  focused: focusedCard === Subagents.earlierKey(workerTab.id) ? focusedCard : undefined
+                }}
+                earlierOpen={earlierOpen(workerTab.id)}
+                onEarlier={() =>
+                  showEarlier(workerTab.id)}
               />
             ) :
             overviewShown && panel !== undefined ?
@@ -2757,6 +2768,7 @@ export function App(props: AppProps) {
               >
                 <SubagentView.Lines
                   lines={lines}
+                  onEarlier={() => showEarlier()}
                   width={width}
                   cards={cards}
                   row={({ row }) => {

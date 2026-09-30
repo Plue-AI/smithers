@@ -229,6 +229,8 @@ export function WorkerView(props: {
   /** Every tab, for this worker's own children. */
   readonly tabs: ReadonlyArray<Tab>
   readonly cards: SubagentView.Cards
+  readonly earlierOpen: boolean
+  readonly onEarlier: () => void
 }) {
   const scroll = useRef<ScrollBoxRenderable>(null)
   if (props.scrollRef !== undefined) {
@@ -250,7 +252,12 @@ export function WorkerView(props: {
     Transcript.duration(Tabs.elapsed(tab, props.now)),
     ...(usage.input + usage.output === 0 ? [] : [`↑${Editor.tokens(usage.input)} ↓${Editor.tokens(usage.output)}`])
   ].join(" · ")
-  const lines = Subagents.lines(Timeline.rows(transcript), Subagents.batches(transcript, props.tabs, tab.id))
+  const lines = Subagents.lines(
+    Timeline.rows(transcript),
+    Subagents.batches(transcript, props.tabs, tab.id),
+    props.earlierOpen,
+    tab.id
+  )
   return (
     <box style={{ flexGrow: 1, flexShrink: 1, minHeight: 0 }}>
       <SubagentView.Crumb
@@ -291,6 +298,7 @@ export function WorkerView(props: {
       >
         <SubagentView.Lines
           lines={lines}
+          onEarlier={props.onEarlier}
           width={props.width - 2}
           cards={props.cards}
           row={({ row: { item } }) => {
