@@ -1,6 +1,7 @@
 import { describe, expect, it } from "@effect/vitest"
 import * as Sha256 from "@smthrs/crypto/Sha256"
 import * as TestDatabase from "@smthrs/database/test/TestDatabase"
+import * as SqlConsensus from "@smthrs/journal/SqlConsensus"
 import * as RunStore from "@smthrs/run-store/RunStore"
 import { Cause, Effect, Exit, Layer } from "effect"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
@@ -197,7 +198,7 @@ describe("execution snapshots", () => {
       onFile(
         file,
         Effect.gen(function*() {
-          const runs = yield* RunStore.make
+          const runs = yield* RunStore.make.pipe(Effect.provide(SqlConsensus.layer))
           const reader = yield* ExecutionSnapshot.make()
           const owner = { hostId: "owner", pid: 1, nonce: "fence" }
           yield* runs.create("cancel", state)

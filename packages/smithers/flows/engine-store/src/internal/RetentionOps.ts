@@ -35,9 +35,8 @@
  *
  * Journal history is deleted outright rather than compacted to a checkpoint.
  * `Journal.checkpoint` and `Journal.compact` are owner-fenced — `SqlJournal`'s
- * `fenceGuard` requires a `flows_runs` row that is `running` under the exact
- * owner passed in — so neither can be called for a finished, ownerless run at
- * all. Deleting the run's entries and checkpoints is strictly stronger than
+ * `fenceGuard` requires a consensus lease held by the exact owner passed in —
+ * so neither can be called for a finished, ownerless run at all. Deleting the run's entries and checkpoints is strictly stronger than
  * compacting them to a checkpoint, and it happens in the same transaction as
  * the run row, which is the property a compaction could not have given.
  *
@@ -256,6 +255,7 @@ export const runScopedTables: ReadonlyArray<RunScopedTable> = [
   { table: "flows_journal_events", column: "run_id", ladder: true },
   { table: "flows_journal_checkpoints", column: "run_id", ladder: true },
   { table: "flows_journal_dedup", column: "run_id", ladder: true },
+  { table: "flows_consensus_leases", column: "run_id", ladder: true },
   { table: "flows_step_cache_recorded", column: "recorded_run_id", ladder: true },
   { table: "flows_time_travel_archive", column: "run_id", ladder: false },
   { table: "flows_time_travel_snapshots", column: "run_id", ladder: false },

@@ -272,11 +272,13 @@ describe("snapshot recovery over production SQLite and JSON RPC", () => {
       Effect.gen(function*() {
         const journal = yield* Journal.Journal
         const sql = yield* SqlClient.SqlClient
-        // Minimal engine-owned fence schema: checkpoint and compaction still use
-        // the production fenced journal APIs, not direct checkpoint-row writes.
-        yield* sql`CREATE TABLE flows_runs (run_id TEXT PRIMARY KEY, status TEXT,
-        owner_host_id TEXT, owner_pid INTEGER, owner_nonce TEXT)`
-        yield* sql`INSERT INTO flows_runs VALUES (${runId}, 'running', ${owner.hostId}, ${owner.pid}, ${owner.nonce})`
+        // Only the ownership lease is fixture data: checkpoint and compaction
+        // still use the production fenced journal APIs, not direct
+        // checkpoint-row writes.
+        yield* sql`
+          INSERT INTO flows_consensus_leases (run_id, owner_host_id, owner_pid, owner_nonce, granted_at_ms, heartbeat_at_ms)
+          VALUES (${runId}, ${owner.hostId}, ${owner.pid}, ${owner.nonce}, 0, 0)
+        `
         for (let index = 0; index < 6; index++) {
           yield* journal.emitDurableUnfenced({
             runId,

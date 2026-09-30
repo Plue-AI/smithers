@@ -753,12 +753,14 @@ describe("SqlControlRuntime", () => {
         const leaseFresh = yield* Effect.flip((yield* successor("mac", false)).resume(runId))
         // The dead owner's lease runs out.
         yield* sql`UPDATE flows_runs SET heartbeat_at_ms = heartbeat_at_ms - 60000 WHERE run_id = ${runId}`
+        yield* sql`UPDATE flows_consensus_leases SET heartbeat_at_ms = heartbeat_at_ms - 60000 WHERE run_id = ${runId}`
         const sameHost = yield* successor("mac", false)
         const taken = yield* sameHost.resume(runId)
         const fence = JSON.parse(yield* sameHost.claimFence(runId)) as Ownership.OwnerId
         const evicted = yield* Effect.flip(first.claimFence(runId))
         // Across hosts the claim rests on the expired lease alone.
         yield* sql`UPDATE flows_runs SET heartbeat_at_ms = heartbeat_at_ms - 60000 WHERE run_id = ${runId}`
+        yield* sql`UPDATE flows_consensus_leases SET heartbeat_at_ms = heartbeat_at_ms - 60000 WHERE run_id = ${runId}`
         const otherHost = yield* successor("linux", false)
         const moved = yield* otherHost.resume(runId)
         const row = yield* store.get(runId)

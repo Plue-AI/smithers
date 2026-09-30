@@ -417,6 +417,8 @@ describe("private engine journal projection", () => {
       yield* f.runs.create("native-root", JSON.stringify({ version: 1, flowName: "fixture", payload: {} }))
       yield* f
         .sql`UPDATE flows_runs SET status = 'running', owner_host_id = ${owner.hostId}, owner_pid = ${owner.pid}, owner_nonce = ${owner.nonce}, heartbeat_at_ms = 1 WHERE run_id = 'native-root'`
+      yield* f
+        .sql`INSERT INTO flows_consensus_leases (run_id, owner_host_id, owner_pid, owner_nonce, granted_at_ms, heartbeat_at_ms) VALUES ('native-root', ${owner.hostId}, ${owner.pid}, ${owner.nonce}, 1, 1)`
       yield* emit(f.engineJournal, "native-root", { value: 0 }, "zero")
       yield* emit(f.engineJournal, "native-root", { value: 1 }, "one")
       yield* emit(f.engineJournal, "native-root", { value: 2 }, "two")

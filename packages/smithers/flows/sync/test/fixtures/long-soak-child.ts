@@ -98,8 +98,10 @@ const storage = SqlJournal.layer({ capacity: 64, overflow: "reject" }).pipe(Laye
 const program = Effect.gen(function*() {
   const journal = yield* Journal.Journal
   const sql = yield* SqlClient.SqlClient
-  yield* sql`CREATE TABLE flows_runs (run_id TEXT PRIMARY KEY, status TEXT, owner_host_id TEXT, owner_pid INTEGER, owner_nonce TEXT)`
-  yield* sql`INSERT INTO flows_runs VALUES (${runId}, 'running', ${owner.hostId}, ${owner.pid}, ${owner.nonce})`
+  yield* sql`
+    INSERT INTO flows_consensus_leases (run_id, owner_host_id, owner_pid, owner_nonce, granted_at_ms, heartbeat_at_ms)
+    VALUES (${runId}, ${owner.hostId}, ${owner.pid}, ${owner.nonce}, 0, 0)
+  `
   const stalledChanges = yield* journal.changes
   const observed = Journal.Journal.of({
     ...journal,

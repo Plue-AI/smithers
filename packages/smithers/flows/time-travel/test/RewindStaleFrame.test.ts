@@ -72,6 +72,10 @@ const appendOwned = (lineages: ReadonlyArray<string>) =>
           owner_nonce = ${writer.nonce}, heartbeat_at_ms = 0
       WHERE run_id = ${runId}
     `
+    yield* sql`
+      INSERT INTO flows_consensus_leases (run_id, owner_host_id, owner_pid, owner_nonce, granted_at_ms, heartbeat_at_ms)
+      VALUES (${runId}, ${writer.hostId}, ${writer.pid}, ${writer.nonce}, 0, 0)
+    `
     for (const lineageId of lineages) {
       yield* journal.emitDurable(
         new JournalEvent.Input({
@@ -90,6 +94,7 @@ const appendOwned = (lineages: ReadonlyArray<string>) =>
       SET status = 'suspended', owner_host_id = NULL, owner_pid = NULL, owner_nonce = NULL, heartbeat_at_ms = NULL
       WHERE run_id = ${runId}
     `
+    yield* sql`DELETE FROM flows_consensus_leases WHERE run_id = ${runId}`
   })
 
 const history = Effect.gen(function*() {

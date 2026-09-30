@@ -69,19 +69,21 @@ it(
       // cannot reclaim the root before the peer observes it. PID probing still
       // reports this stopped process as alive.
       original.kill("SIGSTOP")
-      database(root, "control", (db) =>
-        db.prepare(
-          "UPDATE flows_runs SET heartbeat_at_ms = ? WHERE run_id = ?"
-        ).run(Date.now() - 60_000, runId))
+      database(root, "control", (db) => {
+        db.prepare("UPDATE flows_runs SET heartbeat_at_ms = ? WHERE run_id = ?").run(Date.now() - 60_000, runId)
+        db.prepare("UPDATE flows_consensus_leases SET heartbeat_at_ms = ? WHERE run_id = ?").run(Date.now() - 60_000, runId)
+      })
 
       // Reproduce the durable split from #2958: budget suspension released the
       // engine root while the original control fence and detached child live.
       // SQL injects that inter-store fault; both recoverers are shipped hosts.
-      database(root, "engine", (db) =>
+      database(root, "engine", (db) => {
         db.prepare(`UPDATE flows_runs SET status = 'suspended',
       waiting_reason = 'released', owner_host_id = NULL, owner_pid = NULL, owner_nonce = NULL,
       heartbeat_at_ms = NULL, claim_host_id = NULL, claim_pid = NULL, claim_nonce = NULL,
-      claimed_at_ms = NULL WHERE run_id = ?`).run(runId))
+      claimed_at_ms = NULL WHERE run_id = ?`).run(runId)
+        db.prepare("DELETE FROM flows_consensus_leases WHERE run_id = ?").run(runId)
+      })
       const before = database(
         root,
         "engine",
@@ -119,10 +121,12 @@ it(
       await exited
       // Genuine dead-owner recovery requires an expired control and child lease.
       for (const name of ["control", "engine"]) {
-        database(root, name, (db) =>
-          db.prepare(
-            "UPDATE flows_runs SET heartbeat_at_ms = ? WHERE status = 'running'"
-          ).run(Date.now() - 60_000))
+        database(root, name, (db) => {
+          db.prepare("UPDATE flows_runs SET heartbeat_at_ms = ? WHERE status = 'running'").run(Date.now() - 60_000)
+          db.prepare("UPDATE flows_consensus_leases SET heartbeat_at_ms = ? WHERE owner_host_id IS NOT NULL").run(
+            Date.now() - 60_000
+          )
+        })
       }
       await writeFile(join(root, "release"), "recover")
       await Effect.runPromise(

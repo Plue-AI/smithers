@@ -86,6 +86,7 @@ describe.skipIf(!jjInstalled)("rewind crash recovery over file SQLite", () => {
                   }
                 })
                 yield* sql`UPDATE flows_runs SET started_at_ms = 0, heartbeat_at_ms = 0 WHERE run_id = ${runId}`
+                yield* sql`UPDATE flows_consensus_leases SET heartbeat_at_ms = 0 WHERE run_id = ${runId}`
               })
             )
             yield* TestClock.adjust("1 minute")
@@ -217,6 +218,9 @@ describe.skipIf(!jjInstalled)("rewind crash recovery over file SQLite", () => {
                     const sql = yield* Effect.service(SqlClient.SqlClient)
                     yield* sql`
                   UPDATE flows_runs SET started_at_ms = 0, heartbeat_at_ms = 0 WHERE run_id IN (${runId}, ${`${runId}-child`})
+                `
+                    yield* sql`
+                  UPDATE flows_consensus_leases SET heartbeat_at_ms = 0 WHERE run_id IN (${runId}, ${`${runId}-child`})
                 `
                   })
                 )

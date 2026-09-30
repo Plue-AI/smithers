@@ -83,6 +83,10 @@ const setup = Effect.gen(function*() {
     INSERT INTO flows_runs (run_id, status, created_at_ms, state_json, owner_host_id, owner_pid, owner_nonce, heartbeat_at_ms)
     VALUES (${runId}, 'running', 0, '{}', ${owner.hostId}, ${owner.pid}, ${owner.nonce}, 0)
   `
+  yield* sql`
+    INSERT INTO flows_consensus_leases (run_id, owner_host_id, owner_pid, owner_nonce, granted_at_ms, heartbeat_at_ms)
+    VALUES (${runId}, ${owner.hostId}, ${owner.pid}, ${owner.nonce}, 0, 0)
+  `
   for (const n of [50, 100]) {
     yield* sql`
       INSERT INTO flows_journal_events

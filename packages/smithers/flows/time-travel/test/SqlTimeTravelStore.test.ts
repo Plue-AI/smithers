@@ -9,6 +9,22 @@ import * as SqlTimeTravelStore from "../src/SqlTimeTravelStore.ts"
 
 const owner = { hostId: "host-a", pid: 1234, nonce: "nonce" } as const
 
+/** The lease `archiveAndTruncate`'s owner fence reads, beside the run row. */
+const holdLease = (
+  sql: SqlClient.SqlClient,
+  runId: string,
+  holder: { readonly hostId: string; readonly pid: number; readonly nonce: string }
+) =>
+  sql`
+    INSERT INTO flows_consensus_leases (
+      run_id, owner_host_id, owner_pid, owner_nonce, granted_at_ms, heartbeat_at_ms
+    ) VALUES (${runId}, ${holder.hostId}, ${holder.pid}, ${holder.nonce}, 0, 0)
+    ON CONFLICT (run_id) DO UPDATE SET
+      owner_host_id = excluded.owner_host_id,
+      owner_pid = excluded.owner_pid,
+      owner_nonce = excluded.owner_nonce
+  `
+
 describe("SqlTimeTravelStore", () => {
   it.effect("archives and truncates attached descendants in one database write", () =>
     Effect.gen(function*() {
@@ -26,8 +42,8 @@ describe("SqlTimeTravelStore", () => {
           `
           }
           // The truncation is owner-fenced: the archive only commits while
-          // `flows_runs` records this owner for the run. The run table's
-          // CHECK keeps owner columns on `running` rows only.
+          // the consensus lease records this owner for the run. The run row
+          // mirrors it, and its CHECK keeps owner columns on `running` rows only.
           yield* sql`
           UPDATE flows_runs
           SET status = 'running',
@@ -35,6 +51,7 @@ describe("SqlTimeTravelStore", () => {
             heartbeat_at_ms = 0
           WHERE run_id = 'parent'
         `
+          yield* holdLease(sql, "parent", owner)
           const journalRows = [
             { runId: "parent", seq: 0 },
             { runId: "parent", seq: 2 },
@@ -122,6 +139,7 @@ describe("SqlTimeTravelStore", () => {
           VALUES ('parent', 'running', 0, '{}',
                   ${owner.hostId}, ${owner.pid}, ${owner.nonce}, 0)
         `
+          yield* holdLease(sql, "parent", owner)
           yield* sql`
           INSERT INTO flows_journal_events
             (run_id, seq, event_id, source_id, source_seq, emitted_at_ms,
@@ -135,6 +153,7 @@ describe("SqlTimeTravelStore", () => {
           SET owner_host_id = 'host-b', owner_pid = 4321, owner_nonce = 'nonce-b'
           WHERE run_id = 'parent'
         `
+          yield* holdLease(sql, "parent", { hostId: "host-b", pid: 4321, nonce: "nonce-b" })
           const failure = yield* Effect.flip(
             store.archiveAndTruncate("parent", { lineageId: "parent/root", seq: 0 }, [], owner)
           )
@@ -169,6 +188,7 @@ describe("SqlTimeTravelStore", () => {
               VALUES (${runId}, 'running', 0, '{}',
                       ${runOwner.hostId}, ${runOwner.pid}, ${runOwner.nonce}, 0)
             `
+            yield* holdLease(sql, runId, runOwner)
           }
           for (const [runId, seq] of [["parent", 0], ["parent", 2], ["child", 0]] as const) {
             yield* sql`
@@ -221,6 +241,7 @@ it.effect("archiveAndTruncate forgets lossy source identities in the live journa
       yield* sql`INSERT INTO flows_runs
       (run_id, status, created_at_ms, state_json, owner_host_id, owner_pid, owner_nonce, heartbeat_at_ms)
       VALUES ('rewind-lossy', 'running', 0, '{}', ${owner.hostId}, ${owner.pid}, ${owner.nonce}, 0)`
+      yield* holdLease(sql, "rewind-lossy", owner)
       const input = new JournalEvent.Input({
         runId: "rewind-lossy" as JournalEvent.RunId,
         sourceId: "producer" as JournalEvent.SourceId,
@@ -259,6 +280,7 @@ it.effect("archives both histories when a rewound run reuses journal sequences",
       yield* sql`INSERT INTO flows_runs
       (run_id, status, created_at_ms, state_json, owner_host_id, owner_pid, owner_nonce, heartbeat_at_ms)
       VALUES ('rewind-twice', 'running', 0, '{}', ${owner.hostId}, ${owner.pid}, ${owner.nonce}, 0)`
+      yield* holdLease(sql, "rewind-twice", owner)
       const emit = (eventType: string) =>
         journal.emitDurable(
           new JournalEvent.Input({

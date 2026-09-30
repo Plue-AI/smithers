@@ -691,6 +691,7 @@ describe("Retention.collect", () => {
       "flows_journal_events",
       "flows_journal_checkpoints",
       "flows_journal_dedup",
+      "flows_consensus_leases",
       "flows_step_cache_recorded",
       "flows_time_travel_archive",
       "flows_time_travel_snapshots",
@@ -709,6 +710,7 @@ describe("Retention.collect", () => {
       "flows_journal_events",
       "flows_journal_checkpoints",
       "flows_journal_dedup",
+      "flows_consensus_leases",
       "flows_step_cache_recorded"
     ])
   })

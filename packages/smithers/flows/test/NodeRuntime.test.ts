@@ -437,6 +437,9 @@ describe("the supported Node SQLite composition", () => {
           executionId: "gate-review",
           discard: true
         })
+        // A discarded execute returns once the run is scheduled, so wait for
+        // the background drive to park it before the scope shuts down.
+        while ((yield* runs.get("gate-review")).status !== "suspended") yield* Effect.sleep("5 millis")
         return {
           count: yield* runs.get("gate-count"),
           review: yield* runs.get("gate-review"),

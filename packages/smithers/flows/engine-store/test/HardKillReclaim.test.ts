@@ -12,7 +12,7 @@ import * as PersistentDatabase from "./fixtures/PersistentDatabase.ts"
  *
  * Uses the SQL `DurableEngineState` over the same database as `RunStore`,
  * because the hard-kill evidence (a `running` row with a stale
- * `heartbeat_at_ms`) lives in `flows_runs` itself.
+ * `heartbeat_at_ms`) lives in `flows_runs` and its consensus lease.
  */
 import { describe, expect, it } from "@effect/vitest"
 import { DurableWriter } from "@smthrs/database"
@@ -82,29 +82,35 @@ const insertHardKilledRun = (runId: string) =>
       payload: {},
       capabilityCeilings: [[]]
     })
-    yield* writer.write(sql`
-      INSERT INTO flows_runs (
-        run_id,
-        status,
-        created_at_ms,
-        started_at_ms,
-        owner_host_id,
-        owner_pid,
-        owner_nonce,
-        heartbeat_at_ms,
-        state_json
-      ) VALUES (
-        ${runId},
-        'running',
-        0,
-        0,
-        'dead-host',
-        424242,
-        'dead-nonce',
-        0,
-        ${stateJson}
-      )
-    `).pipe(Effect.orDie)
+    yield* writer.write(Effect.andThen(
+      sql`
+        INSERT INTO flows_runs (
+          run_id,
+          status,
+          created_at_ms,
+          started_at_ms,
+          owner_host_id,
+          owner_pid,
+          owner_nonce,
+          heartbeat_at_ms,
+          state_json
+        ) VALUES (
+          ${runId},
+          'running',
+          0,
+          0,
+          'dead-host',
+          424242,
+          'dead-nonce',
+          0,
+          ${stateJson}
+        )
+      `,
+      sql`
+        INSERT INTO flows_consensus_leases (run_id, owner_host_id, owner_pid, owner_nonce, granted_at_ms, heartbeat_at_ms)
+        VALUES (${runId}, 'dead-host', 424242, 'dead-nonce', 0, 0)
+      `
+    )).pipe(Effect.orDie)
   })
 
 type Services = Layer.Success<typeof services> | TestClock.TestClock | Crypto.Crypto | Scope.Scope

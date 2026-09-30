@@ -15,7 +15,7 @@
  * `(run, owner, heartbeat)` so the journal admits it once.
  *
  * Uses the SQL `DurableEngineState` over the same database as `RunStore`,
- * because the evidence is `flows_runs` itself.
+ * because the evidence is `flows_runs` and its consensus lease.
  */
 import { describe, expect, it } from "@effect/vitest"
 import { DurableWriter } from "@smthrs/database"
@@ -79,33 +79,39 @@ const insertRunOwnedBy = (runId: string, owner: Ownership.OwnerId, heartbeatAtMs
     const sql = yield* Effect.service(SqlClient.SqlClient)
     const writer = yield* DurableWriter.DurableWriter
     const stateJson = JSON.stringify({ version: 1, flowName: TestFlow._tag, payload: {}, capabilityCeilings: [[]] })
-    yield* writer.write(sql`
-      INSERT INTO flows_runs (
-        run_id,
-        status,
-        created_at_ms,
-        started_at_ms,
-        owner_host_id,
-        owner_pid,
-        owner_nonce,
-        heartbeat_at_ms,
-        state_json,
-        lineage_id,
-        round_ordinal
-      ) VALUES (
-        ${runId},
-        'running',
-        0,
-        0,
-        ${owner.hostId},
-        ${owner.pid},
-        ${owner.nonce},
-        ${heartbeatAtMs},
-        ${stateJson},
-        ${runId},
-        0
-      )
-    `).pipe(Effect.orDie)
+    yield* writer.write(Effect.andThen(
+      sql`
+        INSERT INTO flows_runs (
+          run_id,
+          status,
+          created_at_ms,
+          started_at_ms,
+          owner_host_id,
+          owner_pid,
+          owner_nonce,
+          heartbeat_at_ms,
+          state_json,
+          lineage_id,
+          round_ordinal
+        ) VALUES (
+          ${runId},
+          'running',
+          0,
+          0,
+          ${owner.hostId},
+          ${owner.pid},
+          ${owner.nonce},
+          ${heartbeatAtMs},
+          ${stateJson},
+          ${runId},
+          0
+        )
+      `,
+      sql`
+        INSERT INTO flows_consensus_leases (run_id, owner_host_id, owner_pid, owner_nonce, granted_at_ms, heartbeat_at_ms)
+        VALUES (${runId}, ${owner.hostId}, ${owner.pid}, ${owner.nonce}, 0, ${heartbeatAtMs})
+      `
+    )).pipe(Effect.orDie)
   })
 
 /**
@@ -242,9 +248,10 @@ describe("the stale-running sweep backs off refused rows (B-04)", () => {
 
         /** Rewrites the row's lease, which is what a stalling owner does. */
         const setHeartbeat = (heartbeatAtMs: number) =>
-          writer.write(sql`
-            UPDATE flows_runs SET heartbeat_at_ms = ${heartbeatAtMs} WHERE run_id = ${runIdOf(1)}
-          `).pipe(Effect.orDie)
+          writer.write(Effect.andThen(
+            sql`UPDATE flows_runs SET heartbeat_at_ms = ${heartbeatAtMs} WHERE run_id = ${runIdOf(1)}`,
+            sql`UPDATE flows_consensus_leases SET heartbeat_at_ms = ${heartbeatAtMs} WHERE run_id = ${runIdOf(1)}`
+          )).pipe(Effect.orDie)
 
         // Three refusals in a row: the wait doubles each time, so by the third
         // the row is deferred for several ticks.
@@ -306,9 +313,12 @@ describe("the stale-running sweep backs off refused rows (B-04)", () => {
         // The owner pulses and stalls again before the next tick, so no read
         // ever finds the row outside the stale window. Its lease still moved.
         const nowMs = yield* Clock.currentTimeMillis
-        yield* writer.write(sql`
-          UPDATE flows_runs SET heartbeat_at_ms = ${nowMs - staleAfterMs - 1} WHERE run_id = ${runIdOf(1)}
-        `).pipe(Effect.orDie)
+        yield* writer.write(Effect.andThen(
+          sql`UPDATE flows_runs SET heartbeat_at_ms = ${nowMs - staleAfterMs - 1} WHERE run_id = ${runIdOf(1)}`,
+          sql`UPDATE flows_consensus_leases SET heartbeat_at_ms = ${nowMs - staleAfterMs - 1} WHERE run_id = ${
+            runIdOf(1)
+          }`
+        )).pipe(Effect.orDie)
         yield* TestClock.adjust(heartbeatMs)
         yield* TestDatabase.until(Effect.sync(() => probed.length >= 2))
         return probed

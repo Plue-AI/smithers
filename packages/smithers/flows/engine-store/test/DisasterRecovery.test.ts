@@ -15,6 +15,7 @@ import { DurableWriter } from "@smthrs/database"
 import * as DatabaseMigrations from "@smthrs/database/Migrations"
 import * as NodeDatabase from "@smthrs/database/node/NodeDatabase"
 import * as TestDatabase from "@smthrs/database/test/TestDatabase"
+import * as SqlConsensus from "@smthrs/journal/SqlConsensus"
 import * as RunStore from "@smthrs/run-store/RunStore"
 import * as Cause from "effect/Cause"
 import type * as Crypto from "effect/Crypto"
@@ -775,7 +776,7 @@ describe("fence", () => {
           // This column is installed by 3006, proving the schema changed too.
           const columns = yield* Dialect.columns(sql, "flows_runs")
           expect(columns.map((column) => column.name)).toContain("execution_parent_id")
-          const runs = yield* RunStore.make
+          const runs = yield* RunStore.make.pipe(Effect.provide(SqlConsensus.layer))
           const row = yield* runs.get("upgrade-run")
           expect(row).toMatchObject({ status: "suspended", owner: null, heartbeatAtMs: null, claim: null })
           expect(yield* runs.heartbeat("upgrade-run", oldOwner, 20)).toEqual({ _tag: "FenceLost" })

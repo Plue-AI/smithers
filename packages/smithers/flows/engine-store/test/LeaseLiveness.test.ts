@@ -12,7 +12,7 @@
  * write.
  *
  * Real SQLite, because the evidence being reasoned about (a `running` row with
- * a frozen `heartbeat_at_ms`) lives in `flows_runs`.
+ * a frozen `heartbeat_at_ms`) lives in `flows_runs` and its consensus lease.
  */
 import { describe, expect, it } from "@effect/vitest"
 import { DurableWriter } from "@smthrs/database"
@@ -70,15 +70,21 @@ const insertOwnedRun = (runId: string, heartbeatAtMs: number) =>
     const sql = yield* Effect.service(SqlClient.SqlClient)
     const writer = yield* DurableWriter.DurableWriter
     const stateJson = JSON.stringify({ version: 1, flowName: TestFlow._tag, payload: {}, capabilityCeilings: [[]] })
-    yield* writer.write(sql`
-      INSERT INTO flows_runs (
-        run_id, status, created_at_ms, started_at_ms,
-        owner_host_id, owner_pid, owner_nonce, heartbeat_at_ms, state_json
-      ) VALUES (
-        ${runId}, 'running', 0, 0,
-        ${deadOwner.hostId}, ${deadOwner.pid}, ${deadOwner.nonce}, ${heartbeatAtMs}, ${stateJson}
-      )
-    `).pipe(Effect.orDie)
+    yield* writer.write(Effect.andThen(
+      sql`
+        INSERT INTO flows_runs (
+          run_id, status, created_at_ms, started_at_ms,
+          owner_host_id, owner_pid, owner_nonce, heartbeat_at_ms, state_json
+        ) VALUES (
+          ${runId}, 'running', 0, 0,
+          ${deadOwner.hostId}, ${deadOwner.pid}, ${deadOwner.nonce}, ${heartbeatAtMs}, ${stateJson}
+        )
+      `,
+      sql`
+        INSERT INTO flows_consensus_leases (run_id, owner_host_id, owner_pid, owner_nonce, granted_at_ms, heartbeat_at_ms)
+        VALUES (${runId}, ${deadOwner.hostId}, ${deadOwner.pid}, ${deadOwner.nonce}, 0, ${heartbeatAtMs})
+      `
+    )).pipe(Effect.orDie)
   })
 
 const decisionsOf = (runId: string) =>

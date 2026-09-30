@@ -192,10 +192,14 @@ describe("cancelling a child wakes its parked durable parents (#2758)", () => {
       const { driver, drained } = yield* test.makeDriver("home")
       test.attach["racing-parent"] = "successor"
       // The parent has read `Suspended` and has not parked yet: no waiting
-      // row exists, so the wake must be carried by the running round.
+      // row exists, so the wake must be carried by the running round. The
+      // hook holds the parent until the cancelling drive has finished, which
+      // includes announcing the settlement, so the announcement always finds
+      // the parent unparked.
       test.beforePark["racing-parent"] = Effect.gen(function*() {
         yield* driver.interrupt(Next, test.successor.executionId)
         yield* test.until(test.successor.executionId, "cancelled")
+        while ((yield* driver.active).has(test.successor.executionId)) yield* Effect.sleep("2 millis")
       }).pipe(Effect.orDie)
 
       yield* driver.execute(Child, { executionId: "child", payload: {}, discard: true })

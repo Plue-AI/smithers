@@ -40,6 +40,9 @@ const fixture = (heartbeatAtMs: number, options: TimeTravel.Options = {}) =>
     yield* sql`INSERT INTO flows_runs
       (run_id, status, created_at_ms, state_json, owner_host_id, owner_pid, owner_nonce, heartbeat_at_ms)
       VALUES ('child', 'running', 0, '{}', ${owner.hostId}, ${owner.pid}, ${owner.nonce}, ${heartbeatAtMs})`
+    yield* sql`INSERT INTO flows_consensus_leases
+      (run_id, owner_host_id, owner_pid, owner_nonce, granted_at_ms, heartbeat_at_ms)
+      VALUES ('child', ${owner.hostId}, ${owner.pid}, ${owner.nonce}, ${heartbeatAtMs}, ${heartbeatAtMs})`
     for (const seq of [0, 1]) {
       yield* sql`INSERT INTO flows_journal_events
         (run_id, seq, event_id, source_id, source_seq, emitted_at_ms, event_type, payload_json, meta_json)

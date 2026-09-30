@@ -1,5 +1,6 @@
 import { describe, expect, it } from "@effect/vitest"
 import * as Sha256 from "@smthrs/crypto/Sha256"
+import * as SqlConsensus from "@smthrs/journal/SqlConsensus"
 import * as RunMigrations from "@smthrs/run-store/Migrations"
 import * as RunStore from "@smthrs/run-store/RunStore"
 import { Effect } from "effect"
@@ -43,7 +44,7 @@ describe("execution observation compatibility", () => {
         yield* onFile(
           file,
           Effect.gen(function*() {
-            const runs = yield* RunStore.make
+            const runs = yield* RunStore.make.pipe(Effect.provide(SqlConsensus.layer))
             const engine = yield* DurableEngineState.make
             const owner = { hostId: "host", pid: 1, nonce: "owner" }
             yield* runs.create("long-wait", state)
@@ -72,7 +73,7 @@ describe("execution observation compatibility", () => {
       onFile(
         file,
         Effect.gen(function*() {
-          const runs = yield* RunStore.make
+          const runs = yield* RunStore.make.pipe(Effect.provide(SqlConsensus.layer))
           const sql = yield* SqlClient.SqlClient
           const parentRunId = "\u0003".repeat(1024)
           const lineageId = "\u0002".repeat(1024)

@@ -105,6 +105,28 @@
       "reason": "Shared versioned engine event schemas and explicit consumer admission, documented in journal's state-event-authority guide; reviewed in state-event-contracts.md. Additive contracts do not cut over existing writers or expose engine projection internals."
     },
     {
+      "name": "@smthrs/journal",
+      "subpath": "./Consensus",
+      "development": "./src/Consensus.ts",
+      "published": {
+        "types": "./dist/esm/Consensus.d.ts",
+        "import": "./dist/esm/Consensus.js",
+        "require": "./dist/cjs/Consensus.js"
+      },
+      "reason": "The injectable consensus strategy the journal fences through (issue #2051): the Consensus service, its typed outcomes, the lease constants and liveness evidence relocated from run-store, and the in-memory single-process layer. Documented in journal's owner-fence concept."
+    },
+    {
+      "name": "@smthrs/journal",
+      "subpath": "./SqlConsensus",
+      "development": "./src/SqlConsensus.ts",
+      "published": {
+        "types": "./dist/esm/SqlConsensus.d.ts",
+        "import": "./dist/esm/SqlConsensus.js",
+        "require": "./dist/cjs/SqlConsensus.js"
+      },
+      "reason": "The default database-backed consensus strategy over the journal-owned flows_consensus_leases table (issue #2051), relocating run-store's ownership compare-and-swap so the journal fences without reading flows_runs."
+    },
+    {
       "name": "@smthrs/control",
       "subpath": "./ApprovalAuthority",
       "development": "./src/ApprovalAuthority.ts",

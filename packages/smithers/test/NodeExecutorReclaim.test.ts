@@ -76,6 +76,11 @@ const seedHardKilledRun = (file: string, options: SeedOptions): void => {
         payload: { runId: options.runId, planId: "plan-1" }
       })
     )
+    database.prepare(
+      `INSERT INTO flows_consensus_leases (
+        run_id, owner_host_id, owner_pid, owner_nonce, granted_at_ms, heartbeat_at_ms
+      ) VALUES (?, ?, ?, 'seeded-nonce', ?, ?)`
+    ).run(options.runId, options.hostId, options.pid, options.frozenAtMs, options.frozenAtMs)
   } finally {
     database.close()
   }
