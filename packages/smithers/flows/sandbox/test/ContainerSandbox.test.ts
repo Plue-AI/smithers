@@ -479,6 +479,16 @@ describe("ContainerSandbox", () => {
       expect(fake.calls[0]!.args.slice(5, 7)).toEqual(["--network", "none"])
     }))
 
+  it.effect("maps the neutral `open` network to the engine's bridge network, never a network named open", () =>
+    Effect.gen(function*() {
+      const fake = engine()
+      yield* acquired(
+        ContainerSandbox.make({ spawner: fake.spawner, image: "img", workdir, network: "open" }),
+        Effect.succeed
+      )
+      expect(fake.calls[0]!.args.slice(5, 7)).toEqual(["--network", "bridge"])
+    }))
+
   it.effect("hands exec the cwd `Sandbox.fileSystem` would name for a relative path", () =>
     Effect.gen(function*() {
       const fake = engine()

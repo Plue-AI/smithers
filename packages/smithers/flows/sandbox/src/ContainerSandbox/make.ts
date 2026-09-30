@@ -44,9 +44,9 @@ export interface ContainerSandboxOptions {
   /** Container-wide environment, sent through /dev/stdin as an env-file. CR, LF, and NUL values are refused. */
   readonly env?: Readonly<Record<string, string>> | undefined
   /**
-   * The container's network. `"none"`, the default, gives it none; another
-   * string is the engine's network mode, passed verbatim, and explicitly opts
-   * in. An engine network mode is not a host firewall, so an allowlist
+   * The container's network. `"none"`, the default, gives it none; `"open"`
+   * is the engine's `bridge` network; another string is the engine's network
+   * mode, passed verbatim. Both explicitly opt in. An engine network mode is not a host firewall, so an allowlist
    * `{ allow }` is refused when `make` is called.
    */
   readonly network?: NetworkPolicy | string | undefined
@@ -171,7 +171,8 @@ export const make = (options: ContainerSandboxOptions): Provider => {
       "container-sandbox: cannot enforce a network allowlist; the engine network mode is not a host firewall"
     )
   }
-  const network = options.network ?? "none"
+  // `"open"` is the engine's default bridge network: the neutral way to opt in.
+  const network = options.network === "open" ? "bridge" : options.network ?? "none"
   const limits = options.limits === undefined ? {} : validateResourceLimits("container-sandbox", options.limits)
   refuseOverriddenCeilings(limits, options.createArgs ?? [])
   const prefix = options.namePrefix ?? "smthrs-sbx-"
