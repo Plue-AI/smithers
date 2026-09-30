@@ -131,6 +131,110 @@ describe("frames", () => {
   })
 })
 
+describe("frames of engine and instantaneous spans", () => {
+  const wrap = (
+    sequence: number,
+    executionId: string,
+    eventType: string,
+    payload: unknown,
+    generation = 0
+  ): JournalRecord => ({
+    sequence,
+    // Ingested well after it happened: the journal's own stamp must not decide ownership.
+    occurredAt: 100_000 + sequence,
+    kind: "control.engine.event",
+    payload: {
+      version: 1,
+      executionId,
+      generation,
+      sequence,
+      eventId: `${executionId}/${generation}/${sequence}`,
+      sourceId: "engine",
+      sourceSequence: sequence,
+      emittedAtMs: sequence + 100,
+      eventType,
+      payload,
+      meta: { lineageId: executionId }
+    }
+  })
+  const decision = (sequence: number, executionId: string, status?: string, generation = 0) =>
+    wrap(sequence, executionId, "flows.engine.run-decision", {
+      decision: status === undefined ? "created" : "transitioned",
+      ...(status === undefined ? {} : { status }),
+      state: {
+        version: 1,
+        flowName: "coding/Check",
+        payload: { target: "typecheck" },
+        ...(status === "completed" ? { result: { _tag: "Complete", exit: { _tag: "Success", value: 1 } } } : {})
+      }
+    }, generation)
+  const engineJournal: ReadonlyArray<JournalRecord> = [
+    decision(1, "native"),
+    decision(2, "other"),
+    wrap(3, "native", "flows.engine.custom", { note: "x" }),
+    decision(4, "native", "completed"),
+    decision(5, "other", "completed")
+  ]
+
+  test("an execution owns every native record of its execution and generation, by native time", () => {
+    const engine = traceFromJournal(RUN, engineJournal)
+    const execution = engine.rows.find((row) => row.id === "engine:native:0")!
+    expect(execution.endedAt).toBe(104)
+    expect(framesOf(engine, execution).map((frame) => [frame.sequence, frame.at])).toEqual([[1, 101], [3, 103], [
+      4,
+      104
+    ]])
+    const other = engine.rows.find((row) => row.id === "engine:other:0")!
+    expect(framesOf(engine, other).map((frame) => frame.sequence)).toEqual([2, 5])
+    // Another generation of the same execution is another span with its own records.
+    const regenerated = traceFromJournal(RUN, [...engineJournal, decision(6, "native", undefined, 1)])
+    const second = regenerated.rows.find((row) => row.id === "engine:native:1")!
+    expect(framesOf(regenerated, second).map((frame) => frame.sequence)).toEqual([6])
+    expect(
+      framesOf(regenerated, regenerated.rows.find((row) => row.id === "engine:native:0")!).map((frame) =>
+        frame.sequence
+      )
+    ).toEqual([1, 3, 4])
+  })
+
+  test("an engine event owns its own record, and every engine span is inspectable by its printed id", () => {
+    const engine = traceFromJournal(RUN, engineJournal)
+    const event = engine.rows.find((row) => row.id.startsWith("engine-event:"))!
+    expect(framesOf(engine, event).map((frame) => frame.sequence)).toEqual([3])
+    const printed = lines(engine)
+    const line = printed.find((each) => each.endsWith(" engine:native:0"))!
+    expect(line).toMatch(/coding\/Check\s+3ms\s+engine:native:0$/)
+    expect(printed.some((each) => each.endsWith(` ${event.id}`))).toBe(true)
+    const selected = lines(engine, line.trim().split(/\s+/).at(-1))
+    expect(selected).toContain("Frames 3")
+  })
+
+  test("a record another kind or a malformed envelope carries is not an execution's", () => {
+    const engine = traceFromJournal(RUN, [
+      ...engineJournal,
+      at(6, "control.agent.cell-printed", { text: "aside" }, 200),
+      { sequence: 7, kind: "control.engine.event", occurredAt: 300, payload: { version: 1, generation: 0 } }
+    ])
+    const execution = engine.rows.find((row) => row.id === "engine:native:0")!
+    expect(framesOf(engine, execution).map((frame) => frame.sequence)).toEqual([1, 3, 4])
+    const root = inspect(engine)
+    expect(root.frameCount).toBe(7)
+  })
+
+  test("a printed line is its own record, not the turns that followed it", () => {
+    const printed = traceFromJournal(RUN, [
+      at(1, "control.agent.turn-opened", {}, 1000),
+      at(2, "control.agent.cell-printed", { text: "note" }, 1100),
+      at(3, "control.agent.turn-opened", {}, 2000),
+      at(4, "control.agent.cell-printed", { text: "later" }, 2100)
+    ])
+    const events = printed.rows.filter((row) => row.kind === "event")
+    expect(events.map((row) => row.endedAt)).toEqual([undefined, undefined])
+    expect(framesOf(printed, events[0]!).map((frame) => frame.sequence)).toEqual([2])
+    expect(inspect(printed, events[1]!.id).frameCount).toBe(1)
+  })
+})
+
 describe("the inspection", () => {
   test("reads the selected call's input, output, seat, tokens and fields off its records", () => {
     const read = inspect(model(), span("files.read").id)
@@ -216,9 +320,9 @@ describe("the text lines", () => {
   test("print the run line, the tree with the selection marked, and the inspection", () => {
     const text = lines(model(), span("target.run").id, { width: 80 })
     expect(text[0]).toBe("run run-1 · implement · running · 8 spans · 2 running · 1 failed · t = 4.6s")
-    expect(text[1]).toBe("  ◐ run run-1 · implement                            running    4.6s")
+    expect(text[1]).toBe("  ◐ run run-1 · implement                            running    4.6s    run:run-1")
     expect(text.find((line) => line.startsWith(">"))).toBe(
-      ">       ✗ target.run                                 failed     2.0s"
+      ">       ✗ target.run                                 failed     2.0s    call-2"
     )
     const detail = text.indexOf("")
     expect(text.slice(detail + 1, detail + 7)).toEqual([
@@ -263,7 +367,7 @@ describe("the text lines", () => {
       ...one,
       rows: one.rows.map((row) => row.id === "frame-1" ? { ...row, status: "recorded" } : row)
     }
-    expect(lines(recorded, "frame-1")[2]).toMatch(/^>   ○ frame 1 +recorded/)
+    expect(lines(recorded, "frame-1")[2]).toMatch(/^>   ○ frame 1 +recorded +0ms +frame-1$/)
     const waiting = traceFromJournal(RUN, [
       at(1, "control.agent.turn-opened", {}, 1000),
       at(2, "control.approval.requested", { requestId: "req-1", question: "write?", payload: {}, runId: "run-1" }, 1100)
@@ -286,9 +390,10 @@ describe("the text lines", () => {
 
   test("an empty journal is the root alone with no facts it never measured", () => {
     const empty = traceFromJournal({ ...RUN, status: "completed" }, [])
-    expect(lines(empty)).toEqual([
+    const text = lines(empty)
+    expect(text[1]).toMatch(/^> ● run run-1 · implement +run:run-1$/)
+    expect([text[0], ...text.slice(2)]).toEqual([
       "run run-1 · implement · completed · 0 spans",
-      "> ● run run-1 · implement",
       "",
       "run · run run-1 · implement · completed",
       "Frames 0"
@@ -302,8 +407,9 @@ describe("the text lines", () => {
     ])
     const narrow = lines(long, undefined, { width: 10 })
     const call = narrow.find((line) => line.includes("xxx"))!
-    expect(call.length).toBeLessThanOrEqual(40)
-    expect(call).toContain("…")
+    // The label column floors at 20 of a 40-column width; the id follows it unclipped.
+    expect(call.indexOf("…")).toBeLessThan(24)
+    expect(call).toMatch(/ call-1$/)
     const frame = narrow.find((line) => line.startsWith("  #2 "))!
     // The width floors at 40 columns: the frame keeps 32 for its kind and payload after the `  #n ` lead.
     expect(frame.length).toBe(5 + 32)

@@ -140,8 +140,31 @@ const asRecord = (value: unknown): Record<string, unknown> =>
 
 /** The record's time: the agent's own `at` stamp when it carries one, the journal's otherwise (the fold's rule). */
 const timeOf = (record: JournalRecord): number => {
-  const at = asRecord(record.payload).at
+  const payload = asRecord(record.payload)
+  // The agent's own `at` stamp, the engine envelope's native `emittedAtMs`
+  // (an ingested native fact is journaled later than it happened), else the journal's.
+  const at = payload.at ?? payload.emittedAtMs
   return typeof at === "number" && Number.isFinite(at) ? at : record.occurredAt ?? 0
+}
+
+/**
+ * The `<executionId>:<generation>` an engine span's id carries, as EngineTrace
+ * spells it: an execution's id holds the two parts, an attempt's or event's
+ * id holds them encoded once more as its first segment.
+ */
+const engineKeyOf = (span: TraceSpan): string | undefined => {
+  const match = /^(engine|engine-attempt|engine-event):([^:]+):([^:]+)/.exec(span.id)
+  if (match === null) return undefined
+  return match[1] === "engine" ? `${match[2]}:${match[3]}` : decodeURIComponent(match[2]!)
+}
+
+/** The same key off a journaled engine envelope; absent for every other record. */
+const envelopeKeyOf = (record: JournalRecord): string | undefined => {
+  if (record.kind !== "control.engine.event") return undefined
+  const { executionId, generation } = asRecord(record.payload)
+  return typeof executionId === "string" && typeof generation === "number"
+    ? `${encodeURIComponent(executionId)}:${encodeURIComponent(String(generation))}`
+    : undefined
 }
 
 const OPEN: ReadonlySet<string> = new Set(["running", "waiting"])
@@ -190,8 +213,11 @@ export const devTools = (model: TraceModel): DevToolsModel => ({
  * opened it through the record that settled it (a frame closes on the next
  * frame's opening, so that record is its last), or every later record while
  * it is still open. Two calls open at once share the records of their
- * overlap. The run root owns the whole journal. A span the journal never
- * opened with a sequence has no frames.
+ * overlap. An instantaneous event owns its own record alone. An engine
+ * execution owns every native record of its execution and generation, and an
+ * attempt or engine event those of its window, by the envelope's native time
+ * rather than the later ingestion time. The run root owns the whole journal.
+ * A span the journal never opened with a sequence has no frames.
  *
  * @param model the trace
  * @param span one of its spans
@@ -202,13 +228,22 @@ export const devTools = (model: TraceModel): DevToolsModel => ({
 export const framesOf = (model: TraceModel, span: TraceSpan): ReadonlyArray<DevToolsFrame> => {
   const opened = span.detail.sequence
   if (span.kind !== "run" && opened === undefined) return []
+  const engine = engineKeyOf(span)
+  const instant = span.kind === "event" && span.endedAt === undefined
+  const owns = (record: JournalRecord & { readonly sequence: number }): boolean => {
+    if (span.kind === "run") return true
+    if (record.sequence === opened) return true
+    if (record.sequence < opened! || instant) return false
+    if (engine !== undefined) {
+      if (envelopeKeyOf(record) !== engine) return false
+      if (span.kind === "execution") return true
+    }
+    return span.endedAt === undefined || timeOf(record) <= span.endedAt
+  }
   const frames: Array<DevToolsFrame> = []
   for (const record of model.journal) {
     if (typeof record.sequence !== "number") continue
-    if (span.kind !== "run") {
-      if (record.sequence < opened!) continue
-      if (span.endedAt !== undefined && timeOf(record) > span.endedAt) continue
-    }
+    if (!owns(record as JournalRecord & { readonly sequence: number })) continue
     frames.push({ sequence: record.sequence, at: timeOf(record), kind: record.kind ?? "", payload: record.payload })
   }
   return frames
@@ -283,7 +318,8 @@ const indent = (text: string): ReadonlyArray<string> => text.split("\n").map((li
  * The tree and the inspection as text lines, for the terminal and the CLI.
  *
  * The tree is one line per node: glyph, label indented by depth, the status
- * word when it is not `completed`, and the measured duration. Under it, the
+ * word when it is not `completed`, the measured duration, and the node's id,
+ * which is what `/devtools` and `runs devtools` take to inspect it. Under it, the
  * selected node's facts in the order the app pane shows them. The root is
  * inspected when `selected` names no node.
  *
@@ -315,7 +351,7 @@ export const lines = (
     const label = clip(`${"  ".repeat(node.depth)}${glyphOf(node.status)} ${node.label}`, labelWidth).padEnd(labelWidth)
     const status = node.status === "completed" ? "" : node.status
     const duration = node.durationMs === undefined ? "" : durationWords(node.durationMs)
-    out.push(`${marker} ${label} ${status.padEnd(10)} ${duration}`.trimEnd())
+    out.push(`${marker} ${label} ${status.padEnd(10)} ${duration.padEnd(7)} ${node.id}`.trimEnd())
   }
   const { node } = inspection
   out.push("", `${node.kind} · ${inspection.path.join(" / ")} · ${node.status}`)
