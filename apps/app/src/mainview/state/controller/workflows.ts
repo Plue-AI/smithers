@@ -530,7 +530,9 @@ export const createWorkflowController = (
         card: {
           ...card,
           status: patch.status === "failed" ? "error" : "active",
-          payload: kept === undefined ? patch : { ...patch, view: kept }
+          payload: { ...patch,
+            ...(card.payload.inputSchema === undefined ? {} : { inputSchema: card.payload.inputSchema }),
+            ...(kept === undefined ? {} : { view: kept }) }
         }
       }).isPersisted.promise
       writing = false
@@ -911,6 +913,14 @@ export const createWorkflowController = (
     return requests.start({ ...args, rerunOf: runId, actor: ctx.commandActor })
   }
 
+  /** A completed listing from this exact box, never a repository-head projection from another working copy. */
+  const workspaceFlowSchema = (repo: string, workspaceId: string, name: string): unknown => {
+    const card = store.collections.cards.get(`workflow-list@${encodeURIComponent(repo)}@${encodeURIComponent(workspaceId)}`)
+    return card?.kind === "workflow-list" && card.loading !== true && card.payload.catalogRequest === undefined
+      && card.payload.repo === repo && card.payload.workspaceId === workspaceId
+      ? card.payload.workflows.find(flow => flow.key === name)?.inputSchema : undefined
+  }
+
   const runWorkflow = async (name: string, repoArg?: string, inputArg?: Record<string, unknown>, sourceCard?: string, humanDoor = false): Promise<string | void | { readonly value: string }> => {
     const input = inputArg ?? {}
     const guard = workflowIdentityGuard()
@@ -929,13 +939,17 @@ export const createWorkflowController = (
     // A box executes with its own configured provider. Its gateway enforces
     // box access, capacity and provider setup.
     const source = sourceCard === undefined ? undefined : store.collections.cards.get(sourceCard)
+    if (source?.kind === "flow-plan" && source.payload.flowId !== name) return "The plan belongs to another flow."
     const declaration = source?.kind === "workflow-list"
       ? source.payload.workflows.find(flow => flow.key === name)?.inputSchema
-      : sourceCard === undefined ? store.collections.repositoryFlows.get(repo)?.flows.find(flow => flow.id === name)?.inputSchema : undefined
+      : source?.kind === "flow-plan" && source.payload.flowId === name
+        ? source.payload.inputSchema
+        : sourceCard === undefined ? store.collections.repositoryFlows.get(repo)?.flows.find(flow => flow.id === name)?.inputSchema : undefined
     const schema = declaredInput(declaration)
     const fields = schema === undefined ? [] : formFieldsFor(schema, undefined)
-    if (schema !== undefined && ((inputArg === undefined && fields.length > 0) || !Schema.is(schema)(input))) {
-      if (fields.length > 0 && renderFlowForm !== undefined) {
+    const askForInput = inputArg === undefined && fields.length > 0 && (source?.kind !== "flow-plan" || ctx.commandActor === "user")
+    if (schema !== undefined && (askForInput || !Schema.is(schema)(input))) {
+      if (fields.length > 0 && renderFlowForm !== undefined && (source?.kind !== "flow-plan" || ctx.commandActor === "user")) {
         const rendered = renderFlowForm({ name: "flow.run", input: schema, payloadField: "input",
           args: flowArgs("flow.run", { name, repo, input, sourceCard }),
           via: ctx.commandActor === "smithers" ? "agent" : "user",
@@ -994,6 +1008,27 @@ export const createWorkflowController = (
     const target = workflowScope(repoArg, sourceCard)
     if ("error" in target) return target.error
     const { repo, binding } = target
+    const source = sourceCard === undefined ? undefined : store.collections.cards.get(sourceCard)
+    if (source?.kind === "flow-plan" && source.payload.flowId !== name) return "The plan belongs to another flow."
+    const declaration = source?.kind === "workflow-list" && source.loading !== true && source.payload.catalogRequest === undefined
+      ? source.payload.workflows.find(flow => flow.key === name)?.inputSchema
+      : source?.kind === "flow-plan" ? source.payload.inputSchema
+        : sourceCard === undefined ? workspaceFlowSchema(repo, binding.workspaceId, name) : undefined
+    const schema = declaredInput(declaration)
+    const fields = schema === undefined ? [] : formFieldsFor(schema, undefined)
+    const proposedInput = inputArg ?? {}
+    const askForInput = inputArg === undefined && fields.length > 0 && ctx.commandActor === "user"
+    if (schema !== undefined && (askForInput || !Schema.is(schema)(proposedInput))) {
+      if (fields.length > 0 && renderFlowForm !== undefined && ctx.commandActor === "user") {
+        const rendered = renderFlowForm({ name: "flow.plan", input: schema, payloadField: "input",
+          args: flowArgs("flow.plan", { name, repo, input: proposedInput, sourceCard, against }),
+          via: "user",
+          cardId: `form-flow-plan-${sourceCard ?? repo}-${name}`, title: `${name} — ${repo}`,
+          hints: { submitLabel: "Plan flow" } })
+        if (rendered !== undefined) return { value: `Prepared ${name}'s input form${missingFields(fields, draftFrom(fields, proposedInput)).length > 0 ? "; fill in the missing fields" : "; correct the inputs before planning"}.` }
+      }
+      return `The inputs do not match ${name}'s declared schema.`
+    }
     const input = JSON.parse(canonicalStoredJsonValue(inputArg ?? {})) as Record<string, unknown>
     // One card per (repo, workspace, flow, input): asking twice for the same plan moves
     // the card rather than growing a second one, and a second ask while the
@@ -1018,7 +1053,6 @@ export const createWorkflowController = (
     if (!current()) return "The account changed before the plan was requested."
     const existing = store.collections.cards.get(id)
     const held = existing?.kind === "flow-plan" ? existing.payload : undefined
-    const source = sourceCard === undefined ? undefined : store.collections.cards.get(sourceCard)
     const receipt = source?.kind === "run-trace" && source.payload.workflow === FLOW_AUTHORING_ENTRY
       ? authoredSources(store.committedRuntimeRun(runtimeRunKey(source.payload))?.events ?? []).filter(receipt => receipt.flowId === name).at(-1)
       : undefined
@@ -1049,6 +1083,7 @@ export const createWorkflowController = (
         status: "pending",
         planRequest: request,
         workspaceId: binding.workspaceId,
+        ...(declaration === undefined ? {} : { inputSchema: declaration }),
         ...(Object.keys(input).length === 0 ? {} : { input }),
         // A re-plan keeps the graph it last drew, and the drawer the reader
         // has open on it, until a new one lands.

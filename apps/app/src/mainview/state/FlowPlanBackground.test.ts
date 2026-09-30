@@ -8,9 +8,10 @@
  * request, not two.
  */
 import { describe, expect, test } from "bun:test"
+import { Schema } from "effect"
 import { createAppStore, type AppStore } from "./AppStore"
 import { scopedControllers } from "./ControllerTestScope"
-import { json, loadBox, memoryStorage, settle, silentAgent, TEST_BOX } from "./TestFixtures"
+import { json, loadBox, memoryStorage, settle, silentAgent, TEST_BOX, waitFor } from "./TestFixtures"
 import { digest } from "@smthrs/core/Digest"
 import type { Card } from "./AppState"
 
@@ -65,21 +66,34 @@ const NODE = {
  */
 const scriptedRelay = (answer: () => unknown) => {
   const plans: Array<unknown> = []
+  const runs: Array<unknown> = []
+  const planWorkspaces: Array<unknown> = []
+  const runWorkspaces: Array<unknown> = []
   let release: (() => void) | undefined
   const gate = new Promise<void>((resolve) => {
     release = resolve
   })
   return {
     plans,
+    runs,
+    planWorkspaces,
+    runWorkspaces,
     release: () => release?.(),
     fetchImpl: async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = new URL(String(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url), "https://app.test").pathname
-      const body = typeof init?.body === "string" ? JSON.parse(init.body) as { procedure?: string; payload?: unknown } : undefined
+      const body = typeof init?.body === "string" ? JSON.parse(init.body) as { procedure?: string; payload?: unknown; workspaceId?: unknown } : undefined
       if (path === "/api/workflow/provision") return json(200, { status: "ready", repo: REPO, gatewayId: "gw-1" })
       if (path === "/api/workflow/rpc" && body?.procedure === "Plan") {
         plans.push(body.payload)
+        planWorkspaces.push(body.workspaceId)
         await gate
         return json(200, answer())
+      }
+      if (path === "/api/workflow/rpc" && body?.procedure === "Approval.Submit") return json(200, { ok: true, payload: { accepted: true } })
+      if (path === "/api/workflow/rpc" && body?.procedure === "Run") {
+        runs.push(body.payload)
+        runWorkspaces.push(body.workspaceId)
+        return json(200, { ok: true, payload: { _tag: "Accepted", receiptId: "receipt-1", runId: "run-1" } })
       }
       return json(404, { status: "error", message: `no stub for ${path}` })
     }
@@ -110,6 +124,193 @@ const held = (store: Awaited<ReturnType<typeof createAppStore>>): Extract<Card, 
   const card = store.collections.cards.get(CARD)
   return card?.kind === "flow-plan" ? card : undefined
 }
+
+const inputDeclaration = Schema.toJsonSchemaDocument(Schema.Struct({ args: Schema.String, note: Schema.optional(Schema.String) }))
+const catalogId = `workflow-list@${encodeURIComponent(REPO)}@${encodeURIComponent(TEST_BOX)}`
+const loadCatalog = async (store: AppStore, inputSchema: unknown = inputDeclaration): Promise<void> => {
+  await store.dispatch({ type: "card.upsert", actor: "system", card: {
+    id: catalogId, kind: "workflow-list", title: `Flows: ${REPO}`, status: "active", createdAt: 1, ordinal: 1,
+    payload: { repo: REPO, workspaceId: TEST_BOX, gatewayBindingVersion: 1,
+      workflows: [{ key: FLOW, description: "Review", inputSchema }] }
+  } }).isPersisted.promise
+}
+
+test("Plan from a box listing asks for required typed input before any Plan call, then submits on that box once", async () => {
+  const relay = scriptedRelay(() => ({ ok: true, payload: planCard({ nodes: [NODE] }) }))
+  const { store, controller } = await readyController(relay)
+  await loadCatalog(store)
+  try {
+    const agentPlan = await controller.commands.runAsAgent("flow.plan", `sourceCard=${catalogId} ${FLOW} ${REPO}`)
+    expect(agentPlan.status).toBe("failed")
+    expect(relay.plans).toEqual([])
+    expect(store.collections.cards.get(`form-flow-plan-${catalogId}-${FLOW}`)).toBeUndefined()
+    const requested = await controller.commands.run("flow.plan", `sourceCard=${catalogId} ${FLOW} ${REPO}`)
+    expect(requested.status).toBe("executed")
+    expect(relay.plans).toEqual([])
+    expect(held(store)).toBeUndefined()
+    const formId = `form-flow-plan-${catalogId}-${FLOW}`
+    const form = store.collections.cards.get(formId)
+    expect(form).toMatchObject({ kind: "flow-form", payload: { flow: "flow.plan", given: { name: FLOW, repo: REPO, sourceCard: catalogId }, draft: {} } })
+    expect(form?.kind === "flow-form" && form.payload.fields.map(field => [field.name, field.required])).toEqual([
+      ["args", true], ["note", false]
+    ])
+    expect((await controller.commands.run("form.submit", formId)).status).toBe("failed")
+    expect(relay.plans).toEqual([])
+    expect((await controller.commands.run("flow.plan", `sourceCard=${catalogId} ${FLOW} ${REPO} {"args":42}`)).status).toBe("executed")
+    expect(store.collections.cards.get(formId)).toMatchObject({ kind: "flow-form", payload: { given: { input: { args: 42 } }, draft: { args: "42" } } })
+    expect(relay.plans).toEqual([])
+    expect((await controller.commands.run("form.set", `${formId} args inspect`)).status).toBe("executed")
+    expect((await controller.commands.run("form.submit", formId)).status).toBe("executed")
+    await settle(5)
+    expect(relay.plans).toHaveLength(1)
+    expect(relay.plans[0]).toMatchObject({ input: { args: "inspect" }, flowId: FLOW })
+    expect(relay.planWorkspaces).toEqual([TEST_BOX])
+    const planned = [...store.collections.cards.values()].find(card => card.kind === "flow-plan")
+    expect(planned?.kind === "flow-plan" && planned.payload).toMatchObject({
+      repo: REPO, workspaceId: TEST_BOX, input: { args: "inspect" }, inputSchema: inputDeclaration
+    })
+    relay.release()
+    await waitFor(() => [...store.collections.cards.values()].some(card => card.kind === "flow-plan" && card.payload.status === "done"))
+    const settled = [...store.collections.cards.values()].find(card => card.kind === "flow-plan")
+    expect(settled?.kind === "flow-plan" && settled.payload.inputSchema).toEqual(inputDeclaration)
+  } finally { relay.release(); await controller.dispose() }
+})
+
+test("an optional defaulted input stays optional when Plan asks for the declared fields", async () => {
+  const defaulted = { dialect: "draft-2020-12", definitions: {}, schema: {
+    type: "object", properties: { note: { type: "string", default: "review" } }, additionalProperties: {}, required: []
+  } }
+  const relay = scriptedRelay(() => ({ ok: true, payload: planCard({}) }))
+  const { store, controller } = await readyController(relay)
+  await loadCatalog(store, defaulted)
+  try {
+    expect((await controller.commands.run("flow.plan", `sourceCard=${catalogId} ${FLOW} ${REPO}`)).status).toBe("executed")
+    const formId = `form-flow-plan-${catalogId}-${FLOW}`
+    const form = store.collections.cards.get(formId)
+    expect(form?.kind === "flow-form" && form.payload.fields).toMatchObject([{ name: "note", required: false }])
+    expect(relay.plans).toEqual([])
+    expect((await controller.commands.run("form.submit", formId)).status).toBe("executed")
+    await waitFor(() => relay.plans.length === 1)
+    expect(relay.plans[0]).toMatchObject({ flowId: FLOW, input: {} })
+  } finally { relay.release(); await controller.dispose() }
+})
+
+test("agents can plan and run a flow whose declared input is entirely optional", async () => {
+  const defaulted = { dialect: "draft-2020-12", definitions: {}, schema: {
+    type: "object", properties: { note: { type: "string", default: "review" } }, additionalProperties: {}, required: []
+  } }
+  const relay = scriptedRelay(() => ({ ok: true, payload: planCard({ nodes: [NODE] }) }))
+  const { store, controller } = await readyController(relay)
+  await loadCatalog(store, defaulted)
+  try {
+    expect((await controller.commands.runAsAgent("flow.plan", `sourceCard=${catalogId} ${FLOW} ${REPO}`)).status).toBe("executed")
+    await waitFor(() => relay.plans.length === 1)
+    expect(relay.plans[0]).toMatchObject({ input: {} })
+    expect(store.collections.cards.get(`form-flow-plan-${catalogId}-${FLOW}`)).toBeUndefined()
+    relay.release()
+    await waitFor(() => [...store.collections.cards.values()].some(card => card.kind === "flow-plan" && card.payload.status === "done"))
+    const plan = [...store.collections.cards.values()].find(card => card.kind === "flow-plan")
+    expect(plan?.kind === "flow-plan" && plan.payload.inputSchema).toEqual(defaulted)
+    expect((await controller.commands.runAsAgent("flow.run", `sourceCard=${plan?.id} ${FLOW} ${REPO}`)).status).toBe("executed")
+    await waitFor(() => relay.runs.length === 1)
+    expect(relay.runWorkspaces).toEqual([TEST_BOX])
+    expect(store.collections.cards.get(`form-flow-run-${plan?.id}-${FLOW}`)).toBeUndefined()
+  } finally { relay.release(); await controller.dispose() }
+})
+
+test("an authoring plan never borrows a prior listing's schema, including after reload and on Run", async () => {
+  const storage = memoryStorage()
+  const firstRelay = scriptedRelay(() => ({ ok: true, payload: planCard({ nodes: [NODE] }) }))
+  const first = await readyController(firstRelay, storage)
+  await loadCatalog(first.store)
+  const sourceCard = "authoring-run"
+  await first.store.dispatch({ type: "card.upsert", actor: "system", card: {
+    id: sourceCard, kind: "run-trace", title: "Authored flow", status: "active", createdAt: 2, ordinal: 2,
+    payload: { repo: REPO, workspaceId: TEST_BOX, gatewayBindingVersion: 1, runId: "author-1",
+      workflow: "flow.create", phase: "quiet", steps: [], result: null, lastSeq: 0 }
+  } }).isPersisted.promise
+  expect((await first.controller.commands.run("flow.plan", `sourceCard=${sourceCard} ${FLOW} ${REPO} {"pr":1}`)).status).toBe("executed")
+  await waitFor(() => firstRelay.plans.length === 1)
+  expect(first.store.collections.cards.get(`form-flow-plan-${sourceCard}-${FLOW}`)).toBeUndefined()
+  await first.controller.dispose()
+  await first.store.dispose?.()
+  const relay = scriptedRelay(() => ({ ok: true, payload: planCard({ nodes: [NODE] }) }))
+  const { store, controller } = await readyController(relay, storage)
+  try {
+    await waitFor(() => relay.plans.length === 1)
+    expect(relay.plans[0]).toMatchObject({ input: { pr: 1 }, flowId: FLOW })
+    expect(relay.planWorkspaces).toEqual([TEST_BOX])
+    relay.release()
+    await waitFor(() => [...store.collections.cards.values()].some(card => card.kind === "flow-plan" && card.payload.status === "done"))
+    const planned = [...store.collections.cards.values()].find(card => card.kind === "flow-plan" && card.payload.input?.pr === 1)
+    expect(planned?.kind === "flow-plan" && planned.payload.inputSchema).toBeUndefined()
+    expect((await controller.commands.run("flow.run", `sourceCard=${planned?.id} ${FLOW} ${REPO} {"pr":1}`)).status).toBe("executed")
+    await waitFor(() => relay.runs.length === 1)
+    expect(relay.runWorkspaces).toEqual([TEST_BOX])
+    expect(store.collections.cards.get(`form-flow-run-${planned?.id}-${FLOW}`)).toBeUndefined()
+  } finally { firstRelay.release(); relay.release(); await controller.dispose() }
+})
+
+test("a pending plan with empty valid input resumes on its box after reload", async () => {
+  const storage = memoryStorage()
+  const firstRelay = scriptedRelay(() => ({ ok: true, payload: planCard({}) }))
+  const first = await readyController(firstRelay, storage)
+  const defaulted = { dialect: "draft-2020-12", definitions: {}, schema: {
+    type: "object", properties: { note: { type: "string", default: "review" } }, additionalProperties: {}, required: []
+  } }
+  await loadCatalog(first.store, defaulted)
+  expect((await first.controller.commands.run("flow.plan", `${FLOW} ${REPO} {}`)).status).toBe("executed")
+  await waitFor(() => firstRelay.plans.length === 1)
+  await first.controller.dispose()
+  await first.store.dispose?.()
+  const secondRelay = scriptedRelay(() => ({ ok: true, payload: planCard({}) }))
+  const second = await readyController(secondRelay, storage)
+  try {
+    await waitFor(() => secondRelay.plans.length === 1)
+    expect(secondRelay.plans[0]).toMatchObject({ flowId: FLOW, input: {} })
+    expect(secondRelay.planWorkspaces).toEqual([TEST_BOX])
+    expect(second.store.collections.cards.get(`form-flow-plan-${REPO}-${FLOW}`)).toBeUndefined()
+  } finally { firstRelay.release(); secondRelay.release(); await second.controller.dispose() }
+})
+
+test("Run from a reloaded plan retains its box's schema and asks before launching missing or invalid input", async () => {
+  const storage = memoryStorage()
+  const first = await readyController(scriptedRelay(() => ({ ok: true, payload: planCard({}) })), storage)
+  await loadCatalog(first.store)
+  await first.store.dispatch({ type: "card.upsert", actor: "system", card: {
+    id: CARD, kind: "flow-plan", title: `${FLOW} — ${REPO}`, status: "active", createdAt: 2, ordinal: 2,
+    payload: { repo: REPO, workspaceId: TEST_BOX, flowId: FLOW, status: "done", inputSchema: inputDeclaration, nodes: [] }
+  } }).isPersisted.promise
+  await first.controller.dispose()
+  await first.store.dispose?.()
+  const relay = scriptedRelay(() => ({ ok: true, payload: planCard({ nodes: [NODE] }) }))
+  const second = await readyController(relay, storage)
+  try {
+    await loadBox(second.store, REPO, "ffffffff-ffff-ffff-ffff-ffffffffffff")
+    await second.store.dispatch({ type: "repo.selected", actor: "user", id: `${REPO}#workspace:ffffffff-ffff-ffff-ffff-ffffffffffff` }).isPersisted.promise
+    const formId = `form-flow-run-${CARD}-${FLOW}`
+    const agentRun = await second.controller.commands.runAsAgent("flow.run", `sourceCard=${CARD} ${FLOW} ${REPO}`)
+    expect(agentRun.status).toBe("failed")
+    expect(relay.plans).toEqual([])
+    expect(second.store.collections.cards.get(formId)).toBeUndefined()
+    expect((await second.controller.commands.run("flow.run", `sourceCard=${CARD} ${FLOW} ${REPO}`)).status).toBe("executed")
+    expect(second.store.collections.cards.get(formId)).toMatchObject({ kind: "flow-form", payload: { flow: "flow.run", given: { name: FLOW, repo: REPO, sourceCard: CARD }, draft: {} } })
+    expect(relay.plans).toEqual([])
+    expect((await second.controller.commands.run("flow.run", `sourceCard=${CARD} ${FLOW} ${REPO} {"args":42}`)).status).toBe("executed")
+    expect(second.store.collections.cards.get(formId)).toMatchObject({ kind: "flow-form", payload: { given: { input: { args: 42 } }, draft: { args: "42" } } })
+    expect(relay.plans).toEqual([])
+    expect((await second.controller.commands.run("form.set", `${formId} args inspect`)).status).toBe("executed")
+    expect((await second.controller.commands.run("form.submit", formId)).status).toBe("executed")
+    await settle(5)
+    expect(relay.plans).toHaveLength(1)
+    expect(relay.plans[0]).toMatchObject({ input: { args: "inspect" }, flowId: FLOW })
+    expect(relay.planWorkspaces).toEqual([TEST_BOX])
+    expect(relay.runs).toEqual([])
+    relay.release()
+    await waitFor(() => relay.runs.length === 1)
+    expect(relay.runWorkspaces).toEqual([TEST_BOX])
+  } finally { relay.release(); await second.controller.dispose() }
+})
 
 describe("reload reconnects admitted plans", () => {
   test("a pending plan recovers its saved request and stable Plan key", async () => {
