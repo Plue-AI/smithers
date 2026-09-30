@@ -2,7 +2,7 @@ import { PLUE_FAULTS } from "@smthrs/rpc/PlueFailureCodes"
 import { refusalOf } from "@smthrs/rpc/Refusal"
 import type { PlueFault } from "@smthrs/rpc/Refusal"
 import { z } from "zod"
-import { REFUSAL_COPY, refusalLead } from "@smthrs/rpc/RefusalCopy"
+import { leadingRefusal, REFUSAL_COPY, refusalLead } from "@smthrs/rpc/RefusalCopy"
 import { runCause } from "./RunCause"
 
 /** Uncoded run failures belong to Smithers. Never infer blame from an error string. */
@@ -201,8 +201,17 @@ export const setupVerdict = (error: string | undefined): { readonly fault: PlueF
     : { fault, message: REFUSAL_COPY[fault].lead }
 }
 
-/** {@link setupVerdict}'s sentence: what the setup card and its toast render in place of a verdict line. */
-export const setupFailureSentence = (error: string | undefined): string | undefined => setupVerdict(error)?.message
+/**
+ * What the setup card and its toast render in place of a receipt error: a
+ * verdict line's sentence, or the written lead of a refusal line led by a known
+ * code (`workspace_gone — …`); never the words after the code.
+ */
+export const setupFailureSentence = (error: string | undefined): string | undefined => {
+  const verdict = setupVerdict(error)
+  if (verdict !== undefined) return verdict.message
+  const refusal = error === undefined ? null : leadingRefusal(error)
+  return refusal === null ? undefined : refusalLead(refusal)
+}
 
 /** The fault the run stamped on its own `control.run.failed`, when the journal is at hand. */
 const journalledStamp = (events: ReadonlyArray<Record<string, unknown>> = []): RunFault | undefined => {

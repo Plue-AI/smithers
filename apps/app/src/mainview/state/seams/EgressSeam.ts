@@ -103,7 +103,7 @@ export const loadEgressPage = async (
   const query = `?limit=${EGRESS_PAGE_LIMIT}${
     cursor === undefined || cursor === null || cursor === "" ? "" : `&cursor=${encodeURIComponent(cursor)}`
   }`
-  const answer = await createCloudClient(ctx).get(`${path}${query}`, path)
+  const answer = await createCloudClient(ctx).get(`${path}${query}`, "the egress audit")
   if ("error" in answer) return { error: answer.error }
   const { body, response } = answer
   if (!Array.isArray(body)) {

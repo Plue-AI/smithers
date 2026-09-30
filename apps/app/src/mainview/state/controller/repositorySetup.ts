@@ -31,12 +31,14 @@ class SetupRefusal extends Data.TaggedError("SetupRefusal")<{ readonly sentence:
 type Operation = NonNullable<RepositorySetup["request"]>["operation"]
 /*
  * A settled receipt's error is a verdict line (`<phase> — <code>: <sentence>`)
- * the card and the toast read through setupVerdict. Anything else is the host's
- * own text; it stays on the stored receipt, behind the card's Details, and the
- * request carries a sentence instead.
+ * the card and the toast read through setupVerdict, or a refusal line led by a
+ * known code (`workspace_gone — …`), which reads as that code's written lead.
+ * Anything else is the host's own text; it stays on the stored receipt, behind
+ * the card's Details, and the request carries a sentence instead.
  */
 const UNREADABLE_RECEIPT = "The setup host's answer couldn't be read. Not your fault."
-const receiptErrorLine = (error: string): string => setupVerdict(error) === undefined ? UNREADABLE_RECEIPT : error
+const receiptErrorLine = (error: string): string =>
+  setupVerdict(error) === undefined ? setupFailureSentence(error) ?? UNREADABLE_RECEIPT : error
 type Result = Promise<string | { value: string } | void>
 
 export interface RepositorySetupController {

@@ -573,7 +573,7 @@ describe("createChangeSeam", () => {
     const down = await harness({ ...viewRoutes, [`${CHANGE_ROUTE}/walkthrough?rev=2`]: json(500, { message: "artifact store down" }) })
     await down.seam.viewChange("qupxosqw")
     expect(payloadOf(down.store)?.walkthrough).toBeNull()
-    expect(payloadOf(down.store)?.unread?.walkthrough).toBe("Reading /repos/will/smithers/changes/qupxosqw/walkthrough?rev=2 failed (500). That's a bug in Smithers, not something you did.")
+    expect(payloadOf(down.store)?.unread?.walkthrough).toBe("Reading from Smithers Cloud failed (500). That's a bug in Smithers, not something you did.")
     expect(JSON.stringify(payloadOf(down.store))).not.toContain("artifact store down")
   })
 
@@ -839,15 +839,15 @@ describe("createChangeSeam", () => {
     expect(payload?.checks).toBeNull()
     expect(payload?.findings).toBeNull()
     expect(payload?.walkthrough).toBeNull()
-    const landings = "Reading /repos/will/smithers/landings?limit=100 failed (500). That's a bug in Smithers, not something you did."
+    const landings = "Reading from Smithers Cloud failed (500). That's a bug in Smithers, not something you did."
     expect(payload?.unread).toEqual({
-      diff: "Reading /repos/will/smithers/changes/qupxosqw/diff failed (500). That's a bug in Smithers, not something you did.",
-      checks: "Reading /repos/will/smithers/commits/a03f5f/statuses?limit=100 failed (500). That's a bug in Smithers, not something you did.",
-      findings: "Reading /repos/will/smithers/changes/qupxosqw/findings failed (500). That's a bug in Smithers, not something you did.",
+      diff: "Reading from Smithers Cloud failed (500). That's a bug in Smithers, not something you did.",
+      checks: "Reading from Smithers Cloud failed (500). That's a bug in Smithers, not something you did.",
+      findings: "Reading from Smithers Cloud failed (500). That's a bug in Smithers, not something you did.",
       reviewRequests: `the landing list wasn't read: ${landings}`,
       threads: `the landing list wasn't read: ${landings}`,
       stack: landings,
-      walkthrough: "Reading /repos/will/smithers/changes/qupxosqw/walkthrough?rev=2 failed (500). That's a bug in Smithers, not something you did."
+      walkthrough: "Reading from Smithers Cloud failed (500). That's a bug in Smithers, not something you did."
     })
     expect(JSON.stringify(payload?.unread)).not.toContain("upstream down")
 
@@ -1060,7 +1060,7 @@ describe("createChangeSeam", () => {
       { ownerKind: "org" }
     )
     expect(textOf(await seam.landChange("qupxosqw"))).toBe(
-      "The changesets qupxosqw might belong to weren't read (Reading /orgs/will/changesets failed (500). That's a bug in Smithers, not something you did.) — nothing was landed."
+      "The changesets qupxosqw might belong to weren't read (Reading from Smithers Cloud failed (500). That's a bug in Smithers, not something you did.) — nothing was landed."
     )
     expect(requests.some((request) => request.startsWith("PUT ") || request.startsWith("POST "))).toBe(false)
   })
@@ -1091,7 +1091,7 @@ describe("createChangeSeam", () => {
 
     const unread = await harness({ [`${REPO}/landings?limit=100`]: json(500, { message: "landings down" }) })
     await unread.seam.landChange("qupxosqw")
-    expect(said(unread.store)).toEqual([`The landing requests of will/smithers weren't read (Reading /repos/will/smithers/landings?limit=100 failed (500). That's a bug in Smithers, not something you did.) — nothing was landed.`])
+    expect(said(unread.store)).toEqual([`The landing requests of will/smithers weren't read (Reading from Smithers Cloud failed (500). That's a bug in Smithers, not something you did.) — nothing was landed.`])
     expect(said(unread.store).join(" ")).not.toContain("landings down")
 
     const signedOut = await harness({}, { signedIn: false })
@@ -1636,7 +1636,7 @@ describe("committed change mutations", () => {
   const refreshFailure = json(503, { message: "refresh unavailable" })
   /* A 5xx refresh says what failed and whose fault it was; the server's words never reach the reader. */
   const refreshWarning = (id: string) =>
-    `change ${id} on will/smithers: Reading /repos/will/smithers/changes/${id} failed (503). Something on Smithers' side failed. Not your fault, and nothing your request could have changed`
+    `change ${id} on will/smithers: Reading from Smithers Cloud failed (503). Something on Smithers' side failed. Not your fault, and nothing your request could have changed`
   const expectRefreshWarning = (text: string | undefined, ids: ReadonlyArray<string> = ["qupxosqw"]) => {
     expect(text).toContain(`Refresh warning: ${ids.map(refreshWarning).join("; ")}. Refresh the cards`)
     expect(text).not.toContain("refresh unavailable")

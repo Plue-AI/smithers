@@ -214,7 +214,8 @@ export const createCodeIntelSeam = (ctx: SeamContext, options: CodeIntelSeamOpti
           return
         }
         case "closed": {
-          const note = `the box language server closed: ${event.reason === "" ? "no reason given" : event.reason} (${event.code})`
+          // The close reason is the relay's own text; the card names only the close code.
+          const note = `the box language server closed (${event.code})`
           for (const id of cloudCards(event)) observe(id, { intel: { state: "unavailable", note } })
           return
         }

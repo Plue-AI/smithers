@@ -409,7 +409,7 @@ test("a workspace handoff for one file leaves the other file's subscription live
   const current = store.collections.cards.get(card.id), previous = store.collections.cards.get(other.id)
   if (current?.kind !== "file" || previous?.kind !== "file") throw new Error("Expected both files")
   expect(current.payload.intel?.state).toBe("ready")
-  expect(previous.payload.intel?.state).toBe("unavailable")
+  expect(previous.payload.intel).toEqual({ state: "unavailable", note: "the box language server closed (1000)" })
 })
 
 test("a selected box that is not running refuses; only with no box selected does the running box answer", async () => {

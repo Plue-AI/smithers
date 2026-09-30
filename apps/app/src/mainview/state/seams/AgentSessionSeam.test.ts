@@ -301,7 +301,7 @@ describe("agent.session.list", () => {
     })
     await seam.listSessions(REPO)
     const refused = await seam.stopSession(SESSION_ID, REPO)
-    expect(refused).toBe(`The DELETE to /repos/${REPO}/agent/sessions/${SESSION_ID} failed (503). Something on Smithers' side failed. Not your fault, and nothing your request could have changed.`)
+    expect(refused).toBe(`The request to Smithers Cloud failed (503). Something on Smithers' side failed. Not your fault, and nothing your request could have changed.`)
     expect(refused).not.toContain("retry later")
     expect(store.collections.cards.get(`agent-sessions-${REPO}`)).toMatchObject({ payload: { sessions: [{ id: SESSION_ID, status: "active" }] } })
   })

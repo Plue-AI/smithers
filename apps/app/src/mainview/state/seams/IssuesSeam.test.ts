@@ -808,7 +808,7 @@ describe("issues seam — source-only fallback (repo not imported)", () => {
     const outcome = await controller.commands.run("issues.view", "7")
     expect(outcome.status).toBe("failed")
     if (outcome.status === "failed") {
-      expect(outcome.error).toContain("Issue #7 in will/flows answered 404")
+      expect(outcome.error).toContain("Issue #7 in will/flows was not found.")
       expect(outcome.error).toContain("/issues.view 7 will/flows --source github")
     }
     expect(calls.some((call) => call.includes("/api/user/github-repos/"))).toBe(false)
@@ -865,7 +865,7 @@ describe("issues seam — source-only fallback (repo not imported)", () => {
     const outcome = await controller.commands.run("issues.close", "7")
     expect(outcome.status).toBe("failed")
     if (outcome.status === "failed") {
-      expect(outcome.error).toBe("Issue #7 in will/flows was not found. There's nothing at that address.")
+      expect(outcome.error).toBe("Could not close issue #7 in will/flows (404). There's nothing at that address.")
       expect(outcome.error).not.toContain("Not found.")
     }
   })
@@ -912,7 +912,7 @@ describe("issues seam — source-only fallback (repo not imported)", () => {
     const outcome = await controller.commands.run("issues.create", "A brand new idea")
     expect(outcome.status).toBe("failed")
     if (outcome.status === "failed") {
-      expect(outcome.error).toBe("will/flows was not found. There's nothing at that address.")
+      expect(outcome.error).toBe("Creating the issue in will/flows failed (404). There's nothing at that address.")
       expect(outcome.error).not.toContain("Not found.")
     }
   })
@@ -1492,10 +1492,15 @@ describe("coding-flow issue payload public read", () => {
     expect(calls).toEqual(["GET /api/repos/will/flows/issues/7"])
   })
 
+  test("a route_not_found 404 on an issue read is the failed load and its verdict, never a missing issue", async () => {
+    const ctx = issueReadContext({ "GET /api/repos/will/flows/issues/7": json(404, { status: "error", code: "route_not_found", message: "Not found." }) }, [])
+    expect(await fetchIssuePayload(ctx, "will/flows", 7)).toBe("Loading issue #7 in will/flows failed (404). There's nothing at that address.")
+  })
+
   test("404 names the explicit GitHub read door without silently reading another tracker", async () => {
     const calls: string[] = []
     const ctx = issueReadContext({ "GET /api/repos/will/flows/issues/7": json(404, { message: "not found" }) }, calls)
-    expect(await fetchIssuePayload(ctx, "will/flows", 7)).toBe("Issue #7 in will/flows answered 404. For a GitHub issue, use /issues.view 7 will/flows --source github.")
+    expect(await fetchIssuePayload(ctx, "will/flows", 7)).toBe("Issue #7 in will/flows was not found. For a GitHub issue, use /issues.view 7 will/flows --source github.")
     expect(calls).toEqual(["GET /api/repos/will/flows/issues/7"])
   })
 

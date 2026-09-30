@@ -135,11 +135,17 @@ describe("cloud transport", () => {
       baseUrl: "",
       http: async () => new Response("<html>broken</html>", { status: 502 })
     })
-    expect(await client.get("/repos?page=2", "/repos")).toMatchObject({
-      error: "Reading /repos failed (502). Something Smithers depends on failed. Not your doing.",
+    expect(await client.get("/repos?page=2")).toMatchObject({
+      error: "Reading from Smithers Cloud failed (502). Something Smithers depends on failed. Not your doing.",
       status: 502
     })
-    expect(await client.send("POST", "/repos")).toMatchObject({ error: "The POST to /repos failed (502). Something Smithers depends on failed. Not your doing." })
+    expect(await client.get("/repos?page=2", "your repositories")).toMatchObject({
+      error: "Reading your repositories failed (502). Something Smithers depends on failed. Not your doing."
+    })
+    expect(await client.send("POST", "/user/repos", {}, "repository creation")).toMatchObject({
+      error: "The request for repository creation failed (502). Something Smithers depends on failed. Not your doing."
+    })
+    expect(await client.send("POST", "/repos")).toMatchObject({ error: "The request to Smithers Cloud failed (502). Something Smithers depends on failed. Not your doing." })
     const empty = createCloudClient({ baseUrl: "", http: async () => new Response(null, { status: 204 }) })
     expect(await empty.send("DELETE", "/repos/1")).toMatchObject({ body: null, status: 204 })
   })

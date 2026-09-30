@@ -116,7 +116,7 @@ export type CloudLspEvent =
     readonly paths: ReadonlyArray<string>
   })
   | (EventScope & {
-    /** A refusal the server asked to be retried: its words, verbatim, while the bounded wait runs. */
+    /** A refusal the server asked to be retried, in product words, while the bounded wait runs. */
     readonly type: "waiting"
     readonly note: string
     readonly paths: ReadonlyArray<string>
@@ -209,6 +209,9 @@ class Refused extends Data.TaggedError("CloudLspRefused")<{ readonly refusal: Ls
     super({ refusal, message: detail ?? refusal.code })
   }
 }
+
+/** What a card shows while a 4425/4503 close is being retried; the close reason itself is plue's text. */
+export const STARTING_NOTE = "The workspace language server is starting; trying again."
 
 /** A close as the model and the card read it: the missing server's install line, else one sentence. */
 const closeRefusal = (code: number, reason: string): LspRefusal => {
@@ -716,7 +719,8 @@ export const createCloudLspClient = (options: CloudLspClientOptions): CloudLspCl
   /*
    * The socket and its server, ready: the session POST, the dial through the
    * tunnel, `initialize`. A 4425 / 4503 close is plue asking to be retried on
-   * its `Retry-After`, honored bounded with its words shown meanwhile; a 1011
+   * its `Retry-After`, honored bounded with `STARTING_NOTE` shown meanwhile and
+   * its own words kept for the final refusal's detail; a 1011
    * before ready is retried once; every other close before ready is the
    * refusal, verbatim. Concurrent acts share one dial.
    */
@@ -743,7 +747,7 @@ export const createCloudLspClient = (options: CloudLspClientOptions): CloudLspCl
         if (RETRY_CODES.has(code) && attempt.count < retry.maxAttempts) {
           attempt.count += 1
           lastNote = reason
-          emit({ ...scopeOf(conn), type: "waiting", note: reason, paths: [...conn.documents.keys()] })
+          emit({ ...scopeOf(conn), type: "waiting", note: STARTING_NOTE, paths: [...conn.documents.keys()] })
           const seconds = retryAfterOf(reason)
           await sleep(seconds === null ? retry.defaultDelayMs : seconds * 1_000)
           continue

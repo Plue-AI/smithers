@@ -689,9 +689,9 @@ describe("workspace seam acts", () => {
     })
     await seedWorkspace(store)
     const refusal = await seam.suspendWorkspace("ws-1")
-    expect(refusal).toBe("The POST to /repos/will/smithers/workspaces/ws-1/suspend failed (500). That's a bug in Smithers, not something you did.")
+    expect(refusal).toBe("The request to Smithers Cloud failed (500). That's a bug in Smithers, not something you did.")
     expect(refusal).not.toContain("driver exploded")
-    expect(payloadOf(store)?.error).toBe("The POST to /repos/will/smithers/workspaces/ws-1/suspend failed (500). That's a bug in Smithers, not something you did.")
+    expect(payloadOf(store)?.error).toBe("The request to Smithers Cloud failed (500). That's a bug in Smithers, not something you did.")
     expect(workspacesOf(store)[0]?.status).toBe("running")
   })
 
@@ -864,11 +864,11 @@ describe("workspace seam terminal", () => {
       expect(posts).toBe(2)
       /* One retry, and it waited the second the header asked for — not the app's own default. */
       expect(Date.now() - startedAt).toBeGreaterThanOrEqual(900)
-      expect(refusal).toBe("guest_not_ready — The POST to /repos/will/smithers/workspace/sessions failed (503). Not ready yet — nothing is wrong.")
+      expect(refusal).toBe("guest_not_ready — The request to Smithers Cloud failed (503). Not ready yet — nothing is wrong.")
       expect(refusal).not.toContain("service unavailable")
       expect(payloadOf(store)?.terminalRefusal).toEqual({
         status: 503,
-        message: "The POST to /repos/will/smithers/workspace/sessions failed (503)",
+        message: "The request to Smithers Cloud failed (503)",
         code: "guest_not_ready",
         retryAfterSeconds: 1,
         fault: "wait",
@@ -1442,7 +1442,7 @@ describe("workspace seam egress_proxy_unavailable", () => {
       })
     })
     const refusal = await seam.openWorkspace("main", "will/smithers")
-    expect(refusal).toContain("egress_proxy_unavailable — The POST to /repos/will/smithers/workspaces failed (503).")
+    expect(refusal).toContain("egress_proxy_unavailable — The request to Smithers Cloud failed (503).")
     expect(refusal).not.toContain("service unavailable")
     /*
      * And says what actually went wrong. This is `infra`, and it used to
@@ -1464,12 +1464,12 @@ describe("workspace seam egress_proxy_unavailable", () => {
     })
     await seedWorkspace(store, { ...wsRow, status: "suspended" })
     const refusal = await seam.resumeWorkspace("ws-1")
-    expect(refusal).toContain("egress_proxy_unavailable — The POST to /repos/will/smithers/workspaces/ws-1/resume failed (503).")
+    expect(refusal).toContain("egress_proxy_unavailable — The request to Smithers Cloud failed (503).")
     expect(refusal).not.toContain("service unavailable")
     expect(refusal).toContain("no outbound network")
     expect(refusal).not.toContain("@fucory")
     expect(payloadOf(store)?.egressProxyUnavailable).toBe(true)
-    expect(payloadOf(store)?.error).toBe("The POST to /repos/will/smithers/workspaces/ws-1/resume failed (503). Your box would have had no outbound network, so Smithers stopped instead of running it half-connected. Not your fault; worth trying again.")
+    expect(payloadOf(store)?.error).toBe("The request to Smithers Cloud failed (503). Your box would have had no outbound network, so Smithers stopped instead of running it half-connected. Not your fault; worth trying again.")
   })
 
   test("a refusal with any other code carries no egress facet and says whose fault it is", async () => {
@@ -1478,7 +1478,7 @@ describe("workspace seam egress_proxy_unavailable", () => {
     })
     await seedWorkspace(store, { ...wsRow, status: "suspended" })
     const refusal = await seam.resumeWorkspace("ws-1")
-    expect(refusal).toBe("operation_in_progress — The POST to /repos/will/smithers/workspaces/ws-1/resume failed (409). Not ready yet — nothing is wrong.")
+    expect(refusal).toBe("operation_in_progress — The request to Smithers Cloud failed (409). Not ready yet — nothing is wrong.")
     /* A `wait` refusal is not one the person acts on, so plue's words stay hidden. */
     expect(refusal).not.toContain("already resuming")
     expect(payloadOf(store)?.egressProxyUnavailable).toBeUndefined()

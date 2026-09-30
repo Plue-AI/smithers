@@ -6,6 +6,7 @@ import {
   agentFaultNote,
   agentRefusalText,
   INFRA_NOT_YOUR_FAULT,
+  leadingRefusal,
   NOTHING_ANSWERED,
   REFUSAL_COPY,
   refusalCopy,
@@ -591,5 +592,29 @@ describe("refusalLine", () => {
     const refusal = forCode("internal", "boom")
     expect(refusalLine(refusal, "Saving failed")).toBe(`Saving failed. ${refusalLead(refusal)}`)
     expect(refusalLine(refusal, "Saving failed!")).toBe(`Saving failed! ${refusalLead(refusal)}`)
+  })
+})
+
+describe("leadingRefusal", () => {
+  test("rebuilds a known leading code from the registries and never keeps the words after it", () => {
+    const refusal = leadingRefusal("workspace_gone — upstream said: vm 7f3a destroyed at node-12")
+    expect(refusal).toMatchObject({
+      code: "workspace_gone",
+      rawCode: "workspace_gone",
+      fault: "infra",
+      message: "",
+      origin: "worker"
+    })
+    expect(refusalLead(refusal!)).toBe(
+      "The workspace behind this setup is gone. Not your fault; retry creates a new one."
+    )
+    expect(leadingRefusal("native_node_missing — x")?.origin).toBe("local")
+    expect(leadingRefusal("workspace_gone@local — x")?.origin).toBe("local")
+  })
+
+  test("answers null for no code, an unknown code, or a code not at the front", () => {
+    expect(leadingRefusal("")).toBeNull()
+    expect(leadingRefusal("nothing_like_this — x")).toBeNull()
+    expect(leadingRefusal("The box failed: workspace_gone — x")).toBeNull()
   })
 })

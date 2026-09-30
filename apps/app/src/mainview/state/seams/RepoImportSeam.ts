@@ -16,7 +16,9 @@ import type { Card } from "../AppState"
 import { resolveTargetRepo } from "../RepoContext"
 import type { GitHubRefusal, SeamContext } from "./SeamContext"
 import { createRunEpochs } from "./RunEpochs"
-import { captureCloudOwner, readGitHubRefusal } from "./SeamContext"
+import { captureCloudOwner, readGitHubRefusal, refusalWords } from "./SeamContext"
+import { refusalOf } from "@smthrs/rpc/Refusal"
+import { refusalLine } from "@smthrs/rpc/RefusalCopy"
 import { TOAST_SUPERSEDED } from "../controller/failures"
 import { presentAppFailure } from "../controller/AppFailure"
 import { actorSharedState } from "../ActorBindings"
@@ -398,8 +400,13 @@ export const createRepoImportSeam = (ctx: SeamContext): RepoImportSeam => {
       const body: unknown = await response.json().catch(() => null)
       if (!current()) return TOAST_SUPERSEDED
       const record = isRecord(body) ? body : {}
-      const message = str(record.message)?.slice(0, 240) ?? "The import was refused (HTTP 409)"
-      const active = record.code === "github_import_already_active" || /already being imported/i.test(message)
+      const said = str(record.message) ?? ""
+      const active = record.code === "github_import_already_active" || /already being imported/i.test(said)
+      // plue's words only when the reader can act on them; otherwise the act and whose fault it was.
+      const fallback = "The import couldn't start (HTTP 409)"
+      const message = active
+        ? "Already being imported."
+        : refusalLine(refusalOf({ body, status: 409, message: refusalWords(body, fallback, 409) }), fallback)
       if (!active) {
         await upsert(repo, ordinal, createdAt, { phase: "failed", detail: message, error: message })
         settleEpoch()

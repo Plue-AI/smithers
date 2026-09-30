@@ -284,6 +284,26 @@ export const readIssueOptions = async (
   return { options: [], error: `Import ${repo} to fix an issue: /repos.import ${repo}` }
 }
 
+/*
+ * A 404 on an issue route, split on its typed code, never the platform's prose.
+ * `not_found`, or no code at all, is the issue or repository missing: the
+ * caller's `whenNotFound` (on a mutation, a codeless answer keeps plue's own
+ * words when it wrote any). Any other code, `route_not_found` above all, is
+ * the address itself missing, which says nothing about the issue: it reads as
+ * the act that failed and that code's verdict.
+ */
+const issue404 = async (response: Response, act: string, whenNotFound: string, codelessWords = true): Promise<string> => {
+  const body: unknown = await response.json().catch(() => null)
+  const refusal = refusalOf({ body, status: response.status, message: refusalWords(body, whenNotFound, response.status) })
+  if (refusal.code === "not_found") return whenNotFound
+  if (refusal.rawCode === null) return codelessWords ? refusalLine(refusal, whenNotFound) : whenNotFound
+  return refusalLine(refusal, act)
+}
+
+/** The native tracker has no such issue; a GitHub issue has its own door. */
+const nativeIssueMissing = (repo: string, number: number): string =>
+  `Issue #${number} in ${repo} was not found. For a GitHub issue, use /issues.view ${number} ${repo} --source github.`
+
 /**
  * One imported issue's payload without a card: what `issue.implement` hands
  * the coding flow when the person picked the issue on the app home rather
@@ -302,7 +322,7 @@ export const fetchIssuePayload = async (
   }
   if (!response.ok) {
     return response.status === 404
-      ? `Issue #${number} in ${repo} answered 404. For a GitHub issue, use /issues.view ${number} ${repo} --source github.`
+      ? issue404(response, `Loading issue #${number} in ${repo} failed (404)`, nativeIssueMissing(repo, number), false)
       : readErrorMessage(response, `Loading issue #${number} in ${repo} failed (${response.status})`)
   }
   const payload = parseDetail(await response.json().catch(() => null), repo, number, [])
@@ -318,22 +338,6 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
   const issuesPath = (repo: string): string => issuesRoute(ctx, repo)
   const githubSourceIssuesPath = (repo: string, filter: "open" | "closed" | "all"): string => githubIssuesRoute(ctx, repo, filter)
 
-
-  /*
-   * The 404 split on a mutation, from the typed refusal — never from the
-   * platform's prose. plue codes a number it does not have ("issue not found")
-   * and a namespace it does not have ("repository not found") alike as
-   * `not_found` (PlueFailureCodes.ts, fault "user"), so the response cannot
-   * name the cause: reading it as the namespace told `/issue.close 999` in a
-   * repository the user had just listed to import it. This is the not-found it
-   * is, at the address this app asked for, which the generic code's own
-   * message does not name.
-   */
-  const explain404 = async (response: Response, fallback: string, whenNotFound?: string): Promise<string> => {
-    const body: unknown = await response.json().catch(() => null)
-    const refusal = refusalOf({ body, status: response.status, message: refusalWords(body, fallback, response.status) })
-    return refusal.code === "not_found" ? whenNotFound ?? fallback : refusalLine(refusal, fallback)
-  }
 
   const unreachable = (what: string, error: unknown): string => unreachableSentence(`the backend to ${what}`, error)
 
@@ -481,7 +485,7 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
     }
     if (!issueResponse.ok) {
       if (issueResponse.status === 404) {
-        return `Issue #${number} in ${repo} answered 404. For a GitHub issue, use /issues.view ${number} ${repo} --source github.`
+        return issue404(issueResponse, `Loading issue #${number} in ${repo} failed (404)`, nativeIssueMissing(repo, number), false)
       }
       return readErrorMessage(
         issueResponse,
@@ -1052,7 +1056,7 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
         response = await ctx.http(`${issuesPath(repo)}/${number}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ [field]: stored }) })
       } catch (error) { return unreachable(`set ${field} on issue #${number} in ${repo}`, error) }
       if (!response.ok) {
-        if (response.status === 404) return explain404(response, `Issue #${number} in ${repo} was not found`)
+        if (response.status === 404) return issue404(response, `Setting ${field} on issue #${number} failed (404)`, `Issue #${number} in ${repo} was not found`)
         return readErrorMessage(response, `Setting ${field} on issue #${number} failed (${response.status})`)
       }
       await response.body?.cancel().catch(() => {})
@@ -1085,7 +1089,7 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
       }
       if (!response.ok) {
         // Mutations never fall back — the GitHub-source proxy is GET-only.
-        if (response.status === 404) return explain404(response, `${repo} was not found`)
+        if (response.status === 404) return issue404(response, `Creating the issue in ${repo} failed (404)`, `${repo} was not found`)
         return readErrorMessage(response, `Creating the issue in ${repo} failed (${response.status})`)
       }
       const body: unknown = await response.json().catch(() => null)
@@ -1124,7 +1128,7 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
       }
       if (!response.ok) {
         // Mutations never fall back — the GitHub-source proxy is GET-only.
-        if (response.status === 404) return explain404(response, `Issue #${number} in ${repo} was not found`)
+        if (response.status === 404) return issue404(response, `Could not ${verb} issue #${number} in ${repo} (404)`, `Issue #${number} in ${repo} was not found`)
         return readErrorMessage(
           response,
           `Could not ${verb} issue #${number} in ${repo} (${response.status})`
@@ -1170,7 +1174,7 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
       }
       if (!response.ok) {
         // Mutations never fall back — the GitHub-source proxy is GET-only.
-        if (response.status === 404) return explain404(response, `Issue #${number} in ${repo} was not found`)
+        if (response.status === 404) return issue404(response, `Commenting on issue #${number} in ${repo} failed (404)`, `Issue #${number} in ${repo} was not found`)
         return readErrorMessage(
           response,
           `Commenting on issue #${number} in ${repo} failed (${response.status})`

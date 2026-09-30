@@ -13,7 +13,7 @@
 import { afterEach, expect, setDefaultTimeout, test } from "bun:test"
 import { CLOUD_LSP_ROOT_URI, withRetryAfter } from "@smthrs/rpc/CloudTunnel"
 import { LSP_LANGUAGE_SERVER_MISSING } from "@smthrs/rpc/LocalLsp"
-import { cloudDocumentUri, createCloudLspClient, documentLanguageId, pageCloudLspSocketUrl } from "./CloudLspClient"
+import { cloudDocumentUri, createCloudLspClient, documentLanguageId, pageCloudLspSocketUrl, STARTING_NOTE } from "./CloudLspClient"
 import type { CloudLspClient, CloudLspDocument, CloudLspEvent } from "./CloudLspClient"
 
 setDefaultTimeout(60_000)
@@ -450,7 +450,7 @@ test("a guest_not_ready that never clears gives up at the bound, saying whose fa
   expect(unknown.posts).toHaveLength(1)
 })
 
-test("a pre-upgrade 4425 (session pending) is redialed after the Retry-After the reason names, its words shown meanwhile; the session stands", async () => {
+test("a pre-upgrade 4425 (session pending) is redialed after the Retry-After the reason names, a product note shown meanwhile; the session stands", async () => {
   const server = serve({
     onOpen: (socket, generation) => {
       if (generation === 1) {
@@ -463,7 +463,7 @@ test("a pre-upgrade 4425 (session pending) is redialed after the Retry-After the
   const answer = await lsp.hover(DOC, { line: 3, character: 7 })
   expect("ok" in answer && answer.ok.hover?.contents).toBe(HOVER_MARKDOWN)
   expect(events.filter((event) => event.type === "waiting")).toEqual([
-    { type: "waiting", repo: "will/flows", workspaceId: "ws-1", language: "typescript", note: "workspace_session_pending: session pending (retry after 0 s)", paths: [] }
+    { type: "waiting", repo: "will/flows", workspaceId: "ws-1", language: "typescript", note: STARTING_NOTE, paths: [] }
   ])
   expect(dials).toHaveLength(2)
   expect(posts).toHaveLength(1)

@@ -626,7 +626,7 @@ export const createAgentSessionSeam = (ctx: SeamContext, options: { readonly rep
     const epoch = nextListEpoch(repo)
     const pending = { repo, updates: new Map<string, Partial<AgentSessionRow> | null>() }
     shared.pendingLists.add(pending)
-    const answer = await get(`${sessionsPath(repo)}?limit=100`, sessionsPath(repo)).finally(() => { shared.pendingLists.delete(pending) })
+    const answer = await get(`${sessionsPath(repo)}?limit=100`, "the agent sessions").finally(() => { shared.pendingLists.delete(pending) })
     if (!current()) return SIGN_OUT_REFUSAL
     if (shared.listEpochs.get(repo) !== epoch) return readResult("Agent session list superseded by a newer update.")
     if ("error" in answer) return featureRefusal(answer, repo)

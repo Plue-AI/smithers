@@ -906,11 +906,25 @@ const LEADING_CODE = /^([A-Za-z][A-Za-z0-9_]*)(@local)? — /u
  * @category constants
  */
 export const agentFaultNote = (text: string): string | null => {
+  const refusal = leadingRefusal(text)
+  return refusal === null ? null : `[fault=${refusal.fault} code=${refusal.code}] ${refusalCopy(refusal).agent}`
+}
+
+/**
+ * The refusal a string's leading code names — `<code> — …` or
+ * `<code>@local — …`, as `refusalSentence` writes it — rebuilt from the closed
+ * registries with no message, so its lead is the written sentence and never
+ * the words after the code. Null when no known code leads.
+ *
+ * @since 1.0.0
+ * @category constants
+ */
+export const leadingRefusal = (text: string): Refusal | null => {
   const leading = LEADING_CODE.exec(text)
   const code = refusalCode(leading?.[1])
   const entry = refusalEntry(code)
   if (code === null || entry === null) return null
-  const copy = refusalCopy({
+  return {
     code,
     rawCode: code,
     fault: entry.fault,
@@ -922,8 +936,7 @@ export const agentFaultNote = (text: string): string | null => {
       : isWorkerFailureCode(code)
       ? "worker"
       : "plue"
-  })
-  return `[fault=${entry.fault} code=${code}] ${copy.agent}`
+  }
 }
 
 /**

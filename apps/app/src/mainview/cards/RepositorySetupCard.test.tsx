@@ -423,13 +423,14 @@ test("a chore picks an event beside its schedule and cannot enable automation no
 test("a setup whose workspace is gone offers Retry with the typed refusal, never the reconnect dead end", () => {
   const card = makeCard()
   const digest = setupCandidate(card.payload)
-  const gone = "workspace_gone — The workspace behind this setup is gone. Not your fault; retry creates a new one."
+  const gone = "workspace_gone — vm 7f3a was destroyed on node-12"
   card.payload.workspaceId = "de29f26b-e593-4ec2-99fc-583d4711f20a"
   card.payload.request = { id: "request", operation: "inspect", revision: 1, digest, state: "failed", observeOnly: true, error: gone }
   card.payload.receipt = { requestId: "request", operation: "inspect", revision: 1, digest, phase: "failed", updatedAt: 1, results: [], evidence: [], error: gone }
   const t = mount(card)
   try {
-    expect(t.host.textContent).toContain(gone)
+    expect(t.host.querySelector(".setup-error p")?.textContent).toBe("The workspace behind this setup is gone. Not your fault; retry creates a new one.")
+    expect(t.host.querySelector(".setup-error")?.textContent).not.toContain("node-12")
     expect(t.host.textContent).not.toContain("no recorded run to reconnect")
     expect(t.button("Reconnect")).toBeUndefined()
     t.button("Retry")!.click()

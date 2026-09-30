@@ -1580,9 +1580,9 @@ test("a changed server session cannot adopt another account's recovery before th
  * and the card has to follow it instead of refusing its own new box.
  */
 const replacement = "33333333-3333-4333-8333-333333333333"
-const WORKSPACE_GONE = "workspace_gone — The workspace behind this setup is gone. Not your fault; retry creates a new one."
-/* WORKSPACE_GONE is not a `<phase> — <code>: <sentence>` verdict, so the card shows this in its place and keeps the raw text on the receipt. */
-const UNREADABLE_RECEIPT = "The setup host's answer couldn't be read. Not your fault."
+const WORKSPACE_GONE = "workspace_gone — vm 7f3a was destroyed on node-12"
+/* WORKSPACE_GONE is led by a known code, so the card shows that code's written lead and keeps the host's words on the receipt. */
+const GONE_LEAD = "The workspace behind this setup is gone. Not your fault; retry creates a new one."
 
 const pinned = async (t: Awaited<ReturnType<typeof fixture>>, payload: Partial<RepositorySetup>) => {
   const card = t.store.collections.cards.get("setup")!
@@ -1653,8 +1653,9 @@ test("retrying a settled failure recovered after a reload starts a new request i
     await t.setup.openRepositorySetup("issues", "example/repo"); await Promise.all(t.background)
     const card = setupCard(t)
     expect(card.payload.revision).toBe(5)
-    expect(card.payload.request).toMatchObject({ id: SETTLED_REQUEST, state: "failed", error: UNREADABLE_RECEIPT })
+    expect(card.payload.request).toMatchObject({ id: SETTLED_REQUEST, state: "failed", error: GONE_LEAD })
     expect(card.payload.request?.error).not.toContain("workspace_gone")
+    expect(card.payload.request?.error).not.toContain("node-12")
     expect(card.payload.receipt?.error).toBe(WORKSPACE_GONE)
     expect(t.calls).toEqual([])
     await t.setup.retryRepositorySetup(card.id); await Promise.all(t.background)
@@ -1681,8 +1682,9 @@ test("a browser pinned to the deleted workspace adopts the registration's live o
     expect(card.payload.recovery).toMatchObject({ state: "completed", registrationState: "known" })
     expect(card.payload.recovery?.error).toBeUndefined()
     expect(card.payload.workspaceId).toBe(replacement)
-    expect(card.payload.request).toMatchObject({ id: SETTLED_REQUEST, state: "failed", error: UNREADABLE_RECEIPT })
+    expect(card.payload.request).toMatchObject({ id: SETTLED_REQUEST, state: "failed", error: GONE_LEAD })
     expect(card.payload.request?.error).not.toContain("workspace_gone")
+    expect(card.payload.request?.error).not.toContain("node-12")
     expect(card.payload.receipt?.error).toBe(WORKSPACE_GONE)
     expect(t.calls).toEqual([])
     await t.setup.retryRepositorySetup(card.id); await Promise.all(t.background)
@@ -1740,8 +1742,9 @@ test("a recovered result naming the replacement of the pin its own request carri
     expect(card.payload.recovery).toMatchObject({ state: "completed", registrationState: "known" })
     expect(card.payload.recovery?.error).toBeUndefined()
     expect(card.payload.workspaceId).toBe(replacement)
-    expect(card.payload.request).toMatchObject({ id: SETTLED_REQUEST, state: "failed", error: UNREADABLE_RECEIPT })
+    expect(card.payload.request).toMatchObject({ id: SETTLED_REQUEST, state: "failed", error: GONE_LEAD })
     expect(card.payload.request?.error).not.toContain("workspace_gone")
+    expect(card.payload.request?.error).not.toContain("node-12")
     expect(card.payload.receipt?.error).toBe(WORKSPACE_GONE)
     await t.setup.retryRepositorySetup(card.id); await Promise.all(t.background)
     expect(t.calls.map(call => call.method)).toEqual(["POST"])

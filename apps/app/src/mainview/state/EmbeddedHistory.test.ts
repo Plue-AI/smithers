@@ -60,7 +60,7 @@ test("issue navigation stays in one durable frame, supports back/forward, and fo
   expect(store.collections.cardHistories.get(before.id)?.entries).toHaveLength(2)
   const fork = store.collections.cards.get(before.id)
   expect(fork?.kind === "issue" && fork.payload.number).toBe(2)
-  expect(await issues.viewIssue(999, REPO)).toContain("Issue #999 in owner/repo answered 404")
+  expect(await issues.viewIssue(999, REPO)).toContain("Issue #999 in owner/repo was not found.")
   expect(store.collections.cards.get(before.id)).toMatchObject({ kind: "status", status: "error" })
   await store.dispatch({ type: "card.history.moved", actor: "user", id: before.id, delta: -1 }).isPersisted.promise
   expect(store.collections.cards.get(before.id)).toMatchObject({ kind: "issue", payload: { number: 2 }, ordinal: before.ordinal, createdAt: before.createdAt })

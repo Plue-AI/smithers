@@ -231,6 +231,17 @@ describe("repo import — already imported", () => {
     expect(card?.status).toBe("error")
   })
 
+  test("a coded 409 that is not the reader's reads as the act and its verdict, never plue's words", async () => {
+    const { store, controller } = await readyStore(
+      importBackend(() => json(409, { code: "internal", message: "pg: deadlock detected on mirror_jobs" }))
+    )
+    await controller.commands.run("repos.import", "will/flows")
+    await until(() => importCard(store)?.payload.phase === "failed", "the refused import")
+    const detail = importCard(store)?.payload.detail ?? ""
+    expect(detail).toStartWith("The import couldn't start (HTTP 409).")
+    expect(detail).not.toContain("deadlock")
+  })
+
   test("an already-active 409 tracks its named job without claiming completion", async () => {
     let release!: (response: Response) => void
     const poll = new Promise<Response>(resolve => { release = resolve })
@@ -240,7 +251,7 @@ describe("repo import — already imported", () => {
     }), () => poll))
     await controller.commands.run("repos.import", "will/flows")
     await until(() => importCard(store)?.payload.phase === "running", "the already-active receipt")
-    expect(importCard(store)?.payload.detail).toBe("this GitHub repository is already being imported")
+    expect(importCard(store)?.payload.detail).toBe("Already being imported.")
     expect(importCard(store)?.payload.jobId).toBe("job-1")
     expect(importCard(store)?.status).toBe("active")
     release(json(200, jobBody("ready")))

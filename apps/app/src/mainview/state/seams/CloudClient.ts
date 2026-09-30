@@ -63,6 +63,16 @@ export const cloudUnreachable = (error: unknown): CloudFailure => {
   return { error: refusalLine(refusal, "Could not reach Smithers Cloud."), code: null, status: null, retryAfterSeconds: null, refusal }
 }
 
+/**
+ * The sentence a failed request falls back on when the answer states none. It
+ * names the caller's label or Smithers Cloud, never the API path or the HTTP
+ * method: those are internal words.
+ */
+export const fallbackSentence = (method: string, label: string | undefined, status: number): string =>
+  method === "GET"
+    ? `Reading ${label ?? "from Smithers Cloud"} failed (${status})`
+    : `The request ${label === undefined ? "to Smithers Cloud" : `for ${label}`} failed (${status})`
+
 /** Domain seams share transport; authorization, DTOs, and retry decisions remain in the seam. */
 export const createCloudClient = (ctx: Pick<SeamContext, "http" | "baseUrl">) => {
   const url = (path: string): string => `${ctx.baseUrl}/api${path}`
@@ -70,7 +80,7 @@ export const createCloudClient = (ctx: Pick<SeamContext, "http" | "baseUrl">) =>
     method: string,
     path: string,
     body?: Record<string, unknown>,
-    label = path,
+    label?: string,
     signal?: AbortSignal
   ): Promise<CloudResult> => {
     let response: Response
@@ -87,12 +97,7 @@ export const createCloudClient = (ctx: Pick<SeamContext, "http" | "baseUrl">) =>
       return cloudUnreachable(error)
     }
     if (!response.ok) {
-      return cloudFailure(
-        response,
-        method === "GET"
-          ? `Reading ${label} failed (${response.status})`
-          : `The ${method} to ${label} failed (${response.status})`
-      )
+      return cloudFailure(response, fallbackSentence(method, label, response.status))
     }
     return { body: await response.json().catch(() => null), status: response.status, response }
   }
