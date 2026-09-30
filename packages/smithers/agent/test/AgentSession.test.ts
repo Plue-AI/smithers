@@ -944,6 +944,9 @@ describe("AgentSession", () => {
             JSON.stringify({
               version: 1,
               flowName: "agent/run",
+              // A persisted execution without its capability ceilings cannot be
+              // resumed safely, so the fork records the unrestricted group.
+              capabilityCeilings: [[]],
               payload: { runId: parent.run.runId, planId: card.planId }
             })
           )
