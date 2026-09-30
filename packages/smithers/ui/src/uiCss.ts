@@ -68,6 +68,10 @@ export const sharedCss = `
 /* Button                                                                     */
 /* -------------------------------------------------------------------------- */
 
+// Brand text is only audited on the 10% tint (SOFT_TINT_AMOUNT); a stronger
+// fill drops it below 4.5:1 in most palettes, so the default variant's hover
+// and press keep the fill and show state through the border and an inset
+// shadow, as the styleguide's primary button does.
 export const buttonCss = `
 .sui-button { min-height:${t.controlHeight}; display:inline-flex; align-items:center; justify-content:center; gap:6px; padding:0 12px; border:1px solid ${t.input}; border-radius:${t.radiusControl}; background:${t.card}; color:${t.foreground}; font:inherit; font-size:13px; text-decoration:none; cursor:pointer; white-space:nowrap; user-select:none; ${interaction} }
 .sui-button:hover { background:${t.secondary}; }
@@ -76,8 +80,9 @@ export const buttonCss = `
 .sui-button:disabled, .sui-button[aria-disabled='true'] { cursor:not-allowed; opacity:.45; }
 .sui-button svg { flex:none; }
 .sui-button-default { border-color:color-mix(in srgb, ${t.primary} 40%, transparent); background:color-mix(in srgb, ${t.primary} 10%, ${t.card}); color:${t.primary}; font-weight:650; }
-.sui-button-default:hover { background:color-mix(in srgb, ${t.primary} 16%, ${t.card}); }
-.sui-button-default:active:not(:disabled) { background:color-mix(in srgb, ${t.primary} 22%, ${t.card}); }
+.sui-button-default:hover { background:color-mix(in srgb, ${t.primary} 10%, ${t.card}); border-color:color-mix(in srgb, ${t.primary} 65%, transparent); }
+.sui-button-default:active:not(:disabled) { background:color-mix(in srgb, ${t.primary} 10%, ${t.card}); border-color:color-mix(in srgb, ${t.primary} 65%, transparent); box-shadow:inset 0 1px 2px color-mix(in srgb, ${t.foreground} 20%, transparent); }
+.sui-button-default:active:not(:disabled):focus-visible { box-shadow:0 0 0 3px ${t.ring}, inset 0 1px 2px color-mix(in srgb, ${t.foreground} 20%, transparent); }
 .sui-button-solid { border-color:${t.primary}; background:${t.primary}; color:${t.primaryForeground}; font-weight:650; }
 .sui-button-solid:hover { background:color-mix(in srgb, ${t.primary} 88%, ${t.foreground}); }
 .sui-button-solid:active:not(:disabled) { background:color-mix(in srgb, ${t.primary} 80%, ${t.foreground}); }
