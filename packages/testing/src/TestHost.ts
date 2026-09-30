@@ -54,7 +54,10 @@ interface Entry {
 export const makeMemoryFs = (
   initial?: Readonly<Record<string, string>>
 ): BrowserFileSystem.ZenFsPromisesLike => {
-  const entries = new Map<string, Entry>([["/", { type: "directory", data: new Uint8Array() }]])
+  const entries = new Map<string, Entry>([
+    ["/", { type: "directory", data: new Uint8Array() }],
+    ["/tmp", { type: "directory", data: new Uint8Array() }]
+  ])
   const encoder = new TextEncoder()
 
   const mkdirp = (path: string): void => {
@@ -110,7 +113,10 @@ export const makeMemoryFs = (
       if (options?.recursive === true) mkdirp(path)
       else {
         const key = normalize(path)
-        if (!entries.has(key.replace(/\/[^/]*$/, "") || "/")) throw enoent(path)
+        if (entries.has(key)) throw Object.assign(new Error(`EEXIST: ${path}`), { code: "EEXIST" })
+        const parent = entries.get(key.replace(/\/[^/]*$/, "") || "/")
+        if (parent === undefined) throw enoent(path)
+        if (parent.type !== "directory") throw Object.assign(new Error(`ENOTDIR: ${path}`), { code: "ENOTDIR" })
         entries.set(key, { type: "directory", data: new Uint8Array() })
       }
     },
@@ -310,7 +316,7 @@ export const layer = (options?: {
 }
 
 /**
- * The zero-config bundle: empty filesystem, no scripted commands, seed 42.
+ * The zero-config bundle: `/tmp` directory, no files or scripted commands, seed 42.
  *
  * Reach for {@link layer} instead when a test needs seeded files, scripted
  * commands, or a different PRNG seed.

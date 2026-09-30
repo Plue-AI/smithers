@@ -57,8 +57,8 @@ import * as TestLayers from "@smthrs/testing/TestLayers"
 
 `TestHost` is the deterministic host bundle: an in-memory filesystem, scripted
 interpreter, `TestClock`, and seeded PRNG. Each layer build starts with a fresh
-filesystem and restarts the PRNG from its seed, even when tests reuse the
-exported `TestHost.TestHost` layer. Import it explicitly:
+filesystem containing `/tmp` and restarts the PRNG from its seed, even when
+tests reuse the exported `TestHost.TestHost` layer. Import it explicitly:
 
 ```ts
 import * as TestHost from "@smthrs/testing/TestHost"
@@ -69,8 +69,11 @@ command table. An unlisted command returns exit code `127` and
 `command not found: <command>\n` on stderr, including names such as `constructor`
 and `__proto__`.
 
-The memory filesystem rejects non-recursive `mkdir` with `ENOENT` when the
-parent is missing. Non-recursive `rm` rejects a non-empty directory with
+The memory filesystem rejects non-recursive `mkdir` with `EEXIST` when the
+path exists, `ENOENT` when its parent is missing, and `ENOTDIR` when its parent
+is a file. Host conformance reserves its scratch directory with non-recursive
+`mkdir`, refusing collisions before writing its probe file. Non-recursive `rm`
+rejects a non-empty directory with
 `ENOTEMPTY`, including when `force` is set, and preserves its entries. Use
 `recursive: true` to create missing parents or remove a directory tree.
 

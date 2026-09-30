@@ -76,14 +76,15 @@ Three details keep the suite honest about the things a layer type cannot express
   behaviorally instead, running those cases over a poisoned base, so a bundle
   that supplies neither fails loudly rather than silently using the Effect
   defaults.
-- **The suite owns the scratch file it writes** and removes only what it
-  created. The write uses exclusive creation (`flag: "wx"`), which atomically
-  refuses an existing path, including a dangling symlink. A collision reports
+- **The suite owns its scratch directory** and writes its probe file inside.
+  Nonrecursive directory creation atomically refuses an existing path,
+  including a dangling symlink, on every platform. A collision reports
   `FileSystem/scratchPath` without removal. With no path declared it builds a
   randomized absolute path under `/tmp` from the bundle's own
   `Path` and `Random`, because a relative name would resolve against the
   caller's working directory and a fixed one would make two suites in a single
-  directory race on one file.
+  directory race on one scratch path. Removal is registered only after
+  directory creation succeeds and runs even when the file write fails.
 - **Cleanup acquires a Host process handle.** A supported shell declares an
   `interruptCommand` that stays running until cancelled. The suite checks
   `isRunning` before interrupting its scoped consumer, then checks it is false

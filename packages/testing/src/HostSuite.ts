@@ -56,10 +56,11 @@ export type HttpTransportExpectation =
  */
 export interface HostProfile {
   /**
-   * Scratch file used by the round-trip probe. Exclusive creation (`flag:
-   * "wx"`) atomically refuses an existing path, including a dangling symlink,
-   * with `FileSystem/scratchPath`. Removal is registered only after successful
-   * creation and runs even when the read-back assertion fails.
+   * Scratch directory owned by the round-trip probe. Nonrecursive directory
+   * creation atomically refuses an existing path, including a dangling symlink,
+   * with `FileSystem/scratchPath`. The probe writes a file inside its directory.
+   * Removal is registered only after directory creation succeeds and runs even
+   * when the file write or read-back assertion fails.
    *
    * When omitted, the suite builds a randomized absolute path under `/tmp`
    * from the bundle's own `Path` and `Random`. A bundle whose platform has no
@@ -188,11 +189,11 @@ const capabilityCode = (
 ): string => expectation.code
 
 /**
- * The scratch file the round-trip probe owns for one invocation.
+ * The scratch directory the round-trip probe owns for one invocation.
  *
  * The declared path wins. Otherwise the path is absolute, under `/tmp`, and
  * carries a random suffix drawn from the bundle's own `Random`, so two suites
- * are less likely to collide. Exclusive creation rejects any collision, and
+ * are less likely to collide. Nonrecursive creation rejects any collision, and
  * nothing is written into the caller's working directory.
  */
 const scratchTarget = (
@@ -202,7 +203,7 @@ const scratchTarget = (
     if (profile.fileSystemScratchPath !== undefined) return profile.fileSystemScratchPath
     const path = yield* Path.Path
     const suffix = (yield* Random.nextIntBetween(0, 0xff_ffff)).toString(16)
-    return path.join(path.sep, "tmp", `flows-host-suite-${suffix}.txt`)
+    return path.join(path.sep, "tmp", `flows-host-suite-${suffix}`)
   })
 
 const provide = <E, R>(effect: Effect.Effect<void, E, R>, bundle: HostBundle): Effect.Effect<void, E> =>
@@ -235,21 +236,25 @@ export const hostSuite = (bundle: HostBundle, profile: HostProfile): ReadonlyArr
         const encoder = new TextEncoder()
         const decoder = new TextDecoder()
         const scratchPath = yield* scratchTarget(profile)
+        const path = yield* Path.Path
+        const probePath = path.join(scratchPath, "probe.txt")
+        // Directory creation refuses dangling symlinks on every platform.
         // Acquire atomically and register removal only after creation succeeds.
         // acquireRelease also closes the interruption gap before registration.
         yield* Effect.scoped(
           Effect.gen(function*() {
             yield* Effect.acquireRelease(
-              fs.writeFile(scratchPath, encoder.encode("host-suite"), { flag: "wx" }).pipe(
+              fs.makeDirectory(scratchPath, { mode: 0o700 }).pipe(
                 Effect.mapError((error) =>
                   error.reason._tag === "AlreadyExists"
                     ? new CapabilityContractError({ capability: "FileSystem", operation: "scratchPath" })
                     : error
                 )
               ),
-              () => fs.remove(scratchPath, { force: true }).pipe(Effect.orDie)
+              () => fs.remove(scratchPath, { recursive: true, force: true }).pipe(Effect.orDie)
             )
-            const value = decoder.decode(yield* fs.readFile(scratchPath))
+            yield* fs.writeFile(probePath, encoder.encode("host-suite"), { flag: "wx" })
+            const value = decoder.decode(yield* fs.readFile(probePath))
             yield* assertEqual(value, "host-suite", "FileSystem", "readFile")
           })
         )

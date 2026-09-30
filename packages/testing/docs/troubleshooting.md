@@ -174,10 +174,10 @@ give the caller no signal that its arguments were ignored.
 **Symptom.** The `FileSystem round-trips` case fails with a
 `CapabilityContractError` naming `FileSystem` and `scratchPath`.
 
-**Cause.** Exclusive creation (`flag: "wx"`) found an existing scratch path.
-This includes dangling symlinks and files created concurrently. The suite
-reports `FileSystem/scratchPath` and leaves the existing path untouched.
-Removal is registered only after successful creation.
+**Cause.** Nonrecursive directory creation found an existing scratch path.
+This includes dangling symlinks, directories, and files created concurrently.
+The suite reports `FileSystem/scratchPath` and leaves the existing path
+untouched. Removal is registered only after successful directory creation.
 
 **Fix.** Point the profile at a path that does not exist, or omit
 `fileSystemScratchPath` entirely and let the suite build a randomized absolute path

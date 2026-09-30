@@ -47,6 +47,21 @@ describe("TestHost memory filesystem operations", () => {
       expect(yield* fs.readFileString("/w/exclusive.txt")).toBe("owned")
     }))
 
+  for (const path of ["/w/./a.txt", "/w/sub/", "/"]) {
+    for (const options of [undefined, { recursive: false }]) {
+      it.effect(`refuses non-recursive mkdir over ${path} with ${JSON.stringify(options)}`, () =>
+        Effect.gen(function*() {
+          const fs = fileSystem()
+          expect(yield* Effect.flip(fs.makeDirectory(path, options))).toMatchObject({
+            reason: { _tag: "AlreadyExists", method: "makeDirectory" }
+          })
+          expect(yield* fs.readFileString("/w/a.txt")).toBe("alpha")
+          expect(yield* fs.readFileString("/w/sub/b.txt")).toBe("beta")
+          expect(yield* fs.readDirectory("/w")).toEqual(["a.txt", "sub"])
+        }))
+    }
+  }
+
   it.effect("copies write inputs and read outputs", () =>
     Effect.gen(function*() {
       const fs = fileSystem()
@@ -97,8 +112,23 @@ describe("TestHost memory filesystem operations", () => {
     await expect(memory.mkdir("/missing/./child/", { recursive: false })).rejects.toMatchObject({ code: "ENOENT" })
     await expect(memory.stat("/missing")).rejects.toMatchObject({ code: "ENOENT" })
     await expect(memory.stat("/missing/child")).rejects.toMatchObject({ code: "ENOENT" })
-    await expect(memory.readdir("/")).resolves.toEqual([])
+    await expect(memory.readdir("/")).resolves.toEqual(["tmp"])
   })
+
+  for (const path of ["/w/a.txt/child", "/w/./a.txt/./child/"]) {
+    for (const options of [undefined, { recursive: false }]) {
+      it.effect(`refuses non-recursive mkdir under a file parent ${path} with ${JSON.stringify(options)}`, () =>
+        Effect.gen(function*() {
+          const fs = fileSystem()
+          expect(yield* Effect.flip(fs.makeDirectory(path, options))).toMatchObject({
+            reason: { _tag: "BadResource", method: "makeDirectory", cause: { code: "ENOTDIR" } }
+          })
+          expect(yield* fs.readFileString("/w/a.txt")).toBe("alpha")
+          expect(yield* fs.exists("/w/a.txt/child")).toBe(false)
+          expect(yield* fs.readDirectory("/w")).toEqual(["a.txt", "sub"])
+        }))
+    }
+  }
 
   for (const path of ["/dir/./", "/"]) {
     for (const options of [undefined, { recursive: false }, { force: true }]) {
@@ -109,7 +139,7 @@ describe("TestHost memory filesystem operations", () => {
         expect((await memory.stat(path)).isDirectory()).toBe(true)
         expect(decoder.decode(await memory.readFile("/dir/child.txt"))).toBe("child")
         expect(decoder.decode(await memory.readFile("/dir/nested/deep.txt"))).toBe("deep")
-        await expect(memory.readdir("/")).resolves.toEqual(["dir"])
+        await expect(memory.readdir("/")).resolves.toEqual(["dir", "tmp"])
         await expect(memory.readdir("/dir")).resolves.toEqual(["child.txt", "nested"])
       })
     }

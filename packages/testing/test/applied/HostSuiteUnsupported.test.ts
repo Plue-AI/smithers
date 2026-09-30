@@ -1,5 +1,5 @@
 /**
- * The unsupported half of the host suite, and the scratch file the supported
+ * The unsupported half of the host suite, and the scratch directory the supported
  * half owns.
  *
  * Only the all-supported profile ran, so the branch that asserts an
@@ -8,7 +8,7 @@
  * did the mismatched-code report.
  */
 import * as TestHost from "@smthrs/testing/TestHost"
-import { Effect, FileSystem } from "effect"
+import { Cause, Effect, Exit, FileSystem } from "effect"
 import { describe, expect, it } from "vitest"
 import * as HostSuite from "../../src/HostSuite.ts"
 import * as TestLayers from "../../src/TestLayers.ts"
@@ -136,7 +136,7 @@ describe("a bundle that supplies no Clock or Random can declare them unsupported
   })
 })
 
-describe("the file-system probe owns the scratch file it writes", () => {
+describe("the file-system probe owns its scratch directory", () => {
   const supported: HostSuite.HostProfile = { ...declaredUnsupported, fileSystem: { supported: true } }
 
   it("refuses to write over a file it did not create, and leaves it alone", async () => {
@@ -153,6 +153,9 @@ describe("the file-system probe owns the scratch file it writes", () => {
     }).pipe(Effect.provide(TestHost.TestHost))
     const { exit, survivor } = await Effect.runPromise(run)
     expect(exit._tag).toBe("Failure")
+    if (Exit.isFailure(exit)) {
+      expect(Cause.squash(exit.cause)).toMatchObject({ capability: "FileSystem", operation: "scratchPath" })
+    }
     expect(survivor).toBe("not the suite's")
   })
 

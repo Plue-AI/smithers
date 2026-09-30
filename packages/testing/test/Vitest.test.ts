@@ -24,7 +24,7 @@ describe("Vitest", () => {
         Effect.gen(function*() {
           const fs = yield* FileSystem.FileSystem
           expect.soft(yield* Random.next).toBe(0.6011037519201636)
-          expect.soft(yield* fs.readDirectory("/")).toEqual([])
+          expect.soft(yield* fs.readDirectory("/")).toEqual(["tmp"])
           yield* fs.writeFileString("/previous-test.txt", "must stay in this runtime")
           expect(yield* fs.readFileString("/previous-test.txt")).toBe("must stay in this runtime")
           yield* Random.next

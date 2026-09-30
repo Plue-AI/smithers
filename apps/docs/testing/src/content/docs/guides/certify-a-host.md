@@ -79,20 +79,21 @@ const httpTransport = {
 } as const
 ```
 
-## Where the scratch file goes
+## Where the scratch directory goes
 
-The filesystem case writes a scratch file, reads it back, and removes it. The
-write uses exclusive creation (`flag: "wx"`): an existing path, including a
-dangling symlink or a competing creation, fails atomically with
-`FileSystem/scratchPath`. Removal is registered only after successful creation
-and runs even if the read-back assertion fails.
+The filesystem case creates a scratch directory, writes a probe file inside,
+reads it back, and removes the directory. Nonrecursive directory creation
+atomically refuses an existing path, including a dangling symlink or a
+competing creation, with `FileSystem/scratchPath` on every platform. Removal is
+registered only after successful directory creation and runs even if the file
+write or read-back assertion fails.
 
 With no `fileSystemScratchPath` declared, the suite builds a randomized absolute
 path under `/tmp` from the bundle's own `Path` and `Random`. Declare one when
 the bundle's platform has no `/tmp`:
 
 ```ts
-const profileWithScratch = { ...profile, fileSystemScratchPath: "/var/tmp/host-suite-probe.txt" }
+const profileWithScratch = { ...profile, fileSystemScratchPath: "/var/tmp/host-suite-probe" }
 ```
 
 The default is absolute and randomized for two reasons. A relative name resolves

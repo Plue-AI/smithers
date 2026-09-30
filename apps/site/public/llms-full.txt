@@ -47100,11 +47100,12 @@ interface HostProfile {
 Every closed-list capability must be declared; omission is not an admission
 mechanism.
 
-`fileSystemScratchPath` is the scratch file the round-trip probe writes, removed
-even when the assertion fails. Exclusive creation (`flag: "wx"`) atomically
-refuses an existing path, including dangling symlinks and concurrent creations,
-with `FileSystem/scratchPath`. Removal is registered only after successful
-creation. When omitted, the suite builds a randomized absolute path under
+`fileSystemScratchPath` is the directory the round-trip probe creates, writes a
+file inside, and removes even when the write or assertion fails. Nonrecursive
+directory creation atomically refuses an existing path, including dangling
+symlinks and concurrent creations, with `FileSystem/scratchPath`. Removal is
+registered only after successful directory creation. When omitted, the suite
+builds a randomized absolute path under
 `/tmp` from the bundle's own `Path` and `Random`. A bundle whose platform has
 no `/tmp` must declare a path of its own.
 

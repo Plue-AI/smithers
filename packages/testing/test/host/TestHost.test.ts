@@ -34,7 +34,7 @@ describe("TestHost memory filesystem", () => {
 
       const listing = yield* (Effect.all([fs.readDirectory("/"), fs.readDirectory("/deep")]))
 
-      expect(listing).toEqual([["deep"], ["nest"]])
+      expect(listing).toEqual([["deep", "tmp"], ["nest"]])
     }))
 
   it.effect("refuses a non-recursive mkdir with a missing parent without creating entries", () =>
@@ -52,7 +52,7 @@ describe("TestHost memory filesystem", () => {
       )
 
       expect(result.failure).toMatchObject({ reason: { _tag: "NotFound", method: "makeDirectory" } })
-      expect(result.listedRoot).toEqual([])
+      expect(result.listedRoot).toEqual(["tmp"])
       expect(result.missingChild).toMatchObject({ reason: { _tag: "NotFound", method: "stat" } })
       expect(result.missingParent).toMatchObject({ reason: { _tag: "NotFound", method: "stat" } })
     }))
@@ -208,7 +208,7 @@ describe("TestHost determinism", () => {
       expect(observed.after).toBe(5_000)
     }))
 
-  it.effect("starts the zero-config bundle with an empty filesystem and no scripted commands", () =>
+  it.effect("starts the zero-config bundle with a scratch directory and no scripted commands", () =>
     Effect.gen(function*() {
       const state = yield* (
         Effect.gen(function*() {
@@ -221,7 +221,7 @@ describe("TestHost determinism", () => {
         }).pipe(Effect.provide(TestHost.TestHost))
       )
 
-      expect(state).toEqual({ root: [], exit: 127 })
+      expect(state).toEqual({ root: ["tmp"], exit: 127 })
     }))
 })
 
