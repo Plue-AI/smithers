@@ -137,6 +137,10 @@ const footprint = (runId: string) =>
     parentEdges: countOf("flows_run_parents", "parent_id", runId)
   })
 
+/** How many facts the run's run-store companion journal stream holds. */
+const companionFacts = (runId: string) =>
+  countOf("flows_journal_events", "run_id", JournalEvent.companionRunId(RunStore.companionStream, runId))
+
 /** Creates a run, takes ownership, and leaves it `running` under `owner`. */
 const activate = (runId: string, parentRunId?: string) =>
   Effect.gen(function*() {
@@ -328,7 +332,9 @@ describe("retention", () => {
         expect(report.attempts).toBe(3)
         expect(report.clockDeadlines).toBe(3)
         expect(report.deferredCompletions).toBe(3)
-        expect(report.journalEntries).toBe(3)
+        // One seeded entry per run, plus the three ownership facts (claimed,
+        // activated, released) each run's companion stream holds.
+        expect(report.journalEntries).toBe(3 + 3 * 3)
         expect(report.journalCheckpoints).toBe(3)
         expect(report.archiveEntries).toBe(3)
         expect(report.dryRun).toBe(false)
@@ -348,9 +354,12 @@ describe("retention", () => {
             childEdges: 0,
             parentEdges: 0
           })
+          expect(yield* companionFacts(runId)).toBe(0)
         }
 
         // The run inside the window and the live run are untouched.
+        expect(yield* companionFacts("fresh-completed")).toBe(3)
+        expect(yield* companionFacts("still-running")).toBe(2)
         expect((yield* footprint("fresh-completed")).runs).toBe(1)
         expect((yield* footprint("fresh-completed")).journal).toBe(1)
         expect(after).toEqual(before)

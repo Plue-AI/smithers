@@ -51,6 +51,8 @@
 
 import * as Dialect from "@smthrs/database/Dialect"
 import * as Journal from "@smthrs/journal/Journal"
+import * as JournalEvent from "@smthrs/journal/JournalEvent"
+import * as RunStore from "@smthrs/run-store/RunStore"
 import * as Clock from "effect/Clock"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
@@ -227,7 +229,22 @@ export interface RunScopedTable {
    * composed, and is skipped when the catalog does not list it.
    */
   readonly ladder: boolean
+  /**
+   * Whether the table also holds the runs' journal companion streams
+   * (`JournalEvent.companionRunId`), which name a run through a derived id
+   * rather than the run id itself. {@link companionStreams} lists them.
+   */
+  readonly companions?: boolean | undefined
 }
+
+/**
+ * The journal companion streams a run owns beside its own stream. A deleted
+ * run's companion streams go with it.
+ *
+ * @category constants
+ * @since 1.0.0
+ */
+export const companionStreams: ReadonlyArray<string> = [RunStore.companionStream]
 
 /**
  * Every table a deleted run leaves rows in, and the column naming the run.
@@ -252,9 +269,9 @@ export const runScopedTables: ReadonlyArray<RunScopedTable> = [
   { table: "flows_deferred_completions", column: "execution_id", ladder: true },
   { table: "flows_clock_deadlines", column: "execution_id", ladder: true },
   { table: "flows_attempts", column: "run_id", ladder: true },
-  { table: "flows_journal_events", column: "run_id", ladder: true },
-  { table: "flows_journal_checkpoints", column: "run_id", ladder: true },
-  { table: "flows_journal_dedup", column: "run_id", ladder: true },
+  { table: "flows_journal_events", column: "run_id", ladder: true, companions: true },
+  { table: "flows_journal_checkpoints", column: "run_id", ladder: true, companions: true },
+  { table: "flows_journal_dedup", column: "run_id", ladder: true, companions: true },
   { table: "flows_consensus_leases", column: "run_id", ladder: true },
   { table: "flows_step_cache_recorded", column: "recorded_run_id", ladder: true },
   { table: "flows_time_travel_archive", column: "run_id", ladder: false },
@@ -692,13 +709,19 @@ export const deleteRuns = (
     // collected.
     const runIds = candidateIds.filter((runId) => doomed.has(runId))
 
+    const companionIds = runIds.flatMap((runId) =>
+      companionStreams.map((stream) => JournalEvent.companionRunId(stream, runId))
+    )
+    const idsFor = (entry: RunScopedTable): ReadonlyArray<string> =>
+      entry.companions === true ? [...runIds, ...companionIds] : runIds
+
     const deleted: Record<string, number> = {}
     if (hasTimeTravelReceipts) {
       const total = yield* countTimeTravelReceipts(sql, runIds)
       if (total > 0) deleted["flows_time_travel_receipts"] = total
     }
     for (const entry of tables) {
-      const total = yield* countIn(sql, entry.table, entry.column, runIds)
+      const total = yield* countIn(sql, entry.table, entry.column, idsFor(entry))
       if (total > 0) deleted[entry.table] = total
     }
     if (runIds.length > 0) deleted["flows_runs"] = runIds.length
@@ -707,7 +730,7 @@ export const deleteRuns = (
       // Receipts have no run column, so remove them through their audits
       // before the ordinary inventory reaches and deletes those audit rows.
       if (hasTimeTravelReceipts) yield* deleteTimeTravelReceipts(sql, runIds)
-      for (const entry of tables) yield* deleteIn(sql, entry.table, entry.column, runIds)
+      for (const entry of tables) yield* deleteIn(sql, entry.table, entry.column, idsFor(entry))
       // Last, and deepest generation first. The `flows_run_parents_gc`
       // trigger drops each run's DAG edges as its row goes.
       for (const generation of generations(doomed, parentOf)) {
