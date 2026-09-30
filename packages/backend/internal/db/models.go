@@ -2209,6 +2209,12 @@ type RepositoryEgressPolicy struct {
 	UpdatedAt    time.Time   `json:"updated_at"`
 }
 
+type RepositoryGitUsage struct {
+	RepositoryID int64     `json:"repository_id"`
+	GitBytes     int64     `json:"git_bytes"`
+	MeasuredAt   time.Time `json:"measured_at"`
+}
+
 type RepositoryJobApproval struct {
 	RepositoryID int64           `json:"repository_id"`
 	Job          string          `json:"job"`

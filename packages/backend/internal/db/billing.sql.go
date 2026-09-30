@@ -398,6 +398,28 @@ func (q *Queries) GetLatestLiveBillingSubscriptionByAccount(ctx context.Context,
 	return i, err
 }
 
+const getRepositoryGitUsage = `-- name: GetRepositoryGitUsage :one
+SELECT
+    COALESCE(rgu.git_bytes, 0)::bigint AS git_bytes,
+    COALESCE(rgu.measured_at, 'epoch'::timestamptz)::timestamptz AS measured_at
+FROM (SELECT $1::bigint AS repository_id) r
+LEFT JOIN repository_git_usage rgu ON rgu.repository_id = r.repository_id
+`
+
+type GetRepositoryGitUsageRow struct {
+	GitBytes   int64     `json:"git_bytes"`
+	MeasuredAt time.Time `json:"measured_at"`
+}
+
+// The repository's last recorded git bytes and when they were measured; 0 at
+// the Unix epoch before its first measurement.
+func (q *Queries) GetRepositoryGitUsage(ctx context.Context, repositoryID int64) (GetRepositoryGitUsageRow, error) {
+	row := q.db.QueryRow(ctx, getRepositoryGitUsage, repositoryID)
+	var i GetRepositoryGitUsageRow
+	err := row.Scan(&i.GitBytes, &i.MeasuredAt)
+	return i, err
+}
+
 const getUsageCounterByMetric = `-- name: GetUsageCounterByMetric :one
 SELECT id, owner_type, owner_id, metric_key, period_start, period_end, included_quantity, consumed_quantity, overage_quantity, last_reported_meter_event_id, last_synced_at, created_at, updated_at
 FROM billing_usage_counters
@@ -836,6 +858,28 @@ func (q *Queries) RecordBillingAccountPaymentReversal(ctx context.Context, arg R
 	return err
 }
 
+const recordRepositoryGitBytes = `-- name: RecordRepositoryGitBytes :exec
+INSERT INTO repository_git_usage (repository_id, git_bytes, measured_at)
+VALUES ($1::bigint, $2::bigint, $3::timestamptz)
+ON CONFLICT (repository_id) DO UPDATE
+SET git_bytes = EXCLUDED.git_bytes,
+    measured_at = EXCLUDED.measured_at
+WHERE repository_git_usage.measured_at < EXCLUDED.measured_at
+`
+
+type RecordRepositoryGitBytesParams struct {
+	RepositoryID int64     `json:"repository_id"`
+	GitBytes     int64     `json:"git_bytes"`
+	MeasuredAt   time.Time `json:"measured_at"`
+}
+
+// Repo-host measures a repository's git objects after each push; a newer
+// measurement replaces the stored one, and a late older one is dropped.
+func (q *Queries) RecordRepositoryGitBytes(ctx context.Context, arg RecordRepositoryGitBytesParams) error {
+	_, err := q.db.Exec(ctx, recordRepositoryGitBytes, arg.RepositoryID, arg.GitBytes, arg.MeasuredAt)
+	return err
+}
+
 const settleBillingSubscriptionPayment = `-- name: SettleBillingSubscriptionPayment :one
 UPDATE billing_subscriptions
 SET payment_settled_at = GREATEST(payment_settled_at, $1),
@@ -955,6 +999,11 @@ SELECT (
         FROM issue_artifacts ia
         WHERE ia.repository_id IN (SELECT id FROM owned_repos)
     ), 0)
+    + COALESCE((
+        SELECT SUM(rgu.git_bytes)
+        FROM repository_git_usage rgu
+        WHERE rgu.repository_id IN (SELECT id FROM owned_repos)
+    ), 0)
 
 )::bigint
 `
@@ -1005,6 +1054,11 @@ SELECT (
         SELECT SUM(ia.size)
         FROM issue_artifacts ia
         WHERE ia.repository_id = $1::bigint
+    ), 0)
+    + COALESCE((
+        SELECT SUM(rgu.git_bytes)
+        FROM repository_git_usage rgu
+        WHERE rgu.repository_id = $1::bigint
     ), 0)
 
 )::bigint

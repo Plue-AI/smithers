@@ -506,6 +506,11 @@ SELECT (
         FROM issue_artifacts ia
         WHERE ia.repository_id IN (SELECT id FROM owned_repos)
     ), 0)
+    + COALESCE((
+        SELECT SUM(rgu.git_bytes)
+        FROM repository_git_usage rgu
+        WHERE rgu.repository_id IN (SELECT id FROM owned_repos)
+    ), 0)
 
 )::bigint;
 
@@ -546,9 +551,33 @@ SELECT (
         FROM issue_artifacts ia
         WHERE ia.repository_id = sqlc.arg(repository_id)::bigint
     ), 0)
+    + COALESCE((
+        SELECT SUM(rgu.git_bytes)
+        FROM repository_git_usage rgu
+        WHERE rgu.repository_id = sqlc.arg(repository_id)::bigint
+    ), 0)
 
 )::bigint;
 
+
+-- name: GetRepositoryGitUsage :one
+-- The repository's last recorded git bytes and when they were measured; 0 at
+-- the Unix epoch before its first measurement.
+SELECT
+    COALESCE(rgu.git_bytes, 0)::bigint AS git_bytes,
+    COALESCE(rgu.measured_at, 'epoch'::timestamptz)::timestamptz AS measured_at
+FROM (SELECT sqlc.arg(repository_id)::bigint AS repository_id) r
+LEFT JOIN repository_git_usage rgu ON rgu.repository_id = r.repository_id;
+
+-- name: RecordRepositoryGitBytes :exec
+-- Repo-host measures a repository's git objects after each push; a newer
+-- measurement replaces the stored one, and a late older one is dropped.
+INSERT INTO repository_git_usage (repository_id, git_bytes, measured_at)
+VALUES (sqlc.arg(repository_id)::bigint, sqlc.arg(git_bytes)::bigint, sqlc.arg(measured_at)::timestamptz)
+ON CONFLICT (repository_id) DO UPDATE
+SET git_bytes = EXCLUDED.git_bytes,
+    measured_at = EXCLUDED.measured_at
+WHERE repository_git_usage.measured_at < EXCLUDED.measured_at;
 
 -- name: MarkBillingSubscriptionsPaymentReversed :execrows
 -- A reversal suspends only live subscriptions whose latest settled payment

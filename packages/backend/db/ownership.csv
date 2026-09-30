@@ -281,3 +281,4 @@ billing_plan_grants,product,product migration 0078
 workspace_child_batches,product,product migration 0089
 workspace_children,product,product migration 0089
 repository_egress_policies,product,product migration 0092
+repository_git_usage,product,product migration 0097
