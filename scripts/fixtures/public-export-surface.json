@@ -1476,6 +1476,13 @@
           "types": "./dist/esm/RunHistory.d.ts",
           "default": "./dist/esm/RunHistory.js"
         },
+        "require": {
+          "types": "./dist/cjs/RunHistory.d.ts",
+          "default": "./dist/cjs/RunHistory.js"
+        }
+      },
+      "reason": "Run.Fork and Run.Verify (#3242, #3243): the wire shapes and the host service the gateway calls, so the app, the terminal and smthrs runs fork/verify fork one way and read one verification report."
+    },
     {
       "name": "@smthrs/gateway",
       "subpath": "./RunDevTools",
