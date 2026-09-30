@@ -373,6 +373,39 @@
       ]
     },
     {
+      "id": "checks/drift",
+      "description": "Report formatting, target index, generated API, docs and declaration baseline drift for the revision.",
+      "summary": null,
+      "featured": false,
+      "kind": "mdx",
+      "path": "flows/checks/drift/flow.mdx",
+      "capabilities": [
+        "fs:read:**",
+        "proc:spawn:sh scripts/ci/coding-check.sh *"
+      ],
+      "model": null,
+      "modelInvocable": true,
+      "inputSchema": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "args": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "args"
+          ],
+          "additionalProperties": true
+        },
+        "definitions": {}
+      },
+      "flows": [
+        "coding/CommandCheck"
+      ]
+    },
+    {
       "id": "checks/lint",
       "description": "Lint the change on Jev against this repository's conventions, one changed hunk at a time.",
       "summary": null,

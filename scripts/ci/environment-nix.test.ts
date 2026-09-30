@@ -220,6 +220,23 @@ describe("the Cloud machine carries every tool the checks execute", () => {
     )
   })
 
+  test("every tool the Cloud drift check executes is in the image", () => {
+    const gates = /drift_gates="([^"]*)"/.exec(read("scripts/ci/coding-check.sh"))![1]!.split("\n")
+    const tools = new Set<string>()
+    for (const gate of gates) {
+      const label = gate.split(" ")[1]!
+      const matched = index.filter((target) =>
+        label.startsWith("//...:") ? target.label.endsWith(label.slice(5)) : target.label === label)
+      expect(matched.length, `${label} names no target`).toBeGreaterThan(0)
+      for (const target of matched) {
+        expect(ruleTools[target.rule], `no tools for ${target.rule}`).toBeDefined()
+        for (const tool of ruleTools[target.rule]!) tools.add(tool)
+      }
+    }
+    expect(tools.size).toBeGreaterThan(0)
+    for (const tool of tools) expect(environment).toMatch(provided[tool]!)
+  })
+
   test("every toolchain cloud.sh gates on is in the image", () => {
     const gates = [...cloud.matchAll(/^\s+[a-z-]+\) echo '([^']+)' ;;$/gm)].flatMap((m) => m[1]!.split(" "))
     const alias: Record<string, string[]> = { js: ["node", "pnpm", "bun"], rust: ["cargo"] }

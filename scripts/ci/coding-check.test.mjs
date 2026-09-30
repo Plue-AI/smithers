@@ -137,3 +137,44 @@ test("an affected check without its check host's written paths refuses instead o
   assert.deepEqual(attempts, [])
   assert.deepEqual(calls, [])
 })
+
+const driftGates = [
+  ["lint", "//...:fmt"], ["lint", "//:targetIndex"], ["lint", "//:openapiBundle"], ["lint", "//:openapiClients"],
+  ["lint", "//scripts:docsDrift"], ["build", "//scripts:apiBaseline"], ["lint", "//scripts:conflictMarkers"],
+  ["lint", "//:driftCi"]
+]
+const driftRun = (failing) => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "coding-drift-")))
+  try {
+    writeFileSync(join(root, "bun"), "#!/bin/sh\nexit 0\n", { mode: 0o755 })
+    writeFileSync(join(root, "node"), `#!/bin/sh
+case "$1" in packages/*) echo "$2 $3 $4 $5" >> "$FIXTURE/gates.log"; [ "$3" = "$FAILING" ] && exit 1 ;; esac
+exit 0
+`, { mode: 0o755 })
+    const result = spawnSync("sh", [script, "drift"], {
+      cwd: root, encoding: "utf8", timeout: 15_000,
+      env: { ...process.env, PATH: `${root}:${process.env.PATH}`, FIXTURE: root, FAILING: failing,
+        SMITHERS_CHECK_CACHE_DIR: join(root, "check-cache") }
+    })
+    const gates = readFileSync(join(root, "gates.log"), "utf8").trim().split("\n")
+    return { result, gates }
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+}
+
+test("a clean revision passes the drift check after every gate ran, each judged by the known-red list", () => {
+  const { result, gates } = driftRun("")
+  assert.equal(result.status, 0, result.stderr)
+  assert.deepEqual(gates, driftGates.map(([verb, pattern]) => `${verb} ${pattern} --known-red .github/ci-known-red.json`))
+})
+
+test("a revision with drift in one gate fails the check yet still runs and names every gate", () => {
+  for (const [, pattern] of driftGates) {
+    const { result, gates } = driftRun(pattern)
+    assert.equal(result.status, 1, `${pattern} drift must fail the check`)
+    assert.equal(gates.length, driftGates.length, "later gates still run after a failure")
+    assert.match(result.stderr, new RegExp(`Drift gate failed: \\S+ ${pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`))
+    assert.equal(result.stderr.match(/Drift gate failed/g).length, 1)
+  }
+})

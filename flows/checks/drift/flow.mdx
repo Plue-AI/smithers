@@ -1,0 +1,6 @@
+---
+description: Report formatting, target index, generated API, docs and declaration baseline drift for the revision.
+flows: [coding/CommandCheck]
+capabilities: ["fs:read:**", "proc:spawn:sh scripts/ci/coding-check.sh *"]
+---
+{"argv":["sh","scripts/ci/coding-check.sh","drift"],"cwd":".","timeoutMs":900000}
