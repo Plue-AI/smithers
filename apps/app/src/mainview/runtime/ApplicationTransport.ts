@@ -1,7 +1,8 @@
 import type { FetchLike } from "@smthrs/rpc/NativeAgent"
+import { resolveApplicationTarget } from "@smthrs/rpc/ApplicationTarget"
 import { createApplicationClient } from "./ApplicationClient"
 import type { ApplicationClient } from "./ApplicationClient"
-import { loadApplicationTarget } from "./ApplicationTargetRuntime"
+import { loadApplicationTarget, SAME_ORIGIN_SESSION_TARGET } from "./ApplicationTargetRuntime"
 import { createAppFetch } from "./LocalSession"
 import { selectedBackendTarget, selectedBackendToken } from "./BackendTargetSelection"
 
@@ -47,3 +48,20 @@ export const loadRuntimeApplicationClient = (): Promise<ApplicationClient> => {
 /** Async adapter for startup services that are created before target resolution settles. */
 export const runtimeApplicationFetch: FetchLike = async (input, init) =>
   (await loadRuntimeApplicationClient()).fetch(input, init)
+
+/** A failed target lookup is itself reportable on a web page's same-origin sink. */
+export const runtimeClientErrorFetch: FetchLike = async (input, init) => {
+  let client: ApplicationClient
+  try {
+    client = await loadRuntimeApplicationClient()
+  } catch (error) {
+    // The target is unknown. Never guess a native/external backend or attach a
+    // bearer token; a hosted web page can still report to its serving origin.
+    if (nativeRuntimeAvailable() || typeof location === "undefined" || !/^https?:$/.test(location.protocol)) throw error
+    const sameOrigin = resolveApplicationTarget(SAME_ORIGIN_SESSION_TARGET, location.origin)
+    return createApplicationClient(sameOrigin, { fetchImpl: createAppFetch() }).fetch(input, init)
+  }
+  // If a selected target lacks its token or refuses the POST, fail closed.
+  // Reporting must never downgrade an authenticated external target to cookies.
+  return client.fetch(input, init)
+}

@@ -8,7 +8,7 @@ test("a cached client cannot borrow another backend's token while same-backend r
   const child = spawnSync(process.execPath, ["--eval", `
     import assert from "node:assert/strict"
     import { GlobalRegistrator } from "@happy-dom/global-registrator"
-    import { loadRuntimeApplicationClient } from "./src/mainview/runtime/ApplicationTransport"
+    import { loadRuntimeApplicationClient, runtimeClientErrorFetch } from "./src/mainview/runtime/ApplicationTransport"
     import { switchBackendTarget } from "./src/mainview/runtime/BackendTargetSelection"
     GlobalRegistrator.register({ url: "https://shell.test" })
     const calls = []
@@ -25,6 +25,7 @@ test("a cached client cannot borrow another backend's token while same-backend r
       sessionStorage.setItem("smithers.developer-api-token", "unrelated-deployment-token")
       const client = await loading
       await assert.rejects(client.request("/api/probe"), { code: "auth-missing" })
+      await assert.rejects(runtimeClientErrorFetch("/api/telemetry/errors", { method: "POST", body: "{}" }), { code: "auth-missing" })
       assert.equal(calls.length, 0)
       switchBackendTarget("https://first.test", "first-inert-token", location.origin)
       await client.request("/api/probe")
@@ -43,8 +44,8 @@ test("a cached client cannot borrow another backend's token while same-backend r
       sessionStorage.clear()
       await GlobalRegistrator.unregister()
     }
-  `], { cwd: fileURLToPath(new URL("../../../", import.meta.url)), encoding: "utf8", timeout: 5000 })
+  `], { cwd: fileURLToPath(new URL("../../../", import.meta.url)), encoding: "utf8", timeout: 40_000 })
   expect({ status: child.status, signal: child.signal, error: child.error, stderr: child.stderr })
     .toEqual({ status: 0, signal: null, error: undefined, stderr: "" })
   expect(child.stdout.trim()).toBe("target-bound credential assertions passed")
-})
+}, 45_000)

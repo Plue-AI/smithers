@@ -3,6 +3,15 @@ import type { ApplicationTarget, ApplicationTargetDocument } from "@smthrs/rpc/A
 
 export const APPLICATION_TARGET_META = "smithers-application-target"
 
+export const SAME_ORIGIN_SESSION_TARGET: ApplicationTargetDocument = {
+  apiVersion: 1,
+  mode: "web-selfhost",
+  apiOrigin: "",
+  auth: { kind: "session" },
+  cors: "same-origin",
+  developerExternal: false
+}
+
 export interface RuntimeTargetSource {
   readonly document?: Pick<Document, "querySelector">
   readonly pageOrigin?: string
@@ -25,12 +34,5 @@ export const loadApplicationTarget = async (source: RuntimeTargetSource = {}): P
   const pageOrigin = source.pageOrigin ?? globalThis.location?.origin
   const native = await source.native?.()
   const configured = native ?? metaTarget(document)
-  return resolveApplicationTarget(configured === undefined ? {
-    apiVersion: 1,
-    mode: "web-selfhost",
-    apiOrigin: "",
-    auth: { kind: "session" },
-    cors: "same-origin",
-    developerExternal: false
-  } : configured, pageOrigin)
+  return resolveApplicationTarget(configured === undefined ? SAME_ORIGIN_SESSION_TARGET : configured, pageOrigin)
 }

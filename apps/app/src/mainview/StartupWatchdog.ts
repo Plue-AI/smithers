@@ -31,7 +31,10 @@ export interface StartupWatchdog {
 export const startStartupWatchdog = (options: StartupWatchdogOptions): StartupWatchdog => {
   const documentTarget = options.document ?? document
   const windowTarget = options.window ?? window
-  const clientErrors = options.clientErrors ?? createClientErrorReporter()
+  const clientErrors = options.clientErrors ?? createClientErrorReporter({
+    fetchImpl: async (input, init) =>
+      (await import("./runtime/ApplicationTransport")).runtimeClientErrorFetch(input, init)
+  })
   let firstBootError: unknown
   let settled = false
   let panel: ReturnType<typeof createStartupErrorElement> | undefined

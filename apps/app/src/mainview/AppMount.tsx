@@ -4,7 +4,7 @@ import type { Root } from "react-dom/client"
 import { AppRoot } from "./AppRoot"
 import { configureControllerBoot } from "./ControllerProvider"
 import { browserStartupWatchdog } from "./StartupWatchdog"
-import { loadRuntimeApplicationClient, runtimeApplicationFetch } from "./runtime/ApplicationTransport"
+import { loadRuntimeApplicationClient, runtimeClientErrorFetch } from "./runtime/ApplicationTransport"
 import { warmBootstrap } from "./runtime/Runtime"
 import { createClientErrorReporter } from "./state/ClientErrors"
 
@@ -78,7 +78,7 @@ export const unmountOnPageHide = (root: Root, page: Window = window): (() => voi
  */
 export function mountApp(container: HTMLElement, options: MountAppOptions): MountedApp {
   applyAppearance()
-  const clientErrors = createClientErrorReporter({ fetchImpl: runtimeApplicationFetch })
+  const clientErrors = createClientErrorReporter({ fetchImpl: runtimeClientErrorFetch })
   configureControllerBoot({ keepUrl: options.keepUrl === true, clientErrors })
   const watchdog = browserStartupWatchdog({ clientErrors })
   const root = createRoot(container)

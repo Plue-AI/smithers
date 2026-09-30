@@ -2,7 +2,7 @@ import { configureControllerBoot } from "./ControllerProvider"
 import { AppRoot } from "./AppRoot"
 import { mountApp, warmApp } from "./AppMount"
 import { browserStartupWatchdog } from "./StartupWatchdog"
-import { createAppFetch } from "./runtime/LocalSession"
+import { runtimeClientErrorFetch } from "./runtime/ApplicationTransport"
 import { createClientErrorReporter } from "./state/ClientErrors"
 
 /*
@@ -23,7 +23,7 @@ let clientErrors: ReturnType<typeof createClientErrorReporter> | undefined
 
 function AppIsland() {
   // One watchdog per page (browserStartupWatchdog is a singleton), so a re-render re-reads it.
-  clientErrors ??= createClientErrorReporter({ fetchImpl: createAppFetch() })
+  clientErrors ??= createClientErrorReporter({ fetchImpl: runtimeClientErrorFetch })
   configureControllerBoot({ clientErrors })
   const watchdog = browserStartupWatchdog({ clientErrors })
   return <AppRoot watchdog={watchdog} />
