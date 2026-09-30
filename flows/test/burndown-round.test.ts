@@ -25,6 +25,7 @@ if (!process.execArgv.includes("--experimental-test-module-mocks")) {
   let ownership = { mine: true, holder: { host: hostname() } }
   const starts: Array<{ assignment: unknown; options: unknown }> = []
   let pollResult: unknown = undefined
+  let pollInterrupted = false
   let pollDefect = false
   let pollFailure = false
   let accountReadings: Array<unknown> = []
@@ -48,7 +49,7 @@ if (!process.execArgv.includes("--experimental-test-module-mocks")) {
           return `execution-${starts.length}`
         }),
       poll: () =>
-        pollDefect ?
+        pollInterrupted ? Effect.interrupt : pollDefect ?
           Effect.die(new Error("SQLite busy while reading running worker")) :
           pollResult !== undefined ?
           Effect.succeed(pollResult) :
@@ -246,6 +247,28 @@ if (!process.execArgv.includes("--experimental-test-module-mocks")) {
       assert.equal(claims.some((args) => args[1] === "release"), false)
     } finally {
       pollDefect = false
+    }
+  })
+
+  test("cancelled observation propagates interruption without releasing or relaunching its running worker", async () => {
+    const running = { assignment, executionId: "cancelled-poll", startedAt: Date.now() - 1000 }
+    const state = { ...initial(), inFlight: [running] }
+    claims.length = 0
+    starts.length = 0
+    pollInterrupted = true
+    try {
+      await assert.rejects(invoke(Observe.name, { state }), /interrupt/i)
+      assert.equal(claims.some((args) => args[1] === "release"), false)
+      assert.equal(starts.length, 0)
+      pollInterrupted = false
+      const resumed = await invoke(Observe.name, { state }) as typeof Observe.successSchema.Type
+      assert.deepEqual(resumed.inFlight, [running])
+      assert.deepEqual(resumed.finished, [])
+      assert.equal((await settle(state, resumed as never)).done, false)
+      assert.equal(claims.some((args) => args[1] === "release"), false)
+      assert.equal(starts.length, 0)
+    } finally {
+      pollInterrupted = false
     }
   })
 
