@@ -17,6 +17,7 @@ const deferred = () => {
 }
 async function fixture(options: {
   provision?: () => Promise<Response>; list?: () => Promise<Response>; storage?: ReturnType<typeof memoryStorage>
+  boxStatus?: "none" | "running" | "pending" | "failed"
 } = {}) {
   const storage = options.storage ?? memoryStorage()
   const store = await createAppStore({ kind: "localStorage", storage })
@@ -37,7 +38,7 @@ async function fixture(options: {
   const controller = controllerFor(store, silentAgent, services)
   await store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: repo, org: "codeplanesmithers", ownerKind: "user", name: "canary-sandbox", head: null }] }).isPersisted.promise
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "codeplanesmithers", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
-  await loadBox(store, repo)
+  if (options.boxStatus !== "none") await loadBox(store, repo, TEST_BOX, options.boxStatus ?? "running")
   await settle(2)
   return { store, storage, controller, calls }
 }
@@ -45,6 +46,107 @@ const acknowledged = async (promise: Promise<unknown>) => {
   expect(await Promise.race([promise, new Promise(resolve => setTimeout(() => resolve("blocked"), 300))]))
     .toMatchObject({ status: "executed", value: "Flows requested." })
 }
+
+test("Flows asks to open a box without entering an empty pane when the selected repository has none", async () => {
+  const { controller, store, calls } = await fixture({ boxStatus: "none" })
+  try {
+    await store.dispatch({ type: "repo.selected", actor: "user", id: repo }).isPersisted.promise
+    const outcome = await controller.commands.run("flows")
+    expect(outcome.status).toBe("executed")
+    expect(store.session().surface).toBe("chat")
+    expect(store.collections.cards.get("form-box.open")).toMatchObject({ kind: "flow-form", payload: {
+      flow: "box.open", via: "user", draft: { repo }
+    } })
+    expect([...store.collections.cards.values()].filter(card => card.kind === "workflow-list")).toEqual([])
+    expect(calls).toEqual([])
+    await controller.commands.run("flows")
+    expect(store.session().surface).toBe("chat")
+  } finally { await controller.dispose() }
+})
+
+test("a repository flow uses the same box prerequisite instead of a transient refusal", async () => {
+  const { controller, store, calls } = await fixture({ boxStatus: "none" })
+  try {
+    const outcome = await controller.commands.run("flow.run", `checks/fast ${repo}`)
+    expect(outcome.status).toBe("executed")
+    expect(store.collections.cards.get("form-box.open")).toMatchObject({ kind: "flow-form", payload: {
+      flow: "box.open", via: "user", draft: { repo }
+    } })
+    expect(store.session().surface).toBe("chat")
+    expect(calls).toEqual([])
+  } finally { await controller.dispose() }
+})
+
+test("background registration launch keeps its refusal and never creates a human box form", async () => {
+  const { controller, store, calls } = await fixture({ boxStatus: "none" })
+  try {
+    expect(await controller.runWorkflow("register-repository", repo, { link: "https://github.com/example/repo" }))
+      .toContain("Open a box")
+    expect(store.collections.cards.get("form-box.open")).toBeUndefined()
+    expect(calls).toEqual([])
+  } finally { await controller.dispose() }
+})
+
+test("an agent flow.run with no box keeps the refusal and cannot render a human form", async () => {
+  const { controller, store, calls } = await fixture({ boxStatus: "none" })
+  try {
+    const outcome = await controller.commands.runForAgent("flow.run", `checks/fast ${repo}`)
+    expect(outcome.status).toBe("failed")
+    if (outcome.status === "failed") expect(outcome.error).toContain("Open a box")
+    expect(store.collections.cards.get("form-box.open")).toBeUndefined()
+    expect(calls).toEqual([])
+  } finally { await controller.dispose() }
+})
+
+test("Flows offers the existing box chooser when several boxes could answer", async () => {
+  const { controller, store, calls } = await fixture()
+  const second = "0b0c0d0e-0000-4000-8000-000000000002"
+  try {
+    await loadBox(store, repo, second)
+    const outcome = await controller.commands.run("flows")
+    expect(outcome.status).toBe("executed")
+    expect(store.session().surface).toBe("chat")
+    const form = store.collections.cards.get("form-box.select")
+    expect(form).toMatchObject({ kind: "flow-form", payload: { flow: "box.select", given: { repo, flow: "flows" } } })
+    if (form?.kind !== "flow-form") throw new Error("Box chooser was not rendered")
+    expect(form.payload.fields.find(field => field.name === "workspaceId")?.options?.map(option => option.value)).toEqual([TEST_BOX, second])
+    expect(calls).toEqual([])
+    await controller.commands.run("box.select", JSON.stringify({ workspaceId: TEST_BOX, repo, flow: "flows" }))
+    expect(store.session().surface).toBe("flows")
+    await waitFor(() => calls.length === 2)
+  } finally { await controller.dispose() }
+})
+
+test("Flows keeps Chat visible while a box is starting", async () => {
+  const { controller, store, calls } = await fixture({ boxStatus: "pending" })
+  try {
+    const outcome = await controller.commands.run("flows")
+    expect(outcome.status).toBe("failed")
+    expect(store.session().surface).toBe("chat")
+    expect([...store.collections.cards.values()].filter(card => card.kind === "workflow-list" || card.kind === "flow-form")).toEqual([])
+    expect(calls).toEqual([])
+  } finally { await controller.dispose() }
+})
+
+test("Flows offers a fresh box when the only recorded box failed", async () => {
+  const { controller, store, calls } = await fixture({ boxStatus: "failed" })
+  try {
+    expect((await controller.commands.run("flows")).status).toBe("executed")
+    expect(store.session().surface).toBe("chat")
+    expect(store.collections.cards.get("form-box.open")).toMatchObject({ kind: "flow-form", payload: { draft: { repo } } })
+    expect(calls).toEqual([])
+  } finally { await controller.dispose() }
+})
+
+test("rapid repeated Flows activation returns to Chat instead of reopening the pane", async () => {
+  const { controller, store } = await fixture()
+  try {
+    const first = controller.commands.run("flows")
+    const second = controller.commands.run("flows")
+    await Promise.all([first, second])
+    expect(store.session().surface).toBe("chat")
+  } finally { await controller.dispose() }
+})
 
 test("CAP-001: no hover provisioning; activation returns before preparation and catalog, deduplicates, and keeps Chat usable", async () => {
   const provision = deferred(), list = deferred()

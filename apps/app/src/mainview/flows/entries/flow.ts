@@ -135,7 +135,7 @@ export const flowFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
       sourceCard: Schema.optional(Schema.String),
       input: Schema.optional(Schema.Record(Schema.String, Schema.Json))
     }),
-    handler: ({ name, repo, input, sourceCard }) => actions.runWorkflow(name, repo, input, sourceCard)
+    handler: ({ name, repo, input, sourceCard }) => actions.runWorkflow(name, repo, input, sourceCard, true)
   }),
   /*
    * The plan door (docs/flow-builder): the same address as a launch, stopping
@@ -221,7 +221,7 @@ export const repositoryFlowLeaves = (
           ? {}
           : { userOnly: true, userOnlyReason: `${repo} declares ${row.id} is not for a model to start (.smithers/FACTORY.ts)` }),
         input: Schema.Struct({ repo: Schema.optional(Schema.String), input: Schema.optional(Schema.Record(Schema.String, Schema.Json)) }),
-        handler: ({ repo: target, input }) => actions.runWorkflow(row.id, target ?? repo, input)
+        handler: ({ repo: target, input }) => actions.runWorkflow(row.id, target ?? repo, input, undefined, true)
       })
     ]
   })

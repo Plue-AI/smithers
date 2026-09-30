@@ -12,7 +12,7 @@ import { reconcileRunApprovals } from "./approval-reconciliation"
 import type { ControllerContext } from "./context"
 import type { GatewayWorkspaceBinding } from "./gateway"
 import { runCardIdFor, runScopeFromCard, sameRunScope } from "../RunReference"
-import { flowAuthoringBinding, gatewayBindingFor, recordedRunBinding, repositoryJobBinding, resolveTargetRepo } from "../RepoContext"
+import { flowAuthoringBinding, gatewayBindingFor, recordedRunBinding, repositoryBoxOf, repositoryJobBinding, resolveTargetRepo, selectedBoxBinding, type GatewayBinding } from "../RepoContext"
 import { refusalSentence } from "@smthrs/rpc/RefusalCopy"
 import { FLOW_AUTHORING_ENTRY } from "@smthrs/rpc/FlowAuthoring"
 import { dismissReadyWorkspaceFailures, TOAST_SUPERSEDED, ZERO_BALANCE_EXHAUSTED_TEXT } from "./failures"
@@ -31,6 +31,8 @@ import { runtimeRunKey } from "../RuntimeProjection"
 import { isTriggerNodeId } from "../../cards/FlowGraphTriggerNode"
 import { canonicalStoredJsonValue } from "../EventValue"
 import { actorSharedState } from "../ActorBindings"
+import { refuseOrPickBox } from "./boxChoice"
+import { formRenderedText } from "./forms"
 import { authoredSources } from "../FlowAuthoringReceipts"
 import { createFlowAuthoringController } from "./flowAuthoring"
 
@@ -55,7 +57,7 @@ export interface WorkflowController {
   readonly listWorkspaceWorkflows: ViewAction<[repo?: string, sourceCard?: string]>
   /** The Flows pane: the surface switch, and the same listing that fills it. */
   readonly showFlows: () => Promise<string | void | { readonly value: string }>
-  readonly runWorkflow: (name: string, repo?: string, input?: Record<string, unknown>, sourceCard?: string) => Promise<string | void | { readonly value: string }>
+  readonly runWorkflow: (name: string, repo?: string, input?: Record<string, unknown>, sourceCard?: string, humanDoor?: boolean) => Promise<string | void | { readonly value: string }>
   /** `change.request`: coding/request on the prompt, continuing into coding/vibe once it validates. */
   readonly requestChange: (prompt: string, repo?: string, from?: string) => Promise<string | void | { readonly value: string }>
   /** What a flow WOULD run: the plan card, filled in the background. */
@@ -825,26 +827,61 @@ export const createWorkflowController = (
   })
   const listWorkspaceWorkflows = catalogs.list
 
+  /** A human reaches the existing box form before a box-bound flow can run. */
+  const boxPrerequisite = (repo: string, binding: Extract<GatewayBinding, { readonly error: string }>, act: { readonly flow: string; readonly args?: string }, title: string): string | { readonly value: string } => {
+    if (binding.choices !== undefined) return refuseOrPickBox(ctx, renderFlowForm, binding, { repo, ...act })
+    if (ctx.commandActor === "user" && repositoryBoxOf(store, repo).kind === "none" && selectedBoxBinding(store, repo) === undefined) {
+      const rendered = renderFlowForm?.({ name: "box.open", args: repo, via: "user", title })
+      if (rendered !== undefined) return { value: formRenderedText(rendered.missing) }
+    }
+    return binding.error
+  }
+
+  let flowsOpening = false
+  let flowsOpeningGeneration = 0
+
   /*
    * Ask 5 (will, 2026-09-02): "where it says connect chat and world an option
    * should also be flows which should allow us to look at flows". The pane is
    * the flow.list card's rows, so opening it IS running that list — one seam,
-   * one honest refusal when a repository is not loaded or the session is not
-   * signed in, and the same toggle-back the World and Connect surfaces have.
+   * one honest prerequisite when a repository or box is not ready, and the
+   * same toggle-back the World and Connect surfaces have.
    *
    * User-only on purpose: the model already has flow.list, whose answer is an
    * embedded card. THE EMBED LAW makes the pane the human's act alone.
    */
   const showFlows = async (): Promise<string | void | { readonly value: string }> => {
     if (store.session().surface === "flows") {
+      flowsOpeningGeneration += 1
+      flowsOpening = false
       store.dispatch({ type: "surface.changed", actor: "user", surface: "chat" })
       return
     }
-    // A refusal never opens an empty pane (#2285).
+    if (flowsOpening) {
+      // A second press cancels the pending pane switch, while its durable
+      // catalog read may finish in the background for a later visit.
+      flowsOpeningGeneration += 1
+      flowsOpening = false
+      return
+    }
+    // A refusal never opens an empty pane (#2285, #2959).
     const guard = workflowIdentityGuard()
     if (guard !== undefined) return guard
-    store.dispatch({ type: "surface.changed", actor: "user", surface: "flows" })
-    return listWorkspaceWorkflows()
+    const target = workflowTargetRepo()
+    if ("error" in target) return target.error
+    const binding = gatewayBindingFor(store, target.repo)
+    if ("error" in binding) return boxPrerequisite(target.repo, binding, { flow: "flows" }, `Open a box to see flows in ${target.repo}`)
+    const generation = ++flowsOpeningGeneration
+    flowsOpening = true
+    try {
+      const listed = await listWorkspaceWorkflows(target.repo)
+      if (generation !== flowsOpeningGeneration) return
+      if (typeof listed === "string") return listed
+      store.dispatch({ type: "surface.changed", actor: "user", surface: "flows" })
+      return listed
+    } finally {
+      if (generation === flowsOpeningGeneration) flowsOpening = false
+    }
   }
 
   const requestRerun: WorkflowController["requestRerun"] = async ({ runId, ...args }) => {
@@ -853,10 +890,18 @@ export const createWorkflowController = (
     return requests.start({ ...args, rerunOf: runId, actor: ctx.commandActor })
   }
 
-  const runWorkflow = async (name: string, repoArg?: string, inputArg?: Record<string, unknown>, sourceCard?: string): Promise<string | void | { readonly value: string }> => {
+  const runWorkflow = async (name: string, repoArg?: string, inputArg?: Record<string, unknown>, sourceCard?: string, humanDoor = false): Promise<string | void | { readonly value: string }> => {
     const input = inputArg ?? {}
     const guard = workflowIdentityGuard()
     if (guard !== undefined) return guard
+    if (humanDoor && sourceCard === undefined) {
+      const selected = workflowTargetRepo(repoArg)
+      if ("error" in selected) return selected.error
+      const binding = gatewayBindingFor(store, selected.repo)
+      if ("error" in binding) return boxPrerequisite(selected.repo, binding, {
+        flow: "flow.run", args: flowArgs("flow.run", { name, repo: selected.repo, input: inputArg })
+      }, `Open a box to run ${name} in ${selected.repo}`)
+    }
     const target = workflowScope(repoArg, sourceCard)
     if ("error" in target) return target.error
     const { repo, binding } = target
