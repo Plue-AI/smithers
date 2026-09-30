@@ -141,7 +141,81 @@ const workspaceInstructions = (cwd: string): ReadonlyArray<{ readonly path: stri
  */
 export interface EngineDurable extends Application.Engine {
   readonly stores: Layer.Layer<DurableWriter.DurableWriter | SqlClient | RunStore.RunStore>
+  /**
+   * What this composition's executor registered, read by the control runtime,
+   * engine journal and gateway built over the same engine. Every engine owns
+   * its own: two roots open in one process never plan from each other's
+   * catalog or report each other's revision (#2746).
+   */
+  readonly host: HostState
 }
+
+/** The catalog, revision and executor one composition registered.
+ * @since 1.0.0
+ * @private
+ */
+export interface HostState {
+  /**
+   * The executable catalog this host's executor built, or `undefined` when it
+   * has not built one.
+   *
+   * Planning a discovered flow needs the Executable behind its descriptor,
+   * and the catalog is constructed by the executor layer, after the control
+   * runtime it must answer. A plain reference rather than an awaited
+   * `Deferred` is deliberate: a composition that only observes persisted runs (or a bare
+   * `engineDurable`) never builds a catalog at all, and a plan that
+   * awaited one would hang the command instead of answering it.
+   */
+  catalog: Executable.Catalog | undefined
+  /**
+   * The workspace revision the catalog above was read out of, or `undefined`
+   * when this host cannot name one.
+   *
+   * It is set with `catalog` and for the same reason: a declaration site
+   * is a path and a line, and the plans this host builds are built from the
+   * modules that catalog holds, which were read off one tree at startup. A
+   * reader that has this can ask for the file AT that revision rather than
+   * for whatever is on disk when they open the tab, and a host that cannot
+   * name one reports nothing rather than binding code to a moving tree
+   * (D-068).
+   *
+   * It holds a revision only when a reading taken before the catalog was read
+   * and a reading taken after it agree. A host is not alone on its tree, and
+   * a write landing while the catalog is loading would otherwise be recorded
+   * as a revision that does not describe the bytes the catalog holds.
+   *
+   * The engine reads it too, through the function its store is given: this
+   * field is filled during registration, which runs after the engine layer
+   * is composed, so the engine asks for the answer instead of being handed
+   * one that did not exist yet.
+   */
+  revision: string | undefined
+  /**
+   * The registry and catalog rebuild this host's executor checks runs
+   * against, or `undefined` when it has no executor. Set with `catalog`.
+   *
+   * Both are snapshots the control plane's own discovery does not refresh, so
+   * an allowed drift that recorded the digest on disk handed the executor an
+   * identity it did not hold: the resume was accepted and the run then failed
+   * `LaunchFailed` (#2740). Adopting loads the new code through these first.
+   */
+  executor:
+    | {
+      readonly registry: Registry.Registry
+      readonly refresh: Executable.Refresh | undefined
+      /**
+       * Runs `effect` in the host's transaction-free context. A resume
+       * adopts inside the control mutation's SQL transaction, and a body
+       * registered from there inherits it: every later run of that body
+       * then failed "cannot start a transaction within a transaction".
+       */
+      readonly onHost: <A, E>(effect: Effect.Effect<A, E>) => Effect.Effect<A, E>
+    }
+    | undefined
+}
+
+/** A composition's host state before its executor registers anything. */
+const emptyHost = (): HostState => ({ catalog: undefined, revision: undefined, executor: undefined })
 /** Existing executable registration input to the native runtime final phase.
  * @since 1.0.0
  * @private
@@ -499,7 +573,8 @@ export const make = (
           Layer.succeed(DurableWriter.DurableWriter, Context.get(services, DurableWriter.DurableWriter)),
           Layer.succeed(SqlClient, Context.get(services, SqlClient)),
           Layer.succeed(RunStore.RunStore, Context.get(services, RunStore.RunStore))
-        )
+        ),
+        host: engine.host
       })
     )
 
@@ -516,66 +591,6 @@ export const make = (
     deployClass: entry.deployClass,
     envelope: { capabilities: [], flows: [], budget: Descriptor.budgetUnbounded }
   }))
-
-  /**
-   * The executable catalog this host's executor built, or `undefined` when it
-   * has not built one.
-   *
-   * Planning a discovered flow needs the Executable behind its descriptor,
-   * and the catalog is constructed by the executor layer, after the control
-   * runtime it must answer. A plain reference rather than an awaited
-   * `Deferred` is deliberate: a composition that only observes persisted runs (or a bare
-   * `engineDurable`) never builds a catalog at all, and a plan that
-   * awaited one would hang the command instead of answering it.
-   */
-  let hostCatalog: Executable.Catalog | undefined
-
-  /**
-   * The workspace revision the catalog above was read out of, or `undefined`
-   * when this host cannot name one.
-   *
-   * It is set with `hostCatalog` and for the same reason: a declaration site
-   * is a path and a line, and the plans this host builds are built from the
-   * modules that catalog holds, which were read off one tree at startup. A
-   * reader that has this can ask for the file AT that revision rather than
-   * for whatever is on disk when they open the tab, and a host that cannot
-   * name one reports nothing rather than binding code to a moving tree
-   * (D-068).
-   *
-   * It holds a revision only when a reading taken before the catalog was read
-   * and a reading taken after it agree. A host is not alone on its tree, and
-   * a write landing while the catalog is loading would otherwise be recorded
-   * as a revision that does not describe the bytes the catalog holds.
-   *
-   * The engine reads it too, through the function its store is given: this
-   * binding is filled during registration, which runs after the engine layer
-   * is composed, so the engine asks for the answer instead of being handed
-   * one that did not exist yet.
-   */
-  let hostRevision: string | undefined
-
-  /**
-   * The registry and catalog rebuild this host's executor checks runs
-   * against, or `undefined` when it has no executor. Set with `hostCatalog`.
-   *
-   * Both are snapshots the control plane's own discovery does not refresh, so
-   * an allowed drift that recorded the digest on disk handed the executor an
-   * identity it did not hold: the resume was accepted and the run then failed
-   * `LaunchFailed` (#2740). Adopting loads the new code through these first.
-   */
-  let hostExecutor:
-    | {
-      readonly registry: Registry.Registry
-      readonly refresh: Executable.Refresh | undefined
-      /**
-       * Runs `effect` in the host's transaction-free context. A resume
-       * adopts inside the control mutation's SQL transaction, and a body
-       * registered from there inherits it: every later run of that body
-       * then failed "cannot start a transaction within a transaction".
-       */
-      readonly onHost: <A, E>(effect: Effect.Effect<A, E>) => Effect.Effect<A, E>
-    }
-    | undefined
 
   /**
    * One node's address and the declaration site behind it, as a plan card may
@@ -611,7 +626,8 @@ export const make = (
   const buildPlanGraph = (
     executable: Executable.Executable,
     input: unknown,
-    root: string
+    root: string,
+    host: HostState
   ):
     | { readonly drafts: ReadonlyArray<PersistedPlan.NodeDraft>; readonly graph: ControlSchema.PlanGraph }
     | { readonly unwalkable: string } =>
@@ -631,7 +647,7 @@ export const make = (
            * module this graph was walked from is the one the catalog holds,
            * and a read taken now would name a tree the walk never saw.
            */
-          ...(hostRevision === undefined ? {} : { sourceRevision: hostRevision })
+          ...(host.revision === undefined ? {} : { sourceRevision: host.revision })
         }
       }
     } catch (cause) {
@@ -649,13 +665,13 @@ export const make = (
    * about work that has not been looked for.
    */
   const planExecutable =
-    (executable: Executable.Executable, root: string) =>
+    (executable: Executable.Executable, root: string, host: HostState) =>
     (input: unknown, planId: string): Effect.Effect<{
       readonly plan: PersistedPlan.Plan
       readonly graph?: ControlSchema.PlanGraph | undefined
     }, ControlError.InvalidInput> =>
       Effect.suspend(() => {
-        const built = buildPlanGraph(executable, input, root)
+        const built = buildPlanGraph(executable, input, root, host)
         const walked = "unwalkable" in built ? undefined : built
         const noted = "unwalkable" in built
           ? Effect.logWarning("Planning this flow could not walk its body", {
@@ -700,11 +716,15 @@ export const make = (
    * the undeclared case with `budgetUnbounded`, so a flow that names no ceiling
    * still runs and a flow that names one is held to it.
    */
-  const durableFlow = (descriptor: Descriptor.FlowDescriptor, root: string): ControlRuntime.MemoryFlow => {
+  const durableFlow = (
+    descriptor: Descriptor.FlowDescriptor,
+    root: string,
+    host: HostState
+  ): ControlRuntime.MemoryFlow => {
     // Read at LIST time, which the control runtime performs per plan: a host
     // that has since built its catalog offers the hook, and one that never
     // builds a catalog keeps planning exactly as it did, with no nodes.
-    const executable = hostCatalog?.executables.find((entry) => entry.descriptor.name === descriptor.name)
+    const executable = host.catalog?.executables.find((entry) => entry.descriptor.name === descriptor.name)
     return {
       flowId: descriptor.name,
       description: descriptor.description,
@@ -727,7 +747,7 @@ export const make = (
           })
         })
       }),
-      ...(executable === undefined ? {} : { plan: planExecutable(executable, root) })
+      ...(executable === undefined ? {} : { plan: planExecutable(executable, root, host) })
     }
   }
 
@@ -769,6 +789,7 @@ export const make = (
     // host served over a live working copy separates the two so the control
     // plane's own writes are not edits to the code a run is reading.
     const file = databasePath(authority.stateRoot ?? root)
+    const host = emptyHost()
     const authorization = {
       principal: authority.principal,
       approvalAuthority: authority.approvalAuthority ??
@@ -840,17 +861,17 @@ export const make = (
                   ...systemFlows,
                   ...[
                     ...discovered,
-                    ...(hostCatalog?.executables ?? []).map((entry) => entry.descriptor)
+                    ...(host.catalog?.executables ?? []).map((entry) => entry.descriptor)
                       .filter((descriptor) =>
                         !named.has(descriptor.name) && !scanned.has(resolve(descriptor.provenance.root))
                       )
-                  ].map((flow) => durableFlow(flow, root))
+                  ].map((flow) => durableFlow(flow, root, host))
                 ]
               })
             )
           const adoptFlow = (flowId: string) =>
             Effect.gen(function*() {
-              const executor = hostExecutor
+              const executor = host.executor
               // With no executor here, the code on disk is all this host names.
               if (executor === undefined) return (yield* currentFlows()).find((flow) => flow.flowId === flowId)
               const descriptor = yield* executor.onHost(Effect.gen(function*() {
@@ -868,13 +889,13 @@ export const make = (
                 if (rebuilt?._tag === "Removed" || rebuilt?._tag === "Refused") return undefined
                 // A host that cannot rebuild the entry, or holds it fixed, runs
                 // the executable it loaded, and only that code can be adopted.
-                const loaded = hostCatalog?.executables.find((entry) => entry.descriptor.name === flowId)
+                const loaded = host.catalog?.executables.find((entry) => entry.descriptor.name === flowId)
                 return loaded !== undefined &&
                     Descriptor.executionDigest(loaded.descriptor) === Descriptor.executionDigest(found.value)
                   ? loaded.descriptor
                   : undefined
               }))
-              return descriptor === undefined ? undefined : durableFlow(descriptor, root)
+              return descriptor === undefined ? undefined : durableFlow(descriptor, root, host)
             }).pipe(Effect.mapError(discoveryError("load the flow's current code")))
           return yield* SqlControlRuntime.make({
             ...authorization,
@@ -905,7 +926,7 @@ export const make = (
                   // against the file on disk. Every replacement plan carries
                   // the same stale digest, so the refusal never clears.
                   const rebuilt = new Map(
-                    (hostCatalog?.executables ?? []).map((entry) => [entry.descriptor.name, entry.descriptor] as const)
+                    (host.catalog?.executables ?? []).map((entry) => [entry.descriptor.name, entry.descriptor] as const)
                   )
                   const named = new Set(discovered.map((flow) => flow.name))
                   return [
@@ -913,7 +934,7 @@ export const make = (
                     ...[
                       ...discovered.map((flow) => rebuilt.get(flow.name) ?? flow),
                       ...[...rebuilt.values()].filter((descriptor) => !named.has(descriptor.name))
-                    ].map((flow) => durableFlow(flow, root))
+                    ].map((flow) => durableFlow(flow, root, host))
                   ]
                 })
               ),
@@ -942,7 +963,8 @@ export const make = (
     return {
       runtime,
       journal: stores,
-      stores
+      stores,
+      host
     }
   }
 
@@ -1225,11 +1247,11 @@ export const make = (
           )
         }
         if (catalog !== undefined) yield* Deferred.succeed(catalogReady, catalog)
-        // Planning reads this reference; see `hostCatalog`. The value is the
+        // Planning reads this reference; see `HostState.catalog`. The value is the
         // catalog service itself, which answers with whatever snapshot the
         // registration layer currently holds, so a rebuilt entry reaches
         // planning without this reference being written again.
-        hostCatalog = catalog
+        engine.host.catalog = catalog
         /*
          * And the tree it was read out of, so a plan's sites can be opened at
          * the revision they describe. A host with no catalog builds no graph,
@@ -1239,7 +1261,7 @@ export const make = (
          * tree that moved during startup names nothing, exactly as a dirty git
          * checkout does.
          */
-        hostRevision = capturedRevision
+        engine.host.revision = capturedRevision
         // Optional, and read rather than required, because a host may build
         // its catalog itself: `flows/coding/host.ts` assembles a project
         // catalog and a bundled one with different loaders and provides the
@@ -1298,7 +1320,7 @@ export const make = (
           sourceId: "native-control:execution-facts:v1"
         })
         const nativeHost = yield* Effect.context<never>()
-        hostExecutor = {
+        engine.host.executor = {
           registry: yield* Registry.Registry,
           refresh: registrations === undefined
             ? undefined
@@ -1446,7 +1468,7 @@ export const make = (
         // verified answer does not exist yet. The store asks once per recorded
         // page, which is always after registration, and records nothing while
         // there is nothing to record (D-068).
-        sourceRevision: () => hostRevision
+        sourceRevision: () => engine.host.revision
       },
       StepBoundary.layer,
       WorkspaceSandbox.layerFileSystem(),
@@ -1565,7 +1587,9 @@ export const make = (
         return Serve.GatewayHost.of({
           launch: (health, options, root) =>
             Effect.suspend(() => {
-              if (options.runtimeBridge !== undefined && hostRevision !== options.runtimeBridge.sourceRevision) {
+              if (
+                options.runtimeBridge !== undefined && engine.host.revision !== options.runtimeBridge.sourceRevision
+              ) {
                 return Effect.die(
                   new CliError.Refused({
                     fault: "policy",
@@ -1579,7 +1603,7 @@ export const make = (
               // registration, never the environment's unverified revision.
               const verifiedOptions = options.runtimeBridge === undefined ? options : {
                 ...options,
-                runtimeBridge: { ...options.runtimeBridge, verifiedCatalogSourceRevision: hostRevision }
+                runtimeBridge: { ...options.runtimeBridge, verifiedCatalogSourceRevision: engine.host.revision }
               }
               return Layer.launch(
                 layerGateway(health, verifiedOptions, root, engine, Layer.succeed(Journal.Journal, journalService))
@@ -1649,7 +1673,7 @@ export const make = (
       )
     }))
     return Layer.unwrap(Effect.map(
-      materializeEngine({ runtime, journal: stores, stores }),
+      materializeEngine({ runtime, journal: stores, stores, host: emptyHost() }),
       (engine) => LocalControl.layer(registry, engine, executor, undefined, false)
     ))
   }
