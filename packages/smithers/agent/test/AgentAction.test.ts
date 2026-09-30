@@ -2299,6 +2299,53 @@ describe("AgentAction seat auto", () => {
     expect(requests).toHaveLength(2)
     expect(requests[1]).not.toContain("<flows_memory_context>")
   })
+
+  it("replays a gated step's answer without asking the model or Jev again", async () => {
+    let readings = 0
+    const evaluator = Evaluator.layerScripted((request) => {
+      if (!Object.keys(request.questions).some((id) => id.startsWith("unnecessary_"))) {
+        return { complete: { probability: 0.99 }, overclaims: { probability: 0.01 }, invented: { probability: 0.01 } }
+      }
+      readings++
+      const state = request.state as { readonly items: ReadonlyArray<unknown> }
+      return Object.fromEntries(state.items.map((_, index) => [`unnecessary_${index}`, { probability: 0.05 }]))
+    })
+    const Remembering = AgentAction.make("agent/test/RememberingReplay", {
+      payload: { diff: Schema.String },
+      output: Review,
+      seat: "anthropic:test-model",
+      prompt: ({ diff }) => `Review this migration:\n${diff}`,
+      memory:
+        () => [{ origin: "recall" as const, bank: "flow:coding", key: "note-0", text: "Keep migrations additive" }]
+    })
+    const Remember = Flow.make("agent/test/RememberReplay", {
+      payload: { diff: Schema.String },
+      success: Review,
+      error: AgentAction.AgentFailure,
+      body: (input) => Remembering.call(input)
+    })
+    const requests: Array<string> = []
+    const stack = Layer.mergeAll(Remembering.layer, Interpreter.layer(Remember)).pipe(
+      Layer.provideMerge(AgentAction.layerHost({ ...host, judged: true })),
+      Layer.provideMerge(seats(scripted([decodes], requests))),
+      Layer.provideMerge(Layer.mergeAll(Agent.layer, Agent.layerDefaults, evaluator)),
+      Layer.provideMerge(Safety.layer),
+      Layer.provideMerge(Action.layerImplementations),
+      Layer.provideMerge(FlowEngine.layerMemory),
+      Layer.provideMerge(NodeCrypto.layer)
+    )
+    const results = await Effect.runPromise(
+      Effect.gen(function*() {
+        const first = yield* Remember.execute({ diff: "+ add column" }, { executionId: "memory-replay" })
+        const replay = yield* Remember.execute({ diff: "+ add column" }, { executionId: "memory-replay" })
+        return [first, replay]
+      }).pipe(Effect.provide(stack))
+    )
+    expect(results).toEqual([{ approved: true, issues: [] }, { approved: true, issues: [] }])
+    expect(requests).toHaveLength(1)
+    expect(requests[0]).toContain("Keep migrations additive")
+    expect(readings).toBe(1)
+  })
 })
 
 describe("AgentAction ordered fallback seats", () => {
