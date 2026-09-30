@@ -372,8 +372,17 @@
         "path": "factory/flows/harness.test.ts"
       },
       {
+        "kind": "file",
+        "path": "factory/queue/queue.test.ts"
+      },
+      {
         "kind": "glob",
         "pattern": "factory/flows/*.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "factory/queue/*.md",
         "exclude": []
       },
       {
