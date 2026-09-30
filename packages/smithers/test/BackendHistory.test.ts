@@ -353,7 +353,8 @@ describe("the factory from the terminal, over a local HTTP server", () => {
 
   it("shows a failed TODO's typed reason as the server states it, and retries it", async () => {
     const failure = { kind: "provisioning", fault: "infra" }
-    const blocked = item("blocked", { reason: "Smithers could not set up a lane after repeated tries", failure })
+    const reason = "Smithers could not set up a lane after repeated tries"
+    const blocked = item("blocked", { reason, failure })
     const model = item("retrying", {
       id: "22222222-2222-4222-8222-222222222222",
       issue: { number: 13, title: "Flaky model", url: "https://x.test/13" },
@@ -370,7 +371,7 @@ describe("the factory from the terminal, over a local HTTP server", () => {
       expect(shown.output).toContain("#12 Fix login · blocked · Smithers could not set up a lane after repeated tries")
       expect(shown.output).toContain("#13 Flaky model · retrying · The model provider did not answer")
       const raw = await f.run(["history", "show", "--json"])
-      expect(JSON.parse(raw.output).items[0]).toMatchObject({ reason: blocked.reason, failure })
+      expect(JSON.parse(raw.output).items[0]).toMatchObject({ reason, failure })
       const retried = await f.run(["history", "retry", "12"])
       expect(retried.code, retried.error).toBe(0)
       expect(retried.output).toContain("#12 Fix login · queued")

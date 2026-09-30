@@ -323,6 +323,9 @@ const clipDeep = (value: unknown): unknown => {
   return value
 }
 
+const isJsonObject = (json: Schema.Json): json is Schema.JsonObject =>
+  typeof json === "object" && json !== null && !Array.isArray(json)
+
 /**
  * The retained form of one event: itself when it is small, a clipped copy when
  * it is not.
@@ -340,10 +343,7 @@ const retainedEvent = (event: ControlSchema.ControlEvent): ControlSchema.Control
   if (encodedSize(clipped) <= maxEventBytes) return clipped
   const marker = { truncated: true, encodedBytes: encodedSize(event.payload) }
   const payload = event.payload
-  if (
-    event.kind === "control.agent.relevance-settled" && typeof payload === "object" && payload !== null &&
-    !Array.isArray(payload)
-  ) {
+  if (event.kind === "control.agent.relevance-settled" && isJsonObject(payload)) {
     const memory = (verdicts: unknown) =>
       Array.isArray(verdicts)
         ? verdicts.filter((verdict) =>

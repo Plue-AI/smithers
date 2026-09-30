@@ -91,7 +91,7 @@ describe("smthrs token mint", () => {
     expect(token!.startsWith("smt1.")).toBe(true)
     expect(rest.join("\n").trim()).toBe("")
     expect(result.stdout).not.toContain("procedures")
-    const claims = await Effect.runPromise(ScopedToken.verify(key, token, Date.now()))
+    const claims = await Effect.runPromise(ScopedToken.verify(key, token!, Date.now()))
     expect(claims.exp - claims.iat).toBe(60 * 60 * 1000)
     expect(claims.flowId).toBe("demo")
     expect(claims.procedures).toEqual(["Plan", "Run", "Steer", "Signal", "Cancel", "Resume"])
