@@ -21,6 +21,12 @@ type SandboxEntitlement struct {
 	ChildMaxTTLSecs     int64     `json:"child_max_ttl_secs"`
 }
 
+// ConcurrentLimit returns the plan's concurrent-sandbox limit and whether the
+// limit is finite.
+func (e SandboxEntitlement) ConcurrentLimit() (int64, bool) {
+	return e.ConcurrentSandboxes, e.ConcurrentSandboxes < unlimitedBillingQuantity
+}
+
 // workspaceChildPlanLimits are each plan's child workspace limits (#2802):
 // how many live children a user may hold and how long one may live. Plans not
 // listed include no children. MaxWorkspaceChildren caps every plan.

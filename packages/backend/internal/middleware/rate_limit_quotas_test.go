@@ -361,18 +361,25 @@ func TestSandboxHardCapPreservesPlanRefusal(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
 		count int
+		above bool
 		err   error
 		want  int
 		calls int
 	}{
-		{"plan first", 10, planErr, 402, 1},
-		{"plan database error fails closed", 10, errors.New("database down"), 500, 1},
-		{"hard cap remains", 10, nil, 429, 1},
-		{"reuse defers to service", 1, planErr, 204, 0},
+		{"plan first", 10, false, planErr, 402, 1},
+		{"plan database error fails closed", 10, false, errors.New("database down"), 500, 1},
+		{"hard cap remains", 10, false, nil, 429, 1},
+		{"plan limit above the cap admits", 10, true, nil, 204, 1},
+		{"reuse defers to service", 1, false, planErr, 204, 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			calls := 0
-			handler := PerUserConcurrentSandboxes(&stubSandboxCounter{count: tc.count}, 10, func(_ context.Context, id int64) error { calls++; assert.Equal(t, int64(7), id); return tc.err })(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(204) }))
+			plan := func(_ context.Context, id int64) (bool, error) {
+				calls++
+				assert.Equal(t, int64(7), id)
+				return tc.above, tc.err
+			}
+			handler := PerUserConcurrentSandboxes(&stubSandboxCounter{count: tc.count}, 10, plan)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(204) }))
 			req := httptest.NewRequest(http.MethodPost, "/api/sandboxes", nil)
 			req = req.WithContext(ContextWithAuthInfo(req.Context(), &AuthInfo{User: &db.User{ID: 7}}))
 			rec := httptest.NewRecorder()

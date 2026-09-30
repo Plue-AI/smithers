@@ -262,8 +262,30 @@ func (t *inFlightRequestTracker) Snapshot() (drained, killed, activeRemaining in
 // was open (2026-07-08 prod outage: every workspace/sessions create 429'd,
 // when each opened repo also held a gateway VM). 10 keeps a real bound on
 // Microsandbox spend while leaving headroom for a handful of concurrently
-// open repos.
+// open repos. A plan with a larger finite limit replaces it (see
+// sandboxPlanAdmission).
 const perUserConcurrentSandboxCap = 10
+
+// sandboxPlanAdmission lets a plan whose concurrent-sandbox limit exceeds
+// perUserConcurrentSandboxCap start sandboxes up to its own limit (Max: 64).
+// The plan check still refuses at the plan limit. Unlimited billing keeps the
+// default cap as its only per-user bound.
+func sandboxPlanAdmission(policy services.BillingPolicy) middleware.SandboxPlanAdmission {
+	if policy == nil {
+		return nil
+	}
+	return func(ctx context.Context, userID int64) (bool, error) {
+		if err := policy.AuthorizeSandboxStart(ctx, userID); err != nil {
+			return false, err
+		}
+		entitlement, err := policy.SandboxEntitlement(ctx, userID)
+		if err != nil {
+			return false, err
+		}
+		limit, finite := entitlement.ConcurrentLimit()
+		return finite && limit > perUserConcurrentSandboxCap, nil
+	}
+}
 
 // appTimelineMaxRequestBodySize bounds app-timeline write bodies. Rewrites
 // carry the whole dump (service-capped at 4 MiB of payload); JSON escaping
@@ -323,7 +345,7 @@ var (
 	newSecretCodec    = func(keys config.WebhookConfig) (*webhook.AESGCMSecretCodec, error) {
 		return webhook.NewSecretCodec(keys.SecretEncryptionKey, keys.PreviousKeys()...)
 	}
-	newBlobStore      = initializeBlobStore
+	newBlobStore = initializeBlobStore
 )
 
 // flagParseError wraps a flag-parsing failure so exitCodeFor can preserve the

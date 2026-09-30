@@ -350,9 +350,14 @@ var QuotaCounterErrors = prometheus.NewCounterVec(prometheus.CounterOpts{
 	Help: "Per-user cap checks where counting active resources failed, by scope.",
 }, []string{"scope"})
 
+// SandboxPlanAdmission decides a sandbox start that reached the default cap.
+// It returns the plan's refusal, or whether the plan's own limit admits the
+// start above the default cap (Max allows 64 sandboxes).
+type SandboxPlanAdmission func(ctx context.Context, userID int64) (aboveCap bool, err error)
+
 // PerUserConcurrentSandboxes blocks new sandbox creation once the user
-// already has `max` active (default 3).
-func PerUserConcurrentSandboxes(counter ConcurrentSandboxCounter, max int, beforeRefusal ...func(context.Context, int64) error) func(http.Handler) http.Handler {
+// already has `max` active (default 3), unless a plan admits the start.
+func PerUserConcurrentSandboxes(counter ConcurrentSandboxCounter, max int, plan ...SandboxPlanAdmission) func(http.Handler) http.Handler {
 	if max <= 0 {
 		max = 3
 	}
@@ -361,10 +366,10 @@ func PerUserConcurrentSandboxes(counter ConcurrentSandboxCounter, max int, befor
 			return 0, nil
 		}
 		return counter.CountActiveSandboxesForUser(ctx, userID)
-	}, max, "concurrent_sandboxes", "concurrent sandboxes limit reached", beforeRefusal...)
+	}, max, "concurrent_sandboxes", "concurrent sandboxes limit reached", plan...)
 }
 
-func userCountCapMiddleware(count func(ctx context.Context, userID int64) (int, error), max int, scope, message string, beforeRefusal ...func(context.Context, int64) error) func(http.Handler) http.Handler {
+func userCountCapMiddleware(count func(ctx context.Context, userID int64) (int, error), max int, scope, message string, plan ...SandboxPlanAdmission) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			user := UserFromContext(r.Context())
@@ -395,19 +400,25 @@ func userCountCapMiddleware(count func(ctx context.Context, userID int64) (int, 
 				return
 			}
 			if current >= max {
-				// A plan refusal takes precedence over the infrastructure cap. Normal
-				// requests defer plan admission to the service, which can distinguish
-				// reusing a running workspace from starting a new VM.
-				for _, authorize := range beforeRefusal {
-					if authorize == nil {
+				// A plan refusal takes precedence over the infrastructure cap, and a
+				// plan limit above the cap replaces it. Normal requests defer plan
+				// admission to the service, which can distinguish reusing a running
+				// workspace from starting a new VM.
+				for _, admit := range plan {
+					if admit == nil {
 						continue
 					}
-					if err := authorize(r.Context(), user.ID); err != nil {
+					aboveCap, err := admit(r.Context(), user.ID)
+					if err != nil {
 						var apiErr *errors.APIError
 						if !stderrors.As(err, &apiErr) {
 							apiErr = errors.Internal("sandbox plan authorization failed")
 						}
 						errors.WriteError(w, apiErr)
+						return
+					}
+					if aboveCap {
+						next.ServeHTTP(w, r)
 						return
 					}
 				}

@@ -1,7 +1,6 @@
 package compose
 
 import (
-	"context"
 	"log/slog"
 	"net/http"
 	"os"
@@ -197,12 +196,7 @@ func buildRouter(
 	}
 	userConnectedReposQuota := middleware.PerUserConnectedRepos(quotaCounters, 10)
 	userWorkflowRunsQuota := middleware.PerUserConcurrentWorkflowRuns(quotaCounters, 5)
-	var sandboxPlanCheck func(context.Context, int64) error
-	if extras.Admission != nil {
-		sandboxPlanCheck = extras.Admission.AuthorizeSandboxStart
-	}
-
-	userSandboxesQuota := middleware.PerUserConcurrentSandboxes(quotaCounters, perUserConcurrentSandboxCap, sandboxPlanCheck)
+	userSandboxesQuota := middleware.PerUserConcurrentSandboxes(quotaCounters, perUserConcurrentSandboxCap, sandboxPlanAdmission(extras.Admission))
 	workflowRunCountHandler := &routes.WorkflowRunCountHandler{Counter: quotaCounters}
 	// Server startup validation requires this secret. Keep construction
 	// defensive for unit routers: a nil manager still fails closed whenever a
