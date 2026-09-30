@@ -20860,8 +20860,7 @@ paths:
               properties:
                 allow_domains:
                   type: array
-                  maxItems: 200
-                  description: Host names and `*.domain` wildcards; case, duplicates and a trailing dot are normalised away. An empty list returns to the deployment list.
+                  description: Host names and `*.domain` wildcards; case, duplicates and a trailing dot are normalised away, and at most 200 distinct hosts remain. An empty list returns to the deployment list.
                   items:
                     type: string
       x-required-token-scope: write:repository
