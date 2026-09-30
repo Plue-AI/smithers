@@ -28,8 +28,10 @@ describe.skipIf(!jjInstalled)("NodeJj against a repository its occupant controls
   let repository: string
   const saved: Record<string, string | undefined> = {}
 
+  // stderr is piped, not ignored, so a failing command's error message carries
+  // jj's own reason (Node appends the captured stderr to "Command failed").
   const jjIn = (args: ReadonlyArray<string>) =>
-    execFileSync("jj", [...args], { cwd: repository, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] })
+    execFileSync("jj", [...args], { cwd: repository, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] })
 
   beforeAll(async () => {
     directory = await mkdtemp(join(tmpdir(), "flows-node-jj-trust-"))
