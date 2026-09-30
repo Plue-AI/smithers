@@ -1173,19 +1173,25 @@ spent it. Enforcement sits at the model boundary in `FlowEngineLike`, which
 every model call passes through, so a step that assembles its own loop cannot
 evade a budget declared for the run.
 
-### Budget.Policy, Budget.TokenBudget, Budget.LatencyBudget, Budget.OnExceeded
+### Budget.Policy, Budget.TokenBudget, Budget.UsdBudget, Budget.LatencyBudget, Budget.OnExceeded
 
 ```ts
 const OnExceeded = Schema.Literals(["fail", "warn", "skip-remaining", "park"])
 
 interface Policy {
   readonly tokens?: TokenBudget | undefined
+  readonly usd?: UsdBudget | undefined
   readonly latency?: LatencyBudget | undefined
 }
 
 interface TokenBudget {
   readonly max: number
   readonly onExceeded?: OnExceeded | undefined
+}
+
+interface UsdBudget {
+  readonly max: number
+  readonly onExceeded?: Exclude<OnExceeded, "park"> | undefined
 }
 
 interface LatencyBudget {
@@ -1203,6 +1209,14 @@ whole interval again. The ceiling counts active time only: time the run spends
 suspended on an approval, a question, or a budget raise is recorded durably and
 subtracted, including across a process restart. That includes a native module
 execution suspended on a `HumanTask`, an approval, or a timer.
+
+A USD budget admits calls as a token budget does, in dollars: each call costs
+its `Pricing.cost`, the provider's reported charge or its usage at the rate
+card with `Policy.prices` rows over it, and the largest call so far is the next
+one's forecast. A call whose model has no price leaves the run's spend unknown,
+so the next admission fails with `AccountingUnavailable` rather than counting
+it free. It cannot `park`, because an approval envelope carries no USD ceiling
+to raise; `Budget.make` rejects that as a `ConfigurationError`.
 
 `onExceeded` decides what running out means, and defaults to `fail`:
 
@@ -1223,7 +1237,12 @@ sets it for one run with `--on-exceeded`, beside `--budget-tokens` and
 interface Service {
   readonly check: (stepKey: string | undefined) => Effect.Effect<Verdict, AccountingUnavailable>
   readonly reserve: (stepKey: string) => Effect.Effect<Verdict, AccountingUnavailable, Scope.Scope>
-  readonly record: (stepKey: string, usage: ModelEvent.Usage) => Effect.Effect<void, AccountingUnavailable>
+  readonly admitReading: (stepKey: string) => Effect.Effect<Verdict, AccountingUnavailable>
+  readonly record: (
+    stepKey: string,
+    usage: ModelEvent.Usage,
+    modelId?: string
+  ) => Effect.Effect<void, AccountingUnavailable>
   readonly usage: Effect.Effect<Usage, AccountingUnavailable>
   readonly usageOf: (runId: string) => Effect.Effect<Usage, AccountingUnavailable>
   readonly suspend: Effect.Effect<void, AccountingUnavailable>
@@ -1241,8 +1260,12 @@ class Budget extends Context.Service<Budget, Service>()("@smthrs/agent/Budget")
   exit. Dispatch through this method, not a separate check-then-call sequence.
   All concurrent calls of a run must share one budget instance. Token
   forecasts are soft, not hard provider billing limits.
+- `admitReading` admits a paid evaluator reading without a forecast: it
+  refuses only once the ceiling is already spent (tokens at or past the
+  maximum, latency or the UTC day exhausted, or a latch), under the same
+  `onExceeded` policy, and reserves nothing. A counted key proceeds.
 - `record` accounts finite non-negative usage, idempotently in its step key,
-  and replaces its reservation's estimate. Failed/uncommitted writes remain
+  priced under `modelId` when given, and replaces its reservation's estimate. Failed/uncommitted writes remain
   retryable and block uncounted steps; retries must supply the same cost.
 - `usage` is what the current run has spent.
 - `usageOf` reads one named run's spend, from its live accumulator when this
@@ -1498,6 +1521,10 @@ class Timeout extends Schema.TaggedError<Timeout>()("flows/agent/Timeout", {
 type Incident = typeof ControlFacts.GuardIncident.Type
 const incident: (tripped: BudgetExceeded | Timeout, raised?: number) => Incident
 const stopped: (facts: Incident) => HarnessError.HarnessError
+const layerFlowLimit: (
+  flowName: string,
+  limitMillis: number
+) => Layer.Layer<FlowRuntime.FlowRuntime, never, FlowRuntime.FlowRuntime>
 ```
 
 A run whose envelope budget sets `onExceeded: park` parks on every guard for
@@ -1509,6 +1536,7 @@ an operator's Continue or Stop, through `Budget.Parking`:
 | A model call past `modelCallMs`, after its one overrun retry                             | `Stuck`        | `model-call`        |
 | A tool call past its call limit, a command's own timeout, or a child await still running | `Stuck`        | `tool-call`         |
 | A cell past its wall-clock limit                                                         | `Stuck`        | `cell`              |
+| One drive of a flow bounded by `layerFlowLimit`, past its limit                          | `Stuck`        | `tool-call`         |
 
 Each park is one `budget/` approval request, with waiting reason `budget`,
 whose `control.approval.requested` fact carries the exact `incident` facts
@@ -1526,6 +1554,18 @@ Denying is Stop: the resumed run fails with `stopped` before the operation
 runs again, without calling the provider. A run whose budget does not park
 keeps each timeout's own behavior: an exhausted model call fails the run, and
 the cell reads a tool or cell timeout as a `timeout` call failure.
+
+`layerFlowLimit` bounds a module flow a host runs as a step, which is not a
+cell call and so is reached by neither the sandbox's call limit nor the
+`tool-call` trip. Provided to the layer that registers the flow named
+`flowName`, it admits each drive of an execution through `Budget.Parking` and
+runs it under `limitMillis`; a drive past it parks the run with subject
+`<flowName>:<executionId>`. Continue drives it again under a fresh limit with
+its settled steps replayed, and Stop fails it before it runs again. A drive is
+bounded, not the execution: time suspended on a person, an approval or a timer
+is not charged. Under a budget that does not park, the flow runs unbounded.
+The configured coding host bounds `coding/PreparePlan` by its project's
+`limits.toolMs`.
 
 ## EventSink
 
@@ -2313,6 +2353,29 @@ lookup, decoding, attenuation, and placement; the port owns only durability.
 is journaled, so a permission requirement raised from inside one would replay
 forever and no later grant could unblock it. A `WorkspaceCallRunner` may also
 touch the workspace it runs inside; a plain `CallRunner` satisfies it too.
+
+### FlowEngineLike.CallReadings, FlowEngineLike.metered
+
+```ts
+class CallReadings extends Context.Service<CallReadings, {
+  readonly admit: Effect.Effect<void, Evaluator.EvaluatorError>
+  readonly paid: (usage: Evaluator.Usage) => Effect.Effect<void>
+}>()("@smthrs/agent/FlowEngineLike/CallReadings")
+
+const metered: <R>(
+  services: Context.Context<R | Evaluator.Evaluator>
+) => Context.Context<R | Evaluator.Evaluator>
+```
+
+A flow a cell calls may ask the host's judge itself (`jev`, memory relevance,
+test failure attribution). The port provides `CallReadings` around each call,
+and `metered` wraps the judge those flows are handed: each reading is admitted
+with `Budget.admitReading`, failing `refused` without asking once the run's
+budget is spent, and what it paid, taken or failed, is charged to the run
+under the model it names when the call's execution ends, under a receipt of
+that execution's own. A replayed call pays nothing again. Outside a call the
+metered judge is the judge unchanged. `StandardFlows.jev`, `memory`, `tests`
+and `Memory.binding` meter their judge already.
 
 ### FlowEngineLike.sandboxed
 

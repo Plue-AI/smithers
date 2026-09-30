@@ -1,7 +1,9 @@
 import { NodeCrypto } from "@effect/platform-node"
+import * as Budget from "@smthrs/agent/Budget"
+import * as RunawayGuard from "@smthrs/agent/RunawayGuard"
 import { FlowEngine } from "@smthrs/engine"
-import { Action, HumanTask, Interpreter } from "@smthrs/flow"
-import { Effect, Exit, Layer, ManagedRuntime } from "effect"
+import { Action, FlowRuntime, HumanTask, Interpreter } from "@smthrs/flow"
+import { Effect, Exit, Layer, ManagedRuntime, Option } from "effect"
 import assert from "node:assert/strict"
 import { test } from "node:test"
 import {
@@ -13,6 +15,7 @@ import {
   type PlanningContext,
   planningPolicy,
   PreparePlan,
+  preparePlanLayer,
   ReviewRequest,
   VerifyContext
 } from "../coding/planning.ts"
@@ -151,3 +154,66 @@ test("a declined request plans nothing and fails with the reviewer's reason", { 
   assert.match(rendered, /declined/)
   assert.match(rendered, /Already done: README.md has the Purpose section./)
 })
+
+test(
+  "planning past the tool-call limit parks on the runaway guard's tool-call facts (#2279)",
+  { timeout: 60_000 },
+  async (t) => {
+    // The guard's host side: a trip opens a question, and a drive while it is
+    // open re-parks without planning again.
+    const tripped: Array<RunawayGuard.Timeout> = []
+    const parked: Budget.Parked = {
+      waiting: { reason: "budget", token: "budget/run/timeout/plan/1" },
+      // What a model call refused under this park fails with; planning reads the wait.
+      failure: RunawayGuard.stopped({ classification: "Stuck", source: "tool-call", message: "parked" })
+    }
+    const parking = Layer.succeed(Budget.Parking)({
+      guardsTimeouts: true,
+      park: () => Effect.die("no budget park is expected"),
+      trip: (timeout) => Effect.sync(() => (tripped.push(timeout), parked)),
+      admit: () =>
+        Effect.succeed(
+          tripped.length === 0 ? { _tag: "proceed" as const, continued: 0 } : { _tag: "park" as const, parked }
+        )
+    })
+    let drafts = 0
+    const layer = Layer.mergeAll(
+      preparePlanLayer(20),
+      declineLayer,
+      HumanTask.layer,
+      planningPolicy,
+      VerifyContext.toLayer(({ context }) => Effect.succeed(context)),
+      GatherContext.toLayer(() => Effect.succeed(context)),
+      ReviewRequest.toLayer(() => Effect.succeed({ explanation: "The evidence shows it", clarification: "" })),
+      DraftPlan.toLayer(() =>
+        Effect.as(Effect.sleep("300 millis"), draft(c.changeId, [atom(null, "✨ feat: d")])).pipe(
+          Effect.ensuring(Effect.sync(() => drafts++))
+        )
+      )
+    ).pipe(
+      Layer.provideMerge(parking),
+      Layer.provideMerge(Action.layerImplementations),
+      Layer.provideMerge(FlowEngine.layerMemory),
+      Layer.provideMerge(NodeCrypto.layer)
+    )
+    const runtime = ManagedRuntime.make(layer)
+    t.after(() => runtime.dispose())
+    const settled = await runtime.runPromise(Effect.gen(function*() {
+      const engine = yield* FlowRuntime.FlowRuntime
+      yield* engine.execute(PreparePlan, { executionId: "stuck", payload: input, discard: true })
+      for (let attempt = 0; attempt < 200; attempt++) {
+        const polled = yield* engine.poll(PreparePlan, "stuck")
+        if (Option.isSome(polled)) return polled.value._tag
+        yield* Effect.sleep("10 millis")
+      }
+      return "unsettled"
+    }))
+
+    assert.equal(settled, "Suspended")
+    assert.deepEqual(tripped.map((timeout) => [timeout.source, timeout.subject, timeout.limitMillis]), [
+      ["tool-call", "coding/PreparePlan:stuck", 20]
+    ])
+    // The drafting call the limit cut off never settled into a plan.
+    assert.equal(drafts, 1)
+  }
+)

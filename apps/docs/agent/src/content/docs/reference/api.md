@@ -1515,6 +1515,10 @@ class Timeout extends Schema.TaggedError<Timeout>()("flows/agent/Timeout", {
 type Incident = typeof ControlFacts.GuardIncident.Type
 const incident: (tripped: BudgetExceeded | Timeout, raised?: number) => Incident
 const stopped: (facts: Incident) => HarnessError.HarnessError
+const layerFlowLimit: (
+  flowName: string,
+  limitMillis: number
+) => Layer.Layer<FlowRuntime.FlowRuntime, never, FlowRuntime.FlowRuntime>
 ```
 
 A run whose envelope budget sets `onExceeded: park` parks on every guard for
@@ -1526,6 +1530,7 @@ an operator's Continue or Stop, through `Budget.Parking`:
 | A model call past `modelCallMs`, after its one overrun retry                             | `Stuck`        | `model-call`        |
 | A tool call past its call limit, a command's own timeout, or a child await still running | `Stuck`        | `tool-call`         |
 | A cell past its wall-clock limit                                                         | `Stuck`        | `cell`              |
+| One drive of a flow bounded by `layerFlowLimit`, past its limit                          | `Stuck`        | `tool-call`         |
 
 Each park is one `budget/` approval request, with waiting reason `budget`,
 whose `control.approval.requested` fact carries the exact `incident` facts
@@ -1543,6 +1548,18 @@ Denying is Stop: the resumed run fails with `stopped` before the operation
 runs again, without calling the provider. A run whose budget does not park
 keeps each timeout's own behavior: an exhausted model call fails the run, and
 the cell reads a tool or cell timeout as a `timeout` call failure.
+
+`layerFlowLimit` bounds a module flow a host runs as a step, which is not a
+cell call and so is reached by neither the sandbox's call limit nor the
+`tool-call` trip. Provided to the layer that registers the flow named
+`flowName`, it admits each drive of an execution through `Budget.Parking` and
+runs it under `limitMillis`; a drive past it parks the run with subject
+`<flowName>:<executionId>`. Continue drives it again under a fresh limit with
+its settled steps replayed, and Stop fails it before it runs again. A drive is
+bounded, not the execution: time suspended on a person, an approval or a timer
+is not charged. Under a budget that does not park, the flow runs unbounded.
+The configured coding host bounds `coding/PreparePlan` by its project's
+`limits.toolMs`.
 
 ## EventSink
 

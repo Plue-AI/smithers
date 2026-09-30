@@ -2,7 +2,7 @@
 import * as Seat from "@smthrs/agent/Seat"
 import * as SeatResolver from "@smthrs/agent/SeatResolver"
 import * as Digest from "@smthrs/core/Digest"
-import { HumanTask, Interpreter } from "@smthrs/flow"
+import { HumanTask } from "@smthrs/flow"
 import * as Executable from "@smthrs/registry/Executable"
 import * as Registry from "@smthrs/registry/Registry"
 import { Context, Effect, FileSystem, Layer } from "effect"
@@ -49,7 +49,7 @@ import { nativeActions, NativeCoding, nativeLayer, type NativeOptions } from "./
 import { evidenceOnly } from "./planning-authority.ts"
 import { memoryLayer, type MemoryOptions } from "./planning-memory.ts"
 import { planningWikiLayers } from "./planning-wiki.ts"
-import { declineLayer, DraftPlan, planningPolicy, PreparePlan, ReviewRequest } from "./planning.ts"
+import { declineLayer, DraftPlan, planningPolicy, preparePlanLayer, ReviewRequest } from "./planning.ts"
 import { pocSource } from "./poc-source.ts"
 import { pocModels, pocPolicy } from "./poc.ts"
 import { preparationLayers } from "./preparation.ts"
@@ -430,7 +430,7 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
             ]),
           planningPolicy,
           declineLayer,
-          Interpreter.layer(PreparePlan),
+          preparePlanLayer(options.planning.limits?.toolMs),
           HumanTask.layer,
           correctionLayers,
           sourceAdmission,

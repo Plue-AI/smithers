@@ -2,8 +2,9 @@
  * catalog, wiki and native JJ supply evidence; models do not invent identities.
  */
 import * as AgentAction from "@smthrs/agent/AgentAction"
+import * as RunawayGuard from "@smthrs/agent/RunawayGuard"
 import * as Digest from "@smthrs/core/Digest"
-import { Action, Flow, HumanTask } from "@smthrs/flow"
+import { Action, Flow, HumanTask, Interpreter } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"
 import { Effect, Layer, Schema } from "effect"
 import { Learning, learningRows, maxLearnings } from "./learnings.ts"
@@ -176,6 +177,17 @@ export const PreparePlan = Flow.make("coding/PreparePlan", {
     )
   }
 })
+
+/**
+ * Registers {@link PreparePlan}. Planning runs as a module flow, not as a cell
+ * call, so with a tool-call limit each drive of it is bounded by the runaway
+ * guard like a tool call is: past `toolMs` the run parks for Continue or Stop
+ * (#2279). Without one, planning is bounded only by the run's task budget.
+ */
+export const preparePlanLayer = (toolMs: number | undefined) =>
+  toolMs === undefined
+    ? Interpreter.layer(PreparePlan)
+    : Interpreter.layer(PreparePlan).pipe(Layer.provide(RunawayGuard.layerFlowLimit(PreparePlan._tag, toolMs)))
 
 const invalid = (message: string) => new CodingError({ code: "invalid_plan", message })
 export const sameCode = (left: Revision, right: Revision) =>

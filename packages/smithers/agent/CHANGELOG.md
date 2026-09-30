@@ -11,6 +11,10 @@
 - `AgentAction.Host.serverTools` and `Agent.Options.serverTools`: provider-run
   tools, such as the provider's web search, forwarded to every frame.
 
+- `RunawayGuard.layerFlowLimit(flowName, limitMillis)` bounds each drive of a
+  registered module flow by the tool-call guard: past the limit the run parks
+  on `Stuck` `tool-call` facts for Continue or Stop (#2279).
+
 ### Changed
 
 - **Breaking:** `Seat.auto` routes by the maintainer's routing graph. Jev
