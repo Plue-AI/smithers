@@ -5,9 +5,9 @@
  * park, restart and multi-round lineages — live in `@smthrs/engine` and
  * `@smthrs/engine-store`.
  */
-import { describe, expect } from "@effect/vitest"
+import { describe, expect, it } from "@effect/vitest"
 import { Deadline, Flow, FlowRuntime } from "@smthrs/flow"
-import { Cause, Effect, Exit, Fiber, Schema } from "effect"
+import { Cause, Duration, Effect, Exit, Fiber, Schema } from "effect"
 import { TestClock } from "effect/testing"
 import { effectOnTestClock as effect } from "./Harness.ts"
 import { layerMemory, makeInstance } from "./MemoryFlowRuntime.ts"
@@ -29,6 +29,23 @@ const inExecution = <A, E, R>(
 }
 
 const squash = <A, E>(exit: Exit.Exit<A, E>) => Exit.isFailure(exit) ? Cause.squash(exit.cause) : undefined
+
+describe("Flow.make deadline", () => {
+  it("keeps a positive finite deadline as a Duration and refuses anything else", () => {
+    const make = (deadline: unknown) =>
+      Flow.make("Deadline/declared", {
+        payload: {},
+        success: Schema.String,
+        deadline: deadline as never,
+        body: () => Effect.succeed("unused") as never
+      })
+    expect(Duration.toMillis(make("90 seconds").deadline!)).toBe(90_000)
+    expect(make(undefined).deadline).toBeUndefined()
+    for (const deadline of [0, -1, "Infinity", "not a duration"]) {
+      expect(() => make(deadline)).toThrow(`Flow.make: "Deadline/declared" deadline must be a positive finite duration`)
+    }
+  })
+})
 
 describe("Deadline", () => {
   effect(
