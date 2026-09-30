@@ -735,12 +735,87 @@ func TestMythicalWikiFailuresStayVisibleAndRetry(t *testing.T) {
 	require.NotEqual(t, third.RequestID, retry.RequestID)
 
 	// A run that never finishes fails after the timeout.
+	o.project(retry, jobs.StateRunning, "wiki-run-4", "")
 	_, err := o.pool.Exec(ctx, `UPDATE mythical_wikis SET started_at = $2 WHERE repository_id = $1`, o.repoID, time.Now().Add(-mythicalWikiTimeout-time.Minute))
 	require.NoError(t, err)
 	o.wake()
 	row = o.wiki()
 	assert.Equal(t, "failed", row.State)
 	assert.Contains(t, row.Error, "did not finish")
+}
+
+// A refresh whose run never started fails well before the run timeout, so
+// its launch does not retry against a box that idles into suspension.
+func TestMythicalWikiLaunchThatNeverStartsFailsAndRetries(t *testing.T) {
+	o := newMythicalOrchestration(t)
+	o.service.SetWiki(&fakeWikiStore{pages: map[string]WikiPageResponse{}})
+	ctx := context.Background()
+	age := func(d time.Duration) {
+		t.Helper()
+		_, err := o.pool.Exec(ctx, `UPDATE mythical_wikis SET started_at = $2 WHERE repository_id = $1`, o.repoID, time.Now().Add(-d))
+		require.NoError(t, err)
+	}
+	o.declareWiki()
+	o.wake()
+	first := o.launcher.last(mythicalWikiFlow)
+	require.NotEmpty(t, first.RequestID)
+
+	// Still starting inside the window: the refresh keeps running.
+	age(time.Minute)
+	o.wake()
+	require.Equal(t, "running", o.wiki().State)
+
+	// No run by the start deadline: failed, visible, its box retired.
+	age(16 * time.Minute)
+	o.wake()
+	row := o.wiki()
+	require.Equal(t, "failed", row.State)
+	assert.Contains(t, row.Error, "did not start")
+	assert.Empty(t, row.WorkspaceID)
+	assert.Contains(t, o.lanes.deleted, first.Target.WorkspaceID)
+	assert.Equal(t, "failed", o.wikiView().State)
+
+	// The retry launches on a new box.
+	o.dueWiki()
+	o.wake()
+	second := o.launcher.last(mythicalWikiFlow)
+	require.NotEqual(t, first.RequestID, second.RequestID)
+	require.NotEqual(t, first.Target.WorkspaceID, second.Target.WorkspaceID)
+
+	// A run that started is held only by the run timeout.
+	o.project(second, jobs.StateRunning, "wiki-run-2", "")
+	age(16 * time.Minute)
+	o.wake()
+	row = o.wiki()
+	require.Equal(t, "running", row.State)
+	assert.Equal(t, "wiki-run-2", row.RunID)
+}
+
+// A run that starts while its refresh is being failed at the start deadline
+// wins: the refresh keeps running on its box.
+func TestMythicalWikiRunStartingAtTheStartDeadlineKeepsItsBox(t *testing.T) {
+	o := newMythicalOrchestration(t)
+	o.service.SetWiki(&fakeWikiStore{pages: map[string]WikiPageResponse{}})
+	ctx := context.Background()
+	o.declareWiki()
+	o.wake()
+	launch := o.launcher.last(mythicalWikiFlow)
+	_, err := o.pool.Exec(ctx, `UPDATE mythical_wikis SET started_at = $2 WHERE repository_id = $1`, o.repoID, time.Now().Add(-16*time.Minute))
+	require.NoError(t, err)
+
+	// The worker read the refresh before its run started.
+	stale := o.wiki()
+	require.Empty(t, stale.RunID)
+	o.project(launch, jobs.StateRunning, "wiki-run-1", "")
+	stack, err := db.New(o.pool).GetMythicalStack(ctx, o.repoID)
+	require.NoError(t, err)
+	require.NoError(t, o.service.settleWiki(ctx, &mythicalRun{row: stack}, stale, time.Now()))
+
+	row := o.wiki()
+	require.Equal(t, "running", row.State)
+	assert.Equal(t, "wiki-run-1", row.RunID)
+	assert.Equal(t, launch.Target.WorkspaceID, row.WorkspaceID)
+	assert.NotContains(t, o.lanes.deleted, launch.Target.WorkspaceID)
 }
 
 func TestMythicalWikiRequestIsRefreshingAndAnUnsavedPublishIsStillOurs(t *testing.T) {

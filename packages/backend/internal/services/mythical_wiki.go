@@ -45,6 +45,10 @@ const (
 	mythicalWikiAttempts = 3
 	// A run that has not finished by then failed, whatever its host says.
 	mythicalWikiTimeout = 3 * time.Hour
+	// A launch whose run has not started by then failed: its host never came
+	// up, and its box would idle into suspension (30 minutes on the shortest
+	// plan) under a launch that can then never start.
+	mythicalWikiStartTimeout = 15 * time.Minute
 	// The published pages a stack request carries into planning.
 	mythicalWikiMemoryBytes = 64 << 10
 	mythicalWikiSlugPrefix  = "generated-"
@@ -347,6 +351,7 @@ func (s *MythicalService) admitWiki(ctx context.Context, r *mythicalRun, next db
 // settleWiki publishes a finished refresh, or records its failure.
 func (s *MythicalService) settleWiki(ctx context.Context, r *mythicalRun, row db.MythicalWiki, now time.Time) error {
 	timedOut := row.StartedAt.Valid && now.Sub(row.StartedAt.Time) > mythicalWikiTimeout
+	neverStarted := row.RunID == "" && row.StartedAt.Valid && now.Sub(row.StartedAt.Time) > mythicalWikiStartTimeout
 	next := row
 	switch {
 	case row.Outcome == "succeeded":
@@ -385,6 +390,8 @@ func (s *MythicalService) settleWiki(ctx context.Context, r *mythicalRun, row db
 		next.Error = err.Error()
 	case row.Outcome != "":
 		next.Error = strings.TrimPrefix(row.Outcome, "failed: ")
+	case neverStarted:
+		next.Error = "the refresh did not start within " + mythicalWikiStartTimeout.String()
 	case timedOut:
 		next.Error = "the refresh did not finish within " + mythicalWikiTimeout.String()
 	default:
@@ -397,10 +404,23 @@ func (s *MythicalService) settleWiki(ctx context.Context, r *mythicalRun, row db
 		next.Pool = nil
 	}
 	s.wakeWikiAt(r.row.RepositoryID, next.NextAttemptAt.Time)
-	if err := s.retireWikiWorkspace(ctx, r, &next); err != nil {
-		s.logger.Warn("mythical.wiki_retire_failed", "repository_id", r.row.RepositoryID, "error", err)
+	// The failure is saved before its box is retired: a run that started
+	// meanwhile wins the version check and keeps its box.
+	failed, err := s.queries().SaveMythicalWiki(ctx, next)
+	if errors.Is(err, pgx.ErrNoRows) {
+		s.MainMoved(ctx, r.row.RepositoryID)
+		return nil
 	}
-	return s.saveWiki(ctx, r, next)
+	if err != nil {
+		return err
+	}
+	if err := s.retireWikiWorkspace(ctx, r, &failed); err != nil {
+		// The row keeps the box; the next pass retires it.
+		s.logger.Warn("mythical.wiki_retire_failed", "repository_id", r.row.RepositoryID, "error", err)
+		s.notify(ctx, s.queries(), r.row.RepositoryID, r.row.Generation, "stack", "")
+		return nil
+	}
+	return s.saveWiki(ctx, r, failed)
 }
 
 // wakeWikiAt asks the stack worker to look again when a backed-off retry is due.

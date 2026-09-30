@@ -9,6 +9,8 @@ Existing `wiki_pages` and `wiki_page_revisions` remain the only page model and e
 
 Generated Markdown includes each reviewed section's source-line citations. The mythical publisher binds archived source links to `/api/repos/{owner}/{repo}/contents/{path}?ref={folded-main-commit}#L{line}`. The immutable main commit has the reviewed stack tip's tree and remains addressable after the refresh workspace is retired. The app opens these links with `files.read <path>:<line> <owner/repo> --ref <commit>` in the existing embedded file reader. Source digests and review receipts remain on the refresh; the page slug remains `generated-<id>` across revisions.
 
+A refresh fails visibly when its run has not started within 15 minutes or has not finished within 3 hours. The stack retries a failed refresh after 30 seconds, 2 minutes and 10 minutes, up to three attempts per folded main; `POST /api/repos/{owner}/{repo}/mythical/wiki` retries it again.
+
 ## Scope and permissions
 
 Prefix `/api/repos/{owner}/{repo}/wiki`. All wiki routes accept `?visibility=public|private`, default `public`. Carry the query on every request, including pagination, document, update stream, history and content. Invalid visibility returns 400. Responses use `Cache-Control: private, no-store`.
