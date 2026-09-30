@@ -139,7 +139,6 @@ interface SandboxBuilder {
   security(profile: "default" | "restricted"): this
   pullPolicy(policy: string): this
   labels(labels: Record<string, string>): this
-  scripts(scripts: Record<string, string>): this
   maxDuration(seconds: number): this
   idleTimeout(seconds: number): this
   ephemeral(enabled: boolean): this

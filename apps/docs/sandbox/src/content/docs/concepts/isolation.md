@@ -224,6 +224,13 @@ interleaves standard error. File transfer is byte-exact on all ten, so a
 caller that needs bytes out of a command has the command write a file and reads
 that back. The full table is on [Limits](/limits/).
 
+**The Microsandbox runtime reads the guest's `/.msb` share by path.** Every
+microVM mounts a host directory read-write at `/.msb`. The pinned runtime reads
+`/.msb/heartbeat.json` there every second without refusing links or bounding
+the read, so a guest can point it at a FIFO or a large host file and stall or
+grow the runtime process. `MicrosandboxSandbox` registers no guest scripts,
+because the runtime would rewrite them in that share through guest links.
+
 **A `Healthy` verdict can mean nothing is watching.** A session that declares
 no `ping` gets the noop probe, which always answers `Healthy`. Even a real
 answer only says the machine responded within the deadline; it makes no claim

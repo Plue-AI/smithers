@@ -4,6 +4,9 @@
 
 ### Security
 
+- `MicrosandboxSandbox` drops the `scripts` option: the pinned runtime rewrites registered scripts in the
+  guest-writable `/.msb` share by path, so a guest link there could redirect the write to a host file (#3252).
+
 - `MicrosandboxSandbox` gives a machine no network unless `network` or `networkPolicy` names one: the vendor's own
   default reaches the public internet (#3227). `Sandbox.NetworkPolicy` gains `"open"`, the explicit opt-in to a
   provider's unrestricted network; providers that cannot restrict the network accept only `"open"`, and Vercel and

@@ -514,10 +514,6 @@ const fakeSdk = (controls: Controls = {}) => {
             settings["labels"] = { ...value }
             return this
           },
-          scripts(value) {
-            settings["scripts"] = { ...value }
-            return this
-          },
           maxDuration(value) {
             settings["maxDuration"] = value
             return this
@@ -871,6 +867,10 @@ describe("MicrosandboxSandbox", () => {
         security: "restricted",
         pullPolicy: "if-missing",
         labels: { owner: "smithers", "smithers.holder": "forged" },
+        // The pinned runtime rewrites registered scripts in the guest-writable
+        // `/.msb` share by path, following guest links (#3252), so an untyped
+        // caller's scripts never reach the builder.
+        // @ts-expect-error scripts are not an option
         scripts: { prepare: "echo ready" },
         detached: true,
         network: "none",
@@ -935,7 +935,6 @@ describe("MicrosandboxSandbox", () => {
         // The ownership keys are the provider's own: a caller label cannot
         // forge the holder `reap` judges.
         labels: { owner: "smithers", ...ownership("installation-a", "host-7"), "smithers.network": "none" },
-        scripts: { prepare: "echo ready" },
         maxDuration: 900,
         idleTimeout: 120,
         disableNetwork: true,

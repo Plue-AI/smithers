@@ -142,8 +142,6 @@ export interface MicrosandboxSandboxOptions {
    * override a caller value.
    */
   readonly labels?: Readonly<Record<string, string>> | undefined
-  /** Named guest scripts planted at boot. */
-  readonly scripts?: Readonly<Record<string, string>> | undefined
   /** Run detached from the host process. Sticky sessions default to detached. */
   readonly detached?: boolean | undefined
   /**
@@ -326,7 +324,6 @@ const configure = (
   if (options.security !== undefined) configured = configured.security(options.security)
   if (options.pullPolicy !== undefined) configured = configured.pullPolicy(options.pullPolicy)
   configured = configured.labels({ ...options.labels, ...ownership })
-  if (options.scripts !== undefined) configured = configured.scripts({ ...options.scripts })
   if (options.maxDurationSecs !== undefined) configured = configured.maxDuration(options.maxDurationSecs)
   if (options.idleTimeoutSecs !== undefined) configured = configured.idleTimeout(options.idleTimeoutSecs)
   if (network === "none") configured = configured.disableNetwork()
