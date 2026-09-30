@@ -51,6 +51,7 @@ import * as FlowBinding from "@smthrs/harness/FlowBinding"
 import { HarnessError } from "@smthrs/harness/HarnessError"
 import * as Judgement from "@smthrs/harness/Judgement"
 import * as Relevance from "@smthrs/harness/Relevance"
+import * as CapabilitySet from "@smthrs/kernel/CapabilitySet"
 import type * as MemoryStore from "@smthrs/memory/MemoryStore"
 import * as Recall from "@smthrs/memory/Recall"
 import * as RecallKeyword from "@smthrs/memory/RecallKeyword"
@@ -1156,8 +1157,10 @@ export const binding = (
 
 /**
  * The `memory` flows source: {@link binding} with the repository's
- * {@link thresholds}, read each time a run resolves its flows. A thresholds
- * file that does not decode fails the run's assembly.
+ * {@link thresholds}, read each time a run resolves its flows with authority
+ * for {@link reads}; otherwise `MemoryCalibration.initial` is pinned without
+ * reading the repository. An authorized thresholds file that does not decode
+ * fails the run's assembly.
  *
  * @category constructors
  * @since 1.0.0
@@ -1168,9 +1171,13 @@ export const source = (
 ): FlowBinding.Source => ({
   name,
   bindings: () =>
-    (options.thresholds === undefined ? thresholds(options.root) : Effect.succeed(options.thresholds)).pipe(
-      Effect.map((fitted) => [binding(services, { ...options, thresholds: fitted })]),
-      Effect.provideContext(services),
+    Effect.gen(function*() {
+      const ceiling = yield* CapabilitySet.current
+      const fitted = options.thresholds ?? (CapabilitySet.allows(ceiling, reads)
+        ? yield* thresholds(options.root).pipe(Effect.provideContext(services))
+        : MemoryCalibration.initial)
+      return [binding(services, { ...options, thresholds: fitted })]
+    }).pipe(
       Effect.mapError((error) =>
         new HarnessError({ code: "assembly_failed", message: `${error.code}: ${error.message}` })
       )

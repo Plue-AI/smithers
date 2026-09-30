@@ -13,6 +13,7 @@
 
 import * as AgentAction from "@smthrs/agent/AgentAction"
 import * as Memory from "@smthrs/agent/Memory"
+import * as MemoryCalibration from "@smthrs/agent/MemoryCalibration"
 import * as Capability from "@smthrs/capability/Capability"
 import type * as DurableWriter from "@smthrs/database/DurableWriter"
 import * as CapabilitySet from "@smthrs/kernel/CapabilitySet"
@@ -191,6 +192,7 @@ export const opening = (launch: {
       ...(readsWorkspace ? {} : { sources: ["facts" as const] })
     }, {
       root: host.root,
+      ...(readsWorkspace ? {} : { thresholds: MemoryCalibration.initial }),
       ...(banks.length === 0 ? {} : { facts: { services: facts, banks } })
     })
     if (selected.unjudged !== undefined) {
