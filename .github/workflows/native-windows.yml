@@ -24,7 +24,7 @@ on:
   workflow_dispatch:
     inputs:
       portablePackages:
-        description: Run the complete sandbox and flow package suites too
+        description: Run the portable package suites too
         type: boolean
         default: false
 permissions:
@@ -80,6 +80,7 @@ jobs:
       - name: Install Node workspace dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Expose the built Windows helper
+        id: atomic_helper
         run: |
           $helper = (Resolve-Path target/debug/smithers-jj-export.exe).Path
           "SMITHERS_WORKSPACE_JJ_EXPORT_BINARY=$helper" >> $env:GITHUB_ENV
@@ -94,17 +95,29 @@ jobs:
           if-no-files-found: ignore
           retention-days: 3
       - name: Install Bun for portable package suites
-        if: inputs.portablePackages == true
+        if: inputs.portablePackages == true && !cancelled() && steps.atomic_helper.outcome == 'success'
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
           bun-version: "1.4.1"
       - name: Test complete sandbox and flow package suites
-        if: inputs.portablePackages == true
+        if: inputs.portablePackages == true && !cancelled() && steps.atomic_helper.outcome == 'success'
         shell: bash
         run: |
           suite_status=0
-          pnpm --dir packages/smithers/flows/sandbox exec vitest run --coverage.reportsDirectory "$RUNNER_TEMP/portable-package-coverage/sandbox" || suite_status=1
-          pnpm --dir packages/smithers/flows exec vitest run --coverage.reportsDirectory "$RUNNER_TEMP/portable-package-coverage/flows" || suite_status=1
+          pnpm --dir packages/smithers/flows/sandbox exec vitest run --coverage.reportOnFailure --coverage.reportsDirectory "$RUNNER_TEMP/portable-package-coverage/sandbox" || suite_status=1
+          pnpm --dir packages/smithers/flows exec vitest run --coverage.reportOnFailure --coverage.reportsDirectory "$RUNNER_TEMP/portable-package-coverage/flows" || suite_status=1
+          exit "$suite_status"
+      - name: Test remaining Windows package suites
+        if: inputs.portablePackages == true && !cancelled() && steps.atomic_helper.outcome == 'success'
+        shell: bash
+        run: |
+          suite_status=0
+          pnpm --dir packages/smithers/build/infra exec vitest run --coverage.reportOnFailure --coverage.reportsDirectory "$RUNNER_TEMP/portable-package-coverage/infra" || suite_status=1
+          pnpm --dir packages/testing exec vitest run --coverage.reportOnFailure --coverage.reportsDirectory "$RUNNER_TEMP/portable-package-coverage/testing" || suite_status=1
+          pnpm --dir packages/smithers/mcp exec vitest run --coverage.reportOnFailure --coverage.reportsDirectory "$RUNNER_TEMP/portable-package-coverage/mcp" || suite_status=1
+          pnpm --dir packages/smithers/flows/platform-bun exec vitest run --coverage.reportOnFailure --coverage.reportsDirectory "$RUNNER_TEMP/portable-package-coverage/platform-bun" || suite_status=1
+          pnpm --dir packages/smithers/flows/platform-bun exec bun scripts/run-bun-tests.mjs || suite_status=1
+          pnpm --dir packages/smithers/ui exec bun test tests || suite_status=1
           exit "$suite_status"
       - name: Preserve portable package coverage diagnostics
         if: always() && inputs.portablePackages == true
