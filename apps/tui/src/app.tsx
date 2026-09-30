@@ -51,6 +51,7 @@ import type * as Host from "./host.ts"
 import * as Inbox from "./inbox.ts"
 import * as Dispatch from "./key-dispatch.ts"
 import * as Keys from "./keys.ts"
+import { settled } from "./lifecycle.ts"
 import * as Models from "./models.ts"
 import * as Monitors from "./monitors.ts"
 import * as Palette from "./palette.ts"
@@ -666,11 +667,12 @@ export function App(props: AppProps) {
   /** The one thing waiting for the person, when it is an ask: `a` answers it from the chat. */
   const soleAsk = needsCount === 1 ? inbox.find((section) => section.group === "needs")?.rows[0]?.ask : undefined
   const surfaces = Surfaces.chips({
+    active: surface,
     workspace: snapshot,
     runs: flowRuns,
     plugins: pluginTabs,
     views: uiPanels.filter((panel) => !pluginPanels.includes(panel)),
-    worker: (tab) => workerChip({ ...tab, title: tabTitle(tab) }, props.models, now, workspace.asks.fromPerson(tab.id)),
+    worker: (tab) => workerChip({ ...tab, title: tabTitle(tab) }, now, workspace.asks.fromPerson(tab.id)),
     needs: needsCount
   })
   const clickTab = (id: string) => {
@@ -2801,7 +2803,22 @@ export function App(props: AppProps) {
                 : ""
               return (
                 <>
-                  <TabStrip chips={surfaces} active={surface} width={tabsWidth - note.length} onSelect={clickTab} />
+                  <TabStrip
+                    chips={surfaces}
+                    active={surface}
+                    width={tabsWidth - note.length}
+                    onSelect={clickTab}
+                    counts={{
+                      working: snapshot.tabs.filter((tab) => Tabs.live(tab.status)).length +
+                        flowRuns.filter((run) =>
+                          !settled(run.status)
+                        ).length,
+                      failed: snapshot.tabs.filter((tab) =>
+                        tab.status === "failed"
+                      ).length +
+                        flowRuns.filter((run) => run.status === "failed").length
+                    }}
+                  />
                   {note === ""
                     ? null
                     : <text fg={color.warning} wrapMode="none" style={{ flexShrink: 0 }}>{note}</text>}
@@ -2834,16 +2851,14 @@ export function App(props: AppProps) {
                   jump={workerJump(workerTab.id)}
                   scrollRef={panelScroll}
                   viewportRef={workerScroll}
-                  onBack={() =>
-                    clickTab(workerTab.parent === undefined ? "chat" : `tab:${workerTab.parent}`)}
+                  onBack={() => clickTab(workerTab.parent === undefined ? "chat" : `tab:${workerTab.parent}`)}
                   tabs={snapshot.tabs}
                   cards={{
                     ...cards,
                     focused: focusedCard === Subagents.earlierKey(workerTab.id) ? focusedCard : undefined
                   }}
                   earlierOpen={earlierOpen(workerTab.id)}
-                  onEarlier={() =>
-                    showEarlier(workerTab.id)}
+                  onEarlier={() => showEarlier(workerTab.id)}
                 />
               ) :
               overviewShown && panel !== undefined ?
@@ -2904,8 +2919,7 @@ export function App(props: AppProps) {
                     width={width}
                     flows={catalog.filter((entry) => !entry.unloaded)}
                     rows={chatHeight - 15}
-                    onRun={(name) =>
-                      command(`/flow ${name}`)}
+                    onRun={(name) => command(`/flow ${name}`)}
                   />
                 )
                 : <box style={{ flexGrow: 1, minHeight: 0 }} />
@@ -3046,9 +3060,7 @@ export function App(props: AppProps) {
                 ? {}
                 : {
                   worker: snapshot.tabs.find((tab) => tab.id === approvals[0]!.source)?.title ??
-                    flowRuns.find((run) =>
-                      `flow:${run.id}` === approvals[0]!.source
-                    )?.flow ?? approvals[0].source
+                    flowRuns.find((run) => `flow:${run.id}` === approvals[0]!.source)?.flow ?? approvals[0].source
                 })}
             />
           )}

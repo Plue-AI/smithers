@@ -144,7 +144,14 @@ test.each(
     await type("kept")
     expect(frame()).toContain(`${draft}kept`)
     expect(turns).toHaveLength(1)
-    expect(frame()).toContain("Audit view")
+    if (placement === "card") expect(frame()).toContain("Audit view")
+    else {
+      expect(frame()).not.toContain("Audit view")
+      await openView("Audit view")
+      expect(frame()).toContain("Audit view")
+      expect(frame()).toContain("Run checks")
+      expect(turns).toHaveLength(1)
+    }
   }
 )
 

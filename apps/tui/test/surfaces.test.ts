@@ -26,7 +26,7 @@ const run = (status: Run["status"]): Run => ({
   startedAt: 0
 })
 
-test("the strip preserves plugin, worker, flow and custom view order, with no tree tabs", () => {
+test("navigation preserves active work and custom views while finished flows live in Summary", () => {
   const tabs = [tab("solo"), tab("parent"), tab("child", "parent"), tab("bound"), tab("nested", "bound")]
   const bound = { ...panel("bound-view"), bind: { tree: "bound" } }
   const calls: string[] = []
@@ -50,11 +50,35 @@ test("the strip preserves plugin, worker, flow and custom view order, with no tr
     { id: "tab:bound", label: "bound" },
     { id: "tab:nested", label: "nested" },
     { id: "flow:running", label: "◌ review" },
-    { id: "flow:done", label: "✓ review" },
     { id: "ui:bound-view", label: "bound-view" },
     { id: "ui:custom", label: "custom" }
   ])
   expect(calls).toEqual(["solo", "parent", "child", "bound", "nested"])
+})
+
+test("settled flow runs live in Summary while active runs remain reachable", () => {
+  const strip = Surfaces.chips({
+    workspace: { tabs: [], panels: [] },
+    plugins: [],
+    views: [],
+    runs: [run("done"), run("cancelled"), run("failed"), run("parked"), run("running")],
+    worker: () => {
+      throw new Error("No worker")
+    }
+  })
+  expect(strip.map((chip) => chip.id)).toEqual(["chat", "summary", "flow:parked", "flow:running"])
+})
+
+test.each(["tab:finished", "flow:done"])("a settled run opened from Summary keeps its focused chip %s", (active) => {
+  const strip = Surfaces.chips({
+    workspace: { tabs: [{ ...tab("finished"), status: "done" }], panels: [] },
+    plugins: [],
+    views: [],
+    runs: [run("done"), run("cancelled")],
+    active,
+    worker: (worker) => ({ id: `tab:${worker.id}`, label: worker.title })
+  })
+  expect(strip.map((chip) => chip.id)).toEqual(["chat", "summary", active])
 })
 
 test.each(

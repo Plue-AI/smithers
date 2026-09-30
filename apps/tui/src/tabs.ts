@@ -123,31 +123,3 @@ export const actions = (tab: Worker): ReadonlyArray<Action> => {
 
 /** The action a registry binding runs on this worker, if its state allows it. */
 export const actionFor = (binding: string, tab: Worker) => actions(tab).find((each) => each.binding === binding)
-
-/** Columns an overflow arrow takes: `‹ 12 `. */
-export const arrow = 5
-
-/**
- * The widest run of whole tabs around `active` that fits `width`, with room
- * for an arrow on each side that hides tabs. Never cuts a tab short.
- */
-export const fit = (widths: ReadonlyArray<number>, active: number, width: number): { first: number; last: number } => {
-  const at = Math.max(0, Math.min(active, widths.length - 1))
-  let first = at
-  let last = Math.min(widths.length, at + 1)
-  const used = (from: number, to: number) =>
-    widths.slice(from, to).reduce((sum, each) => sum + each, 0) + (from > 0 ? arrow : 0) +
-    (to < widths.length ? arrow : 0)
-  for (let grew = true; grew;) {
-    grew = false
-    if (last < widths.length && used(first, last + 1) <= width) {
-      last++
-      grew = true
-    }
-    if (first > 0 && used(first - 1, last) <= width) {
-      first--
-      grew = true
-    }
-  }
-  return { first, last }
-}

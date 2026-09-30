@@ -6,6 +6,7 @@
  */
 import { useRef, useState } from "react"
 import type { Run } from "./flows.ts"
+import { settled } from "./lifecycle.ts"
 import * as Panels from "./panels.ts"
 import type { Chip } from "./tabs-view.tsx"
 import type { Snapshot, Tab } from "./workspace.ts"
@@ -34,6 +35,7 @@ export const flowGlyph = (status: Run["status"]): string =>
  * runtime and problem views follow the work tabs.
  */
 export const chips = (input: {
+  readonly active?: string
   readonly workspace: Snapshot
   readonly runs: ReadonlyArray<Run>
   /** Plugin tabs, shown only while open. */
@@ -53,8 +55,8 @@ export const chips = (input: {
       ...(input.needs === undefined || input.needs === 0 ? {} : { badge: `◆${input.needs}` })
     },
     ...input.plugins.map((panel) => ({ id: `ui:${panel.id}`, label: panel.title })),
-    ...workspace.tabs.map(input.worker),
-    ...input.runs.map((run) => ({
+    ...workspace.tabs.filter((tab) => !settled(tab.status) || input.active === `tab:${tab.id}`).map(input.worker),
+    ...input.runs.filter((run) => !settled(run.status) || input.active === `flow:${run.id}`).map((run) => ({
       id: `flow:${run.id}`,
       label: `${flowGlyph(run.status)}${run.flow}`
     })),

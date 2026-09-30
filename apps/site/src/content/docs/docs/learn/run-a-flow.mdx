@@ -72,7 +72,7 @@ Needs sign-in and a [box](/docs/learn/boxes/) for the repository.
 /flow echo text=hello
 ```
 
-Quote values with spaces: `text="hello world"`. A missing input opens a form with every field and each choice's options: Tab moves between fields, Left/Right chooses, Space toggles, Enter runs. Esc closes it and leaves the run waiting; press `a` in its tab to reopen. The run reports in the chat as one line, such as `✓ sum · 40ms → 5`; Enter on it opens its tab with each step. Summary lists past runs. A parked run keeps its question; `r` resumes the same run and `x` stops it.
+Quote values with spaces: `text="hello world"`. A missing input opens a form with every field and each choice's options: Tab moves between fields, Left/Right chooses, Space toggles, Enter runs. Esc closes it and leaves the run waiting; press `a` in its tab to reopen. The run reports in the chat as one line, such as `✓ sum · 40ms → 5`; Enter on it opens its tab with each step. Active runs have tabs; finished runs open from Summary. A parked run keeps its question; `r` resumes the same run and `x` stops it.
 
 Discovery refreshes when `flows/` changes. A flow added after the TUI loaded shows `Restart to load`; restart after adding or editing a `flow.ts`. Run only one TUI or CLI flow executor per directory.
 

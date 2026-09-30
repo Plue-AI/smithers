@@ -8,6 +8,7 @@
 import type { ScrollBoxRenderable } from "@opentui/core"
 import * as SubagentCard from "@smthrs/rpc/SubagentCard"
 import { type RefObject, useEffect, useRef } from "react"
+import stringWidth from "string-width"
 import type * as Asks from "./asks.ts"
 import * as Editor from "./editor.ts"
 import * as Inbox from "./inbox.ts"
@@ -34,66 +35,62 @@ export interface Chip {
   readonly badge?: string
 }
 
-const text = (chip: Chip): string =>
-  ` ${chip.glyph === undefined ? "" : `${chip.glyph} `}${chip.label}${
-    chip.detail === undefined ? "" : ` ${chip.detail}`
-  }${chip.badge === undefined ? "" : ` ${chip.badge}`} `
-
-/** One row of whole tabs around the active one; `‹ 3` and `2 ›` count and open the hidden ones. */
+/** Chat and Summary stay pinned; only the focused run or custom view gets a chip. */
 export function TabStrip(props: {
   readonly chips: ReadonlyArray<Chip>
   readonly active: string
   readonly width: number
+  readonly counts?: { readonly working: number; readonly failed: number }
   readonly onSelect: (id: string) => void
 }) {
-  const { chips } = props
-  const active = Math.max(0, chips.findIndex((chip) => chip.id === props.active))
-  // Each chip is followed by a one-column gap.
-  const { first, last } = Tabs.fit(chips.map((chip) => text(chip).length + 1), active, props.width)
+  const pinned = props.chips.filter((chip) => chip.id === "chat" || chip.id === "summary")
+  const focused = props.chips.find((chip) => chip.id === props.active && chip.id !== "chat" && chip.id !== "summary")
+  const counts = props.counts
+  const badge = pinned.find((chip) => chip.id === "summary")?.badge
+  const needs = badge === undefined ? "" : ` ${badge}`
+  const summaryCounts = counts === undefined ?
+    "" :
+    [counts.working > 0 ? `◐${counts.working}` : "", counts.failed > 0 ? `✗${counts.failed}` : ""].filter(Boolean).join(
+      "  "
+    )
+  const used = pinned.reduce((sum, chip) => sum + stringWidth(chip.label) + 3, 0) + stringWidth(needs) +
+    (summaryCounts === "" ? 0 : stringWidth(summaryCounts) + 3)
+  const label = focused === undefined ? "" : SubagentCard.clip(
+    `▸ ${focused.label}${focused.detail === undefined ? "" : ` · ${focused.detail}`}`,
+    Math.max(0, props.width - used - 2)
+  )
   return (
-    <box style={{ flexDirection: "row", height: 1, flexShrink: 0 }}>
-      {first === 0 ?
+    <box style={{ flexDirection: "row", height: 1, width: props.width, flexShrink: 0, overflow: "hidden" }}>
+      {pinned.map((chip) => (
+        <text
+          key={chip.id}
+          wrapMode="none"
+          style={{ flexShrink: 0, marginRight: 1 }}
+          bg={chip.id === props.active ? color.selected : color.page}
+          onMouseDown={() => props.onSelect(chip.id)}
+        >
+          {" "}
+          {chip.id === props.active
+            ? <strong fg={color.brand}>{chip.label}</strong>
+            : <span fg={color.muted}>{chip.label}</span>}
+          {chip.id === "summary" ? <span fg={color.needs}>{needs}</span> : null}
+          {" "}
+        </text>
+      ))}
+      {summaryCounts === ""
+        ? null
+        : <text fg={color.muted} wrapMode="none" style={{ flexShrink: 0, marginRight: 2 }}>{summaryCounts}</text>}
+      {focused === undefined || label === "" ?
         null :
         (
           <text
-            fg={color.muted}
+            fg={color.brand}
+            bg={color.selected}
             wrapMode="none"
             style={{ flexShrink: 0 }}
-            onMouseDown={() => props.onSelect(chips[first - 1]!.id)}
+            onMouseDown={() => props.onSelect(focused.id)}
           >
-            {`‹ ${first}`.padEnd(Tabs.arrow)}
-          </text>
-        )}
-      {chips.slice(first, last).map((chip) => {
-        const selected = chip.id === props.active
-        return (
-          <box
-            key={chip.id}
-            style={{ flexShrink: 0, marginRight: 1 }}
-            backgroundColor={selected ? color.selected : color.page}
-            onMouseDown={() => props.onSelect(chip.id)}
-          >
-            <text wrapMode="none">
-              {" "}
-              {chip.glyph === undefined ? null : <span fg={chip.tone ?? color.faint}>{chip.glyph}{" "}</span>}
-              {selected ? <strong fg={color.brand}>{chip.label}</strong> : <span fg={color.muted}>{chip.label}</span>}
-              {chip.detail === undefined ? null : <span fg={color.faint}>{" "}{chip.detail}</span>}
-              {chip.badge === undefined ? null : <span fg={color.needs}>{" "}{chip.badge}</span>}
-              {" "}
-            </text>
-          </box>
-        )
-      })}
-      {last >= chips.length ?
-        null :
-        (
-          <text
-            fg={color.muted}
-            wrapMode="none"
-            style={{ flexShrink: 0 }}
-            onMouseDown={() => props.onSelect(chips[last]!.id)}
-          >
-            {`${chips.length - last} ›`.padStart(Tabs.arrow)}
+            {label}
           </text>
         )}
     </box>
@@ -110,15 +107,17 @@ const facts = (tab: Tab, models: ReadonlyArray<Model>, now: number, ask?: Asks.A
 export const styleOf = (tab: Tab, now: number, ask?: Asks.Ask): { readonly glyph: string; readonly tone: string } =>
   ask === undefined ? Tabs.styleOf(tab, now) : { glyph: "◆", tone: color.needs }
 
-/** A worker's tab chip: glyph, title, model and clock, or how long its ask has waited. */
-export const chip = (tab: Tab, models: ReadonlyArray<Model>, now: number, ask?: Asks.Ask): Chip => {
+/** A worker's tab chip: glyph, title and clock, or how long its ask has waited. */
+export const chip = (tab: Tab, now: number, ask?: Asks.Ask): Chip => {
   const { glyph, tone } = styleOf(tab, now, ask)
   return {
     id: `tab:${tab.id}`,
     label: tab.title,
     glyph,
     tone,
-    detail: facts(tab, models, now, ask)
+    detail: ask === undefined
+      ? Transcript.duration(Tabs.elapsed(tab, now))
+      : `waiting ${Inbox.waited(now - ask.askedAt)}`
   }
 }
 

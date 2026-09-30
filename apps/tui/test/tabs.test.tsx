@@ -177,65 +177,101 @@ describe("worker actions", () => {
   })
 })
 
-describe("tab strip window", () => {
-  it("fits every tab when there is room", () => {
-    expect(Tabs.fit([6, 9, 12], 0, 80)).toEqual({ first: 0, last: 3 })
-  })
-  it("keeps the active tab whole and scrolls instead of truncating", () => {
-    const widths = [6, 9, 20, 20, 20, 20, 20]
-    for (let active = 0; active < widths.length; active++) {
-      const { first, last } = Tabs.fit(widths, active, 50)
-      expect(first).toBeLessThanOrEqual(active)
-      expect(last).toBeGreaterThan(active)
-      const arrows = (first > 0 ? Tabs.arrow : 0) + (last < widths.length ? Tabs.arrow : 0)
-      expect(widths.slice(first, last).reduce((sum, width) => sum + width, 0) + arrows).toBeLessThanOrEqual(50)
-    }
-  })
-})
-
 describe("TabStrip", () => {
   const chips = [
     { id: "chat", label: "Chat" },
-    { id: "summary", label: "Summary" },
-    ...["alpha", "bravo", "charlie", "delta", "echo"].map((id, index) => ({
+    { id: "summary", label: "Summary", badge: "◆1" },
+    ...["alpha", "bravo", "charlie", "delta", "echo"].map((id) => ({
       id: `tab:${id}`,
-      label: `Worker ${id} with a long title`,
+      label: `Run ${id} with a long title`,
       glyph: "✓",
       tone: color.success,
-      detail: `sol · ${index + 1}s`
+      detail: "58s"
     }))
   ]
-  it("shows whole titles, the status detail and hidden counts on both sides", async () => {
+  it.each([80, 40, 24])("pins Chat and Summary without any run chips in Chat at width %s", async (width) => {
     const { captureCharFrame } = await mount(
-      <TabStrip chips={chips} active="tab:charlie" width={80} onSelect={() => {}} />
+      <TabStrip
+        chips={chips}
+        active="chat"
+        width={width}
+        counts={{ working: 4, failed: 1 }}
+        onSelect={() => {}}
+      />,
+      width
     )
     const frame = captureCharFrame()
-    expect(frame).toContain("Worker charlie with a long title")
-    expect(frame).toContain("sol · 3s")
-    expect(frame).not.toContain("…")
-    expect(frame).toMatch(/‹ ?\d/)
-    expect(frame).toMatch(/\d ?›/)
+    expect(frame).toContain("Chat")
+    expect(frame).toContain("Summary")
+    expect(frame).not.toContain("Run ")
+    expect(frame).not.toMatch(/[‹›]/)
+    if (width >= 40) {
+      expect(frame).toContain("◆1")
+      expect(frame).toContain("◐4")
+      expect(frame).toContain("✗1")
+    }
   })
-  it("selects a tab, or the next hidden tab through an arrow, on click", async () => {
-    const selected: Array<string> = []
+  it("keeps an idle strip quiet without zero counters", async () => {
+    const { captureCharFrame } = await mount(
+      <TabStrip
+        chips={chips.map((chip) => chip.id === "summary" ? { id: "summary", label: "Summary" } : chip)}
+        active="summary"
+        width={80}
+        counts={{ working: 0, failed: 0 }}
+        onSelect={() => {}}
+      />
+    )
+    const frame = captureCharFrame()
+    expect(frame).toContain("Chat")
+    expect(frame).toContain("Summary")
+    expect(frame).not.toMatch(/[◐◆✗]/)
+    expect(frame).not.toContain("Run ")
+  })
+  it("shows only the focused run after the pinned navigation and counts", async () => {
+    const { captureCharFrame } = await mount(
+      <TabStrip
+        chips={chips}
+        active="tab:charlie"
+        width={80}
+        counts={{ working: 4, failed: 1 }}
+        onSelect={() => {}}
+      />
+    )
+    const frame = captureCharFrame()
+    expect(frame).toContain("Run charlie with a long title")
+    expect(frame).toContain("58s")
+    expect(frame.indexOf("Chat")).toBeLessThan(frame.indexOf("Summary"))
+    expect(frame.indexOf("Summary")).toBeLessThan(frame.indexOf("Run charlie"))
+    for (const id of ["alpha", "bravo", "delta", "echo"]) expect(frame).not.toContain(`Run ${id}`)
+    expect(frame).not.toMatch(/[‹›]/)
+  })
+  it("keeps home and Summary clickable from a focused run", async () => {
+    const selected: string[] = []
     const { captureCharFrame, mockMouse } = await mount(
       <TabStrip chips={chips} active="tab:charlie" width={80} onSelect={(id) => selected.push(id)} />
     )
-    const frame = captureCharFrame()
-    const title = find(frame, "Worker charlie")
-    await mockMouse.click(title.x + 2, title.y)
-    const right = find(frame, "›")
-    await mockMouse.click(right.x, right.y)
-    const left = find(frame, "‹")
-    await mockMouse.click(left.x, left.y)
-    expect(selected[0]).toBe("tab:charlie")
-    expect(selected.slice(1)).toHaveLength(2)
-    expect(chips.findIndex((chip) => chip.id === selected[1])).toBeGreaterThan(
-      chips.findIndex((chip) => chip.id === "tab:charlie")
+    for (const label of ["Chat", "Summary", "Run charlie"]) {
+      const at = find(captureCharFrame(), label)
+      await mockMouse.click(at.x + 1, at.y)
+    }
+    expect(selected).toEqual(["chat", "summary", "tab:charlie"])
+  })
+  it("adding six finished runs does not change the Chat strip", async () => {
+    const counts = { working: 4, failed: 1 }
+    const first = await mount(<TabStrip chips={chips} active="chat" width={80} counts={counts} onSelect={() => {}} />)
+    const before = first.captureCharFrame()
+    act(() => first.renderer.destroy())
+    setup = undefined
+    const after = await mount(
+      <TabStrip
+        chips={[...chips, ...Array.from({ length: 6 }, (_, i) => ({ id: `tab:done${i}`, label: `Finished ${i}` }))]}
+        active="chat"
+        width={80}
+        counts={counts}
+        onSelect={() => {}}
+      />
     )
-    expect(chips.findIndex((chip) => chip.id === selected[2])).toBeLessThan(
-      chips.findIndex((chip) => chip.id === "tab:charlie")
-    )
+    expect(after.captureCharFrame()).toBe(before)
   })
 })
 
