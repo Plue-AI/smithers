@@ -796,6 +796,15 @@ export const readOnly = (shell: string, root: string, base = root): Reading => {
   return found
 }
 
+/** A declared write pattern with its literal prefix resolved, and its wildcard suffix unchanged. */
+const realGlob = (glob: string, base: string): string => {
+  const absolute = isAbsolute(glob) ? glob : `${base.replace(/\/+$/, "")}/${glob}`
+  const wildcard = absolute.search(/[*?]/)
+  if (wildcard === -1) return real(absolute)
+  const slash = absolute.lastIndexOf("/", wildcard)
+  return `${real(absolute.slice(0, slash) || "/").replace(/\/+$/, "")}/${absolute.slice(slash + 1)}`
+}
+
 /** How a shell call reads for `Memory`; see `Command`. */
 const command = (flow: string, input: unknown, cwd: string): Command | undefined => {
   if (flow !== "bash" || typeof input !== "object" || input === null) return undefined
@@ -815,9 +824,7 @@ const command = (flow: string, input: unknown, cwd: string): Command | undefined
   const base = real(typeof value.cwd === "string" ? (isAbsolute(value.cwd) ? value.cwd : join(cwd, value.cwd)) : cwd)
   const inside = base === root || base.startsWith(`${root.replace(/\/+$/, "")}/`)
   const writes = value.mode === "hermetic" && Array.isArray(value.writes)
-    ? (value.writes as ReadonlyArray<unknown>).map((glob) =>
-      isAbsolute(String(glob)) ? String(glob) : join(base, String(glob))
-    )
+    ? (value.writes as ReadonlyArray<unknown>).map((glob) => realGlob(String(glob), base))
     : undefined
   return {
     text,

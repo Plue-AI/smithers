@@ -1005,6 +1005,53 @@ describe("a run remembers what the person decided", () => {
     expect(result.pending).toBe(0)
   })
 
+  it("denies declared writes through symlink prefixes while preserving their wildcard suffixes", async () => {
+    const root = scripted()
+    mkdirSync(join(root, "target", "sub"), { recursive: true })
+    writeFileSync(join(root, "target", "NOTES.md"), "existing\n")
+    symlinkSync("target", join(root, "alias"))
+    symlinkSync("target/sub", join(root, "deep"))
+    const patterns = [
+      ["alias/**", "target/**"],
+      [join(root, "alias", "**"), "target/**"],
+      ["alias/*.md", "target/*.md"],
+      ["alias/N?TES.md", "target/N?TES.md"],
+      ["alias/NOTES.md", "target/NOTES.md"],
+      ["deep/../**", "target/**"],
+      ["alias/missing/**", "target/missing/**"]
+    ] as const
+    const declared = (writes: ReadonlyArray<string>) =>
+      callOf("bash", { mode: "hermetic", reads: [], writes, command: "npm test" })
+    const result = await withStore("ask", (grants) =>
+      Effect.gen(function*() {
+        const memory = new Approvals.Memory()
+        const authorize = Approvals.authorize(grants, { cwd: root, source: "t1", memory })
+        for (const path of ["target/NOTES.md", "target/missing/NOTES.md"]) {
+          const write = yield* Effect.forkChild(authorize(callOf("write", { path, content: "hello\n" })))
+          yield* Approvals.reply(grants, memory, (yield* settledPending(grants, 1))[0]!, "deny", root)
+          yield* Fiber.await(write)
+        }
+        const run = yield* Effect.forkChild(authorize(callOf("bash", { command: "true" })))
+        yield* Approvals.reply(grants, memory, (yield* settledPending(grants, 1))[0]!, "run", root)
+        yield* Fiber.join(run)
+        const messages: Array<string | undefined> = []
+        const canonical: Array<ReadonlyArray<string> | undefined> = []
+        for (const [pattern] of patterns) {
+          const call = declared([pattern])
+          canonical.push(Approvals.requests(call, root, "t1")[0]!.command?.writes)
+          messages.push(exitMessage(yield* Effect.exit(authorize(call))))
+        }
+        yield* authorize(declared(["alias/OTHER.md"]))
+        yield* authorize(declared(["elsewhere/**"]))
+        yield* authorize(declared([]))
+        return { messages, canonical, pending: (yield* grants.list).length }
+      }), root)
+    expect(result.canonical).toEqual(patterns.map(([, expected]) => [join(root, expected)]))
+    expect(result.messages).toHaveLength(patterns.length)
+    for (const message of result.messages) expect(message).toStartWith(Approvals.deniedPrefix)
+    expect(result.pending).toBe(0)
+  })
+
   it("a denial wins over a allowing edits for the run", async () => {
     const result = await withStore("ask", (grants) =>
       Effect.gen(function*() {
