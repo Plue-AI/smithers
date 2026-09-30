@@ -14,6 +14,7 @@ import { make } from "../RemoteChildProcessSpawner/layer.ts"
 import type { Provider as RemoteProvider } from "../RemoteChildProcessSpawner/Provider.ts"
 import type { ProviderError } from "../RemoteChildProcessSpawner/ProviderError.ts"
 import * as SandboxHealth from "../SandboxHealth/index.ts"
+import { rootedAt } from "../internal/rootedPath.ts"
 import { fileSystem } from "./fileSystem.ts"
 import type { Provider } from "./Provider.ts"
 import type { Session } from "./Session.ts"
@@ -31,6 +32,27 @@ const spawnerView = (session: Session): RemoteProvider => ({
   ping: session.ping,
   stdin: true
 })
+
+/**
+ * POSIX paths resolved against the guest workdir rather than this process's
+ * directory, so a relative path means the same file to `Path` that it means
+ * to the session's filesystem and processes.
+ */
+const guestPath = (base: Path.Path, workdir: string): Path.Path => {
+  const root = rootedAt(workdir)(".")
+  const resolve = (...segments: ReadonlyArray<string>) => {
+    // Each absolute segment restarts the path, in the guest's own dialect.
+    const joined = segments.reduce((path, segment) => rootedAt(path)(segment), root)
+    const normal = base.normalize(joined)
+    return normal.length > 1 && normal.endsWith("/") && !/^[A-Za-z]:\/$/.test(normal) ? normal.slice(0, -1) : normal
+  }
+  return {
+    ...base,
+    resolve,
+    relative: (from, to) => base.relative(resolve(from), resolve(to)),
+    toFileUrl: (path) => base.toFileUrl(resolve(path))
+  }
+}
 
 /**
  * Names the layer's session.
@@ -62,6 +84,9 @@ export interface LayerHostOptions {
  * ambient host access here, which is why the sandbox-backed services are
  * served bare rather than kernel-decorated.
  *
+ * `Path` resolves a relative path under the session's workdir, the directory
+ * its commands start in and its filesystem roots relative paths at.
+ *
  * `SandboxHealth` is served alongside them, probing the machine this layer
  * holds, so a caller can ask whether it is still there. What this layer
  * deliberately does NOT do is what `SandboxSupervision` does for the spawn-only
@@ -88,8 +113,10 @@ export const layerHost = (
       const session = yield* provider.acquire(options.session)
       const view = spawnerView(session)
       const spawner = yield* make(view)
+      const path = yield* Path.Path
       return Context.make(ChildProcessSpawner, spawner).pipe(
         Context.add(FileSystem.FileSystem, fileSystem(session)),
+        Context.add(Path.Path, guestPath(path, session.workdir)),
         // A session with no `ping` yields the noop probe, which always answers
         // healthy. That is not a claim the machine is alive; it says nothing is
         // watching it, and `SandboxHealth.make` documents the distinction.
@@ -100,4 +127,4 @@ export const layerHost = (
       )
     })
     // Guest paths, not host paths: sessions speak POSIX and `rootedAt` normalizes to "/".
-  ).pipe(Layer.merge(Path.layer))
+  ).pipe(Layer.provide(Path.layer))

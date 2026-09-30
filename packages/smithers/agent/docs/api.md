@@ -201,6 +201,16 @@ Module flows are discovered and planned but return `pending` from this agent
 executor. A host must register their flow and action implementations and drive
 them separately; `AgentSession` executes markdown prompt flows.
 
+A prompt flow whose frontmatter selects a `sandbox:` runs its tools on a
+machine the host's `Options.sandbox` opens for it: one machine per run,
+acquired under the key `sandbox:<runId>` on its first drive, kept across its
+parks, and ended when the run settles or the executor closes. The machine's
+sources replace `Options.flows` for that run, and the host's workspace
+observer and checkpoint store are withheld from it. A selection the host
+cannot provide fails the launch with `LaunchFailed` whose cause is
+`SandboxRefused` (`unconfigured`, `options`, or `module`), before any body
+loads.
+
 ### AgentSession.Options
 
 `abandonedParkAfter?: Duration.Duration` sets how long a foreign host's resume
@@ -213,6 +223,7 @@ delegation must stand before adoption. The default is
 | `quotaPolicy`     | `Layer<QuotaPolicy.QuotaClassifier>`                                      | The required quota park/retry policy every model call in the run is decided under.                                                                  |
 | `budget`          | `(envelope: Envelope) => Layer<Budget.Budget, Budget.ConfigurationError>` | Builds the run-local spending policy from the plan that was approved. Provided inside each body invocation.                                         |
 | `flows`           | `ReadonlyArray<FlowBinding.Source>`                                       | Host executable-flow sources composed into every run's catalog. The durable wait and the control-wired approval are composed by the session itself. |
+| `sandbox`         | `(selection) => Effect<SandboxOpener, SandboxRefused> \| undefined`        | Opens the machine for a flow's `sandbox:` selection; `undefined` when no provider of that name is configured. Absent, every selection is refused.  |
 | `system`          | `ReadonlyArray<string>`                                                   | Stable system teaching placed ahead of the cell contract.                                                                                           |
 | `maxFrames`       | `number`                                                                  | The cell-loop bound.                                                                                                                                |
 | `readOnlyCap`     | `number`                                                                  | Consecutive read-only frames a task run may spend. Defaults to `CellTurn.defaultReadOnlyFrames`.                                                    |

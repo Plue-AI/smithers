@@ -34,6 +34,7 @@ Variables an operator exports to steer the CLI.
 | `SMITHERS_TEST_CONTAINER` | operator | The container the `test` flow runs in. | none |
 | `SMITHERS_TEST_CWD` | operator | The repository's path inside that container. | none |
 | `SMITHERS_TEST_TIMEOUT_MS` | operator | Wall-clock budget for one `test` invocation. | none |
+| `SMITHERS_SANDBOX_IMAGE` | operator | The image a flow's `sandbox: {provider: container}` runs in, through `docker`, with the flow's network and limits. Unset refuses such flows; they never run on the host. | none |
 | `SMITHERS_BASH_CONTAINER` | operator | The one container `bash` may reach. Any other `bash` call, including one naming no container, fails with `outside_container`, and the host filesystem flows are not offered. | none |
 
 ## HTTP proxies

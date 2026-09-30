@@ -34,6 +34,7 @@ describe("the environment contract", () => {
       "SMITHERS_TEST_CONTAINER",
       "SMITHERS_TEST_CWD",
       "SMITHERS_TEST_TIMEOUT_MS",
+      "SMITHERS_SANDBOX_IMAGE",
       "SMITHERS_BASH_CONTAINER",
       "SMITHERS_ASKS",
       "SMITHERS_BACKEND",

@@ -35,13 +35,17 @@ prompt flows run on the agent.
 
 ## LaunchFailed: selected sandbox unavailable
 
-**What happened.** This host cannot execute the selected sandbox provider.
-`AgentSession` refuses the run before loading its body or resolving a seat,
-including when an existing accepted run resumes.
+**What happened.** The flow's `sandbox:` names a provider this host cannot run
+it on. The cause is `SandboxRefused`: `unconfigured` when the host configures no
+provider of that name, `options` when the provider refuses the selection's
+network or limits, and `module` for a module flow, since only prompt flows run
+in a sandbox. `AgentSession` refuses before loading the body or resolving a
+seat, including when an existing accepted run resumes, and never runs the flow
+on the host instead.
 
-**What to change.** Named-provider execution is tracked in
-[#1790](https://github.com/smithersai/smithers/issues/1790). Keep the sandbox
-selection while waiting for that support.
+**What to change.** Configure the provider on the host
+(`Application.Config.sandboxProviders`, or `SMITHERS_SANDBOX_IMAGE` for
+`container` on the CLI), or change the selection to one it can honor.
 
 ## StructuredOutputFailure
 

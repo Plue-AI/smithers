@@ -19,6 +19,7 @@ import * as OpenAIChatGPT from "@smthrs/model/OpenAIChatGPT"
 import * as RequestExecutor from "@smthrs/model/RequestExecutor"
 import * as Route from "@smthrs/model/Route"
 import * as EgressHttpClient from "@smthrs/platform-node/EgressHttpClient"
+import { ContainerSandbox } from "@smthrs/sandbox"
 import type * as Checkpoints from "@smthrs/std/Checkpoints"
 import * as Container from "@smthrs/std/Container"
 import * as TestRunner from "@smthrs/std/TestRunner"
@@ -30,6 +31,7 @@ import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
 import { statSync } from "node:fs"
 import { homedir } from "node:os"
 import { isAbsolute, join, relative } from "node:path"
+import type * as Application from "../Application.ts"
 import * as CliError from "../CliError.ts"
 import * as Environment_ from "../Environment.ts"
 import * as Providers from "../Providers.ts"
@@ -820,6 +822,32 @@ export const sealedContainer = (
 ): string | undefined => {
   const container = Environment_.read(environment, "SMITHERS_BASH_CONTAINER")?.trim()
   return container === undefined || container === "" ? undefined : container
+}
+
+/**
+ * The sandbox providers the CLI host offers a flow's `sandbox:` selection.
+ *
+ * `SMITHERS_SANDBOX_IMAGE` names the image `provider: container` runs in,
+ * through the `docker` CLI, with the selection's network and limits. No other
+ * provider is configured from the environment, and without the image a
+ * container-sandboxed flow is refused rather than run on this host.
+ *
+ * @since 1.0.0
+ * @private
+ */
+export const sandboxProvidersFrom = (
+  environment: Readonly<Record<string, string | undefined>>
+): Application.SandboxProviders => {
+  const image = Environment_.read(environment, "SMITHERS_SANDBOX_IMAGE")?.trim()
+  return image === undefined || image === "" ? {} : {
+    container: (selection, host) =>
+      ContainerSandbox.make({
+        spawner: host.spawner,
+        image,
+        network: selection.network,
+        limits: { cpus: selection.cpus, memoryMib: selection.memoryMib, timeoutSecs: selection.timeoutSecs }
+      })
+  }
 }
 
 /**

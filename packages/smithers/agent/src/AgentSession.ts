@@ -52,7 +52,7 @@
 import * as Capability from "@smthrs/capability/Capability"
 import * as Permission from "@smthrs/capability/Permission"
 import { ControlFacts } from "@smthrs/control"
-import { EnvelopeMismatch, LaunchFailed, PersistenceError, Unavailable } from "@smthrs/control/ControlError"
+import { EnvelopeMismatch, LaunchFailed, PersistenceError } from "@smthrs/control/ControlError"
 import * as ControlExecutor from "@smthrs/control/ControlExecutor"
 import { ControlRuntime, type PendingResume } from "@smthrs/control/ControlRuntime"
 import { Envelope, type PlanCard, type RunStatus } from "@smthrs/control/ControlSchema"
@@ -85,8 +85,10 @@ import * as Descriptor from "@smthrs/registry/Descriptor"
 import * as Executable from "@smthrs/registry/Executable"
 import * as Registry from "@smthrs/registry/Registry"
 import { Ownership, RunStore } from "@smthrs/run-store"
+import * as Checkpoints from "@smthrs/std/Checkpoints"
 import * as Cause from "effect/Cause"
 import * as Clock from "effect/Clock"
+import * as Context from "effect/Context"
 import type * as Crypto from "effect/Crypto"
 import * as Deferred from "effect/Deferred"
 import * as Duration from "effect/Duration"
@@ -115,6 +117,47 @@ import * as Seat from "./Seat.ts"
 import { contextWindowResolver, type Routed, SeatResolver } from "./SeatResolver.ts"
 import * as SeatRouter from "./SeatRouter.ts"
 import * as StandardFlows from "./StandardFlows.ts"
+import * as WorkspaceObservation from "./WorkspaceObservation.ts"
+
+/**
+ * Why a run whose flow selects a sandbox cannot execute on this host.
+ *
+ * `unconfigured`: the host holds no provider for the name the flow selected.
+ * `module`: only prompt flows run their tools on a sandbox machine.
+ * `options`: the configured provider refused the selection's network or limits.
+ *
+ * @category errors
+ * @since 1.0.0
+ */
+export class SandboxRefused extends Schema.TaggedError<SandboxRefused>()(
+  "@smthrs/agent/AgentSession/SandboxRefused",
+  {
+    provider: Schema.String,
+    reason: Schema.Literals(["unconfigured", "module", "options"]),
+    message: Schema.String
+  }
+) {}
+
+/**
+ * What a sandbox-selected run executes with: its tool sources, bound to the
+ * machine its session acquired. They replace {@link Options.flows} for that run.
+ *
+ * @category models
+ * @since 1.0.0
+ */
+export interface SandboxedRun {
+  readonly flows: ReadonlyArray<FlowBinding.Source>
+}
+
+/**
+ * Acquires the machine for one run under `session`, a key stable across the
+ * run's parks and restarts. The scope is the machine's lifetime: the session
+ * holds it until the run settles terminally or the executor closes.
+ *
+ * @category models
+ * @since 1.0.0
+ */
+export type SandboxOpener = (session: string) => Effect.Effect<SandboxedRun, unknown, Scope.Scope>
 
 /**
  * Everything the host decides about the composition.
@@ -129,6 +172,15 @@ import * as StandardFlows from "./StandardFlows.ts"
  * @since 0.1.0
  */
 export interface Options {
+  /**
+   * The host's sandbox providers: the opener for a flow's `sandbox:`
+   * selection, `SandboxRefused` when the configured provider cannot honor it,
+   * or `undefined` when none is configured for its name. Without it every
+   * sandbox-selected flow is refused at launch.
+   */
+  readonly sandbox?:
+    | ((selection: Descriptor.SandboxSelection) => Effect.Effect<SandboxOpener, SandboxRefused> | undefined)
+    | undefined
   /** Workspace AGENTS.md files sent to the relevance gate. */
   readonly workspaceInstructions?: AgentOptions["instructions"]
   /** Host flow sources a judged run must always offer. */
@@ -2616,6 +2668,31 @@ export const make = (
     const engineState = yield* DurableEngineState.DurableEngineState
     const scope = yield* Effect.scope
     const services = yield* Effect.context<Services>()
+    /** One machine per sandbox-selected run, held across its parks until it settles. */
+    const sandboxes = new Map<
+      string,
+      { readonly scope: Scope.Closeable; readonly run: SandboxedRun; readonly selection: string }
+    >()
+    const sandboxScope = yield* Scope.make()
+    // Added before any drive finalizer, so it runs after them all. A released
+    // drive interrupts its body without waiting for it, so the bodies still
+    // acting on a machine are joined, boundedly, before the machines end.
+    yield* Scope.addFinalizer(
+      scope,
+      Effect.suspend(() =>
+        sandboxes.size === 0 ? Scope.close(sandboxScope, Exit.void) : Effect.andThen(
+          Effect.ignore(Effect.timeout(Fiber.interruptAll(Array.from(activeBodies.values())), Duration.seconds(5))),
+          Scope.close(sandboxScope, Exit.void)
+        )
+      )
+    )
+    const releaseSandbox = (runId: string): Effect.Effect<void> =>
+      Effect.suspend(() => {
+        const held = sandboxes.get(runId)
+        if (held === undefined) return Effect.void
+        sandboxes.delete(runId)
+        return Scope.close(held.scope, Exit.void)
+      })
 
     /**
      * Emits one agent-trace event on the journal's lossy channel, under the
@@ -2861,7 +2938,9 @@ export const make = (
             ? runtime.getRun(runId).pipe(
               Effect.flatMap((run) => run.status === "cancelled" ? Effect.void : Effect.fail(cause))
             )
-            : Effect.fail(cause))
+            : Effect.fail(cause)),
+        // The run is over, so the machine it wrote to is too.
+        Effect.ensuring(releaseSandbox(runId))
       )
       const order = options.orderTerminalStatus
       if (order === undefined) return write
@@ -2968,25 +3047,105 @@ export const make = (
           })
         )
 
-    const ensureSandboxAvailable = (
+    /**
+     * The opener for a flow's sandbox selection, or `undefined` for a flow that
+     * selects none. A selection this host cannot provide refuses the launch
+     * before any host code runs; it never falls back to the host machine.
+     */
+    const sandboxFor = (
       runId: string,
       descriptor: Descriptor.FlowDescriptor
-    ): Effect.Effect<void, LaunchFailed> =>
-      Effect.suspend(() =>
-        descriptor.sandbox === undefined
-          ? Effect.void
-          : Effect.fail(
+    ): Effect.Effect<SandboxOpener | undefined, LaunchFailed> =>
+      Effect.suspend(() => {
+        const selection = descriptor.sandbox
+        if (selection === undefined) return Effect.succeed(undefined)
+        const refused = (cause: SandboxRefused) =>
+          new LaunchFailed({
+            runId,
+            message: `Flow ${descriptor.name} selects sandbox provider ${selection.provider}: ${cause.message}`,
+            cause
+          })
+        if (descriptor.body._tag !== "Markdown") {
+          return Effect.fail(refused(
+            new SandboxRefused({
+              provider: selection.provider,
+              reason: "module",
+              message: "only prompt flows run in a sandbox"
+            })
+          ))
+        }
+        const provided = options.sandbox?.(selection)
+        return provided === undefined
+          ? Effect.fail(refused(
+            new SandboxRefused({
+              provider: selection.provider,
+              reason: "unconfigured",
+              message: "this host has no sandbox provider configured for it"
+            })
+          ))
+          : Effect.mapError(provided, refused)
+      })
+
+    /**
+     * The run's machine: the one this executor already holds for it, or one
+     * acquired now under the run's session key. It outlives the body, so a
+     * park and its resume act on the same files; {@link releaseSandbox} ends it.
+     */
+    const heldSandbox = (
+      runId: string,
+      descriptor: Descriptor.FlowDescriptor,
+      opener: SandboxOpener | undefined
+    ): Effect.Effect<SandboxedRun | undefined, unknown> =>
+      Effect.suspend(() => {
+        const selection = JSON.stringify(descriptor.sandbox)
+        const held = sandboxes.get(runId)
+        if (held === undefined && opener === undefined) return Effect.succeed(undefined)
+        if (held !== undefined) {
+          // A resume onto changed code keeps the machine its replayed tool
+          // receipts describe, so a different selection cannot take effect.
+          return held.selection === selection ? Effect.succeed(held.run) : Effect.fail(
             new LaunchFailed({
               runId,
-              message: `Flow ${descriptor.name} selects sandbox provider ${descriptor.sandbox.provider}, ` +
-                "which this agent host cannot execute",
-              cause: new Unavailable({
-                feature: `Sandbox provider ${descriptor.sandbox.provider}`,
-                ticket: "https://github.com/smithersai/smithers/issues/1790"
+              message: `Flow ${descriptor.name} changed its sandbox selection; this run keeps the machine it started on`,
+              cause: new SandboxRefused({
+                provider: descriptor.sandbox?.provider ?? "none",
+                reason: "options",
+                message: "the run's machine was acquired for a different selection"
               })
             })
           )
+        }
+        return Effect.flatMap(Scope.fork(sandboxScope), (machine) =>
+          opener!(`sandbox:${runId}`).pipe(
+            Scope.provide(machine),
+            Effect.onExit((exit) =>
+              Exit.isSuccess(exit)
+                ? Effect.sync(() => sandboxes.set(runId, { scope: machine, run: exit.value, selection }))
+                : Scope.close(machine, exit)
+            )
+          ))
+      })
+
+    /**
+     * Ends the machines of runs that settled while nothing here was driving
+     * them: a parked run cancelled here or by a peer is closed by the engine
+     * without entering its body, so no settlement of this executor sees it.
+     */
+    const releaseSettledSandboxes = Effect.suspend(() =>
+      Effect.forEach(
+        Array.from(sandboxes.keys()).filter((runId) => !activeBodies.has(runId)),
+        (runId) =>
+          runtime.getRun(runId).pipe(
+            Effect.flatMap((run) =>
+              run.status === "completed" || run.status === "failed" || run.status === "cancelled"
+                ? releaseSandbox(runId)
+                : Effect.void
+            ),
+            Effect.ignore
+          ),
+        { discard: true }
       )
+    )
 
     const approvedExecution = (
       runId: string,
@@ -3140,7 +3299,10 @@ export const make = (
           Effect.orElseSucceed(() => undefined)
         )
         const executionDigest = yield* approvedExecution(payload.runId, card, descriptor, recorded)
-        yield* ensureSandboxAvailable(payload.runId, descriptor)
+        const sandboxOpener = yield* sandboxFor(payload.runId, descriptor)
+        // Before either branch: a run holding a machine keeps running on it,
+        // even when changed code drops or alters its selection.
+        const sandboxed = yield* heldSandbox(payload.runId, descriptor, sandboxOpener)
         // The launch already validated the seat and body; re-validation here
         // guards a registry that changed between acceptance and execution.
         const flowBody = yield* registry.loadBody(card.flowId, executionDigest)
@@ -3350,7 +3512,7 @@ export const make = (
           registry,
           promptRunner: options.promptRunner,
           flows: [
-            ...(options.flows ?? []),
+            ...(sandboxed?.flows ?? options.flows ?? []),
             StandardFlows.clock(engineServices),
             StandardFlows.approval(options.asks === "refuse" ? StandardFlows.askerNoop() : asker(payload.runId))
           ],
@@ -3391,6 +3553,13 @@ export const make = (
           Effect.provide(options.quotaPolicy),
           Effect.provide(QuickJSSandbox.layer),
           Effect.provideService(Steering.Source, steering),
+          // The host's workspace observer and checkpoint store measure and pin
+          // the host tree, which a sandboxed run's tools never touch: the run
+          // is unobserved and has nowhere to pin, and says so.
+          (effect) =>
+            sandboxed === undefined
+              ? effect
+              : Effect.updateContext(effect, Context.omit(WorkspaceObservation.Observer, Checkpoints.Checkpoints)),
           // The pump is interrupted before the final flush so the two never
           // race for the same buffered entries, and the flush runs on the way
           // out of every exit — settled, failed, or parked — because a parked
@@ -4085,6 +4254,7 @@ export const make = (
       Effect.provide(drainRecordedSignals, services).pipe(Effect.repeat({ schedule: Schedule.spaced("250 millis") })),
       scope
     )
+    yield* Effect.forkIn(releaseSettledSandboxes.pipe(Effect.repeat({ schedule: Schedule.spaced("1 second") })), scope)
 
     const launch = (
       input: ControlExecutor.Launch
@@ -4098,7 +4268,7 @@ export const make = (
           // nothing here runs it, and something else still might.
           return "pending" as const
         }
-        yield* ensureSandboxAvailable(input.run.runId, descriptor.value)
+        yield* sandboxFor(input.run.runId, descriptor.value)
         const flowBody = yield* registry.loadBody(flowId, input.plan.card.executionDigest).pipe(
           Effect.mapError(
             (cause) =>

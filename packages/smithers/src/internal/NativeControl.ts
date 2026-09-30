@@ -66,6 +66,7 @@ import * as Discovery from "@smthrs/registry/Discovery"
 import * as Executable from "@smthrs/registry/Executable"
 import * as Registry from "@smthrs/registry/Registry"
 import { type AttemptStore, Ownership, RunStore } from "@smthrs/run-store"
+import { Sandbox as Machine } from "@smthrs/sandbox"
 import * as Checkpoints from "@smthrs/std/Checkpoints"
 import * as Container from "@smthrs/std/Container"
 import * as PortableSearch from "@smthrs/std/PortableSearch"
@@ -89,7 +90,7 @@ import {
 import type { Crypto, Path } from "effect"
 import * as Deferred from "effect/Deferred"
 import { SqlClient } from "effect/unstable/sql/SqlClient"
-import { randomUUID } from "node:crypto"
+import { createHash, randomUUID } from "node:crypto"
 import { existsSync, readFileSync } from "node:fs"
 import { homedir, hostname } from "node:os"
 import { dirname, join, resolve } from "node:path"
@@ -117,6 +118,7 @@ import {
   layerSeatCatalog,
   layerSeatEvaluator,
   layerSeatResolver,
+  sandboxProvidersFrom,
   sealedContainer,
   testFlows,
   testRunner,
@@ -310,6 +312,8 @@ export interface ExecutorOptions {
    * what turning it on means.
    */
   readonly rebuildAuthoredFlows?: boolean | undefined
+  /** The machines a flow's `sandbox:` may select; see `Application.Config.sandboxProviders`. */
+  readonly sandboxProviders?: Application.SandboxProviders | undefined
 }
 
 /** Existing service implementations selected by the executable boundary.
@@ -1050,7 +1054,8 @@ export const make = (
       mcpServers = [],
       modules: suppliedModules,
       quotaPolicy = QuotaPolicy.layerDefault(),
-      requestExecutor = native.requestExecutor
+      requestExecutor = native.requestExecutor,
+      sandboxProviders = sandboxProvidersFrom(environment)
     } = options
     // Observing commands keep discovery metadata-only. A run-capable local
     // host registers file modules after its engine and agent services exist.
@@ -1463,7 +1468,45 @@ export const make = (
           // with it. The catalog keeps the refusal, so `ls` still names it.
           ...(catalogRefresh === undefined ? {} : { onSourceApplied: AuthoredRebuild.rebuild(catalogRefresh) })
         })
+        // A sandboxed run's tools act on its machine and nowhere else: no host
+        // search, language server, workspace memory source, test runner or MCP
+        // server, each of which reaches this host. Memory and the judge are the
+        // operator's stores, not the workspace.
+        // Run ids restart at `run-1` in every project, and one container
+        // engine serves them all: a machine's key is the run's within this
+        // project's state, which is stable across parks and restarts.
+        const sandboxNamespace = createHash("sha256").update(stateRoot).digest("hex").slice(0, 16)
+        const sandbox = (selection: Descriptor.SandboxSelection) => {
+          const make = sandboxProviders[selection.provider]
+          if (make === undefined) return undefined
+          return Effect.try({
+            try: () => make(selection, { spawner: toolSpawner! }),
+            catch: (cause) =>
+              new AgentSession.SandboxRefused({
+                provider: selection.provider,
+                reason: "options",
+                message: cause instanceof Error ? cause.message : String(cause)
+              })
+          }).pipe(
+            Effect.map((provider): AgentSession.SandboxOpener => (session) =>
+              Effect.map(
+                Layer.build(Machine.layerHost(provider, { session: `${sandboxNamespace}:${session}` })),
+                (machine) => ({
+                  flows: [
+                    StandardFlows.filesystem(Context.pick(FileSystem.FileSystem, KernelPath.Path)(machine)),
+                    StandardFlows.shell(
+                      Context.pick(KernelChildProcessSpawner.ChildProcessSpawner, KernelPath.Path)(machine)
+                    ),
+                    StandardFlows.memory(memoryServices, judge, StandardFlows.hostWide),
+                    StandardFlows.jev(judge)
+                  ]
+                })
+              )
+            )
+          )
+        }
         const session = AgentSession.make({
+          sandbox,
           requestNativeCancel,
           canExecute,
           authorizeReleasedChildren: releasedChildResume.authorize,
@@ -1624,6 +1667,7 @@ export const make = (
         ...(config.stateRoot === undefined ? {} : { stateRoot: config.stateRoot }),
         ...(config.replayOnly === undefined ? {} : { replayOnly: config.replayOnly }),
         ...(config.rebuildAuthoredFlows === undefined ? {} : { rebuildAuthoredFlows: config.rebuildAuthoredFlows }),
+        ...(config.sandboxProviders === undefined ? {} : { sandboxProviders: config.sandboxProviders }),
         modules
       }),
       decorateNotifications,

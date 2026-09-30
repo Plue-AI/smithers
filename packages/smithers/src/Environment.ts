@@ -53,6 +53,7 @@ export const names: ReadonlyArray<Name> = [
   entry("TEST_CONTAINER", "The container the `test` flow runs in"),
   entry("TEST_CWD", "The repository's path inside that container"),
   entry("TEST_TIMEOUT_MS", "Wall-clock budget for one `test` invocation"),
+  entry("SANDBOX_IMAGE", "The image a flow's `sandbox: {provider: container}` runs in; unset refuses such flows"),
   entry("BASH_CONTAINER", "The one container `bash` may reach; host commands and host file flows are refused"),
   entry("ASKS", "`park` (the default) or `refuse`: whether an in-run `ask` waits for an operator or fails at once"),
   entry("BACKEND", "Database backend: `sqlite` or `postgres`"),

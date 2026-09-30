@@ -823,6 +823,53 @@ describe("Sandbox.layerHost", () => {
       expect(provider.state.released).toBe(1)
     }))
 
+  it.effect("resolves relative paths under the guest workdir, never this process's directory", () =>
+    Effect.gen(function*() {
+      const provider = Sandbox.TestSession.make({ workdir: "/guest/work" })
+      const outcome = yield* Effect.gen(function*() {
+        const path = yield* Path.Path
+        return {
+          relative: path.resolve("note.txt"),
+          nested: path.resolve("src", "../note.txt"),
+          absolute: path.resolve("note.txt", "/etc/hosts"),
+          between: path.relative("src", "/guest/work/note.txt"),
+          sep: path.sep
+        }
+      }).pipe(Effect.provide(Sandbox.layerHost(provider, { session: "rooted" })))
+      expect(outcome).toEqual({
+        relative: "/guest/work/note.txt",
+        nested: "/guest/work/note.txt",
+        absolute: "/etc/hosts",
+        between: "../note.txt",
+        sep: "/"
+      })
+    }))
+
+  it.effect("resolves relative paths under a Windows guest workdir, and names its file URLs there", () =>
+    Effect.gen(function*() {
+      const windows = Sandbox.TestSession.make({ workdir: "C:\\work" })
+      const posix = Sandbox.TestSession.make({ workdir: "/guest/work" })
+      const onWindows = yield* Effect.gen(function*() {
+        const path = yield* Path.Path
+        return {
+          relative: path.resolve("note.txt"),
+          nested: path.resolve("src", "..", "note.txt"),
+          drive: path.resolve("note.txt", "D:/other/x"),
+          root: path.resolve()
+        }
+      }).pipe(Effect.provide(Sandbox.layerHost(windows, { session: "windows" })))
+      expect(onWindows).toEqual({
+        relative: "C:/work/note.txt",
+        nested: "C:/work/note.txt",
+        drive: "D:/other/x",
+        root: "C:/work"
+      })
+      const url = yield* Effect.flatMap(Path.Path, (path) => path.toFileUrl("note.txt")).pipe(
+        Effect.provide(Sandbox.layerHost(posix, { session: "url" }))
+      )
+      expect(url.href).toBe("file:///guest/work/note.txt")
+    }))
+
   it.effect("serves a health probe over the machine it holds", () =>
     Effect.gen(function*() {
       const failing = new ProviderError({ code: "unavailable", message: "the vm is gone" })
