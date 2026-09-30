@@ -177,12 +177,15 @@ const seqOrNull = (value: unknown): number | null => {
 const strings = (value: unknown): Array<string> =>
   Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string" && entry !== "") : []
 
-/** The list a route answers: a bare array, or one under a named key. */
-const arrayOf = (body: unknown, key: string): ReadonlyArray<unknown> => {
+/** A required list: a bare array or one under its named key; malformed is not empty. */
+const arrayOrNull = (body: unknown, key: string): ReadonlyArray<unknown> | null => {
   if (Array.isArray(body)) return body
   if (isRecord(body) && Array.isArray(body[key])) return body[key]
-  return []
+  return null
 }
+
+/** Optional nested lists retain their existing empty fallback and tolerant row parsing. */
+const arrayOf = (body: unknown, key: string): ReadonlyArray<unknown> => arrayOrNull(body, key) ?? []
 
 /* ---- the change DTO (plue#450 / #459 / #460 / #464 / #467) ---- */
 
@@ -633,16 +636,16 @@ const parseAnalyzer = (value: unknown): ChangeAnalyzerRun | null => {
 }
 
 const parseWalkthrough = (value: unknown, seq: number | null): ChangeWalkthrough | null => {
-  if (!isRecord(value)) return null
+  if (!isRecord(value) || !Array.isArray(value.sections) || !Array.isArray(value.quiz)) return null
   return {
     seq,
-    sections: arrayOf(value.sections, "sections").flatMap((entry) => {
+    sections: value.sections.flatMap((entry) => {
       if (!isRecord(entry)) return []
       const title = str(entry.title)
       if (title === null) return []
       return [{ title, markdown: typeof entry.markdown === "string" ? entry.markdown : "", diagram: str(entry.diagram) }]
     }),
-    quiz: Array.isArray(value.quiz) ? value.quiz : []
+    quiz: value.quiz
   }
 }
 
@@ -844,8 +847,10 @@ export const createChangeSeam = (ctx: SeamContext, deps: ChangeSeamDeps = {}): C
   const loadConflicts = async (repoId: string, changeId: string): Promise<Read<ReadonlyArray<ConflictRow>>> => {
     const answer = await getJson(changePath(repoId, changeId, "/conflicts"))
     if ("error" in answer) return { unread: answer.error }
+    const rows = arrayOrNull(answer.body, "conflicts")
+    if (rows === null) return { unread: `Smithers Cloud's answer for the conflicts of ${changeId} was malformed` }
     return {
-      value: arrayOf(answer.body, "conflicts").flatMap((entry) => {
+      value: rows.flatMap((entry) => {
         const parsed = parseConflict(entry)
         return parsed === null ? [] : [parsed]
       })
@@ -865,8 +870,9 @@ export const createChangeSeam = (ctx: SeamContext, deps: ChangeSeamDeps = {}): C
     ]
     const answer = await getJson(changePath(repoId, changeId, `/diff${params.length === 0 ? "" : `?${params.join("&")}`}`))
     if ("error" in answer) return { unread: answer.error }
-    if (!isRecord(answer.body)) return { unread: `Smithers Cloud's answer for the diff of ${changeId} was malformed` }
-    const files = arrayOf(answer.body.file_diffs, "file_diffs").flatMap((entry) => {
+    const rows = isRecord(answer.body) ? arrayOrNull(answer.body, "file_diffs") : null
+    if (rows === null) return { unread: `Smithers Cloud's answer for the diff of ${changeId} was malformed` }
+    const files = rows.flatMap((entry) => {
       const parsed = parseDiffFile(entry, path !== undefined)
       return parsed === null || (path !== undefined && parsed.path !== path) ? [] : [parsed]
     })
@@ -889,7 +895,9 @@ export const createChangeSeam = (ctx: SeamContext, deps: ChangeSeamDeps = {}): C
   const loadLanding = async (repoId: string, changeId: string): Promise<Read<LandingHit | null>> => {
     const answer = await getJson(repoPath(repoId, "/landings?limit=100"))
     if ("error" in answer) return { unread: answer.error }
-    for (const entry of arrayOf(answer.body, "items")) {
+    const rows = arrayOrNull(answer.body, "items")
+    if (rows === null) return { unread: `Smithers Cloud's answer for the landing requests of ${repoId} was malformed` }
+    for (const entry of rows) {
       const landing = parseLanding(entry)
       if (landing === null) continue
       const index = landing.changeIds.indexOf(changeId)
@@ -902,8 +910,10 @@ export const createChangeSeam = (ctx: SeamContext, deps: ChangeSeamDeps = {}): C
   const loadComments = async (repoId: string, landingNumber: number): Promise<Read<ReadonlyArray<ChangeThread>>> => {
     const answer = await getJson(repoPath(repoId, `/landings/${landingNumber}/comments?limit=100`))
     if ("error" in answer) return { unread: answer.error }
+    const rows = arrayOrNull(answer.body, "comments")
+    if (rows === null) return { unread: `Smithers Cloud's answer for the comments of landing request #${landingNumber} was malformed` }
     return {
-      value: arrayOf(answer.body, "comments").flatMap((entry) => {
+      value: rows.flatMap((entry) => {
         const parsed = parseComment(entry)
         return parsed === null ? [] : [parsed]
       })
@@ -915,9 +925,11 @@ export const createChangeSeam = (ctx: SeamContext, deps: ChangeSeamDeps = {}): C
     if (commitId === null) return { unread: "the change carries no commit id to read statuses at" }
     const answer = await getJson(repoPath(repoId, `/commits/${encodeURIComponent(commitId)}/statuses?limit=100`))
     if ("error" in answer) return { unread: answer.error }
+    const rows = arrayOrNull(answer.body, "statuses")
+    if (rows === null) return { unread: `Smithers Cloud's answer for the statuses of ${commitId} was malformed` }
     return {
       value: newestPerContext(
-        arrayOf(answer.body, "statuses").flatMap((entry) => {
+        rows.flatMap((entry) => {
           const parsed = parseCheck(entry)
           return parsed === null ? [] : [parsed]
         })
@@ -934,14 +946,16 @@ export const createChangeSeam = (ctx: SeamContext, deps: ChangeSeamDeps = {}): C
   const loadFindings = async (repoId: string, changeId: string): Promise<Read<FindingsRead>> => {
     const answer = await getJson(changePath(repoId, changeId, "/findings"))
     if ("error" in answer) return { unread: answer.error }
-    const body = isRecord(answer.body) ? answer.body : {}
+    const findings = isRecord(answer.body) ? arrayOrNull(answer.body, "findings") : null
+    const analyzers = isRecord(answer.body) ? arrayOrNull(answer.body, "analyzers") : null
+    if (findings === null || analyzers === null) return { unread: `Smithers Cloud's answer for the findings of ${changeId} was malformed` }
     return {
       value: {
-        findings: arrayOf(body.findings, "findings").flatMap((entry) => {
+        findings: findings.flatMap((entry) => {
           const parsed = parseFinding(entry)
           return parsed === null ? [] : [parsed]
         }),
-        analyzers: arrayOf(body.analyzers, "analyzers").flatMap((entry) => {
+        analyzers: analyzers.flatMap((entry) => {
           const parsed = parseAnalyzer(entry)
           return parsed === null ? [] : [parsed]
         })
@@ -953,7 +967,10 @@ export const createChangeSeam = (ctx: SeamContext, deps: ChangeSeamDeps = {}): C
   const loadWalkthrough = async (repoId: string, changeId: string, seq: number | null): Promise<Read<ChangeWalkthrough | null>> => {
     const answer = await getJson(changePath(repoId, changeId, `/walkthrough${seq === null ? "" : `?rev=${seq}`}`))
     if ("error" in answer) return answer.status === 404 ? { value: null } : { unread: answer.error }
-    return { value: parseWalkthrough(answer.body, seq) }
+    const walkthrough = parseWalkthrough(answer.body, seq)
+    return walkthrough === null
+      ? { unread: `Smithers Cloud's answer for the walkthrough of ${changeId} was malformed` }
+      : { value: walkthrough }
   }
 
   /** The org's changesets, when the repository's owner IS an org; a read `null` means none carries this change here. */
@@ -962,9 +979,11 @@ export const createChangeSeam = (ctx: SeamContext, deps: ChangeSeamDeps = {}): C
     if (repository?.ownerKind !== "org") return { value: null }
     const answer = await getJson(`/orgs/${encodeURIComponent(repository.org)}/changesets`)
     if ("error" in answer) return { unread: answer.error }
+    const rows = arrayOrNull(answer.body, "changesets")
+    if (rows === null) return { unread: `Smithers Cloud's answer for the changesets of ${repository.org} was malformed` }
     return {
       value: changesetFor(
-        arrayOf(answer.body, "changesets").flatMap((entry) => {
+        rows.flatMap((entry) => {
           const parsed = parseChangeset(entry)
           return parsed === null ? [] : [parsed]
         }),
@@ -1127,7 +1146,7 @@ export const createChangeSeam = (ctx: SeamContext, deps: ChangeSeamDeps = {}): C
       reviews: detail.reviews,
       threads: "unread" in threads ? null : threads.value,
       /* plue#488: who has been asked; the landing DTO is the only place it lives. */
-      reviewRequests: hit === null ? [] : hit.landing.reviewRequests,
+      reviewRequests: "unread" in landing ? null : hit === null ? [] : hit.landing.reviewRequests,
       stack,
       turn: detail.turn ?? hit?.landing.turn ?? null,
       owners: detail.owners,

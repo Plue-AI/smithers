@@ -1873,3 +1873,191 @@ describe("change repository resolution", () => {
     expect(requests.filter((request) => request.startsWith("POST "))).toEqual([`POST ${otherRoute}/conflicts/resolve`])
   })
 })
+
+/* Required lists: a successful answer whose list is malformed is unread, never an empty list. */
+const settleStore = async (store: AppStore): Promise<void> => {
+  if (store.settled === undefined) throw new Error("Change fixture requires store.settled")
+  await store.settled()
+}
+
+const auxiliaryContainers = [
+  { panel: "conflicts", route: `${CHANGE_ROUTE}/conflicts`, empty: [], wrong: { conflicts: {} }, recovery: { conflicts: [{ file_path: "src/app.ts", resolution_status: "unresolved" }] } },
+  { panel: "findings", route: `${CHANGE_ROUTE}/findings`, empty: { findings: [], analyzers: [] }, wrong: { findings: {}, analyzers: [] }, recovery: FINDINGS },
+  { panel: "checks", route: `${REPO}/commits/a03f5f/statuses?limit=100`, empty: [], wrong: { statuses: {} }, recovery: STATUSES },
+  { panel: "walkthrough", route: `${CHANGE_ROUTE}/walkthrough?rev=2`, empty: { sections: [], quiz: [] }, wrong: { sections: {}, quiz: [] }, recovery: WALKTHROUGH },
+  { panel: "stack", route: `${REPO}/landings?limit=100`, empty: [], wrong: { items: {} }, recovery: { items: [LANDING] } },
+  { panel: "diff", route: `${CHANGE_ROUTE}/diff`, empty: { file_diffs: [] }, wrong: { file_diffs: {} }, recovery: DIFF }
+] as const
+for (const entry of auxiliaryContainers) {
+  for (const shape of ["null", "scalar", "wrong container", "empty"] as const) {
+    test(`${entry.panel} distinguishes ${shape} HTTP success from verified emptiness and recovers`, async () => {
+      let body: unknown = shape === "null" ? null : shape === "scalar" ? 42 : shape === "wrong container" ? entry.wrong : entry.empty
+      const { conflicts: _inline, ...withoutInline } = CHANGE
+      const { seam, store, storage, requests } = await harness({
+        ...viewRoutes,
+        [CHANGE_ROUTE]: json(200, entry.panel === "conflicts" ? withoutInline : CHANGE),
+        [entry.route]: request => json(200, body)(request)
+      })
+      expect(await seam.viewChange("qupxosqw")).toEqual({ value: "Change qupxosqw on will/smithers — the card tracks it." })
+      await settleStore(store)
+      const payload = payloadOf(store)
+      if (shape === "empty") {
+        expect(payload?.unread?.[entry.panel]).toBeUndefined()
+        if (entry.panel === "conflicts") expect(payload?.conflicts).toEqual([])
+        else if (entry.panel === "findings") {
+          expect(payload?.findings).toEqual([])
+          expect(payload?.analyzers).toEqual([])
+        } else if (entry.panel === "checks") expect(payload?.checks).toEqual([])
+        else if (entry.panel === "walkthrough") expect(payload?.walkthrough).toEqual({ seq: 2, sections: [], quiz: [] })
+        else if (entry.panel === "stack") {
+          expect(payload?.stack).toBeNull()
+          expect(payload?.threads).toEqual([])
+          expect(payload?.reviewRequests).toEqual([])
+        } else expect(payload?.diff).toEqual({ from: "parent", to: "current", files: [], sinceReview: null })
+      } else {
+        expect(payload?.[entry.panel]).toBeNull()
+        expect(payload?.unread?.[entry.panel]).toEqual(expect.any(String))
+        expect(payload?.unread?.[entry.panel]?.trim().length).toBeGreaterThan(0)
+        if (entry.panel === "findings") expect(payload?.analyzers).toBeNull()
+        if (entry.panel === "stack") {
+          expect(payload?.threads).toBeNull()
+          expect(payload?.reviewRequests).toBeNull()
+          expect(payload?.unread?.threads).toEqual(expect.any(String))
+        }
+      }
+      expect(requests.filter(request => request === `GET ${entry.route}`)).toHaveLength(1)
+      expect(store.collections.changes.get("will/smithers#qupxosqw")?.commitId).toBe("a03f5f")
+      expect(JSON.stringify(storage.snapshot())).toContain("Add the split flow")
+      body = entry.recovery
+      requests.length = 0
+      expect(await seam.viewChange("qupxosqw")).toEqual({ value: "Change qupxosqw on will/smithers — the card tracks it." })
+      await settleStore(store)
+      expect(payloadOf(store)?.unread?.[entry.panel]).toBeUndefined()
+      if (entry.panel === "conflicts") expect(payloadOf(store)?.conflicts).toEqual([{ path: "src/app.ts", state: "unresolved" }])
+      else if (entry.panel === "findings") expect(payloadOf(store)?.findings?.map(finding => finding.id)).toEqual([11, 12])
+      else if (entry.panel === "checks") expect(payloadOf(store)?.checks?.map(check => [check.context, check.state])).toEqual([["build", "success"], ["lint", "pending"]])
+      else if (entry.panel === "walkthrough") expect(payloadOf(store)?.walkthrough?.sections.map(section => section.title)).toEqual(["What changed", "How it flows"])
+      else if (entry.panel === "stack") expect(payloadOf(store)?.stack?.landingNumber).toBe(42)
+      else expect(payloadOf(store)?.diff?.files.map(file => file.path)).toEqual(["src/app.ts", "docs/guide.md"])
+      expect(requests.filter(request => request === `GET ${entry.route}`)).toHaveLength(1)
+    })
+  }
+}
+
+for (const panel of ["threads", "changeset"] as const) {
+  for (const shape of ["null", "scalar", "wrong container", "empty"] as const) {
+    test(`${panel} auxiliary distinguishes ${shape} from an empty list and recovers mixed rows`, async () => {
+      const route = panel === "threads" ? `${REPO}/landings/42/comments?limit=100` : "api/orgs/will/changesets"
+      let body: unknown = shape === "null" ? null : shape === "scalar" ? 42 : shape === "wrong container"
+        ? panel === "threads" ? { comments: {} } : { changesets: {} }
+        : panel === "threads" ? { comments: [] } : []
+      const { seam, store, requests } = await harness({ ...viewRoutes, [route]: request => json(200, body)(request) }, { ownerKind: panel === "changeset" ? "org" : "user" })
+      expect(await seam.viewChange("qupxosqw")).toEqual({ value: "Change qupxosqw on will/smithers — the card tracks it." })
+      await settleStore(store)
+      if (shape === "empty") {
+        expect(payloadOf(store)?.[panel]).toEqual(panel === "threads" ? [] : null)
+        expect(payloadOf(store)?.unread?.[panel]).toBeUndefined()
+      } else {
+        expect(payloadOf(store)?.[panel]).toBeNull()
+        expect(payloadOf(store)?.unread?.[panel]).toEqual(expect.any(String))
+        expect(payloadOf(store)?.unread?.[panel]?.trim().length).toBeGreaterThan(0)
+      }
+      expect(requests.filter(request => request === `GET ${route}`)).toHaveLength(1)
+      body = panel === "threads" ? { comments: [...COMMENTS, null, [], 42] } : [
+        { id: 7, organization: "will", superproject: "will/smithers", change_id: "qupxosqw", state: "pending", target_bookmark: "main", members: [], extra: "permitted" },
+        null, {}, { id: 8, state: "unknown" }
+      ]
+      requests.length = 0
+      expect(await seam.viewChange("qupxosqw")).toEqual({ value: "Change qupxosqw on will/smithers — the card tracks it." })
+      await settleStore(store)
+      expect(payloadOf(store)?.unread?.[panel]).toBeUndefined()
+      if (panel === "threads") {
+        expect(payloadOf(store)?.threads?.map(thread => [thread.id, thread.state, thread.author])).toEqual([[3, "open", "will"], [4, "done", "ana"], [5, "resolved", "will"]])
+      } else {
+        expect(payloadOf(store)?.changeset).toEqual({ id: 7, organization: "will", superproject: "will/smithers", changeId: "qupxosqw", state: "pending", failureReason: null, targetBookmark: "main", members: [] })
+      }
+      expect(requests.filter(request => request === `GET ${route}`)).toHaveLength(1)
+    })
+  }
+}
+
+for (const field of ["analyzers", "quiz"] as const) {
+  for (const shape of ["null", "scalar", "wrong container", "empty"] as const) {
+    test(`independent ${field} ${shape} does not borrow validity from its opposite array`, async () => {
+      const route = field === "analyzers" ? `${CHANGE_ROUTE}/findings` : `${CHANGE_ROUTE}/walkthrough?rev=2`
+      const value = shape === "null" ? null : shape === "scalar" ? 42 : shape === "wrong container" ? {} : []
+      let body: unknown = field === "analyzers" ? { findings: [], analyzers: value } : { sections: [], quiz: value }
+      const { seam, store } = await harness({ ...viewRoutes, [route]: request => json(200, body)(request) })
+      expect(await seam.viewChange("qupxosqw")).toEqual({ value: "Change qupxosqw on will/smithers — the card tracks it." })
+      await settleStore(store)
+      if (shape === "empty") {
+        if (field === "analyzers") {
+          expect(payloadOf(store)?.findings).toEqual([])
+          expect(payloadOf(store)?.analyzers).toEqual([])
+        } else expect(payloadOf(store)?.walkthrough).toEqual({ seq: 2, sections: [], quiz: [] })
+        expect(payloadOf(store)?.unread?.[field === "analyzers" ? "findings" : "walkthrough"]).toBeUndefined()
+      } else {
+        expect(payloadOf(store)?.[field === "analyzers" ? "findings" : "walkthrough"]).toBeNull()
+        expect(payloadOf(store)?.unread?.[field === "analyzers" ? "findings" : "walkthrough"]).toEqual(expect.any(String))
+        if (field === "analyzers") expect(payloadOf(store)?.analyzers).toBeNull()
+      }
+      body = field === "analyzers" ? FINDINGS : WALKTHROUGH
+      await seam.viewChange("qupxosqw")
+      await settleStore(store)
+      expect(payloadOf(store)?.unread?.[field === "analyzers" ? "findings" : "walkthrough"]).toBeUndefined()
+      if (field === "analyzers") expect(payloadOf(store)?.analyzers?.map(run => [run.name, run.state])).toEqual([["smithers-review", "finished"], ["lint", "paused"]])
+      else {
+        expect(payloadOf(store)?.walkthrough?.sections.map(section => section.title)).toEqual(["What changed", "How it flows"])
+        expect(payloadOf(store)?.walkthrough?.quiz).toEqual(WALKTHROUGH.quiz)
+      }
+    })
+  }
+}
+
+for (const malformed of [false, true]) {
+  test(`organization land ${malformed ? "refuses malformed" : "accepts genuinely empty"} changeset admission`, async () => {
+    const { seam, store, requests, bodies } = await harness({
+      ...viewRoutes,
+      "api/orgs/will/changesets": json(200, malformed ? { changesets: {} } : []),
+      [`PUT ${REPO}/landings/42/land`]: json(202, { status: "queued" })
+    }, { ownerKind: "org" })
+    const result = await seam.landChange("qupxosqw")
+    await settleStore(store)
+    if (malformed) {
+      expect(typeof result).toBe("string")
+      if (typeof result !== "string") throw new Error("Malformed changesets must refuse landing with a durable message")
+      expect(textOf(result)).toContain("The changesets qupxosqw might belong to weren't read")
+      expect(textOf(result)).toContain("nothing was landed")
+      expect(requests).toEqual(["GET api/orgs/will/changesets"])
+      expect([...store.collections.messages.values()].map(message => message.text)).toEqual([result])
+      expect([...store.collections.cards.values()]).toEqual([])
+    } else {
+      expect(result).toEqual({ value: "Landing request #42 is queued — it lands 1 → 2 together (mzxvbnmk, qupxosqw); the card tracks it." })
+      expect(requests.filter(request => request.startsWith("PUT "))).toEqual([`PUT ${REPO}/landings/42/land`])
+      expect(bodies[`PUT ${REPO}/landings/42/land`]).toBe('{"commit_id":"a03f5f"}')
+      expect([...store.collections.messages.values()]).toEqual([])
+    }
+  })
+}
+
+test("malformed findings reread replaces a successful panel with unread before valid recovery", async () => {
+  let body: unknown = FINDINGS
+  const { seam, store } = await harness({ ...viewRoutes, [`${CHANGE_ROUTE}/findings`]: request => json(200, body)(request) })
+  await seam.viewChange("qupxosqw")
+  await settleStore(store)
+  expect(payloadOf(store)?.findings?.map(finding => finding.id)).toEqual([11, 12])
+  expect(payloadOf(store)?.analyzers?.map(run => run.name)).toEqual(["smithers-review", "lint"])
+  body = { findings: {}, analyzers: [] }
+  await seam.viewChange("qupxosqw")
+  await settleStore(store)
+  expect(payloadOf(store)?.findings).toBeNull()
+  expect(payloadOf(store)?.analyzers).toBeNull()
+  expect(payloadOf(store)?.unread?.findings).toEqual(expect.any(String))
+  body = { findings: [], analyzers: [] }
+  await seam.viewChange("qupxosqw")
+  await settleStore(store)
+  expect(payloadOf(store)?.findings).toEqual([])
+  expect(payloadOf(store)?.analyzers).toEqual([])
+  expect(payloadOf(store)?.unread?.findings).toBeUndefined()
+})
+
