@@ -64,7 +64,18 @@ describe("environment CLI process boundary", () => {
     const { root, cli } = await fixture()
     expect(cli(["environment", "add", "dev", "--local", "--directory", root]).status).toBe(0)
     const output = join(root, "args.json")
-    const args = ["", "--terminal", "--help", "--format", "json", "two words", "$(touch injected)", "; touch injected"]
+    const args = [
+      "",
+      "--terminal",
+      "--help",
+      "--verbose",
+      "--verbose=false",
+      "--format",
+      "json",
+      "two words",
+      "$(touch injected)",
+      "; touch injected"
+    ]
     const result = cli([
       "environment",
       "exec",

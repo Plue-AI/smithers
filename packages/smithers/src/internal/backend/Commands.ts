@@ -164,6 +164,7 @@ export const mount = (cli: Cli.Cli<any, any, any, any>, runtime: Runtime) => {
                 ? Failure.terminalSafeValue(value)
                 : value
             } catch (error) {
+              if (options.verbose === true) client.write(`${Failure.operatorDetail(error)}\n`)
               throw client.failure(error)
             } finally {
               client.flushOutput()

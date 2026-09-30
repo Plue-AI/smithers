@@ -389,7 +389,24 @@ export const makeCli = (config: Bridge.Runtime = {}): ReturnType<typeof makeBuil
             config
           ))
     })
+  const verbose = (tree: NonNullable<ReturnType<typeof Cli.toCommands.get>>): void => {
+    for (const [name, entry] of tree) {
+      if ("_group" in entry) verbose(entry.commands)
+      else if ("run" in entry && entry.options?.shape.verbose === undefined) {
+        tree.set(name, {
+          ...entry,
+          options: (entry.options ?? z.object({})).extend({
+            verbose: z.boolean().default(false).describe("Show redacted diagnostic details")
+          })
+        })
+      }
+    }
+  }
+  // The backend mount retains local handlers for overlapping commands. Give
+  // those retained option schemas the common flag before they are captured.
+  verbose(Cli.toCommands.get(cli as never)!)
   mountBackend(cli, config)
+  verbose(Cli.toCommands.get(cli as never)!)
   // Incur 0.5 intercepts `mcp` before looking up registered commands. Dispatch
   // the mounted subtree directly so registration uses Agents.addMcp as documented.
   const serve = cli.serve.bind(cli)

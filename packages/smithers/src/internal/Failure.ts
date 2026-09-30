@@ -137,7 +137,7 @@ export const unknownSentence = "Something went wrong on our side. Not your fault
  */
 export const isTagged = (error: unknown): error is Error & { readonly _tag: string } => {
   try {
-    return error instanceof Error && typeof (error as { readonly _tag?: unknown })._tag === "string"
+    return error instanceof Error && tagOf(error) !== undefined
   } catch {
     return false
   }
@@ -150,6 +150,16 @@ const ownValue = (value: object, key: string): unknown => {
   } catch {
     return undefined
   }
+}
+
+/**
+ * A usable own data tag, without invoking accessors on a thrown value.
+ * @category getters
+ * @since 1.0.0
+ */
+export const tagOf = (error: unknown): string | undefined => {
+  const tag = typeof error === "object" && error !== null ? ownValue(error, "_tag") : undefined
+  return typeof tag === "string" && tag.length > 0 && !tag.endsWith("/") ? tag : undefined
 }
 
 /**
@@ -184,7 +194,7 @@ export const isDesigned = (error: unknown): error is Error => {
 export const operatorSentence = (error: unknown): string => {
   if (!isDesigned(error)) {
     // A decoded refusal can arrive as a plain `{ _tag, message }` record.
-    const tag = typeof error === "object" && error !== null ? ownValue(error, "_tag") : undefined
+    const tag = tagOf(error)
     const message = typeof error === "object" && error !== null ? ownValue(error, "message") : undefined
     return typeof tag === "string" && typeof message === "string" && message !== ""
       ? terminalSafe(message)
@@ -203,7 +213,7 @@ export const operatorSentence = (error: unknown): string => {
  * @since 1.0.0-rc.1
  */
 export const displayName = (error: Error): string => {
-  const tag = (error as { readonly _tag?: unknown })._tag
+  const tag = tagOf(error)
   return typeof tag === "string" && tag.length > 0 ? tag.slice(tag.lastIndexOf("/") + 1) : error.name
 }
 
@@ -247,7 +257,7 @@ const rawDetail = (error: unknown, depth: number): string => {
         : `${text}\nCaused by: ${rawDetail(cause, depth + 1)}`
     }
     if (typeof error === "string") return error
-    const json = JSON.stringify(error)
+    const json = JSON.stringify(Redaction.redactDiagnostic(error))
     return json === undefined ? String(error) : json
   } catch {
     return "Unprintable error"

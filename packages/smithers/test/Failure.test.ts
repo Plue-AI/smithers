@@ -173,6 +173,25 @@ describe("Failure.operatorReport", () => {
 })
 
 describe("Failure.operatorDetail", () => {
+  it("redacts nested object credentials before serializing diagnostic detail", () => {
+    const detail = Failure.operatorDetail({ outer: { password: "synthetic-verbose-secret", cause: "still useful" } })
+    expect(detail).not.toContain("synthetic-verbose-secret")
+    expect(detail).toContain("still useful")
+    expect(detail).toContain("[REDACTED]")
+  })
+
+  it("does not execute an accessor tag while selecting an operator sentence", () => {
+    let read = 0
+    const cause = Object.defineProperty(new TypeError("untrusted"), "_tag", {
+      get: () => {
+        read++
+        return "/pretend/Designed"
+      }
+    })
+    expect(Failure.operatorSentence(cause)).toBe(Failure.unknownSentence)
+    expect(read).toBe(0)
+  })
+
   it("is the redacted, terminal-safe raw text, for --verbose only", () => {
     const detail = Failure.operatorDetail(new Error("api_key=privatevalue123456 \u001b]0;title\u0007boom"))
 

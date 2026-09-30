@@ -71,7 +71,7 @@ export const policy = (context: Context, runtime: RuntimeConfig = {}): Audience.
     mcp: protocol,
     formatExplicit: base?.structured === true || context.formatExplicit,
     silent: context.globals?.silent === true || base?.progress === "silent",
-    verbose: base?.audience === "agent" && base.progress === "plain"
+    verbose: context.options?.verbose === true || (base?.audience === "agent" && base.progress === "plain")
   })
 }
 
@@ -289,16 +289,16 @@ export interface Refusal {
  * @since 1.0.0
  */
 export const fail = (context: Failing, cause: unknown, refusal: Refusal = {}): never => {
-  const error = cause as { _tag?: string; message?: string } | null
+  const tag = Failure.tagOf(cause)
   return context.error({
     code: NodeDatabase.isUnsupportedDatabase(cause) ?
       cause.code :
-      refusal.code ?? (cause instanceof CliError.Refused ? cause.code : error?._tag?.split("/").pop()) ??
+      refusal.code ?? (cause instanceof CliError.Refused ? cause.code : tag?.split("/").pop()) ??
         "command_failed",
     message: String(
-      Redaction.redactDiagnostic(Failure.operatorSentence(cause))
+      Redaction.redactDiagnostic(Failure.operatorReport(cause, context.options?.verbose === true))
     ),
-    exitCode: error?._tag === "/cli/UsageError" ? 2 : refusal.exitCode ?? 1
+    exitCode: tag === "/cli/UsageError" ? 2 : refusal.exitCode ?? 1
   })
 }
 

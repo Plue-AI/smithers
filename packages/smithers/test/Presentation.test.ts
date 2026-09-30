@@ -266,6 +266,45 @@ describe("shared command presentation", () => {
     expect(errors).toEqual([{ code: "command_failed", exitCode: 1, message }])
   })
 
+  it.each([undefined, false, true])("shows redacted unexpected details only with verbose=%s", async (verbose) => {
+    const cause = new TypeError("unexpected outer failure", {
+      cause: new Error("Authorization: Bearer synthetic-verbose-secret")
+    })
+    let failure: { code: string; message: string; exitCode?: number } | undefined
+    await Presentation.guard({
+      options: { verbose },
+      error: (value) => {
+        failure = value
+        return undefined as never
+      }
+    }, () => Promise.reject(cause))
+    expect(failure).toMatchObject({ code: "command_failed", exitCode: 1 })
+    expect(failure!.message).not.toContain("synthetic-verbose-secret")
+    if (verbose) {
+      expect(failure!.message).toContain("unexpected outer failure")
+      expect(failure!.message).toContain("Caused by:")
+      expect(failure!.message).toContain("[REDACTED_TOKEN]")
+    } else expect(failure!.message).toBe("Something went wrong on our side. Not your fault.")
+  })
+
+  it.each([undefined, null, 42, {}, "", "/invalid/"])(
+    "reports a malformed tag without masking the original failure (%#)",
+    (_tag) => {
+      const errors: Array<unknown> = []
+      Presentation.fail({
+        error: (value) => {
+          errors.push(value)
+          return undefined as never
+        }
+      }, { _tag, message: "untrusted runtime detail" })
+      expect(errors).toEqual([{
+        code: "command_failed",
+        exitCode: 1,
+        message: "Something went wrong on our side. Not your fault."
+      }])
+    }
+  )
+
   it("preserves raw results outside a rendering invocation or without an ok adapter", async () => {
     const value = { runId: "run-1" }
     expect(Presentation.finish({ ok }, value)).toBe(value)
