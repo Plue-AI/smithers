@@ -256,11 +256,14 @@ export const ApprovalsInboxCardBody = ({
           <Confirmation key={approvalRowKey(approval)} state={state}>
             {approval.question === undefined || approval.decision !== undefined || approval.pending === true ?
               <div className="sui-approval-question">{approval.question?.prompt ?? approval.title}</div> : null}
-            <ConfirmationRequest>
-              <p className="sui-approval-meta">
-                <RunRef runId={approval.runId} onRunCommand={onRunCommand} /> · {clockLabel(approval.requestedAt)}
-              </p>
-            </ConfirmationRequest>
+            {/* A build target's approval is a plan, not a run: its title names it. */}
+            {approval.runId.startsWith("plan:") ? null : (
+              <ConfirmationRequest>
+                <p className="sui-approval-meta">
+                  <RunRef runId={approval.runId} onRunCommand={onRunCommand} /> · {clockLabel(approval.requestedAt)}
+                </p>
+              </ConfirmationRequest>
+            )}
             {approval.decision !== undefined || approval.pending === true ?
               null :
               approval.question !== undefined ?

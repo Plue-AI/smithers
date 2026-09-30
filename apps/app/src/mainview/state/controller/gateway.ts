@@ -13,7 +13,7 @@
  * this app's typecheck AND a row the gateway never served fails here instead
  * of reaching a user as an undefined field.
  */
-import { ControlEvent, PlanCard, type PlanEdge, type PlanGraphNode, type PlanNode, type SteerMessage } from "@smthrs/control/ControlSchema"
+import { ControlEvent, PlanCard, type PlanEdge, type PlanGraphNode, type PlanNode, PlanSummary, type SteerMessage } from "@smthrs/control/ControlSchema"
 import { ApprovalRow, FlowDurationRow, NodeOutputRow, RunSummaryRow, TranscriptRow } from "@smthrs/gateway/GatewayProjection"
 import { ProjectionCursor } from "@smthrs/gateway/GatewaySchema"
 import { SubmitApprovalOutput } from "@smthrs/gateway/GatewayRpcs"
@@ -170,6 +170,32 @@ const decodeNodeOutputRow = firstRowDecoder(rowsDecoder(Schema.decodeUnknownOpti
 const decodeTranscriptRows = rowsDecoder(Schema.decodeUnknownOption(snapshotOf(TranscriptRow)))
 const decodeControlEventRows = rowsDecoder(Schema.decodeUnknownOption(snapshotOf(ControlEvent)))
 const decodeFlowDurationRows = rowsDecoder(Schema.decodeUnknownOption(snapshotOf(FlowDurationRow)))
+
+/** One page of stored plans (`List { _tag: "plans" }`). */
+const decodePlanPage = Schema.decodeUnknownOption(Schema.Struct({
+  _tag: Schema.Literal("plans"),
+  items: Schema.Array(PlanSummary),
+  nextCursor: Schema.optional(Schema.String)
+}))
+const TargetInput = Schema.Struct({ label: Schema.String, digest: Schema.String })
+const isTargetInput = Schema.is(TargetInput)
+/** The most plan pages one inbox read walks: 50 pages of 100 plans. */
+const PLAN_PAGE_CAP = 50
+
+/**
+ * A pending build target revision as an inbox row: the run is the plan's own
+ * partition, the title is the target and its short revision, and the payload
+ * is the plan approval `Approval.Submit` takes.
+ */
+const targetRow = (plan: PlanSummary, input: typeof TargetInput.Type): ApprovalRow => ({
+  runId: `plan:${plan.card.planId}`,
+  requestId: plan.card.planId,
+  title: `${input.label} ${input.digest.slice(0, 12)}`,
+  request: input,
+  payload: plan.card.approval,
+  requestedAt: 0,
+  status: "pending"
+})
 
 
 /**
@@ -536,6 +562,32 @@ export const createGatewaySeam = (transport: GatewayTransport) => {
     /** The approvals inbox: every pending gate across the workspace's runs. */
     approvalsInbox: async (repo: string, binding?: GatewayWorkspaceBinding): Promise<GatewayResult<ReadonlyArray<ApprovalRow>>> =>
       decodeApprovalRows(await projection(repo, { _tag: "approvals" }, binding)),
+
+    /**
+     * Build targets waiting for approval: the box's pending `system/target`
+     * plans, as inbox rows. A box that answers no plan listing, or more pages
+     * than one read walks, refuses; the caller decides what that means.
+     */
+    targetApprovals: async (repo: string, binding?: GatewayWorkspaceBinding): Promise<GatewayResult<ReadonlyArray<ApprovalRow>>> => {
+      const rows: Array<ApprovalRow> = []
+      let cursor: string | undefined
+      for (let pages = 0; pages < PLAN_PAGE_CAP; pages++) {
+        const listed = await call(repo, "List", {
+          _tag: "plans",
+          filters: { flowId: "system/target", decision: "pending" },
+          ...(cursor === undefined ? {} : { cursor })
+        }, binding)
+        if (listed.status !== "ok") return listed
+        const page = decodePlanPage(listed.value)
+        if (Option.isNone(page)) {
+          return { status: "error", message: "The workspace answered with a plan list I couldn't read.", code: INVALID_PROJECTION_CODE }
+        }
+        for (const plan of page.value.items) if (isTargetInput(plan.input)) rows.push(targetRow(plan, plan.input))
+        if (page.value.nextCursor === undefined || page.value.items.length === 0) return { status: "ok", value: rows }
+        cursor = page.value.nextCursor
+      }
+      return { status: "error", message: "The workspace lists more build targets than Smithers reads." }
+    },
 
     /** One run's turn-by-turn transcript. */
     transcript: async (repo: string, runId: string, binding?: GatewayWorkspaceBinding): Promise<GatewayResult<ReadonlyArray<TranscriptRow>>> =>

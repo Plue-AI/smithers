@@ -1027,6 +1027,22 @@ export const createRunsController = (
   const inboxRequestFor = (key: string): ApprovalsInboxRequest | undefined =>
     (store.session().approvalsInboxRequests ?? []).find((row) => inboxCardIdFor(row.repo, row.workspaceId) === key)
 
+  /** The build target rows an inbox card already lists, as the rows that listed them. */
+  const listedTargets = (cardId: string): ReadonlyArray<ApprovalRow> => {
+    const card = store.collections.cards.get(cardId)
+    return card?.kind !== "approvals-inbox" ? [] : card.payload.approvals
+      .filter((row) => row.runId.startsWith("plan:"))
+      .map((row) => ({
+        runId: row.runId,
+        requestId: row.requestId,
+        title: row.title,
+        request: null,
+        payload: row.approval as ApprovalRow["payload"],
+        requestedAt: row.requestedAt,
+        status: "pending" as const
+      }))
+  }
+
   const resultSaveFailure = "Approvals could not be saved. Try again."
   const publishInbox = async (repo: string, binding: { readonly workspaceId?: string }, rows: ReadonlyArray<ApprovalRow>): Promise<number> => {
     const pending = rows.filter((row) => row.status === "pending")
@@ -1124,7 +1140,15 @@ export const createRunsController = (
           await reconcileRunApprovals(store, { repo: request.repo, runId, ...binding }, inbox.value.filter((row) => row.runId === runId))
           if (!current()) return TOAST_SUPERSEDED
         }
-        const pending = registrationCount + await publishInbox(request.repo, binding, inbox.value)
+        // Build targets waiting for approval list beside the runs' gates. When
+        // the plan listing is refused (a box that predates it has none), the
+        // target rows already listed stand rather than vanish.
+        const targets = await gateway.targetApprovals(request.repo, binding)
+        if (!current()) return TOAST_SUPERSEDED
+        const pending = registrationCount + await publishInbox(request.repo, binding, [
+          ...inbox.value,
+          ...targets.status === "ok" ? targets.value : listedTargets(inboxCardIdFor(request.repo, binding.workspaceId))
+        ])
         if (!await settle()) return TOAST_SUPERSEDED
         const approvals = `${pending} approval${pending === 1 ? "" : "s"} pending`
         if (unread > 0) {
