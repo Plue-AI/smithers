@@ -644,4 +644,41 @@ describe("durable history CLI", () => {
       control.close()
     }
   )
+
+  it.skipIf(spawnSync("jj", ["--version"], { stdio: "ignore" }).status !== 0)(
+    "forks with one recorded step result edited on the child only",
+    async () => {
+      const root = await fixture(true)
+      editDatabase(root, "engine", (db) => {
+        const event = db.prepare(
+          "INSERT INTO flows_journal_events(run_id,seq,event_id,source_id,source_seq,emitted_at_ms,event_type,payload_json,meta_json) VALUES('run-1',?,?,'fixture',?,0,?,?,?)"
+        )
+        const attempt = JSON.stringify({ runId: "run-1", stepKeyDigest: "d1", attempt: 1 })
+        const lineage = JSON.stringify({ lineageId: "fixture/root" })
+        event.run(3, "started", 3, "flows.engine.attempt-started", attempt, lineage)
+        event.run(4, "finished", 4, "flows.engine.attempt-finished", attempt, lineage)
+        db.prepare(
+          "INSERT INTO flows_attempts(run_id,step_key_digest,attempt,state,started_at_ms,finished_at_ms,outcome_json,meta_json) VALUES('run-1','d1',1,'succeeded',0,0,?,?)"
+        ).run(JSON.stringify("original"), JSON.stringify({ tier: "sealed" }))
+      })
+      const refused = History.mutate(root, "run-1", {
+        sequence: 4,
+        override: { stepKeyDigest: "missing", result: "edited" }
+      }, "fork")
+      await expect(refused).rejects.toMatchObject({ code: "not_found" })
+      const result = await History.mutate(root, "run-1", {
+        sequence: 4,
+        override: { stepKeyDigest: "d1", result: { text: "edited" } }
+      }, "fork")
+      const engine = new DatabaseSync(join(root, ".flows", "engine.db"), { readOnly: true })
+      const outcome = (runId: string) =>
+        JSON.parse(String(
+          engine.prepare("SELECT outcome_json FROM flows_attempts WHERE run_id=? AND step_key_digest='d1'").get(runId)!
+            .outcome_json
+        ))
+      expect(outcome(result.runId)).toEqual({ text: "edited" })
+      expect(outcome("run-1")).toBe("original")
+      engine.close()
+    }
+  )
 })

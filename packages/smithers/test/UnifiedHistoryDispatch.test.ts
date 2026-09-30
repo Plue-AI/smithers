@@ -1,5 +1,5 @@
 import { Cli } from "incur"
-import { mkdtempSync, rmSync } from "node:fs"
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, relative, resolve } from "node:path"
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -262,6 +262,46 @@ describe("unified historical command dispatch", () => {
     expect(result.stdout).toContain("history_failed")
     expect(result.stdout).toContain("[REDACTED_TOKEN]")
     expect(result.stdout).not.toContain("private-fixture")
+  })
+
+  it("forks with one step result edited from inline JSON or a file", async () => {
+    const file = join(directory, "result.json")
+    writeFileSync(file, JSON.stringify({ text: "from file" }))
+    for (const [result, expected] of [["\"inline\"", "inline"], [`@${file}`, { text: "from file" }]] as const) {
+      ports.mutate.mockClear()
+      const run = await invoke(
+        ["fork", "run-1", "--root", directory, "--at", "4", "--step", "d1", "--result", result],
+        {
+          environment: {}
+        }
+      )
+      expect(run.codes).toEqual([])
+      expect(ports.mutate).toHaveBeenCalledExactlyOnceWith(
+        directory,
+        "run-1",
+        {
+          root: directory,
+          quiet: false,
+          at: 4,
+          limit: 10_000,
+          sequence: 4,
+          override: { stepKeyDigest: "d1", result: expected }
+        },
+        "fork",
+        undefined
+      )
+    }
+  })
+
+  it.each([
+    [["--step", "d1"], "--step and --result edit a step together"],
+    [["--result", "1"], "--step and --result edit a step together"],
+    [["--step", "d1", "--result", "{not json"], "--result must be JSON"]
+  ])("refuses an incomplete or malformed step edit %j before forking", async (flags, message) => {
+    const result = await invoke(["fork", "run-1", "--root", directory, "--at", "4", ...flags], { environment: {} })
+    expect(result.codes).toEqual([2])
+    expect(result.stdout).toContain(message)
+    expect(ports.mutate).not.toHaveBeenCalled()
   })
 
   it.each(["fork", "rewind"])(

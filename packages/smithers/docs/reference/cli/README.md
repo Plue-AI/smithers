@@ -221,7 +221,9 @@ They open existing stores read-only, on SQLite or PostgreSQL: they migrate
 nothing, start no recovery, and answer while another process is writing. `runs fork <run> --at <sequence>` requires an
 eligible parked/terminal agent run, its approved plan, and `jj`, and retains
 an isolated workspace under `.flows/forks/`. Resume the returned child run
-with `runs resume`.
+with `runs resume`. `--step <digest> --result <json|@file>` edits one recorded
+step result on the child: it replays the edited value and runs every step after
+the frame again, while the parent keeps its own result.
 SQLite read-only statements wait at most one second for a peer lock before failing; observing opens do not migrate or acquire a writer lock.
 
 A run records the execution digest of the flow that started it and the engine
@@ -341,6 +343,9 @@ the hidden-alias table.
   and removed verb lists are both kept closed.
 
 ### Workspace commands
+
+`smthrs workspace create --ref NAME` checks out one of your pushed refs
+(`smthrs repo push --name NAME`) in a new workspace without starting a run.
 
 `smthrs workspace exec BOX --repo OWNER/REPO --command 'pnpm test' --exec-id tests-1`
 admits a command and polls its durable receipt. Reuse the same ID and inputs to

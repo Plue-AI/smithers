@@ -13,6 +13,8 @@ Options:
   --at <number>          Exact journal sequence to branch or rewind to
   --lineage <string>     Lineage ID; defaults to the lineage recorded at the frame
   --limit <number>       Maximum journal entries to read (default: 10000)
+  --step <string>        Step key digest whose recorded result the fork replaces
+  --result <string>      The replacement result as JSON, or @file to read it from a file
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

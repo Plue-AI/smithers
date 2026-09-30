@@ -15,6 +15,7 @@ import { Ownership, RunStore } from "@smthrs/run-store"
 import { CacheStore } from "@smthrs/step-cache"
 import { EffectBoundary, ReadOnlyTimeTravel, SqlTimeTravelStore, TimeTravel } from "@smthrs/time-travel"
 import { forkWorkspaceName, type Position } from "@smthrs/time-travel/TimeTravel"
+import type { StepOverride } from "@smthrs/time-travel/TimeTravelStore"
 import { TimeTravelStore } from "@smthrs/time-travel/TimeTravelStore"
 import { Cause, Context, Effect, Exit, Layer } from "effect"
 import { SqlClient } from "effect/unstable/sql/SqlClient"
@@ -41,6 +42,8 @@ export interface Options {
   readonly limit?: number | undefined
   /** Rewind only: restore the frame's jj operation instead of only its tree. */
   readonly wholeRepo?: boolean | undefined
+  /** Fork only: the step result the child replays in place of the parent's. */
+  readonly override?: StepOverride | undefined
 }
 
 /**
@@ -454,7 +457,8 @@ export const mutate = async (
               result: yield* service.fork(observed.position, {
                 workspaceRoot: join(Project.stateDirectory(root), "forks"),
                 retainWorkspace: true,
-                maxHistoryEntries: options.limit ?? 10_000
+                maxHistoryEntries: options.limit ?? 10_000,
+                ...(options.override === undefined ? {} : { override: options.override })
               })
             } :
             {

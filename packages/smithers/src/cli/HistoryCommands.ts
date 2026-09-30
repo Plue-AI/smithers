@@ -3,7 +3,10 @@
  * @since 1.0.0
  */
 
+import type { Schema } from "effect"
 import { type Cli, z } from "incur"
+import { readFileSync } from "node:fs"
+import * as CliError from "../CliError.ts"
 import * as Environment from "../Environment.ts"
 import * as History from "../history/History.ts"
 import * as Verify from "../history/Verify.ts"
@@ -21,6 +24,25 @@ const mutationOptions = options.extend({
   at: z.number().int().nonnegative().describe("Exact journal sequence to branch or rewind to")
 })
 const parameters = (parsed: z.output<typeof options>): History.Options => ({ ...parsed, sequence: parsed.at })
+
+const forkOptions = mutationOptions.extend({
+  step: z.string().min(1).optional().describe("Step key digest whose recorded result the fork replaces"),
+  result: z.string().optional().describe("The replacement result as JSON, or @file to read it from a file")
+})
+
+/** The `--step`/`--result` pair as a fork override; one without the other is a usage error. */
+const override = (parsed: z.output<typeof forkOptions>): History.Options["override"] => {
+  if (parsed.step === undefined && parsed.result === undefined) return undefined
+  if (parsed.step === undefined || parsed.result === undefined) {
+    throw new CliError.UsageError({ message: "--step and --result edit a step together; pass both" })
+  }
+  const text = parsed.result.startsWith("@") ? readFileSync(parsed.result.slice(1), "utf8") : parsed.result
+  try {
+    return { stepKeyDigest: parsed.step, result: JSON.parse(text) as Schema.Json }
+  } catch {
+    throw new CliError.UsageError({ message: "--result must be JSON" })
+  }
+}
 const refusal = { code: "history_failed" } as const
 
 /**
@@ -92,18 +114,21 @@ export const appendHistoryCommands = (cli: Cli.Cli, runtime: Bridge.Runtime = {}
       description: "Branch a parked run at a historical frame into a durable, isolated workspace",
       mcp: { annotations: { readOnlyHint: false } },
       args,
-      options: mutationOptions,
+      options: forkOptions,
       run(c) {
         return Presentation.guard(
           c,
-          () =>
-            History.mutate(
+          async () => {
+            const { step: _step, result: _result, ...address } = c.options
+            const edit = override(c.options)
+            return await History.mutate(
               Project.localRoot(c.options, runtime.environment ?? process.env),
               c.args.run,
-              parameters(c.options),
+              { ...parameters(address), ...(edit === undefined ? {} : { override: edit }) },
               "fork",
               runtime.signal
-            ),
+            )
+          },
           refusal
         )
       }
