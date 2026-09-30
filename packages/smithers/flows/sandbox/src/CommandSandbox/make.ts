@@ -9,9 +9,10 @@ import * as Deferred from "effect/Deferred"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import type * as Scope from "effect/Scope"
-import type * as Stream from "effect/Stream"
+import * as Stream from "effect/Stream"
 import * as ChildProcess from "effect/unstable/process/ChildProcess"
 import type { ChildProcessHandle, ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
+import { encodeBase64 } from "../internal/base64.ts"
 import { elapsed } from "../internal/deadline.ts"
 import { execSession } from "../internal/execSession.ts"
 import { finalizeWithin } from "../internal/finalizeWithin.ts"
@@ -57,6 +58,13 @@ export interface CommandSandboxOptions {
 }
 
 const bootProbe = "cat /proc/sys/kernel/random/boot_id 2>/dev/null || true"
+// One shell-quoted script frame, then the original environment/command input.
+// The temporary variable stays in the substitution's subshell, preserving an
+// inherited variable with that name. Quoting preserves trailing newlines; the
+// exec chain keeps the same stdin and pid.
+const scriptBootstrap =
+  `eval "$(IFS= read -r smthrs_script && smthrs_script=$(printf %s "$smthrs_script" | base64 -d) && ` +
+  `printf 'set -- %s' "$smthrs_script" || printf 'exit 125')" || exit 125; [ "$#" -eq 1 ] || exit 125; exec /bin/sh -c "$1"`
 
 /**
  * Builds a sandbox provider whose machine is whatever the prefix reaches.
@@ -90,8 +98,21 @@ export const make = (options: CommandSandboxOptions): Provider => {
   ): Effect.Effect<ChildProcessHandle, ProviderError, Scope.Scope> =>
     Effect.flatMap(current, (prefix) => {
       const joins = options.joinsArguments ?? /(^|\/)ssh(\.exe)?$/.test(prefix[0] ?? "")
-      const [program, ...rest] = [...prefix, ...(joins ? [args.map(CommandLine.quote).join(" ")] : args)]
-      return options.spawner.spawn(ChildProcess.make(program!, rest, stdin === undefined ? {} : { stdin })).pipe(
+      let guest = args
+      let input = stdin
+      if (args.length === 3 && args[0] === "/bin/sh" && args[1] === "-c") {
+        const script = args[2]!
+        if (script.includes("\0")) {
+          return Effect.fail(new ProviderError({ code: "spawn_error", message: "shell script must not contain NUL" }))
+        }
+        const frame = Stream.make(
+          new TextEncoder().encode(`${encodeBase64(new TextEncoder().encode(CommandLine.quote(script)))}\n`)
+        )
+        input = stdin === undefined ? frame : Stream.concat(frame, stdin)
+        guest = ["/bin/sh", "-c", scriptBootstrap]
+      }
+      const [program, ...rest] = [...prefix, ...(joins ? [guest.map(CommandLine.quote).join(" ")] : guest)]
+      return options.spawner.spawn(ChildProcess.make(program!, rest, input === undefined ? {} : { stdin: input })).pipe(
         // The platform error names the whole argv; only its kind is kept.
         Effect.mapError((error) => unreachable(`${name} could not be reached: ${error.reason._tag}`))
       )
@@ -122,11 +143,17 @@ export const make = (options: CommandSandboxOptions): Provider => {
           baseline: string
         ): Effect.Effect<"alive" | "restarted" | "silent"> =>
           Effect.map(
-            run(shell(
-              pidfile === undefined
-                ? bootProbe
-                : `b=$(${bootProbe}); printf '%s' "$b"; test -e ${pidfile}.boot && [ "$b" = "$(cat ${pidfile}.boot)" ] || exit 3`
-            )),
+            Effect.flatMap(
+              start(
+                shell(
+                  pidfile === undefined
+                    ? bootProbe
+                    : `b=$(${bootProbe}); printf '%s' "$b"; test -e ${pidfile}.boot && [ "$b" = "$(cat ${pidfile}.boot)" ] || exit 3`
+                ),
+                undefined
+              ),
+              (handle) => gather(handle, "heartbeat")
+            ),
             (answer) => {
               const now = new TextDecoder().decode(answer.stdout).trim()
               if (answer.code !== 0 && answer.code !== 3) return "silent" as const
@@ -137,7 +164,10 @@ export const make = (options: CommandSandboxOptions): Provider => {
             }
           ).pipe(
             Effect.catch(() => Effect.succeed("silent" as const)),
-            Effect.raceFirst(Effect.as(elapsed(Duration.times(heartbeat, 2)), "silent" as const))
+            Effect.raceFirst(Effect.as(elapsed(Duration.times(heartbeat, 2)), "silent" as const)),
+            // Bound the response, then close its process scope. Cleanup is not
+            // evidence that a machine which already answered stopped answering.
+            Effect.scoped
           )
         // One silent beat is a blip, such as a failed grant fetch; two in a
         // row, or a restart, end the command.
