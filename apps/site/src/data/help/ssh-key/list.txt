@@ -2,6 +2,9 @@ smthrs ssh-key list — List SSH keys
 
 Usage: smthrs ssh-key list [options]
 
+Options:
+  --verbose  Show redacted diagnostic details
+
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
   --silent                       Suppress progress; retain the result and actionable failures

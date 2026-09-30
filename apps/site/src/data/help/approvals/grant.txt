@@ -11,6 +11,7 @@ Options:
   --remote <string>    Remote control plane URL; defaults to SMITHERS_REMOTE
   --input <array>      Payload input the target runs with, as name=value; repeatable
   --revision <string>  The pending revision to approve, from approvals list --targets
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

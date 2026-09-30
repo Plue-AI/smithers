@@ -17,6 +17,7 @@ Options:
   --trigger <string>                                                              Only runs this trigger started
   --limit <number>                                                                Runs per page (default 100)
   --cursor <string>                                                               Continue from the nextCursor a previous page printed
+  --verbose                                                                       Show redacted diagnostic details
   --cloud                                                                         Use repository flows and runs on the backend
 
 Custom Global Options:

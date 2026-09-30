@@ -9,6 +9,7 @@ Options:
   --root <string>        Project root (defaults to the nearest Smithers project)
   --remote <string>      Remote control server; local operator commands refuse this option
   --occurrence <number>  Unix milliseconds used as the retry identity; defaults to now
+  --verbose              Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

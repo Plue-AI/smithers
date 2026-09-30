@@ -8,6 +8,7 @@ Arguments:
 Options:
   --limit <number>   (default: 30)
   --page <number>    (default: 1)
+  --verbose         Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

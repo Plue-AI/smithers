@@ -17,6 +17,7 @@ Options:
   --catch-up <none|one|all>               (default: none)
   --max-catch-up <number>                 (default: 0)
   --enabled                               (default: true)
+  --verbose                              Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

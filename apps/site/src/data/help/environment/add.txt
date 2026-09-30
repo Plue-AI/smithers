@@ -11,6 +11,7 @@ Options:
   --workspace <string>  Cloud workspace OWNER/REPO/ID
   --directory <string>  Absolute working directory on the execution machine
   --home <string>       Persistent home on the execution machine
+  --verbose             Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

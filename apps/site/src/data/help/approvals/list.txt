@@ -9,6 +9,7 @@ Options:
   --quiet                Suppress progress messages
   --run <string>
   --targets              List pending build target revisions instead
+  --verbose              Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

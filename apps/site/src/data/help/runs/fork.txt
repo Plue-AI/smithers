@@ -15,6 +15,7 @@ Options:
   --limit <number>       Maximum journal entries to read (default: 10000)
   --step <string>        Step key digest whose recorded result the fork replaces
   --result <string>      The replacement result as JSON, or @file to read it from a file
+  --verbose              Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

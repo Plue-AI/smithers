@@ -7,6 +7,7 @@ Options:
   --display-name <string>               display name
   --target <string>                     target
   --route <critical|all>                Alert routing severity
+  --verbose                             Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

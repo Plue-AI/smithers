@@ -1,9 +1,12 @@
 smthrs environment shell — Open a terminal in the execution environment
 
-Usage: smthrs environment shell <name>
+Usage: smthrs environment shell <name> [options]
 
 Arguments:
   name  Saved execution environment
+
+Options:
+  --verbose  Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

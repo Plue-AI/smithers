@@ -10,6 +10,7 @@ Options:
   --remote <string>  Not supported: evaluations execute local modules
   --output <string>  Baseline file; defaults to evals/<suite>.baseline.json
   --force            Replace an existing baseline
+  --verbose          Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

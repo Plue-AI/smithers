@@ -1,6 +1,9 @@
 smthrs environment list — List saved execution locations
 
-Usage: smthrs environment list
+Usage: smthrs environment list [options]
+
+Options:
+  --verbose  Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

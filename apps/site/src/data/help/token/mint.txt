@@ -7,6 +7,7 @@ Options:
   --ttl <string>   Lifetime such as 30s, 15m, 1h, or 2d (default: 1h)
   --run <string>   Confine every call to this run id
   --flow <string>  Confine every call to this flow id
+  --verbose        Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

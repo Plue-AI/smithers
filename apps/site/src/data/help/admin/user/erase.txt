@@ -9,6 +9,7 @@ Options:
   --request-date <string>  Date the user asked for deletion (YYYY-MM-DD)
   --user-id <number>       Account id the first erase returned; required once the username is reused
   --yes
+  --verbose                Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

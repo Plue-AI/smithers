@@ -1442,7 +1442,7 @@ Fix the failing search tests. Keep changes inside src/search.ts and its tests.
 
 **Available now.** Ask in chat. Smithers starts a worker in its own tab and returns to chat. Up to six run at once (`SMITHERS_TUI_WORKERS`); more wait in order.
 
-Use `/claude <prompt>` or `/codex <prompt>` to run a signed-in CLI as a worker.
+Use Ctrl+K **Run Claude Code…** or **Run Codex…** to run a signed-in CLI as a worker.
 
 ![A worker runs in its own TUI tab while chat stays available.](/images/learn/tui-background-worker.gif)
 
@@ -1481,7 +1481,7 @@ Ctrl+S shows every subagent as a tree beside the chat; press it again to close.
 
 **TUI**
 
-**Available now.** Open a worker with `/tabs` or Ctrl+]. In its tab: `s` steers a Smithers worker, `x` stops, and `r` resumes with its earlier steps. `t` takes over any running worker: a Smithers worker pauses at each step until Enter, and Ctrl+Y releases it; a `/claude` or `/codex` worker opens its CLI on the same session, and quitting that CLI hands it back. Failed workers also offer `m` to pick another model and `w` to wait for the provider's reset. Ctrl+Y returns to the parent worker or Chat; Ctrl+\ returns directly to Chat. Only actions available for the current state are shown. `/stop <id>` and `/retry <id>` work from anywhere.
+**Available now.** Open a worker with Ctrl+]. In its tab: `s` steers a Smithers worker, `x` stops, and `r` resumes with its earlier steps. `t` takes over any running worker: a Smithers worker pauses at each step until Enter, and Ctrl+Y releases it; a Claude Code or Codex worker opens its CLI on the same session, and quitting that CLI hands it back. Failed workers also offer `m` to pick another model and `w` to wait for the provider's reset. Ctrl+Y returns to the parent worker or Chat; Ctrl+\ returns directly to Chat. Only actions available for the current state are shown. Ctrl+K lists the same actions, with their keys, from anywhere.
 
 ![Stopping and retrying a worker from its TUI tab.](/images/learn/tui-worker-controls.gif)
 
@@ -1670,7 +1670,7 @@ Keep the existing public API. Fix the parser and add a regression test.
 
 **TUI**
 
-**Available now.** In a running flow's tab, `x` stops it. A failed, cancelled, interrupted, or parked run offers `r` to resume. `/stop <id>` and `/retry <id>` do the same by ID. Completed runs show neither control.
+**Available now.** In a running flow's tab, `x` stops it. A failed, cancelled, interrupted, or parked run offers `r` to resume. Ctrl+K lists the same actions from anywhere. Completed runs show neither control.
 
 **CLI**
 
@@ -1769,6 +1769,34 @@ smthrs approvals deny @approval.json
 
 **Available now.** `Approval.Submit { target, scope, idempotencyKey, decision: "approve" | "deny" }` over the API. See [HTTP and RPC endpoints](/docs/reference/http-api/).
 
+## Approve a build target
+
+A target that declares `approval: "required"`, such as `S.Docker.Push`, runs only after its current revision is approved. Any change to the target or its inputs needs a new approval.
+
+**GUI**
+
+**Available now.** Open **Inbox**: each waiting target shows its label and revision with **Approve** and **Deny**.
+
+**TUI**
+
+**Planned** ([#3152](https://github.com/smithersai/smithers/issues/3152)).
+
+**CLI**
+
+**Available now.**
+
+```sh
+smthrs approvals list --targets
+smthrs approvals grant //images:push
+smthrs target //images:push
+```
+
+`grant` also works against a remote host with `--remote`.
+
+**API**
+
+**Available now.** `Plan { flowId: "system/target", input: { label, digest }, idempotencyKey: "target:<label>:<digest>" }`, then `Approval.Submit` with the returned plan and `decision: "approve"`. `digest` is the target's `approval` in `smthrs target <label> --plan --json`. `List { _tag: "plans", filters: { flowId: "system/target", decision: "pending" } }` returns the revisions waiting; pass an item's `card.approval` to `Approval.Submit`.
+
 ## Correct it instead
 
 If the request is too broad or targets the wrong repository, deny it and tell Smithers what to change. For a running flow, [steer the run](/docs/learn/watch-an-agent/#steer-or-stop).
@@ -1850,7 +1878,7 @@ A change card, with example data.
 
 **TUI**
 
-**Available now** for edits the TUI made locally. Press Ctrl+S for **Summary**. Pick a row with the arrows, Enter expands it, `d` shows its diff, `v` switches split and unified.
+**Available now** for edits the TUI made locally. On a finished worker's card in the chat (Tab focuses it), its **Summary** row, or its tab, press `d` for the run's whole diff; Esc goes back. In the chat's own **Summary**, pick a row with the arrows, Enter expands it, `d` shows its diff, `v` switches split and unified.
 
 ![Reading a captured edit's diff in the TUI Summary.](/images/learn/tui-review-diff.gif)
 
@@ -1931,7 +1959,7 @@ On a repository that sends work upstream, including Smithers itself, landing ope
 
 **TUI**
 
-**Available now.** Changes stay in your checkout; commit them yourself. To undo one, select its row in **Summary** and press `u`. Undo refuses if the file changed since, or if a shell command made the change.
+**Available now.** Changes stay in your checkout; commit them yourself. To undo a run, press `u` where `d` works: every file it changed is listed, files a shell command wrote included. Space unchecks one; Enter undoes the rest. A file changed since the run, one outside the repository, and a binary or large change stay as they are.
 
 ![Undoing a captured edit from the TUI Summary.](/images/learn/tui-undo-edit.gif)
 
@@ -2077,12 +2105,12 @@ The argument is the page id from `wiki index`. Attaching a file is available in 
 ```sh
 curl "$SMITHERS_API/api/repos/acme/app/wiki/history/7?visibility=private" \
   -H "Authorization: Bearer $SMITHERS_TOKEN"
-curl -X PUT "$SMITHERS_API/api/repos/acme/app/wiki/attachments/logo?path=assets/logo.png&expected_revision=0&visibility=private" \
+curl -X PUT "$SMITHERS_API/api/repos/acme/app/wiki/attachments/assets-logo-png-$(shasum -a 256 logo.png | cut -c1-12)?path=assets/logo.png&expected_revision=0&visibility=private" \
   -H "Authorization: Bearer $SMITHERS_TOKEN" \
   -H "Content-Type: image/png" --data-binary @logo.png
 ```
 
-`GET /wiki/history/{pageID}/{revision}/content` returns a revision's exact content, even after a delete. Attachments are up to 16 MiB.
+`GET /wiki/history/{pageID}/{revision}/content` returns a revision's exact content, even after a delete. Attachments are up to 16 MiB. A new attachment's slug is its path's slug, `-`, and the first 12 hex digits of the file's SHA-256.
 
 ## Generate pages from the code
 
@@ -2394,7 +2422,7 @@ smithers secret delete NAME --repo acme/app
 
 **API**
 
-**Available now**, admin only. `POST /api/repos/{owner}/{repo}/secrets` adds one; `DELETE /api/repos/{owner}/{repo}/secrets/{name}` removes it. The app's secrets are `PUT` and `DELETE /api/repos/{owner}/{repo}/agent-environment/secrets/{name}`; `PUT` takes `value`, `hosts` and `match_headers` and answers metadata only.
+**Available now**, admin only. `POST /api/repos/{owner}/{repo}/secrets` adds one; `DELETE /api/repos/{owner}/{repo}/secrets/{name}` removes it. The app's secrets card lists the same secrets with `GET /api/repos/{owner}/{repo}/secrets`; `POST` takes `value`, `hosts` and `match_headers` and answers metadata only.
 
 ## Keep a secret to main
 
@@ -2423,7 +2451,7 @@ smithers secret scope DEPLOY_TOKEN all
 
 ## Send a secret to CI
 
-A CI job receives a repository or organization secret only through its box's egress proxy. Bind the secret to the hosts it may be sent to and the request headers it goes in: the job sees the secret's name as a placeholder, and the proxy puts the value in those headers on requests to those hosts. A job with an unbound secret does not start. A bound secret never reaches an agent's environment. Replacing its value keeps the binding.
+A CI job receives a repository or organization secret only through its box's egress proxy. Bind the secret to the hosts it may be sent to and the request headers it goes in: the job sees the secret's name as a placeholder, and the proxy puts the value in those headers on requests to those hosts. Hosts are exact names or IP addresses; a wildcard such as `*.example.com` or an address range is refused. A job with an unbound secret does not start. A bound secret never reaches an agent's environment. Replacing its value keeps the binding.
 
 **GUI**
 
@@ -2663,25 +2691,19 @@ Type `/` to browse commands. Up/Down choose, Tab completes, Enter runs, Esc clos
 | `/name <name>` | Name this conversation. | [Guide](/docs/learn/chat/) |
 | `/copy` | Copy the last answer. | [Guide](/docs/learn/chat/) |
 | `/summary` | Review this conversation. | [Guide](/docs/learn/review-a-change/) |
-| `/tabs` | Review background work. | [Guide](/docs/learn/background-work/) |
 | `/chat` | Return to chat. | [Guide](/docs/tui/views/) |
 | `/filter` | Show or hide kinds of rows. | [Guide](/docs/tui/views/) |
 | `/grep [text]` | Show only rows containing text. | [Guide](/docs/tui/views/) |
-| `/ui [id]` | Open a custom view. | [Guide](/docs/tui/extend/) |
 | `/smithers` | Flows and runs. | [Guide](/docs/learn/run-a-flow/) |
+| `/todo <title>` | File a TODO for the factory. | [Guide](/docs/learn/issue-to-main/#file-a-todo) |
 | `/devtools [id] [node]` | Inspect a run's nodes. | [Guide](/docs/learn/devtools/) |
 | `/flows` | Run a flow. | [Guide](/docs/learn/run-a-flow/) |
 | `/flow <name> [json\|key=value]` | Run a flow. | [Guide](/docs/learn/run-a-flow/) |
 | `/agent [name] [prompt]` | Run a custom agent. | [Guide](/docs/how-it-works/agents/) |
-| `/claude <prompt>` | Run Claude Code as a worker. | [Guide](/docs/learn/background-work/) |
-| `/codex <prompt>` | Run Codex as a worker. | [Guide](/docs/learn/background-work/) |
-| `/retry <id>` | Retry a stopped worker or flow. | [Guide](/docs/learn/background-work/) |
-| `/stop <id>` | Stop a worker or flow. | [Guide](/docs/learn/background-work/) |
-| `/hotkeys` | Show the keys. | [Guide](/docs/tui/keys/) |
 | `/quit` | Quit. | [Guide](/docs/tui/cli/) |
 | `/exit` | Alias for `/quit`. | [Guide](/docs/tui/cli/) |
 
-Repository flows also appear in the menu. `/model`, `/thinking`, `/flow`, and `/agent` complete their arguments. Start a line with `!` to run a shell command and add its output to the conversation, or `!!` to keep it out.
+Repository flows also appear in the menu. `/model`, `/thinking`, `/flow`, and `/agent` complete their arguments. An unknown command stays in the editor and names the nearest one. Stop, resume, steer, undo, custom views, and Claude Code or Codex workers are in Ctrl+K search. Start a line with `!` to run a shell command and add its output to the conversation, or `!!` to keep it out.
 
 ---
 
@@ -2751,7 +2773,7 @@ Press **?** with an empty editor to see the keys for where you are. **Esc** or *
 | `i` | Composer. |
 | `j` / `k` / `h` / `l` / `up` / `down` / `left` / `right` | Navigate. |
 | `enter` / `space` | Expand row. |
-| `d` | Toggle diff. |
+| `d` | Diff. |
 | `v` | Split diff. |
 | `r` | Resume. |
 | `m` | Switch model. |
@@ -2760,14 +2782,14 @@ Press **?** with an empty editor to see the keys for where you are. **Esc** or *
 | `s` | Steer. |
 | `t` | Take over. |
 | `a` | Action. |
-| `u` | Undo changes. |
+| `u` | Undo. |
 | `tab` | Next tab. |
 
 ## Picker
 
 | Key | Action |
 | --- | --- |
-| `esc` | Close. |
+| `esc` | Back. |
 | `up` / `down` / `ctrl+p` / `ctrl+n` | Move. |
 | `pageup` / `pagedown` | Page. |
 | `enter` | Choose. |
@@ -2814,6 +2836,8 @@ Press **?** with an empty editor to see the keys for where you are. **Esc** or *
 | --- | --- |
 | `enter` | Open. |
 | `up` / `down` / `left` / `right` / `tab` / `shift+tab` | Card. |
+| `d` | Diff. |
+| `u` | Undo. |
 | `f` | Files. |
 | `esc` | Composer. |
 
@@ -2828,7 +2852,26 @@ Press **?** with an empty editor to see the keys for where you are. **Esc** or *
 | `a` | Answer. |
 | `g` | Graph. |
 | `f` | Files. |
+| `d` | Diff. |
+| `u` | Undo. |
 | `esc` | Close. |
+
+## Review
+
+| Key | Action |
+| --- | --- |
+| `u` | Undo. |
+| `up` / `down` / `j` / `k` | Scroll. |
+| `esc` | Back. |
+
+## Checklist
+
+| Key | Action |
+| --- | --- |
+| `enter` | Undo. |
+| `space` | Toggle. |
+| `up` / `down` | Move. |
+| `esc` | Back. |
 
 ## Editor and mouse
 
@@ -3022,7 +3065,7 @@ await ctx.call("ui.publish", {
 })
 ```
 
-`/ui id` opens a view; `/ui` opens the newest. Blocks are `text`, `code`, `table`, or `diff`. Wrap a panel as `{ kind: "panel", placement: "card", panel }` to show it as a card in chat.
+Ctrl+K lists each view by title. Blocks are `text`, `code`, `table`, or `diff`. Wrap a panel as `{ kind: "panel", placement: "card", panel }` to show it as a card in chat.
 
 ![A published Checks view in the TUI.](/images/learn/tui-custom-view.gif)
 
@@ -9333,6 +9376,7 @@ Options:
   --mcp-config <string>  Path to the configured MCP servers
   --quiet                Suppress progress messages
   --data <string>        JSON input object
+  --verbose              Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -9380,6 +9424,8 @@ Options:
   --budget-ms <number>                           Wall-clock ceiling in milliseconds for this run
   --budget-usd <number>                          Dollar ceiling for this run
   --on-exceeded <fail|warn|skip-remaining|park>  What the run does at a ceiling
+  --deadline <string>                            Wall-clock time the run may take from its first start, as a duration (30 minutes) or milliseconds
+  --verbose                                      Show redacted diagnostic details
   --cloud                                        Use repository flows and runs on the backend
 
 Custom Global Options:
@@ -9420,6 +9466,7 @@ Options:
   --remote <string>      Remote control plane URL; defaults to SMITHERS_REMOTE
   --mcp-config <string>  Path to the configured MCP servers
   --quiet                Suppress progress messages
+  --verbose              Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -9482,6 +9529,7 @@ Options:
   --follow
   --after <number>
   --limit <number>       Maximum events; agent history pulls default to 100
+  --verbose              Show redacted diagnostic details
   --cloud                Use repository flows and runs on the backend
 
 Custom Global Options:
@@ -9527,9 +9575,15 @@ Current-state commands accept the connection options `--root` and `--remote`, an
 
 `--lineage` selects a lineage explicitly. `--limit` bounds journal entries read, defaulting to 10,000 for these CLI history commands.
 
+## Verify against current code
+
+`runs verify <run>` reports what `runs resume` would do under the flow code now on disk, before anything runs. It resumes a copy of the project's stores with an engine that executes no action code, and lists the recorded steps that `replayed`, the first step that would execute again (`executes`), and the recorded steps nothing asked for (`notReplayed`). It exits `0` when every recorded step replays and `1` with `run_divergent` when a recorded step would be dropped or re-keyed. The project's own stores are only read. It needs the local SQLite stores.
+
 ## Fork or rewind
 
 `runs fork <run> --at <sequence>` creates an isolated child from an eligible parked or terminal agent run. It requires an approved plan and `jj`. The child workspace is retained under `.flows/forks/`; use `runs resume` with the returned child ID to continue it.
+
+Add `--step <digest> --result <json>` to fork with one recorded step result edited. The child replays every step up to the frame, serves that step with the edited value, and runs the steps after the frame again. `runs verify` lists each recorded step's digest. `--result` takes inline JSON or `@file`. The frame must be at or after the step's completion; the parent keeps its own result.
 
 Rewind archives a history suffix and restores the run and workspace to an earlier frame. It requires an exact sequence and either `--preview` or `--yes`:
 
@@ -9552,6 +9606,7 @@ Options:
   --preview              Show the affected suffix and effects without changing anything
   --yes                  Confirm archiving the suffix and restoring the historical frame
   --whole-repo           Restore the whole jj repository (bookmarks, rebases, descriptions) to the frame's recorded operation
+  --verbose              Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -9589,6 +9644,8 @@ When the journal has no question, `question` uses the declared human-task
 prompt. An optional `waits` array carries each holding execution's `runId` and
 optional `flowId`, `name`, `attempt`, and `request`.
 
+`smthrs approvals list --targets` lists build target revisions waiting for approval instead. Each row carries `target`, `revision`, and the `approval` payload `approve` and `deny` take.
+
 Answer a `HumanTask` with a signal to the listed root, using the wait's name
 and an answer matching its request:
 
@@ -9614,6 +9671,7 @@ Options:
   --mcp-config <string>          Path to the configured MCP servers
   --quiet                        Suppress progress messages
   --scope <once|run|remembered>   (default: run)
+  --verbose                      Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -9638,7 +9696,20 @@ A plan-level approval records a decision without launching work. Execute the app
 
 `smthrs approvals deny <approval>` refuses the exact request. The argument can be serialized JSON or `@file`, just as for `approve`.
 
-All three commands accept `--root` and `--remote` to select the host, and read the bearer from `SMITHERS_TOKEN`. The saved `smithers auth login` session is shared with repository commands; `SMITHERS_TOKEN` is the non-interactive override. Use `--format json` for a structured decision receipt.
+## grant
+
+`smthrs approvals grant <target>` approves the current revision of a build target that declares `approval: "required"`, such as `S.Docker.Push`:
+
+```bash
+smthrs approvals grant //images:push
+smthrs target //images:push
+```
+
+The approval covers that revision only: the declaration, its inputs, its tools, its dependencies and the `--input` values, which `grant` takes the same way. Any change needs a new grant. `--plan` shows the revision as `approval`.
+
+With `--remote` or `SMITHERS_REMOTE`, `grant` approves the revision the host's build left pending, without a local workspace. When a target has several pending revisions, pass `--revision` with one from `list --targets`; `--revision` also works locally.
+
+`list`, `approve`, `deny` and `grant` accept `--root` and `--remote` to select the host, and read the bearer from `SMITHERS_TOKEN`. The saved `smithers auth login` session is shared with repository commands; `SMITHERS_TOKEN` is the non-interactive override. Use `--format json` for a structured decision receipt.
 
 For a parked execution, [Waiting for approval](/docs/troubleshooting/waiting-approval/) explains how to locate its request and resume after a decision.
 
@@ -13728,7 +13799,7 @@ The `DiffAttrs` schema declares eleven fields:
 | `gates`     | `Array<Target.Target>`                          | `required`                          | Targets that must be green against each candidate tree. An outward or Run rule as a gate refuses the invocation.                               |
 | `secrets`   | `Array<Secret.HttpCredential>`                  | `optional`                          | Destination-bound credentials declared with `Smithers.HttpSecret`. The declaration records the variable name and audience, never a value.      |
 | `sandbox`   | `"none" \| { network?: boolean \| "loopback" }` | `optional`                          | The confinement policy for the node. Omitted, the node keeps the workspace default confinement.                                                |
-| `approval`  | `"required"`                                    | `optional`                          | Declaring it refuses the invocation before any effect, because the build system has no durable approval store.                                 |
+| `approval`  | `"required"`                                    | `optional`                          | Declaring it refuses the invocation before any effect until the current revision is approved with `smthrs approvals grant`.                    |
 | `maxRounds` | `integer`                                       | `required`                          | Candidate and gate rounds, a whole number at least 1 and at most `maximumRounds`, which is 16.                                                 |
 
 The declaration passes no `Target.guard`, so no attr combination is refused at construction. Three preconditions settle at plan time instead: a payload input that is missing or undeclared refuses with the field to pass as `--input`, `approval: "required"` refuses, and a gate that is an outward or Run rule refuses its consumer.
@@ -20844,8 +20915,12 @@ run the control plane launched records its launcher; one the engine created
 reader that `ControlRpcs.RunVisibility` does not make an operator to the runs
 its own principal launched: `List` sets `ListInput.reader` and `Watch` sets
 `WatchInput.reader`, neither of which is on the wire. Such a reader lists and
-watches only those runs, sees only the fires that started them, receives
-nothing from a plan partition, and gets `RunNotFound` for any other run.
+watches only those runs, sees only the fires that started them and no
+triggers, receives nothing from a plan partition, and gets `RunNotFound` for
+any other run. A lost-tail watch failure reaches it without partition names.
+`steer`, `signal`, `cancel` and `resume` take the same `reader`: over RPC the
+server sets it, and such a reader mutates only those runs and gets
+`RunNotFound` for any other.
 
 The `triggers` and `fires` variants are answered through the `DispatchReader`
 port. A host without one refuses both with `InvalidInput` whose issue is
@@ -23119,7 +23194,8 @@ with no platform layer.
 - An input whose buffer cannot be copied fails with a `badArgument` described
   as `syncCrypto could not snapshot SHA-256 input`, with the original
   `TypeError` as `cause`.
-- `randomBytes` throws
+- `randomBytes` throws a `PlatformError.badArgument` with
+  `module: "@smthrs/crypto"` and `method: "randomBytes"`, described as
   `@smthrs/crypto syncCrypto provides SHA-256 only; supply a platform Crypto layer for randomness`.
   Because `Crypto.make` derives random numbers, UUIDs, and shuffling from
   `randomBytes`, every random operation fails the same way.
@@ -23727,7 +23803,10 @@ interface NodeDatabaseOptions {
 const UnsupportedDatabaseCode: Schema.Literals<[
   "unsupported_runtime",
   "unsupported_database_file",
-  "database_locked"
+  "database_locked",
+  "postgres_url_missing",
+  "postgres_url_invalid",
+  "postgres_schema_invalid"
 ]>
 type UnsupportedDatabaseCode = typeof UnsupportedDatabaseCode.Type
 ```
@@ -23744,11 +23823,14 @@ class UnsupportedDatabase extends Schema.TaggedError<UnsupportedDatabase>()(
 A refusal to open a durable database in 1.0.0-rc.0, raised as a defect rather
 than a typed failure because neither refusal is recoverable at run time.
 
-| Code                        | Refused when                                                    | Message                                                                                  |
-| --------------------------- | --------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| `unsupported_runtime`       | `process.versions.bun` is set                                   | `Use @smthrs/database/bun/BunDatabase under Bun; NodeDatabase requires Node.js >=26.4.0` |
-| `unsupported_database_file` | the file has at least one table and no `flows_migrations` table | `<path> is not a Smithers 1.0 database (1.0.0-rc.0 does not load a 0.x smithers.db)`     |
-| `database_locked`           | a peer held the file for the whole open ladder                  | `<path> could not be inspected because another process holds it`                         |
+| Code                        | Refused when                                                       | Message                                                                                                        |
+| --------------------------- | ------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- |
+| `unsupported_runtime`       | `process.versions.bun` is set                                      | `Use @smthrs/database/bun/BunDatabase under Bun; NodeDatabase requires Node.js >=26.4.0`                       |
+| `unsupported_database_file` | the file has at least one table and no `flows_migrations` table    | `<path> is not a Smithers 1.0 database (1.0.0-rc.0 does not load a 0.x smithers.db)`                           |
+| `database_locked`           | a peer held the file for the whole open ladder                     | `<path> could not be inspected because another process holds it`                                               |
+| `postgres_url_missing`      | `SMITHERS_BACKEND=postgres` with no PostgreSQL URL set             | `PostgreSQL requires SMITHERS_POSTGRES_URL or DATABASE_URL`                                                    |
+| `postgres_url_invalid`      | the selected URL is not a parseable `postgres://` URL              | `PostgreSQL configuration requires a postgres:// or postgresql:// URL`, or `Invalid PostgreSQL connection URL` |
+| `postgres_schema_invalid`   | `PostgresDatabase.layer` gets an empty, NUL or over-63-byte schema | `PostgreSQL schema must contain 1 to 63 UTF-8 bytes and no NUL`                                                |
 
 ### isUnsupportedDatabase
 
@@ -36263,7 +36345,7 @@ Replay-safe policy for native deferred provider tool loading.
 | --------------------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `ProtocolId`                            | type      | `"anthropic-messages" \| "openai-responses" \| "openai-responses-chatgpt"`.                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `Resolution`                            | interface | `{ immediate, deferred, activatedNames }`: the tool partition derived from a sealed request.                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| `supportsDeferred(protocolId, modelId)` | predicate | Answers from explicit per-protocol allowlists, matched case-insensitively. GPT-6 Sol, GPT-6.1 Sol, and Luna answer `true` on both OpenAI protocols, from OpenAI's tool search guide and a live probe recorded 2026-09-24 in `test/fixtures/gpt6-deferred-probe.json`. An unlisted model, including a family released after this code, answers `false` and receives every tool through the portable lowering, because native deferral changes the wire body and an unverified body must not ship without a release. |
+| `supportsDeferred(protocolId, modelId)` | predicate | Answers from explicit per-protocol allowlists, matched case-insensitively. GPT-6 Sol, GPT-6 Astra, and GPT-6 Luna answer `true` on both OpenAI protocols, from OpenAI's tool search guide and a live probe recorded 2026-09-24 in `test/fixtures/gpt6-deferred-probe.json`. GPT-6.1 Sol answers `true` on the API-key protocol only, from the guide; it has not been probed on the ChatGPT backend. An unlisted model, including a family released after this code, answers `false` and receives every tool through the portable lowering, because native deferral changes the wire body and an unverified body must not ship without a release. |
 | `resolve(request, native)`              | operation | Derives the partition from declared `deferred` annotations and the chronological transcript only: tool calls made, and `addedToolNames` activations. No process-local state is consulted, so replay produces the identical partition.                                                                                                                                                                                                                                                                              |
 
 Without native support, deferred tools arrive as ordinary definitions once
@@ -49923,13 +50005,16 @@ Exported 0.x settings (`SMITHERS_TEST_PG_URL`, and every `SMITHERS_POSTGRES_*` n
 
 ### `@smthrs/database`
 
-Raised as defects by `NodeDatabase.layer` before a connection is created; match them with `isUnsupportedDatabase`.
+Raised as defects by the database layers before a connection is created; match them with `isUnsupportedDatabase`.
 
 | Code | Where raised | Cause | Fix |
 | --- | --- | --- | --- |
 | `unsupported_runtime` | `NodeDatabase.layer` | The durable engine was opened under Bun (`process.versions.bun` is set) | Run the durable engine on Node.js 26.4.0 or later |
 | `unsupported_database_file` | `NodeDatabase.layer` | The file has at least one table and no `flows_migrations` table | The file is a 0.x `smithers.db`, which 1.0 does not load; open a 1.0 database |
 | `database_locked` | `NodeDatabase.layer` | A peer held the file for the whole open ladder, so it was never inspected | Stop the process holding the file and open it again |
+| `postgres_url_missing` | `NodeDatabase.layer`, `BunDatabase.layer` | `SMITHERS_BACKEND=postgres` is set with no `SMITHERS_POSTGRES_URL` or `DATABASE_URL` | Set `SMITHERS_POSTGRES_URL` |
+| `postgres_url_invalid` | `NodeDatabase.layer`, `BunDatabase.layer` | The selected PostgreSQL URL is not a parseable `postgres://` or `postgresql://` URL | Correct the connection URL |
+| `postgres_schema_invalid` | `PostgresDatabase.layer` | The schema is empty, contains NUL, or is over 63 UTF-8 bytes | Choose a schema name of 1 to 63 bytes |
 
 ### `@smthrs/flow`
 
@@ -50060,6 +50145,7 @@ The parser accepts exactly these keys, in the order the run reads them.
 | `model` | string | no | none | The model seat the flow runs on, for example `openai:gpt-6-sol`. An empty value reads as absent, and `smthrs flow start` cannot launch a prompt flow that declares no seat. |
 | `capabilities` | string array | no | `["*"]` | The capability patterns that bound what the run may do. A space-separated string is accepted with a warning. Any other non-array value earns an `invalid_capabilities` warning that names the value, and the flow is not discovered. An absent key grants `"*"`, which as an envelope pattern matches every capability; `smthrs flow start` refuses to approve a `"*"` envelope, so review it with `smthrs flow plan` and sign it with `smthrs approvals approve`. Declare only the patterns the task requires. |
 | `budget` | object | no | none (unbounded) | The ceilings a control plane approves for one run: `tokens` and `milliseconds`, each a positive safe integer. An absent key is no ceiling, not zero; a malformed budget is dropped with a warning rather than tightened. |
+| `deadline` | duration or integer | no | none (unbounded) | The wall-clock time one run may take, counted from its first start, as a duration such as `30 minutes` or whole milliseconds. Every round of the run shares it. Expiry fails the run with `deadline_exceeded`. A malformed value is dropped with an `invalid_deadline` warning. `smthrs flow start --deadline` replaces it for one run. |
 | `flows` | string array | no | none | Flow ids this flow may delegate to. A space-separated string is also accepted. When both spellings are present, `flows` wins over `allowed-tools`. |
 | `allowed-tools` | string or string array | no | none | The Agent Skills spelling of `flows`. |
 | `effects` | object | no | inferred from `capabilities` | Declared effect boundaries: `reads` and `writes` string arrays, `tier` (`sealed`, `compensable`, or `irreversible`), `mode` (`hermetic` or `expected`), and `onConflict` (`serialize`, `lane`, or `fail`). A wildcard capability yields conservative `**` reads and writes. |
@@ -50431,7 +50517,7 @@ A Smithers workspace holds target declarations and flow sources. Runtime state l
 
 `.smithers/WORKSPACE.ts` declares workspace-wide runtime, package-manager, and cache settings. A root `WORKSPACE.ts` is also supported. A `PACKAGE.ts` declares targets for its directory; exported target keys become labels such as `//apps/site:build`.
 
-`.smithers/FACTORY.ts` declares the factory beside the workspace: `export const factory = Smithers.Factory({ summary, flows, on, github })` names the flows the repository features (`Smithers.Flow` declarations under `flows`), the Dispatcher table (`on`, event key to the flow or flows it starts), and the GitHub policy (`Smithers.Github.Policy({ mirror, issues, changes, protectedPaths, reviewerAgents, agentIssueSources, maintainers, todoSince, dailyTokens })`, where `protectedPaths` adds to the configuration paths, the root install files, and the code main's workflows run with secrets or write permissions (with the workspace packages that code depends on), that work started from a non-maintainer's issue never changes; `reviewerAgents` names the agent accounts whose LGTM counts toward a protected bookmark's required agent LGTM; and `agentIssueSources` (`run`, `linear`, `trial`) lets issues those agents file start work without a maintainer's `smithers` label; `maintainers` names the GitHub logins whose `todo` and `automerge` labels count, and whose own issues written from `todoSince` on become TODOs without the label; `dailyTokens` bounds what the factory spends per day), and optionally `machine: { vcpus, memoryMiB, tools }`, the machine the factory's TODOs need: a TODO runs only on a lane booted from exactly the image the repository registered from its current `.smithers/environment.nix` when that file exists, with at least the declared vCPUs and memory, and with every `tools` entry on the booted machine's PATH before its run starts (`tools` requires that environment); when no lane machine matches, the TODO stops with the reason and the item records the machine it was placed on or the refusal; `export const home = Smithers.Factory.Home({ blocks })` is the home pane. The file may import `WORKSPACE.ts` and never imports a `PACKAGE.ts`: a target it needs is named by label, `Smithers.label("//:ci")`. A repository without the file declares no factory.
+`.smithers/FACTORY.ts` declares the factory beside the workspace: `export const factory = Smithers.Factory({ summary, flows, on, github })` names the flows the repository features (`Smithers.Flow` declarations under `flows`), the Dispatcher table (`on`, event key to the flow or flows it starts), and the GitHub policy (`Smithers.Github.Policy({ mirror, issues, changes, protectedPaths, reviewerAgents, agentIssueSources, maintainers, todoSince, dailyTokens })`, where `protectedPaths` adds to the configuration paths, the root install files, and the code main's workflows run with secrets or write permissions (with the workspace packages that code depends on), that work started from a non-maintainer's issue never changes; `reviewerAgents` names the agent accounts whose LGTM counts toward a protected bookmark's required agent LGTM; and `agentIssueSources` (`run`, `linear`, `trial`) lets issues those agents file start work without a maintainer's `smithers` label; `maintainers` names the GitHub logins whose `todo` and `automerge` labels count, and whose own issues written from `todoSince` on become TODOs without the label; `dailyTokens` bounds what the factory spends per day), and optionally `machine: { vcpus, memoryMiB, tools }`, the machine the factory's TODOs need: a TODO runs only on a lane booted from exactly the image the repository registered from its current `.smithers/environment.nix` when that file exists, with at least the declared vCPUs and memory, and with every `tools` entry on the booted machine's PATH before its run starts (`tools` requires that environment); when no lane machine matches, the TODO stops with the reason and the item records the machine it was placed on or the refusal; and optionally `issueViews: [{ id, title, state, labels }]`, saved issue views (`state` is `open`, `closed`, `fixed`, `verified` or `all`; `labels` keeps issues carrying every named label) that the app's issue list, `smthrs issue views` and `smthrs issue list --view <id>`, and `GET /api/repos/{owner}/{repo}/issue-views` read from `main`; `export const home = Smithers.Factory.Home({ blocks })` is the home pane. The file may import `WORKSPACE.ts` and never imports a `PACKAGE.ts`: a target it needs is named by label, `Smithers.label("//:ci")`. A repository without the file declares no factory.
 
 These are source files to commit. Their presence does not make `.flows/` state part of the source tree. The [CLI reference](/docs/reference/cli/) distinguishes target execution from durable flow commands.
 
@@ -50444,7 +50530,7 @@ One directory per flow; discovery reads these rules.
 - An entry file directly under `flows/` is refused: path-named sources cannot contain a root-level entry.
 - `smthrs init <name>` scaffolds `flows/<name>/flow.mdx`; the name is one path segment of letters, digits, `-`, and `_`.
 - Ids that start with `system/` are reserved for the control plane: `smthrs flow plan` and `smthrs flow start` refuse them, and `smthrs flow list` does not list them.
-- `.smithers/factory.json` is generated, not authored. A root `PACKAGE.ts` that declares `Smithers.FactoryProjection()` renders it from `.smithers/FACTORY.ts`: `summary`; `flows`, one row per discovered flow with its id, description, path, kind, capabilities, and model, plus the `summary` and `featured` flag the factory declares, featured rows first; `on`, the Dispatcher table flattened to rows of `event`, `flow`, and the `description` the card shows; `github`, the policy; and `machine` when declared. `smithers-build target //:factoryProjection --write` regenerates it and `ci` fails on drift. See [Featured flows](/docs/reference/flow-mdx/#featured-flows).
+- `.smithers/factory.json` is generated, not authored. A root `PACKAGE.ts` that declares `Smithers.FactoryProjection()` renders it from `.smithers/FACTORY.ts`: `summary`; `flows`, one row per discovered flow with its id, description, path, kind, capabilities, and model, plus the `summary` and `featured` flag the factory declares, featured rows first; `on`, the Dispatcher table flattened to rows of `event`, `flow`, and the `description` the card shows; `github`, the policy; `machine` when declared; and `issueViews` when any are declared. `smithers-build target //:factoryProjection --write` regenerates it and `ci` fails on drift. See [Featured flows](/docs/reference/flow-mdx/#featured-flows).
 - `.smithers/home.json` is generated by the same target from `export const home = Smithers.Factory.Home({ blocks })` in `.smithers/FACTORY.ts`. Its typed blocks are `Smithers.Home.Prompt({ title, placeholder })` (the heading and the composer), `Smithers.Home.App({ flow, title, picture })` (an app: a featured flow shown as a picture tile; opening it gives one input, one button, then the run card), `Smithers.Home.Flows()` (featured rows from `factory.json`), `Smithers.Home.Markdown({ path: "README.md" })`, `Smithers.Home.Text({ text })`, `Smithers.Home.Links({ links })`, and `Smithers.Home.Stack()` (the repository's live mythical stack). The server resolves Markdown files from the repository at `main`. When no homepage is declared, the workspace chat shows `README.md` if present. A string carrying raw HTML in a plain text block fails the declaration; the chat strips raw HTML from Markdown.
 
 ## .flows/
@@ -50595,6 +50681,7 @@ Options:
   --display-name <string>               display name
   --target <string>                     target
   --route <critical|all>                Alert routing severity
+  --verbose                             Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -50619,6 +50706,9 @@ Global Options:
 smthrs admin alerts channels list — alerts · channels · list
 
 Usage: smthrs admin alerts channels list [options]
+
+Options:
+  --verbose  Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -50649,6 +50739,7 @@ Arguments:
 
 Options:
   --yes
+  --verbose  Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -50676,6 +50767,9 @@ Usage: smthrs admin alerts channels send-code <id> [options]
 
 Arguments:
   id  Exact target id
+
+Options:
+  --verbose  Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -50706,6 +50800,7 @@ Arguments:
 
 Options:
   --route <critical|all>  Alert routing severity
+  --verbose               Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -50736,6 +50831,7 @@ Arguments:
 
 Options:
   --code <string>  code
+  --verbose        Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -50793,6 +50889,9 @@ Usage: smthrs admin alerts policies disable <name> [options]
 Arguments:
   name  Exact target name
 
+Options:
+  --verbose  Show redacted diagnostic details
+
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
   --silent                       Suppress progress; retain the result and actionable failures
@@ -50820,6 +50919,9 @@ Usage: smthrs admin alerts policies enable <name> [options]
 Arguments:
   name  Exact target name
 
+Options:
+  --verbose  Show redacted diagnostic details
+
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
   --silent                       Suppress progress; retain the result and actionable failures
@@ -50843,6 +50945,9 @@ Global Options:
 smthrs admin alerts policies list — alerts · policies · list
 
 Usage: smthrs admin alerts policies list [options]
+
+Options:
+  --verbose  Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -50898,6 +51003,7 @@ Usage: smthrs admin analytics summary [options]
 Options:
   --include-synthetic
   --range <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -50952,6 +51058,7 @@ Usage: smthrs admin audit list [options]
 
 Options:
   --since <string>  since
+  --verbose         Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -51035,6 +51142,9 @@ smthrs admin deploys observe list — deploys · observe · list
 
 Usage: smthrs admin deploys observe list [options]
 
+Options:
+  --verbose  Show redacted diagnostic details
+
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
   --silent                       Suppress progress; retain the result and actionable failures
@@ -51064,6 +51174,7 @@ Arguments:
 
 Options:
   --yes
+  --verbose  Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -51094,6 +51205,7 @@ Arguments:
 
 Options:
   --yes
+  --verbose  Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -51124,6 +51236,7 @@ Arguments:
 
 Options:
   --yes
+  --verbose  Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -51178,6 +51291,9 @@ smthrs admin deploys platform list — deploys · platform · list
 
 Usage: smthrs admin deploys platform list [options]
 
+Options:
+  --verbose  Show redacted diagnostic details
+
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
   --silent                       Suppress progress; retain the result and actionable failures
@@ -51208,6 +51324,7 @@ Arguments:
 Options:
   --revision <string>  revision
   --yes
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -51236,6 +51353,9 @@ Usage: smthrs admin deploys platform status <component> [options]
 Arguments:
   component  Exact target component
 
+Options:
+  --verbose  Show redacted diagnostic details
+
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
   --silent                       Suppress progress; retain the result and actionable failures
@@ -51259,6 +51379,9 @@ Global Options:
 smthrs admin health — System health status
 
 Usage: smthrs admin health [options]
+
+Options:
+  --verbose  Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -51315,6 +51438,7 @@ Options:
   --repo, -R <string>  Repository (OWNER/REPO)
   --limit <number>      (default: 30)
   --page <number>       (default: 1)
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -51374,6 +51498,7 @@ Arguments:
 Options:
   --reason <string>
   --yes
+  --verbose          Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -51403,6 +51528,7 @@ Options:
   --include-synthetic
   --limit <number>
   --status <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -51427,6 +51553,9 @@ Global Options:
 smthrs admin status — status
 
 Usage: smthrs admin status [options]
+
+Options:
+  --verbose  Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -51484,6 +51613,7 @@ Options:
   --limit <number>
   --scope <string>
   --unused-days <number>
+  --verbose                 Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -51545,6 +51675,7 @@ Usage: smthrs admin user create [options]
 Options:
   --username <string>  Username
   --email <string>     Email address
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -51575,6 +51706,7 @@ Arguments:
 
 Options:
   --yes
+  --verbose  Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -51603,6 +51735,9 @@ Usage: smthrs admin user disable <username> [options]
 Arguments:
   username  Username to suspend
 
+Options:
+  --verbose  Show redacted diagnostic details
+
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
   --silent                       Suppress progress; retain the result and actionable failures
@@ -51629,6 +51764,9 @@ Usage: smthrs admin user enable <username> [options]
 
 Arguments:
   username  Username to unsuspend
+
+Options:
+  --verbose  Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -51661,6 +51799,7 @@ Options:
   --request-date <string>  Date the user asked for deletion (YYYY-MM-DD)
   --user-id <number>       Account id the first erase returned; required once the username is reused
   --yes
+  --verbose                Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -51690,6 +51829,9 @@ Arguments:
   username  Username to export
   out       Archive path to write
 
+Options:
+  --verbose  Show redacted diagnostic details
+
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
   --silent                       Suppress progress; retain the result and actionable failures
@@ -51717,6 +51859,7 @@ Usage: smthrs admin user list [options]
 Options:
   --limit <number>   (default: 30)
   --page <number>    (default: 1)
+  --verbose         Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -51774,6 +51917,7 @@ Arguments:
 
 Options:
   --value <true|false>  Whether the user is synthetic
+  --verbose             Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -51834,6 +51978,7 @@ Options:
   --limit <number>
   --owner <string>
   --status <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -51864,6 +52009,7 @@ Arguments:
 
 Options:
   --yes
+  --verbose  Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -51894,6 +52040,7 @@ Arguments:
 
 Options:
   --yes
+  --verbose  Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -52004,6 +52151,7 @@ Arguments:
 
 Options:
   --repo, -R <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -52037,6 +52185,7 @@ Options:
   --provider <smithers|codex>   (default: smithers)
   --repo, -R <string>
   --transport <workflow|http>   (default: workflow)
+  --verbose                    Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -52066,6 +52215,7 @@ Options:
   --page <number>       (default: 1)
   --per-page <number>   (default: 30)
   --repo, -R <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -52099,6 +52249,7 @@ Options:
   --repo, -R <string>
   --title <string>
   --transport <workflow|http>   (default: workflow)
+  --verbose                    Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -52162,6 +52313,7 @@ Options:
   --provider <smithers|codex>   (default: smithers)
   --repo, -R <string>
   --transport <workflow|http>   (default: workflow)
+  --verbose                    Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -52191,6 +52343,7 @@ Options:
   --page <number>       (default: 1)
   --per-page <number>   (default: 30)
   --repo, -R <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -52224,6 +52377,7 @@ Options:
   --repo, -R <string>
   --title <string>
   --transport <workflow|http>   (default: workflow)
+  --verbose                    Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -52254,6 +52408,7 @@ Arguments:
 
 Options:
   --repo, -R <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -52284,6 +52439,7 @@ Arguments:
 
 Options:
   --repo, -R <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -52320,6 +52476,7 @@ Options:
   --field <array>
   --header <array>
   --input <string>
+  --verbose          Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -52383,6 +52540,7 @@ Arguments:
 Options:
   --output <string>
   --repo, -R <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -52413,6 +52571,7 @@ Arguments:
 
 Options:
   --repo, -R <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -52481,6 +52640,7 @@ Arguments:
 Options:
   --label <string>
   --api-key
+  --verbose         Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -52508,6 +52668,7 @@ Usage: smthrs auth connections [options]
 
 Options:
   --org <string>
+  --verbose       Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -52566,6 +52727,7 @@ Options:
   --host <string>
   --hostname <string>
   --username <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -52595,6 +52757,7 @@ Options:
   --host <string>
   --hostname <string>
   --username <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -52623,6 +52786,7 @@ Usage: smthrs auth local status [options]
 Options:
   --host <string>
   --hostname <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -52655,6 +52819,7 @@ Options:
   --observe
   --ttl <string>
   --with-token
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -52682,6 +52847,7 @@ Usage: smthrs auth logout [options]
 
 Options:
   --hostname <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -52710,6 +52876,9 @@ Usage: smthrs auth revoke <id> [options]
 Arguments:
   id  Connection id
 
+Options:
+  --verbose  Show redacted diagnostic details
+
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
   --silent                       Suppress progress; retain the result and actionable failures
@@ -52736,6 +52905,7 @@ Usage: smthrs auth status [options]
 
 Options:
   --hostname <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -52763,6 +52933,7 @@ Usage: smthrs auth token [options]
 
 Options:
   --hostname <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -52826,6 +52997,7 @@ Arguments:
 Options:
   --change <string>
   --repo, -R <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -52856,6 +53028,7 @@ Arguments:
 
 Options:
   --repo, -R <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -52880,6 +53053,9 @@ Global Options:
 smthrs bookmark list — List local bookmarks
 
 Usage: smthrs bookmark list [options]
+
+Options:
+  --verbose  Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -52957,6 +53133,7 @@ Options:
   --run <string>
   --yes                  Post the previewed report without an interactive confirmation
   --dry-run              Preview the redacted report without posting
+  --verbose              Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -53068,6 +53245,7 @@ Options:
   --cache-dir <string>  Workspace-relative cache directory; overrides the WORKSPACE.ts declaration
   --dry-run
   --yes
+  --verbose             Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -53126,6 +53304,7 @@ Options:
   --bookmark <string>
   --key <string>
   --repo, -R <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -53157,6 +53336,7 @@ Options:
   --limit <number>      (default: 30)
   --page <number>       (default: 1)
   --repo, -R <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -53184,6 +53364,7 @@ Usage: smthrs cache cloud stats [options]
 
 Options:
   --repo, -R <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -53213,6 +53394,7 @@ Options:
   --repo, -R <string>
   --workspace <string>   (default: .)
   --write                (default: true)
+  --verbose             Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -53244,6 +53426,7 @@ Options:
   --older-than-days <number>   (default: 30)
   --dry-run
   --yes
+  --verbose                   Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -53272,6 +53455,7 @@ Usage: smthrs cache status [options]
 Options:
   --workspace <string>  Directory inside a workspace containing WORKSPACE.ts (default: <cwd>)
   --cache-dir <string>  Workspace-relative cache directory; overrides the WORKSPACE.ts declaration
+  --verbose             Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -53333,6 +53517,7 @@ Arguments:
 Options:
   --root <string>
   --if-recorded-by <string>
+  --verbose                  Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -53360,6 +53545,7 @@ Usage: smthrs cache steps ls [options]
 
 Options:
   --root <string>
+  --verbose        Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -53390,6 +53576,7 @@ Arguments:
 
 Options:
   --root <string>
+  --verbose        Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -53418,6 +53605,7 @@ Usage: smthrs cache steps sweep [options]
 Options:
   --root <string>
   --older-than <string>
+  --verbose              Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -53475,6 +53663,7 @@ Usage: smthrs cache token create [options]
 Options:
   --name <string>       (default: )
   --repo, -R <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -53502,6 +53691,7 @@ Usage: smthrs cache token list [options]
 
 Options:
   --repo, -R <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -53530,6 +53720,7 @@ Usage: smthrs cache token revoke [options]
 Options:
   --id <number>         (default: 0)
   --repo, -R <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -53595,6 +53786,7 @@ Arguments:
 
 Options:
   --repo, -R <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -53625,6 +53817,7 @@ Arguments:
 
 Options:
   --repo, -R <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -53655,6 +53848,7 @@ Arguments:
 
 Options:
   --repo, -R <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -53683,6 +53877,7 @@ Usage: smthrs change list [options]
 Options:
   --limit <number>      (default: 10)
   --repo, -R <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -53713,6 +53908,7 @@ Arguments:
 
 Options:
   --repo, -R <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -53737,6 +53933,9 @@ Global Options:
 smthrs change status — Show working copy status
 
 Usage: smthrs change status [options]
+
+Options:
+  --verbose  Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -53801,6 +54000,7 @@ Options:
   --description <string>   (default: )
   --parent <string>        (default: )
   --target <string>        (default: main)
+  --verbose               Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -53829,6 +54029,7 @@ Usage: smthrs changeset get [options]
 Options:
   --org <string>  Organization name
   --id <number>    (default: 0)
+  --verbose       Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -53857,6 +54058,7 @@ Usage: smthrs changeset land [options]
 Options:
   --org <string>  Organization name
   --id <number>    (default: 0)
+  --verbose       Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -53886,6 +54088,7 @@ Options:
   --org <string>    Organization name
   --limit <number>   (default: 30)
   --page <number>    (default: 1)
+  --verbose         Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -53997,6 +54200,9 @@ Usage: smthrs completion <bash|zsh|fish> [options]
 Arguments:
   shell
 
+Options:
+  --verbose  Show redacted diagnostic details
+
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
   --silent                       Suppress progress; retain the result and actionable failures
@@ -54057,6 +54263,9 @@ Usage: smthrs config get <key> [options]
 Arguments:
   key  Config key (api_origin, observe_url, git_protocol)
 
+Options:
+  --verbose  Show redacted diagnostic details
+
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
   --silent                       Suppress progress; retain the result and actionable failures
@@ -54080,6 +54289,9 @@ Global Options:
 smthrs config list — List all config values
 
 Usage: smthrs config list [options]
+
+Options:
+  --verbose  Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -54109,6 +54321,9 @@ Arguments:
   key    Config key (api_origin, observe_url, git_protocol)
   value  Value to set
 
+Options:
+  --verbose  Show redacted diagnostic details
+
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
   --silent                       Suppress progress; retain the result and actionable failures
@@ -54132,6 +54347,9 @@ Global Options:
 smthrs config show — Show effective configuration with env var overrides and source information
 
 Usage: smthrs config show [options]
+
+Options:
+  --verbose  Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -54165,6 +54383,7 @@ Arguments:
 
 Options:
   --template, -t <string>  Template name (default: default)
+  --verbose                Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -54232,6 +54451,7 @@ Options:
   --secret-env <string>   Environment variable containing the secret
   --secret-file <string>  File containing the secret; one trailing newline is removed
   --name <string>
+  --verbose               Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -54260,6 +54480,7 @@ Usage: smthrs credentials list [options]
 Options:
   --root <string>    Project root (defaults to the nearest Smithers project)
   --remote <string>  Remote control server; local operator commands refuse this option
+  --verbose          Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -54291,6 +54512,7 @@ Arguments:
 Options:
   --root <string>    Project root (defaults to the nearest Smithers project)
   --remote <string>  Remote control server; local operator commands refuse this option
+  --verbose          Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -54324,6 +54546,7 @@ Options:
   --remote <string>       Remote control server; local operator commands refuse this option
   --secret-env <string>   Environment variable containing the secret
   --secret-file <string>  File containing the secret; one trailing newline is removed
+  --verbose               Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -54444,6 +54667,7 @@ Options:
   --remote <string>      Remote control plane URL; defaults to SMITHERS_REMOTE
   --mcp-config <string>  Path to the configured MCP servers
   --quiet                Suppress progress messages
+  --verbose              Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -54513,6 +54737,7 @@ Arguments:
 
 Options:
   --repo, -R <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -54543,6 +54768,7 @@ Arguments:
 
 Options:
   --repo, -R <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -54570,6 +54796,7 @@ Usage: smthrs egress list [options]
 
 Options:
   --repo, -R <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -54640,6 +54867,7 @@ Options:
   --workspace <string>  Cloud workspace OWNER/REPO/ID
   --directory <string>  Absolute working directory on the execution machine
   --home <string>       Persistent home on the execution machine
+  --verbose             Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -54671,6 +54899,7 @@ Arguments:
 Options:
   --arg <array>  Command arguments; use -- followed by the command
   --terminal     Allocate a remote terminal for an interactive command
+  --verbose      Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -54702,6 +54931,7 @@ Arguments:
 Options:
   --local-port <number>   Local port on 127.0.0.1
   --remote-port <number>  Remote port on 127.0.0.1
+  --verbose               Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -54725,7 +54955,10 @@ Global Options:
 ```text
 smthrs environment list — List saved execution locations
 
-Usage: smthrs environment list
+Usage: smthrs environment list [options]
+
+Options:
+  --verbose  Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -54749,10 +54982,13 @@ Global Options:
 ```text
 smthrs environment remove — Forget an execution location
 
-Usage: smthrs environment remove <name>
+Usage: smthrs environment remove <name> [options]
 
 Arguments:
   name  Saved execution environment
+
+Options:
+  --verbose  Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -54776,10 +55012,13 @@ Global Options:
 ```text
 smthrs environment shell — Open a terminal in the execution environment
 
-Usage: smthrs environment shell <name>
+Usage: smthrs environment shell <name> [options]
 
 Arguments:
   name  Saved execution environment
+
+Options:
+  --verbose  Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -54803,10 +55042,13 @@ Global Options:
 ```text
 smthrs environment view — Show an execution location
 
-Usage: smthrs environment view <name>
+Usage: smthrs environment view <name> [options]
 
 Arguments:
   name  Saved execution environment
+
+Options:
+  --verbose  Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -54873,6 +55115,7 @@ Options:
   --remote <string>  Not supported: evaluations execute local modules
   --output <string>  Baseline file; defaults to evals/<suite>.baseline.json
   --force            Replace an existing baseline
+  --verbose          Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -54908,6 +55151,7 @@ Options:
   --mean <number>      Required mean score
   --min <number>       Required minimum score
   --output <string>    Save the complete comparison JSON to a new file
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -54936,6 +55180,7 @@ Usage: smthrs eval list [options]
 Options:
   --root <string>    Smithers project directory
   --remote <string>  Not supported: evaluations execute local modules
+  --verbose          Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -54972,6 +55217,7 @@ Options:
   --trials <number>  Runs per case (default: 1)
   --k <number>       Number of samples for pass@k (default: 1)
   --output <string>  Additional output JSON path; refuses overwriting existing files
+  --verbose          Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -55007,6 +55253,7 @@ Options:
   --workspace <string>                      Directory inside a workspace containing WORKSPACE.ts (default: <cwd>)
   --cache-dir <string>                      Workspace-relative cache directory; overrides the WORKSPACE.ts declaration
   --verb <build|test|lint|docs|review|run>
+  --verbose                                 Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -55102,6 +55349,7 @@ Options:
   --expires-at <string>
   --team-key <string>
   --team-name <string>
+  --verbose              Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -55126,6 +55374,9 @@ Global Options:
 smthrs extension linear list — List Linear integrations
 
 Usage: smthrs extension linear list [options]
+
+Options:
+  --verbose  Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -55154,6 +55405,9 @@ Usage: smthrs extension linear remove <id> [options]
 Arguments:
   id  Integration ID
 
+Options:
+  --verbose  Show redacted diagnostic details
+
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
   --silent                       Suppress progress; retain the result and actionable failures
@@ -55180,6 +55434,9 @@ Usage: smthrs extension linear sync <id> [options]
 
 Arguments:
   id  Integration ID
+
+Options:
+  --verbose  Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -55242,6 +55499,7 @@ Options:
   --quiet                Suppress progress messages
   --older-than <string>   (default: 30d)
   --dry-run
+  --verbose              Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -55311,6 +55569,7 @@ Arguments:
 
 Options:
   --template <string>   (default: default)
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -55340,6 +55599,7 @@ Options:
   --workspace <string>   (default: <cwd>)
   --target <string>     Declared generator label; required when more than one matches
   --plan                Show the generator plan without writing files
+  --verbose             Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -55370,6 +55630,7 @@ Arguments:
 
 Options:
   --root <string>  Project directory
+  --verbose        Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -55402,6 +55663,7 @@ Options:
   --workspace <string>   (default: <cwd>)
   --target <string>     Declared generator label; required when more than one matches
   --plan                Show the generator plan without writing files
+  --verbose             Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -55435,6 +55697,7 @@ Options:
   --workspace, -w <string>  Directory inside a workspace containing WORKSPACE.ts (default: <cwd>)
   --cache-dir <string>      Workspace-relative cache directory; overrides the WORKSPACE.ts declaration
   --write                   Install the rendered hook scripts into .git/hooks
+  --verbose                 Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -55470,6 +55733,7 @@ Options:
   --workspace, -w <string>  Directory inside a workspace containing WORKSPACE.ts (default: <cwd>)
   --cache-dir <string>      Workspace-relative cache directory; overrides the WORKSPACE.ts declaration
   --mermaid, -m             Render Mermaid instead of a text tree
+  --verbose                 Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -55533,6 +55797,7 @@ Usage: smthrs history backfill [options]
 
 Options:
   --repo, -R <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -55560,6 +55825,7 @@ Usage: smthrs history bootstrap [options]
 
 Options:
   --repo, -R <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -55590,6 +55856,7 @@ Arguments:
 
 Options:
   --repo, -R <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -55620,6 +55887,7 @@ Arguments:
 
 Options:
   --repo, -R <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -55647,6 +55915,7 @@ Usage: smthrs history show [options]
 
 Options:
   --repo, -R <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -55679,6 +55948,7 @@ Options:
   --body <string>       (default: )
   --request <string>
   --repo, -R <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -55709,6 +55979,7 @@ Arguments:
 
 Options:
   --repo, -R <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -55743,6 +56014,7 @@ Arguments:
 Options:
   --workspace, -w <string>  Directory inside a workspace containing WORKSPACE.ts (default: <cwd>)
   --cache-dir <string>      Workspace-relative cache directory; overrides the WORKSPACE.ts declaration
+  --verbose                 Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -55774,6 +56046,7 @@ Usage: smthrs info [options]
 Options:
   --workspace <string>  Directory inside a workspace containing WORKSPACE.ts (default: <cwd>)
   --cache-dir <string>  Workspace-relative cache directory; overrides the WORKSPACE.ts declaration
+  --verbose             Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -55846,6 +56119,7 @@ Arguments:
 Options:
   --root <string>  Directory to initialize; defaults to cwd
   --global         Removed; initialize a workspace instead
+  --verbose        Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -55882,6 +56156,7 @@ Usage: smthrs install [options]
 Options:
   --workspace, -w <string>  Directory inside a workspace containing WORKSPACE.ts (default: <cwd>)
   --cache-dir <string>      Workspace-relative cache directory; overrides the WORKSPACE.ts declaration
+  --verbose                 Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -55947,6 +56222,7 @@ Options:
   --config <string>       (default: .smithers/integrations.json)
   --offline
   --timeout-ms <number>   (default: 10000)
+  --verbose              Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -55976,6 +56252,7 @@ Options:
   --root <string>    Project root (defaults to the nearest Smithers project)
   --remote <string>  Remote control server; local operator commands refuse this option
   --config <string>   (default: .smithers/integrations.json)
+  --verbose          Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -56012,6 +56289,7 @@ Commands:
   list     List issues
   reopen   Reopen an issue
   view     View an issue
+  views    List the repository's saved issue views
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -56043,6 +56321,7 @@ Arguments:
 Options:
   --comment <string>
   --repo, -R <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -56074,6 +56353,7 @@ Arguments:
 Options:
   --body <string>      Comment body
   --repo, -R <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -56107,6 +56387,7 @@ Options:
   --body <string>       (default: )
   --repo, -R <string>
   --title <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -56141,6 +56422,7 @@ Options:
   --label <string>
   --repo, -R <string>
   --title <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -56172,6 +56454,8 @@ Options:
   --limit <number>                           (default: 30)
   --repo, -R <string>
   --state <open|closed|fixed|verified|all>   (default: open)
+  --view <string>
+  --verbose                                 Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -56202,6 +56486,7 @@ Arguments:
 
 Options:
   --repo, -R <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -56232,6 +56517,35 @@ Arguments:
 
 Options:
   --repo, -R <string>
+  --verbose            Show redacted diagnostic details
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
+
+## issue views
+
+```text
+smthrs issue views — List the repository's saved issue views
+
+Usage: smthrs issue views [options]
+
+Options:
+  --repo, -R <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -56296,6 +56610,7 @@ Options:
   --color <string>         (default: )
   --description <string>   (default: )
   --repo, -R <string>
+  --verbose               Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -56326,6 +56641,7 @@ Arguments:
 
 Options:
   --repo, -R <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -56353,6 +56669,7 @@ Usage: smthrs label list [options]
 
 Options:
   --repo, -R <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -56421,6 +56738,7 @@ Arguments:
 
 Options:
   --repo, -R <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -56453,6 +56771,7 @@ Options:
   --body <string>      Comment body
   --commit <string>    Commit ID of the revision being commented on
   --repo, -R <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -56483,6 +56802,7 @@ Arguments:
 
 Options:
   --repo, -R <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -56516,6 +56836,7 @@ Options:
   --repo, -R <string>
   --stack
   --target <string>      (default: main)
+  --verbose             Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -56549,6 +56870,7 @@ Options:
   --repo, -R <string>
   --target <string>
   --title <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -56580,6 +56902,7 @@ Arguments:
 Options:
   --commit <string>    Expected current commit ID
   --repo, -R <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -56611,6 +56934,7 @@ Options:
   --limit <number>                          (default: 30)
   --repo, -R <string>
   --state <open|closed|merged|landed|all>   (default: open)
+  --verbose                                Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -56644,6 +56968,7 @@ Options:
   --approve
   --body <string>       (default: )
   --repo, -R <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -56674,6 +56999,7 @@ Arguments:
 
 Options:
   --repo, -R <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -56750,6 +57076,7 @@ Options:
   --observe
   --ttl <string>
   --with-token
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -56802,6 +57129,7 @@ Options:
   --mcp-config <string>  Path to the configured MCP servers
   --quiet                Suppress progress messages
   --agent <string>
+  --verbose              Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>   (default: auto)
@@ -56993,6 +57321,7 @@ Options:
   --verify-format <string>
   --verify-typecheck <array>
   --verify-test <string>
+  --verbose                     Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -57059,6 +57388,7 @@ Options:
   --cursor <string>
   --limit <number>    (default: 30)
   --unread
+  --verbose          Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -57089,6 +57419,7 @@ Arguments:
 
 Options:
   --all
+  --verbose  Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -57115,10 +57446,13 @@ https://smithers.sh/docs/reference/cli/open/
 ```text
 smthrs open — Open this checkout's repository in the Smithers app; `smthrs .` is the same
 
-Usage: smthrs open [directory]
+Usage: smthrs open [directory] [options]
 
 Arguments:
   directory  Checkout directory; defaults to cwd
+
+Options:
+  --verbose  Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -57185,6 +57519,7 @@ Arguments:
 Options:
   --description <string>                  (default: )
   --visibility <public|limited|private>   (default: public)
+  --verbose                              Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -57216,6 +57551,7 @@ Arguments:
 Options:
   --description <string>
   --visibility <public|limited|private|>   (default: )
+  --verbose                               Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -57240,6 +57576,9 @@ Global Options:
 smthrs org list — List organizations for the authenticated user
 
 Usage: smthrs org list [options]
+
+Options:
+  --verbose  Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -57298,6 +57637,9 @@ Arguments:
   org       Organization name
   username  Username to add
 
+Options:
+  --verbose  Show redacted diagnostic details
+
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
   --silent                       Suppress progress; retain the result and actionable failures
@@ -57324,6 +57666,9 @@ Usage: smthrs org member list <org> [options]
 
 Arguments:
   org  Organization name
+
+Options:
+  --verbose  Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -57352,6 +57697,9 @@ Usage: smthrs org member remove <org> <username> [options]
 Arguments:
   org       Organization name
   username  Username to remove
+
+Options:
+  --verbose  Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -57417,6 +57765,7 @@ Arguments:
 Options:
   --description <string>            (default: )
   --permission <read|write|admin>   (default: read)
+  --verbose                        Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -57445,6 +57794,9 @@ Usage: smthrs org team delete <org> <team> [options]
 Arguments:
   org   Organization name
   team  Team slug
+
+Options:
+  --verbose  Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -57478,6 +57830,7 @@ Options:
   --description <string>
   --name <string>
   --permission <read|write|admin|>   (default: )
+  --verbose                         Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -57505,6 +57858,9 @@ Usage: smthrs org team list <org> [options]
 
 Arguments:
   org  Organization name
+
+Options:
+  --verbose  Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -57564,6 +57920,9 @@ Arguments:
   team      Team slug
   username  Username to add
 
+Options:
+  --verbose  Show redacted diagnostic details
+
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
   --silent                       Suppress progress; retain the result and actionable failures
@@ -57591,6 +57950,9 @@ Usage: smthrs org team member list <org> <team> [options]
 Arguments:
   org   Organization name
   team  Team slug
+
+Options:
+  --verbose  Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -57620,6 +57982,9 @@ Arguments:
   org       Organization name
   team      Team slug
   username  Username to remove
+
+Options:
+  --verbose  Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -57679,6 +58044,9 @@ Arguments:
   team  Team slug
   repo  Repository in OWNER/REPO format
 
+Options:
+  --verbose  Show redacted diagnostic details
+
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
   --silent                       Suppress progress; retain the result and actionable failures
@@ -57706,6 +58074,9 @@ Usage: smthrs org team repo list <org> <team> [options]
 Arguments:
   org   Organization name
   team  Team slug
+
+Options:
+  --verbose  Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -57736,6 +58107,9 @@ Arguments:
   team  Team slug
   repo  Repository in OWNER/REPO format
 
+Options:
+  --verbose  Show redacted diagnostic details
+
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
   --silent                       Suppress progress; retain the result and actionable failures
@@ -57764,6 +58138,9 @@ Arguments:
   org   Organization name
   team  Team slug
 
+Options:
+  --verbose  Show redacted diagnostic details
+
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
   --silent                       Suppress progress; retain the result and actionable failures
@@ -57790,6 +58167,9 @@ Usage: smthrs org view <name> [options]
 
 Arguments:
   name  Organization name
+
+Options:
+  --verbose  Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -57825,6 +58205,7 @@ Options:
   --workspace, -w <string>  Directory inside a workspace containing WORKSPACE.ts (default: <cwd>)
   --cache-dir <string>      Workspace-relative cache directory; overrides the WORKSPACE.ts declaration
   --diff, -d <string>       Also resolve every path changed since this git base, like S.gitDiff(base)
+  --verbose                 Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -57859,6 +58240,7 @@ Arguments:
 Options:
   --workspace, -w <string>  Directory inside a workspace containing WORKSPACE.ts (default: <cwd>)
   --cache-dir <string>      Workspace-relative cache directory; overrides the WORKSPACE.ts declaration
+  --verbose                 Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -57900,6 +58282,7 @@ Commands:
   list         List your repositories
   mirror-sync  Start a GitHub mirror sync run
   push         Push this checkout to your own ref on Smithers Cloud for a workspace to fetch
+  report       Read the registration report another account recorded for a public repository at its current commit, without analysing it again; prints cached: false when there is none
   status       Show local repository connection status
   transfer     Transfer repository ownership
   unarchive    Unarchive a repository
@@ -57931,6 +58314,9 @@ Usage: smthrs repo archive <repo> [options]
 
 Arguments:
   repo  Repository in OWNER/REPO format
+
+Options:
+  --verbose  Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -57964,6 +58350,7 @@ Options:
   --clone-arg <array>
   --directory <string>
   --protocol <ssh|https|>   (default: )
+  --verbose                Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -57991,6 +58378,9 @@ Usage: smthrs repo connect <repo> [options]
 
 Arguments:
   repo  Repository in OWNER/REPO format
+
+Options:
+  --verbose  Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -58022,6 +58412,7 @@ Arguments:
 Options:
   --description <string>   (default: )
   --private
+  --verbose               Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -58052,6 +58443,7 @@ Arguments:
 
 Options:
   --yes
+  --verbose  Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -58076,6 +58468,9 @@ Global Options:
 smthrs repo disconnect — Disconnect this repository from Smithers
 
 Usage: smthrs repo disconnect [options]
+
+Options:
+  --verbose  Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -58108,6 +58503,7 @@ Options:
   --description <string>
   --name <string>
   --private
+  --verbose               Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -58139,6 +58535,7 @@ Arguments:
 Options:
   --name <string>
   --organization <string>
+  --verbose                Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -58169,6 +58566,7 @@ Arguments:
 
 Options:
   --repo, -R <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -58197,6 +58595,7 @@ Usage: smthrs repo list [options]
 Options:
   --limit <number>   (default: 30)
   --page <number>    (default: 1)
+  --verbose         Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -58224,6 +58623,7 @@ Usage: smthrs repo mirror-sync [options]
 
 Options:
   --repo, -R <string>  Repository in OWNER/REPO format
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -58255,6 +58655,38 @@ Options:
   --name <string>       (default: head)
   --repo, -R <string>
   --working-copy
+  --verbose            Show redacted diagnostic details
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
+
+## repo report
+
+```text
+smthrs repo report — Read the registration report another account recorded for a public repository at its current commit, without analysing it again; prints cached: false when there is none
+
+Usage: smthrs repo report <repo> [options]
+
+Arguments:
+  repo  Public GitHub repository in OWNER/REPO format
+
+Options:
+  --workspace <string>  ID of one of your workspaces that answers the lookup
+  --verbose             Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -58279,6 +58711,9 @@ Global Options:
 smthrs repo status — Show local repository connection status
 
 Usage: smthrs repo status [options]
+
+Options:
+  --verbose  Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -58309,6 +58744,7 @@ Arguments:
 
 Options:
   --to <string>  New owner (user or organization)
+  --verbose      Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -58336,6 +58772,9 @@ Usage: smthrs repo unarchive <repo> [options]
 
 Arguments:
   repo  Repository in OWNER/REPO format
+
+Options:
+  --verbose  Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -58366,6 +58805,7 @@ Arguments:
 
 Options:
   --repo, -R <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -58405,6 +58845,7 @@ Options:
   --plan                      Show pinned policy and source selection without inference
   --required                  Fail every selected review that selects no files or cannot run instead of passing it
   --findings-store <string>   Absolute private directory for review runs and findings (default: the Git directory)
+  --verbose                   Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -58513,6 +58954,7 @@ Arguments:
 Options:
   --limit <number>   (default: 30)
   --page <number>    (default: 1)
+  --verbose         Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -58544,6 +58986,7 @@ Arguments:
 Options:
   --limit <number>   (default: 30)
   --page <number>    (default: 1)
+  --verbose         Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -58575,6 +59018,7 @@ Arguments:
 Options:
   --limit <number>   (default: 30)
   --page <number>    (default: 1)
+  --verbose         Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -58606,6 +59050,7 @@ Arguments:
 Options:
   --limit <number>   (default: 30)
   --page <number>    (default: 1)
+  --verbose         Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -58672,6 +59117,7 @@ Options:
   --header <array>
   --host <array>
   --repo, -R <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -58702,6 +59148,7 @@ Arguments:
 
 Options:
   --repo, -R <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -58729,6 +59176,7 @@ Usage: smthrs secret list [options]
 
 Options:
   --repo, -R <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -58760,6 +59208,7 @@ Arguments:
 
 Options:
   --repo, -R <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -58794,6 +59243,7 @@ Options:
   --host <array>
   --main-only
   --repo, -R <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -58896,6 +59346,7 @@ Options:
   --host <string>         (default: 127.0.0.1)
   --port <number>         (default: 3000)
   --listen
+  --verbose              Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -58966,6 +59417,7 @@ Options:
   --workspace <string>                      Directory inside a workspace containing WORKSPACE.ts (default: <cwd>)
   --cache-dir <string>                      Workspace-relative cache directory; overrides the WORKSPACE.ts declaration
   --verb <build|test|lint|docs|review|run>
+  --verbose                                 Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -58994,6 +59446,7 @@ Usage: smthrs show workspace [options]
 Options:
   --workspace <string>  Directory inside a workspace containing WORKSPACE.ts (default: <cwd>)
   --cache-dir <string>  Workspace-relative cache directory; overrides the WORKSPACE.ts declaration
+  --verbose             Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -59054,6 +59507,7 @@ Usage: smthrs ssh-key add [options]
 Options:
   --title <string>  Key title
   --key <string>    Public key content
+  --verbose         Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -59082,6 +59536,9 @@ Usage: smthrs ssh-key delete <id> [options]
 Arguments:
   id  Key ID
 
+Options:
+  --verbose  Show redacted diagnostic details
+
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
   --silent                       Suppress progress; retain the result and actionable failures
@@ -59105,6 +59562,9 @@ Global Options:
 smthrs ssh-key list — List SSH keys
 
 Usage: smthrs ssh-key list [options]
+
+Options:
+  --verbose  Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -59169,6 +59629,7 @@ Options:
   --change <string>
   --repo, -R <string>
   --target <string>     (default: main)
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -59197,6 +59658,7 @@ Usage: smthrs stack status [options]
 Options:
   --repo, -R <string>
   --target <string>     (default: main)
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -59226,6 +59688,7 @@ Options:
   --draft
   --repo, -R <string>
   --target <string>     (default: main)
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -59254,6 +59717,7 @@ Usage: smthrs stack sync [options]
 Options:
   --repo, -R <string>
   --target <string>     (default: main)
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -59282,6 +59746,7 @@ Usage: smthrs stack unsubmit [options]
 Options:
   --repo, -R <string>
   --target <string>     (default: main)
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -59386,6 +59851,7 @@ Options:
   --root <string>
   --seat <string>
   --list
+  --verbose        Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -59471,6 +59937,7 @@ Arguments:
 Options:
   --workspace <string>  Directory inside a workspace containing WORKSPACE.ts (default: <cwd>)
   --cache-dir <string>  Workspace-relative cache directory; overrides the WORKSPACE.ts declaration
+  --verbose             Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -59571,6 +60038,7 @@ Options:
   --ttl <string>   Lifetime such as 30s, 15m, 1h, or 2d (default: 1h)
   --run <string>   Confine every call to this run id
   --flow <string>  Confine every call to this flow id
+  --verbose        Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -59638,6 +60106,7 @@ Arguments:
 Options:
   --root <string>    Project root (defaults to the nearest Smithers project)
   --remote <string>  Remote control server; local operator commands refuse this option
+  --verbose          Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -59669,6 +60138,7 @@ Arguments:
 Options:
   --root <string>    Project root (defaults to the nearest Smithers project)
   --remote <string>  Remote control server; local operator commands refuse this option
+  --verbose          Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -59701,6 +60171,7 @@ Options:
   --root <string>        Project root (defaults to the nearest Smithers project)
   --remote <string>      Remote control server; local operator commands refuse this option
   --occurrence <number>  Unix milliseconds used as the retry identity; defaults to now
+  --verbose              Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -59729,6 +60200,7 @@ Usage: smthrs triggers list [options]
 Options:
   --root <string>    Project root (defaults to the nearest Smithers project)
   --remote <string>  Remote control server; local operator commands refuse this option
+  --verbose          Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -59769,6 +60241,7 @@ Options:
   --catch-up <none|one|all>               (default: none)
   --max-catch-up <number>                 (default: 0)
   --enabled                               (default: true)
+  --verbose                              Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -59798,6 +60271,7 @@ Options:
   --root <string>              Project root (defaults to the nearest Smithers project)
   --remote <string>            Remote control server; local operator commands refuse this option
   --poll-interval-ms <number>   (default: 1000)
+  --verbose                    Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -59829,6 +60303,7 @@ Arguments:
 Options:
   --root <string>    Project root (defaults to the nearest Smithers project)
   --remote <string>  Remote control server; local operator commands refuse this option
+  --verbose          Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -59868,6 +60343,7 @@ Options:
   --approve <all|ask|deny>  Consequential calls: all, ask, or deny
   --budget-tokens <string>  Token ceiling per turn and worker; unbounded by default
   --environment <string>    Run the TUI app in a saved execution environment
+  --verbose                 Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -59932,6 +60408,7 @@ Options:
   --remote <string>      Remote control plane URL; defaults to SMITHERS_REMOTE
   --mcp-config <string>  Path to the configured MCP servers
   --quiet                Suppress progress messages
+  --verbose              Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -60000,6 +60477,7 @@ Arguments:
 
 Options:
   --repo, -R <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -60030,6 +60508,7 @@ Arguments:
 
 Options:
   --repo, -R <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -60057,6 +60536,7 @@ Usage: smthrs variable list [options]
 
 Options:
   --repo, -R <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -60088,6 +60568,7 @@ Arguments:
 Options:
   --body <string>      Variable value
   --repo, -R <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -60197,6 +60678,7 @@ Options:
   --events <array>
   --repo, -R <string>
   --secret-stdin
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -60227,6 +60709,7 @@ Arguments:
 
 Options:
   --repo, -R <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -60258,6 +60741,7 @@ Arguments:
 Options:
   --replay <string>
   --repo, -R <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -60285,6 +60769,7 @@ Usage: smthrs webhook list [options]
 
 Options:
   --repo, -R <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -60319,6 +60804,7 @@ Options:
   --repo, -R <string>
   --secret-stdin
   --url <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -60349,6 +60835,7 @@ Arguments:
 
 Options:
   --repo, -R <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -60419,6 +60906,7 @@ Options:
   --repo, -R <string>
   --slug <string>
   --visibility <public|private>
+  --verbose                      Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -60450,6 +60938,7 @@ Arguments:
 Options:
   --repo, -R <string>
   --visibility <public|private>
+  --verbose                      Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -60486,6 +60975,7 @@ Options:
   --slug <string>
   --title <string>
   --visibility <public|private>
+  --verbose                      Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -60519,6 +61009,7 @@ Options:
   --page <number>                 (default: 1)
   --repo, -R <string>
   --visibility <public|private>
+  --verbose                      Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -60547,6 +61038,7 @@ Usage: smthrs wiki index [options]
 Options:
   --repo, -R <string>
   --visibility <public|private>
+  --verbose                      Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -60578,6 +61070,7 @@ Options:
   --query <string>
   --repo, -R <string>
   --visibility <public|private>
+  --verbose                      Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -60611,6 +61104,7 @@ Options:
   --page <number>                 (default: 1)
   --repo, -R <string>
   --visibility <public|private>
+  --verbose                      Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -60642,6 +61136,7 @@ Options:
   --page <number>                 (default: 1)
   --repo, -R <string>
   --visibility <public|private>
+  --verbose                      Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -60673,6 +61168,7 @@ Arguments:
 Options:
   --repo, -R <string>
   --visibility <public|private>
+  --verbose                      Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -60747,6 +61243,7 @@ Options:
   --repo, -R <string>
   --timeout <number>    (default: 0)
   --user <string>       (default: developer)
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -60778,15 +61275,17 @@ Options:
   --disk <number>
   --idle-timeout <number>
   --image <string>
+  --kind <container|vm|desktop>
   --memory <number>
-  --name <string>           (default: )
+  --name <string>                 (default: )
   --network <string>
   --ref <string>
   --repo, -R <string>
   --service <array>
   --snapshot <string>
   --wait
-  --wait-timeout <number>   (default: 600)
+  --wait-timeout <number>         (default: 600)
+  --verbose                      Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -60818,6 +61317,7 @@ Arguments:
 Options:
   --repo, -R <string>
   --yes
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -60855,6 +61355,7 @@ Options:
   --repo, -R <string>
   --seed-agent-auth <string>
   --timeout <number>
+  --verbose                   Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -60886,6 +61387,7 @@ Arguments:
 Options:
   --name <string>       (default: )
   --repo, -R <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -60917,6 +61419,7 @@ Arguments:
 Options:
   --repo, -R <string>
   --target <string>     (default: main)
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -60944,6 +61447,7 @@ Usage: smthrs workspace list [options]
 
 Options:
   --repo, -R <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -60976,6 +61480,7 @@ Options:
   --cols <number>       (default: 0)
   --repo, -R <string>
   --rows <number>       (default: 0)
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -61006,6 +61511,7 @@ Arguments:
 
 Options:
   --repo, -R <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -61036,6 +61542,7 @@ Arguments:
 
 Options:
   --repo, -R <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -61066,6 +61573,7 @@ Arguments:
 
 Options:
   --repo, -R <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -61096,6 +61604,7 @@ Arguments:
 
 Options:
   --repo, -R <string>
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

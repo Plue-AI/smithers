@@ -12,6 +12,7 @@ Options:
   --expires-at <string>
   --team-key <string>
   --team-name <string>
+  --verbose              Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

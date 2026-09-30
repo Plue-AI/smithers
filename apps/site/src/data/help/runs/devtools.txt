@@ -12,6 +12,7 @@ Options:
   --mcp-config <string>  Path to the configured MCP servers
   --quiet                Suppress progress messages
   --frames <number>      Newest journal frames kept on the inspection; 100 by default
+  --verbose              Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

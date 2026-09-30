@@ -16,6 +16,7 @@ Options:
   --preview              Show the affected suffix and effects without changing anything
   --yes                  Confirm archiving the suffix and restoring the historical frame
   --whole-repo           Restore the whole jj repository (bookmarks, rebases, descriptions) to the frame's recorded operation
+  --verbose              Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

@@ -1,9 +1,12 @@
 smthrs open — Open this checkout's repository in the Smithers app; `smthrs .` is the same
 
-Usage: smthrs open [directory]
+Usage: smthrs open [directory] [options]
 
 Arguments:
   directory  Checkout directory; defaults to cwd
+
+Options:
+  --verbose  Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

@@ -13,6 +13,7 @@ Options:
   --at <number>          Journal sequence to inspect; defaults to the latest frame
   --lineage <string>     Lineage ID; defaults to the lineage recorded at the frame
   --limit <number>       Maximum journal entries to read (default: 10000)
+  --verbose              Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

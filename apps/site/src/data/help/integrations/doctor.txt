@@ -11,6 +11,7 @@ Options:
   --config <string>       (default: .smithers/integrations.json)
   --offline
   --timeout-ms <number>   (default: 10000)
+  --verbose              Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

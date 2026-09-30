@@ -2,6 +2,9 @@ smthrs config show — Show effective configuration with env var overrides and s
 
 Usage: smthrs config show [options]
 
+Options:
+  --verbose  Show redacted diagnostic details
+
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
   --silent                       Suppress progress; retain the result and actionable failures

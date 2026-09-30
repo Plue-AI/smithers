@@ -13,6 +13,7 @@ Options:
   --trials <number>  Runs per case (default: 1)
   --k <number>       Number of samples for pass@k (default: 1)
   --output <string>  Additional output JSON path; refuses overwriting existing files
+  --verbose          Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

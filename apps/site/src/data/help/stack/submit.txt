@@ -6,6 +6,7 @@ Options:
   --draft
   --repo, -R <string>
   --target <string>     (default: main)
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

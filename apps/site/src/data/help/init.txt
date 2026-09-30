@@ -8,6 +8,7 @@ Arguments:
 Options:
   --root <string>  Directory to initialize; defaults to cwd
   --global         Removed; initialize a workspace instead
+  --verbose        Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

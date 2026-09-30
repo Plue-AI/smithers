@@ -12,6 +12,7 @@ Options:
   --mean <number>      Required mean score
   --min <number>       Required minimum score
   --output <string>    Save the complete comparison JSON to a new file
+  --verbose            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

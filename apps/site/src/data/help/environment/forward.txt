@@ -8,6 +8,7 @@ Arguments:
 Options:
   --local-port <number>   Local port on 127.0.0.1
   --remote-port <number>  Remote port on 127.0.0.1
+  --verbose               Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

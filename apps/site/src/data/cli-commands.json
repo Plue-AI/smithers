@@ -38,13 +38,19 @@
                 "all"
               ],
               "description": "Alert routing severity"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "type",
             "display-name",
             "target",
-            "route"
+            "route",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -61,7 +67,16 @@
         },
         "options": {
           "type": "object",
-          "properties": {},
+          "properties": {
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -90,10 +105,16 @@
               "default": false,
               "type": "boolean",
               "description": "Confirm this destructive operation"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "yes"
+            "yes",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -118,7 +139,16 @@
         },
         "options": {
           "type": "object",
-          "properties": {},
+          "properties": {
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -150,10 +180,16 @@
                 "all"
               ],
               "description": "Alert routing severity"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "route"
+            "route",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -182,10 +218,16 @@
             "code": {
               "type": "string",
               "description": "code"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "code"
+            "code",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -210,7 +252,16 @@
         },
         "options": {
           "type": "object",
-          "properties": {},
+          "properties": {
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -234,7 +285,16 @@
         },
         "options": {
           "type": "object",
-          "properties": {},
+          "properties": {
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -250,7 +310,16 @@
         },
         "options": {
           "type": "object",
-          "properties": {},
+          "properties": {
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -275,10 +344,16 @@
             "range": {
               "type": "string",
               "description": "range"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "include-synthetic"
+            "include-synthetic",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -299,10 +374,16 @@
             "since": {
               "type": "string",
               "description": "since"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "since"
+            "since",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -319,7 +400,16 @@
         },
         "options": {
           "type": "object",
-          "properties": {},
+          "properties": {
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -348,10 +438,16 @@
               "default": false,
               "type": "boolean",
               "description": "Confirm this destructive operation"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "yes"
+            "yes",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -381,10 +477,16 @@
               "default": false,
               "type": "boolean",
               "description": "Confirm this destructive operation"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "yes"
+            "yes",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -414,10 +516,16 @@
               "default": false,
               "type": "boolean",
               "description": "Confirm this destructive operation"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "yes"
+            "yes",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -434,7 +542,16 @@
         },
         "options": {
           "type": "object",
-          "properties": {},
+          "properties": {
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -467,11 +584,17 @@
               "default": false,
               "type": "boolean",
               "description": "Confirm this destructive operation"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "revision",
-            "yes"
+            "yes",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -496,7 +619,16 @@
         },
         "options": {
           "type": "object",
-          "properties": {},
+          "properties": {
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -512,7 +644,16 @@
         },
         "options": {
           "type": "object",
-          "properties": {},
+          "properties": {
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -542,12 +683,18 @@
               "default": 1,
               "type": "number",
               "description": "Page number"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "repo",
             "limit",
-            "page"
+            "page",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -581,10 +728,16 @@
               "default": false,
               "type": "boolean",
               "description": "Confirm this destructive operation"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "yes"
+            "yes",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -614,10 +767,16 @@
             "status": {
               "type": "string",
               "description": "status"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "include-synthetic"
+            "include-synthetic",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -634,7 +793,16 @@
         },
         "options": {
           "type": "object",
-          "properties": {},
+          "properties": {
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -666,8 +834,16 @@
             "unused-days": {
               "type": "number",
               "description": "unused-days"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -691,11 +867,17 @@
             "email": {
               "type": "string",
               "description": "Email address"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "username",
-            "email"
+            "email",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -725,10 +907,16 @@
               "default": false,
               "type": "boolean",
               "description": "Confirm deleting the user"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "yes"
+            "yes",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -753,7 +941,16 @@
         },
         "options": {
           "type": "object",
-          "properties": {},
+          "properties": {
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -777,7 +974,16 @@
         },
         "options": {
           "type": "object",
-          "properties": {},
+          "properties": {
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -817,11 +1023,17 @@
               "default": false,
               "type": "boolean",
               "description": "Confirm erasing the user"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "request-date",
-            "yes"
+            "yes",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -851,7 +1063,16 @@
         },
         "options": {
           "type": "object",
-          "properties": {},
+          "properties": {
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -877,11 +1098,17 @@
               "default": 1,
               "type": "number",
               "description": "Page number"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "limit",
-            "page"
+            "page",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -914,10 +1141,16 @@
                 "false"
               ],
               "description": "Whether the user is synthetic"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "value"
+            "value",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -955,10 +1188,16 @@
             "status": {
               "type": "string",
               "description": "status"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "include-synthetic"
+            "include-synthetic",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -988,10 +1227,16 @@
               "default": false,
               "type": "boolean",
               "description": "Confirm this destructive operation"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "yes"
+            "yes",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -1021,10 +1266,16 @@
               "default": false,
               "type": "boolean",
               "description": "Confirm this destructive operation"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "yes"
+            "yes",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -1164,8 +1415,16 @@
             "repo": {
               "type": "string",
               "description": "Repository (OWNER/REPO)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -1216,11 +1475,17 @@
                 "http"
               ],
               "description": "Remote agent transport"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "provider",
-            "transport"
+            "transport",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -1251,11 +1516,17 @@
             "repo": {
               "type": "string",
               "description": "Repository (OWNER/REPO)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "page",
-            "per-page"
+            "per-page",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -1306,11 +1577,17 @@
                 "http"
               ],
               "description": "Remote agent transport"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "provider",
-            "transport"
+            "transport",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -1362,11 +1639,17 @@
                 "http"
               ],
               "description": "Remote agent transport"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "provider",
-            "transport"
+            "transport",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -1397,11 +1680,17 @@
             "repo": {
               "type": "string",
               "description": "Repository (OWNER/REPO)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "page",
-            "per-page"
+            "per-page",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -1452,11 +1741,17 @@
                 "http"
               ],
               "description": "Remote agent transport"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "provider",
-            "transport"
+            "transport",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -1485,8 +1780,16 @@
             "repo": {
               "type": "string",
               "description": "Repository (OWNER/REPO)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -1514,8 +1817,16 @@
             "repo": {
               "type": "string",
               "description": "Repository (OWNER/REPO)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -1558,10 +1869,16 @@
             "input": {
               "type": "string",
               "description": "JSON request body from a file, or - for stdin"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "method"
+            "method",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -1611,11 +1928,17 @@
                 "run",
                 "remembered"
               ]
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "quiet",
-            "scope"
+            "scope",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -1656,10 +1979,16 @@
               "default": false,
               "description": "Suppress progress messages",
               "type": "boolean"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "quiet"
+            "quiet",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -1707,10 +2036,16 @@
             "revision": {
               "description": "The pending revision to approve, from approvals list --targets",
               "type": "string"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "quiet"
+            "quiet",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -1746,10 +2081,16 @@
             "targets": {
               "description": "List pending build target revisions instead",
               "type": "boolean"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "quiet"
+            "quiet",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -1787,8 +2128,16 @@
             "repo": {
               "type": "string",
               "description": "Repository (OWNER/REPO)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -1816,8 +2165,16 @@
             "repo": {
               "type": "string",
               "description": "Repository (OWNER/REPO)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -1850,10 +2207,16 @@
               "default": false,
               "type": "boolean",
               "description": "Read an Anthropic API key from stdin (claude only)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "api-key"
+            "api-key",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -1874,8 +2237,16 @@
             "org": {
               "type": "string",
               "description": "List an organization's connections"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -1903,8 +2274,16 @@
             "username": {
               "type": "string",
               "description": "Owner username"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -1932,8 +2311,16 @@
             "username": {
               "type": "string",
               "description": "Owner username"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -1957,8 +2344,16 @@
             "hostname": {
               "type": "string",
               "description": "Hostname or API origin"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -2001,12 +2396,18 @@
               "default": false,
               "type": "boolean",
               "description": "Read token from stdin instead of browser flow"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "admin",
             "observe",
-            "with-token"
+            "with-token",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -2027,8 +2428,16 @@
             "hostname": {
               "type": "string",
               "description": "Hostname or API URL to log out from"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -2052,7 +2461,16 @@
         },
         "options": {
           "type": "object",
-          "properties": {},
+          "properties": {
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -2072,8 +2490,16 @@
             "hostname": {
               "type": "string",
               "description": "Hostname or API URL to inspect"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -2093,8 +2519,16 @@
             "hostname": {
               "type": "string",
               "description": "Hostname or API URL to inspect"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -2126,8 +2560,16 @@
             "repo": {
               "type": "string",
               "description": "Repository (OWNER/REPO)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -2155,8 +2597,16 @@
             "repo": {
               "type": "string",
               "description": "Repository (OWNER/REPO)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -2172,7 +2622,16 @@
         },
         "options": {
           "type": "object",
-          "properties": {},
+          "properties": {
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -2229,12 +2688,18 @@
               "default": false,
               "description": "Preview the redacted report without posting",
               "type": "boolean"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "quiet",
             "yes",
-            "dryRun"
+            "dryRun",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -2338,12 +2803,18 @@
             "yes": {
               "default": false,
               "type": "boolean"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "workspace",
             "dryRun",
-            "yes"
+            "yes",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -2372,8 +2843,16 @@
             "repo": {
               "type": "string",
               "description": "Repository (OWNER/REPO)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -2411,11 +2890,17 @@
             "repo": {
               "type": "string",
               "description": "Repository (OWNER/REPO)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "limit",
-            "page"
+            "page",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -2436,8 +2921,16 @@
             "repo": {
               "type": "string",
               "description": "Repository (OWNER/REPO)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -2467,11 +2960,17 @@
               "default": true,
               "type": "boolean",
               "description": "Write the declaration into PACKAGE.ts (false prints it)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "workspace",
-            "write"
+            "write",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -2505,13 +3004,19 @@
             "yes": {
               "default": false,
               "type": "boolean"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "workspace",
             "olderThanDays",
             "dryRun",
-            "yes"
+            "yes",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -2532,10 +3037,16 @@
             "cacheDir": {
               "description": "Workspace-relative cache directory; overrides the WORKSPACE.ts declaration",
               "type": "string"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "workspace"
+            "workspace",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -2565,10 +3076,16 @@
             },
             "ifRecordedBy": {
               "type": "string"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "ifRecordedBy"
+            "ifRecordedBy",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -2583,8 +3100,16 @@
           "properties": {
             "root": {
               "type": "string"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -2610,8 +3135,16 @@
           "properties": {
             "root": {
               "type": "string"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -2628,10 +3161,16 @@
             },
             "olderThan": {
               "type": "string"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "olderThan"
+            "olderThan",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -2657,10 +3196,16 @@
             "repo": {
               "type": "string",
               "description": "Repository (OWNER/REPO)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "name"
+            "name",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -2681,8 +3226,16 @@
             "repo": {
               "type": "string",
               "description": "Repository (OWNER/REPO)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -2707,10 +3260,16 @@
             "repo": {
               "type": "string",
               "description": "Repository (OWNER/REPO)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "id"
+            "id",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -2739,8 +3298,16 @@
             "repo": {
               "type": "string",
               "description": "Repository (OWNER/REPO)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -2765,8 +3332,16 @@
             "repo": {
               "type": "string",
               "description": "Repository (OWNER/REPO)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -2794,8 +3369,16 @@
             "repo": {
               "type": "string",
               "description": "Repository (OWNER/REPO)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -2820,10 +3403,16 @@
             "repo": {
               "type": "string",
               "description": "Repository (OWNER/REPO)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "limit"
+            "limit",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -2852,8 +3441,16 @@
             "repo": {
               "type": "string",
               "description": "Repository (OWNER/REPO)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -2869,7 +3466,16 @@
         },
         "options": {
           "type": "object",
-          "properties": {},
+          "properties": {
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -2912,6 +3518,11 @@
               "default": "main",
               "type": "string",
               "description": "Target bookmark for every member and the superproject"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
@@ -2919,7 +3530,8 @@
             "member",
             "description",
             "parent",
-            "target"
+            "target",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -2945,11 +3557,17 @@
               "default": 0,
               "type": "number",
               "description": "Changeset id"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "org",
-            "id"
+            "id",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -2975,11 +3593,17 @@
               "default": 0,
               "type": "number",
               "description": "Changeset id"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "org",
-            "id"
+            "id",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -3010,12 +3634,18 @@
               "default": 1,
               "type": "number",
               "description": "Page number"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "org",
             "limit",
-            "page"
+            "page",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -3196,7 +3826,16 @@
         },
         "options": {
           "type": "object",
-          "properties": {},
+          "properties": {
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -3220,7 +3859,16 @@
         },
         "options": {
           "type": "object",
-          "properties": {},
+          "properties": {
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -3236,7 +3884,16 @@
         },
         "options": {
           "type": "object",
-          "properties": {},
+          "properties": {
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -3265,7 +3922,16 @@
         },
         "options": {
           "type": "object",
-          "properties": {},
+          "properties": {
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -3281,7 +3947,16 @@
         },
         "options": {
           "type": "object",
-          "properties": {},
+          "properties": {
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -3310,10 +3985,16 @@
               "default": "default",
               "description": "Template name",
               "type": "string"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "template"
+            "template",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -3358,10 +4039,16 @@
             "name": {
               "type": "string",
               "minLength": 1
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "name"
+            "name",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -3381,8 +4068,16 @@
             "remote": {
               "description": "Remote control server; local operator commands refuse this option",
               "type": "string"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -3414,8 +4109,16 @@
             "remote": {
               "description": "Remote control server; local operator commands refuse this option",
               "type": "string"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -3455,8 +4158,16 @@
             "secretFile": {
               "description": "File containing the secret; one trailing newline is removed",
               "type": "string"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -3565,10 +4276,16 @@
               "default": false,
               "description": "Suppress progress messages",
               "type": "boolean"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "quiet"
+            "quiet",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -3597,8 +4314,16 @@
             "repo": {
               "type": "string",
               "description": "Repository (OWNER/REPO)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -3626,8 +4351,16 @@
             "repo": {
               "type": "string",
               "description": "Repository (OWNER/REPO)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -3647,8 +4380,16 @@
             "repo": {
               "type": "string",
               "description": "Repository (OWNER/REPO)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -3693,11 +4434,17 @@
             "home": {
               "description": "Persistent home on the execution machine",
               "type": "string"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "local",
-            "directory"
+            "directory",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -3735,11 +4482,17 @@
               "default": false,
               "description": "Allocate a remote terminal for an interactive command",
               "type": "boolean"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "arg",
-            "terminal"
+            "terminal",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -3776,11 +4529,17 @@
               "minimum": 1,
               "maximum": 65535,
               "description": "Remote port on 127.0.0.1"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "localPort",
-            "remotePort"
+            "remotePort",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -3788,7 +4547,23 @@
     },
     {
       "name": "environment list",
-      "description": "List saved execution locations"
+      "description": "List saved execution locations",
+      "schema": {
+        "options": {
+          "type": "object",
+          "properties": {
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "verbose"
+          ],
+          "additionalProperties": false
+        }
+      }
     },
     {
       "name": "environment remove",
@@ -3804,6 +4579,20 @@
           },
           "required": [
             "name"
+          ],
+          "additionalProperties": false
+        },
+        "options": {
+          "type": "object",
+          "properties": {
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -3825,6 +4614,20 @@
             "name"
           ],
           "additionalProperties": false
+        },
+        "options": {
+          "type": "object",
+          "properties": {
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "verbose"
+          ],
+          "additionalProperties": false
         }
       }
     },
@@ -3842,6 +4645,20 @@
           },
           "required": [
             "name"
+          ],
+          "additionalProperties": false
+        },
+        "options": {
+          "type": "object",
+          "properties": {
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -3883,10 +4700,16 @@
               "default": false,
               "description": "Replace an existing baseline",
               "type": "boolean"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "force"
+            "force",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -3939,8 +4762,16 @@
             "output": {
               "description": "Save the complete comparison JSON to a new file",
               "type": "string"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -3959,8 +4790,16 @@
             "remote": {
               "description": "Not supported: evaluations execute local modules",
               "type": "string"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -4018,8 +4857,16 @@
             "output": {
               "description": "Additional output JSON path; refuses overwriting existing files",
               "type": "string"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -4062,10 +4909,16 @@
                 "review",
                 "run"
               ]
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "workspace"
+            "workspace",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -4119,6 +4972,11 @@
             "team-name": {
               "type": "string",
               "description": "Linear team display name"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
@@ -4126,7 +4984,8 @@
             "repo-owner",
             "repo-name",
             "repo-id",
-            "credentials-stdin"
+            "credentials-stdin",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -4143,7 +5002,16 @@
         },
         "options": {
           "type": "object",
-          "properties": {},
+          "properties": {
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -4167,7 +5035,16 @@
         },
         "options": {
           "type": "object",
-          "properties": {},
+          "properties": {
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -4191,7 +5068,16 @@
         },
         "options": {
           "type": "object",
-          "properties": {},
+          "properties": {
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -4232,11 +5118,17 @@
             "repo": {
               "type": "string",
               "description": "Repository (OWNER/REPO)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "input",
-            "ref"
+            "ref",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -4278,10 +5170,16 @@
               "default": false,
               "description": "Suppress progress messages",
               "type": "boolean"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "quiet"
+            "quiet",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -4320,6 +5218,11 @@
               "description": "Suppress progress messages",
               "type": "boolean"
             },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
+            },
             "cloud": {
               "default": false,
               "description": "Use repository flows and runs on the backend",
@@ -4328,6 +5231,7 @@
           },
           "required": [
             "quiet",
+            "verbose",
             "cloud"
           ],
           "additionalProperties": false
@@ -4384,10 +5288,16 @@
             "data": {
               "description": "JSON input object",
               "type": "string"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "quiet"
+            "quiet",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -4430,10 +5340,16 @@
               "default": false,
               "description": "Suppress progress messages",
               "type": "boolean"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "quiet"
+            "quiet",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -4537,6 +5453,11 @@
               "description": "Wall-clock time the run may take from its first start, as a duration (30 minutes) or milliseconds",
               "type": "string"
             },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
+            },
             "cloud": {
               "default": false,
               "description": "Use repository flows and runs on the backend",
@@ -4549,6 +5470,7 @@
             "quiet",
             "detached",
             "wait",
+            "verbose",
             "cloud"
           ],
           "additionalProperties": false
@@ -4586,12 +5508,18 @@
             "dryRun": {
               "default": false,
               "type": "boolean"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "quiet",
             "olderThan",
-            "dryRun"
+            "dryRun",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -4619,10 +5547,16 @@
             "template": {
               "default": "default",
               "type": "string"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "template"
+            "template",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -4647,11 +5581,17 @@
               "default": false,
               "description": "Show the generator plan without writing files",
               "type": "boolean"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "workspace",
-            "plan"
+            "plan",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -4680,8 +5620,16 @@
             "root": {
               "description": "Project directory",
               "type": "string"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -4718,11 +5666,17 @@
               "default": false,
               "description": "Show the generator plan without writing files",
               "type": "boolean"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "workspace",
-            "plan"
+            "plan",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -4748,11 +5702,17 @@
               "default": false,
               "description": "Install the rendered hook scripts into .git/hooks",
               "type": "boolean"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "workspace",
-            "write"
+            "write",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -4791,11 +5751,17 @@
               "default": false,
               "description": "Render Mermaid instead of a text tree",
               "type": "boolean"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "workspace",
-            "mermaid"
+            "mermaid",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -4816,8 +5782,16 @@
             "repo": {
               "type": "string",
               "description": "Repository (OWNER/REPO)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -4837,8 +5811,16 @@
             "repo": {
               "type": "string",
               "description": "Repository (OWNER/REPO)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -4866,8 +5848,16 @@
             "repo": {
               "type": "string",
               "description": "Repository (OWNER/REPO)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -4895,8 +5885,16 @@
             "repo": {
               "type": "string",
               "description": "Repository (OWNER/REPO)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -4916,8 +5914,16 @@
             "repo": {
               "type": "string",
               "description": "Repository (OWNER/REPO)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -4954,10 +5960,16 @@
             "repo": {
               "type": "string",
               "description": "Repository (OWNER/REPO)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "body"
+            "body",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -4986,8 +5998,16 @@
             "repo": {
               "type": "string",
               "description": "Repository (OWNER/REPO)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -5020,10 +6040,16 @@
             "cacheDir": {
               "description": "Workspace-relative cache directory; overrides the WORKSPACE.ts declaration",
               "type": "string"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "workspace"
+            "workspace",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -5044,10 +6070,16 @@
             "cacheDir": {
               "description": "Workspace-relative cache directory; overrides the WORKSPACE.ts declaration",
               "type": "string"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "workspace"
+            "workspace",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -5077,10 +6109,16 @@
               "default": false,
               "description": "Removed; initialize a workspace instead",
               "type": "boolean"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "global"
+            "global",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -5101,10 +6139,16 @@
             "cacheDir": {
               "description": "Workspace-relative cache directory; overrides the WORKSPACE.ts declaration",
               "type": "string"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "workspace"
+            "workspace",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -5147,12 +6191,18 @@
               "type": "integer",
               "exclusiveMinimum": 0,
               "maximum": 9007199254740991
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "config",
             "offline",
-            "timeoutMs"
+            "timeoutMs",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -5176,10 +6226,16 @@
             "config": {
               "default": ".smithers/integrations.json",
               "type": "string"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "config"
+            "config",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -5212,8 +6268,16 @@
             "repo": {
               "type": "string",
               "description": "Repository (OWNER/REPO)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -5245,10 +6309,16 @@
             "repo": {
               "type": "string",
               "description": "Repository (OWNER/REPO)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "body"
+            "body",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -5287,10 +6357,16 @@
             "title": {
               "type": "string",
               "description": "Issue title"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "body"
+            "body",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -5335,8 +6411,16 @@
             "title": {
               "type": "string",
               "description": "New title"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -5386,12 +6470,18 @@
             "view": {
               "type": "string",
               "description": "Saved issue view id from issue views; replaces --state"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "all",
             "limit",
-            "state"
+            "state",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -5420,8 +6510,16 @@
             "repo": {
               "type": "string",
               "description": "Repository (OWNER/REPO)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -5449,8 +6547,16 @@
             "repo": {
               "type": "string",
               "description": "Repository (OWNER/REPO)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -5470,8 +6576,16 @@
             "repo": {
               "type": "string",
               "description": "Repository (OWNER/REPO)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -5509,11 +6623,17 @@
             "repo": {
               "type": "string",
               "description": "Repository (OWNER/REPO)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "color",
-            "description"
+            "description",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -5542,8 +6662,16 @@
             "repo": {
               "type": "string",
               "description": "Repository (OWNER/REPO)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -5563,8 +6691,16 @@
             "repo": {
               "type": "string",
               "description": "Repository (OWNER/REPO)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -5592,8 +6728,16 @@
             "repo": {
               "type": "string",
               "description": "Repository (OWNER/REPO)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -5629,11 +6773,17 @@
             "repo": {
               "type": "string",
               "description": "Repository (OWNER/REPO)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "body",
-            "commit"
+            "commit",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -5662,8 +6812,16 @@
             "repo": {
               "type": "string",
               "description": "Repository (OWNER/REPO)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -5710,13 +6868,19 @@
               "default": "main",
               "type": "string",
               "description": "Target bookmark"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "title",
             "body",
             "stack",
-            "target"
+            "target",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -5757,8 +6921,16 @@
             "title": {
               "type": "string",
               "description": "New title"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -5790,10 +6962,16 @@
             "repo": {
               "type": "string",
               "description": "Repository (OWNER/REPO)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "commit"
+            "commit",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -5840,12 +7018,18 @@
                 "all"
               ],
               "description": "Filter by state"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "all",
             "limit",
-            "state"
+            "state",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -5888,12 +7072,18 @@
             "repo": {
               "type": "string",
               "description": "Repository (OWNER/REPO)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "commit",
             "approve",
-            "body"
+            "body",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -5922,8 +7112,16 @@
             "repo": {
               "type": "string",
               "description": "Repository (OWNER/REPO)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -6047,12 +7245,18 @@
               "default": false,
               "type": "boolean",
               "description": "Read token from stdin instead of browser flow"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "admin",
             "observe",
-            "with-token"
+            "with-token",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -6084,10 +7288,16 @@
             },
             "agent": {
               "type": "string"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "quiet"
+            "quiet",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -6138,13 +7348,19 @@
             "dryRun": {
               "default": false,
               "type": "boolean"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "summary",
             "before",
             "keep",
-            "dryRun"
+            "dryRun",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -6185,10 +7401,16 @@
             "id": {
               "description": "Namespace identifier when --namespace is a bare lifetime such as user",
               "type": "string"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "namespace"
+            "namespace",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -6226,11 +7448,17 @@
             },
             "prefix": {
               "type": "string"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "namespace",
-            "limit"
+            "limit",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -6284,10 +7512,16 @@
               "type": "integer",
               "minimum": 0,
               "maximum": 9007199254740991
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "role"
+            "role",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -6333,10 +7567,16 @@
               "type": "integer",
               "minimum": 0,
               "maximum": 9007199254740991
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "limit"
+            "limit",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -6404,13 +7644,19 @@
               "items": {
                 "type": "string"
               }
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "namespace",
             "status",
             "tag",
-            "supersedes"
+            "supersedes",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -6442,8 +7688,16 @@
             "remote": {
               "description": "Remote control server; local operator commands refuse this option",
               "type": "string"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -6491,13 +7745,19 @@
             "includeSuperseded": {
               "default": false,
               "type": "boolean"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "namespace",
             "limit",
             "status",
-            "includeSuperseded"
+            "includeSuperseded",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -6538,8 +7798,16 @@
             "remote": {
               "description": "Remote control server; local operator commands refuse this option",
               "type": "string"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -6574,8 +7842,16 @@
             "remote": {
               "description": "Remote control server; local operator commands refuse this option",
               "type": "string"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -6637,13 +7913,19 @@
               "type": "integer",
               "exclusiveMinimum": 0,
               "maximum": 65536
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "namespace",
             "method",
             "bank",
-            "maxTokens"
+            "maxTokens",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -6684,10 +7966,16 @@
             "id": {
               "description": "Namespace identifier when --namespace is a bare lifetime such as user",
               "type": "string"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "namespace"
+            "namespace",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -6748,12 +8036,18 @@
               "items": {
                 "type": "string"
               }
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "namespace",
             "valueJson",
-            "tag"
+            "tag",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -6788,10 +8082,16 @@
             },
             "threadId": {
               "type": "string"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "namespace"
+            "namespace",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -6820,10 +8120,16 @@
             "id": {
               "description": "Namespace identifier when --namespace is a bare lifetime such as user",
               "type": "string"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "namespace"
+            "namespace",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -6855,8 +8161,16 @@
             "remote": {
               "description": "Remote control server; local operator commands refuse this option",
               "type": "string"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -6902,11 +8216,17 @@
               "type": "integer",
               "exclusiveMinimum": 0,
               "maximum": 10000
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "namespace",
-            "limit"
+            "limit",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -6999,6 +8319,11 @@
             },
             "verifyTest": {
               "type": "string"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
@@ -7007,7 +8332,8 @@
             "apply",
             "acknowledgeRunState",
             "allowNoVcs",
-            "keepOldSources"
+            "keepOldSources",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -7043,12 +8369,18 @@
               "default": false,
               "type": "boolean",
               "description": "Show only unread notifications"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "all",
             "limit",
-            "unread"
+            "unread",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -7075,10 +8407,16 @@
               "default": false,
               "type": "boolean",
               "description": "Mark all notifications as read"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "all"
+            "all",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -7096,6 +8434,20 @@
               "type": "string"
             }
           },
+          "additionalProperties": false
+        },
+        "options": {
+          "type": "object",
+          "properties": {
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -7134,11 +8486,17 @@
                 "private"
               ],
               "description": "Organization visibility"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "description",
-            "visibility"
+            "visibility",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -7178,10 +8536,16 @@
                 ""
               ],
               "description": "Organization visibility"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "visibility"
+            "visibility",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -7198,7 +8562,16 @@
         },
         "options": {
           "type": "object",
-          "properties": {},
+          "properties": {
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -7227,7 +8600,16 @@
         },
         "options": {
           "type": "object",
-          "properties": {},
+          "properties": {
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -7251,7 +8633,16 @@
         },
         "options": {
           "type": "object",
-          "properties": {},
+          "properties": {
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -7280,7 +8671,16 @@
         },
         "options": {
           "type": "object",
-          "properties": {},
+          "properties": {
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -7324,11 +8724,17 @@
                 "admin"
               ],
               "description": "Default permission level"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "description",
-            "permission"
+            "permission",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -7358,7 +8764,16 @@
         },
         "options": {
           "type": "object",
-          "properties": {},
+          "properties": {
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -7406,10 +8821,16 @@
                 ""
               ],
               "description": "Default permission level"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "permission"
+            "permission",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -7434,7 +8855,16 @@
         },
         "options": {
           "type": "object",
-          "properties": {},
+          "properties": {
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -7468,7 +8898,16 @@
         },
         "options": {
           "type": "object",
-          "properties": {},
+          "properties": {
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -7497,7 +8936,16 @@
         },
         "options": {
           "type": "object",
-          "properties": {},
+          "properties": {
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -7531,7 +8979,16 @@
         },
         "options": {
           "type": "object",
-          "properties": {},
+          "properties": {
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -7565,7 +9022,16 @@
         },
         "options": {
           "type": "object",
-          "properties": {},
+          "properties": {
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -7594,7 +9060,16 @@
         },
         "options": {
           "type": "object",
-          "properties": {},
+          "properties": {
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -7628,7 +9103,16 @@
         },
         "options": {
           "type": "object",
-          "properties": {},
+          "properties": {
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -7657,7 +9141,16 @@
         },
         "options": {
           "type": "object",
-          "properties": {},
+          "properties": {
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -7681,7 +9174,16 @@
         },
         "options": {
           "type": "object",
-          "properties": {},
+          "properties": {
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -7718,10 +9220,16 @@
             "diff": {
               "description": "Also resolve every path changed since this git base, like S.gitDiff(base)",
               "type": "string"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "workspace"
+            "workspace",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -7755,10 +9263,16 @@
             "cacheDir": {
               "description": "Workspace-relative cache directory; overrides the WORKSPACE.ts declaration",
               "type": "string"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "workspace"
+            "workspace",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -7783,7 +9297,16 @@
         },
         "options": {
           "type": "object",
-          "properties": {},
+          "properties": {
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -7837,11 +9360,17 @@
                 ""
               ],
               "description": "Git protocol to use"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "clone-arg",
-            "protocol"
+            "protocol",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -7866,7 +9395,16 @@
         },
         "options": {
           "type": "object",
-          "properties": {},
+          "properties": {
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -7900,11 +9438,17 @@
               "default": false,
               "type": "boolean",
               "description": "Make repository private"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "description",
-            "private"
+            "private",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -7934,10 +9478,16 @@
               "default": false,
               "type": "boolean",
               "description": "Confirm deleting the repository"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "yes"
+            "yes",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -7954,7 +9504,16 @@
         },
         "options": {
           "type": "object",
-          "properties": {},
+          "properties": {
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -7990,8 +9549,16 @@
             "private": {
               "type": "boolean",
               "description": "Set visibility"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -8023,8 +9590,16 @@
             "organization": {
               "type": "string",
               "description": "Organization to fork into"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -8049,8 +9624,16 @@
             "repo": {
               "type": "string",
               "description": "Repository in OWNER/REPO format"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -8076,11 +9659,17 @@
               "default": 1,
               "type": "number",
               "description": "Page number"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "limit",
-            "page"
+            "page",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -8101,10 +9690,16 @@
             "repo": {
               "type": "string",
               "description": "Repository in OWNER/REPO format"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "repo"
+            "repo",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -8145,13 +9740,19 @@
               "default": false,
               "type": "boolean",
               "description": "jj: push @ with uncommitted edits instead of @-"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "delete",
             "list",
             "name",
-            "working-copy"
+            "working-copy",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -8180,10 +9781,16 @@
             "workspace": {
               "type": "string",
               "description": "ID of one of your workspaces that answers the lookup"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "workspace"
+            "workspace",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -8200,7 +9807,16 @@
         },
         "options": {
           "type": "object",
-          "properties": {},
+          "properties": {
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -8228,10 +9844,16 @@
             "to": {
               "type": "string",
               "description": "New owner (user or organization)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "to"
+            "to",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -8256,7 +9878,16 @@
         },
         "options": {
           "type": "object",
-          "properties": {},
+          "properties": {
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -8281,8 +9912,16 @@
             "repo": {
               "type": "string",
               "description": "Repository in OWNER/REPO format"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -8342,6 +9981,11 @@
             "findingsStore": {
               "description": "Absolute private directory for review runs and findings (default: the Git directory)",
               "type": "string"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
@@ -8349,7 +9993,8 @@
             "policyRevision",
             "revision",
             "plan",
-            "required"
+            "required",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -8493,6 +10138,11 @@
               "description": "Suppress progress messages",
               "type": "boolean"
             },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
+            },
             "cloud": {
               "default": false,
               "description": "Use repository flows and runs on the backend",
@@ -8501,6 +10151,7 @@
           },
           "required": [
             "quiet",
+            "verbose",
             "cloud"
           ],
           "additionalProperties": false
@@ -8530,10 +10181,16 @@
               "default": false,
               "description": "Suppress progress messages",
               "type": "boolean"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "quiet"
+            "quiet",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -8576,10 +10233,16 @@
               "default": false,
               "description": "Suppress progress messages",
               "type": "boolean"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "quiet"
+            "quiet",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -8647,10 +10310,16 @@
             "trigger": {
               "description": "Only runs this trigger started",
               "type": "string"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "quiet"
+            "quiet",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -8703,10 +10372,16 @@
               "type": "integer",
               "minimum": 0,
               "maximum": 9007199254740991
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "quiet"
+            "quiet",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -8775,12 +10450,18 @@
             "result": {
               "description": "The replacement result as JSON, or @file to read it from a file",
               "type": "string"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "quiet",
             "at",
-            "limit"
+            "limit",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -8840,11 +10521,17 @@
               "type": "integer",
               "exclusiveMinimum": 0,
               "maximum": 9007199254740991
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "quiet",
-            "limit"
+            "limit",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -8932,6 +10619,11 @@
               "description": "Continue from the nextCursor a previous page printed",
               "type": "string"
             },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
+            },
             "cloud": {
               "default": false,
               "description": "Use repository flows and runs on the backend",
@@ -8940,6 +10632,7 @@
           },
           "required": [
             "quiet",
+            "verbose",
             "cloud"
           ],
           "additionalProperties": false
@@ -9003,6 +10696,11 @@
               "minimum": 1,
               "maximum": 10000
             },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
+            },
             "cloud": {
               "default": false,
               "description": "Use repository flows and runs on the backend",
@@ -9012,6 +10710,7 @@
           "required": [
             "quiet",
             "follow",
+            "verbose",
             "cloud"
           ],
           "additionalProperties": false
@@ -9058,10 +10757,16 @@
               "default": false,
               "description": "Suppress progress messages",
               "type": "boolean"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "quiet"
+            "quiet",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -9121,11 +10826,17 @@
               "type": "integer",
               "exclusiveMinimum": 0,
               "maximum": 9007199254740991
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "quiet",
-            "limit"
+            "limit",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -9159,10 +10870,16 @@
               "default": false,
               "description": "Use repository flows and runs on the backend",
               "type": "boolean"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "cloud"
+            "cloud",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -9210,11 +10927,17 @@
               "default": false,
               "description": "Resume even though the run's flow changed since it started",
               "type": "boolean"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "quiet",
-            "allowCodeDrift"
+            "allowCodeDrift",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -9289,6 +11012,11 @@
               "default": false,
               "description": "Restore the whole jj repository (bookmarks, rebases, descriptions) to the frame's recorded operation",
               "type": "boolean"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
@@ -9297,7 +11025,8 @@
             "limit",
             "preview",
             "yes",
-            "wholeRepo"
+            "wholeRepo",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -9345,6 +11074,11 @@
               "description": "Suppress progress messages",
               "type": "boolean"
             },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
+            },
             "cloud": {
               "default": false,
               "description": "Use repository flows and runs on the backend",
@@ -9353,6 +11087,7 @@
           },
           "required": [
             "quiet",
+            "verbose",
             "cloud"
           ],
           "additionalProperties": false
@@ -9400,10 +11135,16 @@
               "default": false,
               "description": "Suppress progress messages",
               "type": "boolean"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "quiet"
+            "quiet",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -9450,11 +11191,17 @@
             "message": {
               "type": "string",
               "minLength": 1
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "quiet",
-            "message"
+            "message",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -9497,10 +11244,16 @@
               "default": false,
               "description": "Suppress progress messages",
               "type": "boolean"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "quiet"
+            "quiet",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -9543,10 +11296,16 @@
               "default": false,
               "description": "Suppress progress messages",
               "type": "boolean"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "quiet"
+            "quiet",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -9595,10 +11354,16 @@
               "type": "integer",
               "minimum": 0,
               "maximum": 9007199254740991
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "quiet"
+            "quiet",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -9632,10 +11397,16 @@
               "default": false,
               "description": "Use repository flows and runs on the backend",
               "type": "boolean"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "cloud"
+            "cloud",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -9670,11 +11441,17 @@
               "default": 1,
               "type": "number",
               "description": "Page number"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "limit",
-            "page"
+            "page",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -9709,11 +11486,17 @@
               "default": 1,
               "type": "number",
               "description": "Page number"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "limit",
-            "page"
+            "page",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -9748,11 +11531,17 @@
               "default": 1,
               "type": "number",
               "description": "Page number"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "limit",
-            "page"
+            "page",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -9787,11 +11576,17 @@
               "default": 1,
               "type": "number",
               "description": "Page number"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "limit",
-            "page"
+            "page",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -9836,11 +11631,17 @@
             "repo": {
               "type": "string",
               "description": "Repository (OWNER/REPO)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "header",
-            "host"
+            "host",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -9869,8 +11670,16 @@
             "repo": {
               "type": "string",
               "description": "Repository (OWNER/REPO)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -9890,8 +11699,16 @@
             "repo": {
               "type": "string",
               "description": "Repository (OWNER/REPO)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -9928,8 +11745,16 @@
             "repo": {
               "type": "string",
               "description": "Repository (OWNER/REPO)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -9983,13 +11808,19 @@
             "repo": {
               "type": "string",
               "description": "Repository (OWNER/REPO)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "body-stdin",
             "header",
             "host",
-            "main-only"
+            "main-only",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -10032,13 +11863,19 @@
             "listen": {
               "default": false,
               "type": "boolean"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "quiet",
             "host",
             "port",
-            "listen"
+            "listen",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -10082,10 +11919,16 @@
                 "review",
                 "run"
               ]
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "workspace"
+            "workspace",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -10106,10 +11949,16 @@
             "cacheDir": {
               "description": "Workspace-relative cache directory; overrides the WORKSPACE.ts declaration",
               "type": "string"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "workspace"
+            "workspace",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -10134,11 +11983,17 @@
             "key": {
               "type": "string",
               "description": "Public key content"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "title",
-            "key"
+            "key",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -10163,7 +12018,16 @@
         },
         "options": {
           "type": "object",
-          "properties": {},
+          "properties": {
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -10179,7 +12043,16 @@
         },
         "options": {
           "type": "object",
-          "properties": {},
+          "properties": {
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -10213,11 +12086,17 @@
               "default": "main",
               "type": "string",
               "description": "Target branch"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "all",
-            "target"
+            "target",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -10243,10 +12122,16 @@
               "default": "main",
               "type": "string",
               "description": "Target branch"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "target"
+            "target",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -10277,11 +12162,17 @@
               "default": "main",
               "type": "string",
               "description": "Target branch"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "draft",
-            "target"
+            "target",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -10307,10 +12198,16 @@
               "default": "main",
               "type": "string",
               "description": "Target branch"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "target"
+            "target",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -10336,10 +12233,16 @@
               "default": "main",
               "type": "string",
               "description": "Target branch"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "target"
+            "target",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -10370,10 +12273,16 @@
             "list": {
               "default": false,
               "type": "boolean"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "list"
+            "list",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -10512,10 +12421,16 @@
             "cacheDir": {
               "description": "Workspace-relative cache directory; overrides the WORKSPACE.ts declaration",
               "type": "string"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "workspace"
+            "workspace",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -10628,11 +12543,17 @@
             "flow": {
               "description": "Confine every call to this flow id",
               "type": "string"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "scope",
-            "ttl"
+            "ttl",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -10665,8 +12586,16 @@
             "remote": {
               "description": "Remote control server; local operator commands refuse this option",
               "type": "string"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -10698,8 +12627,16 @@
             "remote": {
               "description": "Remote control server; local operator commands refuse this option",
               "type": "string"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -10737,8 +12674,16 @@
               "type": "integer",
               "minimum": 0,
               "maximum": 8640000000000000
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -10757,8 +12702,16 @@
             "remote": {
               "description": "Remote control server; local operator commands refuse this option",
               "type": "string"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -10832,6 +12785,11 @@
             "enabled": {
               "default": true,
               "type": "boolean"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
@@ -10839,7 +12797,8 @@
             "overlap",
             "catchUp",
             "maxCatchUp",
-            "enabled"
+            "enabled",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -10865,10 +12824,16 @@
               "type": "integer",
               "exclusiveMinimum": 0,
               "maximum": 9007199254740991
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "pollIntervalMs"
+            "pollIntervalMs",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -10901,8 +12866,16 @@
             "remote": {
               "description": "Remote control server; local operator commands refuse this option",
               "type": "string"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -10958,11 +12931,17 @@
             "environment": {
               "description": "Run the TUI app in a saved execution environment",
               "type": "string"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "continue",
-            "resume"
+            "resume",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -10991,10 +12970,16 @@
               "default": false,
               "description": "Suppress progress messages",
               "type": "boolean"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "quiet"
+            "quiet",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -11023,8 +13008,16 @@
             "repo": {
               "type": "string",
               "description": "Repository (OWNER/REPO)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -11052,8 +13045,16 @@
             "repo": {
               "type": "string",
               "description": "Repository (OWNER/REPO)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -11073,8 +13074,16 @@
             "repo": {
               "type": "string",
               "description": "Repository (OWNER/REPO)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -11106,10 +13115,16 @@
             "repo": {
               "type": "string",
               "description": "Repository (OWNER/REPO)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "body"
+            "body",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -11256,13 +13271,19 @@
               "default": false,
               "type": "boolean",
               "description": "Read the webhook secret from stdin"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "url",
             "active",
             "events",
-            "secret-stdin"
+            "secret-stdin",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -11291,8 +13312,16 @@
             "repo": {
               "type": "string",
               "description": "Repository (OWNER/REPO)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -11324,8 +13353,16 @@
             "repo": {
               "type": "string",
               "description": "Repository (OWNER/REPO)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -11345,8 +13382,16 @@
             "repo": {
               "type": "string",
               "description": "Repository (OWNER/REPO)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -11395,11 +13440,17 @@
             "url": {
               "type": "string",
               "description": "Webhook payload URL"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "events",
-            "secret-stdin"
+            "secret-stdin",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -11428,8 +13479,16 @@
             "repo": {
               "type": "string",
               "description": "Repository (OWNER/REPO)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -11474,11 +13533,17 @@
                 "private"
               ],
               "description": "Wiki space: public (default) or private"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "title",
-            "body"
+            "body",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -11515,8 +13580,16 @@
                 "private"
               ],
               "description": "Wiki space: public (default) or private"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -11573,10 +13646,16 @@
                 "private"
               ],
               "description": "Wiki space: public (default) or private"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "expected-revision"
+            "expected-revision",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -11623,11 +13702,17 @@
                 "private"
               ],
               "description": "Wiki space: public (default) or private"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "limit",
-            "page"
+            "page",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -11656,8 +13741,16 @@
                 "private"
               ],
               "description": "Wiki space: public (default) or private"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -11699,11 +13792,17 @@
                 "private"
               ],
               "description": "Wiki space: public (default) or private"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "limit",
-            "page"
+            "page",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -11750,11 +13849,17 @@
                 "private"
               ],
               "description": "Wiki space: public (default) or private"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "limit",
-            "page"
+            "page",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -11797,12 +13902,18 @@
                 "private"
               ],
               "description": "Wiki space: public (default) or private"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "query",
             "limit",
-            "page"
+            "page",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -11839,8 +13950,16 @@
                 "private"
               ],
               "description": "Wiki space: public (default) or private"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -11883,11 +14002,17 @@
               "default": "developer",
               "type": "string",
               "description": "Guest user"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "timeout",
-            "user"
+            "user",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -11980,6 +14105,11 @@
               "default": 600,
               "type": "number",
               "description": "Seconds to wait with --wait"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
@@ -11987,7 +14117,8 @@
             "name",
             "service",
             "wait",
-            "waitTimeout"
+            "waitTimeout",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -12021,10 +14152,16 @@
               "default": false,
               "type": "boolean",
               "description": "Confirm deleting the workspace"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "yes"
+            "yes",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -12083,12 +14220,18 @@
             "timeout": {
               "type": "number",
               "description": "Cancel after this many seconds (default: 0; server guard: 60 minutes)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "command",
             "detach",
-            "env"
+            "env",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -12122,10 +14265,16 @@
             "repo": {
               "type": "string",
               "description": "Repository (OWNER/REPO)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "name"
+            "name",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -12159,10 +14308,16 @@
               "default": "main",
               "type": "string",
               "description": "Target bookmark for the landing request"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
-            "target"
+            "target",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -12183,8 +14338,16 @@
             "repo": {
               "type": "string",
               "description": "Repository (OWNER/REPO)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -12219,11 +14382,17 @@
               "default": 0,
               "type": "number",
               "description": "Initial terminal rows (0 = detect)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
           "required": [
             "cols",
-            "rows"
+            "rows",
+            "verbose"
           ],
           "additionalProperties": false
         }
@@ -12252,8 +14421,16 @@
             "repo": {
               "type": "string",
               "description": "Repository (OWNER/REPO)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -12278,8 +14455,16 @@
             "repo": {
               "type": "string",
               "description": "Repository (OWNER/REPO)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -12307,8 +14492,16 @@
             "repo": {
               "type": "string",
               "description": "Repository (OWNER/REPO)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }
@@ -12336,8 +14529,16 @@
             "repo": {
               "type": "string",
               "description": "Repository (OWNER/REPO)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
             }
           },
+          "required": [
+            "verbose"
+          ],
           "additionalProperties": false
         }
       }

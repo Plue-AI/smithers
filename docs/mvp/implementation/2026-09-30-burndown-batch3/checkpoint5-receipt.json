@@ -1,0 +1,102 @@
+{
+  "candidate": "7e9c1b04c40293cdb42e8c218f7e18bedb1f4cd4",
+  "issues": [
+    3177,
+    3204,
+    3006,
+    2998,
+    3110
+  ],
+  "review": "Sol fixes and regression validation reviewed by orchestrator; original red failures retained.",
+  "sourceEquivalentAfterRebase": {
+    "packages/smithers/flows/run-store/src/Ownership.ts": "be550ca161ee4230a76787a6fd95eff97723e70d390f9119a08029e30953546a",
+    "packages/smithers/flows/run-store/test/Ownership.test.ts": "b0bd0d6137fd4c2a5df23579bc23ad626d9653f9f85c64af87fe6aa8f77edd97",
+    "packages/smithers/flows/run-store/test/OwnershipConsensus.test.ts": "c4064392c133e7b90560f8614be1d7d6f62b0f1b6dd553ee4af7d6d7539be452",
+    "packages/smithers/flows/run-store/test/RunStore.test.ts": "ab517186e831844ca84d431f3d1dfdc07c2c352904fd74ed054e46453fdb53aa",
+    "packages/smithers/src/Cli.ts": "97533ef91b1bfdb88bc4d5bf5d2793bf72162e2bcc26af72bc7670eef53274c7",
+    "packages/smithers/src/cli/Presentation.ts": "b1298bec0fdbbe705fa7d045d1c57d671ec86b885304b5b9dfc4cbd568bc4ee7",
+    "packages/smithers/src/internal/Failure.ts": "87e077acb97bfa611b4e1c2b5361df08bb2cfb8865209bb607664f3eb4f13954",
+    "packages/smithers/src/internal/backend/Commands.ts": "21035fcc8b18acbe29b0eb0e5b567a4e639f41d0254e3d8e37c1a3c0232eaff3",
+    "packages/smithers/test/BackendVerbosity.test.ts": "f8a858bd0945d327eadb9c1796d5c36904109417d66bad78bddc9f7cd2a6a721",
+    "packages/smithers/test/Presentation.test.ts": "5c5b27e4216a5dfa00964948d25750d02d8f7d67e66dc0677ec2b52793904d67",
+    "packages/smithers/test/Failure.test.ts": "f0e34bc3ec99f6832c4d479be065e3a768e753128e2414ebc8f244cdd6bc6b71",
+    "packages/smithers/test/NativeBodyCli.test.ts": "380d2f3ec4aff2fc297fd845ae82c3f0f49759c80396010968ea5c8d48d4a3f7",
+    "packages/smithers/test/EnvironmentCli.test.ts": "9ec1dcc0bc5800959961bb8a934a851747ee7eccd0d9650fc51882f6c69e92db"
+  },
+  "currentChecks": {
+    "cliStartupVerbosityPresentation": "50 passed, coverage disabled for this scoped check",
+    "cliSourceTypes": "exit0",
+    "generated": [
+      {
+        "name": "index",
+        "argv": [
+          "pnpm",
+          "run",
+          "target-index"
+        ],
+        "exit": 0,
+        "log": "/tmp/smithers-burndown-20260930-checkpoint5-index.log"
+      },
+      {
+        "name": "llms",
+        "argv": [
+          "node",
+          "apps/site/scripts/generate-llms.mjs"
+        ],
+        "exit": 0,
+        "log": "/tmp/smithers-burndown-20260930-checkpoint5-llms.log"
+      },
+      {
+        "name": "docs-sync",
+        "argv": [
+          "pnpm",
+          "run",
+          "docs:sync"
+        ],
+        "exit": 0,
+        "log": "/tmp/smithers-burndown-20260930-checkpoint5-docs-sync.log"
+      },
+      {
+        "name": "cli-check",
+        "argv": [
+          "node",
+          "--no-warnings",
+          "apps/site/scripts/gen-cli-data.mjs",
+          "--check"
+        ],
+        "exit": 0,
+        "log": "/tmp/smithers-burndown-20260930-checkpoint5-cli-check.log"
+      },
+      {
+        "name": "docs-check",
+        "argv": [
+          "pnpm",
+          "run",
+          "docs:check"
+        ],
+        "exit": 0,
+        "log": "/tmp/smithers-burndown-20260930-checkpoint5-docs-check.log"
+      }
+    ],
+    "indexDrift": "exit0",
+    "siteLlmsDrift": "exit0"
+  },
+  "limits": [
+    "Whole run-store SQLite/Postgres coverage 100% measured before this rebase; incoming run-store/engine production unchanged, only unrelated EngineStore RunDeadline test changed.",
+    "Current real stalled native worker and explicit retry passed; earlier full seven-mode journey uses byte-identical ownership guard. Existing debug native helper, no fresh release artifact claim.",
+    "Full CLI test types still blocked by foreign #3241 ProcessConfinement fixture; all source and changed scoped tests passed. No full CLI coverage claim.",
+    "Incomplete app, registry identity and consumer work retained by exact owned stash; excluded from this push."
+  ],
+  "logs": {
+    "smithers-burndown-20260930-checkpoint5-cli-check.log": "e2ecc38689f0c857742ca45352970b54b5abb12045c441130194b82860f72c24",
+    "smithers-burndown-20260930-checkpoint5-cli-generation.log": "5e787e1a928eb419e9115796921df9464ea3dcfb3fa5a4e239c41f4e74df4b2a",
+    "smithers-burndown-20260930-checkpoint5-cli-tests.log": "9c45332046452a87924039da3010940bd9ade470b7733339063eea1e7c545f52",
+    "smithers-burndown-20260930-checkpoint5-cli-types.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "smithers-burndown-20260930-checkpoint5-docs-check.log": "ac3268684518a6eeb79c286a92d63d79c80a80e52147f52bae0f0dc24ff275ab",
+    "smithers-burndown-20260930-checkpoint5-docs-sync.log": "4e0e72a79bbf210d80d3b3c6ce737d916bc5db915558c125a76b2f75d0af2237",
+    "smithers-burndown-20260930-checkpoint5-index-check.log": "1aff29428183aa43de24bfbd1ba25510b15fb0d6d1484b2959d57b616aff4b5f",
+    "smithers-burndown-20260930-checkpoint5-index.log": "147a174075f21198ca777060106d5193dc13ece4437e14402d8f812542d5bd3a",
+    "smithers-burndown-20260930-checkpoint5-llms-check.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "smithers-burndown-20260930-checkpoint5-llms.log": "c5c714df68097201b7cc33aa1de31896bd04cb9582f6b8cdc98f89dcb4bca175"
+  }
+}

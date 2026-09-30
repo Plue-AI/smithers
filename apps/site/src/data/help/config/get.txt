@@ -5,6 +5,9 @@ Usage: smthrs config get <key> [options]
 Arguments:
   key  Config key (api_origin, observe_url, git_protocol)
 
+Options:
+  --verbose  Show redacted diagnostic details
+
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
   --silent                       Suppress progress; retain the result and actionable failures

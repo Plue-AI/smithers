@@ -13,6 +13,7 @@ Options:
   --method <keyword|fts>   (default: keyword)
   --bank <array>
   --max-tokens <number>    (default: 2048)
+  --verbose               Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

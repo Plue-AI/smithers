@@ -11,6 +11,7 @@ Options:
   --remote <string>      Remote control plane URL; defaults to SMITHERS_REMOTE
   --mcp-config <string>  Path to the configured MCP servers
   --quiet                Suppress progress messages
+  --verbose              Show redacted diagnostic details
   --cloud                Use repository flows and runs on the backend
 
 Custom Global Options:

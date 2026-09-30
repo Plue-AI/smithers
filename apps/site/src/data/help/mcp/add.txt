@@ -8,6 +8,7 @@ Options:
   --mcp-config <string>  Path to the configured MCP servers
   --quiet                Suppress progress messages
   --agent <string>
+  --verbose              Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>   (default: auto)

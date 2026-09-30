@@ -7,6 +7,7 @@ Arguments:
 
 Options:
   --template, -t <string>  Template name (default: default)
+  --verbose                Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

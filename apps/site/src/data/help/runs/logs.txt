@@ -14,6 +14,7 @@ Options:
   --follow
   --after <number>
   --limit <number>       Maximum events; agent history pulls default to 100
+  --verbose              Show redacted diagnostic details
   --cloud                Use repository flows and runs on the backend
 
 Custom Global Options:

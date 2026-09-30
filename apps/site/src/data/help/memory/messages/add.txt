@@ -12,6 +12,7 @@ Options:
   --role <user|assistant|system|tool>   (default: user)
   --message-id <string>
   --at <number>
+  --verbose                            Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

@@ -11,6 +11,7 @@ Options:
   --host <string>         (default: 127.0.0.1)
   --port <number>         (default: 3000)
   --listen
+  --verbose              Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

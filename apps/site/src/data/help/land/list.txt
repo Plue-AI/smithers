@@ -8,6 +8,7 @@ Options:
   --limit <number>                          (default: 30)
   --repo, -R <string>
   --state <open|closed|merged|landed|all>   (default: open)
+  --verbose                                Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

@@ -5,6 +5,9 @@ Usage: smthrs admin deploys platform status <component> [options]
 Arguments:
   component  Exact target component
 
+Options:
+  --verbose  Show redacted diagnostic details
+
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
   --silent                       Suppress progress; retain the result and actionable failures
