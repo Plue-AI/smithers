@@ -173,6 +173,32 @@ const scoreOf = (values: Values) => {
   return { score: weight === 0 ? 0 : Math.round((raw / weight) * 100), weight }
 }
 
+/**
+ * The raw deterministic S1-S5 values of one tree (calibration, #3150): the scan `cleanup` scores,
+ * without judging or normalizing. `null` when coverage is under 60% or no source was read; a
+ * signal that could not be measured (dead code under 20 exports) is `null` too.
+ */
+export const deterministicSignals = (tree: Tree, sourceLines: number, churn: number) => {
+  const corpus = tree.files.filter((file) => isSource(file.path))
+  const files = corpus.map(scan)
+  const analyzed = files.reduce((sum, file) => sum + file.lines, 0)
+  const coverage = sourceLines === 0 ? 0 : Math.min(1, analyzed / sourceLines)
+  if (coverage < 0.6 || files.length === 0) return { coverage, analyzed, values: null }
+  const { values } = measure(files, unusedExports(files, corpus), duplicateLines(files), churn)
+  const pick = (id: SignalId) => values[id] ?? null
+  return {
+    coverage,
+    analyzed,
+    values: {
+      duplicates: pick("duplicates"),
+      churn: pick("churn"),
+      lexicon: pick("lexicon"),
+      stubs: pick("stubs"),
+      "dead-code": pick("dead-code")
+    }
+  }
+}
+
 /** The source files in a language the S6-S10 pre-filter reads. */
 const judgeable = (corpus: ReadonlyArray<SourceFile>) => corpus.filter((file) => JUDGEABLE.test(file.path))
 

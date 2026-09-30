@@ -115,5 +115,12 @@
     "lexicon": 0.6216,
     "stubs": 0.625,
     "dead-code": 0.5455
+  },
+  "flaggedAtP90": {
+    "duplicates": 38,
+    "churn": 25,
+    "lexicon": 37,
+    "stubs": 32,
+    "dead-code": 22
   }
 }

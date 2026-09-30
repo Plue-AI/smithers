@@ -34,9 +34,11 @@ import { readiness } from "./readiness.ts"
 import { type Checks, type Clone, type CommandRun, type Languages, RegisterError, type Unavailable } from "./schema.ts"
 import Setup from "./setup/flow.ts"
 import {
+  BINARY,
   CHECK_OPTIONS,
   checkCommands,
   checkRunners,
+  FILE_BYTES,
   installCommand,
   isSource,
   LICENSE_FILES,
@@ -45,6 +47,7 @@ import {
   read,
   themeCandidates,
   themeColors,
+  TREE_BYTES,
   type Tree,
   workflowFiles
 } from "./tree.ts"
@@ -91,10 +94,6 @@ export interface HostOptions {
 const unavailable = (reason: string): Unavailable => ({ _tag: "unavailable", step: "", reason })
 const failure = (code: RegisterError["code"], message: string) => new RegisterError({ code, message })
 const LOG_BYTES = 64 * 1024 * 1024
-const FILE_BYTES = 256 * 1024
-const TREE_BYTES = 48 * 1024 * 1024
-const BINARY =
-  /\.(png|jpe?g|gif|webp|ico|pdf|zip|gz|tgz|jar|woff2?|ttf|otf|eot|mp[34]|mov|wasm|so|dylib|dll|exe|bin|lockb)$/i
 
 const collect = <E>(stream: Stream.Stream<Uint8Array, E>, limit: number) =>
   Stream.runFold(stream, () => ({ chunks: [] as Array<Uint8Array>, bytes: 0 }), (state, chunk) => {

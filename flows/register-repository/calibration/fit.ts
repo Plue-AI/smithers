@@ -14,7 +14,8 @@ export interface CorpusCase {
   readonly language: (typeof LANGUAGES)[number]
   readonly band: (typeof BANDS)[number]
   readonly label: Label
-  readonly values: Readonly<Record<Deterministic, number>>
+  /** `null`: not measurable for this repository (dead code needs 20 TypeScript or JavaScript exports). */
+  readonly values: Readonly<Record<Deterministic, number | null>>
 }
 
 export type Anchors = Readonly<Record<Deterministic, number>>
@@ -32,9 +33,16 @@ const percentile = (values: ReadonlyArray<number>, q: number) => {
 /** Human p90 per signal, per language and size band. */
 export const fitAnchors = (cases: ReadonlyArray<CorpusCase>) => {
   const human = cases.filter((entry) => entry.label === "human")
+  const measured = (subset: ReadonlyArray<CorpusCase>, id: Deterministic) =>
+    subset.flatMap((entry) => entry.values[id] === null ? [] : [entry.values[id]])
+  /** A signal no human case measured keeps anchor 1; its cases normalize to 0 anyway. */
+  const pooled = Object.fromEntries(
+    DETERMINISTIC.map((id) => [id, measured(human, id).length === 0 ? 1 : percentile(measured(human, id), 0.9)])
+  ) as Anchors
+  /** A stratum with fewer than three measured human values borrows the pooled anchor for that signal. */
   const anchors = (subset: ReadonlyArray<CorpusCase>): Anchors =>
     Object.fromEntries(
-      DETERMINISTIC.map((id) => [id, percentile(subset.map((entry) => entry.values[id]), 0.9)])
+      DETERMINISTIC.map((id) => [id, measured(subset, id).length < 3 ? pooled[id] : percentile(measured(subset, id), 0.9)])
     ) as Anchors
   const strata: Record<string, Anchors> = {}
   for (const language of LANGUAGES) {
@@ -43,12 +51,12 @@ export const fitAnchors = (cases: ReadonlyArray<CorpusCase>) => {
       if (subset.length > 0) strata[`${language}/${band}`] = anchors(subset)
     }
   }
-  return { pooled: anchors(human), strata }
+  return { pooled, strata }
 }
 
 export const normalize = (entry: CorpusCase, strata: Record<string, Anchors>, pooled: Anchors) => {
   const anchor = strata[`${entry.language}/${entry.band}`] ?? pooled
-  return DETERMINISTIC.map((id) => Math.min(1, entry.values[id] / anchor[id]))
+  return DETERMINISTIC.map((id) => entry.values[id] === null ? 0 : Math.min(1, entry.values[id]! / anchor[id]))
 }
 
 /** Euclidean projection onto {w >= 0, sum w = 1}. */
@@ -116,7 +124,7 @@ const round = (value: number) => Math.round(value * 10_000) / 10_000
 const roundAll = (anchors: Anchors) => Object.fromEntries(Object.entries(anchors).map(([k, v]) => [k, round(v)])) as Anchors
 
 export interface Fit {
-  readonly method: "calibrated-synthetic-v1"
+  readonly method: "calibrated-synthetic-v1" | "calibrated-real-v1"
   readonly pooled: Anchors
   readonly strata: Record<string, Anchors>
   readonly weights: Record<Deterministic, number>
@@ -127,9 +135,11 @@ export interface Fit {
   readonly auroc: { readonly train: number; readonly heldOut: number; readonly hybridVsHuman: number }
   /** Share of cases above the pooled p90 that are agent-labelled, per signal (held out). */
   readonly precisionAtP90: Record<Deterministic, number | null>
+  /** Held-out cases above the pooled anchor, per signal: the denominator of `precisionAtP90`. */
+  readonly flaggedAtP90: Record<Deterministic, number>
 }
 
-export const fit = (cases: ReadonlyArray<CorpusCase>): Fit => {
+export const fit = (cases: ReadonlyArray<CorpusCase>, method: Fit["method"] = "calibrated-synthetic-v1"): Fit => {
   const { train, heldOut } = split(cases)
   const { pooled, strata } = fitAnchors(train)
   const vector = (entry: CorpusCase) => normalize(entry, strata, pooled)
@@ -145,12 +155,14 @@ export const fit = (cases: ReadonlyArray<CorpusCase>): Fit => {
       subset.filter((entry) => entry.label !== "hybrid")
         .map((entry) => ({ score: score(entry), positive: entry.label === "agent" }))
     )
+  const flaggedBy = (index: number) => heldOut.filter((entry) => vector(entry)[index]! >= 1)
   const precision = Object.fromEntries(DETERMINISTIC.map((id, index) => {
-    const flagged = heldOut.filter((entry) => vector(entry)[index]! >= 1)
+    const flagged = flaggedBy(index)
     return [id, flagged.length === 0 ? null : round(flagged.filter((entry) => entry.label === "agent").length / flagged.length)]
   })) as Record<Deterministic, number | null>
+  const flagged = Object.fromEntries(DETERMINISTIC.map((id, index) => [id, flaggedBy(index).length])) as Record<Deterministic, number>
   return {
-    method: "calibrated-synthetic-v1",
+    method,
     pooled: roundAll(pooled),
     strata: Object.fromEntries(Object.entries(strata).map(([key, value]) => [key, roundAll(value)])),
     weights: Object.fromEntries(DETERMINISTIC.map((id, index) => [id, round(weights[index]!)])) as Record<Deterministic, number>,
@@ -166,6 +178,7 @@ export const fit = (cases: ReadonlyArray<CorpusCase>): Fit => {
           .map((entry) => ({ score: score(entry), positive: entry.label === "hybrid" }))
       ))
     },
-    precisionAtP90: precision
+    precisionAtP90: precision,
+    flaggedAtP90: flagged
   }
 }

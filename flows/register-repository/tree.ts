@@ -6,6 +6,12 @@ const SOURCE = /\.(ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|kt|rb|php|cs|c|cc|cpp|h|h
 export const EXCLUDED =
   /(^|\/)(node_modules|dist|build|out|vendor|third_party|\.git|coverage|__snapshots__|__generated__|generated)\/|\.min\.js$|\.pb\.go$|_pb2\.py$|\.d\.ts$|_generated\.\w+$/
 
+/** Read limits shared by the host and the calibration recorder: one file, the whole tree, and unreadable extensions. */
+export const FILE_BYTES = 256 * 1024
+export const TREE_BYTES = 48 * 1024 * 1024
+export const BINARY =
+  /\.(png|jpe?g|gif|webp|ico|pdf|zip|gz|tgz|jar|woff2?|ttf|otf|eot|mp[34]|mov|wasm|so|dylib|dll|exe|bin|lockb)$/i
+
 export const isSource = (path: string) => SOURCE.test(path) && !EXCLUDED.test(path)
 
 export interface SourceFile {
