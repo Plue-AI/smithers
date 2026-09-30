@@ -8,6 +8,7 @@ import {
   stackMetricLabels,
   stackMetrics
 } from "../src/StackIssues.ts"
+import { itemReason, itemStateLabel } from "../src/StackView.ts"
 
 const item = (id: string, state: MythicalItem["state"], details: Partial<MythicalItem> = {}): MythicalItem => ({
   id,
@@ -158,5 +159,21 @@ describe("stack metrics", () => {
     expect(
       issueWord(item("blocked", "blocked", { reason: "very hard: exhausted", todo: { replans: 2, veryHard: true } }))
     ).toBe("blocked")
+  })
+
+  test("a typed failure is the word and reason line, even on an open pull request or over old conflict paths", () => {
+    const review = item("held", "proposed", { reason: "The review did not finish", failure: { kind: "review", fault: "user" } })
+    expect(issueWord(review)).toBe("The review did not finish")
+    expect(issueWord(item("open", "proposed", { reason: "waiting for CI on the approved head" }))).toBe("PR open")
+    const model = item("model", "retrying", {
+      reason: "The model provider did not answer",
+      failure: { kind: "model", fault: "dependency" },
+      integration: { conflict: { paths: ["a.ts"] } }
+    })
+    expect(itemReason(model)).toBe("The model provider did not answer")
+    expect(itemStateLabel(model)).toBe("retrying")
+    const conflict = item("conflict", "retrying", { integration: { conflict: { paths: ["a.ts"] } } })
+    expect(itemReason(conflict)).toBe("a.ts")
+    expect(itemStateLabel(conflict)).toBe("conflict")
   })
 })

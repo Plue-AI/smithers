@@ -50,7 +50,7 @@ export const stateLabel = (item: Values): string => {
     case "waiting":
       return "ready"
     case "retrying":
-      return object(item.integration).conflict === undefined ? "retrying" : "conflict"
+      return object(item.integration).conflict === undefined || item.failure !== undefined ? "retrying" : "conflict"
     case "proposed":
       return "PR open"
     default:
@@ -86,7 +86,9 @@ export const itemLine = (item: Values, changes: ReadonlyArray<unknown> = []): st
     ? `#${str(issue.number)} ${str(issue.title)}`
     : str(changes.map(object).find((change) => change.itemId === item.id)?.title) || str(item.id).slice(0, 8)
   const paths = list(object(object(item.integration).conflict).paths).map(str)
-  const reason = str(item.state) === "retrying" && paths.length > 0 ? paths.join(", ") : str(item.reason)
+  const reason = item.failure === undefined && str(item.state) === "retrying" && paths.length > 0
+    ? paths.join(", ")
+    : str(item.reason)
   const failed = list(checks.failed).map(str)
   return [
     title,

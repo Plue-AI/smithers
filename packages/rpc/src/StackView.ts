@@ -53,7 +53,7 @@ export const itemStateLabel = (item: MythicalItem): string => {
     case "waiting":
       return "ready"
     case "retrying":
-      return item.integration?.conflict === undefined ? "retrying" : "conflict"
+      return item.integration?.conflict === undefined || item.failure !== undefined ? "retrying" : "conflict"
     case "proposed":
       return "PR open"
     default:
@@ -90,7 +90,8 @@ export const itemTitle = (stack: MythicalStack, item: MythicalItem): string => {
  */
 export const itemReason = (item: MythicalItem): string | undefined => {
   const paths = item.integration?.conflict?.paths ?? []
-  if (item.state === "retrying" && paths.length > 0) return paths.join(", ")
+  // A typed failure's sentence outranks the paths an earlier attempt conflicted in.
+  if (item.failure === undefined && item.state === "retrying" && paths.length > 0) return paths.join(", ")
   return item.reason === undefined || item.reason === "" ? undefined : item.reason
 }
 

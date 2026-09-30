@@ -67,6 +67,16 @@ describe("history words match the app's History card", () => {
     expect(stateLabel(value)).toBe(itemStateLabel(value))
     expect(itemLine(value)).toBe("#12 Fix login · conflict · a.ts, b.ts")
   })
+
+  it("says a later typed failure, not an earlier attempt's conflict", () => {
+    const value = item("retrying", {
+      integration: { conflict: { paths: ["a.ts"] } },
+      reason: "The model provider did not answer",
+      failure: { kind: "model", fault: "dependency" }
+    }) as never
+    expect(stateLabel(value)).toBe(itemStateLabel(value))
+    expect(itemLine(value)).toBe("#12 Fix login · retrying · The model provider did not answer")
+  })
 })
 
 describe("history rendering", () => {

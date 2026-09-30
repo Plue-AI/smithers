@@ -114,7 +114,7 @@ export const issueGroups = (stack: MythicalStack, now?: number): ReadonlyArray<I
  * @since 1.0.0
  */
 export const issueWord = (item: MythicalItem): string =>
-  item.state === "proposed" || item.reason === undefined || item.reason === "" ||
+  item.failure === undefined && item.state === "proposed" || item.reason === undefined || item.reason === "" ||
     (item.todo?.veryHard === true && item.state !== "running" && item.reason.startsWith("very hard"))
     ? itemStateLabel(item)
     : item.reason
