@@ -66,6 +66,22 @@ const refuseListing = async (base: string): Promise<() => Promise<void>> => {
   }
 }
 
+/**
+ * Runs `body` as a user who owns none of this test's files. Windows reports
+ * no POSIX owner, so it gains a `getuid` for the duration; lstat answers 0.
+ */
+const asAnotherUser = async <A>(path: string, body: () => A): Promise<A> => {
+  const foreign = (await lstat(path)).uid + 1
+  const own = Object.getOwnPropertyDescriptor(process, "getuid")
+  Object.defineProperty(process, "getuid", { configurable: true, writable: true, value: () => foreign })
+  try {
+    return body()
+  } finally {
+    if (own === undefined) Reflect.deleteProperty(process, "getuid")
+    else Object.defineProperty(process, "getuid", own)
+  }
+}
+
 afterEach(async () => {
   vi.unstubAllEnvs()
   for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true })
@@ -157,6 +173,25 @@ describe("default atomic helper resolution", () => {
     await symlink(elsewhere, join(base, `.smthrs-atomic-helper-${digest}`))
     expect(() => outsideWorkspace(source, undefined, [base])).toThrow(/staging directory/)
     expect(await readdir(elsewhere)).toEqual([])
+  })
+
+  it("refuses a staging directory another user owns and writes nothing into it", async () => {
+    const { root } = await fixture()
+    const source = join(root, "helper")
+    const base = join(root, "stage")
+    await helper(source)
+    await mkdir(base)
+    const digest = createHash("sha256").update(await readFile(source)).digest("hex")
+    const directory = join(base, `.smthrs-atomic-helper-${digest}`)
+    await mkdir(directory)
+    const getuid = process.getuid
+    await asAnotherUser(
+      directory,
+      () => expect(() => outsideWorkspace(source, undefined, [base])).toThrow(/not a private directory/)
+    )
+    expect(process.getuid).toBe(getuid)
+    expect(await readdir(directory)).toEqual([])
+    expect(await readFile(outsideWorkspace(source, undefined, [base]), "utf8")).toBe("#!/bin/sh\nexit 0\n")
   })
 
   it.each(["symlink", "hard link"] as const)(

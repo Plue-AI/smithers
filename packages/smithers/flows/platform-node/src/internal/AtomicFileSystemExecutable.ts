@@ -83,6 +83,12 @@ const helperName = process.platform === "win32" ? "smithers-jj-export.exe" : "sm
 
 const sha256 = (bytes: Uint8Array): string => createHash("sha256").update(bytes).digest("hex")
 
+/** Whether this user owns `info`; Windows has no POSIX owner and relies on the per-user profile ACL. */
+const ownedByThisUser = (info: { readonly uid: number }): boolean => {
+  const uid = process.getuid?.()
+  return uid === undefined || info.uid === uid
+}
+
 /** Creates or adopts the per-user staging directory, refusing links and other owners. */
 const privateDirectory = (directory: string): void => {
   try {
@@ -91,8 +97,7 @@ const privateDirectory = (directory: string): void => {
     if ((cause as NodeJS.ErrnoException).code !== "EEXIST") throw cause
   }
   const info = lstatSync(directory)
-  const uid = process.getuid?.()
-  if (!info.isDirectory() || (uid !== undefined && info.uid !== uid)) {
+  if (!info.isDirectory() || !ownedByThisUser(info)) {
     throw new Error(`atomic helper staging directory is not a private directory: ${directory}`)
   }
   chmodSync(directory, 0o700)
@@ -106,8 +111,7 @@ const privateDirectory = (directory: string): void => {
 const matches = (destination: string, digest: string): boolean => {
   try {
     const info = lstatSync(destination)
-    const uid = process.getuid?.()
-    if (!info.isFile() || info.nlink !== 1 || (uid !== undefined && info.uid !== uid)) return false
+    if (!info.isFile() || info.nlink !== 1 || !ownedByThisUser(info)) return false
     return sha256(readFileSync(destination)) === digest
   } catch {
     return false
@@ -132,7 +136,6 @@ const refresh = (copy: { readonly path: string; touchedAt: number }): void => {
  * temporary files left in live directories when a writer exited on a signal.
  */
 const prune = (base: string, keep: string): void => {
-  const uid = process.getuid?.()
   const now = Date.now()
   let names: Array<string>
   try {
@@ -146,7 +149,7 @@ const prune = (base: string, keep: string): void => {
     const directory = join(base, name)
     try {
       const info = lstatSync(directory)
-      if (!info.isDirectory() || (uid !== undefined && info.uid !== uid)) continue
+      if (!info.isDirectory() || !ownedByThisUser(info)) continue
       if (name !== keep && now - info.mtimeMs > staleMs) {
         rmSync(directory, { recursive: true, force: true })
         continue
@@ -158,7 +161,7 @@ const prune = (base: string, keep: string): void => {
         const temporary = join(directory, entry)
         try {
           const file = lstatSync(temporary)
-          if (file.isFile() && (uid === undefined || file.uid === uid) && now - file.mtimeMs > staleMs) {
+          if (file.isFile() && ownedByThisUser(file) && now - file.mtimeMs > staleMs) {
             rmSync(temporary, { force: true })
           }
         } catch {
