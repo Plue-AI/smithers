@@ -10056,26 +10056,26 @@ Every registered tag. The sweep tests read it.
 
 `Flow` exports 46 symbols. Its models and schemas are listed in one table, and constructors, refinements, results, resource management, annotations, and errors get their own entries:
 
-| Name                  | Kind                 | Summary                                                                                                                                                                                                                                                                                                                       |
-| --------------------- | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Effects`             | Schema and type      | The declared filesystem effects of a flow: `reads`, `writes`, optional `removes` (workspace-relative patterns, as on an action boundary), and `boundaryMode`. It IS `@smthrs/plan`'s `Plan.NodeEffects`, not a copy of it.                                                                                                    |
-| `PlacementDirective`  | Type                 | Where a node runs. It IS `@smthrs/plan`'s `Placement.Placement`, the one typed model, carried unchanged until planning reads it.                                                                                                                                                                                              |
-| `ExecutionIdSource`   | Interface            | Mints the execution id of an invocation that named none, through `mint(flow, payload)`.                                                                                                                                                                                                                                       |
-| `BodySuccess`         | Type                 | The values a flow body may settle one round with: a decoded success, a planned reference, or an `Outcome`.                                                                                                                                                                                                                    |
-| `Flow`                | Interface            | A durable flow definition. It carries `_tag`, `payloadSchema`, `successSchema`, `errorSchema`, `annotations`, `body`, `idempotencyKey`, `suspendedRetryPolicy`, and `maxRounds`, and exposes `call`, `child`, `to`, `annotate`, `annotateMerge`, `execute`, `poll`, `interrupt`, `resume`, `executionId`, and `withRollback`. |
-| `AnyStructSchema`     | Interface            | The constraint a flow payload schema satisfies: a `Schema.Top` that exposes `fields`.                                                                                                                                                                                                                                         |
-| `Execution`           | Interface            | A type-level marker tying a service to one flow tag. It carries no runtime value.                                                                                                                                                                                                                                             |
-| `Any`                 | Interface            | The type-erased flow shape for APIs that do not preserve payload, success, or error types.                                                                                                                                                                                                                                    |
-| `AnyWithProps`        | Interface            | The type-erased flow shape that also exposes `execute` and `resume`.                                                                                                                                                                                                                                                          |
-| `PayloadSchema`       | Type                 | Extracts the payload schema from a `Flow`.                                                                                                                                                                                                                                                                                    |
-| `Requirements`        | Type                 | Extracts a flow's requirement channel: the action implementations its body names and does not carry.                                                                                                                                                                                                                          |
-| `RequirementsClient`  | Type                 | The schema services a client that executes or polls flows requires.                                                                                                                                                                                                                                                           |
-| `RequirementsHandler` | Type                 | The schema services a handler that decodes payloads and encodes results requires.                                                                                                                                                                                                                                             |
-| `Done`                | Interface and schema | A completed trampoline lineage value, carrying `value`.                                                                                                                                                                                                                                                                       |
-| `To`                  | Interface and schema | A serializable invocation of the next flow round, carrying `flow` and `payload`.                                                                                                                                                                                                                                              |
-| `Park`                | Interface and schema | A request to durably park the current round, carrying `reason`.                                                                                                                                                                                                                                                               |
-| `Outcome`             | Type and schema      | The union of `Done`, `To`, and `Park`.                                                                                                                                                                                                                                                                                        |
-| `CompleteSchema`      | Interface            | The schema constructor for `Complete` results under supplied success and error schemas.                                                                                                                                                                                                                                       |
+| Name                  | Kind                 | Summary                                                                                                                                                                                                                                                                                                                                          |
+| --------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `Effects`             | Schema and type      | The declared filesystem effects of a flow: `reads`, `writes`, optional `removes` (workspace-relative patterns, as on an action boundary), and `boundaryMode`. It IS `@smthrs/plan`'s `Plan.NodeEffects`, not a copy of it.                                                                                                                       |
+| `PlacementDirective`  | Type                 | Where a node runs. It IS `@smthrs/plan`'s `Placement.Placement`, the one typed model, carried unchanged until planning reads it.                                                                                                                                                                                                                 |
+| `ExecutionIdSource`   | Interface            | Mints the execution id of an invocation that named none, through `mint(flow, payload)`.                                                                                                                                                                                                                                                          |
+| `BodySuccess`         | Type                 | The values a flow body may settle one round with: a decoded success, a planned reference, or an `Outcome`.                                                                                                                                                                                                                                       |
+| `Flow`                | Interface            | A durable flow definition. It carries `_tag`, `payloadSchema`, `successSchema`, `errorSchema`, `annotations`, `body`, `idempotencyKey`, `suspendedRetryPolicy`, and `maxRounds`, and exposes `call`, `child`, `to`, `annotate`, `annotateMerge`, `execute`, `start`, `ensure`, `poll`, `interrupt`, `resume`, `executionId`, and `withRollback`. |
+| `AnyStructSchema`     | Interface            | The constraint a flow payload schema satisfies: a `Schema.Top` that exposes `fields`.                                                                                                                                                                                                                                                            |
+| `Execution`           | Interface            | A type-level marker tying a service to one flow tag. It carries no runtime value.                                                                                                                                                                                                                                                                |
+| `Any`                 | Interface            | The type-erased flow shape for APIs that do not preserve payload, success, or error types.                                                                                                                                                                                                                                                       |
+| `AnyWithProps`        | Interface            | The type-erased flow shape that also exposes `execute` and `resume`.                                                                                                                                                                                                                                                                             |
+| `PayloadSchema`       | Type                 | Extracts the payload schema from a `Flow`.                                                                                                                                                                                                                                                                                                       |
+| `Requirements`        | Type                 | Extracts a flow's requirement channel: the action implementations its body names and does not carry.                                                                                                                                                                                                                                             |
+| `RequirementsClient`  | Type                 | The schema services a client that executes or polls flows requires.                                                                                                                                                                                                                                                                              |
+| `RequirementsHandler` | Type                 | The schema services a handler that decodes payloads and encodes results requires.                                                                                                                                                                                                                                                                |
+| `Done`                | Interface and schema | A completed trampoline lineage value, carrying `value`.                                                                                                                                                                                                                                                                                          |
+| `To`                  | Interface and schema | A serializable invocation of the next flow round, carrying `flow` and `payload`.                                                                                                                                                                                                                                                                 |
+| `Park`                | Interface and schema | A request to durably park the current round, carrying `reason`.                                                                                                                                                                                                                                                                                  |
+| `Outcome`             | Type and schema      | The union of `Done`, `To`, and `Park`.                                                                                                                                                                                                                                                                                                           |
+| `CompleteSchema`      | Interface            | The schema constructor for `Complete` results under supplied success and error schemas.                                                                                                                                                                                                                                                          |
 
 ### `Flow.Capabilities`
 
@@ -10176,6 +10176,29 @@ including its absence, while constructing a fresh flow with the supplied body.
 It does not change key material or execution identity.
 
 `description`, `capabilities`, and `effects` are declared as literals and lowered into the annotation bag, so a catalog reading the source text projects the same values `Graph.build` enforces. `effects` takes `{ reads, writes, mode, onConflict, tier? }` and is normalized by `Effects.make`.
+
+### `flow.start` and `flow.ensure`
+
+```ts
+const freshId = yield * flow.start(payload)
+const keyedId = yield * flow.ensure(payload, { key: "worker-1" })
+```
+
+`start` admits a fresh execution, bypassing declared and ambient idempotency
+policies. `ensure` admits or joins the execution identified by the flow tag and
+caller key. Both return the execution id after admission and scheduling,
+without waiting for the child to settle, including inside an action.
+`execute(payload, { discard: true })` follows the same contract.
+
+The scheduled child belongs to the engine's scope and continues after the
+caller's action or parent round finishes. Keep that engine scope open. A memory
+engine loses its executions when the scope closes; a durable engine retains
+admission and progress for recovery. Explicit parent cancellation still follows
+the engine's cancellation policy for linked children.
+
+Use `flow.poll(id)` to observe the result, or
+`flow.execute(payload, { executionId: id })` to await completion. The returned
+id acknowledges admission, not a successful result or a reached wait point.
 
 ### `Flow.MaxRoundsExceeded`
 
@@ -19814,7 +19837,7 @@ https://smithers.sh/docs/reference/api/cli/
 
 > **Source:** [implementation](https://github.com/smithersai/smithers/tree/main/packages/smithers/src) · [reference source](https://github.com/smithersai/smithers/blob/main/packages/smithers/docs/api.md) · [package docs](https://cli.smithers.sh)
 
-> **Related APIs:** [`@smthrs/agent`](/docs/reference/api/agent/) · [`@smthrs/build-cli`](/docs/reference/api/build-cli/) · [`@smthrs/canonical`](/docs/reference/api/canonical/) · [`@smthrs/capability`](/docs/reference/api/capability/) · [`@smthrs/control`](/docs/reference/api/control/) · [`@smthrs/crypto`](/docs/reference/api/crypto/) · [`@smthrs/database`](/docs/reference/api/database/) · [`@smthrs/engine`](/docs/reference/api/engine/) · [`@smthrs/engine-store`](/docs/reference/api/engine-store/) · [`@smthrs/evals`](/docs/reference/api/evals/) · [`@smthrs/flow`](/docs/reference/api/flow/) · [`@smthrs/flows`](/docs/reference/api/flows/) · [`@smthrs/gateway`](/docs/reference/api/gateway/) · [`@smthrs/harness`](/docs/reference/api/harness/) · [`@smthrs/integrations`](/docs/reference/api/integrations/) · [`@smthrs/jj`](/docs/reference/api/jj/) · [`@smthrs/journal`](/docs/reference/api/journal/) · [`@smthrs/kernel`](/docs/reference/api/kernel/) · [`@smthrs/mcp`](/docs/reference/api/mcp/) · [`@smthrs/memory`](/docs/reference/api/memory/) · [`@smthrs/migrate`](/docs/reference/api/migrate/) · [`@smthrs/model`](/docs/reference/api/model/) · [`@smthrs/notifications`](/docs/reference/api/notifications/) · [`@smthrs/observability`](/docs/reference/api/observability/) · [`@smthrs/plan`](/docs/reference/api/plan/) · [`@smthrs/platform-node`](/docs/reference/api/platform-node/) · [`@smthrs/registry`](/docs/reference/api/registry/) · [`@smthrs/run-store`](/docs/reference/api/run-store/) · [`@smthrs/std`](/docs/reference/api/std/) · [`@smthrs/step-cache`](/docs/reference/api/step-cache/) · [`@smthrs/sync`](/docs/reference/api/sync/) · [`@smthrs/targets`](/docs/reference/api/targets/) · [`@smthrs/time-travel`](/docs/reference/api/time-travel/) · [`@smthrs/triggers`](/docs/reference/api/triggers/)
+> **Related APIs:** [`@smthrs/agent`](/docs/reference/api/agent/) · [`@smthrs/build-cli`](/docs/reference/api/build-cli/) · [`@smthrs/canonical`](/docs/reference/api/canonical/) · [`@smthrs/capability`](/docs/reference/api/capability/) · [`@smthrs/control`](/docs/reference/api/control/) · [`@smthrs/crypto`](/docs/reference/api/crypto/) · [`@smthrs/database`](/docs/reference/api/database/) · [`@smthrs/engine`](/docs/reference/api/engine/) · [`@smthrs/engine-store`](/docs/reference/api/engine-store/) · [`@smthrs/evals`](/docs/reference/api/evals/) · [`@smthrs/flow`](/docs/reference/api/flow/) · [`@smthrs/flows`](/docs/reference/api/flows/) · [`@smthrs/gateway`](/docs/reference/api/gateway/) · [`@smthrs/harness`](/docs/reference/api/harness/) · [`@smthrs/integrations`](/docs/reference/api/integrations/) · [`@smthrs/jj`](/docs/reference/api/jj/) · [`@smthrs/journal`](/docs/reference/api/journal/) · [`@smthrs/kernel`](/docs/reference/api/kernel/) · [`@smthrs/mcp`](/docs/reference/api/mcp/) · [`@smthrs/memory`](/docs/reference/api/memory/) · [`@smthrs/migrate`](/docs/reference/api/migrate/) · [`@smthrs/model`](/docs/reference/api/model/) · [`@smthrs/notifications`](/docs/reference/api/notifications/) · [`@smthrs/observability`](/docs/reference/api/observability/) · [`@smthrs/plan`](/docs/reference/api/plan/) · [`@smthrs/platform-node`](/docs/reference/api/platform-node/) · [`@smthrs/registry`](/docs/reference/api/registry/) · [`@smthrs/run-store`](/docs/reference/api/run-store/) · [`@smthrs/sandbox`](/docs/reference/api/sandbox/) · [`@smthrs/std`](/docs/reference/api/std/) · [`@smthrs/step-cache`](/docs/reference/api/step-cache/) · [`@smthrs/sync`](/docs/reference/api/sync/) · [`@smthrs/targets`](/docs/reference/api/targets/) · [`@smthrs/time-travel`](/docs/reference/api/time-travel/) · [`@smthrs/triggers`](/docs/reference/api/triggers/)
 
 The root entry point exports each public module as a namespace. Import a module directly with `@smthrs/cli/<Module>`.
 
@@ -19930,6 +19953,24 @@ executes these callbacks. The stall threshold is
 a lifecycle mutation. See [Configure observational health](https://control.smithers.sh/guides/observe-health/)
 for checker configuration, defaults, and validation.
 
+## CloudSandbox
+
+Import `CloudSandbox` from `@smthrs/cli` or `@smthrs/cli/CloudSandbox`. The
+subpath loads independently of the flow engine and shares the canonical
+transport re-exported by `NodeControl.workspaceSshPrefix`.
+
+| Export         | Signature                                | Meaning                                                                                                                                                              |
+| -------------- | ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `make`         | `(options: Options) => Sandbox.Provider` | Creates or resumes a Cloud workspace per session name, waits for running, refreshes its pinned SSH grants per command, and deletes it on scope release.              |
+| `Options`      | interface                                | Local `spawner`, Cloud `repository`, optional `environment`, `sourceBookmark`, absolute `workdir`, `namePrefix`, `pollInterval`, `readyTimeout`, and injected `api`. |
+| `WorkspaceApi` | interface                                | Abortable control `request(method, path, body, signal)` and `sshPrefix(reference, signal)` operations for alternate hosts and deterministic lifecycle tests.         |
+
+Use `Sandbox.layerHost(provider, { session })` to place both commands and files
+on the workspace. Concurrent workers need distinct session keys; reusing a key
+is an exclusive resume claim. Provisioning, SSH setup, and cancellation errors
+still release the workspace. Deletion failures fail release. See the
+[Cloud sandbox guide](https://cli.smithers.sh/guides/cloud-sandbox/).
+
 ## NodeControl
 
 The Node composition for the command tree.
@@ -19941,6 +19982,7 @@ The Node composition for the command tree.
 | `makeConfig` | `(args, environment, cwd) => Application.Config` | The pure configuration boundary. Throws `CliError.UsageError` for a bad `--remote` URL or an unreadable, malformed, or wrongly shaped `--mcp-config` file. |
 | `configFromArguments` | `(args) => Effect<Application.Config, CliError.UsageError>` | Resolves and validates raw arguments or a shared parse using the ambient environment and working directory. |
 | `config` | `Effect<Application.Config, CliError.UsageError>` | `makeConfig` applied to the ambient process, with the throw converted into a typed failure. |
+| `workspaceSshPrefix` | `(environment, reference, signal?) => Promise<Array<string>>` | Resolves fresh Cloud workspace SSH argv with pinned host keys; the optional signal cancels readiness polling. |
 | `projectSources` | `(root: string) => ReadonlyArray<Descriptor.Source>` | The one flow source a local CLI discovers: `<root>/flows`, named by path. |
 | `layerHostPlatform` | `Layer` | Node's services plus the descriptor-relative, no-follow filesystem the kernel needs. Unguarded; only host equipment that carries its own confinement argument runs on it. |
 | `layerGrantStore` | `(root: string) => Layer<GrantStore>` | The local CLI's real permission store: an allow policy, with the fiber's capability ceiling still enforced. |
@@ -23492,6 +23534,27 @@ and [platform support](/docs/reference/api/#platform-support).
 
 The production durable composition.
 
+`flow.start`, `flow.ensure`, and `execute` with `discard: true` durably admit
+an execution and schedule its drive before returning its id. They do not wait
+for the child's action, durable wait, or settlement, including when launched
+from inside another action. The driver owns the scheduled drive in its engine
+scope; ending the caller's action or round does not interrupt it. A discarded
+child records `onParentExit: "detach"`, so normal parent completion leaves it
+running. Explicit parent cancellation still cascades to linked children.
+
+Observe progress with `poll(id)`, or await the result with
+`execute(payload, { executionId: id })`. Callers that need a durable waiting
+row or attempt receipt must await that evidence explicitly. Closing the engine
+scope releases ownership and retains durable admission and progress for
+recovery by a replacement host. The heartbeat sweep recovers pending admissions
+through the same coordinator and fenced claim/activate path;
+unregistered flows wait for a host that registers them. Pending recovery scans
+at most 64 rows per sweep and rotates registered flows. Each scan cycle has a
+fixed creation-time/id upper bound, so new admissions cannot postpone retrying
+refused work indefinitely. Recovery only selects admissions older than the stale
+heartbeat interval, giving a live admitting host time to claim its own work. Storage
+failures remain visible and are retried by the heartbeat sweep.
+
 Cancellation is logical-run scoped: `Flow.interrupt(id)` accepts any round ID
 and records intent across its trampoline lineage and linked child lineages in
 one transaction. Children attached to an earlier parent round remain included;
@@ -23563,9 +23626,10 @@ run when another process has called `RunStore.requestCancel`. Terminal
 transitions are additionally guarded with `{ cancelRequested: "absent" }` inside
 the ownership compare-and-swap.
 
-The driver's periodic sweep re-drives three durable shapes on the heartbeat
-cadence: parked runs whose cancellation was durably requested, runs parked with
-reason `released`, and stale `running` rows left by a hard-killed owner. Each
+The driver's periodic sweep re-drives durable shapes on the heartbeat
+cadence: pending admissions, parked runs whose cancellation was durably requested,
+runs parked with reason `released`, and stale `running` rows left by a hard-killed
+owner. Each
 re-enters the ordinary claim, steal, and activate path. A wake for a flow the
 sweeping process has not registered logs a once-per-run structured warning and
 leaves the durable waiting row parked.
@@ -23582,6 +23646,11 @@ Full model: [Ownership and fencing](https://engine-store.smithers.sh/concepts/ow
 [Attempts and replay](https://engine-store.smithers.sh/concepts/attempts-and-replay/).
 
 ## DurableEngineState
+
+`PendingRunCursor` contains `{ createdAtMs: number; runId: string }`. Pending
+queries return rows after `after` and at or before `through`, ordered by those
+fields. An optional `eligibleBeforeMs` limits results to older admissions.
+`pendingRunTail` captures the upper bound of a recovery scan cycle.
 
 [src/DurableEngineState.ts](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/engine-store/src/DurableEngineState.ts)
 
@@ -23608,29 +23677,31 @@ permit deadlocks against a fiber doing the opposite.
 
 ### Service members
 
-| Member                   | Signature                                                                                    |
-| ------------------------ | -------------------------------------------------------------------------------------------- |
-| `deferred`               | `(address: DeferredAddress) => Effect<Option<DeferredRow>>`                                  |
-| `consumeDeferred`        | `(address: DeferredAddress, consumedAtMs: number) => Effect<void>`                           |
-| `completeDeferred`       | `(row: DeferredRow) => Effect<CompleteDeferredOutcome>`                                      |
-| `clock`                  | `(address: ClockAddress) => Effect<Option<ClockRow>>`                                        |
-| `scheduleClock`          | `(row: ClockRow, owner: OwnerId) => Effect<ScheduleClockOutcome>`                            |
-| `completeClock`          | `(address: ClockAddress, completedAtMs: number) => Effect<CompleteClockOutcome>`             |
-| `dueClocks`              | `(nowMs: number) => Effect<ReadonlyArray<ClockRow>>`                                         |
-| `completeRunClocks`      | `(executionId: string, completedAtMs: number) => Effect<void>`                               |
-| `pendingClocks`          | `(scope: { executionId?: string; flowName?: string }) => Effect<ReadonlyArray<ClockRow>>`    |
-| `completedDeferreds`     | `(flowName: string) => Effect<ReadonlyArray<DeferredAddress>>`                               |
-| `park`                   | `(runId: string, waiting: Waiting, owner: OwnerId) => Effect<ParkOutcome>`                   |
-| `wake`                   | `(runId: string) => Effect<WakeOutcome>`                                                     |
-| `waiting`                | `(runId: string) => Effect<Option<WaitingRow>>`                                              |
-| `waitingRuns`            | `(filter?: WaitingRunsFilter) => Effect<ReadonlyArray<WaitingRow>>`                          |
-| `staleRunningRuns`       | `(staleBeforeMs: number, limit?: number) => Effect<ReadonlyArray<StaleRunningRow>>`          |
-| `attemptSurvivors`       | `((runId: string, stepKeyDigest: string) => Effect<Option<AttemptSurvivors>>)` (optional)    |
-| `recordRunParent`        | `(childId: string, parentId: string) => Effect<RecordRunParentOutcome, RunParentCycleError>` |
-| `removeRunParentsForRun` | `(runId: string) => Effect<void>`                                                            |
-| `runParents`             | `(childId: string) => Effect<ReadonlyArray<RunParentEdge>>`                                  |
-| `runChildren`            | `(parentId: string) => Effect<ReadonlyArray<RunParentEdge>>`                                 |
-| `transaction`            | `<A, E, R>(effect: Effect<A, E, R>) => Effect<A, E, R>`                                      |
+| Member                   | Signature                                                                                                                                                        |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `deferred`               | `(address: DeferredAddress) => Effect<Option<DeferredRow>>`                                                                                                      |
+| `consumeDeferred`        | `(address: DeferredAddress, consumedAtMs: number) => Effect<void>`                                                                                               |
+| `completeDeferred`       | `(row: DeferredRow) => Effect<CompleteDeferredOutcome>`                                                                                                          |
+| `clock`                  | `(address: ClockAddress) => Effect<Option<ClockRow>>`                                                                                                            |
+| `scheduleClock`          | `(row: ClockRow, owner: OwnerId) => Effect<ScheduleClockOutcome>`                                                                                                |
+| `completeClock`          | `(address: ClockAddress, completedAtMs: number) => Effect<CompleteClockOutcome>`                                                                                 |
+| `dueClocks`              | `(nowMs: number) => Effect<ReadonlyArray<ClockRow>>`                                                                                                             |
+| `completeRunClocks`      | `(executionId: string, completedAtMs: number) => Effect<void>`                                                                                                   |
+| `pendingClocks`          | `(scope: { executionId?: string; flowName?: string }) => Effect<ReadonlyArray<ClockRow>>`                                                                        |
+| `completedDeferreds`     | `(flowName: string) => Effect<ReadonlyArray<DeferredAddress>>`                                                                                                   |
+| `park`                   | `(runId: string, waiting: Waiting, owner: OwnerId) => Effect<ParkOutcome>`                                                                                       |
+| `wake`                   | `(runId: string) => Effect<WakeOutcome>`                                                                                                                         |
+| `waiting`                | `(runId: string) => Effect<Option<WaitingRow>>`                                                                                                                  |
+| `waitingRuns`            | `(filter?: WaitingRunsFilter) => Effect<ReadonlyArray<WaitingRow>>`                                                                                              |
+| `pendingRuns`            | `(flowName: string, limit?: number, after?: PendingRunCursor, through?: PendingRunCursor, eligibleBeforeMs?: number) => Effect<ReadonlyArray<PendingRunCursor>>` |
+| `pendingRunTail`         | `(flowName: string, eligibleBeforeMs?: number) => Effect<Option<PendingRunCursor>>`                                                                              |
+| `staleRunningRuns`       | `(staleBeforeMs: number, limit?: number) => Effect<ReadonlyArray<StaleRunningRow>>`                                                                              |
+| `attemptSurvivors`       | `((runId: string, stepKeyDigest: string) => Effect<Option<AttemptSurvivors>>)` (optional)                                                                        |
+| `recordRunParent`        | `(childId: string, parentId: string) => Effect<RecordRunParentOutcome, RunParentCycleError>`                                                                     |
+| `removeRunParentsForRun` | `(runId: string) => Effect<void>`                                                                                                                                |
+| `runParents`             | `(childId: string) => Effect<ReadonlyArray<RunParentEdge>>`                                                                                                      |
+| `runChildren`            | `(parentId: string) => Effect<ReadonlyArray<RunParentEdge>>`                                                                                                     |
+| `transaction`            | `<A, E, R>(effect: Effect<A, E, R>) => Effect<A, E, R>`                                                                                                          |
 
 `scheduleClock` requires the execution's ownership token. Creation succeeds
 only while the run is running under that owner. An existing clock wins unchanged,
@@ -24665,11 +24736,14 @@ The versioned state envelope stored in each run row.
 | `RunState`     | `{ version: 1, flowName, payload, parentExecutionId?, onParentExit?, maxRounds?, result?, cancellation? }` |
 | `OnParentExit` | `"cancel"` or `"detach"`                                                                                   |
 
-`parentExecutionId` is present only on a child run, and `onParentExit` travels
-with it: the parent's terminal transition reads it to decide whether the child
+`parentExecutionId` is present only on a child run. `onParentExit` is recorded
+at first admission, including independent runs that a later caller may join as
+a child: the parent's terminal transition reads it to decide whether the child
 ends with it. The policy is recorded on the child rather than on the edge,
 because it is a property of how the child was started and because a child with
-two parents must answer the question once.
+two parents must answer the question once. Missing policies on legacy rows
+default to `"cancel"`. A later caller awaiting or ensuring the run does not
+rewrite its recorded policy.
 
 ## Errors
 
@@ -43541,7 +43615,9 @@ const box = CommandSandbox.make({
 
 The machine is whatever `prefix` reaches, and every guest argv follows it: `[]` is this machine, `["ssh", ...]` a remote host, `["docker", "exec", "-i", name]` a running container. A prefix whose program is `ssh` joins the guest argv into one quoted command line, because `ssh` hands its arguments to the remote login shell as one string; set `joinsArguments` for another transport that does the same. `prefix` may be an effect, asked again for every command, so a transport whose credential expires, such as a Smithers Cloud workspace SSH grant, stays fresh; its `ProviderError` is the command's failure.
 
-The provider does not create or remove the machine. `acquire` prepares `workdir` and a pidfile directory private to the session key, so several sessions can share one machine, and closing the scope signals only that session's unfinished commands. File bytes cross the prefix as base64 text, commands run under the guest's absolute `/bin/sh`, and signals use the same pidfile and `/proc` walk as `ContainerSandbox`. An unreachable machine fails `acquire` or the command with `unavailable`. A transport can outlive its machine: a Smithers Cloud gateway keeps an SSH channel open after the workspace behind it stopped, so the exit never arrives. Every command therefore runs beside a `heartbeat` (default 15 seconds) that reads the machine's boot id; a probe that fails, answers another boot, or takes twice the heartbeat ends the command with `unavailable`. Closing the scope removes the session's pidfile directory, and failures never carry the prefix's argv, which may hold a credential.
+Shell programs cross the transport as a single base64 line on stdin, read by a short `/bin/sh` bootstrap before the environment envelope and original command input. Script size therefore does not expand local transport argv. The kernel still authorizes the complete transport command, including every prefix argument; an oversized or denied prefix remains refused. A CommandSandbox grant authorizes this transport, including its ability to receive guest shell programs on stdin; it does not authorize individual guest programs. The guest needs `base64`, and prefixes must forward stdin. Guest shell programs still obey the guest operating system's per-argument size limit.
+
+The provider does not create or remove the machine. `acquire` prepares `workdir` and a pidfile directory private to the session key, so several sessions can share one machine, and closing the scope signals only that session's unfinished commands. File bytes cross the prefix as base64 text, commands run under the guest's absolute `/bin/sh`, and signals use the same pidfile and `/proc` walk as `ContainerSandbox`. An unreachable machine fails `acquire` or the command with `unavailable`. A transport can outlive its machine: a Smithers Cloud gateway keeps an SSH channel open after the workspace behind it stopped, so the exit never arrives. Every command therefore runs beside a `heartbeat` (default 15 seconds) that reads the machine's boot id; a probe that fails, answers another boot, or takes twice the heartbeat ends the command with `unavailable`. Heartbeat deadlines cover the probe response; process-scope cleanup after a completed response does not count as a failed probe. Closing the scope removes the session's pidfile directory, and failures never carry the prefix's argv, which may hold a credential.
 
 ### ContainerSandbox
 

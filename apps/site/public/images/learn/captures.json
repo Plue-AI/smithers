@@ -212,7 +212,7 @@
   "tui-worker-tree.gif": {
     "source": "tui",
     "detail": "Production TUI in a PTY with deterministic fixture replies (apps/tui/docs recording worker-tree).",
-    "revision": "60f00de5dc",
-    "captured": "2026-09-27"
+    "revision": "bd4f07e912",
+    "captured": "2026-09-29"
   }
 }

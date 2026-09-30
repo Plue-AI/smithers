@@ -8,7 +8,7 @@ editUrl: "https://github.com/smithersai/smithers/edit/main/packages/smithers/doc
 
 > **Source:** [implementation](https://github.com/smithersai/smithers/tree/main/packages/smithers/src) · [reference source](https://github.com/smithersai/smithers/blob/main/packages/smithers/docs/api.md) · [package docs](https://cli.smithers.sh)
 
-> **Related APIs:** [`@smthrs/agent`](/docs/reference/api/agent/) · [`@smthrs/build-cli`](/docs/reference/api/build-cli/) · [`@smthrs/canonical`](/docs/reference/api/canonical/) · [`@smthrs/capability`](/docs/reference/api/capability/) · [`@smthrs/control`](/docs/reference/api/control/) · [`@smthrs/crypto`](/docs/reference/api/crypto/) · [`@smthrs/database`](/docs/reference/api/database/) · [`@smthrs/engine`](/docs/reference/api/engine/) · [`@smthrs/engine-store`](/docs/reference/api/engine-store/) · [`@smthrs/evals`](/docs/reference/api/evals/) · [`@smthrs/flow`](/docs/reference/api/flow/) · [`@smthrs/flows`](/docs/reference/api/flows/) · [`@smthrs/gateway`](/docs/reference/api/gateway/) · [`@smthrs/harness`](/docs/reference/api/harness/) · [`@smthrs/integrations`](/docs/reference/api/integrations/) · [`@smthrs/jj`](/docs/reference/api/jj/) · [`@smthrs/journal`](/docs/reference/api/journal/) · [`@smthrs/kernel`](/docs/reference/api/kernel/) · [`@smthrs/mcp`](/docs/reference/api/mcp/) · [`@smthrs/memory`](/docs/reference/api/memory/) · [`@smthrs/migrate`](/docs/reference/api/migrate/) · [`@smthrs/model`](/docs/reference/api/model/) · [`@smthrs/notifications`](/docs/reference/api/notifications/) · [`@smthrs/observability`](/docs/reference/api/observability/) · [`@smthrs/plan`](/docs/reference/api/plan/) · [`@smthrs/platform-node`](/docs/reference/api/platform-node/) · [`@smthrs/registry`](/docs/reference/api/registry/) · [`@smthrs/run-store`](/docs/reference/api/run-store/) · [`@smthrs/std`](/docs/reference/api/std/) · [`@smthrs/step-cache`](/docs/reference/api/step-cache/) · [`@smthrs/sync`](/docs/reference/api/sync/) · [`@smthrs/targets`](/docs/reference/api/targets/) · [`@smthrs/time-travel`](/docs/reference/api/time-travel/) · [`@smthrs/triggers`](/docs/reference/api/triggers/)
+> **Related APIs:** [`@smthrs/agent`](/docs/reference/api/agent/) · [`@smthrs/build-cli`](/docs/reference/api/build-cli/) · [`@smthrs/canonical`](/docs/reference/api/canonical/) · [`@smthrs/capability`](/docs/reference/api/capability/) · [`@smthrs/control`](/docs/reference/api/control/) · [`@smthrs/crypto`](/docs/reference/api/crypto/) · [`@smthrs/database`](/docs/reference/api/database/) · [`@smthrs/engine`](/docs/reference/api/engine/) · [`@smthrs/engine-store`](/docs/reference/api/engine-store/) · [`@smthrs/evals`](/docs/reference/api/evals/) · [`@smthrs/flow`](/docs/reference/api/flow/) · [`@smthrs/flows`](/docs/reference/api/flows/) · [`@smthrs/gateway`](/docs/reference/api/gateway/) · [`@smthrs/harness`](/docs/reference/api/harness/) · [`@smthrs/integrations`](/docs/reference/api/integrations/) · [`@smthrs/jj`](/docs/reference/api/jj/) · [`@smthrs/journal`](/docs/reference/api/journal/) · [`@smthrs/kernel`](/docs/reference/api/kernel/) · [`@smthrs/mcp`](/docs/reference/api/mcp/) · [`@smthrs/memory`](/docs/reference/api/memory/) · [`@smthrs/migrate`](/docs/reference/api/migrate/) · [`@smthrs/model`](/docs/reference/api/model/) · [`@smthrs/notifications`](/docs/reference/api/notifications/) · [`@smthrs/observability`](/docs/reference/api/observability/) · [`@smthrs/plan`](/docs/reference/api/plan/) · [`@smthrs/platform-node`](/docs/reference/api/platform-node/) · [`@smthrs/registry`](/docs/reference/api/registry/) · [`@smthrs/run-store`](/docs/reference/api/run-store/) · [`@smthrs/sandbox`](/docs/reference/api/sandbox/) · [`@smthrs/std`](/docs/reference/api/std/) · [`@smthrs/step-cache`](/docs/reference/api/step-cache/) · [`@smthrs/sync`](/docs/reference/api/sync/) · [`@smthrs/targets`](/docs/reference/api/targets/) · [`@smthrs/time-travel`](/docs/reference/api/time-travel/) · [`@smthrs/triggers`](/docs/reference/api/triggers/)
 
 The root entry point exports each public module as a namespace. Import a module directly with `@smthrs/cli/<Module>`.
 
@@ -124,6 +124,24 @@ executes these callbacks. The stall threshold is
 a lifecycle mutation. See [Configure observational health](https://control.smithers.sh/guides/observe-health/)
 for checker configuration, defaults, and validation.
 
+## CloudSandbox
+
+Import `CloudSandbox` from `@smthrs/cli` or `@smthrs/cli/CloudSandbox`. The
+subpath loads independently of the flow engine and shares the canonical
+transport re-exported by `NodeControl.workspaceSshPrefix`.
+
+| Export         | Signature                                | Meaning                                                                                                                                                              |
+| -------------- | ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `make`         | `(options: Options) => Sandbox.Provider` | Creates or resumes a Cloud workspace per session name, waits for running, refreshes its pinned SSH grants per command, and deletes it on scope release.              |
+| `Options`      | interface                                | Local `spawner`, Cloud `repository`, optional `environment`, `sourceBookmark`, absolute `workdir`, `namePrefix`, `pollInterval`, `readyTimeout`, and injected `api`. |
+| `WorkspaceApi` | interface                                | Abortable control `request(method, path, body, signal)` and `sshPrefix(reference, signal)` operations for alternate hosts and deterministic lifecycle tests.         |
+
+Use `Sandbox.layerHost(provider, { session })` to place both commands and files
+on the workspace. Concurrent workers need distinct session keys; reusing a key
+is an exclusive resume claim. Provisioning, SSH setup, and cancellation errors
+still release the workspace. Deletion failures fail release. See the
+[Cloud sandbox guide](https://cli.smithers.sh/guides/cloud-sandbox/).
+
 ## NodeControl
 
 The Node composition for the command tree.
@@ -135,6 +153,7 @@ The Node composition for the command tree.
 | `makeConfig` | `(args, environment, cwd) => Application.Config` | The pure configuration boundary. Throws `CliError.UsageError` for a bad `--remote` URL or an unreadable, malformed, or wrongly shaped `--mcp-config` file. |
 | `configFromArguments` | `(args) => Effect<Application.Config, CliError.UsageError>` | Resolves and validates raw arguments or a shared parse using the ambient environment and working directory. |
 | `config` | `Effect<Application.Config, CliError.UsageError>` | `makeConfig` applied to the ambient process, with the throw converted into a typed failure. |
+| `workspaceSshPrefix` | `(environment, reference, signal?) => Promise<Array<string>>` | Resolves fresh Cloud workspace SSH argv with pinned host keys; the optional signal cancels readiness polling. |
 | `projectSources` | `(root: string) => ReadonlyArray<Descriptor.Source>` | The one flow source a local CLI discovers: `<root>/flows`, named by path. |
 | `layerHostPlatform` | `Layer` | Node's services plus the descriptor-relative, no-follow filesystem the kernel needs. Unguarded; only host equipment that carries its own confinement argument runs on it. |
 | `layerGrantStore` | `(root: string) => Layer<GrantStore>` | The local CLI's real permission store: an allow policy, with the fiber's capability ceiling still enforced. |

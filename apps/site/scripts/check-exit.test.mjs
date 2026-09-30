@@ -46,6 +46,7 @@ test("generate-llms --check names the stale file and the fix command", () => {
 test("sync-api-docs --check names the stale page and the fix command", () => {
   withCopy((root) => {
     copy(root, "apps/site/scripts/sync-api-docs.mjs")
+    copy(root, "apps/site/scripts/docs-text.mjs")
     copy(root, "apps/docs/shared")
     copy(root, "apps/site/src/content/docs/docs/reference/api")
     // Only each package's manifest and api.md are inputs; copy just those.

@@ -68,6 +68,27 @@ and [platform support](/docs/reference/api/#platform-support).
 
 The production durable composition.
 
+`flow.start`, `flow.ensure`, and `execute` with `discard: true` durably admit
+an execution and schedule its drive before returning its id. They do not wait
+for the child's action, durable wait, or settlement, including when launched
+from inside another action. The driver owns the scheduled drive in its engine
+scope; ending the caller's action or round does not interrupt it. A discarded
+child records `onParentExit: "detach"`, so normal parent completion leaves it
+running. Explicit parent cancellation still cascades to linked children.
+
+Observe progress with `poll(id)`, or await the result with
+`execute(payload, { executionId: id })`. Callers that need a durable waiting
+row or attempt receipt must await that evidence explicitly. Closing the engine
+scope releases ownership and retains durable admission and progress for
+recovery by a replacement host. The heartbeat sweep recovers pending admissions
+through the same coordinator and fenced claim/activate path;
+unregistered flows wait for a host that registers them. Pending recovery scans
+at most 64 rows per sweep and rotates registered flows. Each scan cycle has a
+fixed creation-time/id upper bound, so new admissions cannot postpone retrying
+refused work indefinitely. Recovery only selects admissions older than the stale
+heartbeat interval, giving a live admitting host time to claim its own work. Storage
+failures remain visible and are retried by the heartbeat sweep.
+
 Cancellation is logical-run scoped: `Flow.interrupt(id)` accepts any round ID
 and records intent across its trampoline lineage and linked child lineages in
 one transaction. Children attached to an earlier parent round remain included;
@@ -139,9 +160,10 @@ run when another process has called `RunStore.requestCancel`. Terminal
 transitions are additionally guarded with `{ cancelRequested: "absent" }` inside
 the ownership compare-and-swap.
 
-The driver's periodic sweep re-drives three durable shapes on the heartbeat
-cadence: parked runs whose cancellation was durably requested, runs parked with
-reason `released`, and stale `running` rows left by a hard-killed owner. Each
+The driver's periodic sweep re-drives durable shapes on the heartbeat
+cadence: pending admissions, parked runs whose cancellation was durably requested,
+runs parked with reason `released`, and stale `running` rows left by a hard-killed
+owner. Each
 re-enters the ordinary claim, steal, and activate path. A wake for a flow the
 sweeping process has not registered logs a once-per-run structured warning and
 leaves the durable waiting row parked.
@@ -158,6 +180,11 @@ Full model: [Ownership and fencing](https://engine-store.smithers.sh/concepts/ow
 [Attempts and replay](https://engine-store.smithers.sh/concepts/attempts-and-replay/).
 
 ## DurableEngineState
+
+`PendingRunCursor` contains `{ createdAtMs: number; runId: string }`. Pending
+queries return rows after `after` and at or before `through`, ordered by those
+fields. An optional `eligibleBeforeMs` limits results to older admissions.
+`pendingRunTail` captures the upper bound of a recovery scan cycle.
 
 [src/DurableEngineState.ts](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/engine-store/src/DurableEngineState.ts)
 
@@ -184,29 +211,31 @@ permit deadlocks against a fiber doing the opposite.
 
 ### Service members
 
-| Member                   | Signature                                                                                    |
-| ------------------------ | -------------------------------------------------------------------------------------------- |
-| `deferred`               | `(address: DeferredAddress) => Effect<Option<DeferredRow>>`                                  |
-| `consumeDeferred`        | `(address: DeferredAddress, consumedAtMs: number) => Effect<void>`                           |
-| `completeDeferred`       | `(row: DeferredRow) => Effect<CompleteDeferredOutcome>`                                      |
-| `clock`                  | `(address: ClockAddress) => Effect<Option<ClockRow>>`                                        |
-| `scheduleClock`          | `(row: ClockRow, owner: OwnerId) => Effect<ScheduleClockOutcome>`                            |
-| `completeClock`          | `(address: ClockAddress, completedAtMs: number) => Effect<CompleteClockOutcome>`             |
-| `dueClocks`              | `(nowMs: number) => Effect<ReadonlyArray<ClockRow>>`                                         |
-| `completeRunClocks`      | `(executionId: string, completedAtMs: number) => Effect<void>`                               |
-| `pendingClocks`          | `(scope: { executionId?: string; flowName?: string }) => Effect<ReadonlyArray<ClockRow>>`    |
-| `completedDeferreds`     | `(flowName: string) => Effect<ReadonlyArray<DeferredAddress>>`                               |
-| `park`                   | `(runId: string, waiting: Waiting, owner: OwnerId) => Effect<ParkOutcome>`                   |
-| `wake`                   | `(runId: string) => Effect<WakeOutcome>`                                                     |
-| `waiting`                | `(runId: string) => Effect<Option<WaitingRow>>`                                              |
-| `waitingRuns`            | `(filter?: WaitingRunsFilter) => Effect<ReadonlyArray<WaitingRow>>`                          |
-| `staleRunningRuns`       | `(staleBeforeMs: number, limit?: number) => Effect<ReadonlyArray<StaleRunningRow>>`          |
-| `attemptSurvivors`       | `((runId: string, stepKeyDigest: string) => Effect<Option<AttemptSurvivors>>)` (optional)    |
-| `recordRunParent`        | `(childId: string, parentId: string) => Effect<RecordRunParentOutcome, RunParentCycleError>` |
-| `removeRunParentsForRun` | `(runId: string) => Effect<void>`                                                            |
-| `runParents`             | `(childId: string) => Effect<ReadonlyArray<RunParentEdge>>`                                  |
-| `runChildren`            | `(parentId: string) => Effect<ReadonlyArray<RunParentEdge>>`                                 |
-| `transaction`            | `<A, E, R>(effect: Effect<A, E, R>) => Effect<A, E, R>`                                      |
+| Member                   | Signature                                                                                                                                                        |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `deferred`               | `(address: DeferredAddress) => Effect<Option<DeferredRow>>`                                                                                                      |
+| `consumeDeferred`        | `(address: DeferredAddress, consumedAtMs: number) => Effect<void>`                                                                                               |
+| `completeDeferred`       | `(row: DeferredRow) => Effect<CompleteDeferredOutcome>`                                                                                                          |
+| `clock`                  | `(address: ClockAddress) => Effect<Option<ClockRow>>`                                                                                                            |
+| `scheduleClock`          | `(row: ClockRow, owner: OwnerId) => Effect<ScheduleClockOutcome>`                                                                                                |
+| `completeClock`          | `(address: ClockAddress, completedAtMs: number) => Effect<CompleteClockOutcome>`                                                                                 |
+| `dueClocks`              | `(nowMs: number) => Effect<ReadonlyArray<ClockRow>>`                                                                                                             |
+| `completeRunClocks`      | `(executionId: string, completedAtMs: number) => Effect<void>`                                                                                                   |
+| `pendingClocks`          | `(scope: { executionId?: string; flowName?: string }) => Effect<ReadonlyArray<ClockRow>>`                                                                        |
+| `completedDeferreds`     | `(flowName: string) => Effect<ReadonlyArray<DeferredAddress>>`                                                                                                   |
+| `park`                   | `(runId: string, waiting: Waiting, owner: OwnerId) => Effect<ParkOutcome>`                                                                                       |
+| `wake`                   | `(runId: string) => Effect<WakeOutcome>`                                                                                                                         |
+| `waiting`                | `(runId: string) => Effect<Option<WaitingRow>>`                                                                                                                  |
+| `waitingRuns`            | `(filter?: WaitingRunsFilter) => Effect<ReadonlyArray<WaitingRow>>`                                                                                              |
+| `pendingRuns`            | `(flowName: string, limit?: number, after?: PendingRunCursor, through?: PendingRunCursor, eligibleBeforeMs?: number) => Effect<ReadonlyArray<PendingRunCursor>>` |
+| `pendingRunTail`         | `(flowName: string, eligibleBeforeMs?: number) => Effect<Option<PendingRunCursor>>`                                                                              |
+| `staleRunningRuns`       | `(staleBeforeMs: number, limit?: number) => Effect<ReadonlyArray<StaleRunningRow>>`                                                                              |
+| `attemptSurvivors`       | `((runId: string, stepKeyDigest: string) => Effect<Option<AttemptSurvivors>>)` (optional)                                                                        |
+| `recordRunParent`        | `(childId: string, parentId: string) => Effect<RecordRunParentOutcome, RunParentCycleError>`                                                                     |
+| `removeRunParentsForRun` | `(runId: string) => Effect<void>`                                                                                                                                |
+| `runParents`             | `(childId: string) => Effect<ReadonlyArray<RunParentEdge>>`                                                                                                      |
+| `runChildren`            | `(parentId: string) => Effect<ReadonlyArray<RunParentEdge>>`                                                                                                     |
+| `transaction`            | `<A, E, R>(effect: Effect<A, E, R>) => Effect<A, E, R>`                                                                                                          |
 
 `scheduleClock` requires the execution's ownership token. Creation succeeds
 only while the run is running under that owner. An existing clock wins unchanged,
@@ -1241,11 +1270,14 @@ The versioned state envelope stored in each run row.
 | `RunState`     | `{ version: 1, flowName, payload, parentExecutionId?, onParentExit?, maxRounds?, result?, cancellation? }` |
 | `OnParentExit` | `"cancel"` or `"detach"`                                                                                   |
 
-`parentExecutionId` is present only on a child run, and `onParentExit` travels
-with it: the parent's terminal transition reads it to decide whether the child
+`parentExecutionId` is present only on a child run. `onParentExit` is recorded
+at first admission, including independent runs that a later caller may join as
+a child: the parent's terminal transition reads it to decide whether the child
 ends with it. The policy is recorded on the child rather than on the edge,
 because it is a property of how the child was started and because a child with
-two parents must answer the question once.
+two parents must answer the question once. Missing policies on legacy rows
+default to `"cancel"`. A later caller awaiting or ensuring the run does not
+rewrite its recorded policy.
 
 ## Errors
 
