@@ -69,9 +69,16 @@ describe("Embedding provider validation controls", () => {
           const writer = yield* DurableWriter
           const vectorStore = Semantic.makeSqlVectorStore({ sql, write: writer.write })
           const projector = yield* Semantic.makeProjector({ vectorStore })
+          // Vector writes are accepted only while the authoritative note still
+          // holds the projected text, so each step first commits its note.
           const project = (text: string, updatedAtMs: number, embedding: Embedding.Service) =>
-            projector.project({ bank: "flow-bank", recordKind: "note", recordId: "key", text, updatedAtMs })
-              .pipe(Effect.provideService(Embedding.Embedding, embedding))
+            Effect.gen(function*() {
+              yield* sql`INSERT INTO memory_notes (
+                id, namespace_kind, namespace_id, text, tags_json, provenance_json, status, created_at_ms
+              ) VALUES ('key', 'flow', 'bank', ${text}, '[]', '{}', 'accepted', ${updatedAtMs})
+              ON CONFLICT (id) DO UPDATE SET text = excluded.text`
+              yield* projector.project({ bank: "flow-bank", recordKind: "note", recordId: "key", text, updatedAtMs })
+            }).pipe(Effect.provideService(Embedding.Embedding, embedding))
           const scan = () =>
             Stream.runCollect(vectorStore.scan(["flow-bank"], Semantic.defaultModel))
               .pipe(Effect.map((pages) =>
