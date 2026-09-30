@@ -16,6 +16,7 @@ import { parentOf } from "../internal/guestPath.ts"
 import { linuxFileSystem } from "../internal/linuxFileSystem.ts"
 import { type GuestCommand, runGuest, signalGuest, spawnGuest } from "../internal/microsandboxProcess.ts"
 import { MicrosandboxReattachRefusal } from "../internal/MicrosandboxReattachRefusal.ts"
+import { networkLabel, recordedNetwork } from "../internal/microsandboxNetwork.ts"
 import { removeMachine } from "../internal/microsandboxRemove.ts"
 import { rootedAt } from "../internal/rootedPath.ts"
 import { sessionSlug } from "../internal/sessionSlug.ts"
@@ -233,12 +234,6 @@ const retrying = <A>(effect: Effect.Effect<A, ProviderError>): Effect.Effect<A, 
   return from(0)
 }
 
-/**
- * The label recording a machine's network, so a reattach refuses a machine
- * created with another, or one with no label, which booted under the vendor's
- * open default.
- */
-const networkLabel = "smithers.network"
 
 /**
  * The label recording a machine's neutral ceilings, so a reattach under
@@ -359,8 +354,9 @@ const openMachine = (
         if (!isAlreadyExists(cause)) throw cause
         const handle = await options.sdk.Sandbox.get(name)
         const recorded = Object(Reflect.get(Object(JSON.parse(handle.configJson)), "labels"))
-        // A reattached machine keeps the network it booted with.
-        if (Reflect.get(recorded, networkLabel) !== ownership[networkLabel]) {
+        // A reattached machine keeps the network it booted with; one that
+        // records none booted under the vendor's open default.
+        if (recordedNetwork(handle.configJson) !== ownership[networkLabel]) {
           throw new MicrosandboxReattachRefusal({
             code: "network_mismatch",
             message: `${name} was created with another network; remove it or acquire another session`
@@ -409,11 +405,17 @@ const revive = (
   options: MicrosandboxSandboxOptions,
   name: string,
   workdir: string,
-  detached: boolean
+  detached: boolean,
+  network: string
 ): Effect.Effect<VendorSandbox, ProviderError> =>
   retrying(attempt(
     async () => {
       let handle = await options.sdk.Sandbox.get(name)
+      // The machine under this name may have been replaced since acquire; a
+      // replacement with another network is never connected or started.
+      if (recordedNetwork(handle.configJson) !== network) {
+        throw new Error(`${name} was replaced by a machine with another network; acquire another session`)
+      }
       if (handle.status === "running") {
         // Finished commands the guest still holds sessions for are given back
         // first; a guest that then answers a command needs no restart.
@@ -612,7 +614,7 @@ export const make = (input: MicrosandboxSandboxOptions): Provider => {
         /** Brings the machine back once for every caller that saw `seen` stop answering. */
         const revived = (seen: VendorSandbox) =>
           reviving.withPermit(Effect.suspend(() =>
-            live !== seen ? Effect.void : Effect.map(revive(options, name, workdir, detached), (sandbox) => {
+            live !== seen ? Effect.void : Effect.map(revive(options, name, workdir, detached, ownership[networkLabel]!), (sandbox) => {
               live = sandbox
             })
           ))

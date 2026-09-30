@@ -292,6 +292,7 @@ const output = (session: Session, command: string, options: Parameters<Session["
 describe("DaytonaSandbox", () => {
   const policies = [
     { network: "none", settings: { networkBlockAll: true } },
+    { network: "open", settings: { networkBlockAll: false } },
     { network: { allow: [] }, settings: { networkBlockAll: true } },
     {
       network: { allow: ["registry.npmjs.org", "*.github.com"] },
@@ -320,21 +321,12 @@ describe("DaytonaSandbox", () => {
       }
     }))
 
-  it.effect("leaves a reattached sandbox's network alone when no policy is set or it is `open`", () =>
-    Effect.gen(function*() {
-      for (const network of [undefined, "open"] as const) {
-        const fake = fakeSdk()
-        fake.seed(`smthrs-${sessionSlug("run-1")}`)
-        yield* acquired(DaytonaSandbox.make({ sdk: fake.sdk, ...network === undefined ? {} : { network } }), Effect.succeed)
-        expect(fake.recorded.networkUpdates).toEqual([])
-      }
-    }))
-
-  it.effect("creates an `open` sandbox under Daytona's own network settings", () =>
+  it.effect("leaves a reattached sandbox's network alone when no policy is set", () =>
     Effect.gen(function*() {
       const fake = fakeSdk()
-      yield* acquired(DaytonaSandbox.make({ sdk: fake.sdk, network: "open" }), Effect.succeed)
-      expect(fake.recorded.creates).toEqual([{ name: `smthrs-${sessionSlug("run-1")}` }])
+      fake.seed(`smthrs-${sessionSlug("run-1")}`)
+      yield* acquired(DaytonaSandbox.make({ sdk: fake.sdk }), Effect.succeed)
+      expect(fake.recorded.networkUpdates).toEqual([])
     }))
 
   it.effect("fails a reattach whose network update is refused, runs nothing, and deletes it", () =>

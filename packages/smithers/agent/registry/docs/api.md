@@ -84,7 +84,8 @@ does not use. `budget` is absent for a flow that declares none; read it through
 one with `sandbox: { provider, network?, cpus?, memoryMib?, timeoutSecs? }`:
 `provider` is one of `SandboxProvider` (`aws`, `cloudflare`, `command`,
 `container`, `daytona`, `directory`, `just-bash`, `kubernetes`, `microsandbox`,
-`vercel`), `network` is `none` or `{ allow: [hosts] }` of host names, `cpus` is a positive
+`vercel`), `network` is `none`, `open`, or `{ allow: [hosts] }` of host names (absent,
+the provider's default applies; `microsandbox` then gives no network), `cpus` is a positive
 number, and the other limits are positive whole numbers. A selection places the
 flow in `sandbox`. An unknown provider or key, a malformed option, or a
 `placement` other than `sandbox` refuses the flow with `invalid_sandbox`.

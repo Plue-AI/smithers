@@ -20,6 +20,7 @@
 import * as Effect from "effect/Effect"
 import { attemptIn } from "../internal/attempt.ts"
 import { encodeBase64 } from "../internal/base64.ts"
+import { recordedNetwork } from "../internal/microsandboxNetwork.ts"
 import { runGuest } from "../internal/microsandboxProcess.ts"
 import { ProviderError } from "../RemoteChildProcessSpawner/ProviderError.ts"
 import type { Sdk } from "./Sdk.ts"
@@ -286,6 +287,16 @@ export const captureSnapshot = (options: CaptureOptions): Effect.Effect<string, 
       (handle) =>
         Effect.flatMap(
           Effect.exit(restore(Effect.gen(function*() {
+            // Starting a stopped machine that records no network would boot
+            // it under the vendor's open default, which nobody asked for.
+            if (handle.status !== "running" && recordedNetwork(handle.configJson) === undefined) {
+              return yield* Effect.fail(
+                new ProviderError({
+                  code: "unavailable",
+                  message: `${failed}: it records no network, so starting it would open one`
+                })
+              )
+            }
             const sandbox = yield* attempt(
               () => handle.status === "running" ? handle.connect() : handle.start(),
               "unavailable",

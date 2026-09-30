@@ -79,6 +79,16 @@ describe("sandbox frontmatter", () => {
     expect(Option.getOrThrow(result.descriptor).sandbox).toEqual({ provider: "microsandbox", cpus: 0.5 })
   })
 
+  it("reads an explicitly open network", () => {
+    const result = fromMarkdown(skill("sandbox: {provider: microsandbox, network: open}"))
+    expect(Option.getOrThrow(result.descriptor).sandbox).toStrictEqual({ provider: "microsandbox", network: "open" })
+  })
+
+  it("leaves the network unset when none is declared, for the provider to close", () => {
+    const result = fromMarkdown(skill("sandbox: {provider: microsandbox}"))
+    expect(Option.getOrThrow(result.descriptor).sandbox).toStrictEqual({ provider: "microsandbox" })
+  })
+
   it("reads a network allowlist", () => {
     const result = fromMarkdown(skill(
       "sandbox:",
@@ -93,8 +103,8 @@ describe("sandbox frontmatter", () => {
   })
 
   it.each([
-    ["a number", "  network: 3", "sandbox.network must be none or { allow: [hosts] }"],
-    ["another mode", "  network: host", "sandbox.network must be none or { allow: [hosts] }"],
+    ["a number", "  network: 3", "sandbox.network must be none, open or { allow: [hosts] }"],
+    ["another mode", "  network: host", "sandbox.network must be none, open or { allow: [hosts] }"],
     ["an object with an extra key", "  network: {allow: [a.dev], deny: [b.dev]}", "sandbox.network must be none"],
     ["a scalar allow", "  network: {allow: a.dev}", "sandbox.network.allow must be a list of host names"],
     ["an empty host", "  network: {allow: [\"\"]}", "sandbox.network.allow must be a list of host names"],

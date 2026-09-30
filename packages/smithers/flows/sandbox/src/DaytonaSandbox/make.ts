@@ -37,7 +37,8 @@ export interface DaytonaSandboxOptions {
    * The guest network. `"none"` and an empty allowlist send
    * `networkBlockAll`; `{ allow }` sends `domainAllowList`. A reattached
    * sandbox gets the same settings through `updateNetworkSettings` before any
-   * guest command. Omitted or `"open"`: Daytona's own network.
+   * guest command. `"open"` sends `networkBlockAll: false`, which also lifts a
+   * reattached sandbox's block. Default: Daytona's own network.
    */
   readonly network?: NetworkPolicy | undefined
   /**
@@ -88,7 +89,7 @@ const attempt = attemptIn("daytona-sandbox")
 const networkSettings = (network: NetworkPolicy | undefined) => {
   if (network === undefined) return undefined
   const policy = validateNetworkPolicy("daytona-sandbox", network)
-  if (policy === "open") return undefined
+  if (policy === "open") return { networkBlockAll: false }
   return policy === "none" || policy.allow.length === 0
     ? { networkBlockAll: true }
     : { domainAllowList: policy.allow.join(",") }

@@ -1965,6 +1965,23 @@ describe("MicrosandboxSandbox", () => {
       expect(fake.recorded.destroys).toEqual([])
     }), 30_000)
 
+  it.live("never brings back a machine that was replaced under its name with another network", () =>
+    Effect.gen(function*() {
+      const fake = fakeSdk()
+      const provider = MicrosandboxSandbox.make({ sdk: fake.sdk, persistence: "sticky" })
+      const refused = yield* inSession(provider, "swapped", (session) =>
+        Effect.gen(function*() {
+          const machine = fake.machines.get(session.remoteId)!
+          machine.labels = { ...machine.labels, "smithers.network": "open" }
+          fake.wedge(session.remoteId)
+          return yield* Effect.flip(Effect.flatMap(session.spawn("printf reached", {}), output))
+        }).pipe(Effect.scoped))
+      expect(refused.message).toContain("could not be")
+      expect(String(refused.cause)).toContain("replaced by a machine with another network")
+      expect(fake.recorded.stops).toEqual([])
+      expect(fake.recorded.starts).toEqual([])
+    }), 30_000)
+
   it.live("reconnects without a restart when the guest answers a fresh connection", () =>
     Effect.gen(function*() {
       let blips = 1
@@ -2616,7 +2633,7 @@ describe("MicrosandboxSandbox snapshots", () => {
     Effect.gen(function*() {
       const fake = fakeSdk()
       fake.plant("prepared", ownership("installation-a", "host"))
-      fake.plant("parked", ownership("installation-a", "host"), "stopped")
+      fake.plant("parked", { ...ownership("installation-a", "host"), "smithers.network": "none" }, "stopped")
       expect(yield* MicrosandboxSandbox.hasSnapshot(fake.sdk, "base.1")).toBe(false)
       expect(
         yield* MicrosandboxSandbox.captureSnapshot({
@@ -2664,7 +2681,11 @@ describe("MicrosandboxSandbox snapshots", () => {
           hold: (call) => call === stage ? arrive() : undefined,
           startGate: () => stage === "scrub" ? arrive() : undefined
         })
-        fake.plant("prepared", ownership("installation-a", "host"), stage === "start" ? "stopped" : "running")
+        fake.plant(
+          "prepared",
+          { ...ownership("installation-a", "host"), "smithers.network": "none" },
+          stage === "start" ? "stopped" : "running"
+        )
         const capture = yield* Effect.forkChild(
           MicrosandboxSandbox.captureSnapshot({
             sdk: fake.sdk,
@@ -2686,6 +2707,18 @@ describe("MicrosandboxSandbox snapshots", () => {
         expect(fake.snapshots.size).toBe(0)
       })
   )
+
+  it.effect("never starts a stopped machine that records no network, which would boot it open", () =>
+    Effect.gen(function*() {
+      const fake = fakeSdk()
+      fake.plant("legacy", ownership("installation-a", "host"), "stopped")
+      const refused = yield* Effect.flip(
+        MicrosandboxSandbox.captureSnapshot({ sdk: fake.sdk, machine: "legacy", family: "base", member: "1", secrets: [] })
+      )
+      expect(refused.message).toContain("records no network, so starting it would open one")
+      expect(fake.recorded.starts).toEqual([])
+      expect(fake.snapshots.size).toBe(0)
+    }))
 
   it.effect("removes the machine even when the capture fails, and names both failures", () =>
     Effect.gen(function*() {

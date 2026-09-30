@@ -471,7 +471,7 @@ const sandboxKeys = new Set(["provider", "network", "cpus", "memoryMib", "timeou
  * ```yaml
  * sandbox:
  *   provider: container
- *   network: none        # or { allow: [api.github.com] }
+ *   network: none        # or open, or { allow: [api.github.com] }
  *   cpus: 2
  *   memoryMib: 2048
  *   timeoutSecs: 900
@@ -518,8 +518,8 @@ const deriveSandbox = (
 
   let network: SandboxSelection["network"]
   const declaredNetwork = declared.network
-  if (declaredNetwork === "none") {
-    network = "none"
+  if (declaredNetwork === "none" || declaredNetwork === "open") {
+    network = declaredNetwork
   } else if (
     typeof declaredNetwork === "object" && declaredNetwork !== null && !Array.isArray(declaredNetwork) &&
     Object.keys(declaredNetwork).every((key) => key === "allow")
@@ -533,7 +533,7 @@ const deriveSandbox = (
     }
     network = { allow: [...allow] }
   } else if (declaredNetwork !== undefined) {
-    return refuse("Frontmatter sandbox.network must be none or { allow: [hosts] }")
+    return refuse("Frontmatter sandbox.network must be none, open or { allow: [hosts] }")
   }
 
   const limits: { cpus?: number; memoryMib?: number; timeoutSecs?: number } = {}

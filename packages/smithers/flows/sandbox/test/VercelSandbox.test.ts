@@ -384,16 +384,20 @@ describe("VercelSandbox", () => {
     expect(() => VercelSandbox.make({ sdk, limits: { cpus: 0 } })).toThrow(/positive/)
   })
 
-  it.effect("maps `none` to deny-all and sends no policy when the option is omitted or `open`", () =>
+  it.effect("maps `none` to deny-all, `open` to allow-all, and sends no policy when the option is omitted", () =>
     Effect.gen(function*() {
       const { sdk, recorded } = fakeSdk()
       yield* acquired(VercelSandbox.make({ sdk, workdir: dir("network-none"), network: "none" }), () => Effect.void)
       yield* acquired(VercelSandbox.make({ sdk, workdir: dir("network-default") }), () => Effect.void)
       yield* acquired(VercelSandbox.make({ sdk, workdir: dir("network-open"), network: "open" }), () => Effect.void)
       expect(recorded.acquired[0]?.networkPolicy).toBe("deny-all")
-      expect(recorded.updates).toEqual([{ networkPolicy: "deny-all", commandsBefore: 0 }])
       expect("networkPolicy" in recorded.acquired[1]!).toBe(false)
-      expect("networkPolicy" in recorded.acquired[2]!).toBe(false)
+      // `open` lifts an earlier policy a resumed sandbox still carries.
+      expect(recorded.acquired[2]?.networkPolicy).toBe("allow-all")
+      expect(recorded.updates).toEqual([
+        { networkPolicy: "deny-all", commandsBefore: 0 },
+        { networkPolicy: "allow-all", commandsBefore: 2 }
+      ])
     }))
 
   it.effect("maps an empty allowlist to deny-all on create and on the reattach update", () =>

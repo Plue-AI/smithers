@@ -31,7 +31,7 @@ interface SandboxInstance {
   stop(): Promise<unknown>
 }
 
-type VendorNetworkPolicy = "deny-all" | { allow: Array<string> }
+type VendorNetworkPolicy = "allow-all" | "deny-all" | { allow: Array<string> }
 
 type GetOrCreateInput = {
   readonly name: string

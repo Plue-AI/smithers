@@ -86,7 +86,7 @@ export type SandboxProvider = typeof SandboxProvider.Type
 export const SandboxSelection = Schema.Struct({
   provider: SandboxProvider,
   network: Schema.optionalKey(Schema.Union([
-    Schema.Literal("none"),
+    Schema.Literals(["none", "open"]),
     Schema.Struct({ allow: Schema.Array(Schema.String) })
   ])),
   cpus: Schema.optionalKey(Schema.Number),
