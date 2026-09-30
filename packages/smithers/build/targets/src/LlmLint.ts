@@ -3,13 +3,15 @@
  *
  * This module also declares the shared llm-review action: one sealed model
  * call per target that diffs, batches, and reviews source through tool-free
- * provider requests. Explicit trusted-host executable overrides and the generic
- * promptEngine utility use bounded CLI invocations.
+ * provider requests, or through the model seats a trusted host supplies as a
+ * {@link ReviewTransport}. Explicit trusted-host executable overrides and the
+ * generic promptEngine utility use bounded CLI invocations.
  *
  * @since 0.1.0
  */
 
 import { Action, type FlowRuntime } from "@smthrs/flow"
+import type * as Model from "@smthrs/model/Model"
 import * as ScopedProcess from "@smthrs/platform-node/ScopedProcess"
 import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
@@ -26,7 +28,7 @@ import { failureMessage } from "./GeneratedFile.ts"
 import * as Input from "./Input.ts"
 import * as PrivateStore from "./internal/PrivateStore.ts"
 import * as ReviewBatches from "./internal/ReviewBatches.ts"
-import { maximumResponseTokens, reviewModel } from "./internal/ReviewModel.ts"
+import { maximumResponseTokens, reviewModel, seatReviewModel } from "./internal/ReviewModel.ts"
 import { Engine } from "./ModelEngine.ts"
 import * as SafeFs from "./SafeFs.ts"
 import * as Target from "./Target.ts"
@@ -383,7 +385,8 @@ export const ReviewManifest = Schema.Struct({
     contextTokens: Schema.Int
   }),
   engine: Schema.Struct({
-    transport: Schema.Literals(["tool-free", "cli"]),
+    /** `seat` is a host {@link ReviewTransport}; `cli` an explicit executable; otherwise `tool-free`. */
+    transport: Schema.Literals(["tool-free", "cli", "seat"]),
     seats: Schema.Array(Schema.Struct({ engine: Engine, model: Schema.String })),
     executable: Schema.optional(Schema.Struct({ path: Schema.String, sha256: Schema.String }))
   }),
@@ -1904,8 +1907,34 @@ const sensitiveNames = (names: ReadonlyArray<string> | undefined): ReadonlyArray
   return output
 }
 
+/**
+ * One review seat: the engine family and the model a request runs on.
+ *
+ * @category models
+ * @since 1.0.0
+ */
+export interface ReviewSeat {
+  readonly engine: Engine
+  readonly model: string
+}
+
+/**
+ * A trusted host's model for each review seat, in place of the tool-free
+ * provider request and its API key: for example the host's subscription seats.
+ * Every request it serves is still tool-free, bounded and masked the same way;
+ * the manifest records the transport as `seat`. A failure to supply a model
+ * fails the request and is never a skipped review.
+ *
+ * @category models
+ * @since 1.0.0
+ */
+export type ReviewTransport = (
+  seat: ReviewSeat
+) => Effect.Effect<{ readonly model: Model.Model; readonly modelId: string }, Error>
+
 interface RuntimeOptions {
   readonly cliOverride: boolean
+  readonly transport?: ReviewTransport | undefined
   readonly workspaceRoot: string
   readonly executable: string
   readonly timeoutMs: number
@@ -1916,6 +1945,7 @@ const runtimeOptions = async (
   options: {
     readonly workspaceRoot: string
     readonly executable?: string | undefined
+    readonly transport?: ReviewTransport | undefined
     readonly timeoutMs?: number | undefined
     readonly sensitiveEnv?: ReadonlyArray<string> | undefined
   },
@@ -1923,12 +1953,16 @@ const runtimeOptions = async (
   signal: AbortSignal
 ): Promise<RuntimeOptions> => {
   signal.throwIfAborted()
+  if (options.executable !== undefined && options.transport !== undefined) {
+    throw new TypeError("LLM review takes an executable override or a seat transport, not both")
+  }
   const workspaceRoot = await SafeFs.canonicalRoot(
     usableText(options.workspaceRoot, "LLM review workspace root", maximumPathBytes, true)
   )
   signal.throwIfAborted()
   return {
     cliOverride: options.executable !== undefined,
+    ...(options.transport === undefined ? {} : { transport: options.transport }),
     workspaceRoot,
     executable: usableText(
       options.executable ?? adapters[engine].executable,
@@ -2113,6 +2147,17 @@ const reviewBatch = (
           payload.model,
           prompt,
           payload.securityChecks !== undefined
+        )
+        : runtime.transport !== undefined
+        ? runtime.transport({ engine: payload.engine, model: payload.model }).pipe(
+          Effect.mapError((error) =>
+            new LlmReviewError({ phase: "review", message: `Review seat unavailable: ${failureMessage(error)}` })
+          ),
+          Effect.flatMap(({ model, modelId }) =>
+            seatReviewModel(model, modelId, prompt, timeoutMs, maximumModelOutputBytes, policy).pipe(
+              Effect.mapError((error) => new LlmReviewError({ phase: "review", message: error.message }))
+            )
+          )
         )
         : reviewModel(
           payload.engine,
@@ -2447,8 +2492,10 @@ const securityBatch = (
  * same policy and bytes resumes, batches past {@link maximumReviewBatches}
  * wait for the next invocation, and results carry the run and each finding's
  * fingerprint. Default inference has no
- * tools; `executable` is an explicit trusted-host extension/test seam outside
- * the review command's containment contract.
+ * tools and signs with the engine's API key; `transport` sends the same
+ * tool-free requests through the host's model seats instead. `executable` is
+ * an explicit trusted-host extension/test seam outside the review command's
+ * containment contract.
  *
  * @category execution
  * @since 0.1.0
@@ -2461,6 +2508,7 @@ export const review = (
       | ((discoveries: ReadonlyArray<CredentialDiscovery>) => Effect.Effect<void, unknown>)
       | undefined
     readonly executable?: string | undefined
+    readonly transport?: ReviewTransport | undefined
     readonly timeoutMs?: number | undefined
     readonly sensitiveEnv?: ReadonlyArray<string> | undefined
     readonly store?: FindingStore | undefined
@@ -2674,7 +2722,7 @@ export const review = (
         contextTokens: payload.contextTokens ?? defaultContextTokens
       },
       engine: {
-        transport: runtime.cliOverride ? "cli" : "tool-free",
+        transport: runtime.cliOverride ? "cli" : runtime.transport === undefined ? "tool-free" : "seat",
         seats: payload.securityChecks === undefined
           ? [{ engine: payload.engine, model: payload.model }]
           : securitySeats(payload),
@@ -2984,6 +3032,7 @@ export const LlmReviewLive = (options: {
     | ((discoveries: ReadonlyArray<CredentialDiscovery>) => Effect.Effect<void, unknown>)
     | undefined
   readonly executable?: string | undefined
+  readonly transport?: ReviewTransport | undefined
   readonly timeoutMs?: number | undefined
   readonly sensitiveEnv?: ReadonlyArray<string> | undefined
   readonly store?: FindingStore | undefined
