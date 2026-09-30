@@ -269,9 +269,18 @@ the provider refuses, the run parks, the engine is killed while it waits, and a
 second engine over the same file waits out the recorded deadline, spends a
 correction, and finishes with the provider called three times in all.
 
-Local hosts sharing a store check the separate control owner before recovering
-a released execution. A live owner retains its run and detached children even
-when its heartbeat is stale. After the owner exits and its lease expires, another
-host can recover the run. Losing a control claim during recovery releases the
-execution without cancelling its children; other control failures retain their
-typed fields in the durable result.
+Local hosts sharing a store check control ownership through the child's native
+ancestry, including the host recorded when its parent parked. A live parking
+host retains its children even when its heartbeat is stale.
+
+Lease expiry still interrupts work to preserve fencing. If that interruption
+releases a child while its control parent remains parked under a live host,
+recovery waits for an explicit resume instead of starting the external work
+again. Resuming the parent permits a new execution; it does not reconnect an
+interrupted external process. After the parking host exits and its lease expires,
+a peer can recover the child and settle the parent. Cancellation still reaches
+children of a parked parent.
+
+Losing a control claim during recovery releases the execution without cancelling
+its children; other control failures retain their typed fields in the durable
+result.

@@ -58,6 +58,8 @@ docker exec smithers /opt/smithers/bin/smithers-backend credits balance -owner u
 
 `-owner` is `user:NAME` or `org:NAME`. A grant is applied once per `-key`. `-actor` (who granted it) and `-reason` are required and recorded in the grant's audit trail; `-expires` takes an RFC 3339 time.
 
+To cap what the platform keys spend across every owner, set `SMITHERS_MODEL_DAILY_SPEND_CAP_USD` to a USD amount per UTC day, for example `500`. The day's spend counts settled calls at their charge and open calls at their bound. A call that would pass the cap is refused with HTTP 429 `insufficient_quota` and `Retry-After: 3600`, so runs park and retry hourly until the next UTC day or a raised cap. The check is not atomic: calls admitted concurrently each see the same prior spend, so together they can pass the cap. Each refusal logs `model provider spend cap reached: platform model calls are parked` at ERROR, the same line a provider's own account cap logs. Startup fails on a value that is not a positive amount; blank means no cap.
+
 ## Subscription connections
 
 ChatGPT (Codex) subscription connections are disabled by default. No
