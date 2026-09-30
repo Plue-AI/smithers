@@ -104,12 +104,12 @@ publication stops publication only; it never fails the run.
 The transport reads through HTTP `/ac`. A local hit avoids the network, a
 remote hit hydrates the local entry, and a put publishes to both tiers.
 
-| Symptom                                        | What it means                                                             |
-| ---------------------------------------------- | ------------------------------------------------------------------------- |
-| One warning, then no further remote activity   | A remote failure disabled the remote for the rest of the process.         |
-| A `409` warning                                | Two jobs published the same key. The first result stands.                 |
-| Everything runs on a machine you expect to hit | The key moved. Compare `--plan` key previews between the two machines.    |
-| A sandboxed target never publishes             | A result produced outside an enforced confinement is local evidence only. |
+| Symptom                                        | What it means                                                                      |
+| ---------------------------------------------- | ---------------------------------------------------------------------------------- |
+| One warning, then no further remote activity   | A remote failure disabled the remote for the rest of the process.                  |
+| A `409` warning                                | Two jobs published the same key. The first result stands.                          |
+| Everything runs on a machine you expect to hit | The key moved. Compare `--plan` key previews between the two machines.             |
+| A `publication skipped` warning                | A result ran unconfined (`sandbox: "none"` or `S.Sandbox.None()`) and stays local. |
 
 To compare keys across machines, run the same pattern with `--plan` on both
 and diff the key previews, or set `SMTHRS_DEBUG_KEYS=<file>` to append every

@@ -12,7 +12,7 @@ import * as Fs from "node:fs/promises"
 import * as Os from "node:os"
 import * as NodePath from "node:path"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { type CachedResult, openCache } from "@smthrs/build-cli/Cache"
+import { type CachedResult, openCache, publishNamespaceFromEnvironment } from "@smthrs/build-cli/Cache"
 import { createHandler, maxConcurrentActionCachePublications } from "../protocol.ts"
 import { MemoryActionCache, MemoryContentStore } from "./MemoryStores.ts"
 
@@ -80,6 +80,54 @@ describe("the CLI remote cache against the Worker", () => {
       await reader.close()
     } finally {
       await Fs.rm(other, { recursive: true, force: true })
+    }
+    expect(warnings).toEqual([])
+  })
+
+  it("serves the post-merge publisher's entry to every CI reader's key derivation (#2254)", async () => {
+    const actionCache = new MemoryActionCache()
+    const handler = createHandler({
+      actionCache,
+      contentStore: new MemoryContentStore(),
+      readTokenHash: hashOf(readCredential),
+      writeTokenHash: hashOf(writeCredential)
+    })
+    const warnings: Array<string> = []
+    const result = resultFor("c".repeat(64))
+
+    // The cache-publish job: both credentials, SMITHERS_CACHE_NAMESPACE unset.
+    const publisher = await openCache({
+      workspaceRoot: root,
+      endpoint,
+      readToken: () => readCredential,
+      writeToken: () => writeCredential,
+      publishNamespace: publishNamespaceFromEnvironment(undefined),
+      fetch: (input, init) => handler(new Request(input, init)),
+      warn: (line) => warnings.push(line)
+    })
+    await publisher.put(result.key, result)
+    await publisher.close()
+    expect(warnings).toEqual([])
+    expect([...actionCache.entries.keys()]).toEqual([result.key])
+
+    // A push to main renders the namespace empty; a pull request names its own.
+    // Each holds only the read credential and reads the bare content key.
+    for (const namespace of ["", "pr-2254"]) {
+      const consumerRoot = await Fs.mkdtemp(NodePath.join(Os.tmpdir(), "smithers-build-cli-contract-"))
+      try {
+        const consumer = await openCache({
+          workspaceRoot: consumerRoot,
+          endpoint,
+          readToken: () => readCredential,
+          publishNamespace: publishNamespaceFromEnvironment(namespace),
+          fetch: (input, init) => handler(new Request(input, init)),
+          warn: (line) => warnings.push(line)
+        })
+        expect(await consumer.get(result.key)).toEqual(result)
+        await consumer.close()
+      } finally {
+        await Fs.rm(consumerRoot, { recursive: true, force: true })
+      }
     }
     expect(warnings).toEqual([])
   })

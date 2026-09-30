@@ -1102,6 +1102,23 @@ export const normalizePublishNamespace = (
   return value
 }
 
+/**
+ * The trust domain a `SMITHERS_CACHE_NAMESPACE` value names.
+ *
+ * Unset or blank is the trusted keyspace: a post-merge publisher leaves the
+ * variable out, and a CI job on `main` renders it empty, so both publish and
+ * read the bare content key. Any other value must be a usable namespace.
+ *
+ * @category validation
+ * @since 0.1.0
+ */
+export const publishNamespaceFromEnvironment = (value: string | undefined): string | undefined => {
+  const declared = value?.trim()
+  return declared === undefined || declared === ""
+    ? undefined
+    : normalizePublishNamespace(declared, "SMITHERS_CACHE_NAMESPACE")
+}
+
 const normalizeOpenCacheOptions = (value: OpenCacheOptions): NormalizedOpenCacheOptions => {
   const record = plainDataRecord(value, "cache options")
   exactDataKeys(

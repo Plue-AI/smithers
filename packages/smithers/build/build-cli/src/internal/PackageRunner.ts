@@ -627,9 +627,29 @@ export const executeEffect = (
         return { output: cached.output }
       })
 
-    /** Whether this node's runs are confined on this host; an unconfined result stays local. */
-    const sandboxEnforced = (node: PackageNode): boolean =>
-      ExecSandbox.enforceable(sandboxRequest(node, planned.nodes, index.workspace, cacheDirectory), ExecSandbox.host())
+    let unconfinedWarned = false
+    /**
+     * Whether this node's result may leave the local tier: only a run the host
+     * confined publishes. The first result a configured remote does not get
+     * says so once, because a publisher that silently shares nothing reads as
+     * a cache that never hits (#2254).
+     */
+    const publishable = (node: PackageNode): boolean => {
+      if (
+        ExecSandbox.enforceable(
+          sandboxRequest(node, planned.nodes, index.workspace, cacheDirectory),
+          ExecSandbox.host()
+        )
+      ) return true
+      if (options.remoteCache !== undefined && !unconfinedWarned) {
+        unconfinedWarned = true
+        reporter.warn(
+          `smthrs: remote cache publication skipped: ${node.label} ran unconfined, ` +
+            "and a result produced outside an enforced sandbox stays in the local cache"
+        )
+      }
+      return false
+    }
 
     const cachePut = (
       node: PackageNode,
@@ -649,7 +669,7 @@ export const executeEffect = (
             exitOk: true,
             output,
             storedAt: new Date().toISOString()
-          }, { shared: sandboxEnforced(node) }).catch((cause: unknown) => {
+          }, { shared: publishable(node) }).catch((cause: unknown) => {
             log(`smthrs: could not store ${node.label} in the cache: ${Diagnostic.describe(cause)}`)
           })
         )
@@ -1486,7 +1506,7 @@ export const executeEffect = (
               exitOk: true,
               output: { kind: "agent-verdict", value },
               storedAt: new Date().toISOString()
-            }, { shared: sandboxEnforced(node) }).catch((cause: unknown) => {
+            }, { shared: publishable(node) }).catch((cause: unknown) => {
               log(`smthrs: could not store the ${node.label} verdict in the cache: ${Diagnostic.describe(cause)}`)
             })
           ).pipe(Effect.mapError((cause) => agentSessionError("cache", cause)))

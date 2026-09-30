@@ -10,6 +10,7 @@ import {
   entryLimit,
   maximumRemoteBodyChunks,
   openCache,
+  publishNamespaceFromEnvironment,
   remoteEntryLimit,
   sanitizeKey
 } from "../src/Cache.ts"
@@ -1341,6 +1342,24 @@ describe("a publication namespace keeps an untrusted result off the trusted key"
     await expect(openCache({ workspaceRoot: root, endpoint, publishNamespace: namespace as never }))
       .rejects.toThrow(/publishNamespace/)
     await expect(Fs.stat(NodePath.join(root, ".flows"))).rejects.toMatchObject({ code: "ENOENT" })
+  })
+})
+
+describe("publishNamespaceFromEnvironment", () => {
+  it.each([
+    ["unset", undefined],
+    ["empty, as a push to main renders it", ""],
+    ["blank", "  \t"]
+  ])("reads %s as the trusted keyspace", (_name, value) => {
+    expect(publishNamespaceFromEnvironment(value)).toBeUndefined()
+  })
+
+  it("keeps a pull request's namespace, trimmed", () => {
+    expect(publishNamespaceFromEnvironment(" pr-42 ")).toBe("pr-42")
+  })
+
+  it("names the variable when the value is unusable", () => {
+    expect(() => publishNamespaceFromEnvironment("pr/42")).toThrow(/^SMITHERS_CACHE_NAMESPACE must be/)
   })
 })
 

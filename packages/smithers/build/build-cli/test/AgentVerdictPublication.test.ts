@@ -21,12 +21,12 @@ const terminal = (writeText: (text: string) => void): Reporter.Terminal => ({
   columns: undefined
 })
 
-const run = async (root: string, target: string, cacheUrl: string) => {
+const run = async (root: string, target: string | ReadonlyArray<string>, cacheUrl: string | undefined) => {
   let exitCode = 0
   let logs = ""
   const environment = { ...process.env, SMTHRS_AGENT_FAKE: "fake.json", SMITHERS_CACHE_TOKEN: "local-test-token" }
   await makeCli({
-    cacheUrl,
+    ...(cacheUrl === undefined ? {} : { cacheUrl }),
     cacheToken: "local-test-token",
     environment,
     presentation: executionPresentation,
@@ -34,7 +34,7 @@ const run = async (root: string, target: string, cacheUrl: string) => {
     stderr: terminal((text) => {
       logs += text
     })
-  }).serve([...normalizeArgv([target]), "--workspace", root], {
+  }).serve([...normalizeArgv(typeof target === "string" ? [target] : target), "--workspace", root], {
     exit: (code) => {
       exitCode = code
     },
@@ -42,6 +42,9 @@ const run = async (root: string, target: string, cacheUrl: string) => {
   })
   return { exitCode, logs }
 }
+
+const skipped = "smthrs: remote cache publication skipped: "
+const occurrences = (logs: string, text: string): number => logs.split(text).length - 1
 
 const spawnCount = async (root: string): Promise<number> => {
   const log = await Fs.readFile(Path.join(root, "fake.json.spawns.jsonl"), "utf8").catch(() => "")
@@ -78,7 +81,8 @@ const agent = S.Agent.Diff({
   changes: ["src/**"], gates: [], sandbox: "none", maxRounds: 1
 })
 const shell = S.Shell.Test({ shell: "true", sandbox: "none" })
-export const Package = S.Package({ targets: { agent, shell } })
+const other = S.Shell.Test({ shell: "exit 0", sandbox: "none" })
+export const Package = S.Package({ targets: { agent, shell, other } })
 `
       )
       await write(root, "package.json", "{}\n")
@@ -125,10 +129,15 @@ export const Package = S.Package({ targets: { agent, shell } })
         if (address === null || typeof address === "string") throw new Error("cache server did not bind")
         const cacheUrl = `http://127.0.0.1:${address.port}/cache`
 
-        const shell = await run(root, "//:shell", cacheUrl)
+        const shell = await run(root, ["test", "//:shell", "//:other"], cacheUrl)
         expect(shell.exitCode, shell.logs).toBe(0)
         expect(requests.some(({ method }) => method === "GET")).toBe(true)
         expect(requests.filter(({ method }) => method === "PUT")).toHaveLength(0)
+        // The publisher says why nothing reached the remote, once per run.
+        expect(occurrences(shell.logs, skipped), shell.logs).toBe(1)
+        expect(shell.logs).toMatch(/smthrs: remote cache publication skipped: \/\/:(shell|other) ran unconfined/)
+        expect(shell.logs).toMatch(/\/\/:shell {2}ran/)
+        expect(shell.logs).toMatch(/\/\/:other {2}ran/)
 
         requests.length = 0
         const first = await run(root, "//:agent", cacheUrl)
@@ -137,6 +146,8 @@ export const Package = S.Package({ targets: { agent, shell } })
         expect(requests.some(({ method, path }) => method === "GET" && path?.startsWith("/cache/ac/agent-verdict-")))
           .toBe(true)
         expect(requests.filter(({ method }) => method === "PUT")).toHaveLength(0)
+        expect(occurrences(first.logs, skipped), first.logs).toBe(1)
+        expect(first.logs).toContain(`${skipped}//:agent ran unconfined`)
 
         requests.length = 0
         const local = await run(root, "//:agent", cacheUrl)
@@ -154,6 +165,12 @@ export const Package = S.Package({ targets: { agent, shell } })
         expect(requests.some(({ method, path }) => method === "GET" && path?.startsWith("/cache/ac/agent-verdict-")))
           .toBe(true)
         expect(requests.filter(({ method }) => method === "PUT")).toHaveLength(0)
+
+        // Without a remote there is nothing to skip, so nothing is said.
+        await Fs.rm(Path.join(root, ".flows"), { recursive: true, force: true })
+        const offline = await run(root, "//:shell", undefined)
+        expect(offline.exitCode, offline.logs).toBe(0)
+        expect(offline.logs).not.toContain(skipped)
       } finally {
         server.close()
         await once(server, "close")

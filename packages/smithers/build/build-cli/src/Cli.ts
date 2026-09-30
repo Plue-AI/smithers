@@ -20,7 +20,7 @@ import * as NodePath from "node:path"
 import * as Affected from "./Affected.ts"
 import * as Ansi from "./Ansi.ts"
 import * as Audience from "./Audience.ts"
-import { normalizePublishNamespace } from "./Cache.ts"
+import { publishNamespaceFromEnvironment } from "./Cache.ts"
 import * as CacheAdmin from "./CacheAdmin.ts"
 import * as CreateApp from "./CreateApp.ts"
 import * as Diagnostic from "./Diagnostic.ts"
@@ -205,12 +205,8 @@ const environmentOf = (config: RuntimeConfig): Ansi.Environment => config.enviro
  * it builds, so it comes from the environment rather than target declarations. An
  * unset value means the trusted domain, which is what a post-merge build has.
  */
-const publishNamespaceOf = (config: RuntimeConfig): string | undefined => {
-  const declared = environmentOf(config)["SMITHERS_CACHE_NAMESPACE"]?.trim()
-  return declared === undefined || declared === ""
-    ? undefined
-    : normalizePublishNamespace(declared, "SMITHERS_CACHE_NAMESPACE")
-}
+const publishNamespaceOf = (config: RuntimeConfig): string | undefined =>
+  publishNamespaceFromEnvironment(environmentOf(config)["SMITHERS_CACHE_NAMESPACE"])
 
 const terminalsOf = (
   config: RuntimeConfig
