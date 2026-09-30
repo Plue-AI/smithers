@@ -190,6 +190,7 @@ process.stdin.on('data', chunk => {
     ["malformed JSON", "process.stdout.write('not-json\\n');", "invalid_provider_output"],
     ["failed turn", emit([{ type: "turn.failed", error: { message: "vendor rejected turn" } }]), "provider_internal"],
     ["nonzero exit", "process.stderr.write('vendor failed'); process.exit(7);", "transport"],
+    ["signalled exit", "process.kill(process.pid, 'SIGTERM'); setInterval(() => {}, 1000);", "transport"],
     ["missing completion", emit([{ type: "thread.started", thread_id: "thread-1" }]), "invalid_provider_output"]
   ])("returns a typed model failure for %s", async (_name, script, code) => {
     const fake = fakeModel(script)
@@ -427,6 +428,61 @@ process.stdin.on('end', () => { fs.appendFileSync('prompts', JSON.stringify(prom
     const failure = await Effect.runPromise(Effect.flip(Stream.runCollect(fake.model.stream(request(overrides)))))
     expect(failure).toMatchObject({ code: "invalid_request" })
     expect(() => readFileSync(join(fake.root, "started"))).toThrow()
+  })
+
+  it("fails a call whose supervisor is lost mid-call as a transport failure", async () => {
+    const fake = fakeModel(`require('node:fs').writeFileSync('supervisor', String(process.ppid));
+setInterval(() => {}, 1000);`)
+    const failure = await Effect.runPromise(Effect.gen(function*() {
+      const fiber = yield* Effect.forkChild(Effect.flip(Stream.runCollect(fake.model.stream(request()))))
+      yield* Effect.promise(async () => {
+        let supervisor = 0
+        for (let attempt = 0; attempt < 1000 && supervisor === 0; attempt++) {
+          try {
+            supervisor = Number(readFileSync(join(fake.root, "supervisor"), "utf8"))
+          } catch {}
+          if (supervisor === 0) await new Promise((resolve) => setTimeout(resolve, 10))
+        }
+        process.kill(supervisor, "SIGKILL")
+      })
+      return yield* Fiber.join(fiber)
+    }))
+    expect(failure).toMatchObject({ code: "transport" })
+  })
+
+  it("launches the vendor under the contained spawner's supervisor and kills its whole tree on cancel", async () => {
+    const fake = fakeModel(`const fs = require('node:fs');
+const { spawn } = require('node:child_process');
+const descendant = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+fs.writeFileSync('tree', JSON.stringify({ vendor: process.pid, parent: process.ppid, descendant: descendant.pid }));
+setInterval(() => {}, 1000);`)
+    let tree: { vendor: number; parent: number; descendant: number } | undefined
+    await Effect.runPromise(Effect.gen(function*() {
+      const fiber = yield* Effect.forkChild(Stream.runCollect(fake.model.stream(request())))
+      yield* Effect.promise(async () => {
+        for (let attempt = 0; attempt < 1000 && tree === undefined; attempt++) {
+          try {
+            tree = JSON.parse(readFileSync(join(fake.root, "tree"), "utf8"))
+          } catch {}
+          if (tree === undefined) await new Promise((resolve) => setTimeout(resolve, 10))
+        }
+      })
+      yield* Fiber.interrupt(fiber)
+    }))
+    // A supervisor, not this process, is the vendor's parent (#3128).
+    expect(tree?.parent).not.toBe(process.pid)
+    for (const pid of [tree!.vendor, tree!.descendant]) {
+      let alive = true
+      for (let attempt = 0; attempt < 500 && alive; attempt++) {
+        try {
+          process.kill(pid, 0)
+          await new Promise((resolve) => setTimeout(resolve, 10))
+        } catch {
+          alive = false
+        }
+      }
+      expect(alive, `process ${pid} outlived the cancelled run`).toBe(false)
+    }
   })
 
   it("terminates a running vendor when the model stream is cancelled", async () => {

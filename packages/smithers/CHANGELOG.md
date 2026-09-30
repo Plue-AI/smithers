@@ -56,6 +56,10 @@
 
 ### Fixed
 
+- A `codex` seat launches the vendor through the platform's contained
+  spawner (`ScopedProcess`) instead of `node:child_process`: a supervisor owns
+  its process group, so a cancelled, failed or timed-out call, and a host that
+  dies, leave no vendor process behind (#3128).
 - `runs list/count/show/logs` and `approvals list` open existing stores
   read-only: no migration, schema object, recovery, sweeper or reaper, on
   SQLite and PostgreSQL. They no longer fail while another process holds the

@@ -10,9 +10,8 @@ import * as Model from "@smthrs/model/Model"
 import { isContextOverflow, isQuotaExhausted, ModelError } from "@smthrs/model/ModelError"
 import type { ModelEvent } from "@smthrs/model/ModelEvent"
 import * as ModelRequest from "@smthrs/model/ModelRequest"
+import * as ScopedProcess from "@smthrs/platform-node/ScopedProcess"
 import { Effect, Schema, Stream } from "effect"
-import { spawn } from "node:child_process"
-import type { ChildProcessWithoutNullStreams } from "node:child_process"
 import { tmpdir } from "node:os"
 import { codexConfigString, codexEnvironment } from "../Agents.ts"
 
@@ -195,81 +194,78 @@ export const parse = (stdout: string): ReadonlyArray<ModelEvent> => {
   ]
 }
 
+const outputLimit = 16 * 1024 * 1024
+
+// The vendor runs through the platform's contained spawner: a supervisor owns
+// its process group, closing the scope (success, failure, deadline or a
+// cancelled run) kills that group, and the supervisor stops the tree if this
+// host dies. No `node:child_process` launch of its own.
 const execute = (
   options: Options,
   request: ModelRequest.ModelRequest
 ): Effect.Effect<ReadonlyArray<ModelEvent>, ModelError> =>
-  Effect.callback((resume) => {
-    let child: ChildProcessWithoutNullStreams
-    try {
-      child = spawn(options.executable, [...command(options, request)], {
-        cwd: options.cwd ?? tmpdir(),
-        env: environment(options.environment),
-        stdio: "pipe",
-        detached: process.platform !== "win32",
-        shell: false
-      })
-    } catch {
-      resume(Effect.fail(failure("transport", "Codex could not start")))
-      return
-    }
-    let output = ""
-    let stderr = ""
+  Effect.scoped(Effect.gen(function*() {
+    const child = yield* ScopedProcess.spawn({
+      command: options.executable,
+      args: [...command(options, request)],
+      cwd: options.cwd ?? tmpdir(),
+      env: environment(options.environment),
+      stdin: "pipe",
+      killSignal: "SIGKILL",
+      forceKillAfter: 0,
+      windowsHide: true
+    }).pipe(Effect.mapError(() => failure("transport", "Codex could not start")))
+    const stdout: Array<Uint8Array> = []
     let bytes = 0
-    let settled = false
-    const killGroup = () => {
-      if (child.pid === undefined) return
-      try {
-        if (process.platform === "win32") child.kill("SIGKILL")
-        else process.kill(-child.pid, "SIGKILL")
-      } catch { /* Already exited. */ }
-    }
-    const kill = () => {
-      killGroup()
-      child.stdout.destroy()
-      child.stderr.destroy()
-      child.stdin.destroy()
-    }
-    const finish = (result: Effect.Effect<ReadonlyArray<ModelEvent>, ModelError>) => {
-      if (settled) return
-      settled = true
-      clearTimeout(timer)
-      kill()
-      resume(result)
-    }
-    const timer = setTimeout(
-      () => finish(Effect.fail(failure("call_timeout", "Codex exceeded its call deadline"))),
-      options.timeoutMs ?? 30 * 60_000
+    let stderr = ""
+    const decoder = new TextDecoder()
+    const [status] = yield* Effect.all([
+      // A vendor subprocess may inherit these pipes and outlive the vendor, so
+      // its exit kills the group rather than waiting for the pipes to close.
+      ScopedProcess.status(child).pipe(
+        Effect.tap(() => Effect.ignore(child.kill({ killSignal: "SIGKILL", forceKillAfter: 0 })))
+      ),
+      child.stdout.pipe(
+        Stream.runForEach((chunk) =>
+          Effect.suspend(() => {
+            bytes += chunk.byteLength
+            if (bytes > (options.maxBytes ?? outputLimit)) {
+              return Effect.fail(failure("invalid_provider_output", "Codex exceeded its output limit"))
+            }
+            stdout.push(chunk)
+            return Effect.void
+          })
+        )
+      ),
+      child.stderr.pipe(
+        Stream.runForEach((chunk) =>
+          Effect.sync(() => {
+            stderr = (stderr + decoder.decode(chunk, { stream: true })).slice(-4096)
+          })
+        )
+      ),
+      // A vendor that closes stdin before reading the prompt still reports
+      // its own failure through its exit status.
+      Effect.ignore(Stream.run(Stream.make(new TextEncoder().encode(prompt(request))), child.stdin))
+    ], { concurrency: "unbounded" }).pipe(
+      // The platform's own failure: the supervisor or a pipe was lost mid-call.
+      Effect.mapError((error) =>
+        error instanceof ModelError ? error : failure("transport", "Codex stopped unexpectedly")
+      )
     )
-    child.stdout.on("data", (chunk: string) => {
-      bytes += Buffer.byteLength(chunk, "utf8")
-      if (bytes > (options.maxBytes ?? 16 * 1024 * 1024)) {
-        finish(Effect.fail(failure("invalid_provider_output", "Codex exceeded its output limit")))
-      } else output += chunk
+    if (status.code !== 0) {
+      return yield* failure("transport", `Codex exited ${status.code ?? status.signal}: ${stderr.trim()}`)
+    }
+    return yield* Effect.try({
+      try: () => parse(Buffer.concat(stdout).toString("utf8")),
+      catch: (error) => error as ModelError
     })
-    child.stdout.setEncoding("utf8")
-    child.stderr.setEncoding("utf8")
-    child.stderr.on("data", (chunk: string) => {
-      stderr = (stderr + chunk).slice(-4096)
+  })).pipe(
+    Effect.timeoutOrElse({
+      duration: options.timeoutMs ?? 30 * 60_000,
+      orElse: () => Effect.fail(failure("call_timeout", "Codex exceeded its call deadline"))
     })
-    // A vendor subprocess may inherit these pipes and outlive its parent.
-    child.on("exit", killGroup)
-    child.on("error", () => finish(Effect.fail(failure("transport", "Codex could not start"))))
-    child.on("close", (code) => {
-      if (code !== 0) finish(Effect.fail(failure("transport", `Codex exited ${code}: ${stderr.trim()}`)))
-      else {finish(Effect.try({
-          try: () => parse(output),
-          catch: (error) => error as ModelError
-        }))}
-    })
-    child.stdin.on("error", () => undefined)
-    child.stdin.end(prompt(request))
-    return Effect.sync(() => {
-      settled = true
-      clearTimeout(timer)
-      kill()
-    })
-  })
+  )
 
 /**
  * @private
