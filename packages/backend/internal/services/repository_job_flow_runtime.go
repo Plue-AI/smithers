@@ -100,7 +100,9 @@ func repositoryJobProjection(mode string, registration db.RepositoryJobRegistrat
 
 func repositoryJobLaunchPayload(registration db.RepositoryJobRegistration, dispatch db.RepositoryJobDispatch, config RegisterRepositoryJobInput, repositoryName string) (json.RawMessage, error) {
 	var input any
-	if config.FactoryRevision != "" {
+	if config.FactoryRevision != "" && dispatch.Source == "schedule" && len(config.SchedulePayload) > 0 {
+		input = config.SchedulePayload
+	} else if config.FactoryRevision != "" {
 		input = map[string]any{"args": string(dispatch.Payload), "event": repositoryJobDispatchEvent(registration, dispatch)}
 	} else if repositoryFlowJobKey.MatchString(registration.Job) {
 		input = json.RawMessage(config.Input)

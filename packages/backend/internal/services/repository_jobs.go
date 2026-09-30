@@ -167,6 +167,10 @@ type RegisterRepositoryJobInput struct {
 	Label            string                   `json:"label,omitempty"`
 	Schedule         string                   `json:"schedule,omitempty"`
 	Input            json.RawMessage          `json:"input"`
+	// SchedulePayload is the static payload a factory schedule rule declares.
+	// When present, a scheduled run starts its flow with exactly this object;
+	// absent, it starts with the schedule's own event.
+	SchedulePayload json.RawMessage `json:"schedule_payload,omitempty"`
 	// A flow trigger names the plan a person approved; the five built-in jobs
 	// leave both empty and keep their existing wire body.
 	ApprovedPlanID     string `json:"approved_plan_id,omitempty"`
