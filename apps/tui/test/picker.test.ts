@@ -1,14 +1,18 @@
 import { expect, test } from "bun:test"
 import type * as Extension from "../src/extension.ts"
-import type * as Models from "../src/models.ts"
+import * as Models from "../src/models.ts"
 import * as Picker from "../src/picker.ts"
 import type * as Session from "../src/session.ts"
 import * as Theme from "../src/theme.ts"
 import * as Timeline from "../src/timeline.ts"
 import type { Tab } from "../src/workspace.ts"
 
+// The seat the `sol` alias names, so the agents case below keeps resolving it
+// when the alias moves; its label differs from the catalog's to prove an
+// available model's label wins.
+const sol = Models.delegateModels.sol
 const models: ReadonlyArray<Models.Model> = [
-  { seat: "openai:gpt-6-sol", label: "GPT-6 Sol", provider: "OpenAI" },
+  { seat: sol, label: "Sol", provider: "OpenAI" },
   { seat: "replay:small", label: "Small", provider: "Replay" }
 ]
 const flows: ReadonlyArray<Extension.Descriptor> = [
@@ -73,7 +77,7 @@ test("an auto-routed worker model picker does not call the chat seat current", (
   }
   const shown = rows({ kind: "worker-model", id: worker.id, query: "", selected: 0 }, Timeline.all, [worker])
   expect(shown.map((row) => [row.value, row.current ?? false])).toEqual([
-    ["openai:gpt-6-sol", false],
+    [sol, false],
     ["replay:small", false]
   ])
 })
@@ -81,12 +85,12 @@ test("an auto-routed worker model picker does not call the chat seat current", (
 test("chat model picker lists seat identities and marks the chat seat without reading files", () => {
   expect(rows({ kind: "model", query: "", selected: 1 })).toEqual([
     {
-      key: "openai:gpt-6-sol",
-      label: "GPT-6 Sol",
+      key: sol,
+      label: "Sol",
       hint: "OpenAI",
-      detail: "openai:gpt-6-sol",
+      detail: sol,
       current: false,
-      value: "openai:gpt-6-sol"
+      value: sol
     },
     {
       key: "replay:small",
@@ -105,14 +109,14 @@ test("worker model picker marks its own seat rather than the chat seat", () => {
     depth: 0,
     title: "Worker",
     prompt: "Investigate",
-    seat: "openai:gpt-6-sol",
+    seat: sol,
     file: "worker-2.jsonl",
     status: "failed",
     startedAt: 1
   }
   const shown = rows({ kind: "worker-model", id: worker.id, query: "", selected: 0 }, Timeline.all, [worker])
   expect(shown.map((row) => [row.value, row.current ?? false])).toEqual([
-    ["openai:gpt-6-sol", true],
+    [sol, true],
     ["replay:small", false]
   ])
 })
@@ -124,14 +128,14 @@ test("worker picker follows its active routed seat and never borrows chat when t
     title: "Worker",
     prompt: "Investigate",
     seat: "auto",
-    activeSeat: "openai:gpt-6-sol",
+    activeSeat: sol,
     file: "worker-2.jsonl",
     status: "failed",
     startedAt: 1
   }
   const picker: Picker.Picker = { kind: "worker-model", id: worker.id, query: "", selected: 0 }
   expect(rows(picker, Timeline.all, [worker]).map((row) => [row.value, row.current ?? false])).toEqual([
-    ["openai:gpt-6-sol", true],
+    [sol, true],
     ["replay:small", false]
   ])
   expect(rows(picker).every((row) => row.current !== true)).toBe(true)
@@ -157,7 +161,7 @@ test.each(["model", "worker-model"] as const)(
       value: "replay:small"
     }])
     expect(rows(picker("no match"))).toEqual([])
-    expect(rows(picker("OpenAI")).map((row) => row.value)).toEqual(["openai:gpt-6-sol"])
+    expect(rows(picker("OpenAI")).map((row) => row.value)).toEqual([sol])
   }
 )
 
@@ -170,7 +174,7 @@ test("flows include module and markdown entries; agents preserve only markdown a
     { key: "review", label: "review", detail: "Review changes", value: "review" }
   ])
   expect(rows({ kind: "agents", query: "", selected: 0 })).toEqual([
-    { key: "writer", label: "writer", hint: "GPT-6 Sol", detail: "Write prose", value: "writer" },
+    { key: "writer", label: "writer", hint: "Sol", detail: "Write prose", value: "writer" },
     { key: "research", label: "research", hint: "unlisted", detail: "Find answers", value: "research" },
     { key: "review", label: "review", hint: "", detail: "Review changes", value: "review" }
   ])
