@@ -22,47 +22,45 @@ const declarations = (directory, prefix = "") => readdirSync(directory, { withFi
  * TypeScript prints an inferred union in type-creation order and an inferred
  * object type in checker order, so an unrelated edit elsewhere in the same
  * program can reorder either without changing the type. Union constituents are
- * sorted by their printed text, and a type literal's named members (properties,
- * methods, accessors) are stably sorted by name, which keeps the order of
- * same-name method overloads. Call, construct and index signatures keep their
- * written order, as do interfaces, classes, overloaded functions and every
- * other declaration, so each real signature or export change still differs.
+ * sorted by their canonical text, and a type literal's named members
+ * (properties, methods, accessors) are stably sorted by name, which keeps the
+ * order of same-name method overloads; each member carries its own leading
+ * comments. Call, construct and index signatures keep their written order, as
+ * do interfaces, classes, overloaded functions and every other declaration,
+ * whose text is kept verbatim, so each real signature, export or doc change
+ * still differs.
  */
 export const canonicalDeclaration = (text) => {
   const source = ts.createSourceFile("api.d.ts", text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
-  const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed })
-  const print = (node) => printer.printNode(ts.EmitHint.Unspecified, node, source)
-  const byKey = (key) => (left, right) => {
-    const a = key(left)
-    const b = key(right)
-    return a < b ? -1 : a > b ? 1 : 0
-  }
-  const result = ts.transform(source, [(context) => {
-    const visit = (node) => {
-      const visited = ts.visitEachChild(node, visit, context)
-      if (ts.isUnionTypeNode(visited)) {
-        return context.factory.updateUnionTypeNode(
-          visited,
-          context.factory.createNodeArray([...visited.types].sort(byKey(print)))
-        )
-      }
-      if (ts.isTypeLiteralNode(visited)) {
-        const named = visited.members.filter((member) => member.name !== undefined)
-        const unnamed = visited.members.filter((member) => member.name === undefined)
-        return context.factory.updateTypeLiteralNode(
-          visited,
-          context.factory.createNodeArray([...unnamed, ...named.sort(byKey((member) => print(member.name)))])
-        )
-      }
-      return visited
+  const byKey = (left, right) => left.key < right.key ? -1 : left.key > right.key ? 1 : 0
+  const leading = (node) => text.slice(node.pos, node.getStart(source))
+  // A node's full text (leading trivia included) with its children canonical.
+  const full = (node) => {
+    if (ts.isUnionTypeNode(node)) {
+      const types = node.types.map((type) => ({ key: body(type) })).sort(byKey)
+      return leading(node) + types.map(({ key }) => key).join(" | ")
     }
-    return (file) => ts.visitNode(file, visit)
-  }])
-  try {
-    return printer.printFile(result.transformed[0])
-  } finally {
-    result.dispose()
+    if (ts.isTypeLiteralNode(node)) {
+      const member = (entry) => `${leading(entry).trim().replace(/\s+/g, " ")} ${body(entry).replace(/[;,]$/, "")}`.trim()
+      const unnamed = node.members.filter((entry) => entry.name === undefined).map(member)
+      const named = node.members.filter((entry) => entry.name !== undefined)
+        .map((entry) => ({ key: body(entry.name), text: member(entry) }))
+        .sort(byKey)
+        .map((entry) => entry.text)
+      const members = [...unnamed, ...named]
+      return leading(node) + (members.length === 0 ? "{}" : `{ ${members.join("; ")}; }`)
+    }
+    // Tokens between syntax children are copied verbatim rather than rescanned.
+    let result = ""
+    let cursor = node.pos
+    ts.forEachChild(node, (child) => {
+      result += text.slice(cursor, child.pos) + full(child)
+      cursor = child.end
+    })
+    return result + text.slice(cursor, node.end)
   }
+  const body = (node) => full(node).slice(node.getStart(source) - node.pos)
+  return full(source)
 }
 
 /** Include private declarations too: public signatures can reference them. */

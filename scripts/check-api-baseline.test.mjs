@@ -106,6 +106,21 @@ it("canonicalizes inferred member order but keeps every order-sensitive or real 
     "export type Event = { readonly _tag: \"b\"; x: 1 | 2 } | { readonly _tag: \"a\" };",
     "export type Event = { readonly _tag: \"a\" } | { x: 2 | 1; readonly _tag: \"b\" };"
   )
+  // A member's own leading comment moves with it; moving the comment differs.
+  same(
+    "export declare const make: () => {\n    /** Name. */\n    name: string;\n    /** Maximum calls. */\n    maxCalls?: number;\n};",
+    "export declare const make: () => {\n    /** Maximum calls. */\n    maxCalls?: number;\n    /** Name. */\n    name: string;\n};"
+  )
+  differ(
+    "export declare const make: () => {\n    /** Name. */\n    name: string;\n    maxCalls?: number;\n};",
+    "export declare const make: () => {\n    name: string;\n    /** Name. */\n    maxCalls?: number;\n};"
+  )
+  // Text outside inferred unions and type literals is kept verbatim.
+  const verbatim = "/// <reference types=\"node\" />\n/** Doc. */\nexport interface I {\n    b: 1;\n    a: 2;\n}\n// trailing\n"
+  assert.equal(canonicalDeclaration(verbatim), verbatim)
+  // Adjacent generic brackets are copied, never rescanned as a shift token.
+  const generic = "export declare const make: (jobs: number) => Effect<<A>(body: A) => A, never>;\n"
+  assert.equal(canonicalDeclaration(generic), generic)
   // Overloads, call and construct signatures are order-sensitive.
   differ(
     "export type F = { on(event: \"a\"): 1; on(event: string): 2 };",
