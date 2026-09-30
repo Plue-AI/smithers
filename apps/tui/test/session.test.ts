@@ -404,7 +404,7 @@ describe("credentials in a saved session", () => {
         {
           ...panel.rows[0]!,
           label: "Row [REDACTED]",
-          details: [{ kind: "text", text: "detail [REDACTED]" }],
+          details: [{ kind: "text" as const, text: "detail [REDACTED]" }],
           action: { label: "Open [REDACTED]", action: flow }
         },
         panel.rows[1]!,
