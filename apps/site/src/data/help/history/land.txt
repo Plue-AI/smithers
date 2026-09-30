@@ -1,16 +1,12 @@
-smthrs history — history
+smthrs history land — Land a proposed TODO's pull request once its review approves and CI is green
 
-Usage: smthrs history <command>
+Usage: smthrs history land <issue> [options]
 
-Commands:
-  backfill   Admit every open issue to the history now
-  bootstrap  Create the history from main's commits
-  land       Land a proposed TODO's pull request once its review approves and CI is green
-  parallel   Set how many lanes work at once
-  retry      Give a blocked, rejected or declined issue a fresh set of attempts
-  show       Show the history: each issue's lane, checks and pull request
-  todo       File a TODO for the factory
-  watch      Follow one issue until its pull request is open or it stops
+Arguments:
+  issue  Issue number (12 or #12) or item id
+
+Options:
+  --repo, -R <string>
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
