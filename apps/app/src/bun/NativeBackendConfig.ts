@@ -18,7 +18,9 @@ const origin = (name: string, value: string | undefined): string => {
   } catch {
     throw new Error(`${name} must be an absolute HTTP(S) origin.`)
   }
-  if ((parsed.protocol !== "http:" && parsed.protocol !== "https:") || parsed.origin !== raw.replace(/\/$/, "")) {
+  if ((parsed.protocol !== "http:" && parsed.protocol !== "https:") ||
+    parsed.username !== "" || parsed.password !== "" || parsed.pathname !== "/" ||
+    parsed.search !== "" || parsed.hash !== "") {
     throw new Error(`${name} must be an absolute HTTP(S) origin without a path.`)
   }
   return parsed.origin
@@ -33,16 +35,13 @@ export const nativeBackendConfig = (
   backend: NativeBackend,
   packagedRendererOrigin?: string
 ): NativeBackendConfig => {
-  const ownedOrigin = backend.mode === "own" ? origin("owned backend origin", backend.origin) : undefined
-  const apiOrigin = backend.mode === "own"
-    ? packagedRendererOrigin === undefined
-      ? ownedOrigin!
-      : origin("packaged renderer origin", packagedRendererOrigin)
+  const backendOrigin = backend.mode === "own"
+    ? origin("owned backend origin", backend.origin)
     : origin("SMITHERS_API_ORIGIN", env.SMITHERS_API_ORIGIN)
-  const rendererOrigin = packagedRendererOrigin ?? (
-    env.SMITHERS_RENDERER_ORIGIN?.trim() === undefined || env.SMITHERS_RENDERER_ORIGIN?.trim() === ""
-      ? apiOrigin
-      : origin("SMITHERS_RENDERER_ORIGIN", env.SMITHERS_RENDERER_ORIGIN))
+  const rendererOrigin = packagedRendererOrigin !== undefined
+    ? origin("packaged renderer origin", packagedRendererOrigin)
+    : origin("SMITHERS_RENDERER_ORIGIN", env.SMITHERS_RENDERER_ORIGIN?.trim() || backendOrigin)
+  const apiOrigin = backend.mode === "own" && packagedRendererOrigin !== undefined ? rendererOrigin : backendOrigin
   const external = apiOrigin !== rendererOrigin
   // The bearer is a Plue credential; the owned backend authenticates its owner by session.
   const token = backend.mode === "plue" ? env.SMITHERS_API_TOKEN?.trim() || null : null
