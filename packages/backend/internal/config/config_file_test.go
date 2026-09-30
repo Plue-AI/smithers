@@ -186,7 +186,6 @@ auth:
 	assert.Equal(t, "smithers_custom", cfg.Auth.SessionCookieName)
 	assert.Equal(t, "file-session-secret", cfg.Auth.SessionSecret)
 	assert.Equal(t, false, cfg.Auth.CookieSecure)
-	assert.Equal(t, true, cfg.Auth.ClosedAlphaEnabled)
 	assert.Equal(t, "smithers.local", cfg.Auth.KeyAuthDomain)
 	assert.Equal(t, "gh-id", cfg.Auth.GitHubClientID)
 	assert.Equal(t, "gh-secret", cfg.Auth.GitHubClientSecret)

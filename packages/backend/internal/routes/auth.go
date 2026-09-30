@@ -306,19 +306,6 @@ func (h *AuthHandler) GetGitHubOAuthCallback(w http.ResponseWriter, r *http.Requ
 	result, err := h.Service.CompleteGitHubOAuth(r.Context(), code, state, stateVerifier)
 	if err != nil {
 		clearOAuthStateCookie(w, h.AuthConfig.CookieSecure)
-		// Unapproved closed-alpha users get a friendly waitlist screen, not raw
-		// JSON. Bounce to the SPA with their signup position so the app renders a
-		// card; the redirect is RELATIVE so it lands on whichever origin proxied
-		// this callback (the worker rewrites it to its own domain).
-		var apiErr *errors.APIError
-		if stdErrors.As(err, &apiErr) && apiErr.Code == errors.CodeNotOnWaitlist {
-			target := "/?waitlist=1"
-			if apiErr.WaitlistPosition != nil {
-				target += "&position=" + strconv.Itoa(*apiErr.WaitlistPosition)
-			}
-			http.Redirect(w, r, target, http.StatusFound)
-			return
-		}
 		writeRouteError(w, r, err)
 		return
 	}

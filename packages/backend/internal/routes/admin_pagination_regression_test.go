@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
-	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/stretchr/testify/require"
 )
 
@@ -42,24 +41,6 @@ func TestAdminPaginationDefaultsAndExplicitSizes(t *testing.T) {
 			} else {
 				require.Equal(t, http.StatusOK, rec.Code)
 				require.JSONEq(t, "[]", rec.Body.String())
-			}
-			require.Equal(t, tc.size != 0, called)
-		})
-		t.Run("waitlist/"+tc.name, func(t *testing.T) {
-			called := false
-			h := AlphaAccessHandler{Service: mockAlphaAccessRouteService{listWaitlistFn: func(_ context.Context, input services.ListWaitlistInput) (services.AlphaWaitlistListResult, error) {
-				called = true
-				require.Equal(t, tc.page, input.Page)
-				require.Equal(t, tc.size, input.PerPage)
-				return services.AlphaWaitlistListResult{}, nil
-			}}}
-			req := httptest.NewRequest(http.MethodGet, "/api/admin/alpha/waitlist?"+tc.query, nil)
-			rec := httptest.NewRecorder()
-			h.GetAdminWaitlist(rec, req)
-			if tc.size == 0 {
-				require.Equal(t, http.StatusBadRequest, rec.Code)
-			} else {
-				require.Equal(t, http.StatusOK, rec.Code)
 			}
 			require.Equal(t, tc.size != 0, called)
 		})

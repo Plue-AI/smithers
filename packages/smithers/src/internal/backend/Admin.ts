@@ -340,16 +340,3 @@ admin["admin user export"] = async (c, a) => {
 admin["admin health"] = (c) => c.request("GET", "/api/admin/system/health")
 admin["admin runs list"] = (c, _a, o) =>
   c.request("GET", c.repoPath(o.repo) + "/workflows/runs" + query({ page: o.page, per_page: o.limit }))
-admin["beta waitlist join"] = (c, _a, o) =>
-  c.request("POST", "/api/alpha/waitlist", pick(o, ["email", "note", "source"]), { anonymous: true })
-admin["beta waitlist list"] = (c, _a, o) =>
-  c.request("GET", "/api/admin/alpha/waitlist" + query(pick(o, ["page", "per-page", "status"])))
-admin["beta waitlist approve"] = (c, _a, o) =>
-  c.request("POST", "/api/admin/alpha/waitlist/approve", { email: str(o.email).trim() })
-admin["beta whitelist list"] = (c) => c.request("GET", "/api/admin/alpha/whitelist")
-admin["beta whitelist add"] = (c, _a, o) =>
-  c.request("POST", "/api/admin/alpha/whitelist", { identity_type: o.type, identity_value: str(o.value).trim() })
-admin["beta whitelist remove"] = async (c, _a, o) => {
-  await c.request("DELETE", `/api/admin/alpha/whitelist/${esc(o.type)}/${esc(str(o.value).trim())}`)
-  return { removed: true, identity_type: o.type, identity_value: str(o.value).trim() }
-}

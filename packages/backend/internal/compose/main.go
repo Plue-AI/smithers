@@ -1264,14 +1264,6 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	}
 
 	oauth2Service := services.NewOAuth2ServiceWithPool(queries, pool)
-	// AlphaAccess checker is used by the OAuth2 authorize endpoint to gate
-	// code issuance behind the closed-alpha whitelist (ticket 0106). When
-	// the closed-alpha gate is disabled (Community Edition / open builds),
-	// the handler passes any authenticated user through.
-	var oauth2AlphaAccess routes.OAuth2AlphaAccessChecker
-	if queries != nil && cfg.Auth.ClosedAlphaEnabled {
-		oauth2AlphaAccess = services.NewAlphaAccessService(queries)
-	}
 	devAutoAuthorizeUserID := int64(0)
 	if strings.EqualFold(os.Getenv("SMITHERS_ENABLE_E2E_TEST_ROUTES"), "true") {
 		devAutoAuthorizeUserID = 1
@@ -1287,7 +1279,6 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		AuditService:             auditService,
 		Metrics:                  smithersMetrics,
 		CookieSecure:             cfg.Auth.CookieSecure,
-		AlphaAccess:              oauth2AlphaAccess,
 		DevAutoAuthorizeUserID:   devAutoAuthorizeUserID,
 		DevAutoAuthorizeClientID: services.FirstPartyClientID,
 		UpstreamAuthorizePath:    oauth2UpstreamAuthorizePath,

@@ -362,7 +362,6 @@ type AuthConfig struct {
 	// application's session/provider-token encryption key.
 	LFSSigningSecret   string `mapstructure:"lfs_signing_secret"`
 	CookieSecure       bool   `mapstructure:"cookie_secure"`
-	ClosedAlphaEnabled bool   `mapstructure:"closed_alpha_enabled"`
 	EnableKeyAuth      bool   `mapstructure:"enable_key_auth"`
 	KeyAuthDomain      string `mapstructure:"key_auth_domain"`
 	GitHubClientID     string `mapstructure:"github_client_id"`
@@ -519,7 +518,6 @@ func Load(configFile string) (*Config, error) {
 	v.SetDefault("auth.session_secret", "")
 	v.SetDefault("auth.lfs_signing_secret", "")
 	v.SetDefault("auth.cookie_secure", true)
-	v.SetDefault("auth.closed_alpha_enabled", true)
 	v.SetDefault("auth.enable_key_auth", true)
 	v.SetDefault("auth.key_auth_domain", "smithers.sh")
 	v.SetDefault("auth.github_client_id", "")
@@ -678,7 +676,6 @@ func Load(configFile string) (*Config, error) {
 		{"auth.session_secret", "SMITHERS_AUTH_SESSION_SECRET"},
 		{"auth.lfs_signing_secret", "SMITHERS_LFS_SIGNING_SECRET"},
 		{"auth.cookie_secure", "SMITHERS_AUTH_COOKIE_SECURE"},
-		{"auth.closed_alpha_enabled", "SMITHERS_AUTH_CLOSED_ALPHA_ENABLED"},
 		{"auth.enable_key_auth", "SMITHERS_AUTH_ENABLE_KEY_AUTH"},
 		{"auth.key_auth_domain", "SMITHERS_AUTH_KEY_AUTH_DOMAIN"},
 		{"auth.github_client_id", "SMITHERS_AUTH_GITHUB_CLIENT_ID"},

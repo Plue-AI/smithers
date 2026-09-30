@@ -87,7 +87,6 @@ var allEnvKeys = []string{
 	"SMITHERS_AUTH_SESSION_SECRET",
 	"SMITHERS_LFS_SIGNING_SECRET",
 	"SMITHERS_AUTH_COOKIE_SECURE",
-	"SMITHERS_AUTH_CLOSED_ALPHA_ENABLED",
 	"SMITHERS_AUTH_ENABLE_KEY_AUTH",
 	"SMITHERS_AUTH_GITHUB_CLIENT_ID",
 	"SMITHERS_AUTH_GITHUB_CLIENT_SECRET",
@@ -537,7 +536,6 @@ func TestLoad_AuthConfigDefaultsAndEnvOverrides(t *testing.T) {
 				SessionSecret:        "",
 				LFSSigningSecret:     "",
 				CookieSecure:         false,
-				ClosedAlphaEnabled:   true,
 				EnableKeyAuth:        true,
 				KeyAuthDomain:        "smithers.sh",
 				GitHubClientID:       "",
@@ -566,7 +564,6 @@ func TestLoad_AuthConfigDefaultsAndEnvOverrides(t *testing.T) {
 				"SMITHERS_AUTH_SESSION_SECRET":         "session-secret-123",
 				"SMITHERS_LFS_SIGNING_SECRET":          " lfs-signing-secret-123\n",
 				"SMITHERS_AUTH_COOKIE_SECURE":          "false",
-				"SMITHERS_AUTH_CLOSED_ALPHA_ENABLED":   "false",
 				"SMITHERS_AUTH_GITHUB_CLIENT_ID":       "client-123",
 				"SMITHERS_AUTH_GITHUB_CLIENT_SECRET":   "secret-456",
 				"SMITHERS_AUTH_GITHUB_REDIRECT_URL":    "https://smithers.sh/auth/callback",
@@ -586,7 +583,6 @@ func TestLoad_AuthConfigDefaultsAndEnvOverrides(t *testing.T) {
 				SessionSecret:        "session-secret-123",
 				LFSSigningSecret:     "lfs-signing-secret-123",
 				CookieSecure:         false,
-				ClosedAlphaEnabled:   false,
 				EnableKeyAuth:        true,
 				KeyAuthDomain:        "smithers.local",
 				GitHubClientID:       "client-123",
@@ -726,7 +722,6 @@ func TestLoad_FullConfigDefaults(t *testing.T) {
 			SessionCookieName:    "smithers_session",
 			SessionSecret:        "",
 			CookieSecure:         false,
-			ClosedAlphaEnabled:   true,
 			EnableKeyAuth:        true,
 			KeyAuthDomain:        "smithers.sh",
 			GitHubClientID:       "",
@@ -1242,12 +1237,6 @@ func TestLoad_EveryEnvVarOverrides_TableDriven(t *testing.T) {
 			},
 		},
 		{
-			envKey: "SMITHERS_AUTH_CLOSED_ALPHA_ENABLED", envValue: "false",
-			check: func(t *testing.T, cfg *Config) {
-				assert.False(t, cfg.Auth.ClosedAlphaEnabled)
-			},
-		},
-		{
 			envKey: "SMITHERS_AUTH_GITHUB_CLIENT_ID", envValue: "gh-client-abc",
 			check: func(t *testing.T, cfg *Config) {
 				assert.Equal(t, "gh-client-abc", cfg.Auth.GitHubClientID)
@@ -1730,6 +1719,7 @@ func TestLoad_MapstructureTagsMatchViperKeys(t *testing.T) {
 		"FeatureFlags":        "feature_flags",
 		"RateLimit":           "rate_limit",
 		"Chat":                "chat",
+		"WikiSync":            "wiki_sync",
 	}
 
 	cfgType := reflect.TypeOf(Config{})

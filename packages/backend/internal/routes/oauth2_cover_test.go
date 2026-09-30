@@ -172,23 +172,6 @@ func TestOauth2_Cov_AuthorizeAndTokenBranches(t *testing.T) {
 		assert.Equal(t, "/api/auth/auth0/authorize", h.upstreamAuthorizePath())
 	})
 
-	t.Run("check first party access maps denial and backend failure", func(t *testing.T) {
-		h := &OAuth2Handler{AlphaAccess: &oauth2CovAlphaAccess{allowed: false}}
-		err := h.checkFirstPartyAccess(context.Background(), &db.User{ID: 7})
-		require.Error(t, err)
-		apiErr, ok := err.(*pkgerrors.APIError)
-		require.True(t, ok)
-		assert.Equal(t, http.StatusForbidden, apiErr.Status)
-		assert.Equal(t, ErrCodeAccessNotGranted, apiErr.Code)
-
-		h.AlphaAccess = &oauth2CovAlphaAccess{err: assert.AnError}
-		err = h.checkFirstPartyAccess(context.Background(), &db.User{ID: 7})
-		require.Error(t, err)
-		apiErr, ok = err.(*pkgerrors.APIError)
-		require.True(t, ok)
-		assert.Equal(t, http.StatusInternalServerError, apiErr.Status)
-	})
-
 	t.Run("authorize refuses third party clients after redirect validation", func(t *testing.T) {
 		authorized := false
 		h := &OAuth2Handler{
@@ -378,15 +361,6 @@ func (s *oauth2CovRouteService) RevokeAllByAppAndUser(ctx context.Context, appID
 		return s.revokeAllByAppAndUserFn(ctx, appID, userID)
 	}
 	return nil
-}
-
-type oauth2CovAlphaAccess struct {
-	allowed bool
-	err     error
-}
-
-func (a *oauth2CovAlphaAccess) IsUserWhitelisted(ctx context.Context, user *db.User) (bool, error) {
-	return a.allowed, a.err
 }
 
 func (m *oauth2CovRouteService) AuthorizeGrant(ctx context.Context, in services.OAuth2AuthorizeInput) (services.OAuth2AuthorizeResult, error) {

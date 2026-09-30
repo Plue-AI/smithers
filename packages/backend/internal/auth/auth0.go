@@ -158,11 +158,10 @@ func (c *Auth0Client) FetchUser(ctx context.Context, accessToken string) (servic
 
 // FetchEmails fetches the user's emails from GitHub's API. If the token is an
 // Auth0 token (not a GitHub passthrough), GitHub rejects it, so fall back to
-// the email in Auth0's /userinfo — otherwise email-approved users would be
-// denied by the closed-alpha/waitlist gates and new users would be created
+// the email in Auth0's /userinfo — otherwise new users would be created
 // without an email. The fallback email is only marked Verified when Auth0
-// reports email_verified, so an unverified address can never satisfy the
-// email allowlist.
+// reports email_verified, so an unverified address never becomes the
+// account's email.
 func (c *Auth0Client) FetchEmails(ctx context.Context, accessToken string) ([]services.GitHubEmail, error) {
 	emails, err := c.fetchGitHubEmails(ctx, accessToken)
 	if err == nil {

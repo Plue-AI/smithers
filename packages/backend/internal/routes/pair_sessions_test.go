@@ -600,8 +600,7 @@ func TestPairSession_InviteWireShapeRedactsSecrets(t *testing.T) {
 }
 
 // A fine-grained read:user token must NOT be able to drive pair-session
-// mutations (create -> forks a VM, invite -> writes alpha_whitelist_entries,
-// cancel a prompt). RequireScope(ScopeWriteUser) rejects at middleware before
+// mutations (create -> forks a VM, invite, cancel a prompt). RequireScope(ScopeWriteUser) rejects at middleware before
 // the handler runs, so a nil service is never reached on the rejection path.
 func TestPairSession_MutationsRequireWriteScope(t *testing.T) {
 	newRouter := func(scopes string) http.Handler {

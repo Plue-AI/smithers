@@ -175,17 +175,6 @@ func TestPairSessionsSQL_H_SessionMemberInviteAndLinkRoundTrip(t *testing.T) {
 		assert.False(t, invite.RevokedAt.Valid)
 	}
 
-	alpha, err := q.UpsertAlphaWhitelistUsername(ctx, UpsertAlphaWhitelistUsernameParams{
-		Username: "Visitor-H", LowerUsername: "visitor-h", CreatedBy: pgtype.Int8{Int64: ownerID, Valid: true},
-	})
-	require.NoError(t, err)
-	assert.Equal(t, "username", alpha.IdentityType)
-	alphaAgain, err := q.UpsertAlphaWhitelistUsername(ctx, UpsertAlphaWhitelistUsernameParams{
-		Username: "Visitor-H", LowerUsername: "visitor-h", CreatedBy: pgtype.Int8{Int64: ownerID, Valid: true},
-	})
-	require.NoError(t, err)
-	assert.Equal(t, alpha.ID, alphaAgain.ID)
-
 	viewerLink, err := q.CreatePairSessionLink(ctx, CreatePairSessionLinkParams{SessionID: session.ID, Slug: "viewer-" + randSlug(t), Role: "viewer", CreatedBy: ownerID})
 	require.NoError(t, err)
 	links, err := q.ListLivePairSessionLinks(ctx, session.ID)

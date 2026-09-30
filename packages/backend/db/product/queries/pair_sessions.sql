@@ -489,22 +489,3 @@ WHERE session_id = sqlc.arg(session_id)::text
   AND role = sqlc.arg(role)::text
   AND revoked_at IS NULL;
 
--- ---- Alpha whitelist bypass (invite growth loop) ----
-
--- name: UpsertAlphaWhitelistEmail :one
--- Auto-whitelist an invited email BEFORE sign-up completes (decision #6).
-INSERT INTO alpha_whitelist_entries (identity_type, identity_value, lower_identity_value, created_by)
-VALUES ('email', sqlc.arg(email)::text, sqlc.arg(lower_email)::text, sqlc.narg(created_by))
-ON CONFLICT (identity_type, lower_identity_value) DO UPDATE
-SET updated_at = NOW()
-RETURNING *;
-
--- name: UpsertAlphaWhitelistUsername :one
--- Auto-whitelist an invited GitHub username BEFORE sign-up completes — the
--- username variant of the decision #6 growth loop (the alpha gate already
--- checks identity_type='username' candidates).
-INSERT INTO alpha_whitelist_entries (identity_type, identity_value, lower_identity_value, created_by)
-VALUES ('username', sqlc.arg(username)::text, sqlc.arg(lower_username)::text, sqlc.narg(created_by))
-ON CONFLICT (identity_type, lower_identity_value) DO UPDATE
-SET updated_at = NOW()
-RETURNING *;

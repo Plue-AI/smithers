@@ -189,13 +189,6 @@ func TestOAuth2_F_AuthorizeBranches(t *testing.T) {
 	})
 }
 
-// TestOAuth2_F_CheckFirstPartyAccessNilWhitelist covers the permissive path
-// when no AlphaAccess checker is wired.
-func TestOAuth2_F_CheckFirstPartyAccessNilWhitelist(t *testing.T) {
-	h := &OAuth2Handler{}
-	require.NoError(t, h.checkFirstPartyAccess(context.Background(), &db.User{ID: 1}))
-}
-
 // TestOAuth2_F_DevAutoAuthorizeAllowed covers devAutoAuthorizeAllowed directly.
 func TestOAuth2_F_DevAutoAuthorizeAllowed(t *testing.T) {
 	disabled := &OAuth2Handler{}

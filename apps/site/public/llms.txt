@@ -194,7 +194,6 @@
 - [smthrs api](https://smithers.sh/docs/reference/cli/api/): Make raw API calls to the Smithers server
 - [smthrs artifact](https://smithers.sh/docs/reference/cli/artifact/): artifact
 - [smthrs auth](https://smithers.sh/docs/reference/cli/auth/): auth
-- [smthrs beta](https://smithers.sh/docs/reference/cli/beta/): beta
 - [smthrs bookmark](https://smithers.sh/docs/reference/cli/bookmark/): bookmark
 - [smthrs bug](https://smithers.sh/docs/reference/cli/bug/): Report a bug with a run digest attached
 - [smthrs build](https://smithers.sh/docs/reference/cli/build/): Execute the build targets selected by a pattern

@@ -158,63 +158,6 @@ func FuzzValidateEmail(f *testing.F) {
 	})
 }
 
-// FuzzNormalizeWhitelistIdentity fuzzes the whitelist identity normalizer
-// which handles email, wallet, and username identity types.
-func FuzzNormalizeWhitelistIdentity(f *testing.F) {
-	// Valid email identity.
-	f.Add("email", "user@example.com")
-
-	// Valid wallet identity.
-	f.Add("wallet", "0x1234567890abcdef1234567890abcdef12345678")
-
-	// Valid username identity.
-	f.Add("username", "testuser")
-
-	// Empty values.
-	f.Add("", "")
-	f.Add("email", "")
-	f.Add("", "value")
-
-	// Invalid identity type.
-	f.Add("invalid", "value")
-	f.Add("WALLET", "0x1234567890abcdef1234567890abcdef12345678")
-
-	// Short wallet.
-	f.Add("wallet", "0x1234")
-
-	// Non-hex wallet.
-	f.Add("wallet", "0xzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
-
-	// Very long username.
-	f.Add("username", strings.Repeat("a", 256))
-
-	// Null bytes.
-	f.Add("email", "\x00@\x00.com")
-	f.Add("wallet", "0x\x00\x00\x00")
-
-	f.Fuzz(func(t *testing.T, identityType, identityValue string) {
-		// Must never panic.
-		_, _, _, _ = NormalizeWhitelistIdentity(identityType, identityValue)
-	})
-}
-
-// FuzzNormalizeWaitlistEmail fuzzes the waitlist email normalizer.
-func FuzzNormalizeWaitlistEmail(f *testing.F) {
-	f.Add("user@example.com")
-	f.Add("")
-	f.Add("   ")
-	f.Add("not-an-email")
-	f.Add(strings.Repeat("a", 10000))
-	f.Add("\"quoted name\" <user@example.com>")
-	f.Add("user@example.com, other@example.com")
-	f.Add("\x00@\x00.\x00")
-
-	f.Fuzz(func(t *testing.T, email string) {
-		// Must never panic.
-		_, _, _ = normalizeWaitlistEmail(email)
-	})
-}
-
 // FuzzNormalizePagination fuzzes the pagination normalizer to ensure it always
 // returns valid page/perPage values without panics.
 func FuzzNormalizePagination(f *testing.F) {

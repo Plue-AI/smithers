@@ -592,7 +592,6 @@ func logStartupConfig(cfg *config.Config) {
 		"database", dbStatus,
 		"repo_host_url", status(cfg.RepoHost.URL, cfg.RepoHost.URL),
 		"github_oauth", status(cfg.Auth.GitHubClientID, "configured"),
-		"closed_alpha_enabled", cfg.Auth.ClosedAlphaEnabled,
 		"email_transport", emailStatus,
 		"log_level", cfg.Observability.LogLevel,
 	)

@@ -86,8 +86,8 @@ func NewPairSessionHandler(service PairSessionsService) *PairSessionHandler {
 // Mount registers the pair-session routes. The caller mounts this under
 // RequireScope(ScopeReadUser); this method additionally gates every MUTATING
 // route behind RequireScope(ScopeWriteUser) so a fine-grained read:user token
-// cannot fork a VM (Create), invite arbitrary emails (which also writes
-// alpha_whitelist_entries), change roles/access/links, or drive the prompt
+// cannot fork a VM (Create), invite arbitrary emails, change
+// roles/access/links, or drive the prompt
 // queue. Writes imply reads, so a write:user token still satisfies the outer
 // read group; session-authenticated requests bypass token-scope checks entirely.
 func (h *PairSessionHandler) Mount(r chi.Router) {

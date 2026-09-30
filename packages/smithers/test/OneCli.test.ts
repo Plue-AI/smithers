@@ -237,7 +237,7 @@ describe("one npm CLI backend contracts", () => {
 describe("migrated command dispatch", () => {
   it("accounts for every Go command without replacing target cache operations", async () => {
     expect(Object.keys(handlers).sort()).toEqual(Object.keys(definitions).sort())
-    expect(Object.keys(definitions)).toHaveLength(211)
+    expect(Object.keys(definitions)).toHaveLength(205)
     expect(Object.keys(definitions).filter((name) => !handlers[name])).toEqual([])
     expect(commandPath("status")).toBe("change status")
     expect(commandPath("run view")).toBe("runs show")
@@ -391,7 +391,6 @@ describe("migrated command dispatch", () => {
       [["ssh-key", "list"], "GET", "/api/user/keys", undefined],
       [["admin", "health"], "GET", "/api/admin/system/health", undefined],
       [["admin", "status"], "GET", "/api/admin/system/status", undefined],
-      [["beta", "whitelist", "list"], "GET", "/api/admin/alpha/whitelist", undefined],
       [["extension", "linear", "list"], "GET", "/api/integrations/linear", undefined],
       [["org", "edit", "example", "--description", "Text"], "PATCH", "/api/orgs/example", { "description": "Text" }],
       [["org", "member", "add", "example", "alice"], "POST", "/api/orgs/example/members", { "username": "alice" }],
@@ -437,26 +436,6 @@ describe("migrated command dispatch", () => {
       [["admin", "user", "disable", "alice"], "PATCH", "/api/admin/users/alice", { "suspended": true }],
       [["admin", "user", "enable", "alice"], "PATCH", "/api/admin/users/alice", { "suspended": false }],
       [["admin", "user", "delete", "alice", "--yes"], "DELETE", "/api/admin/users/alice", undefined],
-      [["beta", "waitlist", "join", "--email", "a@test.invalid"], "POST", "/api/alpha/waitlist", {
-        "email": "a@test.invalid",
-        "note": "",
-        "source": "cli"
-      }],
-      [["beta", "waitlist", "approve", "--email", "a@test.invalid"], "POST", "/api/admin/alpha/waitlist/approve", {
-        "email": "a@test.invalid"
-      }],
-      [
-        ["beta", "whitelist", "add", "--type", "email", "--value", "a@test.invalid"],
-        "POST",
-        "/api/admin/alpha/whitelist",
-        { "identity_type": "email", "identity_value": "a@test.invalid" }
-      ],
-      [
-        ["beta", "whitelist", "remove", "--type", "email", "--value", "a@test.invalid"],
-        "DELETE",
-        "/api/admin/alpha/whitelist/email/a%40test.invalid",
-        undefined
-      ],
       [["extension", "linear", "remove", "4"], "DELETE", "/api/integrations/linear/4", undefined],
       [["extension", "linear", "sync", "4"], "POST", "/api/integrations/linear/4/sync", undefined],
       [["repo", "create", "demo", "--private"], "POST", "/api/user/repos", { name: "demo", private: true }],

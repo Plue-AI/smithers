@@ -800,27 +800,6 @@ func TestEnqueue_ConcurrentMonotonicSeq(t *testing.T) {
 	}
 }
 
-// TestInviteAccept_InsertsAlphaWhitelistBeforeSignup proves the growth loop:
-// creating an invite whitelists the email immediately (before the invitee has
-// an account).
-func TestInviteAccept_InsertsAlphaWhitelistBeforeSignup(t *testing.T) {
-	fx := newPairFixture(t)
-	owner := mkPairUser(t, fx.pool, "wl-owner")
-	ws := mkPairWorkspace(t, fx.pool, owner, fx.repoID)
-	svc := newPairService(fx, map[int64]bool{owner: true}, false, nil)
-	session, err := svc.CreateSession(context.Background(), owner, fx.repoID, ws)
-	require.NoError(t, err)
-
-	brandNew := "brand-new-invitee@example.com"
-	_, err = svc.CreateInvite(context.Background(), session.ID, owner, brandNew, PairRoleViewer)
-	require.NoError(t, err)
-
-	var count int
-	require.NoError(t, fx.pool.QueryRow(context.Background(),
-		`SELECT COUNT(*) FROM alpha_whitelist_entries WHERE identity_type='email' AND lower_identity_value=$1`, brandNew).Scan(&count))
-	assert.Equal(t, 1, count, "invited email must be whitelisted before signup")
-}
-
 // TestInvite_UnavailableTransportDoesNotSend: without a configured provider,
 // including when the disabled provider is wrapped, the invite is recorded and
 // honestly reports delivery unavailable without calling Send.
@@ -943,7 +922,7 @@ func TestDraft_VersionGatedAndEditorOnly(t *testing.T) {
 // account NEVER touches that account's stored email (privacy: the API must not
 // resolve a GitHub username into someone's private address, and the response
 // must be indistinguishable from an unknown username's — no account-existence
-// oracle), whitelists the username, and admits the invitee through
+// oracle), and admits the invitee through
 // ResolveSession by username match at the invited role.
 func TestInviteByUsername_KnownUser(t *testing.T) {
 	fx := newPairFixture(t)
@@ -968,12 +947,6 @@ func TestInviteByUsername_KnownUser(t *testing.T) {
 	assert.Equal(t, "share the link so they can join", res.DeliveryDetail,
 		"known-username response must be byte-identical to the unknown-username one (no existence oracle)")
 
-	var count int
-	require.NoError(t, fx.pool.QueryRow(context.Background(),
-		`SELECT COUNT(*) FROM alpha_whitelist_entries WHERE identity_type='username' AND lower_identity_value=$1`,
-		strings.ToLower(inviteeUsername)).Scan(&count))
-	assert.Equal(t, 1, count, "invited username must be whitelisted")
-
 	join, err := svc.ResolveSession(context.Background(), session.ID, invitee)
 	require.NoError(t, err)
 	assert.Equal(t, PairRoleEditor, join.Role)
@@ -981,8 +954,7 @@ func TestInviteByUsername_KnownUser(t *testing.T) {
 }
 
 // TestInviteByUsername_UnknownUser proves a username with no plue account yet is
-// honestly reported as link-delivered (nothing is emailed), whitelisted for the
-// alpha gate, and matches by username when that GitHub login later signs in
+// honestly reported as link-delivered (nothing is emailed) and matches by username when that GitHub login later signs in
 // with a DIFFERENT email than anything on the invite.
 func TestInviteByUsername_UnknownUser(t *testing.T) {
 	fx := newPairFixture(t)
@@ -999,12 +971,6 @@ func TestInviteByUsername_UnknownUser(t *testing.T) {
 	assert.Contains(t, res.DeliveryDetail, "share the link")
 	assert.False(t, res.Invite.LowerEmail.Valid, "unknown username has no email to attach")
 	assert.NotEmpty(t, res.Token, "raw token must be returned for a copyable link")
-
-	var count int
-	require.NoError(t, fx.pool.QueryRow(context.Background(),
-		`SELECT COUNT(*) FROM alpha_whitelist_entries WHERE identity_type='username' AND lower_identity_value=$1`,
-		ghLogin).Scan(&count))
-	assert.Equal(t, 1, count)
 
 	// The login signs up later with an unrelated email.
 	em := ghLogin + "-other@example.com"

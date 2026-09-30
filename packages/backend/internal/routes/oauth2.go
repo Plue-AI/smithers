@@ -12,7 +12,6 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
@@ -33,13 +32,6 @@ type OAuth2Service interface {
 	RevokeAllByAppAndUser(ctx context.Context, appID, userID int64) error
 }
 
-// OAuth2AlphaAccessChecker is the narrow interface OAuth2Handler needs from
-// AlphaAccessService; kept separate so tests can stub it without wiring a
-// full alpha-access backend.
-type OAuth2AlphaAccessChecker interface {
-	IsUserWhitelisted(ctx context.Context, user *db.User) (bool, error)
-}
-
 // OAuth2Handler handles OAuth2 application management and authorization endpoints.
 type OAuth2Handler struct {
 	Service      OAuth2Service
@@ -47,11 +39,7 @@ type OAuth2Handler struct {
 	Metrics      *SmithersMetrics
 	// CookieSecure is configuration-derived because production TLS terminates
 	// at the ingress and therefore r.TLS is nil inside the API pod.
-	CookieSecure bool
-	// AlphaAccess gates the authorize endpoint behind the closed-alpha
-	// whitelist. If nil, the whitelist check is skipped (used by the OSS
-	// Community Edition which has no whitelist).
-	AlphaAccess              OAuth2AlphaAccessChecker
+	CookieSecure             bool
 	DevAutoAuthorizeUserID   int64
 	DevAutoAuthorizeClientID string
 	// UpstreamAuthorizePath is the browser login endpoint used when an
@@ -199,12 +187,6 @@ const oauth2PendingAuthorizeCookie = "smithers_oauth2_pending_authorize"
 // tying the authorize request to a short-lived anti-forgery token.
 const oauth2PendingAuthorizeTTL = 10 * time.Minute
 
-// ErrCodeAccessNotGranted is the machine-readable error code returned to
-// clients when an authenticated user is not on the closed-alpha whitelist.
-// The client UI renders this as "access not yet granted" (vs. a generic
-// "access_denied" which means the user refused consent).
-const ErrCodeAccessNotGranted = errors.CodeAccessNotGranted
-
 // GetAuthorize handles the OAuth2 authorization endpoint (RFC 6749 §4.1.1,
 // RFC 7636 PKCE, RFC 8252 native app guidance).
 // GET /api/oauth2/authorize
@@ -215,10 +197,7 @@ const ErrCodeAccessNotGranted = errors.CodeAccessNotGranted
 //     login (`/api/auth/github` by default). After the session is
 //     established, the corresponding OAuth callback handler (auth.go) resumes
 //     us by 302ing back to this URL.
-//   - If authenticated but not on the alpha whitelist, we return a 403 JSON
-//     error with machine-readable code "access_not_granted" so the client
-//     can render a tailored "access not yet granted" screen.
-//   - If session-authenticated and whitelisted, we render a CSRF-bound
+//   - If session-authenticated, we render a CSRF-bound
 //     consent page. The authorization code is only minted by the POST
 //     confirmation (PostAuthorizeDecision below) — never on a bare GET.
 //     Session cookies ride along on top-level SameSite=Lax navigations, so
@@ -239,8 +218,6 @@ const ErrCodeAccessNotGranted = errors.CodeAccessNotGranted
 //     the separate, looser "auth_interactive" scope),
 //   - PKCE S256 enforcement (required for ALL clients here),
 //   - strict registered-redirect-URI matching (RFC 8252 §8.1),
-//   - the alpha whitelist check above (no code is issued to a non-
-//     whitelisted user even if they successfully authenticate upstream),
 //   - and the fact that the code itself requires client_id + matching
 //     code_verifier at the token endpoint before it can be redeemed.
 //
@@ -318,16 +295,7 @@ func (h *OAuth2Handler) GetAuthorize(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// === Phase 3: whitelist check. Issuing a code to a non-whitelisted
-	// user would let them redeem a token despite being outside the closed
-	// alpha. We surface a structured error so the client can render a
-	// "access not yet granted" screen.
-	if err := h.checkFirstPartyAccess(r.Context(), user); err != nil {
-		writeRouteError(w, r, err)
-		return
-	}
-
-	// === Phase 4: token-authenticated callers are CSRF-immune (the
+	// === Phase 3: token-authenticated callers are CSRF-immune (the
 	// Authorization header is never attached by a browser to a cross-site
 	// navigation), so they get the code directly.
 	if isTokenAuth {
@@ -390,11 +358,6 @@ func (h *OAuth2Handler) PostAuthorizeDecision(w http.ResponseWriter, r *http.Req
 	if cookieErr != nil || cookie.Value == "" || formToken == "" ||
 		subtle.ConstantTimeCompare([]byte(cookie.Value), []byte(formToken)) != 1 {
 		errors.WriteError(w, errors.Forbidden("invalid or expired authorize confirmation"))
-		return
-	}
-
-	if err := h.checkFirstPartyAccess(r.Context(), user); err != nil {
-		writeRouteError(w, r, err)
 		return
 	}
 
@@ -584,7 +547,7 @@ type authorizeConsentData struct {
 }
 
 // renderAuthorizeConsent sets the single-use CSRF nonce cookie and renders
-// the consent form for a session-authenticated, whitelisted user. The
+// the consent form for a session-authenticated user. The
 // request params were already fully validated by validateAuthorizeRequest.
 func (h *OAuth2Handler) renderAuthorizeConsent(w http.ResponseWriter, r *http.Request, req authorizeRequest) {
 	app, err := h.Service.GetApplicationByClientID(r.Context(), req.ClientID)
@@ -665,29 +628,6 @@ func (h *OAuth2Handler) startUpstreamIDPDetour(w http.ResponseWriter, r *http.Re
 	// Redirect to the configured browser OAuth start — its callback will
 	// deposit a session cookie and then honor our pending-authorize cookie.
 	http.Redirect(w, r, h.upstreamAuthorizePath(), http.StatusFound)
-}
-
-// checkFirstPartyAccess enforces the closed-alpha whitelist at the authorize
-// step. Returns an APIError with machine-readable code on denial.
-func (h *OAuth2Handler) checkFirstPartyAccess(ctx context.Context, user *db.User) error {
-	if h.AlphaAccess == nil {
-		// Whitelist not wired: permissive by default so non-alpha
-		// deployments (Community Edition) work out of the box.
-		return nil
-	}
-	allowed, err := h.AlphaAccess.IsUserWhitelisted(ctx, user)
-	if err != nil {
-		middleware.LoggerFromContext(ctx).Error("alpha whitelist lookup failed", "user_id", user.ID, "error", err)
-		return errors.Internal("failed to check alpha whitelist").WithCause(err)
-	}
-	if !allowed {
-		return &errors.APIError{
-			Status:  http.StatusForbidden,
-			Message: "access not yet granted for this account",
-			Code:    ErrCodeAccessNotGranted,
-		}
-	}
-	return nil
 }
 
 // devAutoAuthorizeAllowed reports whether the current request should be

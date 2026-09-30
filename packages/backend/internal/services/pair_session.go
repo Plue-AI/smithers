@@ -141,8 +141,6 @@ type PairSessionStore interface {
 	GetPairSessionDraft(ctx context.Context, sessionID string) (db.PairSessionDraft, error)
 	ClearPairSessionDraft(ctx context.Context, arg db.ClearPairSessionDraftParams) (db.PairSessionDraft, error)
 
-	UpsertAlphaWhitelistEmail(ctx context.Context, arg db.UpsertAlphaWhitelistEmailParams) (db.AlphaWhitelistEntry, error)
-	UpsertAlphaWhitelistUsername(ctx context.Context, arg db.UpsertAlphaWhitelistUsernameParams) (db.AlphaWhitelistEntry, error)
 	GetPrimaryEmail(ctx context.Context, userID int64) (db.EmailAddress, error)
 	GetUserByID(ctx context.Context, id int64) (db.User, error)
 
@@ -167,8 +165,7 @@ func pairShareLevelForRole(role string) string {
 }
 
 // PairSessionService is the server-authoritative Smithers Pair backend: session
-// mint + fork-and-swap, the ACL ladder, roles, invites (+ alpha-bypass growth
-// loop), per-link slugs, the serial FIFO prompt queue with executor election,
+// mint + fork-and-swap, the ACL ladder, roles, invites, per-link slugs, the serial FIFO prompt queue with executor election,
 // and the co-compose draft. Identity is the real signed-in user everywhere.
 type PairSessionService struct {
 	revocations revocation.Publisher
@@ -589,7 +586,7 @@ func (s *PairSessionService) PreviewForSource(ctx context.Context, sourceWorkspa
 //  3. live member                        -> allow at member.role (grandfathered:
 //     amendment B — existing members are NOT re-gated on the paid plan)
 //  4. restricted + matching live invite  -> AuthorizePairing, then materialize a
-//     member at the invite role, accept the invite, auto-whitelist
+//     member at the invite role, accept the invite
 //  5. otherwise                          -> Forbidden (no key-entry form)
 func (s *PairSessionService) ResolveSession(ctx context.Context, sessionID string, visitorID int64) (PairResolution, error) {
 	var result PairResolution
@@ -1043,7 +1040,7 @@ func (s *PairSessionService) revokeLink(ctx context.Context, sessionID string, a
 	return nil
 }
 
-// --- Invites (+ alpha-bypass growth loop) ----------------------------------
+// --- Invites ---------------------------------------------------------------
 
 // InviteResult carries the created invite plus honest delivery status.
 type InviteResult struct {
@@ -1055,9 +1052,7 @@ type InviteResult struct {
 	DeliveryDetail string
 }
 
-// CreateInvite records an invite (owner only), auto-whitelists the email through
-// the closed alpha BEFORE sign-up (decision #6, the growth loop), and attempts
-// delivery when a transport is configured. When no transport exists the invite
+// CreateInvite records an invite (owner only) and attempts delivery when a transport is configured. When no transport exists the invite
 // is still joinable on a matching lower_email sign-in and the result reports
 // "email delivery unavailable" honestly — never a fake sent state.
 func (s *PairSessionService) CreateInvite(ctx context.Context, sessionID string, actorID int64, rawEmail, role string) (InviteResult, error) {
@@ -1117,15 +1112,6 @@ func (s *PairSessionService) recordEmailInvite(ctx context.Context, sessionID st
 	if err != nil {
 		return InviteResult{}, pkgerrors.Internal("create invite: " + err.Error())
 	}
-
-	// Growth loop: whitelist the email NOW, before the invitee has signed up.
-	if _, err := s.store.UpsertAlphaWhitelistEmail(ctx, db.UpsertAlphaWhitelistEmailParams{
-		Email:      strings.TrimSpace(rawEmail),
-		LowerEmail: lowerEmail,
-		CreatedBy:  pgtype.Int8{Int64: actorID, Valid: true},
-	}); err != nil {
-		return InviteResult{}, pkgerrors.Internal("whitelist invited email: " + err.Error())
-	}
 	return InviteResult{Invite: invite, Token: token}, nil
 }
 
@@ -1142,9 +1128,6 @@ var githubUsernameRe = regexp.MustCompile(`^[a-z0-9](?:-?[a-z0-9])*$`)
 // disclose that email to the owner (and make the response an oracle for
 // "does this GitHub user have an account here"). The response is therefore
 // UNIFORM for every username — the copyable link is always the delivery path.
-// The username is auto-whitelisted through the closed alpha (the username
-// flavor of the decision #6 growth loop); a whitelist row for a suspended
-// account is inert (login is blocked upstream of the alpha gate).
 func (s *PairSessionService) CreateInviteByUsername(ctx context.Context, sessionID string, actorID int64, rawUsername, role string) (InviteResult, error) {
 	var result InviteResult
 	err := s.withPairSessionMutation(ctx, sessionID, func(locked *PairSessionService) error {
@@ -1182,15 +1165,6 @@ func (s *PairSessionService) createInviteByUsername(ctx context.Context, session
 	})
 	if err != nil {
 		return InviteResult{}, pkgerrors.Internal("create invite: " + err.Error())
-	}
-
-	// Growth loop: whitelist the username NOW, before the invitee has signed up.
-	if _, err := s.store.UpsertAlphaWhitelistUsername(ctx, db.UpsertAlphaWhitelistUsernameParams{
-		Username:      username,
-		LowerUsername: lowerUsername,
-		CreatedBy:     pgtype.Int8{Int64: actorID, Valid: true},
-	}); err != nil {
-		return InviteResult{}, pkgerrors.Internal("whitelist invited username: " + err.Error())
 	}
 
 	return InviteResult{

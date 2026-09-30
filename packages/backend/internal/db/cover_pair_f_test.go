@@ -28,11 +28,6 @@ func TestFCov_PairSessions_RoundTrip(t *testing.T) {
 
 	require.NoError(t, q.TouchPairSessionMemberSeen(ctx, TouchPairSessionMemberSeenParams{SessionID: session.ID, UserID: userID}))
 
-	email := "wl-" + randSlug(t) + "@example.com"
-	entry, err := q.UpsertAlphaWhitelistEmail(ctx, UpsertAlphaWhitelistEmailParams{Email: email, LowerEmail: email, CreatedBy: userInt8})
-	require.NoError(t, err)
-	assert.Equal(t, email, entry.IdentityValue)
-
 	// Prompt queue: enqueue then cancel own queued prompt.
 	prompt, err := q.EnqueuePairPrompt(ctx, EnqueuePairPromptParams{SessionID: session.ID, AuthorUserID: userID, Source: "solo", Body: "hello"})
 	require.NoError(t, err)

@@ -103,7 +103,7 @@ func TestAuth_Cov_Auth0FlowAndSessionRevocation(t *testing.T) {
 	authCovAssertAPIStatus(t, err, 404)
 }
 
-func TestAuth_Cov_WaitlistVerifiedEmailAndClosedBetaBranches(t *testing.T) {
+func TestAuth_Cov_PickVerifiedEmail(t *testing.T) {
 	assert.Equal(t, "", pickVerifiedEmail([]GitHubEmail{{Email: "unverified@example.com", Primary: true, Verified: false}}))
 	assert.Equal(t, "primary@example.com", pickVerifiedEmail([]GitHubEmail{
 		{Email: "secondary@example.com", Verified: true},
@@ -113,58 +113,6 @@ func TestAuth_Cov_WaitlistVerifiedEmailAndClosedBetaBranches(t *testing.T) {
 		{Email: "first@example.com"},
 		{Email: "verified@example.com", Verified: true},
 	}))
-
-	ctx := context.Background()
-	cfg := defaultAuthConfig()
-	cfg.ClosedAlphaEnabled = true
-	var capturedWaitlist db.UpsertWaitlistEntryParams
-	svc := NewAuthService(&mockAuthQuerier{
-		isWhitelistedIdentityFn: func(context.Context, db.IsWhitelistedIdentityParams) (bool, error) {
-			return false, nil
-		},
-		getWaitlistEntryByLowerEmailFn: func(context.Context, string) (db.AlphaWaitlistEntry, error) {
-			return db.AlphaWaitlistEntry{}, pgx.ErrNoRows
-		},
-		upsertWaitlistEntryFn: func(_ context.Context, arg db.UpsertWaitlistEntryParams) (db.AlphaWaitlistEntry, error) {
-			capturedWaitlist = arg
-			return db.AlphaWaitlistEntry{Email: arg.Email, LowerEmail: arg.LowerEmail, Status: WaitlistStatusPending}, nil
-		},
-		getWaitlistPositionFn: func(context.Context, string) (int64, error) {
-			return 3, nil
-		},
-	}, cfg, nil, nil)
-
-	err := svc.enforceWorkOSWaitlistAccess(ctx, GitHubUserProfile{Login: "Octo", AvatarURL: "https://avatar.example/octo.png"}, []GitHubEmail{{Email: "Octo@Example.COM", Primary: true, Verified: true}}, nil)
-	require.Error(t, err)
-	var apiErr *pkgerrors.APIError
-	require.ErrorAs(t, err, &apiErr)
-	assert.Equal(t, 403, apiErr.Status)
-	assert.Equal(t, notOnWaitlistErrorCode, apiErr.Code)
-	require.NotNil(t, apiErr.WaitlistPosition)
-	assert.Equal(t, 3, *apiErr.WaitlistPosition)
-	assert.Equal(t, "Octo@Example.COM", capturedWaitlist.Email)
-	assert.Equal(t, "octo@example.com", capturedWaitlist.LowerEmail)
-
-	var promoted []db.AddWhitelistEntryParams
-	svc = NewAuthService(&mockAuthQuerier{
-		isWhitelistedIdentityFn: func(context.Context, db.IsWhitelistedIdentityParams) (bool, error) {
-			return false, nil
-		},
-		getWaitlistEntryByLowerEmailFn: func(context.Context, string) (db.AlphaWaitlistEntry, error) {
-			return db.AlphaWaitlistEntry{Email: "approved@example.com", LowerEmail: "approved@example.com", Status: WaitlistStatusApproved}, nil
-		},
-		addWhitelistEntryFn: func(_ context.Context, arg db.AddWhitelistEntryParams) (db.AlphaWhitelistEntry, error) {
-			promoted = append(promoted, arg)
-			return db.AlphaWhitelistEntry{IdentityType: arg.IdentityType, IdentityValue: arg.IdentityValue, LowerIdentityValue: arg.LowerIdentityValue}, nil
-		},
-	}, cfg, nil, nil)
-	err = svc.enforceWorkOSWaitlistAccess(ctx, GitHubUserProfile{Login: "ApprovedUser"}, []GitHubEmail{{Email: "approved@example.com", Verified: true}}, nil)
-	require.NoError(t, err)
-	require.Len(t, promoted, 2)
-	assert.Equal(t, WhitelistIdentityEmail, promoted[0].IdentityType)
-	assert.Equal(t, WhitelistIdentityUsername, promoted[1].IdentityType)
-
-	require.NoError(t, svc.enforceClosedBetaForUser(ctx, db.User{ID: 1, IsAdmin: true}, nil))
 }
 
 func TestAuth_Cov_RefreshUserGitHubTokenBranches(t *testing.T) {

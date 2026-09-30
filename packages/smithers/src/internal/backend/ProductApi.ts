@@ -567,14 +567,6 @@ export type SSHKey = {
   created_at: string
 }
 
-export interface DeleteApiAdminAlphaWhitelistIdentityTypeIdentityValueInput {
-  readonly path: { readonly identity_type: string; readonly identity_value: string }
-}
-
-/** DELETE /api/admin/alpha/whitelist/{identity_type}/{identity_value} */
-export const deleteApiAdminAlphaWhitelistIdentityTypeIdentityValue = (transport: Transport, input: DeleteApiAdminAlphaWhitelistIdentityTypeIdentityValueInput): Promise<void> =>
-  transport.request("DELETE", `/api/admin/alpha/whitelist/${segment(input.path.identity_type)}/${segment(input.path.identity_value)}`).then(() => undefined)
-
 export interface DeleteApiAdminUsersUsernameInput {
   readonly path: { readonly username: string }
 }
@@ -606,24 +598,6 @@ export type GetApiAdminAgentSessionsResponse = AnyJSON
 /** GET /api/admin/agent-sessions */
 export const getApiAdminAgentSessions = (transport: Transport): Promise<GetApiAdminAgentSessionsResponse> =>
   transport.request("GET", `/api/admin/agent-sessions`) as Promise<GetApiAdminAgentSessionsResponse>
-
-export type GetApiAdminAlphaWaitlistResponse = AnyJSON
-
-/** GET /api/admin/alpha/waitlist */
-export const getApiAdminAlphaWaitlist = (transport: Transport): Promise<GetApiAdminAlphaWaitlistResponse> =>
-  transport.request("GET", `/api/admin/alpha/waitlist`) as Promise<GetApiAdminAlphaWaitlistResponse>
-
-export type GetApiAdminAlphaWhitelistResponse = AnyJSON
-
-/** GET /api/admin/alpha/whitelist */
-export const getApiAdminAlphaWhitelist = (transport: Transport): Promise<GetApiAdminAlphaWhitelistResponse> =>
-  transport.request("GET", `/api/admin/alpha/whitelist`) as Promise<GetApiAdminAlphaWhitelistResponse>
-
-export type PostApiAdminAlphaWhitelistResponse = AnyJSON
-
-/** POST /api/admin/alpha/whitelist */
-export const postApiAdminAlphaWhitelist = (transport: Transport): Promise<PostApiAdminAlphaWhitelistResponse> =>
-  transport.request("POST", `/api/admin/alpha/whitelist`) as Promise<PostApiAdminAlphaWhitelistResponse>
 
 export type GetApiAdminAnalyticsSummaryResponse = AnyJSON
 
@@ -746,12 +720,6 @@ export interface PostApiAdminAgentSessionsIdCancelInput {
 export const postApiAdminAgentSessionsIdCancel = (transport: Transport, input: PostApiAdminAgentSessionsIdCancelInput): Promise<PostApiAdminAgentSessionsIdCancelResponse> =>
   transport.request("POST", `/api/admin/agent-sessions/${segment(input.path.id)}/cancel`) as Promise<PostApiAdminAgentSessionsIdCancelResponse>
 
-export type PostApiAdminAlphaWaitlistApproveResponse = AnyJSON
-
-/** POST /api/admin/alpha/waitlist/approve */
-export const postApiAdminAlphaWaitlistApprove = (transport: Transport): Promise<PostApiAdminAlphaWaitlistApproveResponse> =>
-  transport.request("POST", `/api/admin/alpha/waitlist/approve`) as Promise<PostApiAdminAlphaWaitlistApproveResponse>
-
 export type PostApiAdminGithubAppReconcileResponse = AnyJSON
 
 /** POST /api/admin/github-app/reconcile */
@@ -847,12 +815,6 @@ export interface PostApiAgentTurnRetireInput {
 /** POST /api/agent/turn/retire */
 export const postApiAgentTurnRetire = (transport: Transport, input?: PostApiAgentTurnRetireInput): Promise<PostApiAgentTurnRetireResponse> =>
   transport.request("POST", `/api/agent/turn/retire`, input?.body) as Promise<PostApiAgentTurnRetireResponse>
-
-export type PostApiAlphaWaitlistResponse = AnyJSON
-
-/** POST /api/alpha/waitlist */
-export const postApiAlphaWaitlist = (transport: Transport): Promise<PostApiAlphaWaitlistResponse> =>
-  transport.request("POST", `/api/alpha/waitlist`) as Promise<PostApiAlphaWaitlistResponse>
 
 export type DeleteApiAppTimelinesIdMembersUserDResponse = AnyJSON
 
@@ -2306,6 +2268,17 @@ export interface PostApiRecommendOutcomeInput {
 /** POST /api/recommend/outcome */
 export const postApiRecommendOutcome = (transport: Transport, input?: PostApiRecommendOutcomeInput): Promise<PostApiRecommendOutcomeResponse> =>
   transport.request("POST", `/api/recommend/outcome`, input?.body) as Promise<PostApiRecommendOutcomeResponse>
+
+export type GetApiReposOwnerRepoChangesCountResponse = AnyJSON
+
+export interface GetApiReposOwnerRepoChangesCountInput {
+  readonly path: { readonly owner: string; readonly repo: string }
+  readonly query: { readonly rev: string; readonly since: string }
+}
+
+/** GET /api/repos/{owner}/{repo}/changes/count */
+export const getApiReposOwnerRepoChangesCount = (transport: Transport, input: GetApiReposOwnerRepoChangesCountInput): Promise<GetApiReposOwnerRepoChangesCountResponse> =>
+  transport.request("GET", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/changes/count${search({ rev: input.query.rev, since: input.query.since })}`) as Promise<GetApiReposOwnerRepoChangesCountResponse>
 
 export type GetApiReposOwnerRepoResponse = AnyJSON
 

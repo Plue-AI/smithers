@@ -10,7 +10,6 @@ Commands:
   approvals     Find and resolve pending approval requests
   artifact      artifact
   auth          auth
-  beta          beta
   bookmark      bookmark
   bug           Submit a redacted bug report to the configured endpoint
   build         Execute the build targets selected by a pattern

@@ -5,10 +5,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -41,7 +39,7 @@ func authHEncrypt(t *testing.T, secret, value string) []byte {
 	return encrypted
 }
 
-func TestAuth_H_KeyAuthOAuthStartAndClosedBetaBranches(t *testing.T) {
+func TestAuth_H_KeyAuthAndOAuthStartBranches(t *testing.T) {
 	ctx := context.Background()
 	cfg := defaultAuthConfig()
 
@@ -55,41 +53,6 @@ func TestAuth_H_KeyAuthOAuthStartAndClosedBetaBranches(t *testing.T) {
 	_, err := svc.VerifyKeyAuth(ctx, "message", "sig")
 	require.Error(t, err)
 	assert.Equal(t, 500, apiStatus(t, err))
-
-	cfg.ClosedAlphaEnabled = true
-	svc = NewAuthService(&mockAuthQuerier{
-		consumeAuthNonceFn: func(context.Context, db.ConsumeAuthNonceParams) (int64, error) {
-			return 1, nil
-		},
-		getUserByWalletAddressFn: func(context.Context, pgtype.Text) (db.User, error) {
-			return db.User{}, pgx.ErrNoRows
-		},
-		isWhitelistedIdentityFn: func(context.Context, db.IsWhitelistedIdentityParams) (bool, error) {
-			return false, errors.New("whitelist failed")
-		},
-	}, cfg, mockKeyAuthVerifier{verifyFn: func(string, string, string) (string, string, error) {
-		return "0x1111111111111111111111111111111111111111", "nonce", nil
-	}}, nil)
-	_, err = svc.VerifyKeyAuth(ctx, "message", "sig")
-	require.Error(t, err)
-	assert.Equal(t, 500, apiStatus(t, err))
-
-	svc = NewAuthService(&mockAuthQuerier{
-		consumeAuthNonceFn: func(context.Context, db.ConsumeAuthNonceParams) (int64, error) {
-			return 1, nil
-		},
-		getUserByWalletAddressFn: func(context.Context, pgtype.Text) (db.User, error) {
-			return db.User{ID: 9, Username: "wallet", WalletAddress: pgtype.Text{String: "0x2222222222222222222222222222222222222222", Valid: true}}, nil
-		},
-		isWhitelistedIdentityFn: func(context.Context, db.IsWhitelistedIdentityParams) (bool, error) {
-			return false, nil
-		},
-	}, cfg, mockKeyAuthVerifier{verifyFn: func(string, string, string) (string, string, error) {
-		return "0xabc", "nonce", nil
-	}}, nil)
-	_, err = svc.VerifyKeyAuth(ctx, "message", "sig")
-	require.Error(t, err)
-	assert.Equal(t, 403, apiStatus(t, err))
 
 	auth0 := mockGitHubClient{authorizationURL: "https://auth0.test/authorize"}
 	svc = NewAuthService(&mockAuthQuerier{}, defaultAuthConfig(), nil, nil)
@@ -114,131 +77,6 @@ func TestAuth_H_KeyAuthOAuthStartAndClosedBetaBranches(t *testing.T) {
 	assert.Equal(t, 500, apiStatus(t, err))
 }
 
-func TestAuth_H_WaitlistPromotionAndIdentityBranches(t *testing.T) {
-	ctx := context.Background()
-	cfg := defaultAuthConfig()
-	cfg.ClosedAlphaEnabled = true
-	svc := NewAuthService(&mockAuthQuerier{}, cfg, nil, nil)
-
-	err := svc.enforceWorkOSWaitlistAccess(ctx, GitHubUserProfile{Login: "octo"}, []GitHubEmail{{Email: "unverified@example.com", Verified: false}}, nil)
-	require.Error(t, err)
-	assert.Equal(t, 403, apiStatus(t, err))
-
-	svc = NewAuthService(&mockAuthQuerier{
-		getWaitlistEntryByLowerEmailFn: func(context.Context, string) (db.AlphaWaitlistEntry, error) {
-			return db.AlphaWaitlistEntry{}, errors.New("query failed")
-		},
-	}, cfg, nil, nil)
-	err = svc.enforceWorkOSWaitlistAccess(ctx, GitHubUserProfile{Login: "octo"}, []GitHubEmail{{Email: "ok@example.com", Verified: true}}, nil)
-	require.Error(t, err)
-	assert.Equal(t, 500, apiStatus(t, err))
-
-	svc = NewAuthService(&mockAuthQuerier{
-		upsertWaitlistEntryFn: func(context.Context, db.UpsertWaitlistEntryParams) (db.AlphaWaitlistEntry, error) {
-			return db.AlphaWaitlistEntry{}, errors.New("insert failed")
-		},
-	}, cfg, nil, nil)
-	err = svc.enforceWorkOSWaitlistAccess(ctx, GitHubUserProfile{Login: "octo"}, []GitHubEmail{{Email: "ok@example.com", Verified: true}}, nil)
-	require.Error(t, err)
-	assert.Equal(t, 500, apiStatus(t, err))
-
-	svc = NewAuthService(&mockAuthQuerier{
-		getWaitlistEntryByLowerEmailFn: func(context.Context, string) (db.AlphaWaitlistEntry, error) {
-			return db.AlphaWaitlistEntry{Status: WaitlistStatusPending}, nil
-		},
-	}, cfg, nil, nil)
-	err = svc.enforceWorkOSWaitlistAccess(ctx, GitHubUserProfile{Login: "octo"}, []GitHubEmail{{Email: "ok@example.com", Verified: true}}, nil)
-	require.Error(t, err)
-	assert.Equal(t, 403, apiStatus(t, err))
-
-	svc = NewAuthService(&mockAuthQuerier{}, cfg, nil, nil)
-	err = svc.promoteApprovedWorkOSWaitlistEntry(ctx, "not-email", "octo")
-	require.Error(t, err)
-	assert.Equal(t, 500, apiStatus(t, err))
-
-	svc = NewAuthService(&mockAuthQuerier{
-		addWhitelistEntryFn: func(context.Context, db.AddWhitelistEntryParams) (db.AlphaWhitelistEntry, error) {
-			return db.AlphaWhitelistEntry{}, errors.New("add failed")
-		},
-	}, cfg, nil, nil)
-	err = svc.promoteApprovedWorkOSWaitlistEntry(ctx, "ok@example.com", "octo")
-	require.Error(t, err)
-	assert.Equal(t, 500, apiStatus(t, err))
-
-	var checked []string
-	svc = NewAuthService(&mockAuthQuerier{
-		isWhitelistedIdentityFn: func(_ context.Context, arg db.IsWhitelistedIdentityParams) (bool, error) {
-			checked = append(checked, arg.IdentityType+":"+arg.LowerIdentityValue)
-			return arg.IdentityType == WhitelistIdentityWallet, nil
-		},
-	}, cfg, nil, nil)
-	err = svc.enforceClosedBetaForUser(ctx, db.User{
-		Username:      "octo",
-		Email:         pgtype.Text{String: "octo@example.com", Valid: true},
-		WalletAddress: pgtype.Text{String: "0x3333333333333333333333333333333333333333", Valid: true},
-	}, nil)
-	require.NoError(t, err)
-	assert.Contains(t, checked, WhitelistIdentityEmail+":octo@example.com")
-	assert.Contains(t, checked, WhitelistIdentityWallet+":0x3333333333333333333333333333333333333333")
-
-	allowed, err := svc.isAnyClosedBetaIdentityWhitelisted(ctx, []closedAlphaIdentity{
-		{identityType: "bad", identityValue: ""},
-		{identityType: WhitelistIdentityEmail, identityValue: "dupe@example.com"},
-		{identityType: WhitelistIdentityEmail, identityValue: "DUPE@example.com"},
-	})
-	require.NoError(t, err)
-	assert.False(t, allowed)
-
-	svc = NewAuthService(&mockAuthQuerier{
-		isWhitelistedIdentityFn: func(context.Context, db.IsWhitelistedIdentityParams) (bool, error) {
-			return false, errors.New("whitelist query failed")
-		},
-	}, cfg, nil, nil)
-	err = svc.enforceWorkOSWaitlistAccess(ctx, GitHubUserProfile{}, nil, []closedAlphaIdentity{
-		{identityType: WhitelistIdentityEmail, identityValue: "ok@example.com"},
-	})
-	require.Error(t, err)
-	assert.Equal(t, 500, apiStatus(t, err))
-
-	svc = NewAuthService(&mockAuthQuerier{
-		getWaitlistEntryByLowerEmailFn: func(context.Context, string) (db.AlphaWaitlistEntry, error) {
-			return db.AlphaWaitlistEntry{Status: WaitlistStatusApproved}, nil
-		},
-		addWhitelistEntryFn: func(context.Context, db.AddWhitelistEntryParams) (db.AlphaWhitelistEntry, error) {
-			return db.AlphaWhitelistEntry{}, errors.New("promote failed")
-		},
-	}, cfg, nil, nil)
-	err = svc.enforceWorkOSWaitlistAccess(ctx, GitHubUserProfile{Login: "octo"}, []GitHubEmail{{Email: "ok@example.com", Verified: true}}, nil)
-	require.Error(t, err)
-	assert.Equal(t, 500, apiStatus(t, err))
-
-	svc = NewAuthService(&mockAuthQuerier{}, cfg, nil, nil)
-	require.NoError(t, svc.promoteApprovedWorkOSWaitlistEntry(ctx, "ok@example.com", " "))
-
-	adds := 0
-	svc = NewAuthService(&mockAuthQuerier{
-		addWhitelistEntryFn: func(context.Context, db.AddWhitelistEntryParams) (db.AlphaWhitelistEntry, error) {
-			adds++
-			if adds == 2 {
-				return db.AlphaWhitelistEntry{}, errors.New("second add failed")
-			}
-			return db.AlphaWhitelistEntry{}, nil
-		},
-	}, cfg, nil, nil)
-	err = svc.promoteApprovedWorkOSWaitlistEntry(ctx, "ok@example.com", "octo")
-	require.Error(t, err)
-	assert.Equal(t, 500, apiStatus(t, err))
-
-	svc = NewAuthService(&mockAuthQuerier{
-		isWhitelistedIdentityFn: func(context.Context, db.IsWhitelistedIdentityParams) (bool, error) {
-			return false, errors.New("closed beta query failed")
-		},
-	}, cfg, nil, nil)
-	err = svc.enforceClosedBetaForUser(ctx, db.User{Username: "octo"}, nil)
-	require.Error(t, err)
-	assert.Equal(t, 500, apiStatus(t, err))
-}
-
 func TestAuth_H_ResolveOAuthUserFailureBranches(t *testing.T) {
 	ctx := context.Background()
 	cfg := defaultAuthConfig()
@@ -259,23 +97,6 @@ func TestAuth_H_ResolveOAuthUserFailureBranches(t *testing.T) {
 	_, err := svc.resolveOAuthUser(ctx, client, "workos", "access", "", 0)
 	require.Error(t, err)
 	assert.Equal(t, 500, apiStatus(t, err))
-
-	cfg.ClosedAlphaEnabled = true
-	encrypted := authHEncrypt(t, cfg.SessionSecret, "old")
-	svc = NewAuthService(&mockAuthQuerier{
-		getOAuthAccountByProviderUserIDFn: func(context.Context, db.GetOAuthAccountByProviderUserIDParams) (db.OauthAccount, error) {
-			return db.OauthAccount{UserID: 5, AccessTokenEncrypted: encrypted}, nil
-		},
-		getUserByIDFn: func(context.Context, int64) (db.User, error) {
-			return db.User{ID: 5, Username: "octo"}, nil
-		},
-		getWaitlistEntryByLowerEmailFn: func(context.Context, string) (db.AlphaWaitlistEntry, error) {
-			return db.AlphaWaitlistEntry{Status: WaitlistStatusPending}, nil
-		},
-	}, cfg, nil, client)
-	_, err = svc.resolveOAuthUser(ctx, client, "workos", "access", "", 0)
-	require.Error(t, err)
-	assert.Equal(t, 403, apiStatus(t, err))
 
 	cfg = defaultAuthConfig()
 	cfg.SessionSecret = ""
@@ -307,26 +128,6 @@ func TestAuth_H_ResolveOAuthUserFailureBranches(t *testing.T) {
 	_, err = svc.resolveOAuthUser(ctx, client, "workos", "access", "", 0)
 	require.Error(t, err)
 	assert.Equal(t, 500, apiStatus(t, err))
-
-	cfg = defaultAuthConfig()
-	cfg.ClosedAlphaEnabled = true
-	svc = NewAuthService(&mockAuthQuerier{
-		getOAuthAccountByProviderUserIDFn: func(context.Context, db.GetOAuthAccountByProviderUserIDParams) (db.OauthAccount, error) {
-			return db.OauthAccount{}, pgx.ErrNoRows
-		},
-		getWaitlistEntryByLowerEmailFn: func(context.Context, string) (db.AlphaWaitlistEntry, error) {
-			return db.AlphaWaitlistEntry{Status: WaitlistStatusApproved}, nil
-		},
-		createUserFn: func(context.Context, db.CreateUserParams) (db.User, error) {
-			return db.User{ID: 8, Username: "octo"}, nil
-		},
-		isWhitelistedIdentityFn: func(context.Context, db.IsWhitelistedIdentityParams) (bool, error) {
-			return false, nil
-		},
-	}, cfg, nil, client)
-	_, err = svc.resolveOAuthUser(ctx, client, "workos", "access", "refresh", 0)
-	require.Error(t, err)
-	assert.Equal(t, 403, apiStatus(t, err))
 }
 
 func TestAuth_H_ResolveOAuthUserMarshalAndEncryptSeams(t *testing.T) {
@@ -763,16 +564,4 @@ func TestAuth_H_RefreshCASAbsentBranch(t *testing.T) {
 	_, err := svc.RefreshUserGitHubToken(context.Background(), account)
 	require.Error(t, err)
 	assert.Equal(t, 500, apiStatus(t, err))
-}
-
-func TestAuth_H_WaitlistApprovedPromotionUsernameSkip(t *testing.T) {
-	cfg := defaultAuthConfig()
-	cfg.ClosedAlphaEnabled = true
-	svc := NewAuthService(&mockAuthQuerier{}, cfg, nil, nil)
-	err := svc.enforceWorkOSWaitlistAccess(context.Background(), GitHubUserProfile{Login: " "}, []GitHubEmail{{Email: "ok@example.com", Verified: true}}, []closedAlphaIdentity{})
-	require.Error(t, err)
-	assert.Equal(t, 403, apiStatus(t, err))
-
-	svc.now = func() time.Time { return time.Unix(100, 0).UTC() }
-	assert.Equal(t, time.Unix(100, 0).UTC(), svc.now())
 }

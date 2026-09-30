@@ -232,25 +232,6 @@ func TestAuth_F_GetGitHubOAuthCallback(t *testing.T) {
 		require.Equal(t, http.StatusBadRequest, rec.Code)
 	})
 
-	t.Run("waitlist redirect with position", func(t *testing.T) {
-		pos := 42
-		h := &AuthHandler{Service: mockAuthService{
-			completeGitHubFn: func(context.Context, string, string, string) (services.OAuthCallbackResult, error) {
-				return services.OAuthCallbackResult{}, &pkgerrors.APIError{
-					Status:           http.StatusForbidden,
-					Code:             "NOT_ON_WAITLIST",
-					Message:          "not approved",
-					WaitlistPosition: &pos,
-				}
-			},
-		}, AuthConfig: defaultRouteAuthConfig()}
-		req := httptest.NewRequest(http.MethodGet, "/api/auth/github/callback?code=c&state=s", nil)
-		rec := httptest.NewRecorder()
-		h.GetGitHubOAuthCallback(rec, req)
-		require.Equal(t, http.StatusFound, rec.Code)
-		assert.Equal(t, "/?waitlist=1&position=42", rec.Header().Get("Location"))
-	})
-
 	t.Run("csrf error", func(t *testing.T) {
 		withFailingAuthRandom(t)
 		h := &AuthHandler{Service: mockAuthService{

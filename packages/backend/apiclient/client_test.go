@@ -63,10 +63,10 @@ func TestTypedResponseDecodesAndSendsHeaders(t *testing.T) {
 
 func TestPathParametersAreEscapedPerSegment(t *testing.T) {
 	client, requests := server(t, http.StatusNoContent, "", "")
-	require.NoError(t, client.DeleteAPIAdminAlphaWhitelistIdentityTypeIdentityValue(context.Background(), "email", "a/b c?#@x.test"))
+	require.NoError(t, client.DeleteAPIOrgsOrgSecretsName(context.Background(), "a/b", "c?#@x.test"))
 	require.NoError(t, client.DeleteAPIUserKeysID(context.Background(), 42))
 	require.Len(t, *requests, 2)
-	assert.Equal(t, "/api/admin/alpha/whitelist/email/a%2Fb%20c%3F%23@x.test", (*requests)[0].RawPath)
+	assert.Equal(t, "/api/orgs/a%2Fb/secrets/c%3F%23@x.test", (*requests)[0].RawPath)
 	assert.Equal(t, "DELETE", (*requests)[1].Method)
 	assert.Equal(t, "/api/user/keys/42", (*requests)[1].RawPath)
 }

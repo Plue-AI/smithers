@@ -457,7 +457,7 @@ describe("remaining read and update contracts", () => {
     expect(existsSync(out)).toBe(false)
     expect(existsSync(`${out}.partial`)).toBe(false)
   })
-  it.each(["admin user list", "admin runs list", "beta waitlist list"])("reads %s with page controls", async (name) => {
+  it.each(["admin user list", "admin runs list"])("reads %s with page controls", async (name) => {
     const { c, request } = await fixture()
     await admin[name]!(c, {}, { ...options, page: 2, limit: 10, "per-page": 10 })
     expect(request.mock.calls[0]![0]).toBe("GET")

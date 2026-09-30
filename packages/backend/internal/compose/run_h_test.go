@@ -510,8 +510,6 @@ func TestRun_FullyConfigured(t *testing.T) {
 	// API base URL /api suffix trim.
 	// Custom active storage set.
 	env["ACTIVE_STORAGE_SET"] = "custom"
-	// Closed alpha -> oauth2AlphaAccess wired.
-	env["SMITHERS_AUTH_CLOSED_ALPHA_ENABLED"] = "true"
 	// Email SMTP transport + explicit From.
 	env["SMITHERS_EMAIL_SMTP_HOST"] = "smtp.example.com"
 	env["SMITHERS_EMAIL_FROM"] = "noreply@example.com"

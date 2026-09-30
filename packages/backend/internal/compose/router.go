@@ -282,13 +282,6 @@ func buildRouter(
 
 	healthzHandler := routes.NewHealthzHandler(pool, cfg.RepoHost.URL)
 	readyzHandler := routes.NewReadyzHandler(pool, cfg.RepoHost.URL)
-	var alphaAccessHandler *routes.AlphaAccessHandler
-	if queries != nil {
-		alphaAccessHandler = &routes.AlphaAccessHandler{
-			Service:      services.NewAlphaAccessService(queries),
-			AuditService: services.NewAuditService(queries),
-		}
-	}
 
 	// Public health endpoint
 	r.Get("/health", routes.Health)
@@ -1040,9 +1033,6 @@ func buildRouter(
 			r.With(middleware.AuthRateLimit(queries), authLoader(queries, cfg.Auth), middleware.RequireAuth).Get("/auth/linear", linearHandler.GetLinearOAuthStart)
 			r.With(middleware.AuthRateLimit(queries), authLoader(queries, cfg.Auth), middleware.RequireAuth).Get("/auth/linear/callback", linearHandler.GetLinearOAuthCallback)
 		}
-		if alphaAccessHandler != nil {
-			r.With(middleware.AuthRateLimit(queries)).Post("/alpha/waitlist", alphaAccessHandler.PostWaitlistJoin)
-		}
 		r.Post("/auth/logout", authHandler.PostLogout)
 
 		// OAuth2 provider endpoints.
@@ -1062,10 +1052,7 @@ func buildRouter(
 			//   2) enforces PKCE S256 up front (RFC 7636 + RFC 8252 §6),
 			//   3) enforces the state param (anti-CSRF, RFC 8252 §8.9),
 			//   4) detours unauthenticated users through the upstream
-			//      IdP (the GitHub App OAuth flow) to establish a session,
-			//   5) enforces the closed-alpha whitelist before issuing a
-			//      code, returning structured error code
-			//      "access_not_granted" on denial.
+			//      IdP (the GitHub App OAuth flow) to establish a session.
 			// Rate-limited via AuthRateLimit to deter authorize-endpoint
 			// abuse (enumeration of client_ids, PKCE oracle attempts).
 			//
@@ -1991,13 +1978,6 @@ func buildRouter(
 						scope = writeAdmin
 					}
 					r.With(scope...).Method(route.Method, route.Pattern, withAdminAuditActor(route.Handler))
-				}
-				if alphaAccessHandler != nil {
-					r.With(readAdmin...).Get("/alpha/whitelist", alphaAccessHandler.GetAdminWhitelist)
-					r.With(writeAdmin...).Post("/alpha/whitelist", alphaAccessHandler.PostAdminWhitelist)
-					r.With(writeAdmin...).Delete("/alpha/whitelist/{identity_type}/{identity_value}", alphaAccessHandler.DeleteAdminWhitelist)
-					r.With(readAdmin...).Get("/alpha/waitlist", alphaAccessHandler.GetAdminWaitlist)
-					r.With(writeAdmin...).Post("/alpha/waitlist/approve", alphaAccessHandler.PostAdminWaitlistApprove)
 				}
 			})
 		})

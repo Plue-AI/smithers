@@ -80,7 +80,7 @@ transfer.
 | `secret`, `variable`, `ssh-key`, `org`, `webhook`, `extension linear`, `artifact` | Backend resources and integrations. |
 | `cache cloud list/stats/clear`, `cache connect`, `cache token` | Backend caches. `cache status/prune/clear` retains local target-cache behavior. |
 | `agent ask`, `agent session list/view/run/chat` | Cached documentation and backend conversations. |
-| `admin`, `beta` | Existing administrative and rollout APIs; destructive commands require confirmation or `--yes`. |
+| `admin` | Existing administrative APIs; destructive commands require confirmation or `--yes`. |
 | `api <path>`, `config`, `completion bash/zsh/fish` | Raw API calls, configuration and completion scripts. |
 
 `--repo OWNER/REPO` (or `-R`) also selects the backend for overlapping `flow` and

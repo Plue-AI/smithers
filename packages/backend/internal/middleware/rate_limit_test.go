@@ -1391,7 +1391,7 @@ func TestInteractiveAuthRateLimit_IsolatedFromStrictAuthScope(t *testing.T) {
 	interactiveHandler.ServeHTTP(rec2, req2)
 	require.Equal(t, http.StatusTooManyRequests, rec2.Code)
 
-	// The strict "auth" scope (key/verify/token, waitlist, oauth2, …) is a
+	// The strict "auth" scope (key/verify/token, oauth2, …) is a
 	// separate bucket and still has capacity for the same IP.
 	rec3 := httptest.NewRecorder()
 	req3 := httptest.NewRequest(http.MethodPost, "/api/auth/key/verify", nil)

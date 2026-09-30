@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -23,27 +22,6 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 )
 
-// mockAlphaAccessChecker is a stub OAuth2AlphaAccessChecker for authorize tests.
-type mockAlphaAccessChecker struct {
-	mu      sync.Mutex
-	allowed map[int64]bool
-	err     error
-	calls   int
-}
-
-func (m *mockAlphaAccessChecker) IsUserWhitelisted(_ context.Context, user *db.User) (bool, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.calls++
-	if m.err != nil {
-		return false, m.err
-	}
-	if user == nil {
-		return false, nil
-	}
-	return m.allowed[user.ID], nil
-}
-
 // pkceS256 returns the RFC 7636 S256 code_challenge for a given verifier.
 func pkceS256(verifier string) string {
 	sum := sha256.Sum256([]byte(verifier))
@@ -53,9 +31,8 @@ func pkceS256(verifier string) string {
 // authorizeTestRig wires a minimal OAuth2Handler with stub dependencies
 // suitable for exercising the end-to-end authorize flow in-process.
 type authorizeTestRig struct {
-	handler   *OAuth2Handler
-	service   *mockOAuth2RouteService
-	whitelist *mockAlphaAccessChecker
+	handler *OAuth2Handler
+	service *mockOAuth2RouteService
 	// fixedCode is the auth code the mocked Authorize returns when invoked.
 	// Tests can inspect what Authorize was called with via capturedAuthorize.
 	fixedCode         string
@@ -86,7 +63,6 @@ func (c *capturedAuthorizeCall) Called() bool {
 func newAuthorizeTestRig(t *testing.T) *authorizeTestRig {
 	t.Helper()
 	captured := &capturedAuthorizeCall{}
-	whitelist := &mockAlphaAccessChecker{allowed: map[int64]bool{}}
 
 	registeredApp := services.OAuth2ApplicationResponse{
 		ID:       41,
@@ -150,7 +126,6 @@ func newAuthorizeTestRig(t *testing.T) *authorizeTestRig {
 
 	rig := &authorizeTestRig{
 		service:           svc,
-		whitelist:         whitelist,
 		fixedCode:         "auth-code-xyz",
 		capturedAuthorize: captured,
 	}
@@ -158,7 +133,6 @@ func newAuthorizeTestRig(t *testing.T) *authorizeTestRig {
 		Service:      svc,
 		Metrics:      NewSmithersMetrics(),
 		CookieSecure: true,
-		AlphaAccess:  whitelist,
 	}
 	return rig
 }
@@ -233,14 +207,13 @@ func approveAuthorizeConsent(t *testing.T, h *OAuth2Handler, getRec *httptest.Re
 }
 
 // TestOAuth2Authorize_ValidRoundTrip_IssuesCodeBoundToRedirectURI covers the
-// happy path: authenticated + whitelisted user, valid PKCE S256, registered
+// happy path: authenticated user, valid PKCE S256, registered
 // redirect_uri → CSRF-bound consent page on GET, then the approving POST
 // 302s with code + state echoed and the underlying service call carries PKCE
 // params through. The GET itself must never mint a code (login CSRF).
 func TestOAuth2Authorize_ValidRoundTrip_IssuesCodeBoundToRedirectURI(t *testing.T) {
 	t.Parallel()
 	rig := newAuthorizeTestRig(t)
-	rig.whitelist.allowed[42] = true
 
 	verifier := "test-code-verifier-long-enough-to-pass"
 	params := url.Values{}
@@ -352,7 +325,6 @@ func TestOAuth2Authorize_BrowserRoundTrip_ThroughGitHubCallback(t *testing.T) {
 	t.Parallel()
 
 	rig := newAuthorizeTestRig(t)
-	rig.whitelist.allowed[42] = true
 
 	var capturedStateVerifier string
 	authHandler := AuthHandler{
@@ -444,35 +416,6 @@ func TestOAuth2Authorize_BrowserRoundTrip_ThroughGitHubCallback(t *testing.T) {
 	assert.Equal(t, "opaque-state-123", finalURL.Query().Get("state"))
 }
 
-// TestOAuth2Authorize_UnwhitelistedUser_ReturnsStructuredError covers the
-// alpha-whitelist denial: authenticated user not on whitelist → 403 JSON
-// with machine-readable code "access_not_granted".
-func TestOAuth2Authorize_UnwhitelistedUser_ReturnsStructuredError(t *testing.T) {
-	t.Parallel()
-	rig := newAuthorizeTestRig(t)
-	// whitelist is empty — user 42 is NOT allowed.
-
-	params := url.Values{}
-	params.Set("response_type", "code")
-	params.Set("client_id", services.FirstPartyClientID)
-	params.Set("redirect_uri", "smithers://oauth2/callback")
-	params.Set("state", "opaque-state-123")
-	params.Set("code_challenge", pkceS256("verifier"))
-	params.Set("code_challenge_method", "S256")
-
-	req := newAuthorizeReq(t, params, &db.User{ID: 42, Username: "bob"})
-	rec := httptest.NewRecorder()
-	rig.handler.GetAuthorize(rec, req)
-
-	require.Equal(t, http.StatusForbidden, rec.Code)
-	var body pkgerrors.APIError
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&body))
-	assert.Equal(t, ErrCodeAccessNotGranted, body.Code, "must return machine-readable code so client UI can branch on it")
-	assert.NotEmpty(t, body.Message)
-
-	assert.False(t, rig.capturedAuthorize.Called(), "no code should be issued for a non-whitelisted user")
-}
-
 // TestOAuth2Authorize_WrongRedirectURI_Rejected covers the redirect_uri
 // binding: a URI not in the registered client's list must be rejected with
 // 400, and the server MUST NOT redirect to the supplied URI (RFC 6749
@@ -480,7 +423,6 @@ func TestOAuth2Authorize_UnwhitelistedUser_ReturnsStructuredError(t *testing.T) 
 func TestOAuth2Authorize_WrongRedirectURI_Rejected(t *testing.T) {
 	t.Parallel()
 	rig := newAuthorizeTestRig(t)
-	rig.whitelist.allowed[42] = true
 
 	params := url.Values{}
 	params.Set("response_type", "code")
@@ -507,7 +449,6 @@ func TestOAuth2Authorize_WrongRedirectURI_Rejected(t *testing.T) {
 func TestOAuth2Authorize_LoopbackPortVariantAccepted(t *testing.T) {
 	t.Parallel()
 	rig := newAuthorizeTestRig(t)
-	rig.whitelist.allowed[42] = true
 
 	params := url.Values{}
 	params.Set("response_type", "code")
@@ -539,7 +480,6 @@ func TestOAuth2Authorize_LoopbackPortVariantAccepted(t *testing.T) {
 func TestOAuth2Authorize_MissingStateRejected(t *testing.T) {
 	t.Parallel()
 	rig := newAuthorizeTestRig(t)
-	rig.whitelist.allowed[42] = true
 
 	params := url.Values{}
 	params.Set("response_type", "code")
@@ -562,7 +502,6 @@ func TestOAuth2Authorize_MissingStateRejected(t *testing.T) {
 func TestOAuth2Authorize_MissingPKCE_Rejected(t *testing.T) {
 	t.Parallel()
 	rig := newAuthorizeTestRig(t)
-	rig.whitelist.allowed[42] = true
 
 	params := url.Values{}
 	params.Set("response_type", "code")
@@ -585,7 +524,6 @@ func TestOAuth2Authorize_MissingPKCE_Rejected(t *testing.T) {
 func TestOAuth2Authorize_RejectsNonS256PKCE(t *testing.T) {
 	t.Parallel()
 	rig := newAuthorizeTestRig(t)
-	rig.whitelist.allowed[42] = true
 
 	params := url.Values{}
 	params.Set("response_type", "code")
@@ -653,7 +591,6 @@ func TestOAuth2Authorize_ThirdPartyClient_DeniedWithoutConsent(t *testing.T) {
 	t.Parallel()
 	const attackerClientID = "attacker_client_deadbeef"
 	captured := &capturedAuthorizeCall{}
-	whitelist := &mockAlphaAccessChecker{allowed: map[int64]bool{42: true}}
 	svc := &mockOAuth2RouteService{
 		getApplicationByClientIDFn: func(_ context.Context, clientID string) (services.OAuth2ApplicationResponse, error) {
 			return services.OAuth2ApplicationResponse{ID: 99, ClientID: clientID, RedirectURIs: []string{"https://attacker.example/cb"}, Scopes: []string{"read:user"}, Confidential: false}, nil
@@ -666,7 +603,7 @@ func TestOAuth2Authorize_ThirdPartyClient_DeniedWithoutConsent(t *testing.T) {
 			return services.OAuth2AuthorizeResult{Code: "should-not-happen", RedirectURI: redirectURI}, nil
 		},
 	}
-	handler := &OAuth2Handler{Service: svc, Metrics: NewSmithersMetrics(), AlphaAccess: whitelist}
+	handler := &OAuth2Handler{Service: svc, Metrics: NewSmithersMetrics()}
 
 	verifier := "test-code-verifier-long-enough-to-pass"
 	params := url.Values{}
@@ -705,7 +642,6 @@ func TestOAuth2Authorize_ResourceBoundToken_RefusedBeforeService(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			rig := newAuthorizeTestRig(t)
-			rig.whitelist.allowed[42] = true
 
 			req := newTokenAuthorizeReq(t, tokenAuthorizeParams(), &db.User{ID: 42, Username: "agent"}, rawScopes)
 			rec := httptest.NewRecorder()
@@ -727,7 +663,6 @@ func TestOAuth2Authorize_ResourceBoundToken_RefusedBeforeService(t *testing.T) {
 func TestOAuth2Authorize_TokenWithoutScopes_PassesEmptyCallerScopes(t *testing.T) {
 	t.Parallel()
 	rig := newAuthorizeTestRig(t)
-	rig.whitelist.allowed[42] = true
 
 	req := newTokenAuthorizeReq(t, tokenAuthorizeParams(), &db.User{ID: 42, Username: "agent"}, "")
 	rec := httptest.NewRecorder()
@@ -747,7 +682,6 @@ func TestOAuth2Authorize_TokenWithoutScopes_PassesEmptyCallerScopes(t *testing.T
 func TestOAuth2Authorize_UnrestrictedToken_PassesParsedScopes(t *testing.T) {
 	t.Parallel()
 	rig := newAuthorizeTestRig(t)
-	rig.whitelist.allowed[42] = true
 
 	req := newTokenAuthorizeReq(t, tokenAuthorizeParams(), &db.User{ID: 42, Username: "alice"}, "read:user")
 	rec := httptest.NewRecorder()
@@ -766,7 +700,6 @@ func TestOAuth2Authorize_UnrestrictedToken_PassesParsedScopes(t *testing.T) {
 func TestOAuth2Authorize_SessionCaller_PassesNilCallerScopes(t *testing.T) {
 	t.Parallel()
 	rig := newAuthorizeTestRig(t)
-	rig.whitelist.allowed[42] = true
 	params := tokenAuthorizeParams()
 	user := &db.User{ID: 42, Username: "alice"}
 

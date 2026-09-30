@@ -10,7 +10,6 @@ import (
 	stdErrors "errors"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"sort"
 	"strings"
 	"sync"
@@ -128,11 +127,6 @@ type AuthQuerier interface {
 	ListAccessTokensByUserID(ctx context.Context, userID int64) ([]db.AccessToken, error)
 	CreateAccessToken(ctx context.Context, arg db.CreateAccessTokenParams) (db.AccessToken, error)
 	DeleteAccessTokenByIDAndUserID(ctx context.Context, arg db.DeleteAccessTokenByIDAndUserIDParams) (int64, error)
-	IsWhitelistedIdentity(ctx context.Context, arg db.IsWhitelistedIdentityParams) (bool, error)
-	AddWhitelistEntry(ctx context.Context, arg db.AddWhitelistEntryParams) (db.AlphaWhitelistEntry, error)
-	UpsertWaitlistEntry(ctx context.Context, arg db.UpsertWaitlistEntryParams) (db.AlphaWaitlistEntry, error)
-	GetWaitlistEntryByLowerEmail(ctx context.Context, lowerEmail string) (db.AlphaWaitlistEntry, error)
-	GetWaitlistPosition(ctx context.Context, lowerEmail string) (int64, error)
 }
 
 type oauthAccountPreserveRefreshQuerier interface {
@@ -247,10 +241,7 @@ const (
 	multiWorkerTokenNamePrefix = "multi-worker"
 	// maxExchangeTokenTTL caps (and, for multi-worker tokens, defaults)
 	// the lifetime of exchange-minted PATs.
-	maxExchangeTokenTTL    = 8 * 24 * time.Hour
-	authWaitlistSource     = "workos-auth"
-	notOnWaitlistErrorCode = pkgerrors.CodeNotOnWaitlist
-	notOnWaitlistMessage   = "Your account is not yet approved"
+	maxExchangeTokenTTL = 8 * 24 * time.Hour
 	// githubTokenRefreshSkew is how long BEFORE the recorded expiry a stored
 	// GitHub access token is treated as already dead, so we refresh proactively
 	// instead of spending a doomed API call to learn it expired. Matches the
@@ -375,18 +366,6 @@ func (s *AuthService) VerifyKeyAuth(ctx context.Context, message, signature stri
 			return VerifyKeyAuthResult{}, pkgerrors.Internal("failed to find wallet user")
 		}
 
-		if s.cfg.ClosedAlphaEnabled {
-			allowed, allowErr := s.isAnyClosedBetaIdentityWhitelisted(ctx, []closedAlphaIdentity{
-				{identityType: WhitelistIdentityWallet, identityValue: walletAddress},
-			})
-			if allowErr != nil {
-				return VerifyKeyAuthResult{}, pkgerrors.Internal("failed to validate closed alpha access").WithCause(allowErr)
-			}
-			if !allowed {
-				return VerifyKeyAuthResult{}, pkgerrors.Forbidden("closed alpha access requires a whitelist invite")
-			}
-		}
-
 		candidates := walletUsernameCandidates(walletAddress)
 		for i, username := range candidates {
 			user, err = s.queries.CreateUserWithWallet(ctx, db.CreateUserWithWalletParams{
@@ -416,12 +395,6 @@ func (s *AuthService) VerifyKeyAuth(ctx context.Context, message, signature stri
 
 	if user.ProhibitLogin {
 		return VerifyKeyAuthResult{}, pkgerrors.Forbidden("account is suspended")
-	}
-
-	if err := s.enforceClosedBetaForUser(ctx, user, []closedAlphaIdentity{
-		{identityType: WhitelistIdentityWallet, identityValue: walletAddress},
-	}); err != nil {
-		return VerifyKeyAuthResult{}, err
 	}
 
 	rawSessionKey, session, err := s.createSession(ctx, user)
@@ -589,9 +562,8 @@ func (s *AuthService) completeOAuthWithClient(ctx context.Context, client GitHub
 
 // resolveOAuthUser verifies an OAuth access token against the provider by
 // fetching the profile and emails with it (identity always comes from the
-// provider's API, never from the caller's claim), enforces
-// closed-alpha/waitlist access, finds or creates the local user, and upserts
-// the oauth_accounts row (encrypted token) plus the primary email address.
+// provider's API, never from the caller's claim), finds or creates the local
+// user, and upserts the oauth_accounts row (encrypted token) plus the primary email address.
 // It is shared by the browser OAuth callback flow and the trusted worker
 // token-exchange flow.
 func (s *AuthService) resolveOAuthUser(ctx context.Context, client GitHubClient, provider, accessToken, refreshToken string, expiresIn int64) (db.User, error) {
@@ -603,28 +575,6 @@ func (s *AuthService) resolveOAuthUser(ctx context.Context, client GitHubClient,
 	emails, err := client.FetchEmails(ctx, accessToken)
 	if err != nil {
 		return db.User{}, oauthFetchError("emails", err)
-	}
-
-	candidateIdentities := make([]closedAlphaIdentity, 0, len(emails)+1)
-	candidateIdentities = append(candidateIdentities, closedAlphaIdentity{
-		identityType:  WhitelistIdentityUsername,
-		identityValue: profile.Login,
-	})
-	for _, email := range emails {
-		// Only GitHub-verified emails may satisfy the closed-alpha whitelist.
-		// GitHub lets a user list an arbitrary address as unverified; trusting
-		// those would let an un-invited attacker match a whitelisted email they
-		// do not actually own.
-		if !email.Verified {
-			continue
-		}
-		if strings.TrimSpace(email.Email) == "" {
-			continue
-		}
-		candidateIdentities = append(candidateIdentities, closedAlphaIdentity{
-			identityType:  WhitelistIdentityEmail,
-			identityValue: email.Email,
-		})
 	}
 
 	providerUserID := fmt.Sprintf("%d", profile.ID)
@@ -657,10 +607,6 @@ func (s *AuthService) resolveOAuthUser(ctx context.Context, client GitHubClient,
 				return db.User{}, pkgerrors.Forbidden("external identity is not linked to the installation owner")
 			}
 			user = owner
-		} else if !user.IsAdmin {
-			if accessErr := s.enforceWorkOSWaitlistAccess(ctx, profile, emails, candidateIdentities); accessErr != nil {
-				return db.User{}, accessErr
-			}
 		}
 	} else {
 		if !stdErrors.Is(err, pgx.ErrNoRows) {
@@ -673,10 +619,6 @@ func (s *AuthService) resolveOAuthUser(ctx context.Context, client GitHubClient,
 			// an alternate self-host account-provisioning path.
 			return db.User{}, pkgerrors.Forbidden("external identity is not linked to the installation owner")
 		} else {
-			if accessErr := s.enforceWorkOSWaitlistAccess(ctx, profile, emails, candidateIdentities); accessErr != nil {
-				return db.User{}, accessErr
-			}
-
 			// Only a GitHub-verified address may become users.email: an
 			// unverified one would squat the real owner's address on
 			// uq_users_lower_email and block their signup.
@@ -703,12 +645,6 @@ func (s *AuthService) resolveOAuthUser(ctx context.Context, client GitHubClient,
 
 	if user.ProhibitLogin {
 		return db.User{}, pkgerrors.Forbidden("account is suspended")
-	}
-
-	if !config.IsSingleOwner(s.cfg) {
-		if err := s.enforceClosedBetaForUser(ctx, user, candidateIdentities); err != nil {
-			return db.User{}, err
-		}
 	}
 
 	profileData, err := authJSONMarshal(profile)
@@ -1172,184 +1108,6 @@ func (s *AuthService) createSession(ctx context.Context, user db.User) (string, 
 	return rawSessionKey, session, err
 }
 
-type closedAlphaIdentity struct {
-	identityType  string
-	identityValue string
-}
-
-func notOnWaitlistError(position *int) *pkgerrors.APIError {
-	return &pkgerrors.APIError{
-		Status:           http.StatusForbidden,
-		Code:             notOnWaitlistErrorCode,
-		Message:          notOnWaitlistMessage,
-		WaitlistPosition: position,
-	}
-}
-
-// waitlistPosition returns the 1-indexed signup position for an email, or nil
-// if it can't be resolved (best-effort: a missing position just hides the number
-// in the waitlist UI, it never blocks the rejection).
-func (s *AuthService) waitlistPosition(ctx context.Context, lowerEmail string) *int {
-	pos, err := s.queries.GetWaitlistPosition(ctx, lowerEmail)
-	if err != nil || pos <= 0 {
-		return nil
-	}
-	p := int(pos)
-	return &p
-}
-
-func (s *AuthService) enforceWorkOSWaitlistAccess(ctx context.Context, profile GitHubUserProfile, emails []GitHubEmail, identities []closedAlphaIdentity) error {
-	if !s.cfg.ClosedAlphaEnabled {
-		return nil
-	}
-
-	allowed, err := s.isAnyClosedBetaIdentityWhitelisted(ctx, identities)
-	if err != nil {
-		return pkgerrors.Internal("failed to validate closed alpha access").WithCause(err)
-	}
-	if allowed {
-		return nil
-	}
-
-	// Only a GitHub-verified email may satisfy the closed-alpha waitlist gate.
-	// Falling back to an unverified address would let an un-invited
-	// attacker match a whitelisted/approved email they do not actually own (the
-	// same invariant already enforced when building candidateIdentities above).
-	email := pickVerifiedEmail(emails)
-	normalizedEmail, lowerEmail, emailErr := normalizeWaitlistEmail(email)
-	if emailErr != nil {
-		return notOnWaitlistError(nil)
-	}
-
-	waitlistEntry, queryErr := s.queries.GetWaitlistEntryByLowerEmail(ctx, lowerEmail)
-	if queryErr != nil {
-		if !stdErrors.Is(queryErr, pgx.ErrNoRows) {
-			return pkgerrors.Internal("failed to load waitlist entry")
-		}
-
-		_, upsertErr := s.queries.UpsertWaitlistEntry(ctx, db.UpsertWaitlistEntryParams{
-			Email:           normalizedEmail,
-			LowerEmail:      lowerEmail,
-			GithubUsername:  strings.TrimSpace(profile.Login),
-			GithubAvatarUrl: strings.TrimSpace(profile.AvatarURL),
-			Note:            "",
-			Source:          authWaitlistSource,
-		})
-		if upsertErr != nil {
-			return pkgerrors.Internal("failed to create waitlist entry").WithCause(upsertErr)
-		}
-		return notOnWaitlistError(s.waitlistPosition(ctx, lowerEmail))
-	}
-
-	if waitlistEntry.Status != WaitlistStatusApproved {
-		return notOnWaitlistError(s.waitlistPosition(ctx, lowerEmail))
-	}
-
-	if promoteErr := s.promoteApprovedWorkOSWaitlistEntry(ctx, normalizedEmail, profile.Login); promoteErr != nil {
-		return promoteErr
-	}
-
-	return nil
-}
-
-func (s *AuthService) promoteApprovedWorkOSWaitlistEntry(ctx context.Context, email, username string) error {
-	emailType, emailValue, lowerEmail, emailErr := NormalizeWhitelistIdentity(WhitelistIdentityEmail, email)
-	if emailErr != nil {
-		return pkgerrors.Internal("failed to promote approved waitlist entry").WithCause(emailErr)
-	}
-	_, err := s.queries.AddWhitelistEntry(ctx, db.AddWhitelistEntryParams{
-		IdentityType:       emailType,
-		IdentityValue:      emailValue,
-		LowerIdentityValue: lowerEmail,
-		CreatedBy:          pgtype.Int8{},
-	})
-	if err != nil {
-		return pkgerrors.Internal("failed to promote approved waitlist entry").WithCause(err)
-	}
-
-	usernameType, usernameValue, lowerUsername, usernameErr := NormalizeWhitelistIdentity(WhitelistIdentityUsername, username)
-	if usernameErr != nil {
-		return nil
-	}
-	_, err = s.queries.AddWhitelistEntry(ctx, db.AddWhitelistEntryParams{
-		IdentityType:       usernameType,
-		IdentityValue:      usernameValue,
-		LowerIdentityValue: lowerUsername,
-		CreatedBy:          pgtype.Int8{},
-	})
-	if err != nil {
-		return pkgerrors.Internal("failed to promote approved waitlist entry").WithCause(err)
-	}
-
-	return nil
-}
-
-func (s *AuthService) enforceClosedBetaForUser(ctx context.Context, user db.User, extra []closedAlphaIdentity) error {
-	if !s.cfg.ClosedAlphaEnabled {
-		return nil
-	}
-	if user.IsAdmin {
-		return nil
-	}
-
-	identities := make([]closedAlphaIdentity, 0, len(extra)+3)
-	identities = append(identities, extra...)
-	identities = append(identities, closedAlphaIdentity{
-		identityType:  WhitelistIdentityUsername,
-		identityValue: user.Username,
-	})
-	if user.Email.Valid && strings.TrimSpace(user.Email.String) != "" {
-		identities = append(identities, closedAlphaIdentity{
-			identityType:  WhitelistIdentityEmail,
-			identityValue: user.Email.String,
-		})
-	}
-	if user.WalletAddress.Valid && strings.TrimSpace(user.WalletAddress.String) != "" {
-		identities = append(identities, closedAlphaIdentity{
-			identityType:  WhitelistIdentityWallet,
-			identityValue: user.WalletAddress.String,
-		})
-	}
-
-	allowed, err := s.isAnyClosedBetaIdentityWhitelisted(ctx, identities)
-	if err != nil {
-		return pkgerrors.Internal("failed to validate closed alpha access").WithCause(err)
-	}
-	if !allowed {
-		return pkgerrors.Forbidden("closed alpha access requires a whitelist invite")
-	}
-	return nil
-}
-
-func (s *AuthService) isAnyClosedBetaIdentityWhitelisted(ctx context.Context, identities []closedAlphaIdentity) (bool, error) {
-	seen := make(map[string]struct{}, len(identities))
-	for _, candidate := range identities {
-		identityType, _, lowerIdentityValue, err := NormalizeWhitelistIdentity(candidate.identityType, candidate.identityValue)
-		if err != nil {
-			continue
-		}
-
-		dedupeKey := identityType + ":" + lowerIdentityValue
-		if _, exists := seen[dedupeKey]; exists {
-			continue
-		}
-		seen[dedupeKey] = struct{}{}
-
-		allowed, queryErr := s.queries.IsWhitelistedIdentity(ctx, db.IsWhitelistedIdentityParams{
-			IdentityType:       identityType,
-			LowerIdentityValue: lowerIdentityValue,
-		})
-		if queryErr != nil {
-			return false, queryErr
-		}
-		if allowed {
-			return true, nil
-		}
-	}
-
-	return false, nil
-}
-
 func splitScopes(raw string) []string {
 	if strings.TrimSpace(raw) == "" {
 		return []string{}
@@ -1508,8 +1266,8 @@ func oauthFetchError(what string, err error) error {
 }
 
 // pickVerifiedEmail returns a GitHub-verified email (primary first) or "" when
-// none is verified. Every caller that trusts an address (the closed-alpha
-// waitlist gate, users.email, activated email rows) uses it: an unverified
+// none is verified. Every caller that trusts an address (users.email,
+// activated email rows) uses it: an unverified
 // address would let an attacker claim or squat an email they do not own.
 func pickVerifiedEmail(emails []GitHubEmail) string {
 	for _, email := range emails {

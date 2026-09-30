@@ -778,6 +778,12 @@ type GetAPINotificationsEventsStreamParams struct {
 	After *int64
 }
 
+// GetAPIReposOwnerRepoChangesCountParams is the query of GET /api/repos/{owner}/{repo}/changes/count.
+type GetAPIReposOwnerRepoChangesCountParams struct {
+	Rev   string
+	Since time.Time
+}
+
 // PostAPIReposOwnerRepoLandingsNumberAutoLandBody is generated from docs/api/openapi.yaml.
 type PostAPIReposOwnerRepoLandingsNumberAutoLandBody struct {
 	Enabled bool `json:"enabled"`
@@ -896,11 +902,6 @@ type PostAPIUserKeysBody struct {
 	Key   string `json:"key"`
 }
 
-// DeleteAPIAdminAlphaWhitelistIdentityTypeIdentityValue calls DELETE /api/admin/alpha/whitelist/{identity_type}/{identity_value}.
-func (c *Client) DeleteAPIAdminAlphaWhitelistIdentityTypeIdentityValue(ctx context.Context, identityType string, identityValue string) error {
-	return c.do(ctx, "DELETE", "/api/admin/alpha/whitelist/"+url.PathEscape(identityType)+"/"+url.PathEscape(identityValue), nil, nil, nil)
-}
-
 // DeleteAPIAdminUsersUsername calls DELETE /api/admin/users/{username}.
 func (c *Client) DeleteAPIAdminUsersUsername(ctx context.Context, username string) error {
 	return c.do(ctx, "DELETE", "/api/admin/users/"+url.PathEscape(username), nil, nil, nil)
@@ -922,27 +923,6 @@ func (c *Client) DeleteAPIAdminUsersUsernameTokensTokenID(ctx context.Context, u
 func (c *Client) GetAPIAdminAgentSessions(ctx context.Context) (AnyJSON, error) {
 	var out AnyJSON
 	err := c.do(ctx, "GET", "/api/admin/agent-sessions", nil, nil, &out)
-	return out, err
-}
-
-// GetAPIAdminAlphaWaitlist calls GET /api/admin/alpha/waitlist.
-func (c *Client) GetAPIAdminAlphaWaitlist(ctx context.Context) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "GET", "/api/admin/alpha/waitlist", nil, nil, &out)
-	return out, err
-}
-
-// GetAPIAdminAlphaWhitelist calls GET /api/admin/alpha/whitelist.
-func (c *Client) GetAPIAdminAlphaWhitelist(ctx context.Context) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "GET", "/api/admin/alpha/whitelist", nil, nil, &out)
-	return out, err
-}
-
-// PostAPIAdminAlphaWhitelist calls POST /api/admin/alpha/whitelist.
-func (c *Client) PostAPIAdminAlphaWhitelist(ctx context.Context) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "POST", "/api/admin/alpha/whitelist", nil, nil, &out)
 	return out, err
 }
 
@@ -1054,13 +1034,6 @@ func (c *Client) PostAPIAdminAgentSessionsIDCancel(ctx context.Context, id strin
 	return out, err
 }
 
-// PostAPIAdminAlphaWaitlistApprove calls POST /api/admin/alpha/waitlist/approve.
-func (c *Client) PostAPIAdminAlphaWaitlistApprove(ctx context.Context) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "POST", "/api/admin/alpha/waitlist/approve", nil, nil, &out)
-	return out, err
-}
-
 // PostAPIAdminGithubAppReconcile calls POST /api/admin/github-app/reconcile.
 func (c *Client) PostAPIAdminGithubAppReconcile(ctx context.Context) (AnyJSON, error) {
 	var out AnyJSON
@@ -1121,13 +1094,6 @@ func (c *Client) PostAPIAgentTurnReplay(ctx context.Context, body any) (AnyJSON,
 func (c *Client) PostAPIAgentTurnRetire(ctx context.Context, body any) (AnyJSON, error) {
 	var out AnyJSON
 	err := c.do(ctx, "POST", "/api/agent/turn/retire", nil, body, &out)
-	return out, err
-}
-
-// PostAPIAlphaWaitlist calls POST /api/alpha/waitlist.
-func (c *Client) PostAPIAlphaWaitlist(ctx context.Context) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "POST", "/api/alpha/waitlist", nil, nil, &out)
 	return out, err
 }
 
@@ -2273,6 +2239,16 @@ func (c *Client) PostAPIRecommend(ctx context.Context, body any) (AnyJSON, error
 func (c *Client) PostAPIRecommendOutcome(ctx context.Context, body any) (AnyJSON, error) {
 	var out AnyJSON
 	err := c.do(ctx, "POST", "/api/recommend/outcome", nil, body, &out)
+	return out, err
+}
+
+// GetAPIReposOwnerRepoChangesCount calls GET /api/repos/{owner}/{repo}/changes/count.
+func (c *Client) GetAPIReposOwnerRepoChangesCount(ctx context.Context, owner string, repo string, params GetAPIReposOwnerRepoChangesCountParams) (AnyJSON, error) {
+	query := url.Values{}
+	query.Set("rev", params.Rev)
+	query.Set("since", params.Since.Format(time.RFC3339Nano))
+	var out AnyJSON
+	err := c.do(ctx, "GET", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/changes/count", query, nil, &out)
 	return out, err
 }
 

@@ -345,20 +345,6 @@ func (f *pairFakeStore) ClearPairSessionDraft(ctx context.Context, arg db.ClearP
 	return f.Queries.ClearPairSessionDraft(ctx, arg)
 }
 
-func (f *pairFakeStore) UpsertAlphaWhitelistEmail(ctx context.Context, arg db.UpsertAlphaWhitelistEmailParams) (db.AlphaWhitelistEntry, error) {
-	if e := f.e("UpsertAlphaWhitelistEmail"); e != nil {
-		return db.AlphaWhitelistEntry{}, e
-	}
-	return f.Queries.UpsertAlphaWhitelistEmail(ctx, arg)
-}
-
-func (f *pairFakeStore) UpsertAlphaWhitelistUsername(ctx context.Context, arg db.UpsertAlphaWhitelistUsernameParams) (db.AlphaWhitelistEntry, error) {
-	if e := f.e("UpsertAlphaWhitelistUsername"); e != nil {
-		return db.AlphaWhitelistEntry{}, e
-	}
-	return f.Queries.UpsertAlphaWhitelistUsername(ctx, arg)
-}
-
 func (f *pairFakeStore) GetPrimaryEmail(ctx context.Context, userID int64) (db.EmailAddress, error) {
 	if e := f.e("GetPrimaryEmail"); e != nil {
 		return db.EmailAddress{}, e
@@ -1155,10 +1141,6 @@ func TestPairSession_F_LinksAndInvitesErrors(t *testing.T) {
 	svcCI, _ := s.errSvc("CreatePairSessionInvite")
 	_, err = svcCI.CreateInvite(ctx, sid, s.owner, "x@y.com", PairRoleViewer)
 	assert.Equal(t, 500, httpStatus(err))
-	// CreateInvite: whitelist error.
-	svcWL, _ := s.errSvc("UpsertAlphaWhitelistEmail")
-	_, err = svcWL.CreateInvite(ctx, sid, s.owner, "x@y.com", PairRoleViewer)
-	assert.Equal(t, 500, httpStatus(err))
 
 	// CreateInviteByUsername: mint token error.
 	func() {
@@ -1169,10 +1151,6 @@ func TestPairSession_F_LinksAndInvitesErrors(t *testing.T) {
 	// CreateInviteByUsername: insert error.
 	svcCIU, _ := s.errSvc("CreatePairSessionInvite")
 	_, err = svcCIU.CreateInviteByUsername(ctx, sid, s.owner, "octocat", PairRoleViewer)
-	assert.Equal(t, 500, httpStatus(err))
-	// CreateInviteByUsername: whitelist error.
-	svcWLU, _ := s.errSvc("UpsertAlphaWhitelistUsername")
-	_, err = svcWLU.CreateInviteByUsername(ctx, sid, s.owner, "octocat", PairRoleViewer)
 	assert.Equal(t, 500, httpStatus(err))
 
 	// ListInvites error.

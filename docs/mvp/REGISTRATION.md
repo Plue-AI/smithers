@@ -92,8 +92,8 @@ individual people, results private by default.
   and the inbox counts it as not checked rather than failing or claiming no
   reviews (#2341).
   Answers use the existing `Approval.Submit` and durable resume path. No
-  registration table or second approval model is added. Deployment verification
-  remains required before removing the closed-alpha gate (#2145).
+  registration table or second approval model is added. Signup is public: the
+  closed-alpha gate is retired (#2145).
 - **Cache.** Per account: a repeated registration of the same repository
   reopens the recorded run and replays its journal (no launch, no model call).
   Across accounts needs #2158.

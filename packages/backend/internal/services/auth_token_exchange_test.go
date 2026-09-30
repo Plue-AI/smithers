@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/smithersai/smithers/packages/backend/internal/config"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 )
@@ -148,32 +149,6 @@ func TestAuthService_ExchangeGitHubToken_CreatesNewUser(t *testing.T) {
 	assert.Equal(t, "octo", createdUsername)
 	assert.Equal(t, int64(100), result.User.ID)
 	assert.Equal(t, int64(1), result.TokenID)
-}
-
-func TestAuthService_ExchangeGitHubToken_WaitlistBlocks(t *testing.T) {
-	t.Parallel()
-
-	cfg := defaultAuthConfig()
-	cfg.ClosedAlphaEnabled = true
-
-	querier := &mockAuthQuerier{
-		getOAuthAccountByProviderUserIDFn: func(ctx context.Context, arg db.GetOAuthAccountByProviderUserIDParams) (db.OauthAccount, error) {
-			return db.OauthAccount{}, pgx.ErrNoRows
-		},
-		isWhitelistedIdentityFn: func(ctx context.Context, arg db.IsWhitelistedIdentityParams) (bool, error) {
-			return false, nil
-		},
-	}
-
-	m := newObserveV2Metrics()
-	svc := NewAuthService(querier, cfg, nil, exchangeMockGitHubClient(), WithAuthMetrics(m))
-
-	_, err := svc.ExchangeGitHubToken(context.Background(), "gho_real_token", "", "", 0, nil)
-	require.Error(t, err)
-	apiErr, ok := err.(*pkgerrors.APIError)
-	require.True(t, ok, "expected APIError, got %T", err)
-	assert.Equal(t, 403, apiErr.Status)
-	require.Equal(t, 1.0, testutil.ToFloat64(m.auth.WithLabelValues("github", "denied")))
 }
 
 func TestAuthService_ExchangeGitHubToken_NoGitHubClient(t *testing.T) {
@@ -330,4 +305,41 @@ func TestAuthService_ExchangeGitHubToken_TTLProvidedRotatesInPlace(t *testing.T)
 	require.NoError(t, err)
 	assert.Equal(t, int64(10), result.TokenID)
 	assert.Equal(t, int64(9), deletedTokenID, "existing same-name token should be rotated out")
+}
+
+// Signup is public (#2145): with the deployment's default configuration a
+// fresh GitHub account that no one invited gets a Smithers Cloud user and a
+// token from the worker exchange; no whitelist or waitlist is consulted.
+func TestAuthService_ExchangeGitHubToken_DefaultConfigAdmitsFreshAccount(t *testing.T) {
+	cfg, err := config.Load("")
+	require.NoError(t, err)
+	auth := cfg.Auth
+	auth.SessionSecret = "test-session-secret-for-unit-tests"
+
+	var created bool
+	querier := &mockAuthQuerier{
+		getOAuthAccountByProviderUserIDFn: func(ctx context.Context, arg db.GetOAuthAccountByProviderUserIDParams) (db.OauthAccount, error) {
+			return db.OauthAccount{}, pgx.ErrNoRows
+		},
+		createUserFn: func(ctx context.Context, arg db.CreateUserParams) (db.User, error) {
+			created = true
+			return db.User{ID: 100, Username: arg.Username}, nil
+		},
+		upsertOAuthAccountFn: func(ctx context.Context, arg db.UpsertOAuthAccountParams) (db.OauthAccount, error) {
+			return db.OauthAccount{UserID: arg.UserID}, nil
+		},
+		upsertEmailAddressFn: func(ctx context.Context, arg db.UpsertEmailAddressParams) (db.UpsertEmailAddressRow, error) {
+			return db.UpsertEmailAddressRow{}, nil
+		},
+		listAccessTokensByUserIDFn: func(ctx context.Context, userID int64) ([]db.AccessToken, error) { return nil, nil },
+		createAccessTokenFn: func(ctx context.Context, arg db.CreateAccessTokenParams) (db.AccessToken, error) {
+			return db.AccessToken{ID: 1, UserID: arg.UserID, Name: arg.Name, Scopes: arg.Scopes}, nil
+		},
+	}
+
+	svc := NewAuthService(querier, auth, nil, exchangeMockGitHubClient())
+	result, err := svc.ExchangeGitHubToken(context.Background(), "gho_real_token", "", "", 0, nil)
+	require.NoError(t, err)
+	assert.True(t, created)
+	assert.Equal(t, int64(100), result.User.ID)
 }

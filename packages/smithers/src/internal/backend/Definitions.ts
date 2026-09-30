@@ -390,46 +390,6 @@ export const definitions = {
     args: z.object({}),
     options: z.object({ "hostname": z.string().describe("Hostname or API URL to inspect").optional() })
   },
-  "beta waitlist approve": {
-    description: "Approve a waitlist entry by email (admin)",
-    args: z.object({}),
-    options: z.object({ "email": z.string().describe("Email to approve") })
-  },
-  "beta waitlist join": {
-    description: "Join the closed alpha waitlist",
-    args: z.object({}),
-    options: z.object({
-      "email": z.string().describe("Email to submit"),
-      "note": z.string().describe("Optional note for admins").default(""),
-      "source": z.string().describe("Source tag").default("cli")
-    })
-  },
-  "beta waitlist list": {
-    description: "List waitlist entries (admin)",
-    args: z.object({}),
-    options: z.object({
-      "page": z.coerce.number().describe("Page number").default(1),
-      "per-page": z.coerce.number().describe("Results per page").default(50),
-      "status": z.string().describe("Filter by status (pending, approved, rejected)").optional()
-    })
-  },
-  "beta whitelist add": {
-    description: "Add or update a whitelist entry (admin)",
-    args: z.object({}),
-    options: z.object({
-      "type": z.string().describe("Identity type: email, wallet, username"),
-      "value": z.string().describe("Identity value")
-    })
-  },
-  "beta whitelist list": { description: "List whitelist entries (admin)", args: z.object({}), options: z.object({}) },
-  "beta whitelist remove": {
-    description: "Remove a whitelist entry (admin)",
-    args: z.object({}),
-    options: z.object({
-      "type": z.string().describe("Identity type: email, wallet, username"),
-      "value": z.string().describe("Identity value")
-    })
-  },
   "bookmark create": {
     description: "Create a bookmark",
     args: z.object({ "name": z.string().describe("Bookmark name") }),

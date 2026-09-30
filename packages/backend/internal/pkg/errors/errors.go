@@ -46,10 +46,6 @@ type APIError struct {
 	// branch on Code (e.g. branch_lock_held carries the holder and whether the
 	// caller may request to join). Nil for most error flavors.
 	Details any `json:"details,omitempty"`
-	// WaitlistPosition, when set, is the 1-indexed signup position for a
-	// NOT_ON_WAITLIST rejection (the OAuth callback redirects to a waitlist UI
-	// carrying this number instead of dumping the JSON error to the browser).
-	WaitlistPosition *int `json:"waitlist_position,omitempty"`
 	// cause is the underlying error, kept for the server log only. It is
 	// unexported so encoding/json never serializes it and the wire body
 	// above is unchanged. Set it with WithCause; read it with Cause.
