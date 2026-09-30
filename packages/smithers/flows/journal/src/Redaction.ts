@@ -458,14 +458,15 @@ const namesCredential = (name: string, value: string): boolean =>
 /** The `>` that closes an inspect marker, or the line end that means there is none. */
 const angleClose = /[>\r\n]/g
 
-/** The `+` with which `util.inspect` continues a long string on the next line. */
-const continuation = /\s*\+\s*/y
+/**
+ * The `+` with which `util.inspect` continues a long string on the next line,
+ * its newline raw or escaped (`\\n`) when the inspected text was itself
+ * written into a string.
+ */
+const continuation = /(?:\s|\\+[nrt])*\+(?:\s|\\+[nrt])*/y
 
 /** A value an earlier pass already replaced. */
 const alreadyRedacted = /^\[REDACTED\]$/
-
-/** A URL password, the same run the `url-credentials` rule reads, before its `@`. */
-const userinfoPassword = /[^\s:@/]+(?=@)/y
 
 /**
  * Redacts the value after each name `names` matches. A quoted value is
@@ -495,14 +496,7 @@ const redactValues = (text: string, names: RegExp, scope: Scope): string => {
     const opener = text[start + depth]
     const quote = isQuote(opener) ? opener! : undefined
     let end: number
-    // URL userinfo (`https://x-access-token:abc@github.com/o/r`): the value is
-    // the password before `@`, as the URL rule reads it. The host and path are
-    // what a failed clone or request is diagnosed by.
-    userinfoPassword.lastIndex = start
-    if (match.index >= 2 && text.startsWith("//", match.index - 2) && userinfoPassword.test(text)) {
-      end = userinfoPassword.lastIndex
-      if (alreadyRedacted.test(text.slice(start, end))) continue
-    } else if (quote !== undefined) {
+    if (quote !== undefined) {
       start += depth
       const inner = stack[innermostString(stack)]
       if (inner !== undefined) {
@@ -534,9 +528,12 @@ const redactValues = (text: string, names: RegExp, scope: Scope): string => {
     } else {
       end = bareValueEnd(text, start, scope, stack)
       end = userinfoEnd(text, start, end)
-      // A placeholder then a space is a value an earlier pass already bounded:
-      // what follows it is the next part of the line, `{"statusCode":401}`.
-      const bounded = text.startsWith(placeholder, start) && /\s/.test(text[start + placeholder.length] ?? "")
+      // In a journal row a placeholder then a space is a value an earlier pass
+      // already bounded: what follows it is the next part of the line,
+      // `{"statusCode":401}`. A diagnostic value runs over several words, so
+      // there the words after a placeholder are still the value.
+      const bounded = !scope.diagnostic && text.startsWith(placeholder, start) &&
+        /\s/.test(text[start + placeholder.length] ?? "")
       const kept = end === start || bounded || alreadyRedacted.test(text.slice(start, end)) ||
         (/tokens$/i.test(name) && /^\d+(?![\w.])/.test(text.slice(start, end))) ||
         // A Bearer or Basic value the default rules already replaced keeps its scheme.
@@ -588,8 +585,49 @@ const attachedPasswordFlag = new RegExp(
   "g"
 )
 
-/** `-u` or `--user` and the separator before its value. */
-const userFlag = new RegExp(String.raw`(?<![^\s"'\x60,[(])(?:-u|--user)(?:=|${argumentSeparator})`, "g")
+/** `-u` or `--user` and the separator before its value, or `-u` with its value attached (`-uadmin:pw`). */
+const userFlag = new RegExp(
+  String.raw`(?<![^\s"'\x60,[(])(?:(?:-u|--user)(?:=|${argumentSeparator})|-u(?=[^\s=-]))`,
+  "g"
+)
+
+/**
+ * A flag that takes a password only under one command, and the separator
+ * before its value: `zip -P` (a port to `ssh` and `mysql`) and `redis-cli -a`
+ * or `--pass`. The command is looked for at most 256 characters back on the
+ * same command line.
+ */
+const commandPasswordFlag = new RegExp(
+  String
+    .raw`\b(?:(?:(?:un)?zip|zipcloak)\b[^\r\n|;&]{0,256}?[\s"'\x60,[(]-P|redis-cli\b[^\r\n|;&]{0,256}?[\s"'\x60,[(](?:-a|--pass))${argumentSeparator}`,
+  "g"
+)
+
+/**
+ * An HTTP header written as a name and value pair of an array
+ * (`[['Authorization', 'Token x']]`), the shape `Headers` entries and many
+ * clients log, up to the quote that opens the value.
+ */
+const headerPair = /(?<![A-Za-z0-9_-])(?:(?:proxy-)?authorization|(?:set-)?cookies?)\\*["'`]\s*,\s*(?=\\*["'`])/gi
+
+/** Redacts the quoted value of each {@link headerPair}, keeping its quotes. */
+const redactHeaderPairs = (text: string): string => {
+  const pattern = new RegExp(headerPair.source, headerPair.flags)
+  let output = ""
+  let position = 0
+  for (let match = pattern.exec(text); match !== null; match = pattern.exec(text)) {
+    let depth = 0
+    while (text[pattern.lastIndex + depth] === "\\") depth++
+    const open = pattern.lastIndex + depth
+    const end = skipQuoted(text, open, depth)
+    const close = lastClosed ? end - 1 - depth : end
+    if (alreadyRedacted.test(text.slice(open + 1, close))) continue
+    output += text.slice(position, open + 1) + placeholder
+    position = close
+    pattern.lastIndex = end
+  }
+  return output + text.slice(position)
+}
 
 /** The placeholder alone, bare, quoted or escaped: a second pass leaves it alone. */
 const redactedArgument = /^(?:\\*(["'`]))?\[REDACTED\](?:\\*\1)?$/
@@ -822,6 +860,17 @@ export const diagnosticRules: ReadonlyArray<Rule> = [
     // argument, commas included, when it carries a `:`.
     pattern: userFlag,
     rewrite: (text) => redactArguments(text, userFlag, (_match, value) => value.includes(":"))
+  },
+  {
+    id: "header-pair",
+    pattern: headerPair,
+    rewrite: redactHeaderPairs
+  },
+  {
+    id: "command-password-flag",
+    // The whole next argument, whatever it starts with.
+    pattern: commandPasswordFlag,
+    rewrite: (text) => redactArguments(text, commandPasswordFlag)
   },
   {
     id: "url-userinfo",

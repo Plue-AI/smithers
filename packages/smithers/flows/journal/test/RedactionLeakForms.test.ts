@@ -46,7 +46,11 @@ describe("the default rules", () => {
     ["an escaped JSON value", JSON.stringify(JSON.stringify({ password: `a ${secret} b` }))],
     ["a nested container", JSON.stringify({ apiKey: { a: { b: { c: { d: { e: secret } } } } } }, null, 2)],
     ["a credential flag", `deploy --api-token ${secret} --verbose`],
-    ["a credential flag in a JSON argv", JSON.stringify(["deploy", "--password", secret])]
+    ["a credential flag in a JSON argv", JSON.stringify(["deploy", "--password", secret])],
+    [
+      "an inspected multi-line concatenation written into a JSON string",
+      JSON.stringify(inspect({ privateKey: `${secret}\n`.repeat(8) }))
+    ]
   ])("redacts %s", (_name, text) => {
     // The input carries the secret, or for a buffer its bytes.
     expect(text.includes(secret.slice(0, 12)) || text.includes(hex)).toBe(true)
@@ -192,11 +196,60 @@ describe("redactDiagnostic", () => {
     ["a quoted openssl password holding the other quote", `openssl -passin "pass:abc'${secret}"`, secret],
     ["a plink -pw value that looks like a path", `plink -pw /${secret} host`, secret],
     ["a plink -pw value that starts with --", `plink -pw --${secret} host`, secret],
-    ["a -p value with a quoted part written against it", `sshpass -p abc'${secret}' ssh host`, secret]
+    ["a -p value with a quoted part written against it", `sshpass -p abc'${secret}' ssh host`, secret],
+    ["the words after a placeholder", `password=[REDACTED] ${secret}`, secret],
+    ["an inspected header pair", inspect([["Authorization", `Token ${secret}`]]), secret],
+    ["a JSON header pair", JSON.stringify([["Proxy-Authorization", `Token ${secret}`]]), secret],
+    ["an escaped JSON header pair", JSON.stringify(JSON.stringify([["cookie", `sid=${secret}`]])), secret],
+    ["an attached curl user flag", `curl -uadmin:${secret} https://e.test`, secret],
+    ["a zip -P value", `zip -r -P ${secret} out.zip dir`, secret],
+    ["an unzip -P value", `unzip -P '${secret}' out.zip`, secret],
+    ["a zip -P value in a JSON argv", JSON.stringify(["zip", "-P", secret, "out.zip"]), secret],
+    ["a redis-cli -a value", `redis-cli -h cache -a ${secret} ping`, secret],
+    ["a redis-cli --pass value", `redis-cli --pass ${secret} ping`, secret]
   ])("redacts %s", (_name, text, leak) => {
     const redacted = String(Redaction.redactDiagnostic(text))
     expect(redacted).not.toContain(leak)
     expect(redacted).toContain(Redaction.placeholder)
+  })
+
+  it("keeps a header pair's quotes and every other element", () => {
+    expect(Redaction.redactDiagnostic(JSON.stringify([["Authorization", `Token ${secret}`], ["Accept", "a"]]))).toBe(
+      `[["Authorization","${Redaction.placeholder}"],["Accept","a"]]`
+    )
+    expect(Redaction.redactDiagnostic(`[ [ 'cookie', 'a=${secret}' ] ]`)).toBe(`[ [ 'cookie', '${Redaction.placeholder}' ] ]`)
+  })
+
+  it("redacts a header pair whose value the text cuts off", () => {
+    expect(Redaction.redactDiagnostic(`[["Authorization","Token ${secret}`)).toBe(`[["Authorization","${Redaction.placeholder}`)
+  })
+
+  it.each([
+    `password=[REDACTED] ${secret} rest`,
+    JSON.stringify([["Authorization", `Token ${secret}`]]),
+    `curl -uadmin:${secret} https://e.test`,
+    `zip -P ${secret} out.zip`,
+    `redis-cli -a ${secret} ping`
+  ])("reaches a fixed point on %s", (text) => {
+    const once = Redaction.redactDiagnostic(text)
+    expect(Redaction.redactDiagnostic(once)).toBe(once)
+  })
+
+  it.each([
+    "scp -P 2222 file host:",
+    "mysql -h db -P 3306 app",
+    "sort -u names.txt",
+    "mysql -uroot app",
+    "zip -r out.zip dir",
+    "redis-cli -h cache ping",
+    `[["Accept","text/plain"]]`,
+    "authorization, then 'retry'"
+  ])("keeps %s, which carries no password", (text) => {
+    expect(Redaction.redactDiagnostic(text)).toBe(text)
+  })
+
+  it("keeps the words after a placeholder in a durable row, where a value is one token", () => {
+    expect(Redaction.redact("password=[REDACTED] next")).toBe("password=[REDACTED] next")
   })
 
   it("redacts a curl user flag held as two argv elements", () => {
@@ -556,7 +609,11 @@ describe("the value grammar on hostile input", () => {
     ["a header before many newlines", `cookie:${"\n".repeat(200_000)}`],
     ["many quotes in a header value", `Authorization: ${"a\" ".repeat(40_000)}`],
     ["many names in one value", `password=${"x token=".repeat(20_000)}`],
-    ["escaped quotes", `\\"password\\":\\"${"\\\\".repeat(60_000)}`]
+    ["escaped quotes", `\\"password\\":\\"${"\\\\".repeat(60_000)}`],
+    ["repeated zip commands", "zip -q ".repeat(40_000)],
+    ["repeated redis-cli commands", "redis-cli -h h ".repeat(40_000)],
+    ["repeated header pair names", "'cookie', ".repeat(40_000)],
+    ["repeated escaped continuations", `password: ${"'a' +\\n ".repeat(40_000)}`]
   ])("scans %s in linear time", (_name, text) => {
     // A quadratic scan of these inputs takes minutes; the budget leaves room
     // for a busy machine. The ratio tests above catch slower growth.

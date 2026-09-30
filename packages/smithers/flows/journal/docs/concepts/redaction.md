@@ -88,10 +88,12 @@ permanent row. `Redaction.diagnosticRules` reads further than the journal: a
 bare value runs over several words to the end of its line
 (`password=correct horse battery`), an unclosed string or container runs to the
 end of the text (a value cut by a bound), and a value may sit on the line after
-its name. It adds an authorization or cookie header in any scheme, bare URL
-userinfo, a signed query parameter, `curl -u user:pass`, and a `-p` flag's
-value, a password to `mysql` and `sshpass`. A path after `-p` and the
-single-dash words that are not passwords (`-print`, `-pthread`) are kept.
+its name. It adds an authorization or cookie header in any scheme, written as
+`name: value` or as an array pair (`[['Authorization', 'Token …']]`), bare URL
+userinfo, a signed query parameter, `curl -u user:pass` (or `-uuser:pass`),
+`zip -P`, `redis-cli -a`, and a `-p` flag's value, a password to `mysql` and
+`sshpass`. A path after `-p` and the single-dash words that are not passwords
+(`-print`, `-pthread`) are kept.
 `Redaction.redactDiagnostic` applies them, and every diagnostic path in
 Smithers shares it: `RedactedLogger`, the engine's failure rendering, and the
 CLI's error output.
