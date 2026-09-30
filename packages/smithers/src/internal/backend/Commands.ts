@@ -43,6 +43,57 @@ export const handlers: Record<string, Handler> = {
   "workspace cp": copy,
   completion: async (_c, a) => Completions.register(a.shell as "bash" | "zsh" | "fish", "smithers")
 }
+/** @private
+ * Help summaries for the command groups the backend commands create.
+ * @since 1.0.0
+ */
+export const groups: Record<string, string> = {
+  "admin": "Administer the Smithers installation",
+  "admin alerts": "Manage alert channels and policies",
+  "admin alerts channels": "Manage where alerts are delivered",
+  "admin alerts policies": "Turn alert policies on or off",
+  "admin analytics": "Summarize product usage",
+  "admin audit": "Read the audit log",
+  "admin deploys": "Operate Observe and platform deployments",
+  "admin deploys observe": "Operate Observe deployments",
+  "admin deploys platform": "Operate platform component deployments",
+  "admin runs": "List runs in any repository",
+  "admin sessions": "List and cancel agent sessions",
+  "admin tokens": "List access tokens",
+  "admin user": "Create, suspend, export and erase users",
+  "admin users": "Mark users as synthetic",
+  "admin workspaces": "List, stop and suspend workspaces",
+  "agent": "Ask the Smithers helper and hold remote conversations",
+  "agent session": "Manage remote conversations",
+  "artifact": "List and download files a run produced",
+  "auth": "Log in, log out and connect subscriptions",
+  "auth local": "Set up and log in to an owner backend",
+  "bookmark": "Manage local jj bookmarks",
+  "cache cloud": "Inspect and clear a repository's Cloud caches",
+  "cache token": "Manage public read tokens for the build cache",
+  "change": "Inspect local jj changes",
+  "changeset": "Land one change per repository as a single transaction",
+  "config": "Read and set CLI configuration",
+  "history": "Follow each issue's lane, checks and pull request",
+  "issue": "Manage repository issues",
+  "label": "Manage repository labels",
+  "land": "Review and land landing requests",
+  "notification": "Read your notifications",
+  "org": "Manage organizations",
+  "org member": "Manage organization members",
+  "org team": "Manage organization teams",
+  "org team member": "Manage team members",
+  "org team repo": "Manage a team's repository access",
+  "repo": "Manage repositories and their GitHub connection",
+  "search": "Search repositories, issues, code and users",
+  "secret": "Manage repository secrets",
+  "ssh-key": "Manage your SSH keys",
+  "stack": "Submit, sync and land stacked GitHub pull requests",
+  "variable": "Manage repository variables",
+  "webhook": "Manage repository webhooks",
+  "wiki": "Read and edit wiki pages",
+  "workspace": "Create, open and run commands in workspaces"
+}
 // Options that choose which backend receives the saved login.
 const destinations = ["hostname", "host"] as const
 /** @private
@@ -82,10 +133,11 @@ export const mount = (cli: Cli.Cli<any, any, any, any>, runtime: Runtime) => {
     if (name === "workflow watch") continue
     const words = commandPath(name).split(" ")
     let parent = tree
-    for (const word of words.slice(0, -1)) {
+    for (const [index, word] of words.slice(0, -1).entries()) {
       let entry = parent.get(word)
       if (!entry) {
-        const group = Cli.create(word, { description: word })
+        // OneCli.test.ts requires a summary for every group created here.
+        const group = Cli.create(word, { description: groups[words.slice(0, index + 1).join(" ")] })
         const temporary = Cli.create("root").command(group)
         entry = Cli.toCommands.get(temporary)!.get(word)!
         parent.set(word, entry)

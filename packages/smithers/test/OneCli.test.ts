@@ -2,11 +2,12 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { Cli } from "incur"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { makeCli } from "../src/Cli.ts"
 import { browserLogin } from "../src/internal/backend/Auth.ts"
 import { Client } from "../src/internal/backend/Client.ts"
-import { commandPath, handlers } from "../src/internal/backend/Commands.ts"
+import { commandPath, groups, handlers } from "../src/internal/backend/Commands.ts"
 import { definitions } from "../src/internal/backend/Definitions.ts"
 import { Session } from "../src/internal/backend/Session.ts"
 import { makeConfig } from "../src/NodeControl.ts"
@@ -261,6 +262,25 @@ describe("migrated command dispatch", () => {
       const result = await f.run([...command, "--help"])
       expect(result.code, result.output).toBe(0)
     }
+  })
+  it("summarizes every command and group instead of repeating its name", () => {
+    const placeholders: string[] = [], summaries = new Map<string, string>()
+    const visit = (commands: Map<string, any>, path: string[]) => {
+      for (const [word, entry] of commands) {
+        if ("_alias" in entry || "_fetch" in entry) continue
+        const name = [...path, word].join(" "), description = String(entry.description ?? "").trim()
+        // A generated placeholder repeats the command word or joins its path with "·".
+        if (description === "" || description === word || description.includes("·")) placeholders.push(name)
+        if ("_group" in entry) {
+          summaries.set(name, description)
+          visit(entry.commands, [...path, word])
+        }
+      }
+    }
+    visit(Cli.toCommands.get(makeCli({ environment: {} }) as never)!, [])
+    expect(placeholders).toEqual([])
+    // Every summary is used by a group the backend commands create.
+    for (const [path, summary] of Object.entries(groups)) expect(summaries.get(path), path).toBe(summary)
   })
   it.each(
     [
