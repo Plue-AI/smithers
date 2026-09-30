@@ -232,6 +232,7 @@
 .ghc-check-name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .ghc-check-state { color: var(--text-muted); font-size: var(--fs-small); }
 .ghc-merge-foot { display: flex; flex-wrap: wrap; gap: var(--sp-2); padding: var(--sp-2) var(--sp-4); border-top: 1px solid var(--border); background: var(--ghc-head-bg); }
+.ghc-maturity { display: inline-flex; align-items: center; gap: var(--sp-2); font-size: 12px; }
 
 /* A narrow card (the 400px phone column, a split pane) stacks the sidebar under the thread. */
 @container (max-width: 560px) {

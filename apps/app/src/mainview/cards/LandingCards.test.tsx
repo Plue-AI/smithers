@@ -51,3 +51,12 @@ test("failed and successful-empty tab reads are distinct, and failure retries th
   expect(empty).not.toContain('role="alert"')
   expect(empty).not.toContain(">Retry</button>")
 })
+
+test("review actions carry the Beta label and its limitations; finished PRs show neither", () => {
+  const open = render("open")
+  expect(open).toContain('data-maturity="beta"')
+  expect(open).toContain(">Beta</span>")
+  expect(open).toContain("No line comments or suggested changes yet")
+  const merged = render("merged")
+  expect(merged).not.toContain('data-maturity="beta"')
+})

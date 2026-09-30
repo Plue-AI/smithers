@@ -389,6 +389,10 @@ export const LandingCardBody = ({
                   >
                     Request changes
                   </Button>
+                  <span className="ghc-maturity" data-maturity="beta">
+                    <span className="world-card-label ghc-label">Beta</span>
+                    <span className="ghc-muted">No line comments or suggested changes yet</span>
+                  </span>
                 </footer>}
               </section>
             ) :

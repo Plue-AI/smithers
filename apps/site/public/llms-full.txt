@@ -1896,6 +1896,29 @@ smithers land conflicts 42 --repo acme/app
 
 **Available now.** `GET /api/repos/{owner}/{repo}/changes/{id}/findings`; reviews and comments live on the landing: `GET /api/repos/{owner}/{repo}/landings/{number}/reviews`.
 
+## Review a pull request
+
+**GUI**
+
+**Beta.** Open the pull request with `/prs.view <number>`, then select **Approve** or **Request changes**. Line comments and suggested changes are not available yet.
+
+**TUI**
+
+**Planned.**
+
+**CLI**
+
+**Beta.** Approve, or comment on the whole pull request. Line comments and suggested changes are not available yet.
+
+```sh
+smithers land review 42 --repo acme/app --approve --commit COMMIT_ID
+smithers land comment 42 --repo acme/app --body "Needs a test" --commit COMMIT_ID
+```
+
+**API**
+
+**Beta.** `POST /api/repos/{owner}/{repo}/landings/{number}/reviews` and `/comments`; a comment with `path` and `line` starts a line thread, closed with `/threads/{id}/done` and `/threads/{id}/ack`. Suggested changes are not available yet.
+
 ## Land it, or undo it
 
 **GUI**
@@ -1926,6 +1949,8 @@ smithers land land 42 --repo acme/app --commit COMMIT_ID
 **API**
 
 **Available now.** `PUT /api/repos/{owner}/{repo}/landings/{number}/land`.
+
+**Beta.** `GET /api/repos/{owner}/{repo}/operations` lists the repository's jj operations. `POST /api/repos/{owner}/{repo}/workspaces/{id}/operations/{op_id}/undo` undoes one in a workspace; `GET` its `/undo/preview` first. The app and CLI do not show operations yet.
 
 ## Next
 
