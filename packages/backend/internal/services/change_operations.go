@@ -332,6 +332,16 @@ func operationStrings(values []string) []string {
 // of the workspace repository, then inspects the copy for conflicts. The live
 // workspace operation graph and working copy are never touched by preview.
 func (s *WorkspaceService) PreviewOperationUndo(ctx context.Context, workspaceID string, repositoryID, userID int64, operationID string, changeIDs []string) (string, error) {
+	var state string
+	err := s.withWorkspaceMutation(ctx, workspaceID, repositoryID, userID, func(ctx context.Context, _ db.Workspace) error {
+		var err error
+		state, err = s.previewOperationUndo(ctx, workspaceID, repositoryID, userID, operationID, changeIDs)
+		return err
+	})
+	return state, err
+}
+
+func (s *WorkspaceService) previewOperationUndo(ctx context.Context, workspaceID string, repositoryID, userID int64, operationID string, changeIDs []string) (string, error) {
 	workspace, client, err := s.workspaceFacetTarget(ctx, workspaceID, repositoryID, userID, WorkspaceAccessWrite)
 	if err != nil {
 		return "", err
@@ -355,6 +365,16 @@ func (s *WorkspaceService) PreviewOperationUndo(ctx context.Context, workspaceID
 // affected bookmarks without restoring remote-tracking state. The caller then
 // reads canonical changes from repo-host and records their undo revisions.
 func (s *WorkspaceService) UndoOperation(ctx context.Context, workspaceID string, repositoryID, userID int64, operationID string) (WorkspaceUndoResult, error) {
+	var result WorkspaceUndoResult
+	err := s.withWorkspaceMutation(ctx, workspaceID, repositoryID, userID, func(ctx context.Context, _ db.Workspace) error {
+		var err error
+		result, err = s.undoOperation(ctx, workspaceID, repositoryID, userID, operationID)
+		return err
+	})
+	return result, err
+}
+
+func (s *WorkspaceService) undoOperation(ctx context.Context, workspaceID string, repositoryID, userID int64, operationID string) (WorkspaceUndoResult, error) {
 	workspace, client, err := s.workspaceFacetTarget(ctx, workspaceID, repositoryID, userID, WorkspaceAccessWrite)
 	if err != nil {
 		return WorkspaceUndoResult{}, err

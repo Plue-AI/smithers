@@ -135,14 +135,56 @@ func workspaceLifecycleOperation(row db.Workspace, action string) string {
 	return fmt.Sprintf("workspace:%s:g%d:v%d:%s", row.ID, row.ProvisioningGeneration, version, action)
 }
 
+// ensureRuntimeWorkspaceRunning creates or starts the workspace for a
+// requester with write authority over it, held for the whole transition.
 func (s *WorkspaceService) ensureRuntimeWorkspaceRunning(ctx context.Context, row db.Workspace, requesterID int64) (db.Workspace, error) {
+	result := row
+	err := s.withWorkspaceMutationAuthority(ctx, row, requesterID, func(ctx context.Context) error {
+		unlock := s.lockRuntimeWorkspace(row.ID)
+		defer unlock()
+		current, err := s.currentRuntimeWorkspaceLocked(ctx, row)
+		if err != nil {
+			return err
+		}
+		result, err = s.ensureRuntimeWorkspaceRunningLocked(ctx, current, requesterID)
+		return err
+	})
+	return result, err
+}
+
+// runningRuntimeWorkspace serves a reader: it returns the workspace only while
+// it already runs and never creates or starts it.
+func (s *WorkspaceService) runningRuntimeWorkspace(ctx context.Context, row db.Workspace, requesterID int64) (db.Workspace, error) {
+	if !s.hasWorkspaceRuntime() {
+		return row, pkgerrors.Internal("workspace runtime unavailable")
+	}
 	unlock := s.lockRuntimeWorkspace(row.ID)
 	defer unlock()
 	current, err := s.currentRuntimeWorkspaceLocked(ctx, row)
 	if err != nil {
 		return row, err
 	}
-	return s.ensureRuntimeWorkspaceRunningLocked(ctx, current, requesterID)
+	if current.Status != "running" {
+		return current, errWorkspaceStopped()
+	}
+	operationCtx, err := s.workspaceRuntimeContext(ctx, current, requesterID, "")
+	if err != nil {
+		return current, err
+	}
+	observed, err := s.runtime.InspectWorkspace(operationCtx, current.ID)
+	if err != nil {
+		if errors.Is(err, workspaceapi.ErrWorkspaceNotFound) {
+			return current, errWorkspaceStopped()
+		}
+		return current, runtimeOperationError("inspect workspace runtime", err)
+	}
+	if validationErr := validateRuntimeWorkspace(current.ID, observed); validationErr != nil {
+		return current, pkgerrors.Internal(validationErr.Error())
+	}
+	if observed.State != workspaceapi.WorkspaceRunning {
+		return current, errWorkspaceStopped()
+	}
+	return current, nil
 }
 
 // currentRuntimeWorkspaceLocked refreshes mutable product state after the
@@ -438,10 +480,16 @@ func (s *WorkspaceService) restoreRuntimeWorkspaceSnapshot(ctx context.Context, 
 }
 
 func (s *WorkspaceService) forkRuntimeWorkspace(ctx context.Context, input ForkWorkspaceInput) (WorkspaceResponse, error) {
-	source, err := s.loadOwnedWorkspace(ctx, input.WorkspaceID, input.RepositoryID, input.UserID)
-	if err != nil {
-		return WorkspaceResponse{}, err
-	}
+	var response WorkspaceResponse
+	err := s.withWorkspaceMutation(ctx, input.WorkspaceID, input.RepositoryID, input.UserID, func(ctx context.Context, source db.Workspace) error {
+		var err error
+		response, err = s.forkRuntimeWorkspaceAuthorized(ctx, input, source)
+		return err
+	})
+	return response, err
+}
+
+func (s *WorkspaceService) forkRuntimeWorkspaceAuthorized(ctx context.Context, input ForkWorkspaceInput, source db.Workspace) (WorkspaceResponse, error) {
 	// The fork belongs to the source owner, even when a write grantee requests it.
 	if err := s.enforceWorkspaceQuota(ctx, source.UserID); err != nil {
 		return WorkspaceResponse{}, err
@@ -598,10 +646,16 @@ func (s *WorkspaceService) forkRuntimeWorkspace(ctx context.Context, input ForkW
 }
 
 func (s *WorkspaceService) createRuntimeWorkspaceSnapshot(ctx context.Context, input CreateWorkspaceSnapshotInput, snapshotName string) (WorkspaceSnapshotResponse, error) {
-	row, err := s.loadOwnedWorkspace(ctx, input.WorkspaceID, input.RepositoryID, input.UserID)
-	if err != nil {
-		return WorkspaceSnapshotResponse{}, err
-	}
+	var response WorkspaceSnapshotResponse
+	err := s.withWorkspaceMutation(ctx, input.WorkspaceID, input.RepositoryID, input.UserID, func(ctx context.Context, row db.Workspace) error {
+		var err error
+		response, err = s.createRuntimeWorkspaceSnapshotAuthorized(ctx, input, snapshotName, row)
+		return err
+	})
+	return response, err
+}
+
+func (s *WorkspaceService) createRuntimeWorkspaceSnapshotAuthorized(ctx context.Context, input CreateWorkspaceSnapshotInput, snapshotName string, row db.Workspace) (WorkspaceSnapshotResponse, error) {
 	snapshots, err := s.runtimeSnapshots()
 	if err != nil {
 		return WorkspaceSnapshotResponse{}, err
@@ -716,27 +770,28 @@ func (s *WorkspaceService) executeWorkspaceCommand(ctx context.Context, workspac
 	if len(input.Args) == 0 || strings.TrimSpace(input.Args[0]) == "" {
 		return WorkspaceCommandResult{}, pkgerrors.BadRequest("command args are required")
 	}
-	row, err := s.loadWorkspaceWithAccess(ctx, workspaceID, repositoryID, userID, WorkspaceAccessWrite)
-	if err != nil {
-		return WorkspaceCommandResult{}, err
-	}
-	row, err = s.ensureRuntimeWorkspaceRunning(ctx, row, userID)
-	if err != nil {
-		return WorkspaceCommandResult{}, err
-	}
-	operationCtx, err := s.workspaceRuntimeContext(ctx, row, userID, input.OperationID)
-	if err != nil {
-		return WorkspaceCommandResult{}, err
-	}
-	result, err := s.runtime.ExecuteCommand(operationCtx, row.ID, workspaceapi.Command{
-		Args: append([]string(nil), input.Args...), Directory: input.Directory, Environment: cloneStringMap(input.Environment),
+	var output WorkspaceCommandResult
+	err := s.withWorkspaceMutation(ctx, workspaceID, repositoryID, userID, func(ctx context.Context, row db.Workspace) error {
+		row, err := s.ensureRuntimeWorkspaceRunning(ctx, row, userID)
+		if err != nil {
+			return err
+		}
+		operationCtx, err := s.workspaceRuntimeContext(ctx, row, userID, input.OperationID)
+		if err != nil {
+			return err
+		}
+		result, err := s.runtime.ExecuteCommand(operationCtx, row.ID, workspaceapi.Command{
+			Args: append([]string(nil), input.Args...), Directory: input.Directory, Environment: cloneStringMap(input.Environment),
+		})
+		if err != nil {
+			return err
+		}
+		_ = s.q.TouchWorkspaceActivity(ctx, row.ID)
+		s.touchWorkspaceEntryRecency(ctx, row.ID, "command")
+		output = WorkspaceCommandResult{ExitCode: result.ExitCode, Stdout: result.Stdout, Stderr: result.Stderr, OutputTruncated: result.OutputTruncated}
+		return nil
 	})
-	if err != nil {
-		return WorkspaceCommandResult{}, err
-	}
-	_ = s.q.TouchWorkspaceActivity(ctx, row.ID)
-	s.touchWorkspaceEntryRecency(ctx, row.ID, "command")
-	return WorkspaceCommandResult{ExitCode: result.ExitCode, Stdout: result.Stdout, Stderr: result.Stderr, OutputTruncated: result.OutputTruncated}, nil
+	return output, err
 }
 
 func cloneStringMap(source map[string]string) map[string]string {
@@ -777,28 +832,29 @@ func (s *WorkspaceService) LaunchWorkspaceService(ctx context.Context, workspace
 		return WorkspaceManagedService{}, pkgerrors.BadRequest("operation_id is required")
 	}
 	identity := serviceIdentity(input)
-	row, err := s.loadWorkspaceWithAccess(ctx, workspaceID, repositoryID, userID, WorkspaceAccessWrite)
-	if err != nil {
-		return WorkspaceManagedService{}, err
-	}
-	row, err = s.ensureRuntimeWorkspaceRunning(ctx, row, userID)
-	if err != nil {
-		return WorkspaceManagedService{}, err
-	}
-	operationCtx, err := s.workspaceRuntimeContext(ctx, row, userID, input.OperationID)
-	if err != nil {
-		return WorkspaceManagedService{}, err
-	}
-	started, err := s.runtime.StartService(operationCtx, row.ID, workspaceapi.ServiceSpec{
-		Name: input.Name, Identity: identity,
-		Command:      workspaceapi.Command{Args: append([]string(nil), input.Args...), Directory: input.Directory, Environment: cloneStringMap(input.Environment)},
-		ReadyAddress: runtimeReadyAddress(input.Port), ReadyTimeout: 30 * time.Second,
+	var managed WorkspaceManagedService
+	err := s.withWorkspaceMutation(ctx, workspaceID, repositoryID, userID, func(ctx context.Context, row db.Workspace) error {
+		row, err := s.ensureRuntimeWorkspaceRunning(ctx, row, userID)
+		if err != nil {
+			return err
+		}
+		operationCtx, err := s.workspaceRuntimeContext(ctx, row, userID, input.OperationID)
+		if err != nil {
+			return err
+		}
+		started, err := s.runtime.StartService(operationCtx, row.ID, workspaceapi.ServiceSpec{
+			Name: input.Name, Identity: identity,
+			Command:      workspaceapi.Command{Args: append([]string(nil), input.Args...), Directory: input.Directory, Environment: cloneStringMap(input.Environment)},
+			ReadyAddress: runtimeReadyAddress(input.Port), ReadyTimeout: 30 * time.Second,
+		})
+		if err != nil {
+			return runtimeOperationError("start workspace service", err)
+		}
+		s.touchWorkspaceEntryRecency(ctx, row.ID, "service-start")
+		managed = runtimeManagedService(started.Name, workspaceapi.ServiceRunning, started.Address, 0)
+		return nil
 	})
-	if err != nil {
-		return WorkspaceManagedService{}, runtimeOperationError("start workspace service", err)
-	}
-	s.touchWorkspaceEntryRecency(ctx, row.ID, "service-start")
-	return runtimeManagedService(started.Name, workspaceapi.ServiceRunning, started.Address, 0), nil
+	return managed, err
 }
 
 func runtimeReadyAddress(port uint16) string {
@@ -849,6 +905,11 @@ func (s *WorkspaceService) listRuntimeWorkspaceServices(ctx context.Context, row
 	return result, nil
 }
 
+// ResolveWorkspacePreview answers a preview request. Starting the workspace
+// and publishing routed ingress are mutations, so they need write authority
+// held for the whole request. A reader only reaches a loopback preview of a
+// workspace that already runs; it never starts the owner's machine or
+// publishes a route (#3212).
 func (s *WorkspaceService) ResolveWorkspacePreview(ctx context.Context, workspaceID string, repositoryID, userID int64, port uint16, hostname string) (WorkspacePreviewAccess, error) {
 	if port == 0 {
 		return WorkspacePreviewAccess{}, pkgerrors.BadRequest("preview port is required")
@@ -860,8 +921,44 @@ func (s *WorkspaceService) ResolveWorkspacePreview(ctx context.Context, workspac
 	if err != nil {
 		return WorkspacePreviewAccess{}, err
 	}
+	writable, err := s.workspaceWritable(ctx, row, userID)
+	if err != nil {
+		return WorkspacePreviewAccess{}, err
+	}
+	if !writable {
+		return s.readerWorkspacePreview(ctx, row, userID, port)
+	}
+	var access WorkspacePreviewAccess
+	err = s.withWorkspaceMutationAuthority(ctx, row, userID, func(ctx context.Context) error {
+		var err error
+		access, err = s.publishWorkspacePreview(ctx, row, userID, port, hostname)
+		return err
+	})
+	return access, err
+}
+
+func (s *WorkspaceService) readerWorkspacePreview(ctx context.Context, row db.Workspace, userID int64, port uint16) (WorkspacePreviewAccess, error) {
+	if !s.hasWorkspaceRuntime() || !s.runtime.Capabilities().LoopbackPreview {
+		return WorkspacePreviewAccess{}, pkgerrors.Forbidden("access denied: write permission required")
+	}
+	row, err := s.runningRuntimeWorkspace(ctx, row, userID)
+	if err != nil {
+		return WorkspacePreviewAccess{}, err
+	}
+	operationCtx, err := s.workspaceRuntimeContext(ctx, row, userID, "")
+	if err != nil {
+		return WorkspacePreviewAccess{}, err
+	}
+	target, err := s.runtime.PreviewTarget(operationCtx, row.ID, port)
+	if err != nil {
+		return WorkspacePreviewAccess{}, pkgerrors.New(pkgerrors.CodePreviewUnavailable, "workspace preview unavailable")
+	}
+	return WorkspacePreviewAccess{URL: target.URL, Proxy: true}, nil
+}
+
+func (s *WorkspaceService) publishWorkspacePreview(ctx context.Context, row db.Workspace, userID int64, port uint16, hostname string) (WorkspacePreviewAccess, error) {
 	if !s.hasWorkspaceRuntime() {
-		row, err = s.ensureExistingWorkspaceRunning(ctx, row)
+		row, err := s.ensureExistingWorkspaceRunningFor(ctx, row, userID)
 		if err != nil {
 			return WorkspacePreviewAccess{}, err
 		}
@@ -871,7 +968,7 @@ func (s *WorkspaceService) ResolveWorkspacePreview(ctx context.Context, workspac
 		}
 		return WorkspacePreviewAccess{URL: previews[0].URL}, nil
 	}
-	row, err = s.ensureRuntimeWorkspaceRunning(ctx, row, userID)
+	row, err := s.ensureRuntimeWorkspaceRunning(ctx, row, userID)
 	if err != nil {
 		return WorkspacePreviewAccess{}, err
 	}
@@ -920,22 +1017,25 @@ func (s *WorkspaceService) OpenWorkspaceTerminal(ctx context.Context, sessionID 
 	if session.Status != "running" {
 		return nil, pkgerrors.Conflict("workspace session is not running")
 	}
-	row, err := s.loadOwnedWorkspace(ctx, session.WorkspaceID, repositoryID, userID)
+	var terminal workspaceapi.Terminal
+	err = s.withWorkspaceMutation(ctx, session.WorkspaceID, repositoryID, userID, func(ctx context.Context, row db.Workspace) error {
+		row, err := s.ensureRuntimeWorkspaceRunning(ctx, row, userID)
+		if err != nil {
+			return err
+		}
+		terminalVersion := session.UpdatedAt.UTC().UnixNano()
+		operationCtx, err := s.workspaceRuntimeContext(ctx, row, userID, "workspace-terminal:"+session.ID+":v"+strconv.FormatInt(terminalVersion, 10))
+		if err != nil {
+			return err
+		}
+		terminal, err = s.runtime.OpenWorkspaceTerminal(operationCtx, row.ID, workspaceapi.Command{Args: []string{"/bin/sh"}})
+		if err != nil {
+			return runtimeOperationError("open workspace terminal", err)
+		}
+		return nil
+	})
 	if err != nil {
 		return nil, err
-	}
-	row, err = s.ensureRuntimeWorkspaceRunning(ctx, row, userID)
-	if err != nil {
-		return nil, err
-	}
-	terminalVersion := session.UpdatedAt.UTC().UnixNano()
-	operationCtx, err := s.workspaceRuntimeContext(ctx, row, userID, "workspace-terminal:"+session.ID+":v"+strconv.FormatInt(terminalVersion, 10))
-	if err != nil {
-		return nil, err
-	}
-	terminal, err := s.runtime.OpenWorkspaceTerminal(operationCtx, row.ID, workspaceapi.Command{Args: []string{"/bin/sh"}})
-	if err != nil {
-		return nil, runtimeOperationError("open workspace terminal", err)
 	}
 	if columns == 0 {
 		columns = 80

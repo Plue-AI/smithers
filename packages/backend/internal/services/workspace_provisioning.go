@@ -810,20 +810,27 @@ func (s *WorkspaceService) ForkWorkspace(ctx context.Context, input ForkWorkspac
 		return WorkspaceResponse{}, pkgerrors.Internal("sandbox provider unavailable")
 	}
 
-	source, err := s.loadOwnedWorkspace(ctx, input.WorkspaceID, input.RepositoryID, input.UserID)
-	if err != nil {
-		return WorkspaceResponse{}, err
-	}
+	var response WorkspaceResponse
+	err := s.withWorkspaceMutation(ctx, input.WorkspaceID, input.RepositoryID, input.UserID, func(ctx context.Context, source db.Workspace) error {
+		var err error
+		response, err = s.forkSandboxWorkspace(ctx, input, source)
+		return err
+	})
+	return response, err
+}
+
+func (s *WorkspaceService) forkSandboxWorkspace(ctx context.Context, input ForkWorkspaceInput, source db.Workspace) (WorkspaceResponse, error) {
 	// The fork belongs to the source owner, even when a write grantee requests it.
 	if err := s.enforceWorkspaceQuota(ctx, source.UserID); err != nil {
 		return WorkspaceResponse{}, err
 	}
+	var err error
 	// Resume-then-fork: a suspended source VM is resumed before ForkSandbox. When the
 	// source was never provisioned (empty VmID) we skip the resume — there is
 	// nothing to run — and forkWorkspaceVM takes the provision-on-empty branch,
 	// binding a fresh VM to the fork instead of 409ing.
 	if strings.TrimSpace(source.VmID) != "" {
-		source, err = s.ensureExistingWorkspaceRunning(ctx, source)
+		source, err = s.ensureExistingWorkspaceRunningFor(ctx, source, input.UserID)
 		if err != nil {
 			return WorkspaceResponse{}, err
 		}
@@ -873,11 +880,17 @@ func (s *WorkspaceService) CreateWorkspaceSnapshot(ctx context.Context, input Cr
 		return WorkspaceSnapshotResponse{}, pkgerrors.Internal("sandbox provider unavailable")
 	}
 
-	workspace, err := s.loadOwnedWorkspace(ctx, input.WorkspaceID, input.RepositoryID, input.UserID)
-	if err != nil {
-		return WorkspaceSnapshotResponse{}, err
-	}
-	workspace, err = s.ensureExistingWorkspaceRunning(ctx, workspace)
+	var response WorkspaceSnapshotResponse
+	err := s.withWorkspaceMutation(ctx, input.WorkspaceID, input.RepositoryID, input.UserID, func(ctx context.Context, workspace db.Workspace) error {
+		var err error
+		response, err = s.snapshotSandboxWorkspace(ctx, input, snapshotName, workspace)
+		return err
+	})
+	return response, err
+}
+
+func (s *WorkspaceService) snapshotSandboxWorkspace(ctx context.Context, input CreateWorkspaceSnapshotInput, snapshotName string, workspace db.Workspace) (WorkspaceSnapshotResponse, error) {
+	workspace, err := s.ensureExistingWorkspaceRunningFor(ctx, workspace, input.UserID)
 	if err != nil {
 		return WorkspaceSnapshotResponse{}, err
 	}

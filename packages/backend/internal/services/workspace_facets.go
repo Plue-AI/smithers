@@ -249,6 +249,16 @@ func (s *WorkspaceService) WriteWorkspaceFile(ctx context.Context, workspaceID s
 	if err != nil {
 		return WorkspaceFileContent{}, err
 	}
+	var written WorkspaceFileContent
+	err = s.withWorkspaceMutation(ctx, workspaceID, repositoryID, userID, func(ctx context.Context, _ db.Workspace) error {
+		var err error
+		written, err = s.writeWorkspaceFile(ctx, workspaceID, repositoryID, userID, relativePath, absolutePath, content)
+		return err
+	})
+	return written, err
+}
+
+func (s *WorkspaceService) writeWorkspaceFile(ctx context.Context, workspaceID string, repositoryID, userID int64, relativePath, absolutePath, content string) (WorkspaceFileContent, error) {
 	if s.runtime != nil {
 		digest := sha256Hex(content)
 		row, runtimeCtx, targetErr := s.workspaceRuntimeFacetTarget(ctx, workspaceID, repositoryID, userID, WorkspaceAccessWrite, "workspace-file:"+relativePath+":"+digest)
@@ -324,8 +334,18 @@ func (s *WorkspaceService) ListWorkspaceServices(ctx context.Context, workspaceI
 	if err != nil {
 		return nil, err
 	}
-	if err := s.publishWorkspaceServicePreviews(ctx, workspace, services); err != nil {
+	// Publishing preview ingress is a mutation: a reader lists services
+	// without routes (#3212).
+	writable, err := s.workspaceWritable(ctx, workspace, userID)
+	if err != nil {
 		return nil, err
+	}
+	if writable {
+		if err := s.withWorkspaceMutationAuthority(ctx, workspace, userID, func(ctx context.Context) error {
+			return s.publishWorkspaceServicePreviews(ctx, workspace, services)
+		}); err != nil {
+			return nil, err
+		}
 	}
 	s.touchWorkspaceEntryRecency(ctx, workspace.ID, "services")
 	return services, nil
@@ -347,6 +367,16 @@ func (s *WorkspaceService) ManageWorkspaceService(ctx context.Context, workspace
 	if strings.HasPrefix(name, workspaceInternalUnitPrefix) {
 		return WorkspaceManagedService{}, pkgerrors.NotFound("workspace service not found")
 	}
+	var managed WorkspaceManagedService
+	err := s.withWorkspaceMutation(ctx, workspaceID, repositoryID, userID, func(ctx context.Context, _ db.Workspace) error {
+		var err error
+		managed, err = s.manageWorkspaceService(ctx, workspaceID, repositoryID, userID, name, action)
+		return err
+	})
+	return managed, err
+}
+
+func (s *WorkspaceService) manageWorkspaceService(ctx context.Context, workspaceID string, repositoryID, userID int64, name, action string) (WorkspaceManagedService, error) {
 	if s.runtime != nil {
 		controller, ok := s.runtime.(workspaceapi.WorkspaceNamedServiceController)
 		if !ok {
@@ -408,6 +438,10 @@ printf '%%s\0%%s\0%%s\0%%s\0%%s\0' "$unit" "$load" "$active" "$sub" "$port"`, wo
 	return services[0], nil
 }
 
+// workspaceRuntimeFacetTarget resolves the workspace a facet runs against. A
+// requester who may write it starts it when stopped; a reader is served only
+// while it already runs (#3212). Write-level callers hold the mutation
+// authority (withWorkspaceMutation) around this call and their mutation.
 func (s *WorkspaceService) workspaceRuntimeFacetTarget(ctx context.Context, workspaceID string, repositoryID, userID int64, access WorkspaceAccessLevel, operationID string) (db.Workspace, context.Context, error) {
 	if s == nil || s.q == nil {
 		return db.Workspace{}, nil, pkgerrors.Internal("workspace store unavailable")
@@ -416,7 +450,15 @@ func (s *WorkspaceService) workspaceRuntimeFacetTarget(ctx context.Context, work
 	if err != nil {
 		return db.Workspace{}, nil, err
 	}
-	row, err = s.ensureRuntimeWorkspaceRunning(ctx, row, userID)
+	writable, err := s.workspaceWritable(ctx, row, userID)
+	if err != nil {
+		return db.Workspace{}, nil, err
+	}
+	if writable {
+		row, err = s.ensureRuntimeWorkspaceRunning(ctx, row, userID)
+	} else {
+		row, err = s.runningRuntimeWorkspace(ctx, row, userID)
+	}
 	if err != nil {
 		return db.Workspace{}, nil, err
 	}
@@ -427,6 +469,8 @@ func (s *WorkspaceService) workspaceRuntimeFacetTarget(ctx context.Context, work
 	return row, runtimeCtx, nil
 }
 
+// workspaceFacetTarget is workspaceRuntimeFacetTarget for the sandbox
+// provider: a reader never resumes the VM.
 func (s *WorkspaceService) workspaceFacetTarget(ctx context.Context, workspaceID string, repositoryID, userID int64, access WorkspaceAccessLevel) (db.Workspace, workspaceFacetExecClient, error) {
 	if s == nil || s.q == nil {
 		return db.Workspace{}, nil, pkgerrors.Internal("workspace store unavailable")
@@ -435,7 +479,15 @@ func (s *WorkspaceService) workspaceFacetTarget(ctx context.Context, workspaceID
 	if err != nil {
 		return db.Workspace{}, nil, err
 	}
-	workspace, err = s.ensureExistingWorkspaceRunning(ctx, workspace)
+	writable, err := s.workspaceWritable(ctx, workspace, userID)
+	if err != nil {
+		return db.Workspace{}, nil, err
+	}
+	if writable {
+		workspace, err = s.ensureExistingWorkspaceRunningFor(ctx, workspace, userID)
+	} else {
+		workspace, err = s.runningSandboxWorkspace(ctx, workspace, userID)
+	}
 	if err != nil {
 		return db.Workspace{}, nil, err
 	}
@@ -444,6 +496,28 @@ func (s *WorkspaceService) workspaceFacetTarget(ctx context.Context, workspaceID
 		return db.Workspace{}, nil, pkgerrors.Internal("workspace execution unavailable")
 	}
 	return workspace, client, nil
+}
+
+// runningSandboxWorkspace serves a reader on the sandbox provider: the VM must
+// already run.
+func (s *WorkspaceService) runningSandboxWorkspace(ctx context.Context, workspace db.Workspace, requesterID int64) (db.Workspace, error) {
+	if s.runtime != nil {
+		return s.runningRuntimeWorkspace(ctx, workspace, requesterID)
+	}
+	if workspace.Status != "running" || strings.TrimSpace(workspace.VmID) == "" || s.sandbox == nil {
+		return workspace, errWorkspaceStopped()
+	}
+	vm, err := s.sandbox.InspectSandbox(ctx, workspace.VmID)
+	if err != nil {
+		if vmAlreadyGone(err) {
+			return workspace, errWorkspaceStopped()
+		}
+		return workspace, workspaceProvisioningError("get sandbox", err)
+	}
+	if vm.State != sandbox.StateRunning {
+		return workspace, errWorkspaceStopped()
+	}
+	return workspace, nil
 }
 
 func workspaceFilePath(raw string, allowRoot bool) (string, string, error) {

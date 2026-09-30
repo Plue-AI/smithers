@@ -51,24 +51,25 @@ func (s *WorkspaceService) GetWorkspaceSSHConnectionInfoAs(ctx context.Context, 
 		return WorkspaceSSHConnectionInfo{}, pkgerrors.Internal("sandbox provider unavailable")
 	}
 
-	workspace, err := s.loadOwnedWorkspace(ctx, workspaceID, repositoryID, userID)
+	var info WorkspaceSSHConnectionInfo
+	err = s.withWorkspaceMutation(ctx, workspaceID, repositoryID, userID, func(ctx context.Context, workspace db.Workspace) error {
+		workspace, err := s.ensureExistingWorkspaceRunningFor(ctx, workspace, userID)
+		if err != nil {
+			return err
+		}
+		if err := s.waitForWorkspaceGuestActivation(ctx, workspace); err != nil {
+			return err
+		}
+		info, err = s.buildWorkspaceSSHConnectionInfoAs(ctx, workspace, guestUser)
+		if err != nil {
+			return err
+		}
+		s.touchWorkspaceEntryRecency(ctx, workspace.ID, "workspace_ssh")
+		return nil
+	})
 	if err != nil {
 		return WorkspaceSSHConnectionInfo{}, err
 	}
-
-	workspace, err = s.ensureExistingWorkspaceRunning(ctx, workspace)
-	if err != nil {
-		return WorkspaceSSHConnectionInfo{}, err
-	}
-	if err := s.waitForWorkspaceGuestActivation(ctx, workspace); err != nil {
-		return WorkspaceSSHConnectionInfo{}, err
-	}
-
-	info, err := s.buildWorkspaceSSHConnectionInfoAs(ctx, workspace, guestUser)
-	if err != nil {
-		return WorkspaceSSHConnectionInfo{}, err
-	}
-	s.touchWorkspaceEntryRecency(ctx, workspace.ID, "workspace_ssh")
 	return info, nil
 }
 

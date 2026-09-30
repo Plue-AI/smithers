@@ -163,7 +163,9 @@ func TestWorkspaceCoding_RejectsReplacedExecutionBeforeMutation(t *testing.T) {
 	q := &mockWorkspaceQuerier{getWorkspaceByRepoFn: func(context.Context, db.GetWorkspaceByRepoParams) (db.Workspace, error) {
 		loads++
 		workspace := db.Workspace{ID: "ws-1", RepositoryID: 101, UserID: 1, VmID: "vm-source-1", Status: "running"}
-		if loads > 1 {
+		// The mutation authority and the facet target load the source; the
+		// recheck before exec sees the replacement.
+		if loads > 2 {
 			workspace.VmID = "replacement-vm"
 		}
 		return workspace, nil

@@ -246,10 +246,15 @@ func (s *WorkspaceService) ApplyCodingOperation(ctx context.Context, workspaceID
 	raw, _ := json.Marshal(input)
 	var request map[string]any
 	_ = json.Unmarshal(raw, &request)
-	result, err := s.executeCoding(ctx, workspaceID, repositoryID, userID, WorkspaceAccessWrite, request)
-	if err == nil && result.Status == "accepted" {
-		err = s.recordCodingOperation(ctx, workspaceID, repositoryID, userID, input.Operation, result)
-	}
+	var result WorkspaceCodingResult
+	err := s.withWorkspaceMutation(ctx, workspaceID, repositoryID, userID, func(ctx context.Context, _ db.Workspace) error {
+		var err error
+		result, err = s.executeCoding(ctx, workspaceID, repositoryID, userID, WorkspaceAccessWrite, request)
+		if err == nil && result.Status == "accepted" {
+			err = s.recordCodingOperation(ctx, workspaceID, repositoryID, userID, input.Operation, result)
+		}
+		return err
+	})
 	if err == nil {
 		s.touchWorkspaceEntryRecency(ctx, workspaceID, "coding")
 	}
