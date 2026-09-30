@@ -1163,7 +1163,13 @@ describe("when Jev cannot answer", () => {
     it(`returns the seeds, marked refused, when Jev refuses with ${status} as EvaluatorBackup falls back`, async () => {
       const selection = await select({ task: "Fix src/a.ts" }, { root: seeded().root }, failing("refused", status))
       expect(ids(selection.output.kept)).toEqual(["src/a.ts"])
-      expect(selection.output.unjudged).toEqual({ reason: "refused", detail: `jev said refused ${status}` })
+      // A 429 is a usage limit, shown as the judge's public message; other refusals keep theirs.
+      expect(selection.output.unjudged).toEqual({
+        reason: "refused",
+        detail: status === 429
+          ? "The judge reached its usage limit (429). Wait for quota to reset."
+          : `jev said refused ${status}`
+      })
     })
   }
 
