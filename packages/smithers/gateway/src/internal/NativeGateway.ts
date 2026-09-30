@@ -215,7 +215,13 @@ export const bearerPrincipal = Object.freeze({ id: "gateway", kind: "bearer" })
  * @category constants
  * @since 1.0.0
  */
-export const scopedTokenPaths: ReadonlyArray<string> = ["/rpc", "/rpc/ws", "/projections", "/projections/ws", "/auth/ticket"]
+export const scopedTokenPaths: ReadonlyArray<string> = [
+  "/rpc",
+  "/rpc/ws",
+  "/projections",
+  "/projections/ws",
+  "/auth/ticket"
+]
 
 /**
  * The identity stamped after this gateway verifies a scoped token minted

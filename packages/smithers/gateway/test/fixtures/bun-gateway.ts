@@ -105,10 +105,19 @@ await Effect.runPromise(Effect.scoped(
     assert.match(frame, /"Success"/)
     // A scoped token minted under the bearer reads, and is refused a mutation in band.
     const scoped = yield* ScopedToken.mint({ key: "test-bun-token", scopes: ["read:runs"], ttlMillis: 60_000 })
-    const plan = JSON.stringify({ _tag: "Request", id: 1, tag: "Plan", payload: { flowId: "system/test", input: {} }, headers: [] }) + "\n"
+    const plan = JSON.stringify({
+      _tag: "Request",
+      id: 1,
+      tag: "Plan",
+      payload: { flowId: "system/test", input: {} },
+      headers: []
+    }) + "\n"
     yield* Effect.promise(async () => {
       assert.match(await exchange("/rpc/ws", { authorization: `Bearer ${scoped.token}` }), /"Success"/)
-      assert.match(await exchange("/rpc/ws", { authorization: `Bearer ${scoped.token}` }, plan), /does not authorize Plan/)
+      assert.match(
+        await exchange("/rpc/ws", { authorization: `Bearer ${scoped.token}` }, plan),
+        /does not authorize Plan/
+      )
     })
     // A browser cannot set the header: it trades the bearer for a single-use ticket.
     yield* Effect.promise(async () => {

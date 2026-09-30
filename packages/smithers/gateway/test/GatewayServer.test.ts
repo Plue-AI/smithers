@@ -2414,6 +2414,31 @@ describe("single-use WebSocket tickets for browser clients", () => {
           Effect.map((error) => expect(error).toMatchObject({ code: "bind_failed" }))
         )
       ))
+
+    test("drops a lapsed ticket when it issues the next, and the new ticket still opens", () =>
+      Effect.gen(function*() {
+        const url = yield* baseUrl
+        // One second outlasts a loaded runner's issue-then-redeem round trip.
+        const lapsed = yield* ticketOf(url)
+        yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 1_500)))
+        const fresh = yield* ticketOf(url)
+        expect((yield* Effect.promise(() => fetch(`${url}/rpc/ws?ticket=${fresh.ticket}`))).status).toBe(200)
+        expect((yield* Effect.promise(() => fetch(`${url}/rpc/ws?ticket=${lapsed.ticket}`))).status).toBe(401)
+      }).pipe(Effect.provide(bound(1_000))))
+
+    test("holds at most 1,024 outstanding tickets and evicts the oldest first", () =>
+      Effect.gen(function*() {
+        const url = yield* baseUrl
+        // GatewayServer caps outstanding tickets at 1,024; the 1,025th issue
+        // evicts the first while every later ticket stays redeemable.
+        const issued: Array<string> = []
+        for (let index = 0; index < 1025; index++) issued.push((yield* ticketOf(url)).ticket)
+        const opened = (ticket: string) =>
+          Effect.map(Effect.promise(() => fetch(`${url}/rpc/ws?ticket=${ticket}`)), (response) => response.status)
+        expect(yield* opened(issued[0]!)).toBe(401)
+        expect(yield* opened(issued[1]!)).toBe(200)
+        expect(yield* opened(issued[1024]!)).toBe(200)
+      }).pipe(Effect.provide(bound(600_000))))
   })
 })
 
@@ -2497,7 +2522,11 @@ describe("scoped tokens over the served gateway", () => {
       }
 
       // Forged under another key: refused exactly like a wrong bearer.
-      const { token: forged } = yield* ScopedToken.mint({ key: "not-the-key", scopes: ["read:runs"], ttlMillis: 60_000 })
+      const { token: forged } = yield* ScopedToken.mint({
+        key: "not-the-key",
+        scopes: ["read:runs"],
+        ttlMillis: 60_000
+      })
       expect((yield* post(url, "projections", forged, workspaceRuns)).status).toBe(401)
       expect((yield* post(url, "rpc", forged, listRuns)).body).toContain("/control/Unauthorized")
       expect((yield* upgrade(url, "rpc", forged)).status).toBe(401)
@@ -2509,23 +2538,38 @@ describe("scoped tokens over the served gateway", () => {
       const runId = yield* launched
       const { token } = yield* ScopedToken.mint({ key, scopes: ["read:runs", "write:runs"], ttlMillis: 60_000, runId })
 
-      const summary = yield* post(url, "projections", token, frame("Projection.Snapshot", {
-        selector: { _tag: "run-summary", runId }
-      }))
+      const summary = yield* post(
+        url,
+        "projections",
+        token,
+        frame("Projection.Snapshot", {
+          selector: { _tag: "run-summary", runId }
+        })
+      )
       expect(summary.body).toContain("\"Success\"")
       const filtered = yield* post(url, "rpc", token, frame("List", { _tag: "runs", filters: { runId } }))
       expect(filtered.body).toContain("\"Success\"")
       // Naming another run, or no run, is refused rather than widened.
-      const other = yield* post(url, "projections", token, frame("Projection.Snapshot", {
-        selector: { _tag: "run-summary", runId: "some-other-run" }
-      }))
+      const other = yield* post(
+        url,
+        "projections",
+        token,
+        frame("Projection.Snapshot", {
+          selector: { _tag: "run-summary", runId: "some-other-run" }
+        })
+      )
       expect(other.body).toContain("does not authorize Projection.Snapshot")
       expect((yield* post(url, "projections", token, workspaceRuns)).body).toContain("does not authorize")
       expect((yield* post(url, "rpc", token, listRuns)).body).toContain("does not authorize List")
-      const cancelOther = yield* post(url, "rpc", token, frame("Cancel", {
-        runId: "some-other-run",
-        idempotencyKey: "cancel-other"
-      }))
+      const cancelOther = yield* post(
+        url,
+        "rpc",
+        token,
+        frame("Cancel", {
+          runId: "some-other-run",
+          idempotencyKey: "cancel-other"
+        })
+      )
       expect(cancelOther.body).toContain("does not authorize Cancel")
       const cancelled = yield* post(url, "rpc", token, frame("Cancel", { runId, idempotencyKey: "cancel-this" }))
       expect(cancelled.body).toContain("\"Success\"")
@@ -2579,7 +2623,11 @@ describe("scoped tokens over the served gateway", () => {
   test("a scoped token reaches no journal sync mount, directly or through a ticket", () =>
     Effect.gen(function*() {
       const url = yield* baseUrl
-      const { token } = yield* ScopedToken.mint({ key, scopes: ["read:runs", "write:runs", "approve:runs"], ttlMillis: 60_000 })
+      const { token } = yield* ScopedToken.mint({
+        key,
+        scopes: ["read:runs", "write:runs", "approve:runs"],
+        ttlMillis: 60_000
+      })
       const sync = (credential: string) =>
         Effect.promise(() =>
           fetch(`${url}/sync`, {
@@ -2593,7 +2641,10 @@ describe("scoped tokens over the served gateway", () => {
       // The token still mints a ticket, and the ticket opens its control socket
       // but not the sync socket: the redeemed credential is judged per mount.
       const ticketFor = Effect.promise(async () => {
-        const response = await fetch(`${url}/auth/ticket`, { method: "POST", headers: { authorization: `Bearer ${token}` } })
+        const response = await fetch(`${url}/auth/ticket`, {
+          method: "POST",
+          headers: { authorization: `Bearer ${token}` }
+        })
         expect(response.status).toBe(200)
         return ((await response.json()) as { readonly ticket: string }).ticket
       })
