@@ -4,6 +4,7 @@ import * as DatabaseModule from "@smthrs/database/DurableWriter"
 import * as NodeDatabase from "@smthrs/database/node/NodeDatabase"
 import * as TestDatabase from "@smthrs/database/test/TestDatabase"
 import * as Migrations from "@smthrs/engine-store/Migrations"
+import * as SqlJournal from "@smthrs/journal/SqlJournal"
 import * as Deferred from "effect/Deferred"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
@@ -15,8 +16,9 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import * as Frame from "../src/Frame.ts"
+import * as SnapshotProjector from "../src/internal/SnapshotProjector.ts"
 import * as SqlTimeTravelStore from "../src/SqlTimeTravelStore.ts"
-import type * as TimeTravelStore from "../src/TimeTravelStore.ts"
+import * as TimeTravelStore from "../src/TimeTravelStore.ts"
 
 const run = <A>(
   body: (
@@ -1194,6 +1196,54 @@ describe("SqlTimeTravelStore.createFork", () => {
         expect(failure).toMatchObject({ code: "unknown", message: "could not materialize executable fork state" })
       })
     ))
+
+  it.effect("keeps a fork's inherited jj operation across projection and a reopened database", () =>
+    Effect.gen(function*() {
+      const directory = yield* Effect.promise(() => mkdtemp(join(tmpdir(), "flows-time-travel-fork-operation-")))
+      const filename = join(directory, "store.sqlite")
+      const frame = { lineageId: "operation-parent/root", seq: 0 } as const
+      const project = (store: TimeTravelStore.Service, runId: string) =>
+        SnapshotProjector.project(runId, { upTo: frame.seq }).pipe(
+          Effect.provideService(TimeTravelStore.TimeTravelStore, store),
+          Effect.provide(SqlJournal.layer({ capacity: 8, overflow: "reject" }))
+        )
+      try {
+        const childRunId = yield* fileHandle(filename, (store, sql) =>
+          Effect.gen(function*() {
+            yield* insertRun(sql, "operation-parent")
+            yield* sql`
+              INSERT INTO flows_journal_events
+                (run_id, seq, event_id, source_id, source_seq, emitted_at_ms,
+                 event_type, payload_json, meta_json)
+              VALUES ('operation-parent', 0, 'operation-0', 'source', 0, 0,
+                      'flows.engine.snapshot-identified',
+                      ${JSON.stringify({ snapshotId: "change-0", operationId: "operation-0" })},
+                      ${JSON.stringify({ lineageId: frame.lineageId })})
+            `
+            yield* project(store, "operation-parent")
+            const fork = yield* store.createFork("operation-parent", frame)
+            yield* project(store, fork.runId)
+            return fork.runId
+          }))
+        const reopened = yield* fileHandle(filename, (store) =>
+          Effect.gen(function*() {
+            const state = yield* project(store, childRunId)
+            return {
+              state: state.lineages[frame.lineageId],
+              parent: yield* store.snapshotAt("operation-parent", frame),
+              child: yield* store.snapshotAt(childRunId, frame)
+            }
+          }))
+
+        expect(reopened).toEqual({
+          state: { changeId: "change-0", operationId: "operation-0", planDigest: undefined },
+          parent: { runId: "operation-parent", frame, changeId: "change-0", operationId: "operation-0" },
+          child: { runId: childRunId, frame, changeId: "change-0", operationId: "operation-0" }
+        })
+      } finally {
+        yield* Effect.promise(() => rm(directory, { recursive: true, force: true }))
+      }
+    }))
 
   it.effect("creates distinct coherent forks when two store handles race at one parent frame", () =>
     Effect.gen(function*() {
