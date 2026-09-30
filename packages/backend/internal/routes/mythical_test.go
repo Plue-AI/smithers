@@ -28,6 +28,18 @@ type fakeMythicalRoute struct {
 	wikis      int
 	wikiErr    error
 	viewers    []services.MythicalViewer
+	todos      []services.MythicalTodoInput
+	todoUsers  []int64
+	todoErr    error
+}
+
+func (f *fakeMythicalRoute) FileTodo(_ context.Context, _, userID int64, input services.MythicalTodoInput) (services.MythicalItemView, error) {
+	if f.todoErr != nil {
+		return services.MythicalItemView{}, f.todoErr
+	}
+	f.todos, f.todoUsers = append(f.todos, input), append(f.todoUsers, userID)
+	return services.MythicalItemView{ID: "item-1", State: "queued", Issue: &services.MythicalIssueView{Number: 12, Title: input.Title},
+		DependsOn: []string{}}, nil
 }
 
 func (f *fakeMythicalRoute) RequestWiki(context.Context, int64) error {
@@ -209,4 +221,48 @@ func TestMythicalWikiRoute(t *testing.T) {
 	handler.Wiki(rec, request(true))
 	assert.Equal(t, http.StatusConflict, rec.Code)
 	assert.Contains(t, rec.Body.String(), "declares no wiki")
+}
+
+// A person files a TODO: 201 with its queued item; the service's refusal
+// is the answer, and a malformed or oversized body never reaches it.
+func TestMythicalTodosRoute(t *testing.T) {
+	service := &fakeMythicalRoute{}
+	handler := &MythicalHandler{Service: service}
+	request := func(body string, user bool) *http.Request {
+		r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+		ctx := middleware.ContextWithRepoContext(r.Context(), &middleware.RepoContext{Owner: "o",
+			Repository: &db.Repository{ID: 19, Name: "r"}}, middleware.PermissionWrite)
+		if user {
+			ctx = context.WithValue(ctx, middleware.UserContextKey, &db.User{ID: 7})
+		}
+		return r.WithContext(ctx)
+	}
+	rec := httptest.NewRecorder()
+	handler.Todos(rec, request(`{"title":"t"}`, false))
+	assert.Equal(t, http.StatusUnauthorized, rec.Code)
+
+	for _, body := range []string{`{"title":"t","labels":["x"]}`, `not json`, `{"title":"` + strings.Repeat("x", 64<<10) + `"}`} {
+		rec = httptest.NewRecorder()
+		handler.Todos(rec, request(body, true))
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	}
+	assert.Empty(t, service.todos)
+
+	rec = httptest.NewRecorder()
+	handler.Todos(rec, request(`{"title":"Add the footer link","body":"Make it findable."}`, true))
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+	assert.Equal(t, []services.MythicalTodoInput{{Title: "Add the footer link", Body: "Make it findable."}}, service.todos)
+	assert.Equal(t, []int64{7}, service.todoUsers)
+	assert.Contains(t, rec.Body.String(), `"issue":{"number":12,"title":"Add the footer link","url":""}`)
+	assert.Contains(t, rec.Body.String(), `"state":"queued"`)
+
+	service.todoErr = pkgerrors.Forbidden("only a maintainer the factory's policy names files a TODO")
+	rec = httptest.NewRecorder()
+	handler.Todos(rec, request(`{"title":"t"}`, true))
+	assert.Equal(t, http.StatusForbidden, rec.Code)
+	assert.Contains(t, rec.Body.String(), "only a maintainer")
+
+	rec = httptest.NewRecorder()
+	(&MythicalHandler{}).Todos(rec, request(`{"title":"t"}`, true))
+	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 }

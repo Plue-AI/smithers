@@ -87,6 +87,11 @@ type mythicalGitHub interface {
 	AddLabel(ctx context.Context, gh mythicalGitHubRepo, number int64, label string) error
 	// RemoveLabel takes label off an issue; an absent label is removed.
 	RemoveLabel(ctx context.Context, gh mythicalGitHubRepo, number int64, label string) error
+	// Account reads the GitHub account with this numeric id as it stands
+	// now: its login follows a rename.
+	Account(ctx context.Context, gh mythicalGitHubRepo, id int64) (gitHubActor, error)
+	// CreateIssue opens an issue with this title and body.
+	CreateIssue(ctx context.Context, gh mythicalGitHubRepo, title, body string) (mythicalIssue, error)
 }
 
 // MythicalGitHubStore is what resolving a destination reads.

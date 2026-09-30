@@ -65,6 +65,8 @@ type fakeMythicalGitHub struct {
 	// fails every Comment.
 	ci         map[string]string
 	commentErr error
+	// accounts are the GitHub accounts Account answers, by numeric id.
+	accounts map[int64]gitHubActor
 }
 
 // Merge squash-merges like GitHub: only while the pull request is open and

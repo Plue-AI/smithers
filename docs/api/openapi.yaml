@@ -20041,6 +20041,64 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/InternalError'
+  /api/repos/{owner}/{repo}/mythical/todos:
+    post:
+      summary: POST /api/repos/{owner}/{repo}/mythical/todos
+      description: File a TODO on the repository's GitHub issues as a maintainer person and queue it on the stack. Answers the queued item.
+      operationId: post_api_repos_owner_repo_mythical_todos
+      tags:
+        - Repositories
+      parameters:
+        - name: owner
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: repo
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - title
+              properties:
+                title:
+                  type: string
+                  maxLength: 256
+                body:
+                  type: string
+      security:
+        - tokenAuth: []
+        - bearerAuth: []
+        - sessionCookie: []
+      responses:
+        '201':
+          description: The queued item
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnyJSON'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
   /api/repos/{owner}/{repo}/mythical/wiki:
     post:
       summary: POST /api/repos/{owner}/{repo}/mythical/wiki

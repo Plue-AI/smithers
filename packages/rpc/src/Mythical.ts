@@ -54,6 +54,8 @@ export const MYTHICAL_ROUTES = {
   config: "/api/repos/{owner}/{repo}/mythical/config",
   /** `POST`: retry one blocked or rejected item. */
   retry: "/api/repos/{owner}/{repo}/mythical/items/{id}/retry",
+  /** `POST`: a maintainer files a TODO (`{ title, body }`); answers its queued {@link MythicalItemSchema}. */
+  todos: "/api/repos/{owner}/{repo}/mythical/todos",
   /** `PUT`: a coding host submits a lane result ({@link MythicalLaneSubmissionSchema}). */
   lanes: "/api/repos/{owner}/{repo}/mythical/lanes",
   /** `POST`: refresh the repository wiki now, or retry a failed refresh. */

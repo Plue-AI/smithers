@@ -166,7 +166,6 @@ func (s *MythicalService) ObserveIssue(ctx context.Context, repositoryID int64, 
 		return err
 	}
 	digest := mythicalIssueDigest(issue)
-	outsider := !issue.TextByMaintainer
 	body := issue.Body
 	if len(body) > mythicalPromptBytes {
 		body = body[:mythicalPromptBytes]
@@ -196,6 +195,15 @@ func (s *MythicalService) ObserveIssue(ctx context.Context, repositoryID int64, 
 		if auto {
 			checks.AutoTodo = applied.AutoTodo
 		}
+		if applied.FiledBy != "" {
+			checks.Filed = digest
+		}
+		// Text a maintainer person filed through Smithers (FileTodo) is
+		// theirs while it stands exactly as filed; GitHub names the App.
+		if checks.Filed != "" && checks.Filed == digest {
+			issue.TextByMaintainer = true
+		}
+		outsider := !issue.TextByMaintainer
 		// A TODO the policy made stays one: the label is its projection.
 		checks.Todo = checks.AutoTodo != "" || issueCarriesLabel(issue.Labels, todoLabel) && (appliedByMaintainer(applied, todoLabel) || checks.Todo)
 		checks.Automerge = issueCarriesLabel(issue.Labels, automergeLabel) && (appliedByMaintainer(applied, automergeLabel) || checks.Automerge)
@@ -3007,6 +3015,9 @@ type mythicalChecks struct {
 	// Route is the route Jev gave the TODO (factory/Todo) on its latest
 	// request, from the request's result or failure; each replan asks again.
 	Route string `json:"route,omitempty"`
+	// Filed is the digest of the text a maintainer person filed through
+	// Smithers (FileTodo): that text, and only that text, is theirs.
+	Filed string `json:"filed,omitempty"`
 }
 
 // mythicalCIWait is the approved head whose CI the stack waits for, since
