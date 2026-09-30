@@ -514,6 +514,34 @@ describe("the factory from the terminal, over a local HTTP server", () => {
     }
   })
 
+  it("lands a proposed TODO at the head it read, through the land route", async () => {
+    const head = "c".repeat(40)
+    const pullRequest = { number: 40, url: "https://github.com/owner/repo/pull/40", state: "open", head }
+    const f = await serve((req, res) => {
+      if (req.method === "POST") return json(res, item("proposed", { pullRequest, automerge: true }), 202)
+      if (req.url?.endsWith("/items/13")) return json(res, item("running", { id: "33333333-3333-4333-8333-333333333333" }))
+      if (req.url?.endsWith("/items/14")) return json(res, item("proposed", { pullRequest: { ...pullRequest, head: undefined } }))
+      items(req, res, [item("proposed", { pullRequest })])
+    })
+    try {
+      const landed = await f.run(["history", "land", "#12"])
+      expect(landed.code, landed.error).toBe(0)
+      expect(landed.output).toContain("#12 Fix login · PR open")
+      for (const ref of ["13", "14"]) {
+        const refused = await f.run(["history", "land", ref])
+        expect(refused.code, ref).not.toBe(0)
+        expect(refused.output + refused.error).toContain(`#${ref} has no open pull request to land`)
+      }
+      const missing = await f.run(["history", "land", "99"])
+      expect(missing.output + missing.error).toContain("#99 is not in the history")
+      expect(f.requests.filter((r) => r.method === "POST").map((r) => `${r.url} ${r.body}`)).toEqual([
+        `/api/repos/owner/repo/mythical/items/${ID}/land {"head":"${head}"}`
+      ])
+    } finally {
+      await f.close()
+    }
+  })
+
   it("shows a failed TODO's typed reason as the server states it, and retries it", async () => {
     const failure = { kind: "provisioning", fault: "infra" }
     const reason = "Smithers could not set up a lane after repeated tries"

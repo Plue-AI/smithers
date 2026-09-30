@@ -330,6 +330,19 @@ export const history: Record<string, Handler> = {
     }
     return c.request("POST", stackPath(c, o, `/items/${esc(str(item.id))}/retry`), {})
   },
+  "history land": async (c, a, o) => {
+    const ref = target(a.issue)
+    const item = await one(c, o, ref)
+    if (item === undefined) {
+      throw new Refused({ fault: "user", code: "not_found", message: `${named(ref)} is not in the history` })
+    }
+    const head = str(object(item.pullRequest).head)
+    if (str(item.state) !== "proposed" || head === "") {
+      throw new Refused({ fault: "user", code: "not_landable", message: `${named(ref)} has no open pull request to land` })
+    }
+    // The head this read saw: one that moves before the stack merges is refused, never landed unseen.
+    return c.request("POST", stackPath(c, o, `/items/${esc(str(item.id))}/land`), { head })
+  },
   "history todo": (c, a, o) => {
     const title = str(a.title).trim()
     if (!title) throw new UsageError({ message: "A TODO needs a title" })
@@ -356,6 +369,7 @@ export const humans: Record<string, (value: unknown) => string> = {
   "history show": (value) => render(value),
   "history watch": (value) => itemLine(object(value)),
   "history retry": (value) => itemLine(object(value)),
+  "history land": (value) => itemLine(object(value)),
   "history todo": (value) => itemLine(object(value)),
   "history backfill": (value) => render(value),
   "history bootstrap": (value) => render(value),
