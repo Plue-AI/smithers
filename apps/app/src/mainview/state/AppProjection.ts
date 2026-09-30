@@ -934,11 +934,30 @@ const projectNotificationObservation = (collections: ProjectionCollections, obse
 }
 
 /** Explicit, versioned boot inputs make seed/migration behavior replayable. */
-export const seedAppProjection = (previous: AppProjectionSnapshot, context: AppProjectionSeedContext): AppProjectionSnapshot => {
+export const seedAppProjection = (previous: AppProjectionSnapshot, context: AppProjectionSeedContext,
+  retireLegacySignup = false): AppProjectionSnapshot => {
   const { createdAt, theme } = context
   if (!Number.isFinite(createdAt)) throw new Error("Invalid app boot context")
   const draft = projectionDraft(previous)
   const { collections } = draft
+  // Older signup rows could survive an account change before the privacy
+  // transition was fixed in v18. Their chosen slug cannot prove an owner.
+  // Retire the ambiguous details once; current identity changes already erase
+  // signup with the rest of the prior account's state.
+  if (retireLegacySignup) {
+    const identity = collections.identitySessions.get("identity")
+    const login = identity?.state === "signed-in" && identity.login !== null &&
+      accountOwnerOf(identity) === identity.login ? identity.login : null
+    const signupTransitions = [...collections.transitions.values()].filter(row => row.type === "signup.changed").map(row => row.id)
+    if (signupTransitions.length > 0) collections.transitions.delete(signupTransitions)
+    for (const session of collections.sessions.values()) if (session.signup !== undefined) {
+      const completed = session.signup.stage === "done"
+      collections.sessions.update(session.id, row => {
+        row.signup = completed ? { ...initialSignup(), stage: "done" }
+          : login === null ? initialSignup() : signupAfterIdentity(initialSignup(), "signed-in", login, null) ?? initialSignup()
+      })
+    }
+  }
   // The local repository inventory retired (#2239): a saved checkout selection names nothing.
   for (const row of collections.repoTree.values()) if (row.copyId.startsWith("local:")) collections.repoTree.delete(row.id)
   for (const session of collections.sessions.values()) {

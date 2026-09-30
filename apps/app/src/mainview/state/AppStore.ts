@@ -1246,13 +1246,15 @@ const initializeAppStore = async (
   const savedHead = storedRow(collections.appEventHeads.get("current"))
   const savedCheckpoint = storedRow(collections.appEventCheckpoints.get("current"))
   let initial: StreamWrite
+  let retireLegacySignup = false
   if (savedHead === undefined && savedCheckpoint === undefined && collections.appEvents.size === 0) {
     // A privacy intent can only have been accepted after event authority existed.
     // Never recover it by importing an opaque backup or inventing a fresh history.
     if (bootRetirement !== undefined) throw new PrivacyAuthorityMissing()
     // Old row snapshots are an explicit coverage boundary, never invented history.
     const previous = readProjection(collections)
-    const baseline = initializeAppStream(seedAppProjection(previous, seedContext), crypto.randomUUID(),
+    retireLegacySignup = previous.sessions.length > 0
+    const baseline = initializeAppStream(seedAppProjection(previous, seedContext, retireLegacySignup), crypto.randomUUID(),
       previous.sessions.length === 0 ? "created" : "legacy-baseline")
     initial = { state: baseline, checkpoint: baseline.checkpoint }
   } else {
@@ -1261,8 +1263,9 @@ const initializeAppStore = async (
     if (collections.appEventRetirements.has(retiredAppStreamKey(savedHead.streamId))) throw new AppEventIntegrityError("scope")
     const upgrading = needsAppProjectorUpgrade(savedHead, savedCheckpoint)
     const upgradeSource = upgrading ? readProjection(collections) : undefined
+    retireLegacySignup = upgradeSource !== undefined && savedHead.projectorVersion < 26
     const upgraded = upgradeSource !== undefined
-      ? initializeAppStream(seedAppProjection(upgradeSource, seedContext), crypto.randomUUID(), "projector-upgrade")
+      ? initializeAppStream(seedAppProjection(upgradeSource, seedContext, retireLegacySignup), crypto.randomUUID(), "projector-upgrade")
       : undefined
     const verified = upgraded ?? replayAppEvents(savedCheckpoint, [...collections.appEvents.values()].map(storedRow), savedHead)
     // Seeding a missing legacy identity does not prove that its owner signed out.
@@ -1342,6 +1345,14 @@ const initializeAppStore = async (
     mutationFn: ({ transaction }) => persist(transaction, initial.state.head) })
   bootTransaction.mutate(() => writeStream(initial))
   await bootTransaction.isPersisted.promise
+  // Current signup input always carries stream authority. A saved edit from
+  // another stream (or an unscoped old writer) cannot enter this one. Check
+  // on every boot so a crash after checkpoint commit cannot strand old bytes.
+  const staleSignupRecoveries = entityRecoveries.filter(record => record.value.kind === "signup" &&
+    (record.authority === undefined || record.authority.streamId !== initial.state.head.streamId))
+  for (const record of staleSignupRecoveries) {
+    clearEntityRecovery(draftRecoveryStorage, record)
+  }
   if (bootRetirement !== undefined && initial.state.head.streamId !== bootRetirement.targetStreamId) {
     retargetPrivacyRetirement(privacyRecord!, bootRetirement, initial.state.head.streamId)
     bootRetirement = { ...bootRetirement, targetStreamId: initial.state.head.streamId }
@@ -1760,7 +1771,8 @@ const initializeAppStore = async (
   const pendingRecoveries = [
     ...(draftRecovery ? [{ kind: "draft" as const, record: draftRecovery }] : []),
     ...(wikiRecovery ? [{ kind: "wiki" as const, record: wikiRecovery }] : []),
-    ...entityRecoveries.map(record => ({ kind: "entity" as const, record }))
+    ...entityRecoveries.filter(record => !staleSignupRecoveries.includes(record))
+      .map(record => ({ kind: "entity" as const, record }))
   ].sort((a, b) => {
     const left = a.record.authority?.intentId ?? "", right = b.record.authority?.intentId ?? ""
     return a.record.revision - b.record.revision || (left < right ? -1 : left > right ? 1 : 0)

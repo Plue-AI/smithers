@@ -19,6 +19,8 @@ import { canonicalEventValue, decodeEventValue, encodeEventValue } from "./Event
 import { memoryStorage } from "./TestFixtures"
 import { MAX_TRANSITION_PAYLOAD_BYTES } from "./TransitionDiagnostics"
 import { runtimeApprovalKey } from "./RuntimeProjection"
+import { ENTITY_RECOVERY_STORAGE_KEY, readEntityRecoveries, writeEntityRecovery } from "./EntityRecovery"
+import type { Signup } from "./Signup"
 
 const opened: AppStore[] = []
 const directories: string[] = []
@@ -138,6 +140,154 @@ const installProjectorFixture = async (storage: StorageApi, version: number, ret
 }
 
 describe("the live store's authoritative event path", () => {
+  for (const stage of ["account", "poll", "ready", "done"] as const) for (const compact of stage === "account" ? [true, false] : [true])
+    test(`a pre-v26 ${stage} signup with ${compact ? "compacted" : "live"} history retires once`, async () => {
+    const storage = memoryStorage(), store = await open(storage)
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "new-owner",
+      provider: "github", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+    await store.dispatch({ type: "signup.changed", actor: "user", patch: {
+      stage, name: "PRIVATE OLD NAME", account: "chosen-slug", question: 2,
+      answers: { heard: "PRIVATE OLD ANSWER" }, repo: "private/repo",
+      draft: { name: "PRIVATE OLD DRAFT", account: "chosen-slug" }
+    } }).isPersisted.promise
+    if (compact) await store.compactEvents()
+    const old = await store.eventHistory()
+    await store.dispose?.(); opened.splice(opened.indexOf(store), 1)
+    const { hash: _, ...checkpointBody } = { ...old.checkpoint, projectorVersion: APP_PROJECTOR_VERSION - 1 }
+    const checkpoint = { ...checkpointBody, hash: digest("smithers-app/checkpoint/v1:" + canonicalEventValue(checkpointBody)) }
+    editEnvelope(storage, entries => {
+      for (const [id, data] of [["app-event-heads", { ...old.head, projectorVersion: APP_PROJECTOR_VERSION - 1 }],
+        ["app-event-checkpoints", checkpoint]] as const) {
+        entries[`smithers-mvp.${id}`] = JSON.stringify({ "s:current": { versionKey: "fixture", data } })
+      }
+    })
+    expect(JSON.stringify(envelopeRows(storage))).toContain("PRIVATE OLD")
+    const upgraded = await open(storage)
+    const expected: Signup = stage === "done" ? { stage: "done", question: 0, answers: {}, draft: {} }
+      : { stage: "account", door: "github", account: "new-owner", question: 0, answers: {}, draft: { account: "new-owner" } }
+    expect(upgraded.session().signup).toEqual(expected)
+    expect((await upgraded.eventHistory()).checkpoint.reason).toBe("projector-upgrade")
+    expect((await upgraded.eventHistory()).head.streamId).not.toBe(old.head.streamId)
+    expect(JSON.stringify(envelopeRows(storage))).not.toContain("PRIVATE OLD")
+    expect(JSON.stringify(envelopeRows(storage))).not.toContain("private/repo")
+    expect((await upgraded.verifyState()).valid).toBe(true)
+    await upgraded.dispose?.(); opened.splice(opened.indexOf(upgraded), 1)
+    const reopened = await open(storage)
+    expect(reopened.session().signup).toEqual(expected)
+    expect((await reopened.verifyState()).valid).toBe(true)
+  })
+
+  test("current-version signup edits keep their chosen slug across same-owner reload", async () => {
+    const storage = memoryStorage(), store = await open(storage)
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "new-owner",
+      provider: "github", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+    await store.dispatch({ type: "signup.changed", actor: "user", patch: { stage: "poll", name: "Chosen Name",
+      account: "chosen-slug", answers: { size: "Just me" }, draft: { account: "chosen-slug" } } }).isPersisted.promise
+    const saved = store.session().signup
+    await store.dispose?.(); opened.splice(opened.indexOf(store), 1)
+    const restored = await open(storage)
+    expect(restored.session().signup).toEqual(saved)
+    await restored.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "new-owner",
+      provider: "github", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+    expect(restored.session().signup).toEqual(saved)
+    await restored.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "other-owner",
+      provider: "github", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+    expect(restored.session().signup).toEqual({ stage: "account", door: "github", account: "other-owner",
+      question: 0, answers: {}, draft: { account: "other-owner" } })
+    expect((await restored.verifyState()).valid).toBe(true)
+  })
+
+  test("a signed-out legacy row has no account to claim its signup details", async () => {
+    const storage = memoryStorage(), store = await open(storage)
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null,
+      provider: "github", allowlisted: false, admin: false, scopesPlain: null }).isPersisted.promise
+    await store.dispatch({ type: "signup.changed", actor: "user", patch: { stage: "poll", name: "PRIVATE NAME",
+      account: "old-owner", answers: { size: "PRIVATE ANSWER" }, draft: { account: "old-owner" } } }).isPersisted.promise
+    await store.compactEvents()
+    const old = await store.eventHistory()
+    await store.dispose?.(); opened.splice(opened.indexOf(store), 1)
+    const { hash: _, ...body } = { ...old.checkpoint, projectorVersion: APP_PROJECTOR_VERSION - 1 }
+    const checkpoint = { ...body, hash: digest("smithers-app/checkpoint/v1:" + canonicalEventValue(body)) }
+    editEnvelope(storage, entries => {
+      for (const [id, data] of [["app-event-heads", { ...old.head, projectorVersion: APP_PROJECTOR_VERSION - 1 }],
+        ["app-event-checkpoints", checkpoint]] as const) {
+        entries[`smithers-mvp.${id}`] = JSON.stringify({ "s:current": { versionKey: "fixture", data } })
+      }
+    })
+    expect(JSON.stringify(envelopeRows(storage))).toContain("PRIVATE NAME")
+    const upgraded = await open(storage)
+    expect(upgraded.session().signup).toEqual({ stage: "sign-in", question: 0, answers: {}, draft: {} })
+    expect(JSON.stringify(envelopeRows(storage))).not.toContain("PRIVATE")
+    expect((await upgraded.verifyState()).valid).toBe(true)
+  })
+
+  test("a current stream purges an unscoped legacy signup edit after an interrupted prior boot", async () => {
+    const storage = memoryStorage(), recovery = memoryStorage()
+    const prior = Object.getOwnPropertyDescriptor(globalThis, "window")
+    Object.defineProperty(globalThis, "window", { configurable: true, value: { localStorage: recovery,
+      matchMedia: () => ({ matches: false }) } })
+    try {
+      const store = await open(storage)
+      await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "new-owner",
+        provider: "github", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+      const saved = store.session().signup!
+      expect(writeEntityRecovery(recovery, { key: "signup", revision: 1, value: { kind: "signup", signup: {
+        ...saved, draft: { ...saved.draft, name: "PRIVATE STALE EDIT" }
+      } } })).toBeDefined()
+      await store.dispose?.(); opened.splice(opened.indexOf(store), 1)
+      expect(recovery.getItem(ENTITY_RECOVERY_STORAGE_KEY)).toContain("PRIVATE STALE EDIT")
+      const restored = await open(storage)
+      expect(restored.session().signup).toEqual(saved)
+      expect(recovery.getItem(ENTITY_RECOVERY_STORAGE_KEY)).toBeNull()
+      expect((await restored.verifyState()).valid).toBe(true)
+    } finally {
+      if (prior) Object.defineProperty(globalThis, "window", prior)
+      else Reflect.deleteProperty(globalThis, "window")
+    }
+  })
+
+  for (const scoped of [true, false]) test(`a ${scoped ? "scoped" : "unscoped"} pending legacy signup edit cannot return from the retired stream`, async () => {
+    const storage = memoryStorage(), recovery = memoryStorage()
+    const prior = Object.getOwnPropertyDescriptor(globalThis, "window")
+    Object.defineProperty(globalThis, "window", { configurable: true, value: { localStorage: recovery,
+      matchMedia: () => ({ matches: false }) } })
+    try {
+      const store = await open(storage)
+      await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "new-owner",
+        provider: "github", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+      await store.dispatch({ type: "signup.changed", actor: "user", patch: { stage: "account",
+        name: "PRIVATE SUBMITTED", account: "chosen-slug", draft: { account: "chosen-slug" } } }).isPersisted.promise
+      await store.compactEvents()
+      if (scoped) expect(store.stagePendingSignupInput("name", "PRIVATE PENDING", "pending-edit")).toBeDefined()
+      else expect(writeEntityRecovery(recovery, { key: "signup", revision: 1, value: { kind: "signup", signup: {
+        ...store.session().signup!, draft: { ...store.session().signup!.draft, name: "PRIVATE PENDING" }
+      } } })).toBeDefined()
+      expect(readEntityRecoveries(recovery).some(row => row.value.kind === "signup" && row.value.signup.draft.name === "PRIVATE PENDING")).toBe(true)
+      const old = await store.eventHistory()
+      await store.dispose?.(); opened.splice(opened.indexOf(store), 1)
+      const { hash: _, ...checkpointBody } = { ...old.checkpoint, projectorVersion: APP_PROJECTOR_VERSION - 1 }
+      const checkpoint = { ...checkpointBody, hash: digest("smithers-app/checkpoint/v1:" + canonicalEventValue(checkpointBody)) }
+      editEnvelope(storage, entries => {
+        for (const [id, data] of [["app-event-heads", { ...old.head, projectorVersion: APP_PROJECTOR_VERSION - 1 }],
+          ["app-event-checkpoints", checkpoint]] as const) {
+          entries[`smithers-mvp.${id}`] = JSON.stringify({ "s:current": { versionKey: "fixture", data } })
+        }
+      })
+      expect(JSON.stringify(envelopeRows(storage))).toContain("PRIVATE SUBMITTED")
+      expect(recovery.getItem(ENTITY_RECOVERY_STORAGE_KEY)).toContain("PRIVATE PENDING")
+      const upgraded = await open(storage)
+      expect(upgraded.session().signup).toEqual({ stage: "account", door: "github", account: "new-owner",
+        question: 0, answers: {}, draft: { account: "new-owner" } })
+      expect(readEntityRecoveries(recovery)).toEqual([])
+      expect(recovery.getItem(ENTITY_RECOVERY_STORAGE_KEY)).toBeNull()
+      expect(JSON.stringify(envelopeRows(storage))).not.toContain("PRIVATE")
+      expect((await upgraded.verifyState()).valid).toBe(true)
+    } finally {
+      if (prior) Object.defineProperty(globalThis, "window", prior)
+      else Reflect.deleteProperty(globalThis, "window")
+    }
+  })
+
   test("version 6 upgrade retains setup policy and a later pending guide survives reopen", async () => {
     const storage = memoryStorage(), store = await open(storage)
     const payload = initialSetup("org/repo", "issues", "alice")
@@ -491,7 +641,7 @@ describe("the live store's authoritative event path", () => {
      * out. Changing this list owes a bump and an upgrade test like the ones
      * below.
      */
-    expect({ version: APP_PROJECTOR_VERSION, roster: [...APP_PROJECTION_COLLECTION_NAMES].sort() }).toEqual({ version: 25, roster: [
+    expect({ version: APP_PROJECTOR_VERSION, roster: [...APP_PROJECTION_COLLECTION_NAMES].sort() }).toEqual({ version: 26, roster: [
       "agents", "approvalRequests", "billingAccounts", "branches", "cardHistories", "cards", "changes",
       "cloudSessions", "cloudWorkspaces", "commandIntents", "connectorOperations", "connectors", "flowDurations", "frames",
       "githubAppStatuses", "httpTurnLegs", "httpTurns", "identitySessions", "messages", "models",
@@ -625,7 +775,7 @@ describe("the live store's authoritative event path", () => {
     const restored = await open(storage)
     const history = await restored.eventHistory()
     expect(history.checkpoint.reason).toBe("projector-upgrade")
-    expect(history.head.projectorVersion).toBe(25)
+    expect(history.head.projectorVersion).toBe(APP_PROJECTOR_VERSION)
     expect(history.head.streamId).not.toBe(old.head.streamId)
     expect(restored.session().draft).toBe("Keep this conversation")
     expect(restored.collections.cards.get("kept-setup")).toMatchObject({ payload: setup })

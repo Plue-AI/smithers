@@ -36,7 +36,8 @@ export const APP_EVENT_FORMAT_VERSION = 1
 // 24: `repos.loaded`, `repo.pinned`, `repo.unpinned`, the `repos` and `pinnedRepos` projections and local working
 // copies retired (smithersai/smithers#2239); an older store's local rows fail their schema and seed a fresh stream.
 // 25: repository job observations add a disposable projection; older saved rows seed the new roster (#2536).
-export const APP_PROJECTOR_VERSION = 25
+// 26: retire signup details with no owner receipt once, including edited legacy rows (#2065).
+export const APP_PROJECTOR_VERSION = 26
 
 const JsonSchema: z.ZodType<EventJson> = z.lazy(() => z.union([
   z.null(), z.boolean(), z.number().finite(), z.string(), z.array(JsonSchema), z.record(z.string(), JsonSchema)
