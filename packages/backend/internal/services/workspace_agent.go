@@ -264,6 +264,12 @@ func (s *WorkspaceService) forkAgentWorkspace(ctx context.Context, workspace db.
 		s.deleteOrphanedWorkspaceVM(ctx, vm.ID)
 		return AgentWorkspaceResult{}, err
 	}
+	// The agent reaches a model through its seat, never the human's copied
+	// vendor login (#2805).
+	if err := s.scrubSandboxWorkspaceLogins(ctx, vm.ID); err != nil {
+		s.deleteOrphanedWorkspaceVM(ctx, vm.ID)
+		return AgentWorkspaceResult{}, err
+	}
 	// Same bookmark: keep the human's in-flight working copy and start the
 	// agent's own change on top of it. Primary on another bookmark: refresh
 	// remote refs and start a new change on the run's bookmark.

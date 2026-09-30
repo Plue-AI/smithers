@@ -1873,6 +1873,12 @@ func (s *WorkspaceService) tryForkDerivedFromPrimary(ctx context.Context, worksp
 		slog.Warn("fork-from-primary failed; falling back to cold clone", "source_vm", source.VmID, "error", err)
 		return workspace, false
 	}
+	// The fork starts signed out of the primary's vendor logins (#2805).
+	if err := s.scrubSandboxWorkspaceLogins(ctx, vm.ID); err != nil {
+		s.deleteOrphanedWorkspaceVM(ctx, vm.ID)
+		slog.Warn("fork sign-out failed; falling back to cold clone", "fork_vm", vm.ID, "error", err)
+		return workspace, false
+	}
 
 	// Switch the fork onto the target bookmark BEFORE registering its VM id, so
 	// a switch failure just deletes the fork and falls back to cold with the
@@ -2110,6 +2116,12 @@ func (s *WorkspaceService) createWorkspaceVMFromSnapshot(ctx context.Context, wo
 		slog.Error("sandbox creation failed", "error", err, "type", "workspace")
 		return workspace, workspaceProvisioningError("create sandbox from snapshot", err)
 	}
+	// A restored snapshot starts signed out of its taker's vendor logins (#2805).
+	if err := s.scrubSandboxWorkspaceLogins(ctx, vm.ID); err != nil {
+		s.deleteOrphanedWorkspaceVM(ctx, vm.ID)
+		s.markWorkspaceProvisionFailed(ctx, workspace, err)
+		return workspace, workspaceProvisioningError("", err)
+	}
 
 	registrationStatus := "running"
 	if s.agentEnvironment != nil || s.providerConnections != nil || s.providerBootstrap {
@@ -2208,6 +2220,14 @@ func (s *WorkspaceService) forkWorkspaceVM(ctx context.Context, workspace, sourc
 		// derived-workspace open path takes when its fork attempt dies.
 		s.deleteOrphanedWorkspaceVM(ctx, vm.ID)
 		slog.Warn("pair fork failed; provisioning fresh sandbox for the fork workspace",
+			"source_vm", source.VmID, "error", err, "type", "workspace")
+		return s.provisionForkVMOnEmptySource(ctx, workspace)
+	}
+	// A fork starts signed out of the source's vendor logins (#2805). A guest
+	// that cannot be signed out is discarded for a fresh one.
+	if err := s.scrubSandboxWorkspaceLogins(ctx, vm.ID); err != nil {
+		s.deleteOrphanedWorkspaceVM(ctx, vm.ID)
+		slog.Warn("fork sign-out failed; provisioning fresh sandbox for the fork workspace",
 			"source_vm", source.VmID, "error", err, "type", "workspace")
 		return s.provisionForkVMOnEmptySource(ctx, workspace)
 	}

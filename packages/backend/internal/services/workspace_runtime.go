@@ -397,6 +397,10 @@ func (s *WorkspaceService) restoreRuntimeWorkspaceSnapshot(ctx context.Context, 
 	if err := s.adoptRuntimeWorkspaceRepository(ctx, row, requesterID); err != nil {
 		return row, err
 	}
+	// A restored snapshot starts signed out of its taker's vendor logins (#2805).
+	if err := s.scrubRuntimeWorkspaceLogins(ctx, row, requesterID); err != nil {
+		return row, err
+	}
 	updated, err := s.q.UpdateWorkspaceStatus(ctx, db.UpdateWorkspaceStatusParams{ID: row.ID, Status: "running"})
 	if err != nil {
 		return row, pkgerrors.Internal("update restored workspace status: " + err.Error())
@@ -549,6 +553,11 @@ func (s *WorkspaceService) forkRuntimeWorkspace(ctx context.Context, input ForkW
 		return WorkspaceResponse{}, err
 	}
 	if err := s.adoptRuntimeWorkspaceRepository(ctx, created, input.UserID); err != nil {
+		s.markWorkspaceProvisionFailed(ctx, created, err)
+		return WorkspaceResponse{}, err
+	}
+	// A fork starts signed out of the source's vendor logins (#2805).
+	if err := s.scrubRuntimeWorkspaceLogins(ctx, created, input.UserID); err != nil {
 		s.markWorkspaceProvisionFailed(ctx, created, err)
 		return WorkspaceResponse{}, err
 	}

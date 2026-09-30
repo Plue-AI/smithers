@@ -1389,3 +1389,93 @@ func stringToUUID(s string) pgtype.UUID {
 func WithWorkspaceBillingPolicy(policy BillingPolicy) WorkspaceServiceOption {
 	return func(s *WorkspaceService) { s.billing = policy }
 }
+
+// workspaceVendorLoginPaths are the vendor sign-ins a person makes inside
+// their own workspace, relative to a home directory. The platform never holds
+// these tokens, so a derived workspace (fork or snapshot restore) must not
+// carry them to another principal or to cloned siblings that would race one
+// rotating refresh token (#2805). Children reach a model through the parent's
+// seat, never a copied login.
+var workspaceVendorLoginPaths = []string{
+	".claude/.credentials.json",
+	".claude.json",
+	".claude.json.backup",
+	".codex/auth.json",
+	".config/anthropic",
+}
+
+// workspaceSandboxLoginHomes are the homes a Microsandbox guest signs in from:
+// the workspace user's and root's.
+var workspaceSandboxLoginHomes = []string{defaultWorkspaceHome, "/root"}
+
+// workspaceLoginScrubScript removes every vendor login under each home given
+// as a positional argument ($HOME when none is given) and fails unless each
+// one is gone afterwards. A missing or unwritable home holds nothing this
+// user could have signed in to and is skipped.
+func workspaceLoginScrubScript() string {
+	var b strings.Builder
+	b.WriteString("set -u\n[ \"$#\" -gt 0 ] || set -- \"$HOME\"\n")
+	b.WriteString("for home in \"$@\"; do\n")
+	b.WriteString("  { [ -d \"$home\" ] && [ -w \"$home\" ]; } || continue\n")
+	b.WriteString("  for rel in")
+	for _, rel := range workspaceVendorLoginPaths {
+		b.WriteByte(' ')
+		b.WriteString(shellQuote(rel))
+	}
+	b.WriteString("; do\n")
+	b.WriteString("    rm -rf -- \"$home/$rel\"\n")
+	b.WriteString("    if [ -e \"$home/$rel\" ] || [ -L \"$home/$rel\" ]; then echo \"vendor login remains: $home/$rel\" >&2; exit 1; fi\n")
+	b.WriteString("  done\ndone\n")
+	return b.String()
+}
+
+// workspaceSandboxLoginScrubCommand is the Microsandbox exec form of the scrub.
+func workspaceSandboxLoginScrubCommand() string {
+	command := "/bin/sh -c " + shellQuote(workspaceLoginScrubScript()) + " smithers-login-scrub"
+	for _, home := range workspaceSandboxLoginHomes {
+		command += " " + shellQuote(home)
+	}
+	return command
+}
+
+// scrubSandboxWorkspaceLogins signs a freshly forked or restored Microsandbox
+// guest out of every vendor login before anyone can use it. Callers discard
+// the guest when it fails: a derived workspace is never handed out signed in.
+func (s *WorkspaceService) scrubSandboxWorkspaceLogins(ctx context.Context, vmID string) error {
+	execClient, ok := s.sandbox.(sandboxExecClient)
+	if !ok {
+		return pkgerrors.Internal("sandbox exec client unavailable to sign out derived workspace")
+	}
+	timeoutMS := int64(30_000)
+	execCtx, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+	result, err := execClient.Execute(execCtx, vmID, sandbox.ExecRequest{Command: workspaceSandboxLoginScrubCommand(), TimeoutMS: &timeoutMS})
+	if err != nil {
+		return pkgerrors.Internal("sign out derived workspace: " + err.Error())
+	}
+	if !successfulExecStatus(result) {
+		return pkgerrors.Internal("sign out derived workspace failed: " + strings.TrimSpace(result.Stderr))
+	}
+	return nil
+}
+
+// scrubRuntimeWorkspaceLogins is the workspace-runtime form of the scrub; it
+// runs as the runtime's workspace user, whose $HOME holds its logins.
+func (s *WorkspaceService) scrubRuntimeWorkspaceLogins(ctx context.Context, row db.Workspace, requesterID int64) error {
+	operationCtx, err := s.workspaceRuntimeContext(ctx, row, requesterID, workspaceLifecycleOperation(row, "sign-out-logins"))
+	if err != nil {
+		return err
+	}
+	execCtx, cancel := context.WithTimeout(operationCtx, time.Minute)
+	defer cancel()
+	result, err := s.runtime.ExecuteCommand(execCtx, row.ID, workspaceapi.Command{
+		Args: []string{"/bin/sh", "-c", workspaceLoginScrubScript()},
+	})
+	if err != nil {
+		return runtimeOperationError("sign out derived workspace", err)
+	}
+	if result.ExitCode != 0 {
+		return pkgerrors.Internal(fmt.Sprintf("sign out derived workspace failed with status %d: %s", result.ExitCode, strings.TrimSpace(result.Stderr)))
+	}
+	return nil
+}
