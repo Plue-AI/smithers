@@ -79,11 +79,24 @@ test("chooses a coding model from the pool routes when none is pinned", async (t
   assert.equal(seat.modelId, "gpt-6-luna")
 })
 
-test("ignores an anthropic pool route when chatgpt has no connected account", async (t) => {
+test("chooses the anthropic pool route when only Anthropic API keys are connected (#2792)", async (t) => {
   const connected = await pool(t, { status: 200, body: "{\"routes\":[\"anthropic\"]}" })
   const options = await optionsFromEnv(connected.environment)
-  assert.equal(options.implementationModel, "")
+  assert.equal(options.implementationModel, "anthropic:claude-sonnet-4-6")
   assert.deepEqual(connected.requests.map((request) => request.url), ["/provider-pool/routes"])
+  const seat = await Effect.runPromise(
+    Effect.flatMap(SeatResolver.SeatResolver, (seats) => seats.resolve("coding/implement")).pipe(
+      Effect.provide(
+        Host.roleSeats(hostOptions(options.implementationModel))(connected.environment).pipe(
+          Layer.provide(platform.requestExecutor)
+        )
+      )
+    )
+  )
+  assert.equal(seat.modelId, "claude-sonnet-4-6", "the default resolves at the pool, with no key of the host's own")
+  // A route the host is not offered is never chosen, whatever the pool lists.
+  const unoffered = await optionsFromEnv({ ...connected.environment, SMITHERS_ACCOUNT_POOL_PROVIDERS: "chatgpt" })
+  assert.equal(unoffered.implementationModel, "")
 })
 
 test("keeps an explicit coding model pin without asking the pool", async (t) => {
@@ -96,12 +109,13 @@ test("keeps an explicit coding model pin without asking the pool", async (t) => 
   assert.deepEqual(connected.requests, [])
 })
 
-test("chooses the chatgpt pool route or the platform fallback", async (t) => {
+test("prefers the chatgpt pool route, then the anthropic route, over the platform fallback", async (t) => {
   const connected = await pool(t)
   for (
     const { routes, fallback, expected } of [
       { routes: "[\"chatgpt\"]", fallback: "anthropic:claude-sonnet-4-6", expected: "openai:gpt-6-luna" },
-      { routes: "[\"anthropic\"]", fallback: "openai:gpt-6-luna", expected: "openai:gpt-6-luna" }
+      { routes: "[\"anthropic\",\"chatgpt\"]", fallback: "anthropic:claude-sonnet-4-6", expected: "openai:gpt-6-luna" },
+      { routes: "[\"anthropic\"]", fallback: "openai:gpt-6-luna", expected: "anthropic:claude-sonnet-4-6" }
     ]
   ) {
     connected.answer({ status: 200, body: `{"routes":${routes}}` })
@@ -111,7 +125,11 @@ test("chooses the chatgpt pool route or the platform fallback", async (t) => {
     })
     assert.equal(options.implementationModel, expected)
   }
-  assert.deepEqual(connected.requests.map((request) => request.url), ["/provider-pool/routes", "/provider-pool/routes"])
+  assert.deepEqual(connected.requests.map((request) => request.url), [
+    "/provider-pool/routes",
+    "/provider-pool/routes",
+    "/provider-pool/routes"
+  ])
 })
 
 test("uses the platform fallback after pool accounts disappear or lookup fails", async (t) => {
@@ -241,7 +259,7 @@ test("does not invent a model for empty, unoffered, or failed pool routes", asyn
   }
 })
 
-test("uses chatgpt only when the host allowlist permits it", async (t) => {
+test("uses a pool route only when the host allowlist permits it", async (t) => {
   const connected = await pool(t, { status: 200, body: "{\"routes\":[\"anthropic\",\"chatgpt\"]}" })
   assert.equal((await optionsFromEnv(connected.environment)).implementationModel, "openai:gpt-6-luna")
   assert.equal(
@@ -249,7 +267,7 @@ test("uses chatgpt only when the host allowlist permits it", async (t) => {
       ...connected.environment,
       SMITHERS_ACCOUNT_POOL_PROVIDERS: "anthropic"
     })).implementationModel,
-    ""
+    "anthropic:claude-sonnet-4-6"
   )
   connected.answer({ status: 200, body: "{\"routes\":[\"chatgpt\"]}" })
   assert.equal(

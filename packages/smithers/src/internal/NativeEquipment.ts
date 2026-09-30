@@ -535,7 +535,8 @@ export const accountPoolDefaultModel = (environment: Readonly<Record<string, str
     const routes = yield* accountPoolRoutes(pool, executor, "coding/implement").pipe(
       Effect.orElseSucceed((): ReadonlyArray<string> => [])
     )
-    const defaults = [["chatgpt", "openai:gpt-6-luna"]] as const
+    // The backend's default per provider (workspaceCodingModels), in its order.
+    const defaults = [["chatgpt", "openai:gpt-6-luna"], ["anthropic", "anthropic:claude-sonnet-4-6"]] as const
     return defaults.find(([route]) => pool.routes.includes(route) && routes.includes(route))?.[1]
   })
 
