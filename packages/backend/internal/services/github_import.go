@@ -53,7 +53,7 @@ WHERE id = $1 AND user_id = $2;
 `
 	markImportJobReadySQL = `
 UPDATE import_jobs
-SET repository_id = $2, workspace_id = $3, target_bookmark = $4, repo_name = $5, status = 'ready', error = '', updated_at = NOW()
+SET repository_id = $2, workspace_id = NULLIF($3::text, '')::uuid, target_bookmark = $4, repo_name = $5, status = 'ready', error = '', updated_at = NOW()
 WHERE id = $1
 RETURNING id, user_id, repository_id, workspace_id, github_owner, github_repo, repo_owner, repo_name, branch, target_bookmark, status, stage,
           refs_done, refs_total, objects_done, objects_total, issues_done, issues_total,
@@ -129,7 +129,7 @@ RETURNING id;
 `
 	markClaimedImportJobReadySQL = `
 UPDATE import_jobs
-SET repository_id = $3, workspace_id = $4, target_bookmark = $5,
+SET repository_id = $3, workspace_id = NULLIF($4::text, '')::uuid, target_bookmark = $5,
     repo_name = $6, status = 'ready', stage = '', error = '',
     claim_token = NULL, claimed_at = NULL, updated_at = NOW()
 WHERE id = $1 AND status = 'cloning' AND claim_token = $2
@@ -1943,6 +1943,10 @@ func (s *GitHubImportService) bookmarkExists(ctx context.Context, owner, repo, n
 	return false, nil
 }
 
+// createBoundWorkspace starts the imported bookmark's workspace. When the
+// user's sandbox allowance is full, the repository is still imported: the
+// result carries only the bookmark (no ID) and the workspace starts when the
+// user opens it, where the same allowance refusal is reported.
 func (s *GitHubImportService) createBoundWorkspace(ctx context.Context, userID int64, repository db.Repository, owner, repo, bookmark string) (WorkspaceResponse, error) {
 	if s.workspaces == nil {
 		return WorkspaceResponse{}, pkgerrors.Internal("workspace provisioner unavailable")
@@ -1955,6 +1959,11 @@ func (s *GitHubImportService) createBoundWorkspace(ctx context.Context, userID i
 		Name:           bookmark,
 		SourceBookmark: bookmark,
 	})
+	var apiErr *pkgerrors.APIError
+	if errors.As(err, &apiErr) && (apiErr.Code == pkgerrors.CodePlanLimitExceeded || apiErr.Code == pkgerrors.CodeQuotaExceeded) {
+		slog.Info("mirror.import.workspace_deferred", "repository_id", repository.ID, "user_id", userID, "code", apiErr.Code)
+		return WorkspaceResponse{TargetBookmark: bookmark}, nil
+	}
 	if err != nil {
 		return WorkspaceResponse{}, fmt.Errorf("create bound workspace: %w", err)
 	}
