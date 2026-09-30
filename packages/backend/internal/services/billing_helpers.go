@@ -3,6 +3,7 @@ package services
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -185,7 +186,9 @@ func dedupeStrings(values []string) []string {
 
 func orderUsageSummaries(usage map[string]BillingUsageSummary) []BillingUsageSummary {
 	order := []string{
+		BillingMetricRepos,
 		BillingMetricPrivateRepos,
+		BillingMetricOrgs,
 		BillingMetricStorageBytes,
 		BillingMetricCIMinutes,
 		BillingMetricAgentRuns,
@@ -198,11 +201,15 @@ func orderUsageSummaries(usage map[string]BillingUsageSummary) []BillingUsageSum
 			out = append(out, summary)
 		}
 	}
-	for key, summary := range usage {
-		if key == BillingMetricPrivateRepos || key == BillingMetricStorageBytes || key == BillingMetricCIMinutes || key == BillingMetricAgentRuns || key == BillingMetricSeats || key == BillingMetricSandboxHours {
-			continue
+	var extra []string
+	for key := range usage {
+		if !slices.Contains(order, key) {
+			extra = append(extra, key)
 		}
-		out = append(out, summary)
+	}
+	sort.Strings(extra)
+	for _, key := range extra {
+		out = append(out, usage[key])
 	}
 	return out
 }

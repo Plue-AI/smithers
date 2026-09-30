@@ -213,8 +213,7 @@ func TestOrgService_CreateOrg_OwnedOrganizationCap(t *testing.T) {
 				return db.Organization{ID: 71, Name: arg.Name, LowerName: arg.LowerName, Visibility: arg.Visibility}, nil
 			},
 			addOrgMemberFn: func(context.Context, db.AddOrgMemberParams) (db.OrgMember, error) { return db.OrgMember{}, nil },
-		})
-		svc.SetBillingPolicy(billing)
+		}, WithOrgBillingPolicy(billing))
 		_, err := svc.CreateOrg(context.Background(), &db.User{ID: 42, Username: "alice"}, CreateOrgRequest{Name: "acme"})
 		assert.Equal(t, int64(42), countedUser)
 		if tc.allow {

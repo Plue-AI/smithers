@@ -1631,6 +1631,9 @@ components:
           enum:
             - concurrent_sandboxes
             - sandbox_hours_per_day
+            - agent_runs
+            - repositories
+            - organizations
         upgrade_plan_key:
           type: string
         message:

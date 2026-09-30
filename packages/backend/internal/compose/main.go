@@ -390,7 +390,12 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		gitHTTPOptions = append(gitHTTPOptions, services.WithGitHTTPSingleOwnerBoundary(queries))
 	}
 	gitHTTPProxyService := services.NewGitHTTPProxyService(queries, sshAuthzService, repoHostClient, gitHTTPOptions...)
-	orgService := services.NewOrgServiceWithPool(queries, pool, services.WithOrgWebhookDispatcher(webhookDispatcher))
+	billingPolicy := options.Admission
+	if billingPolicy == nil {
+		// Startup validation permits this only for the single trusted owner.
+		billingPolicy = services.NewUnlimitedBillingPolicy()
+	}
+	orgService := services.NewOrgServiceWithPool(queries, pool, services.WithOrgWebhookDispatcher(webhookDispatcher), services.WithOrgBillingPolicy(billingPolicy))
 	keyAuthVerifier, githubClient, err := buildAuthProviders(cfg.Auth)
 	if err != nil {
 		slog.Error("invalid auth provider configuration", "error", err)
@@ -450,11 +455,6 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		From:    emailFrom,
 	})
 
-	billingPolicy := options.Admission
-	if billingPolicy == nil {
-		// Startup validation permits this only for the single trusted owner.
-		billingPolicy = services.NewUnlimitedBillingPolicy()
-	}
 	billingCommerce := options.Commerce
 	if !options.topology.servesHTTP() {
 		billingCommerce = nil

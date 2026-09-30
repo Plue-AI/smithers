@@ -179,7 +179,7 @@ func TestBilling_Cov_UserOverviewPortalRefreshAndGuards(t *testing.T) {
 		metricKeys = append(metricKeys, metric.MetricKey)
 		usageByMetric[metric.MetricKey] = metric
 	}
-	assert.ElementsMatch(t, []string{BillingMetricPrivateRepos, BillingMetricRepos, BillingMetricStorageBytes, BillingMetricCIMinutes, BillingMetricAgentRuns, BillingMetricSeats, BillingMetricOrgs, BillingMetricSandboxHours}, metricKeys)
+	assert.Equal(t, []string{BillingMetricRepos, BillingMetricPrivateRepos, BillingMetricOrgs, BillingMetricStorageBytes, BillingMetricCIMinutes, BillingMetricAgentRuns, BillingMetricSeats, BillingMetricSandboxHours}, metricKeys)
 	assert.Equal(t, int64(5), usageByMetric[BillingMetricAgentRuns].ConsumedQuantity)
 
 	portal, err := svc.CreateUserPortal(ctx, user)
@@ -264,7 +264,8 @@ func TestBilling_Cov_OrgCheckoutOverviewAndRepoAuthorizations(t *testing.T) {
 	assert.Equal(t, BillingOwnerTypeOrg, overview.OwnerType)
 	assert.Equal(t, "acme", overview.OwnerName)
 	assert.Equal(t, BillingPlanFree, overview.PlanKey)
-	assert.Equal(t, int64(1), overview.Usage[4].ConsumedQuantity)
+	require.Equal(t, BillingMetricSeats, overview.Usage[5].MetricKey)
+	assert.Equal(t, int64(1), overview.Usage[5].ConsumedQuantity)
 
 	portal, err := svc.CreateOrgPortal(ctx, actor, "acme")
 	require.NoError(t, err)

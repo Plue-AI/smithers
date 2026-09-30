@@ -947,6 +947,6 @@ func TestBilling_H_SubscriptionPlanResolverAndSmallHelpers(t *testing.T) {
 		"another_extra":           {MetricKey: "another_extra"},
 		BillingMetricPrivateRepos: {MetricKey: BillingMetricPrivateRepos},
 	})
-	assert.Equal(t, BillingMetricPrivateRepos, ordered[0].MetricKey)
-	assert.Contains(t, []string{ordered[1].MetricKey, ordered[2].MetricKey}, "z_extra")
+	assert.Equal(t, []string{BillingMetricPrivateRepos, "another_extra", "z_extra"},
+		[]string{ordered[0].MetricKey, ordered[1].MetricKey, ordered[2].MetricKey})
 }

@@ -207,11 +207,6 @@ type OrgService struct {
 	billing        BillingPolicy
 }
 
-// SetBillingPolicy wires the policy that caps the organizations one user owns.
-func (s *OrgService) SetBillingPolicy(policy BillingPolicy) {
-	s.billing = policy
-}
-
 // SetSeatReconciler wires the billing seat reconciler (BillingService.
 // ReconcileOrgSeats), invoked after org membership mutations so per-seat
 // Stripe subscription quantities track the member count.
@@ -238,6 +233,14 @@ type OrgServiceOption func(*OrgService)
 func WithOrgWebhookDispatcher(dispatcher webhooks.Dispatcher) OrgServiceOption {
 	return func(s *OrgService) {
 		s.dispatcher = dispatcher
+	}
+}
+
+// WithOrgBillingPolicy wires the policy that caps the organizations one user
+// owns.
+func WithOrgBillingPolicy(policy BillingPolicy) OrgServiceOption {
+	return func(s *OrgService) {
+		s.billing = policy
 	}
 }
 
