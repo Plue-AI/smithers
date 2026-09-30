@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -21,11 +22,16 @@ const (
 	mythicalTodoBodyBytes  = mythicalPromptBytes
 )
 
-// MythicalTodoInput is a TODO a person files through Smithers.
+// MythicalTodoInput is a TODO a person files through Smithers. Request,
+// when given, names the filing: the same request again answers the TODO it
+// filed instead of opening another issue.
 type MythicalTodoInput struct {
-	Title string `json:"title"`
-	Body  string `json:"body"`
+	Title   string `json:"title"`
+	Body    string `json:"body"`
+	Request string `json:"request,omitempty"`
 }
+
+var mythicalTodoRequest = regexp.MustCompile(`^[A-Za-z0-9-]{1,64}$`)
 
 // FileTodo files a TODO on the repository's GitHub issues for a maintainer
 // person and admits it to the stack at once: the same TODO a maintainer's
@@ -48,6 +54,8 @@ func (s *MythicalService) FileTodo(ctx context.Context, repositoryID, userID int
 		return MythicalItemView{}, pkgerrors.ValidationFailed(pkgerrors.FieldError{Resource: "Todo", Field: "title", Code: "invalid"})
 	case len(body) > mythicalTodoBodyBytes || !utf8.ValidString(body):
 		return MythicalItemView{}, pkgerrors.ValidationFailed(pkgerrors.FieldError{Resource: "Todo", Field: "body", Code: "invalid"})
+	case input.Request != "" && !mythicalTodoRequest.MatchString(input.Request):
+		return MythicalItemView{}, pkgerrors.ValidationFailed(pkgerrors.FieldError{Resource: "Todo", Field: "request", Code: "invalid"})
 	}
 	if s.github == nil {
 		return MythicalItemView{}, pkgerrors.Internal("GitHub is not configured for the mythical stack")
@@ -57,6 +65,17 @@ func (s *MythicalService) FileTodo(ctx context.Context, repositoryID, userID int
 		return MythicalItemView{}, pkgerrors.NotFound("this repository has no history yet")
 	} else if err != nil {
 		return MythicalItemView{}, err
+	}
+	if input.Request != "" {
+		items, err := q.ListMythicalItems(ctx, repositoryID, 1000)
+		if err != nil {
+			return MythicalItemView{}, err
+		}
+		for _, item := range items {
+			if mythicalChecksOf(item).FiledRequest == input.Request {
+				return mythicalItemView(item), nil
+			}
+		}
 	}
 	accountID, err := s.personGitHubID(ctx, userID)
 	if err != nil {
@@ -87,7 +106,7 @@ func (s *MythicalService) FileTodo(ctx context.Context, repositoryID, userID int
 		return MythicalItemView{}, err
 	}
 	if err := s.ObserveIssue(ctx, repositoryID, issue, gitHubLabelApplication{
-		AutoTodo: "filed by " + account.Login + ", a maintainer", FiledBy: account.Login,
+		AutoTodo: "filed by " + account.Login + ", a maintainer", FiledBy: account.Login, FiledRequest: input.Request,
 	}); err != nil {
 		return MythicalItemView{}, err
 	}
@@ -100,18 +119,22 @@ func (s *MythicalService) FileTodo(ctx context.Context, repositoryID, userID int
 }
 
 // personGitHubID is the numeric id of the GitHub account the person signed
-// in with. A login is never trusted from the profile: it can be renamed.
+// in with: a "github" account, else the GitHub sign-in's historical
+// "workos" row (resolveUserGitHubAccessToken's order). A login is never
+// trusted from the profile: it can be renamed.
 func (s *MythicalService) personGitHubID(ctx context.Context, userID int64) (int64, error) {
 	accounts, err := s.queries().ListUserOAuthAccounts(ctx, userID)
 	if err != nil {
 		return 0, err
 	}
-	for _, account := range accounts {
-		if !strings.EqualFold(strings.TrimSpace(account.Provider), "github") {
-			continue
-		}
-		if id, err := strconv.ParseInt(strings.TrimSpace(account.ProviderUserID), 10, 64); err == nil && id > 0 {
-			return id, nil
+	for _, provider := range []string{"github", "workos"} {
+		for _, account := range accounts {
+			if !strings.EqualFold(strings.TrimSpace(account.Provider), provider) {
+				continue
+			}
+			if id, err := strconv.ParseInt(strings.TrimSpace(account.ProviderUserID), 10, 64); err == nil && id > 0 {
+				return id, nil
+			}
 		}
 	}
 	return 0, pkgerrors.Forbidden("connect your GitHub account to file a TODO")

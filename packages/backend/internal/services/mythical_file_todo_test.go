@@ -236,3 +236,44 @@ func TestMythicalGitHubCreateIssueAndAccount(t *testing.T) {
 	_, err = failing.Account(context.Background(), stackRepo, 43)
 	require.Error(t, err)
 }
+
+// GitHub sign-in stores its account under the historical "workos" row; a
+// "github" row, when both exist, is the one read.
+func TestMythicalFileTodoReadsTheGitHubSignIn(t *testing.T) {
+	o := filingTodos(t)
+	ctx := context.Background()
+	_, err := o.pool.Exec(ctx, `UPDATE oauth_accounts SET provider = 'workos'`)
+	require.NoError(t, err)
+	_, err = o.service.FileTodo(ctx, o.repoID, o.userID, MythicalTodoInput{Title: "Signed in through GitHub"})
+	require.NoError(t, err)
+
+	_, err = o.pool.Exec(ctx, `UPDATE oauth_accounts SET provider_user_id = '99'`)
+	require.NoError(t, err)
+	_, err = o.pool.Exec(ctx, `INSERT INTO oauth_accounts(id, user_id, provider, provider_user_id) VALUES (2, $1, 'github', '42')`, o.userID)
+	require.NoError(t, err)
+	_, err = o.service.FileTodo(ctx, o.repoID, o.userID, MythicalTodoInput{Title: "Connected GitHub"})
+	require.NoError(t, err, "account 99 is unknown to GitHub; the github row's 42 is read")
+}
+
+// A filing's request id makes it idempotent: asked again, it answers the
+// TODO it filed and opens no second issue.
+func TestMythicalFileTodoRequestIsIdempotent(t *testing.T) {
+	o := filingTodos(t)
+	ctx := context.Background()
+	first, err := o.service.FileTodo(ctx, o.repoID, o.userID, MythicalTodoInput{Title: "Once", Request: "0a1b2c3d-k9"})
+	require.NoError(t, err)
+	assert.Equal(t, "0a1b2c3d-k9", first.Request)
+	issues := len(o.github.issues)
+	again, err := o.service.FileTodo(ctx, o.repoID, o.userID, MythicalTodoInput{Title: "Once", Request: "0a1b2c3d-k9"})
+	require.NoError(t, err)
+	assert.Equal(t, first.ID, again.ID)
+	assert.Len(t, o.github.issues, issues)
+
+	other, err := o.service.FileTodo(ctx, o.repoID, o.userID, MythicalTodoInput{Title: "Once", Request: "0a1b2c3d-k10"})
+	require.NoError(t, err)
+	assert.NotEqual(t, first.ID, other.ID)
+
+	_, err = o.service.FileTodo(ctx, o.repoID, o.userID, MythicalTodoInput{Title: "t", Request: "no spaces allowed"})
+	status, _ := apiCode(t, err)
+	assert.Equal(t, http.StatusUnprocessableEntity, status)
+}
