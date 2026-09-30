@@ -396,10 +396,21 @@ explicit tagged envelope records it without confusing it with `null`. Storing
 an unserializable result as `null` and replaying it later was the bug this
 replaced.
 
-A cache hit replays the recorded success value only. It does not restore output
-files. Build targets that produce files record digests of what they produced, not
-the files themselves. A hit is only reported when those digests still measure
-correctly, so a target whose `dist` directory was deleted re-executes.
+A cacheable target that declares `outputs` (ToolBuild, TsBuild, bundlers,
+Fetch, and the other `Target.make` rules) stores every declared output in the
+local content-addressed store beside its success value. A hit first measures the
+outputs on disk against the recorded digests. When they no longer match, as
+after deleting `dist`, the stored trees are verified blob by blob, materialized
+byte-identical, and measured again before the hit is reported; the tool does not
+run. A stored manifest must name exactly the declared paths, and a missing or
+tampered blob, or an output over the tree limits at capture time, is a miss that
+re-executes the target.
+
+Only the local tier holds output blobs. An entry read from the remote tier
+carries the manifests but not the bytes, so it answers a hit only while the
+outputs on disk still measure correctly; fetching blobs from the remote
+content-addressed store is tracked in
+[#1870](https://github.com/smithersai/smithers/issues/1870).
 
 ## Planning versus caching
 

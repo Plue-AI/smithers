@@ -727,6 +727,12 @@ export const executeEffect = (
       Effect.gen(function*() {
         const decoded = decodeBuildOutput(output)
         if (decoded === undefined || !manifestsBindToDeclared(decoded, node.outDirs, node.outFiles)) return false
+        return yield* restoreManifests(node, decoded)
+      })
+
+    /** Verifies every blob of already-bound manifests, then materializes them; false on any doubt. */
+    const restoreManifests = (node: PackageNode, decoded: BuildOutput): Effect.Effect<boolean, unknown> =>
+      Effect.gen(function*() {
         for (const manifest of decoded.manifests) {
           const problem = yield* joined(() => PackageTree.verifyManifestBlobs(root, cacheDirectory, manifest))
           if (problem !== undefined) {
@@ -746,6 +752,98 @@ export const executeEffect = (
         }
         for (const file of decoded.files) yield* joined(() => PackageTree.materializeFile(root, cacheDirectory, file))
         return true
+      })
+
+    /** A declared-outputs target's workspace-relative output paths. */
+    const declaredOutputPaths = (node: PackageNode): ReadonlyArray<string> => {
+      const declared = node.declaredOutputs
+      return declared === undefined ? [] : declared.paths.map((path) => Input.resolvePath(declared.cwd, path))
+    }
+
+    /**
+     * The cache record of a target with declared outputs: its success envelope
+     * plus the CAS manifest of every declared output, so a hit restores deleted
+     * or changed outputs instead of re-executing (#1870).
+     */
+    interface TargetOutputsRecord extends BuildOutput {
+      readonly result: unknown
+    }
+
+    const targetOutputsKind = "target-outputs"
+
+    /**
+     * Stores every declared output in the CAS and returns the record to cache.
+     * A capture failure (an output over the tree limits, a vanished path)
+     * keeps the plain success envelope, which still answers a hit only while
+     * the outputs on disk measure correctly.
+     */
+    const captureTargetOutputs = (node: PackageNode, result: unknown): Effect.Effect<unknown, unknown> =>
+      Effect.gen(function*() {
+        const captured = yield* Effect.exit(Effect.gen(function*() {
+          const manifests: Array<PackageTree.OutDirManifest> = []
+          const files: Array<PackageTree.FileManifest> = []
+          for (const path of declaredOutputPaths(node)) {
+            const stats = yield* joined(() => Fs.lstat(NodePath.join(root, ...path.split("/"))))
+            if (stats.isDirectory()) {
+              manifests.push(yield* joined(() => PackageTree.captureOutDir(root, cacheDirectory, path)))
+            } else {
+              files.push(yield* joined(() => PackageTree.captureFile(root, cacheDirectory, path)))
+            }
+          }
+          return { kind: targetOutputsKind, result, manifests, files }
+        }))
+        if (Exit.isSuccess(captured)) return captured.value
+        log(
+          `smthrs: ${node.label}: declared outputs were not stored, so a hit cannot restore them: ${
+            Diagnostic.describe(Cause.squash(captured.cause))
+          }`
+        )
+        return result
+      })
+
+    /** Decodes a {@link TargetOutputsRecord}; any other shape is `undefined`. */
+    const decodeTargetOutputs = (output: unknown): TargetOutputsRecord | undefined => {
+      if (typeof output !== "object" || output === null) return undefined
+      const record = output as { readonly kind?: unknown; readonly result?: unknown }
+      if (record.kind !== targetOutputsKind || !Object.hasOwn(record, "result")) return undefined
+      const build = decodeBuildOutput({ ...record, kind: "build" })
+      return build === undefined ? undefined : { ...build, result: record.result }
+    }
+
+    /**
+     * Answers a declared-outputs target's cache entry. The outputs on disk are
+     * measured first; when they no longer match and the entry carries CAS
+     * manifests bound to exactly the declared paths with every blob present,
+     * they are materialized and measured again. Any doubt is a miss.
+     */
+    const answerTargetHit = (node: PackageNode, output: unknown): Effect.Effect<boolean, unknown> =>
+      Effect.gen(function*() {
+        const stored = decodeTargetOutputs(output)
+        const decoded = Executor.decodeCacheOutput(stored === undefined ? output : stored.result)
+        if (!("value" in decoded)) return false
+        const validated = yield* Effect.exit(
+          Effect.try(() => Target.metadata(node.declaration).decodeSuccess(decoded.value))
+        )
+        if (Exit.isFailure(validated)) return false
+        const measured = () =>
+          verifyTargetOutputs(node, validated.value).pipe(
+            Effect.matchCause({ onFailure: () => false, onSuccess: (problem) => problem === undefined })
+          )
+        if (yield* measured()) return true
+        if (stored === undefined) return false
+        const paths = declaredOutputPaths(node)
+        const directories = paths.filter((path) => stored.manifests.some((manifest) => manifest.outDir === path))
+        const files = paths.filter((path) => stored.files.some((file) => file.path === path))
+        if (
+          directories.length + files.length !== paths.length ||
+          !manifestsBindToDeclared(stored, directories, files)
+        ) return false
+        const restored = yield* Effect.exit(restoreManifests(node, stored))
+        if (Exit.isFailure(restored)) {
+          log(`${node.label}  cache miss: ${Diagnostic.describe(Cause.squash(restored.cause))}`)
+          return false
+        }
+        return restored.value && (yield* measured())
       })
 
     const captureBuild = (
@@ -2933,17 +3031,7 @@ export const executeEffect = (
             }
             default: {
               const cached = yield* cacheGet(node)
-              if (cached !== undefined) {
-                const decoded = Executor.decodeCacheOutput(cached.output)
-                if ("value" in decoded) {
-                  const valid = yield* Effect.try(() => Target.metadata(node.declaration).decodeSuccess(decoded.value))
-                    .pipe(
-                      Effect.flatMap((value) => verifyTargetOutputs(node, value)),
-                      Effect.matchCause({ onFailure: () => false, onSuccess: (problem) => problem === undefined })
-                    )
-                  if (valid) return green("hit")
-                }
-              }
+              if (cached !== undefined && (yield* answerTargetHit(node, cached.output))) return green("hit")
               const output = OutputStream.make({
                 write: (stream, text) => reporter.toolOutput(node.label, stream, text),
                 environment: { ...(options.environment ?? process.env), ...node.env },
@@ -2978,8 +3066,14 @@ export const executeEffect = (
                 return yield* Effect.gen(function*() {
                   const value = Target.metadata(node.declaration).decodeSuccess(exit.value)
                   const encoded = Executor.encodeCacheOutput(value)
-                  if ("output" in encoded) yield* cachePut(node, encoded.output)
-                  else log(`smthrs: skipped the cache store for ${node.label}: ${encoded.reason}`)
+                  if ("output" in encoded) {
+                    yield* cachePut(
+                      node,
+                      node.declaredOutputs === undefined
+                        ? encoded.output
+                        : yield* captureTargetOutputs(node, encoded.output)
+                    )
+                  } else log(`smthrs: skipped the cache store for ${node.label}: ${encoded.reason}`)
                   return green("ran")
                 }).pipe(Effect.catchCause((failure) =>
                   Effect.sync(() => {

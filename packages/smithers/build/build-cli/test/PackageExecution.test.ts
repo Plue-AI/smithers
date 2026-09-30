@@ -2075,3 +2075,113 @@ describe("the whole-tree permit", () => {
     expect(takesExclusiveTreePermit({ rule: "Agent.Lint", mode: "check" })).toBe(false)
   })
 })
+
+describe("declared target outputs in the artifact store (#1870)", () => {
+  // Each execution appends one line to runs.log outside the declared outputs,
+  // so the count proves whether a hit re-executed the tool.
+  const toolFixture = async (script: string, outputs: ReadonlyArray<string>, cwd?: string): Promise<string> => {
+    const root = await temporaryWorkspace()
+    await write(root, "WORKSPACE.ts", workspaceModule())
+    await write(root, ".gitignore", "runs.log\n")
+    const runsLog = NodePath.join(root, cwd ?? ".", "runs.log")
+    await write(
+      root,
+      "PACKAGE.ts",
+      `import { Smithers as S } from "@smthrs/targets"
+const dist = S.ToolBuild({
+  tool: "sh",
+  command: "sh",
+  args: ["-c", ${JSON.stringify(`${script} && printf 'run\\n' >> "$RUNS"`)}],
+  inputs: [],
+  outputs: ${JSON.stringify(outputs)},
+  deps: [],
+  env: { RUNS: ${JSON.stringify(runsLog)} },
+  cache: true${cwd === undefined ? "" : `,\n  cwd: ${JSON.stringify(cwd)}`}
+})
+export const Package = S.Package({ targets: { dist } })
+`
+    )
+    if (cwd !== undefined) await write(root, NodePath.join(cwd, ".keep"), "")
+    commitAll(root)
+    return root
+  }
+  const runs = async (root: string, cwd = "."): Promise<number> =>
+    (await Fs.readFile(NodePath.join(root, cwd, "runs.log"), "utf8")).split("\n").filter((line) => line === "run")
+      .length
+  const cacheEntries = async (root: string): Promise<ReadonlyArray<string>> => {
+    const cacheRoot = NodePath.join(root, ".flows", "cache")
+    const files: Array<string> = []
+    for (const shard of await Fs.readdir(cacheRoot)) {
+      const shardPath = NodePath.join(cacheRoot, shard)
+      if (!(await Fs.stat(shardPath)).isDirectory()) continue
+      for (const name of await Fs.readdir(shardPath)) files.push(NodePath.join(shardPath, name))
+    }
+    return files
+  }
+
+  it("restores a deleted output directory byte-identical without re-executing", async () => {
+    const root = await toolFixture(
+      "mkdir -p dist/nested && printf art > dist/a.txt && printf '\\000\\377' > dist/nested/b.bin",
+      ["dist"]
+    )
+    const first = await serve(root, ["//:dist"])
+    expect(first.exitCode, first.logs).toBe(0)
+    expect(first.logs).toContain("//:dist  ran")
+    const bytes = await Fs.readFile(NodePath.join(root, "dist", "nested", "b.bin"))
+    await Fs.rm(NodePath.join(root, "dist"), { recursive: true, force: true })
+    const second = await serve(root, ["//:dist"])
+    expect(second.exitCode, second.logs).toBe(0)
+    expect(second.logs).toContain("//:dist  hit")
+    expect(await runs(root)).toBe(1)
+    expect(await Fs.readFile(NodePath.join(root, "dist", "a.txt"), "utf8")).toBe("art")
+    expect(Buffer.compare(await Fs.readFile(NodePath.join(root, "dist", "nested", "b.bin")), bytes)).toBe(0)
+  })
+
+  it("answers a hit with intact outputs, and restores a changed output file under cwd", async () => {
+    const root = await toolFixture("printf built > out.txt && chmod +x out.txt", ["out.txt"], "pkg")
+    expect((await serve(root, ["//:dist"])).logs).toContain("//:dist  ran")
+    const intact = await serve(root, ["//:dist"])
+    expect(intact.logs).toContain("//:dist  hit")
+    const output = NodePath.join(root, "pkg", "out.txt")
+    await Fs.writeFile(output, "edited")
+    const restored = await serve(root, ["//:dist"])
+    expect(restored.exitCode, restored.logs).toBe(0)
+    expect(restored.logs).toContain("//:dist  hit")
+    expect(await runs(root, "pkg")).toBe(1)
+    expect(await Fs.readFile(output, "utf8")).toBe("built")
+    expect((await Fs.stat(output)).mode & 0o111).not.toBe(0)
+  })
+
+  it("re-executes when a stored blob no longer verifies", async () => {
+    const root = await toolFixture("mkdir -p dist && printf art > dist/a.txt", ["dist"])
+    expect((await serve(root, ["//:dist"])).exitCode).toBe(0)
+    const cas = NodePath.join(root, ".flows", "cas")
+    for (const blob of await Fs.readdir(cas)) await Fs.writeFile(NodePath.join(cas, blob), "tampered")
+    await Fs.rm(NodePath.join(root, "dist"), { recursive: true, force: true })
+    const second = await serve(root, ["//:dist"])
+    expect(second.exitCode, second.logs).toBe(0)
+    expect(second.logs).toContain("cache miss")
+    expect(second.logs).toContain("//:dist  ran")
+    expect(await runs(root)).toBe(2)
+    expect(await Fs.readFile(NodePath.join(root, "dist", "a.txt"), "utf8")).toBe("art")
+  })
+
+  it("re-executes rather than materialize a manifest bound to an undeclared path", async () => {
+    const root = await toolFixture("mkdir -p dist && printf art > dist/a.txt", ["dist"])
+    expect((await serve(root, ["//:dist"])).exitCode).toBe(0)
+    let poisoned = 0
+    for (const file of await cacheEntries(root)) {
+      const entry = JSON.parse(await Fs.readFile(file, "utf8"))
+      if (entry?.output?.kind !== "target-outputs") continue
+      for (const manifest of entry.output.manifests) manifest.outDir = "elsewhere"
+      await Fs.writeFile(file, JSON.stringify(entry))
+      poisoned += 1
+    }
+    expect(poisoned).toBe(1)
+    await Fs.rm(NodePath.join(root, "dist"), { recursive: true, force: true })
+    const second = await serve(root, ["//:dist"])
+    expect(second.logs).toContain("//:dist  ran")
+    expect(await runs(root)).toBe(2)
+    await expect(Fs.stat(NodePath.join(root, "elsewhere"))).rejects.toThrow()
+  })
+})

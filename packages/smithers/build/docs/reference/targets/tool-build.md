@@ -73,6 +73,10 @@ without creating one of them fails the target with an `OutputError` naming the
 declaration, and nothing is stored in the cache. An empty directory is a valid
 output and digests to zero files; a missing path is not an output at all.
 
+With `cache: true`, a green run also stores every declared output in the local
+artifact store, so a later hit restores deleted or changed outputs without
+running the command. See [Caching](../../workspace/caching.md).
+
 Capture never leaves the workspace. A declared path that resolves outside it, a
 declared path that is a symbolic link, a link found anywhere beneath a declared
 directory, and a path that is neither a plain file nor a directory each fail the
