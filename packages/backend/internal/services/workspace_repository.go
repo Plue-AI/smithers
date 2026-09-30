@@ -54,6 +54,9 @@ func (s *WorkspaceService) ensureRuntimeWorkspaceRepositoryWithReceipt(ctx conte
 	if !capabilities.PersistentFiles || !capabilities.Execution || !capabilities.FileOperations {
 		return pkgerrors.Internal("workspace runtime cannot initialize persistent repositories")
 	}
+	if err := s.ensureRuntimeWorkspaceArtifacts(ctx, row, requesterID); err != nil {
+		return err
+	}
 	slug, err := s.workspaceRepoSlug(ctx, row.RepositoryID)
 	if err != nil {
 		return err
