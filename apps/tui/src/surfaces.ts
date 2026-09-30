@@ -160,11 +160,12 @@ export const summaryKey = (state: {
   readonly main: boolean
   /** The tab Ctrl+S last opened the Summary from. */
   readonly from?: string
-  readonly strip: ReadonlyArray<Chip>
+  /** Whether a destination still exists, independently of strip visibility. */
+  readonly exists: (surface: string) => boolean
 }): SummaryKey => {
   if (state.main || state.surface.startsWith("ui:")) return { kind: "focus" }
   if (state.surface === "summary") {
-    const back = state.from !== undefined && state.strip.some((chip) => chip.id === state.from) ? state.from : "chat"
+    const back = state.from !== undefined && state.exists(state.from) ? state.from : "chat"
     return { kind: "show", surface: back }
   }
   const select = state.surface.startsWith("tab:")

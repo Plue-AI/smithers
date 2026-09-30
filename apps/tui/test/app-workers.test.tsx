@@ -838,6 +838,28 @@ test.each(["chat", "worker"] as const)(
   }
 )
 
+test.each(["failed", "done"] as const)(
+  "Ctrl+S returns to a %s worker hidden from the Summary strip",
+  async (status) => {
+    await delegate(turns[0]!.input)
+    await finish(
+      1,
+      status === "failed"
+        ? { _tag: "failed", message: "Review refused", detail: "Fixture refusal" }
+        : { _tag: "done", answer: "Review complete" }
+    )
+    await key("s", { ctrl: true })
+    await key("ARROW_DOWN")
+    await key("RETURN")
+    expect(frame()).toContain("Back (ctrl+y)")
+    await key("s", { ctrl: true })
+    expect(frame()).not.toContain("Back (ctrl+y)")
+    await key("s", { ctrl: true })
+    expect(frame()).toContain("Back (ctrl+y)")
+    expect(frame()).toContain("Continue Review one file")
+  }
+)
+
 test("expanded failure diagnostics expose their clipped ends through keyboard inspection", async () => {
   await act(async () => setup!.renderer.resize(80, 24))
   await delegate(turns[0]!.input, {

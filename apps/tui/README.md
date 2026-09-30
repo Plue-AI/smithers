@@ -394,14 +394,15 @@ while workers run. Progress uses the shared toast stack,
 with a 300 ms delay and real completion/failure as its end. Ctrl+S shows
 every worker's tree.
 
-Each worker's tab, and its row in the list beside the chat at 100 columns or
+Each worker's header, and its row in the list beside the chat at 100 columns or
 wider, shows the status glyph subagent cards share (`@smthrs/rpc/SubagentCard`):
 `◐◓◑◒` turning while requested, running or waiting on children, `■` once
 stopped, else `●`, in
 the color of its state (running, waiting for queued, parked or children, done,
-failed, stopped), its model and its clock. Tabs are
-never shortened: when they overflow, `‹ n` and `n ›` count and open the hidden
-ones. Click a tab, a worker or a card to open it. A worker's tab starts with
+failed, stopped), its model and its clock. Chat and Summary stay pinned in
+the tab strip beside run counts. Only the focused run has a chip, with its
+title and clock clipped to fit; finished runs open from Summary. Click a tab,
+a worker or a card to open it. A worker's tab starts with
 its title in its lane color and `Back (ctrl+y)` (`Release (ctrl+y)` while
 driving it), then its status, model, clock and buttons for the actions its
 status allows:

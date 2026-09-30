@@ -788,7 +788,15 @@ export function App(props: AppProps) {
   })
   const focusMain = basePanel?.placement === "main"
   const summaryAction = () =>
-    Surfaces.summaryKey({ surface, main: focusMain, from: summaryFrom.current, strip: surfaces })
+    Surfaces.summaryKey({
+      surface,
+      main: focusMain,
+      from: summaryFrom.current,
+      exists: (id) =>
+        id === "chat" || id === "summary" ||
+        snapshot.tabs.some((tab) => id === `tab:${tab.id}`) ||
+        flowRuns.some((run) => id === `flow:${run.id}`)
+    })
   /** An agent's answer/cap chord and a focused panel's row action take precedence over allow-all. */
   const reservedApprovalKeys = workerTab !== undefined
     ? workspace.asks.fromPerson(workerTab.id) !== undefined || Tabs.actionFor("approve-form", workerTab) !== undefined

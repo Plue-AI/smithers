@@ -218,38 +218,48 @@ test.each(
 })
 
 test("ctrl+s opens the Summary from a worker tab with that worker selected, and returns there", () => {
-  const strip = [{ id: "chat", label: "Chat" }, { id: "summary", label: "Summary" }, { id: "tab:w1", label: "w1" }]
+  const exists = (id: string) => ["chat", "summary", "tab:w1", "flow:r1"].includes(id)
   // A worker tab opens the overview on its worker, whether its panel or the composer has the keys.
-  expect(Surfaces.summaryKey({ surface: "tab:w1", main: false, strip })).toEqual({
+  expect(Surfaces.summaryKey({ surface: "tab:w1", main: false, exists })).toEqual({
     kind: "summary",
     from: "tab:w1",
     select: "w1"
   })
-  expect(Surfaces.summaryKey({ surface: "flow:r1", main: false, strip })).toEqual({
+  expect(Surfaces.summaryKey({ surface: "flow:r1", main: false, exists })).toEqual({
     kind: "summary",
     from: "flow:r1",
     select: "flow:r1"
   })
-  expect(Surfaces.summaryKey({ surface: "chat", main: false, strip })).toEqual({
+  expect(Surfaces.summaryKey({ surface: "chat", main: false, exists })).toEqual({
     kind: "summary",
     from: "chat"
   })
   // The Summary goes back to the tab it came from while that tab exists, else to the chat.
-  expect(Surfaces.summaryKey({ surface: "summary", main: false, from: "tab:w1", strip }))
+  expect(Surfaces.summaryKey({ surface: "summary", main: false, from: "tab:w1", exists }))
     .toEqual({ kind: "show", surface: "tab:w1" })
-  expect(Surfaces.summaryKey({ surface: "summary", main: false, from: "tab:gone", strip }))
+  expect(Surfaces.summaryKey({ surface: "summary", main: false, from: "tab:gone", exists }))
     .toEqual({ kind: "show", surface: "chat" })
-  expect(Surfaces.summaryKey({ surface: "summary", main: false, strip }))
+  expect(Surfaces.summaryKey({ surface: "summary", main: false, exists }))
     .toEqual({ kind: "show", surface: "chat" })
   // The Summary itself shows the worker tree: no `tree:` tab selects a worker.
-  expect(Surfaces.summaryKey({ surface: "tree:w1", main: false, strip })).toEqual({
+  expect(Surfaces.summaryKey({ surface: "tree:w1", main: false, exists })).toEqual({
     kind: "summary",
     from: "tree:w1"
   })
   // A main view keeps chat beside it: ctrl+s switches focus between them.
-  expect(Surfaces.summaryKey({ surface: "ui:plan", main: true, strip })).toEqual({ kind: "focus" })
+  expect(Surfaces.summaryKey({ surface: "ui:plan", main: true, exists })).toEqual({ kind: "focus" })
   // A `ui:` view (a plugin's tab leaves the strip once hidden) keeps its focus switch, never leaving it.
-  expect(Surfaces.summaryKey({ surface: "ui:smithers", main: false, strip })).toEqual({ kind: "focus" })
+  expect(Surfaces.summaryKey({ surface: "ui:smithers", main: false, exists })).toEqual({ kind: "focus" })
+})
+
+test("Summary returns to settled destinations independently of visible chips", () => {
+  const exists = (id: string) => ["tab:failed", "tab:done", "flow:done"].includes(id)
+  for (const from of ["tab:failed", "tab:done", "flow:done"]) {
+    expect(Surfaces.summaryKey({ surface: "summary", main: false, from, exists }))
+      .toEqual({ kind: "show", surface: from })
+  }
+  expect(Surfaces.summaryKey({ surface: "summary", main: false, from: "flow:removed", exists }))
+    .toEqual({ kind: "show", surface: "chat" })
 })
 
 test("Summary carries ◆N while something waits for the person, and nothing at zero", () => {

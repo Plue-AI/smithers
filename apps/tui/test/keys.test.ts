@@ -228,7 +228,7 @@ describe("Ctrl+S label", () => {
     { surface: "ui:plan", main: false, from: undefined, label: "Switch focus" },
     { surface: "chat", main: true, from: undefined, label: "Switch focus" }
   ])("calls Ctrl+S $label on $surface in footer and key list", ({ surface, main, from, label }) => {
-    const action = Surfaces.summaryKey({ surface, main, from, strip })
+    const action = Surfaces.summaryKey({ surface, main, from, exists: (id) => strip.some((chip) => chip.id === id) })
     const merged = Keys.bindings([], action)
     expect(Keys.hintsFor("composer", merged).find((binding) => binding.id === "summary")?.label).toBe(label)
     expect(Keys.bindingsFor("composer", merged).find((binding) => binding.id === "summary")?.label).toBe(label)
