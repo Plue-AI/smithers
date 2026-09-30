@@ -252,10 +252,10 @@ export const make = <R = never>(options: MakeOptions<R>): SidecarFlow<R> => {
           {
             if: Node.capture(
               { scores: true, refused: true },
-              (measure: { readonly refusal?: PatternError }) => measure.refusal !== undefined
+              (measure: unknown) => field(measure, "refusal") !== undefined
             ),
-            then: (measure: { readonly refusal?: PatternError }) => Node.fail(measure.refusal),
-            else: (measure: { readonly delta?: Delta }) => Node.succeed(measure.delta)
+            then: (measure) => Node.fail(field(measure, "refusal")),
+            else: (measure) => Node.succeed(field(measure, "delta"))
           }
         ),
         Node.capture({ scores: true }, (delta) =>
