@@ -59,7 +59,10 @@ type RepoResponse struct {
 	ForkID                     *int64                        `json:"fork_id,omitempty"`
 	// ForkOf is "owner/name" of the upstream this repository was forked from,
 	// present only on a fork whose upstream still resolves.
-	ForkOf *string `json:"fork_of,omitempty"`
+	ForkOf                  *string                `json:"fork_of,omitempty"`
+	GitHubSource            *services.GitHubSource `json:"github_source,omitempty"`
+	GitHubSourceAmbiguous   bool                   `json:"github_source_ambiguous,omitempty"`
+	GitHubSourceUnavailable bool                   `json:"github_source_unavailable,omitempty"`
 	// CanWrite is the requesting viewer's effective write access. It is always
 	// present on a single-repository read so a client can show the fork offer
 	// instead of guessing — or worse, forking on the user's behalf.
@@ -238,6 +241,9 @@ func (h *RepoHandler) GetRepo(w http.ResponseWriter, r *http.Request) {
 
 	resp := mapRepoResponse(owner, view.Repository, h.SSHHost)
 	resp.CanWrite = view.CanWrite
+	resp.GitHubSource = view.GitHubSource
+	resp.GitHubSourceAmbiguous = view.GitHubSourceAmbiguous
+	resp.GitHubSourceUnavailable = view.GitHubSourceUnavailable
 	if view.ForkOf != "" {
 		forkOf := view.ForkOf
 		resp.ForkOf = &forkOf

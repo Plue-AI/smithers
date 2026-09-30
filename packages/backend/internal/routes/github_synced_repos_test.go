@@ -141,6 +141,10 @@ func (s *stubMetadataStalenessService) GetAuthenticatedUserGitHubPullDiff(contex
 	return services.GitHubPullDiffResult{}, pkgerrors.Internal("unused")
 }
 
+func (s *stubMetadataStalenessService) GetAuthenticatedUserGitHubPull(context.Context, int64, string, string, int64) (services.GitHubRepoMetadataResult, error) {
+	return s.result, nil
+}
+
 func TestGitHubRepoMetadata_ExposesStorenessHeaders(t *testing.T) {
 	syncedAt := time.Date(2026, 8, 2, 10, 30, 0, 0, time.UTC)
 	handler := &GitHubUserReposHandler{Service: &stubMetadataStalenessService{

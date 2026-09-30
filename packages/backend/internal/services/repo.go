@@ -156,6 +156,7 @@ var _ repoHostProvisioningClient = (*repohost.Client)(nil)
 
 // RepoService handles repository business logic.
 type RepoService struct {
+	pool                *pgxpool.Pool
 	revocations         revocation.Publisher
 	queries             RepoQuerier
 	repoHost            RepoHostClient
@@ -421,7 +422,7 @@ func NewRepoService(q RepoQuerier, rh RepoHostClient, activeStorageSet string, o
 // product schema. Placement and cluster operation journals are supplied only
 // by private deployment adapters, never inferred from a product row.
 func NewProductRepoServiceWithPool(q RepoQuerier, rh RepoHostClient, pool *pgxpool.Pool, opts ...RepoServiceOption) *RepoService {
-	s := &RepoService{queries: q, repoHost: rh, productOnly: true}
+	s := &RepoService{queries: q, repoHost: rh, pool: pool, productOnly: true}
 	for _, opt := range opts {
 		if opt != nil {
 			opt(s)
@@ -449,6 +450,7 @@ func WithRepoProvisioningStore(store RepositoryProvisioningStore) RepoServiceOpt
 // authorization snapshots are re-validated before mutating.
 func NewRepoServiceWithPool(q RepoQuerier, rh RepoHostClient, activeStorageSet string, pool *pgxpool.Pool, opts ...RepoServiceOption) *RepoService {
 	s := NewRepoService(q, rh, activeStorageSet, opts...)
+	s.pool = pool
 	if pool != nil {
 		s.ownershipTx = &pgxRepoOwnershipTxManager{pool: pool}
 		s.storageOperations = newPostgresRepositoryStorageOperationStore(pool)
@@ -1286,6 +1288,14 @@ func (s *RepoService) GetRepo(ctx context.Context, viewer *db.User, owner, repo 
 // ends up with an unasked-for copy of someone else's repository.
 type RepoView struct {
 	Repository db.Repository
+	// GitHubSource is present only when one ready import durably binds this
+	// repository to one GitHub source. The repository description is not proof.
+	GitHubSource *GitHubSource
+	// Multiple ready sources are unsafe to resolve to one review target.
+	GitHubSourceAmbiguous bool
+	// A service without the import store cannot decide whether Cloud or GitHub
+	// owns a pull request number, so callers must fail closed.
+	GitHubSourceUnavailable bool
 	// CanWrite is the viewer's effective write access. False means every write
 	// affordance must be shown as unavailable with the fork offer beside it,
 	// never hidden and never auto-resolved by forking.
@@ -1293,6 +1303,34 @@ type RepoView struct {
 	// ForkOf is "owner/name" of the upstream when this repository is a fork,
 	// and empty otherwise (including when the upstream has been deleted).
 	ForkOf string
+}
+
+type GitHubSource struct {
+	Owner string `json:"owner"`
+	Repo  string `json:"repo"`
+}
+
+func (s *RepoService) githubSource(ctx context.Context, repositoryID int64) (*GitHubSource, bool, error) {
+	if s.pool == nil {
+		return nil, false, nil
+	}
+	rows, err := s.pool.Query(ctx, `SELECT min(github_owner), min(github_repo) FROM import_jobs WHERE repository_id=$1 AND status='ready' GROUP BY lower(github_owner), lower(github_repo) LIMIT 2`, repositoryID)
+	if err != nil {
+		return nil, false, err
+	}
+	defer rows.Close()
+	var source *GitHubSource
+	for rows.Next() {
+		var next GitHubSource
+		if err := rows.Scan(&next.Owner, &next.Repo); err != nil {
+			return nil, false, err
+		}
+		if source != nil {
+			return nil, true, nil // Conflicting source identities cannot select a PR.
+		}
+		source = &GitHubSource{Owner: strings.ToLower(next.Owner), Repo: strings.ToLower(next.Repo)}
+	}
+	return source, false, rows.Err()
 }
 
 // GetRepoView resolves a readable repository together with the viewer's write
@@ -1311,6 +1349,16 @@ func (s *RepoService) GetRepoView(ctx context.Context, viewer *db.User, owner, r
 		return RepoView{}, err
 	}
 	view.CanWrite = canWrite
+	view.GitHubSourceUnavailable = s.pool == nil
+	view.GitHubSource, view.GitHubSourceAmbiguous, err = s.githubSource(ctx, repository.ID)
+	if err != nil {
+		slog.WarnContext(ctx, "github import source unavailable", "repository_id", repository.ID, "error", err)
+		view.GitHubSourceUnavailable = true
+	}
+	if !view.CanWrite && (view.GitHubSource != nil || view.GitHubSourceAmbiguous) {
+		// A readable Cloud mirror does not grant GitHub source metadata.
+		view.GitHubSource, view.GitHubSourceAmbiguous, view.GitHubSourceUnavailable = nil, false, true
+	}
 	return view, nil
 }
 

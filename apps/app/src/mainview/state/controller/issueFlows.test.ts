@@ -89,3 +89,27 @@ test("the Fix an issue app implements an issue picked on the home, read without 
   expect(calls).toHaveLength(2)
   await store.dispose?.()
 })
+
+test("a GitHub pull's source and diff reach the Cloud repository's pr-triage flow", async () => {
+  const { store, ctx } = await setup()
+  const calls: unknown[] = []
+  const flows = createIssueFlowsController(ctx, {
+    listWorkspaceWorkflows: async () => { throw Error("Catalog read must not block the launch") },
+    runWorkflow: async (...args) => { calls.push(args); return { value: "launched" } }
+  }, {
+    readLandingContext: async (number, repo) => ({
+      repo: repo ?? REPO, sourceRepo: "upstream/project", number,
+      title: "Upstream PR", body: "Change summary", state: "open", author: "writer",
+      diff: "diff --git a/a.ts b/a.ts\n+new line\n"
+    })
+  })
+  expect(await flows.triagePullRequest(17, REPO)).toEqual({ value: "launched" })
+  const [flow, target, input] = calls[0] as [string, string, { args: string }]
+  expect([flow, target]).toEqual(["pr-triage", REPO])
+  expect(JSON.parse(input.args)).toEqual({
+    kind: "pr", repo: REPO, sourceRepo: "upstream/project", number: 17,
+    title: "Upstream PR", body: "Change summary", state: "open", author: "writer",
+    diff: "diff --git a/a.ts b/a.ts\n+new line\n"
+  })
+  await store.dispose?.()
+})

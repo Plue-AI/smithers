@@ -59,6 +59,9 @@ export interface LandingContext {
   readonly baseBranch?: string
   readonly commits?: PrPayload["commits"]
   readonly files?: PrPayload["files"]
+  /** The GitHub source and complete diff when this Cloud repo is an import. */
+  readonly sourceRepo?: string
+  readonly diff?: string
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -94,7 +97,8 @@ const parseLandingRow = (value: unknown): LandingRow | null => {
     number: value.number,
     title: value.title,
     state: typeof value.state === "string" && value.state !== "" ? value.state : "unknown",
-    author: isRecord(value.author) ? stringOrNull(value.author.login) : null,
+    author: isRecord(value.author) ? stringOrNull(value.author.login)
+      : isRecord(value.user) ? stringOrNull(value.user.login) : null,
     updatedAt: stringOrNull(value.updated_at)
   }
 }
@@ -174,6 +178,42 @@ const repoApiRoot = (repo: string): string => {
   return `/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`
 }
 
+type PullSource =
+  | { readonly kind: "native" }
+  | { readonly kind: "github"; readonly repo: string }
+  | { readonly error: string }
+
+/** A ready import in the repository response is the only source mapping. */
+const pullSource = async (ctx: Pick<SeamContext, "http" | "baseUrl">, repo: string): Promise<PullSource> => {
+  let response: Response
+  try {
+    response = await ctx.http(`${ctx.baseUrl}${repoApiRoot(repo)}`)
+  } catch {
+    return { error: `The source of pull requests for ${repo} couldn't be checked.` }
+  }
+  if (!response.ok) {
+    return { error: await readErrorMessage(response, `The source of pull requests for ${repo} couldn't be checked.`) }
+  }
+  const body: unknown = await response.json().catch(() => null)
+  if (!isRecord(body) || typeof body.full_name !== "string" || body.full_name.toLowerCase() !== repo.toLowerCase()) {
+    return { error: `The source of pull requests for ${repo} answered with a different repository.` }
+  }
+  if (body.github_source_unavailable === true) return { error: `The source of pull requests for ${repo} is unavailable.` }
+  if (body.github_source_ambiguous === true) return { error: `This repository has more than one GitHub source, so its pull requests cannot be reviewed here.` }
+  if (body.github_source === undefined) return { kind: "native" }
+  const source = body.github_source
+  if (!isRecord(source) || typeof source.owner !== "string" || typeof source.repo !== "string"
+    || !/^[A-Za-z0-9_.-]+$/.test(source.owner) || !/^[A-Za-z0-9_.-]+$/.test(source.repo)) {
+    return { error: `The GitHub source of ${repo} could not be verified.` }
+  }
+  return { kind: "github", repo: `${source.owner}/${source.repo}` }
+}
+
+const githubPullsRoot = (ctx: Pick<SeamContext, "baseUrl">, sourceRepo: string): string => {
+  const [owner = "", name = ""] = sourceRepo.split("/")
+  return `${ctx.baseUrl}/api/user/github-repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/pulls`
+}
+
 /** A pull request a review can still act on: not merged, closed or landed. */
 const reviewable = (state: string): boolean => !["merged", "closed", "landed"].includes(state.toLowerCase())
 
@@ -187,9 +227,14 @@ export const readLandingOptions = async (
   ctx: Pick<SeamContext, "http" | "baseUrl">,
   repo: string
 ): Promise<{ readonly options: ReadonlyArray<FieldOption>; readonly error?: string }> => {
+  const source = await pullSource(ctx, repo)
+  if ("error" in source) return { options: [], error: source.error }
+  const url = source.kind === "github"
+    ? `${githubPullsRoot(ctx, source.repo)}?state=open&per_page=100`
+    : `${ctx.baseUrl}${repoApiRoot(repo)}/landings?limit=100`
   let response: Response
   try {
-    response = await ctx.http(`${ctx.baseUrl}${repoApiRoot(repo)}/landings?limit=100`)
+    response = await ctx.http(url)
   } catch {
     return { options: [], error: `Pull requests for ${repo} couldn't be listed — the platform didn't answer.` }
   }
@@ -529,6 +574,34 @@ export const createLandingsSeam = (ctx: SeamContext, renderRepositoryForm?: Repo
     const target = resolveTargetRepo(ctx.store, repoArg)
     if ("error" in target) return target.error
     const repo = target.repo
+    const source = await pullSource(ctx, repo)
+    if ("error" in source) return source.error
+    if (source.kind === "github") {
+      const root = githubPullsRoot(ctx, source.repo)
+      let detail: Response, patch: Response
+      try {
+        detail = await ctx.http(`${root}/${number}`)
+      } catch {
+        return `Pull request #${number} on ${source.repo} couldn't be read from GitHub.`
+      }
+      if (!detail.ok) return readErrorMessage(detail, `Pull request #${number} on ${source.repo} couldn't be read from GitHub.`)
+      const body: unknown = await detail.json().catch(() => null)
+      const row = parseLandingRow(body)
+      if (row === null || !isRecord(body) || row.number !== number || !reviewable(row.state)) {
+        return `Pull request #${number} on ${source.repo} is unavailable for review.`
+      }
+      try {
+        patch = await ctx.http(`${root}/${number}/diff`)
+      } catch {
+        return `The diff for pull request #${number} on ${source.repo} couldn't be read.`
+      }
+      if (!patch.ok) return readErrorMessage(patch, `The diff for pull request #${number} on ${source.repo} couldn't be read.`)
+      const diff = await patch.text().catch(() => "")
+      if (!diff.trim()) return `The diff for pull request #${number} on ${source.repo} is empty.`
+      const base = isRecord(body.base) ? body.base.ref : undefined
+      return { repo, sourceRepo: source.repo, number, title: row.title, body: typeof body.body === "string" ? body.body : "",
+        state: row.state, author: row.author, ...(typeof base === "string" ? { baseBranch: base } : {}), diff }
+    }
     let response: Response
     try {
       response = await ctx.http(`${landingsUrl(repo)}/${number}`)

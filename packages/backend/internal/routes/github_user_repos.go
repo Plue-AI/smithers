@@ -18,6 +18,7 @@ import (
 type GitHubUserReposRouteService interface {
 	ListAuthenticatedUserGitHubRepos(ctx context.Context, userID int64, query url.Values) (services.GitHubRepoListResult, error)
 	GetAuthenticatedUserGitHubRepo(ctx context.Context, userID int64, owner, repo string) (services.GitHubRepoMetadataResult, error)
+	GetAuthenticatedUserGitHubPull(ctx context.Context, userID int64, owner, repo string, number int64) (services.GitHubRepoMetadataResult, error)
 	ListAuthenticatedUserGitHubRepoMetadata(ctx context.Context, userID int64, owner, repo, resource string, query url.Values) (services.GitHubRepoMetadataResult, error)
 	ListAuthenticatedUserGitHubIssueComments(ctx context.Context, userID int64, owner, repo string, number int64, query url.Values) (services.GitHubRepoMetadataResult, error)
 	GetAuthenticatedUserGitHubPullDiff(ctx context.Context, userID int64, owner, repo string, number int64) (services.GitHubPullDiffResult, error)
@@ -86,6 +87,30 @@ func (h *GitHubUserReposHandler) GetGitHubRepo(w http.ResponseWriter, r *http.Re
 
 func (h *GitHubUserReposHandler) ListGitHubRepoPulls(w http.ResponseWriter, r *http.Request) {
 	h.listGitHubRepoMetadata(w, r, services.GitHubRepoMetadataPulls)
+}
+
+func (h *GitHubUserReposHandler) GetGitHubPull(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "private, no-store")
+	user, err := requireRouteUser(r)
+	if err != nil {
+		pkgerrors.WriteError(w, err.(*pkgerrors.APIError))
+		return
+	}
+	if h.Service == nil {
+		pkgerrors.WriteError(w, pkgerrors.Internal("github pull service unavailable"))
+		return
+	}
+	number, err := strconv.ParseInt(chi.URLParam(r, "number"), 10, 64)
+	if err != nil || number <= 0 {
+		writeRouteError(w, r, pkgerrors.BadRequest("invalid github pull request number"))
+		return
+	}
+	result, err := h.Service.GetAuthenticatedUserGitHubPull(r.Context(), user.ID, chi.URLParam(r, "owner"), chi.URLParam(r, "repo"), number)
+	if err != nil {
+		writeRouteError(w, r, err)
+		return
+	}
+	h.writeGitHubRepoMetadataResult(w, result)
 }
 
 func (h *GitHubUserReposHandler) listGitHubRepoMetadata(w http.ResponseWriter, r *http.Request, resource string) {

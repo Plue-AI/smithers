@@ -6,6 +6,8 @@ import { createAppController } from "../AppController"
 import type { AppServices } from "../AppController"
 import { createAppStore } from "../AppStore"
 import type { AppStore } from "../AppStore"
+import { createLandingsSeam, readLandingOptions } from "./LandingsSeam"
+import type { SeamContext } from "./SeamContext"
 
 /*
  * The landings seam through the real command path: controller.commands.run
@@ -714,4 +716,145 @@ test("PR detail bounds the model value while retaining the card body", async () 
   expect(value?.length).toBeLessThanOrEqual(16_000)
   const card = store.collections.cards.get("pr-will/flows-3")
   expect(card?.kind === "pr" ? card.payload.prBody : undefined).toBe(body)
+})
+
+describe("Review a PR source selection", () => {
+  const cloudRepo = "/api/repos/will/flows"
+  const githubPulls = "/api/user/github-repos/upstream/project/pulls"
+  const source = { full_name: "will/flows", github_source: { owner: "upstream", repo: "project" } }
+
+  test("the bare form reads GitHub PR choices for a ready import, not same-number Cloud landings", async () => {
+    const calls: string[] = []
+    const services = backend({
+      [cloudRepo]: json(200, source),
+      [`${githubPulls}?state=open&per_page=100`]: json(200, [
+        { number: 7, title: "Upstream change", state: "open", user: { login: "writer" } },
+        { number: 8, title: "Closed change", state: "closed" }
+      ]),
+      [`${cloudRepo}/landings?limit=100`]: json(200, [landing(7, "open")])
+    })
+    const options = await readLandingOptions({ baseUrl: "", http: async (url) => {
+      calls.push(url)
+      return services.fetchImpl!(url)
+    } }, "will/flows")
+    expect(options).toEqual({ options: [{ value: "7", label: "#7 Upstream change" }] })
+    expect(calls).toEqual([cloudRepo, `${githubPulls}?state=open&per_page=100`])
+  })
+
+  test("native repositories still read Cloud landings, including an empty list", async () => {
+    const calls: string[] = []
+    const services = backend({
+      [cloudRepo]: json(200, { full_name: "will/flows" }),
+      [`${cloudRepo}/landings?limit=100`]: json(200, [])
+    })
+    const options = await readLandingOptions({ baseUrl: "", http: async (url) => {
+      calls.push(url)
+      return services.fetchImpl!(url)
+    } }, "will/flows")
+    expect(options).toEqual({ options: [] })
+    expect(calls).toEqual([cloudRepo, `${cloudRepo}/landings?limit=100`])
+  })
+
+  test("repository identity accepts casing differences but no different owner", async () => {
+    const native = backend({
+      [cloudRepo]: json(200, { full_name: "Will/Flows" }),
+      [`${cloudRepo}/landings?limit=100`]: json(200, [])
+    })
+    expect(await readLandingOptions({ baseUrl: "", http: (url) => native.fetchImpl!(url) }, "will/flows"))
+      .toEqual({ options: [] })
+    const different = backend({ [cloudRepo]: json(200, { full_name: "other/flows" }) })
+    const refused = await readLandingOptions({ baseUrl: "", http: (url) => different.fetchImpl!(url) }, "will/flows")
+    expect(refused.options).toEqual([])
+    expect(refused.error).toContain("different repository")
+  })
+
+  test("a GitHub authorization failure never switches to a same-number Cloud PR", async () => {
+    const calls: string[] = []
+    const services = backend({
+      [cloudRepo]: json(200, source),
+      [`${githubPulls}?state=open&per_page=100`]: json(403, { message: "GitHub authorization required" }),
+      [`${cloudRepo}/landings?limit=100`]: json(200, [landing(7, "open")])
+    })
+    const options = await readLandingOptions({ baseUrl: "", http: async (url) => {
+      calls.push(url)
+      return services.fetchImpl!(url)
+    } }, "will/flows")
+    expect(options.options).toEqual([])
+    expect(options.error).toBeDefined()
+    expect(calls).toEqual([cloudRepo, `${githubPulls}?state=open&per_page=100`])
+  })
+
+  test("a typed PR number reads the mapped GitHub PR and diff as Cloud flow context", async () => {
+    const services = backend({
+      [cloudRepo]: json(200, source),
+      [`${githubPulls}/17`]: json(200, { number: 17, title: "Upstream PR", body: "Description", state: "open", user: { login: "writer" }, base: { ref: "main" } }),
+      [`${githubPulls}/17/diff`]: new Response("diff --git a/a b/a\n+new code\n", { status: 200 }),
+      [`${cloudRepo}/landings/17`]: json(200, landing(17, "open"))
+    })
+    const { store } = await ready(services)
+    const calls: string[] = []
+    const seam = createLandingsSeam({
+      baseUrl: "", store, dispatch: store.dispatch.bind(store), actor: () => "user", nextOrdinal: () => 1,
+      http: async (url) => { calls.push(url); return services.fetchImpl!(url) }
+    } as SeamContext)
+    expect(await seam.readLandingContext(17, "will/flows")).toEqual({
+      repo: "will/flows", sourceRepo: "upstream/project", number: 17,
+      title: "Upstream PR", body: "Description", state: "open", author: "writer", baseBranch: "main",
+      diff: "diff --git a/a b/a\n+new code\n"
+    })
+    expect(calls).toEqual([cloudRepo, `${githubPulls}/17`, `${githubPulls}/17/diff`])
+  })
+
+  test("a typed PR authorization failure cannot review a same-number Cloud landing", async () => {
+    const services = backend({
+      [cloudRepo]: json(200, source),
+      [`${githubPulls}/17`]: json(403, { message: "GitHub authorization required" }),
+      [`${cloudRepo}/landings/17`]: json(200, landing(17, "open"))
+    })
+    const { store } = await ready(services)
+    const calls: string[] = []
+    const seam = createLandingsSeam({
+      baseUrl: "", store, dispatch: store.dispatch.bind(store), actor: () => "user", nextOrdinal: () => 1,
+      http: async (url) => { calls.push(url); return services.fetchImpl!(url) }
+    } as SeamContext)
+    expect(await seam.readLandingContext(17, "will/flows")).toContain("GitHub")
+    expect(calls).toEqual([cloudRepo, `${githubPulls}/17`])
+  })
+
+  test("malformed source metadata refuses instead of guessing another owner", async () => {
+    const services = backend({ [cloudRepo]: json(200, { full_name: "will/flows", github_source: { owner: "someone/else", repo: "project" } }) })
+    const options = await readLandingOptions({ baseUrl: "", http: (url) => services.fetchImpl!(url) }, "will/flows")
+    expect(options.options).toEqual([])
+    expect(options.error).toContain("could not be verified")
+  })
+
+  test("conflicting ready imports refuse instead of using a Cloud PR with the same number", async () => {
+    const calls: string[] = []
+    const services = backend({
+      [cloudRepo]: json(200, { full_name: "will/flows", github_source_ambiguous: true }),
+      [`${cloudRepo}/landings?limit=100`]: json(200, [landing(17, "open")])
+    })
+    const options = await readLandingOptions({ baseUrl: "", http: async (url) => {
+      calls.push(url)
+      return services.fetchImpl!(url)
+    } }, "will/flows")
+    expect(options.options).toEqual([])
+    expect(options.error).toContain("more than one GitHub source")
+    expect(calls).toEqual([cloudRepo])
+  })
+
+  test("missing source store refuses even if native Cloud landings exist", async () => {
+    const calls: string[] = []
+    const services = backend({
+      [cloudRepo]: json(200, { full_name: "will/flows", github_source_unavailable: true }),
+      [`${cloudRepo}/landings?limit=100`]: json(200, [landing(17, "open")])
+    })
+    const options = await readLandingOptions({ baseUrl: "", http: async (url) => {
+      calls.push(url)
+      return services.fetchImpl!(url)
+    } }, "will/flows")
+    expect(options.options).toEqual([])
+    expect(options.error).toContain("unavailable")
+    expect(calls).toEqual([cloudRepo])
+  })
 })

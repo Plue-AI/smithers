@@ -256,9 +256,12 @@ export const createFormsController = (ctx: ControllerContext, deps: FormsControl
   }
 
   /** The fields as the card payload carries them: the seam's options resolved for this draft, arrays copied for the wire. */
-  const withOptions = (fields: ReadonlyArray<FormField>, draft: FormDraft): FlowFormCard["payload"]["fields"] =>
+  const withOptions = (fields: ReadonlyArray<FormField>, draft: FormDraft, flow?: string): FlowFormCard["payload"]["fields"] =>
     fields.map((field) => {
-      const options = field.optionsFrom === undefined ? field.options : optionsFor(field.optionsFrom, draft)
+      // prs.triage must wait for the source-aware seam. A cached native PR card
+      // may contain the same number as an imported GitHub PR.
+      const options = flow === "prs.triage" && field.optionsFrom === "pull-requests" ? []
+        : field.optionsFrom === undefined ? field.options : optionsFor(field.optionsFrom, draft)
       const { options: _derived, ...rest } = field
       return options === undefined ? rest : { ...rest, options: [...options] }
     })
@@ -419,7 +422,7 @@ export const createFormsController = (ctx: ControllerContext, deps: FormsControl
     const nestedPayload = request.payloadField === undefined ? {} : {
       payloadField: request.payloadField, inputSchema: Schema.toJsonSchemaDocument(input)
     }
-    const resolved = withOptions(fields, draft)
+    const resolved = withOptions(fields, draft, request.name)
     /*
      * THE FORM LAW's one sentence, and the two rules allowed to write it.
      *
@@ -519,7 +522,7 @@ export const createFormsController = (ctx: ControllerContext, deps: FormsControl
      * harness answered with).
      */
     const dependency = ["harness", "harnessId", "id", "roleId", "seat"].includes(name)
-    await patch(card, { ...payload, draft, fields: dependency ? withOptions(card.payload.fields, draft) : card.payload.fields }, "active")
+    await patch(card, { ...payload, draft, fields: dependency ? withOptions(card.payload.fields, draft, card.payload.flow) : card.payload.fields }, "active")
     if (name === "repo") {
       await refreshFileList(cardId)
       await refreshListOptions(cardId)

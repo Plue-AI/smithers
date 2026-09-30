@@ -89,13 +89,13 @@ describe("the Fix an issue app", () => {
 })
 
 describe("the Review a PR app", () => {
-  test("prs.triage opened bare asks for the pull request and offers the open ones", () => {
+  test("prs.triage opened bare asks for a PR without offering a cached native number before its source read", () => {
     const app = fixture()
     const { cardId, missing } = app.ask("prs.triage")
     expect(missing).toEqual(["number"])
     expect(app.card(cardId).payload.submitLabel).toBe("Review")
     expect(app.card(cardId).payload.fields.map((field) => [field.name, field.label, field.kind])).toEqual([["number", "PR", "number"]])
-    expect(app.field(cardId, "number").options).toEqual([{ value: "70", label: "#70 Make the help link visible" }])
+    expect(app.field(cardId, "number").options).toEqual([])
   })
 
   test("opened again while its review is being submitted, the form opens fresh once that submission is done", async () => {

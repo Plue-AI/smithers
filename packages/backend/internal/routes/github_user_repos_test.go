@@ -41,6 +41,8 @@ type mockGitHubUserReposRouteService struct {
 	diffResult services.GitHubPullDiffResult
 	diffErr    error
 	diffFn     func(context.Context, int64, string, string, int64) (services.GitHubPullDiffResult, error)
+	pullFn     func(context.Context, int64, string, string, int64) (services.GitHubRepoMetadataResult, error)
+	pullErr    error
 }
 
 func (m mockGitHubUserReposRouteService) ListAuthenticatedUserGitHubRepos(ctx context.Context, userID int64, query url.Values) (services.GitHubRepoListResult, error) {
@@ -80,6 +82,61 @@ func (m mockGitHubUserReposRouteService) GetAuthenticatedUserGitHubPullDiff(ctx 
 		return m.diffFn(ctx, userID, owner, repo, number)
 	}
 	return m.diffResult, m.diffErr
+}
+
+func (m mockGitHubUserReposRouteService) GetAuthenticatedUserGitHubPull(ctx context.Context, userID int64, owner, repo string, number int64) (services.GitHubRepoMetadataResult, error) {
+	if m.pullFn != nil {
+		return m.pullFn(ctx, userID, owner, repo, number)
+	}
+	if m.pullErr != nil {
+		return services.GitHubRepoMetadataResult{}, m.pullErr
+	}
+	return services.GitHubRepoMetadataResult{Body: []byte(`{"number":7}`)}, nil
+}
+
+func TestGitHubUserReposHandler_GetsTypedPullForAuthenticatedUser(t *testing.T) {
+	t.Parallel()
+	var called bool
+	handler := &GitHubUserReposHandler{Service: mockGitHubUserReposRouteService{pullFn: func(_ context.Context, userID int64, owner, repo string, number int64) (services.GitHubRepoMetadataResult, error) {
+		called = true
+		assert.Equal(t, int64(42), userID)
+		assert.Equal(t, "upstream", owner)
+		assert.Equal(t, "project", repo)
+		assert.Equal(t, int64(17), number)
+		return services.GitHubRepoMetadataResult{Body: []byte(`{"number":17}`)}, nil
+	}}}
+	req := githubRepoMetadataRequest(t, "/api/user/github-repos/upstream/project/pulls/17", "upstream", "project")
+	chi.RouteContext(req.Context()).URLParams.Add("number", "17")
+	rec := httptest.NewRecorder()
+	handler.GetGitHubPull(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.JSONEq(t, `{"number":17}`, rec.Body.String())
+	assert.Equal(t, "private, no-store", rec.Header().Get("Cache-Control"))
+	assert.True(t, called)
+}
+
+func TestGitHubUserReposHandler_TypedPullRefusals(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name    string
+		number  string
+		service GitHubUserReposRouteService
+		want    int
+	}{
+		{name: "not numeric", number: "abc", service: mockGitHubUserReposRouteService{}, want: http.StatusBadRequest},
+		{name: "zero", number: "0", service: mockGitHubUserReposRouteService{}, want: http.StatusBadRequest},
+		{name: "no service", number: "17", want: http.StatusInternalServerError},
+		{name: "GitHub refused", number: "17", service: mockGitHubUserReposRouteService{pullErr: pkgerrors.NotFound("pull request not found")}, want: http.StatusNotFound},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := githubRepoMetadataRequest(t, "/api/user/github-repos/upstream/project/pulls/"+tc.number, "upstream", "project")
+			chi.RouteContext(req.Context()).URLParams.Add("number", tc.number)
+			rec := httptest.NewRecorder()
+			(&GitHubUserReposHandler{Service: tc.service}).GetGitHubPull(rec, req)
+			require.Equal(t, tc.want, rec.Code)
+			assert.Equal(t, "private, no-store", rec.Header().Get("Cache-Control"))
+		})
+	}
 }
 
 func githubUserReposRequest(t *testing.T) *http.Request {

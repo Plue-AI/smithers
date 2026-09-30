@@ -72,6 +72,51 @@ func TestGitHubRepoMetadata_ListsVisibleRepoWithoutImport(t *testing.T) {
 	assert.Equal(t, "2022-11-28", got.version)
 }
 
+func TestGitHubRepoMetadata_GetsTypedPullWithUserCredential(t *testing.T) {
+	var mu sync.Mutex
+	var path, auth, accept string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		path, auth, accept = r.URL.Path, r.Header.Get("Authorization"), r.Header.Get("Accept")
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"number":17,"title":"Upstream PR","state":"open"}`))
+	}))
+	defer srv.Close()
+	t.Setenv(envGitHubAppAPIBaseURL, srv.URL)
+
+	service := NewGitHubUserReposService(newFakeGitHubUserReposDB(), fakeOAuthTokenDecrypter{token: "gho_user"})
+	result, err := service.GetAuthenticatedUserGitHubPull(context.Background(), 42, "upstream", "project", 17)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"number":17,"title":"Upstream PR","state":"open"}`, string(result.Body))
+	mu.Lock()
+	gotPath, gotAuth, gotAccept := path, auth, accept
+	mu.Unlock()
+	assert.Equal(t, "/repos/upstream/project/pulls/17", gotPath)
+	assert.Equal(t, "Bearer gho_user", gotAuth)
+	assert.Equal(t, "application/vnd.github+json", gotAccept)
+}
+
+func TestGitHubRepoMetadata_TypedPullDoesNotFallbackAfterNotFound(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+	t.Setenv(envGitHubAppAPIBaseURL, srv.URL)
+
+	service := NewGitHubUserReposService(newFakeGitHubUserReposDB(), fakeOAuthTokenDecrypter{token: "gho_user"})
+	_, err := service.GetAuthenticatedUserGitHubPull(context.Background(), 42, "upstream", "project", 17)
+	require.Error(t, err)
+	apiErr, ok := err.(*pkgerrors.APIError)
+	require.True(t, ok)
+	assert.Equal(t, http.StatusNotFound, apiErr.Status)
+	_, err = service.GetAuthenticatedUserGitHubPull(context.Background(), 42, "upstream", "project", 0)
+	require.Error(t, err)
+	apiErr, ok = err.(*pkgerrors.APIError)
+	require.True(t, ok)
+	assert.Equal(t, http.StatusBadRequest, apiErr.Status)
+}
+
 func TestGitHubRepoMetadata_GetsArbitraryVisibleRepoObjectWithoutImport(t *testing.T) {
 	var mu sync.Mutex
 	var gotPath, gotAuth string

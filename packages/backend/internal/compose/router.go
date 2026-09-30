@@ -1642,6 +1642,7 @@ func buildRouter(
 				r.With(githubUserRepoRead...).Get("/user/github-repos/{owner}/{repo}", gitHubUserReposHandler.GetGitHubRepo)
 				r.With(githubUserRepoRead...).Get("/user/github-repos/{owner}/{repo}/issues", gitHubUserReposHandler.ListGitHubRepoIssues)
 				r.With(githubUserRepoRead...).Get("/user/github-repos/{owner}/{repo}/pulls", gitHubUserReposHandler.ListGitHubRepoPulls)
+				r.With(githubUserRepoRead...).Get("/user/github-repos/{owner}/{repo}/pulls/{number}", gitHubUserReposHandler.GetGitHubPull)
 				// Authenticated issue/PR comments (synced store + live fallback)
 				// and the raw PR diff — same token resolution and cache policy
 				// as the metadata surfaces above.

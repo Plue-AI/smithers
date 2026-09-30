@@ -46,6 +46,11 @@ func (s *githubUserReposRouterService) GetAuthenticatedUserGitHubPullDiff(contex
 	return services.GitHubPullDiffResult{Body: []byte("diff --git a/x b/x\n")}, nil
 }
 
+func (s *githubUserReposRouterService) GetAuthenticatedUserGitHubPull(context.Context, int64, string, string, int64) (services.GitHubRepoMetadataResult, error) {
+	s.calls.Add(1)
+	return services.GitHubRepoMetadataResult{Body: []byte(`{"number":7}`)}, nil
+}
+
 func (s *githubUserReposRouterService) DiagnoseGitHubAccess(context.Context, int64, string, string, string) (services.GitHubAccessDiagnosis, error) {
 	s.calls.Add(1)
 	return services.GitHubAccessDiagnosis{Verdict: services.GitHubAccessVerdictOK, Surface: "issues"}, nil

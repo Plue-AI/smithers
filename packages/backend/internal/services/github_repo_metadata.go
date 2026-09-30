@@ -100,6 +100,43 @@ func (s *GitHubUserReposService) GetAuthenticatedUserGitHubRepo(
 	return result, nil
 }
 
+// GetAuthenticatedUserGitHubPull reads one PR through the same user-owned
+// credential as the list. A typed PR number need not be on its first page.
+func (s *GitHubUserReposService) GetAuthenticatedUserGitHubPull(ctx context.Context, userID int64, owner, repo string, number int64) (GitHubRepoMetadataResult, error) {
+	if s == nil || s.queries == nil || s.decrypter == nil {
+		return GitHubRepoMetadataResult{}, pkgerrors.Internal("github repository metadata service unavailable")
+	}
+	if userID <= 0 {
+		return GitHubRepoMetadataResult{}, pkgerrors.Unauthorized("authentication required")
+	}
+	if number <= 0 || number > 9007199254740991 {
+		return GitHubRepoMetadataResult{}, pkgerrors.BadRequest("invalid github pull request number")
+	}
+	normalizedOwner, err := normalizeGitHubRepoMetadataSegment(owner, "owner")
+	if err != nil {
+		return GitHubRepoMetadataResult{}, err
+	}
+	normalizedRepo, err := normalizeGitHubRepoMetadataSegment(repo, "repository")
+	if err != nil {
+		return GitHubRepoMetadataResult{}, err
+	}
+	read := func(token string) (GitHubRepoMetadataResult, error) {
+		path := strings.TrimRight(githubAPIBaseURL(), "/") + "/repos/" + url.PathEscape(normalizedOwner) + "/" + url.PathEscape(normalizedRepo) + "/pulls/" + strconv.FormatInt(number, 10)
+		return s.requestGitHubRepoRaw(ctx, token, path, '{')
+	}
+	token, account, err := s.resolveUserGitHubAccessToken(ctx, userID)
+	if err != nil {
+		return GitHubRepoMetadataResult{}, err
+	}
+	result, err := read(token)
+	if err != nil && isGitHubTokenExpired(err) {
+		if refreshed, refreshErr := s.refreshUserGitHubToken(ctx, account); refreshErr == nil {
+			result, err = read(refreshed)
+		}
+	}
+	return result, err
+}
+
 // ListAuthenticatedUserGitHubRepoMetadata reads issues or pull requests for
 // any repository visible to the signed-in user's own GitHub OAuth credential.
 // It deliberately does not resolve or import a Plue repository first.
