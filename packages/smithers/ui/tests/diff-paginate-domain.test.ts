@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
@@ -150,19 +150,22 @@ describe("path parsing", () => {
   });
 });
 
-/** Real `git diff` output for one edited file, under the given quotePath. */
+/** Real staged `git diff` output, including names the host cannot materialize. */
 function realGitDiff(name: string, quotePath: boolean): string {
   const dir = mkdtempSync(join(tmpdir(), "diff-path-"));
-  const git = (...args: string[]) => execFileSync("git", ["-c", `core.quotePath=${quotePath}`, ...args], { cwd: dir, encoding: "utf8" });
+  const git = (...args: string[]) => execFileSync("git", ["-c", `core.quotePath=${quotePath}`, "-c", "core.protectNTFS=false", ...args], { cwd: dir, encoding: "utf8" });
+  const stage = (content: string) => {
+    const blob = execFileSync("git", ["hash-object", "-w", "--stdin"], { cwd: dir, encoding: "utf8", input: content }).trim();
+    git("update-index", "--add", "--cacheinfo", "100644", blob, name);
+  };
   try {
     git("init", "-q");
     git("config", "user.email", "t@example.test");
     git("config", "user.name", "t");
-    writeFileSync(join(dir, name), "one\n");
-    git("add", "-A");
+    stage("one\n");
     git("commit", "-q", "-m", "init");
-    writeFileSync(join(dir, name), "two\n");
-    return git("diff");
+    stage("two\n");
+    return git("diff", "--cached");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -175,6 +178,11 @@ describe("path parsing against real git", () => {
       test(`quotePath=${quotePath} round-trips ${JSON.stringify(name)}`, () => {
         const parsed = parseUnifiedFile(realGitDiff(name, quotePath));
         expect(parsed.path).toBe(name);
+        expect({ add: parsed.add, del: parsed.del }).toEqual({ add: 1, del: 1 });
+        expect(parsed.lines.filter((line) => line.kind === "add" || line.kind === "del").map((line) => [line.kind, line.text])).toEqual([
+          ["del", "one"],
+          ["add", "two"],
+        ]);
       });
     }
   }
