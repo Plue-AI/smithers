@@ -4,12 +4,12 @@ Scripts only. The recorder executes these in the real TUI; smithers.sh tutorials
 
 ```tui-script custom-agent
 Use "agents"
-Type "/agent"
+Type "/flows"
 Press Enter
 Wait for "review"
 Capture "Choose a repository-defined agent."
-Press Enter
-Type "Review the addition function."
+Press Escape
+Type "/flow review Review the addition function."
 Press Enter
 Wait for answer "Review complete"
 Press Ctrl+]

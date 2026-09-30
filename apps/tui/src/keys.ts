@@ -128,11 +128,11 @@ export const registry: ReadonlyArray<Binding> = [
   { id: "pick-page", keys: ["pageup", "pagedown"], label: "Page", context: "picker", group: "Picker" },
   { id: "pick", keys: ["enter"], label: "Choose", context: "picker", group: "Picker" },
 
-  { id: "close-form", keys: ["esc"], label: "Close", context: "form", group: "Form" },
-  { id: "next-field", keys: ["tab", "down"], label: "Next field", context: "form", group: "Form" },
-  { id: "previous-field", keys: ["shift+tab", "up"], label: "Previous field", context: "form", group: "Form" },
+  { id: "close-form", keys: ["esc"], label: "Back", context: "form", group: "Form" },
+  { id: "next-field", keys: ["tab", "down"], label: "Next", context: "form", group: "Form" },
+  { id: "previous-field", keys: ["shift+tab", "up"], label: "Previous", context: "form", group: "Form" },
   { id: "toggle-field", keys: ["space"], label: "Toggle", context: "form", group: "Form" },
-  { id: "choose-field", keys: ["left", "right"], label: "Choose", context: "form", group: "Form" },
+  { id: "choose-field", keys: ["left", "right"], display: "←/→", label: "Choose", context: "form", group: "Form" },
   { id: "run-form", keys: ["enter"], label: "Run", context: "form", group: "Form" },
 
   { id: "allow", keys: ["y"], label: "Allow", context: "approval", group: "Approval" },
@@ -364,7 +364,7 @@ export const hintsFor = (context: KeyContext, list: ReadonlyArray<Binding> = reg
     shell: ["run-shell", "cancel-shell", "keys"],
     panel: ["navigate", "expand-row", "close-panel", "keys"],
     picker: ["pick-move", "pick", "close-picker"],
-    form: ["next-field", "previous-field", "run-form", "close-form"],
+    form: ["next-field", "run-form", "close-form"],
     approval: ["allow", "deny", "allow-all"],
     selection: ["selection-move", "selection-milestone", "selection-close"],
     completion: ["complete-move", "complete", "complete-run", "complete-close"],
@@ -418,6 +418,23 @@ export const fit = (
     kept.push(binding)
   }
   return popup === undefined || cost([...kept, popup]) > columns ? kept : [...kept, popup]
+}
+
+/** Footer hints for a form: the focused field's own key sits between Next and Run. */
+export const formHints = (field: "text" | "textarea" | "number" | "boolean" | "select" | "write-only" | undefined) => {
+  const byId = (id: string) => registry.find((binding) => binding.id === id)!
+  const own = field === "select" ? [byId("choose-field")] : field === "boolean" ? [byId("toggle-field")] : []
+  const [next, ...rest] = hintsFor("form")
+  return [next!, ...own, ...rest]
+}
+
+/** Footer hints for `/flows`: Enter runs the selection, unless it runs only after a restart. */
+export const catalogHints = (runnable: boolean): ReadonlyArray<Binding> => {
+  const byId = (id: string) => registry.find((binding) => binding.id === id)!
+  return [
+    ...(runnable ? [{ ...byId("pick"), label: "Run" }] : []),
+    { ...byId("close-picker"), label: "Back" }
+  ]
 }
 
 /**

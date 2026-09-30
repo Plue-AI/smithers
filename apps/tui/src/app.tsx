@@ -28,6 +28,7 @@ import { CompletionMenu, FlowFormView, PickerDialog, StatusLine } from "./app-vi
 import * as Approvals from "./approvals.ts"
 import * as Asks from "./asks.ts"
 import * as Budget from "./budget.ts"
+import * as Catalog from "./catalog.ts"
 import * as Clipboard from "./clipboard.ts"
 import * as Composer from "./composer.ts"
 import * as Context from "./context.ts"
@@ -40,7 +41,13 @@ import * as Extension from "./extension.ts"
 import * as External from "./external.ts"
 import * as Factory from "./factory.ts"
 import * as Files from "./files.ts"
-import { actions as flowActions, discoveryNotice, FlowRuns, type Port as FlowPort } from "./flows.ts"
+import {
+  actions as flowActions,
+  discoveryNotice,
+  FlowRuns,
+  type Port as FlowPort,
+  type Run as FlowRun
+} from "./flows.ts"
 import * as Home from "./home.ts"
 import type * as Host from "./host.ts"
 import * as Improve from "./improve.ts"
@@ -556,10 +563,8 @@ export function App(props: AppProps) {
     return status === "input" ? "waiting" : status
   }
   const livePanel = (card: Panels.Panel): Panels.Panel =>
-    card.id.startsWith("flow:") && runs.has(card.id.slice(5))
-      ? { ...runs.panel(card.id.slice(5)), id: card.id }
-      : snapshot.panels.find((each) => each.id === card.id) ??
-        extensions.panels.find((each) => each.panel.id === card.id)?.panel ?? card
+    snapshot.panels.find((each) => each.id === card.id) ??
+      extensions.panels.find((each) => each.panel.id === card.id)?.panel ?? card
   const statusItems: ReadonlyArray<Extension.Status> = [
     ...(extensionPanel === undefined ? [] : [{
       id: "extensions",
@@ -574,7 +579,7 @@ export function App(props: AppProps) {
     extensions.panels.some((each) => each.placement === "tab" && each.panel === panel)
   )
   const pluginTabs = pluginPanels.filter((panel) => surface === `ui:${panel.id}`)
-  // Built-in plugin: the Smithers surface, a `plugin:smithers` tab over the directory's apps and the flow runs.
+  // Built-in plugin: the Smithers surface, a `plugin:smithers` tab over the factory's issues and apps.
   const homeApps = useMemo(() => Home.read(props.host.cwd), [props.host.cwd])
   // The factory's issue list, read from Cloud as the signed-in person while the Smithers tab shows.
   const [factory, setFactory] = useState<Smithers.Factory | "signed-out" | undefined>()
@@ -618,10 +623,9 @@ export function App(props: AppProps) {
       clearInterval(timer)
     }
   }, [smithersShown, factoryRepo])
-  const smithersPanel = props.flows === undefined && flowRuns.length === 0 && homeApps.length === 0 &&
-      factoryRepo === undefined
+  const smithersPanel = homeApps.length === 0 && factoryRepo === undefined
     ? undefined
-    : Smithers.panel(runs.listed(), flowRuns, homeApps, factory)
+    : Smithers.panel(homeApps, new Set(runs.listed().map((flow) => flow.name)), factory)
   const smithersKey = smithersPanel === undefined ? "" : JSON.stringify(smithersPanel)
   useEffect(() => {
     contributions.plugin(
@@ -660,9 +664,7 @@ export function App(props: AppProps) {
       ) {
         continue
       }
-      carded.current.add(run.id)
-      const card = runs.panel(run.id)
-      setTranscript((current) => Transcript.card(current, card, run.startedAt))
+      showRun(run.id, run.flow)
     }
   }, [revision, runs, cardFlows])
   const tabEta = (tab: Tab) => eta(Estimate.tabId(tab), tab.status, Estimate.tabStart(tab)).trim()
@@ -942,6 +944,18 @@ export function App(props: AppProps) {
     views: uiPanels
   })
   const actsKey = JSON.stringify(paletteActs)
+  const keysKey = JSON.stringify(extensions.keys)
+  /** Every flow and agent here, with what it takes, its keys and its last run: `/flows` and the home screen. */
+  const catalog = useMemo(() =>
+    Catalog.entries({
+      flows: runs.listed(),
+      fields: runs.fields,
+      unloaded: runs.unloaded,
+      keys: (name) => extensions.keys.filter((each) => each.owner === `repo:${name}`).map((each) => each.key.key),
+      runs: runs.snapshot(),
+      tabs: snapshot.tabs,
+      recorded: runs.history()
+    }), [runs, revision, tabsKey, keysKey])
   const rows = useMemo(
     () =>
       picker === undefined
@@ -954,11 +968,11 @@ export function App(props: AppProps) {
           snapshot.tabs,
           files.current,
           search?.hits ?? [],
-          runs.listed().map((flow) => runs.unloaded(flow) ? { ...flow, unloaded: true } : flow),
+          catalog,
           paletteActions,
           paletteActs
         ),
-    [picker, props.models, seat, filter, tabsKey, search?.hits, runs, revision, actionsKey, actsKey]
+    [picker, props.models, seat, filter, tabsKey, search?.hits, catalog, actionsKey, actsKey]
   )
 
   // Key handlers read the latest values through these, never a stale render.
@@ -1421,7 +1435,40 @@ export function App(props: AppProps) {
     live.current.turn !== undefined || live.current.shell !== undefined || live.current.undoing !== undefined ||
     workspace.busy || runs.busy
 
-  /** Runs a `/` line naming a known command; false when the line is not a command. */
+  /** Places a run a person started in the chat, with the line they typed, and keeps it on the conversation. */
+  const showRun = (id: string, title: string, request?: string) => {
+    carded.current.add(id)
+    const at = Date.now()
+    const started = { surface: `flow:${id}`, title, ...(request === undefined ? {} : { request }) }
+    writer.current.append({ type: "run", at, ...started })
+    setTranscript((current) => Transcript.run(current, started, at))
+  }
+  /** A person's flow run: acknowledged at once in the chat, settled there from the control plane. */
+  const startRun = (flow: string, input: Record<string, unknown>, request?: string) => {
+    try {
+      const { id } = runs.request({ flow, input, by: "user" })
+      userRuns.current.add(id)
+      showRun(id, flow, request)
+    } catch (error) {
+      setStatus(Failures.line("flow", error), "warning")
+    }
+  }
+  /** A custom agent in a worker tab; without a prompt it does what it describes. */
+  const startAgent = (agent: string, prompt: string) => {
+    const said = prompt !== "" ? prompt : runs.listed().find((each) => each.name === agent)?.description || agent
+    try {
+      workspace.request({
+        id: `${agent}-${Date.now().toString(36)}`,
+        title: said.replace(/\s+/g, " ").slice(0, 60),
+        prompt: said,
+        agent,
+        by: "user"
+      })
+    } catch (error) {
+      setStatus(Failures.line("worker", error), "warning")
+    }
+  }
+
   const command = useCallback((text: string): boolean => {
     const parsed = Editor.parseCommand(text)
     if (parsed === undefined) return false
@@ -1431,8 +1478,8 @@ export function App(props: AppProps) {
         showTab("summary")
         return true
       case "smithers":
-        runs.refresh()
-        showTab(`ui:${Smithers.id}`)
+        if (smithersPanel === undefined) setStatus("No factory for this directory")
+        else showTab(`ui:${Smithers.id}`)
         return true
       case "todo": {
         const title = argument.trim()
@@ -1521,21 +1568,24 @@ export function App(props: AppProps) {
       case "flow": {
         const space = argument.search(/\s/)
         const flow = space < 0 ? argument : argument.slice(0, space)
+        const rest = space < 0 ? "" : argument.slice(space + 1)
         if (flow === "") {
           runs.refresh()
           setPicker({ kind: "flows", query: "", selected: 0 })
           return true
         }
-        const parsed = parseArgs(space < 0 ? "" : argument.slice(space + 1))
+        // An agent's one field is its prompt: the rest of the line, as typed.
+        const listed = runs.listed().find((each) => each.name === flow)
+        if (listed !== undefined && Extension.isAgent(listed)) {
+          startAgent(flow, rest.trim())
+          return true
+        }
+        const parsed = parseArgs(rest)
         if ("error" in parsed) {
           setStatus(parsed.error, "warning")
           return true
         }
-        try {
-          userRuns.current.add(runs.request({ flow, input: parsed.input, by: "user" }).id)
-        } catch (error) {
-          setStatus(Failures.line("flow", error), "warning")
-        }
+        startRun(flow, parsed.input, text.trim())
         return true
       }
       case "claude":
@@ -1552,34 +1602,6 @@ export function App(props: AppProps) {
             title: prompt.replace(/\s+/g, " ").slice(0, 60),
             prompt,
             harness: verb,
-            by: "user"
-          })
-        } catch (error) {
-          setStatus(Failures.line("worker", error), "warning")
-        }
-        return true
-      }
-      case "agent": {
-        const space = argument.search(/\s/)
-        const agent = space < 0 ? argument : argument.slice(0, space)
-        const prompt = space < 0 ? "" : argument.slice(space + 1).trim()
-        if (agent === "") {
-          runs.refresh()
-          setPicker({ kind: "agents", query: "", selected: 0 })
-          return true
-        }
-        // The prompt is the agent's one field: without it, the composer asks for it.
-        if (prompt === "") {
-          setStatus(`Type what ${agent} should do, then Enter.`)
-          setText(`/agent ${agent} `)
-          return true
-        }
-        try {
-          workspace.request({
-            id: `${agent}-${Date.now().toString(36)}`,
-            title: prompt.replace(/\s+/g, " ").slice(0, 60),
-            prompt,
-            agent,
             by: "user"
           })
         } catch (error) {
@@ -1802,20 +1824,9 @@ export function App(props: AppProps) {
         }
         return enqueue(action.prompt)
       case "flow":
-        try {
-          userRuns.current.add(runs.request({ flow: action.flow, input: action.input ?? {}, by: "user" }).id)
-        } catch (error) {
-          setStatus(Failures.line("flow", error), "warning")
-        }
-        return
+        return startRun(action.flow, action.input ?? {})
       case "agent":
-        // Agent input is a form whose one field is the prompt: without one, the composer asks.
-        if (action.prompt !== undefined && action.prompt.trim() !== "") {
-          command(`/agent ${action.agent} ${action.prompt}`)
-          return
-        }
-        setPanelFocus(false)
-        return setText(`/agent ${action.agent} `)
+        return startAgent(action.agent, action.prompt?.trim() ?? "")
       case "open": {
         const target = action.surface === "smithers" ? `ui:${Smithers.id}` : action.surface
         const card = target.startsWith("ui:") && cardIds.has(target.slice(3))
@@ -1865,6 +1876,8 @@ export function App(props: AppProps) {
       if (value === "all") return setFilter(Timeline.all)
       return setFilter((current) => Timeline.toggleKind(current, value.slice(value.indexOf(":") + 1) as Timeline.Kind))
     }
+    // A flow added after launch runs only after a restart; its row says so and stays.
+    if (open.kind === "flows" && runs.unloaded(value)) return
     setPicker(undefined)
     if (open.kind === "undo") return
     if (open.kind === "fork") {
@@ -1878,14 +1891,9 @@ export function App(props: AppProps) {
     if (open.kind === "model") return switchSeat(value)
     if (open.kind === "worker-model") return workspace.retry(open.id, value)
     if (open.kind === "flows") {
-      // An agent runs in a worker tab; its one field is the prompt.
-      if (runs.listed().some((flow) => flow.name === value && Extension.isAgent(flow))) {
-        return setText(`/agent ${value} `)
-      }
       command(`/flow ${value}`)
       return
     }
-    if (open.kind === "agents") return setText(`/agent ${value} `)
     if (open.kind === "theme") {
       if (!isTheme(value)) return
       setTheme(value)
@@ -2079,9 +2087,8 @@ export function App(props: AppProps) {
             if (focusedCard.startsWith("subagents:earlier")) return openEarlier()
             if (focusedWorker !== undefined) return clickTab(`tab:${focusedWorker.id}`)
             const row = chatRows.find((each) => each.key === focusedCard)
-            if (row?.item.kind !== "card") return
-            const id = row.item.panel.id
-            perform({ kind: "open", surface: id.startsWith("flow:") ? id : `ui:${id}` })
+            if (row?.item.kind === "run") return perform({ kind: "open", surface: row.item.surface })
+            if (row?.item.kind === "card") perform({ kind: "open", surface: `ui:${row.item.panel.id}` })
           },
           worker: focusedWorker,
           workerAction,
@@ -2554,6 +2561,10 @@ export function App(props: AppProps) {
         binding.owner !== undefined && (binding.context !== "panel" || binding.owner === ownerOf(surface))
       )
     ]
+    : footerContext === "form" && form !== undefined
+    ? Keys.formHints(form.fields[form.focus]?.kind)
+    : footerContext === "picker" && picker?.kind === "flows"
+    ? Keys.catalogHints(rows.length > 0 && !runs.unloaded(rows[Math.min(picker.selected, rows.length - 1)]!.value))
     : footerContext === "overview"
     // `d` and `u` act on a settled worker; a monitor has no cards, graph or view to open.
     ? [
@@ -2575,7 +2586,29 @@ export function App(props: AppProps) {
   const hintColumns = width - 5 -
     statusItems.reduce((total, item) => total + stringWidth(item.text) + 2, 0) -
     stringWidth(meter.context + meter.usage + meter.window)
-  const toastRows = Toasts.rows({ tabs: snapshot.tabs, runs: flowRuns, search, undoing, toast, now, tick })
+  /** A run card's run; while its form is open below, the form asks, so the card does not repeat it. */
+  const runCard = (surface: string): FlowRun | undefined => {
+    const run = surface.startsWith("flow:") ? runs.get(surface.slice(5)) : undefined
+    return run !== undefined && form?.id === run.id ? { ...run, message: undefined } : run
+  }
+  const toastRows = Toasts.rows({
+    tabs: snapshot.tabs,
+    runs: flowRuns,
+    search,
+    undoing,
+    toast,
+    now,
+    tick,
+    ...(surface === "chat" && panel === undefined
+      ? {
+        carded: new Set(
+          transcript.items.flatMap((item) =>
+            item.kind === "run" && item.surface.startsWith("flow:") ? [item.surface.slice(5)] : []
+          )
+        )
+      }
+      : {})
+  })
   /** What every subagent card in the chat reads and does. */
   const cards: SubagentView.Cards = {
     transcript: workspace.transcript,
@@ -2758,7 +2791,17 @@ export function App(props: AppProps) {
               </>
             ) :
             lines.length === 0 && !Timeline.active(filter)
-            ? form === undefined ? <View.Home width={width} /> : <box style={{ flexGrow: 1, minHeight: 0 }} />
+            ? form === undefined
+              ? (
+                <View.Home
+                  width={width}
+                  flows={catalog.filter((entry) => !entry.unloaded)}
+                  rows={chatHeight - 15}
+                  onRun={(name) =>
+                    command(`/flow ${name}`)}
+                />
+              )
+              : <box style={{ flexGrow: 1, minHeight: 0 }} />
             : (
               <scrollbox
                 ref={scroll}
@@ -2773,20 +2816,28 @@ export function App(props: AppProps) {
                   cards={cards}
                   row={({ row }) => {
                     const card = row.item.kind === "card" ? livePanel(row.item.panel) : undefined
+                    const started = row.item.kind === "run" ? row.item : undefined
                     const step = row.item.kind === "cell" ? Scrubber.step(transcript, row.item) : undefined
                     return (
                       <box key={row.key} id={row.key}>
-                        {card !== undefined
+                        {started !== undefined
+                          ? (
+                            <View.RunCard
+                              title={started.title}
+                              request={started.request}
+                              run={runCard(started.surface)}
+                              now={now}
+                              focused={row.key === focusedCard}
+                              onOpen={() => perform({ kind: "open", surface: started.surface })}
+                            />
+                          )
+                          : card !== undefined
                           ? (
                             <View.Card
                               panel={card}
                               status={cardStatus(card)}
                               focused={row.key === focusedCard}
-                              onOpen={() =>
-                                perform({
-                                  kind: "open",
-                                  surface: card.id.startsWith("flow:") ? card.id : `ui:${card.id}`
-                                })}
+                              onOpen={() => perform({ kind: "open", surface: `ui:${card.id}` })}
                             />
                           )
                           : (
@@ -2847,6 +2898,7 @@ export function App(props: AppProps) {
               width={width}
               height={formHeight}
               compact={short}
+              width={width}
               onField={(field, text) => {
                 const current = liveForm.current
                 if (current !== undefined) {

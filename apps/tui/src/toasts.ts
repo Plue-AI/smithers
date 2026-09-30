@@ -54,6 +54,8 @@ export const rows = (input: {
   readonly toast: Toast | undefined
   readonly now: number
   readonly tick: string
+  /** Runs whose chat card is on screen: the card already says what a toast would. */
+  readonly carded?: ReadonlySet<string>
 }): ReadonlyArray<Row> => {
   const { now, tick, search, undoing, toast } = input
   return [
@@ -64,10 +66,10 @@ export const rows = (input: {
         tone: tab.status === "failed" ? "danger" as const : "info" as const,
         worker: { tab, actions: Tabs.actions(tab).filter((action) => offered.includes(action.id)) }
       })),
-    // A person's own run is a card in the chat; only its form still asks here.
-    ...input.runs.filter((run) => run.status === "input" || (run.by === "agent" && workNoticeVisible(run, now))).map((
-      run
-    ) => ({
+    // A person's run reports in chat; its input notice appears while the form is closed.
+    ...input.runs.filter((run) =>
+      input.carded?.has(run.id) !== true && (run.status === "input" || (run.by === "agent" && workNoticeVisible(run, now)))
+    ).map((run) => ({
       id: `flow:${run.id}`,
       text: `${flowRunning(run) ? `${tick} ` : flowGlyph(run.status)}${run.flow} · ${run.status}`,
       tone: run.status === "failed" ? "danger" as const : "info" as const

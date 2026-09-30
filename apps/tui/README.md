@@ -155,7 +155,7 @@ the only help key.
 | a                                                     | In a flow tab: approve or fill in                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | y, n                                                  | In the Summary overview on a build target waiting under Needs you: approve / deny that revision                                                                                                                                                                                                                                                                                                                                                                                      |
 | x, s, r, m, w, f                                      | On a focused subagent card: the worker keys its status allows (shown on the card), and `f` its changed files                                                                                                                                                                                                                                                                                                                                                                         |
-| Tab/Down, Shift+Tab/Up, Space, Left/Right, Enter, Esc | In a flow form: next, previous field, toggle, choose, run, close (the run stays parked)                                                                                                                                                                                                                                                                                                                                                                                              |
+| Tab/Down, Shift+Tab/Up, Space, Left/Right, Enter, Esc | In a flow form: next, previous field, toggle, choose, run, back (the run stays parked)                                                                                                                                                                                                                                                                                                                                                                                               |
 | Ctrl+G                                                | Edit the prompt in `$VISUAL` / `$EDITOR`                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | PageUp, PageDown                                      | Scroll                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | Shift+Up, Shift+Down                                  | Scroll a line                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
@@ -168,8 +168,8 @@ The `?` key popup scrolls with PageUp/PageDown or the mouse wheel.
 
 `/model [query]`, `/theme`, `/thinking [level]`, `/new`, `/resume`, `/fork`, `/conversation`, `/compact`,
 `/name <name>`, `/copy`, `/summary`, `/chat`, `/filter`,
-`/grep [text]`, `/smithers`, `/retry #<issue>`, `/flows`, `/flow <name> [json|key=value]`, `/agent [name] [prompt]`,
-`/quit`, `/exit`. After `/model`, `/thinking`, `/flow` and `/agent`
+`/grep [text]`, `/smithers`, `/retry #<issue>`, `/flows`, `/flow <name> [json|key=value|prompt]`,
+`/quit`, `/exit`. After `/model`, `/thinking` and `/flow`
 the menu completes the argument, and the `/` menu lists the directory's flows.
 An unknown command keeps its line in the composer and names the nearest
 command (`Unknown command /flwo. Try /flow.`). Stopping, resuming and steering
@@ -428,32 +428,49 @@ card.
 
 ## Flows
 
-`/flows` lists the file flows in `<cwd>/flows/<name>/flow.ts` (a `Flow.make`
-default export) with their descriptions; Enter runs one. `/flow <name>` takes a
-JSON object or `key=value` arguments. A run starts in its
-own tab and shows as a live card in the chat, `✓ sum · 40ms → 5` once done
-(`✗ sum · failed: <cause>`, `■ sum · stopped`), its steps as rows and a
-longer answer whole in a `Result` row; only a
-form waiting for input also shows in the toasts. It runs through the same native control host as `smthrs flow start`: plan,
-approve for this run, run, watch. Missing required input opens a form built
-from the payload schema by `@smthrs/ui/flow-form`, shared with the GUI, once the composer is empty and no approval is pending;
-Esc, Ctrl+K, Ctrl+S and the tab keys close it and leave the run parked. A
-parked run never blocks `/new`, `/resume`, `/fork` or undo. Flows whose envelope grants every capability (`*`) use the same y/n/a approval row. Its status settles
-only from the control plane's watch; **x** asks the control plane to cancel.
+`/flows` is the one catalog of the directory's flows and agents
+(`flows/<name>/flow.ts`, a `Flow.make` default export, or a markdown agent): each
+row shows its input names (`a, b, unit`) and keys (`alt+r`), the selected row its
+description, and the right end its last run (`✓ 2m ago`); Enter runs the
+selection. `/flow <name>` is the direct call: a flow takes a JSON object or
+`key=value` arguments, and an agent takes the rest of the line as its prompt.
+With declared flows, the home screen lists them with their keys; a click runs
+one. A directory without flows keeps the quiet home screen.
+
+A person's run shows in the chat as the line they typed and one line that the
+run rewrites in place: `◌ sum` until it launches, then its clock, then
+`✓ sum · 40ms → 5` (the result's first line), `✗ sum · 1s · failed: <why>` or
+`■ sum · 2s · stopped`. A key or a `metadata.tui.card` flow gets the same line. While
+that line is on screen the run shows no toast. Click it, or `tab` then `enter`
+from an empty composer, to open its tab. It runs through the same native
+control host as `smthrs flow start`: plan, approve for this run, run, watch.
+Missing required input opens a form built from the payload schema by
+`@smthrs/ui/flow-form`, shared with the GUI, once the composer is empty and no
+approval is pending: every field shows its value, and a choice shows all its
+options with the chosen one filled. Esc, Ctrl+K, Ctrl+S and the tab keys close
+it and leave the run parked. A parked run never blocks `/new`, `/resume`,
+`/fork` or undo. Flows whose envelope grants every capability (`*`) use the
+same y/n/a approval row. Its status settles only from the control plane's
+watch; **x** asks the control plane to cancel. The run's tab lists a module
+flow's steps (each action or flow call it made, from the engine's
+`node-scheduled` and `node-settled` records) with their results, then the
+result; Summary's `g` draws them as the run's children.
 
 Listing reads `flows/` without importing anything and refreshes within 300 ms
 of any change there. After first draw, projects with `flows/` warm the host
-in the background, importing modules and opening `<cwd>/.flows` (the store `smthrs runs` reads), so an edited `flow.ts` needs a
-restart to run; a module flow added after that lists as `Restart to load`. A markdown flow is a custom agent (below); choosing one in
-`/flows` starts `/agent <name>`. Do not run `smthrs` executors in the same
-directory at the same time. Restarting marks unfinished runs interrupted; retry
-resumes the durable run.
-`/smithers` opens the Smithers tab: every run, newest first, and the discovered flows.
-Signed in to Smithers Cloud (`smthrs auth login`, or `SMITHERS_TOKEN` with
-`SMITHERS_API_ORIGIN`), it first lists the repository's factory issues (the
+in the background, importing modules and opening `<cwd>/.flows` (the store
+`smthrs runs` reads). A module flow added after that lists as
+`Restart to load`, and `/flow` on it says `Restart to load <name>.`; an edited
+`flow.ts` also needs a restart to run. Do not run `smthrs` executors in the
+same directory at the same time. Restarting marks unfinished runs interrupted;
+retry resumes the durable run. Summary holds run history.
+`/smithers` opens the Smithers tab: factory content only. Signed in to
+Smithers Cloud (`smthrs auth login`, or `SMITHERS_TOKEN` with
+`SMITHERS_API_ORIGIN`), it lists the repository's factory issues (the
 checkout's remote owner and name, or `SMITHERS_REPO`) under Needs you, Working
 and Done, headed by the app's History card numbers: landed of decided, reverts
-and the median issue→landed time. It reads the stack again every 30 s while
+and the median issue→landed time, then the apps the directory's
+`.smithers/home.json` declares. It reads the stack again every 30 s while
 shown.
 `/todo <title>` files a TODO for the factory (`POST …/mythical/todos`) and answers at once;
 the status line settles when Cloud answers. An unanswered filing keeps its request id, so
@@ -465,7 +482,7 @@ details. The coordinator also gets `smithers.flows`, `smithers.run` and
 `smithers.inspect` over the same runs (model-invocable flows only);
 `smithers.run` returns a `requested` receipt at once. `smithers.flows` returns
 `{name, description, agent, input}`: `input` lists up to 12
-`{name, type, required}` fields once a run has imported the module (listing
+`{name, type, required}` fields once the host has imported the module (listing
 never imports it), and `[{name: "args"}]` for an agent. The coordinator's
 `Flow runs:` context also lists the store's 20 newest runs this session did not
 start, such as `smthrs flow start` runs, marked `by: "cli"`. Reading them opens
@@ -497,8 +514,7 @@ is requested, and is scored when it settles. A flow or a turn is estimated from
 its own past runs; a delegated request asks GPT-6 Luna with the most similar past
 runs and the model's own past errors in the prompt when an OpenAI route (key or
 codex login) is detected, or takes the median run otherwise; no other provider
-stands in. A model failure is logged with its reason; a delegated request's
-toasts once, and a flow run's never interrupts its form.
+stands in. A model failure is logged with its reason; no estimate toast interrupts a form or a delegated request.
 Scores calibrate the next estimate. A running tab and a working turn show
 `~7m·250k` (time left, tokens) or `late`; the coordinator's `tab.eta` flow
 answers ETA questions, queued tabs included. The eval log is
@@ -541,9 +557,9 @@ disable-model-invocation: false  # true = only a person may start it
 ---
 ```
 
-`/agent` opens the Agents picker (name, model, description); choosing a row
-puts `/agent <name>` in the composer, because the prompt is the agent's one
-field. `/agent <name> <prompt>` opens a worker tab titled `<name>: <prompt>`.
+`/flows` lists agents beside flows; Enter starts one with its description as
+the prompt. `/flow <name> <prompt>` opens a worker tab titled
+`<name>: <prompt>`.
 The coordinator sees `Agents: [{name, description}]` (model-invocable agents,
 at most 20) and starts one with `agent.delegate {id, title, prompt, agent}`.
 
@@ -572,7 +588,7 @@ Every refusal is a code and one line:
 | `unavailable`    | This session has no agent registry                         | Refused at once                                                     |
 
 `examples/custom-agent` is a directory with one agent; run
-`bun run tui apps/tui/examples/custom-agent` and type `/agent review`.
+`bun run tui apps/tui/examples/custom-agent` and type `/flow review`.
 
 When editing TUI JSX, write rendered edge spaces as `{" "}`. The pinned dprint
 TypeScript plugin drops literal spaces beside expressions such as

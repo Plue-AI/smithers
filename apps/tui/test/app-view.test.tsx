@@ -359,6 +359,54 @@ test("missing focused text begins empty and publishes its field name with the ty
   expect(changes).toEqual([["project", "n"], ["project", "ne"], ["project", "new"]])
 })
 
+const sum: FlowForm = {
+  id: "sum-1",
+  flow: "sum",
+  focus: 2,
+  fields: [
+    { name: "a", label: "A", kind: "number", required: true },
+    { name: "b", label: "B", kind: "number", required: true },
+    {
+      name: "unit",
+      label: "Unit",
+      kind: "select",
+      required: true,
+      options: [{ value: "kg", label: "kg" }, { value: "lb", label: "lb" }]
+    }
+  ],
+  draft: { a: 2, b: 3 }
+}
+test("a choice shows every option before one is chosen, and fills the chosen one", async () => {
+  const unchosen = await draw(<AppView.FlowFormView form={sum} height={10} compact={false} onField={() => {}} />)
+  const unit = unchosen.split("\n").find((line) => line.includes("Unit"))!
+  // Both options are visible with nothing chosen yet: no blank field until Right.
+  expect(unit).toMatch(/Unit\s+kg\s+lb/)
+  await act(async () => {
+    setup!.renderer.destroy()
+  })
+  const chosen = await draw(
+    <AppView.FlowFormView
+      form={{ ...sum, draft: { ...sum.draft, unit: "lb" } }}
+      height={10}
+      compact={false}
+      onField={() => {}}
+    />
+  )
+  expect(chosen.split("\n").find((line) => line.includes("Unit"))).toMatch(/Unit\s+kg\s+lb/)
+  // Every field's value is on the row, and labels take only the width they need.
+  const lines = chosen.split("\n")
+  expect(lines.find((line) => line.includes(" A ")) ?? "").toMatch(/A\s{5}\s*2/)
+  expect(lines.find((line) => /\bB\b/.test(line))).toContain("3")
+  expect(chosen).not.toContain("No estimate")
+})
+test("a value box is as wide as its text, between its bounds", () => {
+  expect(AppView.boxWidth("", 8, 40)).toBe(8)
+  expect(AppView.boxWidth("2", 8, 40)).toBe(8)
+  expect(AppView.boxWidth("a longer value here", 8, 40)).toBe(21)
+  expect(AppView.boxWidth("x".repeat(60), 8, 40)).toBe(40)
+  expect(AppView.boxWidth("x", 8, 0)).toBe(1)
+})
+
 test.each([
   { outdated: false, irrelevant: false, context: "" },
   { outdated: true, irrelevant: false, context: "context: outdated · compact?  " },

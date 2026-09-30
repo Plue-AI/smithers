@@ -54,7 +54,9 @@ for (const [cols, rows, burst] of [[60, 20, false], [40, 12, false], [40, 12, tr
           expect(status(tui.screen())).toBe(true)
           if (index < 12) await tui.press("\t")
         }}
-      expect(tui.screen()).toContain("12/12")
+      // Every field is reachable: shown at once when they fit, else through the counter.
+      expect(/12\/12/.test(tui.screen()) || tui.screen().includes("Field1 ")).toBe(true)
+      expect(tui.screen()).toContain("v12")
       await tui.press(key.enter)
       await tui.until((screen) => screen.includes("✓ many"), 15_000, "all fields submitted")
       const sessions = join(root, "sessions")

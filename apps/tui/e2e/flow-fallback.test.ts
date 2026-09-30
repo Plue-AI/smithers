@@ -11,7 +11,8 @@ it("runs the next declared model after context overflow", async () => {
   mkdirSync(join(project, "flows/fallback"), { recursive: true })
   writeFileSync(
     join(project, "flows/fallback/flow.mdx"),
-    "---\ndescription: Test fallback\nmodel: [openai:first, openai:second]\n---\nAnswer Pong.\n"
+    // A key whose action is the flow starts a durable run on the control plane, which runs the prompt itself.
+    "---\ndescription: Test fallback\nmodel: [openai:first, openai:second]\nmetadata:\n  tui:\n    keys:\n      - key: alt+p\n        label: Fallback\n        action: { kind: flow, flow: fallback }\n---\nAnswer Pong.\n"
   )
   const log = join(root, "requests.log")
   let tui: Tui | undefined
@@ -31,11 +32,10 @@ it("runs the next declared model after context overflow", async () => {
     await tui.until((screen) => /↑\S+ ↓\S+/.test(screen), 20_000, "first draw")
     await tui.type("/flow fallback")
     await tui.press(key.enter)
-    await tui.until((screen) => screen.includes("✓ fallback ·"), 30_000, "fallback completion")
+    // The run's chat card settles with the second model's answer.
+    await tui.until((screen) => /✓ fallback · \d+m?s → Pong\./.test(screen), 30_000, "fallback completion")
     const requests = readFileSync(log, "utf8").trim().split("\n")
     expect(requests.slice(0, 2)).toEqual(["first", "second"])
-    await tui.press(key.ctrlBracket + key.ctrlBracket)
-    await tui.until((screen) => screen.includes("Pong."), 5_000, "fallback answer")
     expect(tui.screen()).not.toContain("Failed.")
   } finally {
     await tui?.stop()

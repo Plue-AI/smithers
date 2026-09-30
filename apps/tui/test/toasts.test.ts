@@ -67,3 +67,27 @@ test("a worker's toast says what its card says and offers the card's Stop and St
   const [queued] = project([{ ...tab, status: "queued" }], [], 1_000)
   expect(queued?.worker?.actions.map((action) => action.id)).toEqual(["stop"])
 })
+
+test("a run whose chat card is on screen gets no toast, at any status; other runs keep theirs", () => {
+  const other: Run = { ...run, id: "other" }
+  const carded = new Set(["flow"])
+  const at = (status: Run["status"], now: number) =>
+    rows({
+      tabs: [],
+      runs: [{ ...run, status, endedAt: status === "done" || status === "failed" ? 1000 : undefined }, {
+        ...other,
+        status
+      }],
+      now,
+      tick: "*",
+      search: undefined,
+      undoing: undefined,
+      toast: undefined,
+      carded
+    }).map((row) => row.id)
+  expect(at("input", 0)).toEqual(["flow:other"])
+  expect(at("running", 100000)).toEqual(["flow:other"])
+  expect(at("failed", 1001)).toEqual(["flow:other"])
+  // Off the chat, nothing is carded and both toast again.
+  expect(project([], [run, other], 300).map((row) => row.id)).toEqual(["flow:flow", "flow:other"])
+})

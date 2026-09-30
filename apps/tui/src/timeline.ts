@@ -13,7 +13,8 @@ export const kinds: ReadonlyArray<readonly [kind: Kind, label: string]> = [
   ["answer", "Answers"],
   ["error", "Errors"],
   ["note", "Notes"],
-  ["card", "Cards"]
+  ["card", "Cards"],
+  ["run", "Runs"]
 ]
 
 export interface Row {
@@ -53,6 +54,8 @@ export const text = (item: Transcript.Item): string => {
       return `${item.command}\n${item.output}`
     case "card":
       return [item.panel.title, item.panel.summary, ...item.panel.rows.map((row) => row.label)].join("\n")
+    case "run":
+      return [item.request ?? "", item.title].join("\n")
     case "cell":
       return [item.prose, item.source, item.printed, item.error ?? "", ...item.calls.map((call) => call.subject)].join(
         "\n"

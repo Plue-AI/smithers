@@ -29,6 +29,35 @@ beforeEach(() => {
 })
 
 describe("session files", () => {
+  it("restores a person's flow run where it was started, as their line and one card, without opening a turn", () => {
+    const writer = Session.create("/work/repo")
+    const run = {
+      id: "sum-1",
+      flow: "sum",
+      by: "user" as const,
+      input: { a: 2, b: 3, unit: "kg" },
+      requested: "{}",
+      status: "done" as const,
+      startedAt: 2,
+      answer: "5"
+    }
+    writer.append({ type: "user", at: 1, text: "hello" })
+    writer.append({ type: "outcome", at: 2, prompt: "hello", outcome: { _tag: "done", answer: "hi" } })
+    writer.append({ type: "flow", run })
+    writer.append({ type: "run", at: 3, surface: "flow:sum-1", title: "sum", request: "/flow sum" })
+    writer.append({ type: "run", at: 3, surface: "flow:sum-1", title: "sum", request: "/flow sum" })
+    writer.append({ type: "run", at: 4, surface: "flow:key-1", title: "audit" })
+    const records = Session.load(writer.file)
+    // A flow card is not a prompt: nothing reads as an interrupted turn.
+    expect(Session.recover(records).receipt).toBeUndefined()
+    const restored = Session.restore(records)
+    expect(restored.transcript.items.map((item) => item.kind)).toEqual(["user", "run", "run"])
+    expect(restored.transcript.items[1]).toMatchObject({ surface: "flow:sum-1", title: "sum", request: "/flow sum" })
+    expect(restored.transcript.items[2]).not.toHaveProperty("request")
+    expect(restored.flows).toEqual([run])
+    expect(restored.entries).toEqual([{ kind: "exchange", user: "hello", answer: "hi" }])
+  })
+
   it("drops a torn last line instead of failing the load", () => {
     const writer = Session.create("/work/repo")
     writer.append({ type: "user", at: 1, text: "fix add" })

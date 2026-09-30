@@ -59,6 +59,14 @@ export type Record =
   }
   | { readonly type: "tab"; readonly tab: Workspace.Tab }
   | { readonly type: "flow"; readonly run: Flows.Run }
+  /** A run a person started, placed in the chat: its card follows the `flow` records. */
+  | {
+    readonly type: "run"
+    readonly at: number
+    readonly surface: string
+    readonly title: string
+    readonly request?: string
+  }
   | { readonly type: "monitor"; readonly monitor: Monitors.Monitor }
   /** A delivered monitor update, or its failure. */
   | {
@@ -704,6 +712,13 @@ export const restore = (records: ReadonlyArray<Record>): {
         break
       case "flow":
         flows.set(record.run.id, record.run)
+        break
+      case "run":
+        transcript = Transcript.run(transcript, {
+          surface: record.surface,
+          title: record.title,
+          ...(record.request === undefined ? {} : { request: record.request })
+        }, record.at)
         break
       case "monitor":
         monitors.set(record.monitor.id, record.monitor)

@@ -35,8 +35,6 @@ export interface Sources {
   readonly files: () => ReadonlyArray<string>
   /** The directory's flows, from the last discovery. */
   readonly flows?: () => ReadonlyArray<{ readonly name: string; readonly description: string }>
-  /** The directory's custom agents, from the last discovery. */
-  readonly agents?: () => ReadonlyArray<{ readonly name: string; readonly description: string }>
 }
 
 /** The most file suggestions offered at once (pi shows 20). */
@@ -79,16 +77,6 @@ const argumentItems = (name: string, typed: string, sources: Sources): Array<Sug
     }))
   }
   if (name === "flow") return flowItems(typed, sources)
-  if (name === "agent" && !/\s/.test(typed)) {
-    // The prompt is the agent's one field, so the name inserts and waits for it.
-    return Fuzzy.filter(sources.agents?.() ?? [], typed, (agent) => agent.name).map((agent) => ({
-      label: agent.name,
-      hint: "agent",
-      detail: agent.description,
-      insert: `/agent ${agent.name} `,
-      submit: false
-    }))
-  }
   return undefined
 }
 

@@ -68,7 +68,6 @@ export const make = (options: {
   const registry = () => NativeControl.layerRegistry(options.cwd)
   let opening: Promise<Opened> | undefined
   // The module flows the opened host imported; a flow file added later needs a restart.
-  let loaded: ReadonlyArray<string> | undefined
 
   const open = (): Promise<Opened> => {
     opening ??= (async () => {
@@ -97,10 +96,6 @@ export const make = (options: {
       )
       try {
         await runtime.runPromise(Effect.void)
-        loaded = [
-          ...catalog!.executables.map((entry) => entry.descriptor.name),
-          ...catalog!.refused.map((entry) => entry.flow)
-        ]
         return { runtime, catalog: catalog! }
       } catch (error) {
         await runtime.dispose()
@@ -135,7 +130,15 @@ export const make = (options: {
 
   return {
     warm: () => existsSync(join(options.cwd, "flows")) ? control(() => Effect.void) : Promise.resolve(),
-    loaded: () => loaded,
+    // Only a host that already opened: asking must never import anything.
+    loaded: async () => {
+      if (opening === undefined) return undefined
+      const { catalog } = await opening
+      return {
+        flows: catalog.executables.map((entry) => ({ name: entry.descriptor.name, input: entry.input })),
+        refused: catalog.refused.map((entry) => entry.flow)
+      }
+    },
     discover: () =>
       Effect.runPromise(
         Registry.Registry.pipe(Effect.flatMap((each) => each.list()), Effect.provide(registry()))
@@ -200,7 +203,7 @@ export const make = (options: {
           subject: flow
         })
       }
-      if (declared === "module") throw new FlowError("not_loaded", `${flow} was added after start`, { subject: flow })
+      if (declared === "module") throw new FlowError("unloaded", `${flow} was added after start`, { subject: flow })
       throw new FlowError("unknown_flow", `Unknown flow ${flow}`, { subject: flow })
     },
     plan: (flow, input) =>
@@ -331,7 +334,7 @@ export const make = (options: {
         service.list({ _tag: "runs", order: "newest", limit: 20 }).pipe(
           Effect.map((page) =>
             page._tag === "runs"
-              ? page.items.map((run) => ({ runId: run.runId, flow: run.flowId, status: run.status }))
+              ? page.items.map((run) => ({ runId: run.runId, flow: run.flowId, status: run.status, at: run.updatedAt }))
               : []
           )
         )

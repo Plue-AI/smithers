@@ -36,7 +36,7 @@ export interface Row {
   readonly monitor?: Pick<Monitors.Monitor, "id" | "title" | "watch" | "createdAt">
   readonly status: Tab["status"] | Flows.Run["status"]
   readonly name: string
-  /** The node kind: a model alias, `fn` for a flow, `monitor` for a monitor. */
+  /** A worker's model alias; blank for a flow run. */
   readonly seat: string
   /** Elapsed, a park's reset time, or blank. */
   readonly clock: string

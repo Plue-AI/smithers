@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test"
+import * as Catalog from "../src/catalog.ts"
 import type * as Extension from "../src/extension.ts"
 import * as Models from "../src/models.ts"
 import * as Picker from "../src/picker.ts"
@@ -55,6 +56,15 @@ const flows: ReadonlyArray<Extension.Descriptor> = [
     path: "flows/review/flow.mdx"
   }
 ]
+const catalog = Catalog.entries({
+  flows,
+  fields: (name) => (name === "build" ? ["target", "mode"] : undefined),
+  unloaded: () => false,
+  keys: (name) => (name === "review" ? ["alt+r"] : []),
+  runs: [],
+  tabs: [],
+  recorded: []
+})
 const noFiles = (): ReadonlyArray<string> => {
   throw new Error("This category must not read repository files")
 }
@@ -62,7 +72,7 @@ const noEmpty = (): string => {
   throw new Error("This category must not read the flow listing diagnostic")
 }
 const rows = (picker: Picker.Picker, filter: Timeline.Filter = Timeline.all, tabs: ReadonlyArray<Tab> = []) =>
-  Picker.rows(picker, models, "replay:small", filter, tabs, noFiles, [], flows)
+  Picker.rows(picker, models, "replay:small", filter, tabs, noFiles, [], catalog)
 
 test("an auto-routed worker model picker does not call the chat seat current", () => {
   const worker: Tab = {
@@ -165,36 +175,61 @@ test.each(["model", "worker-model"] as const)(
   }
 )
 
-test("a flow added after the host opened says Restart to load", () => {
-  const late = [{ ...flows[0]!, name: "echo-label", unloaded: true }]
-  expect(
-    Picker.rows({ kind: "flows", query: "", selected: 0 }, models, "replay:small", Timeline.all, [], noFiles, [], late)
-  )
-    .toEqual([{
-      key: "echo-label",
-      label: "echo-label",
-      hint: "Restart to load",
-      detail: "Compile",
-      value: "echo-label"
-    }])
-})
-
-test("flows include module and markdown entries; agents preserve only markdown and declared-seat hints", () => {
+test("the flows catalog lists flows and agents with their input hints; only the selected row describes itself", () => {
   const before = structuredClone(flows)
   expect(rows({ kind: "flows", query: "", selected: 0 })).toEqual([
-    { key: "build", label: "build", detail: "Compile", value: "build" },
-    { key: "writer", label: "writer", detail: "Write prose", value: "writer" },
-    { key: "research", label: "research", detail: "Find answers", value: "research" },
-    { key: "review", label: "review", detail: "Review changes", value: "review" }
+    { key: "build", label: "build", hint: "target, mode", detail: "Compile", value: "build" },
+    { key: "writer", label: "writer", hint: "", value: "writer" },
+    { key: "research", label: "research", hint: "", value: "research" },
+    { key: "review", label: "review", hint: "alt+r", value: "review" }
   ])
-  expect(rows({ kind: "agents", query: "", selected: 0 })).toEqual([
-    { key: "writer", label: "writer", hint: "Sol", detail: "Write prose", value: "writer" },
-    { key: "research", label: "research", hint: "unlisted", detail: "Find answers", value: "research" },
-    { key: "review", label: "review", hint: "", detail: "Review changes", value: "review" }
+  expect(rows({ kind: "flows", query: "", selected: 3 }).map((row) => row.detail)).toEqual([
+    undefined,
+    undefined,
+    undefined,
+    "Review changes"
   ])
-  expect(rows({ kind: "agents", query: "build", selected: 0 })).toEqual([])
-  expect(rows({ kind: "flows", query: "writer", selected: 0 }).map((row) => row.value)).toEqual(["writer"])
+  expect(rows({ kind: "flows", query: "writer", selected: 0 })).toEqual([
+    { key: "writer", label: "writer", hint: "", detail: "Write prose", value: "writer" }
+  ])
   expect(flows).toEqual(before)
+})
+
+test("a flow's last run sits at the row's right end; a flow added after launch says only Restart to load", () => {
+  const now = Date.UTC(2026, 8, 29, 12)
+  const entries = Catalog.entries({
+    flows,
+    fields: () => [],
+    unloaded: (name) => name === "build",
+    keys: () => [],
+    runs: [{
+      id: "writer-1",
+      flow: "writer",
+      by: "user",
+      input: {},
+      requested: "{}",
+      status: "done",
+      startedAt: now - 3 * 60_000,
+      endedAt: now - 2 * 60_000
+    }],
+    tabs: [],
+    recorded: [{ runId: "run-9", flow: "build", status: "completed", at: now - 1000 }]
+  })
+  const shown = Picker.rows(
+    { kind: "flows", query: "", selected: 0 },
+    models,
+    "",
+    Timeline.all,
+    [],
+    noFiles,
+    [],
+    entries,
+    [],
+    now
+  )
+  expect(shown[0]).toEqual({ key: "build", label: "build", hint: "Restart to load", value: "build" })
+  expect(shown[1]).toMatchObject({ key: "writer", aside: { mark: "✓", text: "2m ago" } })
+  expect(shown.slice(2).every((row) => row.aside === undefined)).toBe(true)
 })
 
 test("kind filter preserves Show all first and marks visible categories, independently of selection", () => {
@@ -208,7 +243,8 @@ test("kind filter preserves Show all first and marks visible categories, indepen
     { key: "kind:answer", label: "Answers", current: true, value: "kind:answer" },
     { key: "kind:error", label: "Errors", current: false, value: "kind:error" },
     { key: "kind:note", label: "Notes", current: true, value: "kind:note" },
-    { key: "kind:card", label: "Cards", current: true, value: "kind:card" }
+    { key: "kind:card", label: "Cards", current: true, value: "kind:card" },
+    { key: "kind:run", label: "Runs", current: true, value: "kind:run" }
   ])
   expect(rows({ kind: "filter", query: "Errors", selected: 1 }, filter)).toEqual([{
     key: "all",
@@ -289,7 +325,7 @@ test("palette serializes public target identities without changing their exact p
       path: "odd\nfile.ts",
       line: 9,
       text: "match"
-    }], flows).map((row) => row.value)
+    }], catalog).map((row) => row.value)
   expect(values("text:match")).toEqual(["{\"kind\":\"hit\",\"path\":\"odd\\nfile.ts\",\"line\":9}"])
   expect(values("tab:Investigate")).toEqual(["{\"kind\":\"tab\",\"id\":\"worker:α\"}"])
   expect(values("conversation:Fix")).toEqual(["{\"kind\":\"session\",\"file\":\"/sessions/a.jsonl\"}"])
@@ -381,7 +417,6 @@ test.each(
     [{ kind: "model", query: "x", selected: 0 }, "Select model", "No model matches \"x\""],
     [{ kind: "worker-model", id: "w", query: "x", selected: 0 }, "Select model", "No worker-model matches \"x\""],
     [{ kind: "theme", query: "x", selected: 0 }, "Select theme", "No theme matches \"x\""],
-    [{ kind: "agents", query: "x", selected: 0 }, "Agents", "No agents"],
     [{ kind: "filter", query: "x", selected: 0 }, "Filter chat", "No filter matches \"x\""],
     [{ kind: "fork", query: "x", selected: 0, turns: [] }, "Fork from message", "No messages match \"x\""],
     [{ kind: "resume", query: "x", selected: 0, sessions: [] }, "Resume session", "No sessions in this directory"]

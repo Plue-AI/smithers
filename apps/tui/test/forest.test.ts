@@ -34,7 +34,7 @@ it("draws the whole tree above and below the selected worker, the ones that need
   expect(shape(forest(grand, all, tabs, () => [], now))).toEqual(["root", [["kid", [["grand", []]]]]])
 })
 
-it("draws a flow run with its node calls", () => {
+it("draws a flow run with its steps, and no internal kind label", () => {
   const run: Flows.Run = {
     id: "r",
     flow: "deploy",
@@ -45,9 +45,21 @@ it("draws a flow run with its node calls", () => {
     startedAt: now
   }
   const all = rows([], [run])
-  const node = forest(all[0]!, all, [], () => [{ id: "build#1", label: "build", status: "done" }], now)
-  expect(shape(node)).toEqual(["flow:r", [["flow:r:build#1", []]]])
-  expect(node.children[0]).toMatchObject({ glyph: "●", name: "build", sub: "" })
+  const node = forest(all[0]!, all, [], () => [
+    { id: "build#1", label: "build", status: "done" },
+    { id: "root.flow.then", label: "Ship", status: "running" },
+    { id: "root.flow.then.then", label: "Report", status: "requested" }
+  ], now)
+  expect(shape(node)).toEqual(["flow:r", [["flow:r:build#1", []], ["flow:r:root.flow.then", []], [
+    "flow:r:root.flow.then.then",
+    []
+  ]]])
+  expect(node.children.map((child) => [child.glyph, child.name, child.sub])).toEqual([
+    ["●", "build", ""],
+    ["◐", "Ship", ""],
+    ["○", "Report", ""]
+  ])
+  expect(node.sub).not.toContain("fn")
 })
 
 it("stops at a parent cycle in restored tabs", () => {

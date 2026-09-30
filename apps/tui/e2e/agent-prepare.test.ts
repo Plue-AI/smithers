@@ -49,11 +49,11 @@ it("an invalid agent effort fails before execution, exposes its refusal, and ret
   }
   const tab = () => parentRecords().filter((record) => record.type === "tab").at(-1)?.tab
 
-  await submit("/agent")
-  await tui.until((screen) => screen.includes("Agents") && screen.includes("Review one file"), 10_000, "discovered")
+  await submit("/flows")
+  await tui.until((screen) => screen.includes("Flows") && screen.includes("review"), 10_000, "discovered")
   await tui.press(key.escape)
-  await tui.until((screen) => !screen.includes("Agents"), 5_000, "picker closed")
-  await submit("/agent review Check one file")
+  await tui.until((screen) => !screen.includes("Flows"), 5_000, "catalog closed")
+  await submit("/flow review Check one file")
   await tui.until(() => tab()?.status === "failed", 10_000, "preparation failed")
   const failed = tab()!
   expect(failed).toMatchObject({ code: "unknown_effort", message: "Unknown effort impossible", status: "failed" })

@@ -71,13 +71,12 @@ export const commands: ReadonlyArray<Command> = [
   { name: "chat", description: "Return to chat" },
   { name: "filter", description: "Show or hide kinds of rows" },
   { name: "grep", args: "[text]", description: "Show only rows containing text" },
-  { name: "smithers", description: "Flows and runs" },
+  { name: "smithers", description: "The factory's issues" },
   { name: "todo", args: "<title>", description: "File a TODO for the factory" },
   { name: "retry", args: "#<issue>", description: "Retry a factory issue" },
   { name: "devtools", args: "[id] [node]", description: "Inspect a run's nodes" },
-  { name: "flows", description: "Run a flow" },
-  { name: "flow", args: "<name> [json|key=value]", description: "Run a flow" },
-  { name: "agent", args: "[name] [prompt]", description: "Run a custom agent" },
+  { name: "flows", description: "Flows and agents" },
+  { name: "flow", args: "<name> [json|key=value|prompt]", description: "Run a flow or agent" },
   { name: "quit", description: "Quit" }
 ]
 

@@ -107,13 +107,13 @@ const agent = (failure: AgentError): UserFailureCopy => {
   const name = failure.subject
   switch (failure.code) {
     case "unknown_agent":
-      return copy("user", `${name === undefined ? "No such agent" : `No agent named ${name}`}; /agent lists them.`)
+      return copy("user", `${name === undefined ? "No such agent" : `No agent named ${name}`}; /flows lists them.`)
     case "seat_as_agent":
       return copy("user", `${name ?? "That"} is a model; choose it with /model.`)
     case "not_an_agent":
       return copy("user", `${name ?? "That"} is a flow; run it with /flow.`)
     case "not_invocable":
-      return copy("user", `${name ?? "That agent"} starts only from /agent.`)
+      return copy("user", `${name ?? "That agent"} starts only from /flow.`)
     case "unreadable":
       return copy("infra", `${name === undefined ? "The agent file" : `Agent ${name}`} could not be read; press r.`)
     case "unknown_seat":
@@ -130,8 +130,8 @@ const flow = (failure: FlowError): UserFailureCopy => {
   switch (failure.code) {
     case "unknown_flow":
       return copy("user", `${name === undefined ? "No such flow" : `No flow named ${name}`}; /flows lists them.`)
-    case "not_loaded":
-      return copy("user", `Restart to load ${name ?? "the new flow"}.`)
+    case "unloaded":
+      return copy("user", `Restart to load ${name ?? "the flow"}.`)
     case "refused":
       return copy("user", `${name ?? "That flow"} cannot start here.`)
     case "denied":

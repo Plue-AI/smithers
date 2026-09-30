@@ -34,11 +34,11 @@ describe("tagged failures read as one plain sentence", () => {
   })
   it("words every agent refusal code by its subject, never its message", () => {
     const cases: ReadonlyArray<readonly [AgentError, string, string]> = [
-      [new AgentError("unknown_agent", RAW, "review"), "No agent named review; /agent lists them.", "user"],
-      [new AgentError("unknown_agent", RAW), "No such agent; /agent lists them.", "user"],
+      [new AgentError("unknown_agent", RAW, "review"), "No agent named review; /flows lists them.", "user"],
+      [new AgentError("unknown_agent", RAW), "No such agent; /flows lists them.", "user"],
       [new AgentError("seat_as_agent", RAW, "luna"), "luna is a model; choose it with /model.", "user"],
       [new AgentError("not_an_agent", RAW, "echo"), "echo is a flow; run it with /flow.", "user"],
-      [new AgentError("not_invocable", RAW, "deploy"), "deploy starts only from /agent.", "user"],
+      [new AgentError("not_invocable", RAW, "deploy"), "deploy starts only from /flow.", "user"],
       [new AgentError("unreadable", RAW, "review"), "Agent review could not be read; press r.", "infra"],
       [new AgentError("unreadable", RAW), "The agent file could not be read; press r.", "infra"],
       [new AgentError("unknown_seat", RAW, "gpt-9"), "Unknown model gpt-9.", "user"],
@@ -54,7 +54,8 @@ describe("tagged failures read as one plain sentence", () => {
   it("words every flow code and keeps a person's own stop quiet", () => {
     const cases: ReadonlyArray<readonly [FlowError, string, string]> = [
       [new FlowError("unknown_flow", RAW, { subject: "nope" }), "No flow named nope; /flows lists them.", "user"],
-      [new FlowError("not_loaded", RAW, { subject: "echo-label" }), "Restart to load echo-label.", "user"],
+      [new FlowError("unloaded", RAW, { subject: "echo-label" }), "Restart to load echo-label.", "user"],
+      [new FlowError("unloaded", RAW), "Restart to load the flow.", "user"],
       [new FlowError("refused", RAW, { subject: "ship" }), "ship cannot start here.", "user"],
       [new FlowError("person_only", RAW, { subject: "deploy" }), "deploy starts only from /flow.", "user"],
       [new FlowError("denied", RAW, { subject: "ship" }), "ship was not approved.", "user"],

@@ -343,3 +343,103 @@ it("stops a running run through the control plane", async () => {
   expect(error).toBeInstanceOf(FlowError)
   expect((error as FlowError).code).toBe("control")
 }, 60_000)
+
+/** A scratch project over this package's dependencies, holding the given `flows/<name>/flow.ts` sources. */
+const project = (prefix: string, flows: Readonly<Record<string, string>>): string => {
+  const directory = mkdtempSync(join(tmpdir(), prefix))
+  symlinkSync(join(import.meta.dir, "../node_modules"), join(directory, "node_modules"), "dir")
+  for (const [name, source] of Object.entries(flows)) {
+    mkdirSync(join(directory, "flows", name), { recursive: true })
+    writeFileSync(join(directory, "flows", name, "flow.ts"), source)
+  }
+  return directory
+}
+const pipeline = `
+import { Action, Flow } from "@smthrs/flow"
+import { Node } from "@smthrs/plan"
+import { Effect, Layer, Schema } from "effect"
+const Load = Action.make("pipeline/Load", { payload: { n: Schema.Number }, success: Schema.Number })
+const Double = Action.make("pipeline/Double", { payload: { n: Schema.Number }, success: Schema.Number })
+const Report = Action.make("pipeline/Report", { payload: { n: Schema.Number }, success: Schema.String })
+export const layer = Layer.mergeAll(
+  Load.toLayer(({ n }) => Effect.succeed(n + 1)),
+  Double.toLayer(({ n }) => Effect.succeed(n * 2)),
+  Report.toLayer(({ n }) => Effect.succeed("result=" + n))
+)
+export default Flow.make("pipeline", {
+  description: "Three steps",
+  capabilities: [],
+  effects: { reads: [], writes: [], mode: "expected", onConflict: "serialize", tier: "sealed" },
+  payload: { n: Schema.Number, unit: Schema.Literals(["kg", "lb"]) },
+  success: Schema.String,
+  body: Node.capture({ actions: [Load.name, Double.name, Report.name] }, ({ n }) =>
+    Load.call({ n }).pipe(
+      Node.bindPlanned((a) => Double.call({ n: a }).pipe(Node.bindPlanned((b) => Report.call({ n: b }))))
+    ))
+})
+`
+
+it("shows a module flow's steps as the run's rows, from its engine journal", async () => {
+  const directory = project("tui-steps-", { pipeline })
+  const local = FlowControl.make({ cwd: directory, environment: {}, approvals: host.approvals! })
+  const runs = new FlowRuns({ port: local, persist: () => {} })
+  try {
+    const { id } = runs.request({ flow: "pipeline", input: { n: 5, unit: "kg" }, by: "user" })
+    const deadline = Date.now() + 90_000
+    while (runs.get(id)?.status !== "done" && Date.now() < deadline) await new Promise((ok) => setTimeout(ok, 50))
+    expect(runs.get(id)?.status).toBe("done")
+    // The run's own flow node and the `AndThen` plumbing are not steps.
+    expect(runs.nodes(id)).toEqual([
+      { id: expect.any(String), label: "Load", status: "done", preview: "6" },
+      { id: expect.any(String), label: "Double", status: "done", preview: "12" },
+      { id: expect.any(String), label: "Report", status: "done", preview: "\"result=12\"" }
+    ])
+    const panel = runs.panel(id)
+    expect(panel.rows.map((row) => [row.label, row.status])).toEqual([
+      ["Load", "done"],
+      ["Double", "done"],
+      ["Report", "done"],
+      ["Result", "done"]
+    ])
+    expect(panel.rows[1]!.details).toEqual([{ kind: "code", code: "12" }])
+  } finally {
+    await runs.dispose()
+    await local.dispose()
+    rmSync(directory, { recursive: true, force: true })
+  }
+}, 120_000)
+
+it("knows a module flow added after the host loaded: it is listed, refused as Restart to load, never run", async () => {
+  const directory = project("tui-unloaded-", { pipeline })
+  const local = FlowControl.make({ cwd: directory, environment: {}, approvals: host.approvals! })
+  // Before the host opens, asking what it loaded imports nothing.
+  expect(await local.loaded!()).toBeUndefined()
+  const runs = new FlowRuns({ port: local, persist: () => {} })
+  try {
+    runs.warm()
+    const deadline = Date.now() + 90_000
+    while (runs.fields("pipeline") === undefined && Date.now() < deadline) await new Promise((ok) => setTimeout(ok, 50))
+    // The warm host's catalog gives every loaded flow's input names without a run.
+    expect(runs.fields("pipeline")).toEqual(["n", "unit"])
+    mkdirSync(join(directory, "flows", "late"))
+    writeFileSync(join(directory, "flows", "late", "flow.ts"), pipeline.replaceAll("\"pipeline", "\"late"))
+    await runs.listing()
+    expect(runs.listed().map((flow) => flow.name).sort()).toEqual(["late", "pipeline"])
+    expect(runs.unloaded("late")).toBe(true)
+    expect(runs.unloaded("pipeline")).toBe(false)
+    const refused = (() => {
+      try {
+        runs.request({ flow: "late", input: {}, by: "user" })
+      } catch (error) {
+        return error
+      }
+    })() as FlowError
+    expect(refused).toBeInstanceOf(FlowError)
+    expect(refused.code).toBe("unloaded")
+    expect(runs.snapshot()).toEqual([])
+  } finally {
+    await runs.dispose()
+    await local.dispose()
+    rmSync(directory, { recursive: true, force: true })
+  }
+}, 120_000)

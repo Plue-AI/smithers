@@ -9,7 +9,6 @@ import * as Approvals from "./approvals.ts"
 import * as Complete from "./complete.ts"
 import * as Cursor from "./cursor.ts"
 import * as Editor from "./editor.ts"
-import * as Extension from "./extension.ts"
 import * as External from "./external.ts"
 import type { FlowRuns } from "./flows.ts"
 import * as Log from "./log.ts"
@@ -78,8 +77,7 @@ export const useComposer = (options: {
     const completion = Complete.complete(text, at, {
       models,
       files: () => files.current(),
-      flows: runs.listed,
-      agents: () => runs.listed().filter(Extension.isAgent)
+      flows: runs.listed
     })
     return completion !== undefined && (completion.items.length > 0 || completion.kind !== "file")
       ? completion

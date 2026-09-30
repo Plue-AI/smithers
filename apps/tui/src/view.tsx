@@ -12,9 +12,11 @@ import { memo, type ReactNode, type RefObject, useState } from "react"
 import stringWidth from "string-width"
 import type * as Extension from "./extension.ts"
 import * as Failures from "./failures.ts"
+import * as Flows from "./flows.ts"
 import * as Keys from "./keys.ts"
 import type * as Panels from "./panels.ts"
 import * as Scrubber from "./scrubber.ts"
+import { flowGlyph } from "./surfaces.ts"
 import type * as Tabs from "./tabs.ts"
 import { color, mix, syntax } from "./theme.ts"
 import type * as Toasts from "./toasts.ts"
@@ -45,7 +47,16 @@ export const bar = {
   cross: ""
 }
 
-export function Home(props: { readonly width: number }) {
+export function Home(props: {
+  readonly width: number
+  /** The directory's declared flows and agents, each with its keys; none keeps the screen quiet. */
+  readonly flows?: ReadonlyArray<{ readonly name: string; readonly keys: ReadonlyArray<string> }>
+  /** Rows that fit; the rest are one `/flows` away. */
+  readonly rows?: number
+  readonly onRun?: (name: string) => void
+}) {
+  const flows = (props.flows ?? []).slice(0, Math.max(0, props.rows ?? Infinity))
+  const nameWidth = Math.min(32, Math.max(0, ...flows.map((flow) => stringWidth(flow.name))) + 2)
   return (
     <box
       style={{
@@ -63,6 +74,20 @@ export function Home(props: { readonly width: number }) {
           <strong>smithers</strong>
         </span>
       </text>
+      {flows.length === 0 ? null : (
+        <box style={{ marginTop: 1, flexShrink: 0 }}>
+          {flows.map((flow) => (
+            <text
+              key={flow.name}
+              wrapMode="none"
+              {...(props.onRun === undefined ? {} : { onMouseDown: () => props.onRun!(flow.name) })}
+            >
+              <span fg={color.text}>{pad(clip(flow.name, nameWidth - 2), nameWidth)}</span>
+              <span fg={color.muted}>{flow.keys.join(" ")}</span>
+            </text>
+          ))}
+        </box>
+      )}
       <text fg={color.faint} wrapMode="none" style={{ marginTop: 1 }}>
         {props.width >= 60
           ? (
@@ -246,6 +271,9 @@ function EntryView(props: EntryProps) {
         : <text fg={color.faint} style={{ paddingLeft: 2, marginBottom: 1 }}>{item.text}</text>
     case "card":
       return <Card panel={item.panel} />
+    case "run":
+      // Drawn from the live run by whoever holds it (`RunCard`).
+      return <RunCard title={item.title} request={item.request} run={undefined} now={0} />
   }
 }
 
@@ -312,6 +340,59 @@ export function Card(
           {panel.rows.length > cardRows ? <span fg={color.faint}>{`   +${panel.rows.length - cardRows}`}</span> : null}
         </text>
       )}
+    </box>
+  )
+}
+
+const runTone = (status: Flows.Run["status"] | undefined): string =>
+  status === "done"
+    ? color.success
+    : status === "failed"
+    ? color.danger
+    : status === "running" || status === "waiting"
+    ? color.info
+    : color.faint
+
+/**
+ * A run a person started, in the chat: what they typed, then one line,
+ * `✓ sum · 40ms → 5`, rewritten in place as the run moves. Click, or `enter`
+ * while focused, opens the run.
+ */
+export function RunCard(props: {
+  readonly title: string
+  readonly request?: string | undefined
+  readonly run: Flows.Run | undefined
+  readonly now: number
+  readonly focused?: boolean
+  readonly onOpen?: () => void
+}) {
+  const { run } = props
+  const said = run === undefined ? {} : Flows.line(run, props.now)
+  return (
+    <box>
+      {props.request === undefined ? null : <UserMessage text={props.request} queued={false} tone={color.brand} />}
+      <box
+        style={{ paddingLeft: 1, marginBottom: 1 }}
+        {...(props.focused === true ? { backgroundColor: color.surface } : {})}
+        {...(props.onOpen === undefined ? {} : { onMouseDown: props.onOpen })}
+      >
+        <text>
+          <span fg={runTone(run?.status)}>{run === undefined ? "· " : flowGlyph(run.status)}</span>
+          <strong fg={color.text}>{props.title}</strong>
+          {said.clock === undefined ? null : <span fg={color.muted}>{` · ${said.clock}`}</span>}
+          {said.result === undefined ? null : (
+            <>
+              <span fg={color.muted}>{" → "}</span>
+              <strong fg={color.text}>{said.result}</strong>
+            </>
+          )}
+          {run?.status === "cancelled"
+            ? <span fg={color.muted}>{" · stopped"}</span>
+            : said.message === undefined
+            ? null
+            : <span fg={run?.status === "failed" ? color.danger : color.muted}>{` · ${run?.status === "failed" ? "failed: " : ""}${said.message}`}</span>}
+        </text>
+      </box>
     </box>
   )
 }
@@ -717,6 +798,8 @@ export interface Row {
   readonly detail?: string
   /** Marks the current model or session. */
   readonly current?: boolean
+  /** Right-aligned: a colored mark and its text, such as a last run's `✓ 2m ago`. */
+  readonly aside?: { readonly mark: string; readonly tone: string; readonly text: string }
 }
 
 /**
@@ -749,12 +832,18 @@ export function List(props: {
             style={{ flexDirection: "row", paddingLeft: 1, paddingRight: 1, height: 1 }}
             backgroundColor={selected ? color.brand : props.background}
           >
-            <text fg={fg} wrapMode="none" style={{ flexShrink: 1 }}>
+            <text fg={fg} wrapMode="none" style={{ flexShrink: 1, flexGrow: 1 }}>
               <span fg={selected ? color.page : color.brand}>{row.current === true ? "● " : "  "}</span>
               {selected ? <strong>{label}</strong> : label}
               <span fg={selected ? color.page : color.muted}>{pad(row.hint ?? "", hintWidth)}</span>
               <span fg={selected ? color.page : color.faint}>{row.detail ?? ""}</span>
             </text>
+            {row.aside === undefined ? null : (
+              <text wrapMode="none" style={{ flexShrink: 0, marginLeft: 2 }}>
+                <span fg={selected ? color.page : row.aside.tone}>{row.aside.mark}</span>
+                <span fg={selected ? color.page : color.muted}>{` ${row.aside.text}`}</span>
+              </text>
+            )}
           </box>
         )
       })}

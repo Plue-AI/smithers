@@ -8,6 +8,7 @@ import { useRenderer } from "@opentui/react"
 import { usd } from "@smthrs/gateway/Diagnosis"
 import { basename } from "node:path"
 import type { ReactNode } from "react"
+import stringWidth from "string-width"
 import type * as Complete from "./complete.ts"
 import * as Editor from "./editor.ts"
 import type * as Extension from "./extension.ts"
@@ -41,7 +42,15 @@ export function ComposerModel(props: {
 /** Completion rows shown at once. */
 const menuRows = 8
 
-/** A flow run's missing input; the focused text or number field takes the typing. */
+/** A value box's width: its text and a cell of padding each side, at least `min`, at most `max`. */
+export const boxWidth = (text: string, min: number, max: number): number =>
+  Math.max(1, Math.min(max, Math.max(min, stringWidth(text) + 2)))
+
+/**
+ * A flow run's missing input. Every field draws its value in a box, and a
+ * choice draws all of its options with the chosen one filled; the focused text
+ * or number field takes the typing.
+ */
 export function FlowFormView(props: {
   readonly form: FlowForm
   readonly height: number
@@ -79,6 +88,9 @@ export function FlowFormView(props: {
   titleRows = measure(title)
   rows = Math.max(1, available - titleRows)
   const start = Math.min(Math.max(0, form.focus - Math.floor(rows / 2)), Math.max(0, form.fields.length - rows))
+  const labelWidth = Math.min(16, Math.max(0, ...form.fields.map((field) => stringWidth(field.label))) + 2)
+  // The bar, the padding and the label leave this much for a value.
+  const valueWidth = Math.max(8, (props.width ?? 80) - 6 - labelWidth)
   return (
     <box
       style={{ border: ["left"], marginTop: props.compact ? 0 : 1, flexShrink: 0 }}
@@ -101,28 +113,57 @@ export function FlowFormView(props: {
           const index = start + offset
           const value = form.draft[field.name]
           const focused = index === form.focus
+          const shown = field.kind === "boolean"
+            ? (value === true ? "✓" : "✗")
+            : value === undefined
+            ? ""
+            : String(value)
           return (
             <box key={field.name} style={{ flexDirection: "row" }}>
-              <text fg={focused ? color.brand : color.muted} wrapMode="none" style={{ width: 16, flexShrink: 0 }}>
+              <text
+                fg={focused ? color.brand : color.muted}
+                wrapMode="none"
+                style={{ width: labelWidth, flexShrink: 0 }}
+              >
                 {field.label}
               </text>
-              {focused && (field.kind === "text" || field.kind === "number")
+              {field.kind === "select" && field.options !== undefined
+                ? (
+                  <text wrapMode="none" style={{ flexShrink: 1 }}>
+                    {field.options.map((option, at) => {
+                      const chosen = String(value ?? "") === option.value
+                      return (
+                        <span key={option.value}>
+                          {at === 0 ? "" : " "}
+                          <span
+                            fg={chosen ? color.page : option.disabled === true ? color.faint : color.muted}
+                            bg={chosen ? (focused ? color.brand : color.muted) : color.element}
+                          >
+                            {chosen ? <strong>{` ${option.label} `}</strong> : ` ${option.label} `}
+                          </span>
+                        </span>
+                      )
+                    })}
+                  </text>
+                )
+                : focused && (field.kind === "text" || field.kind === "number")
                 ? (
                   <input
                     selectionOccupancy="boundary"
                     focused
-                    value={value === undefined ? "" : String(value)}
+                    value={shown}
                     textColor={color.text}
-                    backgroundColor={color.surface}
-                    focusedBackgroundColor={color.surface}
+                    backgroundColor={color.page}
+                    focusedBackgroundColor={color.page}
                     cursorColor={color.brand}
-                    style={{ flexGrow: 1 }}
+                    // The field being typed takes the row, so a burst of keys stays in view.
+                    style={{ flexGrow: 1, paddingLeft: 1 }}
                     onInput={(text: string) => props.onField(field.name, text)}
                   />
                 )
                 : (
-                  <text fg={color.text} wrapMode="none">
-                    {field.kind === "boolean" ? (value === true ? "✓" : "✗") : value === undefined ? "" : String(value)}
+                  <text fg={color.text} bg={color.page} wrapMode="none" style={{ flexShrink: 1 }}>
+                    {` ${shown}`.padEnd(boxWidth(shown, 8, valueWidth))}
                   </text>
                 )}
             </box>

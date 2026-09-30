@@ -196,6 +196,23 @@ describe("key registry", () => {
   })
 })
 
+describe("form and catalog hints", () => {
+  const spelled = (bindings: ReadonlyArray<Keys.Binding>) =>
+    bindings.map((binding) => `${Keys.primaryKey(binding)} ${binding.label}`)
+
+  it("names the focused field's own key between Next and Run", () => {
+    expect(spelled(Keys.formHints("select"))).toEqual(["tab Next", "←/→ Choose", "enter Run", "esc Back"])
+    expect(spelled(Keys.formHints("boolean"))).toEqual(["tab Next", "space Toggle", "enter Run", "esc Back"])
+    expect(spelled(Keys.formHints("text"))).toEqual(["tab Next", "enter Run", "esc Back"])
+    expect(spelled(Keys.formHints(undefined))).toEqual(["tab Next", "enter Run", "esc Back"])
+  })
+
+  it("offers Run in /flows only on a row that can run now", () => {
+    expect(spelled(Keys.catalogHints(true))).toEqual(["enter Run", "esc Back"])
+    expect(spelled(Keys.catalogHints(false))).toEqual(["esc Back"])
+  })
+})
+
 describe("Ctrl+S label", () => {
   const strip = [{ id: "chat", label: "Chat" }, { id: "summary", label: "Summary" }, {
     id: "tab:w1",

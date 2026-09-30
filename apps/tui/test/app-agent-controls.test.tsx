@@ -193,50 +193,57 @@ afterEach(async () => {
   }
 })
 
-test("Agents picker excludes module flows and asks for the selected agent's prompt before any read or run", async () => {
-  await command("/agent")
-  expect(frame()).toContain("Review one file")
-  expect(frame()).toContain("Person starts this agent")
-  expect(frame()).not.toContain("Executable module only")
+test("/flows lists flows and agents together; Enter on an agent starts it at once with what it describes", async () => {
+  await command("/flows")
+  expect(frame()).toContain("Flows")
+  for (const name of ["review", "manual", "module"]) expect(frame()).toContain(name)
   expect(bodies).toEqual([])
   expect(turns).toEqual([])
   await type("review")
   await key("RETURN")
-  expect(frame()).toContain("/agent review")
-  expect(bodies).toEqual([])
-  expect(tabs()).toEqual([])
-  await type("Review src/one.ts")
-  await key("RETURN", { meta: true })
+  // No second step: the catalog's Enter runs the selection.
   await waitFor(() => bodies.length === 1)
   expect(bodies[0]!.name).toBe("review")
   expect(tabs().at(-1)!.tab).toMatchObject({
-    prompt: "Review src/one.ts",
+    prompt: "Review one file",
     agent: { name: "review" },
     status: "requested"
   })
+  expect(frame()).not.toContain("/agent")
   expect(turns).toEqual([])
 })
 
-test("direct /agent without its prompt keeps the composer field, and Enter after the prompt starts it", async () => {
-  await command("/agent review")
-  expect(frame()).toContain("/agent review")
-  await key("RETURN")
-  expect(frame()).toContain("Type what review should do")
-  expect(bodies).toEqual([])
+test("direct /flow agent without a prompt runs its description", async () => {
+  await command("/flow review")
+  await waitFor(() => bodies.length === 1)
+  expect(tabs().at(-1)!.tab.prompt).toBe("Review one file")
+  expect(tabs().at(-1)!.tab.agent?.name).toBe("review")
   expect(turns).toEqual([])
-  expect(tabs()).toEqual([])
-  await type("Check one file")
-  await key("RETURN")
+})
+
+test("/flow <agent> <prompt> starts the agent with the rest of the line as its prompt", async () => {
+  await command("/flow review Check one file")
   await waitFor(() => bodies.length === 1)
   expect(tabs().at(-1)!.tab.prompt).toBe("Check one file")
   expect(tabs().at(-1)!.tab.agent?.name).toBe("review")
+  // A person may start an agent the model may not.
+  await command("/flow manual")
+  await waitFor(() => bodies.length === 2)
+  expect(tabs().at(-1)!.tab).toMatchObject({ prompt: "Person starts this agent", agent: { name: "manual" } })
 })
 
-test.each([
-  { command: "/agent missing Check one file", message: "No agent named missing" }
-])("$command refuses before a tab, body read or Host admission", async ({ command: input, message }) => {
-  await command(input)
-  expect(frame()).toContain(message)
+test("/agent is gone: it is an unknown command and starts nothing", async () => {
+  await command("/agent review Check one file")
+  expect(frame()).toContain("Unknown command /agent")
+  expect(tabs()).toEqual([])
+  expect(bodies).toEqual([])
+  expect(turns).toEqual([])
+})
+
+test("/flow with an unknown name fails on its chat card, before a tab, body read or Host admission", async () => {
+  await command("/flow missing Check one file")
+  await waitFor(() => frame().includes("No flow named missing; /flows lists them."))
+  expect(frame()).toMatch(/✗ missing · failed: No flow named missing/)
   expect(tabs()).toEqual([])
   expect(bodies).toEqual([])
   expect(turns).toEqual([])

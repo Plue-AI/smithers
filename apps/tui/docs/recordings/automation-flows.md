@@ -7,14 +7,12 @@ Use "flows"
 Type "/flows"
 Press Enter
 Wait for "echo"
-Capture "Browse the repository's flows."
+Capture "Browse the repository's flows and agents."
 Press Escape
 Type "/flow echo text=hello"
 Press Enter
 Wait for "→ hello"
-Type "/smithers"
-Press Enter
-Capture "Inspect a real completed durable flow run."
+Capture "The completed durable run reports in the chat."
 ```
 
 ```tui-script flow-form
@@ -26,10 +24,7 @@ Capture "Missing required input opens a schema-driven form."
 Type "hello from the form"
 Press Enter
 Wait for "→ hello from the form"
-Press Ctrl+]
-Press Ctrl+]
-Wait for "hello from the form"
-Capture "Submit the payload and wait for the actual run result."
+Capture "Submit the payload and read the actual run result in the chat."
 ```
 
 ```tui-script flow-approval
@@ -48,8 +43,8 @@ Wait 500 ms
 Capture "Review the network permission."
 Press y
 Wait for "✓ consequential"
-Press Ctrl+]
-Press Ctrl+]
+Press Tab
+Press Enter
 Wait for "Authorized"
 Capture "Inspect the completed run after approval."
 ```

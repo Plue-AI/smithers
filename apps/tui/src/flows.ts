@@ -9,6 +9,7 @@ import * as Log from "./log.ts"
  */
 import * as NodeOutput from "@smthrs/cli/NodeOutput"
 import type { ControlSchema } from "@smthrs/control"
+import * as SubagentCard from "@smthrs/rpc/SubagentCard"
 import * as Form from "@smthrs/ui/flow-form"
 import { Data, Schema } from "effect"
 import * as Deadline from "./deadline.ts"
@@ -39,6 +40,13 @@ export interface Recorded {
   readonly runId: string
   readonly flow: string
   readonly status: string
+  /** When the store last changed the run. */
+  readonly at?: number
+}
+/** The module flows the warm host imported, and the ones it refused; fixed until a restart. */
+export interface Loaded {
+  readonly flows: ReadonlyArray<{ readonly name: string; readonly input: Schema.Top | undefined }>
+  readonly refused: ReadonlyArray<string>
 }
 /** A flow as `smithers.flows` describes it. */
 export interface Described {
@@ -64,8 +72,8 @@ export interface Watch {
 export interface Port {
   /** Initialize the control host after the terminal has drawn. */
   readonly warm?: () => Promise<void>
-  /** The module flows the host imported when it opened; undefined until then. */
-  readonly loaded?: () => ReadonlyArray<string> | undefined
+  /** What the warm host imported; undefined when this directory has no flows. */
+  readonly loaded?: () => Promise<Loaded | undefined>
   /** Registry only; never imports a flow module. */
   readonly discover: () => Promise<ReadonlyArray<Listed>>
   readonly input: (flow: string) => Promise<Schema.Top | undefined>
@@ -113,8 +121,7 @@ export const discoveryNotice = (
  */
 export type FlowErrorCode =
   | "unknown_flow"
-  /** A module flow file added after the host opened; a restart loads it. */
-  | "not_loaded"
+  | "unloaded"
   | "refused"
   | "person_only"
   | "denied"
@@ -137,6 +144,9 @@ export class FlowError extends Data.TaggedError("FlowError")<{
     })
   }
 }
+
+const unloaded = (flow: string) =>
+  new FlowError("unloaded", `${flow} was added after the flows loaded; restart to run it`, { subject: flow })
 
 export interface Run {
   readonly id: string
@@ -229,6 +239,28 @@ export const running = (run: Run): boolean =>
 /** Holds a seat: in flight, or parked here for the user's input. */
 const active = (run: Run) => running(run) || run.status === "input"
 
+/** A run's time: milliseconds under a second, then the cards' own clock. */
+export const clock = (ms: number): string => ms < 1000 ? `${Math.max(0, Math.round(ms))}ms` : SubagentCard.duration(ms)
+
+/**
+ * What a run's one-line chat card says after its name: how long it ran since
+ * it launched (a form, an approval or a queue is not running), then its
+ * result's first line, or why it stopped.
+ */
+export const line = (
+  run: Run,
+  now: number
+): { readonly clock?: string; readonly result?: string; readonly message?: string } => {
+  const waiting = run.status === "queued" || run.status === "input" ||
+    (run.status === "requested" && run.launchedAt === undefined)
+  const result = run.status === "done" ? run.answer?.trim().split("\n")[0]?.trim() : undefined
+  return {
+    ...(waiting ? {} : { clock: clock((run.endedAt ?? now) - (run.launchedAt ?? run.startedAt)) }),
+    ...(result === undefined || result === "" ? {} : { result: SubagentCard.clip(result, 80) }),
+    ...(run.status === "done" || run.message === undefined ? {} : { message: run.message })
+  }
+}
+
 /**
  * The controller, keyboard, and footer share the same action eligibility. A
  * parked run (a budget or time guard, or an approval) offers Continue, which
@@ -239,6 +271,84 @@ export const actions = (run: Run | undefined): { retry: boolean; continue: boole
   continue: run?.status === "parked",
   stop: run !== undefined && (active(run) || run.status === "queued" || run.status === "parked")
 })
+
+/** One row of a run: an agent's flow call or a module flow's step. */
+export interface Step {
+  readonly id: string
+  readonly label: string
+  readonly status: "done" | "failed" | "running" | "requested" | "cancelled"
+  /** The step's recorded result, bounded by the engine. */
+  readonly preview?: string
+}
+
+const record = (value: unknown): Record<string, unknown> =>
+  value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}
+
+/**
+ * A module flow's steps from its engine journal (`flows.engine.node-*`), in
+ * the order they were scheduled: each action call, and each call of another
+ * flow. The run's own flow node and its registry entry are the run itself, and
+ * control nodes (`AndThen`) are plumbing. An unsettled step runs while the
+ * engine has an attempt open for it; the rest wait, and once the run settles
+ * nothing is running.
+ */
+export const steps = (
+  events: ReadonlyArray<ControlEvent>,
+  flow: string,
+  settled: boolean
+): ReadonlyArray<Step> => {
+  const order: Array<string> = []
+  const nodes = new Map<string, { readonly label: string; readonly outcome?: string; readonly preview?: string }>()
+  const started = new Set<string>()
+  const finished = new Set<string>()
+  for (const event of events) {
+    if (event.kind !== "control.engine.event") continue
+    const envelope = record(event.payload)
+    const payload = record(envelope["payload"])
+    const nodeId = typeof payload["nodeId"] === "string" ? payload["nodeId"] : undefined
+    const action = typeof payload["action"] === "string" ? payload["action"] : undefined
+    switch (envelope["eventType"]) {
+      case "flows.engine.attempt-started":
+        started.add(String(payload["stepKeyDigest"]))
+        break
+      case "flows.engine.attempt-finished":
+        finished.add(String(payload["stepKeyDigest"]))
+        break
+      case "flows.engine.node-scheduled": {
+        const step = payload["kind"] === "ActionCall" ||
+          (payload["kind"] === "FlowCall" && action !== flow && !action?.startsWith("registry/entry/"))
+        if (nodeId === undefined || action === undefined || !step) break
+        // A retry schedules the same node again: it keeps its place and runs again.
+        if (!nodes.has(nodeId)) order.push(nodeId)
+        nodes.set(nodeId, { label: action.startsWith(`${flow}/`) ? action.slice(flow.length + 1) : action })
+        break
+      }
+      case "flows.engine.node-settled": {
+        const node = nodeId === undefined ? undefined : nodes.get(nodeId)
+        if (node === undefined) break
+        const preview = record(payload["result"])["preview"]
+        nodes.set(nodeId!, {
+          label: node.label,
+          outcome: String(payload["outcome"]),
+          ...(typeof preview === "string" ? { preview } : {})
+        })
+        break
+      }
+    }
+  }
+  let running = settled ? 0 : Math.max(1, [...started].filter((key) => !finished.has(key)).length)
+  return order.map((id) => {
+    const node = nodes.get(id)!
+    const status: Step["status"] = node.outcome === undefined
+      ? running-- > 0 ? "running" : "requested"
+      : node.outcome === "failed"
+      ? "failed"
+      : node.outcome === "skipped" || node.outcome === "deferred"
+      ? "cancelled"
+      : "done"
+    return { id, label: node.label, status, ...(node.preview === undefined ? {} : { preview: node.preview }) }
+  })
+}
 
 export class FlowRuns {
   private runs: Lifecycle.Pool<Run>
@@ -262,6 +372,8 @@ export class FlowRuns {
   private discovering: Promise<ReadonlyArray<Listed>> | undefined
   private discoveredAt = -Infinity
   private warming: Promise<void> | undefined
+  /** The warm host's module catalog; a module flow outside it was added after launch. */
+  private imported: { readonly flows: ReadonlySet<string>; readonly refused: ReadonlySet<string> } | undefined
   private opened = false
   private isOpening = false
   private closed = false
@@ -293,11 +405,16 @@ export class FlowRuns {
   }
   /** Idempotent background host opening, independent of request acknowledgments. */
   warm = (): void => {
-    if (this.opened || this.warming !== undefined || this.closed || this.options.port?.warm === undefined) return
+    const port = this.options.port
+    if (this.opened || this.warming !== undefined || this.closed || port?.warm === undefined) return
     this.isOpening = true
     this.changed()
-    this.warming = this.options.port.warm().then(() => {
+    this.warming = port.warm().then(async () => {
       this.opened = true
+      const loaded = await port.loaded?.().catch((error) => void Log.write("flow.catalog", error))
+      if (loaded === undefined || this.closed) return
+      for (const flow of loaded.flows) this.inputs.set(flow.name, flow.input)
+      this.imported = { flows: new Set(loaded.flows.map((flow) => flow.name)), refused: new Set(loaded.refused) }
     }, (error) => Log.write("flow.open", error)).finally(() => {
       this.isOpening = false
       this.warming = undefined
@@ -322,11 +439,20 @@ export class FlowRuns {
   schema = (id: string): Schema.Top | undefined => this.schemas.get(id)
   /** The last discovery; `refresh` updates it in the background. */
   listed = (): ReadonlyArray<Listed> => this.cache
-  /** A listed module flow the opened host did not import: it runs after a restart. */
-  unloaded = (flow: Listed): boolean => {
-    const loaded = this.options.port?.loaded?.()
-    return loaded !== undefined && flow.kind === "module" && !loaded.includes(flow.name)
+  /** A module flow listed after the host imported its modules: it runs after a restart. */
+  unloaded = (name: string): boolean => {
+    const flow = this.cache.find((each) => each.name === name)
+    return flow !== undefined && !Extension.isAgent(flow) && this.imported !== undefined &&
+      !this.imported.flows.has(name) && !this.imported.refused.has(name)
   }
+  /** A flow's input field names once its module is imported; undefined before, and for an agent. */
+  fields = (name: string): ReadonlyArray<string> | undefined => {
+    if (!this.inputs.has(name)) return undefined
+    const schema = this.inputs.get(name)
+    return schema === undefined ? [] : Form.formFieldsFor(schema).map((field) => field.name)
+  }
+  /** The store's newest runs, whoever started them. */
+  history = (): ReadonlyArray<Recorded> => this.recorded
   /** Why the newest discovery failed; cleared by the next one that succeeds. */
   failure = (): FlowDiscoveryFailed | undefined => this.discoveryFailure
   private discover(): Promise<ReadonlyArray<Listed>> {
@@ -431,6 +557,7 @@ export class FlowRuns {
     if (request.by === "agent" && this.cache.find((each) => each.name === request.flow)?.modelInvocable === false) {
       throw new FlowError("person_only", `${request.flow} is not for a model to start`, { subject: request.flow })
     }
+    if (this.unloaded(request.flow)) throw unloaded(request.flow)
     const requested = JSON.stringify(request.input)
     const existing = request.id === undefined ? undefined : this.runs.get(request.id)
     if (existing !== undefined) {
@@ -470,7 +597,12 @@ export class FlowRuns {
       if (run.by === "agent" && !found.modelInvocable) {
         throw new FlowError("person_only", `${run.flow} is not for a model to start`, { subject: run.flow })
       }
-      const schema = await port.input(run.flow)
+      const schema = await port.input(run.flow).catch((error) => {
+        // Listed, but the host imported its modules before the file existed.
+        throw error instanceof FlowError && error.code === "unknown_flow" && !Extension.isAgent(found)
+          ? unloaded(run.flow)
+          : error
+      })
       this.inputs.set(run.flow, schema)
       if (this.attempts.get(id) !== attempt || this.closed) return
       if (schema !== undefined && !Schema.is(schema)(run.input)) {
@@ -683,15 +815,34 @@ export class FlowRuns {
   }
   /** A run's events as far as its watch and history read them, in order. */
   journal = (id: string): ReadonlyArray<ControlEvent> => this.events.get(id) ?? []
-  /** A run's node calls as far as its events show, in order: the graph's children of a flow run. */
-  nodes = (
-    id: string
-  ): ReadonlyArray<{ readonly id: string; readonly label: string; readonly status: "done" | "failed" | "running" }> =>
-    NodeOutput.project(this.events.get(id) ?? []).map((node) => ({
-      id: node.nodeId,
-      label: node.flowName,
-      status: node.outcome === "success" ? "done" : node.outcome === "failure" ? "failed" : "running"
-    }))
+  /** A run's calls and steps as far as its events show, in order: the graph's children of a flow run. */
+  nodes = (id: string): ReadonlyArray<Step> => this.projected(id).map(({ details: _details, ...step }) => step)
+  /** An agent's flow calls, then a module flow's steps, each with its recorded output. */
+  private projected(id: string): ReadonlyArray<Step & { readonly details: ReadonlyArray<Panels.Block> }> {
+    const events = this.events.get(id) ?? []
+    const run = this.runs.get(id)
+    const code = (value: unknown): ReadonlyArray<Panels.Block> => [{
+      kind: "code",
+      language: "json",
+      code: (JSON.stringify(value ?? null, null, 2) ?? "null").slice(0, 200_000)
+    }]
+    return [
+      ...NodeOutput.project(events).filter((node) => node.nodeId !== NodeOutput.resultNodeId).map((node) => ({
+        id: node.nodeId,
+        label: node.flowName,
+        status: node.outcome === "success"
+          ? "done" as const
+          : node.outcome === "failure"
+          ? "failed" as const
+          : "running" as const,
+        details: code(node.value ?? node.message)
+      })),
+      ...steps(events, run?.flow ?? "", run === undefined || Lifecycle.settled(run.status)).map((step) => ({
+        ...step,
+        details: step.preview === undefined ? [] : [{ kind: "code" as const, code: step.preview.slice(0, 200_000) }]
+      }))
+    ]
+  }
   /** Read restored events outside render. A failed read is retryable on the next activation. */
   hydrate = async (id: string): Promise<void> => {
     const run = this.runs.get(id)
@@ -731,23 +882,7 @@ export class FlowRuns {
         : run.status === "input"
         ? "asks"
         : run.status)
-    // The answer heads the card, so the result node is not a step.
-    const nodes = NodeOutput.project(this.events.get(id) ?? []).filter((node) =>
-      node.nodeId !== NodeOutput.resultNodeId
-    ).map((node) => ({
-      id: node.nodeId,
-      label: node.flowName,
-      status: node.outcome === "success"
-        ? "done" as const
-        : node.outcome === "failure"
-        ? "failed" as const
-        : "running" as const,
-      details: [{
-        kind: "code" as const,
-        language: "json",
-        code: (JSON.stringify(node.value ?? node.message ?? null, null, 2) ?? "null").slice(0, 200_000)
-      }]
-    }))
+    const nodes = this.projected(id).map(({ preview: _preview, ...step }) => step)
     const act = run.status === "input"
       ? [{ id: "act", label: "Fill in", details: [], action: { label: "Fill in", prompt: "" } }]
       : []

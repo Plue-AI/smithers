@@ -71,15 +71,11 @@ try {
   )
   await shoot(tui, "after-card")
   await tui.press("\x1br")
-  await tui.until(
-    (screen) => screen.includes("review · Running.") && screen.includes("review · running"),
-    5_000,
-    "run card"
-  )
+  await tui.until((screen) => /◌ review · \d+m?s/.test(screen), 5_000, "run card")
   await shoot(tui, "after-key-run")
   await tui.type("finish")
   await tui.press(key.enter)
-  await tui.until((screen) => screen.includes("review · Approved."), 5_000, "settled")
+  await tui.until((screen) => screen.includes("→ Approved."), 5_000, "settled")
   await shoot(tui, "after-settled")
   writeFileSync(mdx, readFileSync(mdx, "utf8").replace("key: alt+r", "key: ctrl+c"))
   await tui.until((screen) => screen.includes("✗ 1 extension"), 5_000, "problem")

@@ -97,6 +97,18 @@ export type Item =
     | { readonly kind: "note"; readonly id: string; readonly text: string }
     /** A panel published with `placement: "card"`: one item per panel id, updated in place. */
     | { readonly kind: "card"; readonly id: string; readonly panel: Panels.Panel }
+    /**
+     * A run a person started, drawn from its live state: the line they typed,
+     * if they typed one, then the run's one-line card.
+     */
+    | {
+      readonly kind: "run"
+      readonly id: string
+      /** The run's surface: `flow:<id>`. */
+      readonly surface: string
+      readonly title: string
+      readonly request?: string
+    }
   )
   & {
     /** When the item appeared; an item without one shares the previous item's time. */
@@ -216,6 +228,16 @@ export const card = (transcript: Transcript, panel: Panels.Panel, at?: number): 
   items[index] = { ...items[index]!, panel } as Item
   return { ...transcript, items }
 }
+
+/** Adds a run's card once; the run itself supplies what it shows. */
+export const run = (
+  transcript: Transcript,
+  started: { readonly surface: string; readonly title: string; readonly request?: string },
+  at?: number
+): Transcript =>
+  transcript.items.some((item) => item.kind === "run" && item.surface === started.surface)
+    ? transcript
+    : withId(transcript, { kind: "run", ...started }, at)
 
 /** Ends the turn: nothing streams or waits on a model after it. */
 const end = (transcript: Transcript, status: "failed" | "cancelled", text: string, at: number): Transcript => ({

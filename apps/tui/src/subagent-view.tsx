@@ -319,7 +319,7 @@ export const rowGlyph = (row: Inbox.Row, now: number): { readonly glyph: string;
     : Tabs.styleOf(row.worker, now)
 
 /** A flow run's node call as a graph node's glyph. */
-const callGlyph = { done: "●", failed: "●", running: "◐" } as const
+const callGlyph = { done: "●", failed: "●", running: "◐", requested: "○", cancelled: "■" } as const
 
 /**
  * The run forest around `row` as a graph: its root worker and every agent under it, or a flow run
@@ -351,7 +351,13 @@ export const forest = (
       nodes(row.run.id).map((call) => ({
         key: `${row.key}:${call.id}`,
         glyph: callGlyph[call.status],
-        tone: call.status === "done" ? color.success : call.status === "failed" ? color.danger : color.info,
+        tone: call.status === "done"
+          ? color.success
+          : call.status === "failed"
+          ? color.danger
+          : call.status === "running"
+          ? color.info
+          : color.faint,
         name: call.label,
         sub: "",
         children: []

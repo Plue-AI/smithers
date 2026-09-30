@@ -1892,10 +1892,9 @@ console.log("reverted");`,
     )
     await tui.type("/flow review title=x")
     await tui.press(key.enter)
-    await tui.until((screen) => screen.includes("review · running"))
-    await tui.press(key.ctrlBracket)
-    await tui.press(key.ctrlBracket)
-    // The flow's run could race the writes: the footer offers the diff, not undo.
+    await tui.until((screen) => /◌ review · \d+m?s/.test(screen))
+    await tui.type("/tabs")
+    await tui.press(key.enter)
     await tui.until(
       (screen) => screen.includes("d Diff  esc Chat") && !screen.includes("u Undo"),
       5_000,
@@ -2271,7 +2270,9 @@ describe("flows", () => {
     await tui.until((screen) => screen.includes("Needs: Title"), 5_000, "missing field")
     await tui.type("x")
     await tui.press(key.enter)
-    await tui.until((screen) => screen.includes("review · running"), 5_000, "running toast")
+    // The run reports in the chat, not in a toast.
+    await tui.until((screen) => /◌ review · \d+m?s/.test(screen), 5_000, "running card")
+    expect(tui.screen()).not.toContain("review · running")
     await tui.type("hello")
     await tui.until((screen) => /┃\s+hello/.test(screen), 5_000, "composer usable while the flow runs")
     await tui.press(ctrlRight)
@@ -2324,7 +2325,7 @@ describe("flows", () => {
     await tui.press(key.enter)
     await tui.until((screen) => /┃\s+Title/.test(screen), 5_000, "form")
     await tui.press(key.escape)
-    await tui.until((screen) => screen.includes("◌ review · input"), 5_000, "parked toast")
+    await tui.until((screen) => screen.includes("◌ review · Needs: Title"), 5_000, "parked card")
     await tui.type("/new")
     await tui.press(key.enter)
     const screen = await tui.until(
@@ -2335,20 +2336,19 @@ describe("flows", () => {
     expect(screen).toContain("New conversation started")
   }, 60_000)
 
-  it("/smithers opens a Smithers tab that closes once the user moves on", async () => {
+  it("/smithers holds only factory content: without a factory here it says so and opens nothing", async () => {
     const { tui } = await open()
     const tabBar = (screen: string) => screen.split("\n").find((line) => /Chat\s+Summary/.test(line)) ?? ""
-    expect(tabBar(tui.screen())).not.toContain("Smithers")
     await tui.type("/smithers")
+    await tui.press(key.escape)
     await tui.press(key.enter)
-    await tui.until(
-      (screen) => tabBar(screen).includes("Smithers") && screen.includes("1 flows · 0 active"),
+    const screen = await tui.until(
+      (screen) => screen.includes("No factory for this directory"),
       5_000,
-      "smithers tab"
+      "no factory"
     )
-    await tui.press(key.ctrlBracket)
-    const chat = await tui.until((screen) => !screen.includes("1 flows · 0 active"), 5_000, "chat after ctrl+]")
-    expect(tabBar(chat)).not.toContain("Smithers")
+    expect(tabBar(screen)).not.toContain("Smithers")
+    expect(screen).not.toMatch(/\d+ flows · \d+ active/)
   }, 30_000)
 
   it("offers the directory's flows in the / menu", async () => {
@@ -2370,9 +2370,9 @@ describe("custom agents", () => {
     return cwd
   }
 
-  it("/agent review x opens a review tab and the composer still takes input", async () => {
+  it("/flow review x opens a review tab and the composer still takes input", async () => {
     const { tui } = await start({ cwd: withAgent(), holdMs: 2_000 })
-    await tui.type("/agent review look at math.js")
+    await tui.type("/flow review look at math.js")
     await tui.press(key.escape)
     await tui.press(key.enter)
     await tui.until((screen) => /review: look at math\.js replay/.test(screen), 20_000, "agent tab")
@@ -2391,28 +2391,28 @@ describe("custom agents", () => {
     )
   }, 120_000)
 
-  it("/agent lists agents with their seat; choosing one puts its prompt field in the composer", async () => {
+  it("/flows lists an agent with its key; Enter starts it at once", async () => {
     const { tui } = await start({ cwd: withAgent() })
-    await tui.type("/agent")
+    await tui.type("/flows")
     await tui.press(key.escape)
     await tui.press(key.enter)
     await tui.until(
-      (screen) => screen.includes("Agents") && /review\s+GPT-6 Sol\s+Reviews the uncommitted/.test(screen),
+      (screen) => screen.includes("Flows") && /review\s+alt\+r\s+Reviews the uncommitted/.test(screen),
       20_000,
-      "agents dialog"
+      "flows catalog"
     )
     await tui.press(key.enter)
-    await tui.until((screen) => /┃\s+\/agent review\s*$/m.test(screen), 5_000, "prompt prefilled")
+    await tui.until((screen) => /review: Reviews the uncommitted/.test(screen), 20_000, "agent tab")
   }, 60_000)
 
   it("refuses an unknown agent with one line and keeps chat usable", async () => {
     const { tui } = await start({ cwd: withAgent() })
     // The first listing settles in the background; after it, the refusal is synchronous.
     await Bun.sleep(1_500)
-    await tui.type("/agent nobody do it")
+    await tui.type("/flow nobody do it")
     await tui.press(key.escape)
     await tui.press(key.enter)
-    await tui.until((screen) => screen.includes("No agent named nobody"), 10_000, "typed refusal")
+    await tui.until((screen) => screen.includes("No flow named nobody"), 10_000, "typed refusal")
   }, 60_000)
 })
 
@@ -2451,7 +2451,9 @@ describe("approvals", () => {
     await started.tui.press(key.ctrlC)
     await started.tui.until((screen) => screen.includes("n deny"))
     await started.tui.press("n")
-    await started.tui.until((screen) => screen.includes("consequential · failed") && !screen.includes("n deny"))
+    await started.tui.until((screen) =>
+      /✗ consequential · \d+m?s · consequential was not approved/.test(screen) && !screen.includes("n deny")
+    )
     const sessions = sessionFolder(started.sessions)
     const records = Session.load(join(sessions, readdirSync(sessions).find((name) => name.endsWith(".jsonl"))!))
     expect(records.filter((record) => record.type === "flow").every((record) => record.run.runId === undefined)).toBe(
@@ -2875,25 +2877,17 @@ describe("extensions", () => {
       const { tui } = await open()
       await tui.until((screen) => screen.includes("alt+r Review"), 10_000, "contributed key hint")
       await tui.press(altR)
-      await tui.until(
-        (screen) => screen.includes("◌ review") && screen.includes("review · Running."),
-        5_000,
-        "tab and card"
-      )
-      await tui.until((screen) => screen.includes("review · running"), 5_000, "running toast")
+      // One line in the chat, rewritten in place; the card says it, so no toast repeats it.
+      await tui.until((screen) => /◌ review · \d+m?s/.test(screen), 5_000, "running card")
       await tui.until((screen) => /◌ review\s+↑/.test(screen), 5_000, "status item")
       // Chat answers while the run is unresolved.
       await tui.type("hello")
       await tui.press(key.enter)
       await tui.until((screen) => screen.includes("Still here."), 5_000, "chat answered while the run runs")
-      expect(tui.screen()).toContain("review · running")
+      expect(tui.screen()).not.toContain("review · running")
       await tui.type("finish")
       await tui.press(key.enter)
-      await tui.until(
-        (screen) => /✓ review · \S+ → Approved\./.test(screen),
-        5_000,
-        "settled"
-      )
+      await tui.until((screen) => /✓ review · \d+m?s → Approved\./.test(screen), 5_000, "settled")
       await tui.until((screen) => /✓ review\s+↑/.test(screen), 5_000, "settled status item")
     },
     60_000
@@ -2976,9 +2970,9 @@ describe("extensions", () => {
     await tui.until(drawn, 20_000, "first draw")
     await tui.until((screen) => screen.includes("alt+p Ping"), 20_000, "contributed key hint")
     await tui.press("\x1bp")
-    await tui.until((screen) => screen.includes("ping · running"), 20_000, "running toast")
+    await tui.until((screen) => /◌ ping · \d+m?s/.test(screen), 20_000, "running card")
     await tui.until(
-      (screen) => screen.includes("✓ ping · ") && /✓ ping\s+↑/.test(screen),
+      (screen) => /✓ ping · \d+m?s/.test(screen) && /✓ ping\s+↑/.test(screen),
       90_000,
       "settled from the real run"
     )

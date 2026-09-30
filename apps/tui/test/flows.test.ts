@@ -11,10 +11,12 @@ import {
   FlowError,
   FlowRuns,
   interrupted,
+  line,
   type Listed,
   type Port,
   type Run,
-  type Settled
+  type Settled,
+  steps
 } from "../src/flows.ts"
 import type * as Host from "../src/host.ts"
 import * as Session from "../src/session.ts"
@@ -1046,5 +1048,262 @@ describe("discoveryNotice", () => {
     const recovered = discoveryNotice(changed.shown, undefined, true)
     expect(recovered).toEqual({ shown: undefined, show: false })
     expect(discoveryNotice(recovered.shown, failed("helper crashed"), true).show).toBe(true)
+  })
+})
+
+/** An engine journal record as the control watch relays it. */
+const engine = (sequence: number, eventType: string, payload: Record<string, unknown>) => ({
+  sequence,
+  kind: "control.engine.event",
+  runId: "run-1",
+  occurredAt: sequence,
+  payload: { eventType, payload }
+})
+const scheduled = (sequence: number, nodeId: string, kind: string, action?: string, attempt = 1) =>
+  engine(sequence, "flows.engine.node-scheduled", {
+    nodeId,
+    kind,
+    attempt,
+    ...(action === undefined ? {} : { action })
+  })
+const settledNode = (sequence: number, nodeId: string, outcome: string, preview?: string) =>
+  engine(sequence, "flows.engine.node-settled", {
+    nodeId,
+    outcome,
+    attempts: 1,
+    ...(preview === undefined ? {} : { result: { preview, bytes: preview.length, truncated: false } })
+  })
+type Events = Parameters<typeof steps>[0]
+
+describe("module flow steps", () => {
+  const plan = [
+    scheduled(1, "root", "FlowCall", "registry/entry/abc/pipeline"),
+    scheduled(2, "root.flow", "FlowCall", "pipeline"),
+    scheduled(3, "root.flow.flow", "AndThen"),
+    scheduled(4, "root.flow.flow.andThen", "ActionCall", "pipeline/Load"),
+    engine(5, "flows.engine.attempt-started", { stepKeyDigest: "load" }),
+    scheduled(6, "root.flow.flow.then.andThen", "ActionCall", "pipeline/Double"),
+    scheduled(7, "root.flow.flow.then.then", "FlowCall", "notify")
+  ]
+
+  it("lists action calls and other flows' calls in schedule order, never the run's own node or plumbing", () => {
+    expect(steps(plan as unknown as Events, "pipeline", false)).toEqual([
+      { id: "root.flow.flow.andThen", label: "Load", status: "running" },
+      { id: "root.flow.flow.then.andThen", label: "Double", status: "requested" },
+      { id: "root.flow.flow.then.then", label: "notify", status: "requested" }
+    ])
+  })
+
+  it("settles each step from its own node, with the engine's bounded result", () => {
+    const events = [
+      ...plan,
+      engine(8, "flows.engine.attempt-finished", { stepKeyDigest: "load" }),
+      settledNode(9, "root.flow.flow.andThen", "built", "6"),
+      engine(10, "flows.engine.attempt-started", { stepKeyDigest: "double" }),
+      settledNode(11, "root.flow.flow.then.andThen", "failed", "\"Boom\""),
+      settledNode(12, "root.flow.flow.then.then", "skipped")
+    ]
+    expect(steps(events as unknown as Events, "pipeline", false)).toEqual([
+      { id: "root.flow.flow.andThen", label: "Load", status: "done", preview: "6" },
+      { id: "root.flow.flow.then.andThen", label: "Double", status: "failed", preview: "\"Boom\"" },
+      { id: "root.flow.flow.then.then", label: "notify", status: "cancelled" }
+    ])
+    // A step served from records is done too.
+    expect(
+      steps(
+        [...plan, settledNode(9, "root.flow.flow.andThen", "clean", "6")] as unknown as Events,
+        "pipeline",
+        false
+      )[0]
+    )
+      .toMatchObject({ status: "done" })
+  })
+
+  it("runs as many steps as the engine has attempts open, and none once the run settled", () => {
+    const parallel = [
+      scheduled(1, "a", "ActionCall", "pipeline/A"),
+      scheduled(2, "b", "ActionCall", "pipeline/B"),
+      scheduled(3, "c", "ActionCall", "pipeline/C"),
+      engine(4, "flows.engine.attempt-started", { stepKeyDigest: "a" }),
+      engine(5, "flows.engine.attempt-started", { stepKeyDigest: "b" })
+    ] as unknown as Events
+    expect(steps(parallel, "pipeline", false).map((step) => step.status)).toEqual(["running", "running", "requested"])
+    expect(steps(parallel, "pipeline", true).map((step) => step.status)).toEqual([
+      "requested",
+      "requested",
+      "requested"
+    ])
+  })
+
+  it("keeps a retried step in its place and runs it again", () => {
+    const events = [
+      scheduled(1, "a", "ActionCall", "pipeline/A"),
+      settledNode(2, "a", "failed"),
+      scheduled(3, "b", "ActionCall", "pipeline/B"),
+      scheduled(4, "a", "ActionCall", "pipeline/A", 2)
+    ] as unknown as Events
+    expect(steps(events, "pipeline", false)).toEqual([
+      { id: "a", label: "A", status: "running" },
+      { id: "b", label: "B", status: "requested" }
+    ])
+  })
+
+  it("ignores other control events and malformed engine records", () => {
+    const events = [
+      { sequence: 1, kind: "control.run.running", runId: "run-1", occurredAt: 1, payload: {} },
+      { sequence: 2, kind: "control.engine.event", runId: "run-1", occurredAt: 2, payload: null },
+      engine(3, "flows.engine.node-scheduled", { kind: "ActionCall" }),
+      settledNode(4, "unknown", "built", "x")
+    ] as unknown as Events
+    expect(steps(events, "pipeline", false)).toEqual([])
+  })
+})
+
+describe("a run's one-line card", () => {
+  const run = (status: Run["status"], extra: Partial<Run> = {}): Run => ({
+    id: "sum-1",
+    flow: "sum",
+    by: "user",
+    input: {},
+    requested: "{}",
+    status,
+    startedAt: 1000,
+    ...extra
+  })
+
+  it("times the run from its launch, in milliseconds under a second, and shows the result's first line", () => {
+    expect(line(run("done", { launchedAt: 5000, endedAt: 5040, answer: "5" }), 9000)).toEqual({
+      clock: "40ms",
+      result: "5"
+    })
+    expect(line(run("done", { launchedAt: 5000, endedAt: 17_000, answer: "  first\nsecond" }), 0)).toEqual({
+      clock: "12s",
+      result: "first"
+    })
+    // An empty answer has no arrow to point at.
+    expect(line(run("done", { launchedAt: 5000, endedAt: 5001, answer: "" }), 0)).toEqual({ clock: "1ms" })
+    expect(line(run("done", { endedAt: 1500, answer: "x".repeat(100) }), 0).result).toHaveLength(80)
+  })
+
+  it("counts a running run up to now, and a run that never launched from its request", () => {
+    expect(line(run("running", { launchedAt: 5000 }), 5300)).toEqual({ clock: "300ms" })
+    expect(line(run("failed", { endedAt: 1003, message: "Restart to load sum." }), 0)).toEqual({
+      clock: "3ms",
+      message: "Restart to load sum."
+    })
+  })
+
+  it("has no clock while it waits for a seat, its input or its launch", () => {
+    expect(line(run("queued"), 9000)).toEqual({})
+    expect(line(run("input", { message: "Needs: A, B" }), 9000)).toEqual({ message: "Needs: A, B" })
+    expect(line(run("requested"), 9000)).toEqual({})
+    expect(line(run("cancelled", { launchedAt: 2000, endedAt: 3500 }), 0)).toEqual({ clock: "1s" })
+  })
+})
+
+describe("flows the warm host loaded", () => {
+  const warmed = (loaded: Awaited<ReturnType<NonNullable<Port["loaded"]>>>, listed: ReadonlyArray<Listed>) => {
+    const f = fake({ listed })
+    let asked = 0
+    const runs = new FlowRuns({
+      port: {
+        ...f.port,
+        warm: async () => {},
+        loaded: async () => {
+          asked++
+          return loaded
+        }
+      },
+      persist: () => {}
+    })
+    return { ...f, runs, asked: () => asked }
+  }
+  const agent: Listed = {
+    ...flow("review-agent", "Reviews"),
+    kind: "markdown",
+    path: "/repo/flows/review-agent/flow.mdx"
+  }
+
+  it("knows every loaded flow's input after warming, so describing needs no run", async () => {
+    const w = warmed({
+      flows: [{ name: "sum", input: Schema.Struct({ a: Schema.Number, unit: Schema.Literals(["kg", "lb"]) }) }],
+      refused: []
+    }, [flow("sum", "Add"), agent])
+    expect(w.runs.fields("sum")).toBeUndefined()
+    w.runs.refresh()
+    w.runs.warm()
+    await tick()
+    await tick()
+    expect(w.asked()).toBe(1)
+    expect(w.runs.fields("sum")).toEqual(["a", "unit"])
+    expect(w.runs.describe()[0]).toMatchObject({
+      name: "sum",
+      input: [{ name: "a", type: "number", required: true }, { name: "unit", type: "select", required: true }]
+    })
+    expect(w.calls.filter((call) => call.startsWith("input:"))).toEqual([])
+    // Agents are read when they launch: never "unloaded".
+    expect(w.runs.unloaded("review-agent")).toBe(false)
+  })
+
+  it("refuses a module flow listed after loading as Restart to load, before persisting a run", async () => {
+    const w = warmed({ flows: [{ name: "sum", input: undefined }], refused: ["broken"] }, [
+      flow("sum", "Add"),
+      flow("late", "Added later"),
+      flow("broken", "Fails to import")
+    ])
+    // Before the host loaded, nothing is known to be late.
+    w.runs.refresh()
+    await tick()
+    expect(w.runs.unloaded("late")).toBe(false)
+    w.runs.warm()
+    await tick()
+    await tick()
+    expect(w.runs.unloaded("late")).toBe(true)
+    // A refused import keeps its own failure; it is not late.
+    expect(w.runs.unloaded("broken")).toBe(false)
+    expect(w.runs.unloaded("sum")).toBe(false)
+    expect(w.runs.unloaded("missing")).toBe(false)
+    const refused = (() => {
+      try {
+        w.runs.request({ flow: "late", input: {}, by: "user" })
+      } catch (error) {
+        return error as FlowError
+      }
+    })()
+    expect(refused).toMatchObject({ code: "unloaded", subject: "late" })
+    expect(w.runs.snapshot()).toEqual([])
+  })
+
+  it("keeps working when reading the catalog fails", async () => {
+    const f = fake({ listed: [flow("sum", "Add")] })
+    const runs = new FlowRuns({
+      port: {
+        ...f.port,
+        warm: async () => {},
+        loaded: async () => {
+          throw new Error("catalog unavailable")
+        }
+      },
+      persist: () => {}
+    })
+    runs.warm()
+    await tick()
+    await tick()
+    expect(runs.opening).toBe(false)
+    expect(runs.unloaded("sum")).toBe(false)
+    expect(runs.fields("sum")).toBeUndefined()
+  })
+
+  it("fails a listed module the host cannot find as Restart to load, not as unknown", async () => {
+    const f = setup({ listed: [flow("late", "Added later")] })
+    Object.assign(f.port, {
+      input: async () => {
+        throw new FlowError("unknown_flow", "Unknown flow late", { subject: "late" })
+      }
+    })
+    const { id } = f.runs.request({ flow: "late", input: {}, by: "user" })
+    await tick()
+    await tick()
+    expect(f.runs.get(id)).toMatchObject({ status: "failed", message: "Restart to load late." })
   })
 })

@@ -1,99 +1,60 @@
 import { expect, it } from "bun:test"
-import type { Listed, Run } from "../src/flows.ts"
 import * as Panels from "../src/panels.ts"
 import * as Smithers from "../src/smithers.ts"
 
-const run = (id: string, status: Run["status"], extra: Partial<Run> = {}): Run => ({
-  id,
-  flow: "review",
-  by: "agent",
-  input: {},
-  requested: "{}",
-  status,
-  startedAt: 1,
-  ...extra
-})
-const flow = (name: string, description: string, modelInvocable: boolean): Listed => ({
-  name,
-  description,
-  modelInvocable,
-  kind: "module",
-  flows: [],
-  capabilities: [],
-  path: `flows/${name}/flow.ts`
-})
-const listed: ReadonlyArray<Listed> = [
-  flow("review", "Review a change.", true),
-  flow("release", "Cut a release.", false)
-]
+const discovered = new Set(["review", "release"])
+const factory: Smithers.Factory = {
+  metrics: "3 landed of 4 · 0 reverts · 2h median",
+  rows: [{ id: "issue:7", label: "#7 Fix the login", status: "running", details: [] }]
+}
 
-it("shows runs newest first with their real status, then the discovered flows", () => {
-  const panel = Smithers.panel(listed, [
-    run("a", "done", { startedAt: 1, answer: "Approved." }),
-    run("b", "input", { startedAt: 3 }),
-    run("c", "failed", { startedAt: 2, message: "Unknown flow" })
-  ])
+it("shows only factory content: its issues and numbers, never flows or runs", () => {
+  const panel = Smithers.panel([], discovered, factory)
   expect(Panels.decode(panel)).toEqual(panel)
   expect(panel.id).toBe("smithers")
-  expect(panel.summary).toBe("2 flows · 1 active")
-  expect(panel.rows.map((row) => [row.id, row.status])).toEqual([
-    ["run:b", "requested"],
-    ["run:c", "failed"],
-    ["run:a", "done"],
-    ["flow:review", undefined],
-    ["flow:release", undefined]
-  ])
-  expect(panel.rows[1]!.details).toEqual([{ kind: "text", text: "Unknown flow" }])
-  expect(panel.rows[2]!.details).toEqual([{ kind: "text", text: "Approved." }])
-  expect(panel.rows[3]!.details).toEqual([{ kind: "text", text: "Review a change." }])
-  expect(panel.rows.some((row) => row.action !== undefined)).toBe(false)
+  expect(panel.summary).toBe(factory.metrics)
+  expect(panel.rows.map((row) => row.id)).toEqual(["issue:7"])
 })
 
-it("never calls a requested run running", () => {
-  const panel = Smithers.panel([], [run("a", "requested"), run("b", "running"), run("c", "waiting")])
-  expect(panel.rows.map((row) => row.status)).toEqual(["requested", "running", "running"])
-  expect(panel.summary).toBe("0 flows · 3 active")
-})
-
-it("lists the homepage's apps first, running the ones this directory discovers", () => {
+it("lists the homepage's apps after the issues, running the ones this directory discovers", () => {
   const apps = [
     { flow: "review", title: "Review a PR", picture: "review" },
     { flow: "issue.implement", title: "Fix an issue", picture: "issue" }
   ]
-  const panel = Smithers.panel(listed, [run("a", "done", { answer: "Approved." })], apps)
+  const panel = Smithers.panel(apps, discovered, factory)
   expect(Panels.decode(panel)).toEqual(panel)
-  expect(panel.summary).toBe("2 apps · 2 flows · 0 active")
-  expect(panel.rows.map((row) => row.id)).toEqual([
-    "app:review",
-    "app:issue.implement",
-    "run:a",
-    "flow:review",
-    "flow:release"
-  ])
-  expect(panel.rows[0]).toEqual({
+  expect(panel.rows.map((row) => row.id)).toEqual(["issue:7", "app:review", "app:issue.implement"])
+  expect(panel.rows[1]).toEqual({
     id: "app:review",
     label: "Review a PR",
     details: [{ kind: "text", text: "review" }],
     action: { label: "Review a PR", action: { kind: "flow", flow: "review" } }
   })
   // A flow the app home names but this directory does not discover is listed, and runs nowhere here.
-  expect(panel.rows[1]).toEqual({
+  expect(panel.rows[2]).toEqual({
     id: "app:issue.implement",
     label: "Fix an issue",
     details: [{ kind: "text", text: "issue.implement" }]
   })
+  // Unread numbers fall back to the app count.
+  expect(Smithers.panel(apps, discovered).summary).toBe("2 apps")
 })
 
 it("says how to see the factory's issues when the person is not signed in to Cloud", () => {
-  const panel = Smithers.panel(listed, [], [], "signed-out")
+  const panel = Smithers.panel([], discovered, "signed-out")
   expect(Panels.decode(panel)).toEqual(panel)
-  expect(panel.rows[0]).toEqual({
+  expect(panel.rows).toEqual([{
     id: "factory:sign-in",
     label: "Sign in to see the factory: smthrs auth login",
     details: []
-  })
-  expect(panel.summary).toBe("2 flows · 0 active")
-  expect(panel.rows.slice(1).map((row) => row.id)).toEqual(["flow:review", "flow:release"])
+  }])
+  expect(panel.summary).toBe("Factory")
+})
+
+it("keeps a read with no numbers valid", () => {
+  const panel = Smithers.panel([], discovered, { metrics: "", rows: [] })
+  expect(Panels.decode(panel)).toEqual(panel)
+  expect(panel).toMatchObject({ summary: "Factory", rows: [] })
 })
 
 it("leads the factory's issues with the row that names how to file a TODO", () => {

@@ -90,7 +90,7 @@ export const useTranscriptView = (options: {
   const cardKeys = surface === "chat" && panel === undefined
     ? lines.flatMap((line) =>
       line.kind === "row"
-        ? line.row.item.kind === "card" ? [line.key] : []
+        ? line.row.item.kind === "card" || line.row.item.kind === "run" ? [line.key] : []
         : line.kind === "grid"
         ? line.batch.tabs.map((tab) => Subagents.cardKey(tab.id))
         : line.kind === "earlier"

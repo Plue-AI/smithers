@@ -4,16 +4,15 @@
  * reads. The dialog itself draws in `app-view.tsx`; picking stays in the app.
  */
 import { useEffect, useRef, useState } from "react"
+import * as Catalog from "./catalog.ts"
 import * as Editor from "./editor.ts"
-import * as Extension from "./extension.ts"
 import * as Failures from "./failures.ts"
-import type { Listed } from "./flows.ts"
 import * as Fuzzy from "./fuzzy.ts"
-import * as Models from "./models.ts"
+import type * as Models from "./models.ts"
 import * as Palette from "./palette.ts"
 import * as Search from "./search.ts"
 import * as Session from "./session.ts"
-import { activeTheme, themes } from "./theme.ts"
+import { activeTheme, color, themes } from "./theme.ts"
 import * as Timeline from "./timeline.ts"
 import * as Undo from "./undo.ts"
 import * as View from "./view.tsx"
@@ -24,7 +23,6 @@ export type Picker =
   | { readonly kind: "worker-model"; readonly id: string; readonly query: string; readonly selected: number }
   | { readonly kind: "theme"; readonly query: string; readonly selected: number }
   | { readonly kind: "flows"; readonly query: string; readonly selected: number }
-  | { readonly kind: "agents"; readonly query: string; readonly selected: number }
   | { readonly kind: "filter"; readonly query: string; readonly selected: number }
   | {
     readonly kind: "resume"
@@ -68,6 +66,16 @@ export interface TextSearch {
   readonly truncated: boolean
 }
 
+/** Read at render time, so a theme change repaints it. */
+const lastTone = (status: Catalog.Last["status"]): string =>
+  status === "done"
+    ? color.success
+    : status === "failed"
+    ? color.danger
+    : status === "running"
+    ? color.info
+    : color.faint
+
 /** A dialog's rows and the value each one picks. */
 export const rows = (
   picker: Picker,
@@ -77,30 +85,26 @@ export const rows = (
   tabs: ReadonlyArray<Tab>,
   files: () => ReadonlyArray<string>,
   hits: ReadonlyArray<Search.Hit>,
-  /** `unloaded`: added after the host opened, so it runs after a restart. */
-  flows: ReadonlyArray<Listed & { readonly unloaded?: boolean }>,
+  catalog: ReadonlyArray<Catalog.Entry>,
   actions: NonNullable<Palette.Sources["actions"]> = [],
-  acts: ReadonlyArray<Palette.ActRow> = []
+  acts: ReadonlyArray<Palette.ActRow> = [],
+  now = Date.now()
 ): ReadonlyArray<View.Row & { readonly value: string }> => {
-  if (picker.kind === "agents") {
-    return Fuzzy.filter(flows.filter(Extension.isAgent), picker.query, (agent) => agent.name).map((agent) => {
-      const declared = agent.seat === undefined ? undefined : Models.seatOf(agent.seat, models)
-      return {
-        key: agent.name,
-        label: agent.name,
-        hint: declared === undefined ? agent.seat ?? "" : Models.labelOf(declared, models),
-        detail: agent.description,
-        value: agent.name
-      }
-    })
-  }
   if (picker.kind === "flows") {
-    return Fuzzy.filter(flows, picker.query, (flow) => flow.name).map((flow) => ({
-      key: flow.name,
-      label: flow.name,
-      ...(flow.unloaded === true ? { hint: "Restart to load" } : {}),
-      detail: flow.description,
-      value: flow.name
+    // The selected row says what the flow does; the rest stay one short line each.
+    return Fuzzy.filter(catalog, picker.query, (entry) => entry.name).map((entry, index) => ({
+      key: entry.name,
+      label: entry.name,
+      hint: entry.hint,
+      ...(index === picker.selected && !entry.unloaded ? { detail: entry.description } : {}),
+      ...(entry.last === undefined ? {} : {
+        aside: {
+          mark: Catalog.mark(entry.last),
+          tone: lastTone(entry.last.status),
+          text: View.ago(entry.last.at, now)
+        }
+      }),
+      value: entry.name
     }))
   }
   if (picker.kind === "palette") {
@@ -189,8 +193,6 @@ export const title = (picker: Picker, truncated: boolean): string =>
     ? "Select theme"
     : picker.kind === "flows"
     ? "Flows"
-    : picker.kind === "agents"
-    ? "Agents"
     : picker.kind === "filter"
     ? "Filter chat"
     : picker.kind === "palette"
@@ -207,8 +209,6 @@ export const empty = (picker: Picker, flows: () => string, searching: boolean): 
     ? "No sessions in this directory"
     : picker.kind === "flows"
     ? flows()
-    : picker.kind === "agents"
-    ? "No agents"
     : picker.kind === "palette"
     ? searching ? "Searching" : "No matches"
     : picker.kind === "fork"
