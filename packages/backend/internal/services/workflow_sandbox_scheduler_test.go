@@ -890,7 +890,7 @@ func TestWorkflowSandboxSchedulerWorker_RedactsSecretsInRunLogs(t *testing.T) {
 		polled = true
 		// The job echoes every credential that exists for it.
 		return sandbox.ExecResult{
-			Stdout: "jjhub token: " + jjhubToken + "\nclone token: " + cloneToken + "\npublic: public-variable-value\n",
+			Stdout:     "jjhub token: " + jjhubToken + "\nclone token: " + cloneToken + "\npublic: public-variable-value\n",
 			StatusCode: &ok,
 		}, nil
 	}
