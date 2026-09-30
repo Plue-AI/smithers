@@ -132,24 +132,17 @@ func parseRequest(provider, path string, header http.Header, body []byte) (parse
 	if err := checkTools(fields["tools"]); err != nil {
 		return parsedCall{}, err
 	}
-	output, present, err := outputCap(fields)
+	honored := honoredOutputCaps(provider, path)
+	output, present, err := outputCap(fields, honored)
 	if err != nil {
 		return parsedCall{}, err
 	}
 	changed := false
 	if !present {
-		name := ""
-		switch {
-		case provider == ProviderAnthropic:
+		if provider == ProviderAnthropic {
 			return parsedCall{}, refuse("max_tokens is required")
-		case path == "v1/responses":
-			name = "max_output_tokens"
-		case provider == ProviderOpenAI || provider == ProviderCerebras:
-			name = "max_completion_tokens"
-		default:
-			name = "max_tokens"
 		}
-		fields[name], _ = json.Marshal(DefaultOutputCap)
+		fields[honored[0]], _ = json.Marshal(DefaultOutputCap)
 		output, changed = DefaultOutputCap, true
 	}
 	choices := int64(1)
@@ -235,8 +228,25 @@ func checkTier(fields map[string]json.RawMessage) error {
 	return nil
 }
 
-// outputCap reads the largest output ceiling the request names.
-func outputCap(fields map[string]json.RawMessage) (int64, bool, error) {
+// honoredOutputCaps lists the output ceiling fields the upstream enforces on
+// a path; the first is the one the proxy adds when the request names none.
+func honoredOutputCaps(provider, path string) []string {
+	switch {
+	case provider == ProviderAnthropic:
+		return []string{"max_tokens"}
+	case path == "v1/responses":
+		return []string{"max_output_tokens"}
+	case provider == ProviderOpenAI || provider == ProviderCerebras:
+		return []string{"max_completion_tokens", "max_tokens"}
+	default:
+		return []string{"max_tokens", "max_completion_tokens"}
+	}
+}
+
+// outputCap reads the largest output ceiling the request names. Only a
+// ceiling in a honored field bounds the output: the upstream ignores the
+// others and would generate up to the model's full output.
+func outputCap(fields map[string]json.RawMessage, honored []string) (int64, bool, error) {
 	var largest int64
 	present := false
 	for _, name := range []string{"max_tokens", "max_output_tokens", "max_completion_tokens"} {
@@ -248,7 +258,7 @@ func outputCap(fields map[string]json.RawMessage) (int64, bool, error) {
 		if json.Unmarshal(raw, &n) != nil || n <= 0 {
 			return 0, false, refuse(name + " must be a positive integer")
 		}
-		present = true
+		present = present || slices.Contains(honored, name)
 		largest = max(largest, n)
 	}
 	return largest, present, nil

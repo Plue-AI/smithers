@@ -98,6 +98,48 @@ func TestParametersUnitOutputCeilingsUseLargestPositiveInteger(t *testing.T) {
 	}
 }
 
+func TestParametersUnitIgnoredCeilingFieldDoesNotBoundTheReservation(t *testing.T) {
+	// A ceiling in a field the upstream ignores must not shrink the bound:
+	// the provider would generate up to the model's full output.
+	for _, item := range []struct{ provider, path, model, ignored, honored string }{
+		{"openrouter", "v1/chat/completions", "openai/gpt-oss-120b", "max_output_tokens", "max_tokens"},
+		{"openai", "v1/chat/completions", "gpt-6-sol", "max_output_tokens", "max_completion_tokens"},
+		{"openai", "v1/responses", "gpt-6-sol", "max_completion_tokens", "max_output_tokens"},
+		{"openai", "v1/responses", "gpt-6-sol", "max_tokens", "max_output_tokens"},
+		{"cerebras", "v1/chat/completions", "gpt-oss-120b", "max_output_tokens", "max_completion_tokens"},
+		{"openrouter", "v1/responses", "openai/gpt-oss-120b", "max_tokens", "max_output_tokens"},
+	} {
+		for _, value := range []int{1, 200000} {
+			t.Run(fmt.Sprint(item.provider, item.path, item.ignored, value), func(t *testing.T) {
+				raw := []byte(fmt.Sprintf(`{"model":%q,"messages":[],%q:%d}`, item.model, item.ignored, value))
+				parsed, err := parseRequest(item.provider, item.path, http.Header{}, raw)
+				require.NoError(t, err)
+				require.JSONEq(t, fmt.Sprintf(`{"model":%q,"messages":[],%q:%d,%q:32768}`, item.model, item.ignored, value, item.honored), string(parsed.body))
+				_, price, ok := Price(item.provider, item.model)
+				require.True(t, ok)
+				require.Equal(t, int64(32768), parsed.maximum(price).OutputTokens)
+			})
+		}
+	}
+	// A honoured ceiling is forwarded unchanged and bounds the reservation,
+	// alongside any larger ignored one.
+	for _, item := range []struct{ provider, path, model, body string }{
+		{"openai", "v1/chat/completions", "gpt-6-sol", `"max_tokens":5`},
+		{"openrouter", "v1/chat/completions", "openai/gpt-oss-120b", `"max_completion_tokens":5`},
+		{"openrouter", "v1/chat/completions", "openai/gpt-oss-120b", `"max_tokens":5,"max_output_tokens":1`},
+	} {
+		raw := []byte(fmt.Sprintf(`{"model":%q,"messages":[],%s}`, item.model, item.body))
+		parsed, err := parseRequest(item.provider, item.path, http.Header{}, raw)
+		require.NoError(t, err)
+		require.Equal(t, raw, parsed.body)
+		_, price, ok := Price(item.provider, item.model)
+		require.True(t, ok)
+		require.Equal(t, int64(5), parsed.maximum(price).OutputTokens)
+	}
+	_, err := parseRequest("anthropic", "v1/messages", http.Header{}, []byte(`{"model":"claude-haiku-4-5","max_output_tokens":1,"messages":[]}`))
+	require.EqualError(t, err, "max_tokens is required")
+}
+
 func TestParametersUnitUnboundedFeaturesRequireAbsentOrDisabledValues(t *testing.T) {
 	// Literal API fields keep the oracle independent of the production refusal
 	// list: removing one guard must not silently remove its test case.
