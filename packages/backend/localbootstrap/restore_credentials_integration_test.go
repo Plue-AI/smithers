@@ -39,10 +39,7 @@ func newRestoreHarness(t *testing.T) restoreHarness {
 	t.Helper()
 	// The packaged scripts need PostgreSQL client tools of the server's major
 	// version, as the distribution tests do.
-	bin := os.Getenv("SMITHERS_POSTGRES_TEST_BIN")
-	if bin == "" {
-		t.Skip("SMITHERS_POSTGRES_TEST_BIN names no PostgreSQL client tools")
-	}
+	bin, _ := testdb.Tools(t)
 	if testdb.ServerURL() == "" {
 		testdb.Unavailable(t, testdb.ErrNotConfigured)
 	}

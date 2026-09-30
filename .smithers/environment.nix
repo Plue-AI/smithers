@@ -284,7 +284,9 @@ in
       pnpm
       rust
       go
-      # Storage matrix tests run initdb and pg_ctl in a task-local cluster.
+      # Storage matrix tests run initdb and pg_ctl in a task-local cluster;
+      # the shared Go backend suite (`//:backendGo`) takes the same programs
+      # from PATH for its backup, restore and upgrade-recovery tests.
       pkgs.postgresql_18
       foundry
       # `faults` and every confined target run under bubblewrap, which ci.yml

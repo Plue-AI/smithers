@@ -13,18 +13,13 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/smithersai/smithers/packages/backend/testkit/testdb"
 )
 
 func testConfig(t *testing.T) Config {
 	t.Helper()
-	bin := os.Getenv("SMITHERS_POSTGRES_TEST_BIN")
-	if bin == "" {
-		t.Skip("SMITHERS_POSTGRES_TEST_BIN is required")
-	}
-	major, err := strconv.Atoi(os.Getenv("SMITHERS_POSTGRES_TEST_MAJOR"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	bin, major := testdb.Tools(t)
 	return Config{BinDir: bin, StateDir: t.TempDir(), Major: major, StartupTimeout: 20 * time.Second}
 }
 
@@ -148,8 +143,8 @@ func TestCrashHelper(t *testing.T) {
 	if os.Getenv("SMITHERS_POSTGRES_CRASH_HELPER") != "1" {
 		return
 	}
-	major, _ := strconv.Atoi(os.Getenv("SMITHERS_POSTGRES_TEST_MAJOR"))
-	cfg := Config{BinDir: os.Getenv("SMITHERS_POSTGRES_TEST_BIN"), StateDir: os.Getenv("SMITHERS_POSTGRES_CRASH_STATE"), Major: major, StartupTimeout: 20 * time.Second}
+	major, _ := strconv.Atoi(os.Getenv(testdb.ToolsMajorEnv))
+	cfg := Config{BinDir: os.Getenv(testdb.ToolsEnv), StateDir: os.Getenv("SMITHERS_POSTGRES_CRASH_STATE"), Major: major, StartupTimeout: 20 * time.Second}
 	if _, err := Start(context.Background(), cfg); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
@@ -162,7 +157,8 @@ func TestCrashHelper(t *testing.T) {
 func TestRealOrphanRecoveryAfterSupervisorSIGKILL(t *testing.T) {
 	cfg := testConfig(t)
 	cmd := exec.Command(os.Args[0], "-test.run=^TestCrashHelper$")
-	cmd.Env = append(os.Environ(), "SMITHERS_POSTGRES_CRASH_HELPER=1", "SMITHERS_POSTGRES_CRASH_STATE="+cfg.StateDir)
+	cmd.Env = append(os.Environ(), "SMITHERS_POSTGRES_CRASH_HELPER=1", "SMITHERS_POSTGRES_CRASH_STATE="+cfg.StateDir,
+		testdb.ToolsMajorEnv+"="+strconv.Itoa(cfg.Major))
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		t.Fatal(err)

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/smithersai/smithers/packages/backend/postgres"
+	"github.com/smithersai/smithers/packages/backend/testkit/testdb"
 )
 
 const recoveryOldRelease = "SMITHERS_DISTRIBUTION_VERSION=0.0.9\nSMITHERS_SCHEMA_VERSION=1\nSMITHERS_POSTGRES_MAJOR=18\n"
@@ -104,13 +105,9 @@ func TestFailedUpgradeReportsRecovery(t *testing.T) {
 }
 
 func TestRealFailedUpgradeRecoveryPostgreSQL(t *testing.T) {
-	bin := os.Getenv("SMITHERS_POSTGRES_TEST_BIN")
-	if bin == "" {
-		t.Skip("SMITHERS_POSTGRES_TEST_BIN is required")
-	}
-	major, err := strconv.Atoi(os.Getenv("SMITHERS_POSTGRES_TEST_MAJOR"))
-	if err != nil || major != 18 {
-		t.Fatalf("recovery requires PostgreSQL 18, got %q", os.Getenv("SMITHERS_POSTGRES_TEST_MAJOR"))
+	bin, major := testdb.Tools(t)
+	if major != 18 {
+		t.Fatalf("recovery requires PostgreSQL 18, got %d", major)
 	}
 	root := t.TempDir()
 	start := func(name string) *postgres.Instance {

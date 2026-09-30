@@ -132,6 +132,24 @@ describe("the Cloud machine pins what the repository declares", () => {
     expect(cloud).toContain("postgres) ensure_postgres")
   })
 
+  test("the shared Go backend suite runs its backup and restore tests with the image's PostgreSQL", () => {
+    // Same release as the storage matrix, and the backend suite needs its
+    // client programs: without them the restore tests would skip.
+    const release = only(rootPackage, /CiToolchain\.Postgres\(\{ release: "([^"]+)" \}\)/, "Postgres in PACKAGE.ts")
+    expect(environment).toMatch(new RegExp(`pkgs\\.postgresql_${release}\\b`))
+    const job = only(rootPackage, /id: "go-backend",([\s\S]*?)steps:/, "go-backend job in PACKAGE.ts")
+    expect(job).toMatch(/^\s*postgres,$/m)
+    const target = only(rootPackage, /const backendGo = Smithers\.Shell\.Test\(\{([\s\S]*?)\n\}\)/, "backendGo target")
+    // The programs come from PATH unless named, and their absence fails the suite.
+    expect(target).toContain("pg_ctl_path=$(command -v pg_ctl) ||")
+    expect(target).toContain('export SMITHERS_POSTGRES_TEST_BIN=\\"${pg_ctl_path%/*}\\"')
+    expect(target).toMatch(/must be on PATH[^"]*>&2; exit 1; \}/)
+    expect(target).toContain('SMITHERS_REQUIRE_DATABASE_TESTS: "1"')
+    const tools = read("packages/backend/testkit/testdb/tools.go")
+    expect(tools).toContain('ToolsEnv = "SMITHERS_POSTGRES_TEST_BIN"')
+    expect(tools).toMatch(/if Required\(\) \{\s*t\.Fatalf/)
+  })
+
   test("Foundry is the release cloud.sh and PACKAGE.ts name", () => {
     const foundry = pinned("foundry")
     expect(`v${foundry}`).toBe(
