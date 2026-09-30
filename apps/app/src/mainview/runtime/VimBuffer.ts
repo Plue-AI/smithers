@@ -118,7 +118,14 @@ export function vimKey(buffer: VimBuffer, key: string, ctrl = false): boolean {
   const insert = (at: number) => {
     buffer.cursor = at; buffer.mode = 'insert'; buffer.insertStart = { value: buffer.value, cursor: at }
   }
-  if ((key === 'u' && !ctrl) || (key === 'r' && ctrl)) {
+  if (buffer.pending === 'r' && !ctrl) {
+    // The replacement operand is data: a digit or `u` is never a count or Undo.
+    if (key.length === 1 && cursor < end(value, cursor)) {
+      let to = cursor, size = 0
+      while (size < count && to < end(value, cursor)) { to = nextVimCharacter(value, to); size++ }
+      replace(buffer, cursor, to, key.repeat(size))
+    }
+  } else if ((key === 'u' && !ctrl) || (key === 'r' && ctrl)) {
     const source = ctrl ? buffer.redo : buffer.undo, target = ctrl ? buffer.undo : buffer.redo
     const snapshot = source.pop()
     if (snapshot) { target.push({ value, cursor }); Object.assign(buffer, snapshot) }
@@ -126,12 +133,6 @@ export function vimKey(buffer: VimBuffer, key: string, ctrl = false): boolean {
   } else if (/^[1-9]$/.test(key) || (key === '0' && buffer.count)) {
     buffer.count = `${buffer.count}${key}`.slice(0, 4)
     return true
-  } else if (buffer.pending === 'r') {
-    if (key.length === 1 && cursor < end(value, cursor)) {
-      let to = cursor, size = 0
-      while (size < count && to < end(value, cursor)) { to = nextVimCharacter(value, to); size++ }
-      replace(buffer, cursor, to, key.repeat(size))
-    }
   } else if (buffer.pending === 'g' && key === 'g') {
     buffer.cursor = Math.min(value.length, motion(buffer, 'gg', count)!)
   } else if (buffer.mode === 'visual' && ['d', 'x', 'c', 'y'].includes(key)) {

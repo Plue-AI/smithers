@@ -85,3 +85,25 @@ test('change word leaves the following separator for inserted text', () => {
   keys(single, 'c', 'w')
   expect(single.value).toBe(' word')
 })
+
+test('a pending replacement takes digits and u as its character, not a count or Undo', () => {
+  for (const digit of ['0', '1', '2']) {
+    const buffer = normal('abc\nnext')
+    keys(buffer, 'y', 'y', 'r', digit)
+    expect(buffer.value).toBe(`${digit}bc\nnext`)
+    expect(buffer.cursor).toBe(0)
+    expect([buffer.pending, buffer.count, buffer.register, buffer.undo.length]).toEqual(['', '', 'abc\n', 1])
+    keys(buffer, 'u')
+    expect(buffer.value).toBe('abc\nnext')
+  }
+  const counted = normal('abcd')
+  keys(counted, '2', 'r', '0')
+  expect(counted.value).toBe('00cd')
+  expect(counted.count).toBe('')
+  const undone = normal('abc\nnext')
+  keys(undone, 'x', 'r', 'u')
+  expect(undone.value).toBe('uc\nnext')
+  expect([undone.register, undone.undo.length]).toEqual(['a', 2])
+  expect(vimKey(undone, 'u')).toBe(true)
+  expect(undone.value).toBe('bc\nnext')
+})
