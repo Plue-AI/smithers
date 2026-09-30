@@ -346,9 +346,9 @@ one column below 69 columns, up to four across. A card has its lane-colored
 `▌` rail, glyph and title, `… +N earlier`, its last five steps (`├ Read x ✓`,
 `├ Ran node check.mjs  exit 1 ✗`, `└ Editing x…`), `▸ 2 files +31 -6` when it changed files, and `42s · sol` or
 `Done 1m 04s · sol`. A focused card shows its worker keys (`[x Stop] [s Steer]`).
-A worker tab's own children show the same way. `◉ <worker> done`,
-`failed: <cause>` or `stopped` marks where a worker settled; a settled batch reads `Ran 3 subagents` with `✓` when all
-are done, `✗` when any failed, else `■` when any stopped. `/filter` shows or hides each kind of row;
+A worker tab's own children show the same way. `◉ <worker> done` or
+`◉ <worker> failed: <cause>` or `◉ <worker> stopped` marks where a worker
+settled; its focused card offers `[r Resume]`. `/filter` shows or hides each kind of row;
 `/grep <text>` keeps rows containing the text and `/grep` alone clears it. Chat receives every unsettled worker and the newest
 five settled answers (1,500 characters each) as context, and remains usable
 while workers run. Progress uses the shared toast stack,

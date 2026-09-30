@@ -400,7 +400,7 @@ describe("the card grid", () => {
   it("writes each settled worker's outcome where it ended", async () => {
     const said = async (worker: Tab) => {
       const { captureCharFrame } = await mount(
-        <SubagentView.Finished tab={worker} tone={color.info} onAction={() => {}} />,
+        <SubagentView.Finished tab={worker} tone={color.info} />,
         60,
         2
       )
@@ -416,22 +416,30 @@ describe("the card grid", () => {
     ).toBe("◉ db failed: Model call failed")
   })
 
-  it("offers r Resume where a stopped worker ended, and resumes it on click", async () => {
-    const stopped = tab("jsdoc", "cancelled", { endedAt: 1 })
+  it("names a stopped worker where it ended, and offers Resume only on its focused card", async () => {
+    const stopped = tab("jsdoc", "cancelled", { title: "Add JSDoc to math.js", endedAt: 1 })
+    const row = await mount(<SubagentView.Finished tab={stopped} tone={color.info} />, 60, 2)
+    // No bare `r Resume`: in Chat an `r` types into the composer.
+    expect(row.captureCharFrame().split("\n")[0]!.trimEnd()).toBe("◉ Add JSDoc to math.js stopped")
+    act(() => row.renderer.destroy())
+
     const pressed: Array<string> = []
-    const mounted = await mount(
-      <SubagentView.Finished
-        tab={stopped}
-        tone={color.info}
-        onAction={(worker, action) => pressed.push(`${worker.id}:${action}`)}
-      />,
-      40,
-      2
-    )
-    const row = mounted.captureCharFrame().split("\n")[0]!
-    expect(row.trim()).toBe("r Resume")
-    expect(row).not.toContain("finished")
-    await act(() => mounted.mockMouse.click(2, 0))
+    const focusedCards: SubagentView.Cards = {
+      transcript: () => Transcript.empty,
+      models,
+      now: 2_000,
+      lane: () => color.info,
+      focused: Subagents.cardKey(stopped.id),
+      open: new Set(),
+      onOpen: () => {},
+      onFiles: () => {},
+      onAction: (worker, action) => pressed.push(`${worker.id}:${action}`)
+    }
+    const card = await mount(<SubagentView.Grid tabs={[stopped]} width={60} cards={focusedCards} />, 60, 6)
+    const lines = card.captureCharFrame().split("\n")
+    const at = lines.findIndex((line) => line.includes("[r Resume]"))
+    expect(at).toBeGreaterThanOrEqual(0)
+    await act(() => card.mockMouse.click(lines[at]!.indexOf("[r Resume]") + 1, at))
     expect(pressed).toEqual(["jsdoc:retry"])
   })
 })

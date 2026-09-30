@@ -209,30 +209,11 @@ export function Batch(
 }
 
 /**
- * Where a worker settled: `◉ title done`, `◉ title failed: <cause>`; a stopped
- * worker offers `r Resume` instead.
+ * Where a worker settled: `◉ title done`, `◉ title failed: <cause>`,
+ * `◉ title stopped`. Its keys are on its focused card: in Chat a bare key
+ * reaches the composer, and in a worker's view it acts on that worker.
  */
-export function Finished(
-  props: { readonly tab: Tab; readonly tone: string; readonly onAction: (tab: Tab, action: Tabs.ActionId) => void }
-) {
-  if (props.tab.status === "cancelled") {
-    const resume = Tabs.actions(props.tab).find((action) => action.id === "retry")
-    if (resume === undefined) return null
-    return (
-      <box style={{ flexDirection: "row", marginBottom: 1 }}>
-        <box
-          style={{ paddingLeft: 1, paddingRight: 1, flexShrink: 0 }}
-          backgroundColor={color.element}
-          onMouseDown={() => props.onAction(props.tab, "retry")}
-        >
-          <text wrapMode="none">
-            <span fg={color.text}>{resume.keys[0]}</span>
-            <span fg={color.muted}>{" "}{resume.label}</span>
-          </text>
-        </box>
-      </box>
-    )
-  }
+export function Finished(props: { readonly tab: Tab; readonly tone: string }) {
   const row = SubagentCard.finished(tabTitle(props.tab), props.tab.status, Tabs.outcome(props.tab))
   return (
     <text wrapMode="none" style={{ marginBottom: 1 }}>
@@ -256,14 +237,7 @@ export function Lines(props: {
           ? props.row(line)
           : line.kind === "grid"
           ? <Batch key={line.key} batch={line.batch} width={props.width} cards={props.cards} />
-          : (
-            <Finished
-              key={line.key}
-              tab={line.tab}
-              tone={props.cards.lane(line.tab.id)}
-              onAction={props.cards.onAction}
-            />
-          )
+          : <Finished key={line.key} tab={line.tab} tone={props.cards.lane(line.tab.id)} />
       )}
     </>
   )

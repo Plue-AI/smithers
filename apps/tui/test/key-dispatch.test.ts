@@ -570,6 +570,24 @@ test.each(
   expect(event.defaultPrevented).toBe(true)
 })
 
+test.each([["cancelled", ["retry"]], ["failed", ["retry"]], ["running", []], ["done", []]] as const)(
+  "r on a focused %s card resumes only a worker that can resume",
+  (status, expected) => {
+    const calls: unknown[] = []
+    const event = key("r")
+    expect(Dispatch.cardKey(event, {
+      worker: worker(status),
+      move: (step) => calls.push(step),
+      leave: () => calls.push("leave"),
+      open: () => calls.push("open"),
+      files: () => calls.push("files"),
+      workerAction: (_tab, action) => calls.push(action)
+    })).toBe(true)
+    expect<ReadonlyArray<unknown>>(calls).toEqual(expected)
+    expect(event.defaultPrevented).toBe(true)
+  }
+)
+
 const panel: Panel = {
   id: "checks",
   title: "Checks",
