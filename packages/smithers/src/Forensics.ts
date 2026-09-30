@@ -342,8 +342,8 @@ export const renderDiagnosis = (
   }
   const incident = d.parkedIncident
   if (incident !== undefined) {
-    // The guard's own facts, then its two ways out: Continue answers the
-    // request with the recorded allowance, Stop ends the run.
+    // The guard's own facts, then its two ways out: Continue approves the
+    // request under its recorded allowance, Stop denies it.
     const facts = (["used", "reserved", "max", "next", "allowance"] as const).flatMap((key) =>
       incident[key] === undefined ? [] : [`${key} ${incident[key]}`]
     )
@@ -353,13 +353,12 @@ export const renderDiagnosis = (
       }`
     )
     if (d.parkedApproval !== undefined) {
-      lines.push(
-        `${label("Continue")}${shellCommand("smthrs", "approvals", "approve", d.parkedApproval, "--scope", "run")} && ${
-          shellCommand("smthrs", "runs", "resume", runId)
-        }`
-      )
+      lines.push(`${label("Continue")}${shellCommand("smthrs", "runs", "continue", runId)}`)
+      lines.push(`${label("Stop")}${shellCommand("smthrs", "runs", "stop", runId)}`)
+    } else {
+      // A request with no payload cannot be decided; the run can still end.
+      lines.push(`${label("Stop")}${shellCommand("smthrs", "runs", "cancel", runId)}`)
     }
-    lines.push(`${label("Stop")}${shellCommand("smthrs", "runs", "cancel", runId)}`)
   } else if (d.parkedApproval !== undefined) {
     lines.push(
       `${label("Unblock")}${shellCommand("smthrs", "approvals", "approve", d.parkedApproval, "--scope", "run")} && ${

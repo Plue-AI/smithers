@@ -1008,10 +1008,8 @@ describe("Forensics runaway incidents", () => {
     expect(line(card, "Runaway")).toBe(
       "usd · used 0.9 · reserved 0.1 · max 1 · next 0.25 · allowance 2 · The run would spend past its $1.00 budget"
     )
-    expect(line(card, "Continue")).toBe(
-      `smthrs approvals approve '{"k":1}' --scope run && smthrs runs resume run-1`
-    )
-    expect(line(card, "Stop")).toBe("smthrs runs cancel run-1")
+    expect(line(card, "Continue")).toBe("smthrs runs continue run-1")
+    expect(line(card, "Stop")).toBe("smthrs runs stop run-1")
     expect(card).not.toContain("Unblock")
     const stuck = Forensics.renderDiagnosis(
       { runId: "run-1" },
@@ -1021,7 +1019,7 @@ describe("Forensics runaway incidents", () => {
       ])
     )
     expect(line(stuck, "Stuck")).toBe("cell · a cell ran")
-    // Without a payload to approve there is no Continue, only Stop.
+    // Without a payload to decide there is no Continue, and Stop ends the run.
     const unanswerable = Forensics.renderDiagnosis({ runId: "run-1" }, {
       ...Forensics.digest([]),
       parkedIncident: runaway as Forensics.Digest["parkedIncident"]
@@ -1049,17 +1047,14 @@ describe("Forensics runaway incidents", () => {
     // Each line ends where the next label starts; the id's own newlines are inside its quotes.
     const between = (name: string, next: string) =>
       card.slice(card.indexOf(name.padEnd(10)) + 10, card.indexOf(`\n${next.padEnd(10)}`))
-    expect(recordArguments(between("Continue", "Stop"))).toEqual([
-      ["approvals", "approve", "{\"k\":\"it's\"}", "--scope", "run"],
-      ["runs", "resume", runId]
-    ])
-    expect(recordArguments(between("Stop", "Next"))).toEqual([["runs", "cancel", runId]])
+    expect(recordArguments(between("Continue", "Stop"))).toEqual([["runs", "continue", runId]])
+    expect(recordArguments(between("Stop", "Next"))).toEqual([["runs", "stop", runId]])
     // Both verbs are commands the CLI registers.
     const registered = new Set(
       (JSON.parse(readFileSync(join(import.meta.dirname, "../../../apps/site/src/data/cli-commands.json"), "utf8")) as {
         commands: ReadonlyArray<{ name: string }>
       }).commands.map((command) => command.name)
     )
-    for (const verb of ["approvals approve", "runs resume", "runs cancel"]) expect(registered.has(verb)).toBe(true)
+    for (const verb of ["runs continue", "runs stop", "runs cancel"]) expect(registered.has(verb)).toBe(true)
   })
 })

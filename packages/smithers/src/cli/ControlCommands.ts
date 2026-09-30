@@ -4,13 +4,13 @@
  */
 
 import { approvalRevision } from "@smthrs/build-cli/Cli"
-import { Control, type ControlSchema } from "@smthrs/control"
+import { Control, ControlFacts, type ControlSchema } from "@smthrs/control"
 import * as DurableWriter from "@smthrs/database/DurableWriter"
 import * as RunDevTools from "@smthrs/gateway/RunDevTools"
 import * as RunTrace from "@smthrs/gateway/RunTrace"
 import * as Redaction from "@smthrs/journal/Redaction"
 import { BudgetOnExceeded } from "@smthrs/registry/Descriptor"
-import { Clock, Effect } from "effect"
+import { Clock, Effect, Schema } from "effect"
 import { Cli, z } from "incur"
 import { existsSync } from "node:fs"
 import { readFile } from "node:fs/promises"
@@ -558,6 +558,20 @@ export const createRunsCli = (runtime: Bridge.Runtime = {}) =>
           }))
       }
     })
+    .command("continue", {
+      description: "Continue a run a budget or time limit parked, under the allowance it recorded",
+      mcp: false,
+      args: runArgs,
+      options,
+      run: (c) => guard(c, () => decideIncident(c.args.run, "continue", c.options, runtime), { next: afterDecision })
+    })
+    .command("stop", {
+      description: "Stop a run a budget or time limit parked",
+      mcp: false,
+      args: runArgs,
+      options,
+      run: (c) => guard(c, () => decideIncident(c.args.run, "stop", c.options, runtime), { next: afterDecision })
+    })
     .command("signal", {
       description: "Deliver a durable JSON signal",
       mcp: { annotations: { readOnlyHint: false } },
@@ -575,6 +589,82 @@ export const createRunsCli = (runtime: Bridge.Runtime = {}) =>
       run: (c) =>
         guard(c, () => Bridge.invoke(["steer", c.args.run, "--message", c.options.message], c.options, runtime))
     })
+
+const isIncident = Schema.is(ControlFacts.GuardIncident)
+
+/**
+ * The latest request a budget or time guard parked the run on, decided or not.
+ *
+ * A run that parks again after a Continue holds a newer request, so the
+ * latest is the one an operator answers. The request's `incident` carries the
+ * facts the guard froze when it tripped.
+ *
+ * @category constructors
+ * @since 1.0.0
+ */
+export const guardIncident = (runId: string) =>
+  Effect.gen(function*() {
+    const control = yield* Control.Control
+    const events = yield* BoundedEvents.collect(control.watch({ runId, follow: false }), {
+      operation: "guard incident",
+      subject: runId
+    })
+    const rows = ControlFacts.fold(events).approvals.flatMap((row) => {
+      const incident = (row.request as { readonly incident?: unknown } | null)?.incident
+      return row.runId === runId && isIncident(incident) ? [{ ...row, incident }] : []
+    })
+    return rows.at(-1)
+  })
+
+/**
+ * Continue or Stop one guard incident from its recorded request.
+ *
+ * An undecided request is approved (Continue, under the allowance the request
+ * recorded) or denied (Stop), and the decision drives the run in this call. A
+ * request already decided the same way is not decided twice: the run resumes
+ * from the recorded decision, which is how a decision whose driver died with
+ * its process still settles the run. A request decided the other way is
+ * refused.
+ */
+const decideIncident = async (
+  runId: string,
+  decision: "continue" | "stop",
+  connection: Bridge.ConnectionOptions,
+  runtime: Bridge.Runtime
+): Promise<unknown> => {
+  if (!Bridge.hasRecords(connection, runtime)) {
+    await Bridge.project(checks(connection, runtime), connection, runtime)
+    throw unknownRun(runId)
+  }
+  const row = await Bridge.read(guardIncident(runId), connection, runtime)
+  if (row === undefined) {
+    throw new CliError.Refused({
+      fault: "user",
+      code: "no_guard_incident",
+      message: `Run ${runId} is not parked on a budget or time limit.`
+    })
+  }
+  const wanted = decision === "continue" ? "approved" : "denied"
+  if (row.status === "pending") {
+    const approval = JSON.stringify(row.payload)
+    return Bridge.invoke(
+      decision === "continue" ? ["approve", approval, "--scope", row.payload.scope] : ["deny", approval],
+      connection,
+      runtime
+    )
+  }
+  if (row.status !== wanted) {
+    throw new CliError.Refused({
+      fault: "user",
+      code: "guard_incident_decided",
+      message: `Run ${runId} was already ${row.status === "approved" ? "continued" : "stopped"} on ${row.requestId}.`
+    })
+  }
+  return Bridge.invoke(["resume", runId], connection, {
+    ...runtime,
+    ...await prepareHistoryRun(runId, connection, runtime)
+  })
+}
 
 const payload = async (value: string): Promise<string> => {
   if (!value.startsWith("@")) return value
@@ -650,6 +740,7 @@ export const pendingApprovals = (runId?: string) =>
           flowId: run.flowId,
           question: digest.parkedQuestion ?? declaredQuestion(run),
           approval: digest.parkedApproval,
+          ...(digest.parkedIncident === undefined ? {} : { incident: digest.parkedIncident }),
           // The open human waits in this run's tree, each naming the execution
           // holding it and the wait point a signal addresses.
           ...(waits.length === 0 ? {} : {

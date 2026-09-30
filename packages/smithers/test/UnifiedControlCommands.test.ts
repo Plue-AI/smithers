@@ -688,6 +688,126 @@ describe("unified control dispatch", () => {
     }])
   })
 
+  describe("a guard incident's Continue and Stop", () => {
+    const guardPayload = (requestId: string) => ({
+      target: {
+        _tag: "Node",
+        runId: "run-1",
+        requestId,
+        digest: "d",
+        envelope: { capabilities: [], flows: [], budget: { tokens: 40, onExceeded: "park" } }
+      },
+      scope: "once",
+      idempotencyKey: `approve:${requestId}`
+    })
+    const incident = { classification: "Runaway", source: "tokens", message: "over", used: 15, max: 10, next: 15, allowance: 40 }
+    // `null` records a request no guard made: it carries no incident.
+    const parked = (sequence: number, requestId: string, facts: unknown = incident) =>
+      event(sequence, "control.approval.requested", {
+        requestId,
+        question: "Raise the token budget?",
+        payload: guardPayload(requestId),
+        ...(facts === null ? {} : { incident: facts })
+      })
+    const decided = (sequence: number, requestId: string, kind: "approved" | "denied") =>
+      event(sequence, `control.approval.${kind}`, { tokenId: requestId })
+
+    it.each([
+      ["continue", ["approve", JSON.stringify(guardPayload("budget/run-1/tokens")), "--scope", "once"]],
+      ["stop", ["deny", JSON.stringify(guardPayload("budget/run-1/tokens"))]]
+    ])("%s decides the undecided request with its recorded payload", async (verb, argv) => {
+      ports.watch.mockReturnValue(Stream.fromIterable([parked(2, "budget/run-1/tokens")]))
+      const result = await invoke(["runs", verb, "run-1", "--json"])
+      expect(result.codes).toEqual([])
+      expect(ports.watch).toHaveBeenCalledExactlyOnceWith({ runId: "run-1", follow: false })
+      expect(ports.invoke).toHaveBeenCalledExactlyOnceWith(argv, { quiet: false }, result.config)
+      expect(ports.prepare).not.toHaveBeenCalled()
+    })
+
+    it("answers the latest incident when the run parked again after a Continue", async () => {
+      ports.watch.mockReturnValue(Stream.fromIterable([
+        parked(2, "budget/run-1/tokens"),
+        decided(3, "budget/run-1/tokens", "approved"),
+        parked(5, "timeout/run-1/cell", { classification: "Stuck", source: "cell", message: "slow", max: 1000 })
+      ]))
+      await invoke(["runs", "stop", "run-1", "--json"])
+      expect(ports.invoke).toHaveBeenCalledExactlyOnceWith(
+        ["deny", JSON.stringify(guardPayload("timeout/run-1/cell"))],
+        { quiet: false },
+        expect.anything()
+      )
+    })
+
+    it.each([["continue", "approved"], ["stop", "denied"]] as const)(
+      "%s on a request already %s resumes from the recorded decision instead of deciding twice",
+      async (verb, kind) => {
+        ports.watch.mockReturnValue(Stream.fromIterable([
+          parked(2, "budget/run-1/tokens"),
+          decided(3, "budget/run-1/tokens", kind)
+        ]))
+        const result = await invoke(["runs", verb, "run-1", "--root", "/fixture", "--json"])
+        expect(result.codes).toEqual([])
+        expect(ports.prepare).toHaveBeenCalledExactlyOnceWith("/fixture", "run-1")
+        expect(ports.invoke).toHaveBeenCalledExactlyOnceWith(["resume", "run-1"], { root: "/fixture", quiet: false }, {
+          ...result.config,
+          executionRoot: "/isolated-child"
+        })
+      }
+    )
+
+    it.each([["continue", "denied", "stopped"], ["stop", "approved", "continued"]] as const)(
+      "%s refuses a request already %s the other way",
+      async (verb, kind, word) => {
+        ports.watch.mockReturnValue(Stream.fromIterable([
+          parked(2, "budget/run-1/tokens"),
+          decided(3, "budget/run-1/tokens", kind)
+        ]))
+        const result = await invoke(["runs", verb, "run-1", "--json"])
+        expect(result.codes).toEqual([1])
+        expect(result.stdout).toContain("guard_incident_decided")
+        expect(result.stdout).toContain(`Run run-1 was already ${word} on budget/run-1/tokens.`)
+        expect(ports.invoke).not.toHaveBeenCalled()
+      }
+    )
+
+    it.each([
+      ["an ordinary approval", [parked(2, "ship", null)]],
+      ["malformed incident facts", [parked(2, "budget/run-1/tokens", { ...incident, used: "lots" })]],
+      ["no request at all", []]
+    ])("refuses a run parked on %s, and decides nothing", async (_name, events) => {
+      ports.watch.mockReturnValue(Stream.fromIterable(events))
+      for (const verb of ["continue", "stop"]) {
+        const result = await invoke(["runs", verb, "run-1", "--json"])
+        expect(result.codes).toEqual([1])
+        expect(result.stdout).toContain("no_guard_incident")
+        expect(result.stdout).toContain("Run run-1 is not parked on a budget or time limit.")
+      }
+      expect(ports.invoke).not.toHaveBeenCalled()
+    })
+
+    it("refuses an unknown run in a project with no records", async () => {
+      ports.hasRecords.mockReturnValue(false)
+      const result = await invoke(["runs", "continue", "run-1", "--json"])
+      expect(result.codes).toEqual([1])
+      expect(result.stdout).toContain("run_not_found")
+      expect(ports.watch).not.toHaveBeenCalled()
+      expect(ports.invoke).not.toHaveBeenCalled()
+    })
+
+    it("lists a pending incident with its frozen facts beside the payload that decides it", async () => {
+      ports.list.mockReturnValueOnce(Effect.succeed({ _tag: "runs", items: [row("run-1", "waiting-approval")] }))
+      ports.watch.mockReturnValue(Stream.fromIterable([parked(2, "budget/run-1/tokens")]))
+      const result = await invoke(["approvals", "list", "--json"])
+      expect(JSON.parse(result.stdout)).toEqual([{
+        runId: "run-1",
+        flowId: "demo/ship",
+        question: "Raise the token budget?",
+        approval: JSON.stringify(guardPayload("budget/run-1/tokens")),
+        incident
+      }])
+    })
+  })
+
   it("refuses a malformed pending-approval page", async () => {
     ports.list.mockReturnValue(Effect.succeed({ _tag: "flows", items: [] }))
     const result = await invoke(["approvals", "list", "--json"])
