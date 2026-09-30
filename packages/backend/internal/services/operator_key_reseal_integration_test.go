@@ -383,3 +383,39 @@ func (r *passHookResealer) Reseal(ciphertext string) (string, bool, error) {
 	}
 	return r.AESGCMSecretCodec.Reseal(ciphertext)
 }
+
+// keepRefreshTokenRefresher answers a refresh with a new access token and no
+// new refresh token, as providers that keep the refresh token do.
+type keepRefreshTokenRefresher struct{ seen string }
+
+func (r *keepRefreshTokenRefresher) Refresh(_ context.Context, _ string, refreshToken string) (RefreshedTokens, error) {
+	r.seen = refreshToken
+	return RefreshedTokens{AccessToken: "codex-rotation-access-token-2"}, nil
+}
+
+// A refresh that read the row before a reseal must not write the previous
+// key's ciphertext back: the kept refresh token is sealed again.
+func TestProviderRefreshResealsTheKeptRefreshTokenPostgres(t *testing.T) {
+	ctx := context.Background()
+	oldCodec, err := webhook.NewSecretCodec("operator-key-old")
+	require.NoError(t, err)
+	f := seedOperatorKeyStores(t, oldCodec)
+	rotating, err := webhook.NewSecretCodec("operator-key-new", "operator-key-old")
+	require.NoError(t, err)
+	refresher := &keepRefreshTokenRefresher{}
+	service := NewProviderConnectionService(db.New(f.pool), rotating, refresher, WithSubscriptionConnectionsEnabled(true))
+	_, err = service.RefreshNow(ctx, &f.owner, f.connectionID)
+	require.NoError(t, err)
+	require.Equal(t, "codex-rotation-refresh-token", refresher.seen)
+
+	newOnly, err := webhook.NewSecretCodec("operator-key-new")
+	require.NoError(t, err)
+	var refresh, access []byte
+	require.NoError(t, f.pool.QueryRow(ctx, `SELECT refresh_token_encrypted, access_token_encrypted FROM provider_connections`).Scan(&refresh, &access))
+	got, err := newOnly.DecryptString(string(refresh))
+	require.NoError(t, err, "the kept refresh token is under the current key")
+	require.Equal(t, "codex-rotation-refresh-token", got)
+	got, err = newOnly.DecryptString(string(access))
+	require.NoError(t, err)
+	require.Equal(t, "codex-rotation-access-token-2", got)
+}

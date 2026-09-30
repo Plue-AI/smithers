@@ -250,11 +250,21 @@ func publishSecrets(configDir string, values map[string]string, publish func(sta
 	if err := publish(file.Name()); err != nil {
 		return err
 	}
-	if dir, err := os.Open(configDir); err == nil {
-		_ = dir.Sync()
-		_ = dir.Close()
+	return syncDir(configDir)
+}
+
+// syncDir makes a published or removed name durable: a rotation must not
+// reseal the database under a key the file system may still lose.
+func syncDir(path string) error {
+	dir, err := os.Open(path)
+	if err != nil {
+		return err
 	}
-	return nil
+	if err := dir.Sync(); err != nil {
+		_ = dir.Close()
+		return err
+	}
+	return dir.Close()
 }
 
 func readSecrets(path string) (map[string]string, error) {

@@ -853,7 +853,12 @@ func (s *ProviderConnectionService) refreshClaimedRow(ctx context.Context, row d
 	if err != nil {
 		return errors.New("failed to encrypt access token")
 	}
-	params := db.UpdateProviderConnectionTokensParams{ID: row.ID, RefreshGeneration: row.RefreshGeneration, AccessTokenEncrypted: []byte(accessCipher), RefreshTokenEncrypted: row.RefreshTokenEncrypted}
+	// A kept refresh token is sealed again rather than copied: the row read
+	// before an operator key reseal may hold the previous key's ciphertext.
+	if tokens.RefreshToken == "" {
+		tokens.RefreshToken = refreshToken
+	}
+	params := db.UpdateProviderConnectionTokensParams{ID: row.ID, RefreshGeneration: row.RefreshGeneration, AccessTokenEncrypted: []byte(accessCipher)}
 	if tokens.RefreshToken != "" {
 		refreshCipher, err := s.codec.EncryptString(tokens.RefreshToken)
 		if err != nil {

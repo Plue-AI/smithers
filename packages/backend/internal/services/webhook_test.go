@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"math"
 	"net/http"
 	"net/http/httptest"
@@ -812,7 +813,9 @@ func TestWebhookService_UpdateWebhook_EncryptsSecretWhenProvided(t *testing.T) {
 	assert.Equal(t, "new-plain", updated.Secret)
 }
 
-func TestWebhookService_UpdateWebhook_KeepsStoredCiphertextWhenSecretOmitted(t *testing.T) {
+// An omitted secret keeps its value but is sealed again under the current
+// operator key: the row read may predate an operator key reseal.
+func TestWebhookService_UpdateWebhook_ResealsStoredSecretWhenSecretOmitted(t *testing.T) {
 	t.Parallel()
 
 	_, actor := ownerRepo()
@@ -824,16 +827,24 @@ func TestWebhookService_UpdateWebhook_KeepsStoredCiphertextWhenSecretOmitted(t *
 	}
 	codec := &mockWebhookSecretCodec{
 		decryptFn: func(ciphertext string) (string, error) {
+			if ciphertext == "resealed:stored-plain" {
+				return "stored-plain", nil
+			}
 			assert.Equal(t, "stored-cipher", ciphertext)
 			return "stored-plain", nil
 		},
+		encryptFn: func(plaintext string) (string, error) { return "resealed:" + plaintext, nil },
 	}
 
 	svc := NewWebhookService(mock, codec)
 	updated, err := svc.UpdateWebhook(context.Background(), actor, "alice", "demo", 1, UpdateWebhookInput{})
 	require.NoError(t, err)
-	assert.Equal(t, "stored-cipher", mock.lastUpdateWebhookArg.Secret)
+	assert.Equal(t, "resealed:stored-plain", mock.lastUpdateWebhookArg.Secret)
 	assert.Equal(t, "stored-plain", updated.Secret)
+
+	codec.decryptFn = func(string) (string, error) { return "", errors.New("no key opens it") }
+	_, err = svc.UpdateWebhook(context.Background(), actor, "alice", "demo", 1, UpdateWebhookInput{})
+	require.Error(t, err, "an unreadable stored secret is never copied forward")
 }
 
 func TestWebhookService_GetWebhook_DecryptsSecretForResponse(t *testing.T) {

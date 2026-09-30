@@ -104,6 +104,12 @@ func TestRotateOperatorKeyRecordsResealsAndRetires(t *testing.T) {
 	original := testSecretValues()
 	path := writeTestSecrets(t, root, original)
 
+	// A staging file a killed rotation left behind is removed.
+	abandoned := filepath.Join(root, "config", ".secrets-abandoned")
+	if err := os.WriteFile(abandoned, []byte(`{"values":{"retired":"key"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
 	var calls []resealCall
 	failing := errors.New("database unreachable")
 	resumed, err := RotateOperatorKey(context.Background(), root, func(_ context.Context, current string, previous []string) error {
@@ -132,6 +138,10 @@ func TestRotateOperatorKeyRecordsResealsAndRetires(t *testing.T) {
 	}
 	if len(calls) != 1 || calls[0].current != newKey || len(calls[0].previous) != 1 || calls[0].previous[0] != original[operatorKeyName] {
 		t.Fatalf("reseal calls = %#v", calls)
+	}
+
+	if _, err := os.Stat(abandoned); !os.IsNotExist(err) {
+		t.Fatalf("abandoned staging file kept: %v", err)
 	}
 
 	// A rerun resumes with the key already written and retires the old one.

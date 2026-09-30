@@ -262,12 +262,17 @@ func (s *WebhookService) UpdateWebhook(ctx context.Context, actor *db.User, owne
 		}
 	}
 
-	secret := current.Secret
+	// A kept secret is sealed again rather than copied: the row read before
+	// an operator key reseal may hold the previous key's ciphertext.
+	var plaintextSecret string
 	if req.Secret != nil {
-		secret, err = s.secretCodec.EncryptString(*req.Secret)
-		if err != nil {
-			return db.Webhook{}, pkgerrors.Internal("failed to encrypt webhook secret").WithCause(err)
-		}
+		plaintextSecret = *req.Secret
+	} else if plaintextSecret, err = s.secretCodec.DecryptString(current.Secret); err != nil {
+		return db.Webhook{}, pkgerrors.Internal("failed to decrypt webhook secret").WithCause(err)
+	}
+	secret, err := s.secretCodec.EncryptString(plaintextSecret)
+	if err != nil {
+		return db.Webhook{}, pkgerrors.Internal("failed to encrypt webhook secret").WithCause(err)
 	}
 
 	events := current.Events

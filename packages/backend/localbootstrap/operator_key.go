@@ -56,6 +56,22 @@ func RotateOperatorKey(ctx context.Context, root string, reseal func(ctx context
 	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 		return false, errors.New("rotate operator key: Smithers is running; stop it first")
 	}
+	// A rotation killed while staging leaves a .secrets-* file that may hold
+	// a retired key; backups would keep it.
+	staged, err := filepath.Glob(filepath.Join(configDir, ".secrets-*"))
+	if err != nil {
+		return false, err
+	}
+	for _, name := range staged {
+		if err := os.Remove(name); err != nil {
+			return false, fmt.Errorf("rotate operator key: remove abandoned staging file: %w", err)
+		}
+	}
+	if len(staged) > 0 {
+		if err := syncDir(configDir); err != nil {
+			return false, fmt.Errorf("rotate operator key: %w", err)
+		}
+	}
 	values, err := readSecrets(path)
 	if err != nil {
 		return false, err
