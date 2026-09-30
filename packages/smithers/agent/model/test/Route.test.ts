@@ -133,6 +133,7 @@ describe("Route.prepare", () => {
   it("supplies JSON content type when the route declares no public headers", async () => {
     const prepared = await Effect.runPromise(Route.prepare({
       id: "default-headers",
+      providerName: "test",
       protocol,
       endpoint: endpoint({ url: "https://example.test" }),
       auth: Auth.bearer(Redacted.make("test-key")),
@@ -1321,7 +1322,6 @@ describe("Route.stream credential safety", () => {
 
   it.each([200, 401])("redacts custom Auth header echoes over HTTP %s", async (status) => {
     const route = Route.make({
-      providerName: "openai",
       ...Result.getOrThrow(Route.openai({ apiKey: Redacted.make(credential) })),
       auth: Auth.apiKeyHeader("Ocp-Apim-Subscription-Key", Redacted.make(credential))
     })
@@ -1469,7 +1469,6 @@ describe("Route.stream refresh", () => {
       attempt === 1 ? Effect.fail(refusal()) : Effect.succeed(sseResponse(["{}"]))
     )
     const route = Route.make({
-      providerName: "openai",
       ...withAuth(auth),
       protocol: Protocol.make({
         ...protocol,
