@@ -376,6 +376,7 @@ describe.skipIf(wasmBytes === undefined)("BrowserJj edge cases over flows_jj.was
               expect(error).toMatchObject({ code: "unknown", module: "BrowserJj", method })
               expect(error.message).toContain("real symlinks are unsupported")
               expect(error.message).not.toContain("SYNTHETIC_PRIVATE_TOKEN_314159")
+              expect(error.cause).toMatchObject({ name: "JjInternalFault", code: "reactor_symlinks_unsupported" })
               expect(store()).toEqual(beforeStore)
             }
             expect(fsModule.existsSync(join(host, "lane"))).toBe(false)
@@ -398,6 +399,7 @@ describe.skipIf(wasmBytes === undefined)("BrowserJj edge cases over flows_jj.was
           const jj = yield* jjFor(host)
           const error = yield* flip(jj.snapshot())
           expect(error.message).toContain("real symlinks are unsupported")
+          expect(error.cause).toMatchObject({ code: "reactor_symlinks_unsupported" })
           expect(fsModule.readdirSync(join(host, "repo"))).toEqual([name])
           expect(fsModule.readdirSync(join(host, "private"))).toEqual(["token"])
         }), { timeout })

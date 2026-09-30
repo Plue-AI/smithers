@@ -4,6 +4,8 @@
  * @since 1.0.0
  */
 
+import { JjInternalFault } from "./JjInternalFault.ts"
+
 /** Git's pathname quoting, rather than JSON's unsupported \u escapes. */
 const quotePath = (path: string): string => {
   const characters = Array.from(path)
@@ -42,14 +44,23 @@ const quotePath = (path: string): string => {
 export const quoteGitPatchPaths = (patch: string, paths: string): string => {
   const entries = paths === "" ? [] : paths.trimEnd().split("\n").map((line): string => {
     const path: unknown = JSON.parse(line)
-    if (typeof path !== "string") throw new Error("Invalid jj diff path metadata")
+    if (typeof path !== "string") {
+      throw new JjInternalFault({ code: "patch_path_metadata_invalid", message: "Invalid jj diff path metadata" })
+    }
     return path
   })
-  if (entries.length % 2 !== 0) throw new Error("Incomplete jj diff path metadata")
+  if (entries.length % 2 !== 0) {
+    throw new JjInternalFault({ code: "patch_path_metadata_incomplete", message: "Incomplete jj diff path metadata" })
+  }
   let cursor = 0
   const output: Array<string> = []
   const consume = (text: string) => {
-    if (!patch.startsWith(text, cursor)) throw new Error("jj diff headers disagree with path metadata")
+    if (!patch.startsWith(text, cursor)) {
+      throw new JjInternalFault({
+        code: "patch_headers_disagree",
+        message: "jj diff headers disagree with path metadata"
+      })
+    }
     cursor += text.length
   }
   const pathField = (prefix: string, path: string, suffix = "\n") => {
@@ -93,6 +104,11 @@ export const quoteGitPatchPaths = (patch: string, paths: string): string => {
     output.push(patch.slice(cursor, end))
     cursor = end
   }
-  if (cursor !== patch.length) throw new Error("Unexpected jj diff output after path metadata")
+  if (cursor !== patch.length) {
+    throw new JjInternalFault({
+      code: "patch_output_unexpected",
+      message: "Unexpected jj diff output after path metadata"
+    })
+  }
   return output.join("")
 }

@@ -28,7 +28,8 @@ import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
 import type * as Scope from "effect/Scope"
 import * as Semaphore from "effect/Semaphore"
-import { Jj, JjError, JjErrorCode } from "../Jj.ts"
+import { JjInternalFault } from "../internal/JjInternalFault.ts"
+import { Jj, JjError, jjErrorCause, JjErrorCode } from "../Jj.ts"
 import type { SyncFsLike } from "./WasiFs.ts"
 import * as WasiPreview1 from "./WasiPreview1.ts"
 
@@ -140,7 +141,12 @@ const exchange = (abi: AbiExports, request: Record<string, unknown>): string => 
   // the module's own low linear memory and then call with a bogus pointer, so
   // the exchange refuses before touching memory — and frees nothing, because
   // nothing was allocated.
-  if (reqPtr === 0) throw new Error("the wasm module could not allocate a request buffer")
+  if (reqPtr === 0) {
+    throw new JjInternalFault({
+      code: "reactor_request_allocation_failed",
+      message: "the wasm module could not allocate a request buffer"
+    })
+  }
   try {
     new Uint8Array(abi.memory.buffer, reqPtr, req.length).set(req)
     const packed = BigInt.asUintN(64, abi.flows_jj_call(reqPtr, req.length))
@@ -148,7 +154,12 @@ const exchange = (abi: AbiExports, request: Record<string, unknown>): string => 
     // RESPONSE side, which the module reports as a null pointer and a zero
     // length. Decoding it would blame a "malformed response" for an
     // out-of-memory guest.
-    if (packed === 0n) throw new Error("the wasm module could not allocate a response buffer")
+    if (packed === 0n) {
+      throw new JjInternalFault({
+        code: "reactor_response_allocation_failed",
+        message: "the wasm module could not allocate a response buffer"
+      })
+    }
     const resPtr = Number(packed >> 32n)
     const resLen = Number(packed & 0xFFFF_FFFFn)
     const response = new Uint8Array(abi.memory.buffer, resPtr, resLen).slice()
@@ -273,7 +284,10 @@ const instantiate = async (
       name === "memory" ? !(exports[name] instanceof WebAssembly.Memory) : typeof exports[name] !== "function"
     )
     if (missing.length > 0) {
-      throw new Error(`the module does not export the flows_jj ABI (missing: ${missing.join(", ")})`)
+      throw new JjInternalFault({
+        code: "reactor_abi_incomplete",
+        message: `the module does not export the flows_jj ABI (missing: ${missing.join(", ")})`
+      })
     }
     const abi = exports as unknown as AbiExports
     wasi.initialize(abi.memory)
@@ -297,20 +311,26 @@ const instantiate = async (
  * interpret jj's ignore rules. Repository metadata directories are not working
  * copy inputs, but links at those names must still be rejected.
  */
+const symlinksUnsupported = (): JjInternalFault =>
+  new JjInternalFault({
+    code: "reactor_symlinks_unsupported",
+    message: "real symlinks are unsupported by the browser reactor; remove them before snapshotting"
+  })
+
 const assertNoSymlinks = (fs: SyncFsLike, root: string): void => {
   const pending = [root]
   while (pending.length > 0) {
     const path = pending.pop()!
     const stats = fs.lstatSync(path)
     if (stats.isSymbolicLink()) {
-      throw new Error("real symlinks are unsupported by the browser reactor; remove them before snapshotting")
+      throw symlinksUnsupported()
     }
     if (!stats.isDirectory()) continue
     for (const entry of fs.readdirSync(path, { withFileTypes: true })) {
       const child = `${path}/${entry.name}`
       if (entry.name === ".jj" || entry.name === ".git") {
         if (fs.lstatSync(child).isSymbolicLink()) {
-          throw new Error("real symlinks are unsupported by the browser reactor; remove them before snapshotting")
+          throw symlinksUnsupported()
         }
         continue
       }
@@ -428,14 +448,20 @@ const create = (options: BrowserJjOptions): {
    * Instantiation and caching finish under the permit even if the caller is
    * interrupted, so scoped disposal always sees the acquired reactor.
    */
-  const ensure: Effect.Effect<Reactor, string> = Effect.suspend(() =>
+  const ensure: Effect.Effect<Reactor, JjInternalFault> = Effect.suspend(() =>
     disposed
-      ? Effect.fail("the browser reactor was disposed")
+      ? Effect.fail(
+        new JjInternalFault({ code: "reactor_disposed", message: "the browser reactor was disposed" })
+      )
       : ready === undefined
       ? Effect.map(
         Effect.tryPromise({
           try: () => instantiate(host, wasmOnce()),
-          catch: (cause) => `failed to instantiate flows_jj.wasm: ${messageOf(cause)}`
+          catch: (cause) =>
+            new JjInternalFault({
+              code: cause instanceof JjInternalFault ? cause.code : "reactor_instantiation_failed",
+              message: `failed to instantiate flows_jj.wasm: ${messageOf(cause)}`
+            })
         }),
         (reactor) => {
           ready = reactor
@@ -455,9 +481,16 @@ const create = (options: BrowserJjOptions): {
       // asked for the module is known, rather than reaching a caller with no
       // method and no command.
       Effect.flatMap(
-        Effect.catch(ensure, (description) =>
+        Effect.catch(ensure, (fault) =>
           Effect.fail(
-            new JjError({ code: "unknown", module: MODULE, method, command, message: `jj ${method}: ${description}` })
+            new JjError({
+              code: "unknown",
+              module: MODULE,
+              method,
+              command,
+              message: `jj ${method}: ${fault.message}`,
+              cause: jjErrorCause(fault)
+            })
           )),
         ({ abi }) =>
           Effect.suspend(() => {
@@ -505,7 +538,8 @@ const create = (options: BrowserJjOptions): {
                   module: MODULE,
                   method,
                   message: `jj ${method}: ${excerpt(messageOf(cause))}`,
-                  command
+                  command,
+                  ...(cause instanceof JjInternalFault ? { cause: jjErrorCause(cause) } : {})
                 })
               )
             }

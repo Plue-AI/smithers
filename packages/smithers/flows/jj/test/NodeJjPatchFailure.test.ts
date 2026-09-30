@@ -42,7 +42,11 @@ describe.skipIf(!installed())("NodeJj real-host patch normalization failure", ()
       expect(failure).toBeInstanceOf(JjError)
       if (!(failure instanceof JjError)) throw failure
       expect(failure).toMatchObject({ code: "unknown", method: "diff" })
-      expect(failure.cause?.message).toContain("Invalid jj diff path metadata")
+      expect(failure.cause).toMatchObject({
+        name: "JjInternalFault",
+        code: "patch_path_metadata_invalid",
+        message: expect.stringContaining("Invalid jj diff path metadata")
+      })
 
       execFileSync("jj", ["config", "unset", "--repo", key], { cwd: repository })
       const patch = await Effect.runPromise(jj.diff(empty.commitId, added.commitId))

@@ -49,13 +49,7 @@ const reviewed: ReadonlyArray<readonly [file: string, count: number, why: string
   ],
   ["flow/src/Flow/make.ts", 1, "a comment naming the throw payloadSchema.make performs"],
   ["flow/src/internal/DeclarationSite.ts", 1, "captures a stack to locate a declaration; never thrown"],
-  [
-    "jj/src/browser/BrowserJj.ts",
-    6,
-    "reactor faults and the symlink refusal; invoke completes each as a tagged JjError"
-  ],
   ["jj/src/browser/WasiPreview1.ts", 1, "a WASI shim misuse before initialize; a defect inside the reactor"],
-  ["jj/src/internal/gitPatchPaths.ts", 4, "malformed jj diff metadata; the caller wraps it as a tagged JjError"],
   ["jj/src/node/NodeJj.ts", 1, wrappedCause],
   ["journal/src/RedactedLogger.ts", 1, "an empty Error clone that receives redacted fields; never thrown"],
   ["journal/src/Redaction.ts", 1, "a depth refusal the redaction boundary catches and replaces with its marker"],

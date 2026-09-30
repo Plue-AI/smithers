@@ -1,5 +1,6 @@
 import { describe, expect, it } from "@effect/vitest"
 import { quoteGitPatchPaths } from "../src/internal/gitPatchPaths.ts"
+import { JjInternalFault } from "../src/internal/JjInternalFault.ts"
 
 const paths = (...names: ReadonlyArray<string>): string => names.map((name) => JSON.stringify(name)).join("\n") + "\n"
 
@@ -62,18 +63,41 @@ describe("quoteGitPatchPaths", () => {
     )
   })
 
-  it("rejects malformed path metadata and mismatched headers", () => {
-    expect(() => quoteGitPatchPaths("", "\"only one\"\n")).toThrow("Incomplete jj diff path metadata")
-    expect(() => quoteGitPatchPaths("", "42\n42\n")).toThrow("Invalid jj diff path metadata")
+  it("rejects malformed path metadata and mismatched headers with a tagged fault and its code", () => {
+    const fault = (patch: string, metadata: string) => {
+      try {
+        quoteGitPatchPaths(patch, metadata)
+      } catch (error) {
+        return error
+      }
+      throw new Error("expected a throw")
+    }
+    const cases = [
+      ["", "\"only one\"\n", "patch_path_metadata_incomplete", "Incomplete jj diff path metadata"],
+      ["", "42\n42\n", "patch_path_metadata_invalid", "Invalid jj diff path metadata"],
+      ["", paths("missing", "missing"), "patch_headers_disagree", "jj diff headers disagree"],
+      [
+        "diff --git a/other b/other\n",
+        paths("expected", "expected"),
+        "patch_headers_disagree",
+        "jj diff headers disagree"
+      ],
+      [
+        "diff --git a/one b/one\nextra\n",
+        paths("one", "one", "two", "two"),
+        "patch_headers_disagree",
+        "jj diff headers disagree"
+      ],
+      ["diff --git a/one b/one\n", "", "patch_output_unexpected", "Unexpected jj diff output"]
+    ] as const
+    for (const [patch, metadata, code, message] of cases) {
+      const error = fault(patch, metadata)
+      expect(error).toBeInstanceOf(JjInternalFault)
+      expect(error).toMatchObject({ _tag: "@smthrs/jj/JjInternalFault", code })
+      expect((error as JjInternalFault).message).toContain(message)
+    }
+    // Metadata that is not JSON is the parser's own failure, not a fault of this module.
     expect(() => quoteGitPatchPaths("", "not json\n")).toThrow()
-    expect(() => quoteGitPatchPaths("", paths("missing", "missing"))).toThrow("jj diff headers disagree")
-    expect(() => quoteGitPatchPaths("diff --git a/other b/other\n", paths("expected", "expected"))).toThrow(
-      "jj diff headers disagree"
-    )
-    expect(() => quoteGitPatchPaths("diff --git a/one b/one\nextra\n", paths("one", "one", "two", "two"))).toThrow(
-      "jj diff headers disagree"
-    )
-    expect(() => quoteGitPatchPaths("diff --git a/one b/one\n", "")).toThrow("Unexpected jj diff output")
   })
 
   it("preserves hunk lines that resemble patch headers", () => {

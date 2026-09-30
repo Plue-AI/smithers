@@ -300,6 +300,10 @@ describe("BrowserJj over the fake ABI module", () => {
       const jj = yield* (Effect.provide(Jj, BrowserJj.layer(options)))
 
       expect((yield* (Effect.flip(jj.status()))).message).toBe("jj status: failed to instantiate flows_jj.wasm: boom")
+      expect((yield* (Effect.flip(jj.status()))).cause).toMatchObject({
+        name: "JjInternalFault",
+        code: "reactor_instantiation_failed"
+      })
       expect((yield* (Effect.flip(jj.status()))).message).toBe("jj status: failed to instantiate flows_jj.wasm: boom")
       expect(reads).toBe(1)
     }))
@@ -309,6 +313,7 @@ describe("BrowserJj over the fake ABI module", () => {
       const error = yield* flip({ wasm: emptyWasmModule(), fs: slice }, (jj) => jj.status())
       expect(error.code).toBe("unknown")
       expect(error.message).toContain("missing: memory, _initialize, flows_jj_alloc, flows_jj_free, flows_jj_call")
+      expect(error.cause).toMatchObject({ name: "JjInternalFault", code: "reactor_abi_incomplete" })
     }))
 
   it.effect("names the operation that asked for the module on an instantiation failure", () =>
@@ -482,6 +487,7 @@ describe("BrowserJj over the fake ABI module", () => {
       // A service that escaped its scope answers in the error channel.
       const error = jjError(yield* Effect.flip(escaped!.status()))
       expect(error.message).toBe("jj status: the browser reactor was disposed")
+      expect(error.cause).toMatchObject({ name: "JjInternalFault", code: "reactor_disposed" })
       expect(stderr.filter((entry) => entry === "INIT")).toHaveLength(1)
     }))
 
@@ -570,6 +576,7 @@ describe("BrowserJj over the fake ABI module", () => {
 
       expect(error.code).toBe("unknown")
       expect(error.message).toBe("jj status: the wasm module could not allocate a request buffer")
+      expect(error.cause).toMatchObject({ name: "JjInternalFault", code: "reactor_request_allocation_failed" })
       // Nothing was allocated, so nothing is freed on a pointer that never was.
       expect(stderr.filter((entry) => entry === "FREE")).toHaveLength(0)
     }))
@@ -583,6 +590,7 @@ describe("BrowserJj over the fake ABI module", () => {
 
       expect(error.code).toBe("unknown")
       expect(error.message).toBe("jj status: the wasm module could not allocate a response buffer")
+      expect(error.cause).toMatchObject({ name: "JjInternalFault", code: "reactor_response_allocation_failed" })
       expect(error.command).toBe("jj status")
     }))
 
