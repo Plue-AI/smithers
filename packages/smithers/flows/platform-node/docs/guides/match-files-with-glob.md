@@ -4,7 +4,7 @@ description: "The glob grammar AtomicFileSystem implements, how exclusions prune
 ---
 
 Use this when a program needs to select files under the workspace. `glob` is
-one of the thirteen operations the atomic adapter implements, so it costs one
+one of the fifteen operations the atomic adapter implements, so it costs one
 helper process for the whole tree rather than one per entry.
 
 ```ts

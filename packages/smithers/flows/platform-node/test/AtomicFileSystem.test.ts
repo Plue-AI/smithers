@@ -949,6 +949,36 @@ describe("Node atomic filesystem", () => {
       expect(found.excludedExplicit).toEqual([])
     }), 30_000)
 
+  it.live("does not traverse a hidden directory for a dotted segment after a globstar", () =>
+    Effect.gen(function*() {
+      const root = yield* Effect.promise(() => temporaryDirectory())
+      yield* Effect.promise(() => mkdir(join(root, ".hidden", ".nested"), { recursive: true }))
+      yield* Effect.promise(() => writeFile(join(root, ".hidden", ".secret"), ""))
+      yield* Effect.promise(() => writeFile(join(root, ".hidden", ".nested", ".wanted"), ""))
+
+      const found = yield* run(
+        root,
+        Effect.gen(function*() {
+          const fs = yield* FileSystem.FileSystem
+          const select = (pattern: string) =>
+            Effect.map(
+              fs.glob(join(root, pattern), { root }),
+              (rows) => rows.map((row) => relative(root, row).replaceAll("\\", "/")).sort()
+            )
+          return {
+            dotted: yield* select("**/.*"),
+            sized: yield* select("**/.??????"),
+            spanned: yield* select("**/.*/**"),
+            named: yield* select(".hidden/.*")
+          }
+        })
+      )
+      expect(found.dotted).toEqual([".hidden"])
+      expect(found.sized).toEqual([])
+      expect(found.spanned).toEqual([".hidden"])
+      expect(found.named).toEqual([".hidden/.nested", ".hidden/.secret"])
+    }), 30_000)
+
   it.live("does not enumerate a hidden directory for a wildcard selector", () =>
     Effect.gen(function*() {
       const root = yield* Effect.promise(() => temporaryDirectory())
