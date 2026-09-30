@@ -71,16 +71,18 @@ test("a saved plan still starts after same-owner re-reads", async () => {
   expect(saved?.kind === "run-trace" && saved.payload.input?.tutorialScope).toEqual({ repoKey: null, accountLogin: "owner" })
 })
 
-test("with no box, Start refuses on the plan card, keeps its door, and runs again once a box is open", async () => {
+test("with no box, Start asks for this repository's box, keeps the plan's door, and runs once a box is open", async () => {
   const t = await fixture(false)
   await t.controller.suggestTutorialChange(repo)
   const [card] = t.plans()
-  const refusal = `Open a box of ${repo} first: /box.open ${repo}`
-  expect(await t.controller.startTutorialChange(card!.id)).toBe(refusal)
+  expect(await t.controller.startTutorialChange(card!.id)).toEqual({ value: expect.stringContaining("rendered a form for") })
+  const form = t.store.collections.cards.get("form-box.open")
+  expect(form).toMatchObject({ kind: "flow-form", payload: { flow: "box.open", via: "user" } })
+  if (form?.kind === "flow-form") expect(form.payload.draft).toEqual({ repo })
   expect(t.posts).not.toContain("/api/tutorial/change/preflight")
   const saved = t.store.collections.cards.get(card!.id)
   expect(saved?.status).toBe("active")
-  expect(saved?.kind === "run-trace" && saved.payload.error).toBe(refusal)
+  expect(saved?.kind === "run-trace" && saved.payload.error).toBeUndefined()
   await loadBox(t.store, repo)
   await t.controller.startTutorialChange(card!.id)
   expect(t.posts).toContain("/api/tutorial/change/preflight")

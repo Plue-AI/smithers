@@ -208,6 +208,8 @@ const graphLine = (payload: Payload, target: string, value: string): string => {
  * of the line.
  */
 const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } = {
+  "flow.create": payload => JSON.stringify(payload),
+  "feature.prototype": payload => JSON.stringify(payload),
   "commits.read": payload => line(token(payload, "ref"), token(payload, "repo")),
   "runs.trace.view": payload => line(token(payload, "runId"), token(payload, "view")),
   "runs.trace.filter": payload => line(token(payload, "runId"), token(payload, "filter")),

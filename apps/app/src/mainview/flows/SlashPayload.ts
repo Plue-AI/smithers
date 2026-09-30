@@ -483,7 +483,7 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
    * repo-shaped word as the description. Splitting here would change which
    * inputs name a target.
    */
-  "flow.create": (args) => ok({ description: trimmed(args) }),
+  "flow.create": (args) => structuredFields("flow.create", args, ["description", "repo"]) ?? ok({ description: trimmed(args) }),
   "flow.repo.choose": (args) => required("repo", args, "flow.repo.choose needs a repository name"),
   "flow.run.stop": (args) => {
     const [cardId, ...rest] = tokensOf(args)
@@ -861,6 +861,8 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
     return ok(payload)
   },
   "feature.prototype": (args, known) => {
+    const structured = structuredFields("feature.prototype", args, ["request", "repo"])
+    if (structured !== undefined) return structured
     const { rest, repo } = splitTrailingRepo(args, known)
     if (rest === "") return no("feature.prototype needs what the feature should do")
     return ok(repo === undefined ? { request: rest } : { request: rest, repo })

@@ -300,7 +300,7 @@ interface DeclaredMove {
 }
 
 const DECLARED: ReadonlyArray<DeclaredMove> = [
-  ...(["runs.list", "github.mirror.retry-ref", "box.open", "box.desktop.open", "desktop"] as const).map(flow => ({
+  ...(["runs.list", "github.mirror.retry-ref", "box.open", "box.desktop.open", "desktop", "flow.create", "feature.prototype"] as const).map(flow => ({
     flow, kind: "sentence" as const, rows: 2,
     because: "Structured button arguments preserve their explicit repository without inventory (#2082). Malformed JSON and unknown fields now receive a grammar diagnostic rather than being interpreted as an identifier or filter."
   })),
@@ -469,7 +469,8 @@ describe("the card every slash line opens, against main@origin", () => {
     /* 1448: `/issues.create --nope value` and friends now read the create grammar's own --kind refusal instead of a usage line (smithers-ui-DESIGN.md §3.1). */
     /* 1462: the one-input register form (D-18) fills whole from a positional line, so 14 such lines keep the grammar's sentence main@origin's six-field card withheld. */
     /* 1449: the thirteen typed `/triggers.pause` lines no longer quote a button-only refusal (#1732). */
-    expect({ atMain, here }).toEqual({ atMain: 1437, here: 1450 })
+    /* 1454: `/flow.create` and `/feature.prototype` read box-chooser JSON, so malformed JSON and unknown fields get the grammar's diagnostic. */
+    expect({ atMain, here }).toEqual({ atMain: 1437, here: 1454 })
     /* Every slash line must be answerable without a dispatch exception, including scalar JSON. */
     expect(rows.filter((row) => row.threw !== null).map((row) => `/${row.flow} ${row.args ?? ""}`)).toEqual([])
   }, 1_800_000)
