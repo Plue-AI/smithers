@@ -783,6 +783,7 @@ describe("attachment bytes read under one account", () => {
     expect(await attaching).toEqual({ value: "Attached assets/diagram.png (image/png, revision 1) to the public Wiki of owner/repo." })
     expect(f.uploads()).toHaveLength(1)
     expect(f.uploads()[0]!.body).toEqual(bytes)
+    expect(f.uploads()[0]!.url).toBe("/api/repos/owner/repo/wiki/attachments/diagram?path=assets%2Fdiagram.png&expected_revision=0&visibility=public")
   })
 
   test("a persisted account change while the real File read is pending retires the gesture before upload", async () => {
