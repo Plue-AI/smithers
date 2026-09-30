@@ -59,10 +59,11 @@ const recent = yield * control.list({
 })
 ```
 
-`filters.principalId` is on the wire and is refused rather than removed.
-Version 1.0.0-rc.0 records no launch principal on a run summary, so there is
-nothing to evaluate the filter against, and a caller using it as a tenant
-restriction would otherwise receive every run.
+`filters.principalId` selects the runs a principal with that id launched
+(`RunSummary.launchedBy`). It narrows a listing and is not a tenant boundary:
+over RPC the server already restricts a principal that is not an operator to
+its own runs, whatever filter it sends. See
+[serve over RPC](/guides/serve-over-rpc/#who-reads-which-runs).
 
 ## List triggers and their fires
 

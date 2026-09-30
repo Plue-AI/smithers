@@ -151,9 +151,9 @@ write contention.
 ## One error vocabulary
 
 `fromSqlError` maps a structured SQL error to a `DatabaseError` carrying one of
-`busy`, `constraint`, `io`, `unsupported`, or `unknown`, and `write` normalizes
-every `SqlError` in a failed cause the same way. Store logic therefore branches
-on five stable codes rather than on a driver's own. `affectedRows` closes the
+`busy`, `constraint`, `io`, `schema`, `unsupported`, or `unknown`, and `write`
+normalizes every `SqlError` in a failed cause the same way. Store logic
+therefore branches on six stable codes rather than on a driver's own. `affectedRows` closes the
 matching hole on the success side: SQLite drivers report `changes` and
 node-postgres reports `rowCount`, so a consumer that casts to one shape reads
 `undefined` on the other backend and turns a successful compare-and-swap delete

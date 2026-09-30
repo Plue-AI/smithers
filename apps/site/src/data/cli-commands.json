@@ -1554,6 +1554,10 @@
               "items": {
                 "type": "string"
               }
+            },
+            "input": {
+              "type": "string",
+              "description": "JSON request body from a file, or - for stdin"
             }
           },
           "required": [

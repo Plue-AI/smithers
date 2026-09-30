@@ -119,8 +119,29 @@ same origin as the control mount, and keep the proxy's `Host` header intact.
 
 The bearer comparison is constant time, and a missing, malformed, empty, or
 incorrect credential all fail closed with the same `Unauthorized` response.
-This is an intentionally small trust boundary, not a per-user authorization
-system.
+
+## Who reads which runs
+
+Every run the control plane launches records the principal that launched it as
+`RunSummary.launchedBy`. `List` and `Watch` answer an operator with every run
+and every other principal with only the runs it launched: its own run
+summaries, the fires that started them, and their events. A plan's events and
+a run the engine created (a child, a fork, a later round) reach operators only.
+Another principal's run answers `RunNotFound`, exactly as a missing one does.
+
+The authentication layer names the operators, because it knows which
+identities it stamps. `layerBearerAuth` and `layerNoopAuth` stamp one principal
+and make it the operator. `layerAuth` takes the rule as `seesAllRuns`, and
+without it no principal is an operator:
+
+```ts
+const auth = ControlRpcs.layerAuth(authenticator, {
+  seesAllRuns: (principal) => principal.kind === "operator"
+})
+```
+
+Mutations are not yet confined the same way: a principal that learns another
+principal's run id can still steer, signal, cancel, or resume it.
 
 An authenticator also receives the call it is guarding, `{ rpc, payload }`,
 on every in-band frame and nothing at a transport edge; `anyAuthenticator`

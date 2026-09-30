@@ -17410,6 +17410,7 @@ interface RuntimeConfig {
   readonly cliName?: string | undefined
   readonly cliVersion?: string | undefined
   readonly cliDescription?: string | undefined
+  readonly sync?: { cwd?: string | undefined; include?: Array<string> | undefined } | undefined
   readonly cacheUrl?: string | undefined
   readonly cacheToken?: string | undefined
   readonly cacheSteps?: ReturnType<typeof Cli.create> | undefined
@@ -17431,6 +17432,7 @@ This block is the one copy; the other pages link here.
 | `cliName`        | The binary name in help and usage output. Defaults to `smithers-build`.                                                       |
 | `cliVersion`     | The version `--version` prints. Defaults to this package's version.                                                           |
 | `cliDescription` | The one-line description help output leads with.                                                                              |
+| `sync`           | `skills add`'s sources: `include` globs the `SKILL.md` directories under `cwd` (default `process.cwd()`).                     |
 | `cacheUrl`       | `SMITHERS_CACHE_URL`, already captured by the caller.                                                                         |
 | `cacheToken`     | `SMITHERS_CACHE_TOKEN`, already captured by the caller.                                                                       |
 | `cacheSteps`     | Nothing by default. An Incur CLI mounted under `cache`, so `cache steps` runs the unified CLI's durable step-cache commands.  |
@@ -23393,7 +23395,7 @@ Delays use Effect's `Clock`, so `TestClock` drives them.
 ### DatabaseErrorCode
 
 ```ts
-const DatabaseErrorCode: Schema.Literals<["busy", "constraint", "io", "unsupported", "unknown"]>
+const DatabaseErrorCode: Schema.Literals<["busy", "constraint", "io", "schema", "unsupported", "unknown"]>
 type DatabaseErrorCode = typeof DatabaseErrorCode.Type
 ```
 
@@ -23417,6 +23419,7 @@ it with `Schema.is(DatabaseError)` or catch it by its tag
 | `busy`        | A transient lock or serialization conflict. The only category that is replayed.        |
 | `constraint`  | A constraint or unique violation. Never replayed: it is the first-writer-wins signal.  |
 | `io`          | An I/O failure. Normalized but never replayed, even when a busy cause sits beneath it. |
+| `schema`      | A statement named a table or column the database lacks: a store older than the binary. |
 | `unsupported` | The noop writer, or a raw result with no readable affected-row count.                  |
 | `unknown`     | A SQL failure in none of the above categories.                                         |
 
@@ -23432,13 +23435,25 @@ and the decision to replay cannot disagree about one error.
 
 Classification, in precedence order: a lock timeout is `busy`; a constraint or
 unique violation is `constraint`; an I/O cause is `io`; a busy cause is `busy`;
-anything else is `unknown`.
+a missing table or column is `schema`; anything else is `unknown`.
 
 The busy vocabulary is `SQLITE_BUSY*`, `SQLITE_LOCKED*`, SQLSTATE `40001`,
 `40P01`, `55P03`, and the texts `database is locked`, `database is busy`,
 `could not serialize access`, `deadlock detected`, and
 `cannot rollback - no transaction is active`. The I/O vocabulary is
-`SQLITE_IOERR*` and the text `disk i/o error`.
+`SQLITE_IOERR*` and the text `disk i/o error`. The schema vocabulary is
+SQLSTATE `42P01`, `42703`, and the texts `no such table` and `no such column`.
+
+### codeOf
+
+```ts
+const codeOf: (error: unknown) => DatabaseErrorCode | undefined
+```
+
+The code a failure carries, found by following `cause` chains through the
+domain errors that wrap a structured SQL error or a normalized
+`DatabaseError`, including one a store redacted to its code alone. `undefined`
+when the chain has no SQL provenance.
 
 ### affectedRows
 
@@ -50377,7 +50392,7 @@ A Smithers workspace holds target declarations and flow sources. Runtime state l
 
 `.smithers/WORKSPACE.ts` declares workspace-wide runtime, package-manager, and cache settings. A root `WORKSPACE.ts` is also supported. A `PACKAGE.ts` declares targets for its directory; exported target keys become labels such as `//apps/site:build`.
 
-`.smithers/FACTORY.ts` declares the factory beside the workspace: `export const factory = Smithers.Factory({ summary, flows, on, github })` names the flows the repository features (`Smithers.Flow` declarations under `flows`), the Dispatcher table (`on`, event key to the flow or flows it starts), and the GitHub policy (`Smithers.Github.Policy({ mirror, issues, changes, protectedPaths, reviewerAgents, agentIssueSources, maintainers, todoSince, dailyTokens })`, where `protectedPaths` adds to the configuration paths, the root install files, and the code main's workflows run with secrets or write permissions (with the workspace packages that code depends on), that work started from a non-maintainer's issue never changes; `reviewerAgents` names the agent accounts whose LGTM counts toward a protected bookmark's required agent LGTM; and `agentIssueSources` (`run`, `linear`, `trial`) lets issues those agents file start work without a maintainer's `smithers` label; `maintainers` names the GitHub logins whose `todo` and `automerge` labels count, and whose own issues written from `todoSince` on become TODOs without the label; `dailyTokens` bounds what the factory spends per day), and optionally `machine: { vcpus, memoryMiB, tools }`, the machine the factory's TODOs need: a TODO runs only on a lane booted from the repository's own `.smithers/environment.nix` image when that file exists, with at least the declared vCPUs and memory, and `tools` requires that environment; when no lane machine matches, the TODO stops with the reason and the item records the machine it was placed on or the refusal; `export const home = Smithers.Factory.Home({ blocks })` is the home pane. The file may import `WORKSPACE.ts` and never imports a `PACKAGE.ts`: a target it needs is named by label, `Smithers.label("//:ci")`. A repository without the file declares no factory.
+`.smithers/FACTORY.ts` declares the factory beside the workspace: `export const factory = Smithers.Factory({ summary, flows, on, github })` names the flows the repository features (`Smithers.Flow` declarations under `flows`), the Dispatcher table (`on`, event key to the flow or flows it starts), and the GitHub policy (`Smithers.Github.Policy({ mirror, issues, changes, protectedPaths, reviewerAgents, agentIssueSources, maintainers, todoSince, dailyTokens })`, where `protectedPaths` adds to the configuration paths, the root install files, and the code main's workflows run with secrets or write permissions (with the workspace packages that code depends on), that work started from a non-maintainer's issue never changes; `reviewerAgents` names the agent accounts whose LGTM counts toward a protected bookmark's required agent LGTM; and `agentIssueSources` (`run`, `linear`, `trial`) lets issues those agents file start work without a maintainer's `smithers` label; `maintainers` names the GitHub logins whose `todo` and `automerge` labels count, and whose own issues written from `todoSince` on become TODOs without the label; `dailyTokens` bounds what the factory spends per day), and optionally `machine: { vcpus, memoryMiB, tools }`, the machine the factory's TODOs need: a TODO runs only on a lane booted from exactly the image the repository registered from its current `.smithers/environment.nix` when that file exists, with at least the declared vCPUs and memory, and with every `tools` entry on the booted machine's PATH before its run starts (`tools` requires that environment); when no lane machine matches, the TODO stops with the reason and the item records the machine it was placed on or the refusal; `export const home = Smithers.Factory.Home({ blocks })` is the home pane. The file may import `WORKSPACE.ts` and never imports a `PACKAGE.ts`: a target it needs is named by label, `Smithers.label("//:ci")`. A repository without the file declares no factory.
 
 These are source files to commit. Their presence does not make `.flows/` state part of the source tree. The [CLI reference](/docs/reference/cli/) distinguishes target execution from durable flow commands.
 
@@ -52265,6 +52280,7 @@ Options:
   --method <string>   (default: GET)
   --field <array>
   --header <array>
+  --input <string>
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
