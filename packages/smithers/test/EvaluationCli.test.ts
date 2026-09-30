@@ -66,7 +66,8 @@ describe("evaluation CLI", () => {
   it("CLI runs three trials and reports pass@k", async () => {
     const root = await fixture()
     await mkdir(join(root, "evals"))
-    const base = process.cwd()
+    // Named from this file, not the process cwd: vitest runs from `packages/smithers`.
+    const base = fileURLToPath(new URL("../../..", import.meta.url)).replace(/\/$/, "")
     const effectPath = createRequire(import.meta.url).resolve("effect/Effect")
     await writeFile(
       join(root, "evals", "trials.eval.ts"),
