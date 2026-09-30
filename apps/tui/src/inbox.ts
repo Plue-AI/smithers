@@ -97,9 +97,11 @@ export const superseded = (tab: Tab, tabs: ReadonlyArray<Tab>): boolean =>
     other.startedAt >= tab.startedAt
   )
 
+/** A failed flow run a later run of the same flow with the same input finished. */
 const supersededRun = (run: Flows.Run, runs: ReadonlyArray<Flows.Run>): boolean =>
   runs.some((other) =>
-    other.id !== run.id && other.status === "done" && other.flow === run.flow && other.startedAt >= run.startedAt
+    other.id !== run.id && other.status === "done" && other.flow === run.flow && other.requested === run.requested &&
+    other.startedAt >= run.startedAt
   )
 
 export const rows = (input: {

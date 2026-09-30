@@ -133,6 +133,19 @@ describe("the overview inbox", () => {
     expect(Inbox.superseded(tab("x", "done"), [tab("y", "done")])).toBe(false)
   })
 
+  it("keeps a failed flow run that a later run of the same flow with other input finished", () => {
+    const sections = rows([], [
+      run("prod", "failed", { flow: "deploy", requested: `{"env":"prod"}`, startedAt: now - 9_000 }),
+      run("staging", "done", { flow: "deploy", requested: `{"env":"staging"}`, startedAt: now - 4_000 }),
+      run("fixed", "failed", { flow: "deploy", requested: `{"env":"qa"}`, startedAt: now - 8_000 }),
+      run("again", "done", { flow: "deploy", requested: `{"env":"qa"}`, startedAt: now - 3_000 })
+    ])
+    expect(shape(sections)).toEqual([
+      ["failed", ["flow:prod"]],
+      ["done", ["flow:staging", "flow:fixed", "flow:again"]]
+    ])
+  })
+
   it("keeps a closed Failed group to its heading among the keys a person moves over", () => {
     const sections = rows([tab("run", "running"), tab("broke", "failed"), tab("old", "done")])
     expect(Inbox.keys(sections, false)).toEqual(["run", Inbox.failedKey, "old"])
