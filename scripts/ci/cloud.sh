@@ -9,7 +9,7 @@
 # hours per push: run 11697 (2026-09-15) still had 4 tasks running and 35
 # queued after 20 minutes.
 #
-# So .smithers/workflows/ci.tsx batches the gates (53 as of 2026-09-30) into 7 tasks, and each
+# So .smithers/workflows/ci.tsx batches the gates (54 as of 2026-09-30) into 7 tasks, and each
 # task calls the group mode here:
 #
 #   bash scripts/ci/cloud.sh <gate>                  # one gate (unchanged)
@@ -435,6 +435,7 @@ gate_tools() {
     target-index) echo 'js' ;;
     fmt) echo 'js' ;;
     openapi-bundle) echo 'js' ;;
+    openapi-clients) echo 'js' ;;
     docs-drift) echo 'js' ;;
     api-baseline) echo 'js' ;;
     conflict-markers) echo 'js' ;;
@@ -635,6 +636,9 @@ run_gate() {
       ;;
     openapi-bundle)
       pnpm exec smthrs lint '//:openapiBundle' --known-red '.github/ci-known-red.json' --verbose
+      ;;
+    openapi-clients)
+      pnpm exec smthrs lint '//:openapiClients' --known-red '.github/ci-known-red.json' --verbose
       ;;
     docs-drift)
       pnpm exec smthrs lint '//scripts:docsDrift' --known-red '.github/ci-known-red.json' --verbose

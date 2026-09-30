@@ -115,6 +115,7 @@ describe("Smithers Cloud CI", () => {
   test("runs drift.yml's per-commit drift gates, in its order, as one task of their own", () => {
     const task = groups.find(({ id }) => id === "drift")
     expect(task).toBeDefined()
+    expect(task!.gates).toContain("openapi-clients")
     // First in the Parallel, so it is scheduled in the first runner wave.
     expect(groups[0]!.id).toBe("drift")
     const commandOf = (name: string) => {
@@ -125,6 +126,7 @@ describe("Smithers Cloud CI", () => {
     }
     const expected = runs(drift)
     expect(expected.length).toBeGreaterThan(0)
+    expect(expected).toContain("pnpm exec smthrs lint '//:openapiClients' --known-red '.github/ci-known-red.json' --verbose")
     for (const pattern of ["//...:fmt", "//scripts:docsDrift", "//scripts:apiBaseline", "//scripts:conflictMarkers"]) {
       expect(expected.some((command) => command.includes(`'${pattern}'`))).toBe(true)
     }

@@ -1,7 +1,7 @@
 import test from "node:test"
 import assert from "node:assert/strict"
 import { spawnSync } from "node:child_process"
-import { cpSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
+import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -23,6 +23,36 @@ const json = (schema) => ({ description: "ok", content: { "application/json": { 
 
 test("the committed clients are exactly what the committed spec produces", () => {
   assert.deepEqual(stale(), [], "run `smthrs run //:openapiClients` to regenerate the product API clients")
+})
+
+test("stdin imports expose operations without running the generator", () => {
+  const directory = mkdtempSync(join(tmpdir(), "openapi-clients-import-"))
+  try {
+    mkdirSync(join(directory, "scripts"))
+    mkdirSync(join(directory, "docs/api"), { recursive: true })
+    const script = join(directory, "scripts/openapi-clients.mjs")
+    cpSync(fileURLToPath(new URL("./openapi-clients.mjs", import.meta.url)), script)
+    symlinkSync(fileURLToPath(new URL("../node_modules", import.meta.url)), join(directory, "node_modules"))
+    const fixture = document({ "/stdin": { get: { operationId: "get_stdin", responses: {} } } })
+    writeFileSync(join(directory, "docs/api/openapi.yaml"), YAML.stringify(fixture))
+    for (const entrypoint of [undefined, "delete process.argv[1]", 'process.argv[1] = "missing.mjs"', 'process.argv[1] = "docs/api/openapi.yaml"']) {
+      const result = spawnSync(process.execPath, ["--input-type=module", "-"], {
+        cwd: directory,
+        encoding: "utf8",
+        input: `${entrypoint ?? ""};
+          import assert from "node:assert/strict";
+          const { operations } = await import("./scripts/openapi-clients.mjs");
+          assert.deepEqual(operations(${JSON.stringify(fixture)}).map(({ id }) => id), ["get_stdin"]);`
+      })
+      assert.equal(result.error, undefined)
+      assert.equal(result.status, 0, result.stderr)
+      assert.equal(result.stdout, "", "importing must not launch generation")
+      assert.equal(result.stderr, "")
+      assert.equal(existsSync(join(directory, "packages")), false, "importing must not write either client")
+    }
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
 })
 
 test("names follow each language's conventions", () => {
@@ -196,6 +226,11 @@ test("a spec change changes the clients, and --check reports the drift", () => {
     const run = (...args) => spawnSync(process.execPath, [join(directory, "scripts/openapi-clients.mjs"), ...args], { encoding: "utf8" })
     const missing = run("--check")
     assert.equal(missing.status, 1, "a missing client is drift")
+    const alias = join(directory, "scripts/clients-alias.mjs")
+    symlinkSync(join(directory, "scripts/openapi-clients.mjs"), alias)
+    const linked = spawnSync(process.execPath, [alias, "--check"], { encoding: "utf8" })
+    assert.equal(linked.status, 1, "a symlink invocation must execute the drift check")
+    assert.equal(linked.stderr, missing.stderr)
     const wrote = run()
     assert.equal(wrote.status, 0, wrote.stderr)
     assert.equal(wrote.stdout, "wrote packages/smithers/src/internal/backend/ProductApi.ts\nwrote packages/backend/apiclient/client.gen.go\n")

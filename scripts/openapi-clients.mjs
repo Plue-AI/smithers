@@ -747,7 +747,15 @@ export const stale = () =>
     }
   }).map(([file]) => relative(repository, file))
 
-if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
+const invokedAsScript = () => {
+  try {
+    return process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)
+  } catch {
+    return false
+  }
+}
+
+if (invokedAsScript()) {
   if (process.argv.includes("--check")) {
     const files = stale()
     for (const file of files) process.stderr.write(`${file} is stale; run \`smthrs run //:openapiClients\`\n`)

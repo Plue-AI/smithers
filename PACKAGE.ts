@@ -438,6 +438,7 @@ const driftCi = Smithers.GithubCiGen({
       { name: "Formatting", verb: Smithers.Verb.Lint, pattern: "//...:fmt" },
       { name: "Target index drift", verb: Smithers.Verb.Lint, pattern: "//:targetIndex" },
       { name: "OpenAPI bundle drift", verb: Smithers.Verb.Lint, pattern: "//:openapiBundle" },
+      { name: "OpenAPI client drift", verb: Smithers.Verb.Lint, pattern: "//:openapiClients" },
       { name: "Documentation drift", verb: Smithers.Verb.Lint, pattern: "//scripts:docsDrift" },
       { name: "Declaration baseline", verb: Smithers.Verb.Build, pattern: "//scripts:apiBaseline" },
       { name: "Conflict markers", verb: Smithers.Verb.Lint, pattern: "//scripts:conflictMarkers" },
