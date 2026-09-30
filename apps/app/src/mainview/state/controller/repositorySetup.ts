@@ -214,7 +214,10 @@ export function projectRecoveredSetup(current: RepositorySetup, recovered: Setup
       observeOnly: true, ...(input.manual ? { manual: input.manual } : {}), ...(receipt.error ? { error: receiptErrorLine(receipt.error) } : {}) } }
     if (input.operation === "evaluate") next.evaluation = receipt
     if (input.operation === "trial") next.trial = receipt
-    if (!terminal(receipt.phase) && !receipt.runId) next.request = { ...next.request!, state: "failed",
+    // A matched queued receipt is durable admission before any run exists.
+    // Keep observing that request; only a later execution phase without a
+    // recorded run is the legacy unknown-execution case.
+    if (receipt.phase !== "queued" && !terminal(receipt.phase) && !receipt.runId) next.request = { ...next.request!, state: "failed",
       error: "The previous setup has no recorded run to reconnect. Its execution state is unknown." }
   }
   if (policy && unchanged && (setup.state !== "found" || policy.revision > next.revision)) {

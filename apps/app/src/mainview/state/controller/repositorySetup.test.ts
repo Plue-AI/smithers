@@ -1248,6 +1248,16 @@ const recoveredInspection = (repo = "example/repo"): SetupRecoveryResponse => {
       inspection: { inspectedAt: 10, sources: [{ path: "README.md", status: "read", summary: "Actual source", revision: "abc" }],
         suggestedDraft: { ...setup.draft, cases: [{ id: "repo-case", name: "Repository case", input: "An example issue", expected: "A source-bound answer", required: true }] } } } } }
 }
+const recoveredQueued = (request?: { id: string; revision: number; digest: string }): SetupRecoveryResponse => {
+  const recovered = recoveredInspection()
+  if (recovered.setup.state !== "found") throw Error("fixture")
+  const input = { ...recovered.setup.input, operation: "evaluate" as const,
+    ...(request === undefined ? {} : { requestId: request.id, revision: request.revision, digest: request.digest }) }
+  recovered.setup = { state: "found", input, result: { requestId: input.requestId, revision: input.revision, digest: input.digest, workspaceId,
+    receipt: { requestId: input.requestId, revision: input.revision, digest: input.digest, operation: "evaluate", phase: "queued",
+      updatedAt: 10, results: [], evidence: [] } } }
+  return recovered
+}
 const setupCard = (t: Awaited<ReturnType<typeof fixture>>) => [...t.store.collections.cards.values()].find(card => card.kind === "repository-setup" && card.id !== "setup") as Extract<import("../AppState").Card, { kind: "repository-setup" }>
 
 // This is the actual absent-card/controller/store seam. Fixtures answer the
@@ -1405,7 +1415,95 @@ test("partial recovery failure never launches a fresh inspection or infers missi
   } finally { await t.close() }
 })
 
-test("expired unknown execution has a finite failure toast and its Retry only observes", async () => {
+test("a recovered queued admission stays on its original request through reload observation and does not overwrite edits", async () => {
+  const firstRead = deferred()
+  let reads = 0
+  const t = await fixture(async (body, method) => {
+    expect(method).toBe("GET")
+    if (reads++ === 0) { await firstRead.promise; const queued = await response(body, "queued").json(); delete queued.receipt.runId; return Response.json(queued) }
+    return response(body, reads === 2 ? "running" : "completed")
+  })
+  t.recovery.answer = async () => Response.json(recoveredQueued())
+  try {
+    await t.setup.openRepositorySetup("issues", "example/repo")
+    await until(() => setupCard(t).payload.request?.state === "running" && t.calls.length === 1)
+    const card = setupCard(t), id = card.payload.request!.id
+    expect(card.payload.receipt).toMatchObject({ requestId: id, phase: "queued" })
+    expect(card.payload.receipt?.runId).toBeUndefined()
+    expect(card.payload.request?.observeOnly).toBe(true)
+    expect(await t.setup.retryRepositorySetup(card.id)).toEqual({ value: "Setup reconnection requested." })
+    expect(t.calls).toHaveLength(1)
+    await t.setup.configureRepositorySetup(card.id, "budgetMinutes", 17)
+    firstRead.release()
+    await until(() => setupCard(t).payload.request?.state === "completed")
+    const done = setupCard(t).payload
+    expect(done.request).toMatchObject({ id, state: "completed", observeOnly: true })
+    expect(done.receipt).toMatchObject({ requestId: id, phase: "completed", runId: "run-1" })
+    expect(done.draft.budgetMinutes).toBe(17)
+    expect(t.calls.map(call => [call.method, call.body.requestId])).toEqual([["GET", id], ["GET", id], ["GET", id]])
+  } finally { firstRead.release(); await t.close() }
+})
+
+test("a locally accepted queued request reloads into read-only observation under the same id", async () => {
+  const held = deferred()
+  const first = await fixture(async (body, method) => {
+    if (method === "POST") { const queued = await response(body, "queued").json(); delete queued.receipt.runId; return Response.json(queued) }
+    await held.promise
+    return response(body, "running")
+  })
+  await first.setup.runRepositorySetup("setup", "evaluate")
+  await until(() => first.state().receipt?.phase === "queued" && first.calls.some(call => call.method === "GET"))
+  const accepted = first.state().request!
+  await first.close()
+  held.release(); await Promise.all(first.background)
+  let polls = 0
+  const second = await fixture(async (body, method) => {
+    expect(method).toBe("GET")
+    if (polls++ === 0) { const queued = await response(body, "queued").json(); delete queued.receipt.runId; return Response.json(queued) }
+    return response(body, polls === 2 ? "running" : "completed")
+  }, first.storage)
+  second.recovery.answer = async () => Response.json(recoveredQueued(accepted))
+  try {
+    second.setup.resumeRepositorySetups()
+    await until(() => second.state().request?.state === "completed")
+    expect(second.state().request).toMatchObject({ id: accepted.id, state: "completed", observeOnly: true })
+    expect(second.state().receipt).toMatchObject({ requestId: accepted.id, phase: "completed", runId: "run-1" })
+    expect(second.calls.map(call => [call.method, call.body.requestId])).toEqual([["GET", accepted.id], ["GET", accepted.id], ["GET", accepted.id]])
+  } finally { held.release(); await second.close() }
+})
+
+test("a recovered queued admission can settle failed before a run exists without a new launch", async () => {
+  const t = await fixture(async (body, method) => {
+    expect(method).toBe("GET")
+    const failed = await response(body, "failed").json()
+    delete failed.receipt.runId
+    return Response.json(failed)
+  })
+  t.recovery.answer = async () => Response.json(recoveredQueued())
+  try {
+    await t.setup.openRepositorySetup("issues", "example/repo")
+    await until(() => setupCard(t).payload.request?.state === "failed")
+    const card = setupCard(t)
+    expect(card.payload.request).toMatchObject({ id: "stored-inspection", state: "failed", observeOnly: true })
+    expect(card.payload.receipt).toMatchObject({ requestId: "stored-inspection", phase: "failed" })
+    expect(card.payload.receipt?.runId).toBeUndefined()
+    expect(t.calls.map(call => [call.method, call.body.requestId])).toEqual([["GET", "stored-inspection"]])
+  } finally { await t.close() }
+})
+
+test("an execution phase without a recorded run remains unknown rather than borrowing queued admission", () => {
+  const initial = initialSetup("example/repo", "issues", "maintainer")
+  const current = { ...initial, recovery: { id: "recover", baseRevision: 1, baseDigest: setupCandidate(initial),
+    adoptDraft: true, state: "requested" as const, registrationState: "unknown" as const } }
+  const recovered = recoveredQueued()
+  if (recovered.setup.state !== "found" || !recovered.setup.result.receipt) throw Error("fixture")
+  recovered.setup.result.receipt.phase = "running"
+  const projected = projectRecoveredSetup(current, recovered)
+  expect(projected.request).toMatchObject({ id: "stored-inspection", state: "failed", observeOnly: true })
+  expect(projected.request?.error).toContain("unknown")
+})
+
+test("queued observation outage has a finite failure toast and its Retry only observes", async () => {
   const t = await fixture(async (_body, method) => { expect(method).toBe("GET"); return Response.json({ message: "No recorded run" }, { status: 503 }) })
   const recovered = recoveredInspection()
   if (recovered.setup.state !== "found") throw Error("fixture")
@@ -1414,14 +1512,15 @@ test("expired unknown execution has a finite failure toast and its Retry only ob
     receipt: { requestId: input.requestId, revision: input.revision, digest: input.digest, operation: "apply", phase: "queued", updatedAt: 1, results: [], evidence: [] } } }
   t.recovery.answer = async () => Response.json(recovered)
   try {
-    await t.setup.openRepositorySetup("issues", "example/repo"); await Promise.all(t.background)
+    await t.setup.openRepositorySetup("issues", "example/repo")
+    await until(() => setupCard(t).payload.request?.state === "failed")
     const card = setupCard(t)
     expect(card.payload.request?.state).toBe("failed")
-    expect(card.payload.request?.error).toContain("unknown")
-    expect(t.calls).toEqual([])
+    expect(card.payload.request?.error).toBe("The host refused the request.")
+    expect(t.calls.map(call => call.method)).toEqual(["GET"])
     expect([...t.store.collections.toasts.values()].every(toast => toast.status !== "running")).toBe(true)
     await t.setup.retryRepositorySetup(card.id); await Promise.all(t.background)
-    expect(t.calls.map(call => call.method)).toEqual(["GET"])
+    expect(t.calls.map(call => call.method)).toEqual(["GET", "GET"])
     expect(setupCard(t).payload.receipt?.phase).toBe("queued")
   } finally { await t.close() }
 })
