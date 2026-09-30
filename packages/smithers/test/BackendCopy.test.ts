@@ -114,9 +114,9 @@ describe("actual copy transport", () => {
 })
 
 describe("SSH process receipts", () => {
-  it("preserves stdout, stderr, stdin, and nonzero status", async () => {
-    const { c } = await fixture()
-    const result = await remote(c, guest, "cat; printf error >&2; exit 7", 1000, Readable.from(["input"]))
+  it("preserves stdout, stderr, stdin, and nonzero status after delayed SSH startup", async () => {
+    const { c } = await fixture("sleep 1.1\nfor last do :; done\nexec /bin/bash -c \"$last\"\n")
+    const result = await remote(c, guest, "cat; printf error >&2; exit 7", 5000, Readable.from(["input"]))
     expect(result.code).toBe(7)
     expect(result.stdout.toString()).toBe("input")
     expect(result.stderr.toString()).toBe("error")
@@ -146,7 +146,7 @@ describe("SSH process receipts", () => {
   it("streams output without losing the completion receipt", async () => {
     const { c } = await fixture()
     const output = vi.spyOn(c, "output")
-    expect((await remote(c, guest, "printf hello; printf error >&2", 1000, undefined, false, true)).code).toBe(0)
+    expect((await remote(c, guest, "printf hello; printf error >&2", 5000, undefined, false, true)).code).toBe(0)
     expect(output).toHaveBeenCalled()
   })
 })
