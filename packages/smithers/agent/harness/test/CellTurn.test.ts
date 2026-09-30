@@ -3866,7 +3866,10 @@ describe("CellTurn unmoved workspace", () => {
     )
 
     expect(of(events, "unmoved-demanded")).toHaveLength(1)
-    expect(failure).toMatchObject({ code: "claim_unproven" })
+    expect(failure).toMatchObject({
+      code: "claim_unproven",
+      message: expect.stringContaining("handed back for a frame and came back still unrecorded")
+    })
     expect(of(events, "resolved")).toEqual([])
   })
 

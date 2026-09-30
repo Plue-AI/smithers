@@ -631,8 +631,10 @@ export class State extends Schema.Class<State>("flows/harness/CellTurn/State")({
     Schema.withDecodingDefaultKey(Effect.succeed(0))
   ),
   /**
-   * Completions this run may have bounced for an unmoved tree. Zero disarms
-   * the demand. See {@link defaultUnmovedDemands} and `UnmovedTree`.
+   * Completions this run may have bounced for an unmoved tree. The demand is
+   * issued only for a completion the claim brake reads as unsupported, so a
+   * `claimCap` of zero disarms it too. Zero disarms the demand. See
+   * {@link defaultUnmovedDemands} and `UnmovedTree`.
    */
   unmovedCap: NonNegativeSafeInt.pipe(
     Schema.withConstructorDefault(Effect.succeed(defaultUnmovedDemands)),

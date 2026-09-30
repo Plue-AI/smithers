@@ -1003,7 +1003,11 @@ export const judgeCompletion = (
     return {
       observed: event,
       demand: undefined,
-      unproven: refused ? CompletionClaim.unproven(found, state.claimDemands > 0, claim) : undefined,
+      // Either bounce handed the claim back: the unmoved demand spends its
+      // own cap in the claim brake's place.
+      unproven: refused
+        ? CompletionClaim.unproven(found, state.claimDemands + state.unmovedDemands > 0, claim)
+        : undefined,
       decision,
       sentenceDecision
     }
