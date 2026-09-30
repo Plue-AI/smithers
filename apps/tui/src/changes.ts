@@ -9,8 +9,9 @@ import { Effect, Schema } from "effect"
 import { execFile } from "node:child_process"
 import { createHash } from "node:crypto"
 import { constants } from "node:fs"
+import { realpathSync } from "node:fs"
 import { open, stat } from "node:fs/promises"
-import { resolve } from "node:path"
+import { isAbsolute, relative, resolve } from "node:path"
 import * as Subprocess from "./subprocess.ts"
 
 export interface Patch {
@@ -400,10 +401,29 @@ const observed = (binding: FlowBinding.Binding, call: Cell.Call, cwd: string, on
     return result
   })
 
+/**
+ * A named file as a shell receipt names it: relative to the workspace, else
+ * absolute. `./a.ts`, `/repo/a.ts` and `a.ts` are then one file of a run.
+ */
+const within = (cwd: string, path: string): string => {
+  const full = resolve(cwd, path)
+  const roots = [resolve(cwd)]
+  try {
+    roots.push(realpathSync(cwd))
+  } catch {
+    // An unreadable workspace keeps its spelled root.
+  }
+  for (const root of roots) {
+    const inside = relative(root, full)
+    if (inside !== "" && inside !== ".." && !inside.startsWith("../") && !isAbsolute(inside)) return inside
+  }
+  return full
+}
+
 /** A write flow's changes: the files its input names, read before and after. */
 const named = (binding: FlowBinding.Binding, call: Cell.Call, cwd: string, onPatch: (receipt: Receipt) => void) =>
   Effect.gen(function*() {
-    const files = paths(call.flowName, call.input)
+    const files = [...new Set(paths(call.flowName, call.input).map((path) => within(cwd, path)))]
     yield* Effect.sync(() => claim(cwd, files))
     const before = yield* Effect.promise(() => states(cwd, files))
     // Claimed again once it ends: a shell that started meanwhile saw no claim at the start.

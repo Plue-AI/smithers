@@ -6,6 +6,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   rmSync,
   statSync,
   unlinkSync,
@@ -503,6 +504,70 @@ describe("undo", () => {
     expect(await Undo.commit(cwd, Undo.chosen(plan, Undo.ready(plan)))).toBeUndefined()
     expect(get(cwd, "math.js")).toBe("export const add = (a, b) => a - b\n")
     expect(existsSync(join(cwd, "check.log"))).toBe(false)
+  })
+
+  for (
+    const [label, spelled] of [
+      ["./a.ts", (_cwd: string) => "./a.ts"],
+      ["an absolute path", (cwd: string) => join(cwd, "a.ts")],
+      ["the workspace's real absolute path", (cwd: string) => join(realpathSync(cwd), "a.ts")]
+    ] as const
+  ) {
+    it(`lists and undoes one file an edit named as ${label} and a shell command then wrote`, async () => {
+      const cwd = gitRepo()
+      put(cwd, "a.ts", "one\n")
+      gitCommit(cwd)
+      const r = recorder(cwd)
+      r.prompt("edit then shell")
+      r.cell()
+      const edit = await r.call("edit", { path: spelled(cwd) }, write(cwd, "a.ts", "two\n"))
+      expect(edit.receipts.flatMap((receipt) => receipt.patches.map((patch) => patch.path))).toEqual(["a.ts"])
+      expect(edit.receipts[0]!.patches[0]!.patch).toContain("--- a/a.ts")
+      await r.call("bash", { command: "echo three > a.ts" }, write(cwd, "a.ts", "three\n"))
+      r.settle()
+      const run = Undo.run(r.transcript())
+      expect(Undo.changes(run).map((change) => `${change.path} ${Undo.counts(change)}`)).toEqual(["a.ts +2 −2"])
+      const plan = await Undo.plan(cwd, run) as Undo.Plan
+      expect(plan.entries.map((entry) => [entry.path, entry.next, entry.refused])).toEqual([
+        ["a.ts", "one\n", undefined]
+      ])
+      const files = Undo.chosen(plan, Undo.ready(plan))
+      expect(await Undo.commit(cwd, files)).toBeUndefined()
+      expect(get(cwd, "a.ts")).toBe("one\n")
+      expect(Undo.done(files)).toBe("Undid a.ts")
+      const after = Transcript.undone(r.transcript(), plan.calls, Undo.recorded(plan, files), 9)
+      expect(Undo.possible(Undo.run(after))).toBe(false)
+    })
+  }
+
+  it("keeps a file named outside the workspace absolute, and refuses it", async () => {
+    const root = scratch()
+    const cwd = join(root, "repo")
+    mkdirSync(cwd)
+    put(root, "victim", "one\n")
+    const r = recorder(cwd)
+    r.prompt("outside")
+    r.cell()
+    const edit = await r.call("edit", { path: "../victim" }, write(root, "victim", "two\n"))
+    expect(edit.receipts[0]!.patches.map((patch) => patch.path)).toEqual([join(root, "victim")])
+    r.settle()
+    const plan = await Undo.plan(cwd, Undo.run(r.transcript())) as Undo.Plan
+    expect(entries(plan)).toEqual([{ path: join(root, "victim"), refused: "outside" }])
+    expect(get(root, "victim")).toBe("two\n")
+  })
+
+  it("restores the run's first content when a saved receipt spells one file two ways", async () => {
+    const cwd = scratch()
+    put(cwd, "a.ts", "three\n")
+    const edit = { ...forged("edit", Changes.patch("./a.ts", "one\n", "two\n")!), identity: "edit" }
+    const shell = { ...forged("bash", Changes.patch("a.ts", "two\n", "three\n")!), identity: "shell" }
+    const plan = await Undo.plan(cwd, [cellOf(edit, shell)]) as Undo.Plan
+    expect(plan.entries.map((entry) => [entry.path, entry.next, entry.refused])).toEqual([
+      ["./a.ts", "one\n", undefined],
+      ["a.ts", "one\n", undefined]
+    ])
+    expect(await Undo.commit(cwd, Undo.chosen(plan, Undo.ready(plan)))).toBeUndefined()
+    expect(get(cwd, "a.ts")).toBe("one\n")
   })
 
   it("captures only a named file while another worker edits elsewhere", async () => {

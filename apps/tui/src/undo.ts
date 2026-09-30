@@ -205,17 +205,21 @@ export const plan = async (
   for (const path of order) {
     if (outside(cwd, path)) refused.set(path, "outside")
   }
+  // Keyed by the file, not its spelling: a receipt from before paths were
+  // captured workspace-relative may name one file `./a.ts` and another `a.ts`.
   const seeded = new Map<string, string | null | undefined>()
   const state = new Map<string, string | null | undefined>()
   const modes = new Map<string, number>()
   const now = async (path: string) => {
-    if (!state.has(path)) {
-      const value = await read(resolve(cwd, path))
-      seeded.set(path, value)
-      state.set(path, value)
+    const file = resolve(cwd, path)
+    if (!state.has(file)) {
+      const value = await read(file)
+      seeded.set(file, value)
+      state.set(file, value)
     }
-    return state.get(path)
+    return state.get(file)
   }
+  const set = (path: string, value: string | null) => state.set(resolve(cwd, path), value)
   const blocked = (paths: ReadonlyArray<string>) =>
     paths.some((path) => [...group(path)].some((each) => refused.has(each)))
   // Newest first, each patch reversed over what the later ones left.
@@ -236,15 +240,15 @@ export const plan = async (
       continue
     }
     if (after === undefined && parsed.oldMode !== undefined) modes.set(path, parseInt(parsed.oldMode, 8) & 0o777)
-    if (before === undefined) state.set(path, null)
+    if (before === undefined) set(path, null)
     else if (before !== path) {
       if ((await now(before)) !== null) {
         refused.set(before, "changed")
         continue
       }
-      state.set(before, restored)
-      state.set(path, null)
-    } else state.set(path, restored)
+      set(before, restored)
+      set(path, null)
+    } else set(path, restored)
   }
   const reason = (path: string): Refusal | undefined => {
     const all = [...group(path)].flatMap((each) => refused.get(each) ?? [])
@@ -263,8 +267,8 @@ export const plan = async (
       kept.push({ ...shared, ...(was === undefined ? {} : { state: was }), refused: why })
       continue
     }
-    const current = seeded.get(path)
-    const next = state.get(path)
+    const current = seeded.get(resolve(cwd, path))
+    const next = state.get(resolve(cwd, path))
     if (current === undefined || next === undefined) {
       kept.push({ ...shared, refused: "changed" })
       continue
