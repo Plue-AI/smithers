@@ -6,12 +6,15 @@
 import * as ScriptedJudge from "@smthrs/agent/ScriptedJudge"
 import { Control, ControlRuntime } from "@smthrs/control"
 import type { RunId } from "@smthrs/control/ControlSchema"
+import * as NodeDatabase from "@smthrs/database/node/NodeDatabase"
 import { Action, Flow, HumanTask, Interpreter } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"
 import * as Executable from "@smthrs/registry/Executable"
 import { Effect, Layer, Schema } from "effect"
+import { SqlClient } from "effect/unstable/sql/SqlClient"
 import { Cli } from "incur"
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { randomUUID } from "node:crypto"
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { DatabaseSync } from "node:sqlite"
@@ -85,34 +88,47 @@ afterEach(() => {
   ran.length = 0
 })
 
-/** A project whose `steps` run recorded both steps and parked on its task. */
-const parkedProject = async () => {
+/** A project whose `steps` runs recorded both steps and parked on their task; `cancelled` more are then cancelled. */
+const parkedProject = async (runs = 1, cancelled = 0) => {
   const root = mkdtempSync(join(tmpdir(), "smithers-verify-"))
   roots.push(root)
   mkdirSync(join(root, "flows", "steps"), { recursive: true })
   writeFileSync(join(root, "flows", "steps", "flow.ts"), moduleSource)
   const registry = NodeControl.layerRegistry(root)
   const engine = NodeControl.engineDurable(root, registry)
-  const runId = await Effect.runPromise(
+  const runIds = await Effect.runPromise(
     Effect.gen(function*() {
       const control = yield* Control.Control
-      const card = yield* control.plan({ flowId: "steps", input: {} })
-      yield* control.approve(card.approval)
-      const launched = yield* control.run({
-        _tag: "Plan",
-        planId: card.planId,
-        digest: card.digest,
-        envelope: card.envelope,
-        idempotencyKey: "start"
-      })
-      if (launched._tag !== "Accepted" || launched.runId === undefined) return yield* Effect.die("not accepted")
       const runtime = yield* ControlRuntime.ControlRuntime
-      for (let attempt = 0; attempt < 1_000; attempt++) {
-        const run = yield* runtime.getRun(launched.runId)
-        if (run.status === "parked") return launched.runId
-        yield* Effect.sleep("10 millis")
+      const launch = (key: string) =>
+        Effect.gen(function*() {
+          const card = yield* control.plan({ flowId: "steps", input: { key } })
+          yield* control.approve(card.approval)
+          const launched = yield* control.run({
+            _tag: "Plan",
+            planId: card.planId,
+            digest: card.digest,
+            envelope: card.envelope,
+            idempotencyKey: key
+          })
+          if (launched._tag !== "Accepted" || launched.runId === undefined) return yield* Effect.die("not accepted")
+          for (let attempt = 0; attempt < 1_000; attempt++) {
+            const run = yield* runtime.getRun(launched.runId)
+            if (run.status === "parked") return launched.runId
+            yield* Effect.sleep("10 millis")
+          }
+          return yield* Effect.die("the run never parked")
+        })
+      const ids: Array<RunId> = []
+      for (let index = 0; index < runs + cancelled; index++) ids.push(yield* launch(`start-${index}`))
+      for (const runId of ids.slice(runs)) {
+        yield* control.cancel({ runId, idempotencyKey: `cancel-${runId}`, reason: "fixture" })
+        for (let attempt = 0; attempt < 1_000; attempt++) {
+          if ((yield* runtime.getRun(runId)).status === "cancelled") break
+          yield* Effect.sleep("10 millis")
+        }
       }
-      return yield* Effect.die("the run never parked")
+      return ids
     }).pipe(
       Effect.provide(Layer.merge(
         NodeControl.layerControl({ root, evaluator: ScriptedJudge.layer }, registry, engine, modulesFor(Second)),
@@ -122,7 +138,7 @@ const parkedProject = async () => {
       Effect.timeout("60 seconds")
     )
   )
-  return { root, runId: runId as RunId }
+  return { root, runId: runIds[0]!, runIds }
 }
 
 const storeBytes = (root: string) =>
@@ -198,15 +214,114 @@ it("names the step that would execute and the steps that would not replay", () =
     .toBe("Resuming r would execute new work again; 0 recorded step(s) would not replay: ")
 })
 
-it("refuses a PostgreSQL-backed project before copying anything", async () => {
-  vi.stubEnv("SMITHERS_POSTGRES_URL", "postgres://localhost/unused")
-  vi.stubEnv("SMITHERS_BACKEND", undefined)
+it("verifies every run a store holds and lists the settled ones apart", async () => {
+  const { root, runIds } = await parkedProject(2, 1)
+  const before = storeBytes(root)
+  const summary = await Verify.verifyAll(root, { modules: modulesFor(Second) })
+  expect(summary.verdict).toBe("consistent")
+  expect(summary.reports.map((report) => [report.runId, report.verdict])).toEqual([
+    [runIds[0], "consistent"],
+    [runIds[1], "consistent"]
+  ])
+  // Each report holds its own run tree's dispatches, never a sibling's.
+  for (const report of summary.reports) {
+    expect(report.replayed.map((step) => step.action)).toEqual(["verify/first", "verify/second"])
+  }
+  expect(summary.settled).toEqual([{ runId: runIds[2], status: "cancelled" }])
+  expect(summary.unverified).toEqual([])
+  expect(storeBytes(root)).toEqual(before)
+
+  const divergent = await Verify.verifyAll(root, { modules: modulesFor(Renamed) })
+  expect(divergent.verdict).toBe("divergent")
+  expect(divergent.reports.map((report) => report.executes?.action)).toEqual([
+    "verify/second-renamed",
+    "verify/second-renamed"
+  ])
+  expect(Verify.storeDivergence(divergent).message).toBe(
+    divergent.reports.map((report) => Verify.divergence(report).message).join("\n")
+  )
+  expect(ran).toEqual(Array(3).fill(["verify/first", "verify/second"]).flat())
+}, 240_000)
+
+it("lists a run whose copy does not stop in time instead of ending the whole verification", async () => {
+  const { root, runId } = await parkedProject()
+  const summary = await Verify.verifyAll(root, { modules: modulesFor(Second), settleWithin: "1 millis" })
+  expect(summary.reports).toEqual([])
+  expect(summary.unverified).toEqual([
+    { runId, code: "verify_timeout", message: `The copy of ${runId} did not stop replaying in time` }
+  ])
+  expect(summary.verdict).toBe("consistent")
+}, 240_000)
+
+it("verifies a store elsewhere against the project's flows", async () => {
+  const { root, runId } = await parkedProject()
+  const elsewhere = mkdtempSync(join(tmpdir(), "smithers-verify-against-"))
+  roots.push(elsewhere)
+  cpSync(join(root, ".flows"), elsewhere, { recursive: true })
+  rmSync(join(root, ".flows"), { recursive: true, force: true })
+  const summary = await Verify.verifyAll(root, { modules: modulesFor(Second), against: join(elsewhere, "engine.db") })
+  expect(summary.reports.map((report) => [report.runId, report.verdict])).toEqual([[runId, "consistent"]])
+  const one = await Verify.verify(root, runId, { modules: modulesFor(Second), against: join(elsewhere, "engine.db") })
+  expect(one.replayed.map((step) => step.action)).toEqual(["verify/first", "verify/second"])
+  // No store under the project itself was created or read.
+  expect(existsSync(join(root, ".flows", "engine.db"))).toBe(false)
+  await expect(Verify.verifyAll(root, { against: join(root, "missing", "engine.db") })).rejects.toMatchObject({
+    code: "history_missing"
+  })
+}, 240_000)
+
+it("verifies a PostgreSQL-backed project on a schema copy it drops afterwards", async () => {
+  // The prefix names every store's schema by its file's basename, so a
+  // scratch `engine.db` would alias the original: the copy is named apart.
+  const prefix = `test_verify_${randomUUID().replaceAll("-", "").slice(0, 16)}`
+  vi.stubEnv("SMITHERS_POSTGRES_URL", process.env.SMITHERS_HISTORY_TEST_PG_URL!)
+  vi.stubEnv("SMITHERS_POSTGRES_SCHEMA", prefix)
+  vi.stubEnv("SMITHERS_BACKEND", "postgres")
+  const admin = <A, E>(body: Effect.Effect<A, E, SqlClient>) =>
+    Effect.runPromise(body.pipe(Effect.provide(NodeDatabase.layer({ filename: `${process.env.SMITHERS_HISTORY_TEST_PG_URL!}?schema=public` }))))
+  const schemas = () =>
+    admin(Effect.flatMap(SqlClient, (sql) =>
+      sql<{ name: string }>`SELECT nspname AS name FROM pg_namespace WHERE nspname LIKE ${`${prefix}%`} ORDER BY nspname`
+    )).then((rows) => rows.map((row) => row.name))
+  const rows = () =>
+    admin(Effect.flatMap(SqlClient, (sql) =>
+      sql<{ count: number }>`SELECT
+        (SELECT count(*) FROM ${sql(`${prefix}_engine_db`)}.flows_journal_events)
+        + (SELECT count(*) FROM ${sql(`${prefix}_engine_db`)}.flows_attempts)
+        + (SELECT count(*) FROM ${sql(`${prefix}_control_db`)}.flows_journal_events) AS count`
+    )).then(([row]) => Number(row!.count))
   try {
-    await expect(Verify.verify(tmpdir(), "run-1")).rejects.toMatchObject({ code: "verify_unsupported_backend" })
+    const { root, runId } = await parkedProject()
+    expect(existsSync(join(root, ".flows", "engine.db"))).toBe(false)
+    expect(await schemas()).toEqual([`${prefix}_control_db`, `${prefix}_engine_db`])
+    const before = await rows()
+    const consistent = await Verify.verify(root, runId, { modules: modulesFor(Second) })
+    expect(consistent.verdict).toBe("consistent")
+    expect(consistent.replayed.map((step) => step.action)).toEqual(["verify/first", "verify/second"])
+    expect(consistent.resumes?.action).toBe("system/human-task")
+    const divergent = await Verify.verify(root, runId, { modules: modulesFor(Renamed) })
+    expect(divergent.verdict).toBe("divergent")
+    expect(divergent.executes?.action).toBe("verify/second-renamed")
+    // A prefix that leaves no room for a scratch name is refused before any copy.
+    vi.stubEnv("SMITHERS_POSTGRES_SCHEMA", `${prefix}_${"x".repeat(63 - prefix.length - 12)}`)
+    await expect(Verify.verify(root, runId, { modules: modulesFor(Second) })).rejects.toMatchObject({
+      code: "verify_schema_too_long"
+    })
+    vi.stubEnv("SMITHERS_POSTGRES_SCHEMA", prefix)
+    // The originals are untouched and every scratch schema is gone.
+    expect(await rows()).toBe(before)
+    expect(await schemas()).toEqual([`${prefix}_control_db`, `${prefix}_engine_db`])
+    expect(ran).toEqual(["verify/first", "verify/second"])
   } finally {
+    await admin(Effect.gen(function*() {
+      const sql = yield* SqlClient
+      for (const name of yield* sql<{ name: string }>`SELECT nspname AS name FROM pg_namespace WHERE nspname LIKE ${
+        `${prefix}%`
+      }`) yield* sql`DROP SCHEMA ${sql(name.name)} CASCADE`
+    })).catch(() => undefined)
     vi.unstubAllEnvs()
   }
-})
+}, 240_000)
 
 it("collects recorded steps across spawned runs and names them from node records", async () => {
   const root = mkdtempSync(join(tmpdir(), "smithers-verify-recorded-"))

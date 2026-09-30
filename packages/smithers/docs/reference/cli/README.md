@@ -240,12 +240,19 @@ that is gone, or whose new code the host cannot load, has nothing to adopt:
 the resume refuses with `CodeDrift` and leaves the run where it was.
 
 `runs verify <run>` says what such a resume would do before anything runs. It
-copies the local SQLite stores, resumes the copy with an engine that executes no
-action body, and reports the recorded steps that replay, a recorded step that
-never finished and would be re-entered (`resumes`), the first step that would
-execute (`executes`), and the recorded steps nothing asked for (`notReplayed`).
-It exits 1 with `run_divergent` when a recorded step would be dropped or
-re-keyed. The project's stores are only read.
+copies the stores, resumes the copy with an engine that executes no action body,
+and reports the recorded steps that replay, a recorded step that never finished
+and would be re-entered (`resumes`), the first step that would execute
+(`executes`), and the recorded steps nothing asked for (`notReplayed`). It exits
+1 with `run_divergent` when a recorded step would be dropped or re-keyed. The
+project's stores are only read: a SQLite store is copied with `VACUUM INTO`, a
+PostgreSQL one into a scratch schema that is dropped afterwards.
+
+Without a run, `runs verify` reports every run the store holds, one report per
+run a resume can take, and lists the settled ones under `settled`; it exits 1
+when any run diverges. `--against <engine.db>` verifies the store at that path,
+with the `control.db` beside it, under the project's current flows: an old
+snapshot, or another checkout's stores.
 
 A fork can resume only after its retained workspace and public run identity
 have both been reconciled. A workspace link left behind by an interrupted or

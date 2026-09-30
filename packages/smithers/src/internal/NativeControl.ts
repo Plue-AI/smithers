@@ -288,6 +288,8 @@ export interface ExecutorOptions {
   readonly executionRoot?: string | undefined
   /** Where `engine.db` lives, when that is not the project root. */
   readonly stateRoot?: string | undefined
+  /** The database files, when they are not under `stateRoot`; see `Application.Config.databases`. */
+  readonly databases?: Application.Databases | undefined
   /** Replays recorded steps and executes none; see `Application.Config.replayOnly`. */
   readonly replayOnly?: Layer.Layer<ReplayOnly.ReplayOnly> | undefined
   /**
@@ -835,12 +837,15 @@ export const make = (
   const engineDurable = (
     root: string,
     registry?: Layer.Layer<Registry.Registry> | undefined,
-    authority: Pick<Application.Config, "approvalAuthority" | "principal" | "credential" | "stateRoot"> = {}
+    authority: Pick<
+      Application.Config,
+      "approvalAuthority" | "principal" | "credential" | "stateRoot" | "databases"
+    > = {}
   ): EngineDurable => {
     // `root` names the project; `stateRoot` names where its databases live. A
     // host served over a live working copy separates the two so the control
     // plane's own writes are not edits to the code a run is reading.
-    const file = databasePath(authority.stateRoot ?? root)
+    const file = authority.databases?.control ?? databasePath(authority.stateRoot ?? root)
     const host = emptyHost()
     const authorization = {
       principal: authority.principal,
@@ -1065,6 +1070,7 @@ export const make = (
     // Same separation `engineDurable` makes for `control.db`: `engine.db` and
     // its WAL follow the state root, never the served checkout.
     const stateRoot = resolve(options.stateRoot ?? root)
+    const engineFile = options.databases?.engine ?? executionDatabasePath(stateRoot)
     // Every capability this executor equips a run with belongs to the checkout
     // the run executes in, which is the fork's worktree once history resumed one
     // and the project root otherwise. `root` still names the project: its
@@ -1566,7 +1572,7 @@ export const make = (
     )
     const nativeRuntime = native.runtime(
       {
-        filename: executionDatabasePath(stateRoot),
+        filename: engineFile,
         workspaceRoot,
         // The machine's own name, for the same reason `engineDurable` stamps
         // it: `sameHostPidProbe` compares `hostId` before it trusts a pid, and
@@ -1601,7 +1607,7 @@ export const make = (
       Layer.provide([platform, native.crypto, engineJj]),
       // Resolved by the engine at composition, like its sandboxes.
       (runtime) => options.replayOnly === undefined ? runtime : Layer.provide(runtime, options.replayOnly),
-      Layer.tap(() => secureSqliteFiles(executionDatabasePath(stateRoot)).pipe(Effect.provide(native.host))),
+      Layer.tap(() => secureSqliteFiles(engineFile).pipe(Effect.provide(native.host))),
       // Failure to open or migrate the local execution engine is a startup
       // defect, just like the control database above: no command can execute
       // honestly without this composition.
@@ -1665,6 +1671,7 @@ export const make = (
         mcpServers: config.mcpServers ?? [],
         executionRoot: config.executionRoot ?? root,
         ...(config.stateRoot === undefined ? {} : { stateRoot: config.stateRoot }),
+        ...(config.databases === undefined ? {} : { databases: config.databases }),
         ...(config.replayOnly === undefined ? {} : { replayOnly: config.replayOnly }),
         ...(config.rebuildAuthoredFlows === undefined ? {} : { rebuildAuthoredFlows: config.rebuildAuthoredFlows }),
         ...(config.sandboxProviders === undefined ? {} : { sandboxProviders: config.sandboxProviders }),
@@ -1779,13 +1786,13 @@ export const make = (
   const layerObserve = (config: Application.Config, registry: Layer.Layer<Registry.Registry>) => {
     const stateRoot = config.stateRoot ?? config.root ?? process.cwd()
     const stores = Layer.mergeAll(SqlJournal.layer({ capacity: 1024, overflow: "reject" }), Layer.fresh(RunStore.layer))
-      .pipe(Layer.provideMerge(native.observe(databasePath(stateRoot))), Layer.orDie)
+      .pipe(Layer.provideMerge(native.observe(config.databases?.control ?? databasePath(stateRoot))), Layer.orDie)
     const runtime = SqlControlRuntime.layer({
       approvalAuthority: config.approvalAuthority ?? ApprovalAuthority.local,
       principal: config.principal,
       engineVersion: packageVersion
     }).pipe(Layer.provide([stores, native.crypto]), Layer.orDie)
-    const engineFile = executionDatabasePath(stateRoot)
+    const engineFile = config.databases?.engine ?? executionDatabasePath(stateRoot)
     const executor = Layer.effect(ControlExecutor.ControlExecutor)(Effect.gen(function*() {
       const engine = DatabaseLocation.exists(engineFile)
         ? yield* Layer.build(

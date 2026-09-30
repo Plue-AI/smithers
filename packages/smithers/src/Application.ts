@@ -25,6 +25,17 @@ import * as ExecutorOwnership from "./ExecutorOwnership.ts"
 import * as LocalControl from "./internal/LocalControl.ts"
 
 /**
+ * The two database files a local composition opens.
+ *
+ * @since 1.0.0
+ * @category models
+ */
+export interface Databases {
+  readonly control: string
+  readonly engine: string
+}
+
+/**
  * Everything the durable layers need to know before any flag is parsed.
  *
  * The composition roots are built from this, and they are built before the
@@ -78,6 +89,14 @@ export interface Config {
    * the very code a run is reading.
    */
   readonly stateRoot?: string | undefined
+  /**
+   * The control and engine database files, when they are not
+   * `.flows/control.db` and `.flows/engine.db` under {@link Config.stateRoot}.
+   * The engine's artifacts follow the engine file's directory. `smthrs runs
+   * verify` points them at its copy of the stores, named apart from the
+   * originals so an environment-selected PostgreSQL schema is a new one too.
+   */
+  readonly databases?: Databases | undefined
   /**
    * Composes the local engine replay-only: a recorded step replays, and a step
    * the current code would execute stops the run instead. `smthrs runs verify`

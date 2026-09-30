@@ -53,7 +53,9 @@ Current-state commands accept the connection options `--root` and `--remote`, an
 
 ## Verify against current code
 
-`runs verify <run>` reports what `runs resume` would do under the flow code now on disk, before anything runs. It resumes a copy of the project's stores with an engine that executes no action code, and lists the recorded steps that `replayed`, the first step that would execute again (`executes`), and the recorded steps nothing asked for (`notReplayed`). It exits `0` when every recorded step replays and `1` with `run_divergent` when a recorded step would be dropped or re-keyed. The project's own stores are only read. It needs the local SQLite stores.
+`runs verify <run>` reports what `runs resume` would do under the flow code now on disk, before anything runs. It resumes a copy of the project's stores with an engine that executes no action code, and lists the recorded steps that `replayed`, the first step that would execute again (`executes`), and the recorded steps nothing asked for (`notReplayed`). It exits `0` when every recorded step replays and `1` with `run_divergent` when a recorded step would be dropped or re-keyed. The project's own stores are only read: SQLite stores are copied with `VACUUM INTO`, PostgreSQL ones into scratch schemas that are dropped afterwards.
+
+Without a run, `runs verify` reports every run the store holds (settled runs are listed under `settled`) and exits `1` when any diverges. `--against <engine.db>` verifies the store at that path, with the `control.db` beside it, under the project's current flows.
 
 ## Fork or rewind
 

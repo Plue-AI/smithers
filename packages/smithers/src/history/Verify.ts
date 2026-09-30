@@ -10,6 +10,11 @@
  * a recorded step served from its record replays, and the first step no record
  * serves stops the run before its body. The original stores are only read.
  *
+ * `--against <engine.db>` verifies every run stored in that engine store (with
+ * the `control.db` beside it) under the project's current flows. A SQLite store
+ * is copied with `VACUUM INTO`; a PostgreSQL one schema by schema
+ * (`StoreCopy`).
+ *
  * @since 1.0.0
  */
 
@@ -21,16 +26,19 @@ import * as ReplayOnly from "@smthrs/engine-store/ReplayOnly"
 import * as Evaluator from "@smthrs/model/Evaluator"
 import { type Duration, Effect, Layer } from "effect"
 import { SqlClient } from "effect/unstable/sql/SqlClient"
+import { randomBytes } from "node:crypto"
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join, resolve } from "node:path"
 import * as CliError from "../CliError.ts"
 import { databasePath } from "../internal/ControlDatabasePath.ts"
+import type * as Application from "../Application.ts"
 import * as DatabaseLocation from "../internal/DatabaseLocation.ts"
 import { executionDatabasePath } from "../internal/ExecutionDatabasePath.ts"
 import type * as NativeControl from "../internal/NativeControl.ts"
 import * as NodeControl from "../NodeControl.ts"
 import * as Project from "../Project.ts"
+import * as StoreCopy from "./StoreCopy.ts"
 
 /**
  * One step of the run, by the key its attempts are recorded under.
@@ -72,6 +80,32 @@ export interface Report {
 }
 
 /**
+ * A run the store holds that no resume can take: it already settled.
+ *
+ * @since 1.0.0
+ * @category models
+ */
+export interface Settled {
+  readonly runId: string
+  readonly status: "completed" | "failed" | "cancelled"
+}
+
+/**
+ * What resuming every run a store holds would do: one {@link Report} per run a
+ * resume can take, the settled runs it cannot, and the runs whose resume was
+ * refused ({@link Unverified}). The store is `divergent` when any report is.
+ *
+ * @since 1.0.0
+ * @category models
+ */
+export interface Summary {
+  readonly verdict: "consistent" | "divergent"
+  readonly reports: ReadonlyArray<Report>
+  readonly settled: ReadonlyArray<Settled>
+  readonly unverified: ReadonlyArray<Unverified>
+}
+
+/**
  * The seams a verification runs over; tests supply the flow modules a host
  * would load.
  *
@@ -80,8 +114,14 @@ export interface Report {
  */
 export interface Options {
   readonly modules?: NativeControl.ModuleRegistration | undefined
-  /** How long the resumed copy may take to stop; defaults to ten minutes. */
+  /** How long each resumed copy may take to stop; defaults to ten minutes. */
   readonly settleWithin?: Duration.Input | undefined
+  /**
+   * The engine store to verify, with the `control.db` beside it; the
+   * project's own `.flows/engine.db` by default. The flows are always the
+   * project's.
+   */
+  readonly against?: string | undefined
 }
 
 const refused = (fault: CliError.Fault, code: string, message: string): CliError.Refused =>
@@ -154,9 +194,6 @@ const reading = <A, E>(filename: string, body: Effect.Effect<A, E, SqlClient>) =
 export const recordedSteps = (filename: string, runId: string): Effect.Effect<ReadonlyArray<Step>, unknown> =>
   reading(filename, Effect.flatMap(tree(runId), recorded))
 
-/** A consistent copy of one SQLite store, read in a single read transaction. */
-const snapshot = (from: string, to: string) => reading(from, Effect.flatMap(SqlClient, (sql) => sql`VACUUM INTO ${to}`))
-
 /** The run once it has moved past `since` and stopped moving. */
 const settled = (runId: RunId, since: number) =>
   Effect.gen(function*() {
@@ -167,6 +204,191 @@ const settled = (runId: RunId, since: number) =>
       yield* Effect.sleep("20 millis")
     }
   })
+
+/** The stores a verification reads: the project's, or an engine store and the control store beside it. */
+const storesOf = (root: string, against: string | undefined): Application.Databases => {
+  if (against === undefined) return { engine: executionDatabasePath(root), control: databasePath(root) }
+  const engine = resolve(against)
+  return { engine, control: join(dirname(engine), "control.db") }
+}
+
+/** The runs the control store launched, oldest first. */
+const storedRuns = (control: string) =>
+  reading(
+    control,
+    Effect.flatMap(SqlClient, (sql) => sql<{ run_id: string }>`SELECT run_id FROM control_runs ORDER BY created_seq`)
+  ).pipe(Effect.map((rows) => rows.map((row) => row.run_id)))
+
+const terminal = (status: string): status is Settled["status"] =>
+  status === "completed" || status === "failed" || status === "cancelled"
+
+/**
+ * A run the store holds that verification could not resume, with the refusal's
+ * own code: a run another host still owns, or a copy that did not stop in time.
+ *
+ * @since 1.0.0
+ * @category models
+ */
+export interface Unverified {
+  readonly runId: string
+  readonly code: string
+  readonly message: string
+}
+
+/** What one target's verification came to. */
+type Outcome =
+  | { readonly _tag: "Report"; readonly report: Report }
+  | { readonly _tag: "Settled"; readonly settled: Settled }
+
+/** The code and sentence a typed refusal carries, for a run a bulk verification skips. */
+const unverified = (runId: string, error: unknown): Unverified => {
+  const own = error as { readonly code?: unknown; readonly _tag?: unknown; readonly message?: unknown }
+  return {
+    runId,
+    code: typeof own.code === "string" ? own.code : typeof own._tag === "string" ? own._tag : "verify_failed",
+    message: typeof own.message === "string" ? own.message : String(error)
+  }
+}
+
+/**
+ * Removes every copy that exists, each attempt independent of the others, and
+ * refuses when one could not be removed: a leaked scratch schema is named, not
+ * silently kept.
+ */
+const discardAll = (copies: ReadonlyArray<string>) =>
+  Effect.gen(function*() {
+    const left: Array<string> = []
+    for (const copy of copies) {
+      const exit = yield* Effect.exit(StoreCopy.discard(copy))
+      if (exit._tag === "Failure") left.push(StoreCopy.postgres(copy)?.schema ?? copy)
+    }
+    if (left.length > 0) {
+      return yield* Effect.die(
+        refused("infra", "verify_cleanup_failed", `Verification could not remove its copies: ${left.join(", ")}`)
+      )
+    }
+  })
+
+/**
+ * Resumes a fresh copy of one run replay-only under the project's flows. The
+ * baseline is read from that same copy, so both sides are one moment of the
+ * store, and no other run's resume has touched it. `all` reports a settled
+ * run apart instead of resuming it.
+ */
+const one = (
+  root: string,
+  stores: Application.Databases,
+  runId: string,
+  options: Options,
+  all: boolean
+): Effect.Effect<Outcome, unknown> =>
+  Effect.gen(function*() {
+    const scratch = mkdtempSync(join(tmpdir(), "smthrs-verify-"))
+    // Named apart from the originals, and short: an environment-selected
+    // PostgreSQL schema is its prefix plus the file's basename, so `engine.db`
+    // again would be the original's schema.
+    const id = randomBytes(4).toString("hex")
+    const copies: Application.Databases = {
+      engine: join(Project.stateDirectory(scratch), `v${id}e.db`),
+      control: join(Project.stateDirectory(scratch), `v${id}c.db`)
+    }
+    const made: Array<string> = []
+    const observed: Array<ReplayOnly.Dispatch> = []
+    return yield* Effect.gen(function*() {
+      mkdirSync(Project.stateDirectory(scratch), { recursive: true })
+      for (const copy of [copies.engine, copies.control]) {
+        const schema = StoreCopy.postgres(copy)?.schema
+        if (schema !== undefined && Buffer.byteLength(schema) > 63) {
+          return yield* Effect.fail(refused(
+            "user",
+            "verify_schema_too_long",
+            `The scratch schema ${schema} is longer than PostgreSQL allows; shorten SMITHERS_POSTGRES_SCHEMA`
+          ))
+        }
+      }
+      for (const [from, to] of [[stores.engine, copies.engine], [stores.control, copies.control]] as const) {
+        yield* StoreCopy.copy(from, to)
+        made.push(to)
+      }
+      const steps = yield* recordedSteps(copies.engine, runId)
+      const registry = NodeControl.layerRegistry(root)
+      const engine = NodeControl.engineDurable(root, registry, { stateRoot: scratch, databases: copies })
+      const control = NodeControl.layerControl(
+        {
+          root,
+          stateRoot: scratch,
+          databases: copies,
+          replayOnly: ReplayOnly.layer((dispatch) => Effect.sync(() => observed.push(dispatch))),
+          // A replay-only run never reaches a completion to judge, so it needs no model seat.
+          evaluator: Evaluator.layerUnavailable()
+        },
+        registry,
+        engine,
+        options.modules
+      )
+      const drove = yield* Effect.gen(function*() {
+        const runtime = yield* ControlRuntime.ControlRuntime
+        const before = yield* runtime.getRun(runId as RunId)
+        if (all && terminal(before.status)) return { runId, status: before.status } satisfies Settled
+        yield* (yield* Control.Control).resume({
+          runId: runId as RunId,
+          idempotencyKey: `verify:${runId}`,
+          allowCodeDrift: true
+        })
+        yield* settled(runId as RunId, before.updatedAt).pipe(
+          Effect.timeoutOrElse({
+            duration: options.settleWithin ?? "10 minutes",
+            orElse: () =>
+              Effect.fail(refused("wait", "verify_timeout", `The copy of ${runId} did not stop replaying in time`))
+          })
+        )
+        return undefined
+      }).pipe(Effect.provide(Layer.merge(control, engine.runtime)), Effect.scoped)
+      if (drove !== undefined) return { _tag: "Settled", settled: drove } satisfies Outcome
+      // The drive may have spawned runs the original never recorded.
+      const runs = new Set(yield* reading(copies.engine, tree(runId)))
+      return {
+        _tag: "Report",
+        report: report(runId, steps, observed.filter((dispatch) => runs.has(dispatch.runId)))
+      } satisfies Outcome
+    }).pipe(
+      // Only copies this verification made are removed: a copy that failed
+      // rolled its own schema back, and nothing else is ever dropped.
+      Effect.ensuring(Effect.suspend(() => discardAll(made))),
+      Effect.ensuring(Effect.sync(() => rmSync(scratch, { recursive: true, force: true })))
+    )
+  })
+
+/** The stores a verification reads, refused when they are not there. */
+const existing = (root: string, options: Options): Application.Databases => {
+  const stores = storesOf(root, options.against)
+  if (!DatabaseLocation.exists(stores.engine) || !DatabaseLocation.exists(stores.control)) {
+    throw refused("user", "history_missing", `No execution history at ${dirname(stores.engine)}`)
+  }
+  return stores
+}
+
+/** One run's report from what its original recorded and what its copy dispatched. */
+const report = (runId: string, steps: ReadonlyArray<Step>, own: ReadonlyArray<ReplayOnly.Dispatch>): Report => {
+  const name = (dispatch: ReplayOnly.Dispatch): Step => ({
+    ...steps.find((step) => step.stepKeyDigest === dispatch.stepKeyDigest),
+    stepKeyDigest: dispatch.stepKeyDigest,
+    action: dispatch.action
+  })
+  const replayed = own.filter((dispatch) => dispatch.outcome === "replayed").map(name)
+  const first = own.find((dispatch) => dispatch.outcome === "would-execute")
+  const resumed = own.find((dispatch) => dispatch.outcome === "resumes")
+  const served = new Set(replayed.map((step) => step.stepKeyDigest))
+  const notReplayed = steps.filter((step) => !served.has(step.stepKeyDigest))
+  return {
+    runId,
+    verdict: first !== undefined && notReplayed.length > 0 ? "divergent" : "consistent",
+    replayed,
+    ...(resumed === undefined ? {} : { resumes: name(resumed) }),
+    ...(first === undefined ? {} : { executes: name(first) }),
+    notReplayed
+  }
+}
 
 /**
  * Resumes a copy of `runId` replay-only under the flows on disk and reports
@@ -181,80 +403,44 @@ export const verify = async (
   options: Options = {},
   signal?: AbortSignal
 ): Promise<Report> => {
-  const engineFile = executionDatabasePath(root)
-  const controlFile = databasePath(root)
-  if (DatabaseLocation.postgres(engineFile)) {
-    throw refused("user", "verify_unsupported_backend", "runs verify reads a local SQLite store")
-  }
-  if (!DatabaseLocation.exists(engineFile) || !DatabaseLocation.exists(controlFile)) {
-    throw refused("user", "history_missing", `No execution history at ${Project.stateDirectory(root)}`)
-  }
-  const scratch = mkdtempSync(join(tmpdir(), "smthrs-verify-"))
-  try {
-    const copies = Project.stateDirectory(scratch)
-    mkdirSync(copies, { recursive: true })
-    const observed: Array<ReplayOnly.Dispatch> = []
-    const program = Effect.gen(function*() {
-      const steps = yield* recordedSteps(engineFile, runId)
-      yield* snapshot(engineFile, executionDatabasePath(scratch))
-      yield* snapshot(controlFile, databasePath(scratch))
-      const registry = NodeControl.layerRegistry(root)
-      const engine = NodeControl.engineDurable(root, registry, { stateRoot: scratch })
-      const control = NodeControl.layerControl(
-        {
-          root,
-          stateRoot: scratch,
-          replayOnly: ReplayOnly.layer((dispatch) => Effect.sync(() => observed.push(dispatch))),
-          // A replay-only run never reaches a completion to judge, so it needs no model seat.
-          evaluator: Evaluator.layerUnavailable()
-        },
-        registry,
-        engine,
-        options.modules
-      )
-      yield* Effect.gen(function*() {
-        const runtime = yield* ControlRuntime.ControlRuntime
-        const before = yield* runtime.getRun(runId)
-        yield* (yield* Control.Control).resume({
-          runId: runId,
-          idempotencyKey: `verify:${runId}`,
-          allowCodeDrift: true
-        })
-        yield* settled(runId, before.updatedAt).pipe(
-          Effect.timeoutOrElse({
-            duration: options.settleWithin ?? "10 minutes",
-            orElse: () =>
-              Effect.fail(refused("wait", "verify_timeout", `The copy of ${runId} did not stop replaying in time`))
-          })
-        )
-      }).pipe(Effect.provide(Layer.merge(control, engine.runtime)), Effect.scoped)
-      // The drive may have spawned runs the original never recorded.
-      const runs = new Set(yield* reading(executionDatabasePath(scratch), tree(runId)))
-      return { steps, runs }
-    })
-    const { steps, runs } = await Effect.runPromise(program, { signal })
-    const own = observed.filter((dispatch) => runs.has(dispatch.runId))
-    const name = (dispatch: ReplayOnly.Dispatch): Step => ({
-      ...steps.find((step) => step.stepKeyDigest === dispatch.stepKeyDigest),
-      stepKeyDigest: dispatch.stepKeyDigest,
-      action: dispatch.action
-    })
-    const replayed = own.filter((dispatch) => dispatch.outcome === "replayed").map(name)
-    const first = own.find((dispatch) => dispatch.outcome === "would-execute")
-    const resumed = own.find((dispatch) => dispatch.outcome === "resumes")
-    const served = new Set(replayed.map((step) => step.stepKeyDigest))
-    const notReplayed = steps.filter((step) => !served.has(step.stepKeyDigest))
-    return {
-      runId,
-      verdict: first !== undefined && notReplayed.length > 0 ? "divergent" : "consistent",
-      replayed,
-      ...(resumed === undefined ? {} : { resumes: name(resumed) }),
-      ...(first === undefined ? {} : { executes: name(first) }),
-      notReplayed
-    }
-  } finally {
-    rmSync(scratch, { recursive: true, force: true })
-  }
+  const stores = existing(root, options)
+  const outcome = await Effect.runPromise(one(root, stores, runId, options, false), { signal })
+  // A named run is always resumed, so it always reports.
+  return (outcome as Extract<Outcome, { readonly _tag: "Report" }>).report
+}
+
+/**
+ * Resumes a fresh copy of every run the store holds replay-only under the
+ * flows on disk, one after another, and reports each. Settled runs are listed
+ * apart, and a run whose resume was refused (another host still owns it, or
+ * its copy did not stop in time) is listed with the refusal instead of ending
+ * the whole verification.
+ *
+ * @since 1.0.0
+ * @category constructors
+ */
+export const verifyAll = async (root: string, options: Options = {}, signal?: AbortSignal): Promise<Summary> => {
+  const stores = existing(root, options)
+  return Effect.runPromise(
+    Effect.gen(function*() {
+      const reports: Array<Report> = []
+      const done: Array<Settled> = []
+      const skipped: Array<Unverified> = []
+      for (const runId of yield* storedRuns(stores.control)) {
+        const outcome = yield* Effect.result(one(root, stores, runId, options, true))
+        if (outcome._tag === "Failure") skipped.push(unverified(runId, outcome.failure))
+        else if (outcome.success._tag === "Report") reports.push(outcome.success.report)
+        else done.push(outcome.success.settled)
+      }
+      return {
+        verdict: reports.some((each) => each.verdict === "divergent") ? "divergent" : "consistent",
+        reports,
+        settled: done,
+        unverified: skipped
+      } satisfies Summary
+    }),
+    { signal }
+  )
 }
 
 /**
@@ -274,3 +460,16 @@ export const divergence = (report: Report): CliError.Refused => {
       `again; ${report.notReplayed.length} recorded step(s) would not replay: ${dropped}`
   )
 }
+
+/**
+ * The refusal a divergent store exits with: every divergent run's sentence.
+ *
+ * @since 1.0.0
+ * @category constructors
+ */
+export const storeDivergence = (summary: Summary): CliError.Refused =>
+  refused(
+    "user",
+    "run_divergent",
+    summary.reports.filter((each) => each.verdict === "divergent").map((each) => divergence(each).message).join("\n")
+  )

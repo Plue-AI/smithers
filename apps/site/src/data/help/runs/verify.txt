@@ -1,15 +1,16 @@
 smthrs runs verify — Report which recorded steps the current flow code would replay and which it would execute again
 
-Usage: smthrs runs verify <run> [options]
+Usage: smthrs runs verify [run] [options]
 
 Arguments:
-  run  Durable run ID
+  run  Durable run ID; omitted, every run the store holds
 
 Options:
   --root <string>        Project directory; defaults to the nearest Smithers project
   --remote <string>      Remote control plane URL; defaults to SMITHERS_REMOTE
   --mcp-config <string>  Path to the configured MCP servers
   --quiet                Suppress progress messages
+  --against <string>     Engine store to verify, with the control.db beside it; defaults to the project's .flows/engine.db
   --verbose              Show redacted diagnostic details
 
 Custom Global Options:
