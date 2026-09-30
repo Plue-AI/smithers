@@ -11764,6 +11764,10 @@
               "type": "string",
               "description": "Egress mode: proxy (default), allowlist, none"
             },
+            "ref": {
+              "type": "string",
+              "description": "Check out one of your pushed refs (smthrs repo push --name) instead of the bookmark"
+            },
             "repo": {
               "type": "string",
               "description": "Repository (OWNER/REPO)"

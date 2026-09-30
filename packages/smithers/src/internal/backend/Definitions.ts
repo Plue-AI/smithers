@@ -1387,6 +1387,8 @@ export const definitions = {
       "memory": z.coerce.number().describe("Memory in MiB").optional(),
       "name": z.string().describe("Workspace name").default(""),
       "network": z.string().describe("Egress mode: proxy (default), allowlist, none").optional(),
+      "ref": z.string().describe("Check out one of your pushed refs (smthrs repo push --name) instead of the bookmark")
+        .optional(),
       "repo": z.string().describe("Repository (OWNER/REPO)").optional(),
       "service": z.array(z.string()).describe("Network service NAME=COMMAND started inside the workspace (repeatable)")
         .default([]),
