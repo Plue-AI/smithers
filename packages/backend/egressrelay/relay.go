@@ -33,11 +33,11 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"path"
 	"slices"
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/smithersai/smithers/packages/backend/ironproxy"
 	"github.com/smithersai/smithers/packages/backend/sandbox"
@@ -62,6 +62,28 @@ type Config struct {
 	RootCAs *x509.CertPool
 	// DenyCIDRs replaces ironproxy.DefaultUpstreamDenyCIDRs. Tests only.
 	DenyCIDRs []string
+	// Audit, when set, receives one value-free event per request the relay
+	// decides: forwarded, refused, or failed. It runs on the request's
+	// goroutine, so it must not block; a caller hands the event to a bounded
+	// non-blocking queue.
+	Audit func(AuditEvent)
+}
+
+// AuditEvent is one relay request's value-free record. It carries no header,
+// body, query string, credential or secret value: the path is query-free and
+// replaced by "/[redacted]" when a secret was swapped into it, and Swapped
+// names the secrets whose placeholder the request carried, never their values.
+type AuditEvent struct {
+	WorkspaceID string
+	Time        time.Time
+	Host        string
+	Method      string
+	Path        string
+	// Status is the status the guest saw: upstream's, or the relay's refusal.
+	Status  int
+	Allowed bool
+	// Swapped lists the names of the secrets substituted into the request.
+	Swapped []string
 }
 
 // Grant is one workspace's live binding as a guest uses it. ProxyURL carries
@@ -82,6 +104,7 @@ type Relay struct {
 	caKey    *ecdsa.PrivateKey
 	caPEM    []byte
 	upstream *http.Transport
+	audit    func(AuditEvent)
 
 	mu          sync.Mutex
 	byToken     map[string]*binding
@@ -118,7 +141,7 @@ func New(config Config) (*Relay, error) {
 	if denied == nil {
 		denied = ironproxy.DefaultUpstreamDenyCIDRs
 	}
-	relay := &Relay{listener: config.Listener, local: map[string]bool{},
+	relay := &Relay{listener: config.Listener, local: map[string]bool{}, audit: config.Audit,
 		byToken: map[string]*binding{}, byWorkspace: map[string]string{}, leaves: map[string]*tls.Certificate{}}
 	for _, cidr := range denied {
 		_, network, err := net.ParseCIDR(cidr)
@@ -318,6 +341,7 @@ func (r *Relay) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	if !r.local[localKey(req.URL.Hostname(), portOf(req.URL))] {
+		r.record(bound, req, http.StatusForbidden, false, nil, false)
 		http.Error(w, errPlaintext.Error(), http.StatusForbidden)
 		return
 	}
@@ -395,6 +419,7 @@ func (r *Relay) tunnel(w http.ResponseWriter, req *http.Request, bound *binding)
 		return
 	}
 	if !bound.allows(host) {
+		r.record(bound, req, http.StatusForbidden, false, nil, false)
 		http.Error(w, errNotBound.Error(), http.StatusForbidden)
 		return
 	}
@@ -453,12 +478,35 @@ func (r *Relay) tunnel(w http.ResponseWriter, req *http.Request, bound *binding)
 // forward substitutes the binding's placeholders into an outbound request
 // and returns the upstream response with every bound value masked.
 func (r *Relay) forward(ctx context.Context, req *http.Request, bound *binding) (*http.Response, error) {
+	response, swapped, pathSwapped, err := r.forwardRequest(ctx, req, bound)
+	if err != nil {
+		r.record(bound, req, statusFor(err), false, swapped, pathSwapped)
+	} else {
+		r.record(bound, req, response.StatusCode, true, swapped, pathSwapped)
+	}
+	return response, err
+}
+
+// record emits req's audit event. It never reads a secret value.
+func (r *Relay) record(bound *binding, req *http.Request, status int, allowed bool, swapped []string, pathSwapped bool) {
+	if r.audit == nil {
+		return
+	}
+	path := req.URL.EscapedPath()
+	if pathSwapped {
+		path = "/[redacted]"
+	}
+	r.audit(AuditEvent{WorkspaceID: bound.workspaceID, Time: time.Now().UTC(), Host: strings.ToLower(req.URL.Hostname()),
+		Method: req.Method, Path: path, Status: status, Allowed: allowed, Swapped: swapped})
+}
+
+func (r *Relay) forwardRequest(ctx context.Context, req *http.Request, bound *binding) (*http.Response, []string, bool, error) {
 	host := strings.ToLower(req.URL.Hostname())
 	if !bound.allows(host) {
-		return nil, errNotBound
+		return nil, nil, false, errNotBound
 	}
 	if !r.current(bound) {
-		return nil, errRevoked
+		return nil, nil, false, errRevoked
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	stop := context.AfterFunc(bound.ctx, cancel)
@@ -468,24 +516,35 @@ func (r *Relay) forward(ctx context.Context, req *http.Request, bound *binding) 
 	removeHopHeaders(outbound.Header)
 	// Identity bodies keep response masking exact.
 	outbound.Header.Del("Accept-Encoding")
+	var swapped []string
+	pathSwapped := false
 	for _, secret := range bound.secrets {
 		if !secretBindsHost(secret, host) {
 			continue
 		}
 		placeholder := sandbox.EgressProxyPlaceholder(secret.Name)
+		used := false
 		for _, name := range secret.MatchHeaders {
 			for index, value := range outbound.Header[name] {
+				used = used || strings.Contains(value, placeholder)
 				outbound.Header[name][index] = strings.ReplaceAll(value, placeholder, secret.Value)
 			}
 		}
 		if secret.MatchQuery && outbound.URL.RawQuery != "" {
+			used = used || strings.Contains(outbound.URL.RawQuery, placeholder)
 			outbound.URL.RawQuery = strings.ReplaceAll(outbound.URL.RawQuery, placeholder, url.QueryEscape(secret.Value))
 		}
 		if secret.MatchPath {
+			if strings.Contains(outbound.URL.Path, placeholder) {
+				used, pathSwapped = true, true
+			}
 			outbound.URL.Path = strings.ReplaceAll(outbound.URL.Path, placeholder, secret.Value)
 			if outbound.URL.RawPath != "" {
 				outbound.URL.RawPath = strings.ReplaceAll(outbound.URL.RawPath, placeholder, url.PathEscape(secret.Value))
 			}
+		}
+		if used {
+			swapped = append(swapped, secret.Name)
 		}
 	}
 	response, err := r.upstream.RoundTrip(outbound)
@@ -493,15 +552,15 @@ func (r *Relay) forward(ctx context.Context, req *http.Request, bound *binding) 
 		stop()
 		cancel()
 		if errors.Is(err, errPrivateTarget) {
-			return nil, errPrivateTarget
+			return nil, swapped, pathSwapped, errPrivateTarget
 		}
-		return nil, fmt.Errorf("egress relay: upstream %s: %s", host, bound.mask(err.Error()))
+		return nil, swapped, pathSwapped, fmt.Errorf("egress relay: upstream %s: %s", host, bound.mask(err.Error()))
 	}
 	if encoding := strings.TrimSpace(response.Header.Get("Content-Encoding")); encoding != "" && !strings.EqualFold(encoding, "identity") {
 		_ = response.Body.Close()
 		stop()
 		cancel()
-		return nil, errEncoded
+		return nil, swapped, pathSwapped, errEncoded
 	}
 	// The reason phrase and trailers are upstream text the masker never sees.
 	response.Status = fmt.Sprintf("%d %s", response.StatusCode, http.StatusText(response.StatusCode))
@@ -517,7 +576,7 @@ func (r *Relay) forward(ctx context.Context, req *http.Request, bound *binding) 
 	response.ContentLength = -1
 	response.TransferEncoding = []string{"chunked"}
 	response.Body = &maskingBody{source: response.Body, bound: bound, release: func() { stop(); cancel() }}
-	return response, nil
+	return response, swapped, pathSwapped, nil
 }
 
 func (b *binding) allows(host string) bool {
@@ -563,19 +622,19 @@ func secretBindsHost(secret sandbox.EgressProxySecret, host string) bool {
 	return slices.ContainsFunc(secret.Hosts, func(bound string) bool { return hostMatches(bound, host) })
 }
 
-// hostMatches applies a binding host (a DNS name, "*.suffix" wildcard, or
-// CIDR) to a request host. A wildcard also matches its apex, as iron-proxy's.
+// hostMatches reports whether a request host is the binding's host. A
+// binding names exactly one host (sandbox.ValidExactEgressHost): no wildcard,
+// no address range, so a value never reaches a host it was not bound to. A
+// non-ASCII request host never matches: Unicode lower-casing and the IDNA
+// conversion the upstream dial applies can name different domains.
 func hostMatches(bound, host string) bool {
-	host = strings.Trim(strings.ToLower(host), "[]")
-	if _, network, err := net.ParseCIDR(bound); err == nil {
-		ip := net.ParseIP(host)
-		return ip != nil && network.Contains(ip)
+	host = strings.Trim(host, "[]")
+	for index := 0; index < len(host); index++ {
+		if host[index] >= utf8.RuneSelf {
+			return false
+		}
 	}
-	if suffix, ok := strings.CutPrefix(bound, "*."); ok {
-		return host == suffix || strings.HasSuffix(host, "."+suffix)
-	}
-	matched, _ := path.Match(bound, host)
-	return matched || bound == host
+	return bound == sandbox.CanonicalExactEgressHost(host)
 }
 
 // dial refuses private, loopback, link-local and metadata addresses unless
@@ -744,7 +803,7 @@ func portOf(target *url.URL) string {
 func normalizedHosts(hosts []string) []string {
 	out := make([]string, 0, len(hosts))
 	for _, host := range hosts {
-		host = strings.ToLower(strings.TrimSpace(host))
+		host = sandbox.CanonicalExactEgressHost(host)
 		if !slices.Contains(out, host) {
 			out = append(out, host)
 		}

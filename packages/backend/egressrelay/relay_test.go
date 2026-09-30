@@ -493,7 +493,7 @@ func TestRevokeGrantSparesANewerBinding(t *testing.T) {
 }
 
 func TestSecretBindsOnlyItsExactHost(t *testing.T) {
-	secret := boundSecret("api.example.com", "127.0.0.1")
+	secret := boundSecret("api.example.com", "127.0.0.1", "k.example.com")
 	for host, want := range map[string]bool{
 		"api.example.com":      true,
 		"API.Example.com":      true,
@@ -507,7 +507,16 @@ func TestSecretBindsOnlyItsExactHost(t *testing.T) {
 		"*.api.example.com":    false,
 		"api.example.com:443":  false,
 		"":                     false,
+		// Non-ASCII never matches: lower-casing and IDNA can disagree.
+		"api.exampl\u0435.com": false,
+		"\u212a.example.com":   false,
 	} {
 		assert.Equal(t, want, secretBindsHost(secret, host), host)
+	}
+	// An address literal matches every spelling of the one address.
+	literal := boundSecret("::1", "::ffff:10.0.0.1")
+	literal.Hosts = normalizedHosts(literal.Hosts)
+	for host, want := range map[string]bool{"::1": true, "[::1]": true, "0:0::1": true, "10.0.0.1": true, "::2": false, "10.0.0.2": false} {
+		assert.Equal(t, want, secretBindsHost(literal, host), host)
 	}
 }
