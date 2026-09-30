@@ -22,6 +22,7 @@ type previewAuthorizeQuerier struct {
 	user              db.User
 	owner             db.User
 	ownerErr          error
+	viewerErr         error
 	collaborator      string
 	ownerCollaborator string
 	shareRevoked      bool
@@ -36,7 +37,7 @@ func (q *previewAuthorizeQuerier) GetUserByID(_ context.Context, id int64) (db.U
 	if id != q.user.ID {
 		return db.User{}, pgx.ErrNoRows
 	}
-	return q.user, nil
+	return q.user, q.viewerErr
 }
 
 func (q *previewAuthorizeQuerier) IsOrgOwnerForRepoUser(context.Context, db.IsOrgOwnerForRepoUserParams) (bool, error) {
@@ -133,4 +134,26 @@ func TestAuthorizeWorkspacePreviewRechecksEveryGrant(t *testing.T) {
 		require.ErrorAs(t, err, &apiErr)
 		assert.Equal(t, 500, apiErr.Status)
 	})
+}
+
+func TestAuthorizeWorkspacePreviewPreservesStorageCauses(t *testing.T) {
+	t.Parallel()
+	for _, source := range []string{"viewer", "repository"} {
+		t.Run(source, func(t *testing.T) {
+			t.Parallel()
+			cause := errors.New("database sentinel-cause")
+			q := newPreviewAuthorizeQuerier()
+			if source == "viewer" {
+				q.viewerErr = cause
+			} else {
+				q.getRepoByIDFn = func(context.Context, int64) (db.Repository, error) { return db.Repository{}, cause }
+			}
+			err := newWorkspaceServiceForTests(q).AuthorizeWorkspacePreview(context.Background(), "11111111-1111-4111-8111-111111111111", 101, 42)
+			var apiErr *pkgerrors.APIError
+			require.ErrorAs(t, err, &apiErr)
+			assert.Equal(t, 500, apiErr.Status)
+			assert.Equal(t, "load preview "+source, apiErr.Message)
+			assert.Same(t, cause, apiErr.Cause())
+		})
+	}
 }

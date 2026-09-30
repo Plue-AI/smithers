@@ -49,7 +49,7 @@ func (h *WorkspacePreviewTicketHandler) Authorize(w http.ResponseWriter, r *http
 		if err := public.AuthorizePublicPreview(r.Context(), body.Domain); err != nil {
 			var e *pkgerrors.APIError
 			if errors.As(err, &e) && e.Status >= 500 {
-				pkgerrors.WriteError(w, e)
+				writeRouteError(w, r, e)
 				return
 			}
 			pkgerrors.WriteError(w, pkgerrors.Forbidden("preview is private"))
@@ -66,7 +66,7 @@ func (h *WorkspacePreviewTicketHandler) Authorize(w http.ResponseWriter, r *http
 	if err := h.Service.AuthorizeWorkspacePreview(r.Context(), grant.WorkspaceID, grant.RepositoryID, grant.UserID); err != nil {
 		var apiErr *pkgerrors.APIError
 		if errors.As(err, &apiErr) && apiErr.Status >= 500 {
-			pkgerrors.WriteError(w, apiErr)
+			writeRouteError(w, r, apiErr)
 			return
 		}
 		// Every other refusal (not found, forbidden, suspended) is the same

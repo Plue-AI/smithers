@@ -885,7 +885,7 @@ func (s *WorkspaceService) AuthorizeWorkspacePreview(ctx context.Context, worksp
 		if errors.Is(err, pgx.ErrNoRows) {
 			return pkgerrors.Forbidden("access denied")
 		}
-		return pkgerrors.Internal("load preview viewer: " + err.Error())
+		return pkgerrors.Internal("load preview viewer").WithCause(err)
 	}
 	if !user.IsActive || user.ProhibitLogin || user.DeletedAt.Valid {
 		return pkgerrors.Forbidden("access denied")
@@ -895,7 +895,7 @@ func (s *WorkspaceService) AuthorizeWorkspacePreview(ctx context.Context, worksp
 		if errors.Is(err, pgx.ErrNoRows) {
 			return pkgerrors.Forbidden("access denied")
 		}
-		return pkgerrors.Internal("load preview repository: " + err.Error())
+		return pkgerrors.Internal("load preview repository").WithCause(err)
 	}
 	permission, permErr := middleware.ResolveRepoPermission(ctx, store, repository, &user)
 	if permErr != nil {

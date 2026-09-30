@@ -3,6 +3,8 @@ package routes
 import (
 	"bufio"
 	"context"
+	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -163,4 +165,66 @@ func TestWorkspacePreviewTicketAuthorizeRefusals(t *testing.T) {
 		"a grant naming another workspace's host")
 	assert.Equal(t, http.StatusForbidden, post("relay-secret", issue("smithers-desk-vm-1.preview.jjhub.tech", previewTicketWorkspace, previewgateway.PurposeSession)))
 	assert.Equal(t, http.StatusForbidden, post("relay-secret", valid[:len(valid)-2]+"AA"))
+}
+
+type failingPreviewAuthorizer struct{ err error }
+
+func (a failingPreviewAuthorizer) AuthorizeWorkspacePreview(context.Context, string, int64, int64) error {
+	return a.err
+}
+func (a failingPreviewAuthorizer) AuthorizePublicPreview(context.Context, string) error { return a.err }
+func TestWorkspacePreviewTicketLogsAuthorizationCause(t *testing.T) {
+	t.Parallel()
+	tickets := previewgateway.NewTickets("relay-secret")
+	domain := "3000-" + previewTicketWorkspace + ".preview.jjhub.tech"
+	ticket, err := tickets.Issue(previewgateway.Grant{Domain: domain, WorkspaceID: previewTicketWorkspace, RepositoryID: 200, UserID: 1}, previewgateway.PurposeSession, previewgateway.SessionTicketTTL)
+	require.NoError(t, err)
+	for _, public := range []bool{false, true} {
+		for _, wrapped := range []bool{false, true} {
+			t.Run(fmt.Sprintf("public=%t/wrapped=%t", public, wrapped), func(t *testing.T) {
+				t.Parallel()
+				var serviceErr error = pkgerrors.Internal("load preview owner").WithCause(errors.New("preview database sentinel-cause"))
+				if wrapped {
+					serviceErr = fmt.Errorf("authorize: %w", serviceErr)
+				}
+				body := `{"ticket":"` + ticket + `"}`
+				if public {
+					body = `{"domain":"` + domain + `"}`
+				}
+				h := &WorkspacePreviewTicketHandler{Service: failingPreviewAuthorizer{serviceErr}, Tickets: tickets}
+				rec, logs := serveWithCapturedLog(t, h.Authorize, httptest.NewRequest(http.MethodPost, "/internal/workspace-previews/authorize", strings.NewReader(body)))
+				require.Equal(t, http.StatusInternalServerError, rec.Code)
+				assert.Contains(t, rec.Body.String(), "internal server error")
+				assert.NotContains(t, rec.Body.String(), "sentinel-cause")
+				assert.NotContains(t, rec.Body.String(), "load preview owner")
+				assert.Contains(t, logs, "sentinel-cause")
+				assert.Contains(t, logs, "load preview owner")
+			})
+		}
+	}
+}
+
+func TestWorkspacePreviewTicketMasksWrappedNotFound(t *testing.T) {
+	t.Parallel()
+	tickets := previewgateway.NewTickets("relay-secret")
+	domain := "3000-" + previewTicketWorkspace + ".preview.jjhub.tech"
+	ticket, err := tickets.Issue(previewgateway.Grant{Domain: domain, WorkspaceID: previewTicketWorkspace, RepositoryID: 200, UserID: 1}, previewgateway.PurposeSession, previewgateway.SessionTicketTTL)
+	require.NoError(t, err)
+	for _, public := range []bool{false, true} {
+		t.Run(fmt.Sprint(public), func(t *testing.T) {
+			t.Parallel()
+			body := `{"ticket":"` + ticket + `"}`
+			message := "preview grant revoked"
+			if public {
+				body = `{"domain":"` + domain + `"}`
+				message = "preview is private"
+			}
+			h := &WorkspacePreviewTicketHandler{Service: failingPreviewAuthorizer{fmt.Errorf("lookup: %w", pkgerrors.NotFound("private workspace sentinel"))}, Tickets: tickets}
+			rec, logs := serveWithCapturedLog(t, h.Authorize, httptest.NewRequest(http.MethodPost, "/internal/workspace-previews/authorize", strings.NewReader(body)))
+			require.Equal(t, http.StatusForbidden, rec.Code)
+			assert.Contains(t, rec.Body.String(), message)
+			assert.NotContains(t, rec.Body.String(), "sentinel")
+			assert.NotContains(t, logs, "internal server error")
+		})
+	}
 }
