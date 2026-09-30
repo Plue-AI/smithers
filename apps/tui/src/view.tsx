@@ -968,7 +968,7 @@ export function Approval(
           style={{ paddingLeft: 1, flexShrink: 0 }}
           fg={line.startsWith("+") ? color.success : color.danger}
         >
-          {`${line[0]} ${line.slice(1).replace(/\t/g, "  ")}`}
+          {clip(`${line[0]} ${line.slice(1).replace(/\t/g, "  ")}`, props.width - 3)}
         </text>
       ))}
       {hidden > 0 ? <text fg={color.faint} style={{ paddingLeft: 1, flexShrink: 0 }}>…</text> : null}

@@ -248,3 +248,30 @@ test("a row that cannot allow the run offers no a, in the row or the footer, and
   await press("a")
   expect(replies).toEqual([])
 }, 15000)
+
+test("a long changed line marks its omission at 80×24 while the composer and denial stay usable", async () => {
+  await act(async () => {
+    setup!.renderer.resize(80, 24)
+  })
+  const edit: Approvals.Pending = {
+    ...request,
+    requestId: "long-edit-approval",
+    flow: "edit",
+    subject: "math.js",
+    action: "fs:write",
+    resource: join(root, "workspace", "math.js"),
+    preview: { added: 1, removed: 0, lines: [`+${"x".repeat(90)}; console.log(1)`] }
+  }
+  pending = [edit]
+  await waitFor(() => frame().includes("? edit math.js  +1 −0") && frame().includes("n Deny change"))
+  const changed = frame().split("\n").find((line) => line.includes("+ x"))
+  expect(changed).toMatch(/\+ x+…\s*$/)
+  await type("Draft")
+  expect(frame()).toContain("Draft")
+  expect(replies).toEqual([])
+  await press("c", true)
+  await waitFor(() => frame().includes("y Allow once"))
+  await press("n")
+  expect(replies).toEqual([{ request: edit, choice: "deny" }])
+  await waitFor(() => !frame().includes("? edit math.js"))
+}, 15000)
