@@ -84,7 +84,7 @@ jobs:
           $helper = (Resolve-Path target/debug/smithers-jj-export.exe).Path
           "SMITHERS_WORKSPACE_JJ_EXPORT_BINARY=$helper" >> $env:GITHUB_ENV
       - name: Test the complete Node host suite
-        run: pnpm --dir packages/smithers/flows/platform-node exec vitest run --coverage.reportsDirectory "${{ runner.temp }}/node-host-coverage"
+        run: pnpm --dir packages/smithers/flows/platform-node exec vitest run --coverage.reportOnFailure --coverage.reportsDirectory "${{ runner.temp }}/node-host-coverage"
       - name: Preserve Node host coverage diagnostics
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
