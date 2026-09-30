@@ -46,7 +46,17 @@ export const normalizeOrigin = (raw: string): string => {
  * @since 1.0.0
  */
 export const observeOrigin = (raw: string): string => {
-  const origin = normalizeOrigin(raw)
+  if (!raw.trim()) {
+    throw new UsageError({
+      message: "observe_url is not configured; run `smithers config set observe_url https://<your Observe console>`"
+    })
+  }
+  let origin: string
+  try {
+    origin = normalizeOrigin(raw)
+  } catch {
+    throw new UsageError({ message: "observe_url must be an HTTPS origin (HTTP is allowed on loopback)" })
+  }
   const url = new URL(origin)
   if (url.protocol !== "https:" && !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)) {
     throw new UsageError({ message: "observe_url requires HTTPS except on loopback" })

@@ -127,6 +127,15 @@ describe("native login stores", () => {
     expect(observeOrigin("http://127.0.0.1:8000")).toBe("http://127.0.0.1:8000")
     expect(() => observeOrigin("http://example.test")).toThrow("HTTPS")
   })
+  it.each([
+    ["", "observe_url is not configured; run `smithers config set observe_url https://<your Observe console>`"],
+    ["  ", "observe_url is not configured"],
+    ["example.test", "observe_url must be an HTTPS origin"],
+    ["https://observe.example.test/console", "observe_url must be an HTTPS origin"]
+  ])("names observe_url when it is missing or malformed (%j)", (raw, message) => {
+    expect(() => observeOrigin(raw)).toThrow(message)
+    expect(() => observeOrigin(raw)).not.toThrow("Smithers API origin")
+  })
   it.each(["https://api.example.test", "example.test", "localhost:8000"])(
     "resolves configured host %s",
     async (host) => {

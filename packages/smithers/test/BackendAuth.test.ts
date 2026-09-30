@@ -128,6 +128,12 @@ describe("browser consent", () => {
       "cancelled"
     )
   })
+  it("refuses an Observe login before browser consent when observe_url is not configured", async () => {
+    const { c } = await fixture()
+    const exec = vi.spyOn(c, "exec")
+    await expect(auth["auth login"]!(c, {}, { observe: true })).rejects.toThrow("observe_url is not configured")
+    expect(exec).not.toHaveBeenCalled()
+  })
   it.each([false, true])("uses a one-time Observe handoff after browser consent (bad ticket=%s)", async (badTicket) => {
     const { c } = await fixture()
     c.session.saveConfig({ observe_url: "https://observe.example.test" })
