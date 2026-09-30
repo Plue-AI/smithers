@@ -73,6 +73,22 @@
     },
     {
       "name": "@smthrs/engine-store",
+      "subpath": "./StepCacheFold",
+      "development": "./src/StepCacheFold.ts",
+      "published": {
+        "import": {
+          "types": "./dist/esm/StepCacheFold.d.ts",
+          "default": "./dist/esm/StepCacheFold.js"
+        },
+        "require": {
+          "types": "./dist/cjs/StepCacheFold.d.ts",
+          "default": "./dist/cjs/StepCacheFold.js"
+        }
+      },
+      "reason": "Intentional public journal-to-step-cache head rebuild port introduced in 9ed6aa98c50e5990eda6d3072e8c7649632995af (#2053), explicitly exposed by engine-store's source and publication maps, barrel and API reference. Cache results remain in the append-only recorded ledger; ambiguous, compacted or rewound history refuses rebuilt heads. Retention limitations remain tracked in #2053."
+    },
+    {
+      "name": "@smthrs/engine-store",
       "subpath": "./ExecutionSnapshot",
       "development": "./src/ExecutionSnapshot.ts",
       "published": {
