@@ -203,3 +203,7 @@ zz-*-repro.*
 *.exit
 /apps/backend/backend
 __pycache__/
+*.orig
+/dispatch/claims/
+/apps/app/tsconfig.qual-*.json
+/packages/smithers/agent/model/model
