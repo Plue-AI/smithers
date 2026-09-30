@@ -240,9 +240,11 @@ func (api *browserFlowAPI) provision(w http.ResponseWriter, r *http.Request) {
 
 func browserFlowUnavailable(w http.ResponseWriter, err error, procedure string) {
 	// A plan limit that refused the box's resume or host start is the user's
-	// own answer, with its upgrade path, not an unavailable host.
+	// own answer, with its upgrade path, not an unavailable host. A box whose
+	// coding host could not be readied (a helper refresh that failed, #3111)
+	// answers that typed reason instead of a host outage the app would retry.
 	var refusal *pkgerrors.APIError
-	if errors.As(err, &refusal) && refusal.Code == pkgerrors.CodePlanLimitExceeded {
+	if errors.As(err, &refusal) && (refusal.Code == pkgerrors.CodePlanLimitExceeded || refusal.Code == pkgerrors.CodeCodingHostUnavailable) {
 		pkgerrors.WriteError(w, refusal)
 		return
 	}

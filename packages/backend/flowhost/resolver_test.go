@@ -433,6 +433,28 @@ func TestResolverRecordsFailedStartAndFencesTheNextOwner(t *testing.T) {
 	assert.Equal(t, "running", store.binding.State)
 }
 
+type launcherRefusal struct{ reason string }
+
+func (refusal *launcherRefusal) Error() string { return refusal.reason }
+
+// A launcher's typed refusal (a box whose helper could not be refreshed,
+// #3111) stays in the failed start's chain, so the caller can answer it
+// instead of a generic host outage.
+func TestResolverKeepsTheLauncherRefusalOfAFailedStart(t *testing.T) {
+	resolver, store, launcher, target := testResolver(t)
+	refusal := &launcherRefusal{reason: "workspace helper could not be refreshed; retry"}
+	launcher.startErr = refusal
+	_, err := resolver.ResolveFlowRuntime(context.Background(), target)
+	var bridgeFailure flowruntime.Failure
+	require.ErrorAs(t, err, &bridgeFailure)
+	assert.Equal(t, "runtime_start_failed", bridgeFailure.FlowRuntimeCode())
+	assert.NotContains(t, err.Error(), refusal.reason, "the bridge failure never prints the cause")
+	var kept *launcherRefusal
+	require.ErrorAs(t, err, &kept)
+	assert.Same(t, refusal, kept)
+	assert.Equal(t, "failed", store.binding.State)
+}
+
 func upgradeCatalog(resolver *Resolver, digest string) {
 	catalog := resolver.catalogs[CatalogCoding]
 	catalog.ArtifactDigest = digest

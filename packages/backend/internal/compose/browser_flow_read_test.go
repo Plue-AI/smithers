@@ -189,6 +189,14 @@ func TestBrowserFlowProvisionStartsTheBoxHost(t *testing.T) {
 	writer = provision(&startingDispatcher{err: fmt.Errorf("flow host: runtime_start_failed: %w", limit)})
 	require.Equal(t, 402, writer.Code)
 	require.Contains(t, writer.Body.String(), "plan_limit_exceeded")
+
+	// A box whose stale helper could not be refreshed answers that typed
+	// reason, not a host outage (#3111).
+	stale := &pkgerrors.APIError{Status: 409, Code: pkgerrors.CodeCodingHostUnavailable, Message: "workspace helper could not be refreshed; retry"}
+	writer = provision(&startingDispatcher{err: fmt.Errorf("flow host: runtime_start_failed: %w", stale)})
+	require.Equal(t, 409, writer.Code)
+	require.Contains(t, writer.Body.String(), `"coding_host_unavailable"`)
+	require.Contains(t, writer.Body.String(), "workspace helper could not be refreshed; retry")
 }
 
 type testFlowFailure string
