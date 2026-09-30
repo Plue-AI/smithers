@@ -181,60 +181,65 @@ export const layer = (
           }
           const undici = yield* loadUndici
           const addresses = destination.addresses.map((address) => ({ address, family: isIP(address) }))
-          const pinned = new undici.EnvHttpProxyAgent({
-            httpProxy: environment.http_proxy ?? environment.HTTP_PROXY ?? "",
-            httpsProxy: environment.https_proxy ?? environment.HTTPS_PROXY ?? "",
-            noProxy: exclusions(environment.no_proxy ?? environment.NO_PROXY ?? ""),
-            // Tunnelling HTTP too prevents the proxy resolving the target hostname.
-            proxyTunnel: true,
-            connect: {
-              lookup: (_hostname, options, callback) => {
-                const candidates = options.family
-                  ? /* v8 ignore next -- Undici does not request a pinned family through this public client */ addresses
-                    .filter((item) => item.family === options.family)
-                  : addresses
-                const first = candidates[0]
-                /* v8 ignore next -- validated snapshots are nonempty and Undici does not pin a family */
-                if (first === undefined) return callback(new Error("No approved address for family"), "", 4)
-                if (options.all) callback(null, candidates)
-                else callback(null, first.address, first.family)
+          // Construction and its disposal are one uninterruptible step: an
+          // interruption that lands after the agent exists but before the request
+          // owns it would otherwise leave the agent neither destroyed nor closed.
+          return yield* Effect.uninterruptibleMask((restore) => {
+            const pinned = new undici.EnvHttpProxyAgent({
+              httpProxy: environment.http_proxy ?? environment.HTTP_PROXY ?? "",
+              httpsProxy: environment.https_proxy ?? environment.HTTPS_PROXY ?? "",
+              noProxy: exclusions(environment.no_proxy ?? environment.NO_PROXY ?? ""),
+              // Tunnelling HTTP too prevents the proxy resolving the target hostname.
+              proxyTunnel: true,
+              connect: {
+                lookup: (_hostname, options, callback) => {
+                  const candidates = options.family
+                    ? /* v8 ignore next -- Undici does not request a pinned family through this public client */ addresses
+                      .filter((item) => item.family === options.family)
+                    : addresses
+                  const first = candidates[0]
+                  /* v8 ignore next -- validated snapshots are nonempty and Undici does not pin a family */
+                  if (first === undefined) return callback(new Error("No approved address for family"), "", 4)
+                  if (options.all) callback(null, candidates)
+                  else callback(null, first.address, first.family)
+                }
+              },
+              clientFactory: (origin, options) => {
+                const proxy = new undici.Pool(origin, options)
+                const connect = proxy.connect.bind(proxy)
+                // EnvHttpProxyAgent selects the route using the ORIGINAL hostname.
+                // Only the proxy tunnel destination changes; endpoint TLS still uses
+                // the original hostname for SNI and certificate verification.
+                proxy.connect = (options: Undici.Dispatcher.ConnectOptions) => {
+                  const address = addresses[0]!.address
+                  const host = isIP(address) === 6 ? `[${address}]` : address
+                  const authority = `${host}:${url.port || (url.protocol === "https:" ? "443" : "80")}`
+                  return connect({ ...options, path: authority, headers: { ...options.headers, host: authority } })
+                }
+                return proxy
               }
-            },
-            clientFactory: (origin, options) => {
-              const proxy = new undici.Pool(origin, options)
-              const connect = proxy.connect.bind(proxy)
-              // EnvHttpProxyAgent selects the route using the ORIGINAL hostname.
-              // Only the proxy tunnel destination changes; endpoint TLS still uses
-              // the original hostname for SNI and certificate verification.
-              proxy.connect = (options: Undici.Dispatcher.ConnectOptions) => {
-                const address = addresses[0]!.address
-                const host = isIP(address) === 6 ? `[${address}]` : address
-                const authority = `${host}:${url.port || (url.protocol === "https:" ? "443" : "80")}`
-                return connect({ ...options, path: authority, headers: { ...options.headers, host: authority } })
-              }
-              return proxy
-            }
+            })
+            const pinnedRequest = request.pipe(
+              HttpClientRequest.setHeader("host", url.host),
+              HttpClientRequest.removeHeader("proxy-authorization"),
+              HttpClientRequest.removeHeader("connection"),
+              HttpClientRequest.removeHeader("transfer-encoding"),
+              HttpClientRequest.removeHeader("content-length")
+            )
+            return restore(NodeHttpClient.makeUndici.pipe(
+              Effect.provideService(NodeHttpClient.Dispatcher, pinned),
+              Effect.flatMap((client) => client.execute(pinnedRequest))
+            )).pipe(Effect.onExit((exit) =>
+              Exit.isFailure(exit)
+                ? Effect.promise(() => pinned.destroy())
+                // close prevents reuse immediately, but lets the active body drain.
+                : Effect.sync(() => {
+                  void pinned.close().catch(
+                    /* v8 ignore next -- close rejects only an agent that is already destroyed */ () => pinned.destroy()
+                  )
+                })
+            ))
           })
-          const client = yield* NodeHttpClient.makeUndici.pipe(
-            Effect.provideService(NodeHttpClient.Dispatcher, pinned)
-          )
-          const pinnedRequest = request.pipe(
-            HttpClientRequest.setHeader("host", url.host),
-            HttpClientRequest.removeHeader("proxy-authorization"),
-            HttpClientRequest.removeHeader("connection"),
-            HttpClientRequest.removeHeader("transfer-encoding"),
-            HttpClientRequest.removeHeader("content-length")
-          )
-          return yield* client.execute(pinnedRequest).pipe(Effect.onExit((exit) =>
-            Exit.isFailure(exit)
-              ? Effect.promise(() => pinned.destroy())
-              // close prevents reuse immediately, but lets the active body drain.
-              : Effect.sync(() => {
-                void pinned.close().catch(
-                  /* v8 ignore next -- close rejects only an agent that is already destroyed */ () => pinned.destroy()
-                )
-              })
-          ))
         })))
     })
   )

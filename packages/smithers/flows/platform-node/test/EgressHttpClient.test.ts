@@ -18,6 +18,8 @@ import * as GrantStore from "@smthrs/kernel/GrantStore"
 import { Destination } from "@smthrs/kernel/HttpClient"
 import * as Workspace from "@smthrs/kernel/Workspace"
 import { Effect } from "effect"
+import * as Exit from "effect/Exit"
+import * as Fiber from "effect/Fiber"
 import * as HttpClient from "effect/unstable/http/HttpClient"
 import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http"
@@ -496,6 +498,45 @@ describe("authorized destination connections", () => {
       if (result._tag === "Success") expect(await Effect.runPromise(result.success.text)).toBe("recovered")
       expect(origin.seen).toEqual(["GET /fail", "GET /ok"])
     } finally {
+      await origin.close()
+    }
+  })
+})
+
+describe("pinned agent ownership under interruption", () => {
+  it("destroys a pinned agent interrupted after construction and before its request", async () => {
+    const undici = (await import("undici/index.js")).default
+    const Original = undici.EnvHttpProxyAgent
+    const origin = await listen()
+    const agents: Array<InstanceType<typeof Original>> = []
+    let fiber: Fiber.Fiber<unknown, unknown> | undefined
+    // The shared pool is the first agent; the second is the request's pinned one.
+    undici.EnvHttpProxyAgent = class extends Original {
+      constructor(options: ConstructorParameters<typeof Original>[0]) {
+        super(options)
+        agents.push(this)
+        if (agents.length === 2) fiber!.interruptUnsafe()
+      }
+    }
+    try {
+      const url = `http://interrupted.invalid:${origin.port}`
+      fiber = Effect.runFork(
+        Effect.flatMap(HttpClient.HttpClient, (client) => client.get(url)).pipe(
+          Effect.provideService(Destination, { origin: url, addresses: ["127.0.0.1"] }),
+          Effect.provide(EgressHttpClient.layer({}))
+        )
+      )
+      const exit = await Effect.runPromise(Fiber.await(fiber))
+      expect(Exit.hasInterrupts(exit)).toBe(true)
+      expect(agents).toHaveLength(2)
+      // Undici exposes `destroyed` at runtime but omits it from its declarations.
+      expect(agents.map((agent) => (agent as unknown as { readonly destroyed: boolean }).destroyed)).toEqual([
+        true,
+        true
+      ])
+      expect(origin.seen).toEqual([])
+    } finally {
+      undici.EnvHttpProxyAgent = Original
       await origin.close()
     }
   })
