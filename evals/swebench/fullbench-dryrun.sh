@@ -62,14 +62,13 @@ LEDGER="$TMP/ledger.txt"
 MAIN_IDS="stubfull__one stubfull__two stubfull__three stubfull__four"
 CRASH_IDS="stubcrash__one stubcrash__two stubcrash__three"
 ALL_IDS="$MAIN_IDS $CRASH_IDS"
+. "$S/lib/owned-processes.sh"
 
 cleanup() {
-  pkill -9 -f "fullbench-instance.sh stubfull__" >/dev/null 2>&1 || true
-  pkill -9 -f "fullbench-instance.sh stubcrash__" >/dev/null 2>&1 || true
-  pkill -9 -f "dryrun-run.sh stub" >/dev/null 2>&1 || true
-  for PIDFILE in "$FB/driver.pid" "$FB2/driver.pid"; do
-    if [ -f "$PIDFILE" ]; then kill -9 "$(cat "$PIDFILE")" >/dev/null 2>&1 || true; fi
-  done
+  # The drivers, workers and claims whose pids this run recorded under $TMP, the
+  # stubs that live there, and their descendants — never a process another
+  # invocation started (lib/owned-processes.sh).
+  kill_owned "$TMP"
   # Only a lock whose owner is gone — one of this dry run's killed stubs. The
   # rig shares `.extract-lock` with whatever wave is running beside it, and the
   # unconditional `rmdir` that used to be here would hand that wave's live
@@ -300,13 +299,10 @@ wait_for "states.get('$FIRST')?.state === 'cleaned' && states.get('$SECOND')?.st
 # "killed mid-instance" mean what it says.
 wait_for_ledger "S $THIRD"
 
-# The crash: the driver and every worker, with no chance to clean up.
-kill -9 "$(cat "$FB/driver.pid")" 2>/dev/null || true
-for PIDFILE in "$FB"/workers/*.pid; do
-  if [ -f "$PIDFILE" ]; then kill -9 "$(cat "$PIDFILE")" 2>/dev/null || true; fi
-done
-pkill -9 -f "fullbench-instance.sh stubfull__" >/dev/null 2>&1 || true
-pkill -9 -f "dryrun-run.sh stubfull__" >/dev/null 2>&1 || true
+# The crash: the driver and every worker, with no chance to clean up. Only this
+# benchmark's recorded processes and their descendants, all collected before
+# the first signal.
+kill_owned "$FB"
 sleep 2
 cp "$FB/manifest.jsonl" "$TMP/manifest-after-kill.jsonl"
 cp "$LEDGER" "$TMP/ledger-after-kill.txt"

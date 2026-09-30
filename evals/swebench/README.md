@@ -1840,6 +1840,13 @@ seeded draw, so no phase can quietly depend on an order the driver does not use:
 `alpine` is pinned and is still present at the end — the stand-in for the five
 images the matrix needs kept warm.
 
+Both dry runs kill only what they started (`lib/owned-processes.sh`): the pids
+they launched and recorded under their own temp directory, processes naming that
+directory, and the descendants of each — never a process matched by name, so two
+dry runs, or a dry run beside a live wave, cannot kill each other's workers.
+`fixtures/check-dryrun-ownership.mjs`, inside `verify.sh`, proves it with live
+canaries; `--full` also runs both dry runs beside them.
+
 `SWB_DRYRUN_KEEP=1` leaves the temp directory, with every manifest, report and
 driver log in it, for reading after a failure.
 

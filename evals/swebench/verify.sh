@@ -228,6 +228,9 @@ python3 "$S/fixtures/check-plue-transport.py"
 echo "== one lane's seal, either arm"
 node "$S/fixtures/check-breach-scan.mjs"
 
+echo "== the dry runs kill only processes they started"
+node "$S/fixtures/check-dryrun-ownership.mjs"
+
 echo "== the program evidence a re-run report reads off its journals"
 node "$S/fixtures/check-program-evidence.mjs"
 

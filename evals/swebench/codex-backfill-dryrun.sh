@@ -54,10 +54,15 @@ FOUR=stubcodex__four
 FIVE=stubcodex__five
 ABSENT=stubcodex__absent
 IDS="$ONE $TWO $THREE $FOUR $FIVE $ABSENT"
+# The invocations this dry run put in the background. Cleanup kills these, the
+# pids recorded under $TMP and their descendants — never a process another
+# invocation started (lib/owned-processes.sh).
+OWNED=""
+. "$S/lib/owned-processes.sh"
 
 cleanup() {
-  pkill -9 -f "codex-backfill.sh --one stubcodex__" >/dev/null 2>&1 || true
-  pkill -9 -f "codex-dryrun-run.sh stubcodex__" >/dev/null 2>&1 || true
+  # shellcheck disable=SC2086 # OWNED is a list of pids
+  kill_owned "$TMP" $OWNED
   for ID in $IDS; do
     rm -rf "$S/work-codex/${ID}-r90c"
     rm -f "$S/patches-codex/${ID}-r90c.patch" "$S/patches-codex/${ID}-r90c.patch.untracked" \
@@ -240,11 +245,14 @@ printf '30\n' > "$TMP/sleep-$THREE"
 # once both are known to be inside their instances, so "the third waits" is a
 # fact about the semaphore rather than about which invocation won a race.
 "$S/codex-backfill.sh" --one "$ONE" > "$TMP/phase-b-one.log" 2>&1 &
+OWNED="$OWNED $!"
 "$S/codex-backfill.sh" --one "$TWO" > "$TMP/phase-b-two.log" 2>&1 &
+OWNED="$OWNED $!"
 wait_for_ledger "S $ONE"
 wait_for_ledger "S $TWO"
 "$S/codex-backfill.sh" --one "$THREE" > "$TMP/phase-b-three.log" 2>&1 &
 THREE_PID=$!
+OWNED="$OWNED $THREE_PID"
 
 echo "== phase C: kill -9 the third, mid-instance"
 # Its start cannot happen until the first instance releases a slot, so the
@@ -259,8 +267,10 @@ set +e
 "$S/codex-backfill.sh" --one "$TWO" > "$TMP/phase-c-double.log" 2>&1
 echo $? > "$TMP/phase-c-double.exit"
 set -e
-kill -9 "$THREE_PID" 2>/dev/null || true
-pkill -9 -f "codex-dryrun-run.sh $THREE" >/dev/null 2>&1 || true
+# That invocation and everything under it, collected before the signal; nothing
+# another invocation started.
+# shellcheck disable=SC2046 # one pid per word
+kill -9 $(tree_pids "$THREE_PID") 2>/dev/null || true
 sleep 2
 cp "$FB/codex-manifest.jsonl" "$TMP/manifest-after-kill.jsonl"
 "$S/codex-backfill.sh" --list > "$TMP/remaining-after-kill.txt"
