@@ -1647,6 +1647,23 @@ components:
         retryable:
           type: boolean
       additionalProperties: true
+    SSHKey:
+      type: object
+      required: [id, name, fingerprint, key_type, created_at]
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 1
+        name:
+          type: string
+        fingerprint:
+          type: string
+        key_type:
+          type: string
+        created_at:
+          type: string
+          format: date-time
   responses:
     BadRequest:
       description: Bad request

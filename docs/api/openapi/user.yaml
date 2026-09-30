@@ -135,7 +135,9 @@ paths:
           in: path
           required: true
           schema:
-            type: string
+            type: integer
+            format: int64
+            minimum: 1
       security:
         - tokenAuth: []
         - bearerAuth: []
@@ -167,18 +169,20 @@ paths:
           in: path
           required: true
           schema:
-            type: string
+            type: integer
+            format: int64
+            minimum: 1
       security:
         - tokenAuth: []
         - bearerAuth: []
         - sessionCookie: []
       responses:
         '200':
-          description: Successful response
+          description: The key
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AnyJSON'
+                $ref: '#/components/schemas/SSHKey'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -1137,11 +1141,13 @@ paths:
         - sessionCookie: []
       responses:
         '200':
-          description: Successful response
+          description: The signed-in user's keys
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AnyJSON'
+                type: array
+                items:
+                  $ref: '#/components/schemas/SSHKey'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -1162,17 +1168,30 @@ paths:
       tags:
         - User
       parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title, key]
+              properties:
+                title:
+                  type: string
+                key:
+                  type: string
+                  description: An OpenSSH public key line.
       security:
         - tokenAuth: []
         - bearerAuth: []
         - sessionCookie: []
       responses:
-        '200':
-          description: Successful response
+        '201':
+          description: The added key
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AnyJSON'
+                $ref: '#/components/schemas/SSHKey'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
