@@ -36,6 +36,7 @@ import * as EngineJj from "./internal/EngineJj.ts"
 import * as NodeJournal from "./internal/NodeJournal.ts"
 import * as RunDriver from "./internal/RunDriver.ts"
 import * as OwnerIdentity from "./OwnerIdentity.ts"
+import * as ReplayOnly from "./ReplayOnly.ts"
 import { RunState } from "./RunState.ts"
 import * as StepBoundary from "./StepBoundary.ts"
 import * as StepSandbox from "./StepSandbox.ts"
@@ -234,6 +235,9 @@ const makeWithEngineJj = (
     const workspaceSandbox = yield* Effect.serviceOption(WorkspaceSandbox.WorkspaceSandbox)
     const stepSandbox = yield* Effect.serviceOption(StepSandbox.StepSandbox)
     const effectDispatcher = yield* Effect.serviceOption(WorkspaceSandbox.EffectDispatcher)
+    // Resolved at composition like the sandboxes: a verifier composes an
+    // engine that replays and executes nothing (`ReplayOnly`).
+    const replayOnly = Option.getOrUndefined(yield* Effect.serviceOption(ReplayOnly.ReplayOnly))
     const engineState = yield* DurableEngineState.DurableEngineState
     const attemptSurvivors = engineState.attemptSurvivors
     /**
@@ -327,7 +331,8 @@ const makeWithEngineJj = (
           ? undefined
           : input.key,
         admission,
-        cacheAgeVerdict
+        cacheAgeVerdict,
+        replayOnly
       })({
         action: input.action,
         attempt: input.attempt,

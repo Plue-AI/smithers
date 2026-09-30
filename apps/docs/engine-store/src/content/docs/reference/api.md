@@ -124,8 +124,8 @@ so there is no run-time composition error to handle.
 [`WorkspaceSandbox`](#workspacesandbox) and its `EffectDispatcher` are optional
 and are resolved at construction, because `actionExecute` runs on the engine's
 own fiber, which does not carry the store's layer context. `StepSandbox`,
-`WakeBus`, `ArtifactSync`, `CacheSync`, `Inconsistency`, `Reconciliation`, and
-`Selection` are optional in the same way.
+`WakeBus`, `ArtifactSync`, `CacheSync`, `Inconsistency`, `Reconciliation`,
+[`ReplayOnly`](#replayonly), and `Selection` are optional in the same way.
 
 ### Behavior
 
@@ -1207,6 +1207,35 @@ The record goes through the journal's durable channel, so a `tolerate` verdict
 cannot silently drop its only record. For `noteCorruption`, `"fail"` fails the
 dispatch and `"tolerate"` lets it fall back to a real execution, which
 re-captures and heals the corrupt address.
+
+## ReplayOnly
+
+[src/ReplayOnly.ts](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/engine-store/src/ReplayOnly.ts)
+
+An engine composed with this service replays recorded work and executes none.
+`smthrs runs verify` drives a copy of a run's store with it to report which
+recorded steps the current code would replay and which step it would execute
+again.
+
+```ts
+interface Service {
+  readonly observe: (dispatch: Dispatch) => Effect<void>
+}
+```
+
+| Export         | Signature                                                  | Meaning                                                    |
+| -------------- | ---------------------------------------------------------- | ---------------------------------------------------------- |
+| `ReplayOnly`   | `Context.Service<Service>`                                 | Service tag, resolved when the engine is composed.         |
+| `layer`        | `(observe: Service["observe"]) => Layer<ReplayOnly>`       | Provides it.                                               |
+| `WouldExecute` | `TaggedError<{ runId, stepKeyDigest, attempt, action }>`   | The defect a dispatch dies with instead of running a body. |
+| `Dispatch`     | `{ runId, stepKeyDigest, attempt, action, tier, outcome }` | `outcome` is `"replayed"` or `"would-execute"`.            |
+
+A dispatch served from a durable record, a recorded failure included, reports
+`replayed`. The first dispatch no record serves reports `would-execute` and
+dies before its attempt row, snapshot, boundary, or body. The defect is never
+retried, so the run settles `failed` instead of spinning in its retry policy.
+Replays still write the journal rows a resume converges on, so drive a copy of
+the store, never the original.
 
 ## OwnerIdentity
 

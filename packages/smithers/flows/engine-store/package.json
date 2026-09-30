@@ -55,6 +55,7 @@
     "./PlanInputStore": "./src/PlanInputStore.ts",
     "./PlanMergeStore": "./src/PlanMergeStore.ts",
     "./Reconciliation": "./src/Reconciliation.ts",
+    "./ReplayOnly": "./src/ReplayOnly.ts",
     "./Retention": "./src/Retention.ts",
     "./RunCatalogRead": "./src/RunCatalogRead.ts",
     "./RunState": "./src/RunState.ts",
@@ -257,6 +258,16 @@
         "require": {
           "types": "./dist/cjs/PlanMergeStore.d.ts",
           "default": "./dist/cjs/PlanMergeStore.js"
+        }
+      },
+      "./ReplayOnly": {
+        "import": {
+          "types": "./dist/esm/ReplayOnly.d.ts",
+          "default": "./dist/esm/ReplayOnly.js"
+        },
+        "require": {
+          "types": "./dist/cjs/ReplayOnly.d.ts",
+          "default": "./dist/cjs/ReplayOnly.js"
         }
       },
       "./Reconciliation": {

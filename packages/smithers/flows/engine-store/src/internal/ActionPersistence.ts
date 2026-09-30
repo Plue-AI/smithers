@@ -26,6 +26,7 @@ import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import * as EngineStoreMetrics from "../EngineStoreMetrics.ts"
 import * as Inconsistency from "../Inconsistency.ts"
+import * as ReplayOnly from "../ReplayOnly.ts"
 import * as StepBoundary from "../StepBoundary.ts"
 import * as StepSandbox from "../StepSandbox.ts"
 import * as WorkspaceSandbox from "../WorkspaceSandbox.ts"
@@ -322,6 +323,11 @@ export interface Dependencies {
   readonly admission?: AttemptAdmission.Service | undefined
   /** Shared by callers that construct an executor for every dispatch in a run. */
   readonly cacheAgeVerdict?: ReturnType<typeof CacheAgeVerdicts.make> | undefined
+  /**
+   * Present on a replay-only engine: every settled dispatch is reported to it,
+   * and a dispatch that would execute a body dies with `WouldExecute` first.
+   */
+  readonly replayOnly?: ReplayOnly.Service | undefined
 }
 
 const AttemptMeta = Schema.Struct({
@@ -790,8 +796,11 @@ export const make = (deps: Dependencies) => {
   // An action is a node inside its run's root lineage, not a lineage of
   // its own: a lineage segment is minted only where a separate run is.
   const lineageId = FlowEngine.Lineage.root(deps.runId)
-  return Effect.fn("ActionPersistence.execute")((input: ActionInput) =>
-    Effect.gen(function*() {
+  return Effect.fn("ActionPersistence.execute")((input: ActionInput) => {
+    // What a replay-only engine reports for this dispatch: the digest once it
+    // exists, and whether the dispatch stopped at the execution gate.
+    const replay: { stepKeyDigest?: string; gated: boolean } = { gated: false }
+    return Effect.gen(function*() {
       yield* Effect.annotateCurrentSpan({
         runId: deps.runId,
         attempt: input.attempt,
@@ -834,6 +843,7 @@ export const make = (deps: Dependencies) => {
       // annotation, so narrowing this one would hide a scoped step's attempts
       // from its own retry counter and its deviations from the reconciler.
       const stepKeyDigest = yield* Schema.decodeUnknownEffect(Sha256)(input.key).pipe(Effect.orDie)
+      replay.stepKeyDigest = stepKeyDigest
       // What the scope narrows is the CACHE ROW ADDRESS, which is the only
       // thing a scope is about: an unscoped declaration addresses the row by
       // the step key alone, and a narrowed one folds the identity it is
@@ -860,13 +870,19 @@ export const make = (deps: Dependencies) => {
       const callFacts = CallFacts.make(input.action, deps.runId)
       const stepFacts = StepFacts.make(input.action, deps.runId)
       const emitStepSettled = (outcome: unknown) =>
-        Effect.flatMap(stepFacts.settled(outcome), (record) =>
-          record === undefined ? Effect.void : Effect.asVoid(emitLifecycle(record)))
-      const emitCallInvoked = Effect.flatMap(callFacts.invoked, (record) =>
-        record === undefined ? Effect.void : Effect.asVoid(emitLifecycle(record)))
+        Effect.flatMap(
+          stepFacts.settled(outcome),
+          (record) => record === undefined ? Effect.void : Effect.asVoid(emitLifecycle(record))
+        )
+      const emitCallInvoked = Effect.flatMap(
+        callFacts.invoked,
+        (record) => record === undefined ? Effect.void : Effect.asVoid(emitLifecycle(record))
+      )
       const emitCallSettled = (outcome: unknown) =>
-        Effect.flatMap(callFacts.settled(outcome), (record) =>
-          record === undefined ? Effect.void : Effect.asVoid(emitLifecycle(record)))
+        Effect.flatMap(
+          callFacts.settled(outcome),
+          (record) => record === undefined ? Effect.void : Effect.asVoid(emitLifecycle(record))
+        )
       /**
        * Commits an attempt/cache state transition and the lifecycle records
        * describing it in ONE write transaction.
@@ -885,8 +901,7 @@ export const make = (deps: Dependencies) => {
        * the Jj snapshot, and the boundary prepare/settle all stay outside so
        * the write transaction is never held across a host call.
        */
-      const atomically = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-        journal.transact(effect)
+      const atomically = <A, E, R>(effect: Effect.Effect<A, E, R>) => journal.transact(effect)
       /**
        * Commits an attempt's terminal row and the lifecycle records describing
        * it as one unit, reporting whether the fenced write landed.
@@ -921,8 +936,7 @@ export const make = (deps: Dependencies) => {
             }
             yield* emitStepSettled(committed.value.outcome)
           }
-          yield* Effect.forEach(records, (record) =>
-            emitLifecycle(record), { discard: true })
+          yield* Effect.forEach(records, (record) => emitLifecycle(record), { discard: true })
           if (row.state === "succeeded" && callFacts.settles) {
             const committed = yield* attempts.get(attemptId)
             if (Option.isNone(committed)) {
@@ -1166,10 +1180,8 @@ export const make = (deps: Dependencies) => {
                   {
                     keyDigest,
                     action: "conflict_first_writer",
-                    recordedRunId: Option.getOrNull(Option.map(recorded, (value) =>
-                      value.runId)),
-                    recordedEventSeq: Option.getOrNull(Option.map(recorded, (value) =>
-                      value.eventSeq))
+                    recordedRunId: Option.getOrNull(Option.map(recorded, (value) => value.runId)),
+                    recordedEventSeq: Option.getOrNull(Option.map(recorded, (value) => value.eventSeq))
                   }
                 )
               )
@@ -1461,11 +1473,13 @@ export const make = (deps: Dependencies) => {
           // are replaceable and cannot overwrite its result or failure.
           const existing = yield* attempts.get(attemptId)
           if (cacheDeclaration._tag === "Eligible") {
-            const observed = yield* cache.get(keyDigest).pipe(Effect.catch((error) =>
-              noteUnshareable({ stage: "entry", message: `cache lookup failed: ${error.message}` }).pipe(
-                Effect.as(Option.none<CacheStore.CacheEntry>())
+            const observed = yield* cache.get(keyDigest).pipe(
+              Effect.catch((error) =>
+                noteUnshareable({ stage: "entry", message: `cache lookup failed: ${error.message}` }).pipe(
+                  Effect.as(Option.none<CacheStore.CacheEntry>())
+                )
               )
-            ))
+            )
             const evidenceDecision = CacheAdmission.candidate(
               Option.isSome(observed) ? decodeMeta(observed.value.meta) : undefined
             )
@@ -2020,6 +2034,21 @@ export const make = (deps: Dependencies) => {
               })
             )
           }
+          // THE REPLAY-ONLY GATE. Every durable record that could serve this
+          // dispatch has been consulted above; what remains is admitting an
+          // attempt and running the body. A replay-only engine stops here,
+          // before the attempt row, the snapshot, the boundary and the body.
+          if (deps.replayOnly !== undefined) {
+            replay.gated = true
+            const refused = {
+              runId: deps.runId,
+              stepKeyDigest,
+              attempt: input.attempt,
+              action: actionKind(input.action)
+            }
+            yield* deps.replayOnly.observe({ ...refused, tier: input.tier, outcome: "would-execute" })
+            return yield* Effect.die(new ReplayOnly.WouldExecute(refused))
+          }
           const adopted = runningRow !== undefined
           // The admission row and its announcement commit as one unit: an
           // `attemptStarted` never describes a row that rolled back, and an
@@ -2360,8 +2389,7 @@ export const make = (deps: Dependencies) => {
                 )
                 return patched._tag === "Patched"
               })),
-              (recorded) =>
-                recorded ? Effect.void : Effect.interrupt
+              (recorded) => recorded ? Effect.void : Effect.interrupt
             )
           const dispatch = effect === undefined
             ? execute(input, stepKeyDigest)
@@ -2400,8 +2428,7 @@ export const make = (deps: Dependencies) => {
             )
           const outcome = isolated === undefined
             ? yield* dispatch.pipe(Effect.exit)
-            : Exit.map(isolated, (settled) =>
-              settled.result)
+            : Exit.map(isolated, (settled) => settled.result)
           if (Exit.isFailure(outcome)) {
             /**
              * A DURABLE PARK IS NOT A SETTLEMENT (N-08). A body that reaches a
@@ -2623,7 +2650,24 @@ export const make = (deps: Dependencies) => {
       EngineStoreMetrics.observe({
         timer: EngineStoreMetrics.dispatchDuration,
         counter: EngineStoreMetrics.dispatch
+      }),
+      // A dispatch that settled without reaching the gate was served from a
+      // durable record: a recorded success, or a recorded failure it rethrew.
+      // An interruption or a defect settled nothing and reports nothing.
+      Effect.onExit((exit) => {
+        const replayOnly = deps.replayOnly
+        const stepKeyDigest = replay.stepKeyDigest
+        if (replayOnly === undefined || replay.gated || stepKeyDigest === undefined) return Effect.void
+        if (Exit.isFailure(exit) && (Cause.hasInterrupts(exit.cause) || Cause.hasDies(exit.cause))) return Effect.void
+        return replayOnly.observe({
+          runId: deps.runId,
+          stepKeyDigest,
+          attempt: input.attempt,
+          action: actionKind(input.action),
+          tier: input.tier,
+          outcome: "replayed"
+        })
       })
     )
-  )
+  })
 }
