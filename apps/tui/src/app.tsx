@@ -2066,7 +2066,8 @@ export function App(props: AppProps) {
             } catch (error) {
               setStatus(Failures.line("cap", error), "warning")
             }
-          }
+          },
+          chat: (next) => flushSync(() => setText(next))
         })
       }
       changeForm(undefined)

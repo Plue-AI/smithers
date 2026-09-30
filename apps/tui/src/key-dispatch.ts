@@ -40,7 +40,7 @@ export interface AskChoices {
   readonly armedAt: number
   /** An arrow or tab moved the cursor. */
   readonly moved?: true
-  /** The chat key that opened the form; typing ahead keeps it at the front of the typed answer. */
+  /** The chat key that opened the form; typing ahead gives it and the typing back to the chat. */
   readonly lead?: string
 }
 
@@ -308,6 +308,8 @@ export const formKey = (key: KeyEvent, open: FlowForm, act: {
   readonly schema: (id: string) => Schema.Top | undefined
   readonly input: (id: string) => Record<string, unknown> | undefined
   readonly fill: (id: string, payload: Record<string, unknown>) => void
+  /** Puts `text` in the chat composer. */
+  readonly chat: (text: string) => void
 }) => {
   if (open.ask !== undefined) return askKey(key, open, open.ask, act)
   const field = open.fields[open.focus]
@@ -390,11 +392,13 @@ export const checklistKey = (key: KeyEvent, state: { readonly rows: number }, ac
  * Keys in an ask's answer form: arrows or tab move the cursor, a number picks
  * its option, enter answers, esc goes back and leaves the ask open. Other
  * typing goes to `other…`. Until `armedAt`, unless the cursor moved, enter and
- * numbers wait, so a chat message typed after `a` never answers the ask.
+ * numbers wait, and typing after the chat's `a` closes the form and goes back
+ * to the chat with that `a`, so a chat message never answers the ask.
  */
 const askKey = (key: KeyEvent, open: FlowForm, ask: AskChoices, act: {
   readonly change: (next: FlowForm | undefined) => void
   readonly fill: (id: string, payload: Record<string, unknown>) => void
+  readonly chat: (text: string) => void
 }) => {
   const lines = choices(ask).length
   const armed = ask.moved === true || Date.now() >= ask.armedAt
@@ -414,6 +418,11 @@ const askKey = (key: KeyEvent, open: FlowForm, ask: AskChoices, act: {
     return act.fill(open.id, { answer })
   }
   const char = typing(key)
+  if (char !== undefined && ask.lead !== undefined && !armed) {
+    key.preventDefault()
+    act.change(undefined)
+    return act.chat(`${ask.lead}${char}`)
+  }
   if (char !== undefined) {
     const picked = /^[1-9]$/.test(char) && armed && !typed(ask)
       ? ask.options[Number(char) - 1]
@@ -423,16 +432,13 @@ const askKey = (key: KeyEvent, open: FlowForm, ask: AskChoices, act: {
       act.change(undefined)
       return act.fill(open.id, { answer: picked })
     }
-    const draft = String(open.draft.answer ?? "")
-    const lead = draft === "" && !armed ? ask.lead ?? "" : ""
     // The focused input takes the rest.
-    if (typed(ask) && lead === "") return
+    if (typed(ask)) return
     key.preventDefault()
-    const { lead: _lead, ...rest } = ask
     return act.change({
       ...open,
-      draft: { ...open.draft, answer: `${draft}${lead}${char}` },
-      ask: { ...rest, choice: ask.options.length },
+      draft: { ...open.draft, answer: `${String(open.draft.answer ?? "")}${char}` },
+      ask: { ...ask, choice: ask.options.length },
       error: undefined
     })
   }

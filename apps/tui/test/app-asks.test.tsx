@@ -209,7 +209,42 @@ test("a started message keeps its a", async () => {
   expect(frame()).toContain("Rename a")
 })
 
-test("a chat message typed straight after a stays typed in the form and answers nothing", async () => {
+/** Types `text` a key at a time, `gap` ms apart, the way a person does. */
+const typeSlowly = async (text: string, gap: number) => {
+  for (const char of text) {
+    await type(char)
+    await act(async () => {
+      await setTimeout(gap)
+    })
+  }
+  await render()
+}
+
+test.each([50, 90])(
+  "a chat message typed after a with %i ms between keys stays a chat message and answers nothing",
+  async (gap) => {
+    await delegate("add")
+    const answered = await ask(1, "Session cookie or bearer header?", ["Session cookie", "Bearer header"])
+    let settled = false
+    void answered().then(() => {
+      settled = true
+    })
+    await waitFor(() => frame().includes("Summary ◆1"))
+    await settle()
+    const opened = Date.now()
+    await typeSlowly("add a test for logout", gap)
+    expect(Date.now() - opened).toBeGreaterThan(450)
+    expect(frame()).not.toContain("enter Answer")
+    await key("RETURN")
+    await waitFor(() => turns.length === 3)
+    expect(turns[2]!.input.prompt).toContain("add a test for logout")
+    await setImmediate()
+    expect(settled).toBe(false)
+    expect(frame()).toContain("Summary ◆1")
+  }
+)
+
+test("esc after typing ahead of the answer form keeps the chat message", async () => {
   await delegate("add")
   const answered = await ask(1, "Session cookie or bearer header?", ["Session cookie", "Bearer header"])
   let settled = false
@@ -218,17 +253,16 @@ test("a chat message typed straight after a stays typed in the form and answers 
   })
   await waitFor(() => frame().includes("Summary ◆1"))
   await settle()
-  await type("and x")
-  await key("RETURN")
-  await setImmediate()
-  expect(settled).toBe(false)
-  expect(frame()).toContain("Summary ◆1")
-  expect(frame()).toContain("> and x")
-  expect(frame()).toContain("enter Answer  esc Back")
-  // Once the person has seen it, enter sends what is typed.
+  await type("add a")
+  await key("ESCAPE")
   await settle()
+  expect(frame()).not.toContain("enter Answer")
+  expect(frame()).toContain("add a")
+  await type(" test")
   await key("RETURN")
-  expect(await answered()).toMatchObject({ answer: "and x" })
+  await waitFor(() => turns.length === 3)
+  expect(turns[2]!.input.prompt).toContain("add a test")
+  expect(settled).toBe(false)
 })
 
 test("a number picks its choice in the answer form", async () => {

@@ -184,7 +184,8 @@ test.each([{ options: [] }, { options: [{ value: "blocked", label: "Blocked", di
       change: (next) => calls.push(next),
       schema: () => flowSchema,
       input: () => ({}),
-      fill: () => calls.push("fill")
+      fill: () => calls.push("fill"),
+      chat: () => calls.push("chat")
     })
     expect(calls).toEqual([])
     expect(open.draft).toEqual({ count: "3", enabled: false, mode: "one" })
@@ -398,6 +399,9 @@ test.each([["tab", false, 1], ["tab", true, 2], ["down", false, 1], ["up", false
       input: () => ({}),
       fill: () => {
         throw new Error("Navigation must not submit")
+      },
+      chat: () => {
+        throw new Error("A flow form keeps its typing")
       }
     })
     expect(current).toEqual({ ...flowForm(), focus })
@@ -419,6 +423,9 @@ test("boolean form input toggles and clears the prior error without submitting",
       input: () => ({}),
       fill: () => {
         throw new Error("Toggle must not submit")
+      },
+      chat: () => {
+        throw new Error("A flow form keeps its typing")
       }
     })
     expect(current?.draft.enabled).toBe(value)
@@ -457,6 +464,9 @@ test("select form navigation skips unavailable choices in both directions", () =
       input: () => ({}),
       fill: () => {
         throw new Error("Selection must not submit")
+      },
+      chat: () => {
+        throw new Error("A flow form keeps its typing")
       }
     })
     expect(current?.draft.mode).toBe(expected)
@@ -484,7 +494,8 @@ test("invalid form input remains retryable; valid input closes before filling th
       expect(id).toBe("request")
       return { routing: "captured" }
     },
-    fill: (id: string, payload: Record<string, unknown>) => calls.push([id, payload])
+    fill: (id: string, payload: Record<string, unknown>) => calls.push([id, payload]),
+    chat: (text: string) => calls.push(["chat", text])
   }
   Dispatch.formKey(key("return"), current, act)
   expect(current).toEqual({
@@ -506,7 +517,8 @@ test.each(["escape", "missing-schema", "missing-input"] as const)("form %s close
     change: (next) => calls.push(next),
     schema: () => reason === "missing-schema" ? undefined : flowSchema,
     input: () => reason === "missing-input" ? undefined : {},
-    fill: () => calls.push("fill")
+    fill: () => calls.push("fill"),
+    chat: () => calls.push("chat")
   })
   expect(calls).toEqual([undefined])
   expect(event.defaultPrevented).toBe(true)
@@ -1262,9 +1274,14 @@ const askForm = (
 /** Far enough ahead that no test outlives it. */
 const later = () => Date.now() + 60_000
 const askAct = () => {
-  const seen: { changed: Array<Dispatch.FlowForm | undefined>; filled: Array<Record<string, unknown>> } = {
+  const seen: {
+    changed: Array<Dispatch.FlowForm | undefined>
+    filled: Array<Record<string, unknown>>
+    chat: Array<string>
+  } = {
     changed: [],
-    filled: []
+    filled: [],
+    chat: []
   }
   return {
     seen,
@@ -1274,7 +1291,8 @@ const askAct = () => {
         throw new Error("An ask has no schema")
       },
       input: () => ({}),
-      fill: (_: string, payload: Record<string, unknown>) => void seen.filled.push(payload)
+      fill: (_: string, payload: Record<string, unknown>) => void seen.filled.push(payload),
+      chat: (text: string) => void seen.chat.push(text)
     }
   }
 }
@@ -1326,14 +1344,6 @@ test.each(
     }],
     ["a letter types under other…", askForm(0), "x", { choice: 2, answer: "x" }],
     ["typing adds to a kept answer", askForm(1, ["sum", "plus"], "to"), "t", { choice: 2, answer: "tot" }],
-    ["typing ahead keeps the chat key", askForm(0, ["sum", "plus"], undefined, { armedAt: later(), lead: "a" }), "n", {
-      choice: 2,
-      answer: "an"
-    }],
-    ["a free-text ask keeps the chat key", askForm(0, [], undefined, { armedAt: later(), lead: "a" }), "n", {
-      choice: 0,
-      answer: "an"
-    }],
     ["an armed form drops the chat key", askForm(0, ["sum"], undefined, { lead: "a" }), "n", {
       choice: 1,
       answer: "n"
@@ -1362,14 +1372,36 @@ test.each(
   Dispatch.formKey(event, form, act)
   expect(event.defaultPrevented).toBe(true)
   if ("filled" in expected) {
-    expect(seen).toEqual({ changed: [undefined], filled: [...expected.filled] })
+    expect(seen).toEqual({ changed: [undefined], filled: [...expected.filled], chat: [] })
     return
   }
   expect(seen.filled).toEqual([])
   expect(seen.changed).toHaveLength(1)
+  expect(seen.chat).toEqual([])
   expect(seen.changed[0]?.ask?.choice).toBe(expected.choice)
-  expect(seen.changed[0]?.ask?.lead).toBeUndefined()
   expect(seen.changed[0]?.draft).toEqual({ answer: expected.answer })
+})
+
+test.each(
+  [
+    ["a letter on a choice", askForm(0, ["sum", "plus"], undefined, { armedAt: later(), lead: "a" }), "d"],
+    ["a number on a choice", askForm(0, ["sum", "plus"], undefined, { armedAt: later(), lead: "a" }), "2"],
+    ["a space on a free-text ask", askForm(0, [], undefined, { armedAt: later(), lead: "a" }), " "],
+    ["a letter under other…", askForm(2, ["sum", "plus"], undefined, { armedAt: later(), lead: "a" }), "d"]
+  ] as const
+)("typing ahead after the chat's a goes back to the chat: %s", (_, form, typed) => {
+  const { seen, act } = askAct()
+  const event = key(typed)
+  Dispatch.formKey(event, form, act)
+  expect(event.defaultPrevented).toBe(true)
+  expect(seen).toEqual({ changed: [undefined], filled: [], chat: [`a${typed}`] })
+})
+
+test("typing ahead without the chat's a stays in the form", () => {
+  const { seen, act } = askAct()
+  Dispatch.formKey(key("d"), askForm(0, ["sum", "plus"], undefined, { armedAt: later() }), act)
+  expect(seen.chat).toEqual([])
+  expect(seen.changed[0]?.draft).toEqual({ answer: "d" })
 })
 
 test("while typing under other… the input takes letters and numbers", () => {
@@ -1378,14 +1410,14 @@ test("while typing under other… the input takes letters and numbers", () => {
       askForm(2, ["sum", "plus"], "to"),
       askForm(0, [], "to"),
       askForm(0, [], undefined, { lead: "a" }),
-      askForm(2, ["sum", "plus"], "to", { armedAt: later(), lead: "a" })
+      askForm(2, ["sum", "plus"], "to", { armedAt: later(), moved: true, lead: "a" })
     ]
   ) {
     for (const typed of ["t", "1", " "]) {
       const { seen, act } = askAct()
       const event = key(typed)
       Dispatch.formKey(event, form, act)
-      expect(seen).toEqual({ changed: [], filled: [] })
+      expect(seen).toEqual({ changed: [], filled: [], chat: [] })
       expect(event.defaultPrevented).toBe(false)
     }
   }
@@ -1407,11 +1439,11 @@ test("an ask form answers the chosen option, a typed other…, and nothing blank
   }
   const { seen, act } = askAct()
   Dispatch.formKey(key("escape"), askForm(0), act)
-  expect(seen).toEqual({ changed: [undefined], filled: [] })
+  expect(seen).toEqual({ changed: [undefined], filled: [], chat: [] })
   // A free-text ask has no cursor to move: arrows leave it as it is.
   const free = askAct()
   Dispatch.formKey(key("down"), askForm(0, []), free.act)
-  expect(free.seen).toEqual({ changed: [], filled: [] })
+  expect(free.seen).toEqual({ changed: [], filled: [], chat: [] })
   expect(Dispatch.choices(askForm(0).ask)).toEqual(["sum", "plus", "other…"])
   expect(Dispatch.choices(askForm(0, []).ask)).toEqual([])
 })
