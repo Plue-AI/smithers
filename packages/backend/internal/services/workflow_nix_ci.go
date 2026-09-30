@@ -455,6 +455,11 @@ func (w *WorkflowSandboxSchedulerWorker) executeNixCIRun(
 // repository identity, the workflow secrets, and the redaction table. Each
 // guest receives its own short-lived clone credential when it boots.
 type nixCIRunEnvironment struct {
+	// Execution names the claim executing the run. Guest create keys include
+	// it: each execution sends a fresh clone credential, so a task re-executed
+	// after a lost claim or a restart must not replay an earlier execution's
+	// keys, which the controller keeps for 24 hours with their request digest.
+	Execution      string
 	RepositoryID   int64
 	Owner          string
 	RepositoryName string
@@ -610,7 +615,7 @@ func (w *WorkflowSandboxSchedulerWorker) provisionNixCIGuest(
 		if ctx.Err() != nil {
 			return "", "", ctx.Err()
 		}
-		createCtx := sandboxProvisionContext(ctx, "create", "workflow_task", fmt.Sprint(task.ID), "attempt-"+strconv.Itoa(attempt))
+		createCtx := sandboxProvisionContext(ctx, "create", "workflow_task", fmt.Sprint(task.ID), env.Execution+"/attempt-"+strconv.Itoa(attempt))
 		vm, err := createWorkspaceSandbox(createCtx, w.sandbox, req)
 		if err == nil {
 			return vm.ID, cloneToken, nil
