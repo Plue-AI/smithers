@@ -512,6 +512,40 @@ describe("a run parked on its task-time budget", () => {
   }, 180_000)
 })
 
+describe("a run parked on its token budget by a call larger than its allowance", () => {
+  it("Continue admits the refused call and completes the run instead of parking on it again", async () => {
+    // Every call charges 15 tokens against a 10-token allowance; the second finishes the run.
+    script = (n) => ({ source: n < 1 ? `console.log("working")` : `ctx.done("settled")`, delayMillis: 0, costUsd: 0 })
+    const root = makeRoot()
+    const parked = await parkInFirstProcess(root, { tokens: 10, onExceeded: "park" })
+
+    expect(parked.kind).toBe("control.approval.requested")
+    if (parked.approval === undefined) return
+    expect(modelCalls).toEqual(["runaway-first"])
+    // The raise covers the spend, the refused call, and one more allowance,
+    // so the call that tripped the guard is admitted under it.
+    expect(parked.approval.target.envelope.budget).toEqual({ tokens: 40, onExceeded: "park" })
+    const [request, ...others] = readRequestFacts(root, parked.runId)
+    expect(others).toEqual([])
+    expect(request?.incident).toMatchObject({
+      classification: "Runaway",
+      source: "tokens",
+      used: 15,
+      max: 10,
+      next: 15,
+      allowance: 40
+    })
+
+    const settled = await answerInSecondProcess(root, parked, "continue")
+
+    expect(settled.kind).toBe("control.run.completed")
+    expect(settled.run.status).toBe("completed")
+    expect(modelCalls).toEqual(["runaway-first", "runaway-second"])
+    // One question, answered once: Continue made progress rather than re-asking.
+    expect(readRequestFacts(root, parked.runId)).toHaveLength(1)
+  }, 180_000)
+})
+
 describe("a run parked on its USD budget", () => {
   it("parks in dollars, keeps its spend across restart, and resumes under the raised ceiling", async () => {
     // Every call costs 60 cents; the fourth one finishes the run.
