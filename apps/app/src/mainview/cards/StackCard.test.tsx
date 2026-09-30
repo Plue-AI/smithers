@@ -371,6 +371,20 @@ describe("check receipts on a TODO", () => {
     expect(lines).toEqual([["passed", "✓ affected-lint"], ["failed", "✗ affected-test"]])
   })
 
+  test("a receipt naming its run links the check to that run and appends how long it ran", () => {
+    const timed = { ...item("r3", "proposed"), checks: { state: "failed", failed: ["affected-test"], receipts: [
+      { check: "affected-lint", tier: "fast", status: "passed", commit: "1a2b3c4d5e", runId: "run-verify-21" },
+      { check: "affected-test", tier: "slow", status: "failed", commit: "1a2b3c4d5e", runId: "run-verify-21", durationMs: 64_000 },
+      { check: "affected-docs", tier: "fast", status: "passed", commit: "1a2b3c4d5e", durationMs: 850 }] } }
+    const full = render({ snapshot: { stack: MythicalStackSchema.parse({ ...wire, items: [timed] }), error: null } })
+    const list = full.slice(full.indexOf('data-testid="stack-item-r3-receipts"'))
+    const lines = list.slice(0, list.indexOf("</ul>")).split("</li>").slice(0, 3)
+    const link = `<button type="button" class="thread-ref" data-flow="runs.open" data-flow-args="run-verify-21 ${REPO}">`
+    expect(lines[0]).toEndWith(`data-receipt="passed">✓ ${link}affected-lint</button>`)
+    expect(lines[1]).toEndWith(`data-receipt="failed">✗ ${link}affected-test</button> 1m 04s`)
+    expect(lines[2]).toEndWith('data-receipt="passed">✓ affected-docs 0s')
+  })
+
   test("a check still running reads pending", () => {
     const list = html().slice(html().indexOf('data-testid="stack-item-r2-receipts"'))
     expect(list.slice(0, list.indexOf("</ul>"))).toContain('data-receipt="pending">… pending')

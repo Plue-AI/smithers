@@ -12,7 +12,7 @@ import { useClock } from "@smthrs/ui/clock"
  * repository homepage (`S.Home.Stack`); the snapshot is the stack seam's live
  * read, never card state.
  */
-import { type MythicalItem, type MythicalItemState, type MythicalStack, type MythicalWiki, mythicalMachine } from "@smthrs/rpc/Mythical"
+import { type MythicalItem, type MythicalItemState, type MythicalStack, type MythicalWiki, mythicalMachine, mythicalReceiptDuration } from "@smthrs/rpc/Mythical"
 import { Button } from "@smthrs/ui"
 import { useContext, useSyncExternalStore } from "react"
 import { ControllerContext } from "../ControllerContext"
@@ -53,17 +53,31 @@ const Checks = ({ item }: { readonly item: MythicalItem }) => {
   return <span className="world-card-path" data-checks={item.checks.state}>{item.checks.state === "passed" ? "✓" : "…"}</span>
 }
 
-/** One line per check receipt on the candidate: its mark and check; a check still running reads pending. */
-const Receipts = ({ item }: { readonly item: MythicalItem }) => {
+/**
+ * One line per check receipt on the candidate: its mark, its check (opening
+ * the run that recorded it, when the receipt names one) and how long it ran;
+ * a check still running reads pending.
+ */
+const Receipts = ({ item, repo, onRunCommand }: {
+  readonly item: MythicalItem
+  readonly repo: string
+  readonly onRunCommand: RunCommand
+}) => {
   const receipts = item.checks?.receipts ?? []
   if (receipts.length === 0 && item.checks?.state !== "pending") return null
   return (
     <ul className="stack-receipts" data-testid={`stack-item-${item.id}-receipts`}>
-      {receipts.map((receipt) => (
-        <li key={`${receipt.check}-${receipt.commit}`} className="world-card-path" data-receipt={receipt.status}>
-          {receipt.status === "passed" ? "✓" : "✗"} {receipt.check}
-        </li>
-      ))}
+      {receipts.map((receipt) => {
+        const took = mythicalReceiptDuration(receipt)
+        return (
+          <li key={`${receipt.check}-${receipt.commit}`} className="world-card-path" data-receipt={receipt.status}>
+            {receipt.status === "passed" ? "✓" : "✗"} {receipt.runId === undefined ? receipt.check : (
+              <button type="button" className="thread-ref"
+                {...flowAction(onRunCommand, "runs.open", flowArgs("runs.open", { runId: receipt.runId, repo }))}>{receipt.check}</button>
+            )}{took === undefined ? null : ` ${took}`}
+          </li>
+        )
+      })}
       {item.checks?.state === "pending" ? <li className="world-card-path" data-receipt="pending">… pending</li> : null}
     </ul>
   )
@@ -168,7 +182,7 @@ const IssueRow = ({ stack, group, item, repo, now, onRunCommand }: {
         <time className="world-card-path" dateTime={item.updatedAt} data-testid={`stack-item-${item.id}-elapsed`}>{clock}</time>
       )}
       <ItemCells item={item} repo={repo} onRunCommand={onRunCommand} reason={group.id === "needs-you" ? undefined : itemReason(item)} progress={issueProgress(item)} />
-      <Receipts item={item} />
+      <Receipts item={item} repo={repo} onRunCommand={onRunCommand} />
       <Machine item={item} />
     </li>
   )
