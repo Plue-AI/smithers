@@ -1326,3 +1326,41 @@ describe("FileSystem binary writes", () => {
     )
   })
 })
+
+
+itEffect("retains a typed inspection cause without admitting grants or filesystem execution", () => {
+  const volume = modelVolume(modelEntries())
+  const nativeCause = new Error("synthetic helper not installed")
+  const typed = PlatformError.systemError({
+    _tag: "PermissionDenied", module: "AtomicFileSystem", method: "resolve",
+    description: "Install the native helper or configure its absolute path", cause: nativeCause
+  })
+  volume.execute = () => Effect.fail(typed) as never
+  return overModel(volume, (fs, { checks, requests }) => Effect.gen(function*() {
+    const rejected = yield* Effect.flip(fs.readFile("a"))
+    expect(rejected.reason._tag).toBe("PermissionDenied")
+    expect(rejected.reason.description).toBe(typed.reason.description)
+    const permission = denial(rejected)
+    expect(permission).toMatchObject({
+      code: "permission_denied", capability: { action: "fs:read", resource: "/workspace/a" },
+      reason: "path component could not be inspected without following it"
+    })
+    expect(Reflect.get(permission, "cause")).toBe(typed)
+    expect(typed.reason.cause).toBe(nativeCause)
+    expect(checks).toEqual([])
+    expect(requests).toEqual([])
+  }))
+})
+
+itEffect("keeps the bounded permission diagnosis when an inspection cause has no description", () => {
+  const volume = modelVolume(modelEntries())
+  const typed = PlatformError.systemError({ _tag: "Unknown", module: "AtomicFileSystem", method: "resolve" })
+  volume.execute = () => Effect.fail(typed) as never
+  return overModel(volume, (fs, { checks, requests }) => Effect.gen(function*() {
+    const rejected = yield* Effect.flip(fs.readFile("a"))
+    expect(rejected.reason.description).toContain("path component could not be inspected")
+    expect(Reflect.get(denial(rejected), "cause")).toBe(typed)
+    expect(checks).toEqual([])
+    expect(requests).toEqual([])
+  }))
+})

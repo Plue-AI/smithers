@@ -757,7 +757,7 @@ const confinedResource = <E>(
   path: EffectPath.Path,
   root: Pick<PinnedRoot, "boundaryRoot" | "logicalRoot">,
   value: string,
-  refuse: (resource: string, reason: string) => Effect.Effect<never, E>,
+  refuse: (resource: string, reason: string, cause?: PlatformError.PlatformError) => Effect.Effect<never, E>,
   symlinkDepth = 0
 ): Effect.Effect<string, E> => {
   const requested = pinnedPath(path, root, value)
@@ -766,7 +766,7 @@ const confinedResource = <E>(
   }
   return run({ operation: "resolve", path: requested }).pipe(
     Effect.matchEffect({
-      onFailure: () => refuse(logicalPath(path, root, requested), uninspectable),
+      onFailure: (cause) => refuse(logicalPath(path, root, requested), uninspectable, cause),
       onSuccess: (resolution) => followResolution(run, path, root, requested, resolution, refuse, symlinkDepth)
     })
   )
@@ -785,7 +785,7 @@ const followResolution = <E>(
   root: Pick<PinnedRoot, "boundaryRoot" | "logicalRoot">,
   requested: string,
   resolution: Resolution,
-  refuse: (resource: string, reason: string) => Effect.Effect<never, E>,
+  refuse: (resource: string, reason: string, cause?: PlatformError.PlatformError) => Effect.Effect<never, E>,
   symlinkDepth: number
 ): Effect.Effect<string, E> => {
   const resolved = path.normalize(resolution.path)
@@ -874,10 +874,24 @@ export const layer: Layer.Layer<
     const root: PinnedRoot = { boundaryRoot, logicalRoot, rootIdentity: Option.getOrUndefined(rootIdentity) }
     const refuse = (method: string, resource: string) => (error: PermissionError): PlatformError.PlatformError =>
       toPlatformError({ module: "FileSystem", method, pathOrDescriptor: resource, error })
-    const deny = (action: "fs:read" | "fs:write", method: string, resource: string, reason: string) =>
+    const deny = (
+      action: "fs:read" | "fs:write",
+      method: string,
+      resource: string,
+      reason: string,
+      cause?: PlatformError.PlatformError
+    ) =>
       makeCapability(action, resource).pipe(
-        Effect.flatMap((capability) => Effect.fail(permissionDenied(capability, reason))),
-        Effect.mapError(refuse(method, resource))
+        Effect.flatMap((capability) => {
+          const failure = permissionDenied(capability, reason)
+          // Keep the permission identity and the typed inspection failure together.
+          if (cause !== undefined) Object.defineProperty(failure, "cause", { value: cause })
+          return Effect.fail(failure)
+        }),
+        Effect.mapError(refuse(method, resource)),
+        Effect.mapError((failure) => cause?.reason.description === undefined
+          ? failure
+          : PlatformError.systemError({ ...failure.reason, _tag: "PermissionDenied", description: cause.reason.description, cause: failure.reason.cause }))
       )
     const insideWorkspace = (action: "fs:read" | "fs:write", method: string) => (resource: string) =>
       isInside(path, logicalRoot, resource)
@@ -905,7 +919,7 @@ export const layer: Layer.Layer<
           path,
           root,
           prefix,
-          (resource, reason) => deny(action, method, resource, reason)
+          (resource, reason, cause) => deny(action, method, resource, reason, cause)
         ).pipe(
           Effect.map((resource) => suffix.length === 0 ? resource : path.join(resource, ...suffix)),
           Effect.flatMap(insideWorkspace(action, method))
@@ -937,7 +951,8 @@ export const layer: Layer.Layer<
     const resolvedResources = (
       values: ReadonlyArray<Pick<Batch.BatchRequest, "operation" | "path">>
     ): Effect.Effect<Array<Result.Result<string, PlatformError.PlatformError>>, PlatformError.PlatformError> => {
-      const refuseRead = (resource: string, reason: string) => deny("fs:read", "read", resource, reason)
+      const refuseRead = (resource: string, reason: string, cause?: PlatformError.PlatformError) =>
+        deny("fs:read", "read", resource, reason, cause)
       if (atomic?.noFollowAuthorization !== true || atomic.batchLimits === undefined) {
         return Effect.forEach(
           values,
@@ -971,7 +986,8 @@ export const layer: Layer.Layer<
               // The executor's batch framing already requires one entry per
               // member; an answer of another shape is refused, not guessed.
               return result === undefined || Result.isFailure(result) || result.success.operation !== "resolve"
-                ? refuseRead(logicalPath(path, root, pinnedValue), uninspectable)
+                ? refuseRead(logicalPath(path, root, pinnedValue), uninspectable,
+                  result !== undefined && Result.isFailure(result) ? result.failure : undefined)
                 : followResolution(run, path, root, pinnedValue, result.success.resolution, refuseRead, 0)
             })
           return Effect.result(resource.pipe(
