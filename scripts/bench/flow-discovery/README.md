@@ -3,7 +3,7 @@
 Run from the repository root with installed workspace dependencies:
 
 ```sh
-bun scripts/bench/flow-discovery.ts . /tmp/discovery.json 3
+bun apps/tui/bench/flow-discovery.ts . /tmp/discovery.json 3
 ```
 
 The last argument selects the number of warm samples (default one). The script

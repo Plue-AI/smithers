@@ -1,19 +1,22 @@
-/** Manual read-only discovery measurement; run with Bun from the repository root. */
+/**
+ * Manual read-only discovery measurement; run with Bun from the repository root.
+ * Method and evidence: scripts/bench/flow-discovery/README.md.
+ */
 import { NodeFileSystem, NodePath } from "@effect/platform-node"
+import * as Discovery from "@smthrs/registry/Discovery"
 import { Effect, FileSystem, Layer, Path } from "effect"
 import { execFileSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { writeFileSync } from "node:fs"
 import { arch, cpus, platform } from "node:os"
 import { join, resolve } from "node:path"
-import * as Extension from "../../apps/tui/src/extension.ts"
-import * as FlowControl from "../../apps/tui/src/flow-control.ts"
-import * as Discovery from "../../packages/smithers/agent/registry/src/Discovery.ts"
+import * as Extension from "../src/extension.ts"
+import * as FlowControl from "../src/flow-control.ts"
 
 const cwd = resolve(process.argv[2] ?? ".")
 const output = process.argv[3]
 if (output === undefined) {
-  throw new Error("Usage: bun scripts/bench/flow-discovery.ts <cwd> <new-output.json> [warm-samples=1]")
+  throw new Error("Usage: bun apps/tui/bench/flow-discovery.ts <cwd> <new-output.json> [warm-samples=1]")
 }
 const repetitions = Number(process.argv[4] ?? "1")
 if (!Number.isSafeInteger(repetitions) || repetitions < 1 || repetitions > 20) {
