@@ -115,6 +115,21 @@ describe.skipIf(!jjInstalled)("NodeJj against a repository its occupant controls
           + "printf -- '-----BEGIN PGP SIGNATURE-----\\n\\nabc\\n-----END PGP SIGNATURE-----\\n'\n"
       )
       chmodSync(signer, 0o755)
+      // A program written a moment before it is executed can still be open for
+      // writing in a forked sibling, and exec then fails with ETXTBSY. jj would
+      // report that as a failed signature, which reads as a product bug. Run the
+      // signer once, retrying while it is busy, so it is quiescent before jj
+      // execs it; the probe's marker is not evidence of anything and is removed.
+      for (let attempt = 0;; attempt += 1) {
+        try {
+          execFileSync(signer, ["--probe"], { stdio: "ignore" })
+          break
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ETXTBSY" || attempt >= 100) throw error
+          await new Promise((resolve) => setTimeout(resolve, 20))
+        }
+      }
+      rmSync(marker(), { force: true })
       return signer
     })
 
