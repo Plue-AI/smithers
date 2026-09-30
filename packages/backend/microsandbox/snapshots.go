@@ -24,8 +24,11 @@ type coldSnapshot struct {
 	CreatedAt         string   `json:"createdAt"`
 }
 
+// coldSnapshotPrefix begins every cold snapshot name.
+const coldSnapshotPrefix = "smthrs-cs-"
+
 func (r *Runtime) snapshotName(id string) string {
-	return "smthrs-cs-" + strings.TrimPrefix(r.owner, "smithers-backend-")[:8] + "-" + digest(id)[:20]
+	return coldSnapshotPrefix + strings.TrimPrefix(r.owner, "smithers-backend-")[:8] + "-" + digest(id)[:20]
 }
 
 func (r *Runtime) snapshotPath(id string) string {

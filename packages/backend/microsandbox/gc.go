@@ -43,6 +43,34 @@ func allocatedBytes(root string) int64 {
 	return total
 }
 
+// privateBytes sums what deleting a directory tree frees: each file's bytes
+// that no APFS clone shares. Where the file system reports no clone
+// accounting it counts allocated blocks.
+func privateBytes(root string) int64 {
+	var total int64
+	_ = filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil || !entry.Type().IsRegular() {
+			return nil
+		}
+		if size, ok := filePrivateBytes(path); ok {
+			total += size
+			return nil
+		}
+		if info, err := entry.Info(); err == nil {
+			if stat, ok := info.Sys().(*syscall.Stat_t); ok {
+				total += stat.Blocks * 512
+			}
+		}
+		return nil
+	})
+	return total
+}
+
+// machineDirectory is where Microsandbox keeps a machine's disk and logs.
+func machineDirectory(home, machine string) string {
+	return filepath.Join(home, ".microsandbox", "sandboxes", machine)
+}
+
 func (r *Runtime) microsandboxHome() string { return filepath.Join(r.cli.home, ".microsandbox") }
 
 // freeBytes is the space available to this user on the Microsandbox volume.

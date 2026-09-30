@@ -133,6 +133,15 @@ type WorkspaceConversationEgress interface {
 	WithholdConversationEgress(ctx context.Context, workspaceID string) error
 }
 
+// WorkspaceDiskReclaimer is an optional facet. ReclaimWorkspaceDisk removes a
+// stopped workspace's machine and disk but keeps the workspace: it stays
+// stopped, and the next StartWorkspace boots a fresh machine from its
+// environment with an empty root, which the product refills from the
+// repository. It refuses a workspace that is not stopped and is idempotent.
+type WorkspaceDiskReclaimer interface {
+	ReclaimWorkspaceDisk(ctx context.Context, workspaceID string) error
+}
+
 // WorkspaceEnvironmentLinker is an optional facet. After the product
 // checkout, it finishes the workspace's prepared environment offline, for
 // example by linking dependencies from a prepared store.

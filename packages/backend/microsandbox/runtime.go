@@ -114,6 +114,9 @@ type metadata struct {
 	LayerKey  string   `json:"layerKey,omitempty"`
 	Link      []string `json:"link,omitempty"`
 	CreatedAt string   `json:"createdAt"`
+	// Reclaimed marks a stopped workspace whose machine and disk were
+	// removed; its next start boots a fresh machine (see ReclaimWorkspaceDisk).
+	Reclaimed bool `json:"reclaimed,omitempty"`
 }
 
 type workspace struct {
@@ -353,6 +356,9 @@ func (r *Runtime) recover(ctx context.Context) error {
 	for _, ws := range r.workspaces {
 		status, ok := present[ws.Machine]
 		switch {
+		case !ok && ws.Reclaimed:
+			// A reclaimed workspace owns no machine by design.
+			ws.State = string(workspaceapi.WorkspaceStopped)
 		case !ok && ws.State == string(workspaceapi.WorkspaceStarting):
 			// Creation never reached Microsandbox; the metadata owns nothing.
 			_ = os.RemoveAll(ws.directory)
@@ -665,7 +671,12 @@ func (r *Runtime) StartWorkspace(ctx context.Context, id string) (workspaceapi.W
 	ws.State = string(workspaceapi.WorkspaceStarting)
 	r.mu.Unlock()
 
-	startErr := r.startMachine(ctx, ws)
+	var startErr error
+	if ws.Reclaimed {
+		startErr = r.recreateMachine(ctx, ws)
+	} else {
+		startErr = r.startMachine(ctx, ws)
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if startErr != nil {
@@ -673,6 +684,7 @@ func (r *Runtime) StartWorkspace(ctx context.Context, id string) (workspaceapi.W
 		_ = writeMetadata(ws)
 		return workspaceapi.Workspace{}, startErr
 	}
+	ws.Reclaimed = false
 	ws.State = string(workspaceapi.WorkspaceRunning)
 	if err := writeMetadata(ws); err != nil {
 		return workspaceapi.Workspace{}, err
@@ -700,6 +712,60 @@ func (r *Runtime) startMachine(ctx context.Context, ws *workspace) error {
 		return err
 	}
 	return r.prepareGuest(ctx, ws)
+}
+
+// recreateMachine boots a fresh machine for a reclaimed workspace from its
+// environment layer, or the base image, with an empty root. A partial boot is
+// removed so the workspace stays reclaimed and startable.
+func (r *Runtime) recreateMachine(ctx context.Context, ws *workspace) error {
+	if r.environments != nil {
+		if err := r.environments.admit(ctx); err != nil {
+			return err
+		}
+	}
+	if err := r.createMachine(ctx, ws); err != nil {
+		_ = r.removeMachine(context.Background(), ws.Machine)
+		return err
+	}
+	return nil
+}
+
+// ReclaimWorkspaceDisk removes a stopped workspace's machine and disk and
+// keeps its metadata. The next StartWorkspace boots a fresh machine with an
+// empty root from the workspace's environment layer; a workspace forked from
+// a cold snapshot boots the base image instead, because that snapshot holds
+// another workspace's files. It is idempotent.
+func (r *Runtime) ReclaimWorkspaceDisk(ctx context.Context, id string) error {
+	r.mu.Lock()
+	ws, err := r.workspaceLocked(id)
+	if err != nil {
+		r.mu.Unlock()
+		return err
+	}
+	if ws.State != string(workspaceapi.WorkspaceStopped) {
+		state := ws.State
+		r.mu.Unlock()
+		return fmt.Errorf("workspace is %s; only a stopped workspace's disk is reclaimed", state)
+	}
+	if ws.Reclaimed {
+		r.mu.Unlock()
+		return nil
+	}
+	ws.State = string(workspaceapi.WorkspaceStopping)
+	r.mu.Unlock()
+
+	removeErr := r.removeMachine(ctx, ws.Machine)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	ws.State = string(workspaceapi.WorkspaceStopped)
+	if removeErr != nil {
+		return fmt.Errorf("reclaim workspace disk: %w", removeErr)
+	}
+	ws.Reclaimed = true
+	if strings.HasPrefix(ws.Snapshot, coldSnapshotPrefix) {
+		ws.Snapshot, ws.LayerKey, ws.Link = "", "", nil
+	}
+	return writeMetadata(ws)
 }
 
 // StopWorkspace ends every command and service, then stops the VM. Its disk,
@@ -824,6 +890,7 @@ func (r *Runtime) Close() error {
 }
 
 var (
-	_ workspaceapi.WorkspaceRuntime  = (*Runtime)(nil)
-	_ workspaceapi.IsolationReporter = (*Runtime)(nil)
+	_ workspaceapi.WorkspaceRuntime       = (*Runtime)(nil)
+	_ workspaceapi.IsolationReporter      = (*Runtime)(nil)
+	_ workspaceapi.WorkspaceDiskReclaimer = (*Runtime)(nil)
 )

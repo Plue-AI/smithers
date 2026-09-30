@@ -614,6 +614,9 @@ type WorkspaceService struct {
 	// desktopObserveText allows the focused Chrome tab's document text into
 	// desktop observations. See WithWorkspaceDesktopObserveText.
 	desktopObserveText bool
+	// agentDiskReclaimAfter is how long an agent workspace stays stopped
+	// before its runtime disk is reclaimed. See WithWorkspaceAgentDiskReclaimAfter.
+	agentDiskReclaimAfter time.Duration
 }
 
 // WorkspaceServiceOption configures optional dependencies.
@@ -809,6 +812,7 @@ func NewWorkspaceService(q WorkspaceQuerier, opts ...WorkspaceServiceOption) *Wo
 		desktopMemoryMB:              defaultWorkspaceDesktopMemoryMB,
 		desktopVCPUCount:             defaultWorkspaceDesktopVCPUCount,
 		desktopObserveText:           true,
+		agentDiskReclaimAfter:        defaultAgentWorkspaceDiskReclaimAfter,
 		runtimeLocks:                 &workspaceRuntimeLockRegistry{entries: make(map[string]*workspaceRuntimeLock)},
 	}
 	for _, opt := range opts {

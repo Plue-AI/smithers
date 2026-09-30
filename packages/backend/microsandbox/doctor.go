@@ -2,6 +2,7 @@ package microsandbox
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -57,6 +58,19 @@ func Doctor(ctx context.Context, config Config) []DoctorLine {
 				states[strings.ToLower(machine.Status)]++
 			}
 			add("microVMs", true, "%d owned %v", len(machines), states)
+			var stopped int
+			var unique, allocated int64
+			for _, machine := range machines {
+				if strings.ToLower(machine.Status) == "running" {
+					continue
+				}
+				stopped++
+				directory := machineDirectory(client.home, machine.Name)
+				unique += privateBytes(directory)
+				allocated += allocatedBytes(directory)
+			}
+			add("stopped", true, "%d stopped microVMs, %.1f GiB unique (%.1f GiB allocated, clone-inclusive); %d reclaimed workspaces",
+				stopped, float64(unique)/(1<<30), float64(allocated)/(1<<30), reclaimedWorkspaces(config.Root))
 		}
 		prefix := "-" + strings.TrimPrefix(owner, "smithers-backend-")[:8] + "-"
 		snapshots, err := client.listSnapshots(ctx)
@@ -86,4 +100,19 @@ func Doctor(ctx context.Context, config Config) []DoctorLine {
 		add("disk", free >= floor, "%.1f GiB free, floor %.1f GiB", float64(free)/(1<<30), float64(floor)/(1<<30))
 	}
 	return lines
+}
+
+// reclaimedWorkspaces counts workspaces whose disk was reclaimed: they hold
+// no machine until their next start.
+func reclaimedWorkspaces(root string) int {
+	directories, _ := filepath.Glob(filepath.Join(root, "workspaces", "*", "metadata.json"))
+	count := 0
+	for _, path := range directories {
+		contents, err := os.ReadFile(path)
+		var stored metadata
+		if err == nil && json.Unmarshal(contents, &stored) == nil && stored.Reclaimed {
+			count++
+		}
+	}
+	return count
 }

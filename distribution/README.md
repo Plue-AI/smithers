@@ -134,10 +134,12 @@ On a Mac (or Linux with KVM) the backend can run every workspace, command, servi
 npm install -g microsandbox@0.6.16    # the backend is qualified with msb 0.6.16
 export SMITHERS_WORKSPACE_ISOLATION=microvm
 export SMITHERS_MICROSANDBOX_BIN="$(npm root -g)/microsandbox/node_modules/@superradcompany/microsandbox-darwin-arm64/bin/msb"
-smithers-backend microvm doctor       # read-only: msb, image, owned microVMs and layers, free disk
+smithers-backend microvm doctor       # read-only: msb, image, owned microVMs and layers, stopped disks, free disk
 ```
 
 With `SMITHERS_WORKSPACE_ISOLATION=microvm` the backend refuses to start when `msb` is missing, is another release, or `msb doctor` is not ready. `SMITHERS_SERVER_ADDR` needs a fixed port: guests have no network except that port on the host, reached at their own `127.0.0.1`. The chat model host, which holds model credentials and runs no repository code, stays a trusted process under `<data>/control`.
+
+An agent workspace stopped for 24 hours gives back its microVM disk. Resuming it boots a fresh microVM and checks the repository out again; work on its bookmark is kept, anything else in the old disk is not. `microvm doctor` reports the unique bytes stopped microVMs still hold.
 
 The coding Flow host runs in the workspace's microVM with its shell, file, test and build tools. The backend plants the host from the `SMITHERS_FLOW_HOST_MANIFEST` bundle into the guest, digest-checked, together with the Linux workspace helper. Native release bundles include a checksummed `bin/linux-arm64/smithers-jj-export`, built on Linux arm64 in release CI with the pinned Rust toolchain. Native owned mode sets `SMITHERS_WORKSPACE_JJ_EXPORT_BINARY` to that helper; self-hosted bundles must name a Linux arm64 helper with that variable or the backend refuses to start. To build a custom bundle on a Mac, cross-build with [Zig](https://ziglang.org) as the linker:
 
