@@ -509,7 +509,7 @@ describe("custom agents", () => {
     await tick()
     expect(f.workspace.snapshot().tabs[0]).toMatchObject({
       status: "failed",
-      failure: { headline: "Model sign-in required", line: "The worker stopped before finishing." },
+      failure: { headline: "Model sign-in required", line: "" },
       message: "Set ANTHROPIC_API_KEY."
     })
     f.workspace.dispose()

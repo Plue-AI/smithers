@@ -1617,8 +1617,8 @@ const seatProvider = (seat: string): string =>
 export const failureLine = (tab: Tab, transcript: Transcript.Transcript): string => {
   const steps = transcript.items.filter((item) => item.kind === "cell" && item.status !== "writing").length
   const changed = Undo.changes(Undo.run(transcript)).some((change) => !change.undone)
-  const prefix = tab.failure?.line ?? "The worker stopped before finishing."
-  return `${prefix} ${steps} of ~40 steps done. ${changed ? "Files changed." : "No files changed."}`
+  return [tab.failure?.line ?? "", `${steps} of ~40 steps done.`, changed ? "Files changed." : "No files changed."]
+    .filter((part) => part !== "").join(" ")
 }
 
 /** A promise and its settlers. */

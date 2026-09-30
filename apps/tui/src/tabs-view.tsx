@@ -272,16 +272,6 @@ export function WorkerView(props: {
         {tab.status === "failed"
           ? <FailureCard tab={tab} transcript={transcript} details={props.expanded} hints={false} />
           : null}
-        {tab.status === "done" && tab.unchecked === true
-          ? (
-            <box style={{ paddingLeft: 1 }}>
-              <text wrapMode="none">
-                <span fg={color.success}>done</span>
-                <span fg={color.faint}>{" · unchecked"}</span>
-              </text>
-            </box>
-          )
-          : null}
         <box style={{ flexDirection: "row", marginTop: 1 }}>
           {Tabs.actions(tab).map((action) => (
             <Button

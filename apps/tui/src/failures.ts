@@ -14,7 +14,7 @@ import type * as Permission from "@smthrs/capability/Permission"
 import type { Refused as CliRefused } from "@smthrs/cli/CliError"
 import type * as Cell from "@smthrs/harness/Cell"
 import * as Evaluator from "@smthrs/model/Evaluator"
-import * as FailureCopy from "@smthrs/model/FailureCopy"
+import type * as FailureCopy from "@smthrs/model/FailureCopy"
 import type { PlueFault } from "@smthrs/rpc/PlueFailureCodes"
 import {
   presentUserFailure,
@@ -338,4 +338,4 @@ const instructs = (error: unknown): boolean => {
  * and in the help a parent is asked for, never on the card.
  */
 export const onCard = (error: unknown, described: FailureCopy.Description): FailureCopy.Description =>
-  instructs(error) ? { ...described, line: FailureCopy.describe(undefined).line } : described
+  instructs(error) ? { ...described, line: "" } : described

@@ -22,6 +22,7 @@ import * as Tabs from "../src/tabs.ts"
 import { color } from "../src/theme.ts"
 import * as Transcript from "../src/transcript.ts"
 import * as View from "../src/view.tsx"
+import * as Workspace from "../src/workspace.ts"
 import type { Tab } from "../src/workspace.ts"
 
 let setup: Awaited<ReturnType<typeof testRender>> | undefined
@@ -248,19 +249,32 @@ describe("a worker's result card", () => {
       message: "AI_GATEWAY_API_KEY is not set. Luna is not opted in."
     })
     const card = workerFailure(judge)
-    expect(card.line).toBe("The worker stopped before finishing.")
+    // Nothing replaces the instructions: a failure is never worded as a stop.
+    expect(card.line).toBe("")
     expect(card.line).not.toMatch(/AI_GATEWAY_API_KEY|SMITHERS_|login|opt in/)
     const unresolved = {
       _tag: "@smthrs/agent/Seat/SeatUnresolved",
       seat: "anthropic:claude-opus",
       message: "Set ANTHROPIC_API_KEY or run claude login."
     }
-    expect(workerFailure(unresolved)).toMatchObject({
-      headline: "Model sign-in required",
-      line: "The worker stopped before finishing."
-    })
+    expect(workerFailure(unresolved)).toMatchObject({ headline: "Model sign-in required", line: "" })
     const unrouted = { _tag: "@smthrs/agent/Seat/SeatUnrouted", reason: "unconfigured", message: "Set SMITHERS_SEAT." }
-    expect(workerFailure(unrouted).line).toBe("The worker stopped before finishing.")
+    expect(workerFailure(unrouted).line).toBe("")
+    // The card's progress line then starts at the progress.
+    const failed: Tab = {
+      id: "w",
+      depth: 0,
+      title: "w",
+      prompt: "w",
+      seat: "test",
+      file: "w.jsonl",
+      status: "failed",
+      startedAt: 0,
+      failure: workerFailure(judge)
+    }
+    expect(Workspace.failureLine(failed, Transcript.empty)).toBe("0 of ~40 steps done. No files changed.")
+    const { failure: _, ...bare } = failed
+    expect(Workspace.failureLine(bare, Transcript.empty)).toBe("0 of ~40 steps done. No files changed.")
   })
 
   it("keeps a failure's own sentence when it teaches nothing", () => {

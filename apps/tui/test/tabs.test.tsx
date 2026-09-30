@@ -464,7 +464,8 @@ describe("WorkerView", () => {
     )
     const frame = captureCharFrame()
     expect(frame).toContain("● Fix the failing test")
-    expect(frame).toMatch(/^\s*┃? *done · unchecked\s*$/m)
+    // `unchecked` once, on the evidence line.
+    expect(frame.match(/unchecked/g)).toHaveLength(1)
     expect(frame).toContain("✓ npm test  exit 0")
     expect(frame).toContain("✓ Fix the failing test · 38s · src/cart.js +1 −1 · npm test exit 0 · unchecked")
     for (const word of ["Failed", "failed", "could not be checked", "AI_GATEWAY_API_KEY", "r Resume"]) {
