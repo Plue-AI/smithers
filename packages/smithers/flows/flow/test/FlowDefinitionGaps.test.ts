@@ -85,8 +85,10 @@ describe("Flow.make requires a body", () => {
     // a category error, and the work it described is an Action. The
     // directive is the assertion — tsc fails the check when the call below
     // compiles.
-    // @ts-expect-error -- `body` is a required field of Flow.make's options.
-    Flow.make("Definition/no-body", { payload: { id: Schema.String } })
+    expect(() => {
+      // @ts-expect-error -- a flow declares a body or a prompt.
+      Flow.make("Definition/no-body", { payload: { id: Schema.String } })
+    }).toThrow(/body.*prompt/)
 
     const declared = Flow.make("Definition/required-body", {
       payload: { id: Schema.String },
@@ -101,10 +103,10 @@ describe("Flow.make requires a body", () => {
   })
 
   it("rejects a body whose settled value contradicts its success schema", () => {
+    // @ts-expect-error -- a Number body cannot satisfy a String success contract.
     Flow.make("Definition/wrong-success", {
       payload: {},
       success: Schema.String,
-      // @ts-expect-error -- a Number body cannot satisfy a String success contract.
       body: () => Node.succeed(42)
     })
 

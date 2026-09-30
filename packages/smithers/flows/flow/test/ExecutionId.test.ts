@@ -107,14 +107,11 @@ describe("Flow execution identities", () => {
       )
     }).pipe(Effect.provide(Flow.layerExecutionIds(Flow.derived))))
 
-  effect("frames empty tags and keys without absorbing a neighboring member", () =>
+  effect("frames empty keys without absorbing a neighboring member", () =>
     Effect.gen(function*() {
-      const emptyTag = yield* keyedFlow("", "a-b").executionId({})
-      const neighborTag = yield* keyedFlow("-a", "b").executionId({})
       const emptyKey = yield* keyedFlow("a-b", "").executionId({})
       const neighborKey = yield* keyedFlow("a", "b-").executionId({})
 
-      expect(emptyTag).not.toBe(neighborTag)
       expect(emptyKey).not.toBe(neighborKey)
     }))
 

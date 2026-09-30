@@ -27,7 +27,7 @@ import type * as Effect from "effect/Effect"
 import type * as Option from "effect/Option"
 import type * as Schema from "effect/Schema"
 import type * as Scope from "effect/Scope"
-import type { PlannedPayload } from "../Action/Action.ts"
+import type { Declared, PlannedPayload, Requirement } from "../Action/Action.ts"
 import type { CancelRequestFailed } from "../FlowRuntime/CancelRequestFailed.ts"
 import type { FlowCycleDetected } from "../FlowRuntime/FlowCycleDetected.ts"
 import type { FlowExecutionNotFound } from "../FlowRuntime/FlowExecutionNotFound.ts"
@@ -50,6 +50,48 @@ import type { TypeId } from "./TypeId.ts"
 export type BodySuccess<A> = A | Planned.Planned<A> | Outcome<A | Planned.Planned<A>, unknown>
 
 /**
+ * A primary model seat with optional ordered fallback seats.
+ *
+ * @category models
+ * @since 1.0.0
+ */
+export type ModelSelection = string | readonly [string, ...Array<string>]
+
+/**
+ * Literal metadata a catalog can read without executing the declaration.
+ * Model selection and system teaching are interpreted by the host.
+ *
+ * @category models
+ * @since 1.0.0
+ */
+export interface DeclarationMetadata {
+  readonly model?: ModelSelection | undefined
+  readonly effort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | undefined
+  readonly system?: ReadonlyArray<string> | undefined
+  readonly chat?: boolean | undefined
+  readonly flows?: ReadonlyArray<string> | undefined
+}
+
+/**
+ * A typed prompt declaration lowered to an ordinary declared action.
+ * The host supplies that action's implementation; planning never renders it.
+ *
+ * @category models
+ * @since 1.0.0
+ */
+export interface PromptFlow<
+  Tag extends string,
+  Payload extends AnyStructSchema,
+  Success extends Schema.Top,
+  Error extends Schema.Top
+> extends Flow<Tag, Payload, Success, Error, Requirement<`${Tag}/prompt`>> {
+  readonly prompt: (payload: Payload["Type"]) => string
+  readonly action: Declared<`${Tag}/prompt`, Payload, Success, Error>
+  annotate<I, S>(tag: Context.Key<I, S>, value: S): PromptFlow<Tag, Payload, Success, Error>
+  annotateMerge<I>(context: Context.Context<I>): PromptFlow<Tag, Payload, Success, Error>
+}
+
+/**
  * Durable flow definition with typed payload, success, and error schemas
  * plus operations for execution, polling, interruption, resumption, and
  * registration.
@@ -63,7 +105,7 @@ export interface Flow<
   Success extends Schema.Top,
   Error extends Schema.Top,
   Requires = never
-> {
+> extends DeclarationMetadata {
   new(_: never): {}
 
   readonly [TypeId]: typeof TypeId
@@ -81,6 +123,10 @@ export interface Flow<
   readonly successSchema: Success
   readonly errorSchema: Error
   readonly annotations: Context.Context<never>
+  /** The renderer a prompt declaration supplies to its host. */
+  readonly prompt?: ((payload: Payload["Type"]) => string) | undefined
+  /** The ordinary action a prompt declaration asks its host to implement. */
+  readonly action?: Declared<any, Payload, Success, Error, any> | undefined
   /**
    * The pure plan-time body that IS this flow's behavior.
    *
@@ -405,7 +451,7 @@ export interface Execution<Tag extends string> {
  * @category models
  * @since 0.1.0
  */
-export interface Any {
+export interface Any extends DeclarationMetadata {
   new(_: never): {}
 
   readonly [TypeId]: typeof TypeId
@@ -416,6 +462,13 @@ export interface Any {
   readonly successSchema: Schema.Top
   readonly errorSchema: Schema.Top
   readonly annotations: Context.Context<never>
+  readonly prompt?: ((payload: any) => string) | undefined
+  readonly action?:
+    | Pick<
+      Declared<string, AnyStructSchema, Schema.Top, Schema.Top, any>,
+      "name" | "payloadSchema" | "successSchema" | "errorSchema" | "implementationVersion" | "annotations"
+    >
+    | undefined
   readonly body: (payload: any) => Node.Node<unknown, unknown, any>
   readonly idempotencyKey?: ((payload: any) => string) | undefined
   readonly suspendedRetryPolicy?: RetryPolicy.RetryPolicy | undefined

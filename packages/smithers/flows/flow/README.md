@@ -14,6 +14,11 @@ of it, with no code. You compose those declarations into a **flow** whose body i
 a pure function that builds a plan. The code that does the work attaches
 separately, as an Effect layer.
 
+A typed `prompt` can declare a single model-backed step with the same
+`Flow.make(tag, options)` signature. It lowers to an ordinary action; the host
+implements `flow.action` and renders `flow.prompt` at execution. See
+[Prompt-backed flows](./docs/guides/use-a-prompt.md).
+
 The package carries no engine. It declares the `FlowRuntime` port that an engine
 implements, so the whole authoring surface bundles for a browser and a test can
 swap the runtime for a fixture without touching a declaration.

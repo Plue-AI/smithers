@@ -4,6 +4,9 @@
 
 ### Added
 
+- `AgentAction.implement` attaches the existing agent implementation to a
+  canonical prompt flow's declared action without rebuilding its flow (#1799).
+
 - Budgets accept `onExceeded: "park"`. Hosts provide `Budget.Parking` to
   request approval; `Budget.raise` and `raisedBy` apply approved ceilings.
   Exhaustive `OnExceeded` matches must handle `park` (#1843).

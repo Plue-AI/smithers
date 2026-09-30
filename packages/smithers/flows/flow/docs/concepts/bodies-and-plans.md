@@ -10,6 +10,11 @@ A flow's `body` is a pure function from the decoded payload to a
 and returns a description that `Graph.build` can walk without dispatching a
 single step.
 
+A flow authored with `prompt` has the same body contract: `Flow.make` supplies
+a body that records one ordinary action call. Planning never renders the prompt
+or calls a model. The host implements the exposed `flow.action` and renders
+`flow.prompt` with the decoded payload when that action runs.
+
 Reproducible plans require complete, stable declaration identities as well as
 the same payload. Use `Node.capture` to declare semantic captures and imported
 implementation versions, and select stable callback validation. The low-level

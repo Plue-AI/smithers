@@ -639,6 +639,32 @@ export const make = <
     error: AgentFailure
   }) as unknown as Action.Declared<Tag, PayloadSchema, Output, typeof AgentFailure>
 
+  return { ...declared, layer: implement(declared, options) }
+}
+
+/**
+ * Implements an existing ordinary action with the agent loop.
+ *
+ * The action owns its schemas and identity. A host uses this bridge for a
+ * canonical prompt flow without declaring or rebuilding that flow.
+ *
+ * @category layers
+ * @since 0.1.0
+ */
+export const implement = <
+  const Tag extends string,
+  PayloadSchema extends Flow.AnyStructSchema,
+  Output extends Schema.Top
+>(
+  declared: Action.Declared<Tag, PayloadSchema, Output, typeof AgentFailure>,
+  policy: Omit<Options<PayloadSchema, Output>, "payload" | "output">
+): AgentAction<Tag, PayloadSchema, Output>["layer"] => {
+  if (declared.errorSchema !== AgentFailure) {
+    throw new TypeError("AgentAction.implement requires error: AgentAction.AgentFailure")
+  }
+  if (policy.corrections !== undefined) checkCorrections(policy.corrections, "AgentAction corrections")
+  const tag = declared.name
+  const options = { ...policy, output: declared.successSchema }
   const execute = (payload: PayloadSchema["Type"]) =>
     Effect.gen(function*() {
       const host = yield* Host
@@ -1091,8 +1117,5 @@ export const make = <
       )
     })
 
-  return {
-    ...declared,
-    layer: declared.toLayer(execute)
-  }
+  return declared.toLayer(execute)
 }

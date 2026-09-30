@@ -13,6 +13,10 @@ The package has two nouns and one rule about each.
 - A **flow** is the composite. It carries a `body`, and never opaque executable
   code.
 
+A typed `prompt` declaration lowers to a flow whose body calls one ordinary
+action. The host attaches the model implementation to `flow.action`; the
+renderer is `flow.prompt`. See [Prompt-backed flows](/guides/use-a-prompt/).
+
 Everything else follows from that split, including the surprising part: there is
 no `toLayer` on a flow. A flow has exactly one behavior and it is the body, so
 there is no second behavior to attach.

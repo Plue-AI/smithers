@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Added
+
+- Canonical `Flow.make(tag, options)` accepts typed prompt declarations lowered
+  to ordinary actions with explicit host implementations (#2271). Empty tags
+  and declarations without exactly one callable body or prompt are refused.
+
 ### Fixed
 
 - Preserve dynamic flow expansion and declaration source mappings when a bundled host loads project flows. ([#1991](https://github.com/smithersai/smithers/issues/1991)).

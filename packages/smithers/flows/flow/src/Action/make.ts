@@ -21,7 +21,9 @@ import * as Predicate from "effect/Predicate"
 import type * as Schedule from "effect/Schedule"
 import * as Schema from "effect/Schema"
 import type { Scope } from "effect/Scope"
-import * as Flow from "../Flow/index.ts"
+import type * as Flow from "../Flow/Flow.ts"
+import { makeProto } from "../Flow/internal.ts"
+import * as FlowHelpers from "../Flow/Runtime.ts"
 import { FlowInstance } from "../FlowRuntime/FlowInstance.ts"
 import { FlowRuntime } from "../FlowRuntime/FlowRuntime.ts"
 import { lowerDeclarations } from "../internal/Declarations.ts"
@@ -317,17 +319,19 @@ const makeDeclared = <
       // carries a body and never a handler, so `Flow` has no `toLayer` for an
       // author to reach this seam with.
       //
-      // `Flow.make` answers with `PayloadSchemaOf<PayloadSchema>`, which is
-      // `PayloadSchema` itself for a payload that is already a schema rather
-      // than a field record. The compiler defers that conditional while the
-      // type parameter is unresolved, so the identity is asserted here.
-      const registration = Flow.make(tag, {
-        payload: payloadSchema,
-        success: successSchema,
-        error: errorSchema,
-        annotations,
-        body: (payload) => Node.actionCall<Success["Type"], Error["Type"]>(self, tag, payload)
-      }) as unknown as Flow.Flow<Tag, PayloadSchema, Success, Error>
+      // The private constructor preserves the ordinary flow representation
+      // without importing the public constructor back through this action.
+      const registration = DeclarationSite.annotate(
+        makeProto({
+          _tag: tag,
+          payloadSchema,
+          successSchema,
+          errorSchema,
+          annotations,
+          body: (payload) => Node.actionCall<Success["Type"], Error["Type"]>(self, tag, payload)
+        }),
+        DeclarationSite.capture()
+      )
       const action = (payload: PayloadSchema["Type"]) =>
         makeInline({
           name: tag,
@@ -633,7 +637,7 @@ const makeExecute = Effect.fnUntraced(function*<
     attempt,
     tier: action.tier
   })
-  const result = yield* Flow.wrapActionResult(
+  const result = yield* FlowHelpers.wrapActionResult(
     engine.actionExecute(action, attempt),
     (_) => _._tag === "Suspended"
   )
@@ -643,7 +647,7 @@ const makeExecute = Effect.fnUntraced(function*<
   // no unreachable arm of its own.
   if (result._tag !== "Complete") {
     yield* Effect.annotateCurrentSpan({ outcome: "suspended" })
-    return yield* Flow.suspend(instance)
+    return yield* FlowHelpers.suspend(instance)
   }
   yield* Effect.annotateCurrentSpan({ outcome: result.exit._tag === "Success" ? "success" : "failure" })
   return yield* result.exit

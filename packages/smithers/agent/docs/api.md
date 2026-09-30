@@ -500,6 +500,22 @@ decodes the run's final answer with the declared output schema, spending
 `Options.corrections` corrections before it reports a typed
 `StructuredOutputFailure`.
 
+### AgentAction.implement
+
+```ts
+const implement: <Tag extends string, Payload, Output>(
+  declared: Action.Declared<Tag, Payload, Output, typeof AgentFailure>,
+  policy: Omit<Options<Payload, Output>, "payload" | "output">
+) => AgentAction<Tag, Payload, Output>["layer"]
+```
+
+Attaches the existing agent implementation to an already declared action.
+The action retains its tag, payload, output, and failure schemas. A canonical
+prompt flow passes `flow.action` and renders `flow.prompt` through this policy;
+its authored flow is never rebuilt. The host supplies the resolved seat and
+system teaching. The declaration must use `error: AgentAction.AgentFailure`;
+other error schemas throw `TypeError` before the layer is built.
+
 ### AgentAction.Options
 
 | Field         | Type                                               | What it decides                                                                                                                                                                                        |
@@ -2700,7 +2716,9 @@ is `dependency`, `facts_failed` and `read_failed` are `infra`, and
 `Memory.version`, the root and the digest of `options.thresholds`
 (`MemoryCalibration.initial` when absent), and journals a `decision-settled` row
 per Jev request. `source(services, options)` is the flows source a host passes:
-it binds with the repository's thresholds each time a run resolves its flows.
+it reads the repository's thresholds when the calling run holds `Memory.reads`,
+and otherwise pins `MemoryCalibration.initial` without reading the workspace.
+Authorized malformed thresholds still fail assembly.
 `plugin(services, options)` contributes the binding through
 `CellPlugin.fromBindings`; pass it in `Agent.Options.plugins`.
 

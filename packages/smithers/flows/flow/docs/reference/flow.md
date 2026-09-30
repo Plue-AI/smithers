@@ -602,7 +602,7 @@ Every registered tag. The sweep tests read it.
 
 ## Flow
 
-`Flow` exports 46 symbols. Its models and schemas are listed in one table, and constructors, refinements, results, resource management, annotations, and errors get their own entries:
+`Flow` models and schemas are listed in one table, and constructors, refinements, results, resource management, annotations, and errors get their own entries:
 
 | Name                  | Kind                 | Summary                                                                                                                                                                                                                                                                                                                                                      |
 | --------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -624,6 +624,16 @@ Every registered tag. The sweep tests read it.
 | `Park`                | Interface and schema | A request to durably park the current round, carrying `reason`.                                                                                                                                                                                                                                                                                              |
 | `Outcome`             | Type and schema      | The union of `Done`, `To`, and `Park`.                                                                                                                                                                                                                                                                                                                       |
 | `CompleteSchema`      | Interface            | The schema constructor for `Complete` results under supplied success and error schemas.                                                                                                                                                                                                                                                                      |
+
+### `Flow.PromptFlow`
+
+A canonical flow with a typed `prompt(payload): string` renderer and an ordinary
+`action` named `<tag>/prompt`. Its requirement channel carries that action's
+implementation requirement. Annotation copies retain the prompt and action.
+
+`Flow.ModelSelection` is a seat string or an ordered nonempty tuple.
+`Flow.DeclarationMetadata` carries optional `model`, `effort`, `system`, `chat`,
+and `flows` fields, interpreted by the host.
 
 ### `Flow.Capabilities`
 
@@ -712,12 +722,15 @@ Declares the host's execution-id source as a layer. Callers that name an `execut
 
 ### `Flow.make`
 
-- **Signature:** `make(tag: Tag, options: { payload, declaredFrom?, description?, capabilities?, effects?, idempotencyKey?, success?, error?, suspendedRetryPolicy?, maxRounds?, deadline?, annotations?, body }): Flow<Tag, PayloadSchemaOf<Payload>, Success, Error, Requires>`
+- **Signature:** `make(tag: Tag, options: { payload, declaredFrom?, description?, capabilities?, effects?, idempotencyKey?, success?, error?, suspendedRetryPolicy?, maxRounds?, deadline?, annotations?, model?, effort?, flows?, system?, chat?, body | prompt }): Flow<Tag, PayloadSchemaOf<Payload>, Success, Error, Requires>`
 - **Default:** `success` is `Schema.Void`, `error` is `Schema.Never`, `annotations` is `Context.empty()`
-- **Required:** `payload` and `body`
+- **Required:** `payload` and exactly one of `body` or `prompt`
 - **Since:** `0.1.0`
 
-Creates a durable flow definition. The `body` is the flow's one behavior, evaluated at plan time only, and it must be pure: it may not read mutable module state, clocks, random values, services, or values captured outside `payload`. A flow with nothing to plan is an action instead. `Flow.make` throws a `RangeError` when `maxRounds` is not a positive safe integer or `deadline` is not a positive finite duration. `deadline` bounds one execution, counted from its journaled first start, so a resume after a restart honors the original deadline; on expiry the execution settles with `Flow.DeadlineExceeded` whether it was running or parked.
+Creates a durable flow definition. The `body` is the flow's one behavior, evaluated at plan time only, and it must be pure: it may not read mutable module state, clocks, random values, services, or values captured outside `payload`. A typed `prompt(payload)` lowers to one ordinary action named `<tag>/prompt`; its returned `PromptFlow` exposes the declaration as `action` and the renderer as `prompt`. The renderer runs only when the host implementation calls it. Optional `model`, `effort`, `flows`, `system`, and `chat` fields retain host metadata; annotation copies preserve them. `Flow.make` throws a `RangeError` when `maxRounds` is not a positive safe integer or `deadline` is not a positive finite duration. `deadline` bounds one execution, counted from its journaled first start, so a resume after a restart honors the original deadline; on expiry the execution settles with `Flow.DeadlineExceeded` whether it was running or parked.
+
+`Flow.make` throws `TypeError` for a missing or blank tag, or when the declaration
+does not supply exactly one function as `body` or `prompt`.
 
 `declaredFrom: original` retains a native declaration's diagnostic source location,
 including its absence, while constructing a fresh flow with the supplied body.

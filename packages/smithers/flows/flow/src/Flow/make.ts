@@ -6,209 +6,21 @@
  * @since 0.1.0
  */
 
-import { Sha256 } from "@smthrs/crypto"
 import type * as Effects from "@smthrs/plan/Effects"
 import * as Node from "@smthrs/plan/Node"
-import * as Context from "effect/Context"
-import * as Crypto from "effect/Crypto"
+import type * as Context from "effect/Context"
 import * as Duration from "effect/Duration"
-import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Schema from "effect/Schema"
-import { FlowRuntime } from "../FlowRuntime/FlowRuntime.ts"
+import type { Declared } from "../Action/Action.ts"
+import * as Action from "../Action/make.ts"
 import { lowerDeclarations } from "../internal/Declarations.ts"
 import * as DeclarationSite from "../internal/DeclarationSite.ts"
 import type * as RetryPolicy from "../RetryPolicy.ts"
-import { CurrentExecutionIds } from "./ExecutionIds.ts"
-import type { Any, AnyStructSchema, AnyWithProps, BodySuccess, Flow } from "./Flow.ts"
-import type { To } from "./Outcome.ts"
-import { withRollback } from "./Runtime.ts"
+import type { Any, AnyStructSchema, BodySuccess, DeclarationMetadata, Flow, PromptFlow } from "./Flow.ts"
+import { makeProto } from "./internal.ts"
 import { TypeId } from "./TypeId.ts"
-
-/**
- * The identity of an invocation that named no `executionId`: the flow's own
- * declared key when it has one, and the ambient source otherwise.
- *
- * A declared key wins over the ambient source because it is the narrower
- * statement — this author said what makes two invocations of THIS flow the
- * same — where the source is the host's blanket answer for every flow it
- * drives.
- *
- * The tag and declared key are JSON-tuple framed before hashing. Their strings
- * are used exactly as given and encoded as UTF-8, with no Unicode
- * normalization. This preimage encoding freezes at rc.0.
- */
-const makeExecutionIdFromPayload = (
-  self: AnyWithProps,
-  payload: unknown
-): Effect.Effect<string, never, any> => {
-  const idempotencyKey = self.idempotencyKey
-  return idempotencyKey === undefined
-    ? Effect.flatMap(CurrentExecutionIds, (source) => source.mint(self, payload))
-    // The JSON tuple prevents delimiter splicing. This exact framing freezes at rc.0.
-    : Schema.decodeUnknownEffect(Sha256)(JSON.stringify([self._tag, idempotencyKey(payload)])).pipe(Effect.orDie)
-}
-
-const resolveExecutionId = (
-  self: AnyWithProps,
-  payload: unknown,
-  executionId: string | undefined
-): Effect.Effect<string, never, any> =>
-  executionId === undefined
-    ? makeExecutionIdFromPayload(self, payload)
-    : Effect.succeed(executionId)
-
-const Proto = {
-  [TypeId]: TypeId,
-  annotate(this: AnyWithProps, tag: Context.Key<any, any>, value: any) {
-    return DeclarationSite.annotate(
-      makeProto({
-        _tag: this._tag,
-        description: this.description,
-        payloadSchema: this.payloadSchema,
-        successSchema: this.successSchema,
-        errorSchema: this.errorSchema,
-        annotations: Context.add(this.annotations, tag, value),
-        body: this.body,
-        idempotencyKey: this.idempotencyKey,
-        suspendedRetryPolicy: this.suspendedRetryPolicy,
-        maxRounds: this.maxRounds,
-        deadline: this.deadline
-      }),
-      DeclarationSite.declaredAt(this)
-    )
-  },
-  annotateMerge(this: AnyWithProps, context: Context.Context<any>) {
-    return DeclarationSite.annotate(
-      makeProto({
-        _tag: this._tag,
-        description: this.description,
-        payloadSchema: this.payloadSchema,
-        successSchema: this.successSchema,
-        errorSchema: this.errorSchema,
-        annotations: Context.merge(this.annotations, context),
-        body: this.body,
-        idempotencyKey: this.idempotencyKey,
-        suspendedRetryPolicy: this.suspendedRetryPolicy,
-        maxRounds: this.maxRounds,
-        deadline: this.deadline
-      }),
-      DeclarationSite.declaredAt(this)
-    )
-  },
-  call(this: AnyWithProps, payload: unknown) {
-    return Node.flowCall(this, this._tag, "inline", payload)
-  },
-  child(this: AnyWithProps, payload: unknown) {
-    return Node.flowCall(this, this._tag, "boundary", payload)
-  },
-  to(this: AnyWithProps, payload: unknown): Node.Node<To<unknown>> {
-    return Node.flowCall(this, this._tag, "handoff", payload)
-  },
-  execute<const Discard extends boolean = false>(
-    this: AnyWithProps,
-    fields: any,
-    opts?: {
-      readonly discard?: Discard
-      readonly executionId?: string | undefined
-    } | undefined
-  ) {
-    // Caller input that fails the payload schema is data, not programmer
-    // wiring, so it FAILS with the schema's typed `SchemaError` — carrying
-    // the offending field path — instead of dying with the raw constructor
-    // throw `payloadSchema.make` would produce.
-    return this.payloadSchema.makeEffect(fields).pipe(
-      Effect.mapError((issue) => new Schema.SchemaError(issue)),
-      Effect.flatMap((payload) =>
-        Effect.flatMap(
-          resolveExecutionId(this, payload, opts?.executionId),
-          (executionId) =>
-            Effect.flatMap(FlowRuntime, (engine) =>
-              Effect.andThen(
-                Effect.annotateCurrentSpan({ executionId }),
-                engine.execute(this as any, {
-                  executionId,
-                  payload,
-                  discard: opts?.discard,
-                  suspendedRetryPolicy: this.suspendedRetryPolicy
-                })
-              ))
-        )
-      )
-    ).pipe(
-      Effect.withSpan(
-        `${this._tag}.execute`,
-        {},
-        { captureStackTrace: false }
-      )
-    ) as any
-  },
-  start(this: AnyWithProps, payload: unknown) {
-    return Effect.flatMap(
-      Crypto.Crypto,
-      (crypto) =>
-        Effect.flatMap(
-          Effect.orDie(crypto.randomUUIDv4),
-          (executionId) => this.execute(payload, { executionId, discard: true })
-        )
-    )
-  },
-  ensure(this: AnyWithProps, payload: unknown, options: { readonly key: string }) {
-    return Schema.decodeUnknownEffect(Schema.String)(options.key).pipe(
-      Effect.flatMap((key) => Effect.orDie(Schema.decodeUnknownEffect(Sha256)(JSON.stringify([this._tag, key])))),
-      Effect.flatMap((executionId) => this.execute(payload, { executionId, discard: true }))
-    )
-  },
-  poll(this: Flow<string, AnyStructSchema, Schema.Top, Schema.Top, any>, executionId: string) {
-    return Effect.flatMap(FlowRuntime, (engine) => engine.poll(this, executionId)).pipe(
-      Effect.withSpan(`${this._tag}.poll`, { attributes: { executionId } }, { captureStackTrace: false })
-    )
-  },
-  interrupt(this: AnyWithProps, executionId: string) {
-    return Effect.flatMap(FlowRuntime, (engine) => engine.interrupt(this, executionId)).pipe(
-      Effect.withSpan(`${this._tag}.interrupt`, { attributes: { executionId } }, { captureStackTrace: false })
-    )
-  },
-  resume(this: Flow<string, AnyStructSchema, Schema.Top, Schema.Top, any>, executionId: string) {
-    return Effect.flatMap(FlowRuntime, (engine) => engine.resume(this, executionId)).pipe(
-      Effect.withSpan(`${this._tag}.resume`, { attributes: { executionId } }, { captureStackTrace: false })
-    )
-  },
-  executionId(this: AnyWithProps, payload: any) {
-    return Effect.flatMap(
-      // The channel stays never: precomputing callers must validate first, and an invalid payload dies here.
-      Effect.orDie(this.payloadSchema.makeEffect(payload)),
-      (payload) => makeExecutionIdFromPayload(this, payload)
-    )
-  },
-  withRollback: ((...args: ReadonlyArray<any>) => (withRollback as any)(...args))
-}
-
-const makeProto = <
-  const Tag extends string,
-  Payload extends AnyStructSchema,
-  Success extends Schema.Top,
-  Error extends Schema.Top,
-  Requires
->(options: {
-  readonly _tag: Tag
-  readonly description?: string | undefined
-  readonly payloadSchema: Payload
-  readonly successSchema: Success
-  readonly errorSchema: Error
-  readonly annotations: Context.Context<never>
-  readonly body: (payload: Payload["Type"]) => Node.Node<BodySuccess<Success["Type"]>, Error["Type"], Requires>
-  readonly idempotencyKey?: ((payload: Payload["Type"]) => string) | undefined
-  readonly suspendedRetryPolicy?: RetryPolicy.RetryPolicy | undefined
-  readonly maxRounds?: number | undefined
-  readonly deadline?: Duration.Duration | undefined
-}): Flow<Tag, Payload, Success, Error, Requires> => {
-  function Flow() {}
-  Object.setPrototypeOf(Flow, Proto)
-  Object.assign(Flow, options)
-  return Flow as any
-}
 
 /**
  * The declaration data every flow takes beside its body.
@@ -219,7 +31,7 @@ interface MakeOptions<
   Payload extends Schema.Struct.Fields | AnyStructSchema,
   Success extends Schema.Top,
   Error extends Schema.Top
-> {
+> extends DeclarationMetadata {
   readonly payload: Payload
   /**
    * Native declaration whose source location this reconstructed flow retains.
@@ -330,19 +142,45 @@ type PayloadSchemaOf<Payload extends Schema.Struct.Fields | AnyStructSchema> = P
 export const isFlow = (value: unknown): value is Any => Predicate.hasProperty(value, TypeId)
 
 /**
- * Creates a durable flow definition with schemas, annotations, a required pure
- * body, and either caller-selected execution IDs or opt-in deterministic IDs
- * derived from the flow tag and idempotency key.
+ * Creates a durable flow with one plan-time body or a typed prompt renderer.
+ * A prompt lowers to one ordinary action implemented by the host; neither
+ * construction nor planning renders it. Model metadata is interpreted by the
+ * host and adds no execution model to this package.
  *
- * The `body` is the flow's one behavior, evaluated at plan time only. A flow
- * with nothing to plan is a category error under
- * `docs/concepts/flows-and-actions.md` — that work is an Action,
- * whose implementation attaches separately as a Layer.
+ * Invocation IDs are caller-selected or opt-in deterministic IDs derived
+ * from the flow tag and idempotency key.
  *
  * @category constructors
  * @since 0.1.0
  */
-export const make = <
+export const make: {
+  <
+    const Tag extends string,
+    Payload extends Schema.Struct.Fields | AnyStructSchema,
+    Success extends Schema.Top = Schema.Void,
+    Error extends Schema.Top = Schema.Never,
+    Requires = never
+  >(
+    tag: Tag,
+    options: MakeOptions<Payload, Success, Error> & {
+      readonly body: Body<Payload, Success, Error, Requires>
+      readonly prompt?: never
+    }
+  ): Flow<Tag, PayloadSchemaOf<Payload>, Success, Error, Requires>
+  <
+    const Tag extends string,
+    Payload extends Schema.Struct.Fields | AnyStructSchema,
+    Success extends Schema.Top = Schema.Void,
+    Error extends Schema.Top = Schema.Never
+  >(
+    tag: Tag,
+    options: MakeOptions<Payload, Success, Error> & {
+      readonly prompt: (payload: PayloadSchemaOf<Payload>["Type"]) => string
+      readonly body?: never
+      readonly implementationVersion?: string | undefined
+    }
+  ): PromptFlow<Tag, PayloadSchemaOf<Payload>, Success, Error>
+} = <
   const Tag extends string,
   Payload extends Schema.Struct.Fields | AnyStructSchema,
   Success extends Schema.Top = Schema.Void,
@@ -350,8 +188,22 @@ export const make = <
   Requires = never
 >(
   tag: Tag,
-  options: MakeOptions<Payload, Success, Error> & { readonly body: Body<Payload, Success, Error, Requires> }
-): Flow<Tag, PayloadSchemaOf<Payload>, Success, Error, Requires> => {
+  options: MakeOptions<Payload, Success, Error> & {
+    readonly body?: Body<Payload, Success, Error, Requires> | undefined
+    readonly prompt?: ((payload: PayloadSchemaOf<Payload>["Type"]) => string) | undefined
+    readonly implementationVersion?: string | undefined
+  }
+): any => {
+  if (typeof tag !== "string" || tag.trim().length === 0) {
+    throw new TypeError("Flow.make: tag must be a non-empty string")
+  }
+  if (
+    (options.body === undefined && typeof options.prompt !== "function") ||
+    (options.prompt === undefined && typeof options.body !== "function") ||
+    (options.body !== undefined && options.prompt !== undefined)
+  ) {
+    throw new TypeError(`Flow.make: "${tag}" must declare exactly one function: body or prompt`)
+  }
   // Invalid static configuration is a programmer error thrown at construction,
   // the same contract as effect's own `ExecutionPlan.make` (which throws on
   // `attempts <= 0`); `RangeError` matches effect's range-violation throws.
@@ -376,17 +228,45 @@ export const make = <
   const site = options.declaredFrom === undefined
     ? DeclarationSite.capture()
     : DeclarationSite.declaredAt(options.declaredFrom)
+  const payloadSchema = (Schema.isSchema(options.payload)
+    ? options.payload
+    : Schema.Struct(options.payload as any)) as PayloadSchemaOf<Payload>
+  const successSchema = options.success ?? (Schema.Void as unknown as Success)
+  const errorSchema = options.error ?? (Schema.Never as unknown as Error)
+  const annotations = lowerDeclarations(options)
+  const action = options.prompt === undefined ? undefined : Action.make(`${tag}/prompt`, {
+    payload: payloadSchema,
+    success: successSchema,
+    error: errorSchema,
+    capabilities: options.capabilities,
+    effects: options.effects,
+    annotations,
+    tier: options.effects?.tier ?? "irreversible",
+    implementationVersion: options.implementationVersion,
+    declaredFrom: options.declaredFrom
+  }) as unknown as Declared<`${Tag}/prompt`, PayloadSchemaOf<Payload>, Success, Error>
+  // The adapter only describes one dispatch. Prompt rendering belongs to the
+  // host implementation and its reviewed source/implementation identity.
+  const body = action === undefined ? options.body : Node.capture(
+    { action: action.name, implementationVersion: action.implementationVersion ?? null },
+    (payload: PayloadSchemaOf<Payload>["Type"]) => action.call(payload as never)
+  )
   return DeclarationSite.annotate(
     makeProto<Tag, PayloadSchemaOf<Payload>, Success, Error, Requires>({
       _tag: tag,
       description: options.description,
-      payloadSchema: (Schema.isSchema(options.payload)
-        ? options.payload
-        : Schema.Struct(options.payload as any)) as PayloadSchemaOf<Payload>,
-      successSchema: options.success ?? (Schema.Void as any),
-      errorSchema: options.error ?? (Schema.Never as any),
-      annotations: lowerDeclarations(options),
-      body: options.body as (
+      payloadSchema,
+      successSchema,
+      errorSchema,
+      annotations,
+      model: options.model,
+      effort: options.effort,
+      system: options.system,
+      chat: options.chat,
+      flows: options.flows,
+      prompt: options.prompt,
+      action,
+      body: body as (
         payload: PayloadSchemaOf<Payload>["Type"]
       ) => Node.Node<BodySuccess<Success["Type"]>, Error["Type"], Requires>,
       idempotencyKey: options.idempotencyKey as any,
