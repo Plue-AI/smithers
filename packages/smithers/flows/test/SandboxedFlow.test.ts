@@ -14,6 +14,7 @@
 import { NodeCrypto, NodeFileSystem } from "@effect/platform-node"
 import { afterAll, describe, expect, it } from "@effect/vitest"
 import { Capability, CapabilityPattern } from "@smthrs/capability/Capability"
+import * as CapabilitySet from "@smthrs/capability/CapabilitySet"
 import { PermissionDenied, permissionDenied, toPlatformError } from "@smthrs/capability/Permission"
 import * as Redaction from "@smthrs/journal/Redaction"
 import * as ProcessLedger from "@smthrs/kernel/ProcessLedger"
@@ -1731,12 +1732,13 @@ describe("the result schema", () => {
     })
   })
 
-  it("decodes a result journaled before deleted existed with no deletions", () => {
+  it("decodes a result journaled before deleted and the ceiling receipt existed with neither", () => {
     const decoded = Schema.decodeUnknownSync(Schema.toCodecJson(SandboxedFlow.resultSchema(Schema.Number)))({
       output: 42,
       diff: []
     })
-    expect(decoded).toEqual({ output: 42, diff: [], deleted: [], capabilityCeiling: [] })
+    // No receipt is not evidence of unrestricted authority.
+    expect(decoded).toEqual({ output: 42, diff: [], deleted: [], capabilityCeiling: null })
   })
 
   it("carries the 0.x bundle limits as its defaults", () => {
@@ -1861,6 +1863,81 @@ describe("the guest runner in process", () => {
       expect(denied?.capability).toMatchObject({ action: "fs:write", resource: "/workspace/out.txt" })
     })
   }
+
+  it("carries no refusal when the refusal is not the only reason the child failed", async () => {
+    const environment = request("denied-and-more", {
+      flow: "guest/ceiling/more",
+      executionId: "more",
+      payload: {}
+    })
+    await Guest.run(
+      refusing("more", () => Effect.die(denial).pipe(Effect.ensuring(Effect.die(new Error("cleanup failed"))))),
+      environment
+    )
+    const result = resultOf(environment)
+    expect(result.status === "failed" && result.error).toContain("cleanup failed")
+    expect("denied" in result).toBe(false)
+  })
+
+  it("redacts a credential in the refused resource and reason", async () => {
+    const secret = "synthetic-denied-credential-NOT-A-REAL-SECRET"
+    const environment = request("denied-secret", { flow: "guest/ceiling/secret", executionId: "secret", payload: {} })
+    await Guest.run(
+      refusing("secret", () =>
+        Effect.die(
+          permissionDenied(
+            new Capability({ action: "proc:spawn", resource: `curl -H 'Authorization: Bearer ${secret}' host` }),
+            `outside capability ceiling for password=${secret}`
+          )
+        )),
+      environment
+    )
+    const bytes = readFileSync(environment.SMITHERS_SANDBOX_RESULT_PATH!, "utf8")
+    expect(bytes).not.toContain(secret)
+    const result = resultOf(environment)
+    const denied = result.status === "failed" ? result.denied : undefined
+    expect(denied).toBeInstanceOf(PermissionDenied)
+    expect(denied?.capability.action).toBe("proc:spawn")
+    expect(denied?.capability.resource).toContain("[REDACTED")
+  })
+
+  it("reports as text a refusal whose redacted resource the capability schema refuses", async () => {
+    const environment = request("denied-long", { flow: "guest/ceiling/long", executionId: "long", payload: {} })
+    // At the resource limit, redaction lengthens `password=x` past it.
+    const resource = `${"r".repeat(4096 - " password=x".length)} password=x`
+    await Guest.run(
+      refusing(
+        "long",
+        () =>
+          Effect.die(permissionDenied(new Capability({ action: "fs:write", resource }), "outside capability ceiling"))
+      ),
+      environment
+    )
+    const result = resultOf(environment)
+    expect(result.status === "failed" && result.error).toContain("defect @smthrs/capability/PermissionDenied")
+    expect("denied" in result).toBe(false)
+  })
+
+  it("builds the entry's layer under the ceiling, not only the flow body", async () => {
+    const seen: Array<ReadonlyArray<ReadonlyArray<CapabilityPattern>>> = []
+    const environment = request("layer-ceiling", { flow: Sum._tag, executionId: "layer", payload: { n: 1 } })
+    const requestPath = environment.SMITHERS_SANDBOX_REQUEST_PATH!
+    writeFileSync(
+      requestPath,
+      JSON.stringify({
+        ...JSON.parse(readFileSync(requestPath, "utf8")),
+        capabilityCeiling: [[{ action: "fs:read", resource: "**" }]]
+      })
+    )
+    const observe = Layer.effectDiscard(
+      Effect.flatMap(CapabilitySet.current, (set) => Effect.sync(() => seen.push(set.groups)))
+    )
+    await Guest.run({ ...childEntry, layer: Layer.merge(childEntry.layer, observe) }, environment)
+    expect(resultOf(environment).status).toBe("succeeded")
+    expect(seen.map((groups) => groups.map((group) => group.map((pattern) => pattern.action)))).toEqual([[[
+      "fs:read"
+    ]]])
+  })
 
   it("carries no refusal for a PlatformError that is not a capability refusal", async () => {
     const environment = request("not-denied", { flow: "guest/ceiling/plain", executionId: "plain", payload: {} })

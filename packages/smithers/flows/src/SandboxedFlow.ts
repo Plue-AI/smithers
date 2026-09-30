@@ -261,9 +261,11 @@ export interface Result<A> {
   readonly deleted: ReadonlyArray<string>
   /**
    * The ceiling the guest enforced, as normalized any-of groups: the receipt
-   * the parent journals. No groups is unrestricted authority.
+   * the parent journals. No groups is unrestricted authority. `null` only on
+   * a result recorded before ceilings crossed the machine boundary, which
+   * carries no evidence of the authority it ran under.
    */
-  readonly capabilityCeiling: ReadonlyArray<ReadonlyArray<CapabilityPattern>>
+  readonly capabilityCeiling: ReadonlyArray<ReadonlyArray<CapabilityPattern>> | null
 }
 
 /**
@@ -294,13 +296,13 @@ export const Deleted = Schema.Array(Schema.String).pipe(Schema.withDecodingDefau
 
 /**
  * The schema of a {@link Result}'s `capabilityCeiling`. A result recorded
- * before ceilings crossed the machine boundary ran unrestricted and decodes
- * with no groups.
+ * before ceilings crossed the machine boundary has no receipt and decodes as
+ * `null`, never as unrestricted.
  *
  * @category schemas
  * @since 1.0.0
  */
-export const EnforcedCeiling = Guest.Ceiling.pipe(Schema.withDecodingDefaultKey(Effect.succeed([])))
+export const EnforcedCeiling = Schema.NullOr(Guest.Ceiling).pipe(Schema.withDecodingDefaultKey(Effect.succeed(null)))
 
 /**
  * The schema of a {@link Result} over a flow's success schema.

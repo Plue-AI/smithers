@@ -228,32 +228,44 @@ const describe = (failure: unknown): string => {
  * The kernel's capability refusal behind a failure: a `PermissionDenied`
  * itself, or a guarded host service's `PlatformError` whose reason carries
  * one. Rebuilt from its checked plain fields so the class identity of the
- * copy that raised it does not matter.
+ * copy that raised it does not matter, with the resource and reason redacted
+ * under the same rules as the failure text: a denied command line can carry a
+ * credential. A redacted resource the capability schema refuses carries no
+ * refusal, and the failure is reported as text.
  */
 const deniedBy = (failure: unknown): PermissionDenied | undefined => {
   const candidate = Predicate.hasProperty(failure, "reason") && Predicate.hasProperty(failure.reason, "_tag") &&
       failure.reason._tag === "PermissionDenied" && Predicate.hasProperty(failure.reason, "cause")
     ? failure.reason.cause
     : failure
-  return isPermissionError(candidate) && candidate._tag === "@smthrs/capability/PermissionDenied"
-    ? new PermissionDenied({
-      capability: new Capability({ action: candidate.capability.action, resource: candidate.capability.resource }),
-      reason: candidate.reason
+  if (!isPermissionError(candidate) || candidate._tag !== "@smthrs/capability/PermissionDenied") return undefined
+  try {
+    return new PermissionDenied({
+      capability: new Capability({
+        action: candidate.capability.action,
+        resource: String(redact(candidate.capability.resource))
+      }),
+      reason: String(redact(candidate.reason))
     })
-    : undefined
+  } catch {
+    return undefined
+  }
 }
 
-/** The first capability refusal among the cause's failures and defects. */
+/**
+ * The capability refusal a cause consists of. Only a cause whose one reason is
+ * the refusal carries it: a refusal beside another failure, defect, or
+ * interruption is reported as text, so the typed error can never stand in for
+ * a failure a caller would not recover from.
+ */
 const deniedIn = (cause: Cause.Cause<unknown>): PermissionDenied | undefined => {
-  for (const reason of cause.reasons) {
-    const denied = Cause.isFailReason(reason)
-      ? deniedBy(reason.error)
-      : Cause.isDieReason(reason)
-      ? deniedBy(reason.defect)
-      : undefined
-    if (denied !== undefined) return denied
-  }
-  return undefined
+  if (cause.reasons.length !== 1) return undefined
+  const reason = cause.reasons[0]!
+  return Cause.isFailReason(reason)
+    ? deniedBy(reason.error)
+    : Cause.isDieReason(reason)
+    ? deniedBy(reason.defect)
+    : undefined
 }
 
 /** Every reason the cause carries, one line each. */
@@ -325,8 +337,10 @@ const execute = (
       Schema.decodeUnknownEffect(payloadCodec)(request.payload).pipe(
         Effect.flatMap((payload) => flow.execute(payload, { executionId: request.executionId })),
         Effect.flatMap((value) => Schema.encodeEffect(successCodec)(value)),
-        within,
-        Effect.provide(runtime)
+        Effect.provide(runtime),
+        // Outermost, so building the entry's layer, its finalizers, and any
+        // fiber it forks run under the ceiling too, not only the body.
+        within
       ) as Effect.Effect<unknown, unknown>
     )
     if (Exit.isSuccess(exit)) {

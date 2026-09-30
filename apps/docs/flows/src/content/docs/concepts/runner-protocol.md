@@ -50,7 +50,8 @@ capability. Inside a parent flow, the caller's authority already includes every
 declaration on the way to the sandboxed action.
 
 The guest starts unrestricted, which is the identity of intersection, and runs
-the child under exactly the ceiling it was sent. It can only narrow it. A
+the child under exactly the ceiling it was sent, including building the entry's
+`layer`, its finalizers, and any fiber it forks. It can only narrow it. A
 request with no ceiling or with a pattern that does not decode is a protocol
 failure: the guest throws and runs nothing.
 
@@ -63,9 +64,11 @@ services the entry's `layer` composes, as the host's ceiling binds its own; the
 machine is what contains code that reaches past them.
 
 A capability the ceiling refuses fails the child with the kernel's
-`PermissionDenied`, directly or inside a guarded service's `PlatformError`. The
-guest writes it as `denied`, and the host fails with that `PermissionDenied`
-rather than a `SandboxedFlowError`: the same typed error a local run fails with.
+`PermissionDenied`, directly or inside a guarded service's `PlatformError`. When
+that refusal is the child's only failure, the guest writes it as `denied`, with
+its resource and reason redacted, and the host fails with that
+`PermissionDenied` rather than a `SandboxedFlowError`: the same typed error a
+local run fails with. A refusal beside any other failure stays `flow_failed`.
 The parent journals the refusal, or on success the result with its
 `capabilityCeiling` receipt, as the action's one recorded outcome.
 

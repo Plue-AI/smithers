@@ -527,14 +527,14 @@ interface Result<A> {
   readonly diff: ReadonlyArray<DiffEntry>
   /** Workspace-relative paths that existed before the guest ran and were gone after. */
   readonly deleted: ReadonlyArray<string>
-  /** The ceiling the guest enforced, as normalized any-of groups. No groups is unrestricted. */
-  readonly capabilityCeiling: ReadonlyArray<ReadonlyArray<CapabilityPattern>>
+  /** The ceiling the guest enforced, as normalized any-of groups. No groups is unrestricted; null is no receipt. */
+  readonly capabilityCeiling: ReadonlyArray<ReadonlyArray<CapabilityPattern>> | null
 }
 
 const DiffEntry: Schema.Struct<{ path: Schema.String; bytes: Schema.Uint8Array }>
 const Diff: Schema.Array<typeof DiffEntry>
 const Deleted: Schema.Array<Schema.String> // decodes a missing key as []
-const EnforcedCeiling: Schema.Array<Schema.Array<typeof CapabilityPattern>> // decodes a missing key as []
+const EnforcedCeiling: Schema.NullOr<Schema.Array<Schema.Array<typeof CapabilityPattern>>> // decodes a missing key as null
 ```
 
 One `DiffEntry` per file the guest created or changed, as it stood when the
@@ -542,9 +542,9 @@ guest exited, and one `deleted` path per file it removed. A file counts as
 changed when its size or its modification time differs; a provider whose `stat`
 reports no modification time compares sizes alone. The schemas are
 JSON-encodable for the journal: the bytes serialize as base64.
-`capabilityCeiling` is the receipt of the authority the child ran under; a
-result journaled before ceilings crossed the machine boundary ran unrestricted
-and decodes with none.
+`capabilityCeiling` is the receipt of the authority the child ran under. A
+result journaled before ceilings crossed the machine boundary has no receipt
+and decodes as `null`, which is not a claim of unrestricted authority.
 
 ### `resultSchema` and `ResultSchema`
 

@@ -77,8 +77,8 @@ const node = JSON.stringify(process.execPath)
 const writeAnywhere = new CapabilityPattern({ action: "fs:write", resource: "**" })
 const readAnywhere = new CapabilityPattern({ action: "fs:read", resource: "**" })
 
-const wire = (groups: ReadonlyArray<ReadonlyArray<CapabilityPattern>>) =>
-  groups.map((group) => group.map(({ action, resource }) => ({ action, resource })))
+const wire = (groups: ReadonlyArray<ReadonlyArray<CapabilityPattern>> | null) =>
+  groups?.map((group) => group.map(({ action, resource }) => ({ action, resource })))
 
 let sessions = 0
 const run = <Tag extends string, Requires>(
