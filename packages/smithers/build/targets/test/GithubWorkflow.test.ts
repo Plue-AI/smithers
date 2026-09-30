@@ -654,6 +654,7 @@ describe("parseWorkflow", () => {
     expect(workflow.name).toBe("CI")
     expect(workflow.jobs.map((job) => job.id)).toEqual([
       "test",
+      "repository",
       "scripts",
       "docs",
       "apps-e2e",
@@ -681,7 +682,7 @@ describe("parseWorkflow", () => {
    */
   it("holds the flows pipeline's required jobs to running unconditionally", async () => {
     const source = await readReal()
-    const required = ["test", "scripts", "docs", "apps-e2e", "rust", "wasm-repro", "browser", "packages"]
+    const required = ["test", "repository", "scripts", "docs", "apps-e2e", "rust", "wasm-repro", "browser", "packages"]
     expect(missingRequiredJobs(parseWorkflow(source), required)).toEqual([])
     const skipped = source.replace(/^ {2}"browser":$/m, "  \"browser\":\n    if: false")
     expect(skipped).not.toBe(source)

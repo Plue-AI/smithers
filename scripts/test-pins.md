@@ -50,8 +50,9 @@ the bearer-token and TLS/ingress protections described in the
 
 ### Advisory CI lanes
 
-The required workspace, script, and package-documentation gates run independently
-in `test`, `scripts`, and `docs`. Release retains all three selections.
+The required workspace, repository (flows, apps and evals), script, and
+package-documentation gates run independently in `test`, `repository`,
+`scripts`, and `docs`. Release retains all four selections.
 Two lanes are advisory: the macOS
 and Windows legs of the one `package suites (${{ matrix.os }})` matrix carry
 `advisory: true` and inherit `continue-on-error: ${{ matrix.advisory }}`, while

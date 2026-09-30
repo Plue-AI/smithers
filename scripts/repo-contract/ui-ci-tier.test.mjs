@@ -26,10 +26,11 @@ describe("required PR selection", () => {
   const workflow = parseWorkflow(readFileSync(join(root, ".github/workflows/ci.yml"), "utf8"))
   const runs = (job) => workflow.jobs[job].steps.flatMap((step) => step.run ? [step.run] : [])
   it("keeps server CI required while selecting the UI tiers once in their earlier Ubuntu job", () => {
-    const main = runs("test").join("\n")
+    const main = [...runs("test"), ...runs("repository")].join("\n")
     assert.doesNotMatch(main, /\/\/apps\/app:(?:check|unitTests)/)
-    assert.match(main, /(?:smthrs|smithers-build) ci '\/\/apps\/server\/\.\.\.'/)
+    assert.match(runs("repository").join("\n"), /(?:smthrs|smithers-build) ci '\/\/apps\/server\/\.\.\.'/)
     assert.notEqual(workflow.jobs.test["continue-on-error"], true)
+    assert.notEqual(workflow.jobs.repository["continue-on-error"], true)
     const ui = workflow.jobs["apps-e2e"]
     assert.equal(ui["runs-on"], "ubuntu-latest")
     assert.equal(ui.needs, undefined, "UI diagnostics must not wait behind the workspace graph")

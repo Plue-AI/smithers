@@ -29,12 +29,13 @@ const readCi = (): { readonly on: Readonly<Record<string, unknown>>; readonly jo
   Yaml.parse(readFileSync(new URL("../../.github/workflows/ci.yml", import.meta.url), "utf8"))
 
 describe("ci conformance", () => {
-  it("workspace, script and docs gates can start independently", () => {
+  it("workspace, script, docs and repository gates can start independently", () => {
     const ci = readCi()
     const commands = [
       "pnpm exec smthrs ci '//packages/...'",
       "pnpm exec smthrs test '//scripts/...'",
-      "pnpm exec smthrs ci '//apps/docs/...'"
+      "pnpm exec smthrs ci '//apps/docs/...'",
+      "pnpm exec smthrs test '//flows:pack'"
     ]
     const owners = commands.map((command) => {
       const matches = Object.entries(ci.jobs).flatMap(([id, job]) =>
@@ -52,7 +53,12 @@ describe("ci conformance", () => {
       assert.equal((step as CiStep & { readonly "continue-on-error"?: boolean })["continue-on-error"], undefined)
       return id
     })
-    assert.equal(new Set(owners).size, 3, `gates are serialized in ${owners.join(", ")}`)
+    assert.equal(new Set(owners).size, 4, `gates are serialized in ${owners.join(", ")}`)
+    // Nothing queues behind the ~95-minute package graph in its own job (#2361).
+    const workspaceGates = ci.jobs[owners[0]!]!.steps
+      .filter((step) => /pnpm exec smthrs /.test(step.run ?? ""))
+      .map((step) => step.name)
+    assert.deepEqual(workspaceGates, ["Examples", "Workspace targets"])
     const declaration = readFileSync(new URL("../../PACKAGE.ts", import.meta.url), "utf8")
     const ciDeclaration = declaration.slice(declaration.indexOf("const ci = Smithers.GithubCiGen("))
     const required = [...(ciDeclaration.match(/requiredJobs: \[([^\]]+)\]/)?.[1] ?? "").matchAll(/"([^"]+)"/g)]

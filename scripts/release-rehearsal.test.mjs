@@ -403,9 +403,10 @@ test("the dispatch inputs keep the rehearsal safe by default", () => {
   assert.equal(inputs.sourceRef.default, "")
 })
 
-test("CI gates the server's checks and tests in the required test job", () => {
+test("CI gates the server's checks and tests in the required repository job", () => {
   const ci = parseWorkflow(readFileSync(join(repoRoot, ".github/workflows/ci.yml"), "utf8"))
-  const server = ci.jobs.test.steps.find((entry) => entry.name === "Server typecheck and tests")
+  assert.equal(ci.jobs.repository["continue-on-error"], undefined)
+  const server = ci.jobs.repository.steps.find((entry) => entry.name === "Server typecheck and tests")
   assert.equal(server?.run, "pnpm exec smthrs ci '//apps/server/...' --known-red '.github/ci-known-red.json' --verbose")
   assert.equal(server?.if, gateCondition)
 })

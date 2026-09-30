@@ -468,6 +468,7 @@ const ci = Smithers.GithubCiGen({
   ],
   requiredJobs: [
     "test",
+    "repository",
     "scripts",
     "docs",
     "apps-e2e",
@@ -517,7 +518,31 @@ const ci = Smithers.GithubCiGen({
       }),
       steps: [
         { name: "Examples", verb: Smithers.Verb.Ci, pattern: "//examples/..." },
-        { name: "Workspace targets", verb: Smithers.Verb.Ci, pattern: "//packages/...", parallelism: 2 },
+        { name: "Workspace targets", verb: Smithers.Verb.Ci, pattern: "//packages/...", parallelism: 2 }
+      ]
+    },
+    {
+      // Everything the workspace graph used to run after its package step.
+      // None of it reads that step's results, so it starts with the other
+      // gates instead of queueing behind ~95 minutes of packages (#2361).
+      id: "repository",
+      name: "repository flows, apps and evals",
+      runsOn: ubuntu,
+      // Run 36691217680: these steps took ~24 min inside the workspace graph;
+      // leave room for the package builds they no longer share with it.
+      timeoutMinutes: 60,
+      toolchain: Smithers.CiToolchain.Needs({
+        cargoBinaries: nativeFilesystem,
+        runtimes: [node, bun],
+        jj,
+        ripgrep,
+        apt: bubblewrap,
+        go,
+        foundry,
+        postgres,
+        docker: dockerImageStore
+      }),
+      steps: [
         // The registry and migrate-detector checks over flows/. `//flows/...`
         // would also select the 45-minute codingNative/codingBundle gates.
         { name: "Repository flows", verb: Smithers.Verb.Test, pattern: "//flows:pack" },

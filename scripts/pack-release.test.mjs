@@ -277,6 +277,7 @@ test("every gate in ci.yml also runs in release.yml", () => {
   const jobs = Object.keys(parse(ci).jobs)
   assert.deepEqual(jobs, [
     "test",
+    "repository",
     "scripts",
     "docs",
     "apps-e2e",
@@ -289,7 +290,7 @@ test("every gate in ci.yml also runs in release.yml", () => {
     "go-backend"
   ])
 
-  const mirrored = ["test", "scripts", "docs", "rust-ffi", "e2e-faults", "wasm-repro", "go-backend"]
+  const mirrored = ["test", "repository", "scripts", "docs", "rust-ffi", "e2e-faults", "wasm-repro", "go-backend"]
   const isGate = (step) => graphCommands([step]).length > 0
   // ci.yml passes the known-red list; the release does not, so every target a
   // release mirrors must be green there, including those main tolerates.

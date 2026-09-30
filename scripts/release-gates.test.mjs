@@ -33,7 +33,7 @@ const mirrored = releaseGates.filter((gate) => gate.flowOnly === undefined)
 
 // Mutate parsed copies only. All three jobs exercise the real parity entry
 // points; no workflow file or command outcome is replaced on disk.
-const parityJobs = [["publish", release], ["test", ci], ["apps-e2e", ci]]
+const parityJobs = [["publish", release], ["test", ci], ["repository", ci], ["apps-e2e", ci]]
 const metadataSteps = parse(release).jobs.publish.steps
   .filter(step => ["Validate release tag", "Compute the publish plan"].includes(step.name))
 const withRun = (source, job, name, run) => {
@@ -198,7 +198,7 @@ for (const [job, source] of parityJobs) {
 }
 
 test("CI requires an explicit canonical command even inside a recursive inventory selection", () => {
-  for (const job of ["test", "apps-e2e", "browser", "rust"]) {
+  for (const job of ["test", "repository", "apps-e2e", "browser", "rust"]) {
     const command = "pnpm exec smthrs test '//scripts:newRequiredGate' --verbose"
     assert.deepEqual(missingFor(job, withRun(ci, job, "Unlisted", command)), reported(job, "Unlisted", command))
   }
@@ -256,7 +256,7 @@ test("exception and exclusion drift checks use literal tokens and reject dynamic
 })
 
 /** Pin every job so a new one forces a release decision. `on.push` is a trigger, not a job. */
-const ciJobs = ["test", "scripts", "docs", "apps-e2e", "rust", "rust-ffi", "wasm-repro", "e2e-faults", "browser", "packages", "go-backend"]
+const ciJobs = ["test", "repository", "scripts", "docs", "apps-e2e", "rust", "rust-ffi", "wasm-repro", "e2e-faults", "browser", "packages", "go-backend"]
 
 /** A copy of the release workflow with one more gate step ahead of the build. */
 const withUnlistedStep = (source, name, command) => {
@@ -396,7 +396,7 @@ for (const [spelling, prefix] of [
 ]) {
   for (const [job, source, anchor] of [
     ["publish", release, "Build all workspaces from clean artifacts"],
-    ["test", ci, "Target index drift"],
+    ["repository", ci, "Target index drift"],
     ["apps-e2e", ci, "UI unit tests"]
   ]) {
     test(`${job} parity reports an unlisted gate with ${spelling}`, () => {
@@ -449,7 +449,7 @@ test("the release proves every CI gate the exclusions do not name, and every exc
     "pnpm exec smthrs lint '//crates/flows-jj/...' --verbose",
     "pnpm exec smthrs test '//crates/flows-jj:cargoTest' --verbose"
   ])
-  for (const job of ["test", "scripts", "docs", "e2e-faults", "wasm-repro"]) {
+  for (const job of ["test", "repository", "scripts", "docs", "e2e-faults", "wasm-repro"]) {
     for (const step of workflowGateSteps(ci, job)) {
       assert.ok(mirrored.some((gate) => gate.name === step.name && releaseGateCommand(gate) === step.command), `${job}: ${step.name} is an inventory gate by name and command`)
     }
@@ -459,12 +459,12 @@ test("the release proves every CI gate the exclusions do not name, and every exc
 test("a CI gate added outside the exclusions is reported, and an exclusion that names a mirrored gate or a missing job is stale", () => {
   const command = "pnpm exec smthrs test '//evals/new:suite' --verbose"
   for (const style of ["PLAIN", "QUOTE_DOUBLE"]) {
-    const added = withStepBefore(ci, "test", "Target index drift", { name: "New eval suite", run: command }, style)
-    assert.equal(workflowGateSteps(added, "test").length, workflowGateSteps(ci, "test").length + 1)
+    const added = withStepBefore(ci, "repository", "Target index drift", { name: "New eval suite", run: command }, style)
+    assert.equal(workflowGateSteps(added, "repository").length, workflowGateSteps(ci, "repository").length + 1)
     assert.deepEqual(ciGatesMissingFromInventory(releaseGates, added, releaseGateExclusions),
-      [{ job: "test", name: "New eval suite", command }], style + ": an unlisted gate must fail parity")
+      [{ job: "repository", name: "New eval suite", command }], style + ": an unlisted gate must fail parity")
     assert.deepEqual(ciGatesMissingFromInventory(releaseGates, added,
-      [...releaseGateExclusions, { job: "test", commands: [command], reason: "declared" }]), [])
+      [...releaseGateExclusions, { job: "repository", commands: [command], reason: "declared" }]), [])
   }
   // Dropping an inventory gate a mirrored CI job carries is a CI gap too.
   const mutated = releaseGates.filter((gate) => gate.target !== "//crates/flows-jj:buildScript")

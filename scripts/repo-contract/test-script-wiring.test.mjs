@@ -120,7 +120,10 @@ describe("test-file ownership", () => {
     assert.notEqual(workflow.jobs.scripts["continue-on-error"], true)
     const scripts = workflow.jobs.scripts.steps.flatMap((step) => step.run ? [step.run] : []).join("\n")
     assert.match(scripts, /smthrs test '\/\/scripts\/\.\.\.'/)
-    assert.match(main, /smthrs test '\/\/:factoryHarness'/)
+    assert.notEqual(workflow.jobs.repository["continue-on-error"], true)
+    const repository = workflow.jobs.repository.steps.flatMap((step) => step.run ? [step.run] : []).join("\n")
+    assert.doesNotMatch(main, /smthrs test '\/\/:factoryHarness'/)
+    assert.match(repository, /smthrs test '\/\/:factoryHarness'/)
   })
 })
 

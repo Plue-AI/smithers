@@ -48,7 +48,7 @@ import { parse } from "yaml"
 /**
  * The publish job of release.yml, in its order, plus the two flow-only gates.
  *
- * The first block combines required CI `test`, `scripts`, and `docs` gates copied out
+ * The first block combines required CI `test`, `repository`, `scripts`, and `docs` gates copied out
  * of the generated ci.yml; then the `apps-e2e` gates the release runs without
  * the browser suite; then the `e2e-faults` matrix and the release-only
  * targets; then the `wasm-repro` pair. `pack-release.test.mjs` proves the
@@ -166,7 +166,7 @@ export const releaseGateSetForHost = (host = process) => {
  * here keeps each omission a decision rather than an oversight: the drift test
  * proves each is still a ci.yml gate, that the inventory does not run it (or
  * the reason would be false), and that every other CI gate is run by an
- * inventory gate. A job with no entry is mirrored whole: `test`, `scripts`, `docs`, `e2e-faults`
+ * inventory gate. A job with no entry is mirrored whole: `test`, `repository`, `scripts`, `docs`, `e2e-faults`
  * and `wasm-repro` step for step; `browser` through `//scripts/...`, which selects
  * `//scripts:webBundleContract`, explicitly pinned in ciCommands. Even omitted
  * jobs enumerate today's commands so future additions cannot hide behind a
