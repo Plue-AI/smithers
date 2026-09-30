@@ -47,7 +47,7 @@ import * as Schema from "effect/Schema"
 import { parse as parseJsonc, type ParseError, printParseErrorCode } from "jsonc-parser"
 import type { Dirent } from "node:fs"
 import * as NodeFs from "node:fs/promises"
-import { builtinModules } from "node:module"
+import { isBuiltin } from "node:module"
 import * as NodePath from "node:path"
 import { version as typescriptVersion } from "typescript"
 import * as ts from "typescript/unstable/ast"
@@ -95,8 +95,6 @@ const probeExtensions = [".ts", ".tsx", ".d.ts", ".js", ".jsx", ".mts", ".cts", 
 
 /** Index files probed inside a directory specifier, in order. */
 const indexNames = ["index.ts", "index.tsx", "index.d.ts", "index.js", "index.jsx"] as const
-
-const builtinNames: ReadonlySet<string> = new Set(builtinModules)
 
 /**
  * The outcome of resolving one specifier.
@@ -823,11 +821,10 @@ export const resolveSpecifier = async (
   if (site.dynamic) return { specifier: site.specifier, status: "dynamic" }
   const specifier = stripQuery(site.specifier)
   if (specifier === "") return { specifier: site.specifier, status: "unresolved" }
-  if (specifier.startsWith("node:")) return { specifier: site.specifier, status: "builtin" }
-  const bareName = specifier.split("/")[0]!
-  if (builtinNames.has(specifier) || builtinNames.has(bareName)) {
-    return { specifier: site.specifier, status: "builtin" }
-  }
+  // Only a complete specifier the running Node can load is a builtin; an
+  // unknown `node:` name or a bare subpath under a builtin name falls through
+  // to the ordinary rules and stays unresolved unless a package provides it.
+  if (isBuiltin(specifier)) return { specifier: site.specifier, status: "builtin" }
   const slash = fromFile.lastIndexOf("/")
   const fromDirectory = slash === -1 ? "" : fromFile.slice(0, slash)
   if (specifier.startsWith("./") || specifier.startsWith("../") || specifier === "." || specifier === "..") {
@@ -863,7 +860,7 @@ export const resolveSpecifier = async (
       })
       return { specifier: site.specifier, status: "resolved-file", resolved }
     }
-    if (target.startsWith("node:") || builtinNames.has(target)) {
+    if (isBuiltin(target)) {
       return { specifier: site.specifier, status: "builtin" }
     }
     if (

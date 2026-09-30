@@ -144,6 +144,43 @@ describe("relative resolution", () => {
     expect(outcome.result.unresolved).toEqual([])
   })
 
+  it("carries unknown builtin names and subpaths as unresolved rows", async () => {
+    await write(
+      "entry.ts",
+      [
+        `import "node:fs/promises"`,
+        `import "stream/web"`,
+        `import "node:test"`,
+        `import "node:smithers_missing"`,
+        `import "fs/smithers_missing"`,
+        `import "node:fs/smithers_missing"`,
+        `import "test"`,
+        ""
+      ].join("\n")
+    )
+    const outcome = await closureOf(["entry.ts"])
+    expect(paths(outcome)).toEqual(["entry.ts"])
+    expect(outcome.result.unresolved).toEqual([
+      { file: "entry.ts", specifier: "fs/smithers_missing" },
+      { file: "entry.ts", specifier: "node:fs/smithers_missing" },
+      { file: "entry.ts", specifier: "node:smithers_missing" },
+      { file: "entry.ts", specifier: "test" }
+    ])
+  })
+
+  it("resolves a bare subpath under a builtin name through an installed package", async () => {
+    await write(
+      "entry.ts",
+      `import "fs/extra"
+`
+    )
+    await write("node_modules/fs/package.json", JSON.stringify({ name: "fs" }))
+    await write("node_modules/fs/extra.js", `module.exports = 1\n`)
+    const outcome = await closureOf(["entry.ts"])
+    expect(outcome.result.unresolved).toEqual([])
+    expect(outcome.result.packages).toEqual(["fs"])
+  })
+
   it("includes non-module leaves without parsing them", async () => {
     await write("entry.ts", `import data from "./data.json"\n`)
     await write("data.json", `{"a": 1}\n`)
@@ -310,6 +347,9 @@ describe("resolveSpecifier statuses", () => {
     await expect(resolve("./a")).resolves.toEqual({ specifier: "./a", status: "resolved-file", resolved: "a.ts" })
     await expect(resolve("dep")).resolves.toEqual({ specifier: "dep", status: "package", packageName: "dep" })
     await expect(resolve("node:url")).resolves.toEqual({ specifier: "node:url", status: "builtin" })
+    await expect(resolve("url")).resolves.toEqual({ specifier: "url", status: "builtin" })
+    await expect(resolve("node:nope")).resolves.toEqual({ specifier: "node:nope", status: "unresolved" })
+    await expect(resolve("url/nope")).resolves.toEqual({ specifier: "url/nope", status: "unresolved" })
     await expect(resolve("./gone")).resolves.toEqual({ specifier: "./gone", status: "unresolved" })
     await expect(resolve("x + y", true)).resolves.toEqual({ specifier: "x + y", status: "dynamic" })
     await expect(resolve("/etc/passwd")).resolves.toEqual({ specifier: "/etc/passwd", status: "unresolved" })
@@ -498,11 +538,16 @@ describe("package imports closure", () => {
         imports: {
           "#dep/*": "dep/*",
           "#missing": "absent",
-          "#fs": "node:fs"
+          "#fs": "node:fs",
+          "#bare": "fs/promises",
+          "#nobuiltin": "node:smithers_missing"
         }
       })
     )
-    await write("src/entry.ts", `import "#dep/public"\nimport "#dep/private"\nimport "#missing"\nimport "#fs"\n`)
+    await write(
+      "src/entry.ts",
+      `import "#dep/public"\nimport "#dep/private"\nimport "#missing"\nimport "#fs"\nimport "#bare"\nimport "#nobuiltin"\n`
+    )
     await write("node_modules/dep/package.json", JSON.stringify({ exports: { "./public": "./public.js" } }))
     await write("src/node_modules/dep/package.json", JSON.stringify({ exports: {} }))
     const outcome = await closureOf(["src/entry.ts"])
@@ -510,7 +555,8 @@ describe("package imports closure", () => {
     expect(outcome.result.packages).toEqual(["dep"])
     expect(outcome.result.unresolved).toEqual([
       { file: "src/entry.ts", specifier: "#dep/private" },
-      { file: "src/entry.ts", specifier: "#missing" }
+      { file: "src/entry.ts", specifier: "#missing" },
+      { file: "src/entry.ts", specifier: "#nobuiltin" }
     ])
   })
 
