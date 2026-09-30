@@ -78,6 +78,8 @@ export const secretsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> 
     }),
     form: {
       submitLabel: "Save",
+      args: payload => JSON.stringify(Object.fromEntries(["name", "hosts", "headers", "repo"].flatMap(key =>
+        typeof payload[key] === "string" && payload[key] !== "" ? [[key, payload[key]]] : []))),
       fields: {
         name: { label: "Name", placeholder: "NPM_TOKEN", kind: "text" },
         hosts: { label: "Hosts", placeholder: "registry.npmjs.org", kind: "text", required: true },

@@ -1736,11 +1736,11 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
     })
   }),
   /*
-   * The secrets a repository's sessions may use (Secrets L1): the agent
-   * environment's secret METADATA only. plue's AgentEnvironmentSecretMetadata
-   * has no value field; hosts and match_headers are the egress-proxy binding,
-   * empty on both for a setup-only secret. `scope` names whose secrets the
-   * card lists; personal secrets add a second scope in a later lane.
+   * A repository's CI secrets (Secrets L1): METADATA only. plue's workflow
+   * secret list has no value field; `mainOnly` limits a secret to trusted runs
+   * on the default bookmark, and hosts and match_headers are the egress-proxy
+   * binding, empty on both for an unbound secret. `scope` names whose secrets
+   * the card lists; personal secrets add a second scope in a later lane.
    */
   z.object({
     ...cardBaseShape,
@@ -1754,7 +1754,8 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
           hosts: z.array(z.string()),
           matchHeaders: z.array(z.string()),
           updatedAt: z.string().nullable(),
-          /** The secret held a subscription token the platform refuses; it is unused until replaced or removed. */
+          mainOnly: z.boolean(),
+          /** The secret held a subscription token the platform refuses; it is unused until replaced or deleted. */
           reconnect: z.boolean().optional()
         })
       )

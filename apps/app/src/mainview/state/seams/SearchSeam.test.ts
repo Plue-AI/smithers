@@ -140,7 +140,7 @@ const seed = async (store: AppStore): Promise<void> => {
     id: `secrets-${REPO}`,
     kind: "secrets",
     title: "secrets",
-    payload: { repo: REPO, scope: "repository", secrets: [{ name: "NPM_TOKEN", hosts: ["registry.npmjs.org"], matchHeaders: [], updatedAt: null }] }
+    payload: { repo: REPO, scope: "repository", secrets: [{ name: "NPM_TOKEN", mainOnly: false, hosts: ["registry.npmjs.org"], matchHeaders: [], updatedAt: null }] }
   })
   store.dispatch({
     type: "change.loaded",
@@ -338,14 +338,10 @@ describe("§6 the flow doors", () => {
     expect(seen).toContain("/api/repos/will/flows/contents/.smithers/factory.json")
   })
 
-  test("search.secrets signed in reads the environment document and lists names only", async () => {
+  test("search.secrets signed in reads the CI secrets list and lists names only", async () => {
     const { store, controller } = await ready(
       backend({
-        "/api/repos/will/flows/agent-environment": json(200, {
-          setup_script: "",
-          env: [],
-          secrets: [{ name: "NPM_TOKEN", hosts: ["registry.npmjs.org"], match_headers: ["authorization"], updated_at: null }]
-        })
+        "/api/repos/will/flows/secrets": json(200, [{ name: "NPM_TOKEN", hosts: ["registry.npmjs.org"], match_headers: ["authorization"], updated_at: null }])
       }),
       "signed-in"
     )
@@ -467,7 +463,7 @@ test("workspace files retain distinct explicit targets and orphan tree rows are 
 for (const mode of ["secrets", "targets"] as const) {
   test(`a retired account's ${mode} search cannot return or persist its private results`, async () => {
     const reply = Promise.withResolvers<Response>(), entered = Promise.withResolvers<void>()
-    const suffix = mode === "secrets" ? "/agent-environment" : "/contents/.smithers/factory.json"
+    const suffix = mode === "secrets" ? "/secrets" : "/contents/.smithers/factory.json"
     const { store, controller } = await ready({ fetchImpl: async input => {
       if (String(input).endsWith(`/api/repos/search/private${suffix}`)) { entered.resolve(); return reply.promise }
       return json(404, {})
@@ -477,7 +473,7 @@ for (const mode of ["secrets", "targets"] as const) {
       await entered.promise
       await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "second", admin: false, scopesPlain: null }).isPersisted.promise
       const payload = mode === "secrets"
-        ? { setup_script: "", env: [], secrets: [{ name: "PRIVATE_TOKEN", hosts: ["private.example.test"], match_headers: [], updated_at: null }] }
+        ? [{ name: "PRIVATE_TOKEN", hosts: ["private.example.test"], match_headers: [], updated_at: null }]
         : { content: JSON.stringify({ on: [], flows: [{ id: "private-flow", description: "Private work", summary: "Private work", featured: true, kind: "mdx", path: "flows/private/flow.mdx", capabilities: [], model: null, modelInvocable: true }] }) }
       reply.resolve(json(200, payload))
       const result = await pending
@@ -502,7 +498,7 @@ for (const mode of ["secrets", "targets", "history", "boxes"] as const) {
       const privateHistory: MythicalStack = { repository: "search/private", state: "active", generation: 1, mainBehind: false, items: [], lanes: [],
         limits: { maxParallel: 1 }, changes: [{ changeId: "private-change", commitId: "c1", title: "Private commit", kind: "item", state: "landed" }] }
       const answer = () => mode === "secrets"
-        ? { setup_script: "", env: [], secrets: [{ name: "PRIVATE_TOKEN", hosts: ["private.example.test"], match_headers: [], updated_at: null }] }
+        ? [{ name: "PRIVATE_TOKEN", hosts: ["private.example.test"], match_headers: [], updated_at: null }]
         : mode === "targets"
           ? { content: JSON.stringify({ on: [], flows: [{ id: "private-flow", description: "Private work", summary: "Private work", featured: true, kind: "mdx", path: "flows/private/flow.mdx", capabilities: [], model: null, modelInvocable: true }] }) }
           : {}
@@ -592,7 +588,7 @@ for (const mode of ["secrets", "targets"] as const) {
     const reply = Promise.withResolvers<Response>(), entered = Promise.withResolvers<void>()
     let reads = 0
     const payload = mode === "secrets"
-      ? { setup_script: "", env: [], secrets: [{ name: "PRIVATE_TOKEN", hosts: ["private.example.test"], match_headers: [], updated_at: null }] }
+      ? [{ name: "PRIVATE_TOKEN", hosts: ["private.example.test"], match_headers: [], updated_at: null }]
       : { content: JSON.stringify({ on: [], flows: [{ id: "private-flow", description: "Private work", summary: "Private work", featured: true, kind: "mdx", path: "flows/private/flow.mdx", capabilities: [], model: null, modelInvocable: true }] }) }
     const { store, controller } = await ready({ fetchImpl: async input => {
       if (!String(input).includes("/api/repos/search/private/")) return json(404, {})
@@ -621,7 +617,7 @@ for (const order of [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 
     const entered = Array.from({ length: 3 }, () => Promise.withResolvers<void>())
     let reads = 0
     const { store, controller } = await ready({ fetchImpl: async input => {
-      if (!String(input).endsWith("/api/repos/search/private/agent-environment")) return json(404, {})
+      if (!String(input).endsWith("/api/repos/search/private/secrets")) return json(404, {})
       const index = reads++; entered[index]!.resolve(); return gates[index]!.promise
     } }, "signed-in")
     try {
@@ -632,7 +628,7 @@ for (const order of [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 
       }
       const before = await store.eventHistory()
       for (const index of order) {
-        gates[index]!.resolve(json(200, { setup_script: "", env: [], secrets: [] }))
+        gates[index]!.resolve(json(200, []))
         expect(typeof await pending[index]).toBe("object")
         const card = store.collections.cards.get("search-search.secrets")
         if (card?.kind === "search-results") expect(card.payload.query).toBe("2")
@@ -647,7 +643,7 @@ test("a failed newer query does not let an older read publish, and another mode 
   const reply = Promise.withResolvers<Response>(), entered = Promise.withResolvers<void>()
   let reads = 0
   const { store, controller } = await ready({ fetchImpl: async input => {
-    if (!String(input).endsWith("/api/repos/search/private/agent-environment")) return json(404, {})
+    if (!String(input).endsWith("/api/repos/search/private/secrets")) return json(404, {})
     if (++reads === 1) { entered.resolve(); return reply.promise }
     return json(503, { message: "Unavailable" })
   } }, "signed-in")
@@ -657,7 +653,7 @@ test("a failed newer query does not let an older read publish, and another mode 
     expect(typeof await controller.search("search.secrets", "secrets", { query: "new", repo: "search/private" })).toBe("string")
     await controller.search("search.flows", "flows", { query: "workspace" })
     const before = await store.eventHistory()
-    reply.resolve(json(200, { setup_script: "", env: [], secrets: [] }))
+    reply.resolve(json(200, []))
     await pending
     expect(store.collections.cards.has("search-search.secrets")).toBe(false)
     expect(store.collections.cards.has("search-search.flows")).toBe(true)
@@ -671,7 +667,7 @@ for (const actors of [["user", "smithers"], ["smithers", "user"], ["smithers", "
     const { createActorBindings } = await import("../ActorBindings")
     const { store, controller } = await ready(backend({}), "signed-in")
     const reply = Promise.withResolvers<Response>(), entered = Promise.withResolvers<void>()
-    const payload = { setup_script: "", env: [], secrets: [{ name: "PRIVATE_TOKEN", hosts: [], match_headers: [], updated_at: null }] }
+    const payload = [{ name: "PRIVATE_TOKEN", hosts: [], match_headers: [], updated_at: null }]
     let reads = 0
     const bindings = createActorBindings(() => {})
     const seam = bindings.pair({ store, baseUrl: "", actor: () => "user" as const, dispatch: store.dispatch, nextOrdinal: store.nextOrdinal,
@@ -698,14 +694,14 @@ for (const actors of [["user", "smithers"], ["smithers", "user"], ["smithers", "
 test("searching another mode does not retire a pending results card", async () => {
   const reply = Promise.withResolvers<Response>(), entered = Promise.withResolvers<void>()
   const { store, controller } = await ready({ fetchImpl: async input => {
-    if (!String(input).endsWith("/api/repos/search/private/agent-environment")) return json(404, {})
+    if (!String(input).endsWith("/api/repos/search/private/secrets")) return json(404, {})
     entered.resolve(); return reply.promise
   } }, "signed-in")
   try {
     const pending = controller.search("search.secrets", "secrets", { query: "token", repo: "search/private" })
     await entered.promise
     await controller.search("search.flows", "flows", { query: "workspace" })
-    reply.resolve(json(200, { setup_script: "", env: [], secrets: [] }))
+    reply.resolve(json(200, []))
     await pending
     expect(store.collections.cards.has("search-search.secrets")).toBe(true)
     expect(store.collections.cards.has("search-search.flows")).toBe(true)

@@ -1,9 +1,9 @@
 import { preparedView, type ViewAction } from "../PreparedView"
 /*
- * The secrets seam: the secrets a repository's sessions may use, read off the
- * agent-environment document (GET /api/repos/{owner}/{repo}/agent-environment,
- * EnvironmentSeam.ts). plue serves secret METADATA only: name, the egress
- * binding (hosts, match_headers) and the updated time. No value exists on the
+ * The secrets seam: a repository's CI secrets (/api/repos/{owner}/{repo}/secrets,
+ * RepositorySecrets.ts), one store for the card and for list, set, delete,
+ * scope and bind. plue serves secret METADATA only: name, the main-only mark,
+ * the egress binding (hosts, match_headers) and the updated time. No value exists on the
  * wire, so none can reach a card, the journal or the model. A value the
  * person types reaches the seam only through the form's write-only gesture,
  * lives in one background closure until its PUT is sent, and is never
@@ -17,7 +17,7 @@ import { preparedView, type ViewAction } from "../PreparedView"
  */
 import type { Card } from "../AppState"
 import { resolveTargetRepo } from "../RepoContext"
-import { environmentUrl, readEnvironment, type EnvironmentConfig } from "./EnvironmentSeam"
+import { readRepositorySecrets, repositorySecretsUrl, type RepositorySecret } from "./RepositorySecrets"
 import type { SeamContext } from "./SeamContext"
 import { captureCloudOwner, readErrorMessage, readResult } from "./SeamContext"
 import type { CommandGesture } from "../../flows/CommandGesture"
@@ -551,7 +551,7 @@ export const createSecretsSeam = (ctx: SeamContext, withToast: FailureController
     return receipt
   }
   /** One repository's secrets card from the platform's metadata answer. */
-  const secretsCard = (repo: string, config: EnvironmentConfig, ordinal: number): SecretsCard => ({
+  const secretsCard = (repo: string, secrets: ReadonlyArray<RepositorySecret>, ordinal: number): SecretsCard => ({
     id: `secrets-${repo}`,
     kind: "secrets",
     title: `Secrets · ${repo}`,
@@ -561,8 +561,9 @@ export const createSecretsSeam = (ctx: SeamContext, withToast: FailureController
     payload: {
       repo,
       scope: "repository",
-      secrets: config.secrets.map((secret) => ({
+      secrets: secrets.map((secret) => ({
         name: secret.name,
+        mainOnly: secret.mainOnly,
         hosts: [...secret.hosts],
         matchHeaders: [...secret.matchHeaders],
         updatedAt: secret.updatedAt,
@@ -585,7 +586,7 @@ export const createSecretsSeam = (ctx: SeamContext, withToast: FailureController
   const refreshSecrets = async (repo: string, current: () => boolean): Promise<void> => {
     if (ctx.store.collections.cards?.get(`secrets-${repo}`)?.kind !== "secrets") return
     const seq = secretRead(repo)
-    const config = await readEnvironment(ctx, repo).catch(() => "unread")
+    const config = await readRepositorySecrets(ctx, repo).catch(() => "unread")
     if (!current() || typeof config === "string" || !secretFresh(repo, seq)) return
     const previous = ctx.store.collections.cards?.get(`secrets-${repo}`)
     if (previous?.kind !== "secrets") return
@@ -600,7 +601,6 @@ export const createSecretsSeam = (ctx: SeamContext, withToast: FailureController
     return current()
   }
   const secretKey = (row: Pick<SecretRequest, "owner" | "repo" | "name">) => `secret:${row.owner}:${row.repo}:${row.name}`
-  const secretPath = (repo: string, name: string) => `${environmentUrl(ctx, repo)}/secrets/${encodeURIComponent(name)}`
   /** Admit one secret write: durable before the acknowledgment, one per name at a time. */
   const admitSecret = async (row: SecretRequest, current: () => boolean): Promise<{ readonly flight: Flight } | string> => {
     const key = secretKey(row)
@@ -613,7 +613,7 @@ export const createSecretsSeam = (ctx: SeamContext, withToast: FailureController
   }
   /** Send one DELETE; a secret already gone is removed. */
   const sendDelete = async (row: SecretRequest, current: () => boolean): Promise<true | string | typeof TOAST_SUPERSEDED> => {
-    const response = await ctx.http(secretPath(row.repo, row.name), { method: "DELETE" })
+    const response = await ctx.http(repositorySecretsUrl(ctx, row.repo, row.name), { method: "DELETE" })
     if (!current()) return TOAST_SUPERSEDED
     if (response.status !== 204 && response.status !== 404) {
       const message = await readErrorMessage(response, `${row.name} couldn't be deleted (HTTP ${response.status}).`)
@@ -657,18 +657,10 @@ export const createSecretsSeam = (ctx: SeamContext, withToast: FailureController
       runSecret(row, admitted.flight, async () => {
         try {
           if (!current()) return TOAST_SUPERSEDED
-          // Rotation keeps the stored binding: an omitted binding would unbind it.
-          let binding = { hosts, match_headers: headers }
-          if (hosts.length === 0) {
-            const config = await readEnvironment(ctx, row.repo)
-            if (!current()) return TOAST_SUPERSEDED
-            if (typeof config === "string") return await saveSecretRequest({ ...row, state: "failed" }, current) ? config : TOAST_SUPERSEDED
-            const existing = config.secrets.find(secret => secret.name === name)
-            binding = { hosts: [...existing?.hosts ?? []], match_headers: [...existing?.matchHeaders ?? []] }
-          }
-          const body = JSON.stringify({ value: sending, ...binding })
+          // An omitted binding keeps a replaced secret's stored one.
+          const body = JSON.stringify({ name, value: sending, ...(hosts.length === 0 ? {} : { hosts, match_headers: headers }) })
           sending = undefined
-          const response = await ctx.http(secretPath(row.repo, name), { method: "PUT", headers: { "content-type": "application/json" }, body })
+          const response = await ctx.http(repositorySecretsUrl(ctx, row.repo), { method: "POST", headers: { "content-type": "application/json" }, body })
           if (!current()) return TOAST_SUPERSEDED
           if (!response.ok) {
             const message = await readErrorMessage(response, `${name} couldn't be saved (HTTP ${response.status}).`)
@@ -724,7 +716,7 @@ export const createSecretsSeam = (ctx: SeamContext, withToast: FailureController
     if ("error" in target) return target.error
     return { id: `secrets-${target.repo}`, title: `Secrets · ${target.repo}`, read: async () => {
     const seq = secretRead(target.repo)
-    const config = await readEnvironment(ctx, target.repo)
+    const config = await readRepositorySecrets(ctx, target.repo)
     if (typeof config === "string") return config
     // A list is the person's newest read: it applies, and any earlier refresh still in flight is dropped.
     state.secretApplied.set(target.repo, Math.max(seq, state.secretApplied.get(target.repo) ?? 0))
@@ -734,7 +726,7 @@ export const createSecretsSeam = (ctx: SeamContext, withToast: FailureController
       : [
         `Secrets · ${card.payload.repo}`,
         ...card.payload.secrets.map((secret) =>
-          `${secret.name} · hosts: ${secret.hosts.join(", ") || "none"} · headers: ${secret.matchHeaders.join(", ") || "none"} · updated: ${secret.updatedAt ?? "unknown"}`)
+          `${secret.name} · ${secret.mainOnly ? "main only" : "every run"} · hosts: ${secret.hosts.join(", ") || "none"} · headers: ${secret.matchHeaders.join(", ") || "none"} · updated: ${secret.updatedAt ?? "unknown"}`)
       ].join("\n")) }
     } }
   })
@@ -746,11 +738,10 @@ export const createSecretsSeam = (ctx: SeamContext, withToast: FailureController
   const scopeSecret: SecretsSeam["scopeSecret"] = async (name, scope, repo) => {
     const target = resolveTargetRepo(ctx.store, repo)
     if ("error" in target) return target.error
-    const [owner = "", repoName = ""] = target.repo.split("/")
     let response: Response
     try {
       response = await ctx.http(
-        `${ctx.baseUrl}/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repoName)}/secrets/${encodeURIComponent(name)}`,
+        repositorySecretsUrl(ctx, target.repo, name),
         { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ main_only: scope === "main-only" }) }
       )
     } catch {
@@ -774,11 +765,10 @@ export const createSecretsSeam = (ctx: SeamContext, withToast: FailureController
     const hosts = listOf(input.hosts)
     const headers = listOf(input.headers)
     if (hosts.length === 0 || headers.length === 0) return "Give both hosts and headers."
-    const [owner = "", repoName = ""] = target.repo.split("/")
     let response: Response
     try {
       response = await ctx.http(
-        `${ctx.baseUrl}/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repoName)}/secrets/${encodeURIComponent(name)}`,
+        repositorySecretsUrl(ctx, target.repo, name),
         { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ hosts, match_headers: headers }) }
       )
     } catch {

@@ -1594,6 +1594,7 @@ const FIXTURES: Record<Card["kind"], KindFixtures> = {
         hosts: ["api.openai.com"],
         matchHeaders: ["authorization"],
         updatedAt: "2026-09-05T09:00:00Z",
+        mainOnly: true,
         reconnect: true
       }]
     }

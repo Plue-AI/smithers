@@ -31,8 +31,8 @@ import { resolveTargetRepo } from "../RepoContext"
 import { runScopeFromCard } from "../RunReference"
 import { runSearchRef } from "@smthrs/ui/run-command"
 import { fileArgs } from "../../flows/FileArgs"
-import { readEnvironment } from "./EnvironmentSeam"
-import type { SecretMetadata } from "./EnvironmentSeam"
+import { readRepositorySecrets } from "./RepositorySecrets"
+import type { RepositorySecret } from "./RepositorySecrets"
 import { captureCloudOwner, type SeamContext } from "./SeamContext"
 import { SIGN_OUT_REFUSAL } from "./CloudSignIn"
 import { readFactoryProjection } from "./TriggersSeam"
@@ -105,10 +105,10 @@ const withActions = (entries: ReadonlyArray<FlowEntry>, fact: Fact): SearchItem 
   return { ...item, actions: [...actionsFor(item, entries)] }
 }
 
-/** The secrets of one repository as the environment document names them: names and hosts, never a value. */
+/** The secrets of one repository as the repository's secrets list names them: names and hosts, never a value. */
 interface SecretRows {
   readonly repo: string
-  readonly secrets: ReadonlyArray<Pick<SecretMetadata, "name" | "hosts">>
+  readonly secrets: ReadonlyArray<Pick<RepositorySecret, "name" | "hosts">>
 }
 
 /** The live reads a flow door takes from the readers' answers instead of the cards (§6: a search embeds one card). */
@@ -431,9 +431,9 @@ export const createSearchSeam = (ctx: SeamContext, deps: SearchSeamDeps): Search
     if ("error" in target) return target.error
     const { repo } = target
     if (mode === "secrets") {
-      const config = await readEnvironment(ctx, repo)
-      if (typeof config === "string") return config
-      return { secrets: [{ repo, secrets: config.secrets }] }
+      const secrets = await readRepositorySecrets(ctx, repo)
+      if (typeof secrets === "string") return secrets
+      return { secrets: [{ repo, secrets }] }
     }
     if (deps.readStack === undefined) return { history: [] }
     const stack = await deps.readStack(repo)

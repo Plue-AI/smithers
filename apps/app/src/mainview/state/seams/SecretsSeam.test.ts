@@ -9,10 +9,10 @@ import type { AppStore } from "../AppStore"
 
 /*
  * The secrets seam (SecretsSeam.ts) through the real command path:
- * /secrets.list reads GET /api/repos/{owner}/{repo}/agent-environment and
- * surfaces the "secrets" card with each secret's metadata (name, hosts,
- * match headers, updated time) and a model-readable result, never secret
- * values. Failures are honest strings, never throws; signed out, the agent
+ * /secrets.list reads GET /api/repos/{owner}/{repo}/secrets (the CI secrets
+ * that set, delete, scope and bind also address) and surfaces the "secrets"
+ * card with each secret's metadata (name, main-only mark, hosts, match headers,
+ * updated time) and a model-readable result, never secret values. Failures are honest strings, never throws; signed out, the agent
  * door names the sign-in step.
  */
 
@@ -40,36 +40,32 @@ const settled = () => new Promise((resolve) => setTimeout(resolve, 0))
 
 type Failure = "empty" | "get-500" | "get-403" | "get-throw" | "malformed"
 
-/** The platform double: plue's AgentEnvironmentResponse plus an unexpected secret value to verify metadata-only parsing. */
+/** The platform double: plue's workflow secret list plus an unexpected secret value to verify metadata-only parsing. */
 const backend = (failure?: Failure) => {
   const requests: Array<{ readonly method: string; readonly url: string }> = []
   const services: AppServices = {
     fetchImpl: async (input, init) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url
       const method = init?.method ?? "GET"
-      if (!url.includes("/agent-environment")) {
+      if (!url.endsWith("/secrets")) {
         return json(404, { status: "error", message: `no stub for ${url}` })
       }
       requests.push({ method, url })
       if (failure === "get-throw") throw new Error("socket hang up")
       if (failure === "get-500") return json(500, { message: "the platform fell over" })
       if (failure === "get-403") return json(403, { message: "forbidden: repository write access required" })
-      if (failure === "malformed") return json(200, { setup_script: "", env: [], secrets: [{ hosts: [] }] })
-      return json(200, {
-        setup_script: "bun install",
-        env: [{ name: "CI", value: "1" }],
-        secrets: failure === "empty" ? [] : [
-          {
-            name: "NPM_TOKEN",
-            value: "DO_NOT_EXPOSE_SECRET_BYTES",
-            hosts: ["registry.npmjs.org"],
-            match_headers: ["authorization"],
-            updated_at: "2026-08-01T00:00:00.000Z"
-          },
-          { name: "SETUP_ONLY", hosts: [], match_headers: [], updated_at: "2026-08-02T00:00:00.000Z" }
-        ],
-        updated_at: "2026-08-02T00:00:00.000Z"
-      })
+      if (failure === "malformed") return json(200, [{ hosts: [] }])
+      return json(200, failure === "empty" ? [] : [
+        {
+          name: "NPM_TOKEN",
+          value: "DO_NOT_EXPOSE_SECRET_BYTES",
+          main_only: true,
+          hosts: ["registry.npmjs.org"],
+          match_headers: ["authorization"],
+          updated_at: "2026-08-01T00:00:00.000Z"
+        },
+        { name: "SETUP_ONLY", main_only: false, hosts: [], match_headers: [], updated_at: "2026-08-02T00:00:00.000Z" }
+      ])
     }
   }
   return { services, requests }
@@ -130,7 +126,7 @@ const secretsCard = (store: AppStore, repo = "will/flows") => {
 }
 
 describe("secrets seam — secrets.list", () => {
-  test("surfaces the secrets card from the agent-environment answer: name, hosts, header, updated time, no secret value", async () => {
+  test("surfaces the secrets card from the CI secrets list: name, hosts, header, updated time, no secret value", async () => {
     const { store, controller, requests } = await freshController()
     await ready(store)
     const outcome = await controller.commands.run("secrets.list")
@@ -140,10 +136,9 @@ describe("secrets seam — secrets.list", () => {
       expect(value).toContain(text)
     }
     expect(value).not.toContain("DO_NOT_EXPOSE_SECRET_BYTES")
-    expect(value).not.toContain("bun install")
     await settled()
 
-    expect(requests).toEqual([{ method: "GET", url: "/api/repos/will/flows/agent-environment" }])
+    expect(requests).toEqual([{ method: "GET", url: "/api/repos/will/flows/secrets" }])
     const card = secretsCard(store)
     expect(card).toBeDefined()
     expect(card?.title).toBe("Secrets · will/flows")
@@ -151,13 +146,10 @@ describe("secrets seam — secrets.list", () => {
     expect(card?.payload.repo).toBe("will/flows")
     expect(card?.payload.scope).toBe("repository")
     expect(card?.payload.secrets).toEqual([
-      { name: "NPM_TOKEN", hosts: ["registry.npmjs.org"], matchHeaders: ["authorization"], updatedAt: "2026-08-01T00:00:00.000Z" },
-      { name: "SETUP_ONLY", hosts: [], matchHeaders: [], updatedAt: "2026-08-02T00:00:00.000Z" }
+      { name: "NPM_TOKEN", mainOnly: true, hosts: ["registry.npmjs.org"], matchHeaders: ["authorization"], updatedAt: "2026-08-01T00:00:00.000Z" },
+      { name: "SETUP_ONLY", mainOnly: false, hosts: [], matchHeaders: [], updatedAt: "2026-08-02T00:00:00.000Z" }
     ])
-    // The environment's vars and setup script are the env card's, not this one's.
     expect(JSON.stringify(card)).not.toContain("DO_NOT_EXPOSE_SECRET_BYTES")
-    expect(JSON.stringify(card)).not.toContain("bun install")
-    expect(JSON.stringify(card)).not.toContain("\"CI\"")
   })
 
   test("the agent receives an explicit empty secrets list", async () => {
@@ -173,7 +165,7 @@ describe("secrets seam — secrets.list", () => {
     await ready(store)
     const outcome = await controller.commands.run("secrets.list", "acme/site")
     expect(outcome.status).toBe("executed")
-    expect(requests[0]?.url).toBe("/api/repos/acme/site/agent-environment")
+    expect(requests[0]?.url).toBe("/api/repos/acme/site/secrets")
     expect(secretsCard(store, "acme/site")).toBeDefined()
   })
 
@@ -198,7 +190,6 @@ describe("secrets seam — secrets.list", () => {
       expect(value).toContain(text)
     }
     expect(value).not.toContain("DO_NOT_EXPOSE_SECRET_BYTES")
-    expect(value).not.toContain("bun install")
     expect(requests).toHaveLength(1)
     expect(secretsCard(store)?.payload.secrets.map((secret) => secret.name)).toEqual(["NPM_TOKEN", "SETUP_ONLY"])
   })
@@ -243,7 +234,7 @@ describe("secrets seam — honest failures", () => {
     const outcome = await controller.commands.run("secrets.list")
     expect(outcome.status).toBe("failed")
     if (outcome.status === "failed") {
-      expect(outcome.error).toBe("The agent environment for will/flows couldn't be read (HTTP 500). That's a bug in Smithers, not something you did.")
+      expect(outcome.error).toBe("The secrets for will/flows couldn't be read (HTTP 500). That's a bug in Smithers, not something you did.")
       expect(outcome.error).not.toContain("the platform fell over")
     }
     expect(secretsCard(store)).toBeUndefined()
@@ -255,7 +246,7 @@ describe("secrets seam — honest failures", () => {
     const outcome = await controller.commands.run("secrets.list")
     expect(outcome.status).toBe("failed")
     if (outcome.status === "failed") {
-      expect(outcome.error).toBe("The agent environment for will/flows couldn't be read — the platform didn't answer.")
+      expect(outcome.error).toBe("The secrets for will/flows couldn't be read — the platform didn't answer.")
     }
   })
 
@@ -265,7 +256,7 @@ describe("secrets seam — honest failures", () => {
     const outcome = await controller.commands.run("secrets.list")
     expect(outcome.status).toBe("failed")
     if (outcome.status === "failed") {
-      expect(outcome.error).toBe("The agent-environment answer for will/flows wasn't in the expected shape.")
+      expect(outcome.error).toBe("The secrets answer for will/flows wasn't in the expected shape.")
     }
     expect(secretsCard(store)).toBeUndefined()
   })
@@ -387,7 +378,7 @@ const heldController = async (services: AppServices) => {
   return { store, controller: createAppController(store, unavailableAgent, routed) }
 }
 
-const metadataAnswer = (name = "CURRENT_SECRET") => ({ setup_script: "", env: [], secrets: [{ name, hosts: [], match_headers: [], updated_at: null, value: "PRIVATE_BYTES" }] })
+const metadataAnswer = (name = "CURRENT_SECRET") => [{ name, main_only: false, hosts: [], match_headers: [], updated_at: null, value: "PRIVATE_BYTES" }]
 
 for (const retirement of ["account", "sign-out", "dispose"] as const) for (const answer of ["success", "rejection"] as const) {
   test(`a held secret read ${answer} after ${retirement} cannot publish the retired metadata`, async () => {
@@ -409,12 +400,12 @@ for (const retirement of ["account", "sign-out", "dispose"] as const) for (const
     const outcome = await bounded(reading)
     await bounded(Promise.allSettled([...pending]))
     await checkpoint()
-    expect(hits).toEqual(["/api/repos/will/flows/agent-environment"])
+    expect(hits).toEqual(["/api/repos/will/flows/secrets"])
     expect(secretsCard(store)).toBeUndefined()
     expect(outcome).toEqual(retirement === "dispose"
       ? { status: "failed", error: "The command's outcome could not be saved. Check its result before trying again.", persistenceFailed: true }
       : { status: "executed", value: undefined })
-    const retiredFailure = "The agent environment for will/flows couldn't be read — the platform didn't answer."
+    const retiredFailure = "The secrets for will/flows couldn't be read — the platform didn't answer."
     const evidence = JSON.stringify({ messages: [...store.collections.messages.values()], toasts: [...store.collections.toasts.values()], cards: [...store.collections.cards.values()], journal: (await store.eventHistory()).events })
     expect(evidence).not.toContain("RETIRED_SECRET")
     expect(evidence).not.toContain(retiredFailure)
@@ -441,43 +432,43 @@ test("duplicate user and agent reads join the held request and publish one metad
   const outcomes = await bounded(Promise.all([first, duplicate]))
   expect(outcomes).toEqual([
     { status: "executed", value: undefined },
-    { status: "executed", value: "Secrets · will/flows\nCURRENT_SECRET · hosts: none · headers: none · updated: unknown" }
+    { status: "executed", value: "Secrets · will/flows\nCURRENT_SECRET · every run · hosts: none · headers: none · updated: unknown" }
   ])
   expect(reads).toBe(1)
   expect([...store.collections.cards.values()].filter(card => card.kind === "secrets")).toHaveLength(1)
-  expect(secretsCard(store)?.payload.secrets).toEqual([{ name: "CURRENT_SECRET", hosts: [], matchHeaders: [], updatedAt: null }])
+  expect(secretsCard(store)?.payload.secrets).toEqual([{ name: "CURRENT_SECRET", mainOnly: false, hosts: [], matchHeaders: [], updatedAt: null }])
 })
 
 test("a refused read can retry immediately without caching the failed answer", async () => {
   let reads = 0
   const { store, controller } = await heldController({ fetchImpl: async () => ++reads === 1 ? json(503, { message: "Try the repository again" }) : json(200, metadataAnswer()) })
   await ready(store)
-  expect(await controller.commands.run("secrets.list")).toEqual({ status: "failed", error: "The agent environment for will/flows couldn't be read (HTTP 503). Something on Smithers' side failed. Not your fault, and nothing your request could have changed." })
-  expect(await controller.commands.run("secrets.list")).toEqual({ status: "executed", value: "Secrets · will/flows\nCURRENT_SECRET · hosts: none · headers: none · updated: unknown" })
+  expect(await controller.commands.run("secrets.list")).toEqual({ status: "failed", error: "The secrets for will/flows couldn't be read (HTTP 503). Something on Smithers' side failed. Not your fault, and nothing your request could have changed." })
+  expect(await controller.commands.run("secrets.list")).toEqual({ status: "executed", value: "Secrets · will/flows\nCURRENT_SECRET · every run · hosts: none · headers: none · updated: unknown" })
   expect(reads).toBe(2)
   expect(secretsCard(store)?.status).toBe("active")
   expect(secretsCard(store)?.body).toBeUndefined()
 })
 
-test("optional secret bindings and reconnect metadata survive without leaking unexpected credential fields", async () => {
-  const wire = { setup_script: "PRIVATE_SETUP", env: [{ name: "PRIVATE_ENV", value: "PRIVATE_ENV_VALUE" }], secrets: [
+test("optional secret bindings survive without leaking unexpected credential fields", async () => {
+  const wire = [
     { name: "OMITTED", value: "PRIVATE_BYTES" },
     { name: "NULL_BINDINGS", hosts: null, match_headers: null, updated_at: "" },
-    { name: "RECONNECT", hosts: ["api.example.test"], match_headers: ["authorization"], updated_at: "2026-09-28T00:00:00Z", reconnect_required: true, token: "PRIVATE_BYTES" }
-  ] }
+    { name: "REFUSED", reconnect_required: true },
+    { name: "BOUND", main_only: true, hosts: ["api.example.test"], match_headers: ["authorization"], updated_at: "2026-09-28T00:00:00Z", token: "PRIVATE_BYTES" }
+  ]
   const { store, controller } = await heldController({ fetchImpl: async () => json(200, wire) })
   await ready(store)
   const outcome = await controller.commands.runForAgent("secrets.list")
-  expect(outcome).toEqual({ status: "executed", value: "Secrets · will/flows\nOMITTED · hosts: none · headers: none · updated: unknown\nNULL_BINDINGS · hosts: none · headers: none · updated: unknown\nRECONNECT · hosts: api.example.test · headers: authorization · updated: 2026-09-28T00:00:00Z" })
+  expect(outcome).toEqual({ status: "executed", value: "Secrets · will/flows\nOMITTED · every run · hosts: none · headers: none · updated: unknown\nNULL_BINDINGS · every run · hosts: none · headers: none · updated: unknown\nREFUSED · every run · hosts: none · headers: none · updated: unknown\nBOUND · main only · hosts: api.example.test · headers: authorization · updated: 2026-09-28T00:00:00Z" })
   expect(secretsCard(store)?.payload.secrets).toEqual([
-    { name: "OMITTED", hosts: [], matchHeaders: [], updatedAt: null },
-    { name: "NULL_BINDINGS", hosts: [], matchHeaders: [], updatedAt: null },
-    { name: "RECONNECT", hosts: ["api.example.test"], matchHeaders: ["authorization"], updatedAt: "2026-09-28T00:00:00Z", reconnect: true }
+    { name: "OMITTED", mainOnly: false, hosts: [], matchHeaders: [], updatedAt: null },
+    { name: "NULL_BINDINGS", mainOnly: false, hosts: [], matchHeaders: [], updatedAt: null },
+    { name: "REFUSED", mainOnly: false, hosts: [], matchHeaders: [], updatedAt: null, reconnect: true },
+    { name: "BOUND", mainOnly: true, hosts: ["api.example.test"], matchHeaders: ["authorization"], updatedAt: "2026-09-28T00:00:00Z" }
   ])
-  const persisted = JSON.stringify((await store.eventHistory()).events)
-  for (const privateText of ["PRIVATE_BYTES", "PRIVATE_SETUP", "PRIVATE_ENV", "PRIVATE_ENV_VALUE"]) expect(persisted).not.toContain(privateText)
+  expect(JSON.stringify((await store.eventHistory()).events)).not.toContain("PRIVATE_BYTES")
 })
-
 
 test("a same-owner held network rejection remains an exact visible failure", async () => {
   const reply = heldResponse()
@@ -487,7 +478,7 @@ test("a same-owner held network rejection remains an exact visible failure", asy
   const reading = track(controller.commands.run("secrets.list"))
   await bounded(entered.promise)
   reply.reject(new Error("provider transport failed"))
-  const failure = "The agent environment for will/flows couldn't be read — the platform didn't answer."
+  const failure = "The secrets for will/flows couldn't be read — the platform didn't answer."
   expect(await bounded(reading)).toEqual({ status: "failed", error: failure })
   expect(store.collections.cards.get("secrets-will/flows")).toMatchObject({ status: "error", loading: false, body: failure })
   expect(JSON.stringify((await store.eventHistory()).events)).toContain(failure)
