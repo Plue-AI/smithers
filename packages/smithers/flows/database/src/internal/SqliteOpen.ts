@@ -53,12 +53,14 @@ export const createDatabaseFile = (filename: string, create: boolean, mode = 0o6
 }
 
 /**
- * The three stable codes covering the rc.0 exclusions this driver enforces.
+ * The stable codes covering the rc.0 exclusions the drivers enforce.
  *
  * `unsupported_runtime` reports selection of an incompatible driver.
  * `unsupported_database_file` refuses a 0.x `smithers.db`, and
  * `database_locked` refuses a file the guard could not read because a peer
- * held it for longer than the open ladder waits.
+ * held it for longer than the open ladder waits. `postgres_url_missing`,
+ * `postgres_url_invalid` and `postgres_schema_invalid` refuse a PostgreSQL
+ * selection whose connection URL or schema cannot be used.
  *
  * @category models
  * @since 1.0.0
@@ -66,7 +68,10 @@ export const createDatabaseFile = (filename: string, create: boolean, mode = 0o6
 export const UnsupportedDatabaseCode = Schema.Literals([
   "unsupported_runtime",
   "unsupported_database_file",
-  "database_locked"
+  "database_locked",
+  "postgres_url_missing",
+  "postgres_url_invalid",
+  "postgres_schema_invalid"
 ])
 
 /**

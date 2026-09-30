@@ -35,13 +35,16 @@ Exported 0.x settings (`SMITHERS_TEST_PG_URL`, and every `SMITHERS_POSTGRES_*` n
 
 ### `@smthrs/database`
 
-Raised as defects by `NodeDatabase.layer` before a connection is created; match them with `isUnsupportedDatabase`.
+Raised as defects by the database layers before a connection is created; match them with `isUnsupportedDatabase`.
 
 | Code | Where raised | Cause | Fix |
 | --- | --- | --- | --- |
 | `unsupported_runtime` | `NodeDatabase.layer` | The durable engine was opened under Bun (`process.versions.bun` is set) | Run the durable engine on Node.js 26.4.0 or later |
 | `unsupported_database_file` | `NodeDatabase.layer` | The file has at least one table and no `flows_migrations` table | The file is a 0.x `smithers.db`, which 1.0 does not load; open a 1.0 database |
 | `database_locked` | `NodeDatabase.layer` | A peer held the file for the whole open ladder, so it was never inspected | Stop the process holding the file and open it again |
+| `postgres_url_missing` | `NodeDatabase.layer`, `BunDatabase.layer` | `SMITHERS_BACKEND=postgres` is set with no `SMITHERS_POSTGRES_URL` or `DATABASE_URL` | Set `SMITHERS_POSTGRES_URL` |
+| `postgres_url_invalid` | `NodeDatabase.layer`, `BunDatabase.layer` | The selected PostgreSQL URL is not a parseable `postgres://` or `postgresql://` URL | Correct the connection URL |
+| `postgres_schema_invalid` | `PostgresDatabase.layer` | The schema is empty, contains NUL, or is over 63 UTF-8 bytes | Choose a schema name of 1 to 63 bytes |
 
 ### `@smthrs/flow`
 

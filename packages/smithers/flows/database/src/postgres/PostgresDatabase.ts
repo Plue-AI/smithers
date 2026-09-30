@@ -9,6 +9,7 @@ import * as Reactivity from "effect/unstable/reactivity/Reactivity"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 import type { Compiler } from "effect/unstable/sql/Statement"
 import * as ReadOnly from "../internal/ReadOnly.ts"
+import { UnsupportedDatabase } from "../internal/SqliteOpen.ts"
 
 /**
  * PostgreSQL connection and schema configuration.
@@ -35,7 +36,10 @@ export interface PostgresDatabaseOptions {
 export const layer = (options: PostgresDatabaseOptions): Layer.Layer<SqlClient.SqlClient> => {
   const schema = options.schema ?? "smithers_flows"
   if (schema.length === 0 || schema.includes("\0") || new TextEncoder().encode(schema).length > 63) {
-    throw new Error("PostgreSQL schema must contain 1 to 63 UTF-8 bytes and no NUL")
+    throw new UnsupportedDatabase({
+      code: "postgres_schema_invalid",
+      message: "PostgreSQL schema must contain 1 to 63 UTF-8 bytes and no NUL"
+    })
   }
   const readOnly = options.readOnly === true
   const types = PgTypes.makeRegistry()

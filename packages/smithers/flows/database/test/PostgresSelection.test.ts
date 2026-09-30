@@ -1,5 +1,19 @@
 import { afterEach, expect, it, vi } from "vitest"
 import * as Selection from "../src/internal/PostgresSelection.ts"
+import { isUnsupportedDatabase } from "../src/internal/SqliteOpen.ts"
+
+/** The tagged refusal a selection throws, as its code and message; never its credentials. */
+const refusal = (select: () => unknown) => {
+  try {
+    select()
+  } catch (error) {
+    expect(isUnsupportedDatabase(error)).toBe(true)
+    const { code, message } = error as { readonly code: string; readonly message: string }
+    expect(message).not.toContain("secret")
+    return { code, message }
+  }
+  return expect.unreachable("the selection was accepted")
+}
 
 afterEach(() => vi.unstubAllEnvs())
 const clear = () => {
@@ -11,11 +25,20 @@ it("keeps SQLite default and validates explicit PostgreSQL configuration without
   clear()
   expect(Selection.layer("local.db")).toBeUndefined()
   vi.stubEnv("SMITHERS_BACKEND", "postgres")
-  expect(() => Selection.layer("local.db")).toThrow("requires")
+  expect(refusal(() => Selection.layer("local.db"))).toEqual({
+    code: "postgres_url_missing",
+    message: "PostgreSQL requires SMITHERS_POSTGRES_URL or DATABASE_URL"
+  })
   vi.stubEnv("DATABASE_URL", "mysql://secret@host/database")
-  expect(() => Selection.layer("local.db")).toThrow("requires a postgres")
+  expect(refusal(() => Selection.layer("local.db"))).toEqual({
+    code: "postgres_url_invalid",
+    message: "PostgreSQL configuration requires a postgres:// or postgresql:// URL"
+  })
   vi.stubEnv("DATABASE_URL", "postgres://[")
-  expect(() => Selection.layer("local.db")).toThrow("Invalid PostgreSQL connection URL")
+  expect(refusal(() => Selection.layer("local.db"))).toEqual({
+    code: "postgres_url_invalid",
+    message: "Invalid PostgreSQL connection URL"
+  })
   vi.stubEnv("DATABASE_URL", "postgres://host/database")
   expect(Selection.layer("local.db")).toBeDefined()
   vi.stubEnv("SMITHERS_POSTGRES_SCHEMA", "workspace")

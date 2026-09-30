@@ -454,7 +454,10 @@ interface NodeDatabaseOptions {
 const UnsupportedDatabaseCode: Schema.Literals<[
   "unsupported_runtime",
   "unsupported_database_file",
-  "database_locked"
+  "database_locked",
+  "postgres_url_missing",
+  "postgres_url_invalid",
+  "postgres_schema_invalid"
 ]>
 type UnsupportedDatabaseCode = typeof UnsupportedDatabaseCode.Type
 ```
@@ -471,11 +474,14 @@ class UnsupportedDatabase extends Schema.TaggedError<UnsupportedDatabase>()(
 A refusal to open a durable database in 1.0.0-rc.0, raised as a defect rather
 than a typed failure because neither refusal is recoverable at run time.
 
-| Code                        | Refused when                                                    | Message                                                                                  |
-| --------------------------- | --------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| `unsupported_runtime`       | `process.versions.bun` is set                                   | `Use @smthrs/database/bun/BunDatabase under Bun; NodeDatabase requires Node.js >=26.4.0` |
-| `unsupported_database_file` | the file has at least one table and no `flows_migrations` table | `<path> is not a Smithers 1.0 database (1.0.0-rc.0 does not load a 0.x smithers.db)`     |
-| `database_locked`           | a peer held the file for the whole open ladder                  | `<path> could not be inspected because another process holds it`                         |
+| Code                        | Refused when                                                       | Message                                                                                                        |
+| --------------------------- | ------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- |
+| `unsupported_runtime`       | `process.versions.bun` is set                                      | `Use @smthrs/database/bun/BunDatabase under Bun; NodeDatabase requires Node.js >=26.4.0`                       |
+| `unsupported_database_file` | the file has at least one table and no `flows_migrations` table    | `<path> is not a Smithers 1.0 database (1.0.0-rc.0 does not load a 0.x smithers.db)`                           |
+| `database_locked`           | a peer held the file for the whole open ladder                     | `<path> could not be inspected because another process holds it`                                               |
+| `postgres_url_missing`      | `SMITHERS_BACKEND=postgres` with no PostgreSQL URL set             | `PostgreSQL requires SMITHERS_POSTGRES_URL or DATABASE_URL`                                                    |
+| `postgres_url_invalid`      | the selected URL is not a parseable `postgres://` URL              | `PostgreSQL configuration requires a postgres:// or postgresql:// URL`, or `Invalid PostgreSQL connection URL` |
+| `postgres_schema_invalid`   | `PostgresDatabase.layer` gets an empty, NUL or over-63-byte schema | `PostgreSQL schema must contain 1 to 63 UTF-8 bytes and no NUL`                                                |
 
 ### isUnsupportedDatabase
 

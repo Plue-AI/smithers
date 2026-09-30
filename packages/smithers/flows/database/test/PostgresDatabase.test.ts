@@ -193,6 +193,11 @@ describe.skipIf(!url)("PostgreSQL adapter (independent pools)", () => {
 it("rejects schema identities PostgreSQL would truncate or treat as absent", () => {
   expect(PostgresDatabase.layer({ url: "postgres://localhost/test" })).toBeDefined()
   for (const schema of ["", "a".repeat(64), "🐘".repeat(16), "bad\0name"]) {
-    expect(() => PostgresDatabase.layer({ url: "postgres://localhost/test", schema })).toThrow("schema")
+    expect(() => PostgresDatabase.layer({ url: "postgres://localhost/test", schema })).toThrow(
+      new NodeDatabase.UnsupportedDatabase({
+        code: "postgres_schema_invalid",
+        message: "PostgreSQL schema must contain 1 to 63 UTF-8 bytes and no NUL"
+      })
+    )
   }
 })
