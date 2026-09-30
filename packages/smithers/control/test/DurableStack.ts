@@ -98,7 +98,7 @@ export type DurableStackDependencies =
  * real engine beside the control plane has to provide one database to BOTH
  * branches at once, which is why this half is exported open.
  *
- * @param options the acceptance port and process identity to use
+ * @param options the acceptance port, process identity, and configured principal to use
  */
 export const controlPlane = (
   options: {
@@ -110,6 +110,7 @@ export const controlPlane = (
     readonly currentFlows?: SqlControlRuntime.Options["currentFlows"]
     readonly adoptFlow?: SqlControlRuntime.Options["adoptFlow"]
     readonly engineVersion?: string | undefined
+    readonly principal?: SqlControlRuntime.Options["principal"]
   } = {}
 ): Layer.Layer<Exclude<DurableStack, DurableStackDependencies>, never, DurableStackDependencies> =>
   Layer.provideMerge(
@@ -122,7 +123,8 @@ export const controlPlane = (
         loadFlows: options.loadFlows,
         currentFlows: options.currentFlows,
         adoptFlow: options.adoptFlow,
-        engineVersion: options.engineVersion
+        engineVersion: options.engineVersion,
+        principal: options.principal
       }).pipe(Layer.orDie),
       NotificationQueue.layer,
       ControlExecutor.layer(options.executor ?? ControlExecutor.makeNoop()),
@@ -145,6 +147,7 @@ export const durable = (
     readonly currentFlows?: SqlControlRuntime.Options["currentFlows"]
     readonly adoptFlow?: SqlControlRuntime.Options["adoptFlow"]
     readonly engineVersion?: string | undefined
+    readonly principal?: SqlControlRuntime.Options["principal"]
     readonly database?: Layer.Layer<DurableWriter | SqlClient.SqlClient | RunStore.RunStore, unknown> | undefined
   } = {}
 ): Layer.Layer<DurableStack> =>

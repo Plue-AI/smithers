@@ -15,6 +15,7 @@ import * as ControlExecutor from "../src/ControlExecutor.ts"
 import { ControlRuntime, type MemoryFlow } from "../src/ControlRuntime.ts"
 import type { Envelope, FireSummary, ListResponse, Principal, Receipt, TriggerSummary } from "../src/ControlSchema.ts"
 import * as DispatchReader from "../src/DispatchReader.ts"
+import { mutationKey } from "../src/internal/planning.ts"
 import { park } from "./Park.ts"
 import { descriptor, live, memoryRuntime, type Stack } from "./TestStack.ts"
 
@@ -710,13 +711,15 @@ describe("ControlLive mutations", () => {
         idempotencyKey: "signal:key"
       })
       const delivered = yield* runtime.deliveredSignals(runId)
-      return { first, conflict, delivered }
+      // The caller named no principal, so the key is the configured actor's.
+      const durableKey = mutationKey("signal", "signal:key", yield* runtime.stampPrincipal())
+      return { first, conflict, delivered, durableKey }
     }))
 
     expect(observed.first._tag).toBe("Accepted")
     expect(observed.conflict).toEqual({
       _tag: "Conflict",
-      message: "idempotency key signal:signal:key was used for another mutation"
+      message: `idempotency key ${observed.durableKey} was used for another mutation`
     })
     expect(observed.delivered.map((signal) => signal.name)).toEqual(["reviewed"])
   })

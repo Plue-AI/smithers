@@ -70,7 +70,7 @@ import {
 import * as DispatchReader from "./DispatchReader.ts"
 import { schemaIssuePath } from "./internal/issues.ts"
 import * as MutationBoundary from "./internal/MutationBoundary.ts"
-import { alreadyApplied, canonical } from "./internal/planning.ts"
+import { alreadyApplied, canonical, mutationKey } from "./internal/planning.ts"
 import * as Lineage from "./Lineage.ts"
 import * as Steering from "./Steering.ts"
 
@@ -162,24 +162,14 @@ const withoutStampedPrincipal = (input: unknown): unknown => {
  * and kind remain in the document while its server clock is omitted, and the
  * canonical bytes are reduced to one fixed-size durable digest.
  */
-const fingerprint = (operation: string, principal: typeof Principal.Type | undefined, input: unknown): string =>
+const fingerprint = (operation: string, principal: typeof Principal.Type, input: unknown): string =>
   `control-mutation:v2:${
     Sha256.digestSync(canonical({
       operation,
-      actor: principal === undefined ? null : { id: principal.id, kind: principal.kind },
+      actor: { id: principal.id, kind: principal.kind },
       intent: withoutStampedPrincipal(input)
     }))
   }`
-
-/** Namespaces a caller key when an authenticated actor is available. */
-const mutationKey = (
-  operation: string,
-  key: IdempotencyKey,
-  principal: typeof Principal.Type | undefined
-): string =>
-  principal === undefined
-    ? `${operation}:${key}`
-    : `${operation}:actor:${Sha256.digestSync(canonical({ id: principal.id, kind: principal.kind }))}:${key}`
 
 const json = (value: unknown): ControlEvent["payload"] => JSON.parse(JSON.stringify(value)) as ControlEvent["payload"]
 
@@ -506,7 +496,7 @@ export const layer: Layer.Layer<
     const mutate = <E, R>(
       operation: string,
       key: IdempotencyKey,
-      principal: typeof Principal.Type | undefined,
+      principal: typeof Principal.Type,
       mutationFingerprint: string,
       effect: Effect.Effect<Receipt, E, R>,
       replay = true,
@@ -697,8 +687,8 @@ export const layer: Layer.Layer<
         const receipt = yield* mutate(
           decision,
           input.idempotencyKey,
-          input.principal,
-          fingerprint(decision, input.principal, input),
+          principal,
+          fingerprint(decision, principal, input),
           Effect.gen(function*() {
             // A node decision restarts the run, so it re-enters the flow's
             // current code: a changed flow is refused before anything is
@@ -784,11 +774,12 @@ export const layer: Layer.Layer<
         if (terminal(settled.status)) {
           return { _tag: "Terminal", runId: settled.runId, status: settled.status }
         }
+        const principal = yield* runtime.stampPrincipal(input.principal)
         return yield* mutate(
           "resume",
           input.idempotencyKey,
-          input.principal,
-          fingerprint("resume", input.principal, input),
+          principal,
+          fingerprint("resume", principal, input),
           Effect.gen(function*() {
             const current = yield* getRun(input.runId)
             if (terminal(current.status)) {
@@ -810,7 +801,6 @@ export const layer: Layer.Layer<
             // writes and `principal` as stamped by the runtime, and a resume
             // that carried neither left an operator unable to say who restarted
             // a run or why.
-            const principal = yield* runtime.stampPrincipal(input.principal)
             yield* emit(
               input.runId,
               "control.run.resume",
@@ -1556,6 +1546,7 @@ export const layer: Layer.Layer<
           // `control.run.resumed`, which `AgentSession` reads as an approval
           // DELEGATION rather than as the claim a resume is.
           if (input._tag === "Resume") return yield* runMutation(input)
+          const principal = yield* runtime.stampPrincipal(input.principal)
           let admitted: Launch | undefined
           const receipt = yield* mutate<
             | RunNotFound
@@ -1570,8 +1561,8 @@ export const layer: Layer.Layer<
           >(
             "run",
             input.idempotencyKey,
-            input.principal,
-            fingerprint("run", input.principal, input),
+            principal,
+            fingerprint("run", principal, input),
             Effect.gen(function*() {
               const launched = yield* runtime.launch(input.planId, input.digest, input.envelope)
               if (launched._tag === "Parked") {
@@ -1686,14 +1677,15 @@ export const layer: Layer.Layer<
       signal: Effect.fn("Control.signal")((submitted: SignalInput) =>
         Effect.flatMap(snapshotSignal(submitted), (input) =>
           Effect.gen(function*() {
-            const key = fingerprint("signal", input.principal, input)
-            const durableKey = mutationKey("signal", input.idempotencyKey, input.principal)
+            const principal = yield* runtime.stampPrincipal(input.principal)
+            const key = fingerprint("signal", principal, input)
+            const durableKey = mutationKey("signal", input.idempotencyKey, principal)
             // Admission, payload and receipt commit together before any engine
             // operation. The writer is released before completing a deferred.
             const receipt = yield* mutate(
               "signal",
               input.idempotencyKey,
-              input.principal,
+              principal,
               key,
               Effect.gen(function*() {
                 const current = yield* getRun(input.runId)
@@ -1703,7 +1695,6 @@ export const layer: Layer.Layer<
                 // The admitting identity is stored with the command: whether the
                 // signal may answer a human wait is decided at delivery, which
                 // can be a replay after restart with no caller present.
-                const principal = yield* runtime.stampPrincipal(input.principal)
                 yield* runtime.admitSignal(durableKey, input.runId, input.signal, principal)
                 yield* emit(input.runId, "control.signal.admitted", {
                   commandId: durableKey,
@@ -1741,146 +1732,149 @@ export const layer: Layer.Layer<
           }))
       ),
       cancel: Effect.fn("Control.cancel")((submitted) =>
-        Effect.flatMap(snapshotReasonedMutation("cancel", submitted), (input) =>
-          mutate(
-            "cancel",
-            input.idempotencyKey,
-            input.principal,
-            fingerprint("cancel", input.principal, input),
-            Effect.gen(function*() {
-              const current = yield* getRun(input.runId)
-              // A run that has already settled cannot be cancelled, and a cancel
-              // request journaled against it would be a request nothing can ever
-              // act on. Answer with what actually happened to the run.
-              if (terminal(current.status)) {
-                yield* reconcileTerminal(input.runId, current.status)
-                return { _tag: "Terminal", runId: current.runId, status: current.status }
-              }
-              // The durable half, and the only half that reaches a run another
-              // process owns: fibers are process-local, so an interrupt can only
-              // stop a run this process is driving. The executor writes
-              // `cancel_requested_at_ms` on the engine row instead, and the
-              // owner's cancel poll acts on it within a heartbeat.
-              //
-              // It runs INSIDE the mutation's transaction on purpose. An engine
-              // that refuses the request rolls the whole cancel back — no
-              // attribution event, no terminal control status — because a
-              // control row that says `cancelled` while the engine row is still
-              // running is the one state an operator can never recover from.
-              //
-              // It runs BEFORE the attribution event for the mirror-image
-              // reason. The control row this plane read may be stale — the two
-              // `flows_runs` tables are two files in the shipped CLI — and an
-              // engine row that has already settled makes the cancel a request
-              // nobody can act on. Attributing and transitioning it anyway is
-              // exactly the terminal disagreement B-11 forbids, so the engine's
-              // own status becomes the receipt and nothing else happens.
-              const record = yield* executorRequestCancel(input.runId)
-              if (typeof record !== "string") {
-                // The engine finished the run before the request arrived. Nobody
-                // cancelled anything, so no attribution is written; but leaving
-                // the control row saying `running` for a run the engine settled
-                // is permanent, because no verb converges it: `cancel` answers
-                // `Terminal` without writing and `resume` refuses a settled run.
-                // `ps` listed it live and `gc` skipped it forever. Writing the
-                // ENGINE's own status is convergence, not the terminal
-                // disagreement B-11 forbids, which is a control row reading
-                // `cancelled` over an engine row reading `completed`.
-                yield* reconcileTerminal(input.runId, record.status)
-                return { _tag: "Terminal", runId: input.runId, status: record.status }
-              }
-              // Attribution is keyed on the request being NEWLY recorded. A
-              // cancel that committed without it would be durable and anonymous,
-              // and nothing afterwards could say who asked — but this mutation
-              // runs with `replay: false`, so an operator asking a second time
-              // re-executes it, and attributing every ask journaled one
-              // `control.run.cancel-requested` per ask for one cancellation.
-              // `already-requested` is the engine saying the column was set
-              // before this call arrived, so the record already exists.
-              //
-              // It stays BEFORE the interrupt, and in the mutation's own
-              // transaction.
-              const prior = yield* runtime.lookupMutation(
-                mutationKey("cancel", input.idempotencyKey, input.principal),
-                fingerprint("cancel", input.principal, input)
-              )
-              // A retry after cleanup or settlement failed already committed
-              // this request's attribution with its acceptance receipt.
-              if (record !== "already-requested" && prior === undefined) {
-                const principal = yield* runtime.stampPrincipal(input.principal)
-                yield* emit(
-                  input.runId,
-                  Cancellation.requestedEventType,
-                  json({
-                    runId: input.runId,
-                    source: "control",
-                    principal,
-                    ...(input.reason === undefined ? {} : { reason: input.reason })
+        Effect.flatMap(
+          snapshotReasonedMutation("cancel", submitted),
+          (input) =>
+            Effect.flatMap(runtime.stampPrincipal(input.principal), (principal) =>
+              mutate(
+                "cancel",
+                input.idempotencyKey,
+                principal,
+                fingerprint("cancel", principal, input),
+                Effect.gen(function*() {
+                  const current = yield* getRun(input.runId)
+                  // A run that has already settled cannot be cancelled, and a cancel
+                  // request journaled against it would be a request nothing can ever
+                  // act on. Answer with what actually happened to the run.
+                  if (terminal(current.status)) {
+                    yield* reconcileTerminal(input.runId, current.status)
+                    return { _tag: "Terminal", runId: current.runId, status: current.status }
+                  }
+                  // The durable half, and the only half that reaches a run another
+                  // process owns: fibers are process-local, so an interrupt can only
+                  // stop a run this process is driving. The executor writes
+                  // `cancel_requested_at_ms` on the engine row instead, and the
+                  // owner's cancel poll acts on it within a heartbeat.
+                  //
+                  // It runs INSIDE the mutation's transaction on purpose. An engine
+                  // that refuses the request rolls the whole cancel back — no
+                  // attribution event, no terminal control status — because a
+                  // control row that says `cancelled` while the engine row is still
+                  // running is the one state an operator can never recover from.
+                  //
+                  // It runs BEFORE the attribution event for the mirror-image
+                  // reason. The control row this plane read may be stale — the two
+                  // `flows_runs` tables are two files in the shipped CLI — and an
+                  // engine row that has already settled makes the cancel a request
+                  // nobody can act on. Attributing and transitioning it anyway is
+                  // exactly the terminal disagreement B-11 forbids, so the engine's
+                  // own status becomes the receipt and nothing else happens.
+                  const record = yield* executorRequestCancel(input.runId)
+                  if (typeof record !== "string") {
+                    // The engine finished the run before the request arrived. Nobody
+                    // cancelled anything, so no attribution is written; but leaving
+                    // the control row saying `running` for a run the engine settled
+                    // is permanent, because no verb converges it: `cancel` answers
+                    // `Terminal` without writing and `resume` refuses a settled run.
+                    // `ps` listed it live and `gc` skipped it forever. Writing the
+                    // ENGINE's own status is convergence, not the terminal
+                    // disagreement B-11 forbids, which is a control row reading
+                    // `cancelled` over an engine row reading `completed`.
+                    yield* reconcileTerminal(input.runId, record.status)
+                    return { _tag: "Terminal", runId: input.runId, status: record.status }
+                  }
+                  // Attribution is keyed on the request being NEWLY recorded. A
+                  // cancel that committed without it would be durable and anonymous,
+                  // and nothing afterwards could say who asked — but this mutation
+                  // runs with `replay: false`, so an operator asking a second time
+                  // re-executes it, and attributing every ask journaled one
+                  // `control.run.cancel-requested` per ask for one cancellation.
+                  // `already-requested` is the engine saying the column was set
+                  // before this call arrived, so the record already exists.
+                  //
+                  // It stays BEFORE the interrupt, and in the mutation's own
+                  // transaction.
+                  const prior = yield* runtime.lookupMutation(
+                    mutationKey("cancel", input.idempotencyKey, principal),
+                    fingerprint("cancel", principal, input)
+                  )
+                  // A retry after cleanup or settlement failed already committed
+                  // this request's attribution with its acceptance receipt.
+                  if (record !== "already-requested" && prior === undefined) {
+                    yield* emit(
+                      input.runId,
+                      Cancellation.requestedEventType,
+                      json({
+                        runId: input.runId,
+                        source: "control",
+                        principal,
+                        ...(input.reason === undefined ? {} : { reason: input.reason })
+                      })
+                    )
+                  }
+                  return accepted(input.idempotencyKey, input.runId)
+                }),
+                false
+              ).pipe(
+                Effect.flatMap((receipt) =>
+                  Effect.gen(function*() {
+                    if (receipt._tag !== "Accepted") return receipt
+                    // The request and receipt are committed before any finalizer runs.
+                    // Finalizers may use this same mutation permit or durable writer.
+                    const settle: NonNullable<Parameters<typeof runtime.interrupt>[1]> = (effect) =>
+                      transact(
+                        "cancel",
+                        Effect.gen(function*() {
+                          const run = yield* effect
+                          yield* emit(
+                            input.runId,
+                            `control.run.${run.status}`,
+                            {
+                              runId: input.runId,
+                              status: run.status,
+                              ...ControlFacts.runFact(run)
+                            } as ControlEvent["payload"]
+                          )
+                          return run
+                        })
+                      )
+                    const run = yield* runtime.interrupt(input.runId, settle).pipe(
+                      Effect.catchTag("/control/ClaimLost", () =>
+                        Effect.gen(function*() {
+                          const current = yield* getRun(input.runId)
+                          if (terminal(current.status)) return current
+                          // A live peer acts on the durable request. An unowned park
+                          // needs this caller to claim it and finish the cancellation.
+                          if (live(current.status) && current.ownerId !== undefined) return undefined
+                          return yield* runtime.resume(input.runId).pipe(
+                            Effect.andThen(runtime.interrupt(input.runId, settle)),
+                            Effect.catchTag("/control/ClaimLost", () => Effect.succeed(undefined))
+                          )
+                        }))
+                    )
+                    return run === undefined
+                      ? receipt
+                      : terminalOrAccepted(input.idempotencyKey, run)
+                  })
+                ),
+                // Both rows, before the process that asked goes away. The engine row
+                // carries the request the moment the mutation commits, but nothing
+                // drives a parked run, so the row stayed `suspended` until some
+                // later long-lived engine happened to sweep it: `gc` collected the
+                // run in `control.db` and skipped it in `engine.db` for fifteen
+                // seconds and six commands in the release validation.
+                Effect.tap(() =>
+                  Effect.gen(function*() {
+                    yield* executorSettleCancelledPark(input.runId)
+                    // The engine can finish between the request and local interrupt,
+                    // or while settling an unowned park. Its read overlay alone does
+                    // not persist the control row or deliver the terminal watch event.
+                    const current = yield* getRun(input.runId)
+                    if (terminal(current.status)) yield* reconcileTerminal(input.runId, current.status)
                   })
                 )
-              }
-              return accepted(input.idempotencyKey, input.runId)
-            }),
-            false
-          ).pipe(
-            Effect.flatMap((receipt) =>
-              Effect.gen(function*() {
-                if (receipt._tag !== "Accepted") return receipt
-                // The request and receipt are committed before any finalizer runs.
-                // Finalizers may use this same mutation permit or durable writer.
-                const settle: NonNullable<Parameters<typeof runtime.interrupt>[1]> = (effect) =>
-                  transact(
-                    "cancel",
-                    Effect.gen(function*() {
-                      const run = yield* effect
-                      yield* emit(
-                        input.runId,
-                        `control.run.${run.status}`,
-                        {
-                          runId: input.runId,
-                          status: run.status,
-                          ...ControlFacts.runFact(run)
-                        } as ControlEvent["payload"]
-                      )
-                      return run
-                    })
-                  )
-                const run = yield* runtime.interrupt(input.runId, settle).pipe(
-                  Effect.catchTag("/control/ClaimLost", () =>
-                    Effect.gen(function*() {
-                      const current = yield* getRun(input.runId)
-                      if (terminal(current.status)) return current
-                      // A live peer acts on the durable request. An unowned park
-                      // needs this caller to claim it and finish the cancellation.
-                      if (live(current.status) && current.ownerId !== undefined) return undefined
-                      return yield* runtime.resume(input.runId).pipe(
-                        Effect.andThen(runtime.interrupt(input.runId, settle)),
-                        Effect.catchTag("/control/ClaimLost", () => Effect.succeed(undefined))
-                      )
-                    }))
-                )
-                return run === undefined
-                  ? receipt
-                  : terminalOrAccepted(input.idempotencyKey, run)
-              })
-            ),
-            // Both rows, before the process that asked goes away. The engine row
-            // carries the request the moment the mutation commits, but nothing
-            // drives a parked run, so the row stayed `suspended` until some
-            // later long-lived engine happened to sweep it: `gc` collected the
-            // run in `control.db` and skipped it in `engine.db` for fifteen
-            // seconds and six commands in the release validation.
-            Effect.tap(() =>
-              Effect.gen(function*() {
-                yield* executorSettleCancelledPark(input.runId)
-                // The engine can finish between the request and local interrupt,
-                // or while settling an unowned park. Its read overlay alone does
-                // not persist the control row or deliver the terminal watch event.
-                const current = yield* getRun(input.runId)
-                if (terminal(current.status)) yield* reconcileTerminal(input.runId, current.status)
-              })
-            )
-          ))
+              ))
+        )
       ),
       resume: Effect.fn("Control.resume")((input) => runMutation(input)),
       list,

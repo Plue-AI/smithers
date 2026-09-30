@@ -25,6 +25,7 @@ import { ClaimLost, PersistenceError, PlanDigestMismatch, RunNotFound } from "..
 import * as ControlExecutor from "../src/ControlExecutor.ts"
 import * as ControlLive from "../src/ControlLive.ts"
 import { ControlRuntime, type RunQuery, type Service as ControlRuntimeService } from "../src/ControlRuntime.ts"
+import { mutationKey } from "../src/internal/planning.ts"
 import * as SqlControlRuntime from "../src/SqlControlRuntime.ts"
 import { delegateApproval } from "./ApprovalFixtures.ts"
 import { contract, type Stack } from "./ControlContract.ts"
@@ -431,8 +432,8 @@ describe("SqlControlRuntime", () => {
         expect(events.entries.some((entry) => entry.eventType === "control.run.cancel-requested"))
           .toBe(event === "cancelled")
         expect(events.entries.some((entry) => entry.eventType === "control.run.cancelled")).toBe(false)
-        const receipts =
-          yield* sql`SELECT receipt_json FROM control_mutations WHERE mutation_key = 'cancel:cancel:recovery'`
+        const durableKey = mutationKey("cancel", "cancel:recovery", yield* runtime.stampPrincipal())
+        const receipts = yield* sql`SELECT receipt_json FROM control_mutations WHERE mutation_key = ${durableKey}`
         expect(receipts).toHaveLength(event === "cancelled" ? 1 : 0)
         expect(yield* control.cancel(request)).toEqual({ _tag: "Terminal", runId, status: "cancelled" })
         expect(cleanedUp).toBe(true)
@@ -573,7 +574,10 @@ describe("SqlControlRuntime", () => {
         const plan = yield* restarted.getPlan(card.planId)
         const runs = yield* Effect.map(restarted.queryRuns({ limit: 500 }), (page) => page.items)
         const grants = yield* restarted.grants
-        const replay = yield* restarted.lookupMutation(`run:${`run:${card.planId}`}`, "x")
+        const replay = yield* restarted.lookupMutation(
+          mutationKey("run", `run:${card.planId}`, yield* restarted.stampPrincipal()),
+          "x"
+        )
         const resumed = yield* restarted.resume(runId)
         return { run, plan, runs, grants, replay, resumed }
       }).pipe(

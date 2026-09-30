@@ -11,6 +11,7 @@
 
 import { canonicalize } from "@smthrs/canonical"
 import { Sha256 } from "@smthrs/crypto"
+import * as Sha256Digest from "@smthrs/crypto/Sha256"
 import type * as PersistedPlan from "@smthrs/plan/Plan"
 import { Effect, Schema } from "effect"
 import type { ApprovalTarget, PlanInput } from "../Control.ts"
@@ -22,6 +23,7 @@ import type {
   PlanCard,
   PlanGraph,
   PlanNode,
+  Principal,
   Receipt,
   RunId,
   RunSummary
@@ -91,6 +93,23 @@ export const emptyEnvelope: Envelope = {
  * @private
  */
 export const canonical = (value: unknown): string => canonicalize(value)
+
+/**
+ * The durable key a caller's idempotency key is stored under.
+ *
+ * Namespaced by the effective actor: the submitted principal, or the runtime's
+ * configured fallback when the caller named none. The principal's clock is
+ * omitted, so an equal retry lands on the same key.
+ *
+ * @since 0.1.0
+ * @private
+ */
+export const mutationKey = (
+  operation: string,
+  key: IdempotencyKey,
+  principal: Pick<Principal, "id" | "kind">
+): string =>
+  `${operation}:actor:${Sha256Digest.digestSync(canonical({ id: principal.id, kind: principal.kind }))}:${key}`
 
 /**
  * The content digest of a value's canonical bytes.
