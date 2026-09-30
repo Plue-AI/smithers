@@ -271,6 +271,9 @@ describe("the mythical stack contract", () => {
     expect(MythicalWikiSchema.parse({ state: "future_state", pages: 0, edited: 0, attempt: 0 }).state).toBe("unknown")
     expect(mythicalRoute("wiki", "o", "r")).toBe("/api/repos/o/r/mythical/wiki")
     expect(mythicalRoute("todos", "o", "r")).toBe("/api/repos/o/r/mythical/todos")
+    // A filed TODO names the request that filed it; any other item names none.
+    expect(MythicalItemSchema.parse({ ...snapshot.items[0], request: "0a1b2c3d-k9" }).request).toBe("0a1b2c3d-k9")
+    expect(MythicalItemSchema.parse(snapshot.items[0]).request).toBeUndefined()
   })
 
   test("routes fill owner, repository and item", () => {

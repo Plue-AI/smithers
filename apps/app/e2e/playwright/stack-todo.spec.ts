@@ -74,7 +74,7 @@ test("a TODO filed from the History card is followed through the factory to its 
   await fileTodo()
   const failure = card.locator('[data-testid="stack-failure"][data-act="todo"]')
   await expect(failure).toContainText("Smithers could not file this TODO.")
-  expect(filings).toEqual([JSON.stringify({ title: "Add the footer link" })])
+  expect(filings.map(body => JSON.parse(body) as { title: string; request: string })).toEqual([{ title: "Add the footer link", request: expect.stringMatching(/^[0-9a-f]{8}-[0-9a-z]+$/) }])
   refuse = false
   await failure.getByRole("button", { name: "Retry" }).focus()
   await page.keyboard.press("Enter")

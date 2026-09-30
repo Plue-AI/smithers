@@ -455,6 +455,8 @@ export const MythicalItemSchema = z.object({
   humanEdited: z.boolean().optional(),
   /** Whether a proposed TODO waits on an unfinished review of its current head, which a person may retry. */
   reviewHeld: z.boolean().optional(),
+  /** The request id of the Smithers filing that made this TODO (`POST …/mythical/todos`). */
+  request: z.string().optional(),
   /** Why the item stopped or retries; `reason` is its sentence. */
   failure: MythicalFailureSchema.optional(),
   /** The settled platform-key model cost of the item's lanes, in USD nanos; pending and pooled subscription calls carry none. */

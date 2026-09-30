@@ -114,6 +114,8 @@ const itemDetail = (item: MythicalItem): string => {
   const reason = itemReason(item)
   return reason === undefined ? itemStateLabel(item) : `${itemStateLabel(item)} · ${reason}`
 }
+/** Fresh snapshots a followed TODO may be missing from before its notice says so. */
+const TODO_ABSENT_READS = 3
 /** A refusal that no reconnect will change: stop watching and say so. */
 const final = (failure: CloudFailure): boolean => failure.status === 401 || failure.status === 403 || failure.status === 404
 
@@ -617,11 +619,17 @@ export const createStackSeam = (
   /** Follows one item until it settles; the notice's detail is its state as the snapshots show it. */
   const untilTodoSettled = (repo: string, id: string, progress: (detail: string) => void): Promise<TodoOutcome | string> => new Promise((resolve) => {
     const handle = watch(repo)
-    const check = (stack: MythicalStack | string | typeof TOAST_SUPERSEDED): void => {
+    // The snapshot lists a bounded number of items: one absent from several fresh reads is out of sight, not settled.
+    let absent = 0
+    const check = (stack: MythicalStack | string | typeof TOAST_SUPERSEDED, fresh = true): void => {
       const done = (outcome: TodoOutcome | string): void => { handle.waiters.delete(check); resolve(outcome) }
       if (stack === TOAST_SUPERSEDED || typeof stack === "string") { done(stack); return }
       const item = stack.items.find((row) => row.id === id)
-      if (item === undefined) return
+      if (item === undefined) {
+        if (fresh && ++absent >= TODO_ABSENT_READS) done("The history no longer lists this TODO. Open History to see it.")
+        return
+      }
+      absent = 0
       const reason = itemReason(item)
       switch (item.state) {
         case "proposed":
@@ -637,27 +645,24 @@ export const createStackSeam = (
       }
     }
     handle.waiters.add(check)
-    if (handle.stack !== null) check(handle.stack)
+    if (handle.stack !== null) check(handle.stack, false)
     void refresh(handle)
   })
-  /** The filing's own answer: the item id, or why it was not filed. */
-  const sendTodo = async (repo: string, request: TodoRequest): Promise<{ readonly id: string } | string> => {
-    const answer = await send("POST", route("todos", repo), request.body === "" ? { title: request.title } : { title: request.title, body: request.body }, "the TODO")
-    if ("error" in answer) return answer.error
+  /** The filing's request id: the server answers the same id with the TODO it already filed. */
+  const todoRequestId = (request: TodoRequest): string => `${request.key}-${request.requestedAt.toString(36)}`
+  /**
+   * The filing's own answer: the item id, or why it was not filed; `settled`
+   * when the server refused it (nothing was filed), else the outcome is
+   * unknown and the request stays to be sent again under its id.
+   */
+  const sendTodo = async (repo: string, request: TodoRequest): Promise<{ readonly id: string } | { readonly error: string; readonly settled: boolean }> => {
+    const answer = await send("POST", route("todos", repo),
+      { title: request.title, ...(request.body === "" ? {} : { body: request.body }), request: todoRequestId(request) }, "the TODO")
+    if ("error" in answer) return { error: answer.error, settled: answer.status !== null && answer.status >= 400 && answer.status < 500 }
     const id = typeof answer.body === "object" && answer.body !== null ? (answer.body as { id?: unknown }).id : undefined
-    return typeof id === "string" && id !== "" ? { id } : "Smithers Cloud did not answer with the filed TODO."
+    return typeof id === "string" && id !== "" ? { id } : { error: "Smithers Cloud did not answer with the filed TODO.", settled: false }
   }
-  /** A filing whose answer was lost (a reload): the item filed since the request under its title, else unconfirmed. */
-  const findTodo = async (repo: string, request: TodoRequest): Promise<{ readonly id: string } | string | typeof TOAST_SUPERSEDED> => {
-    const handle = watch(repo)
-    await refresh(handle)
-    if (!handle.current()) return TOAST_SUPERSEDED
-    const since = request.requestedAt - 60_000
-    const found = handle.stack?.items.find((item) => item.issue?.title === request.title.trim() &&
-      (item.createdAt === undefined || Date.parse(item.createdAt) >= since))
-    return found === undefined ? "Smithers could not confirm this TODO was filed." : { id: found.id }
-  }
-  const followTodo = (repo: string, request: TodoRequest, file: boolean): void => {
+  const followTodo = (repo: string, request: TodoRequest): void => {
     const claim = `${repo}#${request.key}`
     if (shared.filings.has(claim)) return
     shared.filings.add(claim)
@@ -681,17 +686,25 @@ export const createStackSeam = (
     void (async (): Promise<TodoOutcome | string> => {
       let id = request.item
       if (id === undefined) {
-        const filed = file ? await sendTodo(repo, request) : await findTodo(repo, request)
-        if (filed === TOAST_SUPERSEDED || !current()) return TOAST_SUPERSEDED
-        if (typeof filed === "string") {
-          await writeTodo(repo, request.key, () => undefined)
-          await write(repo, { failure: { act: "todo", message: filed, args: todoArgs(repo, request) } })
-          return { ok: false, detail: filed, action: { flow: "history.todo", args: todoArgs(repo, request), label: "Retry" } }
+        // Sent again after a reload or a lost answer: the id makes it one filing.
+        const filed = await sendTodo(repo, request)
+        if (!current()) return TOAST_SUPERSEDED
+        if ("error" in filed) {
+          // A refusal filed nothing; an unknown outcome keeps the request, whose Retry sends the same id.
+          if (filed.settled) await writeTodo(repo, request.key, () => undefined)
+          await write(repo, { failure: { act: "todo", message: filed.error, args: todoArgs(repo, request) } })
+          return { ok: false, detail: filed.error, action: { flow: "history.todo", args: todoArgs(repo, request), label: "Retry" } }
         }
         id = filed.id
         await writeTodo(repo, request.key, (row) => ({ ...row, item: filed.id }))
       }
       shared.followed.add(id)
+      // The TODO's notice owns its item: a lane notice already pending or shown for it leaves.
+      const lane = shared.watches.get(repo)
+      const pending = lane?.timers.get(id)
+      if (pending !== undefined) { clearTimeout(pending); lane?.timers.delete(id) }
+      const laneToast = ctx.store.collections.toasts.get(`toast-${itemToastKey(repo, id)}`)
+      if (laneToast?.status === "running") ctx.dispatch({ type: "toast.dismissed", actor: "system", id: laneToast.id })
       try {
         return await untilTodoSettled(repo, id, progress)
       } finally { shared.followed.delete(id) }
@@ -700,15 +713,15 @@ export const createStackSeam = (
         clearTimeout(timer)
         shared.filings.delete(claim)
         if (outcome === TOAST_SUPERSEDED || !current()) {
-          if (ctx.store.collections.toasts.get(`toast-${key}`)?.status === "running") ctx.dispatch({ type: "toast.dismissed", actor: "system", id: `toast-${key}` })
+          if (!disposed() && ctx.store.collections.toasts.get(`toast-${key}`)?.status === "running") ctx.dispatch({ type: "toast.dismissed", actor: "system", id: `toast-${key}` })
           return
         }
         const settled: Exclude<TodoOutcome, typeof TOAST_SUPERSEDED> = typeof outcome === "string" ? { ok: false, detail: outcome } : outcome
-        await writeTodo(repo, request.key, () => undefined)
+        if (settled.ok || todos(repo).find((row) => row.key === request.key)?.item !== undefined) await writeTodo(repo, request.key, () => undefined)
         if (ctx.store.collections.toasts.get(`toast-${key}`) === undefined) ctx.dispatch({ type: "toast.shown", actor: "system", key, title: request.title })
         ctx.resolveToast?.(key, settled.ok ? { status: "ok", detail: settled.detail }
           : { status: "failed", detail: settled.detail, ...(settled.action === undefined ? {} : { action: settled.action }) })
-      })
+      }).catch(() => {})
   }
   const fileTodo: StackSeam["fileTodo"] = async (title, body = "", repoArg) => {
     const resolved = target(repoArg)
@@ -717,13 +730,21 @@ export const createStackSeam = (
     const request = { title: title.trim(), body: body.trim() }
     if (request.title === "") return "A TODO needs a title."
     // The same TODO asked for again joins the one still followed; a retried
-    // filing takes over its failed notice.
+    // filing takes over its failed notice and sends its request id again.
     const key = todoRequestKey(request.title, request.body)
-    if (todos(repo).some((row) => row.key === key)) return { value: "Requested" }
+    const clear = card(repo)?.payload.failure?.act === "todo" ? { failure: null } : {}
+    const existing = todos(repo).find((row) => row.key === key)
+    if (existing !== undefined) {
+      if (!shared.filings.has(`${repo}#${key}`)) {
+        await write(repo, clear)
+        followTodo(repo, existing)
+      }
+      return { value: "Requested" }
+    }
     const row: TodoRequest = { key, ...request, requestedAt: Date.now() }
     // The request is durable before it is acknowledged.
-    await write(repo, { todos: [...todos(repo), row], ...(card(repo)?.payload.failure?.act === "todo" ? { failure: null } : {}) }, card(repo) === undefined)
-    followTodo(repo, row, true)
+    await write(repo, { todos: [...todos(repo), row], ...clear }, card(repo) === undefined)
+    followTodo(repo, row)
     return { value: "Requested" }
   }
 
@@ -832,7 +853,7 @@ export const createStackSeam = (
       const handle = watch(repo)
       void refresh(handle)
       resumeWiki(repo)
-      for (const request of todos(repo)) followTodo(repo, request, false)
+      for (const request of todos(repo)) followTodo(repo, request)
       if (card(repo)?.payload.bootstrap !== undefined && !shared.acts.has(actKey(repo, "bootstrap", repo))) {
         // Re-send only when the server has no record of the request.
         void (async () => {
