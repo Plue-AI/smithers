@@ -1,0 +1,176 @@
+/**
+ * No new raw-text failure sites in the flow engine's packages (#2813).
+ *
+ * A caller of the public API classifies a failure by its tag: a
+ * `Schema.TaggedError`, a `PlatformError`, or another tagged value. A plain
+ * `new Error("...")`, a bare string handed to `Effect.fail` or `Effect.die`,
+ * or a thrown string carries no tag, so it reaches a caller as an unknown
+ * failure. Every such site under a package's `src` is counted here per file,
+ * with why it is not a public failure; a new site, or a file that drops one
+ * without lowering its count, fails. Add a tagged error instead of raising a
+ * count.
+ */
+import { readdirSync, readFileSync } from "node:fs"
+import { join, relative } from "node:path"
+import { describe, expect, it } from "vitest"
+
+const root = join(import.meta.dirname, "..")
+
+const raw = /new Error\(|Effect\.(?:fail|die)\(\s*["'`]|throw\s+["'`]/
+
+const wrappedCause = "the Error is the `cause` of a tagged failure; only the tag and its own fields reach a caller"
+const invariantDefect = "Effect.die on a broken internal invariant: a defect (a bug), never a typed failure"
+const testSupport = "published test support: its failure fails the caller's test"
+const helperProtocol =
+  "atomic-helper protocol and transport checks; AtomicFileSystemProtocol.failure wraps each one as the cause of a tagged PlatformError"
+const supervisor =
+  "process-supervisor protocol checks; ProcessSupervisor wraps each one as the cause of a tagged PlatformError"
+
+/** Reviewed files, with the number of raw sites each keeps and why. */
+const reviewed: ReadonlyArray<readonly [file: string, count: number, why: string]> = [
+  ["capability/src/format.ts", 1, "documented contract of format for an action the Action type already excludes"],
+  ["database/src/test/TestDatabase.ts", 1, testSupport],
+  [
+    "engine-store/src/DurableEngineState.ts",
+    4,
+    "two invariant defects; two JSON codec failures made defects by Effect.orDie"
+  ],
+  ["engine-store/src/PlanScheduler.ts", 1, invariantDefect],
+  ["engine-store/src/StepBoundary.ts", 3, wrappedCause],
+  ["engine-store/src/internal/ActionPersistence.ts", 1, invariantDefect],
+  ["engine-store/src/internal/ExecutionSnapshotRead.ts", 1, wrappedCause],
+  ["engine-store/src/internal/RunDriver.ts", 3, invariantDefect],
+  ["engine/src/FlowEngine/Placed.ts", 1, invariantDefect],
+  ["engine/src/PlacedAction.ts", 1, invariantDefect],
+  [
+    "flow/src/Fault.ts",
+    1,
+    "a conflicting Fault registration while modules load; a programming error, never at run time"
+  ],
+  ["flow/src/Flow/make.ts", 1, "a comment naming the throw payloadSchema.make performs"],
+  ["flow/src/internal/DeclarationSite.ts", 1, "captures a stack to locate a declaration; never thrown"],
+  [
+    "jj/src/browser/BrowserJj.ts",
+    6,
+    "reactor faults and the symlink refusal; invoke completes each as a tagged JjError"
+  ],
+  ["jj/src/browser/WasiPreview1.ts", 1, "a WASI shim misuse before initialize; a defect inside the reactor"],
+  ["jj/src/internal/gitPatchPaths.ts", 4, "malformed jj diff metadata; the caller wraps it as a tagged JjError"],
+  ["jj/src/node/NodeJj.ts", 1, wrappedCause],
+  ["journal/src/RedactedLogger.ts", 1, "an empty Error clone that receives redacted fields; never thrown"],
+  ["journal/src/Redaction.ts", 1, "a depth refusal the redaction boundary catches and replaces with its marker"],
+  ["journal/src/SqlJournal.ts", 1, "auto-compaction capture timeout; the compactor logs and damps every failure"],
+  [
+    "kernel/src/FileSystem.ts",
+    3,
+    "one wrapped cause; an unsupported-operation defect; a double-wrap programming error"
+  ],
+  ["kernel/src/HttpClient.ts", 1, wrappedCause],
+  ["kernel/src/test/HostContract.ts", 1, testSupport],
+  ["observability/src/Otlp.ts", 1, "rebuilds an exported error with its message redacted"],
+  [
+    "platform-node/src/AtomicFileSystem.ts",
+    5,
+    "layer option bounds and request serialization, refused before any helper runs"
+  ],
+  [
+    "platform-node/src/EgressHttpClient.ts",
+    1,
+    "a DNS lookup callback error; the HTTP client reports it as a tagged transport error"
+  ],
+  ["platform-node/src/ScopedProcess.ts", 1, wrappedCause],
+  [
+    "platform-node/src/internal/AtomicFileSystemExecutable.ts",
+    6,
+    "helper resolution and install hints; the transport reports them as a tagged PlatformError"
+  ],
+  ["platform-node/src/internal/AtomicFileSystemProtocol.ts", 31, helperProtocol],
+  ["platform-node/src/internal/AtomicFileSystemTransport.ts", 10, helperProtocol],
+  ["platform-node/src/internal/PipedProcess.ts", 3, "the cause of a tagged PlatformError from PipedProcess.failure"],
+  [
+    "platform-node/src/internal/ProcessCleanup.ts",
+    2,
+    "option bounds refused before a process starts; a programming error"
+  ],
+  ["platform-node/src/internal/ProcessSupervisor.ts", 15, supervisor],
+  [
+    "platform-node/src/internal/SupervisorProgram.ts",
+    18,
+    "the supervisor child program; its failures travel to the parent as status frames"
+  ],
+  ["platform-node/src/internal/WindowsProcessJob.ts", 4, supervisor],
+  [
+    "sandbox/src/MicrosandboxSandbox/make.ts",
+    3,
+    "reattach refusals inside the acquire promise; the sandbox wraps them as a tagged SandboxError"
+  ],
+  [
+    "src/internal/SandboxedFlowGuest.ts",
+    1,
+    "guest bundle started without its paths; a host programming error reported by the guest's exit"
+  ],
+  ["step-cache/src/RemoteCacheStore.ts", 1, "unreachable namespace escape (KeyDigest excludes separators); a defect"],
+  ["sync/src/SyncClient.ts", 1, "an invalid restored cursor; its catch returns a tagged SyncError"],
+  ["sync/src/test/TestSocket.ts", 1, testSupport],
+  [
+    "time-travel/src/internal/MigrationStep.ts",
+    1,
+    "names the SQL object; SqlTimeTravelStore wraps it as a tagged TimeTravelError"
+  ]
+]
+
+const packages = readdirSync(root, { withFileTypes: true })
+  .filter((entry) => entry.isDirectory() && entry.name !== "node_modules" && entry.name !== "test")
+  .map((entry) => entry.name)
+
+const sources = (directory: string): ReadonlyArray<string> => {
+  let entries
+  try {
+    entries = readdirSync(directory, { withFileTypes: true })
+  } catch {
+    return []
+  }
+  return entries.flatMap((entry) => {
+    const path = join(directory, entry.name)
+    if (entry.isDirectory()) return sources(path)
+    return /\.tsx?$/.test(entry.name) && !/\.test\.tsx?$/.test(entry.name) ? [path] : []
+  })
+}
+
+const scanned = [join(root, "src"), ...packages.map((name) => join(root, name, "src"))].flatMap(sources)
+
+const counts = new Map<string, number>()
+for (const path of scanned) {
+  const sites = readFileSync(path, "utf8").split("\n").filter((line) => raw.test(line)).length
+  if (sites > 0) counts.set(relative(root, path), sites)
+}
+
+describe("raw failure sites in the flow engine's packages", () => {
+  it("match the reviewed count in every file", () => {
+    const expected = Object.fromEntries(reviewed.map(([file, count]) => [file, count]))
+    expect(Object.fromEntries([...counts].sort(([a], [b]) => a.localeCompare(b)))).toEqual(
+      Object.fromEntries(Object.entries(expected).sort(([a], [b]) => a.localeCompare(b)))
+    )
+  })
+
+  it("lists each reviewed file once, with at least one site", () => {
+    expect(new Set(reviewed.map(([file]) => file)).size).toBe(reviewed.length)
+    expect(reviewed.filter(([, count]) => count < 1)).toEqual([])
+  })
+
+  it("scans every package's src", () => {
+    expect(packages).toEqual(expect.arrayContaining(["database", "engine-store", "flow", "platform-node", "sync"]))
+    expect(scanned.map((path) => relative(root, path))).toEqual(
+      expect.arrayContaining(["database/src/internal/PostgresSelection.ts", "src/SandboxedFlow.ts"])
+    )
+  })
+
+  it("detects each raw shape", () => {
+    expect(raw.test(`throw new Error("x")`)).toBe(true)
+    expect(raw.test(`Effect.fail("x")`)).toBe(true)
+    expect(raw.test("Effect.die(`x`)")).toBe(true)
+    expect(raw.test(`throw "x"`)).toBe(true)
+    expect(raw.test(`throw new UnsupportedDatabase({ code: "postgres_url_invalid", message: "x" })`)).toBe(false)
+    expect(raw.test(`throw PlatformError.badArgument({ module: "m", method: "f" })`)).toBe(false)
+  })
+})
