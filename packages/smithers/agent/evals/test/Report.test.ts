@@ -76,6 +76,22 @@ describe("Report", () => {
     expect(Report.markdown(result)).toContain("- stderr: 0.272166")
   })
 
+  it("reads trials from a run that records no k as single-attempt statistics", async () => {
+    const base = await empty()
+    const trials = {
+      cases: 1,
+      passAt1: 0.5,
+      passAtK: 0.5,
+      passHatK: 0.5,
+      allPass: 0,
+      perCase: { c: { n: 2, passes: 1, rate: 0.5, passAt1: 0.5, passAtK: 0.5, passHatK: 0.5, stderr: 0.5 } }
+    }
+    const markdown = Report.markdown({ ...base, run: { ...base.run, trials } })
+    expect(markdown).toContain("- pass@1: 0.500000\n- pass@1: 0.500000\n- pass^1: 0.500000\n- stderr: 0.500000\n")
+    expect(markdown).not.toContain("pass@undefined")
+    expect(markdown).not.toContain("pass^undefined")
+  })
+
   it("renders stable JSON and a summary-only Markdown report", async () => {
     const result = await empty()
     expect(Report.json(result)).toContain("\"suite\":\"s\"")

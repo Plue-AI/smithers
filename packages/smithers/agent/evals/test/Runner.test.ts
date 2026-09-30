@@ -71,6 +71,66 @@ describe("Runner", () => {
     expect(JSON.stringify(first.observations)).toBe(JSON.stringify(second.observations))
   })
 
+  it.each([
+    { trials: 0, k: undefined },
+    { trials: 1001, k: undefined },
+    { trials: 1.5, k: undefined },
+    { trials: Number.NaN, k: undefined },
+    { trials: 2, k: 0 },
+    { trials: 2, k: 1.5 },
+    { trials: 2, k: 3 },
+    { trials: undefined, k: 2 }
+  ])("refuses trials $trials with k $k before running a case", async ({ k, trials }) => {
+    const suite = await suiteOf("bounds", [binding], [{ name: "one", input: 1, expected: 1 }])
+    let calls = 0
+    const executor = executorFor((suiteCase) =>
+      Effect.sync(() => {
+        calls += 1
+        return { output: suiteCase.input, stepKey: "step", latencyMs: 0, target }
+      })
+    )
+    const error = await failureOf(Runner.run(suite, { ...runOptions, trials, k }).pipe(Effect.provide(executor)))
+    expect(error).toBeInstanceOf(EvalError)
+    expect(error.code).toBe("invalid_trials")
+    expect(error.message).toBe("trials must be an integer from 1 to 1000 and k must be an integer from 1 to trials")
+    expect(error.path).toBe("options.trials")
+    expect(calls).toBe(0)
+  })
+
+  it("bounds k by the suite's own trials when the run names none", async () => {
+    const suite = await Effect.runPromise(
+      Suite.make({
+        name: "suite-trials",
+        concurrency: 1,
+        trials: 2,
+        bindings: [binding],
+        cases: [{ name: "one", input: 1, expected: 1 }]
+      })
+    )
+    const run = await Effect.runPromise(Runner.run(suite, { ...runOptions, k: 2 }).pipe(Effect.provide(succeeding)))
+    expect(run.k).toBe(2)
+    expect(run.cases[0]?.trials).toMatchObject({ n: 2, passes: 2, passAtK: 1 })
+    const error = await failureOf(Runner.run(suite, { ...runOptions, k: 3 }).pipe(Effect.provide(succeeding)))
+    expect(error.code).toBe("invalid_trials")
+  })
+
+  it("runs a suite value that declares no trials exactly once", async () => {
+    const made = await suiteOf("untrialled", [binding], [{ name: "one", input: 1, expected: 1 }])
+    const suite: Suite.Suite = { ...made, trials: undefined }
+    let calls = 0
+    const executor = executorFor((suiteCase) =>
+      Effect.sync(() => {
+        calls += 1
+        return { output: suiteCase.input, stepKey: "step", latencyMs: 0, target }
+      })
+    )
+    const run = await Effect.runPromise(Runner.run(suite, runOptions).pipe(Effect.provide(executor)))
+    expect(calls).toBe(1)
+    expect(run.k).toBe(1)
+    expect(run.cases[0]?.trials).toMatchObject({ n: 1, passes: 1, passAt1: 1 })
+    expect(run.observations.map((observation) => observation.case)).toEqual(["one"])
+  })
+
   it("runs a suite under an Eval.run span and each case under an Eval.case span", async () => {
     const spans: Array<Tracer.NativeSpan> = []
     const tracer = Tracer.make({

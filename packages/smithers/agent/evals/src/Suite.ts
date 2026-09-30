@@ -141,13 +141,13 @@ const clone = (value: unknown, path: string): Effect.Effect<unknown, EvalError> 
     catch: (cause) => cause instanceof EvalError ? cause : invalid(cloneMessage, path, cause)
   })
 
-const validate = (options: MakeOptions): EvalError | undefined => {
+const validate = (options: MakeOptions & { readonly trials: number }): EvalError | undefined => {
   if (options.name.trim().length === 0) return invalid("Suite name must not be empty", "name")
   const nameControl = controlCharacter(options.name)
   if (nameControl !== undefined) {
     return invalid(`Suite name must not contain the control character ${nameControl}`, "name")
   }
-  if (!Number.isSafeInteger(options.trials ?? 1) || (options.trials ?? 1) < 1 || (options.trials ?? 1) > 1000) {
+  if (!Number.isSafeInteger(options.trials) || options.trials < 1 || options.trials > 1000) {
     return invalid("Suite trials must be an integer from 1 to 1000", "trials")
   }
   if (options.cases.length === 0) return invalid("Suite must contain at least one case", "cases")
@@ -269,7 +269,7 @@ export const make = (options: MakeOptions): Effect.Effect<Suite, EvalError> =>
     const cases = [...options.cases].map(readCase)
     const bindings = [...(options.bindings ?? [])].map(readBinding)
     const trials = options.trials ?? 1
-    const snapshot: MakeOptions = { name, concurrency, cases, bindings, trials }
+    const snapshot = { name, concurrency, cases, bindings, trials }
     const error = validate(snapshot)
     if (error !== undefined) return Effect.fail(error)
     return Effect.gen(function*() {

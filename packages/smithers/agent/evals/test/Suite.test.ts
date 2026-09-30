@@ -56,6 +56,29 @@ describe("Suite", () => {
     expect(error.path).toBe("concurrency")
   })
 
+  it.each([1, 1000])("accepts %i trials and keeps them on the suite", async (trials) => {
+    const suite = await Effect.runPromise(
+      Suite.make({ name: "boundary", concurrency: 1, trials, cases: [{ name: "a", input: 1 }] })
+    )
+    expect(suite.trials).toBe(trials)
+  })
+
+  it("runs one trial when the suite declares none", async () => {
+    const suite = await Effect.runPromise(
+      Suite.make({ name: "boundary", concurrency: 1, cases: [{ name: "a", input: 1 }] })
+    )
+    expect(suite.trials).toBe(1)
+  })
+
+  it.each([0, -1, 1001, 1.5, Number.NaN, Number.POSITIVE_INFINITY])("rejects %s trials", async (trials) => {
+    const error = await failure(
+      Suite.make({ name: "boundary", concurrency: 1, trials, cases: [{ name: "a", input: 1 }] })
+    )
+    expect(error.code).toBe("invalid_suite")
+    expect(error.message).toBe("Suite trials must be an integer from 1 to 1000")
+    expect(error.path).toBe("trials")
+  })
+
   it("rejects an empty or control-character suite name", async () => {
     const empty = await failure(Suite.make({ name: "  ", concurrency: 1, cases: [{ name: "a", input: 1 }] }))
     expect(empty.code).toBe("invalid_suite")
