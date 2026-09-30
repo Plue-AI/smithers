@@ -56,7 +56,7 @@ func (q *Queries) CountWikiPagesByRepo(ctx context.Context, arg CountWikiPagesBy
 
 const createWikiAttachment = `-- name: CreateWikiAttachment :one
 INSERT INTO wiki_pages(repository_id,visibility,slug,path,title,body,author_id,attachment)
-VALUES($1,$2,$3,$4,$5,'',$6,$7) RETURNING id, repository_id, slug, title, body, author_id, created_at, updated_at, revision, crdt_state, crdt_vector, last_update_id, last_update, visibility, path, content_digest, attachment
+VALUES($1,$2,$3,$4,$5,'',$6,$7) RETURNING id, repository_id, slug, title, body, author_id, created_at, updated_at, revision, crdt_state, crdt_vector, last_update_id, last_update, visibility, path, content_digest, attachment, title_source
 `
 
 type CreateWikiAttachmentParams struct {
@@ -98,24 +98,26 @@ func (q *Queries) CreateWikiAttachment(ctx context.Context, arg CreateWikiAttach
 		&i.Path,
 		&i.ContentDigest,
 		&i.Attachment,
+		&i.TitleSource,
 	)
 	return i, err
 }
 
 const createWikiPage = `-- name: CreateWikiPage :one
-INSERT INTO wiki_pages (repository_id, slug, title, body, author_id, visibility, path)
-VALUES ($1, $2, $3, $4, $5, coalesce(nullif($6::text,''),'public'), $7)
-RETURNING id, repository_id, slug, title, body, author_id, created_at, updated_at, revision, crdt_state, crdt_vector, last_update_id, last_update, visibility, path, content_digest, attachment
+INSERT INTO wiki_pages (repository_id, slug, title, body, author_id, visibility, path, title_source)
+VALUES ($1, $2, $3, $4, $5, coalesce(nullif($6::text,''),'public'), $7, coalesce($8::text, 'explicit'))
+RETURNING id, repository_id, slug, title, body, author_id, created_at, updated_at, revision, crdt_state, crdt_vector, last_update_id, last_update, visibility, path, content_digest, attachment, title_source
 `
 
 type CreateWikiPageParams struct {
-	RepositoryID int64  `json:"repository_id"`
-	Slug         string `json:"slug"`
-	Title        string `json:"title"`
-	Body         string `json:"body"`
-	AuthorID     int64  `json:"author_id"`
-	Visibility   string `json:"visibility"`
-	Path         string `json:"path"`
+	RepositoryID int64       `json:"repository_id"`
+	Slug         string      `json:"slug"`
+	Title        string      `json:"title"`
+	Body         string      `json:"body"`
+	AuthorID     int64       `json:"author_id"`
+	Visibility   string      `json:"visibility"`
+	Path         string      `json:"path"`
+	TitleSource  pgtype.Text `json:"title_source"`
 }
 
 func (q *Queries) CreateWikiPage(ctx context.Context, arg CreateWikiPageParams) (WikiPage, error) {
@@ -127,6 +129,7 @@ func (q *Queries) CreateWikiPage(ctx context.Context, arg CreateWikiPageParams) 
 		arg.AuthorID,
 		arg.Visibility,
 		arg.Path,
+		arg.TitleSource,
 	)
 	var i WikiPage
 	err := row.Scan(
@@ -147,6 +150,7 @@ func (q *Queries) CreateWikiPage(ctx context.Context, arg CreateWikiPageParams) 
 		&i.Path,
 		&i.ContentDigest,
 		&i.Attachment,
+		&i.TitleSource,
 	)
 	return i, err
 }
@@ -189,7 +193,7 @@ func (q *Queries) GetWikiSpaceHead(ctx context.Context, arg GetWikiSpaceHeadPara
 }
 
 const getWikiLatestRevision = `-- name: GetWikiLatestRevision :one
-SELECT id, repository_id, page_id, revision, slug, title, body, author_id, author_username, update_id, update_bytes, deleted, history_commit_id, created_at, visibility, path, content_digest, attachment, sequence, crdt_state, crdt_vector FROM wiki_page_revisions WHERE repository_id=$1 AND visibility=$2 AND page_id=$3 ORDER BY revision DESC LIMIT 1
+SELECT id, repository_id, page_id, revision, slug, title, body, author_id, author_username, update_id, update_bytes, deleted, history_commit_id, created_at, visibility, path, content_digest, attachment, sequence, crdt_state, crdt_vector, title_source FROM wiki_page_revisions WHERE repository_id=$1 AND visibility=$2 AND page_id=$3 ORDER BY revision DESC LIMIT 1
 `
 
 type GetWikiLatestRevisionParams struct {
@@ -223,6 +227,7 @@ func (q *Queries) GetWikiLatestRevision(ctx context.Context, arg GetWikiLatestRe
 		&i.Sequence,
 		&i.CrdtState,
 		&i.CrdtVector,
+		&i.TitleSource,
 	)
 	return i, err
 }
@@ -238,7 +243,7 @@ SELECT
     wp.created_at,
     wp.updated_at,
     wp.revision,
-    wp.visibility, wp.path, wp.content_digest, wp.attachment,
+    wp.visibility, wp.path, wp.content_digest, wp.attachment, wp.title_source,
     u.username AS author_username
 FROM wiki_pages wp
 JOIN users u ON u.id = wp.author_id
@@ -265,6 +270,7 @@ type GetWikiPageBySlugRow struct {
 	Path           string    `json:"path"`
 	ContentDigest  string    `json:"content_digest"`
 	Attachment     []byte    `json:"attachment"`
+	TitleSource    string    `json:"title_source"`
 	AuthorUsername string    `json:"author_username"`
 }
 
@@ -285,13 +291,14 @@ func (q *Queries) GetWikiPageBySlug(ctx context.Context, arg GetWikiPageBySlugPa
 		&i.Path,
 		&i.ContentDigest,
 		&i.Attachment,
+		&i.TitleSource,
 		&i.AuthorUsername,
 	)
 	return i, err
 }
 
 const getWikiRevisionByNumber = `-- name: GetWikiRevisionByNumber :one
-SELECT id, repository_id, page_id, revision, slug, title, body, author_id, author_username, update_id, update_bytes, deleted, history_commit_id, created_at, visibility, path, content_digest, attachment, sequence, crdt_state, crdt_vector FROM wiki_page_revisions WHERE repository_id=$1 AND visibility=$2 AND page_id=$3 AND revision=$4
+SELECT id, repository_id, page_id, revision, slug, title, body, author_id, author_username, update_id, update_bytes, deleted, history_commit_id, created_at, visibility, path, content_digest, attachment, sequence, crdt_state, crdt_vector, title_source FROM wiki_page_revisions WHERE repository_id=$1 AND visibility=$2 AND page_id=$3 AND revision=$4
 `
 
 type GetWikiRevisionByNumberParams struct {
@@ -331,12 +338,13 @@ func (q *Queries) GetWikiRevisionByNumber(ctx context.Context, arg GetWikiRevisi
 		&i.Sequence,
 		&i.CrdtState,
 		&i.CrdtVector,
+		&i.TitleSource,
 	)
 	return i, err
 }
 
 const listWikiEvents = `-- name: ListWikiEvents :many
-SELECT id, repository_id, page_id, revision, slug, title, body, author_id, author_username, update_id, update_bytes, deleted, history_commit_id, created_at, visibility, path, content_digest, attachment, sequence, crdt_state, crdt_vector FROM wiki_page_revisions WHERE repository_id=$1 AND visibility=$2 AND sequence>$3 ORDER BY sequence LIMIT $4
+SELECT id, repository_id, page_id, revision, slug, title, body, author_id, author_username, update_id, update_bytes, deleted, history_commit_id, created_at, visibility, path, content_digest, attachment, sequence, crdt_state, crdt_vector, title_source FROM wiki_page_revisions WHERE repository_id=$1 AND visibility=$2 AND sequence>$3 ORDER BY sequence LIMIT $4
 `
 
 type ListWikiEventsParams struct {
@@ -382,6 +390,7 @@ func (q *Queries) ListWikiEvents(ctx context.Context, arg ListWikiEventsParams) 
 			&i.Sequence,
 			&i.CrdtState,
 			&i.CrdtVector,
+			&i.TitleSource,
 		); err != nil {
 			return nil, err
 		}
@@ -394,7 +403,7 @@ func (q *Queries) ListWikiEvents(ctx context.Context, arg ListWikiEventsParams) 
 }
 
 const listWikiIndex = `-- name: ListWikiIndex :many
-SELECT wp.id, wp.repository_id, wp.slug, wp.title, wp.body, wp.author_id, wp.created_at, wp.updated_at, wp.revision, wp.crdt_state, wp.crdt_vector, wp.last_update_id, wp.last_update, wp.visibility, wp.path, wp.content_digest, wp.attachment, u.username AS author_username
+SELECT wp.id, wp.repository_id, wp.slug, wp.title, wp.body, wp.author_id, wp.created_at, wp.updated_at, wp.revision, wp.crdt_state, wp.crdt_vector, wp.last_update_id, wp.last_update, wp.visibility, wp.path, wp.content_digest, wp.attachment, wp.title_source, u.username AS author_username
 FROM wiki_pages wp JOIN users u ON u.id = wp.author_id
 WHERE wp.repository_id = $1 AND wp.visibility = $2
 ORDER BY wp.id
@@ -423,6 +432,7 @@ type ListWikiIndexRow struct {
 	Path           string      `json:"path"`
 	ContentDigest  string      `json:"content_digest"`
 	Attachment     []byte      `json:"attachment"`
+	TitleSource    string      `json:"title_source"`
 	AuthorUsername string      `json:"author_username"`
 }
 
@@ -453,6 +463,7 @@ func (q *Queries) ListWikiIndex(ctx context.Context, arg ListWikiIndexParams) ([
 			&i.Path,
 			&i.ContentDigest,
 			&i.Attachment,
+			&i.TitleSource,
 			&i.AuthorUsername,
 		); err != nil {
 			return nil, err
@@ -476,7 +487,7 @@ SELECT
     wp.created_at,
     wp.updated_at,
     wp.revision,
-    wp.visibility, wp.path, wp.content_digest, wp.attachment,
+    wp.visibility, wp.path, wp.content_digest, wp.attachment, wp.title_source,
     u.username AS author_username
 FROM wiki_pages wp
 JOIN users u ON u.id = wp.author_id
@@ -506,6 +517,7 @@ type ListWikiPagesByRepoRow struct {
 	Path           string    `json:"path"`
 	ContentDigest  string    `json:"content_digest"`
 	Attachment     []byte    `json:"attachment"`
+	TitleSource    string    `json:"title_source"`
 	AuthorUsername string    `json:"author_username"`
 }
 
@@ -537,6 +549,7 @@ func (q *Queries) ListWikiPagesByRepo(ctx context.Context, arg ListWikiPagesByRe
 			&i.Path,
 			&i.ContentDigest,
 			&i.Attachment,
+			&i.TitleSource,
 			&i.AuthorUsername,
 		); err != nil {
 			return nil, err
@@ -560,7 +573,7 @@ SELECT
     wp.created_at,
     wp.updated_at,
     wp.revision,
-    wp.visibility, wp.path, wp.content_digest, wp.attachment,
+    wp.visibility, wp.path, wp.content_digest, wp.attachment, wp.title_source,
     u.username AS author_username
 FROM wiki_pages wp
 JOIN users u ON u.id = wp.author_id
@@ -605,6 +618,7 @@ type SearchWikiPagesByRepoRow struct {
 	Path           string    `json:"path"`
 	ContentDigest  string    `json:"content_digest"`
 	Attachment     []byte    `json:"attachment"`
+	TitleSource    string    `json:"title_source"`
 	AuthorUsername string    `json:"author_username"`
 }
 
@@ -637,6 +651,7 @@ func (q *Queries) SearchWikiPagesByRepo(ctx context.Context, arg SearchWikiPages
 			&i.Path,
 			&i.ContentDigest,
 			&i.Attachment,
+			&i.TitleSource,
 			&i.AuthorUsername,
 		); err != nil {
 			return nil, err
@@ -652,7 +667,7 @@ func (q *Queries) SearchWikiPagesByRepo(ctx context.Context, arg SearchWikiPages
 const updateWikiAttachment = `-- name: UpdateWikiAttachment :one
 UPDATE wiki_pages SET attachment=$1, path=$2,title=$3,author_id=$4,updated_at=now(),last_update_id=NULL,last_update=NULL
 WHERE id=$5 AND repository_id=$6 AND revision=$7 AND attachment IS NOT NULL
-RETURNING id, repository_id, slug, title, body, author_id, created_at, updated_at, revision, crdt_state, crdt_vector, last_update_id, last_update, visibility, path, content_digest, attachment
+RETURNING id, repository_id, slug, title, body, author_id, created_at, updated_at, revision, crdt_state, crdt_vector, last_update_id, last_update, visibility, path, content_digest, attachment, title_source
 `
 
 type UpdateWikiAttachmentParams struct {
@@ -694,6 +709,7 @@ func (q *Queries) UpdateWikiAttachment(ctx context.Context, arg UpdateWikiAttach
 		&i.Path,
 		&i.ContentDigest,
 		&i.Attachment,
+		&i.TitleSource,
 	)
 	return i, err
 }
@@ -702,22 +718,24 @@ const updateWikiPage = `-- name: UpdateWikiPage :one
 UPDATE wiki_pages
 SET path = $6, slug = $2,
     title = $3,
+    title_source = coalesce($7::text, title_source),
     body = $4,
     author_id = $5,
     updated_at = NOW(),
     last_update_id = NULL, last_update = NULL
-WHERE id = $1 AND crdt_state IS NULL AND revision = $7
-RETURNING id, repository_id, slug, title, body, author_id, created_at, updated_at, revision, crdt_state, crdt_vector, last_update_id, last_update, visibility, path, content_digest, attachment
+WHERE id = $1 AND crdt_state IS NULL AND revision = $8
+RETURNING id, repository_id, slug, title, body, author_id, created_at, updated_at, revision, crdt_state, crdt_vector, last_update_id, last_update, visibility, path, content_digest, attachment, title_source
 `
 
 type UpdateWikiPageParams struct {
-	ID               int64  `json:"id"`
-	Slug             string `json:"slug"`
-	Title            string `json:"title"`
-	Body             string `json:"body"`
-	AuthorID         int64  `json:"author_id"`
-	Path             string `json:"path"`
-	ExpectedRevision int64  `json:"expected_revision"`
+	ID               int64       `json:"id"`
+	Slug             string      `json:"slug"`
+	Title            string      `json:"title"`
+	Body             string      `json:"body"`
+	AuthorID         int64       `json:"author_id"`
+	Path             string      `json:"path"`
+	TitleSource      pgtype.Text `json:"title_source"`
+	ExpectedRevision int64       `json:"expected_revision"`
 }
 
 func (q *Queries) UpdateWikiPage(ctx context.Context, arg UpdateWikiPageParams) (WikiPage, error) {
@@ -728,6 +746,7 @@ func (q *Queries) UpdateWikiPage(ctx context.Context, arg UpdateWikiPageParams) 
 		arg.Body,
 		arg.AuthorID,
 		arg.Path,
+		arg.TitleSource,
 		arg.ExpectedRevision,
 	)
 	var i WikiPage
@@ -749,6 +768,7 @@ func (q *Queries) UpdateWikiPage(ctx context.Context, arg UpdateWikiPageParams) 
 		&i.Path,
 		&i.ContentDigest,
 		&i.Attachment,
+		&i.TitleSource,
 	)
 	return i, err
 }

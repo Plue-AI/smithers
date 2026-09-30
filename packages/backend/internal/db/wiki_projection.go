@@ -45,9 +45,9 @@ func (q *Queries) RebuildWikiProjection(ctx context.Context, repoID int64, visib
   SELECT page_id,min(created_at) AS created_at FROM wiki_page_revisions
   WHERE repository_id=$1 AND visibility=$2 GROUP BY page_id
  )
- INSERT INTO wiki_pages(id,repository_id,slug,title,body,author_id,created_at,updated_at,revision,
+ INSERT INTO wiki_pages(id,repository_id,slug,title,title_source,body,author_id,created_at,updated_at,revision,
   crdt_state,crdt_vector,last_update_id,last_update,visibility,path,content_digest,attachment)
- SELECT r.page_id,r.repository_id,r.slug,r.title,r.body,r.author_id,c.created_at,r.created_at,r.revision,
+ SELECT r.page_id,r.repository_id,r.slug,r.title,r.title_source,r.body,r.author_id,c.created_at,r.created_at,r.revision,
   r.crdt_state,r.crdt_vector,r.update_id,r.update_bytes,r.visibility,r.path,r.content_digest,r.attachment
  FROM latest r JOIN first_created c USING(page_id) WHERE NOT r.deleted`, repoID, visibility)
 	if err != nil {

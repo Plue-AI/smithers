@@ -7,7 +7,7 @@ WHERE wp.repository_id = $1 AND wp.slug = $2 AND wp.visibility = coalesce(nullif
 UPDATE wiki_pages
 SET path = sqlc.arg(path), body = sqlc.arg(body), crdt_state = sqlc.arg(crdt_state), crdt_vector = sqlc.arg(crdt_vector),
     last_update_id = sqlc.narg(update_id), last_update = sqlc.arg(update_bytes),
-    author_id = sqlc.arg(author_id), title = sqlc.arg(title), slug = sqlc.arg(slug), updated_at = NOW()
+    author_id = sqlc.arg(author_id), title = sqlc.arg(title), title_source = coalesce(sqlc.narg(title_source)::text, title_source), slug = sqlc.arg(slug), updated_at = NOW()
 WHERE id = sqlc.arg(page_id) AND repository_id = sqlc.arg(repository_id) AND revision = sqlc.arg(expected_revision)
 RETURNING *;
 

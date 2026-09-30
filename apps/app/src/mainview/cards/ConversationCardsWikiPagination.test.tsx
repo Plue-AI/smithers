@@ -1,5 +1,9 @@
+import { ControllerContext } from "../ControllerContext"
+import type { AppController } from "../state/AppController"
+import { createAppStore } from "../state/AppStore"
+import { memoryStorage } from "../state/TestFixtures"
 import { GlobalRegistrator } from "@happy-dom/global-registrator"
-import { afterAll, afterEach, expect, test } from "bun:test"
+import { afterAll, afterEach, beforeAll, expect, test } from "bun:test"
 import { flushSync } from "react-dom"
 import { createRoot } from "react-dom/client"
 import { payloadFor } from "../flows/SlashPayload"
@@ -12,6 +16,12 @@ afterAll(async () => {
   await GlobalRegistrator.unregister()
 })
 
+let account: AppController
+beforeAll(async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+  account = { store, wikiIndexes: { get: () => undefined, subscribe: () => () => {} } } as unknown as AppController
+})
 const cleanups: Array<() => void> = []
 afterEach(() => { while (cleanups.length > 0) cleanups.pop()?.() })
 
@@ -19,7 +29,7 @@ const card = (space: "public" | "private" | undefined, page: number, count: numb
   id: "wiki-index-owner-repo", kind: "world", title: "Wiki", status: "active", createdAt: 1, ordinal: 1,
   payload: {
     documents: Array.from({ length: count }, (_, number) => ({
-      id: `wiki:owner/repo:${number + 1}`, path: `Page-${number + 1}.md`, title: `Page ${number + 1}`, confidence: 1
+      id: `wiki:owner/repo:${number + 1}`, path: `Page-${number + 1}.md`, title: `Page ${number + 1}`, confidence: 1, cloud: { repo: "owner/repo", slug: `page-${number + 1}`, revision: 1, visibility: space ?? "public", accountLogin: "will" }
     })),
     index: { repo: "owner/repo", page, hasNext: count === 50, ...(space === undefined ? {} : { space }) },
     view: "outline"
@@ -31,11 +41,11 @@ const mount = (wikiCard: Extract<Card, { kind: "world" }>) => {
   document.body.append(host)
   const calls: Array<{ name: string; payload: unknown }> = []
   const root = createRoot(host)
-  flushSync(() => root.render(<WorldCardBody card={wikiCard} worldDocuments={[]}
+  flushSync(() => root.render(<ControllerContext.Provider value={account}><WorldCardBody card={wikiCard} worldDocuments={[]}
     onChangeWorldDocument={() => {}} onRunCommand={(name, args) => {
       const parsed = payloadFor(name, args)
       calls.push({ name, payload: "payload" in parsed ? parsed.payload : parsed })
-    }} />))
+    }} /></ControllerContext.Provider>))
   cleanups.push(() => { flushSync(() => root.unmount()); host.remove() })
   return { host, calls }
 }

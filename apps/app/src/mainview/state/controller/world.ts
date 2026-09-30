@@ -1,3 +1,5 @@
+import { projectWikiCardRows } from "../WikiProjection"
+import { accountOwnerOf } from "../AccountOwner"
 import { MODEL_STREAM_PATH } from "@smthrs/rpc/AgentApiRoutes"
 import { parseWikilinks, restoreWikilinks } from "@smthrs/ui/vault"
 import { DEFAULT_BRANCH_ID, DEFAULT_WORKSPACE_ID, rootFrameId, WIKI_DISPLAY_NAME } from "../AppState"
@@ -353,7 +355,7 @@ export const createWorldController = (
   const selectWikiCardDocument = (cardId: string, documentId: string): string | void => {
     const card = ctx.store.collections.cards.get(cardId)
     const document = ctx.store.collections.worldDocuments.get(documentId)
-    if (card?.kind !== "world" || !card.payload.documents.some((entry) =>
+    if (card?.kind !== "world" || !projectWikiCardRows(card, [...ctx.store.collections.worldDocuments.values()], accountOwnerOf(ctx.store.collections.identitySessions.get("identity"))).some(({ entry }) =>
       entry.id === documentId || (entry.id === undefined && document !== undefined && entry.path === document.path))) return "This Wiki page is not in this card."
     ctx.store.dispatch({ type: "card.updated", actor: ctx.commandActor, id: cardId, patch: { kind: "world", payload: { selectedDocumentId: documentId } } })
   }

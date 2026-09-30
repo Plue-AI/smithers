@@ -12,6 +12,8 @@ import type { Card, WorldDocument } from "../state/AppState"
 import { WIKI_DISPLAY_NAME } from "../state/AppState"
 import type { CardFamily, RunCommand } from "./CardFamily"
 import { ControllerContext } from "../ControllerContext"
+import { projectWikiCardRows } from "../state/WikiProjection"
+import { accountOwnerOf } from "../state/AccountOwner"
 import { activeRepositoryId } from "../state/RepoContext"
 import { settledPill } from "./CardFamily"
 import { WikiTree, useWikiScope } from "../wiki/WikiNavigation"
@@ -124,13 +126,12 @@ export const WorldCardBody = ({
 }) => {
   const editorSlot = useId()
   const controller = useContext(ControllerContext)
-  if (card.payload.documents.length === 0) {
+  const documents = projectWikiCardRows(card, worldDocuments, controller === null ? undefined : accountOwnerOf(controller.store.collections.identitySessions.get("identity")))
+  if (documents.length === 0) {
     return <div className="world-card-empty"><p>{card.payload.index && card.payload.index.page > 1 ? "No Wiki pages in this view." : "No Wiki yet."}</p>{card.payload.index !== undefined && card.payload.index.page > 1 ?
       <Button size="sm"  {...flowAction(onRunCommand, "wiki.cloud", flowArgs("wiki.cloud", { repo: card.payload.index!.repo, page: card.payload.index!.page - 1, space: card.payload.index!.space ?? "public" }))}>Previous page</Button> :
       <Button size="sm"  {...flowAction(onRunCommand, "wiki.create", card.payload.index?.repo ?? (controller ? activeRepositoryId(controller.store) ?? undefined : undefined))}>Create Wiki</Button>}</div>
   }
-  const documents = card.payload.documents.map((entry) => ({ entry, document: worldDocuments.find((document) =>
-    entry.id === undefined ? document.path === entry.path : document.id === entry.id) }))
   const selected = documents.find(({ entry, document }) => (document?.id ?? entry.id) === card.payload.selectedDocumentId) ?? documents[0]!
   const { entry, document } = selected
   const treePath = ({ entry, document }: typeof selected) => document?.cloud?.slug ?? entry.cloud?.slug ?? document?.path ?? entry.path
@@ -144,7 +145,7 @@ export const WorldCardBody = ({
         {card.payload.index === undefined ? null : <span className="wiki-space-chip" data-space={card.payload.index.space ?? "public"} data-testid="wiki-card-space">{card.payload.index.space ?? "public"}</span>}
         {/* An index card lists its space's tree (folders, pages, search, tags) once the index is read; before that, the listing's rows. */}
         {card.payload.index !== undefined && controller !== null
-          ? <WikiCardTree space={card.payload.index.space ?? "public"} documents={worldDocuments} selectedId={document?.id} onRunCommand={onRunCommand}
+          ? <WikiCardTree repo={card.payload.index.repo} space={card.payload.index.space ?? "public"} documents={worldDocuments} selectedId={document?.id} onRunCommand={onRunCommand}
             fallback={<FileTree
               nodes={documents.map((row) => ({ path: treePath(row), label: row.document?.title ?? row.entry.title }))}
               selected={treePath(selected)}
@@ -230,7 +231,8 @@ const WikiCardPage = ({ document, onRunCommand }: { readonly document: WorldDocu
 const noWikiSubscription = () => () => {}
 
 /** The index card's tree: the space's navigation index when it is read, else the listing the card carries. */
-const WikiCardTree = ({ space, documents, selectedId, onRunCommand, fallback }: {
+const WikiCardTree = ({ repo, space, documents, selectedId, onRunCommand, fallback }: {
+  readonly repo: string
   readonly space: "public" | "private"
   readonly documents: ReadonlyArray<WorldDocument>
   readonly selectedId: string | undefined
@@ -238,7 +240,7 @@ const WikiCardTree = ({ space, documents, selectedId, onRunCommand, fallback }: 
   readonly fallback: ReactNode
 }) => {
   const scope = useWikiScope(space)
-  return scope.index === undefined ? <>{fallback}</> : <WikiTree scope={scope} documents={documents} selectedId={selectedId} onRunCommand={onRunCommand} testId="wiki-card-tree" />
+  return scope.repo !== repo || scope.index === undefined ? <>{fallback}</> : <WikiTree scope={scope} documents={documents} selectedId={selectedId} onRunCommand={onRunCommand} testId="wiki-card-tree" />
 }
 
 /*

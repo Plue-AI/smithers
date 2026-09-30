@@ -26,6 +26,7 @@ type WikiAuthorSummary struct {
 }
 
 type WikiPageResponse struct {
+	TitleSource   string            `json:"title_source,omitempty"`
 	Attachment    *WikiAttachment   `json:"attachment,omitempty"`
 	Visibility    string            `json:"visibility"`
 	Path          string            `json:"path"`
@@ -65,13 +66,15 @@ type ListWikiPagesInput struct {
 }
 
 type CreateWikiPageInput struct {
-	Path  string `json:"path,omitempty"`
-	Title string `json:"title"`
-	Slug  string `json:"slug,omitempty"`
-	Body  string `json:"body"`
+	ImportedTitle bool   `json:"-"`
+	Path          string `json:"path,omitempty"`
+	Title         string `json:"title"`
+	Slug          string `json:"slug,omitempty"`
+	Body          string `json:"body"`
 }
 
 type UpdateWikiPageInput struct {
+	ImportedTitle    bool    `json:"-"`
 	Path             *string `json:"path,omitempty"`
 	ExpectedRevision *int64  `json:"expected_revision,omitempty"`
 	Title            *string `json:"title,omitempty"`
@@ -244,10 +247,11 @@ func (s *WikiService) CreateWikiPage(ctx context.Context, actor *db.User, owner,
 	}
 	created, err := s.queries.CreateWikiPage(ctx, db.CreateWikiPageParams{
 		RepositoryID: repository.ID, Visibility: wikiVisibility(ctx),
-		Slug:     slug,
-		Title:    title,
-		Body:     input.Body,
-		AuthorID: actor.ID, Path: pagePath,
+		Slug:        slug,
+		Title:       title,
+		TitleSource: pgtype.Text{String: wikiTitleSource(input.ImportedTitle), Valid: true},
+		Body:        input.Body,
+		AuthorID:    actor.ID, Path: pagePath,
 	})
 	if err != nil {
 		if isWikiPageConflict(err) {
@@ -358,10 +362,11 @@ func (s *WikiService) UpdateWikiPage(ctx context.Context, actor *db.User, owner,
 	updated, err := s.queries.UpdateWikiPage(ctx, db.UpdateWikiPageParams{
 		ID:               existing.ID,
 		ExpectedRevision: existing.Revision, Path: nextPath,
-		Slug:     nextSlug,
-		Title:    nextTitle,
-		Body:     nextBody,
-		AuthorID: actor.ID,
+		Slug:        nextSlug,
+		Title:       nextTitle,
+		TitleSource: wikiTitleSourceUpdate(input),
+		Body:        nextBody,
+		AuthorID:    actor.ID,
 	})
 	if err != nil {
 		if isWikiPageConflict(err) {
@@ -446,9 +451,10 @@ func mapListedWikiPages(rows []db.ListWikiPagesByRepoRow) []WikiPageResponse {
 	for _, row := range rows {
 		items = append(items, WikiPageResponse{
 			ID: row.ID, Visibility: row.Visibility, Path: row.Path, ContentDigest: row.ContentDigest, Attachment: wikiAttachment(row.Attachment),
-			Revision: row.Revision,
-			Slug:     row.Slug,
-			Title:    row.Title,
+			Revision:    row.Revision,
+			Slug:        row.Slug,
+			Title:       row.Title,
+			TitleSource: row.TitleSource,
 			Author: WikiAuthorSummary{
 				ID:    row.AuthorID,
 				Login: row.AuthorUsername,
@@ -465,9 +471,10 @@ func mapSearchedWikiPages(rows []db.SearchWikiPagesByRepoRow) []WikiPageResponse
 	for _, row := range rows {
 		items = append(items, WikiPageResponse{
 			ID: row.ID, Visibility: row.Visibility, Path: row.Path, ContentDigest: row.ContentDigest, Attachment: wikiAttachment(row.Attachment),
-			Revision: row.Revision,
-			Slug:     row.Slug,
-			Title:    row.Title,
+			Revision:    row.Revision,
+			Slug:        row.Slug,
+			Title:       row.Title,
+			TitleSource: row.TitleSource,
 			Author: WikiAuthorSummary{
 				ID:    row.AuthorID,
 				Login: row.AuthorUsername,
@@ -482,10 +489,11 @@ func mapSearchedWikiPages(rows []db.SearchWikiPagesByRepoRow) []WikiPageResponse
 func mapWikiPage(row db.GetWikiPageBySlugRow) WikiPageResponse {
 	return WikiPageResponse{
 		ID: row.ID, Visibility: row.Visibility, Path: row.Path, ContentDigest: row.ContentDigest, Attachment: wikiAttachment(row.Attachment),
-		Revision: row.Revision,
-		Slug:     row.Slug,
-		Title:    row.Title,
-		Body:     row.Body,
+		Revision:    row.Revision,
+		Slug:        row.Slug,
+		Title:       row.Title,
+		TitleSource: row.TitleSource,
+		Body:        row.Body,
 		Author: WikiAuthorSummary{
 			ID:    row.AuthorID,
 			Login: row.AuthorUsername,
@@ -498,10 +506,11 @@ func mapWikiPage(row db.GetWikiPageBySlugRow) WikiPageResponse {
 func mapWikiPageRecord(page db.WikiPage, authorUsername string) WikiPageResponse {
 	return WikiPageResponse{
 		ID: page.ID, Visibility: page.Visibility, Path: page.Path, ContentDigest: page.ContentDigest, Attachment: wikiAttachment(page.Attachment),
-		Revision: page.Revision,
-		Slug:     page.Slug,
-		Title:    page.Title,
-		Body:     page.Body,
+		Revision:    page.Revision,
+		Slug:        page.Slug,
+		Title:       page.Title,
+		TitleSource: page.TitleSource,
+		Body:        page.Body,
 		Author: WikiAuthorSummary{
 			ID:    page.AuthorID,
 			Login: authorUsername,
@@ -727,4 +736,20 @@ func slugifyWikiTitle(value string) string {
 func isWikiPageConflict(err error) bool {
 	var pgErr *pgconn.PgError
 	return stdErrors.As(err, &pgErr) && pgErr.Code == "23505"
+}
+
+// Imports may derive a title; every public rename is explicit, even when it
+// spells the same bytes as a former generated title. Unknown legacy titles
+// stay untouched until reliable provenance exists.
+func wikiTitleSource(imported bool) string {
+	if imported {
+		return "imported"
+	}
+	return "explicit"
+}
+func wikiTitleSourceUpdate(input UpdateWikiPageInput) pgtype.Text {
+	if input.Title == nil {
+		return pgtype.Text{}
+	}
+	return pgtype.Text{String: wikiTitleSource(input.ImportedTitle), Valid: true}
 }

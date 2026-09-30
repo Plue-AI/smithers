@@ -57,7 +57,7 @@ func (s *WikiService) GetWikiIndex(ctx context.Context, viewer *db.User, owner, 
 		return result, pkgerrors.Internal("failed to read wiki index").WithCause(err)
 	}
 	for _, row := range rows {
-		page := WikiIndexPage{WikiPageResponse: WikiPageResponse{ID: row.ID, Slug: row.Slug, Title: row.Title, Revision: row.Revision, Visibility: row.Visibility, Path: row.Path, ContentDigest: row.ContentDigest, Attachment: wikiAttachment(row.Attachment), Author: WikiAuthorSummary{ID: row.AuthorID, Login: row.AuthorUsername}, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt}, Metadata: ParseWikiMarkdown(row.Body), Backlinks: []WikiBacklink{}}
+		page := WikiIndexPage{WikiPageResponse: WikiPageResponse{ID: row.ID, Slug: row.Slug, Title: row.Title, TitleSource: row.TitleSource, Revision: row.Revision, Visibility: row.Visibility, Path: row.Path, ContentDigest: row.ContentDigest, Attachment: wikiAttachment(row.Attachment), Author: WikiAuthorSummary{ID: row.AuthorID, Login: row.AuthorUsername}, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt}, Metadata: ParseWikiMarkdown(row.Body), Backlinks: []WikiBacklink{}}
 		result.Pages = append(result.Pages, page)
 		result.Tags = append(result.Tags, page.Metadata.Tags...)
 		for dir := path.Dir(row.Path); dir != "." && dir != "/"; dir = path.Dir(dir) {

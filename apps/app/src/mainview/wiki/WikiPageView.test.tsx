@@ -1,3 +1,5 @@
+import { ControllerContext } from "../ControllerContext"
+import type { AppController } from "../state/AppController"
 import { afterAll, describe, expect, test } from "bun:test"
 import { GlobalRegistrator } from "@happy-dom/global-registrator"
 import { flushSync } from "react-dom"
@@ -8,6 +10,9 @@ import { readWikiHref, readWikiSourceHref, resolveWikiLink, UNRESOLVED_HREF, Wik
 import { payloadFor } from "../flows/SlashPayload"
 import { WorldCardBody } from "../cards/ConversationCards"
 import type { Card, WorldDocument } from "../state/AppState"
+
+const wikiAccount = { store: { collections: { identitySessions: new Map([["identity", { state: "signed-in", login: "will" }]]) } } } as unknown as AppController
+const ScopedWorldCard = (props: Parameters<typeof WorldCardBody>[0]) => <ControllerContext.Provider value={wikiAccount}><WorldCardBody {...props} /></ControllerContext.Provider>
 
 GlobalRegistrator.register()
 afterAll(async () => {
@@ -60,13 +65,13 @@ describe("wiki page view", () => {
     const note = {
       id: "wiki:org/repo:7", title: "Answer", path: "generated-answer.md",
       body: `# Answer\n\nThe answer is 42.\n\n[src/answer.ts:2](/api/repos/org/repo/contents/src/answer.ts?ref=${ref}#L2)`,
-      sources: [], cloud: { repo: "org/repo", slug: "generated-answer", pageId: 7, phase: "live", pending: [], error: null }
+      sources: [], cloud: { repo: "org/repo", slug: "generated-answer", pageId: 7, phase: "live", accountLogin: "will", pending: [], error: null }
     } as unknown as WorldDocument
     const card = { id: "wiki-open", kind: "world", payload: { view: "read", documents: [{ id: note.id, path: note.path, title: note.title, confidence: 1 }] } } as Extract<Card, { kind: "world" }>
     const calls: unknown[] = []
     const host = document.createElement("div"), root = createRoot(host)
     try {
-      flushSync(() => root.render(<WorldCardBody card={card} worldDocuments={[note]} onChangeWorldDocument={() => {}}
+      flushSync(() => root.render(<ScopedWorldCard card={card} worldDocuments={[note]} onChangeWorldDocument={() => {}}
         onRunCommand={(name, args) => { calls.push({ name, ...payloadFor(name, args) }) }} />))
       expect(host.querySelector('[data-testid="wiki-page"]')?.textContent).toContain("The answer is 42.")
       host.querySelector<HTMLAnchorElement>('.wiki-page a')!.click()

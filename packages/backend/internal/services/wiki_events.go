@@ -19,6 +19,7 @@ type WikiEvent struct {
 	Visibility    string            `json:"visibility"`
 	Slug          string            `json:"slug"`
 	Path          string            `json:"path"`
+	TitleSource   string            `json:"title_source,omitempty"`
 	Title         string            `json:"title"`
 	ContentDigest string            `json:"content_digest"`
 	Attachment    *WikiAttachment   `json:"attachment,omitempty"`
@@ -56,7 +57,7 @@ func FoldWikiEvents(state WikiProjection, events []WikiEvent) (WikiProjection, e
 	return next, nil
 }
 func wikiEvent(row db.WikiPageRevision) WikiEvent {
-	return WikiEvent{Version: 1, Sequence: row.Sequence, PageID: row.PageID, Revision: row.Revision, Visibility: row.Visibility, Slug: row.Slug, Path: row.Path, Title: row.Title, ContentDigest: row.ContentDigest, Attachment: wikiAttachment(row.Attachment), Deleted: row.Deleted, Author: WikiAuthorSummary{ID: row.AuthorID.Int64, Login: row.AuthorUsername}, At: row.CreatedAt.UTC()}
+	return WikiEvent{Version: 1, Sequence: row.Sequence, PageID: row.PageID, Revision: row.Revision, Visibility: row.Visibility, Slug: row.Slug, Path: row.Path, Title: row.Title, TitleSource: row.TitleSource, ContentDigest: row.ContentDigest, Attachment: wikiAttachment(row.Attachment), Deleted: row.Deleted, Author: WikiAuthorSummary{ID: row.AuthorID.Int64, Login: row.AuthorUsername}, At: row.CreatedAt.UTC()}
 }
 
 type wikiEventStore interface {

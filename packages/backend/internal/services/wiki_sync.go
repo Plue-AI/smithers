@@ -317,10 +317,19 @@ func (s *WikiService) importSyncDocument(ctx context.Context, actor *db.User, ow
 	var page WikiPageResponse
 	if isWikiMarkdownPath(d.Path) {
 		if previous == nil {
-			page, err = s.CreateWikiPage(ctx, actor, owner, repo, CreateWikiPageInput{Slug: slug, Title: path.Base(d.Path), Path: d.Path, Body: string(data)})
+			page, err = s.CreateWikiPage(ctx, actor, owner, repo, CreateWikiPageInput{Slug: slug, Title: importedWikiTitle(d.Path, string(data)), ImportedTitle: true, Path: d.Path, Body: string(data)})
 		} else {
 			body := string(data)
-			page, err = s.UpdateWikiPage(ctx, actor, owner, repo, slug, UpdateWikiPageInput{Path: &d.Path, Body: &body, ExpectedRevision: &revision})
+			existing, e := s.GetWikiPage(ctx, actor, owner, repo, slug)
+			if e != nil {
+				return WikiEvent{}, e
+			}
+			update := UpdateWikiPageInput{Path: &d.Path, Body: &body, ExpectedRevision: &revision}
+			if existing.TitleSource == "imported" {
+				title := importedWikiTitle(d.Path, body)
+				update.Title, update.ImportedTitle = &title, true
+			}
+			page, err = s.UpdateWikiPage(ctx, actor, owner, repo, slug, update)
 		}
 	} else {
 		page, err = s.PutWikiAttachment(ctx, actor, owner, repo, slug, PutWikiAttachmentInput{Path: d.Path, MediaType: d.MediaType, ExpectedRevision: revision, Data: data})
@@ -328,7 +337,7 @@ func (s *WikiService) importSyncDocument(ctx context.Context, actor *db.User, ow
 	if err != nil {
 		return WikiEvent{}, err
 	}
-	return WikiEvent{Version: 1, PageID: page.ID, Revision: page.Revision, Visibility: page.Visibility, Slug: page.Slug, Path: page.Path, Title: page.Title, ContentDigest: page.ContentDigest, Attachment: page.Attachment}, nil
+	return WikiEvent{Version: 1, PageID: page.ID, Revision: page.Revision, Visibility: page.Visibility, Slug: page.Slug, Path: page.Path, Title: page.Title, TitleSource: page.TitleSource, ContentDigest: page.ContentDigest, Attachment: page.Attachment}, nil
 }
 func (s *WikiService) deliverWikiDocument(ctx context.Context, q *db.Queries, actor *db.User, owner, repo, scope string, adapter WikiSyncAdapter, intent documentSyncIntent) error {
 	raw, err := json.Marshal(intent)
@@ -543,4 +552,23 @@ func (s *WikiService) WikiSyncDeliveries(ctx context.Context, actor *db.User, ow
 		result = append(result, d)
 	}
 	return result, rows.Err()
+}
+
+// The index and imported page title use the same YAML-aware Markdown parser.
+func importedWikiTitle(documentPath, body string) string {
+	metadata := ParseWikiMarkdown(body)
+	if title, ok := metadata.Frontmatter["title"].(string); ok {
+		title = strings.TrimSpace(title)
+		if title != "" {
+			if normalized, err := normalizeWikiTitle(title); err == nil {
+				return normalized
+			}
+		}
+	}
+	for _, heading := range metadata.Headings {
+		if title, err := normalizeWikiTitle(heading); err == nil {
+			return title
+		}
+	}
+	return path.Base(documentPath)
 }

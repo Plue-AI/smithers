@@ -1,3 +1,5 @@
+import { ControllerContext } from "../ControllerContext"
+import type { AppController } from "../state/AppController"
 import { GlobalRegistrator } from "@happy-dom/global-registrator"
 import { afterAll, afterEach, describe, expect, test } from "bun:test"
 import { flushSync } from "react-dom"
@@ -9,6 +11,9 @@ import { CLOUD_WIKI_PAGE_FAILURES, WIKI_INDEX_FAILURE } from "../wiki/CloudWikiF
 import type { CloudWikiState } from "../wiki/CloudWikiState"
 import { WikiTree } from "../wiki/WikiNavigation"
 import { BROWSER_READ_FAILURE, BrowserCardBody, ConnectCardBody, INTEGRATION_FAILURES, WorldCardBody } from "./ConversationCards"
+
+const wikiAccount = { store: { collections: { identitySessions: new Map([["identity", { state: "signed-in", login: "octo" }]]) } } } as unknown as AppController
+const ScopedWorldCard = (props: Parameters<typeof WorldCardBody>[0]) => <ControllerContext.Provider value={wikiAccount}><WorldCardBody {...props} /></ControllerContext.Provider>
 
 GlobalRegistrator.register({ url: "http://127.0.0.1:4920/owner/repo" })
 afterAll(async () => {
@@ -115,7 +120,7 @@ describe("a Wiki page's sync failure, keyed on its phase", () => {
   for (const phase of ["offline", "deleted"] as const) {
     test(`${phase}: the phase's sentence, the stored error only in Details`, () => {
       const raw = phase === "offline" ? "503 service_unavailable: wiki backend" : "A different page now uses this Wiki slug."
-      const host = render(<WorldCardBody card={card} worldDocuments={[document(phase, raw)]} onChangeWorldDocument={() => {}} onRunCommand={() => {}} />)
+      const host = render(<ScopedWorldCard card={card} worldDocuments={[document(phase, raw)]} onChangeWorldDocument={() => {}} onRunCommand={() => {}} />)
       const notice = host.querySelector<HTMLElement>('[data-testid="wiki-card-failure"]')!
       expect(notice.getAttribute("role")).toBe("status")
       expect(notice.dataset.failure).toBe(`CloudWikiPage.${phase}`)
@@ -134,7 +139,7 @@ describe("a Wiki page's sync failure, keyed on its phase", () => {
   })
 
   test("a page with no error draws no notice", () => {
-    const host = render(<WorldCardBody card={card} worldDocuments={[document("live", null)]} onChangeWorldDocument={() => {}} onRunCommand={() => {}} />)
+    const host = render(<ScopedWorldCard card={card} worldDocuments={[document("live", null)]} onChangeWorldDocument={() => {}} onRunCommand={() => {}} />)
     expect(host.querySelector('[data-testid="wiki-card-failure"]')).toBeNull()
   })
 })

@@ -284,6 +284,7 @@ func (s *WikiService) replaceCollaborativeWikiPage(ctx context.Context, actor *d
 		return WikiPageResponse{}, true, err
 	}
 	args.Title, args.Slug, args.Path, args.UpdateBytes = nextTitle, nextSlug, nextPath, args.CrdtState
+	args.TitleSource = wikiTitleSourceUpdate(input)
 	currentRepo, err := s.resolveRepoByOwnerAndName(ctx, owner, repo)
 	if err != nil {
 		return WikiPageResponse{}, true, err

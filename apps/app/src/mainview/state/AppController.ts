@@ -1082,7 +1082,7 @@ export const createAppController = (
     openCardTab: openCardTabOnly,
     selectTab,
     closeTab,
-    selectRepo,
+    selectRepo: selectRepoOnly,
     selectBox,
     installKeyboard
   } = actors.pair(ctx, (context) => createTabsController(context))
@@ -1232,7 +1232,12 @@ export const createAppController = (
   const { enqueuePrompt, removeQueuedPrompt, restoreQueuedPrompts, resumePromptQueue } = promptQueue
   const cloudWiki = actors.pair(ctx, (context) => createCloudWikiController(context, store.nextOrdinal))
   const { listCloudWiki, openCloudWiki, retryCloudWiki, attachWorldEditor,
-    setWikiSpace, setWikiPageView, loadWikiIndex, showWikiHistory, createCloudWikiPage, renameCloudWikiPage, deleteCloudWikiPage, attachCloudWiki, wikiIndexes } = cloudWiki
+    setWikiSpace, setWikiPageView, loadWikiIndex, readWikiForPane, showWikiHistory, createCloudWikiPage, renameCloudWikiPage, deleteCloudWikiPage, attachCloudWiki, wikiIndexes } = cloudWiki
+  const selectRepo: TabsController["selectRepo"] = async (key) => {
+    const result = await selectRepoOnly(key)
+    if (result === undefined && store.session().surface === "world") void readWikiForPane()
+    return result
+  }
   const {
     clearConversation,
     selectWorldDocument,
@@ -1663,7 +1668,7 @@ export const createAppController = (
     showWikiPane: () => {
       togglePane()
       if (store.session().surface !== "world") return
-      void loadWikiIndex()
+      void readWikiForPane()
       // The pane shows generated pages' freshness (D-09b) from the stack snapshot, so the pane keeps it live as a homepage stack block does.
       const repo = activeRepositoryId(store)
       if (repo !== null) stackSeam.watchHomeStack(repo)

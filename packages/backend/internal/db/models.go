@@ -2655,6 +2655,7 @@ type WikiPage struct {
 	Path          string      `json:"path"`
 	ContentDigest string      `json:"content_digest"`
 	Attachment    []byte      `json:"attachment"`
+	TitleSource   string      `json:"title_source"`
 }
 
 type WikiPageRevision struct {
@@ -2679,6 +2680,7 @@ type WikiPageRevision struct {
 	Sequence        int64       `json:"sequence"`
 	CrdtState       []byte      `json:"crdt_state"`
 	CrdtVector      []byte      `json:"crdt_vector"`
+	TitleSource     string      `json:"title_source"`
 }
 
 type WikiSpace struct {

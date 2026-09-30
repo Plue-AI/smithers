@@ -14,7 +14,7 @@ SELECT
     wp.created_at,
     wp.updated_at,
     wp.revision,
-    wp.visibility, wp.path, wp.content_digest, wp.attachment,
+    wp.visibility, wp.path, wp.content_digest, wp.attachment, wp.title_source,
     u.username AS author_username
 FROM wiki_pages wp
 JOIN users u ON u.id = wp.author_id
@@ -43,7 +43,7 @@ SELECT
     wp.created_at,
     wp.updated_at,
     wp.revision,
-    wp.visibility, wp.path, wp.content_digest, wp.attachment,
+    wp.visibility, wp.path, wp.content_digest, wp.attachment, wp.title_source,
     u.username AS author_username
 FROM wiki_pages wp
 JOIN users u ON u.id = wp.author_id
@@ -76,21 +76,22 @@ SELECT
     wp.created_at,
     wp.updated_at,
     wp.revision,
-    wp.visibility, wp.path, wp.content_digest, wp.attachment,
+    wp.visibility, wp.path, wp.content_digest, wp.attachment, wp.title_source,
     u.username AS author_username
 FROM wiki_pages wp
 JOIN users u ON u.id = wp.author_id
 WHERE wp.repository_id = $1 AND wp.visibility = coalesce(nullif(sqlc.arg(visibility)::text,''),'public') AND wp.slug = $2;
 
 -- name: CreateWikiPage :one
-INSERT INTO wiki_pages (repository_id, slug, title, body, author_id, visibility, path)
-VALUES ($1, $2, $3, $4, $5, coalesce(nullif(sqlc.arg(visibility)::text,''),'public'), sqlc.arg(path))
+INSERT INTO wiki_pages (repository_id, slug, title, body, author_id, visibility, path, title_source)
+VALUES ($1, $2, $3, $4, $5, coalesce(nullif(sqlc.arg(visibility)::text,''),'public'), sqlc.arg(path), coalesce(sqlc.narg(title_source)::text, 'explicit'))
 RETURNING *;
 
 -- name: UpdateWikiPage :one
 UPDATE wiki_pages
 SET path = sqlc.arg(path), slug = $2,
     title = $3,
+    title_source = coalesce(sqlc.narg(title_source)::text, title_source),
     body = $4,
     author_id = $5,
     updated_at = NOW(),
