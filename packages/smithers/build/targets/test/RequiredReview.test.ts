@@ -91,18 +91,14 @@ describe("LlmLint.review required mode", () => {
     expect(await cli.calls()).toBe(0)
   })
 
-  it("fails a required review whose every selected file disappeared before reading", async () => {
+  it("reviews a required deletion-only change instead of failing it as empty", async () => {
     const cli = await engine("[]")
     await Fs.rm(Path.join(root, "src/a.ts"))
-    const optional = await Effect.runPromise(
-      LlmLint.review({ workspaceRoot: root, executable: cli.executable }, payload())
-    )
-    expect(optional.files).toEqual([])
-    const failure = await Effect.runPromise(Effect.flip(
+    const report = await Effect.runPromise(
       LlmLint.review({ workspaceRoot: root, executable: cli.executable }, payload({ required: true }))
-    ))
-    expect(failure.message).toContain("Required review selected no files")
-    expect(await cli.calls()).toBe(0)
+    )
+    expect(report).toEqual({ files: ["src/a.ts"], findings: [] })
+    expect(await cli.calls()).toBe(1)
   })
 
   it("reports a missing engine as a skippable host fact only when the review is optional", async () => {

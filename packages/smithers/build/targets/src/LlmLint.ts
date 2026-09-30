@@ -635,7 +635,8 @@ const ContextTokens = Schema.Int.check(
  * Payload for one llm-review call.
  *
  * `base` is the git revision the diff runs against. `include` globs match
- * workspace-relative changed paths. `context` globs are read on every round
+ * workspace-relative changed paths; a changed path the workspace no longer
+ * holds is reviewed as deleted, with its base contents. `context` globs are read on every round
  * and appended to every batch prompt whether or not they changed.
  * `batchSize` caps how many changed files one model call reviews; related
  * changed files share a call, and unchanged included files they import or
@@ -1325,6 +1326,80 @@ const readBatch = (
     catch: (cause) => new LlmReviewError({ phase: "read", message: failureMessage(cause) })
   })
 
+/** Runs one bounded git command whose stdout the caller parses. */
+const gitOutput = (
+  runtime: RuntimeOptions,
+  args: ReadonlyArray<string>,
+  stdoutBytes: number
+): Effect.Effect<string, LlmReviewError> =>
+  spawnText(runtime.workspaceRoot, "git", ["-c", "core.fsmonitor=false", ...args], {
+    stdoutBytes,
+    timeoutMs: Math.min(runtime.timeoutMs, 30_000),
+    sensitiveEnv: runtime.sensitiveEnv,
+    git: true
+  }).pipe(
+    Effect.mapError((error) => new LlmReviewError({ phase: "read", message: failureMessage(error) })),
+    Effect.flatMap((output) =>
+      output.exitCode === 0
+        ? Effect.succeed(output.stdout)
+        : Effect.fail(
+          new LlmReviewError({
+            phase: "read",
+            message: `git ${args[0]} exited ${output.exitCode}: ${stderrTail(output.stderr)}`
+          })
+        )
+    )
+  )
+
+/**
+ * Reads each changed path the workspace no longer holds from the base
+ * revision, marked deleted, so removing a file is reviewed like editing it.
+ * A path that is not at the base disappeared after discovery and fails the
+ * review; a base entry that is not a regular file (a symlink or submodule)
+ * carries no source to review.
+ */
+const deletedAtBase = (
+  runtime: RuntimeOptions,
+  base: string,
+  paths: ReadonlyArray<string>
+): Effect.Effect<ReadonlyArray<Segment>, LlmReviewError> =>
+  Effect.gen(function*() {
+    if (paths.length === 0) return []
+    const listing = yield* gitOutput(
+      runtime,
+      ["ls-tree", "-z", "--full-tree", "--end-of-options", base, "--", ...paths.map((path) => `:(literal)${path}`)],
+      maximumGitOutputBytes
+    )
+    const entries = new Map<string, { readonly mode: string; readonly object: string }>()
+    for (const record of listing.split("\0")) {
+      if (record === "") continue
+      const match = /^(\d{6}) (\w+) ([0-9a-f]{40,64})\t([\s\S]+)$/.exec(record)
+      if (match === null) {
+        return yield* Effect.fail(
+          new LlmReviewError({ phase: "read", message: "git ls-tree returned an unusable entry" })
+        )
+      }
+      entries.set(match[4]!, { mode: match[1]!, object: match[3]! })
+    }
+    const segments: Array<Segment> = []
+    for (const path of paths) {
+      const entry = entries.get(path)
+      if (entry === undefined) {
+        return yield* Effect.fail(
+          new LlmReviewError({ phase: "read", message: `LLM review file disappeared after discovery: ${path}` })
+        )
+      }
+      if (entry.mode !== "100644" && entry.mode !== "100755") continue
+      const contents = yield* gitOutput(runtime, ["cat-file", "blob", entry.object], maximumReviewFileBytes)
+      yield* Effect.try({
+        try: () => usableText(contents, "LLM review file", maximumReviewFileBytes, false),
+        catch: (cause) => new LlmReviewError({ phase: "read", message: failureMessage(cause) })
+      })
+      segments.push(wholeFile(path, contents, true))
+    }
+    return segments
+  })
+
 /** Expands the context patterns into sorted workspace-relative paths. */
 const contextPaths = (
   workspaceRoot: string,
@@ -1599,6 +1674,12 @@ const renderPrompt = (
       "Use a declared checkId. Code inspection is not reproduction. Do not supply reproduction receipts. " +
       "High or critical impact blocks release regardless of verification."
     ]),
+    ...(batch.changed.some((segment) => segment.deleted === true)
+      ? [
+        "A CHANGED FILE marked deleted was removed by this change; its contents are the base revision's. " +
+        "Judge what removing it breaks, such as a check, guard or validation its callers relied on."
+      ]
+      : []),
     ...(batch.changed.some(partial)
       ? [
         "A CHANGED FILE header naming a line range carries only that slice of the file; its firstLine is the " +
@@ -2464,7 +2545,24 @@ export const review = (
       snapshot
     )
     // Snapshot every bounded changed file before planning or the first provider request.
-    const rawChanged = yield* readBatch(runtime.workspaceRoot, files, maximumReviewContentBytes, "skip", snapshot)
+    const present = yield* readBatch(runtime.workspaceRoot, files, maximumReviewContentBytes, "skip", snapshot)
+    // A changed path the workspace no longer holds was deleted: review its base contents, never skip it.
+    const read = new Set(present.map((file) => file.path))
+    const removed = snapshot === undefined && payload.scope !== "all"
+      ? yield* deletedAtBase(runtime, payload.base, files.filter((path) => !read.has(path)))
+      : []
+    const rawChanged = [...present, ...removed].sort((left, right) => left.path < right.path ? -1 : 1)
+    if (
+      rawChanged.reduce((total, file) => total + Buffer.byteLength(file.contents, "utf8"), 0) >
+        maximumReviewContentBytes
+    ) {
+      return yield* Effect.fail(
+        new LlmReviewError({
+          phase: "read",
+          message: `LLM review file contents exceed their ${maximumReviewContentBytes}-byte aggregate limit`
+        })
+      )
+    }
     if (payload.required === true && rawChanged.length === 0) return yield* Effect.fail(emptyRequired)
     const raw = yield* relatedSources(runtime, payload, snapshot, rawChanged, new Set(paths), reviewable)
     // Scan every path and byte before planning. Slices are cut from masked text, so no request can

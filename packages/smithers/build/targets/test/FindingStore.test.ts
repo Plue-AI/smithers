@@ -126,8 +126,8 @@ describe("LlmLint.review finding store", () => {
     for (let index = 0; index <= LlmLint.maximumReviewBatches; index++) {
       await write(`src/many-${String(index).padStart(2, "0")}.ts`, `export const value${index} = ${index}\n`)
     }
-    await Fs.rm(Path.join(root, "src/a.ts"))
-    await Fs.rm(Path.join(root, "src/b.ts"))
+    await write("src/a.ts", "export const a = 1\n")
+    await write("src/b.ts", "export const b = 1\n")
     const cli = await engine({})
     const incomplete = await Effect.runPromise(Effect.flip(review(cli.executable)))
     expect(incomplete.message).toBe(

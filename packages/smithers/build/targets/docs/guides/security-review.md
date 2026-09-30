@@ -143,6 +143,11 @@ must not produce weaponized exploits or instructions to attack live systems.
 
 ## Batching
 
+A file the change deletes is reviewed as a changed file marked deleted,
+carrying its contents at `base`, so the review judges what removing it breaks
+and a deletion-only change still runs every security pass. `securityAudit`
+reviews the working tree and leaves deleted files out.
+
 Changed files that import each other, or share a Go package, go in the same
 call whenever they fit. Each call also carries the unchanged included files
 its changed files import or are imported by, dependencies first, then Go

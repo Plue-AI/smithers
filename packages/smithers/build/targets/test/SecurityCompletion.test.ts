@@ -462,4 +462,108 @@ describe("LlmLint.review security completion", () => {
       await Fs.rm(NodePath.join(root, "model-calls.jsonl"), { force: true })
     }
   })
+
+  describe("deleted files", () => {
+    const passes = () => [claude(completion()), codex(completion()), claude(completion())]
+
+    it("sends a deletion-only change through three completed passes with its base contents", async () => {
+      await git("checkout", "--", "src/a.ts")
+      await Fs.rm(NodePath.join(root, "src/a.ts"))
+      const cli = await scriptedCli(passes())
+      const report = await Effect.runPromise(
+        LlmLint.review({ workspaceRoot: root, executable: cli.executable }, payload({ required: true }))
+      )
+      expect(report.files).toEqual(["src/a.ts"])
+      expect(report.attempts?.map(({ pass, status }) => [pass, status])).toEqual([
+        [1, "completed"],
+        [2, "completed"],
+        [3, "completed"]
+      ])
+      const calls = await cli.calls()
+      expect(calls).toHaveLength(3)
+      for (const { stdin } of calls) {
+        expect(stdin).toContain("--- CHANGED FILE: \"src/a.ts\" ---")
+        expect(stdin).toContain(JSON.stringify({ deleted: true, contents: "export const a = 1\n" }))
+        expect(stdin).toContain("A CHANGED FILE marked deleted was removed by this change")
+      }
+    })
+
+    it("fails a deletion-only change whose pass is incomplete instead of passing it", async () => {
+      await git("checkout", "--", "src/a.ts")
+      await Fs.rm(NodePath.join(root, "src/a.ts"))
+      const cli = await scriptedCli([claude(completion({ status: "incomplete" }))])
+      const exit = await Effect.runPromise(
+        Effect.exit(LlmLint.review({ workspaceRoot: root, executable: cli.executable }, payload()))
+      )
+      expect(exit._tag).toBe("Failure")
+      expect(await cli.calls()).toHaveLength(2)
+    })
+
+    it("reviews a deleted file beside an edited one in its own batch", async () => {
+      await Fs.writeFile(
+        NodePath.join(root, "src/guard.ts"),
+        "export const allow = (role: string) => role === 'admin'\n"
+      )
+      await git("add", "src/guard.ts")
+      await git("commit", "-m", "guard")
+      await Fs.rm(NodePath.join(root, "src/guard.ts"))
+      const cli = await scriptedCli([...passes(), ...passes()])
+      const report = await Effect.runPromise(
+        LlmLint.review({ workspaceRoot: root, executable: cli.executable }, payload())
+      )
+      expect(report.files).toEqual(["src/a.ts", "src/guard.ts"])
+      const calls = await cli.calls()
+      expect(calls).toHaveLength(6)
+      const deleted = calls.filter(({ stdin }) => stdin.includes("--- CHANGED FILE: \"src/guard.ts\" ---"))
+      expect(deleted).toHaveLength(3)
+      for (const { stdin } of deleted) expect(stdin).toContain("role === 'admin'")
+      for (const { stdin } of calls.filter((call) => !deleted.includes(call))) {
+        expect(stdin).not.toContain("marked deleted")
+      }
+    })
+
+    it.each([
+      ["larger than the per-file bound", Buffer.alloc(LlmLint.maximumReviewFileBytes + 1, 0x61)],
+      ["not UTF-8", Buffer.from([0x65, 0xff, 0xfe, 0x0a])]
+    ])("fails the review when a deleted file's base contents are %s", async (_label, bytes) => {
+      await git("checkout", "--", "src/a.ts")
+      await Fs.writeFile(NodePath.join(root, "src/big.ts"), bytes)
+      await git("add", "src/big.ts")
+      await git("commit", "-m", "big")
+      await Fs.rm(NodePath.join(root, "src/big.ts"))
+      const cli = await scriptedCli(passes())
+      const failure = await Effect.runPromise(
+        Effect.flip(LlmLint.review({ workspaceRoot: root, executable: cli.executable }, payload()))
+      )
+      expect(failure).toMatchObject({ _tag: "smithers-build/LlmReviewError", phase: "read" })
+      expect(await cli.calls()).toEqual([])
+    })
+
+    it.skipIf(process.platform === "win32")("carries no source for a deleted symlink", async () => {
+      await git("checkout", "--", "src/a.ts")
+      await Fs.symlink("a.ts", NodePath.join(root, "src/link.ts"))
+      await git("add", "src/link.ts")
+      await git("commit", "-m", "link")
+      await Fs.rm(NodePath.join(root, "src/link.ts"))
+      const cli = await scriptedCli(passes())
+      const failure = await Effect.runPromise(
+        Effect.flip(LlmLint.review({ workspaceRoot: root, executable: cli.executable }, payload({ required: true })))
+      )
+      expect(failure).toMatchObject({ _tag: "smithers-build/LlmReviewError", phase: "diff" })
+      expect(await cli.calls()).toEqual([])
+    })
+
+    it("leaves a file deleted from the working tree out of an all-scope audit", async () => {
+      await Fs.writeFile(NodePath.join(root, "src/gone.ts"), "export const gone = 1\n")
+      await git("add", "src/gone.ts")
+      await git("commit", "-m", "gone")
+      await Fs.rm(NodePath.join(root, "src/gone.ts"))
+      const cli = await scriptedCli(passes())
+      const report = await Effect.runPromise(
+        LlmLint.review({ workspaceRoot: root, executable: cli.executable }, payload({ scope: "all" }))
+      )
+      expect(report.files).toEqual(["src/a.ts"])
+      for (const { stdin } of await cli.calls()) expect(stdin).not.toContain("src/gone.ts")
+    })
+  })
 })

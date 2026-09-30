@@ -649,17 +649,20 @@ describe("LlmLint.review changed-file filtering", () => {
     expect(await cli.calls()).toEqual([])
   })
 
-  it("skips a path deleted since the base revision", async () => {
+  it("reviews a path deleted since the base revision as a deleted file with its base contents", async () => {
     await Fs.rm(NodePath.join(root, "src/b.ts"))
     await write("src/a.ts", "export const a = 3\n")
     const cli = await fakeCli("claude", claudeEnvelope("[]"))
     const report = await Effect.runPromise(
       LlmLint.review({ workspaceRoot: root, executable: cli.executable }, payload({ batchSize: 1 }))
     )
-    expect(report.files).toEqual(["src/a.ts"])
+    expect(report.files).toEqual(["src/a.ts", "src/b.ts"])
     const calls = await cli.calls()
-    expect(calls).toHaveLength(1)
+    expect(calls).toHaveLength(2)
     expect(calls[0]?.stdin).toContain("--- CHANGED FILE: \"src/a.ts\" ---")
+    expect(calls[0]?.stdin).not.toContain("marked deleted")
+    expect(calls[1]?.stdin).toContain("--- CHANGED FILE: \"src/b.ts\" ---")
+    expect(calls[1]?.stdin).toContain(JSON.stringify({ deleted: true, contents: "export const b = 2\n" }))
   })
 
   it("validates the base again at the subprocess boundary", async () => {
