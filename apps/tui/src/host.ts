@@ -70,6 +70,7 @@ import * as Panels from "./panels.ts"
 import * as Replay from "./replay.ts"
 import * as Runtime from "./runtime.ts"
 import * as Session from "./session.ts"
+import * as TurnSteering from "./steering.ts"
 import * as Subprocess from "./subprocess.ts"
 import * as Transcript from "./transcript.ts"
 
@@ -696,12 +697,12 @@ export const make = (options: {
         // Jev's latency would sit in front of the chat's acknowledgment.
         judged: input.role !== "coordinator",
         supervisor: { stance },
-        // A worker's steering queue puts a park's question to the person (`steering.ts`), so its park waits
-        // for the answer instead of being refused and left for the model to settle.
-        approvalChannel: input.role === "worker" && input.steering !== undefined,
+        // Every explicit ask goes through the host queue. A missing answer channel
+        // fails at the park boundary instead of asking the model to answer itself.
+        approvalChannel: true,
         maxFrames
       }).pipe(
-        Stream.provideService(Steering.Source, input.steering ?? Steering.makeNoop()),
+        Stream.provideService(Steering.Source, input.steering ?? TurnSteering.make().source),
         // A cap the person raised for this worker replaces the host's own for its run.
         (stream) =>
           input.budget !== undefined

@@ -35,6 +35,7 @@ import * as Log from "../src/log.ts"
 import * as Runtime from "../src/runtime.ts"
 import * as Session from "../src/session.ts"
 import * as Spend from "../src/spend.ts"
+import * as Steering from "../src/steering.ts"
 import * as Subagents from "../src/subagents.ts"
 import * as Timeline from "../src/timeline.ts"
 import * as Transcript from "../src/transcript.ts"
@@ -83,6 +84,67 @@ const turn = async (role: "coordinator" | "worker") => {
     await host.dispose()
   }
 }
+
+describe("Host.run required asks", () => {
+  for (const role of ["worker", "coordinator"] as const) {
+    test(`${role} fails a required ask without an answer channel before a self-answer`, async () => {
+      const cwd = mkdtempSync(join(tmpdir(), "tui-host-ask-"))
+      roots.push(cwd)
+      const host = Host.make({ cwd, environment: {}, judge: ScriptedJudge.layer })
+      const events: Array<AgentEvent.AgentEvent> = []
+      const question = "What should the new name be?"
+      try {
+        const outcome = await host.run({
+          prompt: "Ask before renaming",
+          role,
+          seat: `replay:${doneReplay(cwd, `ctx.park("waiting-input", ${JSON.stringify(question)})`, 'ctx.done("picked sum myself")')}`,
+          history: [],
+          onEvent: (event) => events.push(event)
+        }).done
+        expect(outcome).toMatchObject({ _tag: "failed", message: `No one answered: ${question}` })
+        expect(events.filter((event) => event._tag === "model-requested")).toHaveLength(1)
+        expect(events.some((event) => event._tag === "resolved")).toBe(false)
+        expect(events.some((event) => event._tag === "transition-applied" && event.transition._tag === "park")).toBe(true)
+      } finally {
+        await host.dispose()
+      }
+    })
+  }
+  test("a worker resumes only after its answer channel supplies the person's reply", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "tui-host-answer-"))
+    roots.push(cwd)
+    const host = Host.make({ cwd, environment: {}, judge: ScriptedJudge.layer })
+    const events: Array<AgentEvent.AgentEvent> = []
+    let answer: ((value: string) => void) | undefined
+    let asked: (() => void) | undefined
+    const waiting = new Promise<void>((resolve) => { asked = resolve })
+    const queue = Steering.make({ ask: (question) => {
+      expect(question).toBe("New name?")
+      asked?.()
+      return new Promise<string>((resolve) => { answer = resolve })
+    } })
+    try {
+      const running = host.run({
+        prompt: "Ask before renaming",
+        role: "worker",
+        steering: queue.source,
+        seat: `replay:${doneReplay(cwd, 'ctx.park("waiting-input", "New name?")', 'ctx.done("total")')}`,
+        history: [],
+        onEvent: (event) => events.push(event)
+      })
+      await waiting
+      expect(events.filter((event) => event._tag === "model-requested")).toHaveLength(1)
+      expect(events.some((event) => event._tag === "resolved")).toBe(false)
+      answer?.("total")
+      expect(await running.done).toEqual({ _tag: "done", answer: "total" })
+      expect(events.find((event) => event._tag === "steering-drained")).toMatchObject({
+        messages: [{ role: "user", content: [{ type: "text", text: "total" }] }]
+      })
+    } finally {
+      await host.dispose()
+    }
+  })
+})
 
 const basis = (events: ReadonlyArray<AgentEvent.AgentEvent>) =>
   events.flatMap((event) => (event._tag === "mutation-observed" ? [event.basis] : []))
