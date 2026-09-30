@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/smithersai/smithers/packages/backend/internal/blob"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 )
 
@@ -229,6 +231,53 @@ func TestReadyz_Returns503WhenRepoHostReturns5xx(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
 	assert.Equal(t, "not_ready", body.Status)
 	assert.Equal(t, "error", body.Checks["repo_host"])
+}
+
+func TestReadyz_StorageCheckNamesTheCause(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name       string
+		err        error
+		wantCode   int
+		wantStatus string
+		wantCheck  string
+	}{
+		{"ok", nil, http.StatusOK, "ready", "ok"},
+		{"full", fmt.Errorf("reserve: %w", blob.ErrStorageFull), http.StatusServiceUnavailable, "not_ready", "full"},
+		{"statfs failure", errors.New("statfs: permission denied"), http.StatusServiceUnavailable, "not_ready", "error"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			h := routes.NewReadyzHandler(&healthyDB{}, "")
+			h.SetHTTPCheck(func(string) error { return nil })
+			h.SetStorageCheck(func() error { return tc.err })
+
+			rec := httptest.NewRecorder()
+			h.Readyz(rec, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+
+			assert.Equal(t, tc.wantCode, rec.Code)
+			var body struct {
+				Status string            `json:"status"`
+				Checks map[string]string `json:"checks"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+			assert.Equal(t, tc.wantStatus, body.Status)
+			assert.Equal(t, tc.wantCheck, body.Checks["storage"])
+			assert.Equal(t, "ok", body.Checks["database"])
+		})
+	}
+
+	// Without a storage check the response has no storage entry.
+	h := routes.NewReadyzHandler(&healthyDB{}, "")
+	h.SetHTTPCheck(func(string) error { return nil })
+	rec := httptest.NewRecorder()
+	h.Readyz(rec, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	var body struct {
+		Checks map[string]string `json:"checks"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	assert.NotContains(t, body.Checks, "storage")
 }
 
 func TestReadyz_DoesNotRequireAuthentication(t *testing.T) {

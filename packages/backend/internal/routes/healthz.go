@@ -2,11 +2,13 @@ package routes
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"reflect"
 	"time"
 
+	"github.com/smithersai/smithers/packages/backend/internal/blob"
 	"github.com/smithersai/smithers/packages/backend/internal/observability"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 )
@@ -125,9 +127,10 @@ func (h *HealthzHandler) Healthz(w http.ResponseWriter, r *http.Request) {
 // Semantically distinct from /healthz: this indicates the process is ready
 // to serve traffic (DB pool warmed up, dependencies reachable).
 type ReadyzHandler struct {
-	DB        HealthzChecker
-	RepoHost  string
-	httpCheck func(url string) error
+	DB           HealthzChecker
+	RepoHost     string
+	httpCheck    func(url string) error
+	storageCheck func() error
 }
 
 // NewReadyzHandler creates a new ReadyzHandler.
@@ -142,6 +145,12 @@ func NewReadyzHandler(db HealthzChecker, repoHostURL string) *ReadyzHandler {
 // SetHTTPCheck overrides the HTTP check function (used in tests to avoid real network calls).
 func (h *ReadyzHandler) SetHTTPCheck(fn func(url string) error) {
 	h.httpCheck = fn
+}
+
+// SetStorageCheck adds a "storage" check: "full" when the check reports
+// blob.ErrStorageFull, "error" for any other failure.
+func (h *ReadyzHandler) SetStorageCheck(fn func() error) {
+	h.storageCheck = fn
 }
 
 // Readyz handles GET /readyz.
@@ -175,6 +184,19 @@ func (h *ReadyzHandler) Readyz(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		checks["repo_host"] = "unconfigured"
+	}
+
+	if h.storageCheck != nil {
+		switch err := h.storageCheck(); {
+		case err == nil:
+			checks["storage"] = "ok"
+		case errors.Is(err, blob.ErrStorageFull):
+			checks["storage"] = "full"
+			overall = "not_ready"
+		default:
+			checks["storage"] = "error"
+			overall = "not_ready"
+		}
 	}
 
 	resp := healthzResponse{

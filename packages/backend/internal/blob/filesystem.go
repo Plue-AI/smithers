@@ -484,6 +484,13 @@ func (s *FilesystemStore) releaseReservation(bytes int64) {
 	s.quotaMu.Unlock()
 }
 
+// CheckHeadroom reports ErrStorageFull when the filesystem holding the store
+// has less free space than ReserveBytes, so readiness can refuse work before
+// its writes fail.
+func (s *FilesystemStore) CheckHeadroom() error {
+	return s.checkDiskHeadroom(0)
+}
+
 func (s *FilesystemStore) checkDiskHeadroom(pending int64) error {
 	var stat unix.Statfs_t
 	if err := unix.Statfs(s.root, &stat); err != nil {
