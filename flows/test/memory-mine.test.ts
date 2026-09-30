@@ -286,7 +286,10 @@ test("the file flow runs through its layer on a real engine, writing only under 
   })
   const asked: Asked = []
   const runtime = ManagedRuntime.make(
-    Layer.mergeAll(Interpreter.layer(MineFlow), MineFlowFile.layer({ root, bank })).pipe(
+    Layer.mergeAll(
+      Interpreter.layer(MineFlow),
+      MineFlowFile.layer.pipe(Layer.provide(Layer.succeed(MineFlowFile.Binding, { root, bank })))
+    ).pipe(
       Layer.provideMerge(Action.layerImplementations),
       Layer.provideMerge(FlowEngine.layerMemory),
       Layer.provideMerge(NodeCrypto.layer),

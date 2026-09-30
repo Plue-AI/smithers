@@ -1,6 +1,5 @@
 /** Cloud placement keeps local login material off declarations and command argv. */
 import * as CloudSandbox from "@smthrs/cli/CloudSandbox"
-import { workspaceSshPrefix } from "@smthrs/cli/NodeControl"
 import { Effect, Layer } from "effect"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import { execFile, spawn } from "node:child_process"
@@ -10,7 +9,6 @@ import { homedir } from "node:os"
 import { dirname, isAbsolute, join } from "node:path"
 import { setTimeout as wait } from "node:timers/promises"
 import { promisify } from "node:util"
-import { Client } from "../../packages/smithers/src/internal/backend/Client.ts"
 import { type Account, discoverAccounts, freshAccessToken } from "./accounts.ts"
 import { cloudDiagnostic, exportCloudCommits, type ReadCommand, redactCloudText } from "./cloud-export.ts"
 import {
@@ -326,11 +324,7 @@ export const makeCloudPlacement = (options: CloudPlacementOptions): Placement["S
         catch: () => "could not retain Cloud commit artifact or recovery receipt"
       })
       // Reuse the provider's canonical control client and pinned SSH transport.
-      const client = new Client({ environment: process.env })
-      const control: CloudSandbox.WorkspaceApi = options.api ?? {
-        request: (method, path, body, signal) => client.request(method, path, body, { signal }),
-        sshPrefix: (reference, signal) => workspaceSshPrefix(process.env, reference, signal)
-      }
+      const control = options.api ?? CloudSandbox.workspaceApi(process.env)
       const api: CloudSandbox.WorkspaceApi = {
         request: async (method, path, body, signal) => {
           if (method === "DELETE" && !retained && (reportedWork || (commandRequested && grantAcquired))) {

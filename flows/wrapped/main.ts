@@ -23,7 +23,7 @@ import { realpath } from "node:fs/promises"
 import { resolve } from "node:path"
 import { parseArgs } from "node:util"
 import { evaluatorLayer } from "../repository/jev-checks.ts"
-import Wrapped, { grants, layer, recallSession, selectMemory, writePrompt } from "./flow.ts"
+import Wrapped, { grants, make, recallSession, selectMemory, writePrompt } from "./flow.ts"
 import { type Command, commandFor } from "./launch.ts"
 import { defaultPermission, Harness, Permission } from "./prompt.ts"
 
@@ -85,7 +85,7 @@ const dryRun = Effect.gen(function*() {
 
 const launched = Effect.suspend(() => {
   const layers = Layer.mergeAll(
-    layer({
+    make({
       onMemory: (memory) => print({ memory }),
       observe: (command) => print({ argv: argv(command) }),
       observeOutput: (stdout) => print({ stdout })

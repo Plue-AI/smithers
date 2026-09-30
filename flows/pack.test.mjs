@@ -18,6 +18,7 @@ import { fileURLToPath } from "node:url";
 
 import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
 import * as NodePath from "@effect/platform-node/NodePath";
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -25,6 +26,8 @@ import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 
 import * as Capability from "@smthrs/capability/Capability";
+import { FlowEngine } from "@smthrs/engine";
+import { Action } from "@smthrs/flow";
 import * as Detect from "@smthrs/migrate/Detect";
 import * as Discovery from "@smthrs/registry/Discovery";
 import * as Executable from "@smthrs/registry/Executable";
@@ -567,20 +570,20 @@ describe("discovery over the project flows directory", () => {
     // Every module declaration under flows/. Each one but `checks/wiki` IS its
     // own `@smthrs/flow` flow: one file, no `flows:` list, and no delegate name
     // registered on a host to join a second declaration to it.
-    const modules = ["coding", "coding/dispatch", "coding/implementation", "coding/prototype", "coding/request", "coding/verify", "coding/vibe", "coding/wiki", "memory/calibrate", "memory/mine", "register-repository", "register-repository/setup", "release", "release-content", "rollout", "wiki", "wrapped"];
+    const modules = ["burndown", "burndown/monitor", "burndown/worker", "coding", "coding/dispatch", "coding/implementation", "coding/prototype", "coding/request", "coding/verify", "coding/vibe", "coding/wiki", "memory/calibrate", "memory/mine", "notes/calendar-events", "notes/telegram", "notes/traction", "register-repository", "register-repository/setup", "release", "release-content", "rollout", "wiki", "wrapped"];
     // `checks/wiki` still delegates, and its own file says why: the host binds
     // its reviewer policy to a descriptor by the `flows:` list, and the capture
     // action requires that descriptor's delegate to be the flow this host
     // registered. Both statements are about the delegation, so a module that is
     // its own flow has nothing for either to name.
     const delegatingModules = ["checks/wiki"];
-    // The burndown flows run only on a host that supplies their layers (the
-    // round loop, the agent runner, the monitor's actions), so without one they
-    // refuse to load: the documented host-only exception, as `checks/wiki` has.
-    // The note flows export their layer too, and run on a schedule, never as a model's tool.
-    const hostModules = { "burndown": "body_unavailable", "burndown/monitor": "missing_service", "burndown/worker": "body_unavailable", "notes/calendar-events": "missing_service", "notes/telegram": "missing_service", "notes/traction": "missing_service" };
-    // Registration and its setup child run only on the coding host, which implements their steps.
-    const hiddenModules = ["memory/mine", "register-repository", "register-repository/setup", "rollout"];
+    // A module's exported `layer` states what it needs from its host as Effect
+    // services. `memory/mine` writes under a root and to a bank only its host
+    // may name, so it loads once a host binds them, and refuses by name before.
+    const hostBound = { "memory/mine": "missing_service memory/mine/Binding" };
+    // The runners, schedules and registration steps are the host's to start,
+    // never a model's tool.
+    const hiddenModules = ["burndown", "burndown/monitor", "burndown/worker", "memory/mine", "notes/calendar-events", "notes/telegram", "notes/traction", "register-repository", "register-repository/setup", "rollout"];
     assert.deepEqual(
       scan.warnings.map((warning) => `${warning.code} at ${relative(flowsRoot, warning.path).split("\\").join("/")}: ${warning.message}`).sort(),
       [
@@ -590,14 +593,13 @@ describe("discovery over the project flows directory", () => {
         "unsupported_module_metadata at wiki/flow.ts: Effect tier sealed under-classifies declared authority; using compensable",
       ].sort(),
     );
-    assert.deepEqual([...scan.entries].map((entry) => entry.name).sort(), [...EXPECTED_FLOWS, ...modules, ...delegatingModules, ...Object.keys(hostModules)].sort());
+    assert.deepEqual([...scan.entries].map((entry) => entry.name).sort(), [...EXPECTED_FLOWS, ...modules, ...delegatingModules].sort());
     // The authoring entry carries its stage instructions itself; those stages
     // stay directly runnable without appearing as nested model calls.
     const hiddenFlows = [
       "create-flow/clarify", "create-flow/design", "create-flow/document",
       "create-flow/fix", "create-flow/provision", "create-flow/scaffold",
       ...hiddenModules,
-      ...Object.keys(hostModules),
     ].sort();
     // Visibility survives discovery for both prompt and module declarations.
     assert.deepEqual(
@@ -605,18 +607,23 @@ describe("discovery over the project flows directory", () => {
       hiddenFlows,
     );
     // A collapsed module flow names no delegate, so it loads and plans on a
-    // host that registers none. `checks/wiki` still asks for one by name.
+    // host that registers none, building its exported layer from what an
+    // ordinary Node host supplies. `checks/wiki` still asks for a delegate by name.
     const loaded = await run(
       Effect.forEach(
         [...scan.entries].filter((entry) => entry.body._tag === "Module").sort((left, right) => left.name < right.name ? -1 : 1),
         (descriptor) =>
           Executable.fromDescriptor(descriptor, { delegates: [] }).pipe(
             Effect.map((executable) => `${descriptor.name}: ${executable.delegate ?? "self"}`),
-            Effect.catch((error) => Effect.succeed(`${descriptor.name}: ${error.code} ${error.delegate ?? ""}`.trim())),
+            Effect.catch((error) => Effect.succeed(`${descriptor.name}: ${error.code} ${error.delegate ?? error.service ?? ""}`.trim())),
           ),
+      ).pipe(
+        Effect.scoped,
+        Effect.provide(Layer.mergeAll(NodeServices.layer, FlowEngine.layerMemory, Action.layerImplementations)),
       ),
     );
-    assert.deepEqual(loaded, [...modules.map((name) => [name, "self"]), ["checks/wiki", "missing_delegate coding/WikiCheck"], ...Object.entries(hostModules)]
+    const outcomes = { ...Object.fromEntries(modules.map((name) => [name, "self"])), "checks/wiki": "missing_delegate coding/WikiCheck", ...hostBound };
+    assert.deepEqual(loaded, Object.entries(outcomes)
       .sort(([left], [right]) => left < right ? -1 : 1)
       .map(([name, outcome]) => `${name}: ${outcome}`));
   });

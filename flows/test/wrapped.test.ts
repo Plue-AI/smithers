@@ -25,7 +25,7 @@ import { test } from "node:test"
 import * as MemorySource from "../../packages/smithers/agent/memory/src/Source.ts"
 import Wrapped, {
   grants,
-  layer,
+  make,
   recallSession,
   recordSession,
   sessionPath,
@@ -346,7 +346,7 @@ const flowHarnessAt = (fake: ReturnType<typeof fakeClaude>, repo: string) => {
     options: { readonly evaluator?: Layer.Layer<Evaluator.Evaluator>; readonly granted?: boolean } = {}
   ) => {
     const layers = Layer.mergeAll(
-      layer({ env: fake.env(), onMemory: (output) => memories.push(output) }).pipe(
+      make({ env: fake.env(), onMemory: (output) => memories.push(output) }).pipe(
         Layer.provide(Layer.mergeAll(NodeServices.layer, options.evaluator ?? keepAll))
       ),
       Interpreter.layer(Wrapped)

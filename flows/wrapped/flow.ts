@@ -373,10 +373,11 @@ export const recallSession = (
   })
 
 /**
- * The implementations of the four steps. Memory needs FileSystem, Path, a
- * spawner and an Evaluator. `onMemory` receives the selection the prompt uses.
+ * The implementations of the four steps over `options`. Memory needs
+ * FileSystem, Path, a spawner and an Evaluator. `onMemory` receives the
+ * selection the prompt uses.
  */
-export const layer = (
+export const make = (
   options: LaunchOptions & { readonly onMemory?: ((output: Memory.Output) => void) | undefined } = {}
 ) =>
   Layer.mergeAll(
@@ -410,3 +411,6 @@ export const layer = (
       )
     )
   )
+
+/** {@link make} with the default launch options: the layer a host loads. */
+export const layer = make()

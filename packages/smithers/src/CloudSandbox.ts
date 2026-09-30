@@ -25,6 +25,21 @@ export interface WorkspaceApi {
 }
 
 /**
+ * The ordinary workspace transport: the CLI's authenticated control client and
+ * pinned SSH prefix, resolved from `environment`.
+ *
+ * @category constructors
+ * @since 1.0.0
+ */
+export const workspaceApi = (environment: Readonly<Record<string, string | undefined>>): WorkspaceApi => {
+  const client = new Client({ environment })
+  return {
+    request: (method, path, body, signal) => client.request(method, path, body, { signal }),
+    sshPrefix: (reference, signal) => workspaceSshPrefix(environment, reference, signal)
+  }
+}
+
+/**
  * One repository and machine shape, shared by independently named sessions.
  *
  * @category models
@@ -84,12 +99,7 @@ export const make = (options: Options): Sandbox.Provider => {
   ) {
     throw new TypeError("cloud-sandbox: polling and readiness durations must be finite and positive")
   }
-  const environment = options.environment ?? process.env
-  const client = new Client({ environment })
-  const api: WorkspaceApi = options.api ?? {
-    request: (method, path, body, signal) => client.request(method, path, body, { signal }),
-    sshPrefix: (reference, signal) => workspaceSshPrefix(environment, reference, signal)
-  }
+  const api = options.api ?? workspaceApi(options.environment ?? process.env)
   const base = `/api/repos/${options.repository.split("/").map(encodeURIComponent).join("/")}/workspaces`
   const request = (method: "POST" | "GET" | "DELETE", path: string, body: unknown, message: string) =>
     Effect.tryPromise({

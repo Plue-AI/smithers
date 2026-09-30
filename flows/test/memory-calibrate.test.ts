@@ -833,7 +833,7 @@ test("run writes no thresholds without write and writes the fit with it", async 
 const runFlow = async (root: string, payload: typeof CalibrateFlow.default.payloadSchema.Type, id: string) => {
   const host = ManagedRuntime.make(
     Layer.mergeAll(
-      CalibrateFlow.layer(root).pipe(Layer.provide(provided)),
+      CalibrateFlow.make(root).pipe(Layer.provide(provided)),
       Interpreter.layer(CalibrateFlow.default)
     ).pipe(
       Layer.provideMerge(Action.layerImplementations),

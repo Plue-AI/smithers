@@ -30,7 +30,7 @@ export const Launch = Action.make("burndown/launch", {
 
 /** Lands every ready worker through the merge queue. */
 export const Land = Action.make("burndown/land", {
-  implementationVersion: "burndown/land/v4",
+  implementationVersion: "burndown/land/v5",
   payload: { state: RoundState, observation: Observation },
   success: LandReport,
   error: Schema.String,
@@ -39,7 +39,7 @@ export const Land = Action.make("burndown/land", {
 
 /** Computes the next round's state, when it wakes, and whether work remains. */
 export const Settle = Action.make("burndown/settle", {
-  implementationVersion: "burndown/settle/v5",
+  implementationVersion: "burndown/settle/v6",
   payload: {
     state: RoundState,
     observation: Observation,

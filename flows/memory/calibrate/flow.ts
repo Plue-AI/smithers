@@ -80,7 +80,7 @@ export const journalsUnder = (root: string, journals: string) => {
 }
 
 /** The implementation of {@link Run} over `root`. */
-export const layer = (root: string) =>
+export const make = (root: string) =>
   Run.toLayer((input) =>
     Effect.map(
       Effect.flatMap(
@@ -97,3 +97,6 @@ export const layer = (root: string) =>
       ({ evidence, receipt, written }) => ({ receipt, evidence, written })
     )
   )
+
+/** {@link make} over the host's working directory: the layer a host loads. */
+export const layer = make(process.cwd())
