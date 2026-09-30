@@ -28,7 +28,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, wri
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
-import { copyFixture, fixture, hashTree } from "../fixtures/helpers.ts"
+import { copyFixture, fixture, hashTree, nativeHelperAvailable } from "../fixtures/helpers.ts"
 
 const golden = readFileSync(
   join(fixture("jsx-single.migrated"), "flows", "simple-workflow", "flow.ts"),
@@ -121,8 +121,22 @@ const emptyAnswer = (unit: string): string =>
 
 const unitOf = (asked: string): string => /# Unit `([^`]+)`/.exec(asked)?.[1] ?? "unknown"
 
+/**
+ * An apply journey whose agent writes through the kernel-guarded filesystem,
+ * which needs the native helper; see {@link nativeHelperAvailable}.
+ */
+const guarded = it.effect.skipIf(!nativeHelperAvailable)
+
+describe("the native filesystem helper", () => {
+  // Every journey below that writes through the agent is skipped without the
+  // helper. CI builds it, so there a skip would hide the whole apply suite.
+  it.skipIf(process.env.CI === undefined)("is present wherever CI runs this suite", () => {
+    expect(nativeHelperAvailable).toBe(true)
+  })
+})
+
 describe("apply over a single-file JSX project", () => {
-  it.effect("applies in a linked Git worktree with a native checkpoint", () =>
+  guarded("applies in a linked Git worktree with a native checkpoint", () =>
     Effect.gen(function*() {
       const main = copyFixture("jsx-single")
       committed(main)
@@ -147,34 +161,37 @@ describe("apply over a single-file JSX project", () => {
       }
     }))
 
-  it.effect("migrates the workflow, checkpoints it, verifies it, and archives the old source", () =>
-    Effect.gen(function*() {
-      const root = copyFixture("jsx-single")
-      committed(root)
+  guarded(
+    "migrates the workflow, checkpoints it, verifies it, and archives the old source",
+    () =>
+      Effect.gen(function*() {
+        const root = copyFixture("jsx-single")
+        committed(root)
 
-      const { report, written } = yield* apply(root)
+        const { report, written } = yield* apply(root)
 
-      expect(written).toEqual(["workflow:simple-workflow"])
-      expect(report.mode).toBe("apply")
-      const workflow = report.units.find((unit) => unit.id === "workflow:simple-workflow")
-      expect(workflow?.status).toBe("migrated")
-      // A checkpoint is a real git ref, and the report tells the operator how
-      // to get back to it.
-      expect(workflow?.checkpoint?.vcs).toBe("git")
-      expect(workflow?.checkpoint?.ref).toContain("refs/smithers-migrate/")
-      expect(workflow?.checkpoint?.restore).toContain("git checkout")
-      expect(workflow?.verification?.discovery?.exitCode).toBe(0)
+        expect(written).toEqual(["workflow:simple-workflow"])
+        expect(report.mode).toBe("apply")
+        const workflow = report.units.find((unit) => unit.id === "workflow:simple-workflow")
+        expect(workflow?.status).toBe("migrated")
+        // A checkpoint is a real git ref, and the report tells the operator how
+        // to get back to it.
+        expect(workflow?.checkpoint?.vcs).toBe("git")
+        expect(workflow?.checkpoint?.ref).toContain("refs/smithers-migrate/")
+        expect(workflow?.checkpoint?.restore).toContain("git checkout")
+        expect(workflow?.verification?.discovery?.exitCode).toBe(0)
 
-      // The rewrite is on disk and the old source is not.
-      expect(readFileSync(join(root, "flows", "simple-workflow", "flow.ts"), "utf8")).toBe(golden)
-      expect(existsSync(join(root, "simple-workflow.jsx"))).toBe(false)
-      expect(
-        existsSync(join(root, ".smithers-migrate", "archive", "simple-workflow.jsx"))
-      ).toBe(true)
-      // And the report is where the skill tells the operator to look.
-      expect(existsSync(join(root, ".smithers-migrate", "report.md"))).toBe(true)
-      expect(existsSync(join(root, MigrateFlow.unitArtifact(options(root), "workflow:simple-workflow")))).toBe(true)
-    }))
+        // The rewrite is on disk and the old source is not.
+        expect(readFileSync(join(root, "flows", "simple-workflow", "flow.ts"), "utf8")).toBe(golden)
+        expect(existsSync(join(root, "simple-workflow.jsx"))).toBe(false)
+        expect(
+          existsSync(join(root, ".smithers-migrate", "archive", "simple-workflow.jsx"))
+        ).toBe(true)
+        // And the report is where the skill tells the operator to look.
+        expect(existsSync(join(root, ".smithers-migrate", "report.md"))).toBe(true)
+        expect(existsSync(join(root, MigrateFlow.unitArtifact(options(root), "workflow:simple-workflow")))).toBe(true)
+      })
+  )
 
   it.effect("skips the discovery check on the unit that writes no flow", () =>
     Effect.gen(function*() {
@@ -207,7 +224,7 @@ describe("apply over a single-file JSX project", () => {
       expect(asked.every((text) => text.includes(`await ctx.call("jev", {`))).toBe(true)
     }))
 
-  it.effect("keeps the old sources when the operator asks it to", () =>
+  guarded("keeps the old sources when the operator asks it to", () =>
     Effect.gen(function*() {
       const root = copyFixture("jsx-single")
       committed(root)
@@ -236,7 +253,7 @@ describe("apply over a single-file JSX project", () => {
       }
     }))
 
-  it.effect("fails the unit that writes a file it does not own, and names every one", () =>
+  guarded("fails the unit that writes a file it does not own, and names every one", () =>
     Effect.gen(function*() {
       const root = copyFixture("jsx-single")
       committed(root)
@@ -283,54 +300,59 @@ describe("apply over a single-file JSX project", () => {
       expect(existsSync(join(root, "flows", "simple-workflow", "flow.ts"))).toBe(false)
     }))
 
-  it.effect("reports every rollback loss when verification fails before the outside-write check", () =>
-    Effect.gen(function*() {
-      const root = copyFixture("jsx-single")
-      committed(root)
+  guarded(
+    "reports every rollback loss when verification fails before the outside-write check",
+    () =>
+      Effect.gen(function*() {
+        const root = copyFixture("jsx-single")
+        committed(root)
 
-      const meddling = (_root: string, written: Array<string>): Layers.Script => (asked) => {
-        const unit = unitOf(asked)
-        if (unit !== "workflow:simple-workflow") return emptyAnswer(unit)
-        written.push(unit)
-        return [
-          `await ctx.call("write", { path: "flows/simple-workflow/flow.ts", content: ${JSON.stringify(golden)} })`,
-          `await ctx.call("write", { path: "tests/simple-workflow.test.ts", content: "changed outside the unit" })`,
-          `await ctx.call("write", { path: "scratch/operator-note.md", content: "created while migration ran" })`,
-          Layers.done({
-            unit,
-            changedFiles: ["flows/simple-workflow/flow.ts"],
-            decisions: [],
-            unresolved: [],
-            unsupported: [],
-            notes: "scripted"
-          })
-        ].join("\n")
-      }
+        const meddling = (_root: string, written: Array<string>): Layers.Script => (asked) => {
+          const unit = unitOf(asked)
+          if (unit !== "workflow:simple-workflow") return emptyAnswer(unit)
+          written.push(unit)
+          return [
+            `await ctx.call("write", { path: "flows/simple-workflow/flow.ts", content: ${JSON.stringify(golden)} })`,
+            `await ctx.call("write", { path: "tests/simple-workflow.test.ts", content: "changed outside the unit" })`,
+            `await ctx.call("write", { path: "scratch/operator-note.md", content: "created while migration ran" })`,
+            Layers.done({
+              unit,
+              changedFiles: ["flows/simple-workflow/flow.ts"],
+              decisions: [],
+              unresolved: [],
+              unsupported: [],
+              notes: "scripted"
+            })
+          ].join("\n")
+        }
 
-      const { report } = yield* apply(
-        root,
-        { maxRepairRounds: 0, commands: { typecheck: [], test: "node -e \"process.exit(1)\"" } },
-        meddling
-      )
+        const { report } = yield* apply(
+          root,
+          { maxRepairRounds: 0, commands: { typecheck: [], test: "node -e \"process.exit(1)\"" } },
+          meddling
+        )
 
-      const workflow = report.units.find((unit) => unit.id === "workflow:simple-workflow")
-      expect(workflow?.status).toBe("failed")
-      const outside = workflow?.unresolved.filter((entry) => entry.construct === "no write outside the unit's file set")
-      expect(outside?.map((entry) => entry.file).sort()).toEqual([
-        "scratch/operator-note.md",
-        "tests/simple-workflow.test.ts"
-      ])
-      const unrestored = workflow?.unresolved.find((entry) =>
-        entry.construct === "rollback could not restore a file" && entry.file === "tests/simple-workflow.test.ts"
-      )
-      expect(unrestored?.suggestion).toContain(workflow?.checkpoint?.restore ?? "missing restore command")
-      const deleted = workflow?.unresolved.find((entry) =>
-        entry.construct === "rollback deleted a post-checkpoint file" && entry.file === "scratch/operator-note.md"
-      )
-      expect(deleted?.reason).toContain("recovery copy")
-      expect(deleted?.suggestion).toContain("Copy")
-      expect(existsSync(join(root, "scratch", "operator-note.md"))).toBe(false)
-    }))
+        const workflow = report.units.find((unit) => unit.id === "workflow:simple-workflow")
+        expect(workflow?.status).toBe("failed")
+        const outside = workflow?.unresolved.filter((entry) =>
+          entry.construct === "no write outside the unit's file set"
+        )
+        expect(outside?.map((entry) => entry.file).sort()).toEqual([
+          "scratch/operator-note.md",
+          "tests/simple-workflow.test.ts"
+        ])
+        const unrestored = workflow?.unresolved.find((entry) =>
+          entry.construct === "rollback could not restore a file" && entry.file === "tests/simple-workflow.test.ts"
+        )
+        expect(unrestored?.suggestion).toContain(workflow?.checkpoint?.restore ?? "missing restore command")
+        const deleted = workflow?.unresolved.find((entry) =>
+          entry.construct === "rollback deleted a post-checkpoint file" && entry.file === "scratch/operator-note.md"
+        )
+        expect(deleted?.reason).toContain("recovery copy")
+        expect(deleted?.suggestion).toContain("Copy")
+        expect(existsSync(join(root, "scratch", "operator-note.md"))).toBe(false)
+      })
+  )
 
   it.effect("leaves a target that existed before the migration byte for byte when the unit fails", () =>
     Effect.gen(function*() {
@@ -360,7 +382,7 @@ describe("apply over a single-file JSX project", () => {
         .toBe(false)
     }))
 
-  it.effect("fails the unit that smuggles a write into a path named like a lockfile", () =>
+  guarded("fails the unit that smuggles a write into a path named like a lockfile", () =>
     Effect.gen(function*() {
       const root = copyFixture("jsx-single")
       committed(root)
@@ -400,35 +422,38 @@ describe("apply over a single-file JSX project", () => {
       expect(existsSync(join(root, "src", "pnpm-lock.yaml"))).toBe(false)
     }))
 
-  it.effect("allows a root lockfile write while retaining it in the unit's changed-file report", () =>
-    Effect.gen(function*() {
-      // This independent successful apply has its own finite test budget.
-      // The root lockfile is exempt from refusal and retained in the report.
-      const installed = copyFixture("jsx-single")
-      committed(installed)
-      const installing = (_root: string, written: Array<string>): Layers.Script => (asked) => {
-        const unit = unitOf(asked)
-        if (unit !== "workflow:simple-workflow") return emptyAnswer(unit)
-        written.push(unit)
-        return [
-          `await ctx.call("write", { path: "flows/simple-workflow/flow.ts", content: ${JSON.stringify(golden)} })`,
-          `await ctx.call("write", { path: "pnpm-lock.yaml", content: "lockfileVersion: 9" })`,
-          Layers.done({
-            unit,
-            changedFiles: ["flows/simple-workflow/flow.ts"],
-            decisions: [],
-            unresolved: [],
-            unsupported: [],
-            notes: "scripted"
-          })
-        ].join("\n")
-      }
+  guarded(
+    "allows a root lockfile write while retaining it in the unit's changed-file report",
+    () =>
+      Effect.gen(function*() {
+        // This independent successful apply has its own finite test budget.
+        // The root lockfile is exempt from refusal and retained in the report.
+        const installed = copyFixture("jsx-single")
+        committed(installed)
+        const installing = (_root: string, written: Array<string>): Layers.Script => (asked) => {
+          const unit = unitOf(asked)
+          if (unit !== "workflow:simple-workflow") return emptyAnswer(unit)
+          written.push(unit)
+          return [
+            `await ctx.call("write", { path: "flows/simple-workflow/flow.ts", content: ${JSON.stringify(golden)} })`,
+            `await ctx.call("write", { path: "pnpm-lock.yaml", content: "lockfileVersion: 9" })`,
+            Layers.done({
+              unit,
+              changedFiles: ["flows/simple-workflow/flow.ts"],
+              decisions: [],
+              unresolved: [],
+              unsupported: [],
+              notes: "scripted"
+            })
+          ].join("\n")
+        }
 
-      const migrated = (yield* apply(installed, {}, installing)).report.units
-        .find((unit) => unit.id === "workflow:simple-workflow")
-      expect(migrated?.status).toBe("migrated")
-      expect(migrated?.changedFiles.map((file) => file.path)).toContain("pnpm-lock.yaml")
-    }))
+        const migrated = (yield* apply(installed, {}, installing)).report.units
+          .find((unit) => unit.id === "workflow:simple-workflow")
+        expect(migrated?.status).toBe("migrated")
+        expect(migrated?.changedFiles.map((file) => file.path)).toContain("pnpm-lock.yaml")
+      })
+  )
 
   it.effect("never calls a unit that changed nothing migrated", () =>
     Effect.gen(function*() {
@@ -452,7 +477,7 @@ describe("apply over a single-file JSX project", () => {
       expect(hashTree(root).get("simple-workflow.jsx")).toBe(before.get("simple-workflow.jsx"))
     }))
 
-  it.effect("shows a repair round the sources as the round before it left them", () =>
+  guarded("shows a repair round the sources as the round before it left them", () =>
     Effect.gen(function*() {
       const root = copyFixture("jsx-single")
       committed(root)
@@ -508,36 +533,39 @@ describe("apply over a single-file JSX project", () => {
       expect(hashTree(root)).toEqual(before)
     }))
 
-  it.effect("records a unit its own tooling could not finish, and carries on with the next", () =>
-    Effect.gen(function*() {
-      const root = copyFixture("jsx-single")
-      committed(root)
-      // The archive directory is a file, so the workflow unit's archive cannot
-      // create its first parent and fails with the tool's own `io` error
-      // after the rewrite verified. That error used to end the run and lose
-      // every finished unit; now it is the unit's recorded outcome.
-      mkdirSync(join(root, ".smithers-migrate"), { recursive: true })
-      writeFileSync(join(root, ".smithers-migrate", "archive"), "in the way\n")
-      const before = hashTree(root)
+  guarded(
+    "records a unit its own tooling could not finish, and carries on with the next",
+    () =>
+      Effect.gen(function*() {
+        const root = copyFixture("jsx-single")
+        committed(root)
+        // The archive directory is a file, so the workflow unit's archive cannot
+        // create its first parent and fails with the tool's own `io` error
+        // after the rewrite verified. That error used to end the run and lose
+        // every finished unit; now it is the unit's recorded outcome.
+        mkdirSync(join(root, ".smithers-migrate"), { recursive: true })
+        writeFileSync(join(root, ".smithers-migrate", "archive"), "in the way\n")
+        const before = hashTree(root)
 
-      const { report } = yield* apply(root)
+        const { report } = yield* apply(root)
 
-      expect(report.exitCode).toBe(1)
-      const workflow = report.units.find((unit) => unit.id === "workflow:simple-workflow")
-      expect(workflow?.status).toBe("failed")
-      const recorded = workflow?.unresolved.find((entry) => entry.construct === "the unit could not finish")
-      expect(recorded?.reason).toMatch(/^io: could not create/)
-      expect(recorded?.suggestion).toContain("--unit workflow:simple-workflow")
-      // The unit that archives nothing finished, and the one after the failure ran.
-      expect(report.units.find((unit) => unit.id === "dependencies")?.status).toBe("migrated")
-      expect(report.units.map((unit) => unit.id)).toEqual(["dependencies", "workflow:simple-workflow", "project"])
-      // The failed unit's files are as the checkpoint found them.
-      expect(hashTree(root).get("simple-workflow.jsx")).toBe(before.get("simple-workflow.jsx"))
-      expect(existsSync(join(root, "flows", "simple-workflow", "flow.ts"))).toBe(false)
-      expect(existsSync(join(root, ".smithers-migrate", "report.md"))).toBe(true)
-    }))
+        expect(report.exitCode).toBe(1)
+        const workflow = report.units.find((unit) => unit.id === "workflow:simple-workflow")
+        expect(workflow?.status).toBe("failed")
+        const recorded = workflow?.unresolved.find((entry) => entry.construct === "the unit could not finish")
+        expect(recorded?.reason).toMatch(/^io: could not create/)
+        expect(recorded?.suggestion).toContain("--unit workflow:simple-workflow")
+        // The unit that archives nothing finished, and the one after the failure ran.
+        expect(report.units.find((unit) => unit.id === "dependencies")?.status).toBe("migrated")
+        expect(report.units.map((unit) => unit.id)).toEqual(["dependencies", "workflow:simple-workflow", "project"])
+        // The failed unit's files are as the checkpoint found them.
+        expect(hashTree(root).get("simple-workflow.jsx")).toBe(before.get("simple-workflow.jsx"))
+        expect(existsSync(join(root, "flows", "simple-workflow", "flow.ts"))).toBe(false)
+        expect(existsSync(join(root, ".smithers-migrate", "report.md"))).toBe(true)
+      })
+  )
 
-  it.effect("accepts a file copy as the checkpoint when the operator says so", () =>
+  guarded("accepts a file copy as the checkpoint when the operator says so", () =>
     Effect.gen(function*() {
       const root = copyFixture("jsx-single")
 
@@ -584,7 +612,7 @@ const runStateFiles = [
 ]
 
 describe("apply over a project that still holds run state", () => {
-  it.effect("migrates it and leaves every run-state byte where it was", () =>
+  guarded("migrates it and leaves every run-state byte where it was", () =>
     Effect.gen(function*() {
       const { before, root } = yield* withRunState
 
@@ -601,7 +629,7 @@ describe("apply over a project that still holds run state", () => {
       expect(before.has(".smithers/smithers.db")).toBe(true)
     }))
 
-  it.effect("fails the unit that adds a file under a run-state root, and restores it", () =>
+  guarded("fails the unit that adds a file under a run-state root, and restores it", () =>
     Effect.gen(function*() {
       const { before, root } = yield* withRunState
 
@@ -638,7 +666,7 @@ describe("apply over a project that still holds run state", () => {
       expect(hashTree(root).get(".smithers/smithers.db")).toBe(before.get(".smithers/smithers.db"))
     }))
 
-  it.effect("refuses the agent's own write to the database", () =>
+  guarded("refuses the agent's own write to the database", () =>
     Effect.gen(function*() {
       const { before, root } = yield* withRunState
 
@@ -690,62 +718,65 @@ describe("apply over a project that still holds run state", () => {
       expect(hashTree(root).get(".smithers/smithers.db")).toBe(before.get(".smithers/smithers.db"))
     }))
 
-  it.effect("refuses the agent's own read of the database and its listing of the execution logs", () =>
-    Effect.gen(function*() {
-      const { before, root } = yield* withRunState
+  guarded(
+    "refuses the agent's own read of the database and its listing of the execution logs",
+    () =>
+      Effect.gen(function*() {
+        const { before, root } = yield* withRunState
 
-      // Reading is copying: a database read into a model call has left the
-      // machine. The kernel answers before the bytes move, on the exact path
-      // and on everything under a run-state root, and the cell carries each
-      // answer out in its report so the refusal is the assertion.
-      const meddling = (_root: string, written: Array<string>): Layers.Script => (asked) => {
-        const unit = unitOf(asked)
-        if (unit !== "workflow:simple-workflow") return emptyAnswer(unit)
-        written.push(unit)
-        return [
-          `const read = await ctx.call("read", { path: ".smithers/smithers.db" })`,
-          `const listed = await ctx.call("ls", { path: ".smithers/executions" })`,
-          `const log = await ctx.call("read", { path: ".smithers/executions/run-1783757199651/stdout.log" })`,
-          `const source = await ctx.call("read", { path: "simple-workflow.jsx" })`,
-          `await ctx.call("write", { path: "flows/simple-workflow/flow.ts", content: ${JSON.stringify(golden)} })`,
-          `ctx.done(JSON.stringify({`,
-          `  unit: ${JSON.stringify("workflow:simple-workflow")},`,
-          `  changedFiles: ["flows/simple-workflow/flow.ts"],`,
-          `  decisions: [],`,
-          `  unresolved: [`,
-          `    { construct: "read database", reason: JSON.stringify(read), file: "simple-workflow.jsx", line: 1, suggestion: "none" },`,
-          `    { construct: "list executions", reason: JSON.stringify(listed), file: "simple-workflow.jsx", line: 1, suggestion: "none" },`,
-          `    { construct: "read log", reason: JSON.stringify(log), file: "simple-workflow.jsx", line: 1, suggestion: "none" },`,
-          `    { construct: "read source", reason: JSON.stringify(source), file: "simple-workflow.jsx", line: 1, suggestion: "none" }`,
-          `  ],`,
-          `  unsupported: [],`,
-          `  notes: "scripted"`,
-          `}))`
-        ].join("\n")
-      }
-
-      const { report } = yield* apply(root, { acknowledgeRunState: true }, meddling)
-
-      const workflow = report.units.find((unit) => unit.id === "workflow:simple-workflow")
-      const answer = (construct: string) =>
-        JSON.parse(workflow?.unresolved.find((entry) => entry.construct === construct)?.reason ?? "{}") as {
-          ok: boolean
-          error?: { message: string }
+        // Reading is copying: a database read into a model call has left the
+        // machine. The kernel answers before the bytes move, on the exact path
+        // and on everything under a run-state root, and the cell carries each
+        // answer out in its report so the refusal is the assertion.
+        const meddling = (_root: string, written: Array<string>): Layers.Script => (asked) => {
+          const unit = unitOf(asked)
+          if (unit !== "workflow:simple-workflow") return emptyAnswer(unit)
+          written.push(unit)
+          return [
+            `const read = await ctx.call("read", { path: ".smithers/smithers.db" })`,
+            `const listed = await ctx.call("ls", { path: ".smithers/executions" })`,
+            `const log = await ctx.call("read", { path: ".smithers/executions/run-1783757199651/stdout.log" })`,
+            `const source = await ctx.call("read", { path: "simple-workflow.jsx" })`,
+            `await ctx.call("write", { path: "flows/simple-workflow/flow.ts", content: ${JSON.stringify(golden)} })`,
+            `ctx.done(JSON.stringify({`,
+            `  unit: ${JSON.stringify("workflow:simple-workflow")},`,
+            `  changedFiles: ["flows/simple-workflow/flow.ts"],`,
+            `  decisions: [],`,
+            `  unresolved: [`,
+            `    { construct: "read database", reason: JSON.stringify(read), file: "simple-workflow.jsx", line: 1, suggestion: "none" },`,
+            `    { construct: "list executions", reason: JSON.stringify(listed), file: "simple-workflow.jsx", line: 1, suggestion: "none" },`,
+            `    { construct: "read log", reason: JSON.stringify(log), file: "simple-workflow.jsx", line: 1, suggestion: "none" },`,
+            `    { construct: "read source", reason: JSON.stringify(source), file: "simple-workflow.jsx", line: 1, suggestion: "none" }`,
+            `  ],`,
+            `  unsupported: [],`,
+            `  notes: "scripted"`,
+            `}))`
+          ].join("\n")
         }
-      expect(answer("read database").ok).toBe(false)
-      expect(answer("read database").error?.message).toContain(".smithers/smithers.db")
-      expect(answer("list executions").ok).toBe(false)
-      expect(answer("read log").ok).toBe(false)
-      // A source that merely shares the directory is still the agent's to read:
-      // the answer is the file, not a refusal.
-      const source = workflow?.unresolved.find((entry) => entry.construct === "read source")?.reason ?? ""
-      expect(source).toContain("Workflow")
-      expect(source).not.toContain("\"ok\":false")
-      expect(workflow?.status).toBe("migrated")
-      expect(hashTree(root).get(".smithers/smithers.db")).toBe(before.get(".smithers/smithers.db"))
-    }))
 
-  it.effect("lets a unit rewrite a file at the project root", () =>
+        const { report } = yield* apply(root, { acknowledgeRunState: true }, meddling)
+
+        const workflow = report.units.find((unit) => unit.id === "workflow:simple-workflow")
+        const answer = (construct: string) =>
+          JSON.parse(workflow?.unresolved.find((entry) => entry.construct === construct)?.reason ?? "{}") as {
+            ok: boolean
+            error?: { message: string }
+          }
+        expect(answer("read database").ok).toBe(false)
+        expect(answer("read database").error?.message).toContain(".smithers/smithers.db")
+        expect(answer("list executions").ok).toBe(false)
+        expect(answer("read log").ok).toBe(false)
+        // A source that merely shares the directory is still the agent's to read:
+        // the answer is the file, not a refusal.
+        const source = workflow?.unresolved.find((entry) => entry.construct === "read source")?.reason ?? ""
+        expect(source).toContain("Workflow")
+        expect(source).not.toContain("\"ok\":false")
+        expect(workflow?.status).toBe("migrated")
+        expect(hashTree(root).get(".smithers/smithers.db")).toBe(before.get(".smithers/smithers.db"))
+      })
+  )
+
+  guarded("lets a unit rewrite a file at the project root", () =>
     Effect.gen(function*() {
       const { root } = yield* withRunState
 
@@ -781,7 +812,7 @@ describe("apply under the canonical project's lock", () => {
   // complete apply through real filesystem/process services. Its finite
   // budget covers all four attempts; individual apply tests retain 60 s.
   for (const originalReport of [".smithers-migrate", "audit/original"]) {
-    it.effect(
+    guarded(
       `preserves the pending checkpoint in ${originalReport} through retries and resumes after recovery`,
       () =>
         Effect.gen(function*() {
@@ -842,27 +873,30 @@ describe("apply under the canonical project's lock", () => {
       yield* Lock.release(held).pipe(Effect.provide(NodeServices.layer))
     }))
 
-  it.effect("takes over a dead run's lock, notes it in the report, and gives the lock back", () =>
-    Effect.gen(function*() {
-      const root = copyFixture("jsx-single")
-      committed(root)
-      // A lock whose pid is gone: a process that really ran and really exited.
-      const pid = spawnSync(process.execPath, ["-e", ""]).pid
-      mkdirSync(join(root, ".smithers-migrate"), { recursive: true })
-      writeFileSync(
-        join(root, ".smithers-migrate", "apply.lock"),
-        `${JSON.stringify({ pid, startedAt: "2026-01-01T00:00:00.000Z", root, reportDir: "previous-report" })}\n`
-      )
+  guarded(
+    "takes over a dead run's lock, notes it in the report, and gives the lock back",
+    () =>
+      Effect.gen(function*() {
+        const root = copyFixture("jsx-single")
+        committed(root)
+        // A lock whose pid is gone: a process that really ran and really exited.
+        const pid = spawnSync(process.execPath, ["-e", ""]).pid
+        mkdirSync(join(root, ".smithers-migrate"), { recursive: true })
+        writeFileSync(
+          join(root, ".smithers-migrate", "apply.lock"),
+          `${JSON.stringify({ pid, startedAt: "2026-01-01T00:00:00.000Z", root, reportDir: "previous-report" })}\n`
+        )
 
-      const { report } = yield* apply(root, { reportDir: "audit" })
+        const { report } = yield* apply(root, { reportDir: "audit" })
 
-      expect(report.units.every((unit) => unit.status === "migrated")).toBe(true)
-      const note = report.followUps.find((entry) => entry.severity === "info" && entry.text.includes(String(pid)))
-      expect(note?.text).toContain("took over the lock")
-      expect(note?.text).toContain("previous-report/pending-unit.json")
-      // The report on disk carries the note, and the run gave the lock back.
-      expect(readFileSync(join(root, "audit", "report.json"), "utf8")).toContain("took over the lock")
-      expect(existsSync(join(root, ".smithers-migrate", "apply.lock"))).toBe(false)
-      expect(existsSync(join(root, ".smithers-migrate", "apply.lock.sqlite"))).toBe(true)
-    }))
+        expect(report.units.every((unit) => unit.status === "migrated")).toBe(true)
+        const note = report.followUps.find((entry) => entry.severity === "info" && entry.text.includes(String(pid)))
+        expect(note?.text).toContain("took over the lock")
+        expect(note?.text).toContain("previous-report/pending-unit.json")
+        // The report on disk carries the note, and the run gave the lock back.
+        expect(readFileSync(join(root, "audit", "report.json"), "utf8")).toContain("took over the lock")
+        expect(existsSync(join(root, ".smithers-migrate", "apply.lock"))).toBe(false)
+        expect(existsSync(join(root, ".smithers-migrate", "apply.lock.sqlite"))).toBe(true)
+      })
+  )
 })

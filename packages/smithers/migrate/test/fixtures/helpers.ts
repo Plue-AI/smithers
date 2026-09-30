@@ -21,8 +21,9 @@ import {
   statSync,
   writeFileSync
 } from "node:fs"
+import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
-import { join, resolve } from "node:path"
+import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import * as Layer from "effect/Layer"
 
@@ -36,6 +37,29 @@ export const nodeLayer = Layer.merge(NodeFileSystem.layer, NodePath.layer)
 
 /** The absolute path of one committed fixture. */
 export const fixture = (name: string): string => fileURLToPath(new URL(`./${name}`, import.meta.url))
+
+/**
+ * Whether the native `smithers-jj-export` helper is where the kernel-guarded
+ * filesystem looks for it: `SMITHERS_WORKSPACE_JJ_EXPORT_BINARY`, the
+ * platform-node package's own `bin/`, a source checkout's `target/release` or
+ * `target/debug`, or `/usr/local/bin`. Without it every guarded filesystem
+ * request fails closed as `PermissionDenied`, so a journey whose agent writes
+ * through the `write` flow cannot migrate anything. CI builds it; a fresh
+ * checkout or worktree has it only after
+ * `cargo build --locked --release -p smithers-ffi --bin smithers-jj-export`.
+ */
+export const nativeHelperAvailable: boolean = (() => {
+  const name = process.platform === "win32" ? "smithers-jj-export.exe" : "smithers-jj-export"
+  const checkout = fileURLToPath(new URL("../../../../../", import.meta.url))
+  const platformNode = dirname(createRequire(import.meta.url).resolve("@smthrs/platform-node/package.json"))
+  return [
+    process.env.SMITHERS_WORKSPACE_JJ_EXPORT_BINARY,
+    join(platformNode, "bin", `${process.platform}-${process.arch}`, name),
+    join(checkout, "target", "release", name),
+    join(checkout, "target", "debug", name),
+    "/usr/local/bin/smithers-jj-export"
+  ].some((path) => path !== undefined && path !== "" && existsSync(path))
+})()
 
 const temporaries: Array<string> = []
 

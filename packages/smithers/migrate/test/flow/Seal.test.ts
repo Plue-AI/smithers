@@ -22,7 +22,7 @@ import * as Effect from "effect/Effect"
 import { execFileSync } from "node:child_process"
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
-import { copyFixture, fixture, hashTree, nodeLayer } from "../fixtures/helpers.ts"
+import { copyFixture, fixture, hashTree, nativeHelperAvailable, nodeLayer } from "../fixtures/helpers.ts"
 
 const golden = readFileSync(join(fixture("jsx-single.migrated"), "flows", "simple-workflow", "flow.ts"), "utf8")
 
@@ -73,6 +73,12 @@ const launch = (root: string, surveyed: Command.Survey) =>
   )
 
 const survey = (root: string) => Command.survey(options(root)).pipe(Effect.provide(nodeLayer))
+
+/**
+ * An apply journey whose agent writes through the kernel-guarded filesystem,
+ * which needs the native helper; see {@link nativeHelperAvailable}.
+ */
+const guarded = it.effect.skipIf(!nativeHelperAvailable)
 
 /** The package's own error, or a failed assertion naming what arrived instead. */
 const migrateError = (failure: unknown): MigrateError => {
@@ -179,28 +185,31 @@ describe("the seal step", () => {
       expect(failure.details).toContain("flows/simple-workflow/flow.ts: was absent, is now file")
     }))
 
-  it.effect("accepts the tree it sealed, and clears the artifacts of an earlier run before the first unit", () =>
-    Effect.gen(function*() {
-      const root = copyFixture("jsx-single")
-      committed(root)
-      // What a crashed earlier run leaves behind: an artifact for a unit id
-      // this run also plans. Read back, it would report that unit as
-      // finished by a run that never ran it.
-      const stale = join(root, MigrateFlow.unitArtifact(options(root), "workflow:simple-workflow"))
-      mkdirSync(join(stale, ".."), { recursive: true })
-      writeFileSync(stale, JSON.stringify({ id: "workflow:simple-workflow", status: "migrated" }))
-      const surveyed = yield* survey(root)
+  guarded(
+    "accepts the tree it sealed, and clears the artifacts of an earlier run before the first unit",
+    () =>
+      Effect.gen(function*() {
+        const root = copyFixture("jsx-single")
+        committed(root)
+        // What a crashed earlier run leaves behind: an artifact for a unit id
+        // this run also plans. Read back, it would report that unit as
+        // finished by a run that never ran it.
+        const stale = join(root, MigrateFlow.unitArtifact(options(root), "workflow:simple-workflow"))
+        mkdirSync(join(stale, ".."), { recursive: true })
+        writeFileSync(stale, JSON.stringify({ id: "workflow:simple-workflow", status: "migrated" }))
+        const surveyed = yield* survey(root)
 
-      const report = yield* launch(root, surveyed)
+        const report = yield* launch(root, surveyed)
 
-      const workflow = report.units.find((unit) => unit.id === "workflow:simple-workflow")
-      expect(workflow?.status).toBe("migrated")
-      expect(workflow?.changedFiles.length).toBeGreaterThan(0)
-      // The artifact on disk is this run's: it decodes, and it is the unit's real outcome.
-      const recorded = JSON.parse(readFileSync(stale, "utf8")) as { id: string; repairRounds: number }
-      expect(recorded.id).toBe("workflow:simple-workflow")
-      expect(recorded.repairRounds).toBe(0)
-    }))
+        const workflow = report.units.find((unit) => unit.id === "workflow:simple-workflow")
+        expect(workflow?.status).toBe("migrated")
+        expect(workflow?.changedFiles.length).toBeGreaterThan(0)
+        // The artifact on disk is this run's: it decodes, and it is the unit's real outcome.
+        const recorded = JSON.parse(readFileSync(stale, "utf8")) as { id: string; repairRounds: number }
+        expect(recorded.id).toBe("workflow:simple-workflow")
+        expect(recorded.repairRounds).toBe(0)
+      })
+  )
 })
 
 describe("unit artifacts", () => {
