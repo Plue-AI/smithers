@@ -3,6 +3,8 @@ import type { ProjectionCursor } from "@smthrs/gateway/GatewaySchema"
 import type { Card } from "../AppState"
 import type { ControllerContext } from "./context"
 import type { ApprovalRow, RunStatus, RunSummaryRow } from "./gateway"
+import { Schema } from "effect"
+import { ControlFacts } from "@smthrs/control"
 import { questionOf } from "../../cards/ApprovalQuestion"
 import { engineProjectionPending } from "../../cards/EngineTrace"
 import { reconcileRunApprovals } from "./approval-reconciliation"
@@ -36,6 +38,7 @@ const PHASE_OF_STATUS: Readonly<Record<RunStatus, Extract<Card, { kind: "run-tra
 }
 
 const TERMINAL_PHASES: ReadonlySet<string> = new Set(["completed", "failed", "cancelled"])
+const isGuardIncident = Schema.is(ControlFacts.GuardIncident)
 
 /**
  * How many journal pages one pump cycle reads.
@@ -568,6 +571,17 @@ export const createWorkflowPumpController = (
   }
 
   /**
+   * The undecided request a budget or time guard parked the run on, if any.
+   * A projection that cannot be read leaves the run to the cancel.
+   */
+  const guardGate = async (repo: string, runId: string, binding: { readonly workspaceId: string }): Promise<ApprovalRow | undefined> => {
+    const gates = await gateway.approvals(repo, runId, binding)
+    return gates.status === "ok"
+      ? [...gates.value].reverse().find(row => row.status === "pending" && isGuardIncident((row.request as { readonly incident?: unknown } | null)?.incident))
+      : undefined
+  }
+
+  /**
    * Stop watching, and stop the run.
    *
    * The old seam relayed no cancel, so it could only stop watching and had to
@@ -586,10 +600,17 @@ export const createWorkflowPumpController = (
       patchRunCard(cardId, { phase: "stopped", observationError: binding.error })
       return binding.error
     }
-    void gateway.cancel(card.payload.repo, card.payload.runId, reason, binding).then(async (cancelled) => {
+    const { repo, runId } = card.payload
+    void guardGate(repo, runId, binding).then(async (gate) => {
+      // A run a budget or time limit parked stops by denying the guard's own
+      // request: the decision is durable and the run settles from it as
+      // stopped. Any other run is cancelled.
+      const stopped = gate === undefined
+        ? await gateway.cancel(repo, runId, reason, binding)
+        : await gateway.submitApproval(repo, gate.payload, "deny", binding)
       if (ctx.disposed) return
-      if (cancelled.status !== "ok") {
-        patchRunCard(cardId, { phase: "stopped", observationError: cancelled.message })
+      if (stopped.status !== "ok") {
+        patchRunCard(cardId, { phase: "stopped", observationError: stopped.message })
         return
       }
       // A cancel receipt records accepted intent. Read the resulting gateway

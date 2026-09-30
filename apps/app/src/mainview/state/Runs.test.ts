@@ -616,6 +616,39 @@ describe("runs.open / resume / signal / steer — the run's acts", () => {
     expect(double.state.submitted).toEqual([])
   })
 
+  describe("flow.run.stop on a run a guard parked", () => {
+    const incident = { classification: "Runaway", source: "usd", message: "The run would spend past its $1.00 budget", used: 0.9, max: 1, next: 0.25, allowance: 2 }
+    const guardGate = { ...approvalRow("run-2", "budget/run-2/usd", "Raise the USD budget?"), request: { question: "Raise the USD budget?", incident } }
+    const stopCard = async (options: Parameters<typeof relay>[0]) => {
+      const store = await webStore()
+      const double = relay({ runs: [{ runId: "run-2", flowId: "review-pr", status: "parked", waitingReason: "budget" }], ...options })
+      const controller = createAppController(store, silentAgent, double.services)
+      await signIn(store)
+      await openMonitor(controller, store, "run-2")
+      expect((await controller.commands.run("flow.run.stop", boxRunCard("run-2"))).status).toBe("executed")
+      return double
+    }
+
+    test("denies the guard's own request unchanged instead of cancelling", async () => {
+      const double = await stopCard({ approvals: [approvalRow("run-2", "push", "Push?"), guardGate] })
+      await waitFor(() => double.state.submitted.length === 1)
+      expect(double.state.submitted).toEqual([{ approval: guardGate.payload, decision: "deny" }])
+      expect(double.state.cancelled).toEqual([])
+      expect(double.state.resumed).toEqual([])
+    })
+
+    test.each([
+      ["an ordinary approval", { approvals: [approvalRow("run-2", "push", "Push?")] }],
+      ["a guard request already decided", { approvals: [{ ...guardGate, status: "denied" }] }],
+      ["unreadable approvals", { approvals: [guardGate], projectionRefusals: { approvals: { message: "Approvals unavailable", code: "unavailable" } } }]
+    ])("cancels a run held by %s, and decides nothing", async (_name, options) => {
+      const double = await stopCard(options as Parameters<typeof relay>[0])
+      await waitFor(() => double.state.cancelled.length === 1)
+      expect(double.state.cancelled[0]?.runId).toBe("run-2")
+      expect(double.state.submitted).toEqual([])
+    })
+  })
+
   test("a resume refusal crosses as the flow's error", async () => {
     const store = await webStore()
     const double = relay({

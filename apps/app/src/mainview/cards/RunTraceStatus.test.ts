@@ -372,6 +372,17 @@ describe("a runaway guard's park", () => {
     }
     expect(traceStatus(model([...parked, event(2, "approval.approved", { requestId: "another" })])).incident).toBeDefined()
   })
+  test("a recorded budget park is runaway until the same run resumes", () => {
+    const park = event(1, "run.parked", { reason: "budget" })
+    expect(traceStatus(model([park]))).toEqual({ condition: "runaway" })
+    // Its request, when it arrives, is the decision the run waits on.
+    expect(traceStatus(model([park, ...parked.map(row => ({ ...row, sequence: 2 }))]))).toMatchObject({
+      incident: { requestId: "budget/run-1/usd" }, condition: "approval", action: "approval"
+    })
+    expect(traceStatus(model([park, event(2, "run.resumed")])).condition).toBeUndefined()
+    // Another step's operator park still offers its resume.
+    expect(traceStatus(model([park, event(2, "run.parked", { reason: "event" })]))).toMatchObject({ condition: "blocked", action: "resume" })
+  })
   test("a stopped run reads its verdict and no incident", () => {
     expect(traceStatus(model([...parked, event(2, "run.cancelled")]))).toEqual({ verdict: "cancelled" })
     expect(traceStatus(model(parked, "cancelled"))).toEqual({ verdict: "cancelled" })

@@ -53,11 +53,11 @@ export interface ParkedIncident {
 }
 
 export interface RunStatus {
-  /** The guard's park: `facts.classification` is the status word, Continue approves `requestId`, Stop cancels. */
+  /** The guard's park: `facts.classification` is the status word, Continue approves `requestId`, Stop denies it. */
   readonly incident?: ParkedIncident
   readonly verdict?: string
   readonly activity?: string
-  readonly condition?: "thrashing" | "blocked" | "approval"
+  readonly condition?: "thrashing" | "blocked" | "approval" | "runaway"
   readonly action?: "resume" | "approval"
 }
 
@@ -71,7 +71,7 @@ export interface RunStatus {
  */
 interface StepCondition {
   thrashing: boolean
-  parked: "resume" | "approval" | undefined
+  parked: "resume" | "approval" | "runaway" | undefined
 }
 
 /** Current work and a separate condition. Historical callers must supply their cursor. */
@@ -160,7 +160,9 @@ export const traceStatus = (model: TraceModel, cursor?: number): RunStatus => {
       case "control.agent.suspended":
       case "control.run.parked": {
         const held = step(row)
-        held.parked = p.reason === "approval" ? "approval" : "resume"
+        // A budget or time guard's park (`reason: "budget"`) waits on
+        // Continue or Stop: a bare resume would only park it again.
+        held.parked = p.reason === "approval" ? "approval" : p.reason === "budget" ? "runaway" : "resume"
         break
       }
       // The invocation ended. Whatever it was carrying ended with it.
@@ -194,6 +196,7 @@ export const traceStatus = (model: TraceModel, cursor?: number): RunStatus => {
   const parked = outstanding.some((one) => one.parked === "resume")
     ? "resume" : outstanding.find((one) => one.parked !== undefined)?.parked
   const condition: RunStatus["condition"] = approvals.size > 0 ? "approval"
+    : parked === "runaway" ? "runaway"
     : parked !== undefined ? "blocked"
     : outstanding.some((one) => one.thrashing) ? "thrashing" : undefined
   const action: RunStatus["action"] = approvals.size > 0 ? "approval" : parked === "resume" ? "resume" : undefined

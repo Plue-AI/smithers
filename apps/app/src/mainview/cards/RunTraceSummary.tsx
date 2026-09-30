@@ -36,7 +36,8 @@ export const RunTraceSummary = ({ card, model, facts, onRunCommand: send, admin 
   // A guard's park is its own status: the class as the word, Continue and Stop as the acts.
   const incident = verdict === undefined ? current.incident : undefined
   const condition = verdict !== undefined || incident !== undefined ? undefined : action === "approval" ? "Approval needed"
-    : current.condition === "thrashing" ? "Thrashing" : current.condition === "blocked" || action === "resume" ? "Blocked" : undefined
+    : current.condition === "thrashing" ? "Thrashing" : current.condition === "runaway" ? "Runaway"
+    : current.condition === "blocked" || action === "resume" ? "Blocked" : undefined
   const status = verdict ?? phase
   const activity = verdict === undefined && (phase === "running" || phase === "waiting-approval") ? current.activity : undefined
   const needsHelp = latestNeedsHelp(model.journal)

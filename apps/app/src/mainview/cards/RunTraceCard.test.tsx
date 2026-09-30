@@ -1234,7 +1234,14 @@ describe("a runaway guard's park", () => {
   const incident = { classification: "Runaway", source: "usd", message: "The run would spend past its $1.00 budget", used: 0.9, max: 1 }
   const requested = stamp(9, "control.approval.requested", { requestId: "budget/run-1/usd", question: "Raise the USD budget?", incident }, 5500)
   const header = (host: Element) => host.querySelector("[data-testid='run-outcome-run-1']")!
-  test("parked: the class is the status, Continue approves its request and Stop cancels", () => {
+  test("a budget park whose request has not arrived reads Runaway and offers no Resume", () => {
+    const { host } = renderTrace({ events: [...JOURNAL, stamp(9, "control.run.parked", { reason: "budget" }, 5500)], traceView: undefined })
+    const condition = header(host).querySelector(".run-outcome-condition")
+    expect(condition?.textContent).toBe("Runaway")
+    expect(condition?.getAttribute("data-condition")).toBe("runaway")
+    expect(header(host).querySelector("[data-flow='runs.resume']")).toBeNull()
+  })
+  test("parked: the class is the status, Continue approves its request and Stop denies it", () => {
     const { host, dispatched } = renderTrace({ events: [...JOURNAL, requested], traceView: undefined })
     expect(header(host).querySelector(".run-outcome-words")?.textContent).toBe("Runaway")
     expect(header(host).querySelector(".run-outcome-words")?.getAttribute("title")).toBe(incident.message)
