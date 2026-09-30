@@ -71,15 +71,22 @@ func TestMythicalRunReceiptsReadsRequestAndVerifyResults(t *testing.T) {
 	}
 	assert.Nil(t, mythicalRunReceipts("verify", "run", receiptUpdate(`{"receipts":[`+strings.Join(malformed, ",")+`]}`)))
 
-	// At most mythicalReceiptBound are kept.
-	many := make([]string, mythicalReceiptBound+5)
-	for i := range many {
-		many[i] = flowReceipt(fmt.Sprintf("check-%d", i), "slow", "passed", "d")
+	// At most mythicalReceiptBound are kept, and the last Change's (the
+	// candidate head's) are never the ones dropped.
+	changes := make([]string, 5)
+	for change := range changes {
+		receipts := make([]string, 50)
+		for i := range receipts {
+			receipts[i] = flowReceipt(fmt.Sprintf("check-%d", i), "slow", "passed", fmt.Sprintf("commit-%d", change))
+		}
+		changes[change] = `{"implementation":{},"receipts":[` + strings.Join(receipts, ",") + `]}`
 	}
-	bounded := mythicalRunReceipts("verify", "run", receiptUpdate(`{"receipts":[`+strings.Join(many, ",")+`]}`))
+	bounded := mythicalRunReceipts("request", "run", receiptUpdate(`{"outcome":{"result":{"changes":[`+strings.Join(changes, ",")+`]}}}`))
 	require.NotNil(t, bounded)
 	assert.Len(t, bounded.Checks, mythicalReceiptBound)
-	assert.Equal(t, "check-0", bounded.Checks[0].Check)
+	assert.Equal(t, mythicalReceipt{Check: "check-0", Tier: "slow", Status: "passed", Commit: "commit-1"}, bounded.Checks[0])
+	assert.True(t, bounded.measures("commit-4"), "the head's receipts are kept")
+	assert.False(t, bounded.measures("commit-0"))
 }
 
 func TestMythicalReceiptsViewShowsOnlyTheCandidatesEvidence(t *testing.T) {

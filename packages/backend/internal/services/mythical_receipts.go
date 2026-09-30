@@ -98,14 +98,16 @@ func mythicalRunReceipts(phase, runID string, update flowdispatch.ProjectionUpda
 			!mythicalReceiptStatuses[receipt.Status] || !mythicalReceiptFaults[receipt.Fault] {
 			continue
 		}
-		if len(kept) == mythicalReceiptBound {
-			break
-		}
 		kept = append(kept, mythicalReceipt{Check: receipt.CheckID, Tier: receipt.Tier, Status: receipt.Status,
 			Fault: receipt.Fault, Commit: receipt.CommitID})
 	}
 	if len(kept) == 0 {
 		return nil
+	}
+	// The candidate's head is the last Change, so its receipts come last:
+	// past the bound, the earliest Changes' receipts are the ones dropped.
+	if len(kept) > mythicalReceiptBound {
+		kept = kept[len(kept)-mythicalReceiptBound:]
 	}
 	return &mythicalReceipts{Run: runID, Checks: kept}
 }
