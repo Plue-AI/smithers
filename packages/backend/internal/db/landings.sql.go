@@ -1067,6 +1067,74 @@ func (q *Queries) FailLandingTask(ctx context.Context, arg FailLandingTaskParams
 	return i, err
 }
 
+const findInFlightLandingRequestByStack = `-- name: FindInFlightLandingRequestByStack :one
+SELECT lr.id, lr.repository_id, lr.number, lr.request_id, lr.create_request_hash, lr.title, lr.body, lr.state, lr.author_id, lr.target_bookmark, lr.source_bookmark, lr.conflict_status, lr.stack_size, lr.agent_authored, lr.author_agent_session_id, lr.turn_party, lr.turn_actor_id, lr.turn_since, lr.turn_reason, lr.turn_revision_id, lr.landed_revisions, lr.auto_land_enabled, lr.auto_land_set_by, lr.auto_land_set_at, lr.auto_land_checked_at, lr.queued_by, lr.queued_at, lr.landing_started_at, lr.closed_at, lr.merged_at, lr.created_at, lr.updated_at
+FROM landing_requests AS lr
+WHERE lr.repository_id = $1
+  AND lr.target_bookmark = $2
+  AND lr.state IN ('open', 'draft', 'queued', 'landing')
+  AND EXISTS (
+      SELECT 1 FROM landing_request_changes AS first_change
+      WHERE first_change.landing_request_id = lr.id
+        AND first_change.change_id = ($3::text[])[1]
+  )
+  AND ARRAY(
+      SELECT lrc.change_id::text
+      FROM landing_request_changes AS lrc
+      WHERE lrc.landing_request_id = lr.id
+      ORDER BY lrc.position_in_stack
+  ) = $3::text[]
+ORDER BY lr.number
+LIMIT 1
+`
+
+type FindInFlightLandingRequestByStackParams struct {
+	RepositoryID   int64    `json:"repository_id"`
+	TargetBookmark string   `json:"target_bookmark"`
+	ChangeIds      []string `json:"change_ids"`
+}
+
+// The earliest in-flight landing request carrying exactly this ordered stack.
+func (q *Queries) FindInFlightLandingRequestByStack(ctx context.Context, arg FindInFlightLandingRequestByStackParams) (LandingRequest, error) {
+	row := q.db.QueryRow(ctx, findInFlightLandingRequestByStack, arg.RepositoryID, arg.TargetBookmark, arg.ChangeIds)
+	var i LandingRequest
+	err := row.Scan(
+		&i.ID,
+		&i.RepositoryID,
+		&i.Number,
+		&i.RequestID,
+		&i.CreateRequestHash,
+		&i.Title,
+		&i.Body,
+		&i.State,
+		&i.AuthorID,
+		&i.TargetBookmark,
+		&i.SourceBookmark,
+		&i.ConflictStatus,
+		&i.StackSize,
+		&i.AgentAuthored,
+		&i.AuthorAgentSessionID,
+		&i.TurnParty,
+		&i.TurnActorID,
+		&i.TurnSince,
+		&i.TurnReason,
+		&i.TurnRevisionID,
+		&i.LandedRevisions,
+		&i.AutoLandEnabled,
+		&i.AutoLandSetBy,
+		&i.AutoLandSetAt,
+		&i.AutoLandCheckedAt,
+		&i.QueuedBy,
+		&i.QueuedAt,
+		&i.LandingStartedAt,
+		&i.ClosedAt,
+		&i.MergedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const fulfillLandingReviewRequestsForAgent = `-- name: FulfillLandingReviewRequestsForAgent :exec
 UPDATE landing_review_requests
 SET state = 'fulfilled'
@@ -2305,6 +2373,21 @@ func (q *Queries) ListTeamNamesForUserByRepository(ctx context.Context, arg List
 		return nil, err
 	}
 	return items, nil
+}
+
+const lockLandingProposal = `-- name: LockLandingProposal :exec
+SELECT pg_advisory_xact_lock(hashtextextended('landing-proposal:' || $1::bigint::text || ':' || $2::text, 0))
+`
+
+type LockLandingProposalParams struct {
+	RepositoryID   int64  `json:"repository_id"`
+	TargetBookmark string `json:"target_bookmark"`
+}
+
+// Serializes proposals onto one repository target for the transaction.
+func (q *Queries) LockLandingProposal(ctx context.Context, arg LockLandingProposalParams) error {
+	_, err := q.db.Exec(ctx, lockLandingProposal, arg.RepositoryID, arg.TargetBookmark)
+	return err
 }
 
 const markLandingRequestFailed = `-- name: MarkLandingRequestFailed :one

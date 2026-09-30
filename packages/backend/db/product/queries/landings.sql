@@ -25,6 +25,31 @@ VALUES (
 ON CONFLICT (repository_id, author_id, request_id) DO NOTHING
 RETURNING *;
 
+-- name: LockLandingProposal :exec
+-- Serializes proposals onto one repository target for the transaction.
+SELECT pg_advisory_xact_lock(hashtextextended('landing-proposal:' || sqlc.arg(repository_id)::bigint::text || ':' || sqlc.arg(target_bookmark)::text, 0));
+
+-- name: FindInFlightLandingRequestByStack :one
+-- The earliest in-flight landing request carrying exactly this ordered stack.
+SELECT lr.*
+FROM landing_requests AS lr
+WHERE lr.repository_id = sqlc.arg(repository_id)
+  AND lr.target_bookmark = sqlc.arg(target_bookmark)
+  AND lr.state IN ('open', 'draft', 'queued', 'landing')
+  AND EXISTS (
+      SELECT 1 FROM landing_request_changes AS first_change
+      WHERE first_change.landing_request_id = lr.id
+        AND first_change.change_id = (sqlc.arg(change_ids)::text[])[1]
+  )
+  AND ARRAY(
+      SELECT lrc.change_id::text
+      FROM landing_request_changes AS lrc
+      WHERE lrc.landing_request_id = lr.id
+      ORDER BY lrc.position_in_stack
+  ) = sqlc.arg(change_ids)::text[]
+ORDER BY lr.number
+LIMIT 1;
+
 -- name: GetLandingRequestByCreateIdentity :one
 SELECT * FROM landing_requests
 WHERE repository_id = $1 AND author_id = $2 AND request_id = $3;

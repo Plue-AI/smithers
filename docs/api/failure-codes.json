@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "digest": "sha256:12cd056b2e4d1c433e988c2d30d7a98b483709933381e40d745d54667a033e7e",
+  "digest": "sha256:48bbd536da56877ccc99c44818a10965bc6979b8b1ffd5e2b2eef60821152b10",
   "faults": [
     "user",
     "wait",
@@ -493,6 +493,13 @@
       "status": 409,
       "retry_after": 0,
       "doc": "The landing request identity was already used with different input or agent authority."
+    },
+    {
+      "code": "landing_stack_in_flight",
+      "fault": "user",
+      "status": 409,
+      "retry_after": 0,
+      "doc": "An in-flight landing request already carries this exact stack onto the target; details.number names it."
     },
     {
       "code": "language_server_missing",

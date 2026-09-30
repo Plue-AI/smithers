@@ -504,6 +504,8 @@ type landingBookmarkRepoHost interface {
 // AddLandingRequestChange writes. It exposes only the query methods needed inside
 // the transaction plus Commit/Rollback.
 type landingCreateTx interface {
+	LockLandingProposal(ctx context.Context, arg db.LockLandingProposalParams) error
+	FindInFlightLandingRequestByStack(ctx context.Context, arg db.FindInFlightLandingRequestByStackParams) (db.LandingRequest, error)
 	CreateLandingRequest(ctx context.Context, arg db.CreateLandingRequestParams) (db.LandingRequest, error)
 	AddLandingRequestChange(ctx context.Context, arg db.AddLandingRequestChangeParams) (db.LandingRequestChange, error)
 	Commit(ctx context.Context) error
@@ -552,6 +554,14 @@ func (m *pgxLandingCreateTxManager) BeginCreateTx(ctx context.Context) (landingC
 type pgxLandingCreateTx struct {
 	tx pgx.Tx
 	q  *db.Queries
+}
+
+func (t *pgxLandingCreateTx) LockLandingProposal(ctx context.Context, arg db.LockLandingProposalParams) error {
+	return t.q.LockLandingProposal(ctx, arg)
+}
+
+func (t *pgxLandingCreateTx) FindInFlightLandingRequestByStack(ctx context.Context, arg db.FindInFlightLandingRequestByStackParams) (db.LandingRequest, error) {
+	return t.q.FindInFlightLandingRequestByStack(ctx, arg)
 }
 
 func (t *pgxLandingCreateTx) CreateLandingRequest(ctx context.Context, arg db.CreateLandingRequestParams) (db.LandingRequest, error) {
@@ -942,13 +952,54 @@ func (s *LandingService) afterCreate(ctx context.Context, repository db.Reposito
 	return mapped, nil
 }
 
+// landingStackInFlight names the in-flight landing request that already
+// carries a proposed stack, so the caller can adopt it by number.
+func landingStackInFlight(number int64) *pkgerrors.APIError {
+	err := pkgerrors.New(pkgerrors.CodeLandingStackInFlight, fmt.Sprintf("landing request #%d already carries this stack", number))
+	err.Details = map[string]int64{"number": number}
+	return err
+}
+
+// lockLandingProposal serializes proposals onto the repository target for the
+// rest of the transaction.
+func lockLandingProposal(ctx context.Context, tx landingCreateTx, params db.CreateLandingRequestParams) error {
+	if err := tx.LockLandingProposal(ctx, db.LockLandingProposalParams{RepositoryID: params.RepositoryID, TargetBookmark: params.TargetBookmark}); err != nil {
+		return normalizeLandingCreateError(err, "failed to serialize landing request proposal")
+	}
+	return nil
+}
+
+// requireStackNotInFlight refuses a stack that an in-flight landing request
+// already carries in the same order. Under lockLandingProposal, concurrent
+// proposals of one stack open one landing request, whatever request identity
+// each caller used.
+func requireStackNotInFlight(ctx context.Context, tx landingCreateTx, params db.CreateLandingRequestParams, changeIDs []string) error {
+	existing, err := tx.FindInFlightLandingRequestByStack(ctx, db.FindInFlightLandingRequestByStackParams{RepositoryID: params.RepositoryID, TargetBookmark: params.TargetBookmark, ChangeIds: changeIDs})
+	if stdErrors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return normalizeLandingCreateError(err, "failed to find the landing request for this stack")
+	}
+	return landingStackInFlight(existing.Number)
+}
+
 // createLandingInTx performs the parent insert and all child change inserts
-// inside a single database transaction. On any failure the transaction is
-// rolled back so no orphan landing_requests row is left behind.
+// inside a single database transaction, after refusing a stack that is already
+// in flight. On any failure the transaction is rolled back so no orphan
+// landing_requests row is left behind.
 func (s *LandingService) createLandingInTx(ctx context.Context, params db.CreateLandingRequestParams, changeIDs []string) (db.LandingRequest, error) {
 	tx, err := s.createTxManager.BeginCreateTx(ctx)
 	if err != nil {
 		return db.LandingRequest{}, normalizeLandingCreateError(err, "failed to begin landing request transaction")
+	}
+	if err := lockLandingProposal(ctx, tx, params); err != nil {
+		rollbackLandingTx(ctx, tx)
+		return db.LandingRequest{}, err
+	}
+	if err := requireStackNotInFlight(ctx, tx, params, changeIDs); err != nil {
+		rollbackLandingTx(ctx, tx)
+		return db.LandingRequest{}, err
 	}
 
 	created, err := tx.CreateLandingRequest(ctx, params)

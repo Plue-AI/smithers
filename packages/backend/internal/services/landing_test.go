@@ -732,12 +732,28 @@ func (m *mockLandingCreateTxManager) BeginCreateTx(ctx context.Context) (landing
 }
 
 type mockLandingCreateTx struct {
+	lockProposalFn         func(ctx context.Context, arg db.LockLandingProposalParams) error
+	findInFlightFn         func(ctx context.Context, arg db.FindInFlightLandingRequestByStackParams) (db.LandingRequest, error)
 	createLandingRequestFn func(ctx context.Context, arg db.CreateLandingRequestParams) (db.LandingRequest, error)
 	addLandingChangeFn     func(ctx context.Context, arg db.AddLandingRequestChangeParams) (db.LandingRequestChange, error)
 	commitFn               func(ctx context.Context) error
 	rollbackFn             func(ctx context.Context) error
 	committed              bool
 	rolledBack             bool
+}
+
+func (m *mockLandingCreateTx) LockLandingProposal(ctx context.Context, arg db.LockLandingProposalParams) error {
+	if m.lockProposalFn != nil {
+		return m.lockProposalFn(ctx, arg)
+	}
+	return nil
+}
+
+func (m *mockLandingCreateTx) FindInFlightLandingRequestByStack(ctx context.Context, arg db.FindInFlightLandingRequestByStackParams) (db.LandingRequest, error) {
+	if m.findInFlightFn != nil {
+		return m.findInFlightFn(ctx, arg)
+	}
+	return db.LandingRequest{}, pgx.ErrNoRows
 }
 
 func (m *mockLandingCreateTx) CreateLandingRequest(ctx context.Context, arg db.CreateLandingRequestParams) (db.LandingRequest, error) {

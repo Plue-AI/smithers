@@ -1,7 +1,13 @@
 ---
-title: Landing review and comment create keys
-description: Stable create identity for landing reviews and inline comments.
+title: Landing create keys
+description: Stable create identity for landing requests, reviews and inline comments.
 ---
+
+## Open a landing request
+
+`PUT /api/repos/{owner}/{repo}/landings/requests/{request_uuid}` opens a landing request under a canonical UUID. A retry with the same UUID and input returns the original landing request, even after it is closed or merged; a changed input returns `409`.
+
+Creating a landing request never opens a second in-flight landing request for one exact ordered stack of changes onto one target bookmark. While a landing request in `open`, `draft`, `queued` or `landing` carries the same change IDs in the same order onto the same target, any other create for that stack, with a different UUID or with none (`POST .../landings`), returns `409` with code `landing_stack_in_flight`; `details.number` names the landing request that holds the stack. Proposals onto one target are serialized, so concurrent callers open one landing request and every other caller receives that refusal. A refused UUID is not recorded. A reordered, partial or extended stack is a new proposal. After the landing request is `closed`, `merged` or `failed`, the next proposal opens a new one. This check applies to creates only; editing, reopening or retargeting an existing landing request does not consult it.
 
 ## Create a review or comment
 

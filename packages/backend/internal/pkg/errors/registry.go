@@ -201,6 +201,7 @@ const (
 	CodeAppendPrepareInvalid      Code = "append_prepare_invalid"
 	CodeLandingCreateUnavailable  Code = "landing_create_unavailable"
 	CodeLandingRequestConflict    Code = "landing_request_conflict"
+	CodeLandingStackInFlight      Code = "landing_stack_in_flight"
 	CodeGitHubImportAlreadyActive Code = "github_import_already_active"
 	CodeOrgMembershipRequired     Code = "org_membership_required"
 	CodeOutOfCredit               Code = "out_of_credit"
@@ -301,6 +302,7 @@ var registry = map[Code]Entry{
 	CodeAppendPrepareInvalid:     {Status: http.StatusServiceUnavailable, Fault: FaultInfra, Doc: "Native append preparation did not return the requested exact source identities."},
 	CodeLandingCreateUnavailable: {Status: http.StatusServiceUnavailable, Fault: FaultInfra, Doc: "Idempotent landing creation requires the existing transactional store."},
 	CodeLandingRequestConflict:   {Status: http.StatusConflict, Fault: FaultUser, Doc: "The landing request identity was already used with different input or agent authority."},
+	CodeLandingStackInFlight:     {Status: http.StatusConflict, Fault: FaultUser, Doc: "An in-flight landing request already carries this exact stack onto the target; details.number names it."},
 	// The request was malformed or carried a value the endpoint cannot
 	// accept.
 	CodeBadRequest: {Status: http.StatusBadRequest, Fault: FaultUser, RetryAfter: 0, Doc: "The request was malformed or carried a value the endpoint cannot accept."},

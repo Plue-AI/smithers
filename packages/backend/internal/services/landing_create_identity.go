@@ -65,15 +65,7 @@ func (s *LandingService) createLandingIdempotent(ctx context.Context, repository
 	}
 	key := pgtype.UUID{Bytes: parsed, Valid: true}
 	digest := landingCreateDigest(p, ids)
-	created, err := identity.CreateLandingRequestIdempotent(ctx, db.CreateLandingRequestIdempotentParams{
-		RepositoryID: p.RepositoryID, Title: p.Title, Body: p.Body, AuthorID: p.AuthorID, TargetBookmark: p.TargetBookmark, SourceBookmark: p.SourceBookmark, StackSize: p.StackSize,
-		AgentAuthored: p.AgentAuthored, AuthorAgentSessionID: p.AuthorAgentSessionID, RequestID: key, CreateRequestHash: digest,
-	})
-	if errors.Is(err, pgx.ErrNoRows) {
-		previous, lookupErr := identity.GetLandingRequestByCreateIdentity(ctx, db.GetLandingRequestByCreateIdentityParams{RepositoryID: p.RepositoryID, AuthorID: p.AuthorID, RequestID: key})
-		if lookupErr != nil {
-			return LandingRequestResponse{}, normalizeLandingCreateError(lookupErr, "failed to recover landing request")
-		}
+	replay := func(previous db.LandingRequest) (LandingRequestResponse, error) {
 		if !bytes.Equal(previous.CreateRequestHash, digest) {
 			return LandingRequestResponse{}, pkgerrors.New(pkgerrors.CodeLandingRequestConflict, "request_id was already used with different input or agent identity")
 		}
@@ -84,6 +76,32 @@ func (s *LandingService) createLandingIdempotent(ctx context.Context, repository
 			return LandingRequestResponse{}, err
 		}
 		return s.GetLandingRequest(ctx, actor, owner, repository.Name, previous.Number)
+	}
+	if err := lockLandingProposal(ctx, tx, p); err != nil {
+		return LandingRequestResponse{}, err
+	}
+	// A replayed request identity answers with its own landing before the stack check.
+	previous, err := identity.GetLandingRequestByCreateIdentity(ctx, db.GetLandingRequestByCreateIdentityParams{RepositoryID: p.RepositoryID, AuthorID: p.AuthorID, RequestID: key})
+	if err == nil {
+		return replay(previous)
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return LandingRequestResponse{}, normalizeLandingCreateError(err, "failed to recover landing request")
+	}
+	if err := requireStackNotInFlight(ctx, tx, p, ids); err != nil {
+		return LandingRequestResponse{}, err
+	}
+	created, err := identity.CreateLandingRequestIdempotent(ctx, db.CreateLandingRequestIdempotentParams{
+		RepositoryID: p.RepositoryID, Title: p.Title, Body: p.Body, AuthorID: p.AuthorID, TargetBookmark: p.TargetBookmark, SourceBookmark: p.SourceBookmark, StackSize: p.StackSize,
+		AgentAuthored: p.AgentAuthored, AuthorAgentSessionID: p.AuthorAgentSessionID, RequestID: key, CreateRequestHash: digest,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		// The same identity committed onto another target between the lookup and the insert.
+		previous, lookupErr := identity.GetLandingRequestByCreateIdentity(ctx, db.GetLandingRequestByCreateIdentityParams{RepositoryID: p.RepositoryID, AuthorID: p.AuthorID, RequestID: key})
+		if lookupErr != nil {
+			return LandingRequestResponse{}, normalizeLandingCreateError(lookupErr, "failed to recover landing request")
+		}
+		return replay(previous)
 	}
 	if err != nil {
 		return LandingRequestResponse{}, normalizeLandingCreateError(err, "failed to create landing request")

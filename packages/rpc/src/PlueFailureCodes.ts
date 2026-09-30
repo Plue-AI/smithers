@@ -35,7 +35,7 @@ export const PLUE_FAILURE_SCHEMA_VERSION = 1
  * @since 1.0.0
  * @category constants
  */
-export const PLUE_FAILURE_DIGEST = "sha256:12cd056b2e4d1c433e988c2d30d7a98b483709933381e40d745d54667a033e7e"
+export const PLUE_FAILURE_DIGEST = "sha256:48bbd536da56877ccc99c44818a10965bc6979b8b1ffd5e2b2eef60821152b10"
 
 /**
  * Whose problem a failure is — the registry's verdict, and the only question the app
@@ -138,6 +138,7 @@ export const PLUE_FAILURE_CODES = [
   "landing_blocked",
   "landing_create_unavailable",
   "landing_request_conflict",
+  "landing_stack_in_flight",
   "language_server_missing",
   "listing_secret_detected",
   "no_capacity",
@@ -371,6 +372,8 @@ export const PLUE_FAILURES = {
   "landing_create_unavailable": { fault: "infra", status: 503, retryAfter: 0 },
   /** The landing request identity was already used with different input or agent authority. */
   "landing_request_conflict": { fault: "user", status: 409, retryAfter: 0 },
+  /** An in-flight landing request already carries this exact stack onto the target; details.number names it. */
+  "landing_stack_in_flight": { fault: "user", status: 409, retryAfter: 0 },
   /** The box has no binary for the session's language. The message is the install line, verbatim. */
   "language_server_missing": { fault: "user", status: 409, retryAfter: 0 },
   /** The share listing contains something that scans as a credential; it was not published. */
