@@ -66,7 +66,8 @@ describe("Go planning contracts", () => {
         .mockResolvedValueOnce({ exitCode: 0, output: JSON.stringify({ GOROOT: sdkRoot, GOTOOLDIR: toolDir }) })
       expect(await GoExec.resolveGo({ ...context, root })).toEqual({
         ok: true,
-        path: go,
+        // The selected SDK's own go runs the target, never the older launcher.
+        path: NodePath.join(sdkRoot, "bin", "go"),
         sdkRoot,
         executables: [
           go,
