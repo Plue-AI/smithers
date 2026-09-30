@@ -47,7 +47,7 @@ const releaseLine = (entries) => {
 const effectRuntimeOwners = new Set(["@smthrs/build-cli", "@smthrs/cli", "@smthrs/migrate"])
 
 /** Public packages whose implementation and API do not touch Effect. */
-const effectIndependent = new Set(["@smthrs/errors"])
+const effectIndependent = new Set([])
 
 /**
  * Publishable packages that are deliberately NOT on the release line, and why.
