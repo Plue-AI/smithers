@@ -59,6 +59,8 @@ import type * as Sandbox from "@smthrs/harness/Sandbox"
 import type * as Steering from "@smthrs/harness/Steering"
 import * as StructuredOutput from "@smthrs/harness/StructuredOutput"
 import { Journal, JournalEvent, type StepFact } from "@smthrs/journal"
+import type * as MemorySnapshot from "@smthrs/memory/SnapshotRecorder"
+import * as MemorySource from "@smthrs/memory/Source"
 import type * as Evaluator from "@smthrs/model/Evaluator"
 import type * as Model from "@smthrs/model/Model"
 import type * as ModelRequest from "@smthrs/model/ModelRequest"
@@ -364,6 +366,16 @@ export interface Options<
    * which is right for an action that only answers.
    */
   readonly readOnlyCap?: number | undefined
+  /**
+   * Opening memory rows for this step, built from the decoded payload.
+   *
+   * They reach the model only as the run's opening memory: a judged step's
+   * run-start relevance reading withholds each row Jev is confident the task
+   * does not need, and journals what it kept and withheld as the step's
+   * `relevance-settled` row. Keep the rows out of {@link prompt}, or they
+   * bypass that gate. No rows declares no memory.
+   */
+  readonly memory?: ((payload: PayloadSchemaOf<Payload>["Type"]) => ReadonlyArray<MemorySnapshot.Row>) | undefined
 }
 
 /**
@@ -634,6 +646,8 @@ export const make = <
         })
       }
       const task = options.prompt(payload)
+      const rows = options.memory?.(payload) ?? []
+      const memory = rows.length === 0 ? undefined : MemorySource.ofRows(rows)
       // One resolution per execution: the declared seat may be a function of
       // the payload, and every later rung compares against the id it chose.
       const declaredSeat = typeof options.seat === "function" ? options.seat(payload) : options.seat
@@ -829,6 +843,7 @@ export const make = <
                   capacity: { park: false },
                   prompt,
                   system: teaching,
+                  memory,
                   registry: host.registry,
                   flows: host.flows,
                   implementations: host.implementations,

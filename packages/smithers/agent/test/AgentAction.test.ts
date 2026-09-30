@@ -515,7 +515,7 @@ describe("AgentAction completion value types", () => {
     body: () => Typed.call({})
   })
 
-  it.each(["12", "true", "null", '\"hello\"', "", " 12 ", 12, true, false, null])(
+  it.each(["12", "true", "null", "\"hello\"", "", " 12 ", 12, true, false, null])(
     "preserves the type and contents passed to ctx.done (%j)",
     async (value) => {
       const requests: Array<string> = []
@@ -2215,6 +2215,89 @@ describe("AgentAction seat auto", () => {
     expect(requests).toHaveLength(2)
     expect(requests[0]).not.toContain("lookup")
     expect(requests[1]).toContain("lookup")
+  })
+
+  it.each([true, false])("gates the step's declared memory rows as opening memory (judged: %s)", async (judged) => {
+    const judgedItems: Array<ReadonlyArray<{ readonly kind: string; readonly id: string }>> = []
+    const evaluator = Evaluator.layerScripted((request) => {
+      if (!Object.keys(request.questions).some((id) => id.startsWith("unnecessary_"))) {
+        return { complete: { probability: 0.99 }, overclaims: { probability: 0.01 }, invented: { probability: 0.01 } }
+      }
+      const state = request.state as {
+        readonly items: ReadonlyArray<{ readonly kind: string; readonly id: string; readonly text: string }>
+      }
+      judgedItems.push(state.items.map(({ id, kind }) => ({ id, kind })))
+      // Jev is confident only the release note is unnecessary for a migration review.
+      return Object.fromEntries(
+        state.items.map((item, index) => [`unnecessary_${index}`, {
+          probability: item.text.includes("release") ? 0.97 : 0.05
+        }])
+      )
+    })
+    const Remembering = AgentAction.make("agent/test/Remembering", {
+      payload: { diff: Schema.String, notes: Schema.Array(Schema.String) },
+      output: Review,
+      seat: "anthropic:test-model",
+      prompt: ({ diff }) => `Review this migration:\n${diff}`,
+      memory: ({ notes }) =>
+        notes.map((text, index) => ({ origin: "recall" as const, bank: "flow:coding", key: `note-${index}`, text }))
+    })
+    const Remember = Flow.make("agent/test/Remember", {
+      payload: { diff: Schema.String, notes: Schema.Array(Schema.String) },
+      success: Review,
+      error: AgentAction.AgentFailure,
+      body: (input) => Remembering.call(input)
+    })
+    const requests: Array<string> = []
+    const settled: Array<AgentEvent.RelevanceSettled> = []
+    const run = (notes: ReadonlyArray<string>, executionId: string) =>
+      Effect.runPromise(
+        Remember.execute({ diff: "+ add column", notes }, { executionId }).pipe(
+          Effect.provide(Layer.merge(
+            Layer.mergeAll(Remembering.layer, Interpreter.layer(Remember)).pipe(
+              Layer.provideMerge(AgentAction.layerHost(judged ? { ...host, judged } : host)),
+              Layer.provideMerge(seats(scripted([decodes], requests))),
+              Layer.provideMerge(Layer.mergeAll(Agent.layer, Agent.layerDefaults, evaluator)),
+              Layer.provideMerge(Safety.layer),
+              Layer.provideMerge(Action.layerImplementations),
+              Layer.provideMerge(FlowEngine.layerMemory),
+              Layer.provideMerge(NodeCrypto.layer)
+            ),
+            EventSink.layer({
+              emit: (event) => Effect.sync(() => event._tag === "relevance-settled" && void settled.push(event))
+            })
+          ))
+        )
+      )
+
+    expect(await run(["Keep migrations additive", "Tag the release on Fridays"], `memory-${judged}`)).toEqual({
+      approved: true,
+      issues: []
+    })
+    expect(requests).toHaveLength(1)
+    expect(requests[0]).toContain("<flows_memory_context>")
+    expect(requests[0]).toContain("[flow\\u003acoding/note-0] Keep migrations additive")
+    // The rows reach the model only through the gate, never through the prompt.
+    expect(requests[0]!.split("Keep migrations additive")).toHaveLength(2)
+    if (judged) {
+      expect(judgedItems).toEqual([[{ kind: "memory", id: "note-0" }, { kind: "memory", id: "note-1" }]])
+      expect(requests[0]).not.toContain("Tag the release")
+      expect(settled).toHaveLength(1)
+      expect(settled[0]!.source).toBe("run")
+      expect(settled[0]!.scope).toContain("agent/test/Remembering")
+      expect(settled[0]!.kept.filter((item) => item.kind === "memory").map((item) => item.id)).toEqual(["note-0"])
+      expect(settled[0]!.withheld.map((item) => [item.kind, item.id])).toEqual([["memory", "note-1"]])
+    } else {
+      // An unjudged host shows every declared row and journals no reading.
+      expect(judgedItems).toEqual([])
+      expect(requests[0]).toContain("[flow\\u003acoding/note-1] Tag the release on Fridays")
+      expect(settled).toEqual([])
+    }
+
+    // No rows declares no memory block at all.
+    await run([], `memory-none-${judged}`)
+    expect(requests).toHaveLength(2)
+    expect(requests[1]).not.toContain("<flows_memory_context>")
   })
 })
 

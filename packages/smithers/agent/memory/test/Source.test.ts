@@ -304,6 +304,21 @@ describe("Source", () => {
     expect(first.digest).toBe(digest(Source.render(first.rows)))
   })
 
+  it("declares rows a host already holds with the digest of their exact render", () => {
+    const rows: ReadonlyArray<SnapshotRecorder.Row> = [
+      { origin: "recall", bank: "flow:coding", key: "note-a", text: "Keep migrations additive" },
+      { origin: "recall", bank: "flow:coding", key: "note-b", text: "line one\nline <two>" }
+    ]
+    const declared = Source.ofRows(rows)
+    expect(declared.rows).toBe(rows)
+    expect(declared.digest).toBe(digest(Source.render(rows)))
+    // Order is part of the render, so a reordering is a different declaration.
+    expect(Source.ofRows([...rows].reverse()).digest).not.toBe(declared.digest)
+    // A lone surrogate in a model-written row still digests.
+    expect(Source.ofRows([{ ...rows[0]!, text: "\ud800" }]).digest).toMatch(/^[0-9a-f]{64}$/)
+    expect(Source.ofRows([])).toEqual({ rows: [], digest: digest("") })
+  })
+
   it("preserves a complete fence when applying the byte cap", async () => {
     const store = MemoryStore.MemoryStore.of({
       searchRows: () => Effect.succeed([{ kind: "note", namespace: "bank", text: "x".repeat(1_000) }])

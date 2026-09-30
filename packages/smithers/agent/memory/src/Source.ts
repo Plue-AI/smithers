@@ -337,6 +337,16 @@ export const make = (options: { readonly capacity?: number | undefined } = {}): 
 export const source = make()
 
 /**
+ * Rows a host already holds as the exact {@link Declared} shape
+ * `Agent.Options.memory` accepts. The rows are not bounded here; a host
+ * bounds what it selects before declaring it.
+ *
+ * @category constructors
+ * @since 1.0.0
+ */
+export const ofRows = (rows: ReadonlyArray<SnapshotRecorder.Row>): Declared => ({ rows, digest: digest(render(rows)) })
+
+/**
  * Reads a source snapshot as the exact {@link Declared} shape
  * `Agent.Options.memory` accepts.
  *
@@ -347,4 +357,4 @@ export const declared = (
   memorySource: Source,
   input: Input
 ): Effect.Effect<Declared, MemoryError | Cause.TimeoutError, MemoryStore.MemoryStore | Recall.Recall> =>
-  memorySource.read(input).pipe(Effect.map(({ rows }) => ({ rows, digest: digest(render(rows)) })))
+  memorySource.read(input).pipe(Effect.map(({ rows }) => ofRows(rows)))
