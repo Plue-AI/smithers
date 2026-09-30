@@ -176,7 +176,9 @@ export const useTranscriptView = (options: {
   const inspectActivity = (seq: number, jumping = true) => {
     cancelReveal()
     if (monitored === undefined) return
-    origin.current ??= { surface, panelFocus, scrollTop: viewport()?.scrollTop ?? 0 }
+    if (activeInspection === undefined || origin.current === undefined) {
+      origin.current = { surface, panelFocus, scrollTop: viewport()?.scrollTop ?? 0 }
+    }
     setPanelFocus(false)
     const nextInspection = { source: monitored.id, seq, first: monitored.activity.records[0]! }
     setInspection(nextInspection)

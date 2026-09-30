@@ -1,12 +1,14 @@
+import { type Renderable, ScrollBoxRenderable, TextareaRenderable } from "@opentui/core"
 import { testRender } from "@opentui/react/test-utils"
 import * as AgentEvent from "@smthrs/harness/AgentEvent"
 import * as Cell from "@smthrs/harness/Cell"
 import * as ModelRequest from "@smthrs/model/ModelRequest"
 import { afterEach, beforeEach, expect, test } from "bun:test"
+import { Effect } from "effect"
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { setImmediate } from "node:timers/promises"
+import { setImmediate, setTimeout as timerPhase } from "node:timers/promises"
 import { act } from "react"
 import { App } from "../src/app.tsx"
 import type * as Host from "../src/host.ts"
@@ -128,13 +130,10 @@ beforeEach(() => {
 afterEach(async () => {
   try {
     await act(async () => {
-      try {
-        setup?.renderer.destroy()
-      } finally {
-        for (const turn of turns) turn.done.resolve({ _tag: "cancelled" })
-        await Promise.all(turns.map((turn) => turn.done.promise))
-        await setImmediate()
-      }
+      for (const turn of turns) turn.done.resolve({ _tag: "cancelled" })
+      await Promise.all(turns.map((turn) => turn.done.promise))
+      await setImmediate()
+      setup?.renderer.destroy()
     })
   } finally {
     setup = undefined
@@ -318,4 +317,86 @@ test("an unknown command stays local, keeps its line, and never pollutes the nex
   expect(turns).toHaveLength(1)
   expect(turns[0]!.input.prompt).toBe("A real question")
   expect(turns[0]!.input.history).toEqual(expectedHistory)
+})
+
+const descendant = <T extends Renderable>(node: Renderable, kind: new(...args: never[]) => T): T | undefined => {
+  if (node instanceof kind) return node
+  for (const child of node.getChildren()) {
+    const found = descendant(child, kind)
+    if (found !== undefined) return found
+  }
+  return undefined
+}
+const composer = () => descendant(setup!.renderer.root, TextareaRenderable)!
+const scroll = () => descendant(setup!.renderer.root, ScrollBoxRenderable)!
+const delegate = async (id: string, title: string) => {
+  await act(async () => {
+    turns[0]!.input.runtime!.delegate!({ id, title, prompt: `Work on ${title}` })
+    await setImmediate()
+  })
+  await render()
+}
+const stream = async (index: number) => {
+  const input = turns[index]!.input
+  await act(async () => {
+    input.onEvent(
+      new AgentEvent.TurnOpened({
+        eventType: "flows.harness.turn-opened.v1",
+        seat: input.seat,
+        modelParams: {},
+        activeToolNames: [],
+        contextDigest: `fixture-${index}`
+      })
+    )
+    input.onEvent(
+      new AgentEvent.ModelDelta({
+        eventType: "flows.harness.model-delta.v1",
+        delta: { type: "text-delta", id: `fixture-${index}`, text: "Earlier agent transcript\n".repeat(50) }
+      })
+    )
+    await setImmediate()
+  })
+  await render()
+}
+// A later timer drains the real 60 ms reveal and restore callbacks, then
+// rendering settles the native layout before checking the visible frame.
+const drainDeferredScroll = async () => {
+  await act(async () => {
+    await timerPhase(100)
+    await setImmediate()
+  })
+  await render()
+}
+const inserts = (index: number) =>
+  Effect.runSync(turns[index]!.input.steering!.drain({ boundary: "worker-cell", wouldIdle: false })).inserts
+    .map((message) => message.content.flatMap((part) => part.type === "text" ? [part.text] : []).join(""))
+
+test("starting inspection in a different agent returns to that agent and submits to its composer", async () => {
+  await mount()
+  await command("Coordinate both agents")
+  await delegate("agent-a", "Agent A")
+  await delegate("agent-b", "Agent B")
+  await stream(1)
+  await stream(2)
+  await key("ARROW_RIGHT", { ctrl: true })
+  await key("ARROW_RIGHT", { ctrl: true })
+  expect(frame()).toContain("Continue Agent A")
+  await key("t", { ctrl: true })
+  await key("ARROW_RIGHT", { ctrl: true })
+  expect(frame()).toContain("Continue Agent B")
+  await key("\u001b[5~")
+  const prior = scroll().scrollTop
+  await key("t", { ctrl: true })
+  await key("ARROW_LEFT")
+  await drainDeferredScroll()
+  await key("ESCAPE")
+  await drainDeferredScroll()
+  expect(frame()).toContain("Continue Agent B")
+  expect(scroll().scrollTop).toBe(prior)
+  expect(composer().focused).toBe(true)
+  await type("Reply from B")
+  await key("RETURN")
+  expect(inserts(1)).toEqual([])
+  expect(inserts(2)).toEqual(["Reply from B"])
+  expect(inserts(0)).toEqual([])
 })

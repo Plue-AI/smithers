@@ -307,9 +307,41 @@ const longTranscript = (at: number) => {
 // This later real timer drains the existing 60 ms deferred reveal before
 // assertions/renderer teardown. It is an ordering barrier, not a speed claim.
 const drainReveal = async () => {
-  await timerPhase(100)
-  await setImmediate()
+  await act(async () => {
+    await timerPhase(100)
+    await setImmediate()
+  })
+  await setup?.renderOnce()
 }
+
+test("inspection begun in another worker replaces the stale return surface and focus", async () => {
+  const worker = running(100)
+  await mount({ tabs, worker: () => worker, surface: "tab:w1" })
+  await action((view) => view.inspectActivity(1, false))
+  await change({ surface: "tab:w2", panelFocus: true })
+  expect(current().activeInspection).toBeUndefined()
+  await action((view) => view.inspectActivity(1, false))
+  expect(current().activeInspection?.source).toBe("w2")
+  await action((view) => view.followLive())
+  await drainReveal()
+  expect(surfaces).toEqual(["tab:w2"])
+  expect(panelFocus).toEqual([false, false, true])
+  expect(current().activeInspection).toBeUndefined()
+})
+
+test("a new activity identity captures the current return position instead of a stale inspection origin", async () => {
+  await mount({ transcript: longTranscript(100) })
+  await action((view) => view.inspectActivity(1, false))
+  await change({ transcript: longTranscript(500) })
+  const box = current().scroll.current!
+  box.scrollTop = 10
+  const prior = box.scrollTop
+  await action((view) => view.inspectActivity(1))
+  expect(box.scrollTop).not.toBe(prior)
+  await action((view) => view.followLive())
+  await drainReveal()
+  expect(box.scrollTop).toBe(prior)
+})
 
 test("ending inspection invalidates an earlier delayed reveal and restores the prior scroll", async () => {
   await mount({ transcript: longTranscript(100) })
