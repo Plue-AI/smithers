@@ -246,6 +246,7 @@ workspaces["workspace exec"] = async (c, a, o) => {
       message: "Use workspace ssh or workspace shell for interactive input or another guest user"
     })
   }
+  if (o.detach && timeout > 0) throw new UsageError({ message: "--detach cannot be combined with --timeout" })
   const entries = list(o.env).map(str)
   if (entries.some((value) => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(value))) {
     throw new UsageError({ message: "--env expects KEY=VALUE" })
@@ -276,6 +277,11 @@ workspaces["workspace exec"] = async (c, a, o) => {
   }
   if (typeof receipt.operationId !== "string" || !receipt.operationId) {
     throw protocol(`Command response omitted operationId; reattach with --exec-id ${requestID}`)
+  }
+  // A detached command keeps running under its durable receipt; the same
+  // command with --exec-id reattaches to it.
+  if (o.detach) {
+    return { workspace_id: id, operation_id: receipt.operationId, exec_id: requestID, state: str(receipt.state) }
   }
   const runPath = `${path}/${esc(receipt.operationId)}`
   const deadline = timeout > 0 ? Date.now() + timeout * 1000 : Infinity

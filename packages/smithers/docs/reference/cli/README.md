@@ -337,6 +337,8 @@ the hidden-alias table.
 `smthrs workspace exec BOX --repo OWNER/REPO --command 'pnpm test' --exec-id tests-1`
 admits a command and polls its durable receipt. Reuse the same ID and inputs to
 reattach after a disconnect. Reusing the ID with different inputs fails.
+`--detach` returns the receipt as soon as the command is admitted and leaves it
+running; run the same command with the same `--exec-id` to reattach.
 Output is available at completion and is bounded; `output_truncated` reports
 truncation. Nonzero exit codes propagate to the CLI.
 

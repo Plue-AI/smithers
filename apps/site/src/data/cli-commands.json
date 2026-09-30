@@ -11676,6 +11676,11 @@
               "type": "string",
               "description": "Working directory (default: workspace root)"
             },
+            "detach": {
+              "default": false,
+              "type": "boolean",
+              "description": "Return the receipt at once; the command keeps running (reattach with --exec-id)"
+            },
             "env": {
               "default": [],
               "type": "array",
@@ -11703,6 +11708,7 @@
           },
           "required": [
             "command",
+            "detach",
             "env"
           ],
           "additionalProperties": false

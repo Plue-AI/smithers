@@ -165,6 +165,44 @@ describe("box remote execution", () => {
       environment: {}
     })
   })
+  it("detaches after admission and reattaches to the same receipt by exec id", async () => {
+    const { c, request, exit } = await fixture()
+    let polls = 0
+    request.mockImplementation(async (method, path, body) => {
+      if (method === "POST" && path.endsWith("/command-runs")) {
+        expect(body).toMatchObject({ operation_id: "tests-1", args: ["/bin/bash", "-lc", "pnpm test"] })
+        return { operationId: "op-1", state: "accepted" }
+      }
+      if (method === "GET" && path.endsWith("/command-runs/op-1")) {
+        return ++polls === 1 ? { operationId: "op-1", state: "running" } : {
+          operationId: "op-1",
+          state: "completed",
+          result: { exit_code: 4, stdout: "ran", stderr: "", output_truncated: false }
+        }
+      }
+      throw new Error(`Unexpected ${method} ${path}`)
+    })
+    const input = { ...options, command: "pnpm test", "exec-id": "tests-1" }
+    await expect(workspaces["workspace exec"]!(c, { id: "box" }, { ...input, detach: true })).resolves.toEqual({
+      workspace_id: "box",
+      operation_id: "op-1",
+      exec_id: "tests-1",
+      state: "accepted"
+    })
+    expect(request.mock.calls.filter(([method]) => method === "GET")).toHaveLength(0)
+    expect(request.mock.calls.filter(([, path]) => String(path).endsWith("/cancel"))).toHaveLength(0)
+    expect(exit).not.toHaveBeenCalled()
+    await expect(workspaces["workspace exec"]!(c, { id: "box" }, input))
+      .resolves.toMatchObject({ operation_id: "op-1", exit_code: 4, stdout: "ran" })
+    expect(polls).toBe(2)
+    expect(exit).toHaveBeenCalledWith(4)
+  })
+  it("refuses a detached command with a cancellation timeout before admission", async () => {
+    const { c, request } = await fixture()
+    await expect(workspaces["workspace exec"]!(c, { id: "box" }, { ...options, command: "x", detach: true, timeout: 5 }))
+      .rejects.toThrow("--detach cannot be combined with --timeout")
+    expect(request).not.toHaveBeenCalled()
+  })
   it("omits streamed stdout and stderr from a live receipt and keeps them otherwise", async () => {
     const result = { exit_code: 3, stdout: "out", stderr: "err", output_truncated: false }
     const run = async (live: boolean) => {

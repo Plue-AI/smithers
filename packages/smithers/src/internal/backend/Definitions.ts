@@ -589,6 +589,11 @@ export const definitions = {
     args: z.object({ "lanes": z.coerce.number().describe("Lanes, 1 to 8") }),
     options: z.object({ "repo": z.string().describe("Repository (OWNER/REPO)").optional() })
   },
+  "history land": {
+    description: "Land a proposed TODO's pull request once its review approves and CI is green",
+    args: z.object({ "issue": z.string().describe("Issue number (12 or #12) or item id") }),
+    options: z.object({ "repo": z.string().describe("Repository (OWNER/REPO)").optional() })
+  },
   "history retry": {
     description: "Give a blocked, rejected or declined issue a fresh set of attempts",
     args: z.object({ "issue": z.string().describe("Issue number (12 or #12) or item id") }),
@@ -1399,6 +1404,8 @@ export const definitions = {
       "cwd": z.string().describe(
         "Working directory (default: workspace root)"
       ).optional(),
+      "detach": z.boolean().describe("Return the receipt at once; the command keeps running (reattach with --exec-id)")
+        .default(false),
       "env": z.array(z.string()).describe("KEY=VALUE exported to the command (repeatable)").default([]),
       "exec-id": z.string().describe("Durable command ID; reuse with the same command to reattach after a disconnect")
         .optional(),
