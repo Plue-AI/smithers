@@ -5266,6 +5266,42 @@ export interface PutApiReposOwnerRepoWikiAttachmentsSlugInput {
 export const putApiReposOwnerRepoWikiAttachmentsSlug = (transport: Transport, input: PutApiReposOwnerRepoWikiAttachmentsSlugInput): Promise<PutApiReposOwnerRepoWikiAttachmentsSlugResponse> =>
   transport.request("PUT", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/wiki/attachments/${segment(input.path.slug)}`, input.body) as Promise<PutApiReposOwnerRepoWikiAttachmentsSlugResponse>
 
+export type GetApiReposOwnerRepoEgressPolicyResponse = {
+  allow_domains: Array<string>
+  updated_at?: string
+}
+
+export interface GetApiReposOwnerRepoEgressPolicyInput {
+  readonly path: { readonly owner: string; readonly repo: string }
+}
+
+/** GET /api/repos/{owner}/{repo}/egress-policy */
+export const getApiReposOwnerRepoEgressPolicy = (transport: Transport, input: GetApiReposOwnerRepoEgressPolicyInput): Promise<GetApiReposOwnerRepoEgressPolicyResponse> =>
+  transport.request("GET", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/egress-policy`) as Promise<GetApiReposOwnerRepoEgressPolicyResponse>
+
+export type PutApiReposOwnerRepoEgressPolicyBody = {
+  allow_domains: Array<string>
+}
+
+export type PutApiReposOwnerRepoEgressPolicyResponse = {
+  allow_domains: Array<string>
+  updated_at?: string
+  reloads: Array<{
+    sandbox_id: string
+    reloaded: boolean
+    error?: string
+  }>
+}
+
+export interface PutApiReposOwnerRepoEgressPolicyInput {
+  readonly path: { readonly owner: string; readonly repo: string }
+  readonly body: PutApiReposOwnerRepoEgressPolicyBody
+}
+
+/** PUT /api/repos/{owner}/{repo}/egress-policy */
+export const putApiReposOwnerRepoEgressPolicy = (transport: Transport, input: PutApiReposOwnerRepoEgressPolicyInput): Promise<PutApiReposOwnerRepoEgressPolicyResponse> =>
+  transport.request("PUT", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/egress-policy`, input.body) as Promise<PutApiReposOwnerRepoEgressPolicyResponse>
+
 export type GetApiRepoConnectionResponse = AnyJSON
 
 /** GET /api/repo-connection */

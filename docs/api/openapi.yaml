@@ -20778,6 +20778,143 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/InternalError'
+  /api/repos/{owner}/{repo}/egress-policy:
+    get:
+      summary: GET /api/repos/{owner}/{repo}/egress-policy
+      description: The hosts every sandbox of this repository may call out to, in place of the deployment's list. An empty list leaves the deployment list in force. Hosts a secret is bound to stay reachable either way. Owner only.
+      operationId: get_api_repos_owner_repo_egress_policy
+      tags:
+        - Repositories
+      parameters:
+        - name: owner
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: repo
+          in: path
+          required: true
+          schema:
+            type: string
+      x-required-token-scope: write:repository
+      x-required-repository-permission: owner
+      security:
+        - tokenAuth: []
+        - bearerAuth: []
+        - sessionCookie: []
+      responses:
+        '200':
+          description: The repository's egress allowlist
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - allow_domains
+                properties:
+                  allow_domains:
+                    type: array
+                    description: Lower-case host names and `*.domain` wildcards, sorted.
+                    items:
+                      type: string
+                  updated_at:
+                    type: string
+                    format: date-time
+                    description: When the list was last written; absent when it never was.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    put:
+      summary: PUT /api/repos/{owner}/{repo}/egress-policy
+      description: Replaces the repository's egress allowlist, then reloads it into every running workspace and agent session of the repository without restarting them. New and resumed sandboxes start with it. Refuses `*`, IP addresses and ranges, names that are not hosts, and more than 200 entries. A sandbox whose reload fails keeps running and reports its error; it gets the list when it next starts. Owner only.
+      operationId: put_api_repos_owner_repo_egress_policy
+      tags:
+        - Repositories
+      parameters:
+        - name: owner
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: repo
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - allow_domains
+              properties:
+                allow_domains:
+                  type: array
+                  maxItems: 200
+                  description: Host names and `*.domain` wildcards; case, duplicates and a trailing dot are normalised away. An empty list returns to the deployment list.
+                  items:
+                    type: string
+      x-required-token-scope: write:repository
+      x-required-repository-permission: owner
+      security:
+        - tokenAuth: []
+        - bearerAuth: []
+        - sessionCookie: []
+      responses:
+        '200':
+          description: The stored allowlist and each running sandbox's reload
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - allow_domains
+                  - reloads
+                properties:
+                  allow_domains:
+                    type: array
+                    items:
+                      type: string
+                  updated_at:
+                    type: string
+                    format: date-time
+                  reloads:
+                    type: array
+                    items:
+                      type: object
+                      required:
+                        - sandbox_id
+                        - reloaded
+                      properties:
+                        sandbox_id:
+                          type: string
+                        reloaded:
+                          type: boolean
+                        error:
+                          type: string
+                          description: Why this sandbox kept its previous list; absent when it reloaded.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
   /api/repo-connection:
     delete:
       summary: DELETE /api/repo-connection

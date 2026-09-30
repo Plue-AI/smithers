@@ -1186,6 +1186,31 @@ type PostAPIReposOwnerRepoMythicalTodosBody struct {
 	Body  *string `json:"body,omitempty"`
 }
 
+// GetAPIReposOwnerRepoEgressPolicyResponse is generated from docs/api/openapi.yaml.
+type GetAPIReposOwnerRepoEgressPolicyResponse struct {
+	AllowDomains []string   `json:"allow_domains"`
+	UpdatedAt    *time.Time `json:"updated_at,omitempty"`
+}
+
+// PutAPIReposOwnerRepoEgressPolicyBody is generated from docs/api/openapi.yaml.
+type PutAPIReposOwnerRepoEgressPolicyBody struct {
+	AllowDomains []string `json:"allow_domains"`
+}
+
+// PutAPIReposOwnerRepoEgressPolicyResponse is generated from docs/api/openapi.yaml.
+type PutAPIReposOwnerRepoEgressPolicyResponse struct {
+	AllowDomains []string                                              `json:"allow_domains"`
+	UpdatedAt    *time.Time                                            `json:"updated_at,omitempty"`
+	Reloads      []PutAPIReposOwnerRepoEgressPolicyResponseReloadsItem `json:"reloads"`
+}
+
+// PutAPIReposOwnerRepoEgressPolicyResponseReloadsItem is generated from docs/api/openapi.yaml.
+type PutAPIReposOwnerRepoEgressPolicyResponseReloadsItem struct {
+	SandboxID string  `json:"sandbox_id"`
+	Reloaded  bool    `json:"reloaded"`
+	Error     *string `json:"error,omitempty"`
+}
+
 // GetAPIUserGithubAppInstallationsResponse is generated from docs/api/openapi.yaml.
 type GetAPIUserGithubAppInstallationsResponse struct {
 	Repos []GetAPIUserGithubAppInstallationsResponseReposItem `json:"repos"`
@@ -4712,6 +4737,20 @@ func (c *Client) PutAPIReposOwnerRepoMythicalLanes(ctx context.Context, owner st
 func (c *Client) PutAPIReposOwnerRepoWikiAttachmentsSlug(ctx context.Context, owner string, repo string, slug string, body any) (AnyJSON, error) {
 	var out AnyJSON
 	err := c.do(ctx, "PUT", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/wiki/attachments/"+url.PathEscape(slug), nil, body, &out)
+	return out, err
+}
+
+// GetAPIReposOwnerRepoEgressPolicy calls GET /api/repos/{owner}/{repo}/egress-policy.
+func (c *Client) GetAPIReposOwnerRepoEgressPolicy(ctx context.Context, owner string, repo string) (GetAPIReposOwnerRepoEgressPolicyResponse, error) {
+	var out GetAPIReposOwnerRepoEgressPolicyResponse
+	err := c.do(ctx, "GET", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/egress-policy", nil, nil, &out)
+	return out, err
+}
+
+// PutAPIReposOwnerRepoEgressPolicy calls PUT /api/repos/{owner}/{repo}/egress-policy.
+func (c *Client) PutAPIReposOwnerRepoEgressPolicy(ctx context.Context, owner string, repo string, body PutAPIReposOwnerRepoEgressPolicyBody) (PutAPIReposOwnerRepoEgressPolicyResponse, error) {
+	var out PutAPIReposOwnerRepoEgressPolicyResponse
+	err := c.do(ctx, "PUT", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/egress-policy", nil, body, &out)
 	return out, err
 }
 

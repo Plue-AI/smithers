@@ -136,6 +136,7 @@ func openAPIConformanceRouter(cfg *config.Config) chi.Router {
 			UserRefs: &routes.UserRefHandler{}, AdminSystemStatus: &routes.AdminSystemStatusHandler{}, AdminSystemHealth: &routes.AdminSystemHealthHandler{},
 			AdminAnalytics: &routes.AdminAnalyticsHandler{}, AdminAgentSessions: &routes.AdminAgentSessionHandler{},
 			AdminWorkspaces: &routes.AdminWorkspaceHandler{}, AdminTokens: &routes.AdminTokenHandler{}, ModelProxy: http.NotFoundHandler(),
+			EgressPolicy: &routes.RepositoryEgressPolicyHandler{},
 		},
 	)
 	// The routes run() mounts beside buildRouter.
