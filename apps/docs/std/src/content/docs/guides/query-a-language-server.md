@@ -136,8 +136,40 @@ problems, so such a change always waits the full `settleMs` and fails with
 semantic ones. Pick `settleMs` and `quietMs` from a measurement on your host:
 
 ```sh
-node scripts/lsp-settle-bench.ts <typescript-language-server> <tsserver.js> <workspace> <iterations> <settleMs> <quietMs> <file>...
+node scripts/lsp-settle-bench.ts <typescript-language-server or gopls> <tsserver.js or -> <workspace> <iterations> <settleMs> <quietMs> <file>...
 ```
+
+### Measured settle with real servers
+
+Repeat it with `sh scripts/lsp-real.sh <dir> [iterations] [settleMs] [quietMs]`.
+It installs typescript-language-server 6.0.1 with typescript 5.9.3 (typescript 7
+ships no `tsserver.js`) and, when Go is on `PATH`, gopls under `<dir>`, runs
+`test/NodeLanguageServerReal.test.ts` (a real server on `test/fixtures/lsp/ts`;
+skipped when no server is on `PATH` or named by `SMITHERS_LSP_TLS` and
+`SMITHERS_LSP_TSSERVER`), then writes `<dir>/out/ts.json` and `go.json`. Each
+file is opened with a type error, then cycles fix, comment-only change, restore,
+break, close and reopen, 5 times, at `settleMs` 3000 and `quietMs` 500.
+
+One run on a 14 CPU macOS host at load average 44 to 54, from other agents, on
+the two-file fixtures. Milliseconds from sync to the first publish (raw, p50 and
+max), and to the client's answer:
+
+| Server, step                 | First publish        | Client answer            | Correct                  |
+| ---------------------------- | -------------------- | ------------------------ | ------------------------ |
+| tls, fix                     | 377 to 623, max 1301 | 878 to 908, max 3010     | 9/10                     |
+| tls, break                   | 373 to 401, max 472  | 874 to 887, max 1202     | 10/10                    |
+| tls, reopen                  | 1 to 4, max 33       | 864 to 871, max 930      | 10/10                    |
+| tls, comment-only or restore | none                 | waits `settleMs` (3.0 s) | 1/20, no errors returned |
+| tls, cold open               | none in 4 s          | 3.0 s, `timeout`         | 0/2                      |
+| gopls, every step            | 2 to 5, max 24       | 1 to 3, max 6            | 50/50                    |
+| gopls, cold open             | 252 to 1541          | 415 to 553               | 2/2                      |
+
+`settleMs: 3000` and `quietMs: 500` hold for warm typescript-language-server
+edits. Limitations: one host, loaded, n of 5 per step and 2 files; a cold open
+under load exceeded 3 s for both files, and a change that leaves a file
+clean returns no `errors` after the full `settleMs`. gopls publishes within
+milliseconds, so it never needs more than the defaults. No Python server was
+measured. The raw JSON is written by the script and is not checked in.
 
 ## Run a query
 

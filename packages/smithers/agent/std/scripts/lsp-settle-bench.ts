@@ -3,7 +3,11 @@
  * after a sync, and checks what `NodeLanguageServer` answers with a given
  * `settleMs` and `quietMs`.
  *
- * node scripts/lsp-settle-bench.ts <server> <tsserver.js> <workspace> <iterations> <settleMs> <quietMs> <file>...
+ * node scripts/lsp-settle-bench.ts <server> <tsserver.js|-> <workspace> <iterations> <settleMs> <quietMs> <file>...
+ *
+ * A server whose name contains `gopls` is driven as Go (no arguments, Go
+ * probe text, no initializationOptions; pass `-` for the tsserver path);
+ * anything else is typescript-language-server over `--stdio`.
  *
  * Phase `raw` speaks LSP directly and records every publishDiagnostics for the
  * file, in milliseconds after the didOpen or didChange that caused it. Phase
@@ -38,8 +42,13 @@ const iterations = Number(iterationsArgument ?? 5)
 const settleMs = Number(settleArgument ?? 5_000)
 const quietMs = Number(quietArgument ?? 300)
 const files = fileArguments.map((file) => resolve(workspace, file))
-const initializationOptions = { tsserver: { path: tsserver }, disableAutomaticTypingAcquisition: true }
-const PROBE = "\nconst __settleProbe: string = 1\n"
+const go = /gopls/.test(server)
+const languageId = go ? "go" : "typescript"
+const serverArguments = go ? [] : ["--stdio"]
+const initializationOptions = go
+  ? undefined
+  : { tsserver: { path: tsserver }, disableAutomaticTypingAcquisition: true }
+const PROBE = go ? "\nvar __settleProbe string = 1\n" : "\nconst __settleProbe: string = 1\n"
 const COMMENT = "\n// settle probe\n"
 /** How long the raw phase listens after each sync; well past any publish seen. */
 const LISTEN_MS = 4_000
@@ -53,7 +62,7 @@ interface Publish {
 }
 
 const raw = async (file: string) => {
-  const child = spawn(server, ["--stdio"], { cwd: workspace, stdio: ["pipe", "pipe", "ignore"] })
+  const child = spawn(server, serverArguments, { cwd: workspace, stdio: ["pipe", "pipe", "ignore"] })
   const uri = pathToFileURL(file).href
   let buffer = Buffer.alloc(0)
   let id = 0
@@ -94,7 +103,7 @@ const raw = async (file: string) => {
     processId: null,
     rootUri: pathToFileURL(workspace).href,
     capabilities: { textDocument: { synchronization: {}, publishDiagnostics: { versionSupport: true } } },
-    initializationOptions
+    ...(initializationOptions === undefined ? {} : { initializationOptions })
   })
   send({ jsonrpc: "2.0", method: "initialized", params: {} })
   const base = readFileSync(file, "utf8")
@@ -116,7 +125,7 @@ const raw = async (file: string) => {
         ? {
           jsonrpc: "2.0",
           method: "textDocument/didOpen",
-          params: { textDocument: { uri, languageId: "typescript", version, text } }
+          params: { textDocument: { uri, languageId, version, text } }
         }
         : {
           jsonrpc: "2.0",
@@ -143,9 +152,9 @@ const client = (file: string) =>
   Effect.scoped(Effect.gen(function*() {
     const languageServer = yield* NodeLanguageServer.make({
       command: server,
-      args: ["--stdio"],
+      args: serverArguments,
       cwd: workspace,
-      initializationOptions,
+      ...(initializationOptions === undefined ? {} : { initializationOptions }),
       settleMs,
       quietMs
     })
