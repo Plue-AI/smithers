@@ -1,13 +1,15 @@
+import type { Effect } from "effect"
 import { readdirSync, readFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
-import { describe, expect, it } from "vitest"
+import { describe, expect, expectTypeOf, it } from "vitest"
 import * as Author from "../src/Author.ts"
 import * as Authorize from "../src/Authorize.ts"
 import * as Chain from "../src/Chain.ts"
 import * as chain from "../src/index.ts"
 import * as Journal from "../src/Journal.ts"
 import * as JsonBoundary from "../src/JsonBoundary.ts"
+import type * as Outcome from "../src/Outcome.ts"
 import * as Prompt from "../src/Prompt.ts"
 import * as QuickJsRunner from "../src/QuickJsRunner.ts"
 import * as ScriptRunner from "../src/ScriptRunner.ts"
@@ -251,5 +253,17 @@ describe("package documentation", () => {
     const sources = readdirSync(join(packageRoot, "src")).filter((name) => name.endsWith(".ts"))
     const dangling = sources.filter((name) => read("src", name).includes("docs/specs/"))
     expect(dangling).toEqual([])
+  })
+
+  it("states the run result and child-failure contract Chain.run implements", () => {
+    expectTypeOf<Effect.Success<ReturnType<typeof Chain.run>>>().toEqualTypeOf<Outcome.RunResult>()
+    const flat = api.replace(/\s+/g, " ")
+    expect(flat).toContain("run(options: Options): Effect.Effect<Outcome.RunResult, RunError, Services>")
+    expect(flat).toContain("`RunResult = Terminal | ApprovalWait`")
+    expect(flat).toContain("including a script's own `park(\"approval\", ...)`, settle as data")
+    expect(flat).toContain("Only a child's unsettled `ApprovalWait` bubbles")
+    expect(flat).toContain("its original typed error reaches the parent's error channel")
+    expect(flat).not.toMatch(/Effect\.Effect<Outcome\.Terminal,/)
+    expect(flat).not.toMatch(/approval park bubbles|dies as a defect/)
   })
 })
