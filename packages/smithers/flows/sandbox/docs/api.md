@@ -197,6 +197,12 @@ The layer also serves `SandboxHealth`, built with `SandboxHealth.make` over the 
 
 What `layerHost` deliberately does not do is what `SandboxSupervision` does for the spawn-only seam: retire an unhealthy session and open a fresh one behind the caller's back. That is right for a transport, where a command is the whole unit of work, and wrong here, because the body holding these services has been writing to this machine. Swapping it mid-action would silently discard those writes and hand the body an empty tree that still looks like its workspace. A dead machine surfaces as a failure instead, and re-provisioning belongs to whoever retries the action, which acquires the session key again.
 
+```ts
+const children = Sandbox.fanOut(session, { count: 16 }) // Effect<ReadonlyArray<Session>, ProviderError, Scope>
+```
+
+`fanOut(session, { count, concurrency? })` forks `count` children, 1 to `maxFanOut` (128), from a session that declares `fork`. Children are keyed `<session id>/child-<n>`, start from the session's current tree without its credentials, and are released when the acquiring scope closes, so a fan-out inside the parent's scope never outlives the parent. A count outside the bound throws a `RangeError`; a session without `fork` fails with `unavailable`; one failed fork fails the fan-out, and children already forked are released with the scope. `DirectorySandbox` forks by copying the session directory; `TestSession` forks its in-memory tree and leaves behind the paths named in `credentials`.
+
 ## SandboxConformance
 
 ```ts

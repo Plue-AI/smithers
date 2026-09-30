@@ -23462,6 +23462,14 @@ components:
         day_resets_at:
           type: string
           format: date-time
+        concurrent_children:
+          type: integer
+          format: int64
+          description: Live child workspaces the plan allows, at most 128.
+        child_max_ttl_secs:
+          type: integer
+          format: int64
+          description: The longest a child workspace may live.
     AnyJSON:
       description: Endpoint-specific JSON response.
     IssueCommentOrigin:
