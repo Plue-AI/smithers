@@ -3,6 +3,7 @@ import { setupActivationProblems, storedSetupCandidate, type RepositoryJob, type
 import { useLiveQuery } from "@tanstack/react-db"
 import { flowArgs } from "../flows/FlowArgs"
 import { repositoryCiConfigured, repositoryJobState } from "../state/RepositoryJobs"
+import { selectedBoxBindingFrom } from "../state/RepoContext"
 import { setupFailureSentence, setupVerdict } from "../state/RunFailure"
 import { describedFailure, FailureNotice } from "../FailureNotice"
 import type { UserFailureCopy } from "@smthrs/rpc/UserFailure"
@@ -59,7 +60,7 @@ const editor = (value: string | number) => ({
 })
 
 /** Settings and chat edit the same persisted candidate; only host receipts activate it. */
-export function RepositorySetupCard({ card, onRunCommand, signedOut, ciConfigured = false }: { card: CardOf<"repository-setup">; onRunCommand: RunCommand; signedOut?: boolean; ciConfigured?: boolean }) {
+export function RepositorySetupCard({ card, onRunCommand, signedOut, ciConfigured }: { card: CardOf<"repository-setup">; onRunCommand: RunCommand; signedOut?: boolean; ciConfigured?: boolean }) {
   const state = card.payload
   const draft = state.draft
   const preview = signedOut ?? state.owner === null
@@ -116,7 +117,7 @@ export function RepositorySetupCard({ card, onRunCommand, signedOut, ciConfigure
       {state.sources.length > 0 && <details><summary>Repository evidence</summary><ul>{state.sources.map((source, index) => <li key={`${source.path}:${index}`}><code>{source.path}</code> · {source.status === "missing" ? "not found" : source.status}{source.status !== "missing" && source.summary.toLowerCase() !== source.status && <div>{source.summary}</div>}</li>)}</ul></details>}
       {canRun && <div className="setup-actions"><button type="button" {...flowAction(onRunCommand, "setup.guide", card.id)}>Configure in Chat</button>
         <button type="button" disabled={pending} {...flowAction(onRunCommand, "setup.run", flowArgs("setup.run", { cardId: card.id, operation: "inspect" }))}>Inspect repository</button></div>}
-      {!ciConfigured && (state.job === "issues" || state.job === "feature") && <div className="setup-actions"><button type="button" {...flowAction(onRunCommand, "ci.setup", state.repo)}>Set up CI</button></div>}
+      {ciConfigured === false && (state.job === "issues" || state.job === "feature") && <div className="setup-actions"><button type="button" {...flowAction(onRunCommand, "ci.setup", state.repo)}>Set up CI</button></div>}
     </>}
     {state.view === "work" && manual && workStep && <>
       <label className="setup-field">Flow<select value={manual.stepId} onChange={event => onRunCommand("setup.work", flowArgs("setup.work", { cardId: card.id, stepId: event.target.value }))}>{draft.steps.filter(step => step.mode !== "off").map(step => <option key={step.id} value={step.id}>{step.name}</option>)}</select></label>
@@ -190,13 +191,23 @@ export function RepositorySetupCard({ card, onRunCommand, signedOut, ciConfigure
   </div>
 }
 
-function ObservedRepositorySetup({ cards, ...props }: Parameters<typeof RepositorySetupCard>[0] & { cards: NonNullable<CardProjectionAuthority["collections"]["cards"]> }) {
-  const { data } = useLiveQuery(cards)
-  return <RepositorySetupCard {...props} ciConfigured={repositoryCiConfigured(data, props.card.payload.repo, props.card.payload.owner)} />
+function ObservedRepositorySetup({ collections, ...props }: Parameters<typeof RepositorySetupCard>[0] & {
+  collections: { [K in "repositoryJobObservations" | "sessions" | "workingCopies" | "cloudWorkspaces"]: NonNullable<CardProjectionAuthority["collections"][K]> }
+}) {
+  const { data } = useLiveQuery(q => q.from({ observation: collections.repositoryJobObservations }).select(({ observation }) => observation))
+  const { data: sessions } = useLiveQuery(collections.sessions)
+  useLiveQuery(collections.workingCopies)
+  useLiveQuery(collections.cloudWorkspaces)
+  const binding = selectedBoxBindingFrom(collections, sessions[0]?.activeRepoKey, props.card.payload.repo)
+  const mismatch = binding !== undefined && ("error" in binding || (props.card.payload.workspaceId !== undefined && props.card.payload.workspaceId !== binding.workspaceId))
+  return <RepositorySetupCard {...props} ciConfigured={mismatch ? undefined : repositoryCiConfigured(data, props.card.payload.repo, props.card.payload.owner, binding !== undefined && "workspaceId" in binding ? binding.workspaceId : null)} />
 }
 
 export const repositorySetupCardFamily: CardFamily<"repository-setup"> = {
-  "repository-setup": { render: (card, actions) => actions.projectionStore?.collections.cards
-    ? <ObservedRepositorySetup card={card} cards={actions.projectionStore.collections.cards} onRunCommand={actions.onRunCommand} signedOut={actions.signedOut} />
-    : <RepositorySetupCard card={card} onRunCommand={actions.onRunCommand} signedOut={actions.signedOut} />, pill: () => "" }
+  "repository-setup": { render: (card, actions) => {
+    const collections = actions.projectionStore?.collections
+    return collections?.repositoryJobObservations && collections.sessions && collections.workingCopies && collections.cloudWorkspaces
+      ? <ObservedRepositorySetup card={card} collections={{ repositoryJobObservations: collections.repositoryJobObservations, sessions: collections.sessions, workingCopies: collections.workingCopies, cloudWorkspaces: collections.cloudWorkspaces }} onRunCommand={actions.onRunCommand} signedOut={actions.signedOut} />
+      : <RepositorySetupCard card={card} onRunCommand={actions.onRunCommand} signedOut={actions.signedOut} />
+  }, pill: () => "" }
 }

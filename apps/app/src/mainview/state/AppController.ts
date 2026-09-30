@@ -2089,6 +2089,7 @@ export const createAppController = (
   stackSeam.resumeStacks()
   workflowController.resumeWorkflowRequests()
   repositorySetup.resumeRepositorySetups()
+  repositorySetup.subscribeRepositoryJobs()
   /*
    * Persisted model, repository and approval reads reconnect from the identity answer,
    * never from construction: every boot adopts or probes the session, and a read started

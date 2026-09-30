@@ -1,21 +1,43 @@
 import { RepositoryJobSchema, storedSetupCandidate, type RepositoryJob, type RepositorySetup } from "@smthrs/rpc/RepositorySetup"
-import type { Card } from "./AppState"
+import type { Card, RepositoryJobObservation } from "./AppState"
 
-/** A saved draft is not an enabled repository responsibility. */
-export const repositoryCiConfigured = (cards: Iterable<Card>, repo: string, owner: string | null): boolean =>
-  [...cards].some(card => card.kind === "repository-setup" && card.payload.job === "ci" && card.payload.repo === repo
-    && card.payload.owner === owner && card.payload.active?.enabled === true)
-
-/**
- * The Smithers Cloud workspace this repository's reviewed jobs run on, as
- * their own setups recorded it. Two setups naming different workspaces name
- * none: nothing here picks between them.
- */
-export const repositoryJobWorkspace = (cards: Iterable<Card>, repo: string, owner: string | null): string | undefined => {
-  const recorded = new Set([...cards].flatMap(card => card.kind === "repository-setup" && card.payload.repo === repo
-    && card.payload.owner === owner && card.payload.workspaceId !== undefined ? [card.payload.workspaceId] : []))
-  return recorded.size === 1 ? [...recorded][0] : undefined
+/** Unknown observations never imply that CI is unconfigured. */
+export const repositoryCiConfigured = (
+  observations: Iterable<RepositoryJobObservation>, repo: string, owner: string | null, selectedWorkspaceId: string | null = null
+): boolean | undefined => {
+  const ci = knownRegistrations(observations, repo, owner, selectedWorkspaceId).find(row => row.job === "ci")
+  return ci === undefined ? undefined : ci.registration.active?.enabled === true
 }
+
+/** An owned, verified job binding; conflicting registered boxes remain unresolved. */
+export const repositoryJobWorkspace = (
+  observations: Iterable<RepositoryJobObservation>, repo: string, owner: string | null, selectedWorkspaceId: string | null = null
+): { readonly workspaceId: string } | { readonly error: string } | undefined => {
+  const recorded = new Set(knownRegistrations(observations, repo, owner, selectedWorkspaceId, false).flatMap(({ registration }) => {
+    const policy = registration.active ?? registration.trial
+    return policy?.owned === true ? [policy.workspaceId] : []
+  }))
+  if (recorded.size > 1) return { error: "The repository's registered jobs use different boxes." }
+  const workspaceId = [...recorded][0]
+  if (workspaceId === undefined) return undefined
+  if (selectedWorkspaceId !== null && workspaceId !== selectedWorkspaceId) return { error: "The repository's registered jobs belong to another box." }
+  return { workspaceId }
+}
+
+/** Persisted setup routing provenance is not evidence of an enabled registration. */
+export const recordedSetupWorkspace = (cards: Iterable<Card>, repo: string, owner: string | null):
+  { readonly workspaceId: string } | { readonly error: string } | undefined => {
+  if (owner === null) return undefined
+  const boxes = new Set([...cards].flatMap(card => card.kind === "repository-setup" && card.payload.repo === repo
+    && card.payload.owner?.toLowerCase() === owner.toLowerCase() && card.payload.workspaceId !== undefined ? [card.payload.workspaceId] : []))
+  if (boxes.size > 1) return { error: "The repository's saved setups name different boxes." }
+  const workspaceId = [...boxes][0]
+  return workspaceId === undefined ? undefined : { workspaceId }
+}
+
+const registrationState = (active: { readonly enabled: boolean } | undefined, trial: { readonly enabled: boolean } | undefined, changed: boolean): string =>
+  active ? active.enabled ? changed ? "Enabled · draft changes" : "Enabled" : "Paused"
+    : trial ? trial.enabled ? "Trial" : "Paused" : "Off"
 
 /**
  * A job's registered state, in the setup card's own words. Undefined until the
@@ -23,53 +45,54 @@ export const repositoryJobWorkspace = (cards: Iterable<Card>, repo: string, owne
  */
 export const repositoryJobState = (setup: Pick<RepositorySetup, "revision" | "active" | "recovery">): string | undefined =>
   setup.recovery !== undefined && setup.recovery.registrationState !== "known" ? undefined
-    : setup.active?.enabled ? setup.active.revision === setup.revision ? "Enabled" : "Enabled · draft changes"
-    : setup.active ? "Paused"
-    : setup.recovery?.trialRegistration ? setup.recovery.trialRegistration.enabled ? "Trial" : "Paused"
-    : "Off"
+    : registrationState(setup.active, setup.recovery?.trialRegistration, setup.active?.revision !== setup.revision)
 
-/**
- * {@link repositoryJobState} for every job this account configured on one
- * repository — read from the conversation's cards, which is the only place
- * this app keeps a registration at all.
- *
- * A job's registration enters app state through ONE door: its setup card's
- * recovery, `GET /api/repository-setup/state?repo&job`, asked per job by
- * `controller/repositorySetup.ts` `recover()` for a card that already exists.
- * No collection in `AppStore` holds registrations, and no route hands the app
- * a repository's registrations together, so a job whose card is not open has
- * no state here to read and is listed as its own name.
- *
- * That, not a recovery field, is what the canary census recorded
- * (.artifacts/mvp-canary-walk-20260917/W1-a-buttons-and-chat.json): with
- * `cardsAfterClear []` all five buttons read plain — `Handle issues` included,
- * while the host held it registered and paused at revision 4 — and twenty
- * minutes later, with only the issues card open, `jobButtonsWithState` read
- * "Handle issues · Paused" beside a bare "Build a feature" whose registration
- * was enabled at revision 57. `RepositoryJobs.test.ts` pins both halves.
- */
-export const repositoryJobStates = (cards: Iterable<Card>, repo: string, owner: string | null): Partial<Record<RepositoryJob, string>> => {
+/** One unambiguous collection key for the account, repository, selection and job. */
+export const repositoryJobObservationId = (owner: string, repo: string, selectedWorkspaceId: string | null, job: RepositoryJob): string =>
+  JSON.stringify([owner.toLowerCase(), repo, selectedWorkspaceId, job])
+
+const knownRegistrations = (observations: Iterable<RepositoryJobObservation>, repo: string, owner: string | null, selectedWorkspaceId: string | null, requireMatchingBox = true) =>
+  [...observations].flatMap(row => {
+    if (owner === null || row.owner.toLowerCase() !== owner.toLowerCase() || row.repo !== repo
+      || row.selectedWorkspaceId !== selectedWorkspaceId || row.state !== "completed" || row.registration?.state !== "known") return []
+    const policy = row.registration.active ?? row.registration.trial
+    if (requireMatchingBox && selectedWorkspaceId !== null && policy !== undefined && policy.workspaceId !== selectedWorkspaceId) return []
+    return [{ job: row.job, registration: row.registration }]
+  })
+
+/** Verified registrations are independent of cards; an open draft only annotates its own registration. */
+export const repositoryJobStates = (
+  observations: Iterable<RepositoryJobObservation>, cards: Iterable<Card>, repo: string, owner: string | null,
+  selectedWorkspaceId: string | null = null
+): Partial<Record<RepositoryJob, string>> => {
   const states: Partial<Record<RepositoryJob, string>> = {}
-  for (const card of cards) {
-    if (card.kind !== "repository-setup" || card.payload.repo !== repo || card.payload.owner !== owner) continue
-    const state = repositoryJobState(card.payload)
-    if (state !== undefined) states[card.payload.job] = state
+  const drafts = [...cards]
+  for (const { job, registration } of knownRegistrations(observations, repo, owner, selectedWorkspaceId)) {
+    const active = registration.active
+    const changed = active !== undefined && drafts.some(card => card.kind === "repository-setup" && card.payload.repo === repo
+      && card.payload.owner?.toLowerCase() === owner?.toLowerCase() && card.payload.job === job
+      && card.payload.active?.registrationId === active.registrationId && card.payload.revision > active.revision
+      && (card.payload.workspaceId === undefined || card.payload.workspaceId === active.workspaceId))
+    states[job] = registrationState(active, registration.trial, changed)
   }
   return states
 }
 
-/** Jobs with a current, owned registration whose candidate still matches the saved setup. */
-export const registeredRepositoryJobs = (cards: Iterable<Card>, repo: string | undefined, owner: string | null): ReadonlySet<RepositoryJob> => {
-  const jobs = new Set<RepositoryJob>()
-  if (repo === undefined || owner === null) return jobs
-  for (const card of cards) {
-    if (card.kind !== "repository-setup" || card.payload.repo !== repo || card.payload.owner !== owner) continue
-    const { active } = card.payload
-    if (!active || active.owned === false || !active.registrationId || !active.sourceRevision || active.revision > card.payload.revision) continue
-    if (storedSetupCandidate({ ...card.payload, revision: active.revision, draft: active.draft ?? card.payload.draft }, active.digest)) jobs.add(card.payload.job)
-  }
-  return jobs
-}
+/**
+ * Jobs with an owned, verified host registration (paused included) whose
+ * candidate still matches its stored draft. Only host observations count:
+ * a saved card draft never completes setup.
+ */
+export const registeredRepositoryJobs = (
+  observations: Iterable<RepositoryJobObservation>, repo: string | undefined, owner: string | null,
+  selectedWorkspaceId: string | null = null
+): ReadonlySet<RepositoryJob> => new Set(repo === undefined ? [] : knownRegistrations(observations, repo, owner, selectedWorkspaceId)
+  .flatMap(({ job, registration }) => {
+    const active = registration.active
+    return active?.owned === true && storedSetupCandidate({ repo, job, revision: active.revision, draft: active.draft }, active.digest)
+      ? [job]
+      : []
+  }))
 
 /** The job a `<job>.setup` flow configures. */
 export const repositoryJobOf = (flow: string): RepositoryJob | undefined => {

@@ -90,6 +90,7 @@ MessageSchema,
 RecommendationSchema,
 RepoTreeRowSchema,
 RepositoryFlowsRowSchema,
+RepositoryJobObservationSchema,
 SeatAssignmentSchema,
 SessionSchema,
 StarredTargetSchema,
@@ -905,6 +906,13 @@ const COLLECTION_DEFINITIONS = {
     persisted: false as const,
     create: (_persistence: CollectionPersistence) => createCollection(localOnlyCollectionOptions({
       id: "app-repo-tree", schema: RepoTreeRowSchema, getKey: byId,
+      onInsert: refuseDirectMutation, onUpdate: refuseDirectMutation, onDelete: refuseDirectMutation
+    }))
+  },
+  repositoryJobObservations: {
+    persisted: false as const,
+    create: (_persistence: CollectionPersistence) => createCollection(localOnlyCollectionOptions({
+      id: "app-repository-job-observations", schema: RepositoryJobObservationSchema, getKey: byId,
       onInsert: refuseDirectMutation, onUpdate: refuseDirectMutation, onDelete: refuseDirectMutation
     }))
   },

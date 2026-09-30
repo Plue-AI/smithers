@@ -11,7 +11,8 @@ import { CardSchema, type Card } from "../AppState"
 import { actorSharedState } from "../ActorBindings"
 import { browserWriteRefusal } from "../BrowserWriteFailure"
 import { canonicalStoredJsonValue } from "../EventValue"
-import { resolveTargetRepo } from "../RepoContext"
+import { resolveTargetRepo, selectedBoxBinding } from "../RepoContext"
+import { repositoryJobObservationId } from "../RepositoryJobs"
 import { setupTrialPr } from "../RepositorySetupTrial"
 import { setupFailureSentence, setupVerdict } from "../RunFailure"
 import { presentAppFailure } from "./AppFailure"
@@ -52,6 +53,8 @@ export interface RepositorySetupController {
   readonly discardRepositorySetupDraft: (cardId: string) => Result
   readonly retryRepositorySetup: (cardId: string) => Result
   readonly guideRepositorySetup: (cardId: string) => Result
+  readonly subscribeRepositoryJobs: () => void
+  readonly refreshRepositoryJobs: () => void
   readonly resumeRepositorySetups: () => void
 }
 
@@ -243,6 +246,7 @@ export function projectRecoveredSetup(current: RepositorySetup, recovered: Setup
 export function createRepositorySetupController(ctx: ControllerContext, dependencies?: RepositorySetupDependencies): RepositorySetupController {
   const shared = actorSharedState(ctx, "repository-setup", () => ({
     pending: new Map<string, Promise<unknown>>(), sleepers: new Map<ReturnType<typeof setTimeout>, () => void>(),
+    registrationReads: new Map<string, Promise<SetupRecoveryResponse>>(), observationsSubscribed: false, observationScope: undefined as string | undefined,
     recovering: new Map<string, Promise<unknown>>(), resumed: new Set<string>(), openingRuns: new Set<string>(), edits: new Map<string, Promise<unknown>>(),
     guidanceQueued: false, guiding: false, guidanceFailures: new Set<string>(), spentRequests: new Set<string>(),
     scheduleTimers: new Map<string, { timer: ReturnType<typeof setTimeout>; at: number; login: string | null; accountEpoch: number; registrationId: string }>(),
@@ -261,6 +265,88 @@ export function createRepositorySetupController(ctx: ControllerContext, dependen
   }
   const owner = (): string | null => accountOwnerOf(ctx.store.collections.identitySessions.get("identity")) ?? null
   const epoch = () => ctx.accountEpoch ?? 0
+  const observationScope = () => {
+    const login = owner()
+    const target = resolveTargetRepo(ctx.store, undefined)
+    if (ctx.disposed || shared.disposed || login === null || "error" in target) return undefined
+    const binding = selectedBoxBinding(ctx.store, target.repo)
+    if (binding !== undefined && "error" in binding) return undefined
+    const selectedWorkspaceId = binding?.workspaceId ?? null
+    return { owner: login, repo: target.repo, selectedWorkspaceId,
+      key: JSON.stringify([login.toLowerCase(), epoch(), target.repo, selectedWorkspaceId]) }
+  }
+  /** One decoded, in-flight-deduplicated host read for both card recovery and repository observations. */
+  const readRecovery = (repo: string, job: RepositoryJob, login: string, accountEpoch: number, fresh = false): Promise<SetupRecoveryResponse> => {
+    const scope = observationScope()
+    const selected = scope?.repo === repo && scope.owner.toLowerCase() === login.toLowerCase() ? scope : undefined
+    const key = JSON.stringify([login.toLowerCase(), accountEpoch, repo, job, selected?.key])
+    const held = shared.registrationReads.get(key)
+    if (held !== undefined && !fresh) return held
+    const current = () => selected !== undefined && !ctx.disposed && !shared.disposed && epoch() === accountEpoch
+      && observationScope()?.key === selected.key && shared.registrationReads.get(key) === work
+    const publish = (state: "requested" | "completed" | "failed", registration?: SetupRecoveryResponse["registration"], error?: string) => {
+      if (!current() || selected === undefined) return
+      ctx.store.dispatch({ type: "repository-job.observed", actor: "system", observation: {
+        id: repositoryJobObservationId(login, repo, selected.selectedWorkspaceId, job),
+        owner: login, repo, job, selectedWorkspaceId: selected.selectedWorkspaceId, state,
+        ...(registration === undefined ? {} : { registration }), ...(error === undefined ? {} : { error })
+      } })
+    }
+    const work = (async () => {
+      // Reads may be requested from a collection subscription; publish after its transition settles.
+      await Promise.resolve()
+      publish("requested")
+      try {
+        const response = await ctx.boundedFetch(`${ctx.baseUrl}${REPOSITORY_SETUP_API}/state?${new URLSearchParams({ repo, job })}`, { credentials: "include" })
+        if (!response.ok) throw new SetupRefusal(await ctx.errorMessageOf(response, "Setup recovery is unavailable."))
+        const result = SetupRecoveryResponseSchema.parse(await response.json())
+        if (result.owner.toLowerCase() !== login.toLowerCase()) throw new SetupRefusal("The recovered setup belongs to a different account.")
+        if (result.repo !== repo || result.job !== job) throw new SetupRefusal("The recovered setup belongs to another repository.")
+        publish("completed", result.registration, result.registration.state === "unavailable" ? result.registration.error : undefined)
+        return result
+      } catch (error) {
+        publish("failed", undefined, error instanceof Error ? error.message : String(error))
+        throw error
+      }
+    })()
+    shared.registrationReads.set(key, work)
+    void work.finally(() => { if (shared.registrationReads.get(key) === work) shared.registrationReads.delete(key) }).catch(() => {})
+    return work
+  }
+  const refreshRepositoryJobs = () => {
+    const scope = observationScope()
+    if (scope === undefined) return
+    for (const job of RepositoryJobSchema.options) void readRecovery(scope.repo, job, scope.owner, epoch()).catch(() => {})
+  }
+  const subscribeRepositoryJobs = () => {
+    if (shared.observationsSubscribed) return
+    shared.observationsSubscribed = true
+    const changed = () => {
+      const next = observationScope()?.key
+      if (next === shared.observationScope) return
+      const previous = shared.observationScope
+      shared.observationScope = next
+      // Changing away and back never lets an earlier read regain publication ownership.
+      if (previous !== undefined) shared.registrationReads.clear()
+      queueMicrotask(refreshRepositoryJobs)
+    }
+    changed()
+    const subscription = ctx.store.collections.transitions.subscribeChanges(changes => {
+      if (changes.some(change => change.type === "insert")) {
+        changed()
+        // Working-copy views may settle after the underlying transition subscribers.
+        queueMicrotask(changed)
+      }
+    })
+    const focus = () => refreshRepositoryJobs()
+    const page = typeof window === "undefined" || typeof window.addEventListener !== "function" ? undefined : window
+    page?.addEventListener("focus", focus)
+    ctx.onDispose(() => {
+      subscription.unsubscribe()
+      page?.removeEventListener("focus", focus)
+      shared.registrationReads.clear()
+    })
+  }
   /**
    * The pin a new request may carry. A workspace this repository's loaded
    * collection no longer lists is gone, and sending it runs the work somewhere
@@ -589,6 +675,9 @@ export function createRepositorySetupController(ctx: ControllerContext, dependen
           if (!current(id, intent.id, login, accountEpoch)) return TOAST_SUPERSEDED
           attachRun(updated)
           if (terminal) {
+            if (login !== null && ["apply", "pause", "trial"].includes(intent.operation)) {
+              void readRecovery(repo, job, login, accountEpoch, true).catch(() => {})
+            }
             // The mutable next occurrence belongs to the registry, not the
             // immutable apply receipt or a browser-side cron calculation.
             const expired = shared.expiredSchedules.get(id)
@@ -636,10 +725,8 @@ export function createRepositorySetupController(ctx: ControllerContext, dependen
     if (!recoveryCurrent(id, intent.id, login, accountEpoch)) return Promise.resolve()
     const work = ctx.withToast(`setup.recovery.${intent.id}`, `${REPOSITORY_JOB_TITLES[job]}…`, "Setup updated", async () => {
       try {
-        const response = await ctx.boundedFetch(`${ctx.baseUrl}${REPOSITORY_SETUP_API}/state?${new URLSearchParams({ repo, job })}`, { credentials: "include" })
-        if (!recoveryCurrent(id, intent.id, login, accountEpoch)) return TOAST_SUPERSEDED
-        if (!response.ok) throw new SetupRefusal(await ctx.errorMessageOf(response, "Setup recovery is unavailable."))
-        const result = SetupRecoveryResponseSchema.parse(await response.json())
+        if (login === null) return TOAST_SUPERSEDED
+        const result = await readRecovery(repo, job, login, accountEpoch)
         if (!recoveryCurrent(id, intent.id, login, accountEpoch)) return TOAST_SUPERSEDED
         await edit(id, async () => {
           if (!recoveryCurrent(id, intent.id, login, accountEpoch)) return
@@ -989,6 +1076,8 @@ export function createRepositorySetupController(ctx: ControllerContext, dependen
       offerGuidance()
       return { value: "Setup guidance requested." }
     },
+    subscribeRepositoryJobs,
+    refreshRepositoryJobs,
     resumeRepositorySetups: () => {
       for (const [id, observed] of shared.scheduleTimers) {
         if (observed.login !== owner() || observed.accountEpoch !== epoch()) { clearTimeout(observed.timer); shared.scheduleTimers.delete(id) }

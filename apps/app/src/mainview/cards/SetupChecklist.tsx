@@ -3,9 +3,9 @@ import { useLiveQuery } from "@tanstack/react-db"
 import { useController } from "../ControllerContext"
 import { dynamicFlowAction } from "../flows/FlowAction"
 import { visible, type CatalogItem } from "../flows/registry"
-import { activeRepositoryId } from "../state/RepoContext"
+import { activeRepositoryId, selectedBoxBinding } from "../state/RepoContext"
 import { registeredRepositoryJobs, repositoryJobOf, repositoryJobStates } from "../state/RepositoryJobs"
-import type { Card } from "../state/AppState"
+import type { RepositoryJobObservation } from "../state/AppState"
 import type { RunDynamicCommand } from "./CardFamily"
 import { FIRST_RUN_JOBS } from "./FirstRunActions"
 import "./SetupChecklist.css"
@@ -73,8 +73,11 @@ export function resolveJobs(commands: readonly CatalogItem[], states: Partial<Re
 }
 
 /** A host-confirmed registration for this account and repository, including paused jobs. */
-export function hasRegisteredSetup(cards: Iterable<Card>, repo: string | undefined, owner: string | null): boolean {
-  return registeredRepositoryJobs(cards, repo, owner).size > 0
+export function hasRegisteredSetup(
+  observations: Iterable<RepositoryJobObservation>, repo: string | undefined, owner: string | null,
+  selectedWorkspaceId: string | null = null
+): boolean {
+  return registeredRepositoryJobs(observations, repo, owner, selectedWorkspaceId).size > 0
 }
 
 export function SetupChecklistCard({ steps, jobs = [], onRunCommand }: {
@@ -111,18 +114,24 @@ export function SetupChecklist({ commands }: { commands?: readonly CatalogItem[]
   const { data: identities } = useLiveQuery(collections.identitySessions)
   const { data: repositories } = useLiveQuery(collections.repositories)
   const { data: cards } = useLiveQuery(collections.cards)
+  const { data: observations } = useLiveQuery(q => q.from({ observation: collections.repositoryJobObservations }).select(({ observation }) => observation))
+  useLiveQuery(collections.workingCopies)
+  useLiveQuery(collections.cloudWorkspaces)
   const repo = sessions[0]?.repositoryEntry?.repo ?? activeRepositoryId(controller.store) ?? undefined
   const identity = identities[0]
   const owner = identity?.state === "signed-in" ? identity.accountOwnerLogin ?? identity.login : null
+  const binding = repo === undefined ? undefined : selectedBoxBinding(controller.store, repo)
+  const selectedWorkspaceId = binding !== undefined && "workspaceId" in binding ? binding.workspaceId : null
+  const readable = binding === undefined || "workspaceId" in binding
   const steps = resolveSteps(commands ?? controller.commands.all(), {
     signedIn: identities[0]?.state === "signed-in",
     localAuth: controller.localAuth !== undefined,
     hasRepo: repositories.some(row => row.catalog !== true),
-    hasSetup: hasRegisteredSetup(cards, repo, owner),
+    hasSetup: readable && hasRegisteredSetup(observations, repo, owner, selectedWorkspaceId),
   }, repo)
   // Undismissed, the recommended actions carry the same five; the row is theirs until then.
   const dismissed = sessions[0]?.dismissed ?? controller.store.session().firstRunDismissed
   const jobs = dismissed && steps[2]?.complete === true && repo !== undefined
-    ? resolveJobs(commands ?? controller.commands.all(), repositoryJobStates(cards, repo, owner), repo) : []
+    ? resolveJobs(commands ?? controller.commands.all(), readable ? repositoryJobStates(observations, cards, repo, owner, selectedWorkspaceId) : {}, repo) : []
   return <SetupChecklistCard steps={steps} jobs={jobs} onRunCommand={controller.runCommand} />
 }

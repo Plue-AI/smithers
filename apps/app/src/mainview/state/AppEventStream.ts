@@ -35,7 +35,8 @@ export const APP_EVENT_FORMAT_VERSION = 1
 // store's rows seed a fresh stream and its stale tab rows fail `TabSchema`.
 // 24: `repos.loaded`, `repo.pinned`, `repo.unpinned`, the `repos` and `pinnedRepos` projections and local working
 // copies retired (smithersai/smithers#2239); an older store's local rows fail their schema and seed a fresh stream.
-export const APP_PROJECTOR_VERSION = 24
+// 25: repository job observations add a disposable projection; older saved rows seed the new roster (#2536).
+export const APP_PROJECTOR_VERSION = 25
 
 const JsonSchema: z.ZodType<EventJson> = z.lazy(() => z.union([
   z.null(), z.boolean(), z.number().finite(), z.string(), z.array(JsonSchema), z.record(z.string(), JsonSchema)

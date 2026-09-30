@@ -5,7 +5,7 @@ import { dynamicFlowAction, flowAction } from "../flows/FlowAction"
 import { repositoryFlowName } from "../flows/entries/flow"
 import { unmetRequirements,visible,type CatalogItem,type CommandState } from "../flows/registry"
 import { accountOwnerOf } from "../state/AccountOwner"
-import { activeCatalogRepositoryId, activeRepositoryId } from "../state/RepoContext"
+import { activeCatalogRepositoryId, activeRepositoryId, selectedBoxBinding } from "../state/RepoContext"
 import { registeredRepositoryJobs, repositoryJobOf, repositoryJobStates } from "../state/RepositoryJobs"
 import type { RepositoryFlow } from "../state/AppState"
 import type { RunDynamicCommand } from "./CardFamily"
@@ -99,6 +99,9 @@ export function FirstRunActions({ commands }: { commands?: readonly CatalogItem[
   const { data: identities } = useLiveQuery(collections.identitySessions)
   const { data: connectors } = useLiveQuery(collections.connectors)
   const { data: cards } = useLiveQuery(collections.cards)
+  const { data: observations } = useLiveQuery(q => q.from({ observation: collections.repositoryJobObservations }).select(({ observation }) => observation))
+  useLiveQuery(collections.workingCopies)
+  useLiveQuery(collections.cloudWorkspaces)
   useLiveQuery(collections.repositories)
   // Repository flow leaves change with this collection.
   const { data: repositoryCatalogs } = useLiveQuery(collections.repositoryFlows)
@@ -108,10 +111,13 @@ export function FirstRunActions({ commands }: { commands?: readonly CatalogItem[
   const repo = activeRepositoryId(controller.store) ?? controller.repositoryFlows?.()?.repo ?? session?.repositoryEntry?.repo ?? undefined
   const owner = accountOwnerOf(identity) ?? null
   const featuredFlows = repo === undefined ? [] : repositoryCatalogs.find(row => row.id === repo)?.flows ?? []
+  const binding = repo === undefined ? undefined : selectedBoxBinding(controller.store, repo)
+  const readable = binding === undefined || "workspaceId" in binding
+  const selectedWorkspaceId = binding !== undefined && "workspaceId" in binding ? binding.workspaceId : null
   return <FirstRunActionsCard commands={commands ?? controller.commands.all()}
     featuredFlows={featuredFlows}
-    repo={repo} jobStates={repo === undefined ? undefined : repositoryJobStates(cards, repo, owner)}
-    completedJobs={registeredRepositoryJobs(cards, repo, owner)} state={{
+    repo={repo} jobStates={repo === undefined || !readable ? undefined : repositoryJobStates(observations, cards, repo, owner, selectedWorkspaceId)}
+    completedJobs={readable ? registeredRepositoryJobs(observations, repo, owner, selectedWorkspaceId) : new Set()} state={{
     surface: session?.surface ?? "chat", typing: session?.phase === "responding", plugins: session?.plugins,
     signedOut: identity?.state === "signed-out", admin: identity?.admin === true,
     hasConnectors: identity?.state === "signed-in" || connectors.length > 0,

@@ -3,6 +3,8 @@ import { afterAll, expect, test } from "bun:test"
 import { flushSync } from "react-dom"
 import { createRoot } from "react-dom/client"
 import { initialSetup, setupCandidate } from "@smthrs/rpc/RepositorySetup"
+import type { RepositorySetup } from "@smthrs/rpc/RepositorySetup"
+import type { RepositoryJobObservation } from "../state/AppState"
 import { ControllerContext } from "../ControllerContext"
 import type { AppController } from "../state/AppController"
 import { createAppStore } from "../state/AppStore"
@@ -23,6 +25,14 @@ const jobTitles = ["Handle issues", "Review PRs", "Set up CI", "Build a feature"
 const jobCommands = [...commands, ...FIRST_RUN_JOBS.map((name, index) => ({ name, summary: jobTitles[index]! }))]
 const empty = { signedIn: false, hasRepo: false, hasSetup: false }
 const done = { signedIn: true, hasRepo: true, hasSetup: true }
+
+const observation = (payload: RepositorySetup): RepositoryJobObservation => ({
+  id: payload.job, owner: payload.owner ?? "", repo: payload.repo, job: payload.job,
+  selectedWorkspaceId: null, state: "completed", registration: { state: "known",
+    ...(payload.active === undefined ? {} : { active: { ...payload.active,
+      owned: payload.active.owned ?? true, workspaceId: "de29f26b-e593-4ec2-99fc-583d4711f20a",
+      draft: payload.active.draft ?? payload.draft } }) }
+})
 
 test("local owner setup names sign-in before and after authentication", async () => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
@@ -47,20 +57,20 @@ test("local owner setup names sign-in before and after authentication", async ()
 
 test("only a current account's selected repository registration completes setup", () => {
   const setup = initialSetup("will/demo", "issues", "will")
-  const card = (payload: typeof setup) => ({ id: "setup", kind: "repository-setup" as const, title: "Handle issues", status: "active" as const, createdAt: 1, ordinal: 1, payload })
+
   const active = { revision: setup.revision, digest: setupCandidate(setup), registrationId: "reg", sourceRevision: "source", enabled: true }
-  expect(hasRegisteredSetup([card(setup)], "will/demo", "will")).toBe(false)
-  expect(hasRegisteredSetup([card({ ...setup, request: { id: "failed", operation: "apply", revision: setup.revision, digest: active.digest, state: "failed" } })], "will/demo", "will")).toBe(false)
-  expect(hasRegisteredSetup([card({ ...setup, active })], "will/demo", "will")).toBe(true)
-  expect(hasRegisteredSetup([card({ ...setup, active })], "other/repo", "will")).toBe(false)
-  expect(hasRegisteredSetup([card({ ...setup, active })], "will/demo", "other")).toBe(false)
-  expect(hasRegisteredSetup([card({ ...setup, active })], "will/demo", null)).toBe(false)
-  expect(hasRegisteredSetup([card({ ...setup, active: { ...active, enabled: false } })], "will/demo", "will")).toBe(true)
-  expect(hasRegisteredSetup([card({ ...setup, active: { ...active, digest: "wrong" } })], "will/demo", "will")).toBe(false)
-  expect(hasRegisteredSetup([card({ ...setup, active: { ...active, revision: setup.revision + 1 } })], "will/demo", "will")).toBe(false)
-  expect(hasRegisteredSetup([card({ ...setup, active: { ...active, owned: false } })], "will/demo", "will")).toBe(false)
-  expect(hasRegisteredSetup([card({ ...setup, active, revision: setup.revision + 1, draft: { ...setup.draft, label: "Changed draft" } })], "will/demo", "will")).toBe(false)
-  expect(hasRegisteredSetup([card({ ...setup, active: { ...active, draft: setup.draft }, revision: setup.revision + 1, draft: { ...setup.draft, label: "Changed draft" } })], "will/demo", "will")).toBe(true)
+  expect(hasRegisteredSetup([observation(setup)], "will/demo", "will")).toBe(false)
+  expect(hasRegisteredSetup([observation({ ...setup, request: { id: "failed", operation: "apply", revision: setup.revision, digest: active.digest, state: "failed" } })], "will/demo", "will")).toBe(false)
+  expect(hasRegisteredSetup([observation({ ...setup, active })], "will/demo", "will")).toBe(true)
+  expect(hasRegisteredSetup([observation({ ...setup, active })], "other/repo", "will")).toBe(false)
+  expect(hasRegisteredSetup([observation({ ...setup, active })], "will/demo", "other")).toBe(false)
+  expect(hasRegisteredSetup([observation({ ...setup, active })], "will/demo", null)).toBe(false)
+  expect(hasRegisteredSetup([observation({ ...setup, active: { ...active, enabled: false } })], "will/demo", "will")).toBe(true)
+  expect(hasRegisteredSetup([observation({ ...setup, active: { ...active, digest: "wrong" } })], "will/demo", "will")).toBe(false)
+  expect(hasRegisteredSetup([observation({ ...setup, active: { ...active, revision: setup.revision + 1 } })], "will/demo", "will")).toBe(false)
+  expect(hasRegisteredSetup([observation({ ...setup, active: { ...active, owned: false } })], "will/demo", "will")).toBe(false)
+  expect(hasRegisteredSetup([observation({ ...setup, active, revision: setup.revision + 1, draft: { ...setup.draft, label: "Changed draft" } })], "will/demo", "will")).toBe(false)
+  expect(hasRegisteredSetup([observation({ ...setup, active: { ...active, draft: setup.draft }, revision: setup.revision + 1, draft: { ...setup.draft, label: "Changed draft" } })], "will/demo", "will")).toBe(true)
 })
 
 test("each step names the first flow this host registered, and completion follows state", () => {
@@ -130,10 +140,12 @@ test("setup needs a registration and keeps the five jobs reachable after pausing
     expect(host.querySelector("header")?.textContent).toContain("2 of 3")
     const setup = initialSetup("will/demo", "issues", "will")
     store.dispatch({ type: "card.upsert", actor: "system", card: { id: "setup", kind: "repository-setup", title: "Handle issues", status: "active", createdAt: 1, ordinal: 1, payload: { ...setup, active: { revision: setup.revision, digest: setupCandidate(setup), registrationId: "reg", sourceRevision: "source", enabled: true } } } })
+    store.dispatch({ type: "repository-job.observed", actor: "system", observation: observation({ ...setup, active: { revision: setup.revision, digest: setupCandidate(setup), registrationId: "reg", sourceRevision: "source", enabled: true } }) })
     await new Promise(resolve => setTimeout(resolve, 20))
     expect(host.querySelector('[data-testid="setup-checklist"]')).toBeNull()
     store.dispatch({ type: "first-run.dismissed", actor: "user" })
     store.dispatch({ type: "card.upsert", actor: "system", card: { id: "setup", kind: "repository-setup", title: "Handle issues", status: "active", createdAt: 1, ordinal: 1, payload: { ...setup, active: { revision: setup.revision, digest: setupCandidate(setup), registrationId: "reg", sourceRevision: "source", enabled: false } } } })
+    store.dispatch({ type: "repository-job.observed", actor: "system", observation: observation({ ...setup, active: { revision: setup.revision, digest: setupCandidate(setup), registrationId: "reg", sourceRevision: "source", enabled: false } }) })
     await store.settled?.()
     await new Promise(resolve => setTimeout(resolve, 20))
     const jobs = () => [...host.querySelectorAll<HTMLButtonElement>('[aria-label="Repository jobs"] > button')]
@@ -143,6 +155,8 @@ test("setup needs a registration and keeps the five jobs reachable after pausing
     flushSync(() => root.unmount())
     await store.dispose?.()
     store = await createAppStore({ kind: "localStorage", storage })
+    // Observations are disposable: a fresh host answer, not cached cards, restores labels.
+    store.dispatch({ type: "repository-job.observed", actor: "system", observation: observation({ ...setup, active: { revision: setup.revision, digest: setupCandidate(setup), registrationId: "reg", sourceRevision: "source", enabled: false } }) })
     root = createRoot(host)
     render()
     await new Promise(resolve => setTimeout(resolve, 20))
@@ -181,6 +195,7 @@ const dismissedHome = async (calls: Array<[string, string | undefined]>, options
   }
   store.dispatch({ type: "card.upsert", actor: "system", card: card("issues") })
   store.dispatch({ type: "card.upsert", actor: "system", card: card("review", false) })
+  for (const item of [card("issues"), card("review", false)]) store.dispatch({ type: "repository-job.observed", actor: "system", observation: observation(item.payload) })
   if (options.dismissed !== false) store.dispatch({ type: "first-run.dismissed", actor: "user" })
   const host = document.createElement("div")
   document.body.append(host)

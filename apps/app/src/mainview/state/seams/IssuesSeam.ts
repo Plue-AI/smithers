@@ -7,7 +7,7 @@ import { actorSharedState } from "../ActorBindings"
 import { TOAST_SUPERSEDED } from "../controller/failures"
 import type { FieldOption } from "@smthrs/ui/flow-form"
 import { repositoryCiConfigured } from "../RepositoryJobs"
-import { resolveTargetRepo } from "../RepoContext"
+import { resolveTargetRepo, selectedBoxBinding } from "../RepoContext"
 import type { SeamContext } from "./SeamContext"
 import { captureCloudOwner,refusalWords,readErrorMessage,readResult,unreachableSentence } from "./SeamContext"
 import { refusalOf } from "@smthrs/rpc/Refusal"
@@ -1094,8 +1094,10 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
         return `The issue was created in ${repo}, but the backend answered with an unreadable payload`
       }
       const key = `setup-ci:${owner}:${repo}`
+      const binding = selectedBoxBinding(ctx.store, repo)
       if (kind !== "chat" && owner === (ctx.store.collections.identitySessions.get("identity")?.login ?? null)
-        && !repositoryCiConfigured(ctx.store.collections.cards.values(), repo, owner)
+        && !(binding !== undefined && "error" in binding)
+        && repositoryCiConfigured(ctx.store.collections.repositoryJobObservations.values(), repo, owner, binding !== undefined && "workspaceId" in binding ? binding.workspaceId : null) === false
         && ![...ctx.store.collections.toasts.values()].some(toast => toast.key === key)) {
         const action = { label: "Set up CI", flow: "ci.setup" as const, args: repo }
         ctx.dispatch({ type: "toast.shown", actor: "system", key, title: "Improve issue checks", action })

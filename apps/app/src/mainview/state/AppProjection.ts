@@ -54,6 +54,7 @@ RECOMMENDATION_ID,
 RecommendationSchema,
 RepoTreeRowSchema,
 RepositoryFlowsRowSchema,
+RepositoryJobObservationSchema,
 SeatAssignmentSchema,
 SessionSchema,
 StarredTargetSchema,
@@ -147,6 +148,7 @@ export const APP_PROJECTION_SCHEMAS = {
   githubAppStatuses: GitHubAppStatusRowSchema,
   repoTree: RepoTreeRowSchema,
   repositoryFlows: RepositoryFlowsRowSchema,
+  repositoryJobObservations: RepositoryJobObservationSchema,
   flowDurations: FlowDurationsRowSchema,
 } as const
 export type AppProjectionCollectionName = keyof typeof APP_PROJECTION_SCHEMAS
@@ -293,6 +295,7 @@ export const APP_TRANSITION_TYPES = {
   "repository.entry.changed": true,
   "repository.command.changed": true,
   "repository-flows.loaded": true,
+  "repository-job.observed": true,
   "flow-durations.loaded": true,
   "repo-tree.toggled": true,
   "repo-tree.loading": true,
@@ -737,6 +740,7 @@ const forgetAccountState = (collections: ProjectionCollections, createdAt: numbe
       collections.githubAppStatuses,
       collections.repoTree,
       collections.repositoryFlows,
+      collections.repositoryJobObservations,
       collections.flowDurations,
       collections.models,
       collections.seats
@@ -950,7 +954,7 @@ export const seedAppProjection = (previous: AppProjectionSnapshot, context: AppP
     if (readVersion !== row.readVersion) collections.repositoryNotifications.update(row.id, draft => { draft.readVersion = readVersion })
   }
   // These observations belong to one host lifetime; a recorded boot expires them.
-  for (const name of ["repoTree", "repositoryFlows", "flowDurations"] as const) {
+  for (const name of ["repoTree", "repositoryFlows", "repositoryJobObservations", "flowDurations"] as const) {
     const keys = [...collections[name].keys()]
     if (keys.length > 0) collections[name].delete(keys)
   }
@@ -3229,6 +3233,17 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
           ) return
           collections.sessions.update(SESSION_ID, (draft) => {
             draft.activeRepoKey = transition.id
+          })
+          break
+        }
+        case "repository-job.observed": {
+          const row = transition.observation
+          const existing = collections.repositoryJobObservations.get(row.id)
+          if (existing === undefined) collections.repositoryJobObservations.insert(row)
+          else collections.repositoryJobObservations.update(row.id, draft => {
+            Object.assign(draft, row)
+            draft.registration = row.registration
+            draft.error = row.error
           })
           break
         }

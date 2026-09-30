@@ -71,8 +71,8 @@ describe("pure app event projection", () => {
   })
 
   test("owns exactly the domain roster and its stable keys", () => {
-    // 39 since the local repository inventory and its pins retired (#2239).
-    expect(APP_PROJECTION_COLLECTION_NAMES).toHaveLength(39)
+    // 40: verified repository job observations add one domain collection (#2536).
+    expect(APP_PROJECTION_COLLECTION_NAMES).toHaveLength(40)
     expect(Object.keys(emptyAppProjection())).toEqual(Object.keys(APP_PROJECTION_SCHEMAS))
     expect(APP_PROJECTION_COLLECTION_NAMES).not.toContain("appEvents")
     expect(appProjectionKey("githubAppStatuses", { repo: "org/repo" })).toBe("org/repo")
@@ -346,7 +346,9 @@ describe("pure app event projection", () => {
 
   test("physical row ordering cannot change fallback documents, tab selection or interrupted-turn reconciliation", () => {
     const base = boot()
-    const document = base.worldDocuments[0]!
+    expect(base.worldDocuments).toEqual([])
+    const document = { id: "original", path: "notes/original.md", title: "Original", body: "# Original",
+      links: [], tags: [], sources: [], confidence: 1, updatedAt: 100, updatedBy: "user" as const, revision: 0 }
     const state: AppProjectionSnapshot = {
       ...base,
       sessions: [{ ...base.sessions[0]!, selectedWorldDocumentId: "removed", activeTabId: "a-tab", phase: "responding", turnId: null }],

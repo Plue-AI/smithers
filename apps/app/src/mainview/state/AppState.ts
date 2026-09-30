@@ -22,6 +22,7 @@ import type { AgentTurnUsage } from "@smthrs/rpc/NativeAgent"
 import type { LocalRepositoryInspection,RepositoryAccess } from "@smthrs/rpc/NativeRepository"
 import { REPOSITORY_ACCESS_VALUES } from "@smthrs/rpc/NativeRepository"
 import { RepositoryHomeSchema } from "@smthrs/rpc/RepositoryHome"
+import { RepositoryJobSchema, SetupRecoveryResponseSchema } from "@smthrs/rpc/RepositorySetup"
 import { z } from "zod"
 import { SignupSchema, type Signup } from "./Signup"
 import { FLOW_NAMES } from "../flows/FlowName"
@@ -94,6 +95,19 @@ export const RepositoryFlowsRowSchema = z.object({
   loadedAt: z.number()
 })
 export type RepositoryFlowsRow = z.infer<typeof RepositoryFlowsRowSchema>
+
+/** Host observations outlive conversation cards, but are refreshed each app lifetime. */
+export const RepositoryJobObservationSchema = z.object({
+  id: z.string(),
+  owner: z.string(),
+  repo: z.string(),
+  job: RepositoryJobSchema,
+  selectedWorkspaceId: z.string().nullable(),
+  state: z.enum(["requested", "completed", "failed"]),
+  registration: SetupRecoveryResponseSchema.shape.registration.optional(),
+  error: z.string().optional()
+})
+export type RepositoryJobObservation = z.infer<typeof RepositoryJobObservationSchema>
 
 /*
  * The sidebar's repository file tree (docs/workbench-lanes/sidebar-tree.md):
@@ -1726,7 +1740,10 @@ export type AppTransition =
   | { type: "repo-tree.loading"; actor: Actor; copyId: string; path: string }
   | { type: "repo-tree.loaded"; actor: "system"; copyId: string; path: string; entries: ReadonlyArray<RepoTreeEntry>; truncated: boolean }
   | { type: "repo-tree.failed"; actor: "system"; copyId: string; path: string; error: string }
+  /* One repository job's host registration read: requested, then completed or failed. */
+  | { type: "repository-job.observed"; actor: "system"; observation: RepositoryJobObservation }
   /* The repository's declared flows landed (or went absent: an empty list) from its factory projection. */
+  | { type: "repository-job.observed"; actor: "system"; observation: RepositoryJobObservation }
   | { type: "repository-flows.loaded"; actor: "system"; repo: string; flows: ReadonlyArray<RepositoryFlow>; home?: RepositoryFlowsRow["home"] }
   /* The whole of one flow's measured history, replacing whatever was read before. */
   | { type: "flow-durations.loaded"; actor: "system"; repo: string; workspaceId?: string; flowId: string; rows: ReadonlyArray<{ readonly actionTag: string; readonly samples: number; readonly p50Ms: number; readonly p90Ms: number }> }

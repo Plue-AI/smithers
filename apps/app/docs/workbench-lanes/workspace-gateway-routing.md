@@ -31,9 +31,14 @@ on it. Nothing reaches a box before the pick, and no box is created or chosen
 for the person. The agent keeps the sentence, because which box an act runs on
 is the human's selection.
 
-Repository jobs and the trigger registrar use the box their setups recorded,
-else the same default box (`RepoContext.repositoryJobBinding`); flow authoring
-prefers the selected box, then that one (`RepoContext.flowAuthoringBinding`).
+Repository jobs and the trigger registrar use the owned, verified host
+registration's box, then the same account and repository's saved setup box,
+then the selected or default box (`RepoContext.repositoryJobBinding`). Conflicting
+registrations or saved setup boxes refuse to choose; a verified registration
+on another box refuses an explicit selection. Saved setup routing provenance
+does not imply that a job is enabled. Job labels and CI prerequisites use only
+current host observations. Flow authoring prefers the selected box, then the
+job binding (`RepoContext.flowAuthoringBinding`).
 A refusal is answered before anything reaches the network, on the surface the
 act already uses (the command's failure toast, the plan or run card, the
 lesson card), so it stays visible and the act can be retried once a box is

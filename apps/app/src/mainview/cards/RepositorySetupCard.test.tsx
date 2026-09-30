@@ -20,12 +20,12 @@ const makeCard = (job: RepositoryJob = "issues"): CardOf<"repository-setup"> => 
   id: "setup", kind: "repository-setup", title: "Setup", status: "active", createdAt: 1, ordinal: 1,
   payload: initialSetup("example/repo", job, "maintainer")
 })
-const mount = (card = makeCard(), signedOut = false) => {
+const mount = (card = makeCard(), signedOut = false, ciConfigured?: boolean) => {
   const calls: Array<[string, string | undefined]> = []
   const host = document.createElement("div")
   document.body.append(host)
   const root = createRoot(host)
-  const render = (next = card) => flushSync(() => root.render(<RepositorySetupCard card={next} signedOut={signedOut} onRunCommand={(name, args) => { calls.push([name, args]) }} />))
+  const render = (next = card) => flushSync(() => root.render(<RepositorySetupCard card={next} signedOut={signedOut} ciConfigured={ciConfigured} onRunCommand={(name, args) => { calls.push([name, args]) }} />))
   render()
   const button = (text: string) => [...host.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === text)
   return { host, calls, render, button, close: () => { flushSync(() => root.unmount()); host.remove() } }
@@ -142,7 +142,7 @@ test("Configure in Chat uses the registered card-scoped command grammar", () => 
 
 test.each(["issues", "feature"] as const)("%s links optional CI setup to the same repository", job => {
   const card = makeCard(job)
-  const t = mount(card)
+  const t = mount(card, false, false)
   try {
     t.button("Set up CI")!.click()
     expect(t.calls).toEqual([["ci.setup", card.payload.repo]])

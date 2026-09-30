@@ -9,7 +9,8 @@
 import { parseRepoSelection } from "./AppState"
 import type { CloudRepository, CloudWorkspaceRow } from "./AppState"
 import type { AppStore } from "./AppStore"
-import { repositoryJobWorkspace } from "./RepositoryJobs"
+import { accountOwnerOf } from "./AccountOwner"
+import { recordedSetupWorkspace, repositoryJobWorkspace } from "./RepositoryJobs"
 import { cardContainsRun, runCardInScope, runScopeFromCard, sameRunScope, type RunScope } from "./RunReference"
 import type { Card } from "./AppState"
 
@@ -213,15 +214,22 @@ export const defaultBoxBinding = (store: AppStore, repo: string): GatewayBinding
 
 /** The selected working copy's box when the selection is a box of this repository; undefined when it is not a box. */
 export const selectedBoxBinding = (store: AppStore, repo: string): GatewayBinding | undefined => {
-  const key = store.session().activeRepoKey
+  return selectedBoxBindingFrom(store.collections, store.session().activeRepoKey, repo)
+}
+
+/** Shared selection decoding for live collection projections and command callers. */
+export const selectedBoxBindingFrom = (
+  collections: Pick<AppStore["collections"], "workingCopies" | "cloudWorkspaces">,
+  key: string | null | undefined, repo: string
+): GatewayBinding | undefined => {
   const selection = key == null ? null : parseRepoSelection(key)
   if (selection === null || selection.repoId !== repo || selection.copyId === undefined) return undefined
-  const copy = store.collections.workingCopies.get(selection.copyId)
+  const copy = collections.workingCopies.get(selection.copyId)
   if (copy === undefined || copy.repoId !== repo) {
     return { error: "The selected working copy is no longer available for this repository." }
   }
   if (copy.kind !== "workspace") return undefined
-  const workspace = copy.workspaceId === undefined ? undefined : store.collections.cloudWorkspaces.get(copy.workspaceId)
+  const workspace = copy.workspaceId === undefined ? undefined : collections.cloudWorkspaces.get(copy.workspaceId)
   if (workspace === undefined || workspace.repoId !== repo) {
     return { error: "The selected box is no longer available for this repository." }
   }
@@ -270,12 +278,15 @@ export const gatewayBindingFor = (store: AppStore, repo: string, runId?: string)
 
 /**
  * The box this repository's reviewed jobs (and the trigger registrar) run on:
- * the one their setups recorded, else the human's selected box, else the
- * repository's default box.
+ * the verified registration, else persisted setup provenance, then selected/default.
+ * Conflicting registrations never silently select a different box.
  */
 export const repositoryJobBinding = (store: AppStore, repo: string): GatewayBinding => {
-  const recorded = repositoryJobWorkspace(store.collections.cards.values(), repo, store.collections.identitySessions.get("identity")?.login ?? null)
-  return recorded === undefined ? selectedBoxBinding(store, repo) ?? defaultBoxBinding(store, repo) : { workspaceId: recorded }
+  const selected = selectedBoxBinding(store, repo)
+  if (selected !== undefined && "error" in selected) return selected
+  const recorded = repositoryJobWorkspace(store.collections.repositoryJobObservations.values(), repo, accountOwnerOf(store.collections.identitySessions.get("identity")) ?? null, selected?.workspaceId ?? null)
+  return recorded ?? recordedSetupWorkspace(store.collections.cards.values(), repo, accountOwnerOf(store.collections.identitySessions.get("identity")) ?? null)
+    ?? selected ?? defaultBoxBinding(store, repo)
 }
 
 /**

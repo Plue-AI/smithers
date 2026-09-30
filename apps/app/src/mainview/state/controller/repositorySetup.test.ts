@@ -916,9 +916,13 @@ test.each(["pause", "account", "dispose"])("%s cancels and fences a pending chor
       await t.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "other", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
       t.setup.resumeRepositorySetups()
     } else await t.close()
+    // Pause refreshes registration once from the host; the retired schedule adds no read.
+    if (stop === "pause") await until(() => t.recovery.calls.length === 2)
+    const readsBeforeExpiredTimer = t.recovery.calls.length
+    expect(readsBeforeExpiredTimer).toBe(stop === "pause" ? 2 : 1)
     now = due; scheduled[0]!()
     await new Promise(resolve => originalTimeout(resolve, 10))
-    expect(t.recovery.calls).toHaveLength(1)
+    expect(t.recovery.calls).toHaveLength(readsBeforeExpiredTimer)
     expect(t.calls).toHaveLength(stop === "pause" ? 1 : 0)
   } finally { await t.close(); timers.mockRestore(); clock.mockRestore() }
 })

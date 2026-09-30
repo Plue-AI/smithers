@@ -12,7 +12,7 @@ import { PRIVACY_RETIREMENT_KEY, readPrivacyRetirement } from "../chain/PrivacyR
 import { ENVELOPE_STORAGE_KEY,parseStorageEnvelope } from "../chain/TransactionalStorage"
 import { digest } from "@smthrs/core/Digest"
 import { APP_PROJECTOR_VERSION, AppProjectorVersionError, AppEventIntegrityError, appProjectionHash, retiredAppStreamKey, replayAppEvents } from "./AppEventStream"
-import { APP_PROJECTION_COLLECTION_NAMES } from "./AppProjection"
+import { APP_PROJECTION_COLLECTION_NAMES, appProjectionKey } from "./AppProjection"
 import { initialSession, cardFrameId } from "./AppState"
 import { createAppStore,PERSISTED_COLLECTION_SPECS,type AppStore } from "./AppStore"
 import { canonicalEventValue, decodeEventValue, encodeEventValue } from "./EventValue"
@@ -491,12 +491,12 @@ describe("the live store's authoritative event path", () => {
      * out. Changing this list owes a bump and an upgrade test like the ones
      * below.
      */
-    expect({ version: APP_PROJECTOR_VERSION, roster: [...APP_PROJECTION_COLLECTION_NAMES].sort() }).toEqual({ version: 24, roster: [
+    expect({ version: APP_PROJECTOR_VERSION, roster: [...APP_PROJECTION_COLLECTION_NAMES].sort() }).toEqual({ version: 25, roster: [
       "agents", "approvalRequests", "billingAccounts", "branches", "cardHistories", "cards", "changes",
       "cloudSessions", "cloudWorkspaces", "commandIntents", "connectorOperations", "connectors", "flowDurations", "frames",
       "githubAppStatuses", "httpTurnLegs", "httpTurns", "identitySessions", "messages", "models",
       "notificationReceipts", "recommendations", "repoTree", "repositories",
-      "repositoryContexts", "repositoryFlows", "repositoryNotifications", "runtimeApprovals",
+      "repositoryContexts", "repositoryFlows", "repositoryJobObservations", "repositoryNotifications", "runtimeApprovals",
       "runtimeRuns", "seats", "sessions", "starredTargets", "tabs", "toasts", "toolCalls", "transitions", "workingCopies",
       "workspaces", "worldDocuments"
     ] })
@@ -596,6 +596,47 @@ describe("the live store's authoritative event path", () => {
     expect((await restored.eventHistory()).head.projectorVersion).toBe(APP_PROJECTOR_VERSION)
     expect((await restored.verifyState()).valid).toBe(true)
     expect(restored.session().draft).toBe("kept")
+  })
+
+  test("version 24 checkpoint upgrades without job observations and preserves the conversation and setup draft", async () => {
+    const storage = memoryStorage(), store = await open(storage)
+    const setup = initialSetup("org/repo", "issues", "maintainer")
+    await store.dispatch({ type: "composer.changed", actor: "user", draft: "Keep this conversation" }).isPersisted.promise
+    await store.dispatch({ type: "card.upsert", actor: "user", card: {
+      id: "kept-setup", kind: "repository-setup", title: "Handle issues", status: "active", createdAt: 1, ordinal: 1, payload: setup
+    } }).isPersisted.promise
+    await store.compactEvents()
+    const old = await store.eventHistory()
+    const { repositoryJobObservations: _observations, ...snapshot } = structuredClone(old.checkpoint.snapshot)
+    // Version 24 hashes its 39-table roster, with no observation table.
+    const normalized = Object.fromEntries(APP_PROJECTION_COLLECTION_NAMES.filter(name => name !== "repositoryJobObservations").sort().map(name => [name,
+      snapshot[name].map(row => [appProjectionKey(name, row), JSON.parse(JSON.stringify(row))] as const).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)
+    ]))
+    const stateHash = digest("smithers-app/projection/v1:" + canonicalEventValue(normalized))
+    const head = { ...old.head, projectorVersion: 24, stateHash }
+    const { hash: _, ...body } = { ...old.checkpoint, projectorVersion: 24, snapshot, stateHash }
+    const checkpoint = { ...body, hash: digest("smithers-app/checkpoint/v1:" + canonicalEventValue(body)) }
+    await store.dispose?.(); opened.splice(opened.indexOf(store), 1)
+    editEnvelope(storage, entries => {
+      for (const [id, data] of [["app-event-heads", head], ["app-event-checkpoints", checkpoint]] as const) {
+        entries[`smithers-mvp.${id}`] = JSON.stringify({ "s:current": { versionKey: "fixture", data } })
+      }
+    })
+    const restored = await open(storage)
+    const history = await restored.eventHistory()
+    expect(history.checkpoint.reason).toBe("projector-upgrade")
+    expect(history.head.projectorVersion).toBe(25)
+    expect(history.head.streamId).not.toBe(old.head.streamId)
+    expect(restored.session().draft).toBe("Keep this conversation")
+    expect(restored.collections.cards.get("kept-setup")).toMatchObject({ payload: setup })
+    expect(restored.collections.repositoryJobObservations.size).toBe(0)
+    expect((await restored.verifyState()).valid).toBe(true)
+    await restored.dispatch({ type: "composer.changed", actor: "user", draft: "Still usable" }).isPersisted.promise
+    await restored.dispose?.(); opened.splice(opened.indexOf(restored), 1)
+    const again = await open(storage)
+    expect(again.session().draft).toBe("Still usable")
+    expect(again.collections.cards.get("kept-setup")).toMatchObject({ payload: setup })
+    expect((await again.verifyState()).valid).toBe(true)
   })
 
   test("version 11 upgrade rotates a checkpoint written before flow durations existed", async () => {

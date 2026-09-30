@@ -238,6 +238,15 @@ const configuredHome = async (calls: Array<[string, string | undefined]>) => {
   }
   store.dispatch({ type: "card.upsert", actor: "system", card: card("issues") })
   store.dispatch({ type: "card.upsert", actor: "system", card: card("review", false) })
+  for (const job of ["issues", "review"] as const) {
+    const payload = card(job, job === "review" ? false : undefined).payload
+    store.dispatch({ type: "repository-job.observed", actor: "system", observation: {
+      id: job, owner: "will", repo: "will/demo", job, selectedWorkspaceId: null, state: "completed",
+      registration: { state: "known", ...(payload.active === undefined ? {} : { active: {
+        ...payload.active, owned: true, workspaceId: "de29f26b-e593-4ec2-99fc-583d4711f20a", draft: payload.draft
+      } }) }
+    } })
+  }
   const host = document.createElement("div")
   document.body.append(host)
   const root = createRoot(host)
