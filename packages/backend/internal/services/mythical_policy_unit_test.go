@@ -216,3 +216,14 @@ func TestMythicalLandedOwesItsIssueTheEvidence(t *testing.T) {
 	historic := db.MythicalItem{State: "landed", PRMergeCommit: "abc", IssueNumber: pgtype.Int8{Int64: 7, Valid: true}}
 	require.Equal(t, historic, s.complete(context.Background(), &mythicalRun{row: db.MythicalStack{ActorUserID: pgtype.Int8{Int64: 1, Valid: true}}}, historic, now))
 }
+
+func TestMythicalRunLineIsSharedByEveryIssueComment(t *testing.T) {
+	item := db.MythicalItem{VibeRunID: " run-v "}
+	require.Empty(t, (&MythicalService{}).runLine(db.MythicalItem{}, "will", "r"), "no run and no public URL says nothing")
+	require.Equal(t, "Run: run-v", (&MythicalService{}).runLine(item, "will", "r"))
+	item.RequestRunID = "run-q"
+	require.Equal(t, "Run: run-q", (&MythicalService{}).runLine(item, "will", "r"), "the request run wins")
+	s := &MythicalService{publicURL: "https://smithers.example"}
+	require.Equal(t, "Run: https://smithers.example/will/r (run-q)", s.runLine(item, "will", "r"))
+	require.Equal(t, "Run: https://smithers.example/will/r", s.runLine(db.MythicalItem{}, "will", "r"))
+}

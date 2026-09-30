@@ -89,10 +89,12 @@ func TestLocalFactoryRemovalAndMalformedProjection(t *testing.T) {
 		return nil
 	}}
 	absent := f.commit("empty main", map[string]string{"README.md": "hello"})
-	require.NoError(t, service.reconcileLocalFactory(ctx, &mythicalRun{g: f.git, mainTip: absent}))
+	_, err := service.reconcileLocalFactory(ctx, &mythicalRun{g: f.git, mainTip: absent})
+	require.NoError(t, err)
 	require.Equal(t, 1, calls, "removing factory rules must retire their registrations")
 	malformed := f.commit("invalid factory", map[string]string{gitHubMainPullFactoryPath: "not JSON"})
-	require.ErrorContains(t, service.reconcileLocalFactory(ctx, &mythicalRun{g: f.git, mainTip: malformed}), "invalid factory projection")
+	_, err = service.reconcileLocalFactory(ctx, &mythicalRun{g: f.git, mainTip: malformed})
+	require.ErrorContains(t, err, "invalid factory projection")
 	require.Equal(t, 1, calls, "a broken projection cannot silently retire registrations")
 }
 
@@ -493,4 +495,46 @@ func TestCheckedInFactoryDeclaresNoUndiscoveredIssueRule(t *testing.T) {
 	source, err := os.ReadFile("../../../../.smithers/FACTORY.ts")
 	require.NoError(t, err)
 	require.NotContains(t, string(source), `"issue.opened":`, "the declaration and its projection agree")
+}
+
+func TestFactoryWarnsForEveryRuleItDoesNotRegister(t *testing.T) {
+	var projection FactoryProjection
+	require.NoError(t, json.Unmarshal([]byte(`{"flows":[
+		{"id":"prompt","kind":"mdx","capabilities":[],"flows":[],"budget":{"tokens":1,"milliseconds":1}},
+		{"id":"coding","kind":"ts","capabilities":["*"],"flows":[]},
+		{"id":"bare","kind":"mdx"}],
+	"on":[{"event":"issue.labeled:todo","flow":"coding"},
+		{"event":"issue.labeled:todo","flow":"bare"},
+		{"event":"issue.opened","flow":"gone"},
+		{"event":"deploy.created","flow":"prompt"},
+		{"event":"issue.opened","flow":"prompt"}]}`), &projection))
+
+	require.Equal(t, []FactoryWarning{
+		{"issue.labeled:todo", "coding", "a ts flow has no declarative envelope"},
+		{"issue.labeled:todo", "bare", "the flow declares no budget, capabilities or child flows"},
+		{"issue.opened", "gone", "the flow is not declared"},
+		{"deploy.created", "prompt", "the event is not a repository trigger"},
+	}, factoryWarnings(projection), "only the registered rule is not warned about")
+	require.Equal(t, "unregistered issue.labeled:todo -> coding: a ts flow has no declarative envelope; "+
+		"unregistered issue.labeled:todo -> bare: the flow declares no budget, capabilities or child flows; "+
+		"unregistered issue.opened -> gone: the flow is not declared; "+
+		"unregistered deploy.created -> prompt: the event is not a repository trigger", factoryWarningsMessage(factoryWarnings(projection)))
+
+	registered := FactoryProjection{Flows: projection.Flows[:1], On: projection.On[4:]}
+	require.Empty(t, factoryWarnings(registered))
+	require.Empty(t, factoryWarningsMessage(factoryWarnings(registered)))
+}
+
+func TestLocalFactoryOutcomeReportsUnregisteredRules(t *testing.T) {
+	f := newMythicalFixture(t)
+	ctx := context.Background()
+	service := &MythicalService{reconcileFactory: func(context.Context, int64, string, FactoryProjection) error { return nil }}
+	warned := f.commit("unregistered rule", map[string]string{gitHubMainPullFactoryPath: `{"flows":[{"id":"coding","kind":"ts","capabilities":["*"],"flows":[]}],"on":[{"event":"issue.labeled:todo","flow":"coding"}]}`})
+	state, message := service.localFactoryOutcome(ctx, &mythicalRun{g: f.git, mainTip: warned})
+	require.Equal(t, "reconciled", state)
+	require.Equal(t, "unregistered issue.labeled:todo -> coding: a ts flow has no declarative envelope", message)
+	clean := f.commit("registered rule", map[string]string{gitHubMainPullFactoryPath: `{"flows":[{"id":"assistant","kind":"mdx","capabilities":[],"flows":[],"budget":{"tokens":1,"milliseconds":1}}],"on":[{"event":"issue.opened","flow":"assistant"}]}`})
+	state, message = service.localFactoryOutcome(ctx, &mythicalRun{g: f.git, mainTip: clean})
+	require.Equal(t, "reconciled", state)
+	require.Empty(t, message)
 }

@@ -37,28 +37,68 @@ type factoryRegistration struct {
 	input RegisterRepositoryJobInput
 }
 
+// FactoryWarning is one declared rule the factory did not register, so it
+// never starts a run. It is reported, never an error: the rest still register.
+type FactoryWarning struct {
+	Event  string
+	Flow   string
+	Reason string
+}
+
+func (w FactoryWarning) String() string {
+	return "unregistered " + w.Event + " -> " + w.Flow + ": " + w.Reason
+}
+
+// factoryWarningsMessage is the receipt text for warnings, empty for none.
+func factoryWarningsMessage(warnings []FactoryWarning) string {
+	parts := make([]string, len(warnings))
+	for i, w := range warnings {
+		parts[i] = w.String()
+	}
+	return strings.Join(parts, "; ")
+}
+
+// factoryWarnings lists the rules of projection the factory does not register.
+func factoryWarnings(projection FactoryProjection) []FactoryWarning {
+	_, warnings, _ := planFactory(projection, "")
+	return warnings
+}
+
 func factoryRegistrations(projection FactoryProjection, revision string) ([]factoryRegistration, error) {
+	result, _, err := planFactory(projection, revision)
+	return result, err
+}
+
+func planFactory(projection FactoryProjection, revision string) ([]factoryRegistration, []FactoryWarning, error) {
 	var result []factoryRegistration
+	var warnings []FactoryWarning
 	seen := map[string]bool{}
 	for _, rule := range projection.On {
 		if rule.Repository != nil {
-			return nil, errors.New("factory rules cannot select a repository; declare the flow in the target repository's factory")
+			return nil, nil, errors.New("factory rules cannot select a repository; declare the flow in the target repository's factory")
 		}
 		var names []string
 		var name string
 		if json.Unmarshal(rule.Flow, &name) == nil {
 			names = []string{name}
 		} else if json.Unmarshal(rule.Flow, &names) != nil {
-			return nil, errors.New("factory rule has invalid flow names")
+			return nil, nil, errors.New("factory rule has invalid flow names")
 		}
 		for _, name := range names {
+			declared := false
 			for _, flow := range projection.Flows {
 				if flow.ID != name {
 					continue
 				}
+				declared = true
 				// Prompt flows have a complete declarative envelope. Module-backed flows
 				// need executable registration; never invent an envelope for one.
-				if flow.Kind != "mdx" || flow.Budget == nil || flow.Capabilities == nil || flow.Flows == nil {
+				if flow.Kind != "mdx" {
+					warnings = append(warnings, FactoryWarning{rule.Event, name, "a " + flow.Kind + " flow has no declarative envelope"})
+					continue
+				}
+				if flow.Budget == nil || flow.Capabilities == nil || flow.Flows == nil {
+					warnings = append(warnings, FactoryWarning{rule.Event, name, "the flow declares no budget, capabilities or child flows"})
 					continue
 				}
 				input := RegisterRepositoryJobInput{FlowID: name, Mode: "enabled", SourceRevision: revision, FactoryRevision: revision, Input: json.RawMessage(`{}`)}
@@ -69,6 +109,7 @@ func factoryRegistrations(projection FactoryProjection, revision string) ([]fact
 					switch NormalizeTriggerName(kind) {
 					case "issue", "issue_comment", "pull_request", "pull_request_review", "push", "check_run", "check_suite":
 					default:
+						warnings = append(warnings, FactoryWarning{rule.Event, name, "the event is not a repository trigger"})
 						continue
 					}
 					event := RepositoryJobEventRule{Type: NormalizeTriggerName(kind)}
@@ -80,12 +121,12 @@ func factoryRegistrations(projection FactoryProjection, revision string) ([]fact
 				}
 				input.Envelope, _ = json.Marshal(map[string]any{"capabilities": flow.Capabilities, "flows": flow.Flows, "budget": flow.Budget})
 				if err := validateRepositoryJobEnvelope(input.Envelope); err != nil {
-					return nil, fmt.Errorf("factory flow %s: %w", name, err)
+					return nil, nil, fmt.Errorf("factory flow %s: %w", name, err)
 				}
 				sum := sha256.Sum256([]byte(rule.Event + "\x00" + name))
 				job := "flow:factory-" + hex.EncodeToString(sum[:16])
 				if seen[job] {
-					return nil, fmt.Errorf("duplicate factory rule for %s", name)
+					return nil, nil, fmt.Errorf("duplicate factory rule for %s", name)
 				}
 				seen[job] = true
 				material, _ := json.Marshal(input)
@@ -93,9 +134,12 @@ func factoryRegistrations(projection FactoryProjection, revision string) ([]fact
 				input.Digest = hex.EncodeToString(digest[:])
 				result = append(result, factoryRegistration{job, input})
 			}
+			if !declared {
+				warnings = append(warnings, FactoryWarning{rule.Event, name, "the flow is not declared"})
+			}
 		}
 	}
-	return result, nil
+	return result, warnings, nil
 }
 
 // ErrFactoryNeedsOwner means declared rules have no configured execution owner.
@@ -258,32 +302,36 @@ func (s *RepositoryJobService) ReconcileFactoryRules(ctx context.Context, repoID
 
 // reconcileLocalFactory reads committed data at the exact folded main. The stack
 // worker already owns fetch/retry; local repositories need no GitHub mirror.
-func (s *MythicalService) reconcileLocalFactory(ctx context.Context, r *mythicalRun) error {
+// It returns the rules the factory did not register.
+func (s *MythicalService) reconcileLocalFactory(ctx context.Context, r *mythicalRun) ([]FactoryWarning, error) {
 	if !r.g.has(ctx, r.mainTip) {
 		if err := r.g.fetch(ctx, r.bridge.URL(), 1, 0, "refs/heads/"+r.branch); err != nil {
-			return fmt.Errorf("fetch main: %s", sanitizeMirrorError(err, r.bridge.URL()))
+			return nil, fmt.Errorf("fetch main: %s", sanitizeMirrorError(err, r.bridge.URL()))
 		}
 	}
 	// ls-tree distinguishes an absent file from a failed read. Absence retires
 	// removed declarations; malformed data never silently retires live jobs.
 	entry, err := r.g.git(ctx, "ls-tree", r.mainTip, "--", gitHubMainPullFactoryPath)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	projection := FactoryProjection{}
 	if entry != "" {
 		if !strings.HasPrefix(entry, "100644 blob ") && !strings.HasPrefix(entry, "100755 blob ") {
-			return errors.New("factory projection must be a regular file")
+			return nil, errors.New("factory projection must be a regular file")
 		}
 		raw, err := r.g.command(ctx, nil, "show", r.mainTip+":"+gitHubMainPullFactoryPath)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if err := json.Unmarshal(raw, &projection); err != nil {
-			return errors.New("invalid factory projection")
+			return nil, errors.New("invalid factory projection")
 		}
 	}
-	return s.reconcileFactory(ctx, r.row.RepositoryID, r.mainTip, projection)
+	if err := s.reconcileFactory(ctx, r.row.RepositoryID, r.mainTip, projection); err != nil {
+		return nil, err
+	}
+	return factoryWarnings(projection), nil
 }
 
 // localFactoryOutcome keeps an injected reconciler's errors and panics from
@@ -296,13 +344,13 @@ func (s *MythicalService) localFactoryOutcome(ctx context.Context, r *mythicalRu
 			s.logger.ErrorContext(ctx, "mythical.factory_panic", "repository_id", r.row.RepositoryID, "panic", recovered)
 		}
 	}()
-	err := s.reconcileLocalFactory(ctx, r)
+	warnings, err := s.reconcileLocalFactory(ctx, r)
 	switch {
 	case errors.Is(err, ErrFactoryNeedsOwner):
 		return "skipped", err.Error()
 	case err != nil:
 		return "failed", sanitizeMirrorError(err, r.bridge.URL())
 	default:
-		return "reconciled", ""
+		return "reconciled", factoryWarningsMessage(warnings)
 	}
 }

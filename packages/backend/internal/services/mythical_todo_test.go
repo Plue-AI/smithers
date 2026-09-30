@@ -333,7 +333,7 @@ func TestMythicalTodoStopsAtItsLaunchBound(t *testing.T) {
 	launched := len(o.launcher.requests)
 	o.wake()
 	assert.Len(t, o.launcher.requests, launched, "nothing more launches")
-	assert.Equal(t, []string{"#90 Smithers stopped this TODO. It reached its run limit."}, o.github.comments)
+	assert.Equal(t, []string{"#90 Smithers stopped this TODO. It reached its run limit.\nRun: run-11"}, o.github.comments)
 	assert.NotContains(t, o.github.comments[0], "SMITHERS_", "the issue names no operator setting")
 
 	// A run cannot lift the bound; a person can, and a maintainer's todo can.
@@ -815,7 +815,7 @@ func TestMythicalAutomergeRereadsEverythingItRestsOn(t *testing.T) {
 	assert.False(t, mythicalChecksOf(item).Automerge)
 	assert.Empty(t, o.github.merges)
 	o.wake()
-	assert.Equal(t, []string{"#76 Smithers is holding this TODO: a maintainer's automerge label is no longer on the issue."}, o.github.comments)
+	assert.Equal(t, []string{"#76 Smithers is holding this TODO: a maintainer's automerge label is no longer on the issue.\nRun: run-76"}, o.github.comments)
 	o.wake()
 	assert.Len(t, o.github.comments, 1, "said once")
 
@@ -846,7 +846,7 @@ func TestMythicalAutomergeRereadsEverythingItRestsOn(t *testing.T) {
 	o.github.commentErr = nil
 	o.github.mu.Unlock()
 	o.wake()
-	assert.Contains(t, o.github.comments, "#78 Smithers is holding this TODO: CI failed on the approved head.")
+	assert.Contains(t, o.github.comments, "#78 Smithers is holding this TODO: CI failed on the approved head.\nRun: run-78")
 	assert.Nil(t, mythicalChecksOf(o.item(78)).Notice)
 }
 
@@ -902,7 +902,7 @@ func TestMythicalDeclineSaysWhyAndDeferredWaits(t *testing.T) {
 	o.wake()
 	o.wake()
 	assert.Equal(t, "declined", o.item(87).State)
-	assert.Equal(t, []string{"#87 Smithers did not plan this TODO: Already done: README.md has it."}, o.github.comments)
+	assert.Equal(t, []string{"#87 Smithers did not plan this TODO: Already done: README.md has it.\nRun: run-87"}, o.github.comments)
 	o.wake()
 	assert.Len(t, o.github.comments, 1)
 
@@ -1028,7 +1028,7 @@ func TestMythicalPersonalStopsAndTheContinuationPlan(t *testing.T) {
 	assert.Contains(t, payload.Prompt, "Keep the title")
 	o.wake()
 	require.Equal(t, "blocked", o.item(72).State)
-	assert.Contains(t, o.github.comments, "#72 Smithers stopped this TODO: it is very hard. This attempt did not produce a working change. Press Retry on it in Smithers to go on.")
+	assert.Contains(t, withoutRunLines(o.github.comments), "#72 Smithers stopped this TODO: it is very hard. This attempt did not produce a working change. Press Retry on it in Smithers to go on.")
 }
 
 // With no maintainers list committed, a person with write access still
@@ -1199,7 +1199,7 @@ func TestMythicalDeliveryLaunchesCountTowardTheBound(t *testing.T) {
 	assert.Equal(t, 6, checks.Outages)
 	o.wake()
 	assert.Len(t, o.launcher.requests, 12, "nothing more launches")
-	assert.Equal(t, []string{"#301 Smithers stopped this TODO. It reached its run limit."}, o.github.comments)
+	assert.Equal(t, []string{"#301 Smithers stopped this TODO. It reached its run limit."}, withoutRunLines(o.github.comments))
 }
 
 // failingLanes cannot provision a lane.
@@ -1363,7 +1363,7 @@ func TestMythicalAutomergeBoundsTheCIWait(t *testing.T) {
 	o.wake()
 	assert.Equal(t, "CI on the approved head has not finished in 6h0m0s", o.item(351).Reason)
 	o.wake()
-	assert.Contains(t, o.github.comments, "#351 Smithers is holding this TODO: CI on the approved head has not finished in 6h0m0s.")
+	assert.Contains(t, withoutRunLines(o.github.comments), "#351 Smithers is holding this TODO: CI on the approved head has not finished in 6h0m0s.")
 	o.github.mu.Lock()
 	o.github.ci = nil
 	o.github.mu.Unlock()
@@ -1578,7 +1578,7 @@ func TestMythicalFollowOutageHolds(t *testing.T) {
 	item = o.item(391)
 	assert.Equal(t, "proposed", item.State, "the pull request stays open for a person")
 	assert.Equal(t, "GitHub did not answer after repeated tries", item.Reason)
-	assert.Equal(t, "#391 Smithers is holding this TODO: GitHub did not answer after repeated tries.", o.github.comments[len(o.github.comments)-1])
+	assert.Equal(t, "#391 Smithers is holding this TODO: GitHub did not answer after repeated tries.", withoutRunLines(o.github.comments)[len(o.github.comments)-1])
 }
 
 // A person's retry of a TODO stopped with its pull request open keeps that
@@ -1638,7 +1638,7 @@ func TestMythicalReviewAdmissionParksAtTheOutageBound(t *testing.T) {
 	}
 	assert.Len(t, o.launcher.byFlow(mythicalReviewFlow), reviews, "a recovered dispatcher launches nothing for this head")
 	assert.Equal(t, []string{"#401 Smithers is holding this TODO: Smithers could not set up a lane after repeated tries."},
-		o.github.comments, "one comment for the park")
+		withoutRunLines(o.github.comments), "one comment for the park")
 }
 
 // A coding workspace kept between delivery and proposal holds its lane: on
@@ -1798,7 +1798,7 @@ func TestMythicalPersonRetriesAHeldReview(t *testing.T) {
 			o.wake()
 			assert.Len(t, o.launcher.byFlow(mythicalReviewFlow), reviews, "without a retry the head is not reviewed again")
 			hold := fmt.Sprintf("#%d Smithers is holding this TODO: %s.", number, tc.reason)
-			assert.Equal(t, []string{hold}, o.github.comments)
+			assert.Equal(t, []string{hold}, withoutRunLines(o.github.comments))
 
 			_, err := o.service.RetryItem(mythicalRunContext(ctx, o.userID), o.repoID, uuidString(held.ID))
 			requireRunCredentialRefused(t, err)
@@ -1818,7 +1818,7 @@ func TestMythicalPersonRetriesAHeldReview(t *testing.T) {
 			o.wake()
 			assert.Equal(t, tc.reason, o.item(number).Reason)
 			o.wake()
-			assert.Equal(t, []string{hold, hold}, o.github.comments, "a hold after the retry says so again")
+			assert.Equal(t, []string{hold, hold}, withoutRunLines(o.github.comments), "a hold after the retry says so again")
 		})
 	}
 }
@@ -1945,4 +1945,14 @@ func TestMythicalOutageRetryProvisionsWhenTheLaneIsGone(t *testing.T) {
 	require.Equal(t, "running", second.State, second.Reason)
 	assert.NotEqual(t, first.WorkspaceID, second.WorkspaceID)
 	assert.Len(t, o.lanes.created, 2)
+}
+
+// withoutRunLines drops the trailing "Run: ..." line every issue comment
+// carries, so a test of the words need not know the run id.
+func withoutRunLines(comments []string) []string {
+	out := make([]string, len(comments))
+	for i, c := range comments {
+		out[i], _, _ = strings.Cut(c, "\nRun: ")
+	}
+	return out
 }

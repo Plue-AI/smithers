@@ -1138,6 +1138,7 @@ func TestGitHubMainPullRecordsFactoryResultIndependentlyOfMainSync(t *testing.T)
 		{name: "moved/read failed", readErr: errors.New("factory read unavailable"), factoryState: "failed", factoryText: "factory read unavailable"},
 		{name: "moved/invalid projection", raw: "not JSON", factoryState: "failed", factoryText: "invalid factory projection"},
 		{name: "moved/panic", panicFactory: true, factoryState: "failed", factoryText: "internal factory error", wantCalls: 1},
+		{name: "moved/unregistered rule is warned about", raw: `{"on":[{"event":"issue_comment","flow":"assistant"}]}`, factoryState: "reconciled", factoryText: "unregistered issue_comment -> assistant: the flow is not declared", wantCalls: 1},
 		{name: "moved/empty", raw: "{}", factoryState: "empty", wantCalls: 1},
 		{name: "equal/reconciled", equalHeads: true, factoryState: "reconciled", wantCalls: 1},
 		{name: "equal/skipped", equalHeads: true, factoryErr: fmt.Errorf("no configured owner: %w", ErrFactoryNeedsOwner), factoryState: "skipped", factoryText: "no configured owner", wantCalls: 1},
@@ -1172,7 +1173,7 @@ func TestGitHubMainPullRecordsFactoryResultIndependentlyOfMainSync(t *testing.T)
 				if tc.raw != "" {
 					return []byte(tc.raw), nil
 				}
-				return []byte(`{"on":[{"event":"issue_comment","flow":"assistant"}]}`), nil
+				return []byte(`{"flows":[{"id":"assistant","kind":"mdx","capabilities":[],"flows":[],"budget":{"tokens":1,"milliseconds":1}}],"on":[{"event":"issue_comment","flow":"assistant"}]}`), nil
 			}
 			require.NoError(t, h.service.RequestForGitHub(context.Background(), "smithersai", "smithers"))
 			require.NoError(t, h.service.PollOnce(context.Background()))
@@ -1205,7 +1206,7 @@ func TestGitHubMainPullClearsFactoryFailureAfterSuccessfulRetry(t *testing.T) {
 	factoryErr := errors.New("factory database unavailable")
 	h.service.SetFactoryReconciler(func(context.Context, int64, string, FactoryProjection) error { return factoryErr })
 	h.service.readFactory = func(context.Context, string, string, string, string) ([]byte, error) {
-		return []byte(`{"on":[{"event":"issue_comment","flow":"assistant"}]}`), nil
+		return []byte(`{"flows":[{"id":"assistant","kind":"mdx","capabilities":[],"flows":[],"budget":{"tokens":1,"milliseconds":1}}],"on":[{"event":"issue_comment","flow":"assistant"}]}`), nil
 	}
 	request := func() db.GithubMainPull {
 		t.Helper()

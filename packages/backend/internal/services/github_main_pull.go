@@ -538,7 +538,7 @@ func (s *GitHubMainPullService) pull(ctx context.Context, row db.GithubMainPull)
 		case len(projection.On) == 0:
 			out.factoryState = "empty"
 		default:
-			out.factoryState = "reconciled"
+			out.factoryState, out.factoryError = "reconciled", factoryWarningsMessage(factoryWarnings(projection))
 		}
 	}
 	if githubHead == smithersHead {
