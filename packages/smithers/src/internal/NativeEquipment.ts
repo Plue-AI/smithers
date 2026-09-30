@@ -291,7 +291,8 @@ const credential = async (provider: string, host: Providers.Host): Promise<Crede
         `${login === undefined ? "install Codex, then " : ""}run \`codex login --device-auth\` to run the ${seat} seat`
       )
   }
-  const variable = apiKeyVariable[provider]
+  // Own properties only: `constructor:foo` must not read Object.prototype.
+  const variable = Object.hasOwn(apiKeyVariable, provider) ? apiKeyVariable[provider] : undefined
   if (variable === undefined) return refused(() => `No route is configured for the ${provider} provider`)
   const configured = Environment_.read(environment, openaiAuthVariable)
   const authMode = provider === "openai" && configured !== undefined && configured !== "" ? configured : "api-key"

@@ -110,6 +110,17 @@ describe("NodeControl.seatResolver providers", () => {
     expect(error.message).toBe("No route is configured for the mystery provider")
   })
 
+  it.each(["constructor", "__proto__", "toString", "hasOwnProperty", "valueOf"])(
+    "refuses the %s prefix without reading an inherited property as its key variable",
+    async (provider) => {
+      const error = await Effect.runPromise(Effect.flip(resolve(keyed, `${provider}:foo`)))
+
+      expect(error).toBeInstanceOf(Seat.SeatUnresolved)
+      expect(error.seat).toBe(`${provider}:foo`)
+      expect(error.message).toBe(`No route is configured for the ${provider} provider`)
+    }
+  )
+
   it("refuses an empty provider prefix rather than defaulting it", async () => {
     const error = await Effect.runPromise(Effect.flip(resolve(keyed, ":claude-sonnet-4-5")))
 
