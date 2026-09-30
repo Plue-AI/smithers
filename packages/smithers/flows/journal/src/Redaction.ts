@@ -744,6 +744,13 @@ export const defaultRules: ReadonlyArray<Rule> = [
     pattern:
       /-----BEGIN[^-]*PRIVATE KEY(?: BLOCK)?-----(?:(?!-----BEGIN)[\s\S])*?(?:-----END[^-]*-----|(?=-----BEGIN)|$)/g
   },
+  // Git HTTPS OAuth credentials place the secret in the username. Match
+  // before password rewriting removes the x-oauth-basic marker.
+  {
+    id: "git-oauth-userinfo",
+    pattern: /(https?:\/\/)[^\s/@:"'\\]+:x-oauth-basic@/gi,
+    replace: "$1[REDACTED]@"
+  },
   {
     id: "url-credentials",
     // The scheme is bounded rather than open. `-` is not a word character, so

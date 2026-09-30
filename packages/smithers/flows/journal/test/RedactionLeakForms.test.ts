@@ -10,6 +10,26 @@ import * as Redaction from "../src/Redaction.ts"
 
 const secret = "ZqSynthetic7Secret4Value9"
 
+describe("Git OAuth credential usernames", () => {
+  it.each(["http", "https", "HTTPS"])("redacts the username before password rewriting for %s", (scheme) => {
+    const input = `${scheme}://${secret}:x-oauth-basic@host.invalid/private.git?view=all`
+    const expected = `${scheme}://[REDACTED]@host.invalid/private.git?view=all`
+    for (const redact of [Redaction.redact, Redaction.redactDiagnostic]) {
+      const output = redact(input)
+      expect(output).toBe(expected)
+      expect(output).not.toContain(secret)
+      expect(redact(output)).toBe(output)
+    }
+  })
+
+  it("preserves ordinary PostgreSQL usernames and readable URL suffixes", () => {
+    const input = "postgres://ordinary:hunter2@db.invalid/app?view=all"
+    for (const redact of [Redaction.redact, Redaction.redactDiagnostic]) {
+      expect(redact(input)).toBe("postgres://ordinary:[REDACTED]@db.invalid/app?view=all")
+    }
+  })
+})
+
 const pem = [
   "-----BEGIN RSA PRIVATE KEY-----",
   ...Array.from({ length: 12 }, (_, line) => `${secret}${line}`.padEnd(64, "A")),

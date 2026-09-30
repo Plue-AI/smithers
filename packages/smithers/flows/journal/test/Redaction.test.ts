@@ -911,6 +911,25 @@ describe("Redaction", () => {
  * defect.
  */
 describe("SqlJournal persisted-value fidelity", () => {
+  effect("keeps OAuth username credentials out of committed SQLite rows and replay", () =>
+    Effect.gen(function*() {
+      const journal = yield* Journal
+      const sql = yield* SqlClient.SqlClient
+      const run = runId("oauth-username")
+      const credential = "SyntheticOpaqueUserZq7Value9"
+      yield* journal.emitDurableUnfenced(input(run, sourceId("git"), "clone", {
+        url: `https://${credential}:x-oauth-basic@host.invalid/private.git?view=all`
+      }))
+      const rows = yield* sql<{ readonly payload_json: string }>`SELECT payload_json FROM flows_journal_events`
+      expect(rows).toHaveLength(1)
+      expect(rows[0]!.payload_json).not.toContain(credential)
+      const expected = { url: "https://[REDACTED]@host.invalid/private.git?view=all" }
+      expect(JSON.parse(rows[0]!.payload_json)).toEqual(expected)
+      const replay = yield* journal.entries({ runId: run, limit: 10 })
+      expect(replay.entries).toHaveLength(1)
+      expect(replay.entries[0]!.payload).toEqual(expected)
+    }).pipe(Effect.provide(journalLayer()), Effect.scoped))
+
   const instant = "2020-01-01T00:00:00.000Z"
   const dated = (run: RunId) => input(run, sourceId("action"), "dated", { at: new Date(instant), n: 1 })
 

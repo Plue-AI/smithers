@@ -5,16 +5,60 @@
  */
 import * as Redaction from "@smthrs/journal/Redaction"
 import * as FastCheck from "fast-check"
+import { spawnSync } from "node:child_process"
+import { mkdtempSync, realpathSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
 import * as Bug from "../src/Bug.ts"
+
+it("previews a real CLI bug report without a Git OAuth credential username", () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "smithers-bug-oauth-")))
+  const credential = "SyntheticOpaqueUserZq7Value9"
+  try {
+    const child = spawnSync(process.execPath, [
+      "--no-warnings",
+      fileURLToPath(new URL("../src/bin.ts", import.meta.url)),
+      "bug",
+      `https://${credential}:x-oauth-basic@host.invalid/private.git`,
+      "--dry-run",
+      "--format",
+      "json",
+      "--root",
+      root
+    ], {
+      cwd: root,
+      env: { PATH: process.env.PATH, HOME: root, XDG_CONFIG_HOME: root, TMPDIR: process.env.TMPDIR },
+      encoding: "utf8",
+      timeout: 30_000
+    })
+    expect(child.error).toBeUndefined()
+    expect(child.status).toBe(0)
+    expect(child.stdout + child.stderr).not.toContain(credential)
+    expect(child.stdout + child.stderr).toContain("https://[REDACTED]@host.invalid/private.git")
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+}, 40_000)
 
 describe("scrubbing free text", () => {
   it("strips the password out of a connection string, whatever the key is called", () => {
     expect(Bug.scrubText("postgres://user:hunter2@db.internal/app"))
-      .toBe("postgres://[REDACTED]@db.internal/app")
+      .toBe("postgres://user:[REDACTED]@db.internal/app")
+    expect(Bug.scrubText("postgres://user:hunter2@db.internal/app")).not.toContain("hunter2")
     const token = Bug.scrubText("https://x-access-token:ghp_abcdefghijklmnopqrstuvwxyz@github.com")
     expect(token).toContain("[REDACTED]")
     expect(token).not.toContain("ghp_abcdefghijklmnopqrstuvwxyz")
+  })
+
+  it("redacts an OAuth username through the public report boundary", () => {
+    const credential = "SyntheticOpaqueUserZq7Value9"
+    const url = `https://${credential}:x-oauth-basic@host.invalid/private.git`
+    expect(Bug.scrubText(url)).toBe("https://[REDACTED]@host.invalid/private.git")
+    const report = Bug.report({ summary: url, version: "test", platform: "test", node: "test", runs: [{ url }] })
+    expect(JSON.stringify(report)).not.toContain(credential)
+    expect(report.summary).toBe("https://[REDACTED]@host.invalid/private.git")
   })
 
   it("strips bearer tokens and provider key formats that carry no key name", () => {
