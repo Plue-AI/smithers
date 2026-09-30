@@ -150,7 +150,7 @@ it("masks a mixed-case password without a provider prefix", async () => {
 
 it("pre-scans every batch before sending a shared credential in an earlier file", async () => {
   const credential = "Xk9fQ2mTz81LpR7vWc"
-  await Fs.writeFile(Path.join(root, "src/a.ts"), `export const headers = {"x-api-key": "${credential}"}\n`)
+  await Fs.writeFile(Path.join(root, "src/a.ts"), `export const fallback = "${credential}"\n`)
   await Fs.writeFile(Path.join(root, "src/b.ts"), `export const API_TOKEN = "${credential}"\n`)
   const executable = Path.join(root, "ordered-reviewer.mjs")
   const record = Path.join(root, "ordered-prompts.txt")

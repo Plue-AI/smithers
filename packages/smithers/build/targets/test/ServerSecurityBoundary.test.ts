@@ -29,5 +29,18 @@ describe("deployed server security boundaries", () => {
     }
     expect(boundaries).toContain("packages/backend/internal/compose/browser_flow.go")
     expect(boundaries).toContain("packages/backend/internal/compose/browser_flow_target.go")
+    const dispatch = boundaries.split("Boundary [browser-workflow-dispatch]")[1]?.split("Boundary [")[0] ?? ""
+    const authorization = dispatch.split("\n").find((line) => line.startsWith("Authorization:")) ?? ""
+    for (
+      const gate of [
+        "packages/backend/internal/middleware/scope.go",
+        "packages/backend/internal/services/repo.go",
+        "packages/backend/internal/db/workspace.sql.go"
+      ]
+    ) {
+      expect(authorization).toContain(gate)
+      expect(attrs.include.map((glob) => glob.pattern)).toContain(`//${gate}`)
+      expect(attrs.context.map((glob) => glob.pattern)).toContain(`//${gate}`)
+    }
   })
 })
