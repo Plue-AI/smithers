@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"io"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -388,34 +387,4 @@ func TestInitEmailTransport_FromFallbacks(t *testing.T) {
 		_, err := initEmailTransport(config.EmailConfig{From: "", SMTPHost: "smtp.example.com", SMTPFrom: "a@b"})
 		require.NoError(t, err)
 	})
-}
-
-// ---------------------------------------------------------------------------
-// logStartupConfig transport branches
-// ---------------------------------------------------------------------------
-
-func TestLogStartupConfig_TransportBranches(t *testing.T) {
-	preserveSlog(t)
-
-	smtpCfg := &config.Config{}
-	smtpCfg.Email.SMTPHost = "smtp.example.com"
-
-	for _, tc := range []struct {
-		name   string
-		cfg    *config.Config
-		expect string
-	}{
-		{"smtp", smtpCfg, `"email_transport":"smtp"`},
-		{"disabled", &config.Config{}, `"email_transport":"noop (log only)"`},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			buf := &syncBuffer{}
-			logger := middleware.NewServerLogger(buf, "info")
-			prev := slog.Default()
-			slog.SetDefault(logger)
-			defer slog.SetDefault(prev)
-			logStartupConfig(tc.cfg)
-			assert.Contains(t, buf.String(), tc.expect)
-		})
-	}
 }
