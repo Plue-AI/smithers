@@ -34,7 +34,7 @@ export default Flow.make("burndown", {
   ),
   success: Schema.String,
   error: RoundError,
-  body: Node.capture({ version: "burndown/v3" }, ({ maxAgents, placement, ready, repos, startAgents, tickMinutes }: {
+  body: Node.capture({ version: "burndown/v4" }, ({ maxAgents, placement, ready, repos, startAgents, tickMinutes }: {
     readonly repos: ReadonlyArray<string>
     readonly ready?: ReadonlyArray<Ready> | undefined
     readonly placement?: "local" | "cloud" | undefined

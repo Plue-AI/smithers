@@ -13,7 +13,7 @@ import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 import { discoverAccounts, readAccounts, type Reading } from "./accounts.ts"
 import { type History, issueKey, selectCandidates } from "./issues.ts"
-import { landAll } from "./land.ts"
+import { hasPushedReceipt, landAll } from "./land.ts"
 import { earliestReset, exhausted, learnRates, type Rates, slots } from "./pacing.ts"
 import { Land, Launch, Observe, Settle } from "./round.ts"
 import {
@@ -353,7 +353,18 @@ const land = (state: RoundState, observation: Observation) => {
     return Effect.succeed({ landed: [], quarantined: [] })
   }
   return Effect.gen(function*() {
-    const owned = yield* Effect.filter(ready, (member) => Effect.promise(() => refreshOwned(member.assignment)))
+    const owned = yield* Effect.filter(
+      ready,
+      (member) =>
+        Effect.promise(async () =>
+          await hasPushedReceipt({
+            key: member.result.key,
+            repo: member.assignment.repo,
+            commits: member.result.commits
+          }) ||
+          await refreshOwned(member.assignment)
+        )
+    )
     if (owned.length === 0) return { landed: [], quarantined: [] }
     return yield* landAll(
       owned.map((r) => r.result),
@@ -374,7 +385,11 @@ const settle = (
   observation: Observation,
   plan: { readonly nextTarget: number },
   launched: ReadonlyArray<InFlight>,
-  landed: { landed: ReadonlyArray<string>; quarantined: ReadonlyArray<{ key: string; error: string }> }
+  landed: {
+    landed: ReadonlyArray<string>
+    quarantined: ReadonlyArray<{ key: string; error: string }>
+    receiptsPending?: ReadonlyArray<{ key: string; error: string }> | undefined
+  }
 ) =>
   Effect.promise(async () => {
     const now = Date.now()
@@ -397,7 +412,8 @@ const settle = (
       error: `Incomplete READY bundle: ${member.result.notes}`
     }))
     const ready = queue.filter((r) =>
-      !landed.landed.includes(r.result.key) && !landed.quarantined.some((q) => q.key === r.result.key)
+      ((landed.receiptsPending ?? []).some((q) => q.key === r.result.key) || !landed.landed.includes(r.result.key)) &&
+      !landed.quarantined.some((q) => q.key === r.result.key)
     )
     const quarantined = [
       ...invalid,
@@ -407,7 +423,8 @@ const settle = (
         return member === undefined ? [] : [{ ...member, ...q }]
       })
     ]
-    const idle = inFlight.length === 0 && ready.length === 0 && quarantined.length === 0 &&
+    const idle = (landed.receiptsPending ?? []).length === 0 && inFlight.length === 0 && ready.length === 0 &&
+      quarantined.length === 0 &&
       observation.candidates.length === 0 && !observation.pending
     // Attempts feed selection's cooldown, so a failing issue waits before its next try.
     const history = { ...(state.history as Record<string, History>) }
@@ -438,7 +455,12 @@ const settle = (
       `${new Date(now).toISOString()} round=${state.round} inFlight=${inFlight.length} launched=${launched.length} ` +
       `finished=${observation.finished.length} landed=${landed.landed.length} quarantined=${landed.quarantined.length} ` +
       `candidates=${observation.candidates.length} open=${observation.openIssues} target=${state.target}`
-    await writeFile(join(opsDir, "status.txt"), `${line}\n`)
+    await writeFile(
+      join(opsDir, "status.txt"),
+      `${line}\n${
+        (landed.receiptsPending ?? []).map((item) => `receipts pending ${item.key}: ${item.error}`).join("\n")
+      }\n`
+    )
     if (capped) {
       const reset = observation.earliestReset === null ? "unknown" : new Date(observation.earliestReset).toISOString()
       const table = observation.capacity.map((c) =>
@@ -452,12 +474,15 @@ const settle = (
       )
       await notify("Burndown needs resets", `${observation.candidates.length} issues wait; every account is capped`)
     }
+    const settledLandings = landed.landed.filter((key) =>
+      !(landed.receiptsPending ?? []).some((item) => item.key === key)
+    ).length
     const tick = state.options.tickMinutes * 60_000
     const wakeAt = capped ? Math.min(observation.earliestReset ?? now + 600_000, now + 600_000) : now + tick
     return {
       done: idle,
       wakeAt,
-      summary: `burndown finished after ${state.round + 1} rounds; landed ${state.landed + landed.landed.length}`,
+      summary: `burndown finished after ${state.round + 1} rounds; landed ${state.landed + settledLandings}`,
       next: {
         options: state.options,
         round: state.round + 1,
@@ -468,7 +493,7 @@ const settle = (
         readings: observation.readings,
         rates: observation.rates,
         history: history as never,
-        landed: state.landed + landed.landed.length
+        landed: state.landed + settledLandings
       }
     }
   })
@@ -479,12 +504,12 @@ export const layer = Layer.mergeAll(
     implementationVersion: "burndown/launch/v3"
   }),
   Land.toLayer(({ observation, state }) => land(state, observation), {
-    implementationVersion: "burndown/land/v2"
+    implementationVersion: "burndown/land/v3"
   }),
   Settle.toLayer(
     ({ landed, launched, observation, plan, state }) => settle(state, observation, plan, launched, landed),
     {
-      implementationVersion: "burndown/settle/v4"
+      implementationVersion: "burndown/settle/v5"
     }
   )
 )

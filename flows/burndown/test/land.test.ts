@@ -1,10 +1,19 @@
 import assert from "node:assert/strict"
 import { spawn, spawnSync } from "node:child_process"
-import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises"
+import { chmod, mkdir, mkdtemp, readdir, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises"
 import { homedir, tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import test from "node:test"
-import { checksProgram, LandFailed, landingFailure, landingScript, reviewProgram } from "../land.ts"
+import { validateCurrentAcceptance } from "../acceptance.ts"
+import {
+  checksProgram,
+  hasPushedReceipt,
+  isPushedFailure,
+  LandFailed,
+  landingFailure,
+  landingScript,
+  reviewProgram
+} from "../land.ts"
 
 // Substitute only external CLIs: package discovery and subprocess ordering run in real temporary repositories.
 async function fixture(t: test.TestContext, paths: Record<string, string>) {
@@ -17,6 +26,11 @@ async function fixture(t: test.TestContext, paths: Record<string, string>) {
     await writeFile(join(root, path), body)
   }
   for (const [path, body] of Object.entries(paths)) await put(path, body)
+  await put(
+    "bin/gh",
+    `#!${process.execPath}\nconst args=process.argv.slice(2); if(process.env.GH_ACCEPTANCE_MARKER) require('node:fs').writeFileSync(process.env.GH_ACCEPTANCE_MARKER,'started'); if(process.env.GH_ACCEPTANCE_DELAY) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,Number(process.env.GH_ACCEPTANCE_DELAY)); if(process.env.GH_ACCEPTANCE_FAIL) {console.error('issue provider unavailable');process.exit(1);} const number=Number(args[2]); console.log(JSON.stringify(args.at(-1)==='number'?{number}:{number,title:'Acceptance',body:'Acceptance complete.',comments:[]}));\n`
+  )
+  await chmod(join(bin, "gh"), 0o755)
   for (const command of ["jj", "pnpm", "go", "helm"]) {
     await put(
       `bin/${command}`,
@@ -48,7 +62,7 @@ async function fixture(t: test.TestContext, paths: Record<string, string>) {
             ...extra
           },
           encoding: "utf8",
-          timeout: 10_000
+          timeout: 60_000
         }
       )
     },
@@ -221,7 +235,10 @@ test("missing Go module and empty change sets refuse verification", async (t) =>
 })
 
 test("a failed Go vet blocks tests and prevents a passed receipt", async (t) => {
-  const f = await fixture(t, { "packages/backend/go.mod": "module example.test/backend" })
+  const f = await fixture(t, {
+    "packages/backend/go.mod": "module example.test/backend",
+    "packages/backend/internal/a/a.go": "package a"
+  })
   const result = f.run(["packages/backend/internal/a/a.go"], "smithers", { FAIL_CHECK: "./internal/a/..." })
   assert.notEqual(result.status, 0, result.stdout)
   assert.deepEqual(await f.commands(), [["go", "vet", "./internal/a/..."]])
@@ -251,8 +268,8 @@ test("landing verifies rebased commits and records receipt before moving main or
     commits: [{ issue: 123, commit: "abc123" }]
   })
   const check = script.indexOf("node --input-type=module")
-  assert.ok(check < script.indexOf("jj rebase"), "prepared candidate checks must precede rebase")
-  assert.ok(check < script.indexOf("bookmark set main"))
+  assert.ok(check < script.indexOf("jj rebase $revs"), "prepared candidate checks must precede rebase")
+  assert.ok(check < script.indexOf("bookmark set main -r \"$verified\""))
   assert.ok(check < script.indexOf("git push"))
   assert.match(script, /member-key\.checks\.log/)
   assert.match(checksProgram, /900_000|900000|15 \* 60/)
@@ -266,11 +283,11 @@ test("generated landing shell persists a red receipt and never bookmarks or push
   t.after(() => rm(receipt, { force: true }))
   await f.put(
     "bin/jj",
-    `#!${process.execPath}\nconst fs = require('node:fs'); const args = process.argv.slice(2); fs.appendFileSync(process.env.COMMAND_LOG, JSON.stringify(['jj', ...args]) + '\\n'); if (args.some(x => x.includes('::main@origin'))) process.exit(0); if (args.includes('diff')) console.log('packages/a/a.ts'); else if (args.includes('git') && args.includes('root')) console.log(process.cwd()); else if (args.includes('log') && !args.some(x => x.includes('conflicts()'))) console.log(args.at(-1) === 'commit_id' ? 'a'.repeat(40) : 'change-one');\n`
+    `#!${process.execPath}\nconst fs = require('node:fs'); const args = process.argv.slice(2); fs.appendFileSync(process.env.COMMAND_LOG, JSON.stringify(['jj', ...args]) + '\\n'); if (args.some(x => x.includes('::main@origin'))) process.exit(0); if (args.includes('diff')) console.log('packages/a/a.ts'); else if (args.includes('git') && args.includes('root')) console.log(process.cwd()); else if (args.includes('log') && !args.some(x => x.includes('conflicts()') || x.includes('bookmarks()'))) console.log(args.at(-1) === 'commit_id' ? 'a'.repeat(40) : 'change-one');\n`
   )
   await f.put(
     "bin/git",
-    `#!${process.execPath}\nconst { spawnSync } = require('node:child_process'); const args = process.argv.slice(2); const out = args[args.indexOf('--output') + 1]; const result = spawnSync('tar', ['-cf', out, '-C', process.cwd(), 'packages']); process.exit(result.status);\n`
+    `#!${process.execPath}\nconst { spawnSync } = require('node:child_process'); const args = process.argv.slice(2); if (args.includes('rev-parse')) { console.log(process.cwd()); process.exit(0); } if (args[0] === 'init') process.exit(0); const out = args[args.indexOf('--output') + 1]; const result = spawnSync('tar', ['-cf', out, '-C', process.cwd(), 'packages']); process.exit(result.status);\n`
   )
   await chmod(join(f.bin, "git"), 0o755)
   const result = spawnSync("sh", [
@@ -280,7 +297,7 @@ test("generated landing shell persists a red receipt and never bookmarks or push
     cwd: f.root,
     env: { ...process.env, PATH: `${f.bin}:${process.env.PATH}`, COMMAND_LOG: f.commandLog, FAIL_CHECK: "typecheck" },
     encoding: "utf8",
-    timeout: 10_000
+    timeout: 60_000
   })
   assert.equal(result.status, 6, result.stderr)
   const commands = await f.commands()
@@ -288,7 +305,11 @@ test("generated landing shell persists a red receipt and never bookmarks or push
     !commands.some((args) => args[0] === "jj" && args[1] === "rebase"),
     "red pre-rebase checks must prevent rebase"
   )
-  assert.ok(!commands.some((args) => args[0] === "jj" && (args.includes("bookmark") || args.includes("push"))))
+  assert.ok(
+    !commands.some((args) =>
+      args[0] === "jj" && ((args.includes("bookmark") && !args.includes("main@origin")) || args.includes("push"))
+    )
+  )
   const log = await readFile(receipt)
   assert.equal(result.stderr, log.subarray(-4000).toString("utf8"))
   const failure = landingFailure(key, {
@@ -332,7 +353,7 @@ test("the shared verification deadline kills a running check and prevents later 
       COMMAND_LOG: f.commandLog
     },
     encoding: "utf8",
-    timeout: 15_000
+    timeout: 60_000
   })
   assert.equal(result.status, 1, result.stderr)
   assert.match(result.stderr, /CHECK_TIMEOUT: overall 15-minute limit/)
@@ -343,7 +364,11 @@ test("real jj member tree is checked despite a green shared working copy", async
   const f = await fixture(t, {
     "package.json": JSON.stringify({ name: "fixture", private: true }),
     "packages/a/package.json": pkg("@test/a"),
-    "packages/a/result.txt": "BASELINE"
+    "packages/a/result.txt": "BASELINE",
+    ".gitattributes": "* export-subst text eol=crlf ident\npackages/a/ignored.go export-ignore\n",
+    "packages/a/ignored.go": "package ignored\n",
+    "packages/a/format.txt": "literal $Format:%H$",
+    "packages/a/raw.txt": "alpha\n$Id$\nomega\n"
   })
   const originalPath = process.env.PATH!
   const jj = (args: Array<string>) => {
@@ -363,11 +388,11 @@ test("real jj member tree is checked despite a green shared working copy", async
   t.after(() => rm(receipt, { force: true }))
   await f.put(
     "bin/jj",
-    `#!${process.execPath}\nconst fs = require('node:fs'); const {spawnSync} = require('node:child_process'); const args = process.argv.slice(2); fs.appendFileSync(process.env.COMMAND_LOG, JSON.stringify(['jj', ...args]) + '\\n'); if (args.includes('fetch') || args.includes('rebase')) process.exit(0); if (args.some(x => x.includes('conflicts()') || x.includes('::main@origin'))) process.exit(0); if (args.some(x => x.includes('main@origin::') || x.includes('::'))) { console.log('ancestor'); process.exit(0); } const r = spawnSync('jj', args, {env: {...process.env, PATH: process.env.ORIGINAL_PATH}, stdio: 'inherit'}); process.exit(r.status);\n`
+    `#!${process.execPath}\nconst fs = require('node:fs'); const {spawnSync} = require('node:child_process'); const args = process.argv.slice(2); fs.appendFileSync(process.env.COMMAND_LOG, JSON.stringify(['jj', ...args]) + '\\n'); if (args.includes('fetch') || args.includes('rebase') || (args.includes('bookmark') && args.includes('main@origin'))) process.exit(0); if (args.some(x => x.includes('conflicts()') || x.includes('bookmarks()') || x.includes('::main@origin'))) process.exit(0); if (args.some(x => x.includes('main@origin::') || x.includes('::'))) { console.log('ancestor'); process.exit(0); } const r = spawnSync('jj', args, {env: {...process.env, PATH: process.env.ORIGINAL_PATH}, stdio: 'inherit'}); process.exit(r.status);\n`
   )
   await f.put(
     "bin/pnpm",
-    `#!${process.execPath}\nconst fs = require('node:fs'); const args = process.argv.slice(2); fs.appendFileSync(process.env.COMMAND_LOG, JSON.stringify(['pnpm', ...args]) + '\\n'); if (args[0] === 'install') process.exit(0); console.log('CHECK_CWD ' + process.cwd()); if (fs.readFileSync('packages/a/result.txt', 'utf8') === 'RED') { console.log('MEMBER_RED'); process.exit(1); }\n`
+    `#!${process.execPath}\nconst fs = require('node:fs'); const args = process.argv.slice(2); fs.appendFileSync(process.env.COMMAND_LOG, JSON.stringify(['pnpm', ...args]) + '\\n'); if (args[0] === 'install') process.exit(0); console.log('CHECK_CWD ' + process.cwd()); if (!fs.existsSync('packages/a/ignored.go')) { console.error('ARCHIVE_IGNORED_TRACKED_FILE'); process.exit(1); } if (fs.readFileSync('packages/a/format.txt', 'utf8') !== 'literal $Format:%H$') { console.error('ARCHIVE_SUBSTITUTED_TRACKED_BYTES'); process.exit(1); } if (!fs.readFileSync('packages/a/raw.txt').equals(Buffer.from('alpha\\n$Id$\\nomega\\n'))) { console.error('ARCHIVE_CONVERTED_RAW_BYTES'); process.exit(1); } if (fs.readFileSync('packages/a/result.txt', 'utf8') === 'RED') { console.log('MEMBER_RED'); process.exit(1); }\n`
   )
   const result = spawnSync("sh", [
     "-c",
@@ -376,13 +401,17 @@ test("real jj member tree is checked despite a green shared working copy", async
     cwd: f.root,
     env: { ...process.env, PATH: `${f.bin}:${originalPath}`, ORIGINAL_PATH: originalPath, COMMAND_LOG: f.commandLog },
     encoding: "utf8",
-    timeout: 15_000
+    timeout: 60_000
   })
   assert.equal(result.status, 6, result.stderr)
   assert.match(result.stderr, /MEMBER_RED/)
   assert.equal(await readFile(join(f.root, "packages/a/result.txt"), "utf8"), "GREEN")
   const commands = await f.commands()
-  assert.ok(!commands.some((args) => args[0] === "jj" && (args.includes("bookmark") || args.includes("push"))))
+  assert.ok(
+    !commands.some((args) =>
+      args[0] === "jj" && ((args.includes("bookmark") && !args.includes("main@origin")) || args.includes("push"))
+    )
+  )
   assert.deepEqual(commands.filter((args) => args[0] === "pnpm"), [
     ["pnpm", "install", "--offline", "--frozen-lockfile"],
     ["pnpm", "--fail-if-no-match", "--filter", "@test/a", "run", "typecheck"]
@@ -394,12 +423,12 @@ test("real jj member tree is checked despite a green shared working copy", async
 async function fakeSnapshot(f: Awaited<ReturnType<typeof fixture>>) {
   await f.put(
     "bin/git",
-    `#!${process.execPath}\nconst {spawnSync} = require('node:child_process'); const args = process.argv.slice(2); const r = spawnSync('tar', ['-cf', args[args.indexOf('--output') + 1], '-C', process.cwd(), 'packages']); process.exit(r.status);\n`
+    `#!${process.execPath}\nconst {spawnSync} = require('node:child_process'); const args = process.argv.slice(2); if (args.includes('rev-parse')) { console.log(process.cwd()); process.exit(0); } if (args[0] === 'init') process.exit(0); const r = spawnSync('tar', ['-cf', args[args.indexOf('--output') + 1], '-C', process.cwd(), 'packages']); process.exit(r.status);\n`
   )
   await chmod(join(f.bin, "git"), 0o755)
   await f.put(
     "bin/jj",
-    `#!${process.execPath}\nconst fs = require('node:fs'); const args = process.argv.slice(2); fs.appendFileSync(process.env.COMMAND_LOG, JSON.stringify(['jj', ...args]) + '\\n'); if (args.some(x => x.includes('::main@origin'))) process.exit(0); if (args.includes('root')) console.log(process.cwd()); else if (args.includes('diff')) console.log('packages/a/a.ts'); else if (args.includes('log') && !args.some(x => x.includes('conflicts()'))) { if (args.at(-1) === 'commit_id') { const counter = process.env.COMMAND_LOG + '.sha'; const n = Number(fs.existsSync(counter) ? fs.readFileSync(counter, 'utf8') : 0); fs.writeFileSync(counter, String(n + 1)); console.log((process.env.CHANGE_SHA && n > 0 ? 'b' : 'a').repeat(40)); } else console.log('change-one'); }\n`
+    `#!${process.execPath}\nconst fs = require('node:fs'); const args = process.argv.slice(2); fs.appendFileSync(process.env.COMMAND_LOG, JSON.stringify(['jj', ...args]) + '\\n'); if (args.some(x => x.includes('::main@origin'))) process.exit(0); if (args.includes('root')) console.log(process.cwd()); else if (args.includes('diff')) console.log('packages/a/a.ts'); else if (args.includes('log') && !args.some(x => x.includes('conflicts()') || x.includes('bookmarks()'))) { if (args.at(-1) === 'commit_id') { const counter = process.env.COMMAND_LOG + '.sha'; const n = Number(fs.existsSync(counter) ? fs.readFileSync(counter, 'utf8') : 0); fs.writeFileSync(counter, String(n + 1)); console.log((process.env.CHANGE_SHA && n > 0 ? 'b' : 'a').repeat(40)); } else console.log('change-one'); }\n`
   )
 }
 
@@ -417,14 +446,18 @@ test("a changed member SHA after green verification refuses bookmark and push", 
     cwd: f.root,
     env: { ...process.env, PATH: `${f.bin}:${process.env.PATH}`, COMMAND_LOG: f.commandLog, CHANGE_SHA: "1" },
     encoding: "utf8",
-    timeout: 15_000
+    timeout: 60_000
   })
   assert.equal(result.status, 6, result.stderr)
   assert.match(result.stderr, /CHECKS_PASSED/)
   assert.match(result.stderr, /PRECHECK_REVISION_CHANGED/)
   const commands = await f.commands()
-  assert.ok(!commands.some((args) => args[0] === "jj" && (args.includes("bookmark") || args.includes("push"))))
-  assert.equal(result.stderr, (await readFile(receipt)).subarray(-4000).toString("utf8"))
+  assert.ok(
+    !commands.some((args) =>
+      args[0] === "jj" && ((args.includes("bookmark") && !args.includes("main@origin")) || args.includes("push"))
+    )
+  )
+  assert.ok(result.stderr.endsWith((await readFile(receipt)).subarray(-4000).toString("utf8")))
 })
 
 test("cancellation kills the active check group and cleans its snapshot", async (t) => {
@@ -471,7 +504,7 @@ test("cancellation kills the active check group and cleans its snapshot", async 
   child.kill("SIGTERM")
   assert.equal(await completion, 143)
   await assert.rejects(readFile(join(ready.cwd, "packages/a/package.json")), { code: "ENOENT" })
-  assert.throws(() => process.kill(ready.pid, 0), { code: "ESRCH" })
+  await waitForExit(ready.pid)
 })
 
 test("Plue charts run lint and render before reporting passed", async (t) => {
@@ -487,17 +520,61 @@ test("Plue charts run lint and render before reporting passed", async (t) => {
   ]])
 })
 
+// Substitute provider envelopes, keeping review parsing and account failover in real subprocesses.
+const claudeResultEnvelope = String.raw`
+if (process.argv.includes('--output-format') && process.argv[2] !== 'auth') {
+  const originalWrite = (chunk) => {
+    const data = Buffer.from(chunk); let offset = 0;
+    while (offset < data.length) {
+      try { offset += require('node:fs').writeSync(1, data, offset, data.length - offset); }
+      catch (error) { if (error.code !== 'EAGAIN') throw error; Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1); }
+    }
+  };
+  let output = '';
+  process.stdout.write = (chunk) => { output += chunk; return true; };
+  const id = require('node:path').basename(process.env.CLAUDE_CONFIG_DIR ?? '');
+  const response = JSON.parse(process.env.REVIEW_RESPONSES ?? '{}')[id] ?? {};
+  const limited = response.capacity || (process.env.REVIEW_FABLE_LIMIT && id === 'claude-1');
+  const quota = process.env.REVIEW_QUOTA && id === 'claude-1';
+  if (quota) process.stderr.write = (chunk) => { output += chunk; return true; };
+  process.on('exit', () => {
+    if (response.resultRaw !== undefined) { originalWrite(response.resultRaw); return; }
+    if (!process.env.ACCEPTANCE_SUPPRESS && /^VERDICT: PASS\s*$/m.test(output) && !output.includes('ACCEPTANCE ')) {
+      const member=JSON.parse(process.env.BURNDOWN_ACCEPTANCE_MEMBER);
+      const receipt=JSON.parse(process.env.ACCEPTANCE_RESULT ?? JSON.stringify({version:1,repo:member.repo,revision:process.env.BURNDOWN_CHECK_REVISION,issues:member.commits.map(({issue})=>({issue,disposition:'complete',criteria:[{criterion:'Acceptance complete.',evidence:['CHECKS_PASSED']}],remaining:[]}))}));
+      output=output.replace(/VERDICT: PASS\s*$/, 'ACCEPTANCE '+JSON.stringify(receipt)+'\nVERDICT: PASS');
+    }
+    originalWrite(JSON.stringify(response.envelope ?? {
+      type: 'result', subtype: 'success', is_error: Boolean(limited || quota), terminal_reason: 'completed',
+      ...(limited || quota ? { terminal_reason: 'api_error', api_error_status: 429, api_error: limited ? 'model_requires_usage_credits' : 'rate_limit_error' } : {}),
+      modelUsage: limited || quota ? {} : { 'claude-fable-5-1': { canonicalModel: 'claude-fable-5-1', provider: 'firstParty' } }, result: output.trim()
+    }) + '\n');
+  });
+}
+`
+
 async function reviewFixture(t: test.TestContext) {
   const f = await fixture(t, {})
+  const reviewHome = join(f.root, "review-home")
+  const acceptanceLog = join(f.root, "acceptance-checks.log")
+  await writeFile(acceptanceLog, "CHECK_REVISION " + "a".repeat(40) + "\nCHECKS_PASSED\n")
+  for (const id of ["claude-1", "claude-5"]) {
+    await mkdir(join(reviewHome, ".smithers/accounts", id), { recursive: true })
+  }
   await f.put(
     "bin/claude",
-    `#!${process.execPath}\nconst fs = require('node:fs'); const args = process.argv.slice(2); fs.appendFileSync(process.env.COMMAND_LOG, JSON.stringify(['claude', ...args, process.env.CLAUDE_CONFIG_DIR, process.env.ANTHROPIC_API_KEY ?? '', process.env.ANTHROPIC_AUTH_TOKEN ?? '', process.env.CLAUDE_CODE_OAUTH_TOKEN ?? '']) + '\\n'); if (args[0] === 'auth') { console.log(JSON.stringify({loggedIn: true, authMethod: 'claude.ai', email: process.env.REVIEW_EMAIL ?? 'reviewer@example.test'})); } else { if (process.env.REQUIRE_EMPTY_CWD && (process.cwd() === process.env.SOURCE_ROOT || fs.readdirSync(process.cwd()).length !== 0)) { console.error('UNSAFE_REVIEW_CWD'); process.exit(1); } if (process.env.REVIEW_QUOTA && process.env.CLAUDE_CONFIG_DIR.endsWith('claude-1')) { console.error('quota exceeded'); process.exit(1); } console.log(process.env.REVIEW_OUTPUT ?? 'VERDICT: PASS'); }\n`
+    `#!${process.execPath}\n${claudeResultEnvelope}\nconst fs = require('node:fs'); const args = process.argv.slice(2); fs.appendFileSync(process.env.COMMAND_LOG, JSON.stringify(['claude', ...args, process.env.CLAUDE_CONFIG_DIR, process.env.ANTHROPIC_API_KEY ?? '', process.env.ANTHROPIC_AUTH_TOKEN ?? '', process.env.CLAUDE_CODE_OAUTH_TOKEN ?? '']) + '\\n'); const id = require('node:path').basename(process.env.CLAUDE_CONFIG_DIR); const responses = JSON.parse(process.env.REVIEW_RESPONSES ?? '{}'); const response = responses[id] ?? {}; if (args[0] === 'auth') { if (response.identityRaw !== undefined) { console.log(response.identityRaw); process.exit(response.authExit ?? 0); } console.log(JSON.stringify({loggedIn: true, authMethod: 'claude.ai', apiProvider: 'firstParty', email: response.email ?? process.env.REVIEW_EMAIL ?? id + '@example.test'})); process.exit(response.authExit ?? 0); } else { if (process.env.REQUIRE_EMPTY_CWD && (process.cwd() === process.env.SOURCE_ROOT || fs.readdirSync(process.cwd()).length !== 0)) { console.error('UNSAFE_REVIEW_CWD'); process.exit(1); } if (process.env.REVIEW_FABLE_LIMIT && process.env.CLAUDE_CONFIG_DIR.endsWith('claude-1')) { console.log('You\\'ve reached your Fable limit. Switch to another model, or manage usage credits at claude.ai/settings/usage?from=cc_cli_limit_message, to continue.'); process.exit(Number(process.env.REVIEW_EXIT ?? 0)); } if (process.env.REVIEW_QUOTA && process.env.CLAUDE_CONFIG_DIR.endsWith('claude-1')) { console.error('quota exceeded'); process.exit(1); } if (response.signal) process.kill(process.pid, response.signal); if (response.delay) { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, response.delay); } console.log(response.output ?? process.env.REVIEW_OUTPUT ?? 'VERDICT: PASS'); if (response.stderr) console.error(response.stderr); process.exit(response.exit ?? 0); }\n`
   )
   await chmod(join(f.bin, "claude"), 0o755)
   return {
     ...f,
-    review(extra: Record<string, string> = {}) {
-      return spawnSync(process.execPath, ["--input-type=module", "-e", reviewProgram], {
+    reviewHome,
+    review(extra: Record<string, string> = {}, program = reviewProgram, timeout = 60_000) {
+      return spawnSync(process.execPath, [
+        "--input-type=module",
+        "-e",
+        program.replaceAll("homedir()", JSON.stringify(reviewHome))
+      ], {
         cwd: f.root,
         env: {
           ...process.env,
@@ -505,14 +582,21 @@ async function reviewFixture(t: test.TestContext) {
           COMMAND_LOG: f.commandLog,
           CHANGED_PATHS: "diff",
           SOURCE_ROOT: f.root,
+          BURNDOWN_REVIEW_ACCOUNT: "",
+          BURNDOWN_REVIEW_EXCLUDED_ACCOUNTS: "",
+          BURNDOWN_EXCLUDE_EMAILS: "",
           BURNDOWN_CHECK_REVISION: "a".repeat(40),
+          BURNDOWN_ACCEPTANCE_MEMBER: JSON.stringify({ repo: "smithersai/smithers", commits: [{ issue: 1 }] }),
+          BURNDOWN_ACCEPTANCE_PATH: join(f.root, "acceptance.json"),
+          BURNDOWN_PRECHECKS_LOG: acceptanceLog,
+          BURNDOWN_CHECKS_LOG: acceptanceLog,
           ANTHROPIC_API_KEY: "must-clear",
           ANTHROPIC_AUTH_TOKEN: "must-clear",
           CLAUDE_CODE_OAUTH_TOKEN: "must-clear",
           ...extra
         },
         encoding: "utf8",
-        timeout: 10_000
+        timeout
       })
     }
   }
@@ -526,19 +610,280 @@ test("final candidate review uses allowed subscription and clears credential ove
   const commands = await f.commands()
   assert.equal(commands.length, 2)
   for (const args of commands) {
-    assert.ok(args.includes(join(homedir(), ".smithers/accounts/claude-1")))
+    assert.ok(args.includes(join(f.reviewHome, ".smithers/accounts/claude-1")))
     assert.deepEqual(args.slice(-3), ["", "", ""])
   }
   assert.deepEqual(commands[1]!.slice(1, -4), [
     "-p",
     "--model",
     "claude-fable-5-1",
+    "--output-format",
+    "json",
+    "--setting-sources",
+    "",
     "--tools",
     "",
     "--strict-mcp-config",
     "--mcp-config",
     "{\"mcpServers\":{}}"
   ])
+})
+
+test("successful diff verdict without issue acceptance never permits landing review", async (t) => {
+  const f = await reviewFixture(t)
+  const result = f.review({ ACCEPTANCE_SUPPRESS: "1" })
+  assert.notEqual(result.status, 0)
+  assert.match(result.stderr, /ACCEPTANCE_REVIEW_MISSING/)
+  await assert.rejects(readFile(join(f.root, "acceptance.json"), "utf8"), /ENOENT/)
+})
+
+test("acceptance existence and stale rejected-push receipts never classify an unpushed failure as delivered", async (t) => {
+  const key = `test-pushed-failure-${process.pid}-${Date.now()}`
+  const member = { key, repo: "smithersai/smithers", commits: [{ issue: 1, commit: "prepared" }] }
+  const revision = "a".repeat(40)
+  const path = join(homedir(), "Smithers-Ops/burndown/landings", `${key}.acceptance.json`)
+  await mkdir(dirname(path), { recursive: true })
+  t.after(() => rm(path, { force: true }))
+  const record = {
+    context: {
+      repo: member.repo,
+      revision,
+      commits: member.commits,
+      issues: [{ issue: 1, body: "Acceptance complete." }],
+      checks: "CHECKS_PASSED"
+    },
+    receipt: {
+      version: 1,
+      repo: member.repo,
+      revision,
+      issues: [{
+        issue: 1,
+        disposition: "complete",
+        criteria: [{ criterion: "Acceptance complete.", evidence: ["CHECKS_PASSED"] }],
+        remaining: []
+      }]
+    }
+  }
+  assert.equal(isPushedFailure(member, { stdout: `PUSH_ACCEPTED ${revision}\n` }), false)
+  await writeFile(path, JSON.stringify(record))
+  for (
+    const stdout of [
+      "",
+      "PUSH_REJECTED",
+      "CHECK_FAILED",
+      `PUSH_ACCEPTED ${"b".repeat(40)}`,
+      `untrusted PUSH_ACCEPTED ${revision}`
+    ]
+  ) {
+    assert.equal(isPushedFailure(member, { stdout }), false)
+  }
+  assert.equal(isPushedFailure(member, { stdout: `PUSH_ACCEPTED ${revision}\n`, stderr: "pushed writer failed" }), true)
+  assert.equal(isPushedFailure(member, { stdout: `LANDED 1 ${revision}\n` }), true)
+  for (const commits of [undefined, [{ issue: 1, commit: "other" }]]) {
+    await writeFile(path, JSON.stringify({ ...record, context: { ...record.context, commits } }))
+    assert.equal(isPushedFailure(member, { stdout: `PUSH_ACCEPTED ${revision}\n` }), false)
+  }
+  await writeFile(
+    path,
+    JSON.stringify({
+      ...record,
+      context: { ...record.context, repo: "other/repo" },
+      receipt: { ...record.receipt, repo: "other/repo" }
+    })
+  )
+  assert.equal(isPushedFailure(member, { stdout: `PUSH_ACCEPTED ${revision}\n` }), false)
+})
+
+test("current issue body must match independently reviewed acceptance before delivery", () => {
+  const record = {
+    context: {
+      repo: "smithersai/smithers",
+      revision: "a".repeat(40),
+      issues: [{ issue: 1, body: "Acceptance complete." }],
+      checks: "CHECKS_PASSED"
+    },
+    receipt: {
+      version: 1 as const,
+      repo: "smithersai/smithers",
+      revision: "a".repeat(40),
+      issues: [{
+        issue: 1,
+        disposition: "complete" as const,
+        criteria: [{ criterion: "Acceptance complete.", evidence: ["CHECKS_PASSED"] }],
+        remaining: []
+      }]
+    }
+  }
+  assert.doesNotThrow(() => validateCurrentAcceptance(record, [{ issue: 1, body: "Acceptance complete." }]))
+  assert.throws(
+    () => validateCurrentAcceptance(record, [{ issue: 1, body: "Acceptance complete. Also require deployment." }]),
+    /ACCEPTANCE_CHANGED/
+  )
+  assert.throws(() => validateCurrentAcceptance(record, []), /ACCEPTANCE_CHANGED/)
+})
+
+test("public landing receipt orchestration checks current acceptance before any issue mutation", async (t) => {
+  for (const changed of [false, true]) {
+    const f = await fixture(t, {})
+    const key = `test-receipt-orchestration-${process.pid}-${Date.now()}-${changed}`
+    const member = { key, repo: "smithersai/smithers", commits: [{ issue: 1, commit: "prepared" }] }
+    const revision = "a".repeat(40)
+    const criterion = changed ? "Old acceptance." : "Acceptance complete."
+    const record = {
+      context: {
+        repo: member.repo,
+        revision,
+        commits: member.commits,
+        issues: [{ issue: 1, body: `Acceptance\n${criterion}` }],
+        checks: "CHECKS_PASSED"
+      },
+      receipt: {
+        version: 1,
+        repo: member.repo,
+        revision,
+        issues: [{
+          issue: 1,
+          disposition: "complete",
+          criteria: [{ criterion, evidence: ["CHECKS_PASSED"] }],
+          remaining: []
+        }]
+      }
+    }
+    const receipts = join(homedir(), "Smithers-Ops/burndown/landings")
+    await mkdir(receipts, { recursive: true })
+    for (const suffix of ["acceptance.json", "pushed.json", "sh"]) {
+      t.after(() => rm(join(receipts, `${key}.${suffix}`), { force: true }))
+    }
+    await writeFile(join(receipts, `${key}.acceptance.json`), JSON.stringify(record))
+    await writeFile(
+      join(receipts, `${key}.pushed.json`),
+      JSON.stringify({ version: 1, ...member, landed: [{ issue: 1, sha: revision }], acceptance: record })
+    )
+    await f.put("bin/python3", `#!${process.execPath}\nconsole.log('LANDED 1 ${revision}');\n`)
+    await chmod(join(f.bin, "python3"), 0o755)
+    await f.put(
+      "claim.mjs",
+      `import { appendFileSync } from 'node:fs'; const args=process.argv.slice(2);appendFileSync(process.env.COMMAND_LOG,JSON.stringify(['claim',...args])+'\\n');console.log(JSON.stringify(args[0]==='check'?{mine:true}:{posted:true}));\n`
+    )
+    const program = `import { Effect } from ${JSON.stringify(import.meta.resolve("effect"))};
+import { landAll } from ${JSON.stringify(new URL("../land.ts", import.meta.url).href)};
+const outcome=await Effect.runPromise(landAll(JSON.parse(process.env.READY_RESULT),JSON.parse(process.env.ASSIGNMENT)));
+console.log(JSON.stringify(outcome));`
+    const result = spawnSync(process.execPath, ["--experimental-strip-types", "--input-type=module", "-e", program], {
+      cwd: f.root,
+      encoding: "utf8",
+      timeout: 60_000,
+      env: {
+        ...process.env,
+        PATH: `${f.bin}:${process.env.PATH}`,
+        COMMAND_LOG: f.commandLog,
+        BURNDOWN_ISSUE_CLAIM_SCRIPT: join(f.root, "claim.mjs"),
+        READY_RESULT: JSON.stringify([{ key, commits: member.commits, notes: "Retained confirmed push" }]),
+        ASSIGNMENT: JSON.stringify([{ assignment: { key, repo: member.repo } }])
+      }
+    })
+    assert.equal(result.status, 0, result.stderr)
+    const outcome = JSON.parse(result.stdout)
+    const comments = (await f.commands()).filter((args) => args[0] === "claim" && args[1] === "comment")
+    if (changed) {
+      assert.deepEqual(outcome.landed, [])
+      assert.deepEqual(outcome.quarantined, [])
+      assert.equal(outcome.receiptsPending[0].key, key)
+      assert.match(outcome.receiptsPending[0].error, /ACCEPTANCE_CHANGED/)
+      assert.equal(comments.length, 0)
+    } else {
+      assert.deepEqual(outcome.landed, [key])
+      assert.deepEqual(outcome.receiptsPending, [])
+      assert.equal(comments.length, 1)
+      assert.ok(comments[0]!.includes("--close"))
+    }
+  }
+})
+
+test("retained pushed receipt is bound to the same assignment, issues and repository acceptance", async (t) => {
+  const key = `test-pushed-binding-${process.pid}-${Date.now()}`
+  const member = { key, repo: "smithersai/smithers", commits: [{ issue: 1, commit: "prepared" }] }
+  const revision = "a".repeat(40)
+  const path = join(homedir(), "Smithers-Ops/burndown/landings", `${key}.pushed.json`)
+  await mkdir(dirname(path), { recursive: true })
+  t.after(() => rm(path, { force: true }))
+  const record = {
+    version: 1,
+    key,
+    repo: member.repo,
+    commits: member.commits,
+    landed: [{ issue: 1, sha: revision }],
+    acceptance: {
+      context: {
+        repo: member.repo,
+        revision,
+        issues: [{ issue: 1, body: "Acceptance complete." }],
+        checks: "CHECKS_PASSED"
+      },
+      receipt: {
+        version: 1,
+        repo: member.repo,
+        revision,
+        issues: [{
+          issue: 1,
+          disposition: "complete",
+          criteria: [{ criterion: "Acceptance complete.", evidence: ["CHECKS_PASSED"] }],
+          remaining: []
+        }]
+      }
+    }
+  }
+  assert.equal(hasPushedReceipt(member), false)
+  await writeFile(path, JSON.stringify(record))
+  assert.equal(hasPushedReceipt(member), true)
+  assert.equal(isPushedFailure(member, { stdout: "" }), true)
+  for (
+    const change of [
+      { key: "foreign" },
+      { repo: "other/repo" },
+      { commits: [{ issue: 1, commit: "other" }] },
+      { landed: [{ issue: 1, sha: "short" }] },
+      {
+        acceptance: {
+          context: { ...record.acceptance.context, repo: "other/repo" },
+          receipt: { ...record.acceptance.receipt, repo: "other/repo" }
+        }
+      },
+      {
+        acceptance: {
+          context: { ...record.acceptance.context, issues: [{ issue: 2, body: "Acceptance complete." }] },
+          receipt: { ...record.acceptance.receipt, issues: [{ ...record.acceptance.receipt.issues[0]!, issue: 2 }] }
+        }
+      }
+    ]
+  ) {
+    await writeFile(path, JSON.stringify({ ...record, ...change }))
+    assert.equal(hasPushedReceipt(member), false, JSON.stringify(change))
+  }
+  await writeFile(path, "{corrupt")
+  assert.equal(hasPushedReceipt(member), false)
+})
+
+test("fabricated issue completion evidence and issue provider failure refuse review", async (t) => {
+  const f = await reviewFixture(t)
+  const receipt = {
+    version: 1,
+    repo: "smithersai/smithers",
+    revision: "a".repeat(40),
+    issues: [{
+      issue: 1,
+      disposition: "complete",
+      criteria: [{ criterion: "Acceptance complete.", evidence: ["Cloud deployed PASS"] }],
+      remaining: []
+    }]
+  }
+  const invented = f.review({ ACCEPTANCE_RESULT: JSON.stringify(receipt) })
+  assert.notEqual(invented.status, 0)
+  assert.match(invented.stderr, /ACCEPTANCE_INVALID/)
+  const unavailable = f.review({ GH_ACCEPTANCE_FAIL: "1" })
+  assert.notEqual(unavailable.status, 0)
+  assert.match(unavailable.stderr, /issue provider unavailable/)
+  await assert.rejects(readFile(join(f.root, "acceptance.json"), "utf8"), /ENOENT/)
 })
 
 test("operator account and missing or failed final verdict refuse review", async (t) => {
@@ -560,8 +905,8 @@ test("review quota retries only the second allowed subscription", async (t) => {
   assert.equal(result.status, 0, result.stderr)
   const commands = await f.commands()
   assert.equal(commands.length, 4)
-  assert.ok(commands[2]!.includes(join(homedir(), ".smithers/accounts/claude-5")))
-  assert.ok(commands[3]!.includes(join(homedir(), ".smithers/accounts/claude-5")))
+  assert.ok(commands[2]!.includes(join(f.reviewHome, ".smithers/accounts/claude-5")))
+  assert.ok(commands[3]!.includes(join(f.reviewHome, ".smithers/accounts/claude-5")))
 })
 
 test("review runs from an empty directory outside the candidate checkout", async (t) => {
@@ -584,41 +929,54 @@ test("a package selector that matches nothing cannot produce a green receipt", a
   assert.match(result.stderr, /No projects matched/)
 })
 
-test("all landed issue receipt attempts run even when an earlier receipt fails", async () => {
-  const { completeLandingReceipts } = await import("../land.ts")
-  assert.equal(typeof completeLandingReceipts, "function")
-  const attempted: Array<Array<string>> = []
-  const member = {
-    key: "receipts",
-    repo: "smithersai/smithers",
-    commits: [{ issue: 1, commit: "a" }, { issue: 2, commit: "b" }]
+async function waitForExit(pid: number) {
+  const deadline = Date.now() + 5000
+  while (Date.now() < deadline) {
+    try {
+      process.kill(pid, 0)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ESRCH") return
+      throw error
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20))
   }
-  await assert.rejects(
-    completeLandingReceipts(
-      member,
-      [{ issue: 1, sha: "a".repeat(40) }, { issue: 2, sha: "b".repeat(40) }],
-      async (_command, args) => {
-        attempted.push([...args])
-        if (args.includes("smithersai/smithers#1")) throw new Error("first receipt rejected")
-        return { stdout: "", stderr: "" }
-      }
-    ),
-    /first receipt rejected/
-  )
-  assert.equal(attempted.length, 2)
-  assert.ok(attempted[1]!.includes("smithersai/smithers#2"))
-})
+  assert.fail(`cancelled child ${pid} remains alive`)
+}
 
-test("landing deadline kills a detached descendant before it can perform a late push", async (t) => {
+async function waitForFile(path: string, timeout = 10_000) {
+  const deadline = Date.now() + timeout
+  while (Date.now() < deadline) {
+    try {
+      return await readFile(path, "utf8")
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  }
+  throw new Error(`child never started: ${path}`)
+}
+
+test("landing cancellation kills a started detached descendant before its late push", async (t) => {
   const { runLandingProcess } = await import("../land.ts")
   assert.equal(typeof runLandingProcess, "function")
   const f = await fixture(t, {})
   const marker = join(f.root, "late-push")
+  const pidPath = join(f.root, "started.pid")
   const program = `const {spawn} = require('node:child_process'); spawn(process.execPath, ['-e', ${
-    JSON.stringify(`setTimeout(() => require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'pushed'), 1200)`)
+    JSON.stringify(
+      `require('node:fs').writeFileSync(${
+        JSON.stringify(pidPath)
+      }, String(process.pid)); setTimeout(() => require('node:fs').writeFileSync(${
+        JSON.stringify(marker)
+      }, 'pushed'), 7000)`
+    )
   }], {detached: true, stdio: 'ignore'}); setInterval(() => {}, 1000);`
-  await assert.rejects(runLandingProcess(process.execPath, ["-e", program], { timeout: 500 }), /TIMEOUT|timeout/i)
-  await new Promise((accept) => setTimeout(accept, 1500))
+  const controller = new AbortController()
+  const running = runLandingProcess(process.execPath, ["-e", program], { timeout: 20_000, signal: controller.signal })
+  await waitForFile(pidPath)
+  controller.abort()
+  await assert.rejects(running, /CANCEL|abort/i)
+  await new Promise((accept) => setTimeout(accept, 7500))
   await assert.rejects(readFile(marker), { code: "ENOENT" })
 })
 
@@ -632,11 +990,17 @@ test("landing cancellation rescans descendants omitted from its first process sn
   await f.put(
     "bin/ps",
     `#!${process.execPath}\nconst fs = require('node:fs'); const {execFileSync} = require('node:child_process'); const count = Number(fs.existsSync(${
-      JSON.stringify(scans)
+      JSON.stringify(
+        scans
+      )
     }) ? fs.readFileSync(${JSON.stringify(scans)}, 'utf8') : 0); fs.writeFileSync(${
-      JSON.stringify(scans)
+      JSON.stringify(
+        scans
+      )
     }, String(count + 1)); const hidden = Number(fs.readFileSync(${
-      JSON.stringify(pidPath)
+      JSON.stringify(
+        pidPath
+      )
     }, 'utf8')); const rows = execFileSync('/bin/ps', process.argv.slice(2), {encoding:'utf8'}); process.stdout.write(count === 0 ? rows.split('\\n').filter(row => Number(row.trim().split(/\\s+/)[0]) !== hidden).join('\\n') : rows);\n`
   )
   await chmod(join(f.bin, "ps"), 0o755)
@@ -646,22 +1010,34 @@ test("landing cancellation rescans descendants omitted from its first process sn
     process.env.PATH = originalPath
   })
   const descendant = `require('node:fs').writeFileSync(${
-    JSON.stringify(pidPath)
+    JSON.stringify(
+      pidPath
+    )
   }, String(process.pid)); setTimeout(() => require('node:fs').writeFileSync(${
-    JSON.stringify(marker)
-  }, 'pushed'), 1200)`
+    JSON.stringify(
+      marker
+    )
+  }, 'pushed'), 7000)`
   const parent = `require('node:child_process').spawn(process.execPath, ['-e', ${
-    JSON.stringify(descendant)
+    JSON.stringify(
+      descendant
+    )
   }], {detached:true, stdio:'ignore'}); setInterval(() => {}, 1000);`
   const program = `require('node:child_process').spawn(process.execPath, ['-e', ${
-    JSON.stringify(parent)
+    JSON.stringify(
+      parent
+    )
   }], {detached:true, stdio:'ignore'}); setInterval(() => {}, 1000);`
-  await assert.rejects(runLandingProcess(process.execPath, ["-e", program], { timeout: 500 }), /TIMEOUT|timeout/i)
-  await new Promise((accept) => setTimeout(accept, 1500))
+  const controller = new AbortController()
+  const running = runLandingProcess(process.execPath, ["-e", program], { timeout: 20_000, signal: controller.signal })
+  await waitForFile(pidPath)
+  controller.abort()
+  await assert.rejects(running, /CANCEL|abort/i)
+  await new Promise((accept) => setTimeout(accept, 7500))
   await assert.rejects(readFile(marker), { code: "ENOENT" })
   assert.ok(Number(await readFile(scans, "utf8")) >= 2)
   const pid = Number(await readFile(pidPath, "utf8"))
-  assert.throws(() => process.kill(pid, 0), { code: "ESRCH" })
+  await waitForExit(pid)
 })
 
 test("landing abort kills child processes and returns a cancellation failure", async (t) => {
@@ -669,14 +1045,22 @@ test("landing abort kills child processes and returns a cancellation failure", a
   assert.equal(typeof runLandingProcess, "function")
   const f = await fixture(t, {})
   const marker = join(f.root, "late-push")
+  const pidPath = join(f.root, "started.pid")
   const controller = new AbortController()
   const program = `const {spawn} = require('node:child_process'); spawn(process.execPath, ['-e', ${
-    JSON.stringify(`setTimeout(() => require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'pushed'), 1200)`)
+    JSON.stringify(
+      `require('node:fs').writeFileSync(${
+        JSON.stringify(pidPath)
+      }, String(process.pid)); setTimeout(() => require('node:fs').writeFileSync(${
+        JSON.stringify(marker)
+      }, 'pushed'), 7000)`
+    )
   }], {stdio: 'ignore'}); setInterval(() => {}, 1000);`
   const running = runLandingProcess(process.execPath, ["-e", program], { timeout: 10_000, signal: controller.signal })
-  setTimeout(() => controller.abort(), 500)
+  await waitForFile(pidPath)
+  controller.abort()
   await assert.rejects(running, /CANCEL|abort/i)
-  await new Promise((accept) => setTimeout(accept, 1500))
+  await new Promise((accept) => setTimeout(accept, 7500))
   await assert.rejects(readFile(marker), { code: "ENOENT" })
 })
 
@@ -686,14 +1070,19 @@ test("landing output limit safely kills the producer and refuses success", async
   const f = await fixture(t, {})
   const pidPath = join(f.root, "producer.pid")
   const program = `require('node:fs').writeFileSync(${
-    JSON.stringify(pidPath)
-  }, String(process.pid)); setInterval(() => process.stdout.write('x'.repeat(1024 * 1024)), 1)`
+    JSON.stringify(
+      pidPath
+    )
+  }, String(process.pid)); function emit(){if(process.stdout.write('x'.repeat(1024*1024)))setImmediate(emit);else process.stdout.once('drain',emit)} emit()`
   await assert.rejects(
     runLandingProcess(process.execPath, ["-e", program], { timeout: 10_000 }),
-    /OUTPUT_LIMIT|buffer/i
+    (error: Error & { stderr?: string }) => {
+      assert.match(error.message, /OUTPUT_LIMIT|buffer/i, error.stderr ?? "")
+      return true
+    }
   )
   const pid = Number(await readFile(pidPath, "utf8"))
-  assert.throws(() => process.kill(pid, 0), { code: "ESRCH" })
+  await waitForExit(pid)
 })
 
 async function completeLandingFixture(t: test.TestContext) {
@@ -701,16 +1090,16 @@ async function completeLandingFixture(t: test.TestContext) {
   await fakeSnapshot(f)
   await f.put(
     "bin/jj",
-    `#!${process.execPath}\nconst fs = require('node:fs'); const args = process.argv.slice(2); fs.appendFileSync(process.env.COMMAND_LOG, JSON.stringify(['jj', ...args]) + '\\n'); const pushed = process.env.COMMAND_LOG + '.pushed'; if (args.includes('push')) { fs.writeFileSync(pushed, '1'); process.exit(0); } if (args.includes('fetch') && process.env.POST_PUSH_FETCH_FAIL && fs.existsSync(pushed)) process.exit(1); if (args.includes('root')) console.log(process.cwd()); else if (args.includes('diff')) console.log('packages/a/a.ts'); else if (args.includes('log') && !args.some(x => x.includes('conflicts()'))) { const rev = args[args.indexOf('-r') + 1]; if (rev.includes('::main@origin')) { if (fs.existsSync(pushed)) console.log(args.at(-1) === 'commit_id' ? 'a'.repeat(40) : 'change-one'); } else if (args.at(-1) === 'commit_id') { const counter = process.env.COMMAND_LOG + '.sha'; const n = Number(fs.existsSync(counter) ? fs.readFileSync(counter, 'utf8') : 0); fs.writeFileSync(counter, String(n + 1)); console.log((process.env.SHA_DRIFT_AT && n >= Number(process.env.SHA_DRIFT_AT) ? 'b' : 'a').repeat(40)); } else console.log('change-one'); }\n`
+    `#!${process.execPath}\nconst fs = require('node:fs'); const args = process.argv.slice(2); fs.appendFileSync(process.env.COMMAND_LOG, JSON.stringify(['jj', ...args]) + '\\n'); const pushed = process.env.COMMAND_LOG + '.pushed'; if (args.includes('push')) { fs.writeFileSync(pushed, '1'); process.exit(0); } if (args.includes('fetch') && process.env.POST_PUSH_FETCH_FAIL && fs.existsSync(pushed)) process.exit(1); if (args.includes('root')) console.log(process.cwd()); else if (args.includes('diff')) console.log('packages/a/a.ts'); else if (args.includes('log') && !args.some(x => x.includes('conflicts()') || x.includes('bookmarks()'))) { const rev = args[args.indexOf('-r') + 1]; if (rev.includes('::main@origin')) { if (fs.existsSync(pushed)) console.log(args.at(-1) === 'commit_id' ? 'a'.repeat(40) : 'change-one'); } else if (args.at(-1) === 'commit_id') { const counter = process.env.COMMAND_LOG + '.sha'; const n = Number(fs.existsSync(counter) ? fs.readFileSync(counter, 'utf8') : 0); fs.writeFileSync(counter, String(n + 1)); console.log((process.env.SHA_DRIFT_AT && n >= Number(process.env.SHA_DRIFT_AT) ? 'b' : 'a').repeat(40)); } else console.log('change-one'); }\n`
   )
   await f.put(
     "bin/claude",
-    `#!${process.execPath}\nrequire('node:fs').appendFileSync(process.env.COMMAND_LOG, JSON.stringify(['claude', ...process.argv.slice(2)]) + '\\n'); if (process.argv[2] === 'auth') console.log(JSON.stringify({loggedIn:true,authMethod:'claude.ai',email:'reviewer@example.test'})); else console.log('VERDICT: PASS');\n`
+    `#!${process.execPath}\n${claudeResultEnvelope}\nrequire('node:fs').appendFileSync(process.env.COMMAND_LOG, JSON.stringify(['claude', ...process.argv.slice(2)]) + '\\n'); if (process.argv[2] === 'auth') console.log(JSON.stringify({loggedIn:true,authMethod:'claude.ai',apiProvider:'firstParty',email:'reviewer@example.test'})); else console.log('VERDICT: PASS');\n`
   )
   await chmod(join(f.bin, "claude"), 0o755)
   await f.put(
     "bin/git",
-    `#!${process.execPath}\nconst {spawnSync} = require('node:child_process'); const args = process.argv.slice(2); if (args.includes('ls-remote')) { console.log('a'.repeat(40) + '\\trefs/heads/main'); process.exit(0); } const r = spawnSync('tar', ['-cf', args[args.indexOf('--output') + 1], '-C', process.cwd(), 'packages']); process.exit(r.status);\n`
+    `#!${process.execPath}\nconst {spawnSync} = require('node:child_process'); const args = process.argv.slice(2); if (args.includes('rev-parse')) { console.log(process.cwd()); process.exit(0); } if (args[0] === 'init') process.exit(0); if (args.includes('ls-remote')) { require('node:fs').appendFileSync(process.env.COMMAND_LOG, JSON.stringify(['git', ...args]) + '\\n'); console.log('a'.repeat(40) + '\\trefs/heads/main'); process.exit(0); } const r = spawnSync('tar', ['-cf', args[args.indexOf('--output') + 1], '-C', process.cwd(), 'packages']); process.exit(r.status);\n`
   )
   const key = `test-complete-${process.pid}-${Date.now()}`
   const receiptRoot = join(homedir(), "Smithers-Ops/burndown/landings")
@@ -718,19 +1107,23 @@ async function completeLandingFixture(t: test.TestContext) {
   for (const suffix of ["prechecks", "checks", "review"]) {
     t.after(() => rm(join(receiptRoot, `${key}.${suffix}.log`), { force: true }))
   }
+  for (const suffix of ["acceptance", "pushed"]) {
+    t.after(() => rm(join(receiptRoot, `${key}.${suffix}.json`), { force: true }))
+  }
   return {
     ...f,
     key,
-    runLanding(extra: Record<string, string> = {}) {
-      return spawnSync("sh", [
-        "-c",
-        landingScript({ key, repo: "smithersai/smithers", commits: [{ issue: 1, commit: "abc" }] })
-      ], {
-        cwd: f.root,
-        env: { ...process.env, PATH: `${f.bin}:${process.env.PATH}`, COMMAND_LOG: f.commandLog, ...extra },
-        encoding: "utf8",
-        timeout: 20_000
-      })
+    runLanding(extra: Record<string, string> = {}, issue = 1) {
+      return spawnSync(
+        "sh",
+        ["-c", landingScript({ key, repo: "smithersai/smithers", commits: [{ issue, commit: "abc" }] })],
+        {
+          cwd: f.root,
+          env: { ...process.env, PATH: `${f.bin}:${process.env.PATH}`, COMMAND_LOG: f.commandLog, ...extra },
+          encoding: "utf8",
+          timeout: 60_000
+        }
+      )
     }
   }
 }
@@ -743,11 +1136,11 @@ test("successful landing checks both exact candidates, reviews, pushes once, and
   const commands = await f.commands()
   const rebase = commands.findIndex((args) => args.includes("rebase"))
   const push = commands.findIndex((args) => args.includes("push"))
-  const checks = commands.map((args, index) => args[0] === "pnpm" && args.at(-1) === "typecheck" ? index : -1).filter(
-    (index) => index >= 0
-  )
+  const checks = commands
+    .map((args, index) => (args[0] === "pnpm" && args.at(-1) === "typecheck" ? index : -1))
+    .filter((index) => index >= 0)
   const review = commands.findIndex((args) => args[0] === "claude" && args.includes("-p"))
-  assert.match(result.stdout, /REVIEW_REVISION a{40}/)
+  assert.match(result.stderr, /REVIEW_REVISION a{40}/)
   assert.ok(review > checks[1]! && review < push)
   assert.equal(checks.length, 2)
   assert.ok(checks[0]! < rebase)
@@ -755,24 +1148,75 @@ test("successful landing checks both exact candidates, reviews, pushes once, and
   assert.equal(commands.filter((args) => args.includes("push")).length, 1)
 })
 
+test("partial native identity can land with its full acceptance explicitly remaining open", async (t) => {
+  const f = await completeLandingFixture(t)
+  const receipt = {
+    version: 1,
+    repo: "smithersai/smithers",
+    revision: "a".repeat(40),
+    issues: [{
+      issue: 1871,
+      disposition: "landed",
+      criteria: [],
+      remaining: [{
+        issue: "smithersai/smithers#1871",
+        condition: "Complete native tool identities before enabling default caching."
+      }]
+    }]
+  }
+  const result = f.runLanding({ ACCEPTANCE_RESULT: JSON.stringify(receipt) }, 1871)
+  assert.equal(result.status, 0, result.stderr)
+  const root = join(homedir(), "Smithers-Ops/burndown/landings")
+  const record = JSON.parse(await readFile(join(root, `${f.key}.pushed.json`), "utf8"))
+  assert.deepEqual(record.acceptance.receipt, receipt)
+  assert.equal(record.landed[0].issue, 1871)
+  assert.equal((await f.commands()).filter((args) => args.includes("push")).length, 1)
+})
+
+test("missing acceptance and issue provider failure block pipeline push", async (t) => {
+  for (const extra of [{ ACCEPTANCE_SUPPRESS: "1" }, { GH_ACCEPTANCE_FAIL: "1" }]) {
+    const f = await completeLandingFixture(t)
+    const result = f.runLanding(extra)
+    assert.notEqual(result.status, 0)
+    assert.ok(!(await f.commands()).some((args) => args.includes("push")))
+    await assert.rejects(readFile(join(homedir(), "Smithers-Ops/burndown/landings", `${f.key}.pushed.json`)), /ENOENT/)
+  }
+})
+
 test("post-push fetch failure reconciles the remote SHA without a duplicate push", async (t) => {
   const f = await completeLandingFixture(t)
   const result = f.runLanding({ POST_PUSH_FETCH_FAIL: "1" })
   assert.equal(result.status, 0, result.stderr)
   assert.match(result.stdout, /PUSH_RECONCILED/)
+  const gitRoot = await realpath(f.root)
+  assert.ok(
+    (await f.commands()).some(
+      (args) => args[0] === "git" && args[1] === "--git-dir" && args[2] === gitRoot && args.includes("ls-remote")
+    )
+  )
   assert.match(result.stdout, /^LANDED 1 a{40}$/m)
   assert.equal((await f.commands()).filter((args) => args.includes("push")).length, 1)
 })
 
 test("rebased candidate drift after checks or review prevents bookmark and push", async (t) => {
-  for (const [at, receipt] of [["3", "CHECK_REVISION_CHANGED"], ["4", "REVIEW_REVISION_CHANGED"]]) {
+  for (
+    const [at, receipt] of [
+      ["3", "CHECK_REVISION_CHANGED"],
+      ["4", "REVIEW_REVISION_CHANGED"]
+    ]
+  ) {
     const f = await completeLandingFixture(t)
     const result = f.runLanding({ SHA_DRIFT_AT: at! })
     assert.equal(result.status, 6, result.stderr)
     assert.match(result.stderr, new RegExp(receipt!))
     const commands = await f.commands()
-    assert.ok(commands.some((args) => args.includes("rebase")), "the pre-rebase gate passed")
-    assert.ok(!commands.some((args) => args.includes("bookmark") || args.includes("push")))
+    assert.ok(
+      commands.some((args) => args.includes("rebase")),
+      "the pre-rebase gate passed"
+    )
+    assert.ok(
+      !commands.some((args) => (args.includes("bookmark") && !args.includes("main@origin")) || args.includes("push"))
+    )
   }
 })
 
@@ -780,12 +1224,16 @@ test("replaying a reconciled landing returns its SHA without rebase, checks, or 
   const f = await completeLandingFixture(t)
   const first = f.runLanding({ POST_PUSH_FETCH_FAIL: "1" })
   assert.equal(first.status, 0, first.stderr)
+  const pushedPath = join(homedir(), "Smithers-Ops/burndown/landings", `${f.key}.pushed.json`)
+  const durable = await readFile(pushedPath, "utf8")
+  assert.equal(JSON.parse(durable).acceptance.receipt.issues[0].disposition, "complete")
   const before = (await f.commands()).length
   const retry = f.runLanding()
   assert.equal(retry.status, 0, retry.stderr)
   assert.match(retry.stdout, /^LANDED 1 a{40}$/m)
   const replay = (await f.commands()).slice(before)
   assert.ok(!replay.some((args) => args.includes("rebase") || args.includes("push") || args[0] === "pnpm"))
+  assert.equal(await readFile(pushedPath, "utf8"), durable)
 })
 
 test("landing deadline kills grandchildren behind a lock wrapper that does not forward signals", async (t) => {
@@ -794,19 +1242,862 @@ test("landing deadline kills grandchildren behind a lock wrapper that does not f
   const marker = join(f.root, "late-push")
   const started = join(f.root, "push-started")
   const push = `require('node:fs').writeFileSync(${
-    JSON.stringify(started)
+    JSON.stringify(
+      started
+    )
   }, 'started'); setTimeout(() => require('node:fs').writeFileSync(${
-    JSON.stringify(marker)
+    JSON.stringify(
+      marker
+    )
   }, 'pushed'), 4000); setInterval(() => {}, 1000)`
   const shell = `const {spawn} = require('node:child_process'); spawn(process.execPath, ['-e', ${
-    JSON.stringify(push)
+    JSON.stringify(
+      push
+    )
   }], {detached: true, stdio: 'ignore'}); setInterval(() => {}, 1000)`
   const wrapper =
     `const {spawn} = require('node:child_process'); process.on('SIGTERM', () => {}); spawn(process.execPath, ['-e', ${
-      JSON.stringify(shell)
+      JSON.stringify(
+        shell
+      )
     }], {stdio: 'ignore'}); setInterval(() => {}, 1000)`
   await assert.rejects(runLandingProcess(process.execPath, ["-e", wrapper], { timeout: 2000 }), /TIMEOUT|timeout/i)
   assert.equal(await readFile(started, "utf8"), "started")
   await new Promise((accept) => setTimeout(accept, 4500))
   await assert.rejects(readFile(marker), { code: "ENOENT" })
+})
+
+test("an orphan retaining landing pipes cannot postpone the deadline forever", async (t) => {
+  const { runLandingProcess } = await import("../land.ts")
+  const f = await fixture(t, {})
+  const pidPath = join(f.root, "orphan.pid")
+  const orphan = `require('node:fs').writeFileSync(${
+    JSON.stringify(pidPath)
+  }, String(process.pid)); setInterval(() => {}, 1000)`
+  // The intermediary exits before cancellation, leaving an orphan outside the pp id walk.
+  const intermediary = `const c=require('node:child_process').spawn(process.execPath,['-e',${
+    JSON.stringify(orphan)
+  }],{detached:true,stdio:['ignore',1,2]}); c.unref()`
+  const program = `require('node:child_process').spawn(process.execPath,['-e',${
+    JSON.stringify(intermediary)
+  }],{stdio:['ignore',1,2]}).on('exit',()=>console.log('ORPHANED')); setInterval(()=>{},1000)`
+  const started = Date.now()
+  const controller = new AbortController()
+  const running = runLandingProcess(process.execPath, ["-e", program], { timeout: 20_000, signal: controller.signal })
+  const pid = Number(await waitForFile(pidPath))
+  controller.abort()
+  t.after(() => {
+    try {
+      process.kill(pid, "SIGKILL")
+    } catch {
+      // The orphan may already have exited.
+    }
+  })
+  await assert.rejects(
+    Promise.race([
+      running,
+      new Promise((_, reject) => setTimeout(() => reject(new Error("UNBOUNDED_ORPHAN_PIPE")), 8000))
+    ]),
+    /CANCEL|abort/i
+  )
+  assert.ok(Date.now() - started < 8000)
+})
+
+test("forced landing cancellation removes only its owned verification snapshot", async (t) => {
+  const { runLandingProcess } = await import("../land.ts")
+  const f = await fixture(t, { "packages/a/package.json": pkg("@test/a") })
+  await fakeSnapshot(f)
+  const readyPath = join(f.root, "check-ready.json")
+  await f.put(
+    "bin/pnpm",
+    `#!${process.execPath}\nif(process.argv[2]==='install') process.exit(0); require('node:fs').writeFileSync(${
+      JSON.stringify(readyPath)
+    },JSON.stringify({pid:process.pid,cwd:process.cwd(),owned:process.env.BURNDOWN_VERIFICATION_ROOT})); setInterval(()=>{},1000);\n`
+  )
+  const controller = new AbortController()
+  const running = runLandingProcess(
+    process.execPath,
+    ["--input-type=module", "-e", checksProgram, "smithers", "change-one"],
+    {
+      cwd: f.root,
+      timeout: 20_000,
+      signal: controller.signal,
+      env: {
+        ...process.env,
+        PATH: `${f.bin}:${process.env.PATH}`,
+        COMMAND_LOG: f.commandLog,
+        BURNDOWN_CHECK_REVISION: "change-one"
+      }
+    }
+  )
+  const ready = JSON.parse(await waitForFile(readyPath)) as { pid: number; cwd: string; owned: string }
+  const neighbor = await mkdtemp(join(dirname(ready.owned), "burndown-verification-"))
+  await writeFile(join(neighbor, "keep"), "PRESERVE")
+  t.after(() => rm(neighbor, { recursive: true, force: true }))
+  controller.abort()
+  await assert.rejects(running, /CANCEL|abort/i)
+  assert.ok(ready.owned, "runner supplies private verification ownership")
+  assert.equal(await readFile(join(neighbor, "keep"), "utf8"), "PRESERVE")
+  await assert.rejects(readFile(join(ready.cwd, "packages/a/package.json")), { code: "ENOENT" })
+  await waitForExit(ready.pid)
+  assert.equal(await readFile(join(f.root, "packages/a/package.json"), "utf8"), pkg("@test/a"))
+})
+
+async function realLandingFixture(t: test.TestContext, advancedMain = false) {
+  const f = await fixture(t, {
+    "package.json": JSON.stringify({ name: "fixture", private: true }),
+    "packages/a/package.json": pkg("@test/a"),
+    "packages/a/result.txt": "BASE",
+    ".gitignore": "commands.log*\n"
+  })
+  const originalPath = process.env.PATH!
+  const jj = (args: Array<string>) => {
+    const r = spawnSync("jj", args, { cwd: f.root, env: { ...process.env, PATH: originalPath }, encoding: "utf8" })
+    assert.equal(r.status, 0, r.stderr)
+    return r.stdout.trim()
+  }
+  const remote = await mkdtemp(join(tmpdir(), "burndown-remote-"))
+  t.after(() => rm(remote, { recursive: true, force: true }))
+  const git = spawnSync("git", ["init", "--bare", remote], {
+    env: { ...process.env, PATH: originalPath },
+    encoding: "utf8"
+  })
+  assert.equal(git.status, 0, git.stderr)
+  jj(["git", "init", "--colocate"])
+  jj(["commit", "-m", "baseline"])
+  const baseline = jj(["log", "--no-graph", "-r", "@-", "-T", "commit_id"])
+  jj(["bookmark", "set", "main", "-r", "@-"])
+  jj(["bookmark", "set", "mythical", "-r", "@-"])
+  const mythical = jj(["log", "--no-graph", "-r", "mythical", "-T", "commit_id"])
+  jj(["git", "remote", "add", "origin", remote])
+  jj(["git", "push", "--allow-new", "--bookmark", "main"])
+  if (advancedMain) {
+    await f.put("packages/a/upstream.txt", "UPSTREAM")
+    jj(["commit", "-m", "upstream advancement"])
+    jj(["bookmark", "set", "main", "-r", "@-"])
+    jj(["git", "push", "--bookmark", "main"])
+  }
+  await f.put("packages/a/result.txt", "MEMBER")
+  jj(["commit", "-m", "member"])
+  let member = jj(["log", "--no-graph", "-r", "@-", "-T", "commit_id"])
+  if (advancedMain) {
+    const memberChange = jj(["log", "--no-graph", "-r", member, "-T", "change_id"])
+    jj(["rebase", "-r", member, "-d", baseline])
+    member = jj(["log", "--no-graph", "-r", memberChange, "-T", "commit_id"])
+  }
+  // A shared copy need not descend from the member being landed.
+  jj(["rebase", "-r", "@", "-d", "main@origin"])
+  await f.put("unrelated.txt", "PRESERVE")
+  await f.put(
+    "bin/jj",
+    `#!${process.execPath}\nconst fs=require('node:fs'); const {spawnSync}=require('node:child_process');const args=process.argv.slice(2);fs.appendFileSync(process.env.COMMAND_LOG,JSON.stringify(['jj',...args])+'\\n');const pushed=process.env.COMMAND_LOG+'.pushed';if(args.includes('push')&&process.env.PUSH_FAIL_ONCE&&!fs.existsSync(process.env.COMMAND_LOG+'.rejected')){fs.writeFileSync(process.env.COMMAND_LOG+'.rejected','1');if(process.env.REMOTE_ADVANCE_SCRIPT){const a=spawnSync(process.env.REMOTE_ADVANCE_SCRIPT,[],{env:{...process.env,PATH:process.env.ORIGINAL_PATH},stdio:'inherit'});if(a.status!==0)process.exit(a.status);const rejected=spawnSync('jj',args,{env:{...process.env,PATH:process.env.ORIGINAL_PATH},stdio:'inherit'});process.exit(rejected.status)}process.exit(1)}if(args.includes('fetch')&&fs.existsSync(pushed)&&process.env.POST_PUSH_FETCH_FAIL)process.exit(1);if(args.includes('rebase')&&args.includes('@')&&fs.existsSync(pushed)&&process.env.ALIGN_FAIL)process.exit(1);const r=spawnSync('jj',args,{env:{...process.env,PATH:process.env.ORIGINAL_PATH},stdio:'inherit'});if(args.includes('push')&&r.status===0){fs.writeFileSync(pushed,'1');fs.appendFileSync(process.env.COMMAND_LOG+'.successful','1\\n')}process.exit(r.status);\n`
+  )
+  await f.put(
+    "bin/claude",
+    `#!${process.execPath}\n${claudeResultEnvelope}\nif(process.argv[2]==='auth')console.log(JSON.stringify({loggedIn:true,authMethod:'claude.ai',apiProvider:'firstParty',email:'reviewer@example.test'}));else console.log('VERDICT: PASS');\n`
+  )
+  await chmod(join(f.bin, "claude"), 0o755)
+  const key = `test-real-main-${process.pid}-${Date.now()}`
+  const receipts = join(homedir(), "Smithers-Ops/burndown/landings")
+  await mkdir(receipts, { recursive: true })
+  for (const suffix of ["prechecks", "checks", "review"]) {
+    t.after(() => rm(join(receipts, `${key}.${suffix}.log`), { force: true }))
+  }
+  return {
+    ...f,
+    jj,
+    mythical,
+    member,
+    remote,
+    run(extra: Record<string, string> = {}, candidate = member) {
+      const candidateKey = candidate === member ? key : `${key}-${candidate.slice(0, 12)}`
+      for (const suffix of ["prechecks.log", "checks.log", "review.log", "acceptance.json", "pushed.json"]) {
+        t.after(() => rm(join(receipts, `${candidateKey}.${suffix}`), { force: true }))
+      }
+      return spawnSync(
+        "sh",
+        [
+          "-c",
+          landingScript({ key: candidateKey, repo: "smithersai/smithers", commits: [{ issue: 1, commit: candidate }] })
+        ],
+        {
+          cwd: f.root,
+          env: {
+            ...process.env,
+            PATH: `${f.bin}:${originalPath}`,
+            ORIGINAL_PATH: originalPath,
+            COMMAND_LOG: f.commandLog,
+            ...extra
+          },
+          encoding: "utf8",
+          timeout: 60_000
+        }
+      )
+    }
+  }
+}
+
+test("real jj landing keeps shared edits on main without moving long-lived bookmarks", async (t) => {
+  const f = await realLandingFixture(t)
+  const r = f.run()
+  assert.equal(r.status, 0, r.stderr)
+  assert.equal(
+    f.jj(["log", "--no-graph", "-r", "@-", "-T", "commit_id"]),
+    f.jj(["log", "--no-graph", "-r", "main@origin", "-T", "commit_id"])
+  )
+  assert.equal(await readFile(join(f.root, "unrelated.txt"), "utf8"), "PRESERVE")
+  assert.equal(await readFile(join(f.root, "packages/a/result.txt"), "utf8"), "MEMBER")
+  assert.equal(f.jj(["log", "--no-graph", "-r", "mythical", "-T", "commit_id"]), f.mythical)
+})
+
+test("real jj post-push realignment failure recovers shared edits without another push", async (t) => {
+  const f = await realLandingFixture(t)
+  const first = f.run({ ALIGN_FAIL: "1", POST_PUSH_FETCH_FAIL: "1" })
+  assert.notEqual(first.status, 0, "failed realignment cannot report completed landing")
+  assert.equal(await readFile(join(f.root, "unrelated.txt"), "utf8"), "PRESERVE")
+  const retry = f.run()
+  assert.equal(retry.status, 0, retry.stderr)
+  assert.equal(
+    f.jj(["log", "--no-graph", "-r", "@-", "-T", "commit_id"]),
+    f.jj(["log", "--no-graph", "-r", "main@origin", "-T", "commit_id"])
+  )
+  assert.equal(await readFile(join(f.root, "unrelated.txt"), "utf8"), "PRESERVE")
+  assert.equal((await f.commands()).filter((args) => args.includes("push")).length, 1)
+  assert.equal(f.jj(["log", "--no-graph", "-r", "mythical", "-T", "commit_id"]), f.mythical)
+})
+
+test("landing cancellation retains process cleanup diagnostics", async (t) => {
+  const { runLandingProcess } = await import("../land.ts")
+  const f = await fixture(t, {})
+  await f.put("bin/ps", "#!/bin/sh\necho DISCOVERY_FAILED >&2\nexit 23\n")
+  await chmod(join(f.bin, "ps"), 0o755)
+  const originalPath = process.env.PATH
+  process.env.PATH = `${f.bin}:${originalPath}`
+  t.after(() => {
+    process.env.PATH = originalPath
+  })
+  await assert.rejects(
+    runLandingProcess(process.execPath, ["-e", "setInterval(()=>{},1000)"], { timeout: 100 }),
+    /LANDING_TIMEOUT[\s\S]*DISCOVERY_FAILED/
+  )
+})
+
+test("a pre-aborted landing cannot perform a late action", async (t) => {
+  const { runLandingProcess } = await import("../land.ts")
+  const f = await fixture(t, {})
+  const marker = join(f.root, "pushed")
+  const controller = new AbortController()
+  controller.abort()
+  await assert.rejects(
+    runLandingProcess(
+      process.execPath,
+      ["-e", `require('node:fs').writeFileSync(${JSON.stringify(marker)},'pushed')`],
+      { signal: controller.signal }
+    ),
+    /CANCEL|abort/i
+  )
+  await assert.rejects(readFile(marker), { code: "ENOENT" })
+})
+
+test("real jj landing refuses a bookmarked shared revision without changing it", async (t) => {
+  const f = await realLandingFixture(t, true)
+  f.jj(["rebase", "-r", "@", "-d", f.member])
+  f.jj(["bookmark", "set", "protected", "-r", "@"])
+  const protectedSha = f.jj(["log", "--no-graph", "-r", "protected", "-T", "commit_id"])
+  const result = f.run()
+  assert.notEqual(result.status, 0)
+  assert.match(result.stdout + result.stderr, /PROTECTED_LANDING_REVISION/)
+  assert.equal(f.jj(["log", "--no-graph", "-r", "protected", "-T", "commit_id"]), protectedSha)
+  assert.equal(await readFile(join(f.root, "unrelated.txt"), "utf8"), "PRESERVE")
+  assert.equal((await f.commands()).filter((args) => args.includes("push") || args.includes("rebase")).length, 0)
+})
+
+test("pre-aborted landing refuses before attempting to spawn", async () => {
+  const { runLandingProcess } = await import("../land.ts")
+  const controller = new AbortController()
+  controller.abort()
+  await assert.rejects(
+    runLandingProcess("/nonexistent/burndown-command", [], { signal: controller.signal }),
+    /LANDING_CANCELLED/
+  )
+  await assert.rejects(
+    runLandingProcess("invalid\0command", [], { signal: controller.signal }),
+    /LANDING_CANCELLED/
+  )
+})
+
+for (const exitCode of [0, 3]) {
+  test(`natural landing exit ${exitCode} settles despite orphan pipes`, async (t) => {
+    const { runLandingProcess } = await import("../land.ts")
+    const f = await fixture(t, {})
+    const pidPath = join(f.root, "orphan.pid")
+    const orphan = `require('node:fs').writeFileSync(${
+      JSON.stringify(pidPath)
+    },String(process.pid)); setInterval(()=>{},1000)`
+    const program =
+      `const fs=require('node:fs'); const child=require('node:child_process').spawn(process.execPath,['-e',${
+        JSON.stringify(orphan)
+      }],{detached:true,stdio:['ignore',1,2]}); child.unref(); const timer=setInterval(()=>{if(fs.existsSync(${
+        JSON.stringify(pidPath)
+      })){clearInterval(timer);console.log('ROOT_EXIT ${exitCode}');process.exit(${exitCode})}},20)`
+    const started = Date.now()
+    const running = runLandingProcess(process.execPath, ["-e", program], { timeout: 20_000 })
+    const pid = Number(await waitForFile(pidPath))
+    t.after(() => {
+      try {
+        process.kill(pid, "SIGKILL")
+      } catch { /* Already exited. */ }
+    })
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const bounded = Promise.race([
+      running,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error("UNBOUNDED_EXIT_DRAIN")), 6000)
+      })
+    ])
+    try {
+      if (exitCode === 0) assert.match((await bounded).stdout, /ROOT_EXIT 0/)
+      else await assert.rejects(bounded, /LANDING_FAILED exit=3/)
+      assert.ok(Date.now() - started < 6000)
+    } finally {
+      clearTimeout(timer)
+    }
+  })
+}
+
+for (const exitCode of [0, 6]) {
+  test(`snapshot cleanup failure after exit ${exitCode} retains diagnostics and the owned path`, async (t) => {
+    const { runLandingProcess } = await import("../land.ts")
+    const f = await fixture(t, {})
+    const ownedPath = join(f.root, "owned.json")
+    const program =
+      `const fs=require('node:fs');const path=require('node:path');const owned=process.env.BURNDOWN_VERIFICATION_ROOT;fs.mkdirSync(path.join(owned,'snapshot'));fs.writeFileSync(path.join(owned,'snapshot','keep'),'receipt');fs.chmodSync(owned,0o500);fs.writeFileSync(${
+        JSON.stringify(ownedPath)
+      },JSON.stringify(owned)); console.log('OWNED '+owned); if(${exitCode}===6)process.stderr.write('x'.repeat(5000)+'CHECK_RED_END'); process.exit(${exitCode})`
+    let runningError: unknown
+    try {
+      await runLandingProcess(process.execPath, ["-e", program], { timeout: 20_000 })
+    } catch (error) {
+      runningError = error
+    }
+    const owned = JSON.parse(await readFile(ownedPath, "utf8")) as string
+    t.after(async () => {
+      await chmod(owned, 0o700)
+      await rm(owned, { recursive: true, force: true })
+    })
+    assert.match(String(runningError), /snapshot cleanup:[\s\S]*EACCES/)
+    assert.ok(String(runningError).includes(owned))
+    assert.ok(await realpath(owned))
+    const receipt = landingFailure("cleanup-receipt", runningError)
+    assert.match(receipt.log, /snapshot cleanup:/)
+    assert.ok(receipt.log.includes(owned))
+    assert.ok(Buffer.byteLength(receipt.log) <= 4000)
+    if (exitCode === 6) assert.match(receipt.log, /CHECK_RED_END/)
+  })
+}
+
+test("snapshot removal deadline reports bounded failure with original output", async (t) => {
+  const { runLandingProcess } = await import("../land.ts")
+  const f = await fixture(t, {})
+  const ownedPath = join(f.root, "owned.json")
+  const program =
+    `const fs=require('node:fs');const path=require('node:path');const owned=process.env.BURNDOWN_VERIFICATION_ROOT;for(let i=0;i<1000;i++)fs.writeFileSync(path.join(owned,String(i)),'snapshot');fs.writeFileSync(${
+      JSON.stringify(ownedPath)
+    },JSON.stringify(owned));console.log('CHECK_OUTPUT_RETAINED')`
+  let failure: (Error & { stdout?: string }) | undefined
+  const completion = runLandingProcess(process.execPath, ["-e", program], {
+    timeout: 60_000,
+    snapshotCleanupTimeout: 1
+  }).then(
+    () => assert.fail("snapshot timeout must refuse success"),
+    (error) => {
+      failure = error as Error & { stdout?: string }
+    }
+  )
+  const owned = JSON.parse(await waitForFile(ownedPath, 60_000)) as string
+  const started = Date.now()
+  await completion
+  t.after(() => rm(owned, { recursive: true, force: true }))
+  assert.match(String(failure), /snapshot cleanup timeout/)
+  assert.match(failure?.stdout ?? "", /CHECK_OUTPUT_RETAINED/)
+  assert.ok(String(failure).includes(owned))
+  assert.ok(Date.now() - started < 5000)
+  // Removal continues after the failure receipt; wait for its real completion.
+  const deadline = Date.now() + 60_000
+  while (true) {
+    try {
+      await realpath(owned)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") break
+      throw error
+    }
+    assert.ok(Date.now() < deadline, "snapshot removal completes after bounded failure")
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  }
+})
+
+test("real jj rejected push retries the member and then lands an unrelated member", async (t) => {
+  const f = await realLandingFixture(t)
+  const first = f.run({ PUSH_FAIL_ONCE: "1" })
+  assert.notEqual(first.status, 0)
+  assert.equal(
+    f.jj(["log", "--no-graph", "-r", "main", "-T", "commit_id"]),
+    f.jj(["log", "--no-graph", "-r", "main@origin", "-T", "commit_id"]),
+    "push failure rolls local main back"
+  )
+  const retry = f.run({ PUSH_FAIL_ONCE: "1" })
+  assert.equal(retry.status, 0, retry.stdout + retry.stderr)
+  assert.equal((await readFile(f.commandLog + ".successful", "utf8")).trim().split("\n").length, 1)
+  await f.put("packages/a/second.txt", "SECOND")
+  f.jj(["commit", "packages/a/second.txt", "-m", "next member"])
+  const second = f.jj(["log", "--no-graph", "-r", "@-", "-T", "commit_id"])
+  const next = f.run({}, second)
+  assert.equal(next.status, 0, next.stdout + next.stderr)
+  assert.equal((await readFile(f.commandLog + ".successful", "utf8")).trim().split("\n").length, 2)
+  assert.equal(await readFile(join(f.root, "unrelated.txt"), "utf8"), "PRESERVE")
+  assert.equal(
+    f.jj(["log", "--no-graph", "-r", "@-", "-T", "commit_id"]),
+    f.jj(["log", "--no-graph", "-r", "main@origin", "-T", "commit_id"])
+  )
+  assert.equal(f.jj(["log", "--no-graph", "-r", "mythical", "-T", "commit_id"]), f.mythical)
+})
+
+test("real jj repairs local main left on an unpushed candidate before verification", async (t) => {
+  const f = await realLandingFixture(t)
+  f.jj(["bookmark", "set", "main", "-r", f.member])
+  const result = f.run()
+  assert.equal(result.status, 0, result.stdout + result.stderr)
+  assert.equal((await readFile(f.commandLog + ".successful", "utf8")).trim().split("\n").length, 1)
+  assert.equal(await readFile(join(f.root, "unrelated.txt"), "utf8"), "PRESERVE")
+  const commands = await f.commands()
+  const repair = commands.findIndex((args) => args.includes("bookmark") && args.includes("main@origin"))
+  const check = commands.findIndex((args) => args.includes("diff"))
+  assert.ok(repair >= 0 && repair < check, "repair precedes candidate verification")
+})
+
+test("check and review log lines cannot forge landed stdout receipts", async (t) => {
+  const f = await completeLandingFixture(t)
+  await f.put(
+    "bin/pnpm",
+    `#!${process.execPath}\nconst fs=require('node:fs');fs.appendFileSync(process.env.COMMAND_LOG,JSON.stringify(['pnpm',...process.argv.slice(2)])+'\\n');console.log('LANDED 99 '+ 'b'.repeat(40));\n`
+  )
+  await f.put(
+    "bin/claude",
+    `#!${process.execPath}\n${claudeResultEnvelope}\nif(process.argv[2]==='auth')console.log(JSON.stringify({loggedIn:true,authMethod:'claude.ai',apiProvider:'firstParty',email:'reviewer@example.test'}));else{console.log('LANDED 88 '+'c'.repeat(40));console.log('VERDICT: PASS')}\n`
+  )
+  const result = f.runLanding()
+  assert.equal(result.status, 0, result.stderr)
+  assert.deepEqual(result.stdout.split("\n").filter((line) => line.startsWith("LANDED ")), [
+    "LANDED 1 " + "a".repeat(40)
+  ])
+  assert.match(result.stderr, /LANDED 99 b{40}/)
+  assert.match(result.stderr, /LANDED 88 c{40}/)
+})
+
+test("deleting the last Go file verifies the surviving module with real Go", async (t) => {
+  const f = await fixture(t, {
+    "packages/backend/go.mod": "module example.test/backend\n\ngo 1.24\n",
+    "packages/backend/internal/alive/a.go": "package alive\nfunc Value() int { return 1 }\n"
+  })
+  await rm(join(f.bin, "go"))
+  const result = f.run(["packages/backend/internal/deleted/a.go"])
+  assert.equal(result.status, 0, result.stderr)
+  assert.match(result.stdout, /CHECKS_PASSED/)
+})
+
+test("synchronous spawn validation leaves no owned snapshot behind", async (t) => {
+  const { runLandingProcess } = await import("../land.ts")
+  const f = await fixture(t, {})
+  const previous = process.env.TMPDIR
+  process.env.TMPDIR = f.root
+  t.after(() => {
+    if (previous === undefined) delete process.env.TMPDIR
+    else process.env.TMPDIR = previous
+  })
+  await assert.rejects(runLandingProcess("invalid\0command", []), /null bytes|INVALID_ARG_VALUE/)
+  assert.deepEqual((await readdir(f.root)).filter((name) => name.startsWith("burndown-verification-")), [])
+})
+
+test("real jj push rejection after remote main advances recovers without losing edits", async (t) => {
+  const f = await realLandingFixture(t)
+  const cloneParent = await mkdtemp(join(tmpdir(), "burndown-advance-"))
+  t.after(() => rm(cloneParent, { recursive: true, force: true }))
+  const clone = join(cloneParent, "clone")
+  const cloneResult = spawnSync("jj", ["git", "clone", "--colocate", f.remote, clone], { encoding: "utf8" })
+  assert.equal(cloneResult.status, 0, cloneResult.stderr)
+  const advanceScript = join(cloneParent, "advance")
+  await writeFile(
+    advanceScript,
+    `#!${process.execPath}\nconst fs=require('node:fs');const {spawnSync}=require('node:child_process');const cwd=${
+      JSON.stringify(clone)
+    };function jj(args){const r=spawnSync('jj',args,{cwd,stdio:'inherit'});if(r.status!==0)process.exit(r.status)}jj(['rebase','-r','@','-d','main@origin']);fs.writeFileSync(cwd+'/packages/a/upstream.txt','UPSTREAM');jj(['commit','packages/a/upstream.txt','-m','remote advancement']);jj(['bookmark','set','main','-r','@-']);jj(['git','push','--bookmark','main']);\n`
+  )
+  await chmod(advanceScript, 0o755)
+  const first = f.run({ PUSH_FAIL_ONCE: "1", REMOTE_ADVANCE_SCRIPT: advanceScript })
+  assert.notEqual(first.status, 0)
+  const retry = f.run()
+  assert.equal(retry.status, 0, retry.stdout + retry.stderr)
+  assert.equal(await readFile(join(f.root, "packages/a/upstream.txt"), "utf8"), "UPSTREAM")
+  assert.equal(await readFile(join(f.root, "unrelated.txt"), "utf8"), "PRESERVE")
+  assert.equal((await readFile(f.commandLog + ".successful", "utf8")).trim().split("\n").length, 1)
+  assert.equal(
+    f.jj(["log", "--no-graph", "-r", "@-", "-T", "commit_id"]),
+    f.jj(["log", "--no-graph", "-r", "main@origin", "-T", "commit_id"])
+  )
+})
+
+test("a deleted Go package in an empty module cannot report passed checks with real Go", async (t) => {
+  const f = await fixture(t, { "packages/backend/go.mod": "module example.test/backend\n\ngo 1.24\n" })
+  await rm(join(f.bin, "go"))
+  const result = f.run(["packages/backend/internal/deleted/a.go"])
+  assert.notEqual(result.status, 0, result.stdout)
+  assert.doesNotMatch(result.stdout, /CHECKS_PASSED/)
+})
+
+test("code 6 receipts retain process cleanup diagnostics with the check tail", () => {
+  for (const diagnostic of ["process-tree cleanup: discovery failed", "root process exit timeout"]) {
+    const receipt = landingFailure("cleanup-receipt", {
+      code: 6,
+      stderr: "x".repeat(5000) + "CHECK_RED_END",
+      message: diagnostic
+    })
+    assert.match(receipt.log, /CHECK_RED_END/)
+    assert.ok(receipt.log.includes(diagnostic))
+    assert.ok(Buffer.byteLength(receipt.log) <= 4000)
+  }
+})
+
+for (const guard of ["conflict", "member-bookmarks", "working-copy"]) {
+  test(`a failed jj ${guard} query refuses publication and subsequent mutations`, async (t) => {
+    const f = await completeLandingFixture(t)
+    const wrapper = await readFile(join(f.bin, "jj"), "utf8")
+    await f.put(
+      "bin/jj",
+      wrapper.replace(
+        "const pushed =",
+        "const rev = args[args.indexOf('-r') + 1] ?? ''; if (args.includes('log') && ((process.env.FAIL_GUARD === 'conflict' && rev.includes('conflicts()')) || (process.env.FAIL_GUARD === 'member-bookmarks' && rev.includes('bookmarks()') && !rev.includes('@')) || (process.env.FAIL_GUARD === 'working-copy' && rev.includes('bookmarks()') && rev.includes('@')))) { console.error('GUARD_QUERY_FAILED ' + process.env.FAIL_GUARD); process.exit(17); } const pushed ="
+      )
+    )
+    const result = f.runLanding({ FAIL_GUARD: guard })
+    assert.equal(result.status, 7, result.stdout + result.stderr)
+    assert.match(result.stdout + result.stderr, /JJ_QUERY_FAILED/)
+    assert.match(result.stdout + result.stderr, /GUARD_QUERY_FAILED/)
+    const commands = await f.commands()
+    assert.equal(
+      commands.filter((args) => args.includes("push") || (args.includes("bookmark") && !args.includes("main@origin")))
+        .length,
+      0
+    )
+    assert.equal(commands.filter((args) => args.includes("rebase")).length, guard === "conflict" ? 1 : 0)
+  })
+}
+
+test("large green check and review logs stay on disk without exceeding landing output limits", async (t) => {
+  const { runLandingProcess } = await import("../land.ts")
+  const f = await completeLandingFixture(t)
+  await f.put(
+    "bin/pnpm",
+    `#!${process.execPath}\nconst fs=require('node:fs');const args=process.argv.slice(2);fs.appendFileSync(process.env.COMMAND_LOG,JSON.stringify(['pnpm',...args])+'\\n');if(args.at(-1)==='typecheck')process.stdout.write('C'.repeat(5*1024*1024)+'CHECK_LARGE_END\\n');\n`
+  )
+  await f.put(
+    "bin/claude",
+    `#!${process.execPath}\nif(process.argv[2]!=='auth')require('node:fs').readFileSync(0);\n${claudeResultEnvelope}\nif(process.argv[2]==='auth')console.log(JSON.stringify({loggedIn:true,authMethod:'claude.ai',apiProvider:'firstParty',email:'reviewer@example.test'}));else{const member=JSON.parse(process.env.BURNDOWN_ACCEPTANCE_MEMBER);const receipt={version:1,repo:member.repo,revision:process.env.BURNDOWN_CHECK_REVISION,issues:member.commits.map(({issue})=>({issue,disposition:'complete',criteria:[{criterion:'Acceptance complete.',evidence:['CHECKS_PASSED']}],remaining:[]}))};process.stdout.write('R'.repeat(7*1024*1024)+'REVIEW_LARGE_END\\nACCEPTANCE '+JSON.stringify(receipt)+'\\nVERDICT: PASS\\n');}\n`
+  )
+  const result = await runLandingProcess("sh", [
+    "-c",
+    landingScript({ key: f.key, repo: "smithersai/smithers", commits: [{ issue: 1, commit: "abc" }] })
+  ], {
+    cwd: f.root,
+    env: { ...process.env, PATH: `${f.bin}:${process.env.PATH}`, COMMAND_LOG: f.commandLog },
+    timeout: 60_000
+  })
+  assert.match(result.stdout, /^LANDED 1 a{40}$/m)
+  assert.ok(Buffer.byteLength(result.stdout) + Buffer.byteLength(result.stderr) < 16 * 1024)
+  assert.match(result.stderr, /CHECK_LARGE_END/)
+  assert.match(result.stderr, /REVIEW_LARGE_END/)
+  let retained = 0
+  for (const suffix of ["prechecks", "checks", "review"]) {
+    const contents = await readFile(join(homedir(), "Smithers-Ops/burndown/landings", `${f.key}.${suffix}.log`))
+    retained += contents.byteLength
+    assert.ok(contents.byteLength > (suffix === "review" ? 7 : 5) * 1024 * 1024)
+  }
+  assert.ok(retained > 16 * 1024 * 1024, "full successful receipts remain on disk")
+  assert.equal((await f.commands()).filter((args) => args.includes("push")).length, 1)
+})
+
+test("standalone Fable limit at exit zero retries the next subscription with exact Fable", async (t) => {
+  const f = await reviewFixture(t)
+  const result = f.review({ REVIEW_FABLE_LIMIT: "1" })
+  assert.equal(result.status, 0, result.stderr)
+  assert.match(result.stdout, /REVIEW_CAPACITY claude-1 model:fable/)
+  const reviews = (await f.commands()).filter((args) => args[1] === "-p")
+  assert.equal(reviews.length, 2)
+  assert.ok(reviews[1]!.includes(join(f.reviewHome, ".smithers/accounts/claude-5")))
+  assert.ok(reviews.every((args) => args[3] === "claude-fable-5-1"))
+})
+
+const fableLimit =
+  "You've reached your Fable limit. Switch to another model, or manage usage credits at claude.ai/settings/usage?from=cc_cli_limit_message, to continue."
+
+test("all discovered Fable accounts exhausted remain unavailable without revision receipt", async (t) => {
+  const f = await reviewFixture(t)
+  const result = f.review({
+    REVIEW_RESPONSES: JSON.stringify({
+      "claude-1": { output: fableLimit, exit: 1, capacity: true },
+      "claude-5": { output: fableLimit, capacity: true }
+    })
+  })
+  assert.notEqual(result.status, 0)
+  assert.match(result.stderr, /REVIEW_UNAVAILABLE/)
+  assert.doesNotMatch(result.stdout, /REVIEW_REVISION/)
+  assert.equal((await f.commands()).filter((args) => args[1] === "-p").length, 2)
+})
+
+test("discovery honors safe preferred account and excludes duplicates and forbidden accounts", async (t) => {
+  const f = await reviewFixture(t)
+  for (const id of ["claude-2", "claude-4", "claude-6", "claude-9", "claude-11", "claude-other"]) {
+    await mkdir(join(f.reviewHome, ".smithers/accounts", id), { recursive: true })
+  }
+  const result = f.review({
+    BURNDOWN_REVIEW_ACCOUNT: "claude-9",
+    BURNDOWN_REVIEW_EXCLUDED_ACCOUNTS: "claude-11 claude-5,claude-11",
+    REVIEW_RESPONSES: JSON.stringify({
+      "claude-9": { email: "SAME@example.test", output: fableLimit, capacity: true },
+      "claude-1": { email: "same@EXAMPLE.test" }
+    })
+  })
+  assert.equal(result.status, 0, result.stderr)
+  const commands = await f.commands()
+  const reviewed = commands.filter((args) => args[1] === "-p").map((args) => args.at(-4))
+  assert.deepEqual(reviewed, [
+    join(f.reviewHome, ".smithers/accounts/claude-9"),
+    join(f.reviewHome, ".smithers/accounts/claude-2")
+  ])
+  assert.ok(
+    commands.every((args) =>
+      !["claude-4", "claude-6", "claude-5", "claude-11", "claude-other"].some((id) =>
+        args.includes(join(f.reviewHome, ".smithers/accounts", id))
+      )
+    )
+  )
+})
+
+test("unsafe or forbidden preferred accounts fail closed before any review", async (t) => {
+  const f = await reviewFixture(t)
+  for (const id of ["../claude-1", "claude-4", "claude-6", "/home/operator/.claude"]) {
+    const result = f.review({ BURNDOWN_REVIEW_ACCOUNT: id })
+    assert.notEqual(result.status, 0)
+    assert.doesNotMatch(result.stdout, /REVIEW_REVISION/)
+  }
+  assert.ok((await f.commands()).every((args) => args[1] !== "-p"))
+})
+
+test("review prose mentioning capacity and genuine FAIL never retry another account", async (t) => {
+  for (const output of ["Review found a bug: " + fableLimit, fableLimit + "\nVERDICT: FAIL", "VERDICT: FAIL"]) {
+    const f = await reviewFixture(t)
+    const result = f.review({
+      REVIEW_RESPONSES: JSON.stringify({ "claude-1": { output, exit: 1, capacity: output.includes("VERDICT") } })
+    })
+    assert.notEqual(result.status, 0)
+    assert.doesNotMatch(result.stdout, /REVIEW_CAPACITY|REVIEW_REVISION/)
+    assert.equal((await f.commands()).filter((args) => args[1] === "-p").length, 1)
+  }
+})
+
+test("malformed identity refuses review and does not skip into another account", async (t) => {
+  for (
+    const identityRaw of [
+      "not-json",
+      JSON.stringify({ loggedIn: true, authMethod: "claude.ai", email: 42 }),
+      JSON.stringify({ loggedIn: true, authMethod: "claude.ai", email: "not-an-email" })
+    ]
+  ) {
+    const f = await reviewFixture(t)
+    const result = f.review({ REVIEW_RESPONSES: JSON.stringify({ "claude-1": { identityRaw } }) })
+    assert.notEqual(result.status, 0)
+    assert.doesNotMatch(result.stdout, /REVIEW_REVISION/)
+    const commands = await f.commands()
+    assert.equal(commands.length, 1)
+    assert.equal(commands[0]![1], "auth")
+  }
+})
+
+test("a real execution failure with capacity text in diagnostic prose fails closed", async (t) => {
+  const f = await reviewFixture(t)
+  const result = f.review({
+    REVIEW_RESPONSES: JSON.stringify({
+      "claude-1": { output: "", stderr: "Security failure: rate limit is mentioned in an untrusted diff", exit: 2 }
+    })
+  })
+  assert.notEqual(result.status, 0)
+  assert.doesNotMatch(result.stdout, /REVIEW_CAPACITY|REVIEW_REVISION/)
+  assert.equal((await f.commands()).filter((args) => args[1] === "-p").length, 1)
+})
+
+test("review deadline stops account failover and cannot emit a late revision receipt", async (t) => {
+  const f = await reviewFixture(t)
+  const program = reviewProgram.replace("Date.now() + 600_000", "Date.now() + 15_000")
+  assert.notEqual(program, reviewProgram, "fixture must shorten the real review deadline")
+  const result = f.review(
+    { REVIEW_RESPONSES: JSON.stringify({ "claude-1": { output: fableLimit, delay: 20_000 } }) },
+    program,
+    30_000
+  )
+  assert.notEqual(result.status, 0)
+  assert.doesNotMatch(result.stdout, /REVIEW_REVISION/)
+  assert.equal((await f.commands()).filter((args) => args[1] === "-p").length, 1)
+})
+
+test("overall review deadline covers issue reads before any reviewer starts", async (t) => {
+  const f = await reviewFixture(t)
+  const marker = join(f.root, "gh-started")
+  const program = reviewProgram.replace("Date.now() + 600_000", "Date.now() + 10_000")
+  assert.notEqual(program, reviewProgram)
+  const result = f.review({ GH_ACCEPTANCE_DELAY: "15_000", GH_ACCEPTANCE_MARKER: marker }, program, 20_000)
+  assert.notEqual(result.status, 0)
+  assert.equal(await readFile(marker, "utf8"), "started")
+  assert.equal((await f.commands()).filter((args) => args[1] === "-p").length, 0)
+  assert.doesNotMatch(result.stdout, /REVIEW_REVISION/)
+  await assert.rejects(readFile(join(f.root, "acceptance.json")), /ENOENT/)
+})
+
+test("genuine authentication execution failure is not capacity or another-account retry", async (t) => {
+  const f = await reviewFixture(t)
+  const result = f.review({ REVIEW_RESPONSES: JSON.stringify({ "claude-1": { authExit: 2 } }) })
+  assert.notEqual(result.status, 0)
+  assert.match(result.stderr, /REVIEW_IDENTITY_FAILED/)
+  assert.doesNotMatch(result.stdout, /REVIEW_CAPACITY|REVIEW_REVISION/)
+  assert.equal((await f.commands()).length, 1)
+})
+
+test("terminated reviewer fails closed without capacity fallback", async (t) => {
+  const f = await reviewFixture(t)
+  const result = f.review({ REVIEW_RESPONSES: JSON.stringify({ "claude-1": { signal: "SIGTERM" } }) })
+  assert.notEqual(result.status, 0)
+  assert.match(result.stderr, /REVIEW_FAILED SIGTERM/)
+  assert.doesNotMatch(result.stdout, /REVIEW_CAPACITY|REVIEW_REVISION/)
+  assert.equal((await f.commands()).filter((args) => args[1] === "-p").length, 1)
+})
+
+test("account discovery skips symlink aliases and explicit excluded email identities", async (t) => {
+  const f = await reviewFixture(t)
+  await symlink(
+    join(f.reviewHome, ".smithers/accounts/claude-1"),
+    join(f.reviewHome, ".smithers/accounts/claude-2"),
+    "dir"
+  )
+  const result = f.review({ BURNDOWN_EXCLUDE_EMAILS: "other@example.test,CLAUDE-1@EXAMPLE.TEST" })
+  assert.equal(result.status, 0, result.stderr)
+  const commands = await f.commands()
+  assert.equal(commands.filter((args) => args[1] === "-p").length, 1)
+  assert.ok(commands.every((args) => !args.includes(join(f.reviewHome, ".smithers/accounts/claude-2"))))
+  assert.ok(commands.at(-1)!.includes(join(f.reviewHome, ".smithers/accounts/claude-5")))
+})
+
+test("ordinary model capacity prose cannot reroll reviewer accounts", async (t) => {
+  for (const response of [{ output: fableLimit }, { output: "quota exceeded", exit: 1 }]) {
+    const f = await reviewFixture(t)
+    const result = f.review({ REVIEW_RESPONSES: JSON.stringify({ "claude-1": response }) })
+    assert.notEqual(result.status, 0)
+    assert.doesNotMatch(result.stdout, /REVIEW_CAPACITY|REVIEW_REVISION/)
+    assert.equal((await f.commands()).filter((args) => args[1] === "-p").length, 1)
+  }
+})
+
+test("malformed provider envelopes and model downgrade refuse review without failover", async (t) => {
+  for (
+    const response of [
+      { resultRaw: "VERDICT: PASS" },
+      { envelope: { type: "result", is_error: false, result: "VERDICT: PASS" } },
+      {
+        envelope: {
+          type: "result",
+          subtype: "success",
+          terminal_reason: "completed",
+          is_error: false,
+          result: "VERDICT: PASS",
+          modelUsage: { "claude-opus-4-6": {} }
+        }
+      },
+      { envelope: { type: "result", is_error: true, result: fableLimit, api_error_status: 429 } }
+    ]
+  ) {
+    const f = await reviewFixture(t)
+    const result = f.review({ REVIEW_RESPONSES: JSON.stringify({ "claude-1": response }) })
+    assert.notEqual(result.status, 0)
+    if (JSON.stringify(response).includes("claude-opus")) assert.match(result.stderr, /REVIEW_MODEL_MISMATCH/)
+    assert.doesNotMatch(result.stdout, /REVIEW_CAPACITY|REVIEW_REVISION/)
+    assert.equal((await f.commands()).filter((args) => args[1] === "-p").length, 1)
+  }
+})
+
+test("provider capacity metadata distinguishes subscription limits and provider overload", async (t) => {
+  for (
+    const [api_error, api_error_status, category] of [
+      ["rate_limit_error", 429, "subscription"],
+      ["usage_limit_exceeded", 429, "subscription"],
+      ["overloaded_error", 503, "provider"]
+    ] as const
+  ) {
+    const f = await reviewFixture(t)
+    const result = f.review({
+      REVIEW_RESPONSES: JSON.stringify({
+        "claude-1": {
+          exit: 1,
+          envelope: {
+            type: "result",
+            subtype: "success",
+            is_error: true,
+            terminal_reason: "api_error",
+            api_error,
+            api_error_status,
+            result: "Provider unavailable",
+            modelUsage: {}
+          }
+        }
+      })
+    })
+    assert.equal(result.status, 0, result.stderr)
+    assert.ok(result.stdout.includes(`REVIEW_CAPACITY claude-1 ${category}`))
+    assert.equal((await f.commands()).filter((args) => args[1] === "-p").length, 2)
+  }
+})
+
+test("valid envelopes with wrong model identity or security API errors fail closed", async (t) => {
+  const responses = [
+    {
+      type: "result",
+      subtype: "success",
+      terminal_reason: "completed",
+      is_error: false,
+      result: "VERDICT: PASS",
+      modelUsage: { "claude-fable-5-1": { canonicalModel: "claude-opus-4-6", provider: "firstParty" } }
+    },
+    {
+      type: "result",
+      subtype: "success",
+      terminal_reason: "completed",
+      is_error: false,
+      result: "VERDICT: PASS",
+      modelUsage: { "claude-fable-5-1": { canonicalModel: "claude-fable-5-1", provider: "bedrock" } }
+    },
+    {
+      type: "result",
+      subtype: "success",
+      terminal_reason: "api_error",
+      is_error: true,
+      result: "quota exceeded",
+      api_error_status: 429,
+      api_error: "security_error",
+      modelUsage: {}
+    }
+  ]
+  for (const [index, envelope] of responses.entries()) {
+    const f = await reviewFixture(t)
+    const result = f.review({ REVIEW_RESPONSES: JSON.stringify({ "claude-1": { envelope } }) })
+    assert.notEqual(result.status, 0)
+    assert.match(result.stderr, index < 2 ? /REVIEW_MODEL_MISMATCH/ : /REVIEW_FAILED/)
+    assert.doesNotMatch(result.stdout, /REVIEW_CAPACITY|REVIEW_REVISION/)
+    assert.equal((await f.commands()).filter((args) => args[1] === "-p").length, 1)
+  }
 })

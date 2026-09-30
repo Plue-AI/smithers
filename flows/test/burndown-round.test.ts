@@ -30,6 +30,7 @@ if (!process.execArgv.includes("--experimental-test-module-mocks")) {
   let pollFailure = false
   let accountReadings: Array<unknown> = []
   const queue: Array<{ results: unknown; workers: unknown }> = []
+  let pushedReceipt = false
   // GitHub claims and detached workers are external boundaries: fixtures avoid
   // spending subscriptions or changing live claims while exercising host policy.
   const executeClaim = (_command: string, args: Array<string>) => {
@@ -60,6 +61,7 @@ if (!process.execArgv.includes("--experimental-test-module-mocks")) {
   })
   mock.module("../burndown/land.ts", {
     namedExports: {
+      hasPushedReceipt: async () => pushedReceipt,
       landAll: (results: Array<{ key: string }>, workers: unknown) =>
         Effect.sync(() => {
           queue.push({ results, workers })
@@ -295,6 +297,8 @@ if (!process.execArgv.includes("--experimental-test-module-mocks")) {
   test("READY landing refuses another owner's claims and keeps the queue receipt", async () => {
     queue.length = 0
     claims.length = 0
+    const prior = process.env.BURNDOWN_LAND
+    process.env.BURNDOWN_LAND = "on"
     ownership = { mine: false, holder: { host: hostname() } }
     try {
       const state = { ...initial(), ready: [ready] }
@@ -303,8 +307,99 @@ if (!process.execArgv.includes("--experimental-test-module-mocks")) {
       assert.deepEqual((await settle(state, observation(), landed)).next.ready, [ready])
       assert.equal(claims.some((args) => args[1] === "claim"), false)
     } finally {
+      if (prior === undefined) delete process.env.BURNDOWN_LAND
+      else process.env.BURNDOWN_LAND = prior
       ownership = { mine: true, holder: { host: hostname() } }
     }
+  })
+
+  test("pushed receipt replay remains admissible after an issue claim was already released", async () => {
+    queue.length = 0
+    claims.length = 0
+    pushedReceipt = true
+    const prior = process.env.BURNDOWN_LAND
+    process.env.BURNDOWN_LAND = "on"
+    ownership = { mine: false, holder: { host: hostname() } }
+    try {
+      const state = { ...initial(), ready: [ready] }
+      const report = await invoke(Land.name, { state, observation: observation() }) as typeof Land.successSchema.Type
+      assert.equal(queue.length, 1)
+      assert.deepEqual(queue[0]!.results, [result])
+      assert.equal(claims.some((args) => args[1] === "claim"), false)
+      assert.deepEqual((await settle(state, observation(), report)).next.ready, [])
+    } finally {
+      pushedReceipt = false
+      if (prior === undefined) delete process.env.BURNDOWN_LAND
+      else process.env.BURNDOWN_LAND = prior
+      ownership = { mine: true, holder: { host: hostname() } }
+    }
+  })
+
+  test("receipt failure preserves READY across persisted rounds until replay finishes without repair", async () => {
+    const pending = {
+      landed: [assignment.key],
+      quarantined: [],
+      receiptsPending: [{ key: assignment.key, error: "GitHub receipt write failed after push" }]
+    }
+    const state = { ...initial(), ready: [ready] }
+    claims.length = 0
+    const first = await settle(state, observation(), pending)
+    assert.equal(first.done, false)
+    assert.deepEqual(first.next.ready, [ready])
+    assert.deepEqual(first.next.quarantined, [])
+    assert.deepEqual(first.next.inFlight, [])
+    assert.deepEqual(first.next.history, {})
+    assert.equal(first.next.landed, 0)
+    assert.equal(claims.some((args) => args[1] === "release"), false)
+    const recovered = Schema.decodeUnknownSync(RoundState)(JSON.parse(JSON.stringify(first.next)))
+    const second = await settle(recovered, observation(), pending)
+    assert.deepEqual(second.next.ready, [ready])
+    assert.deepEqual(second.next.quarantined, [])
+    assert.equal(second.next.landed, 0)
+    const completed = await settle(second.next, observation(), { landed: [assignment.key], quarantined: [] })
+    assert.equal(completed.done, true)
+    assert.deepEqual(completed.next.ready, [])
+    assert.equal(completed.next.landed, 1)
+  })
+
+  test("a newly finished worker retains its READY receipt when the pushed receipt write fails", async () => {
+    const state = { ...initial(), inFlight: [{ assignment, executionId: "finished-worker", startedAt: 0 }] }
+    const seen = { ...observation(), finished: [result] }
+    const settled = await settle(state, seen as never, {
+      landed: [assignment.key],
+      quarantined: [],
+      receiptsPending: [{ key: assignment.key, error: "issue receipt unavailable" }]
+    })
+    assert.equal(settled.done, false)
+    assert.deepEqual(settled.next.ready, [ready])
+    assert.deepEqual(settled.next.inFlight, [])
+    assert.deepEqual(settled.next.quarantined, [])
+    assert.equal(settled.next.landed, 0)
+  })
+
+  test("mixed receipt success and pending completion remove only the completed READY member", async () => {
+    const other = {
+      assignment: { ...assignment, key: "other-ready-worker" },
+      result: { ...result, key: "other-ready-worker" }
+    }
+    const state = { ...initial(), ready: [ready, other] }
+    const settled = await settle(state, observation(), {
+      landed: [assignment.key, other.assignment.key],
+      quarantined: [],
+      receiptsPending: [{ key: other.assignment.key, error: "comment unavailable" }]
+    })
+    assert.equal(settled.done, false)
+    assert.deepEqual(settled.next.ready, [other])
+    assert.deepEqual(settled.next.quarantined, [])
+    assert.equal(settled.next.landed, 1)
+    assert.deepEqual(settled.next.history, {})
+  })
+
+  test("historical land reports without receiptsPending remain decodable", () => {
+    assert.deepEqual(Schema.decodeUnknownSync(Land.successSchema)({ landed: [assignment.key], quarantined: [] }), {
+      landed: [assignment.key],
+      quarantined: []
+    })
   })
 
   test("quarantine persists while cooldown prevents repeated immediate repair admission", async () => {
