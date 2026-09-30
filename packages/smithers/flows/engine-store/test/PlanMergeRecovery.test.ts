@@ -196,7 +196,10 @@ describe("merge recovery across independent SQLite openings", () => {
             return yield* service().run(base)
           })
         )
-        expect(first.appended).toEqual(["b+merge#2", "c+merge"])
+        // `b` and `c` settle concurrently and each stopped node's merge is
+        // appended in settlement order, which the scheduler does not fix. The
+        // claim is one merge per stopped node, beside the user's merge-like names.
+        expect([...first.appended].sort()).toEqual(["b+merge#2", "c+merge"])
         expect(outcomes(first)).toEqual({
           a: "built",
           b: "skipped",
