@@ -1166,7 +1166,7 @@ export class Memory {
       (shell?.readOnly === "runs" && run?.grants.some((pattern) => pattern.action === "fs:write") !== true)
     if (
       reading && declared && this.checkable && request.call !== undefined &&
-      (run === undefined || (run.trusted && run.paths.size === 0))
+      (run === undefined || (run.trusted && run.refused.size === 0))
     ) {
       this.run(request.meta.source).declared.add(request.call)
       return { _tag: "allow" }

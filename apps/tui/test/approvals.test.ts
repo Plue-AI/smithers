@@ -1018,6 +1018,28 @@ describe("a run remembers what the person decided", () => {
     expect(result.asked[0]!.subject).toBe("npm test")
   })
 
+  it("asks for every declaration once the person denied a command, even the denied one declared read-only", async () => {
+    const declared = (command: string) => callOf("bash", { mode: "hermetic", reads: [], writes: [], command })
+    const root = scripted()
+    const result = await withStore("ask", (grants) =>
+      Effect.gen(function*() {
+        const memory = new Approvals.Memory()
+        const authorize = Approvals.authorize(grants, { cwd: root, source: "t1", memory })
+        const bare = yield* Effect.forkChild(authorize(callOf("bash", { command: "node check.mjs" })))
+        yield* Approvals.reply(grants, memory, (yield* settledPending(grants, 1))[0]!, "deny", root)
+        yield* Fiber.await(bare)
+        const same = yield* Effect.forkChild(authorize(declared("node check.mjs")))
+        const sameAsked = yield* settledPending(grants, 1)
+        yield* Fiber.interrupt(same)
+        const other = yield* Effect.forkChild(authorize(declared("git status")))
+        const otherAsked = yield* settledPending(grants, 1)
+        yield* Fiber.interrupt(other)
+        return { sameAsked, otherAsked }
+      }), root)
+    expect(result.sameAsked.map((each) => each.subject)).toEqual(["node check.mjs"])
+    expect(result.otherAsked.map((each) => each.subject)).toEqual(["git status"])
+  })
+
   it("runs a command declared read-only unasked, until one such command changes a file", async () => {
     const readOnly = callOf("bash", { mode: "hermetic", reads: [], writes: [], command: "node check.mjs" })
     const root = scripted()
