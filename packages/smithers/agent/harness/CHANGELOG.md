@@ -10,6 +10,10 @@
 
 ### Fixed
 
+- A completion claiming to have changed a file no successful call edited is
+  now handed back once (#3142): the `completion/claim` classifier's
+  `overclaims` criterion names that case, since `callsRun` lists every edit's
+  subject. It still bounces only; the refusal is unchanged.
 - A completion that reports its own work unfinished no longer settles the run
   as completed (#3009). Where the claim brake reads a completion as not done
   and has no bounce left, it asks one more question, `completion/unfinished`:

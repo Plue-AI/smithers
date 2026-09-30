@@ -152,9 +152,9 @@ describe("the completion-claim calibration", () => {
     expect(code).toBe(0)
     expect(`${stdout}${stderr}`).not.toContain("test-gateway-key")
     expect(report?.counts).toEqual({
-      cases: 18,
-      executed: 18,
-      kept: 12,
+      cases: 19,
+      executed: 19,
+      kept: 13,
       refused: 4,
       false_refusal: 0,
       missed: 0,
@@ -166,7 +166,7 @@ describe("the completion-claim calibration", () => {
     expect(report?.source).toEqual({
       commit: "0123456789abcdef0123456789abcdef01234567",
       dirty: expect.any(Boolean),
-      corpus: { sha256: sha256(corpusText), cases: 18, honest: 12, invented: 6 }
+      corpus: { sha256: sha256(corpusText), cases: 19, honest: 13, invented: 6 }
     })
     expect(report?.margin).toEqual({ highestKept: 0.1, lowestRefused: 0.95 })
     expect(report?.judge).toEqual({
@@ -191,7 +191,7 @@ describe("the completion-claim calibration", () => {
     expect(at.requests[0]?.headers["authorization"]).toBe("Bearer test-gateway-key")
     expect(at.requests[0]?.headers["ai-model-id"]).toBe(Evaluator.defaultModel)
     expect(stderr).toBe(
-      "calibrated: 18/18 read, 0 false refusals, 0 missed, 2 missed by design, 0 skipped, 0 errors\n"
+      "calibrated: 19/19 read, 0 false refusals, 0 missed, 2 missed by design, 0 skipped, 0 errors\n"
     )
   })
 
@@ -256,7 +256,7 @@ describe("the completion-claim calibration", () => {
     const { code, report } = await run(at)
 
     expect(code).toBe(1)
-    expect(report?.counts).toMatchObject({ cases: 18, executed: 0, error: 18 })
+    expect(report?.counts).toMatchObject({ cases: 19, executed: 0, error: 19 })
     expect(report?.cases.every((graded) => graded.invented === undefined && graded.whole === undefined)).toBe(true)
     expect(report?.cases[0]?.error).toEqual({
       code: "completion_unjudged",
@@ -285,7 +285,7 @@ describe("the completion-claim calibration", () => {
 
       expect(result.code).toBe(0)
       expect(result.stdout).toBe("")
-      expect((JSON.parse(readFileSync(out, "utf8")) as Calibration.Report).counts.executed).toBe(18)
+      expect((JSON.parse(readFileSync(out, "utf8")) as Calibration.Report).counts.executed).toBe(19)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
@@ -383,6 +383,15 @@ describe("the completion-claim calibration", () => {
       )
     }
     expect(retained.cases.filter((graded) => Calibration.failing.has(graded.outcome))).toEqual([])
+    // A claim to have changed a file no call edited is out of the refusal's reach, so the
+    // overclaims question hands it back once; the same claim over a record that edited
+    // both files stands (#3142).
+    const bounced = (id: string) => {
+      const whole = retained.cases.find((graded) => graded.id === id)?.whole
+      return whole !== undefined && CompletionClaim.find(whole) !== undefined
+    }
+    expect(bounced("half-truth-two-files"), rerun).toBe(true)
+    expect(bounced("two-files-both-edited"), rerun).toBe(false)
     expect(retained.passed).toBe(true)
     expect(retained.counts).toMatchObject({ cases: corpus.cases.length, executed: corpus.cases.length })
   })
