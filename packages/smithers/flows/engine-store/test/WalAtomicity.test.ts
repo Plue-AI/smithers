@@ -293,9 +293,12 @@ describe("lifecycle history is atomic with executable state", () => {
       expect(Option.getOrThrow(result.rowAfterCrash).state).toBe("succeeded")
       expect(result.recovered).toBe("v1")
       expect(result.dispatches).toBe(1)
-      // Exactly one recorded row and exactly one provenance entry for it.
+      // Exactly one recorded row, recorded once and admitted once.
       expect(Option.getOrThrow(result.cached).result).toBe("v1")
-      expect(result.provenance).toHaveLength(1)
+      expect(result.provenance.map((entry) => (entry.payload as { readonly action: string }).action)).toEqual([
+        "recorded",
+        "admitted"
+      ])
       expect(Option.getOrThrow(result.cached).recordedEventSeq).toBe(result.provenance[0]!.seq)
     }))
 })

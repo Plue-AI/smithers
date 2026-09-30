@@ -61,6 +61,7 @@
     "./Selection": "./src/Selection.ts",
     "./SelectionStore": "./src/SelectionStore.ts",
     "./StepBoundary": "./src/StepBoundary.ts",
+    "./StepCacheFold": "./src/StepCacheFold.ts",
     "./StepSandbox": "./src/StepSandbox.ts",
     "./WakeBus": "./src/WakeBus.ts",
     "./WorkspaceSandbox": "./src/WorkspaceSandbox.ts",
@@ -326,6 +327,16 @@
         "require": {
           "types": "./dist/cjs/StepBoundary.d.ts",
           "default": "./dist/cjs/StepBoundary.js"
+        }
+      },
+      "./StepCacheFold": {
+        "import": {
+          "types": "./dist/esm/StepCacheFold.d.ts",
+          "default": "./dist/esm/StepCacheFold.js"
+        },
+        "require": {
+          "types": "./dist/cjs/StepCacheFold.d.ts",
+          "default": "./dist/cjs/StepCacheFold.js"
         }
       },
       "./StepSandbox": {

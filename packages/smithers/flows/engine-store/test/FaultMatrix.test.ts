@@ -236,15 +236,15 @@ describe("FaultMatrix", () => {
         expect(result.recovered).toBe("v1")
         expect(Option.getOrThrow(result.row).state).toBe("succeeded")
         // The restarted replay converges the cache with the sealed completion:
-        // exactly one provenance-recorded cache row, under this run's id, and
-        // no conflict was ever journaled.
+        // exactly one provenance-recorded cache row, under this run's id, its
+        // `recorded` and `admitted` entries, and no conflict was ever journaled.
         const cached = Option.getOrThrow(result.cached)
         expect(cached.result).toBe("v1")
         expect(cached.recordedRunId).toBe("crash-after-finish")
         expect(Number.isSafeInteger(cached.recordedEventSeq)).toBe(true)
         expect(
           result.eventTypes.filter((eventType) => eventType === "flows.engine.cache-provenance")
-        ).toHaveLength(1)
+        ).toHaveLength(2)
         expect(result.eventTypes).not.toContain("flows.engine.cache-conflict")
       }))
 

@@ -32,7 +32,7 @@ import {
   validateKey,
   validateRecordedBy
 } from "./CacheAdmission.ts"
-import { type CacheEntry, KeyDigest, NonNegativeSafeInt, RecordedRunId } from "./CacheEntry.ts"
+import { type CacheEntry, KeyDigest, NonNegativeSafeInt, type RecordedBy, RecordedRunId } from "./CacheEntry.ts"
 import { CacheStoreError, error } from "./CacheStoreError.ts"
 
 const CacheRow = Schema.Struct({
@@ -338,4 +338,65 @@ export const make: Effect.Effect<Service, never, DurableWriter | SqlClient.SqlCl
   )
 
   return { get, put, evict, sweepExpired }
+})
+
+/**
+ * The durable identity of one recorded ledger row: the key and the
+ * `(runId, eventSeq)` journal event that recorded it.
+ *
+ * @category models
+ * @since 1.0.0
+ */
+export type RecordedRef = Pick<CacheEntry, "keyDigest" | "recordedRunId" | "recordedEventSeq">
+
+/**
+ * Rebuilds the `flows_step_cache` heads from the append-only
+ * `flows_step_cache_recorded` ledger.
+ *
+ * The heads are a materialization: the journal decides which recorded row
+ * may serve each key, and this writes them. Every existing head is deleted,
+ * then each candidate whose ledger row still exists is copied into the head
+ * byte for byte, so payload limits and provenance are the ones admitted when
+ * it was recorded. A candidate whose ledger row is gone is skipped.
+ *
+ * Every candidate is validated before the writer transaction opens, and two
+ * candidates for one key fail `invalid_cache`: a key has one head. The delete
+ * and the inserts commit together. Returns the number of heads written.
+ *
+ * @category constructors
+ * @since 1.0.0
+ */
+export const rebuildHeads = Effect.fn("CacheStore.rebuildHeads")(function*(candidates: Iterable<RecordedRef>) {
+  const sql = yield* SqlClient.SqlClient
+  const writer = yield* DurableWriter
+  const admitted = new Map<string, RecordedBy>()
+  for (const candidate of candidates) {
+    yield* validateKey(candidate.keyDigest)
+    const recordedBy = yield* validateRecordedBy(
+      { runId: candidate.recordedRunId, eventSeq: candidate.recordedEventSeq },
+      "rebuild candidate"
+    )
+    if (admitted.has(candidate.keyDigest)) {
+      return yield* Effect.fail(error("invalid_cache", "rebuild candidates name one key twice"))
+    }
+    admitted.set(candidate.keyDigest, recordedBy!)
+  }
+  yield* Effect.annotateCurrentSpan({ candidates: admitted.size })
+  return yield* writer.write(Effect.gen(function*() {
+    yield* sql`DELETE FROM flows_step_cache`
+    let written = 0
+    for (const [keyDigest, recordedBy] of admitted) {
+      written += yield* sql`
+        INSERT INTO flows_step_cache (
+          key_digest, result_json, meta_json, created_at_ms, recorded_run_id, recorded_event_seq
+        )
+        SELECT key_digest, result_json, meta_json, created_at_ms, recorded_run_id, recorded_event_seq
+        FROM flows_step_cache_recorded
+        WHERE key_digest = ${keyDigest}
+          AND recorded_run_id = ${recordedBy.runId}
+          AND recorded_event_seq = ${recordedBy.eventSeq}
+      `.raw.pipe(Effect.flatMap(affectedRows))
+    }
+    return written
+  })).pipe(Effect.mapError(mapPersistenceError))
 })

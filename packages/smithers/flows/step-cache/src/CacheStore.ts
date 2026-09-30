@@ -49,7 +49,7 @@ export {
   RecordedRunId
 } from "./internal/CacheEntry.ts"
 export { CacheStoreError, CacheStoreErrorCode } from "./internal/CacheStoreError.ts"
-export { make } from "./internal/SqlCacheStore.ts"
+export { make, rebuildHeads, type RecordedRef } from "./internal/SqlCacheStore.ts"
 
 /**
  * Provenance selector for a lookup.

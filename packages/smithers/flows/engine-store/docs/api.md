@@ -963,6 +963,59 @@ a root references is protected by the mtime fence anyway.
 
 Full guide: [Collect unreferenced artifacts](./guides/collect-unreferenced-artifacts.md).
 
+## StepCacheFold
+
+[src/StepCacheFold.ts](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/engine-store/src/StepCacheFold.ts)
+
+`flows_step_cache` heads as a fold of the journal. Drop the heads and
+`rebuild` writes them back from the retained `cache-provenance` entries.
+
+| Export            | Signature                                                                                                   | Meaning                                                    |
+| ----------------- | ----------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| `rebuild`         | `() => Effect<Rebuilt, JournalError \| CacheStoreError \| SqlError, Journal \| SqlClient \| DurableWriter>` | Folds every run's retained entries and replaces the heads. |
+| `reduce`          | `(state: State, entry: JournalEvent.Entry) => State`                                                        | Folds one entry.                                           |
+| `initial`         | `State`                                                                                                     | The empty fold.                                            |
+| `projection`      | `Projection<State>`                                                                                         | The same fold for `Journal.project` over one run.          |
+| `candidates`      | `(state: State) => ReadonlyArray<CacheStore.RecordedRef>`                                                   | The head each key may be rebuilt with.                     |
+| `refId`           | `(ref: CacheStore.RecordedRef) => string`                                                                   | A recorded row's stable identity.                          |
+| `eventType`       | `"flows.engine.cache-provenance"`                                                                           | The entries the fold reads.                                |
+| `retiringActions` | `["expired", "stale_read_set", "replay_failed"]`                                                            | Provenance actions that retire the row they name.          |
+
+| Type      | Fields                                                              |
+| --------- | ------------------------------------------------------------------- |
+| `State`   | `admitted` and `retired`: the rows `put` inserted, the ones evicted |
+| `Rebuilt` | `runs`, `compacted`, `rewound`, `admitted`, `retired`, `heads`      |
+
+A `put` that inserts a head journals an `admitted` entry naming its row in the
+same transaction. A duplicate or a losing conflict writes a ledger row but no
+`admitted` entry. These entries retire the row they name:
+
+| Entry                       | Why the row cannot serve                           |
+| --------------------------- | -------------------------------------------------- |
+| `expired`, `stale_read_set` | The engine evicted it.                             |
+| `replay_failed`             | The engine may have quarantined it for corruption. |
+
+A producer slot keeps the first `replay_failed` reason it journalled, so a
+corruption can hide behind an earlier host failure; the fold retires the row on
+any reason, and a row whose replay failed only on the host is a miss.
+
+A key with one admitted row that no entry retired gets that row back as its
+head. A key with several gets no head: one of them left without a journal
+entry, such as by `sweepExpired`, and the journal cannot say which one the
+store held. The journal holds provenance, not results: the result stays in the
+ledger row the entry addresses, because the journal is redacted and replayed
+to sync subscribers.
+
+A rebuild writes a subset of the live heads. It drops heads with no local
+entry, such as shared-tier write-backs. A store with a compacted run, or one where
+any run was ever rewound, gets no heads, because compaction and rewind may have
+deleted the eviction that retired a row. Retention is not yet covered: it
+deletes a run's entries and compaction floor, so a rebuild after retention can
+restore a row a deleted run evicted. A single admitted row that `sweepExpired`
+or an operator `evict` removed also returns; every restored hit still passes
+the engine's age, read-set, and digest checks. Run it on a
+quiescent store: a write between the journal read and the rewrite is missed.
+
 ## Retention
 
 [src/Retention.ts](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/engine-store/src/Retention.ts)

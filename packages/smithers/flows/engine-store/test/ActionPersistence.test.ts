@@ -138,8 +138,8 @@ describe("ActionPersistence", () => {
           reads.push({ pages, rows })
         }
         expect(Math.max(...reads.map((read) => read.pages))).toBeLessThanOrEqual(1)
-        expect(Math.max(...reads.map((read) => read.rows))).toBeLessThanOrEqual(4)
-        expect(reads.reduce((total, read) => total + read.rows, 0)).toBeLessThanOrEqual(4 * 199)
+        expect(Math.max(...reads.map((read) => read.rows))).toBeLessThanOrEqual(5)
+        expect(reads.reduce((total, read) => total + read.rows, 0)).toBeLessThanOrEqual(5 * 199)
         const resumed = makeExecute()
         for (let index = 200; index < 202; index++) {
           pages = 0
@@ -152,8 +152,8 @@ describe("ActionPersistence", () => {
             metadata: boundary
           }).pipe(Effect.provideService(Journal.Journal, counting))
           // A new executor rebuilds once, then returns to incremental reads.
-          expect(pages).toBe(index === 200 ? 7 : 1)
-          expect(rows).toBe(index === 200 ? 800 : 4)
+          expect(pages).toBe(index === 200 ? 8 : 1)
+          expect(rows).toBe(index === 200 ? 1000 : 5)
         }
       }).pipe(Effect.provide(layer), Effect.scoped)
     ))

@@ -105,6 +105,7 @@ describe("CacheStore public surface", () => {
     "maximumJsonNodes",
     "maximumKeyDigestLength",
     "maximumRecordedRunIdLength",
+    "rebuildHeads",
     "snapshotEntry",
     "validateAge",
     "validateFence",
@@ -112,7 +113,7 @@ describe("CacheStore public surface", () => {
     "validateRecordedBy"
   ]
 
-  it("exports exactly the values it exported before the split, from the subpath and the root", () => {
+  it("exports exactly its public values, from the subpath and the root", () => {
     expect(Object.keys(CacheStore).sort()).toEqual(values)
     expect(Object.keys(Root.CacheStore).sort()).toEqual(values)
     for (const name of values) {
@@ -122,7 +123,7 @@ describe("CacheStore public surface", () => {
 })
 
 /**
- * Every type the subpath exported before the split. `tsconfig.test.json`
+ * Every type the subpath exports. `tsconfig.test.json`
  * fails the package check when one of them stops resolving from it.
  */
 export type PublicTypes = [
@@ -132,6 +133,7 @@ export type PublicTypes = [
   CacheStore.GetOptions,
   CacheStore.KeyDigest,
   CacheStore.PutResult,
+  CacheStore.RecordedRef,
   CacheStore.RecordedBy,
   CacheStore.Service,
   CacheStore.SweepOptions

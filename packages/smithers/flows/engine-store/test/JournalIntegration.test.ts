@@ -60,6 +60,7 @@ describe("engine-store journal integration", () => {
         "flows.engine.attempt-started",
         "flows.engine.snapshot-identified",
         "flows.engine.attempt-finished",
+        "flows.engine.cache-provenance",
         "flows.engine.cache-provenance"
       ])
       // Lineage is the frame address, and it is on every engine record.

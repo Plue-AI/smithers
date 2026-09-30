@@ -333,6 +333,30 @@ Provides the SQL-backed store. Compose the migrations beneath it so the tables
 exist before the service is exposed. See
 [compose a durable step cache](./guides/compose-a-store.md).
 
+### rebuildHeads
+
+```ts
+const rebuildHeads: (
+  candidates: Iterable<RecordedRef>
+) => Effect.Effect<number, CacheStoreError, DurableWriter | SqlClient.SqlClient>
+```
+
+Replaces every head with the ledger rows the candidates name, in one writer
+transaction. The head is copied from the ledger row byte for byte, so payload
+limits and provenance are the ones admitted when it was recorded. A candidate
+with no ledger row is skipped. Invalid candidates, or two for one key, fail
+`invalid_cache` before any head is touched. Returns the number of heads
+written. `@smthrs/engine-store`'s `StepCacheFold.rebuild` supplies the
+candidates from the journal.
+
+### RecordedRef
+
+```ts
+type RecordedRef = Pick<CacheEntry, "keyDigest" | "recordedRunId" | "recordedEventSeq">
+```
+
+One ledger row's identity: the key and the journal event that recorded it.
+
 ### makeNoop
 
 ```ts

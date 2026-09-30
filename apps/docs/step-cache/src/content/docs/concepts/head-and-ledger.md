@@ -34,6 +34,14 @@ back to the head only when the ledger holds no row for that provenance. The
 fallback exists for entries recorded under some other provenance: a fork
 sharing its parent's keys, or a shared-tier write-back.
 
+## The head is rebuildable
+
+Every head the engine inserts is journalled: an `admitted` provenance entry
+commits with the inserting `put`, and each engine eviction is journalled before
+its fenced `evict`. `@smthrs/engine-store`'s `StepCacheFold.rebuild` folds those
+entries and `rebuildHeads` copies the surviving ledger rows back into the head.
+The ledger stays the content store, so results never enter the journal.
+
 ## The two stages of a recording
 
 `put` decides its answer in two stages, and both matter.

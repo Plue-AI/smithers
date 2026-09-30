@@ -1101,6 +1101,19 @@ export const make = (deps: Dependencies) => {
                 recordedEventSeq: receipt.seq
               }
               const outcome = yield* cache.put(entry)
+              // Only an inserting put creates a head, so the insertion is
+              // journalled in the same transaction. `StepCacheFold` rebuilds the
+              // heads from these entries and never from `recorded`, which a
+              // duplicate or a losing conflict also writes (issue #2053).
+              if (outcome._tag === "Inserted") {
+                const recorded = { runId: deps.runId, eventSeq: receipt.seq }
+                yield* emitLifecycle(JournalRecords.cacheProvenance(cacheSource("admitted", recorded), {
+                  keyDigest,
+                  action: "admitted",
+                  recordedRunId: recorded.runId,
+                  recordedEventSeq: recorded.eventSeq
+                }))
+              }
               return { entry, outcome }
             })
           ).pipe(Effect.catchTag("@smthrs/step-cache/CacheStoreError", (error) =>

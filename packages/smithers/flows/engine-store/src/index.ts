@@ -95,6 +95,12 @@ export * as SelectionStore from "./SelectionStore.ts"
 export * as StepBoundary from "./StepBoundary.ts"
 
 /**
+ * @category folds
+ * @since 1.0.0
+ */
+export * as StepCacheFold from "./StepCacheFold.ts"
+
+/**
  * @since 0.1.0
  * @category services
  */
