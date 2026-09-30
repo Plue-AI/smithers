@@ -141,3 +141,12 @@ Tools manage their own login in the selected home; profiles contain location
 settings only. `smthrs tui` is one CLI app consuming the same location and agents.
 Use this shared capability instead of provider-specific login or remote harness
 commands. See [#1757](https://github.com/smithersai/smithers/issues/1757).
+
+## Native target cache contracts (#1871)
+
+Enable default caching only after the executed toolchain, declared environment,
+dependency inputs, and produced outputs have complete content identities.
+Action-backed tools need executable identity just as native argv rules do.
+Keep mutating modes and incomplete contracts fail-closed; never weaken affected
+selection to compensate for missing cache contracts. Nix alone grants no
+cacheability.

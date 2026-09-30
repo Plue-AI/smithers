@@ -74,12 +74,14 @@ change still invalidates dependency resolution.
 ## What is still outside it
 
 **The workhorse targets are not cached.** TsBuild, Typecheck, Vitest, EsLint,
-and Dprint declare `cache: false`, because their key material does not yet
-include the external toolchain versions they run. Until it does, admitting a
-result would be admitting a result keyed on less than what produced it. A
-workspace that declares a [Nix environment](../concepts/environments.md) closes
-exactly this gap; see [Caching](caching.md) for what a complete input contract
-has to cover.
+and Dprint remain non-cacheable. Their action-backed execution keys now identify
+the declared package-manager and runtime executable bytes, including shebang
+interpreters, alongside the lockfile, config, source, and dependency inputs.
+That does not yet identify every installed compiler, runner, lint tool, or
+dprint plugin, or restore every produced output. A declared
+[Nix environment](../concepts/environments.md) contributes identity but does
+not make these targets cacheable. See [Caching](caching.md) for the complete
+input contract and remaining acceptance evidence for #1871.
 
 **Clean-slate builds are not reproduced.** The pipeline used to wipe every
 `dist` tree before building. The graph rebuilds from declared inputs instead, so

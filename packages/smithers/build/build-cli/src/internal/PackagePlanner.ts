@@ -39,6 +39,7 @@ import * as AnvilExec from "../AnvilExec.ts"
 import { type CacheStore, openCache } from "../Cache.ts"
 import * as Diagnostic from "../Diagnostic.ts"
 import * as DockerExec from "../DockerExec.ts"
+import { targetToolchain } from "../engine.ts"
 import * as FoundryExec from "../FoundryExec.ts"
 import * as GitSubmoduleExec from "../GitSubmoduleExec.ts"
 import * as GoExec from "../GoExec.ts"
@@ -1415,6 +1416,33 @@ const visit = async (
   let refusal: string | undefined
   const noteRefusal = (message: string): void => {
     refusal ??= message
+  }
+  // These catalog rules execute through TargetExecution, not a native argv.
+  // Use its tool selection (including Vitest's Bun override) so a manager or
+  // runtime replaced without a version change still moves the content key.
+  // This is necessary identity, not permission to cache: installed tools and
+  // each rule's complete read/write contract must also be accounted for.
+  const catalogToolBody = ["TsBuild", "Typecheck", "Vitest", "EsLint", "Dprint"].includes(rule)
+  if (catalogToolBody) {
+    const declared = targetToolchain(rule, attrs)
+    const tools = [declared.runtime, declared.packageManager, declared.packageManager?.runtime]
+    const seen = new Set<string>()
+    for (const tool of tools) {
+      if (tool === undefined || seen.has(tool.executable)) continue
+      seen.add(tool.executable)
+      const path = NodePath.isAbsolute(tool.executable)
+        ? tool.executable
+        : tool.executable.includes("/") || tool.executable.includes(NodePath.sep)
+        ? NodePath.resolve(context.root, tool.executable)
+        : PackageTree.findOnPath(tool.executable, toolContext.environment)
+      try {
+        if (path === undefined) throw new Error("executable is not on PATH")
+        await Fs.access(path, 1)
+        toolchain.push(await binaryIdentity(toolContext, path))
+      } catch (cause) {
+        noteRefusal(`cannot identify declared ${tool.name} executable: ${Diagnostic.describe(cause)}`)
+      }
+    }
   }
   let repositoryResolution: RepoResolution.Resolution | undefined
   let repositoryState: RepoResolution.GitState | undefined
@@ -2848,7 +2876,7 @@ const visit = async (
       declared: declaredInputs,
       dependencies: dependencyRows,
       toolchain,
-      execution: argv === undefined ? null : { environmentDigest, executable },
+      execution: argv === undefined && !catalogToolBody ? null : { environmentDigest, executable },
       overlays: overlays.map(({ digest, path, source }) => ({ digest, path, source })),
       submodules: lane?.kind === "submodules"
         ? lane.plan.gitlinks.map((link) => ({ path: link.path, sha: link.sha }))

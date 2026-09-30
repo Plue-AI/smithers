@@ -150,6 +150,35 @@ the tool environment, but does not by itself make these targets cacheable.
 A result produced without enforced confinement is stored in the local tier
 only; it never publishes to a remote cache.
 
+### Native tool contract evidence (#1871)
+
+TsBuild, Typecheck, Vitest, EsLint, and Dprint run through the action-backed
+executor. Their planner now fingerprints the declared manager and runtime
+bytes, including interpreter chains, and records the tool environment even
+without a native argv. Missing or unreadable declared executables refuse the
+plan. Vitest uses the same runtime override selection as execution.
+
+Default caching remains blocked on complete installed-tool and output contracts:
+
+- Identify the actual cwd-selected compiler, test runner, lint tool, dprint
+  native binary, and plugin bytes, not only the manager shim or version.
+- Restore TsBuild outputs from the artifact cache in a fresh checkout.
+- Declare and restore Typecheck build/incremental and Vitest coverage outputs,
+  or keep those modes non-cacheable. Keep formatter and lint fix modes
+  non-cacheable.
+- Prove cold-run execution and unchanged second-run hits for all five through
+  `ci`, plus binary, lockfile, config, source, environment, and dependency
+  invalidation; prove missing tools, failed checks, and undeclared reads never
+  produce reusable successes. Retain Linux enforced-sandbox evidence before
+  shared publication, and prove Affected still selects all incomplete contracts.
+
+`build-cli/test/CatalogToolIdentity.test.ts` specifies unchanged and documentation
+key stability, launcher and interpreter replacement with unchanged versions,
+config and lockfile invalidation, missing-interpreter refusal, and the retained
+non-cacheable defaults. Its POSIX shebang fixtures skip Windows; Windows wrapper
+identity still requires separate evidence. These tests require host CI execution; authoring them
+is not evidence of a passing test or cache hits.
+
 ## Keys vary by verb
 
 The planner resolves a target's attrs, declared inputs, declared outputs, and
