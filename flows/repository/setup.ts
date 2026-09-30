@@ -136,17 +136,17 @@ const repinnedCase = (
     })
   }
 }
-/** A feature's default step is manual. A suggested PR cannot select it, even
- * when the PR text is a useful feature request. Keep the request, but execute
- * it through the same manual entrypoint as a real feature trial. */
+/** A suggested PR cannot select feature work, even when its text is a useful
+ * feature request. Keep the request, and run it the way the feature step's mode
+ * starts real work: through the manual entrypoint in manual mode, or as the
+ * opened issue that automatic and approved modes answer. */
 const executableSuggestedEvent = (
   job: SetupInput["job"],
   steps: Draft["steps"],
   event: typeof Event.Type
 ): typeof Event.Type => {
-  if (
-    job !== "feature" || steps.find((step) => step.id === "feature")?.mode !== "manual" || event.type !== "pull_request"
-  ) return event
+  const mode = steps.find((step) => step.id === "feature")?.mode
+  if (job !== "feature" || mode === undefined || mode === "off" || event.type !== "pull_request") return event
   const payload = event.payload as {
     pull_request?: { title?: unknown; body?: unknown; base?: { sha?: unknown }; head?: { sha?: unknown } }
   }
@@ -156,15 +156,22 @@ const executableSuggestedEvent = (
     !pr || typeof pr.title !== "string" || typeof pr.body !== "string" || typeof pr.base?.sha !== "string"
     || !/^[0-9a-f]{40}$/.test(pr.base.sha) || pr.base.sha !== pr.head?.sha
   ) return event
-  const request = [pr.title, pr.body].filter(Boolean).join("\n\n")
-  return {
-    ...event,
-    source: "smithers-cloud" as const,
-    type: "manual",
-    action: "manual:feature",
-    manualStep: "feature",
-    payload: { prompt: request }
-  }
+  return mode === "manual"
+    ? {
+      ...event,
+      source: "smithers-cloud" as const,
+      type: "manual",
+      action: "manual:feature",
+      manualStep: "feature",
+      payload: { prompt: [pr.title, pr.body].filter(Boolean).join("\n\n") }
+    }
+    : {
+      ...event,
+      source: "smithers-cloud" as const,
+      type: "issues",
+      action: "opened",
+      payload: { issue: { title: pr.title, body: pr.body } }
+    }
 }
 const executableSuggestedCase = (
   job: SetupInput["job"],

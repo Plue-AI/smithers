@@ -241,11 +241,6 @@ test("fresh feature inspection runs a suggested request through its manual step"
     steps: featureDraft.steps.map((step) => ({ ...step, mode: "automatic" as const }))
   }
   assert.equal(
-    JSON.parse(suggestedSetupDraft(automatic, proposed, captured, "feature").cases[0]!.input).event.type,
-    "pull_request",
-    "automatic setup does not gain a manual case"
-  )
-  assert.equal(
     JSON.parse(suggestedSetupDraft(featureDraft, proposed, captured, "issues").cases[0]!.input).event.type,
     "pull_request",
     "other jobs retain their suggested event"
@@ -284,6 +279,90 @@ test("fresh feature inspection runs a suggested request through its manual step"
     suggestedSetupDraft(edited, proposed, captured, "feature").cases,
     edited.cases,
     "the host never rewrites an edited case"
+  )
+})
+
+/** Automatic and approved feature steps answer issues, so a suggested request
+ * becomes the opened issue that mode registered; manual mode runs it through
+ * its manual step. Every stored case selects the feature step. */
+test("a suggested feature request selects the feature step in every enabled mode", () => {
+  const request = { title: "Add a README purpose", body: "Document the purpose and run the README check." }
+  const placeholder = {
+    source: "github" as const,
+    type: "pull_request",
+    action: "opened",
+    deliveryKey: "feature-case",
+    payload: { pull_request: { ...request, base: { sha: captured }, head: { sha: captured } } }
+  }
+  const proposed = suggestion({
+    cases: [{ ...suggestedCase, input: { ...suggestedCase.input, event: placeholder } }]
+  })
+  const expected = {
+    manual: {
+      source: "smithers-cloud" as const,
+      type: "manual",
+      action: "manual:feature",
+      manualStep: "feature",
+      deliveryKey: "feature-case",
+      payload: { prompt: `${request.title}\n\n${request.body}` }
+    },
+    automatic: {
+      source: "smithers-cloud" as const,
+      type: "issues",
+      action: "opened",
+      deliveryKey: "feature-case",
+      payload: { issue: request }
+    }
+  }
+  for (const mode of ["manual", "automatic", "approved"] as const) {
+    const featureDraft: Draft = {
+      ...draft,
+      steps: [{ id: "feature", name: "Build a feature", mode, prompt: "Implement the requested feature." }]
+    }
+    const saved = suggestedSetupDraft(featureDraft, proposed, captured, "feature")
+    const event = JSON.parse(saved.cases[0]!.input).event
+    assert.deepEqual(event, mode === "manual" ? expected.manual : expected.automatic, `${mode} stores a runnable event`)
+    assert.deepEqual(
+      selectedSteps({ job: "feature", configuration: saved, event }).map((step) => step.id),
+      ["feature"],
+      `${mode} selects the feature step`
+    )
+    const old = suggestedSetupDraft(
+      { ...featureDraft, cases: [{ ...proposed.cases[0]!, input: JSON.stringify(proposed.cases[0]!.input) }] },
+      proposed,
+      captured,
+      "feature"
+    )
+    assert.deepEqual(
+      JSON.parse(old.cases[0]!.input).event,
+      event,
+      `${mode} reinspection makes an unedited old case runnable`
+    )
+    const published = {
+      ...placeholder,
+      payload: { pull_request: { ...request, base: { sha: captured }, head: { sha: "e".repeat(40) } } }
+    }
+    assert.deepEqual(
+      JSON.parse(
+        suggestedSetupDraft(
+          featureDraft,
+          suggestion({ cases: [{ ...suggestedCase, input: { ...suggestedCase.input, event: published } }] }),
+          captured,
+          "feature"
+        ).cases[0]!.input
+      ).event,
+      published,
+      `${mode} keeps a published pull request`
+    )
+  }
+  const off: Draft = {
+    ...draft,
+    steps: [{ id: "feature", name: "Build a feature", mode: "off", prompt: "Implement the requested feature." }]
+  }
+  assert.deepEqual(
+    JSON.parse(suggestedSetupDraft(off, proposed, captured, "feature").cases[0]!.input).event,
+    placeholder,
+    "a disabled step gains no case event"
   )
 })
 
