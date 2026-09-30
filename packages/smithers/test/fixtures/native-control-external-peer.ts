@@ -1,3 +1,4 @@
+import * as NodeRuntime from "@effect/platform-node/NodeRuntime"
 import * as ScriptedJudge from "@smthrs/agent/ScriptedJudge"
 import { Control } from "@smthrs/control"
 import { Effect } from "effect"
@@ -8,7 +9,7 @@ import * as NodeControl from "../../src/NodeControl.ts"
 export const host = (root: string) => NodeControl.layerControl({ root, evaluator: ScriptedJudge.layer })
 if (process.argv[2] === "original") {
   const root = process.argv[3]!
-  await Effect.runPromise(
+  NodeRuntime.runMain(
     Effect.gen(function*() {
       const control = yield* Control.Control
       const card = yield* control.plan({ flowId: "external-peer", input: { root } })

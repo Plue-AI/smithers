@@ -10,17 +10,20 @@ for (
     ["observe", "keeps one external worker through peer registration and observation"],
     ["stall", "requires explicit retry after a live owner stalls beyond heartbeat write tolerance"],
     ["cancel", "cancels the external worker from another host"],
-    ["recover", "recovers a genuinely dead owner and settles the parent"]
+    ["recover", "recovers a genuinely dead owner and settles the parent"],
+    ["recover-released", "recovers a gracefully released worker after the owner exits"]
   ]
 ) {
+  const timeout = mode === "recover-released" ? 300_000 : 180_000
   it(`public native flow ${behavior}`, async () => {
-    const { stdout } = await execute(process.execPath, ["--experimental-strip-types", fixture, mode!], {
-      timeout: 180_000,
+    const { stdout, stderr } = await execute(process.execPath, ["--experimental-strip-types", fixture, mode!], {
+      timeout,
       maxBuffer: 1024 * 1024
     })
     process.stdout.write(stdout)
+    process.stdout.write(stderr)
     const receipt = stdout.trim().split("\n").findLast((line) => line.startsWith("{\"mode\":"))
     expect(receipt).toBeDefined()
     expect(JSON.parse(receipt!)).toEqual({ mode, passed: true })
-  }, 185_000)
+  }, timeout + 5_000)
 }

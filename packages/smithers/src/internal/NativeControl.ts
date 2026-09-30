@@ -108,6 +108,7 @@ import {
   toolServices
 } from "./NativeEquipment.ts"
 import * as NodeWorkspaceObservation from "./NodeWorkspaceObservation.ts"
+import * as ReleasedChildResume from "./ReleasedChildResume.ts"
 import * as RoleProfile from "./RoleProfile.ts"
 import * as SourceRevision from "./SourceRevision.ts"
 import * as SupervisorMemory from "./SupervisorMemory.ts"
@@ -1291,9 +1292,17 @@ export const make = (
           registry: yield* Registry.Registry,
           catalog
         })
+        const releasedChildResume = ReleasedChildResume.make({
+          engineJournal: yield* Journal.Journal,
+          controlJournal,
+          engineRuns: yield* RunStore.RunStore,
+          engineState: yield* DurableEngineState.DurableEngineState,
+          claimant: { hostId: hostname(), pid: process.pid, nonce: "control-admission" }
+        })
         const controlAffinity = ControlAffinity.make({
           runs: yield* RunStore.RunStore.pipe(Effect.provide(engine.stores)),
           engineRuns: yield* RunStore.RunStore,
+          canRetryReleased: releasedChildResume.canRetryReleased,
           claimant: { hostId: hostname(), pid: process.pid, nonce: "control-admission" }
         })
         admission = (runId) =>
@@ -1386,6 +1395,7 @@ export const make = (
         const session = AgentSession.make({
           requestNativeCancel,
           canExecute,
+          authorizeReleasedChildren: releasedChildResume.authorize,
           flows: sources,
           workspaceInstructions: instructions,
           pinnedSources: ["wait", "ask"],

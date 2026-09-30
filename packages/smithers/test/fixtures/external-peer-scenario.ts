@@ -2,6 +2,7 @@ import { Control } from "@smthrs/control"
 import { Effect } from "effect"
 import assert from "node:assert/strict"
 import { spawn } from "node:child_process"
+import { readFileSync } from "node:fs"
 import { access, copyFile, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -19,7 +20,9 @@ const poll = async (predicate: () => boolean | Promise<boolean>, label: string) 
 }
 const workers = async (root: string): Promise<Array<{ pid: number; owner: number }>> =>
   readFile(join(root, "spawns"), "utf8").then(
-    (text) => text.trim().split("\n").map((line) => JSON.parse(line)),
+    // appendFileSync creates the file before its first write. Read only newline-
+    // terminated records so readiness cannot parse an empty or partial tail.
+    (text) => text.split("\n").slice(0, -1).filter(Boolean).map((line) => JSON.parse(line)),
     () => []
   )
 const alive = (pid: number) => {
@@ -49,7 +52,7 @@ const rows = (root: string) => {
 }
 
 const mode = process.argv[2]
-if (["observe", "stall", "cancel", "recover"].includes(mode!)) {
+if (["observe", "stall", "cancel", "recover", "recover-released"].includes(mode!)) {
   const root = await mkdtemp(join(tmpdir(), "smithers-external-peer-"))
   await symlink(fileURLToPath(new URL("../../../../node_modules", import.meta.url)), join(root, "node_modules"), "dir")
   await mkdir(join(root, "flows", "external-peer"), { recursive: true })
@@ -72,11 +75,39 @@ if (["observe", "stall", "cancel", "recover"].includes(mode!)) {
   let exited: Promise<void> = Promise.resolve()
   let stderr = ""
   let resumeTimer: ReturnType<typeof setTimeout> | undefined
+  let phase = "observer registration"
+  const enter = (value: string) => {
+    phase = value
+    process.stderr.write(`[external-peer ${mode} ${new Date().toISOString()}] ${phase}\n`)
+  }
+  const diagnose = () => {
+    process.stderr.write(
+      `Phase: ${phase}; fixture ${process.pid}; original ${owner?.pid}; observer ${observer.pid}; root ${root}\n`
+    )
+    try {
+      process.stderr.write(
+        `Workers: ${readFileSync(join(root, "spawns"), "utf8")}\nEngine: ${JSON.stringify(rows(root))}\n`
+      )
+    } catch (error) {
+      process.stderr.write(`Diagnostic read failed: ${String(error)}\n`)
+    }
+  }
+  const terminate = () => {
+    diagnose()
+    observer.kill("SIGKILL")
+    owner?.kill("SIGCONT")
+    owner?.kill("SIGKILL")
+    // External workers capture their owner PID and exit when this process dies.
+    // Kill both native hosts before execFile's timeout terminates the fixture.
+    process.exit(143)
+  }
+  process.once("SIGTERM", terminate)
   try {
     await poll(async () => {
       if (observer.exitCode !== null) throw new Error(`Observer exited: ${observerOutput}`)
       return access(join(root, "observer-ready")).then(() => true, () => false)
     }, "peer registration before launch")
+    enter("original host launch and public run admission")
     const original = spawn(process.execPath, ["--experimental-strip-types", fixture, "original", root], {
       stdio: ["ignore", "pipe", "pipe"]
     })
@@ -99,6 +130,7 @@ if (["observe", "stall", "cancel", "recover"].includes(mode!)) {
     const runId = await readFile(join(root, "run-id"), "utf8")
     const first = (await workers(root))[0]!
     await new Promise((resolve) => setTimeout(resolve, 2_000))
+    enter("observation host scope closure")
     await writeFile(join(root, "observer-close"), "close")
     await poll(() => observer.exitCode !== null || observer.signalCode !== null, "observation host scope closure")
     await observerExited
@@ -106,22 +138,43 @@ if (["observe", "stall", "cancel", "recover"].includes(mode!)) {
     await new Promise((resolve) => setTimeout(resolve, 1_000))
     assert.equal(alive(first.pid), true, "Closing an observation host must not terminate the worker")
     assert.deepEqual(await workers(root), [first])
+    enter("real engine root park")
     await poll(() => rows(root).find((row) => row.run_id === runId)?.status === "suspended", "real engine root park")
-    if (mode === "recover") {
-      original.kill("SIGKILL")
+    if (mode === "recover" || mode === "recover-released") {
+      enter(`original owner exit (${mode})`)
+      original.kill(mode === "recover-released" ? "SIGTERM" : "SIGKILL")
       await exited
       await poll(() => !alive(first.pid), "dead owner external worker exit")
+      if (mode === "recover-released") {
+        assert.equal(original.signalCode, null, "NodeRuntime must handle SIGTERM and finish native scope teardown")
+        assert.equal(
+          rows(root).some((row) =>
+            row.run_id.endsWith("/worker") && row.status === "suspended" && row.waiting_reason === "released"
+          ),
+          true
+        )
+        assert.deepEqual(await workers(root), [first])
+        assert.equal(rows(root).every((row) => row.cancel_requested_at_ms === null), true)
+      }
       // Expire the real lease by elapsed time; neither store is mutated.
+      enter("real lease expiry")
       await new Promise((resolve) => setTimeout(resolve, 31_000))
     }
+    enter("peer host registration")
     await Effect.runPromise(
       Effect.gen(function*() {
         const control = yield* Control.Control
+        enter("peer host registered")
         if (mode === "stall") {
+          enter("original stopped for 20 seconds")
           original.kill("SIGSTOP")
-          resumeTimer = setTimeout(() => original.kill("SIGCONT"), 20_000)
+          resumeTimer = setTimeout(() => {
+            original.kill("SIGCONT")
+            enter("original resumed; parked observation")
+          }, 20_000)
         }
         if (mode === "cancel") {
+          enter("public cancellation")
           yield* control.cancel({ runId, idempotencyKey: "cancel-peer" })
           yield* Effect.promise(() =>
             poll(() => rows(root).every((row) => row.status === "cancelled"), "public cancellation convergence")
@@ -130,7 +183,8 @@ if (["observe", "stall", "cancel", "recover"].includes(mode!)) {
           yield* Effect.promise(() => poll(() => !alive(first.pid), "external worker cancellation"))
           return
         }
-        if (mode === "recover") {
+        if (mode === "recover" || mode === "recover-released") {
+          enter("dead-owner replacement")
           yield* Effect.promise(() => poll(async () => (await workers(root)).length === 2, "real dead-owner recovery"))
           yield* Effect.promise(() => writeFile(join(root, "release"), "recover"))
           yield* Effect.promise(() =>
@@ -138,6 +192,8 @@ if (["observe", "stall", "cancel", "recover"].includes(mode!)) {
           )
           assert.equal((yield* Effect.promise(() => workers(root))).length, 2)
           assert.equal(rows(root).every((row) => row.cancel_requested_at_ms === null), true)
+          const completed = yield* control.list({ _tag: "runs", filters: { runId } })
+          assert.equal(completed._tag === "runs" && completed.items[0]?.status, "completed")
           return
         }
         // Real registration and public observations span more than the engine's
@@ -157,12 +213,15 @@ if (["observe", "stall", "cancel", "recover"].includes(mode!)) {
           assert.equal(rows(root).some((row) => row.status === "suspended" && row.waiting_reason === "released"), true)
           const parked = yield* control.list({ _tag: "runs", filters: { runId } })
           assert.equal(parked._tag === "runs" && parked.items[0]?.status, "parked")
+          enter("explicit public resume")
           const resume = yield* control.resume({ runId, idempotencyKey: "explicit-retry-after-stall" })
           assert.equal(resume._tag, "Accepted")
+          enter("resume accepted; waiting for external retry")
           yield* Effect.promise(() =>
             poll(async () => (await workers(root)).length === 2, "explicit public retry starts external worker")
           )
         }
+        enter("release gate; parent settlement")
         yield* Effect.promise(() => writeFile(join(root, "release"), "finish"))
         yield* Effect.promise(() =>
           poll(() => rows(root).every((row) => row.status === "completed"), "parked parent completion")
@@ -174,9 +233,11 @@ if (["observe", "stall", "cancel", "recover"].includes(mode!)) {
       }).pipe(Effect.provide(host(root)), Effect.scoped)
     )
   } catch (error) {
+    diagnose()
     process.stderr.write(`Original host:\n${stderr}\nObserver host:\n${observerOutput}\n`)
     throw error
   } finally {
+    process.removeListener("SIGTERM", terminate)
     observer.kill("SIGKILL")
     await observerExited
     clearTimeout(resumeTimer)

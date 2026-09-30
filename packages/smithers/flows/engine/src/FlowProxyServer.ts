@@ -154,6 +154,7 @@ type ExecuteRequest = {
 /** The decoded body of a resume request, which names only an execution. */
 type ResumeRequest = {
   readonly executionId: string
+  readonly poll?: boolean | undefined
   readonly capabilityCeilings?: CapabilitySet.CapabilitySet["groups"]
 }
 
@@ -201,7 +202,10 @@ const handleResume = (
 ) =>
 (request: ResumeRequest) =>
   Effect.suspend(() => resumeExecutionId(scope, flow, request.executionId)).pipe(
-    Effect.flatMap((executionId) => flow.resume(executionId)),
+    Effect.flatMap((executionId) =>
+      Effect.flatMap(FlowRuntime.FlowRuntime, (runtime) =>
+        runtime.resume(flow, executionId, request.poll === undefined ? undefined : { poll: request.poll }))
+    ),
     CapabilitySet.attenuateGroups(request.capabilityCeilings ?? []),
     guardDefects(flow._tag),
     Effect.annotateLogs({ module: "FlowProxyServer", method })

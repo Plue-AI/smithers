@@ -5,19 +5,20 @@
 
 import { RunState } from "@smthrs/engine-store/RunState"
 import { Ownership, type RunStore } from "@smthrs/run-store"
-import { Cause, Clock, Duration, Effect, Schema } from "effect"
+import { Cause, Clock, Duration, Effect, Option, Schema } from "effect"
 
 interface Options {
   readonly runs: RunStore.Service
   readonly engineRuns?: RunStore.Service | undefined
+  readonly canRetryReleased?: ((executionId: string, ancestorId: string) => Effect.Effect<boolean, unknown>) | undefined
   readonly claimant: Ownership.OwnerId
   readonly isAlive?: Ownership.LivenessCheck | undefined
 }
 
-const ParkedOwner = Schema.Struct({ parkedBy: Schema.String, updatedAt: Schema.Number })
+const ParkedOwner = Schema.Struct({ parkedBy: Schema.optionalKey(Schema.String), updatedAt: Schema.Number })
 const decodeState = Schema.decodeUnknownEffect(Schema.fromJsonString(RunState))
-const decodePark = Schema.decodeUnknownEffect(Schema.fromJsonString(ParkedOwner))
-const decodeOwner = Schema.decodeUnknownEffect(Schema.fromJsonString(Ownership.OwnerId))
+const decodePark = Schema.decodeUnknownOption(Schema.fromJsonString(ParkedOwner))
+const decodeOwner = Schema.decodeUnknownOption(Schema.fromJsonString(Ownership.OwnerId))
 
 /**
  * A released engine row does not release its separate control claim.
@@ -27,7 +28,7 @@ const decodeOwner = Schema.decodeUnknownEffect(Schema.fromJsonString(Ownership.O
  * @private
  */
 export const make =
-  ({ runs, engineRuns, claimant, isAlive = Ownership.sameHostPidProbe }: Options) =>
+  ({ runs, engineRuns, claimant, canRetryReleased, isAlive = Ownership.sameHostPidProbe }: Options) =>
   (runId: string): Effect.Effect<boolean> =>
     Effect.gen(function*() {
       const readControl = (id: string) =>
@@ -62,14 +63,27 @@ export const make =
         seen.add(parent)
         const control = yield* readControl(parent)
         if (control !== undefined) {
-          if (control.status !== "suspended") return yield* admitsRunning(control)
-          const park = yield* decodePark(control.stateJson)
-          const owner = yield* decodeOwner(park.parkedBy)
+          if (control.status !== "suspended") {
+            if (released && control.status === "running" && control.owner !== null && sameProcess(control.owner)) {
+              return yield* canRetryReleased?.(runId, parent) ?? Effect.succeed(false)
+            }
+            return yield* admitsRunning(control)
+          }
+          const park = Option.getOrUndefined(decodePark(control.stateJson))
+          if (park?.parkedBy === undefined) return false
+          const owner = Option.getOrUndefined(decodeOwner(park.parkedBy))
+          if (owner === undefined) return false
           // A lease interruption releases the child, not its external effect.
           // A live parked parent must explicitly resume before that effect retries.
-          if (sameProcess(owner)) return !released
-          if (!stale(park.updatedAt)) return false
-          return !(yield* isAlive(owner, { claimant, heartbeatAtMs: park.updatedAt, nowMs }))
+          if (sameProcess(owner)) {
+            return released
+              ? yield* canRetryReleased?.(runId, parent) ?? Effect.succeed(false)
+              : true
+          }
+          // A remote process table cannot prove a parked host dead.
+          if (owner.hostId !== claimant.hostId || !stale(park.updatedAt)) return false
+          if (yield* isAlive(owner, { claimant, heartbeatAtMs: park.updatedAt, nowMs })) return false
+          return released ? yield* canRetryReleased?.(runId, parent) ?? Effect.succeed(false) : true
         }
         native = yield* engineRuns.get(parent)
         state = yield* decodeState(native.stateJson)

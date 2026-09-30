@@ -62,6 +62,7 @@ export type DeferredDoneIfWaitingOutcome = "Completed" | "Existing" | "NotWaitin
  * @since 1.0.0
  */
 export interface ResumeOptions {
+  readonly poll?: boolean | undefined
   readonly delegated?: boolean | undefined
 }
 
@@ -197,7 +198,8 @@ export class FlowRuntime extends Context.Service<
      * ready. It does not undo `interrupt` and is not a general unpause operation.
      *
      * Without options this is the operator's own resume, which is authority
-     * to recover a quarantined execution. See {@link ResumeOptions}.
+     * to recover a quarantined execution. `poll` is background wake intent and
+     * does not authorize recovery of quarantined work. See {@link ResumeOptions}.
      */
     readonly resume: (
       flow: Flow.Any,

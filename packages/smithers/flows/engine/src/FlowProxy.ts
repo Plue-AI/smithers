@@ -390,7 +390,8 @@ export type ConvertHttpApi<Flows extends Flow.Any> = Flows extends Flow.Flow<
 
 const ResumePayload = Schema.Struct({
   executionId: ExecutionId,
-  capabilityCeilings: OptionalCapabilityCeilings
+  capabilityCeilings: OptionalCapabilityCeilings,
+  poll: Schema.optionalKey(Schema.Boolean)
 })
 
 const CancelRequestFailed = FlowRuntime.CancelRequestFailed

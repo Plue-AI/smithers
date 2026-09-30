@@ -44,7 +44,8 @@ import * as AtomicFileSystem from "@smthrs/platform-node/AtomicFileSystem"
 import * as Descriptor from "@smthrs/registry/Descriptor"
 import * as Registry from "@smthrs/registry/Registry"
 import { Migrations as RunStoreMigrations, type Ownership, RunStore } from "@smthrs/run-store"
-import { Cause, Deferred, Duration, Effect, Exit, Layer, Option, Schema, Stream } from "effect"
+import { Cause, Deferred, Duration, Effect, Exit, Layer, Logger, Option, Schema, Stream } from "effect"
+import * as References from "effect/References"
 import { mkdtempSync } from "node:fs"
 import { rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
@@ -196,14 +197,17 @@ const host = (
   owner: Ownership.OwnerId,
   engineHost = "engine-park-host",
   options: {
-    readonly beforeResume?: (runId: string) => Effect.Effect<void>
+    readonly beforeEngineResume?: (runId: string) => Effect.Effect<void>
+    readonly authorizeReleasedChildren?: AgentSession.Options["authorizeReleasedChildren"]
     readonly resumed?: Deferred.Deferred<void>
+    readonly onEngineResume?: Effect.Effect<void>
     readonly adoptsAtOnce?: boolean
     readonly agent?: Agent.Service
     readonly boundary?: Layer.Layer<StepBoundary.Service>
   } = {}
 ) => {
   const registration = AgentSession.layer({
+    authorizeReleasedChildren: options.authorizeReleasedChildren,
     quotaPolicy: Safety.quotaPolicy,
     budget: Safety.budget,
     // A composition that did not park the run may only adopt a standing
@@ -233,7 +237,8 @@ const host = (
       Effect.map(FlowRuntime.FlowRuntime, (runtime) => ({
         ...runtime,
         resume: (...args: Parameters<typeof runtime.resume>) =>
-          (options.beforeResume?.(args[1]) ?? Effect.void).pipe(
+          (options.beforeEngineResume?.(args[1]) ?? Effect.void).pipe(
+            Effect.andThen(options.onEngineResume ?? Effect.void),
             Effect.andThen(runtime.resume(...args)),
             Effect.ensuring(options.resumed === undefined ? Effect.void : Deferred.succeed(options.resumed, void 0))
           )
@@ -512,7 +517,7 @@ describe("an agent execution quarantined by the durable engine", () => {
       }).pipe(
         Effect.provide(host(root, hostOwner, "quarantine-race", {
           resumed,
-          beforeResume: (id) =>
+          beforeEngineResume: (id) =>
             Effect.sync(() => {
               if (!quarantineOnResume) return
               quarantineOnResume = false
@@ -1090,4 +1095,133 @@ describe("a run parked on an in-run ask that a later process cancels", () => {
     // And the decision answers the run instead of blocking on it.
     expect(observed.decided).toEqual({ _tag: "Terminal", runId: parked.runId, status: "cancelled" })
   }, 180_000)
+})
+
+describe("explicit resume authorization for released native children", () => {
+  it("records permission once before public resume drives, and does not grant a delegated resume", async () => {
+    const root = makeRoot()
+    const calls: Array<{ runId: string; sequence: number }> = []
+    const order: Array<string> = []
+    const resumed = Deferred.makeUnsafe<void>()
+    await Effect.runPromise(
+      Effect.gen(function*() {
+        const id = yield* launch
+        const runtime = yield* ControlRuntime.ControlRuntime
+        yield* awaitStatus(runtime, id, "parked")
+        const executor = yield* ControlExecutor.ControlExecutor
+        expect(yield* executor.resumeRun({ runId: id })).toBe("resuming")
+        yield* Deferred.await(resumed)
+        yield* awaitStatus(runtime, id, "parked")
+        expect(calls).toEqual([])
+        const database = new DatabaseSync(join(root, "engine.db"), { readOnly: true })
+        try {
+          const wake = database.prepare(`SELECT COUNT(*) AS count FROM flows_journal_events
+            WHERE run_id = ? AND event_type = 'flows.engine.run-decision'
+            AND json_extract(payload_json, '$.decision') = 'wake-scheduled'
+            AND json_extract(payload_json, '$.reason') = 'delegated'`).get(id)
+          expect(wake).toEqual({ count: 1 })
+        } finally {
+          database.close()
+        }
+        const control = yield* Control.Control
+        const accepted = yield* control.resume({ runId: id, idempotencyKey: "explicit-child-retry" })
+        expect(accepted._tag).toBe("Accepted")
+        for (let attempt = 0; attempt < 1_000 && calls.length === 0; attempt++) yield* Effect.sleep("10 millis")
+        expect(calls).toHaveLength(1)
+        expect(calls[0]?.runId).toBe(id)
+        expect(calls[0]?.sequence).toBeGreaterThanOrEqual(0)
+        yield* awaitStatus(runtime, id, "parked")
+        expect(order).toEqual(["drive", "grant", "drive"])
+        yield* control.resume({ runId: id, idempotencyKey: "explicit-child-retry" })
+        yield* Effect.sleep("50 millis")
+        expect(calls).toHaveLength(1)
+        expect(notes).toEqual([])
+      }).pipe(
+        Effect.provide(host(root, hostOwner, "resume-hook", {
+          resumed,
+          onEngineResume: Effect.sync(() => {
+            order.push("drive")
+          }),
+          authorizeReleasedChildren: (runId, sequence) =>
+            Effect.gen(function*() {
+              order.push("grant")
+              calls.push({ runId, sequence })
+            })
+        })),
+        Effect.scoped,
+        Effect.orDie
+      )
+    )
+    expect(readEngineRun(root, "run-1")?.status).toBe("suspended")
+  }, 120_000)
+
+  it("logs a failed permission write and re-parks the parent without retrying its work", async () => {
+    const root = makeRoot()
+    const errors: Array<string> = []
+    const called = Deferred.makeUnsafe<void>()
+    const resumed = Deferred.makeUnsafe<void>()
+    await Effect.runPromise(
+      Effect.gen(function*() {
+        const id = yield* launch
+        const runtime = yield* ControlRuntime.ControlRuntime
+        yield* awaitStatus(runtime, id, "parked")
+        const control = yield* Control.Control
+        expect((yield* control.resume({ runId: id, idempotencyKey: "failing-child-retry" }))._tag).toBe("Accepted")
+        yield* Deferred.await(called)
+        yield* Deferred.await(resumed)
+        yield* awaitStatus(runtime, id, "parked")
+        expect(notes).toEqual([])
+        expect(errors.some((message) =>
+          message.includes("Released child retry authorization could not be recorded") &&
+          message.includes("permission disk offline")
+        )).toBe(true)
+        expect(readEngineRun(root, id)?.status).toBe("suspended")
+        expect(readInterruptOutcomes(root, id)).toEqual([])
+      }).pipe(
+        Effect.provide(host(root, hostOwner, "resume-failure", {
+          resumed,
+          authorizeReleasedChildren: () =>
+            Deferred.succeed(called, void 0).pipe(Effect.andThen(Effect.fail("permission disk offline")))
+        })),
+        Effect.provide(Logger.layer([Logger.make((entry) =>
+          errors.push(
+            JSON.stringify({
+              message: entry.message,
+              annotations: entry.fiber.getRef(References.CurrentLogAnnotations)
+            })
+          )
+        )], { mergeWithExisting: false })),
+        Effect.scoped,
+        Effect.orDie
+      )
+    )
+  }, 120_000)
+
+  it("preserves authorization interruption and never starts the resumed body", async () => {
+    const root = makeRoot()
+    const called = Deferred.makeUnsafe<void>()
+    const resumed = Deferred.makeUnsafe<void>()
+    await Effect.runPromise(
+      Effect.gen(function*() {
+        const id = yield* launch
+        const runtime = yield* ControlRuntime.ControlRuntime
+        yield* awaitStatus(runtime, id, "parked")
+        const control = yield* Control.Control
+        expect((yield* control.resume({ runId: id, idempotencyKey: "interrupt-child-retry" }))._tag).toBe("Accepted")
+        yield* Deferred.await(called)
+        yield* Effect.sleep("50 millis")
+        expect(Option.isNone(yield* Deferred.poll(resumed))).toBe(true)
+        expect(notes).toEqual([])
+        yield* control.cancel({ runId: id, idempotencyKey: "cancel-interrupted-child-retry" })
+        yield* awaitStatus(runtime, id, "cancelled")
+      }).pipe(
+        Effect.provide(host(root, hostOwner, "resume-interrupted", {
+          resumed,
+          authorizeReleasedChildren: () => Deferred.succeed(called, void 0).pipe(Effect.andThen(Effect.interrupt))
+        })),
+        Effect.scoped,
+        Effect.orDie
+      )
+    )
+  }, 120_000)
 })

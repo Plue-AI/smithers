@@ -285,15 +285,23 @@ correction, and finishes with the provider called three times in all.
 
 Local hosts sharing a store check control ownership through the child's native
 ancestry, including the host recorded when its parent parked. A live parking
-host retains its children even when its heartbeat is stale.
+host retains its children even when its heartbeat is stale. A different
+machine's process table is not available to this check, so an unknown remote
+parking host requires an explicit resume; its parked timestamp is not a renewed
+lease.
 
 Lease expiry still interrupts work to preserve fencing. If that interruption
 releases a child while its control parent remains parked under a live host,
 recovery waits for an explicit resume instead of starting the external work
 again. Resuming the parent permits a new execution; it does not reconnect an
-interrupted external process. After the parking host exits and its lease expires,
-a peer can recover the child and settle the parent. Cancellation still reaches
-children of a parked parent.
+interrupted external process. After a same-machine parking host exits and the
+stale interval passes, a peer can recover a released child whose last owner is
+also confirmed dead and settle the parent. Cancellation still reaches children
+of a parked parent.
+
+Approval decisions and background wake notifications do not authorize retrying
+released children or recovering a quarantined run. Both require an explicit
+resume.
 
 Losing a control claim during recovery releases the execution without cancelling
 its children; other control failures retain their typed fields in the durable

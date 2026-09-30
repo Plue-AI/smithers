@@ -162,6 +162,8 @@ export interface Options {
   readonly abandonedParkAfter?: Duration.Duration | undefined
   /** Refuse resume delegation for a run routed to another workspace host. */
   readonly canExecute?: ((runId: string) => Effect.Effect<boolean>) | undefined
+  /** Binds an explicit resume to the currently released native children before driving. */
+  readonly authorizeReleasedChildren?: ((runId: string, sequence: number) => Effect.Effect<void, unknown>) | undefined
   /**
    * Holds a terminal control status until the host has copied this run's
    * native evidence into the control journal.
@@ -575,7 +577,7 @@ const tracedTransition = (transition: Cell.Transition) =>
  * knows nothing about the host from having decided it.
  */
 type Uptake =
-  | { readonly _tag: "claimed" }
+  | { readonly _tag: "claimed"; readonly sequence?: number | undefined }
   | { readonly _tag: "delegated"; readonly requestedAtMs?: number | undefined }
 
 const assistantText = (message: ModelRequest.AssistantMessage): string =>
@@ -3476,8 +3478,10 @@ export const make = (
      */
     const resumeExecution = (runId: string, uptake: Uptake): Effect.Effect<void> =>
       (uptake._tag === "delegated"
-        ? engine.resume(agentFlow, runId, { delegated: true }).pipe(Effect.andThen(reparkRefusedDelegation(runId)))
-        : engine.resume(agentFlow, runId)).pipe(
+        ? engine.resume(agentFlow, runId, { delegated: true }).pipe(
+          Effect.andThen(reparkRefusedDelegation(runId))
+        )
+        : engine.resume(agentFlow, runId, { poll: uptake.sequence === undefined })).pipe(
           Effect.catchCause(
             (cause) =>
               Effect.annotateLogs(
@@ -3645,6 +3649,15 @@ export const make = (
           )
         )
         if (!claimed) return "unknown" as const
+        if (
+          uptake._tag === "claimed" && uptake.sequence !== undefined && options.authorizeReleasedChildren !== undefined
+        ) {
+          yield* options.authorizeReleasedChildren(runId, uptake.sequence).pipe(
+            Effect.catchCause((cause) =>
+              recoverCause(cause, "Released child retry authorization could not be recorded", undefined, { runId })
+            )
+          )
+        }
         yield* drive(runId, uptake)
         return "resuming" as const
       })
@@ -3663,11 +3676,13 @@ export const make = (
           (entry) =>
             takeUpResume(
               entry.runId,
-              resumeExecution,
+              (runId, uptake) => resumeExecution(runId, uptake),
               // `control.run.resume` is the operator's own claim, already taken
               // in this process by the call that journaled it; `resumed` is the
               // approval delegation, which belongs to whoever parked the run.
-              entry.eventType === "control.run.resume" ? { _tag: "claimed" } : { _tag: "delegated" }
+              entry.eventType === "control.run.resume"
+                ? { _tag: "claimed", sequence: entry.seq }
+                : { _tag: "delegated" }
             ),
           { concurrency: 1 }
         ),

@@ -1,7 +1,7 @@
 import { expect, it } from "@effect/vitest"
 import { Ownership, RunStore } from "@smthrs/run-store"
 import * as TestRunStore from "@smthrs/run-store/test/TestRunStore"
-import { Cause, Clock, Context, Duration, Effect, Exit, Layer } from "effect"
+import { Cause, Clock, Context, Duration, Effect, Exit, Layer, Logger } from "effect"
 import { TestClock } from "effect/testing"
 import { vi } from "vitest"
 import * as ControlAffinity from "../src/internal/ControlAffinity.ts"
@@ -74,7 +74,10 @@ it.effect("admits a released child when explicit resume has activated its parent
     Effect.gen(function*() {
       yield* parent(runs, claimant, false)
       yield* releaseChild(engineRuns)
-      expect(yield* ControlAffinity.make({ runs, engineRuns, claimant })("child")).toBe(true)
+      expect(yield* ControlAffinity.make({ runs, engineRuns, claimant })("child")).toBe(false)
+      const canRetryReleased = vi.fn(() => Effect.succeed(true))
+      expect(yield* ControlAffinity.make({ runs, engineRuns, claimant, canRetryReleased })("child")).toBe(true)
+      expect(canRetryReleased).toHaveBeenCalledExactlyOnceWith("child", "root")
     })
   ))
 
@@ -93,7 +96,8 @@ it.effect("recovers a released child only after its foreign parked owner is stal
       yield* parent(runs)
       yield* releaseChild(engineRuns)
       const probe = vi.fn(() => Effect.succeed(false))
-      const admit = ControlAffinity.make({ runs, engineRuns, claimant, isAlive: probe })
+      const canRetryReleased = vi.fn(() => Effect.succeed(true))
+      const admit = ControlAffinity.make({ runs, engineRuns, claimant, isAlive: probe, canRetryReleased })
       expect(yield* admit("child")).toBe(false)
       expect(probe).not.toHaveBeenCalled()
       yield* TestClock.adjust(staleAfter + 1)
@@ -101,6 +105,10 @@ it.effect("recovers a released child only after its foreign parked owner is stal
       expect(yield* admit("child")).toBe(false)
       probe.mockImplementation(() => Effect.succeed(false))
       expect(yield* admit("child")).toBe(true)
+      expect(canRetryReleased).toHaveBeenCalledExactlyOnceWith("child", "root")
+      canRetryReleased.mockImplementation(() => Effect.succeed(false))
+      expect(yield* admit("child")).toBe(false)
+      expect(yield* ControlAffinity.make({ runs, engineRuns, claimant, isAlive: probe })("child")).toBe(false)
     })
   ))
 
@@ -286,5 +294,113 @@ it.effect("fails closed for engine read failures while preserving interruption",
         })("child")
       )
       expect(Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause)).toBe(true)
+    })
+  ))
+
+it.effect("uses explicit retry authorization after its same-process control ancestor re-parks", () =>
+  stores((runs, engineRuns) =>
+    Effect.gen(function*() {
+      yield* parent(runs, claimant)
+      yield* releaseChild(engineRuns)
+      // The root can finish its resume drive and park before its linked child
+      // is admitted; durable authorization must survive that ordering.
+      const canRetryReleased = vi.fn(() => Effect.succeed(true))
+      const admit = ControlAffinity.make({ runs, engineRuns, claimant, canRetryReleased })
+      expect(yield* admit("child")).toBe(true)
+      expect(canRetryReleased).toHaveBeenCalledExactlyOnceWith("child", "root")
+      canRetryReleased.mockImplementation(() => Effect.succeed(false))
+      expect(yield* admit("child")).toBe(false)
+    })
+  ))
+
+it.effect("does not consult a retry grant for a foreign fresh parked owner", () =>
+  stores((runs, engineRuns) =>
+    Effect.gen(function*() {
+      yield* parent(runs)
+      yield* releaseChild(engineRuns)
+      const canRetryReleased = vi.fn(() => Effect.succeed(true))
+      expect(yield* ControlAffinity.make({ runs, engineRuns, claimant, canRetryReleased })("child")).toBe(false)
+      expect(canRetryReleased).not.toHaveBeenCalled()
+    })
+  ))
+
+it.effect("does not consult retry grants for ordinary or deliberately suspended children", () =>
+  stores((runs, engineRuns) =>
+    Effect.gen(function*() {
+      yield* parent(runs, claimant)
+      yield* child(engineRuns, "pending")
+      yield* releaseChild(engineRuns, true)
+      const canRetryReleased = vi.fn(() => Effect.succeed(false))
+      const admit = ControlAffinity.make({ runs, engineRuns, claimant, canRetryReleased })
+      expect(yield* admit("pending")).toBe(true)
+      expect(yield* admit("child")).toBe(true)
+      expect(canRetryReleased).not.toHaveBeenCalled()
+    })
+  ))
+
+it.effect("fails closed for retry authorization errors without swallowing interruption", () =>
+  stores((runs, engineRuns) =>
+    Effect.gen(function*() {
+      yield* parent(runs, claimant)
+      yield* releaseChild(engineRuns)
+      expect(
+        yield* ControlAffinity.make({
+          runs,
+          engineRuns,
+          claimant,
+          canRetryReleased: () => Effect.die("authorization unavailable")
+        })("child")
+      ).toBe(false)
+      const exit = yield* Effect.exit(
+        ControlAffinity.make({
+          runs,
+          engineRuns,
+          claimant,
+          canRetryReleased: () => Effect.interrupt
+        })("child")
+      )
+      expect(Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause)).toBe(true)
+    })
+  ))
+
+it.effect("does not recover a stale parked owner on an unknown remote host", () =>
+  stores((runs, engineRuns) =>
+    Effect.gen(function*() {
+      yield* parent(runs, { ...peer, hostId: "remote-host" })
+      yield* releaseChild(engineRuns)
+      yield* TestClock.adjust(staleAfter + 1)
+      const isAlive = vi.fn(() => Effect.succeed(false))
+      const canRetryReleased = vi.fn(() => Effect.succeed(true))
+      expect(yield* ControlAffinity.make({ runs, engineRuns, claimant, isAlive, canRetryReleased })("child")).toBe(
+        false
+      )
+      expect(isAlive).not.toHaveBeenCalled()
+      expect(canRetryReleased).not.toHaveBeenCalled()
+    })
+  ))
+
+it.effect("silently denies absent or malformed parked ownership instead of logging observer warnings", () =>
+  stores((runs, engineRuns) =>
+    Effect.gen(function*() {
+      yield* parent(runs)
+      yield* releaseChild(engineRuns)
+      const row = yield* runs.get("root")
+      const logs: Array<unknown> = []
+      const capture = Logger.layer([Logger.make((entry) => void logs.push(entry.message))], {
+        mergeWithExisting: false
+      })
+      for (
+        const summary of [{ updatedAt: 0 }, { updatedAt: 0, parkedBy: "malformed" }, { parkedBy: JSON.stringify(peer) }]
+      ) {
+        const faulty = {
+          ...runs,
+          get: (id: string) =>
+            id === "root" ? Effect.succeed({ ...row, stateJson: JSON.stringify(summary) }) : runs.get(id)
+        }
+        expect(
+          yield* ControlAffinity.make({ runs: faulty, engineRuns, claimant })("child").pipe(Effect.provide(capture))
+        ).toBe(false)
+      }
+      expect(logs).toHaveLength(0)
     })
   ))

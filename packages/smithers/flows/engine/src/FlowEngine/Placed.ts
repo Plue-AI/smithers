@@ -151,11 +151,14 @@ export const placeResume = (
       // delegated resume through it would promote it to recovery consent.
       ? Effect.die(new Error(`A delegated resume of ${flow._tag} cannot cross a remote placement`))
       : remote(binding, flow, (client, operation) =>
-        Effect.flatMap(
-          CapabilitySet.current,
-          ({ groups: capabilityCeilings }) =>
-            Effect.orDie(client[operation.resume]!({ executionId, capabilityCeilings }))
-        )))
+        Effect.flatMap(CapabilitySet.current, ({ groups: capabilityCeilings }) =>
+          Effect.orDie(
+            client[operation.resume]!({
+              executionId,
+              capabilityCeilings,
+              ...(options?.poll === undefined ? {} : { poll: options.poll })
+            })
+          ))))
 
 /**
  * `interrupt` for a placed flow: here, or the remote engine's interrupt.

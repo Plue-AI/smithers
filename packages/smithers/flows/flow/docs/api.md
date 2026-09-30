@@ -366,7 +366,11 @@ A `RetryPolicy` is a plain value, so the next retry delay is derived from a pers
 | `FlowExecutionNotFound` | `poll` was given an execution id the runtime does not hold; `resume` has no error channel and ignores an unknown id                                                                                         |
 | `CancelRequestFailed`   | a durable runtime could not record a cancellation, with `cancel_request_failed` for a storage failure and `unsafe_interrupt_unsupported` for `interruptUnsafe`, which the durable engine does not implement |
 
-A completion wakes a parked run through `FlowRuntime.resume`.
+`runtime.resume(flow, executionId)` and `MyFlow.resume(executionId)` are
+explicit resumes. `{ poll: true }` drives background polling without recovery
+consent; local and remote dispatch preserve this choice. `{ delegated: true }`
+records a local background wake without recovery consent and retains the
+coordinator wake signal. Remote placement refuses delegated resumes.
 
 ## See also
 
