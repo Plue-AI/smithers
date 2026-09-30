@@ -164,8 +164,9 @@ review over 64 calls is refused.
 
 `smithers-build review` persists every run and finding in a private store,
 `smithers/review-findings` in the repository's Git directory by default, or
-`--findings-store <absolute path>`. The directory is owner-only and never
-committed. Each batch's findings and attempts are written when the batch
+`--findings-store <absolute path>`; `smthrs review` keeps it under the cache
+directory. The directory is owner-only and never committed, and a store inside
+the workspace is never reviewed, whatever the include patterns. Each batch's findings and attempts are written when the batch
 completes, so a later failure keeps them. A failed or incomplete run resumes
 from its completed batches; a completed run is never reused, and an unchanged
 rerun reviews everything again.

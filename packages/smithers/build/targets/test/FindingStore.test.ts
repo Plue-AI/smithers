@@ -513,6 +513,45 @@ describe("LlmLint.review containment follow-up", () => {
     expect(usages[0]!.promptTokens).toBeGreaterThan(0)
   })
 
+  it("never feeds a finding store inside the workspace back into a prompt", async () => {
+    // Not ignored by Git, so an all-scope include over the whole tree lists its records.
+    const visible = Path.join(root, "review-store")
+    const cli = await engine({ findings: { "src/a.ts": [danger] } })
+    const everything = { include: [Input.glob("//**/*")], scope: "all" as const, batchSize: 4 }
+    const reviewOnce = () =>
+      LlmLint.review(
+        { workspaceRoot: root, executable: cli.executable, store: { directory: visible } },
+        payload(everything)
+      )
+    await Effect.runPromise(reviewOnce())
+    expect((await Fs.readdir(Path.join(visible, "findings"))).length).toBe(1)
+    const report = await Effect.runPromise(reviewOnce())
+    expect(report.files).toEqual([".gitignore", "src/a.ts", "src/b.ts"])
+    expect((await cli.calls()).join(",")).not.toContain("review-store")
+
+    // A store holding the whole workspace leaves nothing to review; one outside it excludes nothing.
+    const whole = await Effect.runPromise(
+      LlmLint.review(
+        { workspaceRoot: root, executable: cli.executable, store: { directory: root } },
+        payload(everything)
+      )
+    )
+    expect(whole.files).toEqual([])
+    const outside = await Fs.mkdtemp(Path.join(Os.tmpdir(), "finding-store-outside-"))
+    try {
+      const separate = await Effect.runPromise(
+        LlmLint.review({
+          workspaceRoot: root,
+          executable: cli.executable,
+          store: { directory: Path.join(outside, "not", "yet", "created") }
+        }, payload(everything))
+      )
+      expect(separate.files).toContain("review-store/findings/" + (await Fs.readdir(Path.join(visible, "findings")))[0])
+    } finally {
+      await Fs.rm(outside, { recursive: true, force: true })
+    }
+  })
+
   it("refuses a FIFO record without waiting for a writer", async () => {
     const cli = await engine({ findings: { "src/a.ts": [danger] } })
     await Effect.runPromise(review(cli.executable))

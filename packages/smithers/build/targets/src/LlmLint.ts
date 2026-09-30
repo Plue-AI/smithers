@@ -1360,6 +1360,24 @@ const gitCandidates = (
     )
   )
 
+/**
+ * Whether a workspace path lies outside the finding store. A store inside the
+ * workspace holds findings and model output; no include, context or related
+ * pattern may feed a record back into a prompt.
+ */
+const outsideStore = (workspaceRoot: string, store: FindingStore | undefined): (path: string) => boolean => {
+  if (store === undefined) return () => true
+  // Resolve through the nearest existing ancestor, so a store not yet created still compares canonically.
+  const requested = NodePath.resolve(store.directory)
+  let existing = requested
+  while (!NodeFs.existsSync(existing)) existing = NodePath.dirname(existing)
+  const directory = NodePath.join(NodeFs.realpathSync(existing), NodePath.relative(existing, requested))
+  const relative = NodePath.relative(workspaceRoot, directory)
+  if (relative === ".." || relative.startsWith(`..${NodePath.sep}`) || NodePath.isAbsolute(relative)) return () => true
+  const prefix = relative.split(NodePath.sep).join("/")
+  return (path) => prefix !== "" && path !== prefix && !path.startsWith(`${prefix}/`)
+}
+
 /** Whether a validated workspace path names a regular file, never following a final symlink. */
 const workspaceFile = (workspaceRoot: string, path: string): boolean => {
   try {
@@ -1387,12 +1405,14 @@ const relatedSources = (
   payload: Payload,
   snapshot: ReadonlyMap<string, SnapshotFile> | undefined,
   changed: ReadonlyArray<Segment>,
-  context: ReadonlySet<string>
+  context: ReadonlySet<string>,
+  reviewable: (path: string) => boolean
 ): Effect.Effect<Relations, LlmReviewError> =>
   Effect.gen(function*() {
     const names = new Set(changed.map((file) => file.path))
     const eligible = (path: string) =>
-      !names.has(path) && !context.has(path) && payload.include.some((glob) => matchesGlob(path, glob))
+      !names.has(path) && !context.has(path) && reviewable(path) &&
+      payload.include.some((glob) => matchesGlob(path, glob))
     const exists = snapshot === undefined
       ? (path: string) => names.has(path) || workspaceFile(runtime.workspaceRoot, path)
       : (path: string) => names.has(path) || snapshot.has(path)
@@ -2386,19 +2406,24 @@ export const review = (
       phase: "diff",
       message: "Required review selected no files to review; an empty review cannot pass"
     })
-    const files = snapshot === undefined
+    const reviewable = yield* Effect.try({
+      try: () => outsideStore(runtime.workspaceRoot, options.store),
+      catch: storeError
+    })
+    const files = (snapshot === undefined
       ? yield* changedFiles(runtime.workspaceRoot, payload, runtime.timeoutMs, runtime.sensitiveEnv)
       : [...snapshot.values()].filter((file) =>
         (payload.scope === "all" || file.changed) &&
         payload.include.some((glob) => matchesGlob(file.path, glob))
-      ).map((file) => file.path).sort()
+      ).map((file) => file.path).sort()).filter(reviewable)
     if (files.length === 0) {
       if (payload.required === true) return yield* Effect.fail(emptyRequired)
       return { files: [], findings: [], ...(payload.securityChecks === undefined ? {} : { attempts: [] }), ...usage() }
     }
-    const paths = snapshot === undefined
+    const paths = (snapshot === undefined
       ? yield* contextPaths(runtime.workspaceRoot, payload.context)
-      : [...snapshot.keys()].filter((path) => payload.context.some((glob) => matchesGlob(path, glob))).sort()
+      : [...snapshot.keys()].filter((path) => payload.context.some((glob) => matchesGlob(path, glob))).sort())
+      .filter(reviewable)
     if (payload.context.length > 0 && paths.length === 0) {
       return yield* Effect.fail(
         new LlmReviewError({ phase: "read", message: "Review context matched no snapshot files" })
@@ -2414,7 +2439,7 @@ export const review = (
     // Snapshot every bounded changed file before planning or the first provider request.
     const rawChanged = yield* readBatch(runtime.workspaceRoot, files, maximumReviewContentBytes, "skip", snapshot)
     if (payload.required === true && rawChanged.length === 0) return yield* Effect.fail(emptyRequired)
-    const raw = yield* relatedSources(runtime, payload, snapshot, rawChanged, new Set(paths))
+    const raw = yield* relatedSources(runtime, payload, snapshot, rawChanged, new Set(paths), reviewable)
     // Scan every path and byte before planning. Slices are cut from masked text, so no request can
     // carry part of a credential, and every later identity (prompt, finding, manifest, store) is masked.
     const mask = new CredentialMask()
