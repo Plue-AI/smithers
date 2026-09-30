@@ -4,11 +4,28 @@
 
 ### Added
 
+- Completion readings include optional `requiresWorkspaceChange` and
+  `reportsLimitation` probabilities, with named `noWorkspaceChangeAt` and
+  `limitationAt` thresholds. The live classifier asks all five facts in one
+  request; scripted evaluator transports must answer the two new questions.
+  Older custom readers retain the conservative unchanged-tree guard (#2937).
+
+- `HarnessErrorCode` includes `completion_incomplete`. Consumers matching
+  every code must handle it. Explicitly unfinished work retains its completion
+  text as a failed, retryable outcome rather than a completed job (#2937).
+
 - `CellTurn.make({ serverTools })`: provider-run tools (such as the
   provider's web search) every frame's request declares, while the frame
   still forbids declared tool calls. Absent, requests are unchanged.
 
 ### Fixed
+
+- Supported read-only and conversational answers can complete without a
+  workspace mutation. Claimed edits still need recorded mutation evidence;
+  unavailable judgments remain typed failures. Explicit incomplete outcomes
+  cannot become successful after an overclaim bounce is spent. Invented
+  evidence retains refusal precedence; low completeness alone remains a soft
+  demand (#2937).
 
 - A sealed reading of the live tree keys on the digest of the workspace the
   frame opened on (`Cell.TreeEpoch.tree`), or on the run's session and frame when no

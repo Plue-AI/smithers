@@ -943,10 +943,9 @@ const disciplineStep = (state: DisciplineState, record: JournalRecord): void => 
         break
       }
       case "control.agent.claim-demanded": {
-        // Written on EVERY evaluation, and a reading that neither handed the
-        // completion back nor refused it cost the run nothing and changed
-        // nothing, so only those two are moments anyone would scrub to. A
-        // refusal is the larger of them: it ends the run and takes its answer.
+        // Decisions retain each evaluation, including those that release a
+        // tree demand or end explicitly incomplete work. This event marks
+        // claim demands and refusals; other outcomes use their run status.
         if (payload.demanded !== true && payload.refused !== true) break
         const complete = asNumber(payload.complete)
         const overclaims = asNumber(payload.overclaims)

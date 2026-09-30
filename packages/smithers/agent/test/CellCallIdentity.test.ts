@@ -7,6 +7,7 @@ import { Node } from "@smthrs/plan"
 import { Deferred, Effect, Layer, Option, Schema, Scope, Stream } from "effect"
 import * as Crypto from "effect/Crypto"
 import { createHash } from "node:crypto"
+import { writeFileSync } from "node:fs"
 import { expect, it } from "vitest"
 import * as Budget from "../src/Budget.ts"
 import * as FlowEngineLike from "../src/FlowEngineLike.ts"
@@ -82,6 +83,21 @@ it("pins the complete canonical material delivered to SHA-256", async () => {
   )
   // Preserve the archived checksum and pin the complete current preimage.
   // An Effect upgrade is not transparent replay compatibility.
+  if (process.env.SMITHERS_UPDATE_FIXTURES === "1") {
+    const current = material.map((value) => {
+      try {
+        return JSON.parse(value)
+      } catch {
+        return undefined
+      }
+    })
+      .find((value) => value?.kind === "cache" && value?.input?.action === "harness/cell-call/fs/write")
+    expect(current).toBeDefined()
+    writeFileSync(
+      new URL("./fixtures/cell-call-material-effect-rc115.json", import.meta.url),
+      `${JSON.stringify(current, undefined, 2)}\n`
+    )
+  }
   expect(`key1_${createHash("sha256").update(V1.canonical(material112)).digest("hex")}`).toBe(V1.key)
   expect(V1.effect115Key).not.toBe(V1.key)
   const expected = V1.canonical(materialV1)

@@ -60,7 +60,13 @@ const jev = () => {
     const ids = Object.keys(request.questions)
     if (ids.includes("complete")) {
       asked.push("completion")
-      return { complete: { probability: 0.99 }, overclaims: { probability: 0.01 }, invented: { probability: 0.01 } }
+      return {
+        complete: { probability: 0.99 },
+        overclaims: { probability: 0.01 },
+        invented: { probability: 0.01 },
+        requiresWorkspaceChange: { probability: 0.5 },
+        reportsLimitation: { probability: 0 }
+      }
     }
     if (ids.includes("unnecessary_0")) {
       const items = (request.state as { readonly items: ReadonlyArray<Relevance.Item> }).items

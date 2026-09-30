@@ -260,12 +260,16 @@ describe("decision-settled from the completion brake", () => {
   const standing = {
     complete: { probability: 0.94 },
     overclaims: { probability: 0.03 },
-    invented: { probability: 0.02 }
+    invented: { probability: 0.02 },
+    requiresWorkspaceChange: { probability: 0.5 },
+    reportsLimitation: { probability: 0 }
   }
   const unrecorded = {
     complete: { probability: 0.1 },
     overclaims: { probability: 0.9 },
-    invented: { probability: 0.95 }
+    invented: { probability: 0.95 },
+    requiresWorkspaceChange: { probability: 0.5 },
+    reportsLimitation: { probability: 0 }
   }
 
   it("journals the state, the questions and the answers of a reading that let the claim stand", async () => {
@@ -298,7 +302,9 @@ describe("decision-settled from the completion brake", () => {
     expect(decision.answers).toEqual({
       complete: { kind: "boolean", p: 0.94 },
       overclaims: { kind: "boolean", p: 0.03 },
-      invented: { kind: "boolean", p: 0.02 }
+      invented: { kind: "boolean", p: 0.02 },
+      requiresWorkspaceChange: { kind: "boolean", p: 0.5 },
+      reportsLimitation: { kind: "boolean", p: 0 }
     })
     // The compatibility record is still written, unchanged and first.
     expect(claim).toEqual([
@@ -389,7 +395,9 @@ describe("decision-settled from the completion brake", () => {
               answers: {
                 complete: { type: "boolean" as const, probability: 0.94 },
                 overclaims: { type: "boolean" as const, probability: 0.03 },
-                invented: { type: "boolean" as const, probability: 0.02 }
+                invented: { type: "boolean" as const, probability: 0.02 },
+                requiresWorkspaceChange: { type: "boolean" as const, probability: 0.5 },
+                reportsLimitation: { type: "boolean" as const, probability: 0 }
               },
               latencyMs
             }

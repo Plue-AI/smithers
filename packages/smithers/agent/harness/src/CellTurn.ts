@@ -3912,13 +3912,14 @@ const frame = (
       if (judged.observed !== undefined) yield* emit(judged.observed)
       // The same reading with its evidence, from the same record, so a
       // replayed frame reports the decision the original attempt made. It
-      // follows `claim-demanded` on every path but the bounce, where that
-      // event is the demand's own and is emitted below.
+      // follows an observed `claim-demanded` here. A retained measured
+      // demand may carry only the decision; a bounce emits its own demand
+      // event below.
       if (judged.decision !== undefined) yield* emit(judged.decision)
       if (judged.sentenceDecision !== undefined) yield* emit(judged.sentenceDecision)
-      // An unproven claim with no bounce left to spend. The run ends here the
-      // way `read_only_cap` ends one, rather than returning a sentence its
-      // own record contradicts; see `CompletionClaim.unproven`.
+      // Unsupported claims and explicit incomplete outcomes end as typed
+      // failures. Keep the completion text without settling unfinished work
+      // as successful; the recorded judgement replays this same outcome.
       if (judged.unproven !== undefined) return yield* Effect.fail(judged.unproven)
       const demanded = judged.demand
       if (demanded !== undefined) {

@@ -225,7 +225,10 @@ describe("the sealed model step key", () => {
     expect(observed.host).not.toBe("key1_6326d2f880ff8a393a69657ad23575ad6587c01328ab81742a6e7465bbc7a154")
     expect(observed.host).not.toBe("key1_71b2f391813935739bf19fb2ade03b31af6f751f85c8c9fc1708852a297971eb")
     expect(observed.host).not.toBe("key1_674672c55bd09f6b4907f8961f14598b0bb900c5d2aadacd28a51bbd3c3e209b")
-    expect(observed.host).toBe("key1_15a4c2592ebebcb92233e55ddcdc49a1b1c4fad7ee7273af7c0ac3192cdc4bcc")
+    expect(observed.host).not.toBe("key1_15a4c2592ebebcb92233e55ddcdc49a1b1c4fad7ee7273af7c0ac3192cdc4bcc")
+    // completion_incomplete (#2937) adds a terminal outcome to the harness
+    // error union. Capture the new declaration against this exact main tree.
+    expect(observed.host).toBe("key1_9dbf28cf40bac1f3fda597eaf21eeae0bfd625a18f1cd9ca51726b3b0a212449")
     // Sealed means content-addressed: the same declaration through a second
     // port of the same composition is one recorded answer, not two calls.
     expect(observed.again).toBe(observed.host)
@@ -250,7 +253,8 @@ describe("the sealed cell-call key", () => {
     expect(observed.host).not.toBe("key1_dac0642a1dac92f2089981c1ae3c0625b5b63455c38e9695d15c713098aa2a00")
     // Moved when CallFailureCode gained flow_withheld (#1929).
     expect(observed.host).not.toBe("key1_824e8c645a1b3c6bcae2e2d1041e8017a791bde3dda10ce72e90d4631db41849")
-    expect(observed.host).toBe("key1_0336839392318b217d1892c2ae94ae09d6a644dd695239675803285d5e475b14")
+    expect(observed.host).not.toBe("key1_0336839392318b217d1892c2ae94ae09d6a644dd695239675803285d5e475b14")
+    expect(observed.host).toBe("key1_fae7b9f5facfc1adde8db1d592ea45c02df67908bade9096d9331742111688b7")
     // The composition really is in the key: the same call resolved under a
     // different layer set is a different boundary, not a cache hit.
     expect(observed.other).not.toBe(observed.host)

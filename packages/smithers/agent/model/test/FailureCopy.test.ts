@@ -88,6 +88,13 @@ describe("FailureCopy.describe", () => {
       "No model router is set up."
     )
     expect(FailureCopy.describe({ ...unrouted, reason: "interrupted" }).line).toBe("Choosing a model was interrupted.")
+    for (const message of [undefined, "", 42]) {
+      expect(FailureCopy.describe({ ...unrouted, message })).toMatchObject({
+        headline: "Model could not be chosen",
+        line: "The model router could not pick a model.",
+        actions: ["switch-model", "resume", "details"]
+      })
+    }
   })
 
   it("shows native judge setup and quota reasons through wrapped worker failures", () => {
@@ -168,6 +175,29 @@ describe("FailureCopy.describe", () => {
       .toMatchObject({ headline: "Worker engine stopped" })
   })
 
+  it("offers resume for incomplete work without presenting the explanation as a successful result", () => {
+    const incomplete = {
+      _tag: "/harness/HarnessError",
+      code: "completion_incomplete",
+      message: "I could not edit the file because writes were denied."
+    }
+    const expected = {
+      headline: "Work incomplete",
+      line: incomplete.message,
+      actions: ["resume", "switch-model", "details"]
+    }
+    expect(FailureCopy.describe(incomplete)).toMatchObject(expected)
+    expect(FailureCopy.describe(new Error("host failed", { cause: incomplete }))).toMatchObject(expected)
+    for (const message of [undefined, "", "  \n\t", 42]) {
+      expect(FailureCopy.describe({ ...incomplete, message })).toMatchObject({
+        ...expected,
+        line: "Resume when ready."
+      })
+    }
+    const longExplanation = "The edit could not be completed. ".repeat(100)
+    expect(FailureCopy.describe({ ...incomplete, message: longExplanation }).line).toBe(longExplanation.slice(0, 2048))
+  })
+
   it.each([
     ["anthropic:claude", "Anthropic"],
     ["gemini:pro", "Gemini"],
@@ -224,6 +254,7 @@ describe("FailureCopy.describe", () => {
         "model_failed",
         "read_only_cap",
         "completion_unjudged",
+        "completion_incomplete",
         "claim_unproven",
         "suspended"
       ]

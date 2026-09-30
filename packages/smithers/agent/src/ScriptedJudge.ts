@@ -128,7 +128,7 @@ const calm = (repeatFrames: number): Answers => ({
  */
 export const answer: {
   /**
-   * The completion brake's three answers, from one reading of one evidence
+   * The completion brake's five answers, from one reading of one evidence
    * record.
    *
    * `invented` is the only one with a verdict behind it: whether the claim
@@ -141,6 +141,9 @@ export const answer: {
    * Answering them at no demand keeps a fixture's measured model-call counts
    * honest, since a bounce spends a frame that a fixed script would answer
    * with the same sentence.
+   * Outcome facts remain conservative: this fixture does not infer whether
+   * prose claims an edit or reports a limitation. Fixtures testing those
+   * outcomes must supply their explicit classifier answers.
    *
    * `sentence${i}` per sentence, when the brake reads a long claim one
    * sentence at a time: the same `invented` reading, of that sentence alone.
@@ -196,7 +199,9 @@ export const answer: {
       return {
         complete: { probability: unrecorded ? 0.05 : 0.95 },
         overclaims: { probability: unrecorded ? 0.95 : 0.05 },
-        invented: { probability: unrecorded ? 0.95 : 0.02 }
+        invented: { probability: unrecorded ? 0.95 : 0.02 },
+        requiresWorkspaceChange: { probability: 0.5 },
+        reportsLimitation: { probability: 0 }
       }
     })),
   relevance: (request) =>
@@ -271,7 +276,10 @@ const every = (ids: ReadonlyArray<string>, pattern: RegExp): boolean =>
 const sentence = /^sentence\d+$/
 
 const isCompletion = (ids: ReadonlyArray<string>): boolean =>
-  (ids.length === 3 && ["complete", "overclaims", "invented"].every((id) => ids.includes(id))) ||
+  (ids.length === 5 &&
+    ["complete", "overclaims", "invented", "requiresWorkspaceChange", "reportsLimitation"].every((id) =>
+      ids.includes(id)
+    )) ||
   every(ids, sentence)
 
 /**

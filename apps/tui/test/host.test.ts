@@ -1095,7 +1095,13 @@ describe("Host.run instructions", () => {
         return Object.fromEntries(Object.keys(request.questions).map((id) => [id, { probability: 0.05 }]))
       }
       if (!Object.keys(request.questions).some((id) => id.startsWith("unnecessary_"))) {
-        return { complete: { probability: 0.99 }, overclaims: { probability: 0.01 }, invented: { probability: 0.01 } }
+        return {
+          complete: { probability: 0.99 },
+          overclaims: { probability: 0.01 },
+          invented: { probability: 0.01 },
+          requiresWorkspaceChange: { probability: 0.01 },
+          reportsLimitation: { probability: 0.01 }
+        }
       }
       const items = (request.state as { readonly items: ReadonlyArray<{ readonly id: string; readonly text: string }> })
         .items

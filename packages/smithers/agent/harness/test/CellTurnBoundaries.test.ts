@@ -1809,7 +1809,9 @@ describe("CellTurn recorded observations", () => {
         return {
           complete: { probability: 0.99 },
           overclaims: { probability: 0.01 },
-          invented: { probability: 0.01 }
+          invented: { probability: 0.01 },
+          requiresWorkspaceChange: { probability: 0.5 },
+          reportsLimitation: { probability: 0 }
         }
       })
     })
@@ -1862,7 +1864,9 @@ describe("CellTurn recorded observations", () => {
         return {
           complete: { probability: 0.99 },
           overclaims: { probability: 0.01 },
-          invented: { probability: 0.01 }
+          invented: { probability: 0.01 },
+          requiresWorkspaceChange: { probability: 0.5 },
+          reportsLimitation: { probability: 0 }
         }
       })
       const attempt = (journal: Map<string, unknown>, live: boolean) => {
@@ -1942,7 +1946,9 @@ describe("CellTurn recorded observations", () => {
         return {
           complete: { probability: 0.99 },
           overclaims: { probability: 0.01 },
-          invented: { probability: 0.01 }
+          invented: { probability: 0.01 },
+          requiresWorkspaceChange: { probability: 0.5 },
+          reportsLimitation: { probability: 0 }
         }
       })
     })
@@ -2010,7 +2016,9 @@ describe("CellTurn recorded observations", () => {
         return {
           complete: { probability: 0.99 },
           overclaims: { probability: 0.01 },
-          invented: { probability: 0.01 }
+          invented: { probability: 0.01 },
+          requiresWorkspaceChange: { probability: 0.5 },
+          reportsLimitation: { probability: 0 }
         }
       })
     })
@@ -2064,7 +2072,9 @@ describe("CellTurn recorded observations", () => {
           : {
             complete: { probability: first ? 0.1 : 0.99 },
             overclaims: { probability: first ? 0.9 : 0.01 },
-            invented: { probability: first ? 0.95 : 0.01 }
+            invented: { probability: first ? 0.95 : 0.01 },
+            requiresWorkspaceChange: { probability: 0.5 },
+            reportsLimitation: { probability: 0 }
           }
       })))
       return collect({ state: initial, flows: [] }, {
@@ -2686,7 +2696,9 @@ describe("durable completion decisions", () => {
             return {
               complete: { probability: accepted ? 0.99 : 0.01 },
               overclaims: { probability: accepted ? 0.01 : 0.99 },
-              invented: { probability: accepted ? 0.01 : 0.99 }
+              invented: { probability: accepted ? 0.01 : 0.99 },
+              requiresWorkspaceChange: { probability: 0.5 },
+              reportsLimitation: { probability: 0 }
             }
           })
         })

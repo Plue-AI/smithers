@@ -88,7 +88,7 @@ export const reportsUnrecordedWork = (evidence: {
 }
 
 /**
- * The completion brake's three answers, from one reading of one evidence
+ * The completion brake's five answers, from one reading of one evidence
  * record.
  *
  * `invented` is the only one with a verdict behind it, and it is
@@ -112,7 +112,10 @@ const completion = (state: unknown): Record<string, Evaluator.ScriptedAnswer> =>
   return {
     complete: { probability: unrecorded ? 0.05 : 0.95 },
     overclaims: { probability: unrecorded ? 0.95 : 0.05 },
-    invented: { probability: unrecorded ? 0.95 : 0.02 }
+    invented: { probability: unrecorded ? 0.95 : 0.02 },
+    // This offline fixture makes no inference about completion intent.
+    requiresWorkspaceChange: { probability: 0.5 },
+    reportsLimitation: { probability: 0 }
   }
 }
 
@@ -295,7 +298,9 @@ export const makeHostJudge = (): HostJudge => {
   const rulesJudged: Array<string> = []
   const layer = Evaluator.layerScripted(request => {
     const questions = request.questions
-    if (has(questions, "complete", "overclaims", "invented")) return completion(request.state)
+    if (has(questions, "complete", "overclaims", "invented", "requiresWorkspaceChange", "reportsLimitation")) {
+      return completion(request.state)
+    }
     if (has(questions, "injection", "kind", "urgency")) return intake(request.state)
     if (has(questions, "violates")) {
       const answered = rule(request.state)

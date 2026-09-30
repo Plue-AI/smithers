@@ -801,6 +801,7 @@ describe("HarnessError", () => {
       "engine_failed",
       "read_only_cap",
       "completion_unjudged",
+      "completion_incomplete",
       "claim_unproven",
       "suspended"
     ] as const
@@ -822,7 +823,9 @@ describe("HarnessError", () => {
     for (const file of readdirSync(new URL("../src/", import.meta.url), { recursive: true })) {
       if (!String(file).endsWith(".ts")) continue
       const text = readFileSync(new URL(`../src/${String(file)}`, import.meta.url), "utf8")
-      for (const match of text.matchAll(/new HarnessError\(\{\s*code: "([a-z_]+)"/g)) constructed.add(match[1]!)
+      for (const match of text.matchAll(/new (?:HarnessError\.)?HarnessError\(\{\s*code: "([a-z_]+)"/g)) {
+        constructed.add(match[1]!)
+      }
     }
 
     expect([...constructed].sort()).toEqual([...HarnessErrorCode.literals].sort())

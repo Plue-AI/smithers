@@ -80,7 +80,9 @@ const state = (maxFrames: number, revalidations?: number) =>
 const confident = {
   complete: { probability: 0.99 },
   overclaims: { probability: 0.01 },
-  invented: { probability: 0.01 }
+  invented: { probability: 0.01 },
+  requiresWorkspaceChange: { probability: 0.5 },
+  reportsLimitation: { probability: 0 }
 }
 
 /** A calm supervisor answer. */
@@ -932,6 +934,39 @@ describe("Supervisor", () => {
         )
       return { events, engine }
     }
+
+    it("delivers a historical supervisor reading without inventing context obsolescence or asking again", async () => {
+      const records = new Map<string, unknown>()
+      const original = scripted(() => calm())
+      await attempt(records, original.layer, untilRead())
+      let retained = 0
+      for (const [key, value] of records) {
+        if (!key.startsWith("supervisor")) {
+          // Fresh cell/drain boundaries deliver the retained old reading.
+          records.delete(key)
+          continue
+        }
+        const record = value as { settled?: Record<string, unknown> | null }
+        if (record.settled !== null && record.settled !== undefined) {
+          delete record.settled.outdatedContext
+          delete record.settled.irrelevantContext
+          retained++
+        }
+      }
+      expect(retained).toBeGreaterThan(0)
+      const again = scripted(() =>
+        Effect.fail(new Evaluator.EvaluatorError({ code: "unreachable", message: "must replay" }))
+      )
+      const read = untilRead()
+      const replay = await attempt(records, again.layer, read)
+      expect(again.contacted).toEqual([])
+      const settled = of(read.seen, "supervisor-settled")
+      expect(settled.length).toBeGreaterThan(0)
+      expect(settled[0]).not.toHaveProperty("outdatedContext")
+      expect(settled[0]).not.toHaveProperty("irrelevantContext")
+      expect(of(replay.events, "compaction-settled")).toEqual([])
+      expect(replay.engine.recorder.sealStep).toHaveLength(3)
+    })
 
     it("re-delivers the recorded nudge and makes zero supervisor calls", async () => {
       const records = new Map<string, unknown>()

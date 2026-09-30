@@ -135,6 +135,7 @@ const harness: Record<string, readonly [string, string]> = {
   engine_failed: ["Worker engine stopped", "The worker engine failed."],
   read_only_cap: ["Worker stopped at its read limit", "Resume after narrowing the task."],
   completion_unjudged: ["Worker result could not be checked", "The result was not verified."],
+  completion_incomplete: ["Work incomplete", "Resume when ready."],
   claim_unproven: ["Worker claim was unproven", "The worker could not verify its claim."],
   suspended: ["Worker paused", "Resume when ready."]
 }
@@ -275,7 +276,12 @@ export const describe = (error: unknown, seat?: string): Description => {
   }
   if (found?._tag === "/harness/HarnessError" && typeof code === "string" && code in harness) {
     const [headline, line] = harness[code]!
-    return { headline, fault, line, actions: ["resume", "switch-model", "details"] }
+    // This typed message is the agent's completion report, not raw provider
+    // diagnostics. Keep the explanation visible when unfinished work fails.
+    const report = code === "completion_incomplete" && typeof found.message === "string" && found.message.trim() !== ""
+      ? found.message.slice(0, 2048)
+      : line
+    return { headline, fault, line: report, actions: ["resume", "switch-model", "details"] }
   }
   return {
     headline: "Worker stopped unexpectedly",

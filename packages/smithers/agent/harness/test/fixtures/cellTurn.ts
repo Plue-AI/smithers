@@ -248,7 +248,9 @@ const journaled = (
 export const confidentEvaluator: Layer.Layer<Evaluator.Evaluator> = Evaluator.layerScripted(() => ({
   complete: { probability: 0.99 },
   overclaims: { probability: 0.01 },
-  invented: { probability: 0.01 }
+  invented: { probability: 0.01 },
+  requiresWorkspaceChange: { probability: 0.5 },
+  reportsLimitation: { probability: 0 }
 }))
 
 /**

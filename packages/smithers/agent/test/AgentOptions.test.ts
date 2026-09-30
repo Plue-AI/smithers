@@ -319,7 +319,9 @@ describe("opening memory in the run-start relevance reading", () => {
   const completion = {
     complete: { probability: 0.99 },
     overclaims: { probability: 0.01 },
-    invented: { probability: 0.01 }
+    invented: { probability: 0.01 },
+    requiresWorkspaceChange: { probability: 0.5 },
+    reportsLimitation: { probability: 0 }
   }
   const run = (relevance: (items: ReadonlyArray<Relevance.Item>) => ReturnType<Evaluator.Script>) => {
     const asked: Array<ReadonlyArray<Relevance.Item>> = []

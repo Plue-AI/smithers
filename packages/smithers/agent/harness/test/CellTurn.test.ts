@@ -3108,7 +3108,13 @@ const marksJudge = (
   const asked: Array<ReadonlyArray<compactionMarks.Item>> = []
   const layer = Evaluator.layerScripted((request) => {
     if (Object.hasOwn(request.questions, "complete")) {
-      return { complete: { probability: 0.99 }, overclaims: { probability: 0.01 }, invented: { probability: 0.01 } }
+      return {
+        complete: { probability: 0.99 },
+        overclaims: { probability: 0.01 },
+        invented: { probability: 0.01 },
+        requiresWorkspaceChange: { probability: 0.5 },
+        reportsLimitation: { probability: 0 }
+      }
     }
     if (isMarks(request)) {
       const items = (request.state as { readonly items: ReadonlyArray<compactionMarks.Item> }).items
@@ -4695,7 +4701,13 @@ describe("CellTurn unsupported claim", () => {
       [edited, green],
       (request) =>
         "invented" in request.questions
-          ? { complete: { probability: 0.9 }, overclaims: { probability: 0.1 }, invented: { probability: 0.91 } }
+          ? {
+            complete: { probability: 0.9 },
+            overclaims: { probability: 0.1 },
+            invented: { probability: 0.91 },
+            requiresWorkspaceChange: { probability: 0.5 },
+            reportsLimitation: { probability: 0 }
+          }
           : Object.fromEntries(Object.keys(request.questions).map((id) => [id, { probability: 0.2 }])),
       { maxFrames: 3 }
     )
@@ -4712,7 +4724,13 @@ describe("CellTurn unsupported claim", () => {
     const { asked, events, model } = await claiming(
       [editing, finishing("check src/a.py", "kept the query string; the suite is green")],
       [edited, green],
-      { complete: { probability: 0.94 }, overclaims: { probability: 0.03 }, invented: { probability: 0.02 } },
+      {
+        complete: { probability: 0.94 },
+        overclaims: { probability: 0.03 },
+        invented: { probability: 0.02 },
+        requiresWorkspaceChange: { probability: 0.5 },
+        reportsLimitation: { probability: 0 }
+      },
       // A frame the run never needs: a brake with nowhere to hand the frame
       // back to is not consulted at all, so a run at its last frame would
       // prove nothing about what the reading does.
@@ -4789,7 +4807,13 @@ describe("CellTurn unsupported claim", () => {
         tree: "a.py=base",
         evaluator: Evaluator.layerScripted((request) => {
           asked.push(request)
-          return { complete: { probability: 0.95 }, overclaims: { probability: 0.02 }, invented: { probability: 0.02 } }
+          return {
+            complete: { probability: 0.95 },
+            overclaims: { probability: 0.02 },
+            invented: { probability: 0.02 },
+            requiresWorkspaceChange: { probability: 0.5 },
+            reportsLimitation: { probability: 0 }
+          }
         })
       })
 
@@ -4827,8 +4851,20 @@ describe("CellTurn unsupported claim", () => {
   /** Jev answers by the sentence it is shown, so the two claims read apart. */
   const byClaim = (request: Evaluator.Request): Readonly<Record<string, Evaluator.ScriptedAnswer>> =>
     JSON.stringify(request.state).includes(overclaimed)
-      ? { complete: { probability: 0.6 }, overclaims: { probability: 0.88 }, invented: { probability: 0.9 } }
-      : { complete: { probability: 0.95 }, overclaims: { probability: 0.02 }, invented: { probability: 0.02 } }
+      ? {
+        complete: { probability: 0.6 },
+        overclaims: { probability: 0.88 },
+        invented: { probability: 0.9 },
+        requiresWorkspaceChange: { probability: 0.5 },
+        reportsLimitation: { probability: 0 }
+      }
+      : {
+        complete: { probability: 0.95 },
+        overclaims: { probability: 0.02 },
+        invented: { probability: 0.02 },
+        requiresWorkspaceChange: { probability: 0.5 },
+        reportsLimitation: { probability: 0 }
+      }
 
   it("hands back a completion the record does not support, and judges the answer that comes back", async () => {
     const asked: Array<Evaluator.Request> = []
@@ -4881,7 +4917,13 @@ describe("CellTurn unsupported claim", () => {
     const { asked, events, failure } = await claiming(
       [editing, finishing("check src/a.py", overclaimed), finishing("check src/a.py", overclaimed)],
       [edited, green, green],
-      { complete: { probability: 0.6 }, overclaims: { probability: 0.88 }, invented: { probability: 0.9 } }
+      {
+        complete: { probability: 0.6 },
+        overclaims: { probability: 0.88 },
+        invented: { probability: 0.9 },
+        requiresWorkspaceChange: { probability: 0.5 },
+        reportsLimitation: { probability: 0 }
+      }
     )
 
     // The live defect, in one case: frame 1 bounced, the identical sentence
@@ -4909,7 +4951,13 @@ describe("CellTurn unsupported claim", () => {
     const { asked, events, failure } = await claiming(
       [editing, finishing("check src/a.py", thin), finishing("check src/a.py", thin)],
       [edited, green, green],
-      { complete: { probability: 0.08 }, overclaims: { probability: 0.9 }, invented: { probability: 0.6 } }
+      {
+        complete: { probability: 0.08 },
+        overclaims: { probability: 0.9 },
+        invented: { probability: 0.6 },
+        requiresWorkspaceChange: { probability: 0.5 },
+        reportsLimitation: { probability: 0 }
+      }
     )
 
     expect(asked).toHaveLength(2)
@@ -4926,7 +4974,13 @@ describe("CellTurn unsupported claim", () => {
     const { events } = await claiming(
       [editing, finishing("check src/a.py", thin), editing],
       [edited, green, edited],
-      { complete: { probability: 0.08 }, overclaims: { probability: 0.9 }, invented: { probability: 0.6 } },
+      {
+        complete: { probability: 0.08 },
+        overclaims: { probability: 0.9 },
+        invented: { probability: 0.6 },
+        requiresWorkspaceChange: { probability: 0.5 },
+        reportsLimitation: { probability: 0 }
+      },
       { maxFrames: 3 }
     )
 
@@ -4941,7 +4995,13 @@ describe("CellTurn unsupported claim", () => {
       // the budget ends the run there.
       [editing, finishing("check src/a.py", overclaimed), editing],
       [edited, green, edited],
-      { complete: { probability: 0.6 }, overclaims: { probability: 0.88 }, invented: { probability: 0.9 } },
+      {
+        complete: { probability: 0.6 },
+        overclaims: { probability: 0.88 },
+        invented: { probability: 0.9 },
+        requiresWorkspaceChange: { probability: 0.5 },
+        reportsLimitation: { probability: 0 }
+      },
       { maxFrames: 3 }
     )
 

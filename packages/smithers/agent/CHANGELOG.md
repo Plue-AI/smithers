@@ -35,6 +35,16 @@
 - `AgentAction`'s recorded quota park is named per session
   (`agent/quota-park/<session>`), so parallel panel members park independently.
   A run parked before this change classifies its refusal again when it resumes.
+
+- Adding `completion_incomplete` to the harness error union changes the sealed
+  declaration schemas. On this revision the model declaration key is
+  `key1_9dbf28cf…` and the cell declaration key is `key1_fae7b9f5…` (#2937). The error
+  schema participates in each declaration digest. Recorded calls under the
+  previous declarations do not share cache addresses with new calls; hosts
+  must account for re-dispatch when moving runs to the new declarations.
+  Historical wire fixtures remain pinned independently. Exhaustive harness
+  error consumers must handle the new failed, retryable outcome.
+
 - The sealed model step key moved to `key1_71b2f391…` because
   `@smthrs/capability`'s `Action` union gained `memory:read` and
   `memory:write`. Runs recorded under the old key re-dispatch their model calls.

@@ -42,7 +42,7 @@ importable as `@smthrs/harness/<Module>`.
 | `UnmovedTree` | `Unmoved`, `find`, `demand` | The completion with nothing behind it. |
 | `UnresolvedFailure` | `exitStatusKey`, `failed`, `exitStatus`, `passed`, `Displaced`, `revisits`, `find`, `demand` | The failing check a completion stepped around. |
 | `FailedCall` | `cap`, `heading`, `stated`, `Failure`, `reason`, `inspects`, `find`, `demand`, `state` | The completion its own cell wrote before a call in it failed. |
-| `CompletionClaim` | `outputBytes`, `proseBytes`, `disprovenAt`, `overclaimedAt`, `unsupportedAt`, `inventedAt`, `leafBytes`, `resultBytes`, `receipt`, `Reported`, `Settled`, `record`, `checksRunLimit`, `Check`, `Ran`, `Evidence`, `classifier`, `sentenceLimit`, `sentences`, `sentenceMarker`, `sentenceOf`, `sentenceClassifier`, `Probabilities`, `Reading`, `find`, `unrecorded`, `newest`, `UnjudgedReason`, `unjudged`, `refusedBytes`, `refused`, `unproven`, `read`, `demand`, `quote`, `prose` | The completion nothing in the record contradicts. |
+| `CompletionClaim` | `outputBytes`, `proseBytes`, `disprovenAt`, `overclaimedAt`, `unsupportedAt`, `noWorkspaceChangeAt`, `limitationAt`, `inventedAt`, `leafBytes`, `resultBytes`, `receipt`, `Reported`, `Settled`, `record`, `checksRunLimit`, `Check`, `Ran`, `Evidence`, `classifier`, `sentenceLimit`, `sentences`, `sentenceMarker`, `sentenceOf`, `sentenceClassifier`, `Probabilities`, `Reading`, `find`, `unrecorded`, `newest`, `UnjudgedReason`, `unjudged`, `refusedBytes`, `refused`, `unproven`, `read`, `demand`, `quote`, `prose` | The completion nothing in the record contradicts. |
 | `Sufficiency` | `retained`, `Failure`, `Ledger`, `remember`, `Sufficient`, `find`, `observation` | The evidence that is already complete. |
 | `VacuousVerification` | `retained`, `Pass`, `Ledger`, `remember`, `stored`, `find`, `observation` | The proof that was already true before anything changed. |
 | `VariablesPanel` | `bound`, `Binding`, `Stamp`, `Ledger`, `stamp`, `render` | The variables panel: what the realm holds, stated every frame. |
@@ -691,6 +691,8 @@ The completion nothing in the record contradicts.
 | `disprovenAt` | const | constants | At or below this probability of "complete", the claim is handed back. |
 | `overclaimedAt` | const | constants | At or above this probability of "overclaims", the claim is handed back. |
 | `unsupportedAt` | const | constants | At or above this probability of "invented", the claim is handed back. |
+| `noWorkspaceChangeAt` | const | constants | At or below 0.1, a completion claims no delivered workspace edit. |
+| `limitationAt` | const | constants | At or above 0.9, the completion explicitly reports incomplete work. |
 | `inventedAt` | const | constants | At or above this probability of "invented", the claim ends the run. |
 | `leafBytes` | const | constants | The most of one string in a listed check's result `receipt` keeps, newest kept. |
 | `resultBytes` | const | constants | The most of one listed check's whole result `receipt` keeps. |
@@ -708,7 +710,7 @@ The completion nothing in the record contradicts.
 | `sentenceMarker` | const | constants | What precedes the sentence in each `sentenceClassifier` question. |
 | `sentenceOf` | const | conversions | The sentence one `sentenceClassifier` question asks about. |
 | `sentenceClassifier` | const | classifiers | The `invented` question asked of each sentence of a claim, in one request. |
-| `Probabilities` | interface | models | The three probabilities one evaluation came back with. |
+| `Probabilities` | interface | models | The evidence probabilities and optional outcome facts from one evaluation. |
 | `Reading` | interface | models | One reading, and what asking for it cost. |
 | `find` | const | conversions | Whether one reading asks anything of the completion at all. |
 | `unrecorded` | const | predicates | Whether a reading is the one this brake ends a run over. |

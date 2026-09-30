@@ -66,6 +66,17 @@ describe("the fault sweep", () => {
 })
 
 describe("the owners' classes", () => {
+  it("classifies unfinished work as factory failure and keeps recovery bounded", () => {
+    const report = "I could not finish because access was denied."
+    const fault = Fault.of(new Harness.HarnessError({ code: "completion_incomplete", message: report }))
+    expect(fault).toEqual({ class: "factory", tag: "/harness/HarnessError/completion_incomplete" })
+    const state = { attempt: 1, seatsLeft: 2, parksLeft: 8, replans: 0, veryHard: false }
+    expect(Fault.respond(fault, state)).toBe("replan")
+    expect(Fault.respond(fault, { ...state, replans: 1 })).toBe("replan")
+    expect(Fault.respond(fault, { ...state, replans: 2 })).toBe("very_hard")
+    expect(Fault.respond(fault, { ...state, replans: 2, veryHard: true })).toBe("help")
+  })
+
   it("reads a quota failure under a harness wrapper as a wait, not a dependency", () => {
     const quota = new ModelError.ModelError({ code: "quota_exceeded", message: "limit" })
     const wrapped = new Harness.HarnessError({ code: "model_failed", message: "model", cause: quota })

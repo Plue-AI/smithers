@@ -134,8 +134,8 @@ it("resumes a prior wire declaration from reopened SQLite under the same Effect 
         // Moves with `V1.effect115Key`, which moved when `HarnessErrorCode`
         // gained `completion_unjudged` and again when it gained
         // `claim_unproven`, and moved when CallFailureCode gained
-        // flow_withheld (#1929).
-        step_key_digest: "81e6dda491117603d38e3c9b98eb4d147912f582b7a177bcd4f7b8d3f91f4598",
+        // flow_withheld (#1929), then completion_incomplete (#2937).
+        step_key_digest: "35aec95b8ae0405ef3be9062325f3ed76d4033404faff6afbb1c8d5b5ea86452",
         state: "succeeded"
       }])
     } finally {

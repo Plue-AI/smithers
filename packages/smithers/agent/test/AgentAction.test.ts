@@ -2090,7 +2090,13 @@ describe("AgentAction seat auto", () => {
     const relevance: Array<{ readonly task: string; readonly ids: ReadonlyArray<string> }> = []
     const evaluator = Evaluator.layerScripted((request) => {
       if (!Object.keys(request.questions).some((id) => id.startsWith("unnecessary_"))) {
-        return { complete: { probability: 0.99 }, overclaims: { probability: 0.01 }, invented: { probability: 0.01 } }
+        return {
+          complete: { probability: 0.99 },
+          overclaims: { probability: 0.01 },
+          invented: { probability: 0.01 },
+          requiresWorkspaceChange: { probability: 0.5 },
+          reportsLimitation: { probability: 0 }
+        }
       }
       const state = request.state as {
         readonly context: { readonly task: string }

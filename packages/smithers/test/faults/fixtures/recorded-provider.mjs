@@ -36,13 +36,15 @@ const judge = (request) => {
   const questions = Object.fromEntries(
     Object.entries(JSON.parse(prompt).questions).map(([id, question]) => [id, question.type])
   )
-  deepStrictEqual(questions, { complete: "boolean", overclaims: "boolean", invented: "boolean" })
+  deepStrictEqual(questions, { complete: "boolean", overclaims: "boolean", invented: "boolean", requiresWorkspaceChange: "boolean", reportsLimitation: "boolean" })
   appendFileSync(`${directory}/evaluations.jsonl`, `${JSON.stringify({ pid: process.pid, questions })}\n`)
   return stream(JSON.stringify({
     answers: {
       complete: { type: "boolean", probability: 0.99 },
       overclaims: { type: "boolean", probability: 0.01 },
-      invented: { type: "boolean", probability: 0.01 }
+      invented: { type: "boolean", probability: 0.01 },
+      requiresWorkspaceChange: { type: "boolean", probability: 0.5 },
+      reportsLimitation: { type: "boolean", probability: 0 }
     }
   }))
 }

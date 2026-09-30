@@ -48,7 +48,13 @@ const jev = (ps: (id: string) => number) => {
   const layer = Evaluator.layerScripted((request) => {
     const ids = Object.keys(request.questions)
     if (!ids.some((id) => id.startsWith("unnecessary_"))) {
-      return { complete: { probability: 0.99 }, overclaims: { probability: 0.01 }, invented: { probability: 0.01 } }
+      return {
+        complete: { probability: 0.99 },
+        overclaims: { probability: 0.01 },
+        invented: { probability: 0.01 },
+        requiresWorkspaceChange: { probability: 0.5 },
+        reportsLimitation: { probability: 0 }
+      }
     }
     const { context, items } = request.state as {
       readonly context: Relevance.Context
@@ -422,7 +428,13 @@ ctx.done({ names: Object.keys(ctx.flows), found, missing: missing.error.code })`
       if (Object.keys(request.questions).some((id) => id.startsWith("unnecessary_"))) {
         throw new Error("the relevance reading ran unjudged")
       }
-      return { complete: { probability: 0.99 }, overclaims: { probability: 0.01 }, invented: { probability: 0.01 } }
+      return {
+        complete: { probability: 0.99 },
+        overclaims: { probability: 0.01 },
+        invented: { probability: 0.01 },
+        requiresWorkspaceChange: { probability: 0.5 },
+        reportsLimitation: { probability: 0 }
+      }
     })
     const { events, model, failure } = await run({
       script: [emits(`ctx.done(Object.keys(ctx.flows).join(","))`)],

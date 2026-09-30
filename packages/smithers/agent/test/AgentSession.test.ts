@@ -755,6 +755,82 @@ describe("AgentSession", () => {
     })
   })
 
+  it("durably fails unfinished work once, retains its report, and permits a fresh retry", async () => {
+    // Model and classifier are explicit unit fixtures. Control, executor,
+    // QuickJS and SQLite use the same real stack as the other cases here.
+    const report = "I could not update the config because access was denied. No files were changed."
+    const captured: Array<Captured> = []
+    let judgments = 0
+    const judge = Evaluator.layerScripted((request) => {
+      judgments++
+      const unfinished = (request.state as { claim: string }).claim === report
+      return {
+        complete: { probability: unfinished ? 0.01 : 0.99 },
+        overclaims: { probability: 0.01 },
+        invented: { probability: 0.01 },
+        requiresWorkspaceChange: { probability: 0.01 },
+        reportsLimitation: { probability: unfinished ? 0.99 : 0.01 }
+      }
+    })
+    const outcome = await Effect.runPromise(
+      Effect.gen(function*() {
+        const gate = yield* Deferred.make<void>()
+        const model = scripted([`ctx.done(${JSON.stringify(report)})`, `ctx.done("Ready.")`], captured)
+        return yield* Effect.gen(function*() {
+          const control = yield* Control.Control
+          const runtime = yield* ControlRuntime.ControlRuntime
+          const journal = yield* Journal.Journal
+          const card = yield* control.plan({ flowId: "agents/notes", input: {} })
+          yield* control.approve(card.approval)
+          const execute = (key: string, status: ControlSchema.RunStatus) =>
+            Effect.gen(function*() {
+              const receipt = yield* control.run({
+                _tag: "Plan",
+                planId: card.planId,
+                digest: card.digest,
+                envelope: card.envelope,
+                idempotencyKey: key
+              })
+              if (receipt._tag !== "Accepted" || receipt.runId === undefined) {
+                return yield* Effect.die("expected accepted run")
+              }
+              yield* awaitStatus(runtime, receipt.runId, status)
+              yield* journal.flush
+              const page = yield* journal.entries({ runId: JournalEvent.RunId.make(receipt.runId), limit: 1_000 })
+              return { runId: receipt.runId, row: yield* runtime.getRun(receipt.runId), trail: page.entries }
+            })
+          const failed = yield* execute("unfinished-first", "failed")
+          expect(captured).toHaveLength(1)
+          expect(judgments).toBe(1)
+          const retry = yield* execute("unfinished-retry", "completed")
+          return { failed, retry }
+        }).pipe(Effect.provide(stack({ resolve: seat(model), notes: [], gate, bare: true, judge })))
+      }).pipe(Effect.scoped)
+    )
+    expect(outcome.failed.row.status).toBe("failed")
+    const failed = outcome.failed.trail.filter((entry) => entry.eventType === "control.run.failed")
+    expect(failed).toHaveLength(1)
+    expect(JSON.stringify(failed[0]!.payload)).toContain("completion_incomplete")
+    expect(JSON.stringify(failed[0]!.payload)).toContain(report)
+    expect(outcome.failed.trail.filter((entry) => entry.eventType === "control.agent.resolved")).toHaveLength(0)
+    expect(outcome.failed.trail.filter((entry) => entry.eventType === "control.agent.decision-settled")).toHaveLength(1)
+    expect(outcome.retry.runId).not.toBe(outcome.failed.runId)
+    expect(outcome.retry.row.status).toBe("completed")
+    expect(outcome.retry.trail.filter((entry) => entry.eventType === "control.agent.resolved")).toHaveLength(1)
+    expect(captured).toHaveLength(2)
+    expect(judgments).toBe(2)
+    const database = new DatabaseSync(join([...engineRoots][0]!, "engine.db"), { readOnly: true })
+    try {
+      const row = database.prepare("SELECT state_json FROM flows_runs WHERE run_id = ?").get(outcome.failed.runId)
+      const state = JSON.parse(String(row?.state_json))
+      expect(state.result).toMatchObject({ _tag: "Complete", exit: { _tag: "Failure" } })
+      expect(JSON.stringify(state.result)).toContain("completion_incomplete")
+      expect(JSON.stringify(state.result)).toContain(report)
+    } finally {
+      database.close()
+    }
+  })
+
   it.each([false, true])("settles a bounded run with markdown child=%s", async (child) => {
     const rendered: Array<string> = []
     const childDescriptor = new Descriptor.FlowDescriptor({
@@ -2350,7 +2426,13 @@ const routingJudge = (
         system: { choice: "investigate" }
       })
     }
-    return { complete: { probability: 0.95 }, overclaims: { probability: 0.05 }, invented: { probability: 0.02 } }
+    return {
+      complete: { probability: 0.95 },
+      overclaims: { probability: 0.05 },
+      invented: { probability: 0.02 },
+      requiresWorkspaceChange: { probability: 0.5 },
+      reportsLimitation: { probability: 0 }
+    }
   })
 
 interface Routed {

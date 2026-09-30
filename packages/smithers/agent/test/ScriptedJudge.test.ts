@@ -68,9 +68,7 @@ describe("the explicit offline completion judge", () => {
   })
 
   it.each([null, [], {}, { claim: "done" }])("refuses malformed evidence %s", async (state) => {
-    const questions = Object.fromEntries(
-      ["complete", "overclaims", "invented"].map((id) => [id, Evaluator.BooleanQuestion.of({ instructions: id })])
-    )
+    const questions = CompletionClaim.classifier.questions
     const error = await Effect.runPromise(
       Effect.flatMap(Evaluator.Evaluator, (evaluator) =>
         evaluator.evaluate({
@@ -91,6 +89,28 @@ describe("the explicit offline completion judge", () => {
     )
     expect(error.code).toBe("unreachable")
     expect(error.message).toContain("injection")
+  })
+
+  it("answers the five completion facts atomically while retaining conservative offline intent", async () => {
+    const reading = await Effect.runPromise(
+      CompletionClaim.read({
+        task: "Which file defines the home apps?",
+        claim: "The apps are defined in .smithers/FACTORY.ts.",
+        treeMoved: false,
+        checksRun: []
+      }).pipe(Effect.provide(ScriptedJudge.layer))
+    )
+    expect(reading).toMatchObject({ requiresWorkspaceChange: 0.5, reportsLimitation: 0 })
+    expect(Object.keys(reading!.asked!.answers).sort()).toEqual([
+      "complete",
+      "invented",
+      "overclaims",
+      "reportsLimitation",
+      "requiresWorkspaceChange"
+    ])
+    // The explicit offline fixture does not assert intent from prose. Hosts
+    // testing read-only admission supply precise facts in their own unit fixture.
+    expect(reading!.asked!.answers.requiresWorkspaceChange).toEqual({ kind: "boolean", p: 0.5 })
   })
 })
 

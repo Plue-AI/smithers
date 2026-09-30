@@ -149,7 +149,9 @@ const reading = (probabilities: Partial<CompletionClaim.Probabilities>) =>
   scripted({
     complete: { probability: probabilities.complete ?? 0.9 },
     overclaims: { probability: probabilities.overclaims ?? 0.1 },
-    invented: { probability: probabilities.invented ?? 0.05 }
+    invented: { probability: probabilities.invented ?? 0.05 },
+    requiresWorkspaceChange: { probability: 0.5 },
+    reportsLimitation: { probability: 0 }
   })
 
 const refusing = (error: Evaluator.EvaluatorError) => {
@@ -492,7 +494,9 @@ describe("the claim brake", () => {
             answers: {
               complete: { type: "boolean", probability: 0.9 },
               overclaims: { type: "boolean", probability: 0.1 },
-              invented: { type: "boolean", probability: 0.05 }
+              invented: { type: "boolean", probability: 0.05 },
+              requiresWorkspaceChange: { type: "boolean", probability: 0.5 },
+              reportsLimitation: { type: "boolean", probability: 0 }
             },
             latencyMs: 7,
             usage: { inputTokens: 321, outputTokens: 12 }
@@ -505,14 +509,15 @@ describe("the claim brake", () => {
     expect(judged.decision).not.toHaveProperty("usage")
   })
 
-  it("is never consulted when a deterministic brake already named something", async () => {
+  it("classifies edit intent before retaining the unchanged-tree brake", async () => {
     const jev = reading({ complete: 0.1, overclaims: 0.9, invented: 0.95 })
     // The tree the run was handed is the tree it is completing on.
     const judged = await settled({ layer: jev.layer, closed: "t0" })
 
     expect(judged.demand?.event._tag).toBe("unmoved-demanded")
     expect(judged.demand?.spent).toEqual({ unmovedDemands: 1 })
-    expect(jev.asked).toEqual([])
+    expect(jev.asked).toHaveLength(1)
+    expect(judged.decision?.acted).toBe(false)
   })
 
   it("sends the task, the claim and measured check and call receipts", async () => {
@@ -576,7 +581,13 @@ describe("the claim brake", () => {
       { flow: "bash", input: "tests/admin_views", ok: true, resultSummary: "exitCode=0 stdout=10b" }
     ])
     expect(Object.keys(state).sort()).toEqual(["callsRun", "checksRun", "claim", "lastCheck", "task", "treeMoved"])
-    expect(Object.keys(jev.asked[0]?.questions ?? {}).sort()).toEqual(["complete", "invented", "overclaims"])
+    expect(Object.keys(jev.asked[0]?.questions ?? {}).sort()).toEqual([
+      "complete",
+      "invented",
+      "overclaims",
+      "reportsLimitation",
+      "requiresWorkspaceChange"
+    ])
   })
 
   it("keeps the newest request at the end of a long original task", async () => {
@@ -900,7 +911,13 @@ describe("a long claim, read one sentence at a time", () => {
     const layer = Evaluator.layerScripted((request) => {
       asked.push(request)
       if ("invented" in request.questions) {
-        return { complete: { probability: 0.13 }, overclaims: { probability: 0.92 }, invented: { probability: 0.91 } }
+        return {
+          complete: { probability: 0.13 },
+          overclaims: { probability: 0.92 },
+          invented: { probability: 0.91 },
+          requiresWorkspaceChange: { probability: 0.5 },
+          reportsLimitation: { probability: 0 }
+        }
       }
       return Object.fromEntries(
         Object.entries(request.questions).map(([id, question]) => [
@@ -956,7 +973,13 @@ describe("a long claim, read one sentence at a time", () => {
     const layer = Evaluator.layerScripted(() => {
       calls += 1
       return calls === 1
-        ? { complete: { probability: 0.1 }, overclaims: { probability: 0.9 }, invented: { probability: 0.91 } }
+        ? {
+          complete: { probability: 0.1 },
+          overclaims: { probability: 0.9 },
+          invented: { probability: 0.91 },
+          requiresWorkspaceChange: { probability: 0.5 },
+          reportsLimitation: { probability: 0 }
+        }
         : Effect.fail(new Evaluator.EvaluatorError({ code: "timeout", message: "deadline" }))
     })
     const failure = await unjudged({ layer, calls: [probe], claim: truthful })
@@ -976,7 +999,9 @@ describe("a long claim, read one sentence at a time", () => {
                   answers: {
                     complete: { type: "boolean", probability: 0.9 },
                     overclaims: { type: "boolean", probability: 0.1 },
-                    invented: { type: "boolean", probability: 0.91 }
+                    invented: { type: "boolean", probability: 0.91 },
+                    requiresWorkspaceChange: { type: "boolean", probability: 0.5 },
+                    reportsLimitation: { type: "boolean", probability: 0 }
                   },
                   latencyMs: 7,
                   ...(wholeUsage === undefined ? {} : { usage: wholeUsage })

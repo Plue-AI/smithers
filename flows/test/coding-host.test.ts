@@ -9,6 +9,7 @@ import assert from "node:assert/strict"
 import { realpath } from "node:fs/promises"
 import { test } from "node:test"
 import { fileURLToPath } from "node:url"
+import * as CompletionClaim from "../../packages/smithers/agent/harness/src/CompletionClaim.ts"
 import { platform } from "../../packages/smithers/src/internal/NodeControlHost.ts"
 import { configuredCodingRoutes, layer, roleResolver, roleSeats } from "../coding/host.ts"
 import { Landing } from "../coding/landing.ts"
@@ -262,4 +263,45 @@ test("an undeclared or auto flow routes by the graph over the host's seats, and 
   assert.equal(declared.decision.decidedBy, "declared")
   assert.equal(declared.seat.id, "coding/plan")
   assert.equal(declared.seat.modelId, "luna")
+})
+
+// Explicit offline classifier fixtures; no provider execution claimed.
+for (const recorded of [false, true]) {
+  test(`native host fixture answers all five completion facts with recorded command=${recorded}`, async () => {
+    const host = makeHostJudge()
+    const reading = await Effect.runPromise(
+      CompletionClaim.read({
+        task: "Run the check",
+        claim: "Ran `node check.mjs`; it passed.",
+        treeMoved: true,
+        checksRun: recorded ? [{ command: "node check.mjs", outcome: "passed" }] : []
+      }).pipe(Effect.provide(host.layer))
+    )
+    assert.ok(reading)
+    assert.equal(CompletionClaim.unrecorded(reading), !recorded)
+    assert.equal(reading.requiresWorkspaceChange, 0.5)
+    assert.equal(reading.reportsLimitation, 0)
+    assert.deepEqual(Object.keys(reading.asked!.answers).sort(), [
+      "complete",
+      "invented",
+      "overclaims",
+      "reportsLimitation",
+      "requiresWorkspaceChange"
+    ])
+    assert.deepEqual(host.rulesJudged, [])
+  })
+}
+
+test("native host fixture retains its own command evidence rule at the five-question dispatch", async () => {
+  const reading = await Effect.runPromise(
+    CompletionClaim.read({
+      task: "Run the check",
+      claim: "Ran `node check.mjs`; output was `node lint.mjs`.",
+      treeMoved: true,
+      checksRun: [{ command: "node check.mjs", outcome: "passed", result: "node lint.mjs" }]
+    }).pipe(Effect.provide(makeHostJudge().layer))
+  )
+  // The native fixture's existing conservative quotation rule sees an
+  // unrecorded lint command; falling through to the agent fixture loses it.
+  assert.equal(CompletionClaim.unrecorded(reading!), true)
 })

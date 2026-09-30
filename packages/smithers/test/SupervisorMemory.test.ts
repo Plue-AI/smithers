@@ -108,7 +108,13 @@ const judge = (snapshots: Array<Supervisor.Snapshot>, recalled: Array<Relevance.
       )
     }
     if (!Object.hasOwn(request.questions, "thrashing")) {
-      return { complete: { probability: 0.99 }, overclaims: { probability: 0.01 }, invented: { probability: 0.01 } }
+      return {
+        complete: { probability: 0.99 },
+        overclaims: { probability: 0.01 },
+        invented: { probability: 0.01 },
+        requiresWorkspaceChange: { probability: 0.5 },
+        reportsLimitation: { probability: 0 }
+      }
     }
     snapshots.push(Schema.decodeUnknownSync(Supervisor.Snapshot)(request.state))
     return Object.fromEntries(

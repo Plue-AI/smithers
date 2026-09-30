@@ -226,7 +226,13 @@ const recover = async (mode: "approval" | "timer" | "checkpoint") => {
     )
       .toEqual([{
         pid: expect.any(Number),
-        questions: { complete: "boolean", overclaims: "boolean", invented: "boolean" }
+        questions: {
+          complete: "boolean",
+          overclaims: "boolean",
+          invented: "boolean",
+          requiresWorkspaceChange: "boolean",
+          reportsLimitation: "boolean"
+        }
       }])
     const settled = json("logs", receipt.runId)
     const resolved = settled.filter((event: { kind: string }) => event.kind === "control.agent.resolved")

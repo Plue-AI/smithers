@@ -30,6 +30,7 @@ export const HarnessErrorCode = Schema.Literals([
   "engine_failed",
   "read_only_cap",
   "completion_unjudged",
+  "completion_incomplete",
   "claim_unproven",
   "suspended"
 ])
@@ -87,6 +88,7 @@ Fault.register(
     engine_failed: "infra",
     // A spent cap or an unproven claim is the plan not converging: a replan's to fix.
     read_only_cap: "factory",
+    completion_incomplete: "factory",
     claim_unproven: "factory",
     suspended: "wait"
   } satisfies Fault.Rows<HarnessErrorCode>

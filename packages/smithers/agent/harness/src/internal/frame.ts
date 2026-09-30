@@ -23,7 +23,7 @@ import * as CompletionClaim from "../CompletionClaim.ts"
 import type * as ContextWindow from "../ContextWindow.ts"
 import type * as EngineLike from "../EngineLike.ts"
 import * as FailedCall from "../FailedCall.ts"
-import type * as HarnessError from "../HarnessError.ts"
+import * as HarnessError from "../HarnessError.ts"
 import * as NarrowedCheck from "../NarrowedCheck.ts"
 import * as Sufficiency from "../Sufficiency.ts"
 import * as TruncatedOutput from "../TruncatedOutput.ts"
@@ -545,8 +545,8 @@ export interface CompletionJudgement {
   /** The demand that hands the completion back, when one of the six issued. */
   readonly demand: CompletionDemand | undefined
   /**
-   * The failure the run ends with when the claim brake read a claim the
-   * evidence does not support and no bounce was left to spend. It travels on
+   * The failure the run ends with when the claim brake reads unsupported
+   * work with no bounce left, or an explicit incomplete outcome. It travels on
    * the judgement rather than as the effect's own failure so the caller
    * journals `observed` first: a reading that ends a run is the one a grader
    * most needs, and an effect that failed would take it with it.
@@ -642,7 +642,8 @@ const measuredDemand = (
   accounting: Accounting,
   contextWindow: ContextWindow.ContextWindow,
   nextFrame: number,
-  claim: string
+  claim: string,
+  checkUnmoved = true
 ): CompletionDemand | undefined => {
   const { calls, facts, frameChecks, workspaceDigest } = accounting
   // First, because the others read a record this completion was written
@@ -684,7 +685,7 @@ const measuredDemand = (
       }
     }
   }
-  if (state.unmovedDemands < state.unmovedCap) {
+  if (checkUnmoved && state.unmovedDemands < state.unmovedCap) {
     const unmoved = UnmovedTree.find({
       opened: facts.openingDigest,
       digest: workspaceDigest,
@@ -771,8 +772,10 @@ const measuredDemand = (
  * it, four of them read off measurements the controller already took, under
  * four caps:
  *
- * 1. `UnmovedTree`: the tree it is completing on is the tree it opened on, so
- *    there is no change for any evidence to be about;
+ * 1. `UnmovedTree`: the tree it is completing on is the tree it opened on.
+ *    A judged run asks the existing completion classifier whether the claim
+ *    asserts a delivered edit before demanding a change. Answers and honest
+ *    limitations with no claimed edit can finish on an unchanged tree;
  * 2. `UnresolvedFailure`: a check over this exact tree reported a failing exit
  *    status and the run answered it with a different reading of the same
  *    subject rather than with the check itself;
@@ -790,16 +793,16 @@ const measuredDemand = (
  * asking it twice in different words.
  *
  * 5. `CompletionClaim`: the last brake and the only one that is not a
- *    measurement. The four above have said nothing, which means the tree
- *    moved, no check was stepped around, and whatever the run checked it
- *    checked whole — and none of that reads the sentence the run wrote. So
+ *    measurement. It also supplies the outcome fact the unmoved-tree demand
+ *    needs. No check was stepped around, and whatever the run checked it
+ *    checked whole — and those facts do not read the sentence the run wrote. So
  *    the claim, the task, the tree fact, every check the run took over this
  *    tree and the verbatim result of the last one go to Jev, and a claim that
  *    reports a command or a result none of that records hands the frame back
  *    from a cap of its own. It is last because it is the only one
- *    that costs a request, and because a run one of the four already named
- *    has a demand to answer: asking a model to add a second one would hand
- *    the frame two questions. It never falls back: a completion Jev could
+ *    that costs a request. Other measured demands retain their precedence;
+ *    only an unchanged tree needs this reading before it can name a demand.
+ *    It never falls back: a completion Jev could
  *    not judge — no evaluator on the host, a refusal, a deadline, an answer
  *    that does not decode — fails the turn as `completion_unjudged` carrying
  *    the reason, the way `read_only_cap` ends a run, rather than standing.
@@ -871,12 +874,12 @@ export const judgeCompletion = (
     const { calls, facts, workspaceDigest } = accounting
     const room = handBackRoom(state, facts.readOnlyFrames) && state.demandedFrame !== state.frame
     const nextFrame = state.frame + 1
-    if (room) {
-      const measured = measuredDemand(state, accounting, contextWindow, nextFrame, claim)
+    let measured = room ? measuredDemand(state, accounting, contextWindow, nextFrame, claim) : undefined
+    if (measured !== undefined && (measured.event._tag !== "unmoved-demanded" || state.claimCap === 0)) {
       // A measured demand names a missing fact, so the answer it takes away
       // is worth restoring if the budget runs out, unless the demand says the
       // answer was written blind. See `CompletionDemand`.
-      if (measured !== undefined) return handBack(measured)
+      return handBack(measured)
     }
 
     // The sixth brake, and the only one that leaves this package to decide.
@@ -898,8 +901,8 @@ export const judgeCompletion = (
       task,
       claim: CompletionClaim.prose(claim),
       // The `UnmovedTree` fact, read the other way round. An unmeasured tree
-      // reads as moved, which is the reading that asks for nothing: the
-      // brake above owns the unmoved case and has already passed on it.
+      // reads as moved. The completion reader sees the physical fact even
+      // when its outcome fact allows an answer on an unchanged tree.
       treeMoved: UnmovedTree.find({
         opened: facts.openingDigest,
         digest: workspaceDigest,
@@ -914,17 +917,33 @@ export const judgeCompletion = (
       })),
       ...(check === undefined ? {} : { lastCheck: check })
     })
-    if (reading === undefined) return stands
+    if (reading === undefined) return measured === undefined ? stands : handBack(measured)
+    const releasedUnmoved = measured !== undefined &&
+      (reading.requiresWorkspaceChange ?? 1) <= CompletionClaim.noWorkspaceChangeAt
+    // An unchanged tree contradicts a claimed edit, not an answer. Use the
+    // existing completion reading to establish that distinction; an absent
+    // or uncertain fact leaves the physical-evidence demand armed.
+    if (releasedUnmoved) {
+      measured = measuredDemand(state, accounting, contextWindow, nextFrame, claim, false)
+    }
     const found = CompletionClaim.find(reading)
+    const incomplete = reading.complete <= CompletionClaim.disprovenAt &&
+      (reading.reportsLimitation ?? 0) >= CompletionClaim.limitationAt
     // One bounce while the cap and a frame allow it; the verdict after that,
     // and only over the readings the verdict is about.
-    const bounced = found !== undefined && room && state.claimDemands < state.claimCap
+    const bounced = measured === undefined && found !== undefined && room && state.claimDemands < state.claimCap
     // The third way a reading comes out, stated on the event because nothing
     // downstream can derive it: a reading that neither stands nor hands the
     // frame back is the one that ends the run, and a projection that could not
     // tell it from a reading that stood wrote no card for it. See
     // `AgentEvent.ClaimDemanded.refused`.
-    const refused = found !== undefined && !bounced && CompletionClaim.unrecorded(found)
+    const refused = measured === undefined && found !== undefined && !bounced && CompletionClaim.unrecorded(found)
+    // A contradiction gets its existing chance to be answered, and an
+    // invented claim still refuses. Neither can turn explicitly unfinished
+    // work into a successful result when the bounce budget is spent.
+    const incompleteFailure = incomplete && measured === undefined && !bounced && !refused
+      ? new HarnessError.HarnessError({ code: "completion_incomplete", message: CompletionClaim.refused(claim) })
+      : undefined
     const event = new AgentEvent.ClaimDemanded({
       eventType: eventType.claimDemanded,
       complete: reading.complete,
@@ -937,7 +956,7 @@ export const judgeCompletion = (
       currentDigest: workspaceDigest,
       nextFrame
     })
-    // The same reading with what it was a reading OF. `acted` is the two ways
+    // The same reading with what it was a reading OF. `acted` records when
     // a reading changes what the run does next, and a reader that reported no
     // evidence journals no decision: see `CompletionClaim.Reading.asked`.
     const decision = reading.asked === undefined ? undefined : new AgentEvent.DecisionSettled({
@@ -950,11 +969,13 @@ export const judgeCompletion = (
       questions: CompletionClaim.classifier.questions,
       answers: reading.asked.answers,
       latencyMs: reading.latencyMs,
-      acted: bounced || refused,
+      acted: releasedUnmoved || incompleteFailure !== undefined || bounced || refused,
       decidedBy: "jev"
     })
     // The per-sentence reading, journaled as its own decision because it is
-    // one: its own classifier, questions and answers. See
+    // one: its own classifier, questions and answers. It judges invented
+    // evidence, so releasing a tree demand or reporting incomplete work
+    // does not make the sentence decision acted. See
     // `CompletionClaim.sentenceClassifier`.
     const sentenceDecision = reading.sentences === undefined ? undefined : new AgentEvent.DecisionSettled({
       eventType: eventType.decisionSettled,
@@ -969,8 +990,17 @@ export const judgeCompletion = (
       acted: bounced || refused,
       decidedBy: "jev"
     })
+    if (measured !== undefined) return { ...handBack(measured, decision), sentenceDecision }
     if (found === undefined) {
-      return { observed: event, demand: undefined, unproven: undefined, decision, sentenceDecision }
+      return {
+        observed: event,
+        demand: undefined,
+        // Keep an honest unfinished result visible and retryable across
+        // hosts: a successful stream exit would settle its job as completed.
+        unproven: incompleteFailure,
+        decision,
+        sentenceDecision
+      }
     }
     if (bounced) {
       return {
@@ -991,7 +1021,7 @@ export const judgeCompletion = (
     return {
       observed: event,
       demand: undefined,
-      unproven: refused ? CompletionClaim.unproven(found, state.claimDemands > 0, claim) : undefined,
+      unproven: refused ? CompletionClaim.unproven(found, state.claimDemands > 0, claim) : incompleteFailure,
       decision,
       sentenceDecision
     }

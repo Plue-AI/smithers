@@ -1372,7 +1372,13 @@ describe("supervisor memory through Agent.run", () => {
         )
       }
       if (!Object.hasOwn(request.questions, "thrashing")) {
-        return { complete: { probability: 0.99 }, overclaims: { probability: 0.01 }, invented: { probability: 0.01 } }
+        return {
+          complete: { probability: 0.99 },
+          overclaims: { probability: 0.01 },
+          invented: { probability: 0.01 },
+          requiresWorkspaceChange: { probability: 0.5 },
+          reportsLimitation: { probability: 0 }
+        }
       }
       snapshots.push(Schema.decodeUnknownSync(Supervisor.Snapshot)(request.state))
       return Object.fromEntries(
@@ -1481,7 +1487,13 @@ describe("the run-start relevance reading through Agent.run", () => {
     const asked: Array<ReadonlyArray<string>> = []
     const evaluator = Evaluator.layerScripted((request) => {
       if (!Object.keys(request.questions).some((id) => id.startsWith("unnecessary_"))) {
-        return { complete: { probability: 0.99 }, overclaims: { probability: 0.01 }, invented: { probability: 0.01 } }
+        return {
+          complete: { probability: 0.99 },
+          overclaims: { probability: 0.01 },
+          invented: { probability: 0.01 },
+          requiresWorkspaceChange: { probability: 0.5 },
+          reportsLimitation: { probability: 0 }
+        }
       }
       const items = (request.state as { readonly items: ReadonlyArray<Relevance.Item> }).items
       asked.push(items.map((item) => item.id))
@@ -2012,7 +2024,13 @@ describe("Agent.run", () => {
     const asked: Array<ReadonlyArray<Relevance.Item>> = []
     const evaluator = Evaluator.layerScripted((request) => {
       if (!Object.keys(request.questions).some((id) => id.startsWith("unnecessary_"))) {
-        return { complete: { probability: 0.99 }, overclaims: { probability: 0.01 }, invented: { probability: 0.01 } }
+        return {
+          complete: { probability: 0.99 },
+          overclaims: { probability: 0.01 },
+          invented: { probability: 0.01 },
+          requiresWorkspaceChange: { probability: 0.5 },
+          reportsLimitation: { probability: 0 }
+        }
       }
       const items = (request.state as { readonly items: ReadonlyArray<Relevance.Item> }).items
       asked.push(items)
