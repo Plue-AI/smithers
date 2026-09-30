@@ -35,7 +35,8 @@ func TestMythicalFailureOfEveryFault(t *testing.T) {
 		sentence string
 	}{
 		{"a lane that could not be set up", "queued", mythicalFault{Class: "infra", Tag: "launch", Kind: "provisioning"}, "provisioning", "infra", "Smithers could not set up a lane"},
-		{"the runtime", "retrying", mythicalFault{Class: "infra", Tag: "coding/Error/check_infra", Kind: "runtime"}, "runtime", "infra", "Smithers' runtime failed"},
+		{"the runtime", "retrying", mythicalFault{Class: "infra", Tag: "coding/Error/check_infra", Kind: "runtime"}, "runtime", "infra", "Smithers could not run this attempt"},
+		{"a dependency that is no model", "retrying", mythicalFault{Class: "dependency", Tag: "coding/Error/unavailable", Kind: "runtime"}, "runtime", "dependency", "Smithers could not run this attempt"},
 		{"a model provider down", "retrying", mythicalFault{Class: "dependency", Tag: "flows/model/ModelError/overloaded", Kind: "model"}, "model", "dependency", "The model provider did not answer"},
 		{"a model provider's rate limit", "retrying", mythicalFault{Class: "wait", Tag: "flows/model/ModelError/quota_exceeded", Kind: "model"}, "model", "wait", "The model provider did not answer"},
 		{"red checks", "retrying", mythicalFault{Class: "factory", Tag: "fast, lint", Kind: "checks"}, "checks", "factory", "Checks failed"},
@@ -43,6 +44,9 @@ func TestMythicalFailureOfEveryFault(t *testing.T) {
 		{"every plan failed", "blocked", mythicalFault{Class: "factory", Tag: "very_hard", Kind: "plan"}, "plan", "factory", "Every plan failed"},
 		{"model outages past the bound", "blocked", mythicalFault{Class: "policy", Tag: "outages", Kind: "model"}, "model", "dependency", "The model provider did not answer after repeated tries"},
 		{"lane outages past the bound", "blocked", mythicalFault{Class: "policy", Tag: "outages", Kind: "provisioning"}, "provisioning", "infra", "Smithers could not set up a lane after repeated tries"},
+		{"red CI on the pull request", "proposed", mythicalFault{Class: "factory", Tag: "ci", Kind: "checks"}, "checks", "factory", "CI failed on the pull request"},
+		{"CI that never finished", "proposed", mythicalFault{Class: "wait", Tag: "ci_wait", Kind: "checks"}, "checks", "wait", "CI on the pull request did not finish"},
+		{"a refused merge", "proposed", mythicalFault{Class: "infra", Tag: "merge", Kind: "landing"}, "landing", "infra", "GitHub refused the merge"},
 		{"GitHub down on an open pull request", "proposed", mythicalFault{Class: "infra", Tag: "github", Kind: "landing"}, "landing", "infra", "GitHub did not answer"},
 		{"a cancelled run", "blocked", mythicalFault{Class: "user", Tag: "cancelled", Kind: "stopped"}, "stopped", "user", "The run was cancelled"},
 		{"the run limit", "blocked", mythicalFault{Class: "policy", Tag: "launch_bound", Kind: "stopped"}, "stopped", "policy", "It reached its run limit"},
@@ -54,9 +58,9 @@ func TestMythicalFailureOfEveryFault(t *testing.T) {
 		{"legacy GitHub", "proposed", mythicalFault{Class: "infra", Tag: "github"}, "landing", "infra", "GitHub did not answer"},
 		{"legacy plan", "retrying", mythicalFault{Class: "factory", Tag: "coding/Error/stalled"}, "plan", "factory", "This attempt did not produce a working change"},
 		{"legacy model", "retrying", mythicalFault{Class: "wait", Tag: "flows/model/ModelError/quota_exceeded"}, "model", "wait", "The model provider did not answer"},
-		{"legacy runtime", "retrying", mythicalFault{Class: "infra", Tag: "coding/Error/check_infra"}, "runtime", "infra", "Smithers' runtime failed"},
+		{"legacy runtime", "retrying", mythicalFault{Class: "infra", Tag: "coding/Error/check_infra"}, "runtime", "infra", "Smithers could not run this attempt"},
 		{"legacy stop", "blocked", mythicalFault{Class: "user", Tag: "cancelled"}, "stopped", "user", "The run was cancelled"},
-		{"legacy outage bound", "blocked", mythicalFault{Class: "policy", Tag: "outages"}, "runtime", "infra", "Smithers' runtime failed after repeated tries"},
+		{"legacy outage bound", "blocked", mythicalFault{Class: "policy", Tag: "outages"}, "runtime", "infra", "Smithers could not run this attempt after repeated tries"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			fault := tc.fault
@@ -93,14 +97,33 @@ func TestMythicalFailureOfStates(t *testing.T) {
 	held := db.MythicalItem{Source: "issue", State: "proposed", PRHead: "head", Reason: "the review of this head was stopped; a person decides",
 		Checks: mythicalChecks{Todo: true, Review: &mythicalReview{Head: "head", Verdict: mythicalCancelled}}.encode()}
 	failure, sentence = mythicalFailureOf(held)
-	assert.Equal(t, &MythicalFailureView{Kind: "review", Fault: "factory"}, failure)
+	assert.Equal(t, &MythicalFailureView{Kind: "review", Fault: "user"}, failure)
 	assert.Equal(t, "The review did not finish", sentence)
 	assert.True(t, mythicalItemView(held).ReviewHeld, "and it offers Retry")
+	// Whose fault a held review was is its verdict's.
+	for verdict, fault := range map[string]string{"stopped: bug: review/Error/x": "bug", "failed: the review's first line was not a verdict": "factory"} {
+		review := held
+		review.Checks = mythicalChecks{Todo: true, Review: &mythicalReview{Head: "head", Verdict: verdict}}.encode()
+		failure, _ = mythicalFailureOf(review)
+		assert.Equal(t, &MythicalFailureView{Kind: "review", Fault: fault}, failure, verdict)
+	}
+	outages := held
+	outages.Checks = mythicalChecks{Todo: true, Outages: mythicalOutageBound + 1}.encode()
+	failure, _ = mythicalFailureOf(outages)
+	assert.Equal(t, &MythicalFailureView{Kind: "review", Fault: "infra"}, failure)
+	lapsed := held
+	lapsed.Checks = mythicalChecks{Todo: true, Outages: mythicalOutageBound + 1, Review: &mythicalReview{Head: "head", Verdict: "outage: infra: x"}}.encode()
+	failure, _ = mythicalFailureOf(lapsed)
+	assert.Equal(t, &MythicalFailureView{Kind: "review", Fault: "infra"}, failure)
 
 	// A chat item's held review is not a person's retry.
 	held.Source = "chat"
 	failure, _ = mythicalFailureOf(held)
 	assert.Nil(t, failure)
+
+	// A diagnostic whose failure is behind the item is served as nothing.
+	recovered := db.MythicalItem{Source: "issue", State: "delivering", Reason: "outage: infra: delivery could not be launched: dial tcp 10.0.0.7:5432"}
+	assert.Empty(t, mythicalItemView(recovered).Reason)
 
 	waiting := db.MythicalItem{Source: "issue", State: "queued", Reason: "waiting for a free lane to review this change"}
 	failure, _ = mythicalFailureOf(waiting)
@@ -119,6 +142,8 @@ func TestMythicalOutcomeFault(t *testing.T) {
 		mythicalOutcomeFault(mythicalFailChecks, "outage: dependency: flows/model/ModelError/overloaded"))
 	assert.Equal(t, mythicalFault{Class: "infra", Tag: "runtime_binding_unavailable", Kind: "runtime"},
 		mythicalOutcomeFault(mythicalFailPlan, "outage: infra: runtime_binding_unavailable"))
+	assert.Equal(t, mythicalFault{Class: "dependency", Tag: "coding/Error/unavailable", Kind: "runtime"},
+		mythicalOutcomeFault(mythicalFailPlan, "outage: dependency: coding/Error/unavailable"), "a dependency that is no model provider")
 	assert.Equal(t, mythicalFault{Class: "factory", Tag: "fast, lint", Kind: "checks"}, mythicalOutcomeFault(mythicalFailChecks, "failed: fast, lint"))
 	assert.Equal(t, mythicalFault{Class: "factory", Tag: "coding/Error/stalled", Kind: "plan"}, mythicalOutcomeFault(mythicalFailPlan, "failed: coding/Error/stalled"))
 }
@@ -266,4 +291,53 @@ func TestMythicalUnreachedGitHubIsALandingFailure(t *testing.T) {
 	assert.Equal(t, map[string]any{"kind": "landing", "fault": "infra"}, view["failure"])
 	assert.NotContains(t, raw, "ghs_secret")
 	assert.Contains(t, item.Reason, "ghs_secret", "the diagnostic stays on the row")
+}
+
+// A hold records the failure it stands at, a hold no failure caused and a
+// wait record none, and a pull request read that stands clears it.
+func TestMythicalHoldsTypeTheirFailure(t *testing.T) {
+	now := time.Now()
+	item := db.MythicalItem{Source: "issue", State: "proposed", PRHead: "head", Checks: mythicalChecks{Todo: true}.encode()}
+	red := mythicalHold(item, "ci:head", "CI failed on the approved head", &mythicalFault{Class: "factory", Tag: "ci", Kind: mythicalFailChecks}, now)
+	assert.Equal(t, "CI failed on the pull request", mythicalItemView(*red).Reason)
+	assert.Equal(t, "Smithers is holding this TODO: CI failed on the approved head.", mythicalChecksOf(*red).Notice.Body)
+	moved := mythicalHold(*red, "moved:other", "the pull request changed since its review", nil, now)
+	assert.Nil(t, mythicalItemView(*moved).Failure, "a person's move is no failure")
+	assert.Equal(t, "the pull request changed since its review", mythicalItemView(*moved).Reason)
+	waiting := mythicalLater(*red, "waiting for CI on the approved head", now)
+	assert.Nil(t, mythicalChecksOf(*waiting).Fault)
+	assert.Equal(t, "waiting for CI on the approved head", mythicalItemView(*waiting).Reason)
+	unchanged := mythicalLater(item, "waiting for CI on the approved head", now)
+	assert.Equal(t, item.Checks, unchanged.Checks)
+}
+
+// A delivery whose launch failed once, then launched: the failure and its
+// diagnostic are behind it on the API.
+func TestMythicalLaunchClearsTheFailedLaunchsReason(t *testing.T) {
+	o := newMythicalOrchestration(t)
+	ctx := context.Background()
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 351, Title: "Deliver", State: "open", TextByMaintainer: true,
+		Labels: []string{"todo"}}, maintainerTodo))
+	o.wake()
+	require.Equal(t, "running", o.item(351).State)
+	o.launcher.mu.Lock()
+	o.launcher.fail = 1
+	o.launcher.mu.Unlock()
+	o.project(o.launcher.last("coding/request"), jobs.StateCompleted, "run-351", validatedRequest)
+	o.wake()
+	item := o.item(351)
+	require.Contains(t, item.Reason, "dispatch unavailable")
+	view, _ := mythicalSnapshotItem(t, o, 351)
+	assert.Equal(t, "Smithers could not set up a lane", view["reason"])
+	for i := 0; i < 3 && o.item(351).State != "delivering"; i++ {
+		_, err := o.pool.Exec(ctx, `UPDATE mythical_items SET next_attempt_at = now() - interval '1 minute' WHERE id = $1`, item.ID)
+		require.NoError(t, err)
+		o.wake()
+	}
+	item = o.item(351)
+	require.Equal(t, "delivering", item.State, item.Reason)
+	assert.Empty(t, item.Reason)
+	view, _ = mythicalSnapshotItem(t, o, 351)
+	assert.Nil(t, view["failure"])
+	assert.Nil(t, view["reason"])
 }

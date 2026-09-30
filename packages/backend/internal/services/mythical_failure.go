@@ -18,11 +18,13 @@ import (
 const (
 	// mythicalFailProvisioning: a lane or its run could not be set up.
 	mythicalFailProvisioning = "provisioning"
-	// mythicalFailRuntime: the run failed on Smithers' runtime.
+	// mythicalFailRuntime: the run failed on Smithers' runtime or a service
+	// it depends on other than a model provider.
 	mythicalFailRuntime = "runtime"
 	// mythicalFailModel: the model provider failed or rate limited the run.
 	mythicalFailModel = "model"
-	// mythicalFailChecks: the repository's checks failed on the result.
+	// mythicalFailChecks: the repository's checks or its pull request's CI
+	// failed on the result.
 	mythicalFailChecks = "checks"
 	// mythicalFailPlan: the attempt produced no working change.
 	mythicalFailPlan = "plan"
@@ -54,15 +56,15 @@ func mythicalOutcomeFault(failed, outcome string) mythicalFault {
 		return mythicalFault{Class: class, Tag: tag, Kind: mythicalFailStopped}
 	case strings.HasPrefix(outcome, mythicalOutage):
 		class, tag, _ := strings.Cut(strings.TrimPrefix(outcome, mythicalOutage), ": ")
-		return mythicalFault{Class: class, Tag: tag, Kind: mythicalOutageKind(class)}
+		return mythicalFault{Class: class, Tag: tag, Kind: mythicalOutageKind(class, tag)}
 	}
 	return mythicalFault{Class: "factory", Tag: strings.TrimPrefix(outcome, "failed: "), Kind: failed}
 }
 
-// mythicalOutageKind is the step an outage of class failed: a model
-// provider's (wait, dependency) or the runtime's.
-func mythicalOutageKind(class string) string {
-	if class == "wait" || class == "dependency" {
+// mythicalOutageKind is the step an outage failed: a model provider's (a
+// wait or dependency fault of a model error) or the runtime's.
+func mythicalOutageKind(class, tag string) string {
+	if (class == "wait" || class == "dependency") && strings.Contains(tag, "/model/") {
 		return mythicalFailModel
 	}
 	return mythicalFailRuntime
@@ -83,7 +85,7 @@ func (f mythicalFault) kind() string {
 	case f.Class == "user" || f.Class == "bug" || f.Class == "policy" && f.Tag != "outages":
 		return mythicalFailStopped
 	}
-	return mythicalOutageKind(f.Class)
+	return mythicalOutageKind(f.Class, f.Tag)
 }
 
 // fault is whose fault the failure was: an outage past its bound stays the
@@ -105,13 +107,23 @@ func (f mythicalFault) sentence() string {
 	case mythicalFailProvisioning:
 		sentence = "Smithers could not set up a lane"
 	case mythicalFailRuntime:
-		sentence = "Smithers' runtime failed"
+		sentence = "Smithers could not run this attempt"
 	case mythicalFailModel:
 		sentence = "The model provider did not answer"
 	case mythicalFailChecks:
-		sentence = "Checks failed"
+		switch f.Tag {
+		case "ci":
+			sentence = "CI failed on the pull request"
+		case "ci_wait":
+			sentence = "CI on the pull request did not finish"
+		default:
+			sentence = "Checks failed"
+		}
 	case mythicalFailLanding:
 		sentence = "GitHub did not answer"
+		if f.Tag == "merge" {
+			sentence = "GitHub refused the merge"
+		}
 	case mythicalFailPlan:
 		sentence = "This attempt did not produce a working change"
 		if f.Tag == "very_hard" {
@@ -152,7 +164,7 @@ func mythicalFailureOf(item db.MythicalItem) (*MythicalFailureView, string) {
 		return nil, ""
 	}
 	if item.Source == "issue" && mythicalReviewHeld(item) {
-		return &MythicalFailureView{Kind: mythicalFailReview, Fault: "factory"}, "The review did not finish"
+		return &MythicalFailureView{Kind: mythicalFailReview, Fault: mythicalReviewFault(item)}, "The review did not finish"
 	}
 	fault := mythicalChecksOf(item).Fault
 	if fault == nil {
@@ -168,4 +180,29 @@ func mythicalSentence(reason string) string {
 	}
 	first, size := utf8.DecodeRuneInString(reason)
 	return string(unicode.ToUpper(first)) + reason[size:]
+}
+
+// mythicalReviewFault is whose fault a held review was, by its verdict: a
+// person's cancel, a stop's own class, the review's failure (factory), or
+// the outages it could not run through (infra).
+func mythicalReviewFault(item db.MythicalItem) string {
+	review := mythicalChecksOf(item).Review
+	switch {
+	case review == nil || review.Head != item.PRHead:
+		return "infra"
+	case review.Verdict == mythicalCancelled:
+		return "user"
+	case strings.HasPrefix(review.Verdict, mythicalStopped):
+		class, _, _ := strings.Cut(strings.TrimPrefix(review.Verdict, mythicalStopped), ": ")
+		return class
+	case strings.HasPrefix(review.Verdict, "failed"):
+		return "factory"
+	}
+	return "infra"
+}
+
+// mythicalDiagnostic reports whether a stored reason is a failure's
+// diagnostic, which only its typed sentence stands for on any surface.
+func mythicalDiagnostic(reason string) bool {
+	return strings.Contains(reason, mythicalOutage)
 }

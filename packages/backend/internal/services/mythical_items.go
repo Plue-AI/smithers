@@ -1308,6 +1308,11 @@ func mythicalOutageRetry(item db.MythicalItem, outcome string, fault mythicalFau
 func mythicalLater(item db.MythicalItem, reason string, now time.Time) *db.MythicalItem {
 	next := item
 	next.Reason = reason
+	if checks := mythicalChecksOf(next); checks.Fault != nil {
+		// A wait is no failure: the one a hold stood at is behind it.
+		checks.Fault = nil
+		next.Checks = checks.encode()
+	}
 	next.NextAttemptAt = pgtype.Timestamptz{Time: now.Add(time.Minute), Valid: true}
 	return &next
 }
@@ -1338,7 +1343,7 @@ func mythicalInfraOutage(item db.MythicalItem, tag, reason string, now time.Time
 		bound := mythicalFault{Class: "policy", Tag: "outages", Kind: fault.Kind}
 		if item.State == "proposed" {
 			// The hold's reason is the card's and the issue's: its sentence.
-			return mythicalHold(parked, "outages:"+item.PRHead, bound.sentence(), now)
+			return mythicalHold(parked, "outages:"+item.PRHead, bound.sentence(), &bound, now)
 		}
 		return mythicalStop(parked, bound, fmt.Sprintf("Smithers could not go on after %d tries (%s); not the TODO's fault", *count, outcome))
 	}
@@ -1423,7 +1428,10 @@ func (st *mythicalItemStep) commit(ctx context.Context, item db.MythicalItem, ph
 	// it retries after is behind it.
 	launched := mythicalChecksOf(item)
 	launched.Launches++
-	launched.Fault = nil
+	if launched.Fault != nil {
+		// The reason was the failure's diagnostic; the launch is past it.
+		launched.Fault, item.Reason = nil, ""
+	}
 	item.Checks = launched.encode()
 	saved, err := db.New(tx).SaveMythicalItem(ctx, item)
 	if err != nil {
@@ -2075,7 +2083,7 @@ func (st *mythicalItemStep) openPull(ctx context.Context, item db.MythicalItem, 
 	next.State, next.Reason = "proposed", ""
 	// The change is proposed: the outages on the way here are behind it.
 	proposed := mythicalChecksOf(next)
-	proposed.Outages, proposed.GitHubOutages = 0, 0
+	proposed.Outages, proposed.GitHubOutages, proposed.Fault = 0, 0, nil
 	next.Checks = proposed.encode()
 	next.NextAttemptAt = pgtype.Timestamptz{Time: st.now.Add(mythicalPullPollEvery), Valid: true}
 	return &next, nil
@@ -2140,7 +2148,7 @@ func (st *mythicalItemStep) follow(ctx context.Context, item db.MythicalItem) (*
 	next.NextAttemptAt = pgtype.Timestamptz{Time: st.now.Add(mythicalPullPollEvery), Valid: true}
 	if answered := mythicalChecksOf(next); answered.GitHubOutages > 0 {
 		answered.GitHubOutages = 0
-		if answered.Fault != nil && answered.Fault.Tag == "github" {
+		if answered.Fault != nil && answered.Fault.kind() == mythicalFailLanding {
 			// GitHub answers again: the outage it retried after is over.
 			answered.Fault = nil
 		}
@@ -2158,14 +2166,15 @@ func (st *mythicalItemStep) follow(ctx context.Context, item db.MythicalItem) (*
 		// Someone pushed to the pull request: its new head is theirs, so the
 		// stack neither reviews nor merges it.
 		next.PRState = pull.State
-		next = *mythicalHold(next, "moved:"+pull.HeadSHA, "the pull request head moved outside Smithers; a person decides", st.now)
+		next = *mythicalHold(next, "moved:"+pull.HeadSHA, "the pull request head moved outside Smithers; a person decides", nil, st.now)
 		checks := mythicalChecksOf(next)
 		checks.ForeignHead = pull.HeadSHA
 		next.Checks = checks.encode()
 	default:
 		next.PRState, next.Reason = pull.State, ""
 		checks := mythicalChecksOf(next)
-		checks.ForeignHead = ""
+		// Nothing holds it: the failure its reason stood for is behind it.
+		checks.ForeignHead, checks.Fault = "", nil
 		next.Checks = checks.encode()
 	}
 	return &next, nil
@@ -2173,12 +2182,14 @@ func (st *mythicalItemStep) follow(ctx context.Context, item db.MythicalItem) (*
 
 // mythicalHold leaves a proposed item waiting for a person, visibly: the
 // reason on its card and one comment on its issue, looked at again on the
-// pull request poll rather than retried every minute.
-func mythicalHold(item db.MythicalItem, key, reason string, now time.Time) *db.MythicalItem {
+// pull request poll rather than retried every minute. fault is the typed
+// failure it holds at, nil for a hold no failure caused (a person's move).
+func mythicalHold(item db.MythicalItem, key, reason string, fault *mythicalFault, now time.Time) *db.MythicalItem {
 	next := item
 	next.Reason = reason
 	next.NextAttemptAt = pgtype.Timestamptz{Time: now.Add(mythicalPullPollEvery), Valid: true}
 	checks := mythicalChecksOf(next)
+	checks.Fault = fault
 	checks.notice(key, "Smithers is holding this TODO: "+reason+".")
 	next.Checks = checks.encode()
 	return &next
@@ -2198,7 +2209,7 @@ func (st *mythicalItemStep) gate(ctx context.Context, item db.MythicalItem) (*db
 		if checks.Outages > mythicalOutageBound {
 			held := item
 			held.Checks = checks.encode()
-			return mythicalHold(held, "review-outages:"+item.PRHead, "the review could not run after repeated tries; not the TODO's fault", st.now), false, nil
+			return mythicalHold(held, "review-outages:"+item.PRHead, "the review could not run after repeated tries; not the TODO's fault", nil, st.now), false, nil
 		}
 		// The outage is counted once: the review starts over, and a launch
 		// that fails from here counts as its own outage.
@@ -2211,9 +2222,9 @@ func (st *mythicalItemStep) gate(ctx context.Context, item db.MythicalItem) (*db
 		// reviewed. Until it lands, every change is.
 		return st.review(ctx, item)
 	case review.Verdict == mythicalCancelled || strings.HasPrefix(review.Verdict, mythicalStopped):
-		return mythicalHold(item, "review:"+item.PRHead, "the review of this head was stopped; a person decides", st.now), false, nil
+		return mythicalHold(item, "review:"+item.PRHead, "the review of this head was stopped; a person decides", nil, st.now), false, nil
 	case strings.HasPrefix(review.Verdict, "failed"):
-		return mythicalHold(item, "review:"+item.PRHead, "the review of this head failed ("+strings.TrimPrefix(review.Verdict, "failed: ")+"); a person decides", st.now), false, nil
+		return mythicalHold(item, "review:"+item.PRHead, "the review of this head failed ("+strings.TrimPrefix(review.Verdict, "failed: ")+"); a person decides", nil, st.now), false, nil
 	case review.Verdict == "approve" && checks.Automerge && checks.Todo && st.gh != nil:
 		return st.merge(ctx, item), false, nil
 	}
@@ -2302,7 +2313,7 @@ func (st *mythicalItemStep) review(ctx context.Context, item db.MythicalItem) (*
 	if mythicalChecksOf(item).Outages > mythicalOutageBound {
 		// This head's review used up its outages: nothing is admitted for it
 		// again. A new head (a refresh, a person's push) starts over.
-		return mythicalHold(item, "outages:"+item.PRHead, "the review of this head could not run after repeated tries; not the TODO's fault", st.now), false, nil
+		return mythicalHold(item, "outages:"+item.PRHead, "the review of this head could not run after repeated tries; not the TODO's fault", nil, st.now), false, nil
 	}
 	if !st.slot(item) {
 		// A review takes a lane like any launch: it waits for one, visibly.
@@ -2395,11 +2406,12 @@ func (st *mythicalItemStep) merge(ctx context.Context, item db.MythicalItem) *db
 		waiting := item
 		waiting.Checks = checks.encode()
 		if st.now.Sub(checks.CIWait.Since) >= mythicalCIWaitBound {
-			return mythicalHold(waiting, "ci-wait:"+item.PRHead, "CI on the approved head has not finished in "+mythicalCIWaitBound.String(), st.now)
+			return mythicalHold(waiting, "ci-wait:"+item.PRHead, "CI on the approved head has not finished in "+mythicalCIWaitBound.String(),
+				&mythicalFault{Class: "wait", Tag: "ci_wait", Kind: mythicalFailChecks}, st.now)
 		}
 		return mythicalLater(waiting, "waiting for CI on the approved head", st.now)
 	case ci != mythicalCIGreen:
-		return mythicalHold(item, "ci:"+item.PRHead, "CI failed on the approved head", st.now)
+		return mythicalHold(item, "ci:"+item.PRHead, "CI failed on the approved head", &mythicalFault{Class: "factory", Tag: "ci", Kind: mythicalFailChecks}, st.now)
 	}
 	// Everything the merge rests on is read again, live, right before it: a
 	// label removed or a head pushed during this pass stops it.
@@ -2408,7 +2420,7 @@ func (st *mythicalItemStep) merge(ctx context.Context, item db.MythicalItem) *db
 		return mythicalLater(item, "GitHub did not answer for the pull request; retrying", st.now)
 	}
 	if pull.State != "open" || pull.Merged || pull.HeadSHA != item.PRHead {
-		return mythicalHold(item, "moved:"+pull.HeadSHA, "the pull request changed since its review", st.now)
+		return mythicalHold(item, "moved:"+pull.HeadSHA, "the pull request changed since its review", nil, st.now)
 	}
 	applier, err := s.github.LabelApplier(ctx, gh, item.IssueNumber.Int64, automergeLabel)
 	if err != nil {
@@ -2431,7 +2443,7 @@ func (st *mythicalItemStep) merge(ctx context.Context, item db.MythicalItem) *db
 		checks := mythicalChecksOf(next)
 		checks.Automerge = false
 		next.Checks = checks.encode()
-		return mythicalHold(next, "automerge:"+item.PRHead, "a maintainer's automerge label is no longer on the issue", st.now)
+		return mythicalHold(next, "automerge:"+item.PRHead, "a maintainer's automerge label is no longer on the issue", nil, st.now)
 	}
 	// The issue must still be a TODO as it stands now: a maintainer's todo
 	// label, or, for a TODO the factory made, the todo label by anyone (its
@@ -2458,7 +2470,7 @@ func (st *mythicalItemStep) merge(ctx context.Context, item db.MythicalItem) *db
 			next := item
 			checks.Todo = false
 			next.Checks = checks.encode()
-			return mythicalHold(next, "todo:"+item.PRHead, "the issue is no longer a TODO", st.now)
+			return mythicalHold(next, "todo:"+item.PRHead, "the issue is no longer a TODO", nil, st.now)
 		}
 	}
 	// Last, the item as persisted: a revocation recorded meanwhile (a
@@ -2469,7 +2481,7 @@ func (st *mythicalItemStep) merge(ctx context.Context, item db.MythicalItem) *db
 	commit, err := s.github.Merge(ctx, gh, item.PRNumber.Int64, item.PRHead)
 	if err != nil {
 		s.logger.Warn("mythical.merge_refused", "item", uuidString(item.ID), "error", err)
-		return mythicalHold(item, "merge:"+item.PRHead, "GitHub refused the merge", st.now)
+		return mythicalHold(item, "merge:"+item.PRHead, "GitHub refused the merge", &mythicalFault{Class: "infra", Tag: "merge", Kind: mythicalFailLanding}, st.now)
 	}
 	next := item
 	next.PRState, next.PRMergeCommit, next.State, next.Reason = "merged", commit, "landed", ""

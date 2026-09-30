@@ -448,6 +448,8 @@ func mythicalItemView(item db.MythicalItem) MythicalItemView {
 		Request: mythicalChecksOf(item).FiledRequest}
 	if failure, sentence := mythicalFailureOf(item); failure != nil {
 		row.Failure, row.Reason = failure, sentence
+	} else if mythicalDiagnostic(item.Reason) {
+		row.Reason = ""
 	}
 	if item.IssueNumber.Valid {
 		row.Issue = &MythicalIssueView{Number: item.IssueNumber.Int64, Title: item.IssueTitle, URL: item.IssueURL}
