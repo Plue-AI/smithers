@@ -25,6 +25,7 @@ describe("deployed server security boundaries", () => {
       expect(section).toContain("packages/backend/internal/services/repo_permissions.go")
       expect(section).toContain("packages/backend/internal/middleware/revocation_guard.go")
       expect(section).toContain("packages/backend/internal/middleware/run_credential.go")
+      expect(section).toContain("packages/backend/internal/middleware/scope.go")
       expect(section).not.toContain("apps/server/src/index.ts")
       expect(section).not.toContain("apps/server/src/cloudToken.ts")
       expect(section).not.toContain("apps/server/src/identity.ts")
@@ -40,7 +41,8 @@ describe("deployed server security boundaries", () => {
         "packages/backend/internal/middleware/run_credential.go",
         "packages/backend/internal/services/repo.go",
         "packages/backend/internal/services/repo_permissions.go",
-        "packages/backend/internal/db/workspace.sql.go"
+        "packages/backend/internal/db/workspace.sql.go",
+        "packages/backend/internal/compose/registration_review.go"
       ]
     ) {
       expect(authorization).toContain(gate)

@@ -12871,6 +12871,7 @@
           "packages/backend/internal/middleware/repo_context.go",
           "packages/backend/internal/middleware/revocation_guard.go",
           "packages/backend/internal/middleware/run_credential.go",
+          "packages/backend/internal/middleware/scope.go",
           "packages/backend/internal/services/repo_permissions.go",
           "packages/backend/internal/routes/workflow_invoke.go",
           "packages/backend/internal/services/workflow_invoke.go",
@@ -12879,9 +12880,9 @@
           "packages/backend/flowdispatch/service.go",
           "packages/backend/internal/compose/main.go",
           "packages/backend/internal/compose/browser_flow.go",
-          "packages/backend/internal/middleware/scope.go",
           "packages/backend/internal/services/repo.go",
           "packages/backend/internal/db/workspace.sql.go",
+          "packages/backend/internal/compose/registration_review.go",
           "packages/backend/internal/compose/browser_flow_target.go",
           "packages/backend/flowhost/resolver.go",
           "packages/backend/flowhost/store.go"
@@ -12954,6 +12955,11 @@
       },
       {
         "kind": "glob",
+        "pattern": "packages/backend/internal/middleware/scope.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
         "pattern": "packages/backend/internal/services/repo_permissions.go",
         "exclude": []
       },
@@ -12994,17 +13000,17 @@
       },
       {
         "kind": "glob",
-        "pattern": "packages/backend/internal/middleware/scope.go",
-        "exclude": []
-      },
-      {
-        "kind": "glob",
         "pattern": "packages/backend/internal/services/repo.go",
         "exclude": []
       },
       {
         "kind": "glob",
         "pattern": "packages/backend/internal/db/workspace.sql.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/compose/registration_review.go",
         "exclude": []
       },
       {
@@ -13074,6 +13080,11 @@
       },
       {
         "kind": "glob",
+        "pattern": "packages/backend/internal/middleware/scope.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
         "pattern": "packages/backend/internal/services/repo_permissions.go",
         "exclude": []
       },
@@ -13114,17 +13125,17 @@
       },
       {
         "kind": "glob",
-        "pattern": "packages/backend/internal/middleware/scope.go",
-        "exclude": []
-      },
-      {
-        "kind": "glob",
         "pattern": "packages/backend/internal/services/repo.go",
         "exclude": []
       },
       {
         "kind": "glob",
         "pattern": "packages/backend/internal/db/workspace.sql.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/compose/registration_review.go",
         "exclude": []
       },
       {
@@ -13177,6 +13188,7 @@
           "packages/backend/internal/middleware/repo_context.go",
           "packages/backend/internal/middleware/revocation_guard.go",
           "packages/backend/internal/middleware/run_credential.go",
+          "packages/backend/internal/middleware/scope.go",
           "packages/backend/internal/services/repo_permissions.go",
           "packages/backend/internal/routes/workflow_invoke.go",
           "packages/backend/internal/services/workflow_invoke.go",
@@ -13185,9 +13197,9 @@
           "packages/backend/flowdispatch/service.go",
           "packages/backend/internal/compose/main.go",
           "packages/backend/internal/compose/browser_flow.go",
-          "packages/backend/internal/middleware/scope.go",
           "packages/backend/internal/services/repo.go",
           "packages/backend/internal/db/workspace.sql.go",
+          "packages/backend/internal/compose/registration_review.go",
           "packages/backend/internal/compose/browser_flow_target.go",
           "packages/backend/flowhost/resolver.go",
           "packages/backend/flowhost/store.go"
@@ -13260,6 +13272,11 @@
       },
       {
         "kind": "glob",
+        "pattern": "packages/backend/internal/middleware/scope.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
         "pattern": "packages/backend/internal/services/repo_permissions.go",
         "exclude": []
       },
@@ -13300,17 +13317,17 @@
       },
       {
         "kind": "glob",
-        "pattern": "packages/backend/internal/middleware/scope.go",
-        "exclude": []
-      },
-      {
-        "kind": "glob",
         "pattern": "packages/backend/internal/services/repo.go",
         "exclude": []
       },
       {
         "kind": "glob",
         "pattern": "packages/backend/internal/db/workspace.sql.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/compose/registration_review.go",
         "exclude": []
       },
       {
@@ -13380,6 +13397,11 @@
       },
       {
         "kind": "glob",
+        "pattern": "packages/backend/internal/middleware/scope.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
         "pattern": "packages/backend/internal/services/repo_permissions.go",
         "exclude": []
       },
@@ -13420,17 +13442,17 @@
       },
       {
         "kind": "glob",
-        "pattern": "packages/backend/internal/middleware/scope.go",
-        "exclude": []
-      },
-      {
-        "kind": "glob",
         "pattern": "packages/backend/internal/services/repo.go",
         "exclude": []
       },
       {
         "kind": "glob",
         "pattern": "packages/backend/internal/db/workspace.sql.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/compose/registration_review.go",
         "exclude": []
       },
       {
