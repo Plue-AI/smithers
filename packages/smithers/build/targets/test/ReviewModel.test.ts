@@ -215,6 +215,36 @@ describe("default review model transport", () => {
     expect(failure.message).toBe("Review inference failed or returned an incomplete response")
   })
 
+  it.each(
+    [
+      [
+        "claude",
+        sse(
+          { type: "message_start", message: { id: "msg_1", usage: { input_tokens: 1, output_tokens: 0 } } },
+          { type: "content_block_start", index: 0, content_block: { type: "text", text: "[]" } },
+          { type: "content_block_stop", index: 0 },
+          { type: "message_delta", delta: { stop_reason: "refusal" }, usage: { output_tokens: 1 } },
+          { type: "message_stop" }
+        )
+      ],
+      [
+        "codex",
+        sse(
+          { type: "response.output_text.delta", item_id: "text_1", delta: "[]" },
+          { type: "response.incomplete", response: { id: "resp_1", incomplete_details: { reason: "content_filter" } } }
+        )
+      ]
+    ] as const
+  )("reports a %s provider refusal as refused, never clean", async (engine, response) => {
+    const fakeFetch: typeof globalThis.fetch = async () => response
+    const failure = await Effect.runPromise(Effect.flip(
+      reviewModel(engine, "fixture-model", "prompt", 5_000, 1024).pipe(
+        Effect.provideService(FetchHttpClient.Fetch, fakeFetch)
+      )
+    ))
+    expect(failure.message).toBe("Review provider refused the request")
+  })
+
   it("rejects a model response stopped by its token limit", async () => {
     const fakeFetch: typeof globalThis.fetch = async () =>
       sse(

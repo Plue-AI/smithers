@@ -8,6 +8,13 @@ import { Effect, Layer, Redacted, Result, Stream } from "effect"
 import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient"
 import type { Engine } from "../ModelEngine.ts"
 
+/** A provider refusal: recorded as refused, never as clean or a generic failure. */
+class ReviewRefused extends Error {
+  constructor() {
+    super("Review provider refused the request")
+  }
+}
+
 /**
  * Sends only the supplied review text to a fixed provider endpoint.
  * @category execution
@@ -56,6 +63,7 @@ export const reviewModel = (
               text += event.text
             }
             if (event.type === "settle") {
+              if (event.stopReason === "content-filter") throw new ReviewRefused()
               if (event.stopReason !== "stop") throw new Error("Review response did not complete")
               settled = true
             }
@@ -69,6 +77,10 @@ export const reviewModel = (
       Effect.provideService(FetchHttpClient.RequestInit, { redirect: "error", credentials: "omit" }),
       Effect.timeoutOrElse({ duration: timeoutMs, orElse: () => Effect.fail(new Error("Review request timed out")) }),
       // Provider bodies and transport diagnostics can contain secrets. Do not return them.
-      Effect.mapError(() => new Error("Review inference failed or returned an incomplete response"))
+      Effect.mapError((error) =>
+        error instanceof ReviewRefused
+          ? new ReviewRefused()
+          : new Error("Review inference failed or returned an incomplete response")
+      )
     )
   })

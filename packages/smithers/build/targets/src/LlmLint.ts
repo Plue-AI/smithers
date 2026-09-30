@@ -11,6 +11,7 @@
 
 import { Action, type FlowRuntime } from "@smthrs/flow"
 import * as ScopedProcess from "@smthrs/platform-node/ScopedProcess"
+import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
 import type * as Layer from "effect/Layer"
 import type * as PlatformError from "effect/PlatformError"
@@ -564,7 +565,7 @@ class CredentialMask {
     ]
     const found: Array<{ value: string; name: string; offset: number }> = []
     const named =
-      /(?:["'`]([A-Za-z_][A-Za-z0-9_-]*)["'`]|\b([A-Za-z_][A-Za-z0-9_]*))\s*[:=]\s*(?:"([^"\r\n]+)"|'([^'\r\n]+)'|`([^`\r\n]+)`|((?![{\[("'`])[^\s,;#}]+))/g
+      /(?:["'`]([A-Za-z_][A-Za-z0-9_-]*)["'`]|\b([A-Za-z_][A-Za-z0-9_]*))\s*[:=]\s*(?:"([^"\r\n]+)"|'([^'\r\n]+)'|`([^`\r\n]+)`|((?![{[("'`])[^\s,;#}]+))/g
     for (const match of contents.matchAll(named)) {
       const name = (match[1] ?? match[2])!
       if (
@@ -1681,13 +1682,15 @@ export const review = (
     if (mask.locations.length > 0 && options.onCredentials !== undefined) {
       const discoveries = mask.locations.map(({ file, line, name }) => Object.freeze({ file, line, name }))
       yield* Effect.suspend(() => options.onCredentials!(Object.freeze(discoveries))).pipe(
-        Effect.catchCause(() =>
-          Effect.fail(
-            new LlmReviewError({
-              phase: "review",
-              message: "Private credential rotation delivery failed"
-            })
-          )
+        Effect.catchCause((cause) =>
+          Cause.hasInterruptsOnly(cause)
+            ? Effect.failCause(cause as Cause.Cause<never>)
+            : Effect.fail(
+              new LlmReviewError({
+                phase: "review",
+                message: "Private credential rotation delivery failed"
+              })
+            )
         )
       )
     }
