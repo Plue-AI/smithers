@@ -215,11 +215,40 @@ test("an off-screen settle reports one notice whose Enter opens the worker and c
     await render()
   }
   expect(notice()).toHaveLength(1)
+  await key("y", { ctrl: true })
   await key("RETURN")
   expect(frame()).toContain("Subagent · Review one file")
   expect(notice()).toHaveLength(0)
   await command("/chat")
   expect(notice()).toHaveLength(0)
+})
+
+test.each(["Summary", "Chat card"])("an off-screen settlement preserves Enter on the selected %s", async (focus) => {
+  await act(async () => {
+    setup!.renderer.resize(80, 24)
+  })
+  await delegate(turns[0]!.input)
+  await delegate(turns[0]!.input, { id: "other", title: "Other file", prompt: "Review another file." })
+  await finish(0, { _tag: "done", answer: "" })
+  await key("s", { ctrl: true })
+  await key("DOWN")
+  await finish(2, { _tag: "done", answer: "Other complete." })
+  const deadline = Date.now() + 2_000
+  while (!frame().split("\n").some((line) => /Other file ·.+enter/.test(line)) && Date.now() < deadline) {
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    })
+    await render()
+  }
+  expect(frame().split("\n").some((line) => /Other file ·.+enter/.test(line))).toBe(true)
+  if (focus === "Chat card") {
+    await key("y", { ctrl: true })
+    await key("TAB")
+    await key("UP")
+  }
+  await key("RETURN")
+  expect(frame()).toContain("Subagent · Review one file")
+  expect(frame()).not.toContain("Subagent · Other file")
 })
 
 test("a settled coordinator admits the next chat while its worker remains unresolved", async () => {

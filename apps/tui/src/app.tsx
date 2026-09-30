@@ -2077,6 +2077,7 @@ export function App(props: AppProps) {
     if (
       (key.name === "return" || key.name === "kpenter") && text === "" &&
       open === undefined && liveForm.current === undefined && !key.ctrl && !key.meta && !key.option &&
+      ["composer", "working", "shell"].includes(keyContext()) &&
       settleNotices[0]?.surface !== undefined
     ) {
       key.preventDefault()
