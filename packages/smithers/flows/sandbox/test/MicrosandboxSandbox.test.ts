@@ -139,6 +139,8 @@ interface Controls {
   readonly startFailure?: (() => unknown) | undefined
   readonly connectFailure?: (() => unknown) | undefined
   readonly stopFailure?: (() => unknown) | undefined
+  /** Holds a handle's lifecycle call open until the returned promise settles. */
+  readonly hold?: ((call: "connect" | "start" | "stop" | "snapshot") => Promise<void> | undefined) | undefined
 }
 
 /** Every guest filesystem failure arrives as the SDK's one fs error kind. */
@@ -399,6 +401,7 @@ const fakeSdk = (controls: Controls = {}) => {
     status: machine.status,
     configJson: controls.configJson?.(machine.name) ?? JSON.stringify({ name: machine.name, labels: machine.labels }),
     connect: async () => {
+      await controls.hold?.("connect")
       if (machine.status !== "running") throw new Error(`microVM ${machine.name} is stopped`)
       const refused = controls.connectFailure?.()
       if (refused !== undefined) throw refused
@@ -406,6 +409,7 @@ const fakeSdk = (controls: Controls = {}) => {
       return sandboxFor(machine)
     },
     start: async () => {
+      await controls.hold?.("start")
       if (controls.startFailure !== undefined) throw controls.startFailure()
       machine.status = "running"
       machine.wedged = false
@@ -432,12 +436,14 @@ const fakeSdk = (controls: Controls = {}) => {
       return { applied: true }
     },
     stop: async () => {
+      await controls.hold?.("stop")
       recorded.stops.push(machine.name)
       if (controls.stopFailure !== undefined) throw controls.stopFailure()
       machine.status = "stopped"
       machine.wedged = false
     },
     snapshot: async (name) => {
+      await controls.hold?.("snapshot")
       const failed = controls.snapshotFailure?.(name)
       if (failed !== undefined) throw failed
       // The snapshot is the machine's whole disk: a real copy of its directory.
@@ -2572,6 +2578,44 @@ describe("MicrosandboxSandbox snapshots", () => {
         { name: "parked", timeoutMs: 1_000, force: true }
       ])
     }))
+
+  it.effect.each(["connect", "start", "scrub", "stop", "snapshot"] as const)(
+    "removes the machine when the capture is interrupted during %s",
+    (stage) =>
+      Effect.gen(function*() {
+        let reach: () => void = () => {}
+        const reached = new Promise<void>((resolve) => reach = resolve)
+        const never = new Promise<void>(() => {})
+        const arrive = (): Promise<void> => {
+          reach()
+          return never
+        }
+        const fake = fakeSdk({
+          hold: (call) => call === stage ? arrive() : undefined,
+          startGate: () => stage === "scrub" ? arrive() : undefined
+        })
+        fake.plant("prepared", ownership("installation-a", "host"), stage === "start" ? "stopped" : "running")
+        const capture = yield* Effect.forkChild(
+          MicrosandboxSandbox.captureSnapshot({
+            sdk: fake.sdk,
+            machine: "prepared",
+            family: "base",
+            member: "1",
+            secrets: [],
+            stopTimeoutMs: 1_000
+          })
+        )
+        yield* Effect.promise(() => reached)
+        expect(fake.recorded.destroys).toEqual([])
+
+        const exit = yield* Fiber.interrupt(capture).pipe(Effect.andThen(Fiber.await(capture)))
+
+        expect(Exit.hasInterrupts(exit)).toBe(true)
+        expect(fake.recorded.destroys).toEqual([{ name: "prepared", timeoutMs: 1_000, force: true }])
+        expect(fake.machines.has("prepared")).toBe(false)
+        expect(fake.snapshots.size).toBe(0)
+      })
+  )
 
   it.effect("removes the machine even when the capture fails, and names both failures", () =>
     Effect.gen(function*() {

@@ -247,7 +247,8 @@ export interface CaptureOptions {
  * longest line is under 8 bytes is refused before any guest call. Hand credentials
  * to later machines at run time, after the restore.
  *
- * The machine is removed whether or not the capture succeeded. A family and
+ * The machine is removed whether the capture succeeded, failed, or was
+ * interrupted. A family and
  * member that cannot name a snapshot fail with `unavailable` before any
  * vendor call, and the machine stays.
  *
@@ -277,37 +278,41 @@ export const captureSnapshot = (options: CaptureOptions): Effect.Effect<string, 
     )
   }
   const failed = `the microVM ${options.machine} could not be captured as ${name}`
-  return Effect.flatMap(
-    attempt(() => options.sdk.Sandbox.get(options.machine), "unavailable", failed),
-    (handle) =>
-      Effect.flatMap(
-        Effect.exit(Effect.gen(function*() {
-          const sandbox = yield* attempt(
-            () => handle.status === "running" ? handle.connect() : handle.start(),
-            "unavailable",
-            failed
-          )
-          yield* scrubbed(sandbox, searched.patterns, options.machine, name)
-          yield* attempt(
-            async () => {
-              await handle.stop()
-              await handle.snapshot(name)
-            },
-            "unavailable",
-            failed
-          )
-          return name
-        })),
-        (exit) =>
-          Effect.andThen(
-            attempt(
-              () => handle.destroy({ timeoutMs: options.stopTimeoutMs ?? defaultStopTimeoutMs, force: true }),
+  // Once the handle is in hand the machine is removed on every exit,
+  // interruption included; the capture's own result is what is returned.
+  return Effect.uninterruptibleMask((restore) =>
+    Effect.flatMap(
+      restore(attempt(() => options.sdk.Sandbox.get(options.machine), "unavailable", failed)),
+      (handle) =>
+        Effect.flatMap(
+          Effect.exit(restore(Effect.gen(function*() {
+            const sandbox = yield* attempt(
+              () => handle.status === "running" ? handle.connect() : handle.start(),
               "unavailable",
               failed
-            ),
-            exit
-          )
-      )
+            )
+            yield* scrubbed(sandbox, searched.patterns, options.machine, name)
+            yield* attempt(
+              async () => {
+                await handle.stop()
+                await handle.snapshot(name)
+              },
+              "unavailable",
+              failed
+            )
+            return name
+          }))),
+          (exit) =>
+            Effect.andThen(
+              attempt(
+                () => handle.destroy({ timeoutMs: options.stopTimeoutMs ?? defaultStopTimeoutMs, force: true }),
+                "unavailable",
+                failed
+              ),
+              exit
+            )
+        )
+    )
   )
 }
 
