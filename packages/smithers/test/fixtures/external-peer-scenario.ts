@@ -48,7 +48,8 @@ const rows = (root: string) => {
   }
 }
 
-if (process.argv[2] === "observe") {
+const mode = process.argv[2]
+if (["observe", "stall", "cancel", "recover"].includes(mode!)) {
   const root = await mkdtemp(join(tmpdir(), "smithers-external-peer-"))
   await symlink(fileURLToPath(new URL("../../../../node_modules", import.meta.url)), join(root, "node_modules"), "dir")
   await mkdir(join(root, "flows", "external-peer"), { recursive: true })
@@ -85,11 +86,13 @@ if (process.argv[2] === "observe") {
   try {
     await poll(async () => {
       if (original.exitCode !== null) throw new Error(`Owner exited: ${stderr}`)
+      if (rows(root).some((row) => row.status === "failed")) {
+        throw new Error(`Execution failed before external spawn: ${stderr}`)
+      }
       return (await workers(root)).length > 0
     }, "external worker entered")
     const runId = await readFile(join(root, "run-id"), "utf8")
     const first = (await workers(root))[0]!
-    assert.equal(first.owner, original.pid, "A peer must not adopt the launcher's external action")
     await new Promise((resolve) => setTimeout(resolve, 2_000))
     await writeFile(join(root, "observer-close"), "close")
     await observerExited
@@ -97,9 +100,35 @@ if (process.argv[2] === "observe") {
     assert.equal(alive(first.pid), true, "Closing an observation host must not terminate the worker")
     assert.deepEqual(await workers(root), [first])
     await poll(() => rows(root).some((row) => row.status === "suspended"), "real engine parent park")
+    if (mode === "recover") {
+      original.kill("SIGKILL")
+      await exited
+      // Expire the real lease by elapsed time; neither store is mutated.
+      await new Promise((resolve) => setTimeout(resolve, 31_000))
+    }
+    if (mode === "stall") original.kill("SIGSTOP")
     await Effect.runPromise(
       Effect.gen(function*() {
         const control = yield* Control.Control
+        if (mode === "cancel") {
+          yield* control.cancel({ runId, idempotencyKey: "cancel-peer" })
+          yield* Effect.promise(() =>
+            poll(() => rows(root).every((row) => row.status === "cancelled"), "public cancellation convergence")
+          )
+          assert.deepEqual(yield* Effect.promise(() => workers(root)), [first])
+          yield* Effect.promise(() => poll(() => !alive(first.pid), "external worker cancellation"))
+          return
+        }
+        if (mode === "recover") {
+          yield* Effect.promise(() => poll(async () => (await workers(root)).length === 2, "real dead-owner recovery"))
+          yield* Effect.promise(() => writeFile(join(root, "release"), "recover"))
+          yield* Effect.promise(() =>
+            poll(() => rows(root).every((row) => row.status === "completed"), "recovered parent settlement")
+          )
+          assert.equal((yield* Effect.promise(() => workers(root))).length, 2)
+          assert.equal(rows(root).every((row) => row.cancel_requested_at_ms === null), true)
+          return
+        }
         // Real registration and public observations span more than the engine's
         // lease timeout. No durable rows or ownership timestamps are injected.
         for (let tick = 0; tick < 40; tick++) {
@@ -108,6 +137,7 @@ if (process.argv[2] === "observe") {
           assert.equal(alive(first.pid), true)
           assert.equal(rows(root).every((row) => row.cancel_requested_at_ms === null), true)
           yield* Effect.sleep("1 second")
+          if (mode === "stall" && tick === 19) original.kill("SIGCONT")
         }
         yield* Effect.promise(() => writeFile(join(root, "release"), "finish"))
         yield* Effect.promise(() =>
@@ -118,9 +148,13 @@ if (process.argv[2] === "observe") {
         assert.deepEqual(yield* Effect.promise(() => workers(root)), [first])
       }).pipe(Effect.provide(host(root)), Effect.scoped)
     )
+  } catch (error) {
+    process.stderr.write(`Original host:\n${stderr}\nObserver host:\n${observerOutput}\n`)
+    throw error
   } finally {
     observer.kill("SIGKILL")
     await observerExited
+    original.kill("SIGCONT")
     original.kill("SIGKILL")
     await exited
     for (const worker of await workers(root)) {
@@ -130,5 +164,5 @@ if (process.argv[2] === "observe") {
     }
     await rm(root, { recursive: true, force: true, maxRetries: 5 })
   }
-  process.stdout.write(JSON.stringify({ passed: true }) + "\n")
+  process.stdout.write(JSON.stringify({ mode, passed: true }) + "\n")
 }

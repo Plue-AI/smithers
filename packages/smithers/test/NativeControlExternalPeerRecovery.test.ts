@@ -5,14 +5,21 @@ import { expect, it } from "vitest"
 
 const execute = promisify(execFile)
 const fixture = fileURLToPath(new URL("./fixtures/external-peer-scenario.ts", import.meta.url))
-it(
-  "public native flow keeps one external worker through concurrent peer registration and settles its parked parent",
-  async () => {
-    const { stdout } = await execute(process.execPath, ["--experimental-strip-types", fixture, "observe"], {
+for (
+  const [mode, behavior] of [
+    ["observe", "keeps one external worker through peer registration and observation"],
+    ["stall", "keeps the worker after a live owner stalls beyond heartbeat write tolerance"],
+    ["cancel", "cancels the external worker from another host"],
+    ["recover", "recovers a genuinely dead owner and settles the parent"]
+  ]
+) {
+  it(`public native flow ${behavior}`, async () => {
+    const { stdout } = await execute(process.execPath, ["--experimental-strip-types", fixture, mode!], {
       timeout: 180_000,
       maxBuffer: 1024 * 1024
     })
-    expect(stdout.trim().split("\n").findLast((line) => line.startsWith("{\"passed\":"))).toBe("{\"passed\":true}")
-  },
-  185_000
-)
+    const receipt = stdout.trim().split("\n").findLast((line) => line.startsWith("{\"mode\":"))
+    expect(receipt).toBeDefined()
+    expect(JSON.parse(receipt!)).toEqual({ mode, passed: true })
+  }, 185_000)
+}
