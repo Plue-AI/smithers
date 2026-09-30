@@ -38,8 +38,9 @@ export const key = "key1_8ab2962732794ee8d8b3bf550657b41d475fd082ec9c8c7073b1d24
 // preimage carries the whole error union, so a new member is a new declaration
 // digest and a new sealed key. That is what the digest is for. In-flight runs
 // finish under the declaration they started on; a new run is keyed under this
-// one. Moved when CallFailureCode gained flow_withheld (#1929).
-export const effect115Key = "key1_0336839392318b217d1892c2ae94ae09d6a644dd695239675803285d5e475b14"
+// one. Moved when CallFailureCode gained flow_withheld (#1929), and when
+// `HarnessError.cause` gained the typed `EvaluatorError` member (#2807).
+export const effect115Key = "key1_88223cc71e3c3ad27cb1dffea61a732b14dcfd48282f61d2253173adbd4d8d7b"
 
 // Independent JSON oracle. This fixture contains only JSON values, no schema
 // classes, undefined, non-finite numbers or other normalization cases.
