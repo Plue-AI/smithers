@@ -53,7 +53,7 @@ describe("the health readout", () => {
     const failing = html.slice(html.lastIndexOf("<div", start), html.indexOf("</div>", start))
     expect(failing).toMatch(/role="status"[^>]*data-fault="infra"[^>]*data-failure="AdminHealth.failed"/)
     expect(failing).toContain("<p>This service failed its health check. Not your fault.</p>")
-    expect(failing).toContain('<pre tabindex="0">fetch failed: ECONNREFUSED 10.0.0.4:8080</pre>')
+    expect(failing).toContain('<pre tabindex="0" role="region" aria-label="Failure details">fetch failed: ECONNREFUSED 10.0.0.4:8080</pre>')
     expect(html).not.toContain("— fetch failed")
     expect(html).toContain('data-status="failed"')
   })

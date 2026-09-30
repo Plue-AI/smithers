@@ -67,7 +67,7 @@ test("failed permissions keep a keyboard Retry door on the Account card", () => 
       refresh: { id: "read", state: "failed", error: "Permissions could not be loaded (HTTP 500)." } } }} onRunCommand={() => {}} />)
   expect(html).toMatch(/role="alert"[^>]*data-fault="infra"[^>]*data-failure="AccountPermissionsFailed"/)
   expect(html).toContain("<p>Smithers could not load your permissions. Not your fault.</p>")
-  expect(html).toContain('<details><summary>Details</summary><pre tabindex="0">Permissions could not be loaded (HTTP 500).</pre></details>')
+  expect(html).toContain('<details><summary>Details</summary><pre tabindex="0" role="region" aria-label="Failure details">Permissions could not be loaded (HTTP 500).</pre></details>')
   expect(html.slice(0, html.indexOf("<details>"))).not.toContain("HTTP 500")
   expect(html).toMatch(/<button[^>]*data-flow="account.show"[^>]*>Retry<\/button>/)
 })
