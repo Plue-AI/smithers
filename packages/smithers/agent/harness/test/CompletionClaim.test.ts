@@ -9,7 +9,10 @@
  *
  * Nothing here reaches a network: every evaluation is answered by
  * `Evaluator.layerScripted`, and the cases about a transport that cannot
- * answer bind `Evaluator.layerUnavailable()` or script a failure.
+ * answer bind `Evaluator.layerUnavailable()` or script a failure. Where the
+ * real gateway reads honest and invented claims is separate evidence:
+ * `calibration/completionClaim.ts` asks it, and `CompletionClaimCalibration`
+ * pins that program and its retained report.
  *
  * The rule the cases pin: the brake never falls back and it never goes quiet,
  * and what it refuses is narrower than what it asks about. A completion
