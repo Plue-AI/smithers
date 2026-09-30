@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test"
+import { fileURLToPath } from "node:url"
 import { Schema } from "effect"
 import { assembleArgs, assembleLine, displayLine, draftFrom, line, text, fileSubmission, positionalRead, formFieldsFor, missingFields, submissionPayload } from "../src/flow-form"
 
@@ -47,7 +48,7 @@ test("write-only values never become drafts or submitted payloads", () => {
 })
 
 test("headless exports bundle for Bun without importing DOM presentation", async () => {
-  const result = await Bun.build({ entrypoints: [new URL("../src/flow-form.ts", import.meta.url).pathname],
+  const result = await Bun.build({ entrypoints: [fileURLToPath(new URL("../src/flow-form.ts", import.meta.url))],
     target: "bun", packages: "external" })
   expect(result.success).toBe(true)
   const source = await result.outputs[0]!.text()
