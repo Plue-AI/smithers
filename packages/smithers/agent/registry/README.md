@@ -133,6 +133,18 @@ that one entry in place — no restart, same `Catalog` service, and the previous
 body stays registered until the new one is. `RefreshOptions.refreshable` holds
 entries a host serves out of its own measured bundle `Fixed`.
 
+Module discovery measures project helpers without evaluating them. Executable
+admission supports relative static imports and package `imports` keys with one
+static file target, including transitive imports and cycles. After a helper edit,
+refresh discovers a new identity; an old descriptor is refused before import.
+
+Measured project helpers reached through `import()` or `require()`, tsconfig
+aliases, or conditional package mappings without one static target are refused
+with `body_unavailable` before evaluating the entry. Their host loader cache
+cannot guarantee the measured bytes, and deferred loads can outlive temporary
+module cleanup. Use supported static imports for those helpers. Installed
+packages without a project mapping and Node/Bun builtins retain host trust.
+
 Every delegate receives the same serializable `Invocation` envelope: the flow's
 name, the caller's input, the rendered prompt, the declared seat, the lowered
 placement, the declared capabilities, and the declared collaborator flows. One

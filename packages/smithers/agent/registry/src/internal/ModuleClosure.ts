@@ -149,6 +149,7 @@ export const specifiersOf = (source: string): Specifiers => {
     opaque: Math.max(likely.opaque, alternate.opaque),
     absolute: union(likely.absolute, alternate.absolute),
     bare: union(likely.bare, alternate.bare),
+    runtime: union(likely.runtime, alternate.runtime),
     statics: likely.statics
   }
 }
@@ -158,6 +159,7 @@ interface Specifiers {
   readonly opaque: number
   readonly absolute: ReadonlyArray<string>
   readonly bare: ReadonlyArray<string>
+  readonly runtime: ReadonlyArray<string>
   readonly statics: ReadonlyArray<StaticSpecifier>
 }
 
@@ -165,6 +167,7 @@ const scan = (tokens: ReadonlyArray<Token>): Specifiers => {
   const relative: Array<string> = []
   const absolute: Array<string> = []
   const bare: Array<string> = []
+  const runtime: Array<string> = []
   const statics: Array<StaticSpecifier> = []
   let opaque = 0
   const recordStatic = (token: Token) => {
@@ -226,7 +229,10 @@ const scan = (tokens: ReadonlyArray<Token>): Specifiers => {
       // substitution in it.
       const literal = argument?.kind === "string" ? stringLiteral(argument.value) : undefined
       if (literal === undefined || tokens[index + 3]?.value !== ")") opaque++
-      else record(literal)
+      else {
+        record(literal)
+        runtime.push(literal)
+      }
       continue
     }
     // `import "./side-effect.ts"`, which names no bindings and so has no `from`.
@@ -243,7 +249,7 @@ const scan = (tokens: ReadonlyArray<Token>): Specifiers => {
       recordStatic(tokens[index + 1]!)
     }
   }
-  return { relative, opaque, absolute, bare, statics }
+  return { relative, opaque, absolute, bare, runtime, statics }
 }
 
 /**
@@ -760,7 +766,9 @@ export interface Module {
  * linked when it is relative, or a package.json `imports` key that maps to
  * exactly one file, and it resolves to a module of this closure. Other
  * loads — `import()` and `require()` calls, and bare specifiers another
- * mapping resolves — are left to the host's loader.
+ * mapping resolves — remain measured, but `unsupported` names those the
+ * native loader cannot evaluate coherently. Admission refuses them before
+ * importing the entry; installed packages and builtins retain host trust.
  *
  * @category constructors
  * @since 1.0.0
@@ -774,6 +782,7 @@ export const snapshot = (
 ): Effect.Effect<{
   readonly imports: ReadonlyArray<ModuleImport>
   readonly modules: ReadonlyMap<string, Module>
+  readonly unsupported: ReadonlyArray<string>
 }> =>
   Effect.gen(function*() {
     const memo = cache()
@@ -789,20 +798,44 @@ export const snapshot = (
       reads
     )
     const modules = new Map<string, Module>()
+    const unsupported = new Set<string>()
     for (const [file, read] of reads) {
       const directory = path.dirname(file)
       const links: Array<Module["links"][number]> = []
-      for (const site of specifiersOf(read.source).statics) {
+      const specifiers = specifiersOf(read.source)
+      // Mapping candidates can be missing (for example wildcard paths for an
+      // installed package). Only a target actually resolved into this measured
+      // closure needs project-module admission rather than host package trust.
+      const hasMappedModule = (literal: string) =>
+        memo.bare.get(`${directory}\0${literal}`)?.files.some((candidate) => {
+          const resolved = memo.resolutions.get(`${directory}\0${candidate}`)
+          return resolved !== undefined && reads.has(resolved)
+        }) ?? false
+      for (const literal of specifiers.runtime) {
+        if (literal.startsWith("./") || literal.startsWith("../") || hasMappedModule(literal)) {
+          unsupported.add(
+            `"${relativePath(path, path.dirname(entryPath), file)}" loads "${literal}" through import() or require()`
+          )
+        }
+      }
+      for (const site of specifiers.statics) {
         const target = site.literal.startsWith("./") || site.literal.startsWith("../")
           ? yield* resolve(fs, path, directory, site.literal, memo)
           : site.literal.startsWith("#")
           ? yield* soleImportsTarget(fs, path, directory, site.literal, memo)
           : undefined
         if (target !== undefined && reads.has(target)) links.push({ start: site.start, end: site.end, target })
+        else if (hasMappedModule(site.literal)) {
+          unsupported.add(
+            `"${
+              relativePath(path, path.dirname(entryPath), file)
+            }" uses mapped specifier "${site.literal}" without one coherent static target`
+          )
+        }
       }
       modules.set(file, { ...read, links })
     }
-    return { imports, modules }
+    return { imports, modules, unsupported: [...unsupported] }
   })
 
 /** The one file a package.json `imports` key maps to, or `undefined` when it maps to none or several. */

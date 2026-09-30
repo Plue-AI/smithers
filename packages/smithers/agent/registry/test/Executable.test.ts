@@ -897,7 +897,7 @@ describe("the modules a flow's entry imports", () => {
       expect(failure.message).toContain("import()")
     }).pipe(Effect.scoped, Effect.provide(platform)))
 
-  it.effect("keeps a literal dynamic import pinned rather than refusing it", () =>
+  it.effect("measures literal dynamic imports but refuses unsupported admission before invoking a loader", () =>
     Effect.gen(function*() {
       const root = yield* project({
         "flows/pinned/flow.ts": `${selfFlow(`Node.succeed("x")`)}\nexport const late = () => import("./late.ts")`,
@@ -906,6 +906,19 @@ describe("the modules a flow's entry imports", () => {
       const descriptor = yield* descriptorIn(root, "pinned")
       expect((descriptor.body as Descriptor.BodyRefModule).imports?.map((entry) => entry.path))
         .toEqual(["late.ts"])
+      let loaded = false
+      const failure = yield* Effect.flip(Executable.fromDescriptor(
+        descriptor,
+        options({
+          load: () => {
+            loaded = true
+            return Effect.succeed({})
+          }
+        })
+      ))
+      expect(failure.code).toBe("body_unavailable")
+      expect(failure.message).toContain("runtime module cache")
+      expect(loaded).toBe(false)
     }).pipe(Effect.scoped, Effect.provide(platform)))
 })
 
@@ -1623,6 +1636,41 @@ describe("the delegating body", () => {
 })
 
 describe("registration", () => {
+  it.effect("retains refreshed prompt-agent refusals without warning and still warns for named missing delegates", () =>
+    Effect.gen(function*() {
+      const logs: Array<string> = []
+      const capture = Logger.make((entry) => void logs.push(JSON.stringify(entry.message)))
+      const runtime = Layer.succeed(FlowRuntime.FlowRuntime, { register: () => Effect.void } as never)
+      yield* Effect.gen(function*() {
+        const catalog = yield* Executable.Catalog
+        const refresh = yield* Executable.Refresh
+        const prompt = catalog.refused.find((failure) =>
+          failure.code === "missing_delegate" && failure.delegate === "agent"
+        )!
+        expect(prompt).toBeDefined()
+        logs.length = 0
+        const refused = yield* refresh.flow(prompt.flow)
+        expect(refused).toMatchObject({
+          _tag: "Refused",
+          error: { code: "missing_delegate", flow: prompt.flow, delegate: "agent" }
+        })
+        expect(catalog.refused.some((failure) => failure.flow === prompt.flow)).toBe(true)
+        expect(logs).toEqual([])
+        expect(yield* refresh.flow("orphan")).toMatchObject({
+          _tag: "Refused",
+          error: { code: "missing_delegate", delegate: "test/missing" }
+        })
+        expect(logs.some((message) => message.includes("orphan"))).toBe(true)
+      }).pipe(
+        Effect.provide(
+          Executable.layer(options({ delegates: [Echo, Other] })).pipe(
+            Layer.provideMerge(Layer.mergeAll(runtime, Action.layerImplementations, NodeCrypto.layer))
+          )
+        ),
+        Effect.provide(Logger.layer([capture]))
+      )
+    }).pipe(Effect.scoped, Effect.provide(registryLayer), Effect.provide(platform)))
+
   it.effect("hands the host the refusals it registered around", () =>
     Effect.gen(function*() {
       const logs: Array<string> = []

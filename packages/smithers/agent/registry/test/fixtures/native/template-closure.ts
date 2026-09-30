@@ -12,13 +12,14 @@ const program = Effect.gen(function*() {
   const registry = yield* Registry.Registry
   const before = yield* registry.get("entry")
   const loaded = yield* Effect.result(Executable.fromDescriptor(before, { delegates: [] }))
-  if (loaded._tag === "Failure") return { code: loaded.failure.code, message: loaded.failure.message }
   yield* fs.writeFileString(`${root}/flows/entry/helper.ts`, "export const priority = 9\n")
   const stale = yield* Effect.flip(Executable.fromDescriptor(before, { delegates: [] }))
   yield* registry.refresh()
   const after = yield* registry.get("entry")
   return {
-    priority: loaded.success.lowered.priority,
+    ...(loaded._tag === "Failure"
+      ? { code: loaded.failure.code, message: loaded.failure.message }
+      : { priority: loaded.success.lowered.priority }),
     imports: (before.body as Descriptor.BodyRefModule).imports?.map((entry) => entry.path),
     stale: stale.code,
     before: Descriptor.executionDigest(before),

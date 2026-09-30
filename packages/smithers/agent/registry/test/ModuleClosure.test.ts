@@ -883,7 +883,11 @@ describe("the measured closure a loader evaluates", () => {
         "b.ts": `export const either = "b"`,
         "late.ts": `export const late = 1`
       })
-      const { imports, modules } = yield* snapshot(root, "flow.ts")
+      const { imports, modules, unsupported } = yield* snapshot(root, "flow.ts")
+      expect(unsupported).toEqual([
+        "\"flow.ts\" loads \"./late.ts\" through import() or require()",
+        "\"flow.ts\" uses mapped specifier \"#either\" without one coherent static target"
+      ])
       expect([...modules.keys()].map((file) => file.slice(root.length + 1)).sort()).toEqual([
         "a.ts",
         "b.ts",
@@ -919,5 +923,20 @@ describe("the measured closure a loader evaluates", () => {
       yield* fs.writeFileString(`${root}/helper.ts`, `export const v = 9`)
       expect(new TextDecoder().decode(modules.get(`${root}/helper.ts`)!.bytes)).toBe(`export const v = 7`)
       expect(imports[0]!.contentDigest).toBe(Digest.digest(new TextEncoder().encode(`export const v = 7`)))
+    }).pipe(Effect.scoped, Effect.provide(platform)))
+
+  it.effect("refuses measured transitive runtime mappings while preserving missing package candidates", () =>
+    Effect.gen(function*() {
+      const root = yield* tree({
+        "tsconfig.json": JSON.stringify({ compilerOptions: { baseUrl: ".", paths: { "*": ["./*"] } } }),
+        "flow.ts": "import \"./middle.ts\"; import \"effect\"; export const host = () => import(\"node:fs\")",
+        "middle.ts": "export const helper = () => require(\"helper\")",
+        "helper.ts": "export const value = 7"
+      })
+      const measured = yield* snapshot(root, "flow.ts")
+      expect(measured.unsupported).toEqual(["\"middle.ts\" loads \"helper\" through import() or require()"])
+      expect(measured.imports.map((item) => item.path)).toEqual(["helper.ts", "middle.ts"])
+      expect(measured.imports.every((item) => item.contentDigest !== undefined)).toBe(true)
+      expect(linksOf(root, measured.modules, "flow.ts")).toEqual([[`"./middle.ts"`, "middle.ts"]])
     }).pipe(Effect.scoped, Effect.provide(platform)))
 })

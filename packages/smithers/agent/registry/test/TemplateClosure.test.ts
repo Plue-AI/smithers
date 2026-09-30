@@ -77,7 +77,7 @@ describe("template closure tokens", () => {
 
 describe("native loading of template closures", () => {
   for (const depth of [1, 2, 3]) {
-    it.effect(`loads measured depth ${depth} and refuses a stale helper before importing`, () =>
+    it.effect(`measures depth ${depth} and refuses runtime loading before importing`, () =>
       Effect.gen(function*() {
         const fs = yield* FileSystem.FileSystem
         const root = yield* project(source(nested(literal, depth)))
@@ -87,11 +87,13 @@ describe("native loading of template closures", () => {
         )
         const before = yield* read
         expect((before.body as Descriptor.BodyRefModule).imports?.map((item) => item.path)).toEqual(["helper.ts"])
-        const loaded = yield* Executable.fromDescriptor(before, { delegates: [] })
-        expect(loaded.lowered.priority).toBe(7)
+        const unsupported = yield* Effect.flip(Executable.fromDescriptor(before, { delegates: [] }))
+        expect(unsupported.code).toBe("body_unavailable")
+        expect(unsupported.message).toContain("runtime module cache")
         yield* fs.writeFileString(`${root}/flows/entry/helper.ts`, "export const priority = 9")
         const failure = yield* Effect.flip(Executable.fromDescriptor(before, { delegates: [] }))
         expect(failure.code).toBe("body_unavailable")
+        expect(failure.message).toContain("changed")
         const after = yield* read
         expect(Descriptor.executionDigest(after)).not.toBe(Descriptor.executionDigest(before))
         expect((yield* fs.readDirectory(`${root}/flows/entry`)).filter((name) => name.startsWith(".smithers-")))

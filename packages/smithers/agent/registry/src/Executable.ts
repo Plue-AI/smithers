@@ -888,9 +888,10 @@ const loadMarkdown = (
  * evaluates, so no module of the static closure is read a second time between
  * this check and the import.
  *
- * WHAT THIS DOES NOT CLOSE: `import()` and `require()` calls, and bare
- * specifiers that a tsconfig mapping resolves, are measured but still loaded
- * by the host's own loader from their paths when they run.
+ * Measured project helpers reached through `import()` or `require()`, or a
+ * mapping without one linked static target, are refused before importing the
+ * entry. Reopening those paths could reuse stale host cache entries, while
+ * rewriting deferred calls to short-lived siblings would outlive cleanup.
  *
  * BARE SPECIFIERS ARE NOT MEASURED. `@smthrs/flow`, `effect`, and every other
  * package resolve into installed code, which is the host's own code under the
@@ -910,7 +911,12 @@ const verifyImports = (
         Effect.flatMap(Effect.try(() => new URL(path)), (url) => platformPath.fromFileUrl(url))
       )
       : platformPath.normalize(path)
-    const { imports: measured, modules } = yield* ModuleClosure.snapshot(fs, platformPath, entryPath, bytes)
+    const { imports: measured, modules, unsupported } = yield* ModuleClosure.snapshot(
+      fs,
+      platformPath,
+      entryPath,
+      bytes
+    )
     const unpinnable = measured.find((entry) => entry.contentDigest === undefined)
     if (unpinnable !== undefined) {
       return yield* Effect.fail(
@@ -936,6 +942,17 @@ const verifyImports = (
             `the body of flow "${descriptor.name}" changed at "${changed}", a module "${path}" imports, after discovery; refresh the registry before running it`
         })
       )
+    }
+    if (unsupported.length > 0) {
+      return yield* Effect.fail(refuse({
+        code: "body_unavailable",
+        flow: descriptor.name,
+        path,
+        message:
+          `flow "${descriptor.name}" runs code this host cannot pin coherently through its runtime module cache: ${
+            unsupported.join("; ")
+          }. Use relative static imports or a single package imports target for measured project helpers`
+      }))
     }
     return modules
   })

@@ -55,9 +55,11 @@ const run = async (source: string): Promise<Result> => {
   }
 }
 describe("template closures under real Node", () => {
-  it.each([1, 2, 3])("pins depth %i and refuses the stale descriptor before import", async (depth) => {
+  it.each([1, 2, 3])("measures depth %i and refuses runtime loading and the stale descriptor", async (depth) => {
     const result = await run(entry(nested("(await import(\"./helper.ts\")).priority", depth)))
-    expect(result.priority).toBe(7)
+    expect(result.code).toBe("body_unavailable")
+    expect(result.message).toContain("runtime module cache")
+    expect(result.priority).toBeUndefined()
     expect(result.imports).toEqual(["helper.ts"])
     expect(result.stale).toBe("body_unavailable")
     expect(result.after).not.toBe(result.before)
