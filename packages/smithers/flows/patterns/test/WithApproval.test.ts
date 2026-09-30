@@ -74,7 +74,7 @@ const inner = Flow.make("publish", {
   payload: Release,
   success: Release,
   error: Schema.Unknown,
-  capabilities: ["release:publish"],
+  capabilities: ["fs:write:release/**"],
   effects: Effects.make({
     reads: [],
     writes: ["release"],
@@ -155,7 +155,7 @@ describe("WithApproval", () => {
     const gatedCall = callsTo(graph, "publish")[0]
 
     expect(approved._tag).toBe("withApproval(publish)")
-    expect(Decorate.capabilitiesOf(approved)).toEqual(["release:publish"])
+    expect(Decorate.capabilitiesOf(approved)).toEqual(["fs:write:release/**"])
     expect(Graph.nodes(graph).filter((node) => node.kind === "ActionCall")).toHaveLength(2)
     expect(Graph.diagnostics(graph)).toEqual([])
 
@@ -291,7 +291,7 @@ describe("WithApproval", () => {
       payload: ApprovalInput,
       success: WithApproval.Approved,
       error: Schema.Unknown,
-      capabilities: ["net:egress"],
+      capabilities: ["net:post:**"],
       effects: Effects.make({
         reads: [],
         writes: ["secrets"],
@@ -308,9 +308,9 @@ describe("WithApproval", () => {
 
     expect(Graph.diagnostics(graph).map((error) => [error.code, error.node, error.path])).toEqual([
       ["effect_outside_envelope", approvalCall.id, ["secrets"]],
-      ["capability_outside_grant", approvalCall.id, ["net:egress"]]
+      ["capability_outside_grant", approvalCall.id, ["net:post:**"]]
     ])
-    expect(approvalCall.capabilities).not.toContain("net:egress")
+    expect(approvalCall.capabilities).not.toContain("net:post:**")
     expect(() => Graph.drafts(graph)).toThrow(expect.objectContaining({ code: "effect_outside_envelope" }))
   })
 

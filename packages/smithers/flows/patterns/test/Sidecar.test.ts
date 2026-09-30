@@ -91,10 +91,9 @@ describe("Sidecar", () => {
     const recovery = Graph.nodes(graph).find((node) => node.id.endsWith("all.shadow.failure"))
     expect(recovery?.draft.material.body).toEqual({ _tag: "Succeed" })
     expect(recovery?.payload).toMatchObject({ quarantined: true })
-    expect(Graph.diagnostics(graph).map(({ code, path }) => ({ code, path }))).toEqual([
-      { code: "capability_outside_grant", path: ["sidecar/primary"] },
-      { code: "capability_outside_grant", path: ["sidecar/shadow"] }
-    ])
+    // The sidecar declares no ceiling of its own, so it inherits its caller's
+    // authority and neither member's declaration falls outside the grant.
+    expect(Graph.diagnostics(graph)).toEqual([])
   })
 
   it("hands the scorer the pair run hands it", () => {
