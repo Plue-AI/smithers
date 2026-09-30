@@ -42,10 +42,10 @@ export default defineConfig({
         "src/PackageLoader.ts": { statements: 80, branches: 65, functions: 86, lines: 83 },
         "src/PackageTree.ts": { statements: 86, branches: 74, functions: 95, lines: 90 },
         "src/ServiceSupervisor.ts": { statements: 87, branches: 80, functions: 84, lines: 88 },
-        "src/RepoResolution.ts": { statements: 72, branches: 51, functions: 62, lines: 79 },
+        "src/RepoResolution.ts": { statements: 99, branches: 98, functions: 100, lines: 99 },
         "src/RspackRunner.ts": { statements: 82, branches: 72, functions: 68, lines: 85 },
-        "src/DockerExec.ts": { statements: 77, branches: 58, functions: 80, lines: 82 },
-        "src/GoExec.ts": { statements: 70, branches: 55, functions: 73, lines: 73 },
+        "src/DockerExec.ts": { statements: 100, branches: 98, functions: 100, lines: 100 },
+        "src/GoExec.ts": { statements: 98, branches: 94, functions: 100, lines: 99 },
         "src/StampExec.ts": { statements: 96, branches: 90, functions: 100, lines: 96 },
         // Fetch's extracted backend starts above its pre-move measured
         // 89.62/89.80/72.22/94.74 coverage. Planner and adapters are complete.
