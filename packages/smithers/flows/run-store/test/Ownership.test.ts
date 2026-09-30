@@ -12,7 +12,7 @@
 import { describe, expect, it } from "@effect/vitest"
 import type { DurableWriter } from "@smthrs/database"
 import * as TestDatabase from "@smthrs/database/test/TestDatabase"
-import { Cause, Clock, Duration, Effect, Exit, Fiber, Logger, References } from "effect"
+import { Cause, Clock, Deferred, Duration, Effect, Exit, Fiber, Logger, References } from "effect"
 import { TestClock } from "effect/testing"
 import type * as SqlClient from "effect/unstable/sql/SqlClient"
 import { spawn } from "node:child_process"
@@ -404,6 +404,47 @@ describe("heartbeatLoop write deadline", () => {
       })
       expect(warnings).toHaveLength(2)
     }))
+
+  for (
+    const [gapMs, expired] of [[toleranceMs - 1, false], [toleranceMs, true], [toleranceMs + intervalMs, true]] as const
+  ) {
+    it.effect(`checks a pulse delayed ${gapMs}ms before its watchdog resumes`, () =>
+      Effect.gen(function*() {
+        const baseClock = yield* Clock.Clock
+        const pulse = yield* Deferred.make<void>()
+        const watchdog = yield* Deferred.make<void>()
+        let now = 0
+        let waits = 0
+        let calls = 0
+        const clock: Clock.Clock = {
+          ...baseClock,
+          currentTimeMillis: Effect.sync(() => now),
+          currentTimeMillisUnsafe: () => now,
+          sleep: () => Deferred.await(++waits === 1 ? pulse : watchdog)
+        }
+        const owning = yield* Effect.raceFirst(Effect.never, heartbeatLoop("expired-pulse", ownerA)).pipe(
+          Effect.provideService(Clock.Clock, clock),
+          Effect.provide(RunStoreLive.layerNoop({
+            heartbeat: (_runId, _owner, atMs) => {
+              calls++
+              return Effect.succeed({ _tag: "Updated" as const, heartbeatAtMs: atMs })
+            }
+          })),
+          Effect.forkChild({ startImmediately: true })
+        )
+        yield* Effect.yieldNow
+        expect(waits).toBe(2)
+        // Model a stopped host: both timers are overdue, but its pulse executes
+        // first. Scheduling the watchdog later must not renew an expired lease.
+        now = gapMs
+        yield* Deferred.succeed(pulse, undefined)
+        yield* Effect.yieldNow
+        expect(calls).toBe(expired ? 0 : 1)
+        const exit = owning.pollUnsafe()
+        expect(exit !== undefined && Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause)).toBe(expired)
+        yield* Fiber.interrupt(owning)
+      }))
+  }
 
   it.effect("re-arms a delayed success from its persisted timestamp, not its completion time", () =>
     Effect.gen(function*() {

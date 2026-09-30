@@ -1120,11 +1120,12 @@ describe("RunStore", () => {
 
           yield* Deferred.await(started)
           // Flap: fail for most of a window, recover for one pulse, then fail
-          // again. The successful pulse re-arms the fence, so the second outage
+          // again. Recovery is strictly before expiry; a pulse at the boundary
+          // cannot renew. The successful pulse re-arms the fence, so the second outage
           // gets a full window of its own and the loop is still alive after a
           // total outage far longer than `heartbeatStaleAfter`.
           yield* TestClock.adjust(
-            Duration.millis(Duration.toMillis(heartbeatWriteTolerance) - Duration.toMillis(heartbeatInterval))
+            Duration.millis(Duration.toMillis(heartbeatWriteTolerance) - 2 * Duration.toMillis(heartbeatInterval))
           )
           broken.value = false
           yield* TestClock.adjust(heartbeatInterval)
@@ -1134,6 +1135,7 @@ describe("RunStore", () => {
             Duration.millis(Duration.toMillis(heartbeatWriteTolerance) - Duration.toMillis(heartbeatInterval))
           )
           yield* Effect.yieldNow
+          expect(yield* Clock.currentTimeMillis).toBeGreaterThan(Duration.toMillis(heartbeatStaleAfter))
           return owningFiber.pollUnsafe()
         })).pipe(
           Effect.provide(flakyHeartbeatStore(broken)),

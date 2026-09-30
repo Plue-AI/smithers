@@ -15,6 +15,7 @@
  */
 import { describe, expect, it } from "@effect/vitest"
 import type { DurableWriter } from "@smthrs/database"
+import { DatabaseError } from "@smthrs/database/DurableWriter"
 import * as TestDatabase from "@smthrs/database/test/TestDatabase"
 import * as Consensus from "@smthrs/journal/Consensus"
 import { Journal } from "@smthrs/journal/Journal"
@@ -356,4 +357,50 @@ describe("a failing strategy is a persistence failure, never a silent grant", ()
       // still shows the owner the failed transition could not release.
       expect((yield* store.get("run-broken-lease")).status).toBe("running")
     })))
+})
+
+describe("strategy persistence classification through bounded cause chains", () => {
+  const wrap = (cause: unknown, depth: number): unknown => {
+    for (let index = 0; index < depth; index++) cause = { cause }
+    return cause
+  }
+  const secret = "SyntheticPrivateSqlValueZq7"
+  const constraint = () => new DatabaseError({ code: "constraint", cause: secret })
+  const cyclic: { cause?: unknown } = {}
+  cyclic.cause = cyclic
+  const cases = [
+    { name: "direct constraint", cause: constraint(), code: "constraint", category: "constraint" },
+    {
+      name: "wrapped io",
+      cause: wrap(new DatabaseError({ code: "io", cause: secret }), 1),
+      code: "persistence_failed",
+      category: "io"
+    },
+    { name: "last inspected wrapper", cause: wrap(constraint(), 7), code: "constraint", category: "constraint" },
+    { name: "beyond inspection bound", cause: wrap(constraint(), 8), code: "persistence_failed", category: "unknown" },
+    { name: "cyclic wrapper", cause: cyclic, code: "persistence_failed", category: "unknown" },
+    { name: "null cause", cause: null, code: "persistence_failed", category: "unknown" },
+    { name: "primitive cause", cause: secret, code: "persistence_failed", category: "unknown" }
+  ] as const
+  for (const row of cases) {
+    it.effect(`retains ${row.name} classification without driver details or a granted lease`, () =>
+      // A custom strategy may wrap storage failures; inject that public seam
+      // while keeping the run row and rollback on the real SQL backend.
+      withStack(Consensus.layerNoop({
+        claim: () =>
+          Effect.fail(new Consensus.ConsensusError({ code: "persistence_failed", message: secret, cause: row.cause }))
+      }))(Effect.gen(function*() {
+        const store = yield* RunStore
+        yield* store.create("run-classification", "{}")
+        const failure = yield* Effect.flip(store.claim("run-classification", pending, ownerA, 1))
+        expect(failure.code).toBe(row.code)
+        expect(failure.cause).toMatchObject({ cause: { _tag: "@smthrs/database/DatabaseError", code: row.category } })
+        expect(JSON.stringify(failure)).not.toContain(secret)
+        const saved = yield* store.get("run-classification")
+        expect(saved.status).toBe("pending")
+        expect(saved.owner).toBeNull()
+        expect(saved.claim).toBeNull()
+        expect(saved.heartbeatAtMs).toBeNull()
+      })))
+  }
 })

@@ -304,15 +304,17 @@ export const heartbeatLoop = (
     const intervalMs = Duration.toMillis(heartbeatInterval)
     let lastConfirmedPulseMs = yield* Clock.currentTimeMillis
     let failing = false
+    const expire = (nowMs: number) =>
+      Effect.logWarning("run lease lapsed; interrupting owned work").pipe(
+        Effect.annotateLogs({ runId, unconfirmedMs: nowMs - lastConfirmedPulseMs }),
+        Effect.andThen(Effect.interrupt)
+      )
     const deadline = Effect.gen(function*() {
       while (true) {
         const nowMs = yield* Clock.currentTimeMillis
         const remainingMs = lastConfirmedPulseMs + toleranceMs - nowMs
         if (remainingMs <= 0) {
-          yield* Effect.logWarning("run lease lapsed; interrupting owned work").pipe(
-            Effect.annotateLogs({ runId, unconfirmedMs: nowMs - lastConfirmedPulseMs })
-          )
-          return yield* Effect.interrupt
+          return yield* expire(nowMs)
         }
         // Check alongside pulse intervals, with a shorter final wait when needed.
         yield* Effect.sleep(Math.min(remainingMs, intervalMs))
@@ -321,7 +323,7 @@ export const heartbeatLoop = (
     const pulses = Effect.sleep(heartbeatInterval).pipe(
       Effect.andThen(Clock.currentTimeMillis.pipe(Effect.map(Math.floor))),
       Effect.flatMap((nowMs) =>
-        runStore.heartbeat(runId, owner, nowMs).pipe(
+        nowMs - lastConfirmedPulseMs >= toleranceMs ? expire(nowMs) : runStore.heartbeat(runId, owner, nowMs).pipe(
           Effect.flatMap((outcome) =>
             outcome._tag === "Updated"
               ? Effect.sync(() => {
