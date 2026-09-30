@@ -663,7 +663,7 @@ export const makeWith = (
                         // The tail validation observed, re-checked under the
                         // claim: nothing else binds the refusal to the
                         // truncation it was asked about.
-                        expectedTail: { tail: expectedTail },
+                        expectedTail,
                         ...(rateLimit === undefined ? {} : { rateLimit }),
                         ...(options?.pageSize === undefined ? {} : { pageSize: options.pageSize })
                       }))

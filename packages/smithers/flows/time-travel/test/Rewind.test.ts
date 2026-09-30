@@ -551,7 +551,7 @@ describe("Rewind", () => {
               frame,
               owner,
               auditId: "audit-tail-moved",
-              expectedTail: { tail: expectedTail }
+              expectedTail
             })
           )
         ),
@@ -594,7 +594,7 @@ describe("Rewind", () => {
               frame: tailFrame,
               owner,
               auditId: "audit-tail-revalidated",
-              expectedTail: { tail: expectedTail }
+              expectedTail
             })
           )
         ),
@@ -635,7 +635,7 @@ describe("Rewind", () => {
               frame,
               owner,
               auditId: "audit-tail-rewritten",
-              expectedTail: { tail: expectedTail }
+              expectedTail
             })
           )
         ),
@@ -668,7 +668,7 @@ describe("Rewind", () => {
                   frame,
                   owner,
                   auditId: "audit-empty-tail-moved",
-                  expectedTail: { tail: expectedTail }
+                  expectedTail
                 })
               )
             )

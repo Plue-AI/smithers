@@ -177,17 +177,17 @@ export interface Options {
   readonly owner: OwnerId
   readonly auditId?: string | undefined
   /**
-   * The journal tail {@link validate} observed, re-checked once the run is
+   * The history {@link validate} observed, re-checked once the run is
    * claimed.
    *
    * Validation runs before the claim, so another executor can claim the idle
-   * row, append records, and release it inside that window; the later claim
-   * then succeeds and the truncation deletes records validation would have
-   * refused. Threading the observed tail through binds the two together. The
-   * wrapper distinguishes no expectation from a validated empty journal,
-   * whose expected `tail` is `undefined`.
+   * row, append records or rewind it, and release it inside that window; the
+   * later claim then succeeds and the truncation deletes records validation
+   * would have refused. Threading the observation through binds the two
+   * together. The wrapper distinguishes no expectation from a validated empty
+   * journal, whose expected `tail` is `undefined`.
    */
-  readonly expectedTail?: { readonly tail: Tail | undefined } | undefined
+  readonly expectedTail?: Observed | undefined
   readonly pageSize?: number | undefined
   /**
    * The most suffix entries the rewind may read while it holds the run before
@@ -273,6 +273,63 @@ export interface Tail {
   readonly seq: number
   readonly lineageId: string | undefined
 }
+
+/**
+ * What {@link validate} observed of a run's history.
+ *
+ * The tail alone cannot identify a history: a peer rewind truncates and the
+ * run re-appends up to the same seq on the same lineage. The journal's rewind
+ * generation, which every truncation advances, is what names the history the
+ * frame was validated against. It is `undefined` for an append-only journal
+ * that reports none, where the frame record re-check still applies.
+ *
+ * @since 0.1.0
+ * @category models
+ */
+export interface Observed {
+  readonly tail: Tail | undefined
+  readonly generation?: number | undefined
+}
+
+const readGeneration = (
+  journal: Journal.Service,
+  runId: string
+): Effect.Effect<number | undefined, TimeTravelFailure> =>
+  journal.generation === undefined
+    ? Effect.succeed(undefined)
+    : journal.generation(runId as JournalEvent.RunId).pipe(
+      Effect.map((observed) => observed.generation),
+      Effect.mapError((cause) => error("unknown", `could not read journal generation for ${runId}`, cause))
+    )
+
+/**
+ * Whether the frame still addresses a record of its lineage, from one read.
+ *
+ * The same rule {@link validate} applies, re-asked under the claim: a peer
+ * rewind can leave the tail exactly where validation saw it while the
+ * requested coordinate now belongs to another lineage or no longer exists.
+ * Frame zero stays the one frame that is always addressable.
+ */
+const frameStillAddressed = (
+  journal: Journal.Service,
+  runId: string,
+  frame: Frame
+): Effect.Effect<boolean, TimeTravelFailure> =>
+  frame.seq === 0
+    ? Effect.succeed(true)
+    : journal.entries({
+      runId: runId as JournalEvent.RunId,
+      after: (frame.seq - 1) as JournalEvent.Seq,
+      limit: 1
+    }).pipe(
+      Effect.mapError((cause) => error("unknown", `could not read journal for ${runId}`, cause)),
+      Effect.map((page) => {
+        const observed = page.entries[0]
+        if (observed === undefined || observed.seq !== frame.seq) return false
+        const lineage = lineageOf(observed)
+        return lineage === undefined || lineage === frame.lineageId
+      })
+    )
 
 /**
  * Whether the run's tail is still the one validation observed, from one read.
@@ -379,7 +436,7 @@ export const validate = (options: {
   readonly frame: Frame
   readonly pageSize?: number | undefined
   readonly maxEntries?: number | undefined
-}): Effect.Effect<Tail | undefined, TimeTravelFailure, Journal.Journal> =>
+}): Effect.Effect<Observed, TimeTravelFailure, Journal.Journal> =>
   Effect.gen(function*() {
     if (options.pageSize !== undefined && (!Number.isSafeInteger(options.pageSize) || options.pageSize < 1)) {
       return yield* Effect.fail(
@@ -394,6 +451,9 @@ export const validate = (options: {
     const maxEntries = options.maxEntries ?? HistoryLimit.defaultMaxHistoryEntries
     const journal = yield* Journal.Journal
     const coordinate = `${options.frame.lineageId}@${options.frame.seq}`
+    // Read before the scan: a rewind landing between the two leaves a stale
+    // generation, which the claim then refuses rather than trusting.
+    const generation = yield* readGeneration(journal, options.runId)
     const scanned = yield* scan(journal, options, "validation").pipe(
       Effect.catch((failure) =>
         failure.code === "unknown"
@@ -407,7 +467,7 @@ export const validate = (options: {
     if (tail === undefined) {
       // Frame zero is the state before the run wrote anything, so it is the
       // one frame an empty journal can still address.
-      if (options.frame.seq === 0) return undefined
+      if (options.frame.seq === 0) return { tail: undefined, generation }
       return yield* Effect.fail(
         error("not_found", `frame ${coordinate} is beyond the journal tail of ${options.runId}`)
       )
@@ -435,7 +495,7 @@ export const validate = (options: {
     if (scanned.suffixCount > maxEntries) {
       return yield* Effect.fail(HistoryLimit.exceeded("rewind", options.runId, maxEntries))
     }
-    return tail
+    return { tail, generation }
   })
 
 /**
@@ -739,11 +799,26 @@ const preflight = (context: Context, progress: Progress) =>
     // have claimed the idle row, appended records, and released it in that
     // window. Re-reading the tail under the claim is what binds the two
     // together; a moved tail is `busy`, not a silent truncation of records
-    // validation would have refused.
+    // validation would have refused. A peer rewind can recreate the same
+    // tail, so the frame and the history generation are re-checked too: a
+    // frame that no longer exists is `not_found`, exactly as a fresh
+    // validation would say, and any other rewritten history is `busy`.
     if (options.expectedTail !== undefined) {
       const unmoved = yield* tailUnmoved(journal, options.runId, options.expectedTail.tail)
       if (!unmoved) {
         return yield* Effect.fail(error("busy", `journal tail moved for ${options.runId}`))
+      }
+      if (!(yield* frameStillAddressed(journal, options.runId, options.frame))) {
+        return yield* Effect.fail(
+          error(
+            "not_found",
+            `no record of lineage ${options.frame.lineageId} exists at seq ${options.frame.seq} in ${options.runId}`
+          )
+        )
+      }
+      const generation = yield* readGeneration(journal, options.runId)
+      if (generation !== options.expectedTail.generation) {
+        return yield* Effect.fail(error("busy", `journal history was rewritten for ${options.runId}`))
       }
     }
 
