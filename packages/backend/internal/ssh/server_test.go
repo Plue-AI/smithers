@@ -1932,3 +1932,30 @@ func assertHeldPushRefused(t *testing.T, atDiscovery bool) {
 	assert.Equal(t, 1, sess.exitCode)
 	assert.Contains(t, sess.stderr.String(), "ERROR: repository maintenance is finishing; retry in 5s")
 }
+
+// smithersai/plue#593: a push past the owner's storage limit fails with
+// repo-host's message.
+func TestSessionHandler_ReceivePack_StorageLimit(t *testing.T) {
+	t.Parallel()
+	refusal := &repohost.StatusError{StatusCode: http.StatusRequestEntityTooLarge, Code: repohost.StorageLimitCode,
+		Message: "this push would exceed the storage limit for the current plan"}
+	server := &Server{
+		Queries: pushRepoQuerier(),
+		Authorizer: &mockSSHAuthorizer{
+			authorizeFn: func(context.Context, int64, string, string, services.AccessMode) error { return nil },
+		},
+		RepoHostClient: &mockRepoHostGitProxy{
+			infoRefsReceivePackFn: func(context.Context, string, string) ([]byte, error) { return []byte("0000"), nil },
+			proxyReceivePackFn: func(context.Context, string, string, io.Reader, io.Writer, ...repohost.ReceivePackMetadata) error {
+				return refusal
+			},
+		},
+	}
+	sess := newTestSession("git-receive-pack 'alice/demo.git'", "0000receive-pack-request")
+	sess.ctx.SetValue(principalKey, sshPrincipal{UserID: 1, Username: "alice"})
+
+	server.sessionHandler(sess)
+
+	assert.Equal(t, 1, sess.exitCode)
+	assert.Contains(t, sess.stderr.String(), "ERROR: this push would exceed the storage limit for the current plan")
+}

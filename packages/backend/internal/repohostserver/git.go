@@ -133,7 +133,9 @@ func gitServiceEnv(command string, maxInputSize, viewer int64, advertise bool) [
 	}
 	if command == "receive-pack" {
 		section = "receive"
-		config = append(config, "receive.maxInputSize", strconv.FormatInt(maxInputSize, 10))
+		// Keep every pack whole, so the stored bytes track the pack bytes a
+		// storage quota caps (smithersai/plue#593); maintenance repacks.
+		config = append(config, "receive.maxInputSize", strconv.FormatInt(maxInputSize, 10), "receive.unpackLimit", "1")
 	}
 	for _, ref := range hiddenRefs(viewer) {
 		config = append(config, section+".hideRefs", ref)

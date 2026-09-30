@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptrace"
 	"net/textproto"
@@ -80,6 +81,36 @@ type Client struct {
 	metrics             RepoHostOperationDurationObserver
 	localStagingBaseURL string
 	inProcess           bool
+	pushMeter           PushMeter
+	measuringMu         sync.Mutex
+	measuring           map[int64]*gitMeasurement
+}
+
+// gitMeasurement is the one measurement a repository has in flight; again
+// asks for another pass under the latest name once it ends.
+type gitMeasurement struct {
+	again       bool
+	owner, repo string
+}
+
+// PushMeter meters git storage for the receive-packs a client proxies
+// (smithersai/plue#593). It sees only pushes that carry a repository ID.
+type PushMeter interface {
+	// GitBytesAllowance returns the most bytes the repository's git objects
+	// may occupy: the storage its owner has left plus the repository's last
+	// recorded git bytes. limited is false when the owner has no storage
+	// limit.
+	GitBytesAllowance(ctx context.Context, repositoryID int64) (allowance int64, limited bool, err error)
+	// RecordGitBytes stores the repository's git object bytes, measured at
+	// measuredAt once a push was over; an older measurement never replaces a
+	// newer one.
+	RecordGitBytes(ctx context.Context, repositoryID, gitBytes int64, measuredAt time.Time) error
+}
+
+// SetPushMeter caps every attributed push at the storage its owner has left
+// and records the repository's git bytes once the push is over.
+func (c *Client) SetPushMeter(meter PushMeter) {
+	c.pushMeter = meter
 }
 
 const defaultReadTimeout = 30 * time.Second
@@ -484,7 +515,7 @@ func gitStatusError(resp *http.Response) *StatusError {
 	status := statusError(resp)
 	if !status.Held() && status.Code != PushTooSlowCode &&
 		!(status.StatusCode == http.StatusRequestEntityTooLarge &&
-			(status.Code == PushTooLargeCode || status.Code == UserRefPushTooLargeCode)) {
+			(status.Code == PushTooLargeCode || status.Code == UserRefPushTooLargeCode || status.Code == StorageLimitCode)) {
 		status.Message = ""
 	}
 	return status
@@ -1936,7 +1967,24 @@ const PushTooSlowCode = "push_too_slow"
 const (
 	PushTooLargeCode        = "push_too_large"
 	UserRefPushTooLargeCode = "user_ref_push_too_large"
+	// StorageLimitCode refuses a pack larger than the storage the owner has
+	// left (GitBytesAllowanceHeader).
+	StorageLimitCode = "storage_limit_exceeded"
 )
+
+// GitBytesAllowanceHeader carries the most bytes the repository's git objects
+// may occupy (PushMeter.GitBytesAllowance). repo-host measures the repository
+// under the push's write lock and refuses a pack larger than what is left. Its
+// absence means the owner has no storage limit.
+const GitBytesAllowanceHeader = "X-Smithers-Git-Bytes-Allowance"
+
+// GitSize is repo-host's measurement of a repository's git objects, taken
+// once no push holds the repository. MeasuredAt is Unix nanoseconds, so a
+// late record never replaces a newer one.
+type GitSize struct {
+	GitBytes   int64 `json:"git_bytes"`
+	MeasuredAt int64 `json:"measured_at"`
+}
 
 type pushStartedKey struct{}
 
@@ -2125,6 +2173,10 @@ func (c *Client) proxyGitRPCWithMeta(
 	if stdout == nil {
 		stdout = io.Discard
 	}
+	meter := c.pushMeter
+	if rpcPath != "receive-pack" || meta.RepositoryID == 0 {
+		meter = nil
+	}
 
 	baseURL, err := c.resolver.ResolveURL(ctx, owner, repo)
 	if err != nil {
@@ -2214,6 +2266,19 @@ func (c *Client) proxyGitRPCWithMeta(
 		}
 		req.Header.Set("X-Smithers-Allowed-Paths", base64.RawURLEncoding.EncodeToString(encoded))
 	}
+	if meter != nil {
+		allowance, limited, err := meter.GitBytesAllowance(ctx, meta.RepositoryID)
+		if err != nil {
+			return fmt.Errorf("read remaining storage: %w", err)
+		}
+		if limited {
+			req.Header.Set(GitBytesAllowanceHeader, strconv.FormatInt(max(allowance, 0), 10))
+		}
+		// git can keep a push's objects whatever its caller sees (a refused
+		// ref or a caller that left mid-answer), so the repository is
+		// measured once the push is over, without the caller.
+		defer c.measureGitSize(context.WithoutCancel(ctx), meter, owner, repo, meta.RepositoryID)
+	}
 
 	// Packfile streams can be long-lived. Use request context for lifecycle instead of hard client timeout.
 	client := *c.httpClient
@@ -2243,6 +2308,71 @@ func (c *Client) proxyGitRPCWithMeta(
 		return fmt.Errorf("stream git proxy response: %w", err)
 	}
 	return nil
+}
+
+// measureGitSize measures the repository once the push is over, without the
+// caller. A repository has one measurement in flight: pushes that end during
+// it share one more pass, so a busy repository cannot pile up waiting
+// measurements.
+func (c *Client) measureGitSize(ctx context.Context, meter PushMeter, owner, repo string, repositoryID int64) {
+	c.measuringMu.Lock()
+	defer c.measuringMu.Unlock()
+	if inFlight := c.measuring[repositoryID]; inFlight != nil {
+		inFlight.again, inFlight.owner, inFlight.repo = true, owner, repo
+		return
+	}
+	if c.measuring == nil {
+		c.measuring = map[int64]*gitMeasurement{}
+	}
+	c.measuring[repositoryID] = &gitMeasurement{}
+	go func() {
+		for {
+			c.recordGitSize(ctx, meter, owner, repo, repositoryID)
+			c.measuringMu.Lock()
+			inFlight := c.measuring[repositoryID]
+			if !inFlight.again {
+				delete(c.measuring, repositoryID)
+				c.measuringMu.Unlock()
+				return
+			}
+			inFlight.again, owner, repo = false, inFlight.owner, inFlight.repo
+			c.measuringMu.Unlock()
+		}
+	}()
+}
+
+// recordGitSize records the repository's git bytes once no push holds it. The
+// push is decided either way, so a failed measurement or write is logged; the
+// next push measures again.
+func (c *Client) recordGitSize(ctx context.Context, meter PushMeter, owner, repo string, repositoryID int64) {
+	ctx, cancel := context.WithTimeout(ctx, DefaultReceivePackMaxDuration)
+	defer cancel()
+	size, err := c.GitSize(ctx, owner, repo)
+	if err != nil {
+		slog.WarnContext(ctx, "failed to measure repository git bytes", "repository_id", repositoryID, "error", err)
+		return
+	}
+	if err := meter.RecordGitBytes(ctx, repositoryID, size.GitBytes, time.Unix(0, size.MeasuredAt)); err != nil {
+		slog.WarnContext(ctx, "failed to record repository git bytes", "repository_id", repositoryID, "error", err)
+	}
+}
+
+// GitSize measures a repository's git objects once no push holds it
+// (smithersai/plue#593). It waits as long as ctx allows, not the 30-second
+// read bound: a queued push may hold the repository for minutes.
+func (c *Client) GitSize(ctx context.Context, owner, repo string) (GitSize, error) {
+	baseURL, err := c.resolver.ResolveURL(ctx, owner, repo)
+	if err != nil {
+		return GitSize{}, fmt.Errorf("resolve storage set url: %w", err)
+	}
+	var size GitSize
+	if err := c.sendJSON(ctx, http.MethodGet, repoEndpoint(baseURL, owner, repo)+"/git/size", nil, http.StatusOK, &size); err != nil {
+		return GitSize{}, err
+	}
+	if size.GitBytes < 0 || size.MeasuredAt <= 0 {
+		return GitSize{}, fmt.Errorf("repo-host returned a malformed git size %+v", size)
+	}
+	return size, nil
 }
 
 func (c *Client) proxyGitInfoRefs(
@@ -2296,6 +2426,13 @@ func (c *Client) proxyGitInfoRefs(
 }
 
 func (c *Client) doJSON(ctx context.Context, method, endpoint string, requestBody any, expectedStatus int, responseBody any) error {
+	requestCtx, cancel := c.requestContext(ctx, method)
+	defer cancel()
+	return c.sendJSON(requestCtx, method, endpoint, requestBody, expectedStatus, responseBody)
+}
+
+// sendJSON is doJSON bounded by ctx alone.
+func (c *Client) sendJSON(ctx context.Context, method, endpoint string, requestBody any, expectedStatus int, responseBody any) error {
 	var bodyReader io.Reader
 	if requestBody != nil {
 		encoded, err := json.Marshal(requestBody)
@@ -2305,9 +2442,7 @@ func (c *Client) doJSON(ctx context.Context, method, endpoint string, requestBod
 		bodyReader = bytes.NewReader(encoded)
 	}
 
-	requestCtx, cancel := c.requestContext(ctx, method)
-	defer cancel()
-	req, err := http.NewRequestWithContext(requestCtx, method, endpoint, bodyReader)
+	req, err := http.NewRequestWithContext(ctx, method, endpoint, bodyReader)
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
 	}

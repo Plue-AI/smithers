@@ -34,6 +34,7 @@ type Policy interface {
 	services.DynamicStorageCommitAuthorizer
 	services.RepositoryTransferCommitAuthorizer
 	services.RepositoryTransferTransactionAuthorizer
+	services.StorageBudgeter
 	AuthorizeCountedSandboxResume(context.Context, int64, string, string) error
 }
 

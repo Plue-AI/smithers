@@ -10,6 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/smithersai/smithers/packages/backend/admission"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/lfsauth"
 	"github.com/smithersai/smithers/packages/backend/internal/revocation"
@@ -28,9 +29,11 @@ const UnlimitedWorkspaceLifetime = transport.UnlimitedWorkspaceLifetime
 
 type Config struct {
 	// Database remains caller-owned and must outlive Shutdown.
-	Database                 *pgxpool.Pool
-	Repository               *repository.Client
-	WorkspaceBridge          WorkspaceBridge
+	Database        *pgxpool.Pool
+	Repository      *repository.Client
+	WorkspaceBridge WorkspaceBridge
+	// Admission caps each push at its owner's remaining storage.
+	Admission                admission.Policy
 	Metrics                  prometheus.Registerer
 	LFSSigningSecret         string
 	PublicAPIOrigin          string
@@ -64,11 +67,15 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	if cfg.Repository == nil {
 		return nil, errors.New("ssh: repository transport is required")
 	}
+	if cfg.Admission == nil {
+		return nil, errors.New("ssh: admission policy is required")
+	}
 	bridge, err := lfsauth.NewBridge(lfsauth.BridgeConfig{Secret: cfg.LFSSigningSecret, PublicBaseURL: cfg.PublicAPIOrigin})
 	if err != nil {
 		return nil, fmt.Errorf("ssh: LFS authentication: %w", err)
 	}
 	queries := db.New(cfg.Database)
+	cfg.Repository.SetPushMeter(services.NewGitStorageMeter(cfg.Admission, queries))
 	metrics := cfg.Metrics
 	if metrics == nil {
 		metrics = prometheus.NewRegistry()

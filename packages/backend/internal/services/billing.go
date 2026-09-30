@@ -1000,6 +1000,46 @@ func (s *BillingService) AuthorizeOrgCreateCommitted(ctx context.Context, userID
 	})
 }
 
+// StorageBudgeter reports how much storage a push to a repository may add
+// (smithersai/plue#593).
+type StorageBudgeter interface {
+	// RemainingStorageBytes returns the repository owner's storage limit less
+	// what the owner stores, negative when the owner is over the limit;
+	// limited is false when the plan has no storage limit.
+	RemainingStorageBytes(ctx context.Context, repositoryID int64) (remaining int64, limited bool, err error)
+}
+
+// RemainingStorageBytes returns the repository owner's storage limit less
+// what the owner stores, negative when the owner is over it; limited is false
+// for an unlimited plan. It sums the owner's storage itself rather than
+// reading the persisted usage counters, which a concurrent, older sum can
+// overwrite. Corrupt quantities fail, so a push admits nothing.
+func (s *BillingService) RemainingStorageBytes(ctx context.Context, repositoryID int64) (int64, bool, error) {
+	owner, _, err := s.resolveRepoOwner(ctx, repositoryID)
+	if err != nil {
+		return 0, false, err
+	}
+	plan, err := s.resolvePlan(ctx, owner)
+	if err != nil {
+		return 0, false, err
+	}
+	limit := plan.Limits.StorageBytes
+	if limit >= unlimitedBillingQuantity {
+		return 0, false, nil
+	}
+	consumed, err := s.queries.SumStorageBytesByOwner(ctx, db.SumStorageBytesByOwnerParams{
+		OwnerType: owner.OwnerType,
+		OwnerID:   owner.OwnerID,
+	})
+	if err != nil {
+		return 0, false, pkgerrors.Internal("failed to measure storage usage").WithCause(err)
+	}
+	if limit < 0 || consumed < 0 {
+		return 0, false, fmt.Errorf("storage quantities are corrupt: limit %d, consumed %d", limit, consumed)
+	}
+	return limit - consumed, true, nil
+}
+
 // withOwnerQuotaLock runs admit with a service bound to a transaction that
 // holds the owner's quota lock. The transaction carries only the lock and
 // usage projections and is rolled back afterward, so admit's commit callback

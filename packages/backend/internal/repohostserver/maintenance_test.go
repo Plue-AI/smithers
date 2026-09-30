@@ -111,7 +111,7 @@ func TestStartupSweepDisablesAutoMaintenanceInExistingRepositories(t *testing.T)
 }
 
 // receive-pack starts no gc of its own: past git's thresholds, with gc in the
-// foreground so one would finish before the push returns, the pushed objects
+// foreground so one would finish before the push returns, the loose objects
 // stay loose, and the repository is queued for repo-host's pass instead.
 func TestReceivePackRunsNoAutoGCAndQueuesMaintenance(t *testing.T) {
 	f := newLaneHTTPFixture(t, nil)
@@ -128,8 +128,22 @@ func TestReceivePackRunsNoAutoGCAndQueuesMaintenance(t *testing.T) {
 	require.Equal(t, 200, rec.Code, rec.Body.String())
 	require.Equal(t, tip, f.repo.refs()["refs/heads/main"])
 	counts := gitOut(t, gitDir, "count-objects", "-v")
-	require.Contains(t, counts, "packs: 0", counts)
+	require.GreaterOrEqual(t, looseObjectCount(t, counts), taggedBlobCount, counts)
 	require.Equal(t, []string{f.srv.config.RepoPath("alice", "demo")}, f.srv.takeMaintenanceDue())
+}
+
+// looseObjectCount reads the loose object count from git count-objects -v.
+func looseObjectCount(t *testing.T, counts string) int {
+	t.Helper()
+	for _, line := range strings.Split(counts, "\n") {
+		if value, ok := strings.CutPrefix(line, "count: "); ok {
+			n, err := strconv.Atoi(strings.TrimSpace(value))
+			require.NoError(t, err, counts)
+			return n
+		}
+	}
+	t.Fatalf("no loose object count in %q", counts)
+	return 0
 }
 
 // taggedBlobCount is how many loose blobs writeTaggedBlobs writes. git

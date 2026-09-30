@@ -452,6 +452,10 @@ func gitProxyFailure(ctx context.Context, operation, owner, repo string, err err
 			return errors.New(errors.CodePushTooLarge, status.Message)
 		case repohost.UserRefPushTooLargeCode:
 			return errors.New(errors.CodeUserRefPushTooLarge, status.Message)
+		case repohost.StorageLimitCode:
+			refusal := errors.New(errors.CodePlanLimitExceeded, status.Message)
+			refusal.LimitKind = BillingMetricStorageBytes
+			return refusal
 		}
 	}
 	middleware.LoggerFromContext(ctx).Error("git proxy to repo-host failed",

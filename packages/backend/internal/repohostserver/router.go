@@ -266,6 +266,7 @@ func (s *Server) Handler() http.Handler {
 
 		r.Method(http.MethodGet, "/repos/{owner}/{repo}/git/info-refs", s.withGitError(s.infoRefs))
 		r.Method(http.MethodPost, "/repos/{owner}/{repo}/git/receive-pack", s.withGitError(s.receivePack))
+		r.Method(http.MethodGet, "/repos/{owner}/{repo}/git/size", s.withAppError(s.gitSize))
 		r.Method(http.MethodPost, "/repos/{owner}/{repo}/git/upload-pack", s.withGitError(s.uploadPack))
 	})
 
@@ -990,15 +991,39 @@ func (s *Server) receivePack(w http.ResponseWriter, r *http.Request) error {
 		}
 		maxInputSize = policy.maxPushBytes
 	}
+	// smithersai/plue#593: a pack may not exceed the storage the owner has
+	// left for this repository (storagePackCap).
+	allowance, storageLimited, storageErr := gitBytesAllowance(r.Header)
+	if storageErr != nil {
+		return storageErr
+	}
+	var remainingStorage int64
+	if storageLimited {
+		if remainingStorage, err = remainingGitBytes(pushCtx, gitDir, allowance); err != nil {
+			return internalError("failed to measure repository git bytes", err)
+		}
+	}
+	storageCap := storagePackCap(remainingStorage)
+	storageCapped := storageLimited && storageCap < maxInputSize
+	if storageCapped {
+		maxInputSize = storageCap
+	}
 	// receive-pack responses are small (sideband status lines only), so we
 	// buffer them here. We must hold the full response in memory until after
 	// jj ref import and push hooks so we can still return an HTTP error if the
 	// git subprocess itself fails before any bytes are written to the client.
 	pack := capPack(peeked, source.n, maxInputSize)
+	if storageLimited {
+		pack = requireObjectFreePack(pack, source.n, remainingStorage)
+	}
 	body, err := runReceivePackBuffered(pushCtx, gitDir, readCloserWithBody(pack, requestBody), maxInputSize, refViewer(r))
 	gitErr := pushLimited(err)
 	if errors.Is(gitErr, errPushTooLarge) {
-		gitErr = pushTooLarge(userRefs, maxInputSize)
+		if storageCapped {
+			gitErr = storageLimitReached()
+		} else {
+			gitErr = pushTooLarge(userRefs, maxInputSize)
+		}
 	}
 
 	// git has applied the ref updates. A path-restricted push is authorized

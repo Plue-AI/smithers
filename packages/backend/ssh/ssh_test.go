@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/smithersai/smithers/packages/backend/admission"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/repository"
 	productssh "github.com/smithersai/smithers/packages/backend/ssh"
@@ -21,6 +22,14 @@ import (
 func TestNewRejectsAbsentProductDependencies(t *testing.T) {
 	_, err := productssh.New(context.Background(), productssh.Config{})
 	require.ErrorContains(t, err, "database")
+}
+
+// smithersai/plue#593: SSH pushes are capped at the owner's storage, so the
+// server never starts without the admission policy that caps them.
+func TestNewRequiresAdmission(t *testing.T) {
+	pool, _ := postgresfixture.NewProductDatabase(t)
+	_, err := productssh.New(context.Background(), productssh.Config{Database: pool, Repository: repository.NewRemoteClient(nil, "test-token")})
+	require.ErrorContains(t, err, "admission policy is required")
 }
 
 func TestProductSSHUsesCanonicalKeyAndRepositoryAuthorization(t *testing.T) {
@@ -39,7 +48,9 @@ func TestProductSSHUsesCanonicalKeyAndRepositoryAuthorization(t *testing.T) {
 	require.NoError(t, err)
 	address := listener.Addr().String()
 	require.NoError(t, listener.Close())
-	server, err := productssh.New(ctx, productssh.Config{Database: pool, Repository: repository.NewRemoteClient(nil, "test-token"), Addr: address, HostKeyDir: t.TempDir(), LFSSigningSecret: "test-lfs-secret", PublicAPIOrigin: "http://127.0.0.1:4000"})
+	policy, err := admission.NewMetered(pool, admission.Config{Usage: admission.ProductUsage})
+	require.NoError(t, err)
+	server, err := productssh.New(ctx, productssh.Config{Database: pool, Repository: repository.NewRemoteClient(nil, "test-token"), Admission: policy, Addr: address, HostKeyDir: t.TempDir(), LFSSigningSecret: "test-lfs-secret", PublicAPIOrigin: "http://127.0.0.1:4000"})
 	require.NoError(t, err)
 	done := make(chan error, 1)
 	go func() { done <- server.ListenAndServe() }()

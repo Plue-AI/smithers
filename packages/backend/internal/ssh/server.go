@@ -836,7 +836,7 @@ func (s *Server) sessionHandler(sess ssh.Session) {
 			return
 		}
 
-		if status, ok := repohost.IsStatusError(err); ok && (status.Held() || status.Code == repohost.PushTooSlowCode) {
+		if status, ok := repohost.IsStatusError(err); ok && (status.Held() || status.Code == repohost.PushTooSlowCode || status.Code == repohost.StorageLimitCode) {
 			slog.Warn("ssh git write refused by repo-host",
 				"session_id", sessionID, "git_command", gitCmd, "owner", owner, "repo", repo, "code", status.Code)
 			_, _ = fmt.Fprintf(sess.Stderr(), "ERROR: %s\n", status.Message)

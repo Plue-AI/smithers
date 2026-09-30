@@ -165,6 +165,11 @@ func (*UnlimitedBillingPolicy) AuthorizeOrgCreateCommitted(ctx context.Context, 
 	return runUnlimitedCommit(ctx, commit)
 }
 
+// RemainingStorageBytes reports no storage limit.
+func (*UnlimitedBillingPolicy) RemainingStorageBytes(context.Context, int64) (int64, bool, error) {
+	return 0, false, nil
+}
+
 func (*UnlimitedBillingPolicy) AuthorizeStorageIncreaseCommitted(
 	ctx context.Context,
 	_ int64,
