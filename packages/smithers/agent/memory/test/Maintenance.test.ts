@@ -335,6 +335,73 @@ describe("Maintenance", () => {
 
   // Each summarizer call sees at most `maxMessagesPerSummary` messages; later
   // windows fold the previous summary in with the next oldest messages.
+  // A summary keeps its oldest source's timestamp, so under tied timestamps
+  // its id can sort on either side of the messages it did not summarize.
+  describe("tied timestamps", () => {
+    const compactTied = (
+      ids: ReadonlyArray<string>,
+      makeSummaryId?: (threadId: string, messages: ReadonlyArray<MemoryStore.Message>) => string
+    ) => {
+      const summarized: Array<ReadonlyArray<string>> = []
+      return run(Effect.gen(function*() {
+        const store = yield* MemoryStore.MemoryStore
+        for (const id of ids) yield* store.appendMessage({ threadId: "tied", id, role: "user", text: id, at: 0 })
+        const compacted = yield* Maintenance.compact({
+          threadId: "tied",
+          keepRecent: 2,
+          maxMessagesPerSummary: 2,
+          summarizer: {
+            summarize: ({ messages }) =>
+              Effect.sync(() => {
+                summarized.push(messages.map((message) => message.id))
+                return messages.map((message) => message.text).join("+")
+              })
+          },
+          ...(makeSummaryId === undefined ? {} : { makeSummaryId })
+        })
+        const remaining = yield* store.listMessages({ threadId: "tied" })
+        return { summarized, compacted, remaining }
+      }))
+    }
+
+    it("carries the default summary id that sorts after the remaining messages", async () => {
+      const result = await compactTied(["a", "b", "c", "d", "e"])
+      expect(result.summarized).toEqual([["a", "b"], [expect.stringMatching(/^summary-/), "c"]])
+      expect(result.compacted).toEqual({ compactedThreads: 1, deletedMessages: 4 })
+      expect(result.remaining.map((message) => [message.role, message.text])).toEqual([
+        ["user", "d"],
+        ["user", "e"],
+        ["system", "a+b+c"]
+      ])
+    })
+
+    it("carries a custom summary id that sorts before the remaining messages", async () => {
+      const result = await compactTied(
+        ["m", "n", "o", "p", "q", "r", "s"],
+        (_, messages) => `A-${messages.length}-${messages.at(-1)!.id}`
+      )
+      expect(result.summarized).toEqual([["m", "n"], ["A-2-n", "o"], ["A-2-o", "p"], ["A-2-p", "q"]])
+      expect(result.compacted).toEqual({ compactedThreads: 1, deletedMessages: 8 })
+      expect(result.remaining.map((message) => [message.id, message.text])).toEqual([
+        ["A-2-q", "m+n+o+p+q"],
+        ["r", "r"],
+        ["s", "s"]
+      ])
+    })
+
+    it("carries a custom summary id that sorts between the remaining messages", async () => {
+      let count = 0
+      const result = await compactTied(["a", "b", "c", "d", "e", "x", "y"], () => `c${++count}`)
+      expect(result.summarized).toEqual([["a", "b"], ["c1", "c"], ["c2", "d"], ["c3", "e"]])
+      expect(result.compacted).toEqual({ compactedThreads: 1, deletedMessages: 8 })
+      expect(result.remaining.map((message) => [message.id, message.text])).toEqual([
+        ["c4", "a+b+c+d+e"],
+        ["x", "x"],
+        ["y", "y"]
+      ])
+    })
+  })
+
   it("compacts a long thread in bounded windows", async () => {
     const summarized: Array<ReadonlyArray<string>> = []
     const result = await run(Effect.gen(function*() {

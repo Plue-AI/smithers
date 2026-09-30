@@ -294,18 +294,24 @@ export const compact = <E, R>(
     let deletedMessages = 0
     for (const threadId of threadIds) {
       // Old messages still to summarize. Every window after the first also
-      // carries the previous window's summary, which is now the oldest row.
+      // carries the previous window's summary. The summary is carried
+      // explicitly: it keeps the oldest source timestamp, but under a tied
+      // timestamp its id may sort after messages it did not summarize.
       let unsummarized = (yield* store.countMessages({ threadId })) - keepRecent
-      let carried = 0
+      let carried: Message | undefined
       while (unsummarized > 0) {
+        const take = Math.min(maxMessagesPerSummary - (carried === undefined ? 0 : 1), unsummarized)
         const page = yield* store.listMessages({
           threadId,
-          limit: Math.min(maxMessagesPerSummary, unsummarized + carried)
+          limit: take + (carried === undefined ? 0 : 1)
         })
-        const oldMessages = Object.freeze(page.map((message) => Object.freeze({ ...message })))
-        if (oldMessages.length === 0 || (oldMessages.length === 1 && oldMessages[0]!.role === "system")) {
+        const sources = page.filter((message) => message.id !== carried?.id).slice(0, take)
+        if (sources.length === 0 || (carried === undefined && sources.length === 1 && sources[0]!.role === "system")) {
           break
         }
+        const oldMessages = Object.freeze(
+          (carried === undefined ? sources : [carried, ...sources]).map((message) => Object.freeze({ ...message }))
+        )
         const summaryText = yield* options.summarizer.summarize({
           threadId,
           messages: oldMessages,
@@ -315,20 +321,11 @@ export const compact = <E, R>(
           `summary-${
             Digest.digest(Digest.canonical({ threadId, messageIds: oldMessages.map((message) => message.id) }))
           }`
-        deletedMessages += yield* store.compactMessages({
-          threadId,
-          summary: {
-            threadId,
-            id: summaryId,
-            role: "system",
-            text: summaryText,
-            at: oldMessages[0]!.at
-          },
-          sourceMessages: oldMessages
-        })
-        if (carried === 0) compactedThreads += 1
-        unsummarized -= oldMessages.length - carried
-        carried = 1
+        const summary: Message = { threadId, id: summaryId, role: "system", text: summaryText, at: oldMessages[0]!.at }
+        deletedMessages += yield* store.compactMessages({ threadId, summary, sourceMessages: oldMessages })
+        if (carried === undefined) compactedThreads += 1
+        unsummarized -= sources.length
+        carried = summary
       }
     }
     return { compactedThreads, deletedMessages }
