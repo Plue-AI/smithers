@@ -125,8 +125,43 @@ func TestBuildProcessSpecGivesModelSeatsADerivedCredential(t *testing.T) {
 	assert.NotContains(t, spec.Environment, "SMITHERS_CODING_IMPLEMENT_MODEL")
 	assert.NotContains(t, spec.Environment, "AI_GATEWAY_API_KEY")
 	assert.Equal(t, catalog.AccountPoolURL, spec.Environment[AccountPoolURLEnv])
-	assert.Equal(t, AccountPoolRoutes, spec.Environment[AccountPoolProvidersEnv])
+	assert.Equal(t, "chatgpt,anthropic", spec.Environment[AccountPoolProvidersEnv])
 	assert.Equal(t, credential, spec.Environment[AccountPoolKeyEnv])
+	// A seat the repository keys itself keeps that key, as in a workspace:
+	// the pool is offered only the other routes, and none when both are keyed.
+	for _, keyed := range []struct {
+		environment map[string]string
+		routes      string
+	}{
+		{map[string]string{"ANTHROPIC_API_KEY": "repository-key"}, "chatgpt"},
+		{map[string]string{"OPENAI_API_KEY": "repository-key"}, "anthropic"},
+		{map[string]string{"ANTHROPIC_API_KEY": "", "OPENAI_API_KEY": ""}, "chatgpt,anthropic"},
+		{map[string]string{"ANTHROPIC_API_KEY": "repository-key", "OPENAI_API_KEY": "repository-key"}, ""},
+	} {
+		spec, err = BuildProcessSpec(HostLaunch{Binding: binding, Authority: authority, Catalog: catalog, Credential: "control-credential", Environment: keyed.environment},
+			WorkspacePaths{Root: "/workspace/repo", StateDir: "/workspace/state"}, 4317)
+		require.NoError(t, err)
+		if keyed.routes == "" {
+			for _, name := range []string{AccountPoolURLEnv, AccountPoolProvidersEnv, AccountPoolKeyEnv} {
+				assert.NotContains(t, spec.Environment, name, "a host with no pooled seat is not offered the pool")
+			}
+			continue
+		}
+		assert.Equal(t, keyed.routes, spec.Environment[AccountPoolProvidersEnv], keyed.environment)
+		assert.Equal(t, credential, spec.Environment[AccountPoolKeyEnv])
+	}
+	// A platform seat's key replaces the repository's, so the pool, which
+	// replaces platform credentials, is still offered that route.
+	anthropic, ok := modelproxy.SeatFor(modelproxy.ProviderAnthropic)
+	require.True(t, ok)
+	platform := catalog
+	platform.ModelProxyURL, platform.ModelSeats = "https://backend.internal/model-proxy", []modelproxy.Seat{anthropic}
+	spec, err = BuildProcessSpec(HostLaunch{Binding: binding, Authority: authority, Catalog: platform, Credential: "control-credential",
+		Environment: map[string]string{"ANTHROPIC_API_KEY": "repository-key"}},
+		WorkspacePaths{Root: "/workspace/repo", StateDir: "/workspace/state"}, 4317)
+	require.NoError(t, err)
+	assert.Equal(t, "chatgpt,anthropic", spec.Environment[AccountPoolProvidersEnv])
+	assert.Equal(t, credential, spec.Environment["ANTHROPIC_API_KEY"])
 	catalog.ImplementationModel = "openai:gpt-6-sol"
 	spec, err = BuildProcessSpec(HostLaunch{Binding: binding, Authority: authority, Catalog: catalog, Credential: "control-credential"},
 		WorkspacePaths{Root: "/workspace/repo", StateDir: "/workspace/state"}, 4317)

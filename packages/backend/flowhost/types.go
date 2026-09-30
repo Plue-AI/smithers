@@ -70,9 +70,31 @@ const (
 	AccountPoolURLEnv       = "SMITHERS_ACCOUNT_POOL_URL"
 	AccountPoolProvidersEnv = "SMITHERS_ACCOUNT_POOL_PROVIDERS"
 	AccountPoolKeyEnv       = "SMITHERS_ACCOUNT_POOL_KEY"
-	// AccountPoolRoutes are every route a pool serves.
-	AccountPoolRoutes = "chatgpt,anthropic"
 )
+
+// AccountPoolSeat is one host seat a pool can serve: the variable that keys
+// the seat itself and the pool route that serves it instead.
+type AccountPoolSeat struct{ Seat, Route string }
+
+// AccountPoolSeats are the seats a pool serves: the OpenAI seat in ChatGPT
+// mode for connected Codex sign-ins, and the Anthropic seat for connected
+// Anthropic API keys. A Claude subscription is never pooled (#2777).
+var AccountPoolSeats = []AccountPoolSeat{
+	{"OPENAI_API_KEY", "chatgpt"},
+	{"ANTHROPIC_API_KEY", "anthropic"},
+}
+
+// AccountPoolGuestRoutes lists the pool routes whose seat the repository does
+// not key itself: a provider the repository keys keeps that key.
+func AccountPoolGuestRoutes(keyed func(AccountPoolSeat) bool) []string {
+	var routes []string
+	for _, seat := range AccountPoolSeats {
+		if !keyed(seat) {
+			routes = append(routes, seat.Route)
+		}
+	}
+	return routes
+}
 
 type WorkspacePaths struct {
 	Root     string

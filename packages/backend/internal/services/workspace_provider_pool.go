@@ -39,29 +39,6 @@ const (
 	providerPoolTokenTTL    = 7 * 24 * time.Hour
 )
 
-// providerPoolSeat is one guest seat a pool can serve.
-type providerPoolSeat struct{ seat, route string }
-
-// providerPoolSeats are the guest seats a pool serves: the OpenAI seat in
-// ChatGPT mode for Codex accounts, and the Anthropic seat for connected
-// Anthropic API keys. A Claude subscription is never pooled (#2777).
-var providerPoolSeats = []providerPoolSeat{
-	{"OPENAI_API_KEY", "chatgpt"},
-	{"ANTHROPIC_API_KEY", "anthropic"},
-}
-
-// providerPoolGuestRoutes lists the pool routes whose seat the repository
-// does not key itself.
-func providerPoolGuestRoutes(declares func(providerPoolSeat) bool) []string {
-	var routes []string
-	for _, pool := range providerPoolSeats {
-		if !declares(pool) {
-			routes = append(routes, pool.route)
-		}
-	}
-	return routes
-}
-
 // ProviderPoolOffer decides whether a guest is offered the account pool
 // (services.ProviderConnectionService).
 type ProviderPoolOffer interface {
@@ -101,8 +78,8 @@ func (s *WorkspaceService) bindWorkspaceProviderPool(ctx context.Context, worksp
 	if !sandbox.ValidEgressHost(host) {
 		return nil
 	}
-	routes := providerPoolGuestRoutes(func(pool providerPoolSeat) bool {
-		return workspaceDeclaresProvider(binding.environment, pool.seat)
+	routes := flowhost.AccountPoolGuestRoutes(func(pool flowhost.AccountPoolSeat) bool {
+		return workspaceDeclaresProvider(binding.environment, pool.Seat)
 	})
 	if len(routes) == 0 {
 		return nil

@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/smithersai/smithers/packages/backend/flowhost"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/modelproxy"
@@ -66,9 +67,9 @@ func (s *WorkspaceService) resolveWorkspaceProviderBindings(ctx context.Context,
 			if s.codingDefaultModel != "" {
 				for _, env := range binding.environment.Env {
 					if env.Name == ProviderPoolProvidersEnvName {
-						for _, pool := range providerPoolSeats {
-							if slices.Contains(strings.Split(env.Value, ","), pool.route) {
-								available[pool.seat] = true
+						for _, pool := range flowhost.AccountPoolSeats {
+							if slices.Contains(strings.Split(env.Value, ","), pool.Route) {
+								available[pool.Seat] = true
 							}
 						}
 					}

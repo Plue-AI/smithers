@@ -8,6 +8,7 @@ import (
 	"net"
 	"path"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -57,9 +58,16 @@ func BuildProcessSpec(launch HostLaunch, paths WorkspacePaths, port uint16) (Pro
 			environment[seat.KeyEnv] = credential
 		}
 	}
-	if launch.Catalog.AccountPoolURL != "" {
+	// A seat the repository keys itself keeps that key, as in a workspace; a
+	// platform seat's key (set above) is replaced by the pool.
+	routes := AccountPoolGuestRoutes(func(seat AccountPoolSeat) bool {
+		return launch.Environment[seat.Seat] != "" && !slices.ContainsFunc(launch.Catalog.ModelSeats, func(platform modelproxy.Seat) bool {
+			return launch.Catalog.ModelProxyURL != "" && platform.KeyEnv == seat.Seat
+		})
+	})
+	if launch.Catalog.AccountPoolURL != "" && len(routes) > 0 {
 		environment[AccountPoolURLEnv] = launch.Catalog.AccountPoolURL
-		environment[AccountPoolProvidersEnv] = AccountPoolRoutes
+		environment[AccountPoolProvidersEnv] = strings.Join(routes, ",")
 		environment[AccountPoolKeyEnv] = ModelCredential(launch.Binding.ID, launch.Credential)
 	}
 	environment["SMITHERS_API_KEY"] = launch.Credential
