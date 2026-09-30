@@ -80,6 +80,10 @@ const sshInfo = async (c: Client, path: string, user: unknown): Promise<Endpoint
 export const workspaceBody = (o: Values) => {
   const body: Values = { name: str(o.name), ...pick(o, ["image", "kind"]) }
   if (o.snapshot) body.snapshot_id = o.snapshot
+  if (o.ref) {
+    if (o.snapshot) throw new UsageError({ message: "--ref cannot be combined with --snapshot" })
+    body.source_ref = o.ref
+  }
   const resources: Values = {}
   for (const [key, field] of [["cpus", "cpus"], ["memory", "memory_mb"], ["disk", "disk_mb"]]) {
     if (o[key!] !== undefined) resources[field!] = positive(o[key!], key)

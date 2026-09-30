@@ -174,6 +174,10 @@ describe("workspace resource payload", () => {
       services: [{ name: "web", mode: "service", exec: ["/bin/sh", "-lc", "npm start"] }]
     })
   })
+  it("checks out a pushed ref and refuses it with a snapshot", () => {
+    expect(workspaceBody({ name: "spike", ref: "spike" })).toEqual({ name: "spike", source_ref: "spike" })
+    expect(() => workspaceBody({ ref: "spike", snapshot: "snap" })).toThrow("--ref cannot be combined with --snapshot")
+  })
   it.each([{ cpus: -1 }, { network: "none", allow: ["example.com"] }, { service: ["web=a", "web=b"] }, {
     idleTimeout: -1
   }])("refuses invalid resource selection %j", (options) => expect(() => workspaceBody(options)).toThrow())

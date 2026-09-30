@@ -12,6 +12,7 @@ Options:
   --memory <number>
   --name <string>                 (default: )
   --network <string>
+  --ref <string>
   --repo, -R <string>
   --service <array>
   --snapshot <string>
