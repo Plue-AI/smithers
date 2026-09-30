@@ -198,13 +198,30 @@ export const AGENT_ROLES: ReadonlyArray<AgentRole> = [
 export const findAgentRole = (id: string, roles: ReadonlyArray<AgentRole> = AGENT_ROLES): AgentRole | undefined =>
   roles.find((candidate) => candidate.id === id)
 
+/** A role id outside its compile-time table, reachable only from untyped
+ * JavaScript. `table` says which table was asked.
+ * @since 1.0.0
+ * @category errors
+ */
+export class UnknownAgentRole extends Error {
+  readonly _tag = "UnknownAgentRole"
+  readonly table: "agent" | "cloud"
+  readonly id: string
+  constructor(table: "agent" | "cloud", id: string) {
+    super(`Unknown ${table} role ${id}`)
+    this.name = "UnknownAgentRole"
+    this.table = table
+    this.id = id
+  }
+}
+
 /** A built-in role by id; throws for anything else (the built-ins are the compile-time table).
  * @since 1.0.0
  * @category conversions
  */
 export const agentRole = (id: BuiltinAgentRoleId): AgentRole => {
   const role = findAgentRole(id)
-  if (role === undefined) throw new Error(`Unknown agent role ${id}`)
+  if (role === undefined) throw new UnknownAgentRole("agent", id)
   return role
 }
 
@@ -308,7 +325,7 @@ export const isCloudRoleId = (value: string): value is CloudRoleId =>
  */
 export const cloudRole = (id: CloudRoleId): CloudRole => {
   const role = CLOUD_AGENT_ROLES.find((candidate) => candidate.id === id)
-  if (role === undefined) throw new Error(`Unknown cloud role ${id}`)
+  if (role === undefined) throw new UnknownAgentRole("cloud", id)
   return role
 }
 

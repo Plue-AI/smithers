@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest"
-import { agentTurnJournalDigestInput, projectAgentTurnBatch } from "../src/AgentTurnJournal.ts"
+import { AgentTurnBatchRejected, agentTurnJournalDigestInput, projectAgentTurnBatch } from "../src/AgentTurnJournal.ts"
 import type { AgentTurnBatch, AgentTurnJournalHead } from "../src/AgentTurnJournal.ts"
 
 /*
@@ -59,37 +59,47 @@ describe("projectAgentTurnBatch", () => {
   })
 
   test("refuses a batch number that skips or repeats", () => {
-    expect(refused(head, { ...batch, batch: 2 })).toThrow("does not extend")
-    expect(refused({ ...head, cursor: { ...head.cursor, batch: 1 } }, batch)).toThrow("does not extend")
+    expect(refused(head, { ...batch, batch: 2 })).toThrow(AgentTurnBatchRejected)
+    expect(refused({ ...head, cursor: { ...head.cursor, batch: 1 } }, batch)).toThrow(AgentTurnBatchRejected)
   })
 
   test("refuses a batch whose first position is not the next one", () => {
-    expect(refused(head, { ...batch, from: 2 })).toThrow("does not extend")
+    expect(refused(head, { ...batch, from: 2 })).toThrow(AgentTurnBatchRejected)
   })
 
   test("refuses a batch linked to a different previous hash", () => {
-    expect(refused(head, { ...batch, previousHash: hash("9") })).toThrow("does not extend")
+    expect(refused(head, { ...batch, previousHash: hash("9") })).toThrow(AgentTurnBatchRejected)
   })
 
   test("refuses a batch for another run or another leg", () => {
-    expect(refused(head, { ...batch, runId: "run-2" })).toThrow("does not extend")
-    expect(refused(head, { ...batch, legId: "leg-2" })).toThrow("does not extend")
+    expect(refused(head, { ...batch, runId: "run-2" })).toThrow(AgentTurnBatchRejected)
+    expect(refused(head, { ...batch, legId: "leg-2" })).toThrow(AgentTurnBatchRejected)
   })
 
   test("refuses a frame that names another run", () => {
     expect(refused(head, { ...batch, frames: [delta("a"), { ...delta("b"), runId: "run-2" }] })).toThrow(
-      "does not extend"
+      AgentTurnBatchRejected
     )
   })
 
   test("refuses a done frame anywhere but last", () => {
     expect(refused(head, { ...batch, frames: [{ runId: "run-1", type: "done" }, delta("a")] })).toThrow(
-      "does not extend"
+      AgentTurnBatchRejected
+    )
+  })
+
+  test("a refusal is the tagged AgentTurnBatchRejected with its fixed sentence", () => {
+    expect(refused(head, { ...batch, batch: 2 })).toThrowError(
+      expect.objectContaining({
+        _tag: "AgentTurnBatchRejected",
+        name: "AgentTurnBatchRejected",
+        message: "The turn batch does not extend its accepted prefix."
+      })
     )
   })
 
   test("refuses any batch after the terminal head", () => {
-    expect(refused({ ...head, terminal: true }, batch)).toThrow("does not extend")
+    expect(refused({ ...head, terminal: true }, batch)).toThrow(AgentTurnBatchRejected)
   })
 })
 

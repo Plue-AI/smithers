@@ -1,7 +1,35 @@
 import { describe, expect, test } from "vitest"
-import { resolveApplicationTarget } from "../src/ApplicationTarget.ts"
+import { ApplicationTargetRefused, resolveApplicationTarget } from "../src/ApplicationTarget.ts"
+import type { ApplicationTargetRefusalCode } from "../src/ApplicationTarget.ts"
 
 const PAGE = "https://app.example.test"
+
+/** The tagged refusal a call throws, as its code and sentence. */
+const refusal = (call: () => unknown): { readonly code: ApplicationTargetRefusalCode; readonly message: string } => {
+  try {
+    call()
+  } catch (error) {
+    expect(error).toBeInstanceOf(ApplicationTargetRefused)
+    const refused = error as ApplicationTargetRefused
+    expect(refused._tag).toBe("ApplicationTargetRefused")
+    expect(refused.name).toBe("ApplicationTargetRefused")
+    return { code: refused.code, message: refused.message }
+  }
+  return expect.unreachable("the target was accepted")
+}
+
+const sentences: Readonly<Record<ApplicationTargetRefusalCode, (mode: string) => string>> = {
+  origin_not_absolute: () => "Application API origin must be an absolute HTTP(S) origin.",
+  origin_not_http: () => "Application API origin must use HTTP(S).",
+  origin_not_bare: () => "Application API origin cannot contain credentials, a path, a query, or a fragment.",
+  selfhost_external_origin: () => "web-selfhost must use its serving origin.",
+  owner_bearer_auth: () => "Owner backends use the owner session or an owner token, not Plue bearer auth.",
+  external_web_plue_undeclared: () => "An external web Plue origin requires developerExternal.",
+  external_plue_cors: () => "An external Plue origin requires credentialed CORS.",
+  external_plue_session_auth: () => "An external Plue origin requires explicit token auth.",
+  same_origin_credentialed_cors: () => "Credentialed CORS is only valid for an external API origin.",
+  owned_launch_origin_missing: (mode) => `${mode} requires the owned backend launch handshake origin.`
+}
 
 describe("application target matrix", () => {
   test.each(
@@ -122,38 +150,34 @@ describe("application target matrix", () => {
 
   test.each(
     [
-      ["web-selfhost", "https://other.example.test", "session", "web-selfhost must use its serving origin."],
+      ["web-selfhost", "https://other.example.test", "session", "selfhost_external_origin"],
       [
         "local-own",
         "http://127.0.0.1:4100",
         "bearer",
-        "Owner backends use the owner session or an owner token, not Plue bearer auth."
+        "owner_bearer_auth"
       ],
-      [
-        "native-own",
-        "http://127.0.0.1:4100",
-        "bearer",
-        "Owner backends use the owner session or an owner token, not Plue bearer auth."
-      ],
-      ["local-own", "", "token", "local-own requires the owned backend launch handshake origin."],
-      ["native-own", "", "session", "native-own requires the owned backend launch handshake origin."]
+      ["native-own", "http://127.0.0.1:4100", "bearer", "owner_bearer_auth"],
+      ["local-own", "", "token", "owned_launch_origin_missing"],
+      ["native-own", "", "session", "owned_launch_origin_missing"]
     ] as const
-  )("rejects invalid owned topology %s / %s / %s", (mode, apiOrigin, kind, message) => {
-    expect(() => resolveApplicationTarget({ apiVersion: 1, mode, apiOrigin, auth: { kind } }, PAGE)).toThrow(message)
+  )("rejects invalid owned topology %s / %s / %s as %s", (mode, apiOrigin, kind, code) => {
+    expect(refusal(() => resolveApplicationTarget({ apiVersion: 1, mode, apiOrigin, auth: { kind } }, PAGE)))
+      .toEqual({ code, message: sentences[code](mode) })
   })
 
   test.each(
     [
-      ["web-plue", false, "credentialed", "token", "developerExternal"],
-      ["web-plue", true, "same-origin", "token", "credentialed CORS"],
-      ["web-plue", true, "credentialed", "session", "explicit token auth"],
-      ["local-plue", false, "same-origin", "token", "credentialed CORS"],
-      ["local-plue", false, "credentialed", "session", "explicit token auth"],
-      ["native-plue", false, "same-origin", "bearer", "credentialed CORS"],
-      ["native-plue", false, "credentialed", "session", "explicit token auth"]
+      ["web-plue", false, "credentialed", "token", "external_web_plue_undeclared"],
+      ["web-plue", true, "same-origin", "token", "external_plue_cors"],
+      ["web-plue", true, "credentialed", "session", "external_plue_session_auth"],
+      ["local-plue", false, "same-origin", "token", "external_plue_cors"],
+      ["local-plue", false, "credentialed", "session", "external_plue_session_auth"],
+      ["native-plue", false, "same-origin", "bearer", "external_plue_cors"],
+      ["native-plue", false, "credentialed", "session", "external_plue_session_auth"]
     ] as const
-  )("rejects unsafe external Plue %s / %s / %s / %s", (mode, developerExternal, cors, kind, message) => {
-    expect(() =>
+  )("rejects unsafe external Plue %s / %s / %s / %s as %s", (mode, developerExternal, cors, kind, code) => {
+    expect(refusal(() =>
       resolveApplicationTarget({
         apiVersion: 1,
         mode,
@@ -162,13 +186,13 @@ describe("application target matrix", () => {
         cors,
         developerExternal
       }, PAGE)
-    ).toThrow(message)
+    )).toEqual({ code, message: sentences[code](mode) })
   })
 
   test.each(["web-selfhost", "web-plue", "local-own", "local-plue", "native-own", "native-plue"] as const)(
     "rejects credentialed CORS on same-origin %s",
     (mode) => {
-      expect(() =>
+      expect(refusal(() =>
         resolveApplicationTarget({
           apiVersion: 1,
           mode,
@@ -176,30 +200,21 @@ describe("application target matrix", () => {
           auth: { kind: "token" },
           cors: "credentialed"
         }, PAGE)
-      ).toThrow("Credentialed CORS is only valid for an external API origin.")
+      )).toEqual({ code: "same_origin_credentialed_cors", message: sentences.same_origin_credentialed_cors(mode) })
     }
   )
 
   test.each(
     [
-      ["/relative", "Application API origin must be an absolute HTTP(S) origin."],
-      ["ftp://example.test", "Application API origin must use HTTP(S)."],
-      [
-        "https://user:pass@example.test",
-        "Application API origin cannot contain credentials, a path, a query, or a fragment."
-      ],
-      ["https://example.test/v1", "Application API origin cannot contain credentials, a path, a query, or a fragment."],
-      [
-        "https://example.test/?q=1",
-        "Application API origin cannot contain credentials, a path, a query, or a fragment."
-      ],
-      [
-        "https://example.test/#fragment",
-        "Application API origin cannot contain credentials, a path, a query, or a fragment."
-      ]
+      ["/relative", "origin_not_absolute"],
+      ["ftp://example.test", "origin_not_http"],
+      ["https://user:pass@example.test", "origin_not_bare"],
+      ["https://example.test/v1", "origin_not_bare"],
+      ["https://example.test/?q=1", "origin_not_bare"],
+      ["https://example.test/#fragment", "origin_not_bare"]
     ] as const
-  )("rejects non-origin API URL %s", (apiOrigin, message) => {
-    expect(() =>
+  )("rejects non-origin API URL %s as %s", (apiOrigin, code) => {
+    expect(refusal(() =>
       resolveApplicationTarget({
         apiVersion: 1,
         mode: "web-plue",
@@ -208,7 +223,7 @@ describe("application target matrix", () => {
         cors: "credentialed",
         developerExternal: true
       }, PAGE)
-    ).toThrow(message)
+    )).toEqual({ code, message: sentences[code]("web-plue") })
   })
 
   test.each([

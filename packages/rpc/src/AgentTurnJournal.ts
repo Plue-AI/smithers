@@ -277,6 +277,19 @@ export const agentTurnJournalDigestInput = (
   value: unknown
 ): string => `smithers-agent-turn/${kind}/v1:${canonicalize(value)}`
 
+/** A batch that does not extend the journal's accepted prefix: wrong run,
+ * leg, batch number, position or previous hash, or frames after `done`.
+ * @since 1.0.0
+ * @category errors
+ */
+export class AgentTurnBatchRejected extends Error {
+  readonly _tag = "AgentTurnBatchRejected"
+  constructor() {
+    super("The turn batch does not extend its accepted prefix.")
+    this.name = "AgentTurnBatchRejected"
+  }
+}
+
 /** Pure batch projection; hash verification is the caller's admission boundary.
  * @since 1.0.0
  * @category projections
@@ -292,7 +305,7 @@ export const projectAgentTurnBatch = (
     batch.frames.some((frame) => frame.runId !== cursor.runId) ||
     batch.frames.slice(0, -1).some((frame) => frame.type === "done")
   ) {
-    throw new Error("The turn batch does not extend its accepted prefix.")
+    throw new AgentTurnBatchRejected()
   }
   const bytes = new TextEncoder().encode(canonicalize(batch)).byteLength
   return {

@@ -13,7 +13,8 @@ import {
   CloudRoleSchema,
   findAgentRole,
   isCloudRoleId,
-  knownModelLabel
+  knownModelLabel,
+  UnknownAgentRole
 } from "../src/AgentRoles.ts"
 import type { AgentRole } from "../src/AgentRoles.ts"
 import { HARNESS_IDS } from "../src/LocalApp.ts"
@@ -37,7 +38,10 @@ describe("the agent role registry", () => {
     { id: "librarian", message: "Unknown agent role librarian" }
   ])("the public JavaScript agentRole call rejects '$id' without changing its registry", ({ id, message }) => {
     const before = structuredClone(AGENT_ROLES)
-    expect(() => Reflect.apply(agentRole, undefined, [id])).toThrowError(new Error(message))
+    expect(() => Reflect.apply(agentRole, undefined, [id])).toThrowError(new UnknownAgentRole("agent", id))
+    expect(() => Reflect.apply(agentRole, undefined, [id])).toThrowError(
+      expect.objectContaining({ _tag: "UnknownAgentRole", table: "agent", id, message })
+    )
     expect(AGENT_ROLES).toEqual(before)
   })
 
@@ -96,7 +100,10 @@ describe("the cloud roles", () => {
     { id: "explainer", message: "Unknown cloud role explainer" }
   ])("the public JavaScript cloudRole call rejects '$id' without changing its registry", ({ id, message }) => {
     const before = structuredClone(CLOUD_AGENT_ROLES)
-    expect(() => Reflect.apply(cloudRole, undefined, [id])).toThrowError(new Error(message))
+    expect(() => Reflect.apply(cloudRole, undefined, [id])).toThrowError(new UnknownAgentRole("cloud", id))
+    expect(() => Reflect.apply(cloudRole, undefined, [id])).toThrowError(
+      expect.objectContaining({ _tag: "UnknownAgentRole", table: "cloud", id, message })
+    )
     expect(CLOUD_AGENT_ROLES).toEqual(before)
   })
 

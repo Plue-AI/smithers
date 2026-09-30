@@ -112,6 +112,37 @@ const modeFacts: Readonly<
   "native-plue": { shell: "native", ownership: "plue", launch: "none" }
 }
 
+/** Why a deployment target was refused, as a stable code.
+ * @since 1.0.0
+ * @category models
+ */
+export type ApplicationTargetRefusalCode =
+  | "origin_not_absolute"
+  | "origin_not_http"
+  | "origin_not_bare"
+  | "selfhost_external_origin"
+  | "owner_bearer_auth"
+  | "external_web_plue_undeclared"
+  | "external_plue_cors"
+  | "external_plue_session_auth"
+  | "same_origin_credentialed_cors"
+  | "owned_launch_origin_missing"
+
+/** A deployment target the shared validator refuses. The message is the
+ * operator's configuration sentence; surfaces classify by `_tag` and `code`.
+ * @since 1.0.0
+ * @category errors
+ */
+export class ApplicationTargetRefused extends Error {
+  readonly _tag = "ApplicationTargetRefused"
+  readonly code: ApplicationTargetRefusalCode
+  constructor(code: ApplicationTargetRefusalCode, message: string) {
+    super(message)
+    this.name = "ApplicationTargetRefused"
+    this.code = code
+  }
+}
+
 const normalizedOrigin = (raw: string): string => {
   const value = raw.trim()
   if (value === "") return ""
@@ -119,16 +150,22 @@ const normalizedOrigin = (raw: string): string => {
   try {
     url = new URL(value)
   } catch {
-    throw new Error("Application API origin must be an absolute HTTP(S) origin.")
+    throw new ApplicationTargetRefused(
+      "origin_not_absolute",
+      "Application API origin must be an absolute HTTP(S) origin."
+    )
   }
   if (url.protocol !== "http:" && url.protocol !== "https:") {
-    throw new Error("Application API origin must use HTTP(S).")
+    throw new ApplicationTargetRefused("origin_not_http", "Application API origin must use HTTP(S).")
   }
   if (
     url.username !== "" || url.password !== "" || url.search !== "" || url.hash !== "" ||
     (url.pathname !== "" && url.pathname !== "/")
   ) {
-    throw new Error("Application API origin cannot contain credentials, a path, a query, or a fragment.")
+    throw new ApplicationTargetRefused(
+      "origin_not_bare",
+      "Application API origin cannot contain credentials, a path, a query, or a fragment."
+    )
   }
   return url.origin
 }
@@ -148,27 +185,42 @@ export const resolveApplicationTarget = (
   const external = apiOrigin !== "" && (normalizedPageOrigin === undefined || apiOrigin !== normalizedPageOrigin)
 
   if (document.mode === "web-selfhost" && external) {
-    throw new Error("web-selfhost must use its serving origin.")
+    throw new ApplicationTargetRefused("selfhost_external_origin", "web-selfhost must use its serving origin.")
   }
   if (facts.ownership === "owner" && document.auth.kind === "bearer") {
-    throw new Error("Owner backends use the owner session or an owner token, not Plue bearer auth.")
+    throw new ApplicationTargetRefused(
+      "owner_bearer_auth",
+      "Owner backends use the owner session or an owner token, not Plue bearer auth."
+    )
   }
   if (facts.ownership === "plue" && external) {
     if (facts.shell === "web" && !document.developerExternal) {
-      throw new Error("An external web Plue origin requires developerExternal.")
+      throw new ApplicationTargetRefused(
+        "external_web_plue_undeclared",
+        "An external web Plue origin requires developerExternal."
+      )
     }
     if (document.cors !== "credentialed") {
-      throw new Error("An external Plue origin requires credentialed CORS.")
+      throw new ApplicationTargetRefused("external_plue_cors", "An external Plue origin requires credentialed CORS.")
     }
     if (document.auth.kind === "session") {
-      throw new Error("An external Plue origin requires explicit token auth.")
+      throw new ApplicationTargetRefused(
+        "external_plue_session_auth",
+        "An external Plue origin requires explicit token auth."
+      )
     }
   }
   if (!external && document.cors === "credentialed") {
-    throw new Error("Credentialed CORS is only valid for an external API origin.")
+    throw new ApplicationTargetRefused(
+      "same_origin_credentialed_cors",
+      "Credentialed CORS is only valid for an external API origin."
+    )
   }
   if ((document.mode === "local-own" || document.mode === "native-own") && apiOrigin === "") {
-    throw new Error(`${document.mode} requires the owned backend launch handshake origin.`)
+    throw new ApplicationTargetRefused(
+      "owned_launch_origin_missing",
+      `${document.mode} requires the owned backend launch handshake origin.`
+    )
   }
 
   return { ...document, apiOrigin, ...facts, baseUrl: external ? apiOrigin : "" }
