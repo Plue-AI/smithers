@@ -36,6 +36,7 @@ var browserFlowProcedures = map[string]bool{
 	"Plan": true, "Run": true, "Cancel": true, "Resume": true,
 	"Steer": true, "Signal": true, "List": true,
 	"Projection.Snapshot": true, "Approval.Submit": true,
+	"Run.Fork": true, "Run.Verify": true,
 	"Registration.Report": true,
 }
 
@@ -129,6 +130,8 @@ func (api *browserFlowAPI) prepare(w http.ResponseWriter, r *http.Request, provi
 			action = "control a run"
 		case "Plan", "Run":
 			action = "start a run"
+		case "Run.Fork", "Run.Verify":
+			action = "fork or verify a run"
 		}
 		if action != "" {
 			if err := middleware.RequirePerson(r.Context(), action); err != nil {

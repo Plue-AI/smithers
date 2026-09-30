@@ -53,14 +53,24 @@ type Client struct {
 	http       *http.Client
 }
 
+// gatewayProcedures are the gateway's own procedures (GatewayRpcs), served on
+// /projections; every other procedure is a Control procedure on /rpc.
+var gatewayProcedures = map[string]bool{
+	"Projection.Snapshot": true, "Approval.Submit": true, "Run.Fork": true, "Run.Verify": true,
+}
+
+func rpcPath(procedure string) string {
+	if gatewayProcedures[procedure] {
+		return "/projections"
+	}
+	return "/rpc"
+}
+
 // CallRPC speaks the canonical Control/Gateway NDJSON protocol on the same
 // identity-verified host used by Flow runtime commands. The product relay owns
 // the procedure allowlist; this method never exposes the host credential.
 func (c *Client) CallRPC(ctx context.Context, procedure string, payload json.RawMessage) (json.RawMessage, error) {
-	path := "/rpc"
-	if procedure == "Projection.Snapshot" || procedure == "Approval.Submit" {
-		path = "/projections"
-	}
+	path := rpcPath(procedure)
 	if len(payload) == 0 {
 		payload = json.RawMessage(`{}`)
 	}

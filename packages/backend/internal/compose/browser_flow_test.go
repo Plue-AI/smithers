@@ -35,7 +35,7 @@ func (*browserFlowRecordingDispatcher) StartHost(context.Context, flowruntime.Ta
 }
 
 func TestRunCredentialCannotSteerOrCancelRuns(t *testing.T) {
-	for _, procedure := range []string{"Cancel", "Signal", "Resume", "Steer", "Approval.Submit"} {
+	for _, procedure := range []string{"Cancel", "Signal", "Resume", "Steer", "Approval.Submit", "Run.Fork", "Run.Verify"} {
 		t.Run(procedure, func(t *testing.T) {
 			deps := &browserReadDependencies{canWrite: true, workspace: db.Workspace{ID: browserBoxID, Status: "running"}}
 			dispatcher := &browserFlowRecordingDispatcher{}

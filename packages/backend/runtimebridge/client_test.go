@@ -289,3 +289,31 @@ func TestErrorHelpersIgnoreForeignErrors(t *testing.T) {
 		t.Fatal("foreign error classification failed")
 	}
 }
+
+func TestCallRPCRoutesGatewayProceduresToProjections(t *testing.T) {
+	cases := map[string]string{
+		"Projection.Snapshot": "/projections", "Approval.Submit": "/projections",
+		"Run.Fork": "/projections", "Run.Verify": "/projections",
+		"Plan": "/rpc", "Resume": "/rpc", "List": "/rpc",
+	}
+	for procedure, want := range cases {
+		t.Run(procedure, func(t *testing.T) {
+			var path, tag string
+			client, _ := runtimeClient(t, http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+				path = request.URL.Path
+				var frame struct {
+					Tag string `json:"tag"`
+				}
+				_ = json.NewDecoder(request.Body).Decode(&frame)
+				tag = frame.Tag
+				_, _ = io.WriteString(response, `{"_tag":"Exit","requestId":1,"exit":{"_tag":"Success","value":{"ok":true}}}`+"\n")
+			}))
+			if _, err := client.CallRPC(context.Background(), procedure, json.RawMessage(`{"runId":"run-1"}`)); err != nil {
+				t.Fatal(err)
+			}
+			if path != want || tag != procedure {
+				t.Fatalf("%s went to %s as %q, want %s", procedure, path, tag, want)
+			}
+		})
+	}
+}
