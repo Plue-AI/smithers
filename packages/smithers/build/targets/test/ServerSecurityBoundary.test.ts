@@ -22,6 +22,7 @@ describe("deployed server security boundaries", () => {
       expect(section).toContain("packages/backend/internal/compose/router.go")
       expect(section).toContain("packages/backend/internal/middleware/auth.go")
       expect(section).toContain("packages/backend/internal/middleware/csrf.go")
+      expect(section).toContain("packages/backend/internal/compose/runtime_helpers.go")
       expect(section).toContain("packages/backend/internal/services/repo_permissions.go")
       expect(section).toContain("packages/backend/internal/middleware/revocation_guard.go")
       expect(section).toContain("packages/backend/internal/middleware/run_credential.go")

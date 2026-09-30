@@ -12868,6 +12868,7 @@
           "packages/backend/internal/middleware/auth.go",
           "packages/backend/internal/middleware/auth_loader_failures.go",
           "packages/backend/internal/middleware/csrf.go",
+          "packages/backend/internal/compose/runtime_helpers.go",
           "packages/backend/internal/middleware/repo_context.go",
           "packages/backend/internal/middleware/revocation_guard.go",
           "packages/backend/internal/middleware/run_credential.go",
@@ -12936,6 +12937,11 @@
       {
         "kind": "glob",
         "pattern": "packages/backend/internal/middleware/csrf.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/compose/runtime_helpers.go",
         "exclude": []
       },
       {
@@ -13061,6 +13067,11 @@
       {
         "kind": "glob",
         "pattern": "packages/backend/internal/middleware/csrf.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/compose/runtime_helpers.go",
         "exclude": []
       },
       {
@@ -13185,6 +13196,7 @@
           "packages/backend/internal/middleware/auth.go",
           "packages/backend/internal/middleware/auth_loader_failures.go",
           "packages/backend/internal/middleware/csrf.go",
+          "packages/backend/internal/compose/runtime_helpers.go",
           "packages/backend/internal/middleware/repo_context.go",
           "packages/backend/internal/middleware/revocation_guard.go",
           "packages/backend/internal/middleware/run_credential.go",
@@ -13253,6 +13265,11 @@
       {
         "kind": "glob",
         "pattern": "packages/backend/internal/middleware/csrf.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/compose/runtime_helpers.go",
         "exclude": []
       },
       {
@@ -13378,6 +13395,11 @@
       {
         "kind": "glob",
         "pattern": "packages/backend/internal/middleware/csrf.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/compose/runtime_helpers.go",
         "exclude": []
       },
       {
