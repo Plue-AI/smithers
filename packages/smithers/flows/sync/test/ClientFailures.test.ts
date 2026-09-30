@@ -416,7 +416,7 @@ describe("SyncClient failure paths", () => {
               new SyncError({
                 code: "compacted",
                 message: "run compacted is compacted through sequence 12",
-                resync: { runId: compacted, checkpointSeq: seq(12) }
+                resync: { runId: compacted, checkpointSeq: seq(12), generation: 0 }
               })
             )
             : Effect.succeed({
@@ -464,7 +464,7 @@ describe("SyncClient failure paths", () => {
           failure: new SyncError({
             code: "compacted",
             message: "compacted through sequence 12",
-            resync: { runId: id, checkpointSeq: seq(12) }
+            resync: { runId: id, checkpointSeq: seq(12), generation: 0 }
           })
         }
       ]

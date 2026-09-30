@@ -102,15 +102,17 @@ export const layerNoop: Layer.Layer<SyncServer> = Layer.succeed(SyncServer, make
  *
  * The run id comes from the call site rather than the error because the
  * journal error carries only the sequence, and a workspace read fans out over
- * many runs: without it a follower could not tell which cursor to move.
+ * many runs: without it a follower could not tell which cursor to move. The
+ * generation comes from the read's own fence for the same reason: a fresh
+ * follower recovering a rewound run has no other way to learn it.
  */
-const journalFailure = (runId: JournalEvent.RunId) => (cause: unknown): SyncError =>
+const journalFailure = (runId: JournalEvent.RunId, generation?: number) => (cause: unknown): SyncError =>
   cause instanceof Journal.JournalError && cause.code === "compacted" && cause.checkpointSeq !== undefined
     ? new SyncError({
       code: "compacted",
       message: `Run ${runId} is compacted above the requested cursor`,
       cause: causeCode(cause),
-      resync: { runId, checkpointSeq: cause.checkpointSeq }
+      resync: { runId, checkpointSeq: cause.checkpointSeq, ...(generation === undefined ? {} : { generation }) }
     })
     : new SyncError({
       // Constant message, rendered cause. A follower may hold nothing but a
@@ -561,7 +563,7 @@ const makeWith = (
           runId,
           ...(after === undefined ? {} : { after }),
           limit
-        }).pipe(Effect.mapError(journalFailure(runId)))
+        }).pipe(Effect.mapError(journalFailure(runId, generation)))
         yield* generationOf(runId, generation)
         const admitted = yield* Admission.entries(page.entries, runId, after ?? -1)
         return { admitted, generation, hasMore: page.hasMore }
@@ -718,7 +720,7 @@ const makeWith = (
         const generation = yield* generationOf(runId, supplied === undefined ? undefined : supplied.generation ?? 0)
         let admitted: number = after ?? -1
         const entries = journal.stream({ runId, ...(after === undefined ? {} : { afterSequence: after }) }).pipe(
-          Stream.mapError(journalFailure(runId)),
+          Stream.mapError(journalFailure(runId, generation)),
           Stream.chunks,
           Stream.mapEffect((chunk) =>
             Admission.entries(chunk, runId, admitted).pipe(

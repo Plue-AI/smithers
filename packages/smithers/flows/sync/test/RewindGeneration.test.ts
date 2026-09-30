@@ -153,6 +153,56 @@ describe("SQL rewind through the sync server", () => {
         }).pipe(Effect.provide(stack))
       ))
 
+    // #2631: a fresh follower of a run rewound and then compacted has no cursor
+    // to learn the new generation from. The refusal names it, so a documented
+    // generation-less recovery receipt resumes the replacement history.
+    it.effect(`${scope._tag} fresh followers recover a rewound, compacted run from a receipt without a generation`, () =>
+      Effect.scoped(
+        Effect.gen(function*() {
+          const { journal, rewind } = yield* setup
+          const server = yield* SyncServer.makeLive
+          yield* rewind
+          for (const payload of ["replacement", "suffix"]) {
+            yield* journal.emitDurable(
+              new JournalEvent.Input({
+                runId,
+                sourceId: "new" as JournalEvent.SourceId,
+                eventType: "event",
+                payload,
+                meta: {}
+              }),
+              owner
+            )
+          }
+          yield* journal.checkpoint({ runId, seq: seq(51), state: { through: 51 } }, owner)
+          yield* journal.compact({ runId, upTo: seq(51) }, owner)
+          const refusal = yield* Effect.flip(server.read({ protocolVersion: 1, scope, cursors: [], limit: 10 }))
+          expect(refusal).toMatchObject({ code: "compacted", resync: { runId, checkpointSeq: 51, generation: 1 } })
+
+          const client = yield* SyncClient.make({
+            client: {
+              "Sync.Read": server.read,
+              "Sync.Subscribe": server.subscribe
+            } as unknown as Parameters<typeof SyncClient.make>[0]["client"]
+          })
+          const resyncs: Array<SyncProtocol.Resync> = []
+          const delivered = yield* client.subscribe({
+            scope,
+            cursors: [],
+            onResync: (resync) =>
+              Effect.sync(() => {
+                resyncs.push(resync)
+                return { runId: resync.runId, afterSeq: resync.checkpointSeq }
+              })
+          }).pipe(Stream.take(1), Stream.runCollect)
+          expect(resyncs).toEqual([{ runId, checkpointSeq: 51, generation: 1 }])
+          expect(Array.from(delivered, (entry) => [entry.seq, entry.payload])).toEqual([[52, "suffix"]])
+          const progress = yield* client.progress
+          expect(progress.delivered).toEqual([{ runId, afterSeq: seq(52), generation: 1 }])
+          expect(progress.applied).toEqual([{ runId, afterSeq: seq(51), generation: 1 }])
+        }).pipe(Effect.provide(stack))
+      ))
+
     it.effect(`${scope._tag} idle followers notice a rewind even before replacement sequences reach their cursor`, () =>
       Effect.scoped(
         Effect.gen(function*() {

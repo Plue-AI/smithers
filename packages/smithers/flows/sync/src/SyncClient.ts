@@ -828,6 +828,7 @@ const service = (client: Client, { bootstrapLimit, maxFrameBytes }: Resolved): E
             // arbitrarily far forward from inside the callback.
             const runId = resync.runId
             const checkpointSeq = resync.checkpointSeq
+            const refusedGeneration = resync.generation
             return Stream.unwrap(Effect.uninterruptibleMask((restore) =>
               Effect.gen(function*() {
                 // Application remains interruptible. Once it returns success,
@@ -837,10 +838,14 @@ const service = (client: Client, { bootstrapLimit, maxFrameBytes }: Resolved): E
                 const receipt = yield* restore(onResync(resync))
                 const applied = yield* Effect.try({
                   try: () => {
+                    // A receipt that omits its generation restored the floor's
+                    // history, which the refusal names. The previous cursor's
+                    // generation is no substitute: a fresh client has none,
+                    // and a rewind since then has replaced it.
                     const captured = {
                       runId: receipt.runId,
                       afterSeq: receipt.afterSeq,
-                      generation: receipt.generation ?? cursor.get(runId)?.generation ?? 0
+                      generation: receipt.generation ?? refusedGeneration
                     }
                     if (
                       !Schema.is(RunCursor)(captured) || captured.runId !== runId || captured.afterSeq < checkpointSeq
@@ -855,6 +860,14 @@ const service = (client: Client, { bootstrapLimit, maxFrameBytes }: Resolved): E
                       message: "Recovery must return the restored run cursor at or above its compaction floor"
                     })
                 })
+                if (applied.generation === undefined) {
+                  return yield* Effect.fail(
+                    new SyncError({
+                      code: "protocol_violation",
+                      message: "Compaction refusal names no generation for a receipt that omits one"
+                    })
+                  )
+                }
                 yield* commit(applied.runId, applied.afterSeq, applied.generation, true)
                 return resynced()
               })

@@ -117,11 +117,13 @@ rather than left to the application.
 
 A cursor below a run's compaction floor names entries the journal has deleted.
 The read or the subscription fails with `SyncError` code `compacted`, and the
-error carries a `Resync` of `{ runId, checkpointSeq }`: the floor to resume
-from. `SyncClient.subscribe` fails closed unless `onResync` restores the missing
-prefix and returns `{ runId, afterSeq }`. The cursor advances to that actual
-restored sequence, not necessarily the older reported floor, before replaying
-the suffix. Foreign-run and behind-floor receipts are refused.
+error carries a `Resync` of `{ runId, checkpointSeq, generation }`: the floor to
+resume from and the run history it belongs to. `SyncClient.subscribe` fails
+closed unless `onResync` restores the missing prefix and returns
+`{ runId, afterSeq }`. The cursor advances to that actual restored sequence, not
+necessarily the older reported floor, before replaying the suffix. A receipt
+without a generation takes the refusal's, so a fresh follower of a rewound run
+resumes the right history. Foreign-run and behind-floor receipts are refused.
 
 :::warning
 The resync moves a cursor, not state. The entries below `checkpointSeq` are

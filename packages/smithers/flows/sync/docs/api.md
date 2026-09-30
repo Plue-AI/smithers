@@ -205,9 +205,10 @@ never passes `SyncError.is`.
 Compaction deletes a run's entries below a checkpoint, so a cursor under that
 floor names history that no longer exists. The server maps the journal's
 `compacted` failure onto its own code with the run id the read was issued for,
-and `SyncError.resync` carries `{ runId, checkpointSeq }`. The client fails closed
-unless `onResync` restores a snapshot and returns its `{ runId, afterSeq }`.
-It validates that receipt before advancing to the actual restored sequence. A
+and `SyncError.resync` carries `{ runId, checkpointSeq, generation }`. The client
+fails closed unless `onResync` restores a snapshot and returns its
+`{ runId, afterSeq }`. It validates that receipt before advancing to the actual
+restored sequence, in the refusal's generation unless the receipt names its own. A
 checkpoint at or below what the subscription already covers cannot move the
 cursor forward, so it stays a failure rather than a retry of the same refusal.
 

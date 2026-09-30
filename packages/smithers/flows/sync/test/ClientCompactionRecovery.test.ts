@@ -18,11 +18,11 @@ const runId = "compaction-recovery" as JournalEvent.RunId
 const scope = { _tag: "Run", runId } as const
 const seq = (value: number) => value as JournalEvent.Seq
 const restored = (value: number): SyncProtocol.RunCursor => ({ generation: 0, runId, afterSeq: seq(value) })
-const compacted = (floor: number, target = runId) =>
+const compacted = (floor: number, target = runId, generation: number | null = 0) =>
   new SyncError({
     code: "compacted",
     message: "History compacted",
-    resync: { runId: target, checkpointSeq: seq(floor) }
+    resync: { runId: target, checkpointSeq: seq(floor), ...(generation === null ? {} : { generation }) }
   })
 const entry = (value: number) =>
   TestEntry.entry(runId, value, {
@@ -33,18 +33,21 @@ const entry = (value: number) =>
   })
 
 /** Honours the exact requested cursor; replaying a restored prefix doubles the counter. */
-const server = (options: { floor?: number; target?: JournalEvent.RunId } = {}) => {
+const server = (options: { floor?: number; target?: JournalEvent.RunId; generation?: number | null } = {}) => {
   const requests: Array<SyncProtocol.WorkspaceCursor> = []
   const floor = options.floor ?? 2
   const client = {
     "Sync.Read": (request: SyncProtocol.ReadRequest) =>
       Effect.suspend(() => {
         requests.push(request.cursors)
-        const after = request.cursors.find((cursor) => cursor.runId === runId)?.afterSeq ?? -1
-        if (after < floor) return Effect.fail(compacted(floor, options.target))
+        const cursor = request.cursors.find((cursor) => cursor.runId === runId)
+        const after = cursor?.afterSeq ?? -1
+        if (after < floor) {
+          return Effect.fail(compacted(floor, options.target, options.generation))
+        }
         return Effect.succeed({
           entries: [3, 4, 5].filter((value) => value > after).map(entry),
-          cursors: [restored(5)],
+          cursors: [{ ...restored(5), generation: cursor?.generation ?? 0 }],
           done: true
         })
       }),
@@ -147,6 +150,39 @@ describe("SyncClient compaction recovery admission", () => {
         expect((yield* client.progress).delivered).toEqual([])
         expect(transport.requests).toEqual([[]])
       }
+    }))
+
+  // #2631: a fresh client has no earlier cursor, so the refusal's generation
+  // is the only trustworthy one for a receipt that omits its own.
+  it.effect("binds a generation-less receipt to the refusal's generation, and a stated one to itself", () =>
+    Effect.gen(function*() {
+      for (
+        const [receipt, generation] of [[{ runId, afterSeq: seq(4) }, 3], [
+          { ...restored(4), generation: 2 },
+          2
+        ]] as const
+      ) {
+        const transport = server({ generation: 3 })
+        const client = yield* SyncClient.make(transport)
+        const suffix = yield* client.subscribe({ scope, cursors: [], onResync: () => Effect.succeed(receipt) })
+          .pipe(Stream.take(1), Stream.runCollect)
+        expect(suffix.map((event) => event.seq)).toEqual([5])
+        expect(transport.requests).toEqual([[], [{ runId, afterSeq: seq(4), generation }]])
+        expect((yield* client.progress).applied).toEqual([{ runId, afterSeq: seq(4), generation }])
+      }
+    }))
+
+  it.effect("refuses a generation-less receipt for a refusal that names no generation", () =>
+    Effect.gen(function*() {
+      const transport = server({ generation: null })
+      const client = yield* SyncClient.make(transport)
+      const failure = yield* Effect.flip(
+        client.subscribe({ scope, cursors: [], onResync: () => Effect.succeed({ runId, afterSeq: seq(4) }) })
+          .pipe(Stream.take(1), Stream.runCollect)
+      )
+      expect(failure).toMatchObject({ code: "protocol_violation" })
+      expect((yield* client.progress).delivered).toEqual([])
+      expect(transport.requests).toEqual([[]])
     }))
 
   it.effect("captures each restored cursor field once before validating and committing", () =>

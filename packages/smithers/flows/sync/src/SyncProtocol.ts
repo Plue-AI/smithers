@@ -207,6 +207,12 @@ export const duplicateCursorRunId = (cursors: WorkspaceCursor): JournalEvent.Run
  * must restore a snapshot covering that sequence before reading forward.
  * Its applied cursor names that snapshot, which may be newer than this floor.
  *
+ * `generation` is the run's history the floor belongs to. A run rewound
+ * before it was compacted is past generation zero, and a fresh follower has
+ * no earlier cursor to learn that from, so a recovery receipt that omits its
+ * generation is bound to this one. The server's refusal of a read always
+ * carries it; a snapshot that falls short of a floor refuses without one.
+ *
  * This field carries no replacement state. The client fails closed without
  * an explicit recovery handler returning the cursor it actually restored.
  * `SnapshotRequest` fetches a separately selected public projection. Raw journal
@@ -217,7 +223,8 @@ export const duplicateCursorRunId = (cursors: WorkspaceCursor): JournalEvent.Run
  */
 export const Resync = Schema.Struct({
   runId: JournalEvent.RunId,
-  checkpointSeq: JournalEvent.Seq
+  checkpointSeq: JournalEvent.Seq,
+  generation: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)))
 })
 
 /**

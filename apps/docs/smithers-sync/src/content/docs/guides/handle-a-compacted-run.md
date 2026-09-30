@@ -7,13 +7,15 @@ editUrl: "https://github.com/smithersai/smithers/edit/main/packages/smithers/flo
 ---
 
 A cursor below a run's compaction floor names deleted history. The server
-refuses it with `compacted` and `resync: { runId, checkpointSeq }`.
+refuses it with `compacted` and `resync: { runId, checkpointSeq, generation }`.
 The client fails without moving its cursor unless you supply `onResync`.
 
 The handler must restore the missing prefix and return
 `{ runId, afterSeq }` for the snapshot actually applied. A newer snapshot can
 have a sequence above the reported floor. Returning the older floor after
-applying that snapshot would replay part of its state twice.
+applying that snapshot would replay part of its state twice. The client binds
+the returned cursor to `resync.generation`, the run's history after any rewinds,
+so a fresh follower needs no earlier cursor to resume it.
 
 ## Restore a remote public projection
 

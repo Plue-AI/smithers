@@ -72,7 +72,7 @@ const following = sync.subscribe({
 
 `upsertReadModel` stands for your projection: any effect that folds one entry into your own tables.
 
-Compaction is the one case where a cursor names history that no longer exists. The client fails closed: without an explicit `onResync` handler, it propagates the server's `compacted` error without advancing the cursor. The handler must restore the missing state and return the actual restored `RunCursor` for that run, with `afterSeq` at or above `resync.checkpointSeq`. Only then does the client advance the cursor and restart the subscription. An invalid receipt fails with `invalid_request`; a failed restore leaves the cursor unchanged.
+Compaction is the one case where a cursor names history that no longer exists. The client fails closed: without an explicit `onResync` handler, it propagates the server's `compacted` error without advancing the cursor. The handler must restore the missing state and return the actual restored `RunCursor` for that run, with `afterSeq` at or above `resync.checkpointSeq`. A cursor returned without a `generation` is bound to `resync.generation`, the run's history after any rewinds. Only then does the client advance the cursor and restart the subscription. An invalid receipt fails with `invalid_request`; a failed restore leaves the cursor unchanged.
 
 Use `sync.snapshot(...)`, the client path to `Sync.Snapshot`, to fetch an explicitly public projection. The host must configure `SyncServer.SnapshotSource` for the requested run, lineage, projection and schema version. Fetching a snapshot alone does not apply state or advance a cursor.
 

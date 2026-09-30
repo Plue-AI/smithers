@@ -16,10 +16,12 @@ about what the sync boundary does with it.
 ## The refusal names where to resume
 
 The server maps the journal's compacted failure onto its own `compacted` code
-and attaches a `Resync` of `{ runId, checkpointSeq }`. `checkpointSeq` is the
-compaction floor: the checkpoint's state subsumes every entry at or below it,
-so a follower must restore a snapshot covering that sequence before resuming.
-Its cursor then names the snapshot actually applied, which may be newer.
+and attaches a `Resync` of `{ runId, checkpointSeq, generation }`. `checkpointSeq`
+is the compaction floor: the checkpoint's state subsumes every entry at or below
+it, so a follower must restore a snapshot covering that sequence before
+resuming. Its cursor then names the snapshot actually applied, which may be
+newer. `generation` is the run's history after any rewinds; a restored cursor
+that omits its own generation is bound to this one.
 
 `compacted` is its own code rather than an `unknown` because it is the one
 recoverable failure here. Folding it into `unknown` cost the checkpoint, and

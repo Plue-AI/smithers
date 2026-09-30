@@ -327,7 +327,7 @@ describe("SyncClient compaction seam", () => {
             new SyncError({
               code: "compacted",
               message: "compacted",
-              resync: { checkpointSeq: checkpointSeq as JournalEvent.Seq, runId: target }
+              resync: { checkpointSeq: checkpointSeq as JournalEvent.Seq, runId: target, generation: 0 }
             })
           )
         }),
@@ -357,7 +357,7 @@ describe("SyncClient compaction seam", () => {
         )
       )
 
-      expect(seen).toEqual([{ runId: target, checkpointSeq: 12 }])
+      expect(seen).toEqual([{ runId: target, checkpointSeq: 12, generation: 0 }])
       expect(Array.from(entries, (value) => value.seq)).toEqual([13])
     }))
 

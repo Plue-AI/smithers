@@ -219,11 +219,19 @@ describe("SyncServer.read across a workspace", () => {
       )
 
       expect(failure.code).toBe("compacted")
-      expect(failure.resync).toEqual({ runId: busy, checkpointSeq: 12 })
+      expect(failure.resync).toEqual({ runId: busy, checkpointSeq: 12, generation: 0 })
       // The resume point is the payload; the cause names the journal code and
       // not the message the journal wrote around it.
       expect(failure.cause).toContain(cause.code)
       expect(failure.cause).not.toContain("resync from its checkpoint")
+
+      // A floor the journal reports while the generation is still unread
+      // names no generation rather than guessing one.
+      const unfenced = yield* Effect.flip(Effect.flatMap(
+        makeServer([busy], { generation: () => Effect.fail(cause) }),
+        (server) => server.read({ protocolVersion: 1, scope: workspace, cursors: [], limit: 10 })
+      ))
+      expect(unfenced.resync).toEqual({ runId: busy, checkpointSeq: 12 })
     }))
 
   // A compacted error the journal raised without a floor carries no resume
