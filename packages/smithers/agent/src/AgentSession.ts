@@ -3375,11 +3375,14 @@ export const make = (
           400
         )
         if (!admitted) return
+        // Awaited, not discarded: `discard: true` admits the run and returns
+        // (#2932), which would end this fiber at once and leave the cancel
+        // handler below nothing to interrupt the body through.
         yield* engine.execute(agentFlow, {
           executionId: runId,
-          payload: { runId, planId },
-          discard: true
+          payload: { runId, planId }
         }).pipe(
+          Effect.asVoid,
           // ControlRuntime awaits this driver while it owns the control
           // transaction, so the active flow body is interrupted synchronously
           // here: no tool escapes a cancellation that has already committed.
