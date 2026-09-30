@@ -36,6 +36,9 @@ adapter and `ProcessReaper.processLifecycle`:
 - Cleanup keeps its deadline after the target exits, so a same-group child
   cannot keep inherited output open indefinitely. Only verified cleanup retires
   the record; failed cleanup fails scope close and retains it.
+- The grace period is an upper bound. Once the target has exited and the group
+  holds no other live member and no captured escaped descendant, cleanup
+  finishes at once.
 
 Default commands lead their own group. `detached: false` opts out of group
 cleanup and signals only the native target. Explicit stopping of a still-live
@@ -50,7 +53,11 @@ closure, even when its configured default is `SIGKILL`. A still-live target
 receives that policy even after calling `setsid()` to leave the supervisor's
 group. Group membership selects the descendant sweep, not the target's signal
 or grace period. Only an unactivated owner or verified natural completion can
-use the host's immediate cleanup shortcut. Requests and lifetime
+use the host's immediate cleanup shortcut. After the target exits, the helper
+reads the process table once: an empty group with no captured escaped
+descendant ends the stop at once, since waiting cannot clean anything more.
+A live group member, a captured escaped descendant or an unreadable table keeps
+the full deadline. Requests and lifetime
 status use separate private sockets, so an EPIPE on a late request cannot discard
 a buffered target exit or cleanup receipt. The host drains that receipt and
 verifies the process group before retiring the ledger record.

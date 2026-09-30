@@ -674,7 +674,7 @@ describe("stop contract", () => {
     await waitFor(() => !alive(pid), 5_000)
   })
 
-  it("completes cooperative server cleanup after preserving the explicit grace", async () => {
+  it("releases a cooperative server as soon as its process group is empty, inside the grace", async () => {
     const port = await freePort()
     let pid = -1
     let releaseStarted = 0
@@ -683,19 +683,19 @@ describe("stop contract", () => {
         const supervisor = yield* ServiceSupervisor.make
         const handle = yield* supervisor.acquire(serverSpec("//x:cooperative", port, [], {
           readiness: { port },
-          stop: { signal: "SIGTERM", grace: "400ms" }
+          stop: { signal: "SIGTERM", grace: "20s" }
         }))
         pid = handle.pid
         releaseStarted = Date.now()
       }))
     }))
-    // platform-node/docs/concepts/process-containment.md: an explicit stop
-    // retains its deadline after target exit so descendant cleanup keeps the
-    // accepted signal and grace. Only natural completion may take a shortcut.
+    // platform-node/docs/concepts/process-containment.md: the grace is an
+    // upper bound. A server that exits on SIGTERM leaves an empty group, so
+    // the explicit stop ends then instead of sleeping out the 20s grace
+    // (#3055). The escalation test above keeps the full grace for a survivor.
     const releaseElapsed = Date.now() - releaseStarted
-    expect(releaseElapsed).toBeGreaterThanOrEqual(400)
     expect(releaseElapsed).toBeLessThan(10_000)
-    await waitFor(() => !alive(pid), 5_000)
+    expect(alive(pid)).toBe(false)
   })
 
   it("stops the service when the consumer fails", async () => {

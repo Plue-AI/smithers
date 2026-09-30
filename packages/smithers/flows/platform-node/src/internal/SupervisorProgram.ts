@@ -191,6 +191,22 @@ const stop = (options = {}) => {
   else target.kill(signal);
   timer = setTimeout(force, options.graceMs ?? config?.graceMs ?? 2000);
 };
+// The grace window exists for the group's remaining members. Once the target
+// has exited and a snapshot shows no other live member and no escaped child,
+// nobody is left to wait for: finish now instead of sleeping out the grace.
+// An unreadable table keeps the deadline.
+const settleVacantGroup = () => {
+  if (!stopping || killing || escaped.size !== 0) return;
+  let rows;
+  try { rows = snapshot(); } catch { return; }
+  for (const row of rows.values()) {
+    // The owner's only other child is the ps answering this snapshot; the
+    // exited target is already reaped and its orphans have another parent.
+    if (row.group === process.pid && row.pid !== process.pid && row.parent !== process.pid && !row.zombie) return;
+  }
+  clearTimeout(timer);
+  force();
+};
 const spawnError = (error) => {
   send({ type: 'spawn_error', code: error.code, errno: error.errno,
     syscall: error.syscall, path: error.path, message: String(error.message).slice(0, 2048) });
@@ -259,7 +275,7 @@ requests.on('data', (data) => {
       target.once('exit', (code, signal) => {
         targetDone = true;
         send({ type: 'exit', code, signal });
-        if (grouped) stop();
+        if (grouped) { stop(); settleVacantGroup(); }
         else { killing = false; clearTimeout(timer); force(); }
       });
     } else throw new Error('Invalid control message');

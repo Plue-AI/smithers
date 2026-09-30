@@ -80,11 +80,11 @@ before preparation.
 
 `NodeHost.ContainedOptions` has three fields, all optional:
 
-| Field      | Default                          | What it does                                                                                 |
-| ---------- | -------------------------------- | -------------------------------------------------------------------------------------------- |
-| `graceMs`  | 2000                             | milliseconds between the `SIGTERM` that asks a child to stop and the `SIGKILL` that makes it |
-| `ownerPid` | `process.pid`                    | the pid the sweep must never signal, nor signal the group of                                 |
-| `system`   | selected from `process.platform` | the operating-system seam the sweep asks its questions through                               |
+| Field      | Default                          | What it does                                                                                                                    |
+| ---------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `graceMs`  | 2000                             | most milliseconds between the `SIGTERM` that asks a child to stop and the `SIGKILL` that makes it; an emptied group ends sooner |
+| `ownerPid` | `process.pid`                    | the pid the sweep must never signal, nor signal the group of                                                                    |
+| `system`   | selected from `process.platform` | the operating-system seam the sweep asks its questions through                                                                  |
 
 A command that already names its own `killSignal` or `forceKillAfter` keeps
 them: a caller who set one thought about it.

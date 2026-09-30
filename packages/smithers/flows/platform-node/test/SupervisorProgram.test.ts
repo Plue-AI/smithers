@@ -229,6 +229,8 @@ describe("supervisor stop policy", () => {
 
   it("still permits the host's verified fast stop after natural target exit", () => {
     const helper = program("SIGTERM")
+    // An orphan still in the owner's group keeps the grace window open.
+    helper.proc.set("4105", `4105 (node worker) S 1 4101 ${Array(16).fill(0).join(" ")} 7000 0 0\n`)
     helper.target.emit("exit", 0, null)
     expect(helper.signals).toEqual([[-4101, "SIGTERM"]])
     helper.send({ type: "stop", killSignal: "SIGKILL", fast: true })
@@ -237,6 +239,8 @@ describe("supervisor stop policy", () => {
 
   it("preserves an explicit stop even when no descendant escaped", () => {
     const helper = program("SIGKILL", false)
+    // An orphan still in the owner's group keeps the grace window open.
+    helper.proc.set("4105", `4105 (node worker) S 1 4101 ${Array(16).fill(0).join(" ")} 7000 0 0\n`)
     helper.send({ type: "stop", explicit: true, killSignal: "SIGTERM", graceMs: 5000 })
     helper.target.emit("exit", 0, null)
     helper.send({ type: "stop", killSignal: "SIGKILL", fast: true })
@@ -244,6 +248,66 @@ describe("supervisor stop policy", () => {
     expect(helper.timers.map((timer) => timer.millis)).toEqual([5000])
     helper.timers[0]!.run()
     expect(helper.signals).toEqual([[-4101, "SIGTERM"], [-4101, "SIGKILL"]])
+  })
+})
+
+describe("supervisor vacant-group settlement", () => {
+  it("finishes an explicit stop at once when the exited target left no live group member", () => {
+    const helper = program("SIGKILL", false)
+    helper.send({ type: "stop", explicit: true, killSignal: "SIGTERM", graceMs: 5000 })
+    expect(helper.timers.map((timer) => timer.millis)).toEqual([5000])
+    helper.proc.set("4102", `4102 (node worker) Z 4101 4101 ${Array(16).fill(0).join(" ")} 7000 0 0\n`)
+    helper.target.emit("exit", null, "SIGTERM")
+    // Cleanup is reported and the owner's group ends without the grace timer.
+    expect(helper.statusFrames).toContainEqual({ type: "cleanup" })
+    expect(helper.signals).toEqual([[-4101, "SIGTERM"], [-4101, "SIGKILL"]])
+    expect(helper.timers.map((timer) => timer.millis)).toEqual([5000, 100])
+  })
+
+  it("finishes a natural grouped exit at once when the group is empty", () => {
+    const helper = program("SIGTERM", false)
+    helper.proc.delete("4102")
+    helper.target.emit("exit", 0, null)
+    expect(helper.signals).toEqual([[-4101, "SIGTERM"], [-4101, "SIGKILL"]])
+    expect(helper.statusFrames).toContainEqual({ type: "cleanup" })
+  })
+
+  it("keeps the grace window while another group member is alive", () => {
+    const helper = program("SIGKILL", false)
+    helper.send({ type: "stop", explicit: true, killSignal: "SIGTERM", graceMs: 5000 })
+    helper.proc.delete("4102")
+    helper.proc.set("4104", `4104 (node worker) S 4102 4101 ${Array(16).fill(0).join(" ")} 7000 0 0\n`)
+    helper.target.emit("exit", null, "SIGTERM")
+    expect(helper.statusFrames).not.toContainEqual({ type: "cleanup" })
+    expect(helper.timers.map((timer) => timer.millis)).toEqual([5000])
+  })
+
+  it("ignores the owner's own ps child when the system ps answers the snapshot", () => {
+    const helper = program("SIGKILL", false, "darwin")
+    helper.send({ type: "stop", explicit: true, killSignal: "SIGTERM", graceMs: 5000 })
+    // The table the fake ps prints still names 4102 as the owner's child, as
+    // the ps process answering a real snapshot is.
+    helper.target.emit("exit", null, "SIGTERM")
+    expect(helper.statusFrames).toContainEqual({ type: "cleanup" })
+  })
+
+  it("keeps the grace window for a captured escaped descendant", () => {
+    const helper = program("SIGKILL", true)
+    helper.send({ type: "stop", explicit: true, killSignal: "SIGTERM", graceMs: 5000 })
+    helper.proc.delete("4102")
+    helper.target.emit("exit", null, "SIGTERM")
+    expect(helper.statusFrames).not.toContainEqual({ type: "cleanup" })
+    expect(helper.timers.map((timer) => timer.millis)).toEqual([5000])
+  })
+
+  it("keeps the grace window when the process table cannot be read", () => {
+    const helper = program("SIGKILL", false)
+    helper.send({ type: "stop", explicit: true, killSignal: "SIGTERM", graceMs: 5000 })
+    helper.proc.delete("4102")
+    helper.listing.error = new Error("EACCES")
+    helper.target.emit("exit", null, "SIGTERM")
+    expect(helper.statusFrames).not.toContainEqual({ type: "cleanup" })
+    expect(helper.timers.map((timer) => timer.millis)).toEqual([5000])
   })
 })
 
@@ -271,7 +335,8 @@ describe("supervisor descendant observation", () => {
     stopped(helper)
     helper.target.emit("exit", null, "SIGTERM")
     expect(helper.observations).toEqual([])
-    expect(helper.signals).toEqual([[-4101, "SIGTERM"]])
+    // The vacant group settles at once from /proc, still without ps.
+    expect(helper.signals).toEqual([[-4101, "SIGTERM"], [-4101, "SIGKILL"]])
     expect(faults(helper)).toEqual([])
   })
 
