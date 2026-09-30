@@ -135,10 +135,23 @@ describe("the overview inbox", () => {
 
   it("keeps a failed flow run that a later run of the same flow with other input finished", () => {
     const sections = rows([], [
-      run("prod", "failed", { flow: "deploy", requested: `{"env":"prod"}`, startedAt: now - 9_000 }),
-      run("staging", "done", { flow: "deploy", requested: `{"env":"staging"}`, startedAt: now - 4_000 }),
-      run("fixed", "failed", { flow: "deploy", requested: `{"env":"qa"}`, startedAt: now - 8_000 }),
-      run("again", "done", { flow: "deploy", requested: `{"env":"qa"}`, startedAt: now - 3_000 })
+      run("prod", "failed", { flow: "deploy", input: { env: "prod" }, startedAt: now - 9_000 }),
+      run("staging", "done", { flow: "deploy", input: { env: "staging" }, startedAt: now - 4_000 }),
+      run("fixed", "failed", { flow: "deploy", input: { env: "qa" }, startedAt: now - 8_000 }),
+      run("again", "done", { flow: "deploy", input: { env: "qa" }, startedAt: now - 3_000 })
+    ])
+    expect(shape(sections)).toEqual([
+      ["failed", ["flow:prod"]],
+      ["done", ["flow:staging", "flow:fixed", "flow:again"]]
+    ])
+  })
+
+  it("compares the input a run was filled with, not the input it was requested with", () => {
+    const sections = rows([], [
+      run("prod", "failed", { flow: "deploy", requested: "{}", input: { env: "prod" }, startedAt: now - 9_000 }),
+      run("staging", "done", { flow: "deploy", requested: "{}", input: { env: "staging" }, startedAt: now - 4_000 }),
+      run("fixed", "failed", { flow: "deploy", requested: "{}", input: { env: "qa" }, startedAt: now - 8_000 }),
+      run("again", "done", { flow: "deploy", requested: `{"env":"qa"}`, input: { env: "qa" }, startedAt: now - 3_000 })
     ])
     expect(shape(sections)).toEqual([
       ["failed", ["flow:prod"]],
