@@ -144,6 +144,58 @@ test("a write-only form rejects values in either persisted input map", () => {
   }
 })
 
+describe("held Review PR form request", () => {
+  const payload = { flow: "workspace.new", via: "user", fields: [], draft: {}, given: {} }
+  const request = { kind: "prs.triage", repo: "smithersai/smithers", number: 123, owner: "smithersai" }
+
+  test("old persisted forms retain absence without manufacturing a pending request", () => {
+    const old = { ...base, kind: "flow-form", payload }
+    const parsed = CardSchema.parse(JSON.parse(JSON.stringify(old)))
+    expect(parsed).toEqual(old)
+    expect(Object.hasOwn(parsed.payload, "afterBox")).toBe(false)
+  })
+
+  test("valid identity and optional workspace/consumption states round-trip without rewriting", () => {
+    for (
+      const state of [{}, { workspaceId: "ws-review" }, { consumed: false }, { consumed: true }, {
+        workspaceId: "ws-review",
+        consumed: true
+      }]
+    ) {
+      const original = { ...base, kind: "flow-form", payload: { ...payload, afterBox: { ...request, ...state } } }
+      const parsed = CardSchema.parse(JSON.parse(JSON.stringify(original)))
+      expect(parsed).toEqual(original)
+      expect(CardSchema.parse(JSON.parse(JSON.stringify(parsed)))).toEqual(original)
+      if (parsed.kind !== "flow-form") throw new Error("Form request changed card kind")
+      expect(Object.keys(parsed.payload.afterBox!).sort()).toEqual(Object.keys(original.payload.afterBox).sort())
+    }
+  })
+
+  test.each([
+    { kind: "prs.open" },
+    { number: 0 },
+    { number: -1 },
+    { number: 1.5 },
+    { number: Infinity },
+    { repo: 5 },
+    { owner: null },
+    { workspaceId: 7 },
+    { consumed: "yes" }
+  ])("rejects invalid request identity or state %j", (change) => {
+    const original = { ...base, kind: "flow-form", payload: { ...payload, afterBox: { ...request, ...change } } }
+    const before = structuredClone(original)
+    expect(CardSchema.safeParse(original).success).toBe(false)
+    expect(original).toEqual(before)
+  })
+
+  test.each(["kind", "repo", "number", "owner"])("requires declared request identity %s", (missing) => {
+    const partial: Record<string, unknown> = { ...request }
+    delete partial[missing]
+    expect(CardSchema.safeParse({ ...base, kind: "flow-form", payload: { ...payload, afterBox: partial } }).success)
+      .toBe(false)
+  })
+})
+
 /*
  * Lane citc (ADR 0002), completed by lane L3: the workspace card carries the
  * plue DTO. plue#446 landed, so `workspaceKind`, `head`, `ahead`, `behind`,
@@ -2493,6 +2545,14 @@ const FIXTURES: Record<Card["kind"], KindFixtures> = {
       }],
       draft: { id: "implement", retries: 2, verbose: true },
       given: { id: "implement" },
+      afterBox: {
+        kind: "prs.triage",
+        repo: "smithersai/smithers",
+        number: 123,
+        owner: "smithersai",
+        workspaceId: "ws-review",
+        consumed: true
+      },
       submitting: true,
       submitLabel: "Run flow",
       payloadField: "input",
