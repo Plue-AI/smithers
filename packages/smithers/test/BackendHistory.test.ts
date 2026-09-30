@@ -341,6 +341,37 @@ describe("the factory from the terminal, over a local HTTP server", () => {
     }
   })
 
+  it("shows a failed TODO's typed reason as the server states it, and retries it", async () => {
+    const failure = { kind: "provisioning", fault: "infra" }
+    const blocked = item("blocked", { reason: "Smithers could not set up a lane after repeated tries", failure })
+    const model = item("retrying", {
+      id: "22222222-2222-4222-8222-222222222222",
+      issue: { number: 13, title: "Flaky model", url: "https://x.test/13" },
+      reason: "The model provider did not answer",
+      failure: { kind: "model", fault: "dependency" }
+    })
+    const f = await serve((req, res) => {
+      if (req.method === "POST") return json(res, item("queued"), 202)
+      json(res, stack([blocked, model]))
+    })
+    try {
+      const shown = await f.run(["history", "show"])
+      expect(shown.code, shown.error).toBe(0)
+      expect(shown.output).toContain("#12 Fix login · blocked · Smithers could not set up a lane after repeated tries")
+      expect(shown.output).toContain("#13 Flaky model · retrying · The model provider did not answer")
+      const raw = await f.run(["history", "show", "--json"])
+      expect(JSON.parse(raw.output).items[0]).toMatchObject({ reason: blocked.reason, failure })
+      const retried = await f.run(["history", "retry", "12"])
+      expect(retried.code, retried.error).toBe(0)
+      expect(retried.output).toContain("#12 Fix login · queued")
+      expect(f.requests.filter((r) => r.method === "POST").map((r) => r.url)).toEqual([
+        `/api/repos/owner/repo/mythical/items/${ID}/retry`
+      ])
+    } finally {
+      await f.close()
+    }
+  })
+
   it("refuses an issue that is not in the history, a malformed target and the server's refusal", async () => {
     const f = await serve((req, res) => {
       if (req.method === "POST") {
@@ -381,6 +412,38 @@ describe("the factory from the terminal, over a local HTTP server", () => {
         "POST /api/repos/owner/repo/mythical/bootstrap {}",
         `PUT /api/repos/owner/repo/mythical/config {"maxParallel":3}`
       ])
+    } finally {
+      await f.close()
+    }
+  })
+})
+
+describe("backend text in structured formats (#3052)", () => {
+  const title = "\u001b]0;pwned\u0007Fix\u001b[31m login\u009b2J"
+  it.each(["md", "yaml", "toon"])("strips terminal controls from backend strings under --format %s", async (format) => {
+    const f = await serve((req, res) => {
+      if (req.url?.startsWith("/api/repos/owner/repo/issues/")) {
+        return json(res, { number: 12, title, body: "line one\nline two" })
+      }
+      json(res, stack([item("blocked", { issue: { number: 12, title, url: "https://x.test/12" } })]))
+    })
+    try {
+      for (const args of [["issue", "view", "12"], ["history", "show"]]) {
+        const result = await f.run([...args, "--format", format])
+        expect(result.code, result.error).toBe(0)
+        if (args[0] === "issue") expect(result.output).toContain("Fix login")
+        expect(result.output).not.toMatch(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/)
+      }
+    } finally {
+      await f.close()
+    }
+  })
+  it("keeps the server's exact text under --json, where control characters are escaped", async () => {
+    const f = await serve((_req, res) => json(res, { number: 12, title }))
+    try {
+      const result = await f.run(["issue", "view", "12", "--json"])
+      expect(JSON.parse(result.output).title).toBe(title)
+      expect(result.output).not.toContain("\u001b")
     } finally {
       await f.close()
     }

@@ -42,6 +42,22 @@ export const terminalSafeLines = (text: string): string =>
   stripVTControlCharacters(text).replace(/\r\n/g, "\n").replace(/(?![\n\t])[\p{Cc}\p{Cf}]/gu, "")
 
 /**
+ * A structured value with every string made inert as `terminalSafeLines`
+ * makes it, for formats that print strings as they are (toon, yaml, md).
+ *
+ * @category getters
+ * @since 1.0.0
+ */
+export const terminalSafeValue = (value: unknown): unknown =>
+  typeof value === "string"
+    ? terminalSafeLines(value)
+    : Array.isArray(value)
+    ? value.map(terminalSafeValue)
+    : value !== null && typeof value === "object"
+    ? Object.fromEntries(Object.entries(value).map(([key, item]) => [terminalSafeLines(key), terminalSafeValue(item)]))
+    : value
+
+/**
  * The most specific recorded cause, including older nested Error stacks.
  * @category getters
  * @since 1.0.0

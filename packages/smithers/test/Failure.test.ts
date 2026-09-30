@@ -173,3 +173,14 @@ describe("Failure.operatorDetail", () => {
     expect(typeof Failure.operatorDetail(hostile)).toBe("string")
   })
 })
+
+describe("terminalSafeValue", () => {
+  it("makes every string of a structured value inert, keys included, and keeps other values", () => {
+    expect(Failure.terminalSafeValue({
+      "t\u001b[2Jitle": "a\u001b]0;x\u0007b\r\nc\td",
+      list: ["\u009b31mred", 1, null, true, { deep: "\u0000z" }],
+      n: 3
+    })).toEqual({ title: "ab\nc\td", list: ["red", 1, null, true, { deep: "z" }], n: 3 })
+    expect(Failure.terminalSafeValue(undefined)).toBeUndefined()
+  })
+})

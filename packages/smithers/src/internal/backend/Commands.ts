@@ -7,6 +7,7 @@ import { Cli, Completions, z } from "incur"
 import type { Runtime } from "../../cli/ControlBridge.ts"
 import * as Presentation from "../../cli/Presentation.ts"
 import { Refused } from "../../CliError.ts"
+import * as Failure from "../Failure.ts"
 import { admin } from "./Admin.ts"
 import { ask } from "./AgentDocs.ts"
 import { auth } from "./Auth.ts"
@@ -151,9 +152,15 @@ export const mount = (cli: Cli.Cli<any, any, any, any>, runtime: Runtime) => {
                 }
               }
             }
-            const client = new Client(runtime, !Presentation.policy(context, runtime).structured)
+            const structured = Presentation.policy(context, runtime).structured
+            const client = new Client(runtime, !structured)
             try {
-              return client.redact(await handler(client, args, options))
+              const value = client.redact(await handler(client, args, options))
+              // The human renderer cleans its own text and JSON escapes control
+              // characters; toon, yaml and md print backend strings as they are.
+              return structured && context.format !== "json" && context.format !== "jsonl"
+                ? Failure.terminalSafeValue(value)
+                : value
             } catch (error) {
               throw client.failure(error)
             } finally {
