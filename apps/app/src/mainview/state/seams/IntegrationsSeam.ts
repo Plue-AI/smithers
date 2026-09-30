@@ -37,7 +37,7 @@ export const createIntegrationsSeam = (ctx: SeamContext): IntegrationsSeam => {
   const linearRow = async (repo: string): Promise<IntegrationRow> => {
     let response: Response
     try { response = await ctx.http(`${ctx.baseUrl}/api/integrations/linear`) }
-    catch (error) { return { id: "linear", state: "error", error: unreachableSentence("read the Linear integrations", error) } }
+    catch (error) { return { id: "linear", state: "error", error: unreachableSentence("the Linear integrations", error) } }
     if (response.status === 404 || response.status === 405) return { id: "linear", state: "unavailable" }
     if (!response.ok) return { id: "linear", state: "error", error: await readErrorMessage(response, `Reading the Linear integrations failed (${response.status})`) }
     const body: unknown = await response.json().catch(() => null)
@@ -62,7 +62,7 @@ export const createIntegrationsSeam = (ctx: SeamContext): IntegrationsSeam => {
   const slackRow = async (repo: string): Promise<IntegrationRow> => {
     let response: Response
     try { response = await ctx.http(`${repoPath(repo)}/issues/sync/channels`) }
-    catch (error) { return { id: "slack", state: "error", error: unreachableSentence("read the Slack channels", error) } }
+    catch (error) { return { id: "slack", state: "error", error: unreachableSentence("the Slack channels", error) } }
     if (response.status === 404 || response.status === 405) return { id: "slack", state: "unavailable" }
     if (!response.ok) return { id: "slack", state: "error", error: await readErrorMessage(response, `Reading the Slack channels failed (${response.status})`) }
     const body: unknown = await response.json().catch(() => null)
