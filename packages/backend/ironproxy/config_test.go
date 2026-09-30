@@ -10,6 +10,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
+
+	"github.com/smithersai/smithers/packages/backend/sandbox"
 )
 
 func TestRenderEmitsRealIronProxySchema(t *testing.T) {
@@ -189,4 +191,30 @@ func TestRenderCanonicalizesMatchHeadersSoEveryBindingSwaps(t *testing.T) {
 	assert.Equal(t, []string{"Authorization", "X-Api-Key"}, entries[0].Replace.MatchHeaders)
 	assert.Equal(t, []string{"Authorization", "X-Api-Key"}, entries[1].Replace.MatchHeaders, "case variants collapse to one canonical name")
 	assert.Equal(t, []string{"/^x-custom-.*$/"}, entries[2].Replace.MatchHeaders, "regex patterns are left as written")
+}
+
+func TestRenderRefusesNonASCIIHosts(t *testing.T) {
+	t.Parallel()
+	base := Spec{ListenAddr: "127.0.0.1:1", HTTPListen: "127.0.0.1:2", HTTPSListen: "127.0.0.1:3", MetricsListen: "127.0.0.1:4", CACertPath: "/c", CAKeyPath: "/k"}
+	kelvin := "K.example.com" // lower-cases to k.example.com
+	dotted := "İ.example.com" // lower-cases to i.example.com
+	for name, spec := range map[string]Spec{
+		"secret kelvin":  withSecrets(base, SecretBinding{EnvVar: "T", Hosts: []string{kelvin}, MatchQuery: true}),
+		"secret dotted":  withSecrets(base, SecretBinding{EnvVar: "T", Hosts: []string{dotted}, MatchQuery: true}),
+		"allow kelvin":   func() Spec { s := base; s.AllowDomains = []string{kelvin}; return s }(),
+		"allow wildcard": func() Spec { s := base; s.AllowDomains = []string{"*." + kelvin}; return s }(),
+		"host rule": func() Spec {
+			s := base
+			s.HostRules = []sandbox.EgressHostRule{{Host: kelvin, Paths: []string{"/x"}}}
+			return s
+		}(),
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := Render(spec)
+			require.ErrorIs(t, err, ErrInvalidSpec)
+			assert.Regexp(t, "ASCII|not one exact", err.Error())
+		})
+	}
+	_, err := Render(withSecrets(base, SecretBinding{EnvVar: "T", Hosts: []string{"k.example.com"}, MatchQuery: true}))
+	require.NoError(t, err)
 }

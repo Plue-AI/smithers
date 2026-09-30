@@ -2,6 +2,13 @@
 // per-sandbox credential-substituting egress proxy and the guest-side
 // environment that routes traffic through it.
 //
+// Non-ASCII hosts never enter a rendered config (#3259): iron-proxy lower-cases
+// a request Host with Unicode folding (U+212A becomes "k"), so a binding or
+// allowlist entry spelled that way would compare as one domain and dial as
+// another. The same folding of a request Host happens inside the pinned
+// iron-proxy binary, which Smithers does not build; that residual gap is
+// closed only upstream or by the private deployment's entry guard.
+//
 // The package is pure: it never starts a process, touches the network, or
 // reads secrets. Secret VALUES never enter a rendered config; the config
 // names the proxy-process environment variable that carries each value
@@ -235,6 +242,13 @@ func Render(spec Spec) (Config, error) {
 		}
 	}
 	domains := cleanList(spec.AllowDomains)
+	for _, domain := range domains {
+		// iron-proxy lower-cases a request host with Unicode folding before
+		// it matches; an allowlist entry is never spelled non-ASCII (#3259).
+		if !asciiOnly(domain) {
+			return Config{}, fmt.Errorf("%w: allow domain %q is not ASCII", ErrInvalidSpec, domain)
+		}
+	}
 	if len(domains) == 0 && len(spec.AllowCIDRs) == 0 {
 		domains = []string{"*"}
 	}
@@ -318,7 +332,7 @@ func renderSecrets(bindings []SecretBinding) ([]SecretEntry, error) {
 		for _, host := range hosts {
 			// A wildcard or CIDR would let iron-proxy swap the value into
 			// requests to every host it covers.
-			if !sandbox.ValidExactEgressHost(host) {
+			if !asciiOnly(host) || !sandbox.ValidExactEgressHost(host) {
 				return nil, fmt.Errorf("%w: secret %s host %q is not one exact host name", ErrInvalidSpec, envVar, host)
 			}
 			rules = append(rules, SecretRule{Host: sandbox.CanonicalExactEgressHost(host)})
@@ -347,6 +361,9 @@ func narrowHosts(domains []string, hostRules []sandbox.EgressHostRule) ([]string
 	rules := make([]RuleConfig, 0, len(hostRules))
 	narrowed := map[string]struct{}{}
 	for _, rule := range hostRules {
+		if !asciiOnly(rule.Host) {
+			return nil, nil, fmt.Errorf("%w: host rule %q is not ASCII", ErrInvalidSpec, rule.Host)
+		}
 		if err := rule.Validate(); err != nil {
 			return nil, nil, fmt.Errorf("%w: %v", ErrInvalidSpec, err)
 		}
@@ -388,6 +405,13 @@ func narrowHosts(domains []string, hostRules []sandbox.EgressHostRule) ([]string
 		kept = append(kept, domain)
 	}
 	return cleanList(kept), rules, nil
+}
+
+// asciiOnly is checked before any lower-casing: Unicode folding turns U+212A
+// into "k" and U+0130 into "i", so a non-ASCII spelling would otherwise pass
+// validation as an ASCII host (#3259).
+func asciiOnly(host string) bool {
+	return strings.IndexFunc(host, func(r rune) bool { return r >= 0x80 }) < 0
 }
 
 // domainGlobMatches is iron-proxy's host glob (internal/hostmatch.MatchGlob).
