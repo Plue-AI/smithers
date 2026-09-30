@@ -292,7 +292,11 @@ describe("CellTurn", () => {
   })
 
   it("raises a defaulted ceiling when steering raises the effort, and keeps a host's own", async () => {
-    const steeredTo = async (modelCallMs?: number) => {
+    const steeredTo = async (
+      modelCallMs?: number,
+      from?: ModelRequest.ReasoningEffort,
+      to: ModelRequest.ReasoningEffort = "max"
+    ) => {
       const model = ScriptedModel.make([emits(`console.log("kept")`), emits(`ctx.done("done")`)])
       const engine = ScriptedEngine.make(model.model, [])
       let drained = false
@@ -302,12 +306,18 @@ describe("CellTurn", () => {
           Effect.sync(() => {
             const seatChanges = drained
               ? []
-              : [{ _tag: "ThinkingChange", delivery: "steer", admittedAt: 1, thinking: "max" } as const]
+              : [{ _tag: "ThinkingChange", delivery: "steer", admittedAt: 1, thinking: to } as const]
             drained = true
             return { inserts: [], seatChanges, remaining: Steering.empty(), queued: false, duplicate: false }
           })
       })
-      await CellTurn.run({ state: state(modelCallMs === undefined ? {} : { modelCallMs }), flows: [] }).pipe(
+      const initial = state(modelCallMs === undefined ? {} : { modelCallMs })
+      const opened = from === undefined ? initial : new CellTurn.State({
+        ...initial,
+        modelParams: ModelRequest.GenerationParams.make({ reasoningEffort: from }),
+        ...(modelCallMs === undefined ? { modelCallMs: CellTurn.modelCallMsFor(from) } : {})
+      })
+      await CellTurn.run({ state: opened, flows: [] }).pipe(
         Stream.runDrain,
         Effect.provide(engine.layer),
         Effect.provide(QuickJSSandbox.layer),
@@ -320,6 +330,25 @@ describe("CellTurn", () => {
 
     expect(await steeredTo()).toEqual([CellTurn.defaultModelCallMs, CellTurn.modelCallMsFor("max")])
     expect(await steeredTo(45_000)).toEqual([45_000, 45_000])
+    expect(await steeredTo(0)).toEqual([0, 0])
+    // A host's ceiling that happens to equal an effort's default is still the host's.
+    expect(await steeredTo(300_000, "low", "max")).toEqual([300_000, 300_000])
+    expect(await steeredTo(1_800_000, "max", "low")).toEqual([1_800_000, 1_800_000])
+    expect(await steeredTo(900_000, "high", "max")).toEqual([900_000, 900_000])
+    // Defaulted ceilings follow the effort both ways.
+    expect(await steeredTo(undefined, "low", "max")).toEqual([300_000, 1_800_000])
+    expect(await steeredTo(undefined, "max", "low")).toEqual([1_800_000, 300_000])
+  })
+
+  it("keeps whether the host chose the ceiling through an encoded state", () => {
+    const codec = Schema.encodeSync(CellTurn.State)
+    const decode = Schema.decodeUnknownSync(CellTurn.State)
+    const chosen = decode(codec(state({ modelCallMs: 300_000 })))
+    const defaulted = decode(codec(state()))
+    expect([chosen.modelCallMsFollowsEffort, defaulted.modelCallMsFollowsEffort]).toEqual([false, true])
+    // A journal written before the flag existed keeps the ceiling it recorded.
+    const { modelCallMsFollowsEffort: _, ...older } = codec(state()) as Record<string, unknown>
+    expect(decode(older).modelCallMsFollowsEffort).toBe(false)
   })
 
   it("runs two data-dependent calls in one frame and completes the returned transition", async () => {

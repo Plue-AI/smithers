@@ -430,6 +430,16 @@ export class State extends Schema.Class<State>("flows/harness/CellTurn/State")({
     Schema.withDecodingDefaultKey(Effect.succeed(defaultModelCallMs))
   ),
   /**
+   * Whether {@link State.modelCallMs} was left to the effort's default, so a
+   * steered effort moves it. A ceiling the host chose stays through every
+   * steer, even one numerically equal to some effort's default. A state
+   * decoded from a journal that predates the flag keeps its ceiling.
+   */
+  modelCallMsFollowsEffort: Schema.Boolean.pipe(
+    Schema.withConstructorDefault(Effect.succeed(false)),
+    Schema.withDecodingDefaultKey(Effect.succeed(false))
+  ),
+  /**
    * Stalled frames settled since the last frame that changed the workspace.
    *
    * Before the run's first write every read-only frame counts: the instance
@@ -1227,6 +1237,7 @@ export const make = (options: {
     contextWindowTokens: options.contextWindowTokens ?? 0,
     readOnlyCap: options.readOnlyCap ?? 0,
     modelCallMs: options.modelCallMs ?? modelCallMsFor(options.modelParams.reasoningEffort),
+    modelCallMsFollowsEffort: options.modelCallMs === undefined,
     readOnlyFrames: 0,
     readOnlyGrace: 0,
     pendingReadOnlyDemand: undefined,
@@ -1680,13 +1691,12 @@ const steered = (
         })
       }
     }
-    // A ceiling the host chose stays; one that is the old effort's default
-    // follows the effort, so a run steered up to `max` gets `max`'s ceiling.
-    const defaulted = state.modelCallMs === modelCallMsFor(state.modelParams.reasoningEffort)
+    // A ceiling the host chose stays; a defaulted one follows the effort, so a
+    // run steered up to `max` gets `max`'s ceiling.
     return {
       seat,
       modelParams,
-      modelCallMs: defaulted ? modelCallMsFor(modelParams.reasoningEffort) : state.modelCallMs,
+      modelCallMs: state.modelCallMsFollowsEffort ? modelCallMsFor(modelParams.reasoningEffort) : state.modelCallMs,
       contextWindowTokens: seat === state.seat
         ? state.contextWindowTokens
         : resolve === undefined
