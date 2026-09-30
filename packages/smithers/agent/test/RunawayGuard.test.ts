@@ -525,6 +525,96 @@ describe("a run parked on its task-time budget", () => {
   }, 180_000)
 })
 
+/**
+ * Composition B without an executor: it records the decision and its durable
+ * resume delegation, and drives nothing, as a CLI or gateway process that
+ * decides and exits before any host takes the run up.
+ */
+const decideWithoutDriving = (
+  root: string,
+  parked: { readonly runId: string; readonly approval: ControlSchema.ApprovalPayload },
+  answer: "continue" | "stop"
+) =>
+  Effect.runPromise(
+    Effect.gen(function*() {
+      const control = yield* Control.Control
+      const runtime = yield* ControlRuntime.ControlRuntime
+      const receipt = yield* answer === "continue" ? control.approve(parked.approval) : control.deny(parked.approval)
+      return { receipt, pending: (yield* runtime.pendingResumes).filter((entry) => entry.runId === parked.runId) }
+    }).pipe(
+      Effect.provide(
+        ControlLive.layer.pipe(
+          // The run's journal, where the engine reads the decisions it resumes on.
+          Layer.provideMerge(
+            SqlJournal.layer({ capacity: 1024, overflow: "reject" }).pipe(
+              Layer.provideMerge(
+                Layer.provideMerge(
+                  DatabaseMigrations.layer([Migrations.set]),
+                  Layer.provideMerge(DurableWriter.layer(), NodeDatabase.layer({ filename: join(root, "engine.db") }))
+                )
+              )
+            )
+          ),
+          Layer.provideMerge(
+            Layer.mergeAll(
+              SqlControlRuntime.layer({ owner: secondOwner, flows: controlFlows }).pipe(Layer.orDie),
+              NotificationQueue.layer,
+              registryLayer
+            )
+          ),
+          Layer.provideMerge(Layer.merge(controlStores(join(root, "control.db")), NodeCrypto.layer))
+        )
+      ),
+      Effect.scoped,
+      Effect.orDie
+    )
+  )
+
+const thirdOwner: Ownership.OwnerId = { hostId: "runaway-third", pid: 3, nonce: "third" }
+
+/** Composition C: a restarted host that is asked nothing, and follows the run to its settlement. */
+const settleInThirdProcess = (root: string, parked: { readonly runId: string; readonly sequence: number }) =>
+  Effect.runPromise(
+    Effect.gen(function*() {
+      const next = yield* nextIncident(parked.runId, parked.sequence)
+      const runtime = yield* ControlRuntime.ControlRuntime
+      return { kind: next.kind, payload: next.payload, run: yield* runtime.getRun(parked.runId) }
+    }).pipe(Effect.provide(host(root, thirdOwner, "runaway-third")), Effect.scoped, Effect.orDie)
+  )
+
+describe("a decision whose deciding process drove nothing", () => {
+  it.each([
+    ["continue", "control.run.completed", ["runaway-first", "runaway-third"]],
+    ["stop", "control.run.failed", ["runaway-first"]]
+  ] as const)("%s settles the run from the recorded decision in a restarted host", async (answer, kind, calls) => {
+    const root = makeRoot()
+    const parked = await parkInFirstProcess(root)
+    expect(parked.kind).toBe("control.approval.requested")
+    if (parked.approval === undefined || parked.sequence === undefined) return
+
+    const decided = await decideWithoutDriving(root, { runId: parked.runId, approval: parked.approval }, answer)
+
+    expect(decided.receipt).toMatchObject({ _tag: "Accepted", runId: parked.runId })
+    // The decision is durable, and so is the restart it owes: nothing drove it.
+    expect(decided.pending).toHaveLength(1)
+    expect(readEngineRun(root, parked.runId)).toMatchObject({ status: "suspended", waiting_reason: "budget" })
+    expect(modelCalls).toEqual(["runaway-first"])
+
+    const settled = await settleInThirdProcess(root, { runId: parked.runId, sequence: parked.sequence })
+
+    expect(settled.kind).toBe(kind)
+    expect(modelCalls).toEqual(calls)
+    // The restarted host answered from the record: it asked nothing again.
+    expect(readRequestFacts(root, parked.runId)).toHaveLength(1)
+    if (answer === "stop") {
+      expect(settled.run.status).toBe("failed")
+      expect(JSON.stringify(settled.payload)).toContain(RunawayGuard.stoppedTag)
+    } else {
+      expect(settled.run.status).toBe("completed")
+    }
+  }, 180_000)
+})
+
 describe("a run parked on its token budget by a call larger than its allowance", () => {
   it("Continue admits the refused call and completes the run instead of parking on it again", async () => {
     // Every call charges 15 tokens against a 10-token allowance; the second finishes the run.

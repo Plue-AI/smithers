@@ -1726,8 +1726,12 @@ export const budgetParking = (
           ),
           Effect.mapError(committed)
         )
-        // A decided request no longer parks: a denial is the refusal it
-        // asked to lift, and an approval this attempt did not apply is too.
+        // A decided request no longer parks. A denial is Stop: the run fails
+        // as the operator's stop, on the facts the guard froze when it asked.
+        if (token._tag === "Denied") {
+          return yield* RunawayGuard.stopped(recorded?.incident ?? RunawayGuard.incident(exceeded))
+        }
+        // An approval this attempt did not apply is the refusal it asked to lift.
         if (token._tag !== "Pending") {
           return yield* new HarnessError.HarnessError({
             code: "model_failed",

@@ -279,6 +279,38 @@ describe("a budget park", () => {
     })
   })
 
+  it("stops a budget park the operator denied, on the incident it recorded", async () => {
+    const observed = await inWorld((world) =>
+      Effect.gen(function*() {
+        const parking = AgentSession.budgetParking(world.journal, world.runtime)
+        yield* parking(world.runId, latencyEnvelope).park(latency(150))
+        const [request] = yield* requests(world.journal, world.runId)
+        yield* decide(world, request!, "denied")
+        // The re-drive after Stop measures more elapsed time; the facts stay the frozen ones.
+        const stopped = yield* Effect.flip(parking(world.runId, latencyEnvelope).park(latency(400)))
+        return { request: request!, stopped }
+      })
+    )
+
+    expect(stoppedFacts(observed.stopped)).toEqual(observed.request.incident)
+    expect(observed.stopped.message).toBe(`Stopped by the operator: ${observed.request.incident!.message}`)
+  })
+
+  it("fails an approved park this attempt did not apply as the budget it exceeded", async () => {
+    const observed = await inWorld((world) =>
+      Effect.gen(function*() {
+        const parking = AgentSession.budgetParking(world.journal, world.runtime)
+        yield* parking(world.runId, latencyEnvelope).park(latency(150))
+        const [request] = yield* requests(world.journal, world.runId)
+        yield* decide(world, request!, "approved")
+        return yield* Effect.flip(parking(world.runId, latencyEnvelope).park(latency(400)))
+      })
+    )
+
+    expect(observed.code).toBe("model_failed")
+    expect(observed.cause).toBeInstanceOf(Budget.BudgetExceeded)
+  })
+
   it("reuses a request recorded without incident facts as it was recorded", async () => {
     const observed = await inWorld((world) =>
       Effect.gen(function*() {
