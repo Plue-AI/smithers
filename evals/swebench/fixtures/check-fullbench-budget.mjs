@@ -8,12 +8,17 @@ import { DatabaseSync } from "node:sqlite"
 import { renderReport, spendByInstance, summarise } from "../fullbench-report.mjs"
 import { read } from "../lib/fullbench-manifest.mjs"
 import { readCost } from "../lib/run-cost.mjs"
+import { jevModel, usd } from "../prices.ts"
 
 const root = resolve(import.meta.dirname, "..")
 const temporary = mkdtempSync(join(tmpdir(), "swebench-budget-"))
 const manifest = join(temporary, "manifest.jsonl")
 const writeLedger = (rows) => writeFileSync(manifest, `${rows.map((row) => JSON.stringify(row)).join("\n")}\n`)
 const instance = (state, extra = {}) => ({ kind: "instance", id: "a__a-1", state, ...extra })
+// The seat's price comes from the committed rate card, so a price refresh moves
+// these expectations with it rather than breaking them.
+const sol = (inputTokens, outputTokens) =>
+  usd("openai:gpt-5.6-sol", { inputTokens, cachedInputTokens: 0, outputTokens }).usd
 const spend = () =>
   spawnSync(process.execPath, [join(root, "fullbench-report.mjs"), "--spend-cents", "--manifest", manifest], {
     encoding: "utf8",
@@ -130,7 +135,7 @@ try {
   const priced = new DatabaseSync(path)
   priced.prepare("UPDATE flows_journal_events SET payload_json = ? WHERE seq = 0")
     .run(JSON.stringify({ seat: "openai:gpt-5.6-sol" }))
-  assert.equal(readCost(path).usd, 0.04, "five priced calls sum their recorded usage")
+  assert.equal(readCost(path).usd, sol(5000, 500), "five priced calls sum their recorded usage")
   assert.equal(readCost(path).unknown, false)
   const insert = priced.prepare("INSERT INTO flows_journal_events VALUES (?, ?, ?, ?)")
   insert.run(6, 6, "control.agent.turn-opened", JSON.stringify({ seat: "openai:unpriced-fixture" }))
@@ -139,15 +144,19 @@ try {
   priced.exec("DELETE FROM flows_journal_events WHERE seq > 0")
   assert.equal(readCost(path).usd, 0, "a readable journal without calls proves zero recorded usage")
   assert.equal(readCost(path).unknown, false)
-  for (let i = 1; i <= 10; i++) {
+  for (let i = 1; i <= 30; i++) {
     insert.run(i, i, "control.agent.model-settled", JSON.stringify({ usage: { inputTokens: 1, outputTokens: 0 } }))
   }
-  assert.equal(readCost(path).usd, 0.0001, "price aggregated usage without rounding away each small call")
+  assert.equal(sol(1, 0), 0, "one call alone rounds to zero")
+  assert.ok(sol(30, 0) > 0)
+  assert.equal(readCost(path).usd, sol(30, 0), "price aggregated usage without rounding away each small call")
   // Jev is metered on its own rows and priced under its own row: the
   // completion brake, the supervisor, the agent's `jev` flow call and a
   // gate's `decision-settled` each count once; a failed `jev` call and the
   // supervisor's own `decision-settled`, even carrying usage, count nothing.
-  // 12,000 input tokens at 0.042 USD per 1M is 0.000504, rounded to 0.0005.
+  // 12,000 Jev input tokens, priced at the rate card's Jev row.
+  const jevUsd = usd(jevModel, { inputTokens: 12_000, cachedInputTokens: 0, outputTokens: 0 }).usd
+  assert.ok(jevUsd > 0)
   priced.exec("DELETE FROM flows_journal_events WHERE seq > 0")
   insert.run(1, 1, "control.agent.model-settled", JSON.stringify({ usage: { inputTokens: 1000, outputTokens: 100 } }))
   insert.run(2, 2, "control.agent.claim-demanded", JSON.stringify({ usage: { inputTokens: 4000, outputTokens: 0 } }))
@@ -206,12 +215,12 @@ try {
   {
     const metered = readCost(path)
     assert.equal(metered.jevInterrupted, 1, "only the interrupted reading, not a transport timeout")
-    assert.equal(metered.usd, 0.008, "the seat's usd is the model turns alone")
+    assert.equal(metered.usd, sol(1000, 100), "the seat's usd is the model turns alone")
     assert.equal(metered.jevCalls, 4, "the brake, the supervisor, one settled jev call and one gate")
     assert.equal(metered.jevInputTokens, 12_000)
     assert.equal(metered.jevOutputTokens, 0)
-    assert.equal(metered.jevUsd, 0.0005, "Jev priced under typesafe-ai/jev, the supervisor's decision-settled unpriced")
-    assert.equal(metered.totalUsd, 0.0085)
+    assert.equal(metered.jevUsd, jevUsd, "Jev priced under typesafe-ai/jev, the supervisor's decision-settled unpriced")
+    assert.equal(metered.totalUsd, Math.round((sol(1000, 100) + jevUsd) * 10_000) / 10_000)
     assert.equal(metered.unknown, false)
   }
   insert.run(8, 8, "control.agent.supervisor-settled", JSON.stringify({ usage: { inputTokens: -1, outputTokens: 0 } }))
