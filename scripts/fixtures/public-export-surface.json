@@ -198,6 +198,17 @@
     },
     {
       "name": "@smthrs/engine-store",
+      "subpath": "./ReplayOnly",
+      "development": "./src/ReplayOnly.ts",
+      "published": {
+        "types": "./dist/esm/ReplayOnly.d.ts",
+        "import": "./dist/esm/ReplayOnly.js",
+        "require": "./dist/cjs/ReplayOnly.js"
+      },
+      "reason": "The replay-only engine (1587e5f24a) behind smthrs runs verify: it serves recorded steps and reports the first step a resume would execute, running no action body."
+    },
+    {
+      "name": "@smthrs/engine-store",
       "subpath": "./PlanInputStore",
       "development": "./src/PlanInputStore.ts",
       "published": {
