@@ -1027,7 +1027,9 @@
     "outputs": [
       ".smithers/target-index.json"
     ],
-    "dependencies": [],
+    "dependencies": [
+      "//flows:testCoverage"
+    ],
     "source": {
       "file": "PACKAGE.ts"
     }
@@ -12828,22 +12830,24 @@
           "apps/server/src/**",
           "apps/server/scripts/**",
           "apps/server/wrangler.jsonc",
-          "apps/server/wrangler.edge.jsonc",
-          "apps/server/src/index.ts",
-          "apps/server/src/proxies.ts",
-          "apps/server/src/cloudToken.ts",
-          "apps/server/src/identity.ts",
+          "apps/server/src/edge.ts",
+          "apps/server/src/Boundary.ts",
+          "apps/server/src/Http.ts",
           "packages/backend/internal/compose/router.go",
           "packages/backend/internal/middleware/auth.go",
+          "packages/backend/internal/middleware/auth_loader_failures.go",
+          "packages/backend/internal/middleware/csrf.go",
           "packages/backend/internal/middleware/repo_context.go",
           "packages/backend/internal/routes/workflow_invoke.go",
           "packages/backend/internal/services/workflow_invoke.go",
           "packages/backend/internal/services/workflow_invoke_flow.go",
           "packages/backend/internal/db/workflows.sql.go",
           "packages/backend/flowdispatch/service.go",
-          "apps/server/src/workflows.ts",
           "packages/backend/internal/compose/main.go",
           "packages/backend/internal/compose/browser_flow.go",
+          "packages/backend/internal/middleware/scope.go",
+          "packages/backend/internal/services/repo.go",
+          "packages/backend/internal/db/workspace.sql.go",
           "packages/backend/internal/compose/browser_flow_target.go",
           "packages/backend/flowhost/resolver.go",
           "packages/backend/flowhost/store.go"
@@ -12866,27 +12870,17 @@
       },
       {
         "kind": "glob",
-        "pattern": "apps/server/wrangler.edge.jsonc",
+        "pattern": "apps/server/src/edge.ts",
         "exclude": []
       },
       {
         "kind": "glob",
-        "pattern": "apps/server/src/index.ts",
+        "pattern": "apps/server/src/Boundary.ts",
         "exclude": []
       },
       {
         "kind": "glob",
-        "pattern": "apps/server/src/proxies.ts",
-        "exclude": []
-      },
-      {
-        "kind": "glob",
-        "pattern": "apps/server/src/cloudToken.ts",
-        "exclude": []
-      },
-      {
-        "kind": "glob",
-        "pattern": "apps/server/src/identity.ts",
+        "pattern": "apps/server/src/Http.ts",
         "exclude": []
       },
       {
@@ -12897,6 +12891,16 @@
       {
         "kind": "glob",
         "pattern": "packages/backend/internal/middleware/auth.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/middleware/auth_loader_failures.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/middleware/csrf.go",
         "exclude": []
       },
       {
@@ -12931,17 +12935,27 @@
       },
       {
         "kind": "glob",
-        "pattern": "apps/server/src/workflows.ts",
-        "exclude": []
-      },
-      {
-        "kind": "glob",
         "pattern": "packages/backend/internal/compose/main.go",
         "exclude": []
       },
       {
         "kind": "glob",
         "pattern": "packages/backend/internal/compose/browser_flow.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/middleware/scope.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/services/repo.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/db/workspace.sql.go",
         "exclude": []
       },
       {
@@ -12961,22 +12975,17 @@
       },
       {
         "kind": "glob",
-        "pattern": "apps/server/src/index.ts",
+        "pattern": "apps/server/src/edge.ts",
         "exclude": []
       },
       {
         "kind": "glob",
-        "pattern": "apps/server/src/proxies.ts",
+        "pattern": "apps/server/src/Boundary.ts",
         "exclude": []
       },
       {
         "kind": "glob",
-        "pattern": "apps/server/src/cloudToken.ts",
-        "exclude": []
-      },
-      {
-        "kind": "glob",
-        "pattern": "apps/server/src/identity.ts",
+        "pattern": "apps/server/src/Http.ts",
         "exclude": []
       },
       {
@@ -12987,6 +12996,16 @@
       {
         "kind": "glob",
         "pattern": "packages/backend/internal/middleware/auth.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/middleware/auth_loader_failures.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/middleware/csrf.go",
         "exclude": []
       },
       {
@@ -13021,17 +13040,27 @@
       },
       {
         "kind": "glob",
-        "pattern": "apps/server/src/workflows.ts",
-        "exclude": []
-      },
-      {
-        "kind": "glob",
         "pattern": "packages/backend/internal/compose/main.go",
         "exclude": []
       },
       {
         "kind": "glob",
         "pattern": "packages/backend/internal/compose/browser_flow.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/middleware/scope.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/services/repo.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/db/workspace.sql.go",
         "exclude": []
       },
       {
@@ -13074,22 +13103,24 @@
           "apps/server/src/**",
           "apps/server/scripts/**",
           "apps/server/wrangler.jsonc",
-          "apps/server/wrangler.edge.jsonc",
-          "apps/server/src/index.ts",
-          "apps/server/src/proxies.ts",
-          "apps/server/src/cloudToken.ts",
-          "apps/server/src/identity.ts",
+          "apps/server/src/edge.ts",
+          "apps/server/src/Boundary.ts",
+          "apps/server/src/Http.ts",
           "packages/backend/internal/compose/router.go",
           "packages/backend/internal/middleware/auth.go",
+          "packages/backend/internal/middleware/auth_loader_failures.go",
+          "packages/backend/internal/middleware/csrf.go",
           "packages/backend/internal/middleware/repo_context.go",
           "packages/backend/internal/routes/workflow_invoke.go",
           "packages/backend/internal/services/workflow_invoke.go",
           "packages/backend/internal/services/workflow_invoke_flow.go",
           "packages/backend/internal/db/workflows.sql.go",
           "packages/backend/flowdispatch/service.go",
-          "apps/server/src/workflows.ts",
           "packages/backend/internal/compose/main.go",
           "packages/backend/internal/compose/browser_flow.go",
+          "packages/backend/internal/middleware/scope.go",
+          "packages/backend/internal/services/repo.go",
+          "packages/backend/internal/db/workspace.sql.go",
           "packages/backend/internal/compose/browser_flow_target.go",
           "packages/backend/flowhost/resolver.go",
           "packages/backend/flowhost/store.go"
@@ -13112,27 +13143,17 @@
       },
       {
         "kind": "glob",
-        "pattern": "apps/server/wrangler.edge.jsonc",
+        "pattern": "apps/server/src/edge.ts",
         "exclude": []
       },
       {
         "kind": "glob",
-        "pattern": "apps/server/src/index.ts",
+        "pattern": "apps/server/src/Boundary.ts",
         "exclude": []
       },
       {
         "kind": "glob",
-        "pattern": "apps/server/src/proxies.ts",
-        "exclude": []
-      },
-      {
-        "kind": "glob",
-        "pattern": "apps/server/src/cloudToken.ts",
-        "exclude": []
-      },
-      {
-        "kind": "glob",
-        "pattern": "apps/server/src/identity.ts",
+        "pattern": "apps/server/src/Http.ts",
         "exclude": []
       },
       {
@@ -13143,6 +13164,16 @@
       {
         "kind": "glob",
         "pattern": "packages/backend/internal/middleware/auth.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/middleware/auth_loader_failures.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/middleware/csrf.go",
         "exclude": []
       },
       {
@@ -13177,17 +13208,27 @@
       },
       {
         "kind": "glob",
-        "pattern": "apps/server/src/workflows.ts",
-        "exclude": []
-      },
-      {
-        "kind": "glob",
         "pattern": "packages/backend/internal/compose/main.go",
         "exclude": []
       },
       {
         "kind": "glob",
         "pattern": "packages/backend/internal/compose/browser_flow.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/middleware/scope.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/services/repo.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/db/workspace.sql.go",
         "exclude": []
       },
       {
@@ -13207,22 +13248,17 @@
       },
       {
         "kind": "glob",
-        "pattern": "apps/server/src/index.ts",
+        "pattern": "apps/server/src/edge.ts",
         "exclude": []
       },
       {
         "kind": "glob",
-        "pattern": "apps/server/src/proxies.ts",
+        "pattern": "apps/server/src/Boundary.ts",
         "exclude": []
       },
       {
         "kind": "glob",
-        "pattern": "apps/server/src/cloudToken.ts",
-        "exclude": []
-      },
-      {
-        "kind": "glob",
-        "pattern": "apps/server/src/identity.ts",
+        "pattern": "apps/server/src/Http.ts",
         "exclude": []
       },
       {
@@ -13233,6 +13269,16 @@
       {
         "kind": "glob",
         "pattern": "packages/backend/internal/middleware/auth.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/middleware/auth_loader_failures.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/middleware/csrf.go",
         "exclude": []
       },
       {
@@ -13267,17 +13313,27 @@
       },
       {
         "kind": "glob",
-        "pattern": "apps/server/src/workflows.ts",
-        "exclude": []
-      },
-      {
-        "kind": "glob",
         "pattern": "packages/backend/internal/compose/main.go",
         "exclude": []
       },
       {
         "kind": "glob",
         "pattern": "packages/backend/internal/compose/browser_flow.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/middleware/scope.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/services/repo.go",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/db/workspace.sql.go",
         "exclude": []
       },
       {
@@ -27657,6 +27713,93 @@
     }
   },
   {
+    "label": "//flows:burndown",
+    "package": "flows",
+    "name": "burndown",
+    "rule": "NodeTest",
+    "kinds": [
+      "test"
+    ],
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "flows/burndown/test/accounts.test.ts"
+      },
+      {
+        "kind": "file",
+        "path": "flows/burndown/test/brief.test.ts"
+      },
+      {
+        "kind": "file",
+        "path": "flows/burndown/test/cloud-export.test.ts"
+      },
+      {
+        "kind": "file",
+        "path": "flows/burndown/test/cloud-placement.test.ts"
+      },
+      {
+        "kind": "file",
+        "path": "flows/burndown/test/cloud-symlink.test.ts"
+      },
+      {
+        "kind": "file",
+        "path": "flows/burndown/test/issues.test.ts"
+      },
+      {
+        "kind": "file",
+        "path": "flows/burndown/test/land.test.ts"
+      },
+      {
+        "kind": "file",
+        "path": "flows/burndown/test/local-scratch.test.ts"
+      },
+      {
+        "kind": "file",
+        "path": "flows/burndown/test/pacing.test.ts"
+      },
+      {
+        "kind": "file",
+        "path": "flows/burndown/test/run-agent.test.ts"
+      },
+      {
+        "kind": "file",
+        "path": "flows/test/burndown-cloud-handoff.test.ts"
+      },
+      {
+        "kind": "file",
+        "path": "flows/test/burndown-monitor.test.ts"
+      },
+      {
+        "kind": "file",
+        "path": "flows/test/burndown-round.test.ts"
+      },
+      {
+        "kind": "file",
+        "path": "flows/test/burndown-selection.test.ts"
+      },
+      {
+        "kind": "glob",
+        "pattern": "flows/**/*.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "scripts/*.mjs",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "pnpm-workspace.yaml"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "flows/PACKAGE.ts"
+    }
+  },
+  {
     "label": "//flows:check",
     "package": "flows",
     "name": "check",
@@ -27675,6 +27818,10 @@
         "kind": "glob",
         "pattern": "scripts/*.mjs",
         "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "apps/review/src/server/migrations.ts"
       },
       {
         "kind": "file",
@@ -27704,6 +27851,10 @@
       {
         "kind": "file",
         "path": "flows/test/coding-state.test.ts"
+      },
+      {
+        "kind": "file",
+        "path": "flows/test/coding-learnings.test.ts"
       },
       {
         "kind": "glob",
@@ -28962,6 +29113,10 @@
       {
         "kind": "file",
         "path": "flows/test/coding-landing-config.test.ts"
+      },
+      {
+        "kind": "file",
+        "path": "flows/test/coding-check-environment.test.ts"
       },
       {
         "kind": "file",
@@ -30418,6 +30573,14 @@
       },
       {
         "kind": "file",
+        "path": "flows/test/release-io.test.ts"
+      },
+      {
+        "kind": "file",
+        "path": "flows/test/release-operations.test.ts"
+      },
+      {
+        "kind": "file",
         "path": "flows/test/publication.test.ts"
       },
       {
@@ -30431,6 +30594,14 @@
       {
         "kind": "file",
         "path": "flows/test/rollout.test.ts"
+      },
+      {
+        "kind": "file",
+        "path": "flows/test/worker-rollout.test.ts"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/ci/worker-deploy-qualification.test.mjs"
       },
       {
         "kind": "glob",
@@ -30449,6 +30620,60 @@
       {
         "kind": "file",
         "path": "pnpm-workspace.yaml"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/ci/worker-deploy-qualification.test.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "flows/rollout/refuse-unqualified.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "apps/review/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "apps/bug-worker/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "apps/review/src/server/migrations.ts"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "flows/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//flows:testCoverage",
+    "package": "flows",
+    "name": "testCoverage",
+    "rule": "NodeTest",
+    "kinds": [
+      "test"
+    ],
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "flows/test/target-coverage.test.ts"
+      },
+      {
+        "kind": "glob",
+        "pattern": "flows/**/*.ts",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "flows/PACKAGE.ts"
+      },
+      {
+        "kind": "file",
+        "path": "flows/test/coding-native-gate.mjs"
       }
     ],
     "outputs": [],
