@@ -26,7 +26,7 @@ const run = (status: Run["status"]): Run => ({
   startedAt: 0
 })
 
-test("the strip preserves plugin, worker, root tree, flow and custom view order", () => {
+test("the strip preserves plugin, worker, flow and custom view order, with no tree tabs", () => {
   const tabs = [tab("solo"), tab("parent"), tab("child", "parent"), tab("bound"), tab("nested", "bound")]
   const bound = { ...panel("bound-view"), bind: { tree: "bound" } }
   const calls: string[] = []
@@ -50,7 +50,6 @@ test("the strip preserves plugin, worker, root tree, flow and custom view order"
     { id: "tab:child", label: "child" },
     { id: "tab:bound", label: "bound" },
     { id: "tab:nested", label: "nested" },
-    { id: "tree:parent", label: "Tree: parent" },
     { id: "flow:running", label: "◌ review ~2m" },
     { id: "flow:done", label: "✓ review" },
     { id: "ui:bound-view", label: "bound-view" },
@@ -115,7 +114,7 @@ test.each(
     ["summary", "summary"],
     ["tab:worker/a", "tab:worker/a"],
     ["flow:run/a", "flow:run/a"],
-    ["tree:worker/a", "tree:worker/a"],
+    ["tree:worker/a", undefined],
     ["ui:custom", "custom"],
     ["chat", undefined],
     ["ui:absent", undefined]
@@ -144,7 +143,7 @@ test.each(
   const selected = Surfaces.panelFor(surface, sources)
   expect(selected.base?.id).toBe(expected)
   expect(selected.panel).toBe(selected.base)
-  expect(calls).toEqual(surface === "chat" || surface.startsWith("ui:") ? [] : [surface])
+  expect(calls).toEqual(surface === "chat" || surface.startsWith("ui:") || surface.startsWith("tree:") ? [] : [surface])
 })
 
 test("a bound panel prepends its tree and namespaces its own rows without altering either source", () => {
@@ -219,11 +218,10 @@ test("ctrl+s opens the Summary from a worker tab with that worker selected, and 
     .toEqual({ kind: "show", surface: "chat" })
   expect(Surfaces.summaryKey({ surface: "summary", main: false, strip }))
     .toEqual({ kind: "show", surface: "chat" })
-  // A worker's live tree selects its worker too.
+  // The Summary itself shows the worker tree: no `tree:` tab selects a worker.
   expect(Surfaces.summaryKey({ surface: "tree:w1", main: false, strip })).toEqual({
     kind: "summary",
-    from: "tree:w1",
-    select: "w1"
+    from: "tree:w1"
   })
   // A main view keeps chat beside it: ctrl+s switches focus between them.
   expect(Surfaces.summaryKey({ surface: "ui:plan", main: true, strip })).toEqual({ kind: "focus" })

@@ -1,8 +1,8 @@
 /**
  * The tab strip, the worker list beside the chat, and a worker's own tab.
  *
- * The look follows the app's subagent rows (`apps/app` `SubagentRow.tsx`,
- * `cards/AgentCards.tsx`): a lane color, a status pill, and the way back.
+ * The look follows the app's subagent cards (`apps/app` `SubagentGrid.tsx`,
+ * `cards/AgentCards.tsx`): a lane color, a status glyph, and the way back.
  * A worker's transcript renders with the chat's own cells.
  */
 import type { ScrollBoxRenderable } from "@opentui/core"

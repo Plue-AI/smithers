@@ -16,7 +16,7 @@ bun run tui --help              # command-line options
 bun run tui -c                   # continue the latest conversation here
 bun run tui -r                   # pick a conversation
 bun run tui -p "prompt"          # print one answer and exit
-bun run tui --model openai:gpt-6-astra
+bun run tui --model openai:gpt-6.1-sol
 ```
 
 It runs on Bun or on Node 26.4 or later. `smthrs tui` (and `npx smthrs tui`)
@@ -293,7 +293,7 @@ Delegation takes `{id, title, prompt}`, persists before launch, and returns a
 A worker with no chosen model is routed by Jev through the routing graph to a
 seat, its backups, and a system-prompt variant; retry and restart keep the
 route, and a seat picked in the retry picker drops it. A worker routed to a
-panel (an important plan or review) runs Opus, Fable, and Astra as parallel
+panel (an important plan or review) runs Opus, Fable, and Sol as parallel
 workers, then Fable merges their answers; a member that fails is left out.
 Members only answer: they cannot publish, delegate, wait or ask. Only the
 merger's run shows in the tab, and steering or taking over waits until it
@@ -317,8 +317,8 @@ where a worker settled. `/filter` shows or hides each kind of row;
 `/grep <text>` keeps rows containing the text and `/grep` alone clears it. Chat receives every unsettled worker and the newest
 five settled answers (1,500 characters each) as context, and remains usable
 while workers run. Progress uses the shared toast stack,
-with a 300 ms delay and real completion/failure as its end. A `tree:<rootId>`
-tab appears when a worker gains children; its rows update from tab state.
+with a 300 ms delay and real completion/failure as its end. Ctrl+S shows
+every worker's tree.
 
 Each worker's tab, and its row in the list beside the chat at 100 columns or
 wider, shows the status glyph subagent cards share (`@smthrs/rpc/SubagentCard`):
@@ -487,7 +487,7 @@ rest.
 ```yaml
 ---
 description: Reviews the uncommitted change and returns a verdict.  # picker row
-model: sol          # sol, astra, luna, opus, fable, qwen, or provider:modelId
+model: sol          # sol, luna, opus, fable, qwen, or provider:modelId
 effort: high        # none, minimal, low, medium, high, xhigh, max
 capabilities: ["fs:read:**", "proc:spawn:*"]  # envelope; absent = every capability
 flows: [read, grep, bash]  # standard flows it may call; absent = all of them

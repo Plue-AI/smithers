@@ -46,10 +46,7 @@ Type "/tabs"
 Press Enter
 Capture "Follow nested child reviews while chat remains available."
 Wait for worker "lead" status "done"
-Press Tab
-Press Tab
-Press Tab
-Press Tab
-Wait for "Tree: Lead review"
+Press Ctrl+S
+Wait for "Lead review"
 Capture "Inspect the worker tree after its children settle."
 ```

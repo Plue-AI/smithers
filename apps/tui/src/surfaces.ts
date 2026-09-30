@@ -1,7 +1,8 @@
 /**
- * Surfaces: the tabs across the top (chat, Summary, workers, trees, flow
- * runs, custom views) and which one shows. Routing is by id: `chat`,
- * `summary`, `tab:<worker>`, `tree:<worker>`, `flow:<run>` and `ui:<panel>`.
+ * Surfaces: the tabs across the top (chat, Summary, workers, flow runs,
+ * custom views) and which one shows. Routing is by id: `chat`, `summary`,
+ * `tab:<worker>`, `flow:<run>` and `ui:<panel>`. The Summary shows the
+ * worker tree.
  */
 import { useEffect, useRef, useState } from "react"
 import type { Run } from "./flows.ts"
@@ -49,11 +50,6 @@ export const chips = (input: {
     { id: "summary", label: "Summary" },
     ...input.plugins.map((panel) => ({ id: `ui:${panel.id}`, label: panel.title })),
     ...workspace.tabs.map(input.worker),
-    ...workspace.tabs.filter((tab) =>
-      tab.parent === undefined && workspace.tabs.some((child) => child.parent === tab.id) &&
-      !workspace.panels.some((panel) => panel.bind?.tree === tab.id)
-    )
-      .map((tab) => ({ id: `tree:${tab.id}`, label: `Tree: ${tab.title}` })),
     ...input.runs.map((run) => ({
       id: `flow:${run.id}`,
       label: `${flowGlyph(run.status)}${run.flow}${input.runEta(run)}`
@@ -85,8 +81,6 @@ export const panelFor = (surface: string, sources: {
     ? sources.tab(surface.slice(4))
     : surface.startsWith("flow:")
     ? sources.run(surface.slice(5))
-    : surface.startsWith("tree:")
-    ? sources.tree(surface.slice(5))
     : sources.views.find((panel) => `ui:${panel.id}` === surface)
   const panel = base?.bind === undefined ? base : (() => {
     const tree = sources.tree(base.bind.tree)
@@ -155,7 +149,7 @@ export type SummaryKey =
   | { readonly kind: "focus" }
 
 /**
- * Ctrl+S opens the Summary from the chat or a worker, tree or flow tab, with that tab's worker or flow
+ * Ctrl+S opens the Summary from the chat or a worker or flow tab, with that tab's worker or flow
  * run selected, and on the Summary goes back to the tab it came from while that tab exists, else to the
  * chat. A main view or a `ui:` view switches focus instead: a plugin's tab leaves the strip once hidden.
  */
@@ -172,8 +166,8 @@ export const summaryKey = (state: {
     const back = state.from !== undefined && state.strip.some((chip) => chip.id === state.from) ? state.from : "chat"
     return { kind: "show", surface: back }
   }
-  const select = state.surface.startsWith("tab:") || state.surface.startsWith("tree:")
-    ? state.surface.slice(state.surface.indexOf(":") + 1)
+  const select = state.surface.startsWith("tab:")
+    ? state.surface.slice(4)
     : state.surface.startsWith("flow:")
     ? state.surface
     : undefined
