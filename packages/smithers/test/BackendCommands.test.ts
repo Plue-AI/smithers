@@ -61,6 +61,7 @@ const homeFixture = async (
   const environment = {
     HOME: home,
     XDG_CONFIG_HOME: join(home, ".config"),
+    XDG_DATA_HOME: join(home, ".local", "share"),
     SMITHERS_API_ORIGIN: origin,
     SMITHERS_AUTH_FILE: join(home, "auth.json"),
     SMITHERS_DISABLE_SYSTEM_KEYRING: "1",
@@ -81,33 +82,41 @@ const homeFixture = async (
     run: async (args: string[]) => {
       let output = "", error = "", code = 0
       const signals = new EventEmitter()
-      await main({
-        argv: [...args, "--audience", "human"],
-        env: { ...environment },
-        stdout: {
-          isTTY: true,
-          columns: 80,
-          write: (text) => {
-            output += text
+      // Incur reads skill-sync metadata from process.env, not the CLI host's env.
+      const previousDataHome = process.env.XDG_DATA_HOME
+      process.env.XDG_DATA_HOME = environment.XDG_DATA_HOME
+      try {
+        await main({
+          argv: [...args, "--audience", "human"],
+          env: { ...environment },
+          stdout: {
+            isTTY: true,
+            columns: 80,
+            write: (text) => {
+              output += text
+            }
+          },
+          stderr: {
+            isTTY: false,
+            columns: 80,
+            write: (text) => {
+              error += text
+            }
+          },
+          on: (signal, listener) => {
+            signals.on(signal, listener)
+          },
+          removeListener: (signal, listener) => {
+            signals.removeListener(signal, listener)
+          },
+          setExitCode: (value) => {
+            code = value
           }
-        },
-        stderr: {
-          isTTY: false,
-          columns: 80,
-          write: (text) => {
-            error += text
-          }
-        },
-        on: (signal, listener) => {
-          signals.on(signal, listener)
-        },
-        removeListener: (signal, listener) => {
-          signals.removeListener(signal, listener)
-        },
-        setExitCode: (value) => {
-          code = value
-        }
-      })
+        })
+      } finally {
+        if (previousDataHome === undefined) delete process.env.XDG_DATA_HOME
+        else process.env.XDG_DATA_HOME = previousDataHome
+      }
       expect(signals.eventNames()).toEqual([])
       expect(output + error).not.toContain("home-session-secret")
       return { output, error, code }
@@ -194,8 +203,10 @@ describe("repo clone over local Git HTTP", () => {
       expect(result.code, result.error).toBe(0)
       expect(await readFile(join(checkout, "README.md"), "utf8")).toBe("private clone works\n")
       expect(gitRequests.length).toBeGreaterThan(0)
-      expect(gitRequests.every((request) => request.path.startsWith("/owner/repo.git/") &&
-        request.authorization === "Bearer home-session-secret")).toBe(true)
+      expect(gitRequests.every((request) =>
+        request.path.startsWith("/owner/repo.git/") &&
+        request.authorization === "Bearer home-session-secret"
+      )).toBe(true)
     } finally {
       await fixture.close()
     }
@@ -244,8 +255,15 @@ describe("repo clone over local Git HTTP", () => {
       res.end()
     })
     try {
-      const result = await fixture.run(["repo", "clone", "owner/repo", "--protocol", "https",
-        "--directory", join(fixture.home, "redirected")])
+      const result = await fixture.run([
+        "repo",
+        "clone",
+        "owner/repo",
+        "--protocol",
+        "https",
+        "--directory",
+        join(fixture.home, "redirected")
+      ])
       expect(result.code).not.toBe(0)
       expect(trustedAuthorizations).toContain("Bearer home-session-secret")
       expect(redirectedAuthorizations).toEqual([])
@@ -356,7 +374,7 @@ describe("repo home over local HTTP server", () => {
     }
   })
 
-  it("returns the server's homepage document unchanged under --json", async () => {
+  it("returns the server's homepage document unchanged under --json without skill-sync metadata", async () => {
     const body = {
       kind: "blocks",
       blocks: [
@@ -370,10 +388,52 @@ describe("repo home over local HTTP server", () => {
       res.end(JSON.stringify(body))
     })
     try {
+      const previousDataHome = process.env.XDG_DATA_HOME
       const result = await f.run(["repo", "home", "owner/repo", "--json"])
       expect(result.code, result.output + result.error).toBe(0)
       expect(JSON.parse(result.output)).toEqual(body)
+      expect(process.env.XDG_DATA_HOME).toBe(previousDataHome)
     } finally {
+      await f.close()
+    }
+  })
+
+  it("preserves the server's homepage document and adds the skills CTA when installed skills are stale", async () => {
+    const body = { kind: "blocks", blocks: [{ type: "text", title: "First", text: "Hello" }], revision: 7 }
+    const f = await homeFixture((_req, res) => {
+      res.setHeader("content-type", "application/json")
+      res.end(JSON.stringify(body))
+    })
+    const callerDataHome = process.env.XDG_DATA_HOME
+    const sentinelDataHome = join(f.home, "caller-data")
+    try {
+      const installed = join(f.home, "installed-skill")
+      const metadata = join(f.home, ".local", "share", "incur")
+      await mkdir(installed)
+      await mkdir(metadata, { recursive: true })
+      await writeFile(join(installed, "SKILL.md"), "---\nname: installed-skill\ndescription: Test skill\n---\n")
+      await writeFile(
+        join(metadata, "smthrs.json"),
+        JSON.stringify({ hash: "stale-hash", skills: ["installed-skill"], paths: [installed] })
+      )
+
+      process.env.XDG_DATA_HOME = sentinelDataHome
+      const result = await f.run(["repo", "home", "owner/repo", "--json"])
+      expect(result.code, result.output + result.error).toBe(0)
+      expect(process.env.XDG_DATA_HOME).toBe(sentinelDataHome)
+      const parsed = JSON.parse(result.output) as typeof body & {
+        cta?: { description: string; commands: Array<{ command: string; description: string }> }
+      }
+      const { cta, ...document } = parsed
+      expect(document).toEqual(body)
+      expect(cta?.description).toBe("Skills are out of date:")
+      expect(cta?.commands).toEqual([{
+        command: expect.stringMatching(/\bsmthrs skills add$/),
+        description: "sync outdated skills"
+      }])
+    } finally {
+      if (callerDataHome === undefined) delete process.env.XDG_DATA_HOME
+      else process.env.XDG_DATA_HOME = callerDataHome
       await f.close()
     }
   })
