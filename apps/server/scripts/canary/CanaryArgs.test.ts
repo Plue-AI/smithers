@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { argReader, parseLogins, readFlag } from "./CanaryArgs.ts"
+import { argReader, readFlag } from "./CanaryArgs.ts"
 
 describe("readFlag", () => {
   test("a flag reads its value", () => {
@@ -57,17 +57,5 @@ describe("argReader", () => {
     expect(() => read("--json")).toThrow()
     expect(refused[0]).toContain("--json needs a value")
     expect(refused[0]).toContain("--samples")
-  })
-})
-
-describe("parseLogins", () => {
-  test("a roster is a comma or newline list, minus blanks and comments", () => {
-    expect(parseLogins("alice, bob\ncarol\n# note\n")).toEqual(["alice", "bob", "carol"])
-    expect(parseLogins(undefined)).toEqual([])
-    expect(parseLogins("")).toEqual([])
-  })
-
-  test("a space inside an entry is kept, so a malformed login stays one entry", () => {
-    expect(parseLogins("alice bob,carol")).toEqual(["alice bob", "carol"])
   })
 })

@@ -603,17 +603,15 @@ const options = (over: Partial<ProbeOptions> = {}): ProbeOptions => ({
   requestTimeoutMs: 20_000,
   sessionCookie: undefined,
   expectedSessionLogin: "smithers-visitor",
-  privilegedLogins: [],
   runId: "run-1",
   ...over
 })
 
 /**
  * The scoped-down account the metered half must authenticate as: a plain
- * signed-in login with no admin claim (RULINGS 35). `allowlisted` is true
- * because open sign-in makes identity answer true for every login.
+ * signed-in login with no admin claim (RULINGS 35).
  */
-const SCOPED_SESSION = "{\"username\":\"smithers-visitor\",\"allowlisted\":true,\"is_admin\":false}"
+const SCOPED_SESSION = "{\"username\":\"smithers-visitor\",\"is_admin\":false}"
 
 const bootstrap = { apiVersion: 1, host: "cloud", version: "1", buildSha: "a".repeat(40), capabilities: ["agent", "identity"], authFlow: "redirect", sandbox: null }
 const healthy = (url: string): Response => {
@@ -905,19 +903,28 @@ describe("the scheduled workflow invokes the probe with an origin", () => {
 })
 
 /*
- * RULINGS 35: the probes run as a scoped-down signed-in user, never an admin
- * and never a hand-seeded allowlist entry, so a permission bug that refuses
+ * RULINGS 35: the probes run as a scoped-down signed-in user, never an admin,
+ * so a permission bug that refuses
  * ordinary visitors cannot hide behind the operator's own privileges. These
  * assertions are the loud failure that ruling asks for.
  */
 describe("parseSessionRead", () => {
   test("reads a plain signed-in account", () => {
-    expect(parseSessionRead(200, "{\"username\":\"visitor\",\"allowlisted\":true,\"is_admin\":false}")).toEqual({
+    expect(parseSessionRead(200, "{\"username\":\"visitor\",\"is_admin\":false}")).toEqual({
       state: "known",
       login: "visitor",
-      admin: false,
-      allowlisted: undefined
+      admin: false
     })
+  })
+
+  test("a retired allowlisted field in the session body is ignored", () => {
+    for (const allowlisted of ["true", "false"]) {
+      expect(parseSessionRead(200, `{"username":"visitor","allowlisted":${allowlisted},"is_admin":false}`)).toEqual({
+        state: "known",
+        login: "visitor",
+        admin: false
+      })
+    }
   })
 
   test("requires the canonical signed-out status", () => {
@@ -926,8 +933,8 @@ describe("parseSessionRead", () => {
   })
 
   test("an absent admin field is 'not stated', never a quiet false", () => {
-    const read = parseSessionRead(200, "{\"username\":\"visitor\",\"allowlisted\":true}")
-    expect(read).toEqual({ state: "known", login: "visitor", admin: undefined, allowlisted: undefined })
+    const read = parseSessionRead(200, "{\"username\":\"visitor\"}")
+    expect(read).toEqual({ state: "known", login: "visitor", admin: undefined })
   })
 
   test("a non-200, a non-JSON body and a body with no login are unreadable, not answers", () => {
@@ -938,9 +945,9 @@ describe("parseSessionRead", () => {
 })
 
 describe("scopedIdentityVerdict", () => {
-  const expectation = { expectedLogin: "smithers-visitor", privilegedLogins: ["will", "octocat"] }
-  const known = (over: Partial<{ login: string; admin: boolean | undefined; allowlisted: boolean | undefined }>) =>
-    ({ state: "known", login: "smithers-visitor", admin: false, allowlisted: true, ...over }) as const
+  const expectation = { expectedLogin: "smithers-visitor" }
+  const known = (over: Partial<{ login: string; admin: boolean | undefined }>) =>
+    ({ state: "known", login: "smithers-visitor", admin: false, ...over }) as const
 
   test("a plain signed-in account passes and states what it read", () => {
     const check = scopedIdentityVerdict(known({}), expectation)
@@ -961,23 +968,21 @@ describe("scopedIdentityVerdict", () => {
     expect(check.detail).toContain("smithers-visitor")
   })
 
-  test("a login on the hand-seeded roster fails even with admin false", () => {
-    const check = scopedIdentityVerdict(
-      known({ login: "octocat", admin: false }),
-      { expectedLogin: "octocat", privilegedLogins: ["will", "octocat"] }
-    )
-    expect(check.status).toBe("fail")
-    expect(check.detail).toContain("$CANARY_ALLOWLIST_LOGINS")
+  test("the declared login matches case-insensitively and states nothing about a roster", () => {
+    const check = scopedIdentityVerdict(known({ login: "Smithers-Visitor" }), expectation)
+    expect(check.status).toBe("pass")
+    expect(check.detail).not.toContain("allowlist")
   })
 
-  test("allowlisted:true alone never fails, because open sign-in sets it for every login", () => {
-    expect(scopedIdentityVerdict(known({ allowlisted: true }), expectation).status).toBe("pass")
+  test("a session body naming allowlisted:false still reads as a plain visitor that passes", () => {
+    const read = parseSessionRead(200, "{\"username\":\"smithers-visitor\",\"allowlisted\":false,\"is_admin\":false}")
+    expect(scopedIdentityVerdict(read, expectation).status).toBe("pass")
   })
 
   test("with no admin field and no declared login the check refuses to guess", () => {
     const check = scopedIdentityVerdict(
       known({ admin: undefined }),
-      { expectedLogin: undefined, privilegedLogins: [] }
+      { expectedLogin: undefined }
     )
     expect(check.status).toBe("fail")
     expect(check.detail).toContain("$CANARY_SESSION_LOGIN")
@@ -1003,7 +1008,7 @@ describe("scopedIdentityVerdict", () => {
 describe("runUptimeProbe refuses to spend under a privileged cookie", () => {
   const adminDeployment = (url: string): Response => {
     if (url.endsWith("/api/user")) {
-      return new Response("{\"username\":\"smithers-visitor\",\"allowlisted\":true,\"is_admin\":true}", { status: 200 })
+      return new Response("{\"username\":\"smithers-visitor\",\"is_admin\":true}", { status: 200 })
     }
     return healthy(url)
   }

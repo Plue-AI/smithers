@@ -263,7 +263,6 @@ refusing every user:
 | `CHAT_PRODUCT_SERVICE_TOKEN` | vouching the validated login to chat |
 | `IDENTITY_SERVICE_TOKEN` | `/api/identity/validate` |
 | `PLUE_WORKER_EXCHANGE_TOKEN` | `/api/telemetry/errors`; matches API `SMITHERS_AUTH_WORKER_EXCHANGE_TOKEN` |
-| `IDENTITY_ADMIN_TOKEN` | `POST /api/admin/allowlist`, `GET /api/admin/requests` |
 | `BILLING_AUTH_TOKEN` | the admin charge summary |
 | `BILLING_PRODUCT_SERVICE_TOKEN` | billing reads as the user |
 | `BILLING_ADMIN_TOKEN` | `POST /api/admin/grant` |
@@ -407,7 +406,7 @@ not an optional hardening flag. A deployment identity is not evidence of an
 incoming user's authority to use a workspace.
 
 Product clients use `/api/workflow/provision` and `/api/workflow/rpc`. These
-require a validated, allowlisted session; the Worker forwards the body to the
+require a validated session; the Worker forwards the body to the
 same path on `SMITHERS_CLOUD_API_BASE_URL` with the user's Cloud token
 (`forwardToCloud` in `src/proxies.ts`), and the box's coding host on the
 backend validates the repository, box and procedure and answers. The Worker
@@ -540,9 +539,8 @@ admin's cookie is green while the deployment refuses everyone else, which is
 the permission bug the probe exists to surface.
 
 **The account.** The canary account must be a plain GitHub login that does
-NOT appear in the identity Worker's `ADMIN_LOGINS`, does NOT hold a maintainer
-claim on any repository, and does NOT appear on the hand-seeded closed-alpha
-roster `CANARY_ALLOWLIST_LOGINS`. No such account is configured today:
+NOT appear in the identity Worker's `ADMIN_LOGINS` and does NOT hold a
+maintainer claim on any repository. No such account is configured today:
 `codeplanesmithers`, the shared test account, is in `ADMIN_LOGINS`, so its
 cookie fails the canary's identity check. Satisfy the ruling one of two ways:
 remove `codeplanesmithers` from the identity Worker's `ADMIN_LOGINS`, or create
@@ -560,13 +558,11 @@ issue.
 | `SMITHERS_E2E_USER` | env var for a local `uptime-probe.ts` run | the e2e account's GitHub login, read when `CANARY_SESSION_LOGIN` is unset |
 | `CANARY_SESSION_COOKIE` | secret, `Canary` workflow | that account's signed-in cookie header, sent on the hourly tick only |
 | `CANARY_SESSION_LOGIN` | repository variable | the login `$CANARY_SESSION_COOKIE` must belong to; the `Canary` workflow reads only this variable, and a cookie with no declared login fails |
-| `CANARY_ALLOWLIST_LOGINS` | repository variable | the hand-seeded closed-alpha roster; `uptime-probe.ts` refuses a cookie belonging to one of those logins |
 
 **The assertion.** `uptime-probe.ts` reads its own session back through
 `GET /api/auth/session` before it spends anything. It fails the run, taking no
-metered turn at all, when the session carries the `admin` claim, belongs to a
-login on `CANARY_ALLOWLIST_LOGINS`, is not the declared account, or
-authenticated nobody. When the deployment states no `admin` field and no login
+metered turn at all, when the session carries the `admin` claim, is not the
+declared account, or authenticated nobody. When the deployment states no `admin` field and no login
 is declared, the check fails rather than guess, and says to set
 `CANARY_SESSION_LOGIN`. Rotating the cookie into an operator's account
 therefore reddens the canary instead of quietly passing on privileges no

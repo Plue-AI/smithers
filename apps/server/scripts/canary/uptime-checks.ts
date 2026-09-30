@@ -309,7 +309,7 @@ export const uptimeVerdict = (samples: ReadonlyArray<Sample>): Check => {
  * Will's ruling (Factory spec 2026-09-08, review/RULINGS.md 35): open sign-in
  * is on and the permission tiers behind it stay deliberately narrow, so the
  * canary and the e2e suites run as a SCOPED-DOWN signed-in user — not an
- * admin, not a hand-seeded allowlist entry — and prove the product works under
+ * admin — and prove the product works under
  * the permissions a real visitor has. A probe holding an admin's cookie passes
  * every check while the deployment refuses everyone else, which is exactly the
  * permission bug this probe is supposed to surface.
@@ -318,12 +318,8 @@ export const uptimeVerdict = (samples: ReadonlyArray<Sample>): Check => {
  * spends anything, and refuses to spend under a privileged one. That read is
  * free: it reaches no model and no upstream beyond the identity Worker.
  *
- * ON `allowlisted`. Under open sign-in, identity answers `allowlisted: true`
- * for every login (Factory spec 01 §3), so the flag is a fact this check
- * REPORTS and never one it asserts — asserting `false` would red the canary on
- * the day the allowlist is flipped off. What separates a visitor from an
- * admitted alpha account is membership in the roster $CANARY_ALLOWLIST_LOGINS
- * names, so that is what is tested.
+ * Signup is public, so there is no admitted-account roster: the declared login
+ * and the `admin` claim are the whole verdict.
  */
 export type SessionRead =
   | { readonly state: "signed-out" }
@@ -333,7 +329,6 @@ export type SessionRead =
     readonly login: string
     /** undefined when the session route named no `admin` field at all. */
     readonly admin: boolean | undefined
-    readonly allowlisted: boolean | undefined
   }
 
 export const SCOPED_IDENTITY_CHECK_ID = "identity:scoped"
@@ -375,8 +370,7 @@ export const parseSessionRead = (status: number, body: string): SessionRead => {
   return {
     state: "known",
     login,
-    admin: identity.success ? identity.data.is_admin : undefined,
-    allowlisted: undefined
+    admin: identity.success ? identity.data.is_admin : undefined
   }
 }
 
@@ -386,8 +380,6 @@ export interface ScopedIdentityExpectation {
    * else $SMITHERS_E2E_USER, the scoped e2e account.
    */
   readonly expectedLogin: string | undefined
-  /** The hand-seeded closed-alpha roster, $CANARY_ALLOWLIST_LOGINS. */
-  readonly privilegedLogins: ReadonlyArray<string>
 }
 
 const sameLogin = (left: string, right: string): boolean => left.toLowerCase() === right.toLowerCase()
@@ -414,9 +406,7 @@ export const scopedIdentityVerdict = (read: SessionRead, expectation: ScopedIden
       `${label}: the session could not be read, so nothing here shows this cookie is a visitor's — ${read.detail}`
     )
   }
-  const stated = `signed in as ${read.login}: admin=${
-    read.admin === undefined ? "not stated" : String(read.admin)
-  }, allowlisted=${read.allowlisted === undefined ? "not stated" : String(read.allowlisted)}`
+  const stated = `signed in as ${read.login}: admin=${read.admin === undefined ? "not stated" : String(read.admin)}`
   const expected = expectation.expectedLogin === undefined || expectation.expectedLogin === ""
     ? undefined
     : expectation.expectedLogin
@@ -428,11 +418,6 @@ export const scopedIdentityVerdict = (read: SessionRead, expectation: ScopedIden
   }
   if (expected !== undefined && !sameLogin(expected, read.login)) {
     reasons.push(`the declared account is ${expected} ($CANARY_SESSION_LOGIN, else $SMITHERS_E2E_USER)`)
-  }
-  if (expectation.privilegedLogins.some((entry) => sameLogin(entry, read.login))) {
-    reasons.push(
-      `${read.login} is on the hand-seeded roster $CANARY_ALLOWLIST_LOGINS, so it is an admitted alpha account rather than an ordinary visitor`
-    )
   }
   if (read.admin === undefined && expected === undefined) {
     reasons.push(
@@ -771,13 +756,11 @@ export interface ProbeOptions {
    */
   readonly sessionCookie: string | undefined
   /*
-   * Who that cookie must be. `expectedSessionLogin` is $CANARY_SESSION_LOGIN,
-   * else $SMITHERS_E2E_USER; `privilegedLogins` is the hand-seeded roster
-   * $CANARY_ALLOWLIST_LOGINS. Both feed `scopedIdentityVerdict`, which decides
-   * whether this run may spend anything at all.
+   * Who that cookie must be: $CANARY_SESSION_LOGIN, else $SMITHERS_E2E_USER.
+   * It feeds `scopedIdentityVerdict`, which decides whether this run may spend
+   * anything at all.
    */
   readonly expectedSessionLogin: string | undefined
-  readonly privilegedLogins: ReadonlyArray<string>
   readonly runId: string
 }
 
@@ -959,7 +942,7 @@ export const runUptimeProbe = async (deps: ProbeDeps, options: ProbeOptions): Pr
     : options.sessionCookie
   const identityCheck = cookie === undefined ? undefined : scopedIdentityVerdict(
     await readSessionIdentity(deps, options, cookie),
-    { expectedLogin: options.expectedSessionLogin, privilegedLogins: options.privilegedLogins }
+    { expectedLogin: options.expectedSessionLogin }
   )
 
   // TURN_FIRST_FRAME_SAMPLES is 1 and is a cost decision, not an oversight.

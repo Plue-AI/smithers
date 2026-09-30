@@ -22,13 +22,11 @@
  *                           $SMITHERS_E2E_USER, the scoped e2e account. Unset,
  *                           and with a deployment that states no `admin` field,
  *                           the identity check fails rather than guess.
- *   $CANARY_ALLOWLIST_LOGINS the hand-seeded closed-alpha roster. A cookie
- *                           belonging to one of those logins fails the run.
  *
  * WHOSE ACCOUNT. Will's ruling (Factory spec 2026-09-08, RULINGS 35): the
- * canary and e2e suites run as a scoped-down signed-in user, never an admin and
- * never an allowlisted one, so a permission bug that refuses ordinary visitors
- * cannot hide behind the operator's own privileges. The accounts and variables
+ * canary and e2e suites run as a scoped-down signed-in user, never an admin, so a
+ * permission bug that refuses ordinary visitors cannot hide behind the
+ * operator's own privileges. The accounts and variables
  * are documented in apps/server/DEPLOY.md.
  *
  * WHAT THIS RUN COSTS. Without the cookie: nothing. Every request is a static
@@ -44,7 +42,7 @@
  * the one line in this lane that no test can reach.
  */
 import { writeFileSync } from "node:fs"
-import { argReader, parseLogins } from "./CanaryArgs.ts"
+import { argReader } from "./CanaryArgs.ts"
 import {
   type Check,
   REQUEST_TIMEOUT_MS,
@@ -83,7 +81,6 @@ if ("error" in resolved) refuseInvocation(resolved.error)
 const origin = resolved.origin
 const cookie = args.includes("--no-turn") ? undefined : process.env.CANARY_SESSION_COOKIE
 const expectedSessionLogin = (process.env.CANARY_SESSION_LOGIN ?? process.env.SMITHERS_E2E_USER)?.trim()
-const privilegedLogins = parseLogins(process.env.CANARY_ALLOWLIST_LOGINS)
 
 const report = await runUptimeProbe(
   {
@@ -98,7 +95,6 @@ const report = await runUptimeProbe(
     requestTimeoutMs: positive("--timeout-ms", REQUEST_TIMEOUT_MS),
     sessionCookie: cookie === "" ? undefined : cookie,
     expectedSessionLogin: expectedSessionLogin === "" ? undefined : expectedSessionLogin,
-    privilegedLogins,
     runId: `canary-uptime-probe-${Date.now()}`
   }
 )

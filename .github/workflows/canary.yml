@@ -124,13 +124,11 @@ jobs:
           # signed-out refusal gate only.
           CANARY_SESSION_COOKIE: ${{ (github.event.schedule == '0 * * * *' || github.event.inputs.metered == 'true') && secrets.CANARY_SESSION_COOKIE || '' }}
           # Whose cookie that is. Will's ruling (Factory spec 2026-09-08): the canary runs as a scoped-down
-          # signed-in user, never an admin and never a hand-seeded allowlist
-          # entry, so a permission bug that refuses ordinary visitors cannot
-          # hide behind the operator's own privileges. The probe reads its own
+          # signed-in user, never an admin, so a permission bug that refuses
+          # ordinary visitors cannot hide behind the operator's own privileges. The probe reads its own
           # session back and fails the run — spending nothing — when the cookie
           # turns out to be privileged. The accounts are in apps/server/DEPLOY.md.
           CANARY_SESSION_LOGIN: ${{ vars.CANARY_SESSION_LOGIN }}
-          CANARY_ALLOWLIST_LOGINS: ${{ vars.CANARY_ALLOWLIST_LOGINS }}
         # The origin is passed POSITIONALLY and first. The probe reads argv[0]
         # only, so this is belt and braces with $CANARY_URL rather than the
         # only thing standing between the run and probing a temp-file path.

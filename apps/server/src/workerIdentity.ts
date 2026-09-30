@@ -115,7 +115,6 @@ export const WORKER_IDENTITY = {
     CHAT_PRODUCT_SERVICE_TOKEN: { required: false, absent: "CHAT_PRODUCT_SERVICE_TOKEN is retained only for migration and rollback" },
     IDENTITY_SERVICE_TOKEN: { required: false, absent: "IDENTITY_SERVICE_TOKEN is retained only for migration and rollback" },
     PLUE_WORKER_EXCHANGE_TOKEN: { required: false, absent: "PLUE_WORKER_EXCHANGE_TOKEN is retained only for migration and rollback" },
-    IDENTITY_ADMIN_TOKEN: { required: false, absent: "IDENTITY_ADMIN_TOKEN is retained only for migration and rollback" },
     BILLING_AUTH_TOKEN: { required: false, absent: "BILLING_AUTH_TOKEN is retained only for migration and rollback" },
     BILLING_PRODUCT_SERVICE_TOKEN: { required: false, absent: "BILLING_PRODUCT_SERVICE_TOKEN is retained only for migration and rollback" },
     BILLING_ADMIN_TOKEN: { required: false, absent: "BILLING_ADMIN_TOKEN is retained only for migration and rollback" },

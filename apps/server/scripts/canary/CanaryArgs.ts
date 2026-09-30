@@ -53,16 +53,3 @@ export const argReader = (
   if (read.state === "no-value") return refuse(read.detail)
   return read.state === "value" ? read.value : undefined
 }
-
-/*
- * Split a comma- or newline-separated login roster, dropping blanks and `#`
- * comments. Splitting on spaces too would quietly turn a malformed entry into
- * several well-formed ones, which is how a bad roster passes validation.
- */
-export const parseLogins = (raw: string | undefined): ReadonlyArray<string> => {
-  if (raw === undefined) return []
-  return raw
-    .split(/[,\n]/)
-    .map((entry) => entry.trim())
-    .filter((entry) => entry.length > 0 && !entry.startsWith("#"))
-}

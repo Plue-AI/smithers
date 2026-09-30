@@ -31,6 +31,12 @@ share the same site build, documents, chunks and isolation headers.
 
 ### Cutover log
 
+- 2026-09-30 — **`IDENTITY_ADMIN_TOKEN` undeclared** (#2145): signup is public
+  and the admin allowlist/requests routes are gone, so nothing reads the secret
+  and `WORKER_IDENTITY.secrets` no longer lists it. `keep_bindings` keeps the
+  live binding, which the preflight now WARNs on as undeclared; the operator
+  may `wrangler secret delete IDENTITY_ADMIN_TOKEN`. No identity, binding or
+  storage key changes.
 - 2026-09-29 — **activated by direct switch** (#1795, #2103): `wrangler.jsonc`
   is the edge and the hosted documents declare the session application target.
   The apex is the GitHub callback origin. The owner (Will) ruled a direct switch
@@ -66,7 +72,6 @@ Retained names:
 - `CHAT_PRODUCT_SERVICE_TOKEN`
 - `IDENTITY_SERVICE_TOKEN`
 - `PLUE_WORKER_EXCHANGE_TOKEN`
-- `IDENTITY_ADMIN_TOKEN`
 - `BILLING_AUTH_TOKEN`
 - `BILLING_PRODUCT_SERVICE_TOKEN`
 - `BILLING_ADMIN_TOKEN`
@@ -161,6 +166,8 @@ shared authenticated routes are `/api/workflow/provision` and
 is the shared backend's responsibility; the legacy Worker already forwards them
 there (#2198).
 The old deployment-credential gateway relay cannot be reactivated by a secret.
+`IDENTITY_ADMIN_TOKEN` is no longer read (#2145); retire it with
+`wrangler secret delete IDENTITY_ADMIN_TOKEN`.
 
 ### Other upstream services
 

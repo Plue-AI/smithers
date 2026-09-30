@@ -95,7 +95,6 @@ const runProbe = async (
         CANARY_SESSION_COOKIE: "",
         CANARY_SESSION_LOGIN: SCOPED_LOGIN,
         SMITHERS_E2E_USER: "",
-        CANARY_ALLOWLIST_LOGINS: "",
         ...env
       }
     }

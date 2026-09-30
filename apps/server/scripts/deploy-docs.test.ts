@@ -41,7 +41,8 @@ for (const [name, source] of [["deployment guide", guide], ["HTTP reference", re
     } else {
       expect(source).toContain("gateway_proxy_removed")
       expect(source).toContain("HTTP 410")
-      expect(source).toContain("validated, allowlisted session")
+      expect(source).toContain("validated session")
+      expect(source).not.toContain("allowlisted session")
     }
   })
 }

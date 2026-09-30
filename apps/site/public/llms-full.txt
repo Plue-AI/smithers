@@ -50248,8 +50248,7 @@ same-origin guard.
 the proxy. The Worker's `/health` is retired too.
 
 Product clients use `/api/workflow/provision` and `/api/workflow/rpc` with a
-validated, allowlisted session. Every body names the repository and a box
-(`workspaceId`); a call without a box is refused. These routes resolve that
+validated session. Every body names the repository and a box (`workspaceId`); a call without a box is refused. These routes resolve that
 box's coding host by login, repository and box and enforce a procedure
 allowlist; the host's credentials never leave the backend. Native RPC or
 WebSocket clients must connect to a separately authenticated gateway.
