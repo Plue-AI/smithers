@@ -413,6 +413,71 @@ describe("Target declaration bounds", () => {
   })
 })
 
+describe("Target own __proto__ attrs", () => {
+  const Configured = Target.make("RuleTestProtoConfig", {
+    attrs: Schema.Struct({ config: Schema.Unknown }),
+    kinds: ["build"],
+    implementation: () => Target.notImplemented("RuleTestProtoConfig")
+  })
+  const Strict = Target.make("RuleTestProtoStrict", {
+    attrs: Schema.Struct({ ordinary: Schema.String }),
+    kinds: ["build"],
+    implementation: () => Target.notImplemented("RuleTestProtoStrict")
+  })
+  const parsed = (json: string) => JSON.parse(json) as Record<string, unknown>
+  const config = (target: Target.AnyTarget) =>
+    (Target.metadata(target).attrs as { readonly config: Record<string, unknown> }).config
+
+  it("keeps a string __proto__ key as own data", () => {
+    const kept = config(Configured({ config: parsed("{\"ordinary\":\"kept\",\"__proto__\":\"kept\"}") }))
+    expect(Object.keys(kept)).toEqual(["ordinary", "__proto__"])
+    expect(Object.getOwnPropertyDescriptor(kept, "__proto__")?.value).toBe("kept")
+    expect(Object.getPrototypeOf(kept)).toBe(Object.prototype)
+  })
+
+  it("keeps an object __proto__ key as own data and freezes the admitted config", () => {
+    const kept = config(Configured({ config: parsed("{\"ordinary\":\"kept\",\"__proto__\":{\"nested\":\"kept\"}}") }))
+    expect(Object.getPrototypeOf(kept)).toBe(Object.prototype)
+    const special = Object.getOwnPropertyDescriptor(kept, "__proto__")?.value as Record<string, unknown>
+    expect(special).toEqual({ nested: "kept" })
+    expect(Object.isFrozen(kept)).toBe(true)
+    expect(Object.isFrozen(special)).toBe(true)
+    expect(() => {
+      kept["ordinary"] = "changed"
+    }).toThrow(TypeError)
+  })
+
+  it("keeps a __proto__ key beside presentation", () => {
+    const target = Configured(
+      { ...parsed("{\"summary\":\"Configured.\"}"), config: parsed("{\"__proto__\":\"kept\"}") } as never
+    )
+    expect(Target.metadata(target).presentation).toEqual({ summary: "Configured.", featured: false })
+    expect(Object.getOwnPropertyDescriptor(config(target), "__proto__")?.value).toBe("kept")
+  })
+
+  it("keeps a __proto__ entry in a real record env", () => {
+    const target = ToolBuild.ToolBuild({
+      tool: "true",
+      command: "true",
+      args: [],
+      inputs: [],
+      deps: [],
+      outputs: [],
+      env: parsed("{\"ORDINARY\":\"kept\",\"__proto__\":\"kept\"}") as Record<string, string>,
+      cache: false
+    })
+    const env = (Target.metadata(target).attrs as { readonly env: Record<string, string> }).env
+    expect(Object.keys(env).sort()).toEqual(["ORDINARY", "__proto__"])
+    expect(Object.getOwnPropertyDescriptor(env, "__proto__")?.value).toBe("kept")
+  })
+
+  it("refuses a __proto__ excess key as a strict schema refuses any unknown key", () => {
+    expect(() => Strict(parsed("{\"ordinary\":\"kept\",\"unknown\":\"x\"}") as never)).toThrow(/unknown/)
+    expect(() => Strict(parsed("{\"ordinary\":\"kept\",\"__proto__\":\"x\"}") as never)).toThrow(/__proto__/)
+    expect(Target.metadata(Strict({ ordinary: "kept" })).attrs).toEqual({ ordinary: "kept" })
+  })
+})
+
 describe("Target verb gate and kind mapping", () => {
   it("resolves a function verb gate against the declared attrs", () => {
     const Gated = Target.make("RuleTestVerbGateFunction", {

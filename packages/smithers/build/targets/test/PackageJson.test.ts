@@ -499,6 +499,40 @@ describe("template merge", () => {
   })
 })
 
+describe("__proto__ manifest keys", () => {
+  const own = (text: string): Record<string, unknown> => JSON.parse(text) as Record<string, unknown>
+  const rendered = (declaration: ReturnType<typeof PackageJson>, entries = [] as Array<[Target.AnyTarget, string]>) =>
+    own(render(manifest(declaration, entries)))
+
+  it.each([
+    ["string", "{\"ordinary\":\"kept\",\"__proto__\":\"kept\"}"],
+    ["object", "{\"ordinary\":{\"nested\":\"kept\"},\"__proto__\":{\"nested\":\"kept\"}}"]
+  ])("keeps a %s __proto__ field through the package constructor and template", (_kind, json) => {
+    const expected = own(json)
+    const direct = rendered(PackageJson({ name: "widget", version: "0.1.0", fields: own(json) }))
+    expect(Object.hasOwn(direct, "__proto__")).toBe(true)
+    expect(direct["__proto__"]).toEqual(expected["__proto__"])
+    expect(direct["ordinary"]).toEqual(expected["ordinary"])
+    const template = PackageJsonTemplate.make({ fields: own(json) })
+    expect(Object.getPrototypeOf(template.fields)).toBe(null)
+    expect(Object.keys(template.fields)).toEqual(["ordinary", "__proto__"])
+    const merged = rendered(PackageJson({ name: "widget", version: "0.1.0", template }))
+    expect(Object.hasOwn(merged, "__proto__")).toBe(true)
+    expect(merged["__proto__"]).toEqual(expected["__proto__"])
+    expect(merged["ordinary"]).toEqual(expected["ordinary"])
+    expect(Object.getPrototypeOf({})).toBe(Object.prototype)
+  })
+
+  it("resolves a script named __proto__ beside an ordinary script", () => {
+    const lib = build("packages/widget")
+    const declaration = PackageJson({ name: "widget", version: "0.1.0", scripts: { build: lib, ["__proto__"]: lib } })
+    const scripts = rendered(declaration, [[lib, "//packages/widget:lib"]])["scripts"] as Record<string, unknown>
+    expect(Object.keys(scripts).sort()).toEqual(["__proto__", "build"])
+    expect(scripts["__proto__"]).toBe("smithers-build build //packages/widget:lib")
+    expect(scripts["build"]).toBe("smithers-build build //packages/widget:lib")
+  })
+})
+
 describe("render", () => {
   it("orders keys by the sort-package-json convention and sorts scripts", () => {
     const text = render({

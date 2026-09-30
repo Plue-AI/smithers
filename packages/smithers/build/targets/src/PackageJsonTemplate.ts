@@ -195,7 +195,8 @@ export const assertNotManagerOwned = (where: string, fields: Readonly<Record<str
  */
 export const make = (options: Options = {}): Template => {
   const safe = copyOptions(options)
-  const fields: Record<string, unknown> = {}
+  // A null prototype keeps a declared `__proto__` field an own data property.
+  const fields = Object.create(null) as Record<string, unknown>
   if (safe["type"] !== undefined) {
     if (safe["type"] !== "module" && safe["type"] !== "commonjs") {
       throw new TypeError("PackageJsonTemplate type must be \"module\" or \"commonjs\"")

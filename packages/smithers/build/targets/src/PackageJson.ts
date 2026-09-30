@@ -1374,11 +1374,11 @@ export const PackageJson = (options: Options): Declaration => {
   const version = assertVersion(name, safe["version"])
   const license = safe["license"] ?? defaultLicense
   if (!isLicense(license)) throw new Error(`PackageJson: ${name} declares an unsupported license`)
-  const fields: Record<string, unknown> = {
-    name,
-    version,
-    license
-  }
+  // A null prototype keeps a declared `__proto__` field an own data property.
+  const fields = Object.create(null) as Record<string, unknown>
+  fields["name"] = name
+  fields["version"] = version
+  fields["license"] = license
   const generated: Array<GeneratedField> = []
   if (safe["description"] !== undefined) {
     if (isGenerated(safe["description"])) generated.push("description")
@@ -1486,7 +1486,7 @@ export const targets = (
     }
     return value
   }
-  const scripts: Record<string, string> = {}
+  const scripts = Object.create(null) as Record<string, string>
   for (const name of Object.keys(declaration.scripts).sort(byCodeUnit)) {
     const target = declaration.scripts[name]!
     scripts[name] = scriptCommand(name, target, targetLabel(target))

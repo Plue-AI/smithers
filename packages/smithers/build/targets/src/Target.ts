@@ -280,7 +280,9 @@ export const splitPresentation = (
   const record = snapshot as Record<string, unknown>
   if (!("summary" in record) && !("featured" in record)) return { attrs: snapshot, presentation: none }
   const attrs: Record<string, unknown> = {}
-  for (const key of Object.keys(record)) if (!presentationKeys.has(key)) attrs[key] = record[key]
+  for (const key of Object.keys(record)) {
+    if (!presentationKeys.has(key)) ownDataProperty(attrs, key, record[key])
+  }
   let summary: string | undefined
   if ("summary" in record && record.summary !== undefined) {
     if (typeof record.summary !== "string") return "summary must be a string"
@@ -1033,9 +1035,18 @@ const snapshotAttrs = (
     if (!("value" in descriptor)) throw nonDataProperty(key)
     if (descriptor.enumerable !== true) continue
     spend()
-    copy[key] = snapshotAttrs(descriptor.value, depth + 1, budget, seen)
+    ownDataProperty(copy, key, snapshotAttrs(descriptor.value, depth + 1, budget, seen))
   }
   return copy
+}
+
+/**
+ * Defines `key` as an own enumerable data property. Assignment would hand a
+ * `__proto__` key to Object.prototype's setter, which drops a string value and
+ * turns an object value into the copy's prototype.
+ */
+const ownDataProperty = (record: Record<string, unknown>, key: string, value: unknown): void => {
+  Object.defineProperty(record, key, { value, writable: true, enumerable: true, configurable: true })
 }
 
 /**
