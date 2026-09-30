@@ -1137,6 +1137,38 @@
       "flows": []
     },
     {
+      "id": "notes/calendar-events",
+      "description": "Add upcoming events from iCalendar feeds to a note's Upcoming events section.",
+      "summary": null,
+      "featured": false,
+      "kind": "ts",
+      "path": "flows/notes/calendar-events/flow.ts",
+      "capabilities": [
+        "fs:read:**",
+        "fs:write:**",
+        "net:get:*"
+      ],
+      "model": null,
+      "modelInvocable": false,
+      "flows": []
+    },
+    {
+      "id": "notes/traction",
+      "description": "Record one daily row of npm downloads and GitHub stars and forks in a note.",
+      "summary": null,
+      "featured": false,
+      "kind": "ts",
+      "path": "flows/notes/traction/flow.ts",
+      "capabilities": [
+        "fs:read:**",
+        "fs:write:**",
+        "net:get:*"
+      ],
+      "model": null,
+      "modelInvocable": false,
+      "flows": []
+    },
+    {
       "id": "register-repository",
       "description": "Register a GitHub repository with Smithers: analyze it from its link (theme, license, checks, agent readiness, cleanup opportunities, commits, contributors, contribution intake, workflows to build, CI estimate), wait for Smithers admin review, then set it up.",
       "summary": null,

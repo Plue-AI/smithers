@@ -36,10 +36,13 @@ const suite = Smithers.NodeTest({
     Smithers.file("//flows/test/host-jev-routing.test.ts"),
     Smithers.file("//flows/test/workflows.test.ts"),
     Smithers.file("//flows/test/rollout.test.ts"),
-    Smithers.file("//flows/test/worker-rollout.test.ts")
+    Smithers.file("//flows/test/worker-rollout.test.ts"),
+    Smithers.file("//flows/test/notes.test.ts")
   ]),
   srcs: [
     sources,
+    Smithers.file("//flows/test/fixtures/notes-calendar.ics"),
+    Smithers.file("//flows/test/fixtures/notes-marketing.md"),
     scripts,
     Smithers.file("//flows/review/flow.mdx"),
     Smithers.file("//pnpm-workspace.yaml"),
