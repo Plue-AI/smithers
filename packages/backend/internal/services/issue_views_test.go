@@ -124,6 +124,12 @@ func TestParseFactoryIssueViews(t *testing.T) {
 		"padded label":    `{"issueViews":[{"id":"b","title":"B","labels":[" bug"]}]}`,
 		"long label":      `{"issueViews":[{"id":"b","title":"B","labels":["` + strings.Repeat("é", 256) + `"]}]}`,
 		"repeated label":  `{"issueViews":[{"id":"b","title":"B","labels":["Bug","bug"]}]}`,
+		"not an object":   `{"issueViews":["b"]}`,
+		"null view":       `{"issueViews":[null]}`,
+		"unknown field":   `{"issueViews":[{"id":"b","title":"B","kind":"chat"}]}`,
+		"null state":      `{"issueViews":[{"id":"b","title":"B","state":null}]}`,
+		"null labels":     `{"issueViews":[{"id":"b","title":"B","labels":null}]}`,
+		"numeric title":   `{"issueViews":[{"id":"b","title":7}]}`,
 	}
 	for name, projection := range refused {
 		_, err := parseFactoryIssueViews([]byte(projection))

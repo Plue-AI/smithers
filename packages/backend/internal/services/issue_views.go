@@ -41,7 +41,7 @@ func parseFactoryIssueViews(projection []byte) ([]IssueView, error) {
 		return []IssueView{}, nil
 	}
 	var factory struct {
-		IssueViews []IssueView `json:"issueViews"`
+		IssueViews []json.RawMessage `json:"issueViews"`
 	}
 	if err := json.Unmarshal(projection, &factory); err != nil {
 		return nil, errors.New(factoryProjectionPath + " is not valid JSON")
@@ -49,8 +49,27 @@ func parseFactoryIssueViews(projection []byte) ([]IssueView, error) {
 	if len(factory.IssueViews) > maximumIssueViews {
 		return nil, fmt.Errorf("%s declares more than %d issue views", factoryProjectionPath, maximumIssueViews)
 	}
+	views := make([]IssueView, 0, len(factory.IssueViews))
 	seen := map[string]bool{}
-	for _, view := range factory.IssueViews {
+	for index, raw := range factory.IssueViews {
+		// Strict, like the declaration: an unknown or null field never broadens a view.
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &fields); err != nil || fields == nil {
+			return nil, fmt.Errorf("%s issue view %d is not an object", factoryProjectionPath, index)
+		}
+		for key, value := range fields {
+			if key != "id" && key != "title" && key != "state" && key != "labels" {
+				return nil, fmt.Errorf("%s issue view %d has an unknown field %q", factoryProjectionPath, index, key)
+			}
+			if string(value) == "null" {
+				return nil, fmt.Errorf("%s issue view %d has a null %s", factoryProjectionPath, index, key)
+			}
+		}
+		var view IssueView
+		if err := json.Unmarshal(raw, &view); err != nil {
+			return nil, fmt.Errorf("%s issue view %d is malformed", factoryProjectionPath, index)
+		}
+		views = append(views, view)
 		if !issueViewID.MatchString(view.ID) {
 			return nil, fmt.Errorf("%s declares an invalid issue view id %q", factoryProjectionPath, view.ID)
 		}
@@ -78,10 +97,7 @@ func parseFactoryIssueViews(projection []byte) ([]IssueView, error) {
 			lowered[key] = true
 		}
 	}
-	if factory.IssueViews == nil {
-		return []IssueView{}, nil
-	}
-	return factory.IssueViews, nil
+	return views, nil
 }
 
 // WithIssueFactoryReader lets IssueService read the committed factory

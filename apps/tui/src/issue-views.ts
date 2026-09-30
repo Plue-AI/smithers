@@ -128,10 +128,12 @@ export const viewOf = (row: string): string | undefined => {
 
 /**
  * The views and the selected view's issues for `repo`. `refresh` reads the
- * views (keeping a selection that is still declared); `select` reads one
- * view's issues. A second `select` of the view in flight joins it; a newer
- * selection wins over an older answer. A failed read is kept, not retried:
- * `select` again retries it.
+ * views, keeping a selection only while its view is declared with the same
+ * filters; `select` reads one view's issues. A second `select` of the view in
+ * flight joins it. Only the newest refresh and the newest selection publish,
+ * and a session refusal (HTTP 401/403) drops every read in flight, so an
+ * answer read as one session never shows under another. A failed read is
+ * kept, not retried: `select` again retries it.
  */
 export const controller = (
   signIn: () => Promise<Cloud | undefined>,
@@ -140,7 +142,10 @@ export const controller = (
 ) => {
   let state: State = { phase: "idle" }
   let cloud: Cloud | undefined
-  let generation = 0
+  // `epoch` advances when the session is dropped; `refreshes` and `selections` order their own reads.
+  let epoch = 0
+  let refreshes = 0
+  let selections = 0
   let flying: { readonly id: string; readonly run: Promise<State> } | undefined
   const set = (next: State): State => {
     state = next
@@ -148,48 +153,73 @@ export const controller = (
     return state
   }
   const session = async (): Promise<Cloud | undefined> => cloud ??= await signIn()
+  const signOut = (): State => {
+    cloud = undefined
+    epoch += 1
+    flying = undefined
+    return set({ phase: "signed-out" })
+  }
+  const same = (left: View | undefined, right: View | undefined): boolean =>
+    left !== undefined && right !== undefined && JSON.stringify(left) === JSON.stringify(right)
   const refresh = async (signal?: AbortSignal): Promise<State> => {
     if (repo === undefined) return state
+    const mine = ++refreshes
+    const started = epoch
+    const current = () => mine === refreshes && started === epoch && signal?.aborted !== true
     try {
       const signed = await session()
-      if (signed === undefined) return set({ phase: "signed-out" })
+      if (!current()) return state
+      if (signed === undefined) return signOut()
       const views = await loadViews(signed.get, repo, signal)
-      if (signal?.aborted) return state
-      const previous = state.phase === "ready" ? state.selected : undefined
-      const selected = previous !== undefined && views.some((view) => view.id === previous.id) ? previous : undefined
-      return set({ phase: "ready", views, ...(selected === undefined ? {} : { selected }) })
+      if (!current()) return state
+      const previous = state.phase === "ready" ? state : undefined
+      const kept = previous?.selected !== undefined &&
+          same(
+            previous.views.find((view) => view.id === previous.selected!.id),
+            views.find((view) => view.id === previous.selected!.id)
+          )
+        ? previous.selected
+        : undefined
+      // A dropped selection also drops its read in flight.
+      if (kept === undefined) selections += 1
+      return set({ phase: "ready", views, ...(kept === undefined ? {} : { selected: kept }) })
     } catch (error) {
-      if (signal?.aborted) return state
-      if (refused(error)) {
-        cloud = undefined
-        return set({ phase: "signed-out" })
-      }
+      if (!current()) return state
+      if (refused(error)) return signOut()
       return set({ phase: "failed", detail: detail(error) })
     }
   }
   const select = (id: string, signal?: AbortSignal): Promise<State> => {
-    if (state.phase !== "ready" || repo === undefined || !state.views.some((view) => view.id === id)) {
-      return Promise.resolve(state)
-    }
+    if (state.phase !== "ready" || repo === undefined) return Promise.resolve(state)
+    const view = state.views.find((each) => each.id === id)
+    if (view === undefined) return Promise.resolve(state)
     if (flying?.id === id) return flying.run
-    const mine = ++generation
+    const mine = ++selections
+    const started = epoch
+    const before = state.selected
     set({ ...state, selected: { id, phase: "loading" } })
+    // Publishes only while this is the newest selection, the session is the one it read as, and the view is unchanged.
+    const current = () =>
+      mine === selections && started === epoch && state.phase === "ready" &&
+      same(view, state.views.find((each) => each.id === id))
     const run = (async (): Promise<State> => {
       let selection: Selection
       try {
         const signed = await session()
-        if (signed === undefined) {
-          if (mine === generation) return set({ phase: "signed-out" })
-          return state
-        }
-        const page = await loadIssues(signed.get, repo, id, signal)
-        selection = { id, phase: "loaded", ...page }
+        if (!current()) return state
+        if (signed === undefined) return signOut()
+        selection = { id, phase: "loaded", ...await loadIssues(signed.get, repo, id, signal) }
       } catch (error) {
-        if (refused(error)) cloud = undefined
+        if (!current()) return state
+        if (refused(error)) return signOut()
         selection = { id, phase: "failed", detail: detail(error) }
       }
-      // An older answer never replaces a newer selection, nor a reset.
-      if (mine !== generation || signal?.aborted || state.phase !== "ready") return state
+      if (!current() || state.phase !== "ready") return state
+      // A cancelled read leaves what was shown before it.
+      if (signal?.aborted) {
+        const { selected: _dropped, ...rest } = state
+        return set(before === undefined ? rest : { ...rest, selected: before })
+      }
       return set({ ...state, selected: selection })
     })().finally(() => {
       if (flying?.run === run) flying = undefined

@@ -111,7 +111,8 @@ describe("issue views controller", () => {
       phase: "loaded",
       issues: [{ number: 3 }]
     })
-    expect(paths.filter((path) => path.includes("view=bugs"))).toHaveLength(1)
+    // The superseded selection read at most once and never showed.
+    expect(paths.filter((path) => path.includes("view=bugs")).length).toBeLessThanOrEqual(1)
   })
 
   it("keeps a failed read visible and retries it on the next selection", async () => {
@@ -187,6 +188,59 @@ describe("issue views controller", () => {
     expect((await none.refresh()).phase).toBe("idle")
   })
 
+  it("drops a kept selection whose view's filters changed, and orders refreshes", async () => {
+    let declared: ReadonlyArray<IssueViews.View> = views
+    const { cloud } = session((path) => path.endsWith("/issue-views") ? declared : [issue(1)])
+    const control = IssueViews.controller(async () => cloud, "o/r")
+    await control.refresh()
+    await control.select("bugs")
+    declared = [{ ...views[0]!, state: "closed" }, views[1]!]
+    await control.refresh()
+    expect(control.state()).toEqual({ phase: "ready", views: declared })
+
+    const first = deferred<unknown>()
+    const second = deferred<unknown>()
+    const queue = [first, second]
+    let gets = 0
+    const ordered = IssueViews.controller(async () => ({ get: () => (gets++, queue.shift()!.promise) }), "o/r")
+    const older = ordered.refresh()
+    while (gets === 0) await Promise.resolve()
+    const newer = ordered.refresh()
+    while (gets === 1) await Promise.resolve()
+    second.resolve([views[1]!])
+    await newer
+    first.resolve(views)
+    await older
+    expect(ordered.state()).toEqual({ phase: "ready", views: [views[1]!] })
+  })
+
+  it("never shows an answer read as a session Cloud has since refused", async () => {
+    const bugs = deferred<unknown>()
+    let refuse = false
+    const cloud: IssueViews.Cloud = {
+      get: async (path) => {
+        if (path.endsWith("/issue-views")) {
+          if (refuse) throw new Error("HTTP 401: sign in")
+          return views
+        }
+        return path.includes("view=bugs") ? bugs.promise : Promise.reject(new Error("HTTP 403: forbidden"))
+      }
+    }
+    const control = IssueViews.controller(async () => cloud, "o/r")
+    await control.refresh()
+    const pending = control.select("bugs")
+    refuse = true
+    await control.refresh()
+    expect(control.state().phase).toBe("signed-out")
+    bugs.resolve([issue(9)])
+    await pending
+    expect(control.state().phase).toBe("signed-out")
+    refuse = false
+    await control.refresh()
+    await control.select("everything")
+    expect(control.state().phase).toBe("signed-out")
+  })
+
   it("drops answers after the caller aborts", async () => {
     const answer = deferred<unknown>()
     const { cloud } = session((path) => path.endsWith("/issue-views") ? views : answer.promise)
@@ -197,7 +251,8 @@ describe("issue views controller", () => {
     abort.abort()
     answer.resolve([issue(1)])
     await run
-    expect(control.state()).toMatchObject({ phase: "ready", selected: { id: "bugs", phase: "loading" } })
+    // A cancelled read leaves what was shown before it: here, no selection.
+    expect(control.state()).toEqual({ phase: "ready", views })
     const stale = deferred<unknown>()
     const late = IssueViews.controller(async () => ({ get: () => stale.promise }), "o/r")
     const aborted = new AbortController()
