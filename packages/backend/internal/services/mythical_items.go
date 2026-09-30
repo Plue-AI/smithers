@@ -2461,9 +2461,16 @@ func (st *mythicalItemStep) merge(ctx context.Context, item db.MythicalItem) *db
 		}
 	}
 	if !authorized {
+		// The App's label is a maintainer's Land through Smithers (LandTodo)
+		// only for the head it names, by a person who still maintains.
+		if authorized, err = st.landedByMaintainer(ctx, item, applier, policy); err != nil {
+			return mythicalLater(item, "GitHub did not answer for the maintainer who landed it; retrying", st.now)
+		}
+	}
+	if !authorized {
 		next := item
 		checks := mythicalChecksOf(next)
-		checks.Automerge = false
+		checks.Automerge, checks.Land = false, nil
 		next.Checks = checks.encode()
 		return mythicalHold(next, "automerge:"+item.PRHead, "a maintainer's automerge label is no longer on the issue", nil, st.now)
 	}
@@ -3064,7 +3071,12 @@ func (s *MythicalService) deliverNotice(ctx context.Context, r *mythicalRun, ite
 	if err == nil {
 		var gh mythicalGitHubRepo
 		if gh, err = s.github.Resolve(ctx, repository, owner, r.row.ActorUserID.Int64); err == nil {
-			err = s.github.Comment(ctx, gh, item.IssueNumber.Int64, mythicalNoticeCommentKey(checks.Notice.Key), checks.Notice.Body)
+			body := checks.Notice.Body
+			// The completion comment already names the run.
+			if line := s.runLine(item, owner, repository.Name); line != "" && !strings.HasPrefix(checks.Notice.Key, mythicalCompletionKeyPrefix) {
+				body += "\n" + line
+			}
+			err = s.github.Comment(ctx, gh, item.IssueNumber.Int64, mythicalNoticeCommentKey(checks.Notice.Key), body)
 		}
 	}
 	if err != nil {
@@ -3237,6 +3249,16 @@ func (s *MythicalService) completionBody(item db.MythicalItem, checks mythicalCh
 		results = append(results, receipts)
 	}
 	lines := []string{"Landed on main: " + commit, "Checks: " + strings.Join(results, "; ")}
+	if line := s.runLine(item, owner, name); line != "" {
+		lines = append(lines, line)
+	}
+	return strings.Join(lines, "\n")
+}
+
+// runLine says where an item's run is: the repository in Smithers with the run
+// id when a public URL is set, else the run id alone; empty when neither is
+// known. The completion, failure and hold comments on the issue share it.
+func (s *MythicalService) runLine(item db.MythicalItem, owner, name string) string {
 	run := strings.TrimSpace(item.RequestRunID)
 	if run == "" {
 		run = strings.TrimSpace(item.VibeRunID)
@@ -3246,11 +3268,12 @@ func (s *MythicalService) completionBody(item db.MythicalItem, checks mythicalCh
 		if run != "" {
 			link += " (" + run + ")"
 		}
-		lines = append(lines, "Run: "+link)
-	} else if run != "" {
-		lines = append(lines, "Run: "+run)
+		return "Run: " + link
 	}
-	return strings.Join(lines, "\n")
+	if run != "" {
+		return "Run: " + run
+	}
+	return ""
 }
 
 // mythicalReceiptsSummary counts the kept check receipts when they measured
@@ -3293,10 +3316,13 @@ type mythicalChecks struct {
 	// AutoTodo is why the factory made the issue a TODO without the label;
 	// OptedOut records a maintainer taking todo off such an issue, after
 	// which the factory never makes it one again on its own.
-	AutoTodo  string          `json:"autoTodo,omitempty"`
-	OptedOut  bool            `json:"optedOut,omitempty"`
-	Automerge bool            `json:"automerge,omitempty"`
-	Review    *mythicalReview `json:"review,omitempty"`
+	AutoTodo  string `json:"autoTodo,omitempty"`
+	OptedOut  bool   `json:"optedOut,omitempty"`
+	Automerge bool   `json:"automerge,omitempty"`
+	// Land is a maintainer's Land through Smithers: the head their automerge,
+	// applied by the App for them, covers (LandTodo).
+	Land   *mythicalLand   `json:"land,omitempty"`
+	Review *mythicalReview `json:"review,omitempty"`
 	// ForeignHead is the pull request head someone other than Smithers
 	// pushed; the stack neither reviews nor merges it.
 	ForeignHead string `json:"foreignHead,omitempty"`

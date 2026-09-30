@@ -1159,6 +1159,11 @@ type PostAPIReposOwnerRepoTransferBody struct {
 	NewOwner string `json:"new_owner"`
 }
 
+// PostAPIReposOwnerRepoMythicalItemsIDLandBody is generated from docs/api/openapi.yaml.
+type PostAPIReposOwnerRepoMythicalItemsIDLandBody struct {
+	Head string `json:"head"`
+}
+
 // PostAPIReposOwnerRepoMythicalTodosBody is generated from docs/api/openapi.yaml.
 type PostAPIReposOwnerRepoMythicalTodosBody struct {
 	Title string  `json:"title"`
@@ -4573,6 +4578,13 @@ func (c *Client) PostAPIReposOwnerRepoMythicalBootstrap(ctx context.Context, own
 func (c *Client) GetAPIReposOwnerRepoMythicalItemsRef(ctx context.Context, owner string, repo string, ref string) (AnyJSON, error) {
 	var out AnyJSON
 	err := c.do(ctx, "GET", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/mythical/items/"+url.PathEscape(ref), nil, nil, &out)
+	return out, err
+}
+
+// PostAPIReposOwnerRepoMythicalItemsIDLand calls POST /api/repos/{owner}/{repo}/mythical/items/{id}/land.
+func (c *Client) PostAPIReposOwnerRepoMythicalItemsIDLand(ctx context.Context, owner string, repo string, id string, body PostAPIReposOwnerRepoMythicalItemsIDLandBody) (AnyJSON, error) {
+	var out AnyJSON
+	err := c.do(ctx, "POST", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/mythical/items/"+url.PathEscape(id)+"/land", nil, body, &out)
 	return out, err
 }
 

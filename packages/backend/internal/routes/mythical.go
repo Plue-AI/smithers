@@ -27,6 +27,7 @@ type MythicalRouteService interface {
 	Item(ctx context.Context, repositoryID int64, ref string) (services.MythicalItemView, error)
 	RetryItem(ctx context.Context, repositoryID int64, itemID string) (services.MythicalItemView, error)
 	FileTodo(ctx context.Context, repositoryID, userID int64, input services.MythicalTodoInput) (services.MythicalItemView, error)
+	LandTodo(ctx context.Context, repositoryID, userID int64, itemID string, input services.MythicalLandInput) (services.MythicalItemView, error)
 	RequestWiki(ctx context.Context, repositoryID int64) error
 }
 
@@ -311,6 +312,34 @@ func (h *MythicalHandler) Todos(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	pkgerrors.WriteJSON(w, http.StatusCreated, item)
+}
+
+// Land asks the stack to merge a proposed TODO's pull request for a
+// maintainer person: it applies the automerge label for them and answers the
+// item. The stack merges as for a maintainer's own label, at the reviewed
+// head once CI is green; nothing is merged here.
+func (h *MythicalHandler) Land(w http.ResponseWriter, r *http.Request) {
+	user, err := requireRouteUser(r)
+	if err != nil {
+		pkgerrors.WriteError(w, err.(*pkgerrors.APIError))
+		return
+	}
+	repoCtx, ok := h.repository(w, r)
+	if !ok {
+		return
+	}
+	var body services.MythicalLandInput
+	if !decodeMythicalBody(w, r, 4<<10, &body) {
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+	defer cancel()
+	item, err := h.Service.LandTodo(ctx, repoCtx.Repository.ID, user.ID, chi.URLParam(r, "id"), body)
+	if err != nil {
+		writeRouteError(w, r, err)
+		return
+	}
+	pkgerrors.WriteJSON(w, http.StatusAccepted, item)
 }
 
 // Wiki requests a wiki refresh now, or a retry of a failed one, and answers

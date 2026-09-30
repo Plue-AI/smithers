@@ -458,7 +458,6 @@ export interface AppController extends IssueFlowsController, RepositorySetupCont
   readonly signIn: (reservedOpen?: (url: string) => Promise<boolean>) => Promise<void> | void
   readonly localAuth: LocalAuthController | undefined
   readonly signOut: () => Promise<string | void>
-  readonly requestAccess: () => Promise<string | void>
   /**
    * Consume a `?auth=failed` return from a failed OAuth redirect: the failure
    * renders as a Smithers message in the chat (honest error + retry action),
@@ -560,6 +559,7 @@ export interface AppController extends IssueFlowsController, RepositorySetupCont
   readonly moveCodingProvider: SecretsSeam["moveCodingProvider"]
   readonly listSecrets: SecretsSeam["listSecrets"]
   readonly scopeSecret: SecretsSeam["scopeSecret"]
+  readonly bindSecret: SecretsSeam["bindSecret"]
   readonly setSecret: SecretsSeam["setSecret"]
   readonly deleteSecret: SecretsSeam["deleteSecret"]
   /* The mythical stack (#1745), the repository history (D-20): the History card, its admin writes, and the live snapshots its views read. */
@@ -569,6 +569,7 @@ export interface AppController extends IssueFlowsController, RepositorySetupCont
   readonly backfillStack: StackSeam["backfillStack"]
   readonly setStackParallel: StackSeam["setStackParallel"]
   readonly retryStackItem: StackSeam["retryStackItem"]
+  readonly landStackItem: StackSeam["landStackItem"]
   readonly fileTodo: StackSeam["fileTodo"]
   readonly refreshWiki: StackSeam["refreshWiki"]
   readonly stackSnapshots: StackSeam["snapshots"]
@@ -670,12 +671,9 @@ export interface AppController extends IssueFlowsController, RepositorySetupCont
   /** Refresh the balance and surface it as a card in the transcript. */
   readonly showBalance: () => Promise<string | { readonly value: string }>
   /* The admin plugin's controller half — registered as commands only for admin sessions. */
-  readonly adminAllowlist: (action: "add" | "remove", login: string) => Promise<string | void>
   readonly adminGrant: (amountUsd: number, login: string) => string | void
   readonly adminGrantConfirm: (cardId: string) => Promise<string | void>
   readonly adminGrantCancel: (cardId: string) => string | void
-  readonly adminRequests: () => Promise<string | void>
-  readonly adminQueueApprove: (login: string) => Promise<string | void>
   readonly adminHealth: () => Promise<string | void>
   /**
    * Close the controller's scope: stop the workflow pumps and release
@@ -1007,15 +1005,11 @@ export const createAppController = (
     loadSession,
     signIn,
     signOut,
-    requestAccess,
     refreshBalance,
     showBalance,
-    adminAllowlist,
     adminGrant,
     adminGrantConfirm,
     adminGrantCancel,
-    adminRequests,
-    adminQueueApprove,
     adminHealth,
     settleTurnBilling,
     watchIdentityAcrossTabs
@@ -1825,7 +1819,6 @@ export const createAppController = (
     loadSession,
     signIn,
     signOut,
-    requestAccess,
     handleAuthReturn,
     handleInstallReturn: gitHubSeam.handleInstallReturn,
     deferCommand,
@@ -1891,6 +1884,7 @@ export const createAppController = (
     moveCodingProvider: secretsSeam.moveCodingProvider,
     listSecrets: secretsSeam.listSecrets,
     scopeSecret: secretsSeam.scopeSecret,
+    bindSecret: secretsSeam.bindSecret,
     setSecret: secretsSeam.setSecret,
     deleteSecret: secretsSeam.deleteSecret,
     showStack: stackSeam.showStack,
@@ -1899,6 +1893,7 @@ export const createAppController = (
     backfillStack: stackSeam.backfillStack,
     setStackParallel: stackSeam.setStackParallel,
     retryStackItem: stackSeam.retryStackItem,
+    landStackItem: stackSeam.landStackItem,
     fileTodo: stackSeam.fileTodo,
     refreshWiki: stackSeam.refreshWiki,
     registerTrigger,
@@ -1975,12 +1970,9 @@ export const createAppController = (
     dismissToast,
     refreshBalance,
     showBalance,
-    adminAllowlist,
     adminGrant,
     adminGrantConfirm,
     adminGrantCancel,
-    adminRequests,
-    adminQueueApprove,
     adminHealth,
     snapshot: (repo, path) => {
       const identity = store.collections.identitySessions.get("identity")

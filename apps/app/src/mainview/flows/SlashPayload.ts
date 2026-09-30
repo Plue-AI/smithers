@@ -967,6 +967,7 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
     return ok(repo === undefined ? { name, scope } : { name, scope, repo })
   },
   "secrets.list": (args) => repoOnly("secrets.list", args),
+  "secrets.bind": (args, known) => structuredFields("secrets.bind", args, ["name", "hosts", "headers", "repo"]) ?? secretName("secrets.bind", args, known, false),
   /* The value is never on a line: it arrives only through the form's write-only field. */
   "secrets.set": (args, known) => structuredFields("secrets.set", args, ["name", "hosts", "headers", "repo"]) ?? secretName("secrets.set", args, known, false),
   "secrets.delete": (args, known) => secretName("secrets.delete", args, known, true),
@@ -1031,6 +1032,12 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
     const { rest, repo } = splitTrailingRepo(args)
     if (!/^[\w-]{1,64}$/.test(rest)) return no("history.retry takes an item id")
     return ok(repo === undefined ? { id: rest } : { id: rest, repo })
+  },
+  "history.land": (args) => {
+    const { rest, repo } = splitTrailingRepo(args)
+    const [id = "", head = "", ...extra] = rest.split(/\s+/)
+    if (!/^[\w-]{1,64}$/.test(id) || !/^[\w-]{1,64}$/.test(head) || extra.length > 0) return no("history.land takes an item id and its pull request head")
+    return ok(repo === undefined ? { id, head } : { id, head, repo })
   },
   /* `<title> [owner/repo]`, or the form's `{ title, body, repo }`. */
   "history.todo": (args, known) => {
@@ -1344,8 +1351,6 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
   "sync.ops.show-more": (args) => required("cardId", args, "sync.ops.show-more needs the card id"),
   "debug.backend": (args) => ok({ backend: args ?? "" }),
   "debug.errors": (args) => optional("query", args),
-  "admin.allowlist.add": (args) => required("login", args, "admin.allowlist.add needs a login"),
-  "admin.allowlist.remove": (args) => required("login", args, "admin.allowlist.remove needs a login"),
   "admin.grant": (args) => {
     const tokens = tokensOf(args)
     if (tokens.length > 2) return no("admin.grant takes an amount in dollars and a login")
@@ -1364,7 +1369,6 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
   },
   "admin.grant.confirm": (args) => required("cardId", args, "admin.grant.confirm needs the card id"),
   "admin.grant.cancel": (args) => required("cardId", args, "admin.grant.cancel needs the card id"),
-  "admin.queue.approve": (args) => required("login", args, "admin.queue.approve needs a login"),
   /* `[cwd]`: an OPEN working copy by path, id, name, or key; blank means the active one (the server never takes a bare path). */
   "agent.explain": (args) => required("what", args, "agent.explain needs something to explain: /agent.explain <what>"),
   /* THE FORM LAW: the generic form card's acts. `form.set`'s value is the rest of the line (blank clears). */

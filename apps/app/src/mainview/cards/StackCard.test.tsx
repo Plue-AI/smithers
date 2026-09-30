@@ -175,6 +175,22 @@ describe("the History card", () => {
     expect(retries).toEqual([`i10 ${REPO}`])
   })
 
+  test("Land only on a proposed TODO open at a known head that nobody asked to merge", () => {
+    const head = "d".repeat(40)
+    const pr = (number: number) => ({ number, url: `https://github.com/pr/${number}`, state: "open" as const, head })
+    const todo = { replans: 0 }
+    const stack = { ...STACK, items: [
+      item("i20", "proposed", { todo, pullRequest: pr(20) }),
+      item("i21", "proposed", { todo, pullRequest: pr(21), automerge: true }),
+      item("i22", "proposed", { pullRequest: pr(22) }),
+      item("i23", "proposed", { todo, pullRequest: { ...pr(23), head: undefined } }),
+      item("i24", "landed", { todo, pullRequest: { ...pr(24), state: "merged" } })
+    ] }
+    const lands = [...render({ snapshot: { stack, error: null } }).matchAll(/data-flow="history.land" data-flow-args="([^"]+)"/g)]
+      .map((match) => match[1])
+    expect(lands).toEqual([`i20 ${head} ${REPO}`])
+  })
+
   test("absent offers Bootstrap until a request is pending; frozen states its reason", () => {
     const absent = { ...STACK, state: "absent" as const, items: [], changes: [], lanes: [] }
     expect(render({ snapshot: { stack: absent, error: null } })).toContain(`data-flow="history.bootstrap" data-flow-args="${REPO}"`)

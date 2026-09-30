@@ -72,7 +72,7 @@ import { runsFlows } from "./entries/runs"
 import { searchFlows } from "./entries/search"
 import { smithersFlows } from "./entries/smithers"
 import { secretsFlows } from "./entries/secrets"
-import { HISTORY_RETRY_USER_ONLY_REASON, historyFlows } from "./entries/history"
+import { HISTORY_LAND_USER_ONLY_REASON, HISTORY_RETRY_USER_ONLY_REASON, historyFlows } from "./entries/history"
 import { storageFlows } from "./entries/storage"
 import { syncFlows } from "./entries/sync"
 import { systemFlows } from "./entries/system"
@@ -120,6 +120,7 @@ export const USER_ONLY_VISIBLE: ReadonlyArray<{ readonly name: string; readonly 
   { name: "plugins", why: PLUGINS_USER_ONLY_REASON },
   { name: "subagents", why: SUBAGENTS_USER_ONLY_REASON },
   { name: "history.retry", why: HISTORY_RETRY_USER_ONLY_REASON },
+  { name: "history.land", why: HISTORY_LAND_USER_ONLY_REASON },
   { name: "palette.open", why: "focus and an overlay are the human's gesture; the model searches with the search.* flows, which answer the same rows as data" }
 ]
 

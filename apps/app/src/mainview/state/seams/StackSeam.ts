@@ -25,7 +25,7 @@
  * offers Retry (`wiki.create`).
  */
 import type { MythicalItem, MythicalStack, MythicalWiki } from "@smthrs/rpc/Mythical"
-import { mythicalRoute, MythicalStackSchema } from "@smthrs/rpc/Mythical"
+import { MythicalItemSchema, mythicalRoute, MythicalStackSchema } from "@smthrs/rpc/Mythical"
 import { ACTIVE_ITEM_STATES, itemReason, itemStateLabel, itemTitle, retryable, stackCounts } from "@smthrs/rpc/StackView"
 import { Data } from "effect"
 import { actorSharedState } from "../ActorBindings"
@@ -71,6 +71,8 @@ export interface StackSeam {
   readonly backfillStack: (repo?: string) => Promise<Result>
   readonly setStackParallel: (value: number, repo?: string) => Promise<Result>
   readonly retryStackItem: (id: string, repo?: string) => Promise<Result>
+  /** A maintainer's Land on a proposed TODO: ask the stack to merge it at `head` and follow it until it lands or stops. */
+  readonly landStackItem: (id: string, head: string, repo?: string) => Promise<Result>
   /** File a TODO for the factory and follow it until the factory settles it. */
   readonly fileTodo: (title: string, body?: string, repo?: string) => Promise<Result>
   /** Refresh the repository Wiki now, or retry a failed refresh. */
@@ -462,7 +464,7 @@ export const createStackSeam = (
    * Admit one act: acknowledged as soon as the card records it, then run in
    * the shared toast stack. A second request for the same act joins the first.
    */
-  type ActKind = Failure["act"] | "wiki"
+  type ActKind = Failure["act"] | "wiki" | "land"
   const actKey = (repo: string, kind: ActKind, args: string): string => `stack.${kind}.${encodeURIComponent(repo)}#${args}`
   /** The notice an act wears: one per act and repository; a newer request of the act owns it. */
   const actToastKey = (repo: string, kind: ActKind, args: string): string =>
@@ -494,7 +496,7 @@ export const createStackSeam = (
       const running = withToast(key, titles.running, titles.done, async () => {
         const outcome = await work()
         if (!current()) return TOAST_SUPERSEDED
-        if (typeof outcome === "string" && kind !== "wiki") await write(repo, { failure: { act: kind, message: outcome, args } })
+        if (typeof outcome === "string" && kind !== "wiki" && kind !== "land") await write(repo, { failure: { act: kind, message: outcome, args } })
         return outcome
       }, false, current).then((outcome) => {
         if (typeof outcome !== "string" || !current()) return outcome
@@ -587,6 +589,38 @@ export const createStackSeam = (
       void refresh(watch(repo))
       return "error" in answer ? answer.error : true
     })
+  }
+
+  /**
+   * Resolves when a TODO a maintainer asked to land lands (true), or stops
+   * short of it (its words): its pull request closes, its automerge is taken
+   * off, or the stack holds it on a failure.
+   */
+  const untilLanded = (repo: string, id: string, since: string): Promise<true | string | typeof TOAST_SUPERSEDED> => new Promise((resolve) => {
+    const handle = watch(repo)
+    const check = (stack: MythicalStack | string | typeof TOAST_SUPERSEDED): void => {
+      const done = (outcome: true | string | typeof TOAST_SUPERSEDED): void => { handle.waiters.delete(check); resolve(outcome) }
+      if (stack === TOAST_SUPERSEDED || typeof stack === "string") { done(stack); return }
+      const item = stack.items.find((row) => row.id === id)
+      // A read that began before the land was accepted still shows the item without automerge.
+      if (item === undefined || item.state === "proposed" && item.automerge !== true && item.updatedAt <= since) return
+      if (item.state === "landed") done(true)
+      else if (item.state !== "proposed" || item.automerge !== true || item.failure !== undefined) done(itemDetail(item))
+    }
+    handle.waiters.add(check)
+    void refresh(handle)
+  })
+  const landStackItem: StackSeam["landStackItem"] = async (id, head, repoArg) => {
+    const resolved = target(repoArg)
+    if ("error" in resolved) return resolved.error
+    const { repo } = resolved
+    const args = `${id} ${head} ${repo}`
+    return act(repo, "land", args, { running: "Landing…", done: "Landed" }, async () => {
+      const answer = await send("POST", route("land", repo, id), { head }, "the TODO")
+      if ("error" in answer) return answer.error
+      const accepted = MythicalItemSchema.safeParse(answer.body)
+      return untilLanded(repo, id, accepted.success ? accepted.data.updatedAt : "")
+    }, { retry: { flow: "history.land", args, label: "Retry" } })
   }
 
   /*
@@ -912,5 +946,5 @@ export const createStackSeam = (
     return parsed.success ? parsed.data : "The history could not be read."
   }
 
-  return { showStack, setStackView, readStack, heldStack, bootstrapStack, backfillStack, setStackParallel, retryStackItem, fileTodo, refreshWiki, watchHomeStack, resumeStacks, snapshots }
+  return { showStack, setStackView, readStack, heldStack, bootstrapStack, backfillStack, setStackParallel, retryStackItem, landStackItem, fileTodo, refreshWiki, watchHomeStack, resumeStacks, snapshots }
 }

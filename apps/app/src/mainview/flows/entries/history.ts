@@ -3,7 +3,7 @@
  * IS its history of logical changes (D-09a, D-20), served by
  * `@smthrs/rpc/Mythical`. `history.show` embeds the live History card (the
  * chrome's History button, the slash and the agent call are its three
- * doors). Bootstrap, backfill, lane count and retry are the writes the API
+ * doors). Bootstrap, backfill, lane count, retry and land are the writes the API
  * has, each acknowledged at once and finished in the shared toast stack.
  * One module per namespace: Flows.ts registers the block.
  */
@@ -19,6 +19,9 @@ const RepoOptional = Schema.optional(Schema.String)
 
 /** Retrying a blocked, rejected or declined issue is a person's decision (the retry route requires a person). */
 export const HISTORY_RETRY_USER_ONLY_REASON = "retrying a blocked, rejected or declined issue is a person's decision"
+
+/** Landing a TODO is a maintainer's own authorization of its merge (the land route requires the person). */
+export const HISTORY_LAND_USER_ONLY_REASON = "landing a TODO is a maintainer's own authorization of its merge"
 
 /** The `history` flows registered as one aggregator block. */
 export const historyFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
@@ -106,5 +109,23 @@ export const historyFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> 
     confirm: "retry this issue",
     input: Schema.Struct({ id: Schema.String, repo: RepoOptional }),
     handler: ({ id, repo }) => actions.retryStackItem(id, repo)
+  }),
+  /*
+   * Land: the stack merges a proposed TODO's pull request as for a
+   * maintainer's own automerge label (POST …/mythical/items/{id}/land), at
+   * the reviewed head once CI is green; never a merge from here. The head is
+   * the one the person saw, so a moved head is refused.
+   */
+  flow({
+    name: "history.land",
+    summary: "Land a proposed TODO's pull request once its review approves and CI is green",
+    userOnly: true,
+    userOnlyReason: HISTORY_LAND_USER_ONLY_REASON,
+    runtime: ["cloud"],
+    args: "<item> <head> [owner/repo]",
+    requires: ["signed-in"],
+    confirm: "land this pull request",
+    input: Schema.Struct({ id: Schema.String, head: Schema.String, repo: RepoOptional }),
+    handler: ({ id, head, repo }) => actions.landStackItem(id, head, repo)
   })
 ]

@@ -77,29 +77,9 @@ func (s *MythicalService) FileTodo(ctx context.Context, repositoryID, userID int
 			}
 		}
 	}
-	accountID, err := s.personGitHubID(ctx, userID)
+	gh, account, err := s.maintainerPerson(ctx, repositoryID, userID, "file a TODO")
 	if err != nil {
 		return MythicalItemView{}, err
-	}
-	gh, err := s.stackGitHub(ctx, repositoryID)
-	if err != nil {
-		return MythicalItemView{}, err
-	}
-	policy, err := s.stackPolicy(ctx, repositoryID)
-	if err != nil {
-		return MythicalItemView{}, err
-	}
-	account, err := s.github.Account(ctx, gh, accountID)
-	if err != nil {
-		return MythicalItemView{}, err
-	}
-	if account.ID != accountID || !policy.maintains(account.Login) {
-		return MythicalItemView{}, pkgerrors.Forbidden("only a maintainer the factory's policy names files a TODO")
-	}
-	if maintainer, err := s.github.Maintainer(ctx, gh, account); err != nil {
-		return MythicalItemView{}, err
-	} else if !maintainer {
-		return MythicalItemView{}, pkgerrors.Forbidden("only a maintainer of " + gh.Owner + "/" + gh.Name + " on GitHub files a TODO")
 	}
 	issue, err := s.github.CreateIssue(ctx, gh, title, body)
 	if err != nil {
@@ -122,7 +102,7 @@ func (s *MythicalService) FileTodo(ctx context.Context, repositoryID, userID int
 // in with: a "github" account, else the GitHub sign-in's historical
 // "workos" row (resolveUserGitHubAccessToken's order). A login is never
 // trusted from the profile: it can be renamed.
-func (s *MythicalService) personGitHubID(ctx context.Context, userID int64) (int64, error) {
+func (s *MythicalService) personGitHubID(ctx context.Context, userID int64, act string) (int64, error) {
 	accounts, err := s.queries().ListUserOAuthAccounts(ctx, userID)
 	if err != nil {
 		return 0, err
@@ -137,7 +117,7 @@ func (s *MythicalService) personGitHubID(ctx context.Context, userID int64) (int
 			}
 		}
 	}
-	return 0, pkgerrors.Forbidden("connect your GitHub account to file a TODO")
+	return 0, pkgerrors.Forbidden("connect your GitHub account to " + act)
 }
 
 func (g *mythicalGitHubAPI) Account(ctx context.Context, gh mythicalGitHubRepo, id int64) (gitHubActor, error) {

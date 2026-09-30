@@ -164,7 +164,6 @@ const PRESENTATION_ONLY = [
   "onRecoAction(", // delegated: App.tsx binds it to reco.accept / reco.edit / reco.dismiss
   "onGrantConfirm(", // delegated: App.tsx binds it to admin.grant.confirm
   "onGrantCancel(", // delegated: App.tsx binds it to admin.grant.cancel
-  "onQueueApprove(", // delegated: App.tsx binds it to admin.queue.approve
   "onDismiss(", // delegated: App.tsx binds it to runCommand("toast.dismiss", ...)
   "onMaximize(", // delegated: App.tsx binds it to runCommand("card.maximize", ...)
   "onMinimize(", // delegated: App.tsx binds it to card.minimize
@@ -432,7 +431,7 @@ describe("launch-law parity: every affordance is a command", () => {
       "../cards/SearchResultsCard.tsx": 2,
       "../cards/SecretsCard.tsx": 9,
       /* Includes TODO filing, check-receipt run opening, and the failure/Wiki Retry actions. */
-      "../cards/StackCard.tsx": 9,
+      "../cards/StackCard.tsx": 10, // + Land (history.land).
       /* Local Open tab, cloud session Stop, and inventory Open/Stop. */
       "../cards/AgentCards.tsx": 5, // + each profile row's Runs door (runs.list flow=<profile>).
       "../cards/AnonymousCeilingCard.tsx": 1,
@@ -549,7 +548,6 @@ describe("launch-law parity: every affordance is a command", () => {
     expect(actions).toContain("\"approval.deny\"")
     expect(actions).toContain("runCommand(\"admin.grant.confirm\"")
     expect(actions).toContain("runCommand(\"admin.grant.cancel\"")
-    expect(actions).toContain("runCommand(\"admin.queue.approve\"")
     expect(actions).toContain("runCommand(\"card.maximize\"")
     expect(actions).toContain("runCommand(\"card.minimize\"")
     expect(actions).toContain("runCommand(\"frame.back\"")

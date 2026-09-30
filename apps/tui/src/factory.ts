@@ -16,7 +16,7 @@ import {
   MythicalStackSchema
 } from "@smthrs/rpc/Mythical"
 import * as StackIssues from "@smthrs/rpc/StackIssues"
-import { itemReason, itemStateLabel, itemTitle, retryable } from "@smthrs/rpc/StackView"
+import { itemReason, itemStateLabel, itemTitle, landable, retryable } from "@smthrs/rpc/StackView"
 import type * as Panels from "./panels.ts"
 
 /** Where a repository lives on Cloud: `owner/name`. */
@@ -101,15 +101,16 @@ const issueOf = (argument: string): number | undefined => {
 }
 
 /**
- * Retries a failed TODO with `POST …/mythical/items/{id}/retry`, the route the
- * app's History card and `smthrs history retry` use: the stack names the
- * issue's item, and only a retryable one (blocked, rejected, declined or held
- * on review) is sent. Answers the item as Cloud left it.
+ * One person's act on the TODO an issue names: the stack's item for the
+ * issue, refused here unless `allowed`, then `POST`ed to its route. Answers
+ * the item as Cloud left it.
  */
-export const retry = async (
+const issueAct = async (
   cloud: Pick<CloudSession.Cloud, "get" | "post">,
   repo: Repository,
   issue: number,
+  allowed: (item: MythicalItem) => boolean,
+  send: (item: MythicalItem, owner: string, name: string) => readonly [path: string, body: unknown],
   signal?: AbortSignal
 ): Promise<Filing> => {
   const [owner, name] = repo.split("/") as [string, string]
@@ -121,16 +122,46 @@ export const retry = async (
   }
   const item = stack.items.find((candidate) => candidate.issue?.number === issue)
   if (item === undefined) return { ok: false, detail: `#${issue} is not in the factory`, settled: true }
-  if (!retryable(item)) return { ok: false, detail: `#${issue} is ${itemStateLabel(item)}`, settled: true }
+  if (!allowed(item)) return { ok: false, detail: `#${issue} is ${itemStateLabel(item)}`, settled: true }
+  const [path, body] = send(item, owner, name)
   try {
-    return {
-      ok: true,
-      item: MythicalItemSchema.parse(await cloud.post(mythicalRoute("retry", owner, name, item.id), {}, signal))
-    }
+    return { ok: true, item: MythicalItemSchema.parse(await cloud.post(path, body, signal)) }
   } catch (error) {
     return failed(error)
   }
 }
+
+/**
+ * Retries a failed TODO with `POST …/mythical/items/{id}/retry`, the route the
+ * app's History card and `smthrs history retry` use: the stack names the
+ * issue's item, and only a retryable one (blocked, rejected, declined or held
+ * on review) is sent. Answers the item as Cloud left it.
+ */
+export const retry = (
+  cloud: Pick<CloudSession.Cloud, "get" | "post">,
+  repo: Repository,
+  issue: number,
+  signal?: AbortSignal
+): Promise<Filing> =>
+  issueAct(cloud, repo, issue, retryable, (item, owner, name) => [mythicalRoute("retry", owner, name, item.id), {}], signal)
+
+/**
+ * Lands a proposed TODO with `POST …/mythical/items/{id}/land`, the route the
+ * app's History card and `smthrs history land` use: only a landable item (its
+ * pull request open at a known head, no merge asked yet) is sent, naming the
+ * head this read saw. The stack merges it at the reviewed head once CI is
+ * green; nothing merges here.
+ */
+export const land = (
+  cloud: Pick<CloudSession.Cloud, "get" | "post">,
+  repo: Repository,
+  issue: number,
+  signal?: AbortSignal
+): Promise<Filing> =>
+  issueAct(cloud, repo, issue, landable, (item, owner, name) => [
+    mythicalRoute("land", owner, name, item.id),
+    { head: item.pullRequest?.head }
+  ], signal)
 
 /** One status line. */
 export interface Line {
@@ -139,31 +170,41 @@ export interface Line {
 }
 
 /**
- * `/retry <issue>`: the status line now, and the line it settles on when
- * Cloud answers. A command it cannot send settles at once.
+ * A `/<verb> <issue>` command: the status line now, and the line it settles
+ * on when Cloud answers. A command it cannot send settles at once.
  */
-export const retryCommand = (
+const issueCommand = (
+  words: { readonly verb: string; readonly requested: string; readonly not: string },
+  act: (cloud: Pick<CloudSession.Cloud, "get" | "post">, repo: Repository, issue: number) => Promise<Filing>
+) =>
+(
   argument: string,
   repo: Repository | undefined,
   signIn: () => Promise<Pick<CloudSession.Cloud, "get" | "post"> | undefined>
 ): { readonly now: Line; readonly settled?: Promise<Line> } => {
   const issue = issueOf(argument)
-  if (issue === undefined) return { now: { text: "Usage: /retry <issue>", tone: "warning" } }
+  if (issue === undefined) return { now: { text: `Usage: /${words.verb} <issue>`, tone: "warning" } }
   if (repo === undefined) return { now: { text: "No repository for this directory", tone: "warning" } }
   const settled = (async (): Promise<Line> => {
     try {
       const cloud = await signIn()
-      if (cloud === undefined) return { text: "Sign in to retry: smthrs auth login", tone: "warning" }
-      const answer = await retry(cloud, repo, issue)
+      if (cloud === undefined) return { text: `Sign in to ${words.verb}: smthrs auth login`, tone: "warning" }
+      const answer = await act(cloud, repo, issue)
       return answer.ok
         ? { text: `#${issue} ${itemStateLabel(answer.item)}` }
-        : { text: `#${issue} not retried: ${answer.detail}`, tone: "warning" }
+        : { text: `#${issue} ${words.not}: ${answer.detail}`, tone: "warning" }
     } catch (error) {
-      return { text: `#${issue} not retried: ${failed(error).detail}`, tone: "warning" }
+      return { text: `#${issue} ${words.not}: ${failed(error).detail}`, tone: "warning" }
     }
   })()
-  return { now: { text: `Retry #${issue} requested` }, settled }
+  return { now: { text: `${words.requested} #${issue} requested` }, settled }
 }
+
+/** `/retry <issue>`. */
+export const retryCommand = issueCommand({ verb: "retry", requested: "Retry", not: "not retried" }, retry)
+
+/** `/land <issue>`. */
+export const landCommand = issueCommand({ verb: "land", requested: "Land", not: "not landed" }, land)
 
 const groupStatus: Record<StackIssues.IssueGroupId, NonNullable<Panels.Row["status"]> | undefined> = {
   "needs-you": undefined,

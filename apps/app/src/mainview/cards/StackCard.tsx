@@ -26,7 +26,7 @@ import { elapsedLabel } from "../Timestamps"
 import type { CardFamily, RunCommand } from "./CardFamily"
 import type { IssueGroup } from "@smthrs/rpc/StackIssues"
 import { issueGroups, issueProgress, issueWord, settledItems, spanLabel, stackMetricLabels, stackMetrics, issueToLandedMs } from "@smthrs/rpc/StackIssues"
-import { accountLabel, ACTIVE_ITEM_STATES, itemReason, itemStateLabel, itemTitle, laneRows, retryable, stackCounts, stackRows, wikiRow } from "@smthrs/rpc/StackView"
+import { accountLabel, ACTIVE_ITEM_STATES, itemReason, itemStateLabel, itemTitle, landable, laneRows, retryable, stackCounts, stackRows, wikiRow } from "@smthrs/rpc/StackView"
 
 type StackCard = Extract<Card, { kind: "stack" }>
 type Failure = NonNullable<StackCard["payload"]["failure"]>
@@ -106,6 +106,10 @@ const ItemCells = ({ item, repo, onRunCommand, retry = true, reason, progress }:
       {item.pullRequest === undefined ? null : (
         <a href={item.pullRequest.url} target="_blank" rel="noopener noreferrer" className="world-card-path">PR #{item.pullRequest.number}</a>
       )}
+      {retry && landable(item) ? (
+        <Button size="sm" variant="ghost"
+          {...flowAction(onRunCommand, "history.land", flowArgs("history.land", { id: item.id, head: item.pullRequest!.head!, repo }))}>Land</Button>
+      ) : null}
       {progress === undefined ? null : <span className="world-card-path" data-testid={`stack-item-${item.id}-progress`}>{progress}</span>}
       {retry && retryable(item) ? (
         <Button size="sm" variant="ghost"

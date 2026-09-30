@@ -72,6 +72,17 @@ export const retryable = (item: MythicalItem): boolean =>
   (item.state === "blocked" || item.state === "rejected" || item.state === "declined" || item.reviewHeld === true)
 
 /**
+ * A proposed TODO a maintainer may land: its pull request is open at a known
+ * head and nobody asked for its merge yet. The land route accepts exactly them.
+ *
+ * @category projections
+ * @since 1.0.0
+ */
+export const landable = (item: MythicalItem): boolean =>
+  item.issue !== undefined && item.todo !== undefined && item.state === "proposed" && item.automerge !== true &&
+  item.pullRequest?.state === "open" && item.pullRequest.head !== undefined
+
+/**
  * `#12 Title` for an issue; a chat item is named by the stack change it made, else its id.
  *
  * @category projections

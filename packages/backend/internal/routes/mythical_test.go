@@ -31,6 +31,17 @@ type fakeMythicalRoute struct {
 	todos      []services.MythicalTodoInput
 	todoUsers  []int64
 	todoErr    error
+	lands      []services.MythicalLandInput
+	landItems  []string
+	landErr    error
+}
+
+func (f *fakeMythicalRoute) LandTodo(_ context.Context, _, userID int64, id string, input services.MythicalLandInput) (services.MythicalItemView, error) {
+	if f.landErr != nil {
+		return services.MythicalItemView{}, f.landErr
+	}
+	f.lands, f.landItems, f.todoUsers = append(f.lands, input), append(f.landItems, id), append(f.todoUsers, userID)
+	return services.MythicalItemView{ID: id, State: "proposed", Automerge: true, DependsOn: []string{}}, nil
 }
 
 func (f *fakeMythicalRoute) FileTodo(_ context.Context, _, userID int64, input services.MythicalTodoInput) (services.MythicalItemView, error) {
@@ -293,5 +304,53 @@ func TestMythicalTodosRoute(t *testing.T) {
 
 	rec = httptest.NewRecorder()
 	(&MythicalHandler{}).Todos(rec, request(`{"title":"t"}`, true))
+	assert.Equal(t, http.StatusInternalServerError, rec.Code)
+}
+
+// A maintainer presses Land: 202 with the item, automerge on; the service's
+// refusal is the answer, and a malformed body never reaches it.
+func TestMythicalLandRoute(t *testing.T) {
+	service := &fakeMythicalRoute{}
+	handler := &MythicalHandler{Service: service}
+	request := func(body string, user bool) *http.Request {
+		r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+		routeCtx := chi.NewRouteContext()
+		routeCtx.URLParams.Add("id", "item-9")
+		ctx := context.WithValue(r.Context(), chi.RouteCtxKey, routeCtx)
+		ctx = middleware.ContextWithRepoContext(ctx, &middleware.RepoContext{Owner: "o",
+			Repository: &db.Repository{ID: 19, Name: "r"}}, middleware.PermissionWrite)
+		if user {
+			ctx = context.WithValue(ctx, middleware.UserContextKey, &db.User{ID: 7})
+		}
+		return r.WithContext(ctx)
+	}
+	head := strings.Repeat("a", 40)
+	rec := httptest.NewRecorder()
+	handler.Land(rec, request(`{"head":"`+head+`"}`, false))
+	assert.Equal(t, http.StatusUnauthorized, rec.Code)
+
+	for _, body := range []string{`{"head":"x","merge":true}`, `not json`, `{"head":"` + strings.Repeat("x", 4<<10) + `"}`} {
+		rec = httptest.NewRecorder()
+		handler.Land(rec, request(body, true))
+		assert.Equal(t, http.StatusBadRequest, rec.Code, body)
+	}
+	assert.Empty(t, service.lands)
+
+	rec = httptest.NewRecorder()
+	handler.Land(rec, request(`{"head":"`+head+`"}`, true))
+	require.Equal(t, http.StatusAccepted, rec.Code, rec.Body.String())
+	assert.Equal(t, []services.MythicalLandInput{{Head: head}}, service.lands)
+	assert.Equal(t, []string{"item-9"}, service.landItems)
+	assert.Equal(t, []int64{7}, service.todoUsers)
+	assert.Contains(t, rec.Body.String(), `"automerge":true`)
+
+	service.landErr = pkgerrors.Conflict("the pull request changed since you saw it")
+	rec = httptest.NewRecorder()
+	handler.Land(rec, request(`{"head":"`+head+`"}`, true))
+	assert.Equal(t, http.StatusConflict, rec.Code)
+	assert.Contains(t, rec.Body.String(), "changed since you saw it")
+
+	rec = httptest.NewRecorder()
+	(&MythicalHandler{}).Land(rec, request(`{"head":"`+head+`"}`, true))
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 }

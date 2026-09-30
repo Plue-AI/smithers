@@ -12939,6 +12939,70 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/InternalError'
+  /api/repos/{owner}/{repo}/mythical/items/{id}/land:
+    post:
+      summary: POST /api/repos/{owner}/{repo}/mythical/items/{id}/land
+      description: A maintainer person asks the stack to merge a proposed TODO's pull request. The stack applies the automerge label for them and merges as for a maintainer's own label, at the reviewed head once GitHub CI is green; nothing merges here. Answers the item.
+      operationId: post_api_repos_owner_repo_mythical_items_id_land
+      tags:
+        - Repositories
+      parameters:
+        - name: owner
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: repo
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - head
+              properties:
+                head:
+                  type: string
+                  description: The pull request head the person saw; a head that moved since is refused.
+                  pattern: '^[0-9a-f]{40}$'
+      security:
+        - tokenAuth: []
+        - bearerAuth: []
+        - sessionCookie: []
+      responses:
+        '202':
+          description: The item, automerge on
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnyJSON'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
   /api/repos/{owner}/{repo}/mythical/items/{id}/retry:
     post:
       summary: POST /api/repos/{owner}/{repo}/mythical/items/{id}/retry

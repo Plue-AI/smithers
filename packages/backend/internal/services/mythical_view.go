@@ -67,6 +67,9 @@ type MythicalPullRequestView struct {
 	Number int64  `json:"number"`
 	URL    string `json:"url"`
 	State  string `json:"state"`
+	// Head is the commit the pull request's branch points at, which Land
+	// names so a head that moved since is never landed unseen.
+	Head string `json:"head,omitempty"`
 }
 
 type MythicalItemView struct {
@@ -93,6 +96,10 @@ type MythicalItemView struct {
 	ReviewHeld bool `json:"reviewHeld,omitempty"`
 	// Request is the request id of the Smithers filing that made this TODO.
 	Request string `json:"request,omitempty"`
+	// Automerge is whether a maintainer asked the stack to merge this TODO's
+	// pull request (their automerge label, or Land through Smithers): it
+	// merges at the reviewed head once CI is green.
+	Automerge bool `json:"automerge,omitempty"`
 	// Failure is why the item stopped or retries, typed; Reason is then its
 	// sentence (mythicalFailureOf), never an error's text.
 	Failure *MythicalFailureView `json:"failure,omitempty"`
@@ -445,7 +452,7 @@ func mythicalItemView(item db.MythicalItem) MythicalItemView {
 		Plan: item.Plan, Integration: item.Integration, Checks: mythicalChecksView(item), Todo: mythicalTodoView(item), Route: mythicalRouteView(item),
 		Placement:   mythicalChecksOf(item).Placement,
 		HumanEdited: len(mythicalDrivers(item.Checks)) > 0, ReviewHeld: item.Source == "issue" && mythicalReviewHeld(item), DependsOn: []string{},
-		Request: mythicalChecksOf(item).FiledRequest}
+		Request: mythicalChecksOf(item).FiledRequest, Automerge: mythicalChecksOf(item).Automerge}
 	if failure, sentence := mythicalFailureOf(item); failure != nil {
 		row.Failure, row.Reason = failure, sentence
 	} else if mythicalDiagnostic(item.Reason) {
@@ -463,7 +470,7 @@ func mythicalItemView(item db.MythicalItem) MythicalItemView {
 		if state != "open" && state != "closed" && state != "merged" {
 			state = "open"
 		}
-		row.PullRequest = &MythicalPullRequestView{Number: item.PRNumber.Int64, URL: item.PRURL, State: state}
+		row.PullRequest = &MythicalPullRequestView{Number: item.PRNumber.Int64, URL: item.PRURL, State: state, Head: item.PRHead}
 	}
 	if item.UpdatedAt.Valid {
 		row.UpdatedAt = item.UpdatedAt.Time.UTC().Format(time.RFC3339)

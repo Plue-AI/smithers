@@ -154,21 +154,21 @@ func TestMythicalFileTodoRefusals(t *testing.T) {
 				o.github.accounts[42] = gitHubActor{ID: 42, Login: "roninjin10-old", Type: "User"}
 				return context.Background()
 			},
-			input: MythicalTodoInput{Title: "t"}, status: http.StatusForbidden, message: "only a maintainer the factory's policy names files a TODO",
+			input: MythicalTodoInput{Title: "t"}, status: http.StatusForbidden, message: "only a maintainer the factory's policy names may file a TODO",
 		},
 		"an account GitHub answers for another id": {
 			arrange: func(o *mythicalOrchestration) context.Context {
 				o.github.accounts[42] = gitHubActor{ID: 7, Login: "roninjin10", Type: "User"}
 				return context.Background()
 			},
-			input: MythicalTodoInput{Title: "t"}, status: http.StatusForbidden, message: "only a maintainer the factory's policy names files a TODO",
+			input: MythicalTodoInput{Title: "t"}, status: http.StatusForbidden, message: "only a maintainer the factory's policy names may file a TODO",
 		},
 		"a named login without write access": {
 			arrange: func(o *mythicalOrchestration) context.Context {
 				o.github.readOnly = map[string]bool{"roninjin10": true}
 				return context.Background()
 			},
-			input: MythicalTodoInput{Title: "t"}, status: http.StatusForbidden, message: "only a maintainer of smithersai/smithers on GitHub files a TODO",
+			input: MythicalTodoInput{Title: "t"}, status: http.StatusForbidden, message: "only a maintainer of smithersai/smithers on GitHub may file a TODO",
 		},
 	}
 	for name, tc := range cases {
