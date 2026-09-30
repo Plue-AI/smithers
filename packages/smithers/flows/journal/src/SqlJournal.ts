@@ -38,6 +38,7 @@ import * as Stream from "effect/Stream"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 import type * as SqlError from "effect/unstable/sql/SqlError"
 import { Consensus } from "./Consensus.ts"
+import { JournalInternalFault } from "./internal/JournalInternalFault.ts"
 import {
   Checkpoint,
   CheckpointOptions,
@@ -2371,9 +2372,10 @@ export const make = (
           duration: compactionCaptureTimeout,
           orElse: () =>
             Effect.fail(
-              new Error(
-                `journal compaction capture for run ${runId} exceeded ${compactionCaptureTimeout}`
-              )
+              new JournalInternalFault({
+                code: "compaction_capture_timeout",
+                message: `journal compaction capture for run ${runId} exceeded ${compactionCaptureTimeout}`
+              })
             )
         })
         // The policy is the journal's OWN post-commit maintenance, not a

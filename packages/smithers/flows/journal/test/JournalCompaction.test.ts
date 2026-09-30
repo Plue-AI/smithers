@@ -18,7 +18,7 @@
 import { describe, expect, it } from "@effect/vitest"
 import { DurableWriter } from "@smthrs/database/DurableWriter"
 import * as TestDatabase from "@smthrs/database/test/TestDatabase"
-import { Cause, Deferred, Effect, Exit, Fiber, Layer, Option } from "effect"
+import { Cause, Deferred, Effect, Exit, Fiber, Layer, Logger, Option } from "effect"
 import * as Stream from "effect/Stream"
 import { TestClock } from "effect/testing"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
@@ -1143,6 +1143,10 @@ describe("the compaction policy hook", () => {
 
   effect("times out a hanging capture and damps it without wedging the emit", () =>
     Effect.gen(function*() {
+      const logged: Array<Cause.Cause<unknown>> = []
+      const logger = Logger.make<unknown, void>(({ cause }) => {
+        logged.push(cause)
+      })
       const reachedCapture = yield* Deferred.make<void>()
       yield* Effect.gen(function*() {
         const service = yield* Journal
@@ -1160,6 +1164,9 @@ describe("the compaction policy hook", () => {
         expect((yield* Fiber.join(crossing)).seq).toBe(0)
         expect(Option.isNone(yield* service.latestCheckpoint(run))).toBe(true)
         expect(yield* eventCount).toBe(1)
+        expect(logged.map((cause) => Cause.squash(cause))).toContainEqual(
+          expect.objectContaining({ _tag: "@smthrs/journal/JournalInternalFault", code: "compaction_capture_timeout" })
+        )
       }).pipe(
         Effect.provide(journal({
           compaction: {
@@ -1167,6 +1174,7 @@ describe("the compaction policy hook", () => {
             capture: () => Deferred.succeed(reachedCapture, undefined).pipe(Effect.andThen(Effect.never))
           }
         })),
+        Effect.provide(Logger.layer([logger])),
         Effect.scoped
       )
     }))

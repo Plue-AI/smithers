@@ -46,8 +46,6 @@ const reviewed: ReadonlyArray<readonly [file: string, count: number, why: string
   ["flow/src/Flow/make.ts", 1, "a comment naming the throw payloadSchema.make performs"],
   ["flow/src/internal/DeclarationSite.ts", 1, "captures a stack to locate a declaration; never thrown"],
   ["journal/src/RedactedLogger.ts", 1, "an empty Error clone that receives redacted fields; never thrown"],
-  ["journal/src/Redaction.ts", 1, "a depth refusal the redaction boundary catches and replaces with its marker"],
-  ["journal/src/SqlJournal.ts", 1, "auto-compaction capture timeout; the compactor logs and damps every failure"],
   ["kernel/src/HttpClient.ts", 1, wrappedCause],
   ["kernel/src/test/HostContract.ts", 1, testSupport],
   ["observability/src/Otlp.ts", 1, "rebuilds an exported error with its message redacted"],

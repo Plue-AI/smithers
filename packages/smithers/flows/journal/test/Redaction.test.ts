@@ -554,8 +554,13 @@ describe("Redaction", () => {
 
   it("accepts a value at the depth bound and rejects one beyond it", () => {
     expect(() => Redaction.redact(nestedValue(Redaction.maxDepth))).not.toThrow()
-    expect(() => Redaction.redact(nestedValue(Redaction.maxDepth + 1))).toThrow(
-      `redaction depth exceeds ${Redaction.maxDepth}`
+    expect(() => Redaction.redact(nestedValue(Redaction.maxDepth + 1))).toThrowError(
+      expect.objectContaining({
+        _tag: "@smthrs/journal/RedactionDepthError",
+        code: "depth_exceeded",
+        maxDepth: Redaction.maxDepth,
+        message: `redaction depth exceeds ${Redaction.maxDepth}`
+      })
     )
   })
 

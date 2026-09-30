@@ -1152,6 +1152,20 @@ const redactString = (value: string, rules: ReadonlyArray<Rule>): string => {
 export const maxDepth = 256
 
 /**
+ * A payload nested deeper than {@link maxDepth}, under `onTooDeep: "throw"`.
+ * `code` is always `depth_exceeded`; `maxDepth` is the bound that was crossed.
+ *
+ * @since 1.0.0
+ * @category errors
+ */
+export class RedactionDepthError extends Schema.TaggedError<RedactionDepthError>()(
+  "@smthrs/journal/RedactionDepthError",
+  { code: Schema.Literal("depth_exceeded"), maxDepth: Schema.Number, message: Schema.String }
+) {
+  override readonly name = "RedactionDepthError"
+}
+
+/**
  * Options for {@link redact}.
  *
  * @since 0.1.0
@@ -1371,7 +1385,11 @@ export const redact = (value: unknown, options?: Options): unknown => {
   const walk = (node: unknown, ancestors: WeakSet<object>, depth: number, key: string): unknown => {
     if (depth > maxDepth) {
       if (onTooDeep === "name") return depthMarker
-      throw new Error(`redaction depth exceeds ${maxDepth}`)
+      throw new RedactionDepthError({
+        code: "depth_exceeded",
+        maxDepth,
+        message: `redaction depth exceeds ${maxDepth}`
+      })
     }
     if (typeof node === "string") return redactString(node, rules)
     // A function, a class object or a symbol carries text a walk never reaches
