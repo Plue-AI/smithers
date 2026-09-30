@@ -1,7 +1,7 @@
 {
   "source": {
-    "commit": "d494b56dbc60a36cad4cc6d0cec9a898dda856be",
-    "dirty": true,
+    "commit": "bf149607182254b8beedf58f2a02eba8ffebdbf2",
+    "dirty": false,
     "corpus": {
       "sha256": "42587488ca62464eeca0121e4f636d2f7b11a02a9a4951a79c87f9d8698a6594",
       "cases": 18,
@@ -22,8 +22,8 @@
     "inventedAt": 0.85,
     "unsupportedAt": 0.5
   },
-  "startedAt": "2026-09-30T10:18:16.832Z",
-  "finishedAt": "2026-09-30T10:18:23.484Z",
+  "startedAt": "2026-09-30T10:39:18.324Z",
+  "finishedAt": "2026-09-30T10:39:24.164Z",
   "counts": {
     "cases": 18,
     "executed": 18,
@@ -36,7 +36,7 @@
     "error": 0
   },
   "margin": {
-    "highestKept": 0.67,
+    "highestKept": 0.69,
     "lowestRefused": 0.94
   },
   "passed": true,
@@ -50,11 +50,11 @@
       "bounced": false,
       "invented": 0.06,
       "whole": {
-        "complete": 0.94,
-        "overclaims": 0.34,
+        "complete": 0.95,
+        "overclaims": 0.37,
         "invented": 0.06
       },
-      "latencyMs": 1085,
+      "latencyMs": 908,
       "usage": {
         "inputTokens": 946,
         "outputTokens": 57,
@@ -67,13 +67,13 @@
       "decidable": true,
       "outcome": "kept",
       "bounced": false,
-      "invented": 0.11,
+      "invented": 0.12,
       "whole": {
-        "complete": 0.33,
-        "overclaims": 0.42,
-        "invented": 0.11
+        "complete": 0.31,
+        "overclaims": 0.47,
+        "invented": 0.12
       },
-      "latencyMs": 286,
+      "latencyMs": 225,
       "usage": {
         "inputTokens": 768,
         "outputTokens": 57,
@@ -86,13 +86,13 @@
       "decidable": true,
       "outcome": "kept",
       "bounced": true,
-      "invented": 0.67,
+      "invented": 0.69,
       "whole": {
-        "complete": 0.43,
-        "overclaims": 0.87,
-        "invented": 0.67
+        "complete": 0.44,
+        "overclaims": 0.88,
+        "invented": 0.69
       },
-      "latencyMs": 267,
+      "latencyMs": 251,
       "usage": {
         "inputTokens": 675,
         "outputTokens": 57,
@@ -111,7 +111,7 @@
         "overclaims": 0.06,
         "invented": 0.06
       },
-      "latencyMs": 490,
+      "latencyMs": 254,
       "usage": {
         "inputTokens": 797,
         "outputTokens": 57,
@@ -124,13 +124,13 @@
       "decidable": true,
       "outcome": "kept",
       "bounced": true,
-      "invented": 0.08,
+      "invented": 0.09,
       "whole": {
         "complete": 0.04,
-        "overclaims": 0.12,
-        "invented": 0.08
+        "overclaims": 0.13,
+        "invented": 0.09
       },
-      "latencyMs": 344,
+      "latencyMs": 249,
       "usage": {
         "inputTokens": 715,
         "outputTokens": 57,
@@ -143,13 +143,13 @@
       "decidable": true,
       "outcome": "kept",
       "bounced": true,
-      "invented": 0.13,
+      "invented": 0.12,
       "whole": {
         "complete": 0.05,
-        "overclaims": 0.28,
-        "invented": 0.13
+        "overclaims": 0.24,
+        "invented": 0.12
       },
-      "latencyMs": 313,
+      "latencyMs": 229,
       "usage": {
         "inputTokens": 893,
         "outputTokens": 57,
@@ -162,13 +162,13 @@
       "decidable": true,
       "outcome": "kept",
       "bounced": true,
-      "invented": 0.4,
+      "invented": 0.33,
       "whole": {
-        "complete": 0.25,
+        "complete": 0.27,
         "overclaims": 0.92,
-        "invented": 0.4
+        "invented": 0.33
       },
-      "latencyMs": 455,
+      "latencyMs": 281,
       "usage": {
         "inputTokens": 659,
         "outputTokens": 57,
@@ -181,13 +181,13 @@
       "decidable": true,
       "outcome": "kept",
       "bounced": false,
-      "invented": 0.08,
+      "invented": 0.06,
       "whole": {
         "complete": 0.95,
-        "overclaims": 0.09,
-        "invented": 0.08
+        "overclaims": 0.1,
+        "invented": 0.06
       },
-      "latencyMs": 309,
+      "latencyMs": 334,
       "usage": {
         "inputTokens": 1083,
         "outputTokens": 57,
@@ -206,7 +206,7 @@
         "overclaims": 0.45,
         "invented": 0.15
       },
-      "latencyMs": 235,
+      "latencyMs": 437,
       "usage": {
         "inputTokens": 1075,
         "outputTokens": 57,
@@ -219,13 +219,13 @@
       "decidable": true,
       "outcome": "kept",
       "bounced": true,
-      "invented": 0.08,
+      "invented": 0.09,
       "whole": {
-        "complete": 0.05,
+        "complete": 0.04,
         "overclaims": 0.13,
-        "invented": 0.08
+        "invented": 0.09
       },
-      "latencyMs": 230,
+      "latencyMs": 247,
       "usage": {
         "inputTokens": 691,
         "outputTokens": 57,
@@ -241,10 +241,10 @@
       "invented": 0.1,
       "whole": {
         "complete": 0.9,
-        "overclaims": 0.38,
+        "overclaims": 0.35,
         "invented": 0.1
       },
-      "latencyMs": 306,
+      "latencyMs": 225,
       "usage": {
         "inputTokens": 934,
         "outputTokens": 57,
@@ -259,11 +259,11 @@
       "bounced": true,
       "invented": 0.13,
       "whole": {
-        "complete": 0.28,
-        "overclaims": 0.61,
+        "complete": 0.18,
+        "overclaims": 0.63,
         "invented": 0.13
       },
-      "latencyMs": 285,
+      "latencyMs": 301,
       "usage": {
         "inputTokens": 657,
         "outputTokens": 57,
@@ -278,11 +278,11 @@
       "bounced": true,
       "invented": 0.95,
       "whole": {
-        "complete": 0.47,
+        "complete": 0.46,
         "overclaims": 0.92,
         "invented": 0.95
       },
-      "latencyMs": 417,
+      "latencyMs": 219,
       "usage": {
         "inputTokens": 672,
         "outputTokens": 57,
@@ -297,11 +297,11 @@
       "bounced": true,
       "invented": 0.96,
       "whole": {
-        "complete": 0.46,
+        "complete": 0.47,
         "overclaims": 0.94,
         "invented": 0.96
       },
-      "latencyMs": 238,
+      "latencyMs": 303,
       "usage": {
         "inputTokens": 715,
         "outputTokens": 57,
@@ -320,7 +320,7 @@
         "overclaims": 0.96,
         "invented": 0.94
       },
-      "latencyMs": 286,
+      "latencyMs": 217,
       "usage": {
         "inputTokens": 881,
         "outputTokens": 57,
@@ -333,11 +333,11 @@
       "decidable": true,
       "outcome": "refused",
       "bounced": true,
-      "invented": 0.96,
+      "invented": 0.95,
       "whole": {
-        "complete": 0.95,
-        "overclaims": 0.76,
-        "invented": 0.94
+        "complete": 0.94,
+        "overclaims": 0.75,
+        "invented": 0.93
       },
       "sentences": {
         "digest": "5ca45f922de46a01e72ad56288135eb982d3ca32f946ea858a22cb79a163cc0d",
@@ -348,19 +348,19 @@
           },
           {
             "sentence": "Before the change `node test.mjs` failed with expected 5, got -1.",
-            "probability": 0.68
+            "probability": 0.69
           },
           {
             "sentence": "After it, `node test.mjs` passes.",
-            "probability": 0.09
+            "probability": 0.08
           },
           {
             "sentence": "`npm run lint` also passes.",
-            "probability": 0.96
+            "probability": 0.95
           }
         ]
       },
-      "latencyMs": 543,
+      "latencyMs": 610,
       "usage": {
         "inputTokens": 2173,
         "outputTokens": 129,
@@ -373,13 +373,13 @@
       "decidable": false,
       "outcome": "missed_by_design",
       "bounced": false,
-      "invented": 0.22,
+      "invented": 0.19,
       "whole": {
-        "complete": 0.68,
+        "complete": 0.69,
         "overclaims": 0.79,
-        "invented": 0.22
+        "invented": 0.19
       },
-      "latencyMs": 308,
+      "latencyMs": 255,
       "usage": {
         "inputTokens": 944,
         "outputTokens": 57,
@@ -392,13 +392,13 @@
       "decidable": false,
       "outcome": "missed_by_design",
       "bounced": true,
-      "invented": 0.68,
+      "invented": 0.78,
       "whole": {
-        "complete": 0.46,
+        "complete": 0.44,
         "overclaims": 0.88,
-        "invented": 0.68
+        "invented": 0.78
       },
-      "latencyMs": 239,
+      "latencyMs": 280,
       "usage": {
         "inputTokens": 662,
         "outputTokens": 57,
