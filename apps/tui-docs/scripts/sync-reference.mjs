@@ -24,7 +24,7 @@ const guides = {
   chat: "/docs/tui/views/",
   filter: "/docs/tui/views/",
   grep: "/docs/tui/views/",
-  smithers: "/docs/learn/run-a-flow/",
+  smithers: "/docs/learn/issue-to-main/",
   todo: "/docs/learn/issue-to-main/#file-a-todo",
   retry: "/docs/learn/issue-to-main/",
   devtools: "/docs/learn/devtools/",
