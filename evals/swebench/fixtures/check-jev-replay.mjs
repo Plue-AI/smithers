@@ -320,7 +320,11 @@ try {
     const edge = rowOf(scoreboard([{ id: "g", label: "unresolved", readings: [at] }]))
     assert.equal(edge(signal, "last").tp, 1, `${signal} fires at its threshold`)
     const compacts = signal === "outdated_context" || signal === "irrelevant_context"
-    assert.equal(edge("crossed", "last").tp, compacts ? 0 : 1, compacts ? `${signal} alone compacts, it does not cross` : `${signal} alone crosses`)
+    assert.equal(
+      edge("crossed", "last").tp,
+      compacts ? 0 : 1,
+      compacts ? `${signal} alone compacts, it does not cross` : `${signal} alone crosses`
+    )
   }
   const below = rowOf(scoreboard([{ id: "h", label: "unresolved", readings: [reading(0.49, 0.51)] }]))
   assert.equal(below("crossed", "last").tp, 0, "just inside every threshold crosses nothing")

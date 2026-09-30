@@ -89,8 +89,14 @@ try {
   }
   assert.ok(allowed("select-candidate.mjs", "../../packages/smithers/agent/harness/src/Sufficiency.ts"))
   assert.ok(allowed("lib/journal-facts.mjs", "../../../packages/smithers/agent/harness/src/NarrowedCheck.ts"))
-  assert.ok(allowed("prices.ts", "../../packages/smithers/agent/model/src/internal/prices.generated.ts"), "the generated rate card")
-  assert.ok(!allowed("prices.ts", "../../packages/smithers/agent/model/src/internal/prices.ts"), "no other model module")
+  assert.ok(
+    allowed("prices.ts", "../../packages/smithers/agent/model/src/internal/prices.generated.ts"),
+    "the generated rate card"
+  )
+  assert.ok(
+    !allowed("prices.ts", "../../packages/smithers/agent/model/src/internal/prices.ts"),
+    "no other model module"
+  )
   assert.ok(!allowed("select-candidate.mjs", "../../packages/harness/src/Sufficiency.ts"), "a stale harness path")
   assert.ok(!allowed("select-candidate.mjs", "../../packages/smithers/agent/harness/test/fixtures/r97Journals.json"))
 
