@@ -167,3 +167,85 @@ describe("the Cloud machine pins what the repository declares", () => {
     expect(environment).not.toContain('sha256 = ""')
   })
 })
+
+/**
+ * What the image provides, by the tool name a gate or rule executes. Each
+ * value is a pattern that must appear in `.smithers/environment.nix`.
+ */
+const provided: Record<string, RegExp> = {
+  node: /pname = "nodejs";/,
+  pnpm: /pname = "pnpm";/,
+  bun: /pname = "bun";/,
+  jj: /\bjujutsu\b/,
+  go: /pname = "go";/,
+  cargo: /^\s*rust$/m,
+  foundry: /pname = "foundry";/,
+  postgres: /pkgs\.postgresql_18\b/,
+  bwrap: /pkgs\.bubblewrap\b/,
+  sshd: /pkgs\.openssh\b[\s\S]*L\+ \/usr\/sbin\/sshd/,
+  rg: /^\s*# ripgrep|ripgrep/m,
+}
+
+/** Tools an index rule executes that the image does not provide yet. */
+const imageGaps = new Set(["docker"])
+
+/** The tools each target-index rule needs; a new rule fails until it is listed. */
+const ruleTools: Record<string, string[]> = {
+  "Agent.Diff": [], Filegroup: [], LlmLint: [], NewPackage: [], FactoryProjection: [],
+  "Environment.Toolchain": [], TargetIndex: [], Lockfile: [], Tsconfig: [], GithubCiGen: [],
+  "Markdown.CodeBlocks": ["node"], DepsLint: ["node"], DocsParity: ["node", "pnpm"],
+  Dprint: ["node", "pnpm"], EsLint: ["node", "pnpm"], Vitest: ["node", "pnpm"],
+  Typecheck: ["node", "pnpm"], TsBuild: ["node", "pnpm"], NodeTest: ["node", "pnpm"],
+  NodeBinary: ["node", "pnpm"], Generate: ["node", "pnpm"], ToolRun: ["node", "pnpm"],
+  ToolBuild: ["node", "pnpm"], Install: ["node", "pnpm"],
+  "Shell.Test": ["node", "pnpm"], "Shell.Diff": ["node", "pnpm"], "Shell.Build": ["node", "pnpm"], "Shell.Run": ["node", "pnpm"],
+  "Go.ModDownload": ["go"], "Cargo.Clippy": ["cargo"], "Cargo.Fmt": ["cargo"], "Cargo.Test": ["cargo"],
+  "Docker.Service": ["docker"],
+}
+
+describe("the Cloud machine carries every tool the checks execute", () => {
+  const index = JSON.parse(read(".smithers/target-index.json")) as { label: string; rule: string }[]
+
+  test("every rule in the target index names the tools it needs", () => {
+    const unknown = [...new Set(index.map((target) => target.rule))].filter((rule) => !(rule in ruleTools))
+    expect(unknown).toEqual([])
+  })
+
+  test("every tool an index rule executes is in the image, or a named gap", () => {
+    const needed = new Set(index.flatMap((target) => ruleTools[target.rule] ?? []))
+    const missing = [...needed].filter((tool) => !imageGaps.has(tool) && !(provided[tool]?.test(environment) ?? false))
+    expect(missing).toEqual([])
+    for (const gap of imageGaps) {
+      expect(provided[gap]).toBeUndefined()
+      expect(needed.has(gap)).toBe(true)
+    }
+  })
+
+  test("every toolchain cloud.sh gates on is in the image", () => {
+    const gates = [...cloud.matchAll(/^\s+[a-z-]+\) echo '([^']+)' ;;$/gm)].flatMap((m) => m[1]!.split(" "))
+    const alias: Record<string, string[]> = { js: ["node", "pnpm", "bun"], rust: ["cargo"] }
+    const tools = new Set(gates.flatMap((tool) => alias[tool] ?? [tool]))
+    expect(tools.size).toBeGreaterThan(4)
+    for (const tool of tools) {
+      expect(provided[tool], `no image pattern for ${tool}`).toBeDefined()
+      expect(environment, `image lacks ${tool}`).toMatch(provided[tool]!)
+    }
+  })
+
+  test("every apt package a PACKAGE.ts declares has a Nix counterpart", () => {
+    const counterpart: Record<string, string> = { bubblewrap: "bwrap", "openssh-server": "sshd" }
+    const declared = new Set<string>()
+    for (const file of ["PACKAGE.ts"]) {
+      for (const [, list] of read(file).matchAll(/CiToolchain\.Apt\(\{ packages: \[([^\]]*)\]/g)) {
+        for (const [, name] of list!.matchAll(/"([^"]+)"/g)) declared.add(name!)
+      }
+    }
+    expect([...declared].filter((name) => !(name in counterpart))).toEqual([])
+    for (const name of declared) expect(environment).toMatch(provided[counterpart[name]!]!)
+  })
+
+  test("the SSH tests find the daemon at the path they name", () => {
+    expect(environment).toContain('"d /run/sshd 0755 root root -"')
+    expect(read("packages/smithers/test/ExecutionEnvironmentSsh.integration.test.ts")).toContain('"/usr/sbin/sshd"')
+  })
+})

@@ -291,6 +291,10 @@ in
       # apt-installs and cloud.sh cannot install at all on an unprivileged
       # runner.
       pkgs.bubblewrap
+      pkgs.openssh
+      # The `packages` gate's real SSH tests start an isolated `sshd`
+      # (`ensure_sshd` in cloud.sh, ExecutionEnvironmentSsh.integration.test.ts);
+      # apt's openssh-server cannot exist on NixOS.
       # Linking for cargo: jj-lib arrives as a git dependency and builds its
       # native halves from source.
       pkgs.gcc
@@ -312,6 +316,13 @@ in
     ];
 
   programs.nix-ld.libraries = playwrightLibraries;
+
+  # Those SSH tests and cloud.sh name the Debian path `/usr/sbin/sshd` and need
+  # the privilege-separation directory `/run/sshd`, neither of which NixOS has.
+  systemd.tmpfiles.rules = [
+    "d /run/sshd 0755 root root -"
+    "L+ /usr/sbin/sshd - - - - ${pkgs.openssh}/bin/sshd"
+  ];
 
   environment.variables = {
     # Go: no toolchain switch (the guest has no egress to fetch one) and no VCS
