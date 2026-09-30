@@ -111,9 +111,7 @@ export async function resolveInventory() {
   const planner = createPlanner()
   try {
     // Every real command is planned, including aggregate CI, build, test, docs and lint.
-    // Advisory model reviews are excluded: their planning can resolve remote git refs.
     for (const [jobId, job] of Object.entries(workflow.jobs)) {
-      if ([true, "true"].includes(job["continue-on-error"])) continue
       for (const step of job.steps ?? []) {
         const invocation = targetInvocation(step.run)
         if (!invocation) continue

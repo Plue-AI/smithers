@@ -52,11 +52,10 @@ the bearer-token and TLS/ingress protections described in the
 
 The required workspace, script, and package-documentation gates run independently
 in `test`, `scripts`, and `docs`. Release retains all three selections.
-Three lanes are advisory. The macOS
+Two lanes are advisory: the macOS
 and Windows legs of the one `package suites (${{ matrix.os }})` matrix carry
 `advisory: true` and inherit `continue-on-error: ${{ matrix.advisory }}`, while
-its `ubuntu-latest` leg is required; `model reviews (advisory)` is
-`continue-on-error: true` outright. An advisory failure establishes no support
+its `ubuntu-latest` leg is required. An advisory failure establishes no support
 for that host and does not block the required Node/Linux target.
 
 The Windows lane remains red. On Windows, the server seed-allowlist test

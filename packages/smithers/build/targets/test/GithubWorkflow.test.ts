@@ -664,10 +664,7 @@ describe("parseWorkflow", () => {
       "e2e-faults",
       "browser",
       "packages",
-      "go-backend",
-      // Advisory, and not in `requiredJobs`: it runs the model reviews, which
-      // need a full-history checkout and a model CLI the runner does not ship.
-      "review-lints"
+      "go-backend"
     ])
     // The platform matrix parses as ONE job whose runner is the matrix
     // expression, not as three copy-pasted jobs.

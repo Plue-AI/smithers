@@ -289,8 +289,7 @@ test("every gate in ci.yml also runs in release.yml", () => {
     "e2e-faults",
     "browser",
     "packages",
-    "go-backend",
-    "review-lints"
+    "go-backend"
   ])
 
   const mirrored = ["test", "scripts", "docs", "rust-ffi", "e2e-faults", "wasm-repro", "go-backend"]
