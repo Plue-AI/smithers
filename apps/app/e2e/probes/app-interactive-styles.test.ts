@@ -47,14 +47,13 @@ test("primary actions and Send remain legible in every palette, including hover 
     <button id="primary" class="sui-button sui-button-default">Approve</button>
     <button id="solid" class="sui-button sui-button-solid">Start</button>
     <button id="signin" class="chrome-action" data-flow="auth.sign-in">Sign in with GitHub</button>
-    <button id="start" class="coding-plan-start">Start</button>
     <div class="smithers-composer"><button id="send" class="sui-button sui-button-solid sui-button-icon-size sui-chat-composer-send" aria-label="Send">↑</button></div>
     <button id="release" class="control-focus-release" data-control-focus-release style="position:static">Release control</button>
   </section></div>`)
   const failures: string[] = []
   for (const palette of PALETTES) for (const theme of ["light", "dark"]) {
     await page.evaluate(({ palette, theme }) => { document.documentElement.dataset.palette = palette; document.documentElement.dataset.theme = theme }, { palette, theme })
-    for (const id of ["primary", "solid", "signin", "start", "send"]) {
+    for (const id of ["primary", "solid", "signin", "send"]) {
       const selector = `#${id}`
       await page.mouse.move(0, 0)
       for (const state of ["rest", "hover", "active"]) {

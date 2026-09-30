@@ -493,7 +493,6 @@ export const createWorkflowPumpController = (
           if (eventReadError !== undefined) patchRunCard(cardId, {
             observationError: `The run has settled, but its recorded engine evidence could not be read: ${eventReadError}`
           })
-          if (phase === "completed") await ctx.finishTutorialChange(cardId)
           if (ctx.disposed || pump.stopped || ctx.runPumps.get(cardId) !== pump) return
           // A transcript line is a committed transition, so it frames the
           // failure from the same flow id and journalled code the card renders

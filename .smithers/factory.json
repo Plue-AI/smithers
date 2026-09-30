@@ -1156,20 +1156,6 @@
       "flows": []
     },
     {
-      "id": "tutorial-change",
-      "description": "Execute the reviewed tutorial plan through the coding flow. Re-read HEAD before any writes; refuse if it differs from plan.base.commitId. Require exactly one change and one atom. Do not push. Return the exact coding result; never invent revision evidence.",
-      "summary": null,
-      "featured": false,
-      "kind": "ts",
-      "path": "flows/tutorial-change/flow.ts",
-      "capabilities": [
-        "*"
-      ],
-      "model": null,
-      "modelInvocable": true,
-      "flows": []
-    },
-    {
       "id": "wiki",
       "description": "Capture declared public source dependencies, independently review each engineering wiki page against its code, and write a provenance-bearing snapshot without modifying human intent.",
       "summary": null,

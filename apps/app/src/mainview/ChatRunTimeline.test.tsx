@@ -15,12 +15,11 @@ test("a running job stays reachable after a newer job completes", () => {
   expect(monitoredRun([active, run("newer", 2, "completed")])).toBe(active)
 })
 
-test("empty journals and plans do not replace a recorded run or invent a strip", () => {
+test("empty journals do not replace a recorded run or invent a strip", () => {
   const recorded = run("recorded", 1, "completed")
   const empty = run("empty", 2); empty.payload.events = []
-  const plan = run("plan", 3); plan.payload.kind = "change-plan"
-  expect(monitoredRun([recorded, empty, plan])).toBe(recorded)
-  expect(renderToStaticMarkup(<ChatRunTimeline cards={[empty, plan]} onRunCommand={() => {}} />)).toBe("")
+  expect(monitoredRun([recorded, empty])).toBe(recorded)
+  expect(renderToStaticMarkup(<ChatRunTimeline cards={[empty]} onRunCommand={() => {}} />)).toBe("")
 })
 
 test("the dock shares source identity and saved cursor with its embedded run", () => {

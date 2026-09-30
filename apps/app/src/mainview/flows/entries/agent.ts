@@ -4,7 +4,6 @@
  * the aggregator order.
  */
 import { Schema } from "effect"
-import { flag, line, text } from "@smthrs/ui/flow-form"
 import { flow, NoPayload } from "./Declare"
 import type { FlowEntry, Namespace } from "../registry"
 import type { CommandActions } from "./Declare"
@@ -38,16 +37,3 @@ export const agentFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =>
   ]
 }
 
-/** Root composes this alongside agentFlows after binding the controller. */
-export const tutorialChangeFlows = (actions: import("../../state/controller/tutorialChange").TutorialChangeController): ReadonlyArray<FlowEntry> => [
-  flow({ name: "agent.change", summary: "Inspect the repository and suggest a planned change", args: "[repo] [feature]",
-    input: Schema.Struct({ repo: Schema.optional(Schema.String), feature: Schema.optional(Schema.String) }),
-    form: { fields: { repo: { optionsFrom: "cloud-repos" } }, args: payload => line(text(payload, "repo"), flag(payload, "feature")) },
-    confirm: "inspect the repository with an agent and prepare a change plan",
-    handler: ({ repo, feature }) => actions.suggestTutorialChange(repo, feature) }),
-  flow({
-    name: "agent.change.start",
-    summary: "Start the reviewed change plan", args: "<cardId>",
-    input: Schema.Struct({ cardId: Schema.String }), confirm: "execute the reviewed plan and create its commits",
-    handler: ({ cardId }) => actions.startTutorialChange(cardId) })
-]

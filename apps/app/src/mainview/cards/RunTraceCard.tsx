@@ -193,8 +193,6 @@ export const RunTraceBody = ({
 }) => {
   const onRunCommand = runSourceCommand(card.id, sendRunCommand)
   const { runId, phase, kind, steps, result } = card.payload
-  /* A tutorial plan card is a plan, not a run: it has no outcome, no progress and no journal to show. */
-  const planOnly = kind === "change-plan"
   /* A repository setup or job run answers with structured data, not prose, and does its work in child executions. */
   const repositoryRun = card.payload.workflow === "repository/setup" || card.payload.workflow.startsWith("repository-jobs/")
   const model = traceOf(card)
@@ -251,7 +249,7 @@ export const RunTraceBody = ({
     <TurnDetail card={card} model={model} selected={selected} scope={scope} frame={frame} />
   )
   return (
-    <div className="run-trace" data-testid={`run-trace-${runId}`} data-kind={kind} data-view={planOnly ? "plan" : view}>
+    <div className="run-trace" data-testid={`run-trace-${runId}`} data-kind={kind} data-view={view}>
       {kind === "prototype" ?
         (
           <p className="run-trace-banner" data-testid={`run-trace-banner-${runId}`}>
@@ -259,10 +257,8 @@ export const RunTraceBody = ({
           </p>
         ) :
         null}
-      {planOnly ? null : (
-        <RunTraceSummary card={card} model={whole} facts={facts} onRunCommand={onRunCommand} admin={admin} />
-      )}
-      {!planOnly && result !== null ? repositoryRun ? (
+      <RunTraceSummary card={card} model={whole} facts={facts} onRunCommand={onRunCommand} admin={admin} />
+      {result !== null ? repositoryRun ? (
         <details className="run-progress-fold">
           <summary>Technical details</summary>
           <pre className="run-trace-code" tabIndex={0} aria-label="Run output">{result}</pre>
@@ -272,7 +268,7 @@ export const RunTraceBody = ({
       <CodingPocBody card={card} onRunCommand={onRunCommand} />
       <CodingVibeBody card={card} onRunCommand={onRunCommand} />
       {/* The run's progress words (payload.steps, a short tail the pump and replays write), newest last. */}
-      {planOnly || steps.length === 0 ? null : settled ? (
+      {steps.length === 0 ? null : settled ? (
         <details className="run-progress-fold">
           <summary><span className="run-fold-title">Progress</span><span className="run-fold-meta">{count(steps.length, "update")}</span></summary>
           <ol className="run-progress" aria-label="Progress" data-run-steps="">
@@ -284,7 +280,7 @@ export const RunTraceBody = ({
           {steps.map((step, index) => <li key={`${index}:${step}`}>{step}</li>)}
         </ol>
       )}
-      {planOnly ? null : view === "steps" ? (
+      {view === "steps" ? (
         <>
           <div className="run-trace-bar" data-view="steps" role="group" aria-label="Trace presentation">
             <button

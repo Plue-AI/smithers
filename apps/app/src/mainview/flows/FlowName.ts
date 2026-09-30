@@ -28,8 +28,6 @@ export const FLOW_NAMES = [
   "admin.reset",
   "admin.reset.ask",
   "admin.reset.cancel",
-  "agent.change",
-  "agent.change.start",
   "agent.explain",
   "agent.list",
   "agent.session.list",

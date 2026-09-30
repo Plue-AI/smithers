@@ -171,11 +171,6 @@ selections, box selections and card tabs survive. The migration and reopen tests
 
 ## Follow-ups this cut did not take either
 
-- `state/controller/tutorialChange.ts` `post()` calls
-  `/api/tutorial/change/{plan,preflight,receipt}`, which now 404 instead of
-  501. The practice-repository path beside it is bundled and needs no host, so
-  the tutorial itself still runs; only a change against a real repository has
-  no server.
 - `seams/SearchSeam.ts` still reads `targets` cards into `kind: "target"`
   search items. Those cards can only come from a conversation saved before the
   first cut, the same persistence class as the retired card schemas.

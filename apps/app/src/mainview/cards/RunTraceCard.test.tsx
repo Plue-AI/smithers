@@ -520,18 +520,17 @@ describe("the run card reads as outcome, then turns", () => {
     expect(host.querySelector("[aria-label='Waterfall']")).toBeNull()
     expect(host.querySelector("[data-frame-line='frame-1']")?.getAttribute("aria-controls")).toBe(open.querySelector(".run-turn-detail")?.id)
   })
-  test("a live run shows its progress open and the phase words; a tutorial plan card shows neither outcome nor turns", () => {
+  test("a live run shows its progress open and the phase words; a planned change offers no start door of its own", () => {
     const live = renderRun({ phase: "running", steps: ["Writing the test…"], events: COMPLETED.slice(0, 4), traceView: undefined })
     // The header names the subject the row names: the declared `path` subject.
     expect(live.host.querySelector("[data-testid='run-outcome-run-1']")?.textContent).toContain("Editing hello.test.ts")
     expect(live.host.querySelector(".run-progress-fold")).toBeNull()
     expect(live.host.querySelector("[data-run-steps]")).toBeNull()
-    const plan = renderRun({ kind: "change-plan", phase: "completed", input: { plan: { ...CODING_PLAN, changes: [CODING_PLAN.changes[0]!] } }, traceView: undefined })
-    expect(plan.host.querySelector("[data-testid='run-outcome-run-1']")).toBeNull()
-    expect(plan.host.querySelector("[data-testid='run-trace-empty-run-1']")).toBeNull()
-    expect(plan.host.querySelector("[role='tablist']")).toBeNull()
-    expect(plan.host.querySelector("[data-testid='flow-run-rerun-run-1']")).toBeNull()
-    expect(plan.host.querySelector("[data-flow='agent.change.start']")).not.toBeNull()
+    // #2897: no host serves /api/tutorial/change, so a plan is started through the coding flow, never a card door.
+    const plan = renderRun({ phase: "completed", input: { plan: { ...CODING_PLAN, changes: [CODING_PLAN.changes[0]!] } }, traceView: undefined })
+    expect(plan.host.querySelector("[aria-label='Coding plan']")).not.toBeNull()
+    expect(plan.host.querySelector("[data-flow^='agent.change']")).toBeNull()
+    expect([...plan.host.querySelectorAll("button")].map(button => button.textContent)).not.toContain("Start the change")
   })
 })
 

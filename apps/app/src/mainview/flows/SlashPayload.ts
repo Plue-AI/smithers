@@ -1341,16 +1341,6 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
   "admin.grant.cancel": (args) => required("cardId", args, "admin.grant.cancel needs the card id"),
   "admin.queue.approve": (args) => required("login", args, "admin.queue.approve needs a login"),
   /* `[cwd]`: an OPEN working copy by path, id, name, or key; blank means the active one (the server never takes a bare path). */
-  /* `[repo] [feature...]` or `--feature <text>`; blank renders the form. */
-  "agent.change": (args) => {
-    const value = trimmed(args)
-    const flag = value.indexOf("--feature ")
-    const before = (flag < 0 ? value : value.slice(0, flag)).trim()
-    const [repo, ...rest] = before.split(/\s+/).filter(Boolean)
-    const feature = flag < 0 ? rest.join(" ") : value.slice(flag + 10).trim()
-    return ok({ ...(repo ? { repo } : {}), ...(feature ? { feature } : {}) })
-  },
-  "agent.change.start": (args) => optional("cardId", args),
   "agent.explain": (args) => required("what", args, "agent.explain needs something to explain: /agent.explain <what>"),
   /* THE FORM LAW: the generic form card's acts. `form.set`'s value is the rest of the line (blank clears). */
   "form.set": (args) => {

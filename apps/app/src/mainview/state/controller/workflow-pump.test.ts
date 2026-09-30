@@ -105,7 +105,6 @@ const poll = async (cycles: Cycle[], options: {
   })
   const ctx = {
     failures: createOperationalFailureReporter(),
-    finishTutorialChange: async () => {},
     resumeFlowAuthoring: () => {},
     store: { committedRuntimeRun: (id: string) => runtimeRuns.get(id), committedRuntimeApproval: () => undefined, approvalRequest: () => undefined, collections: { cards, runtimeRuns, runtimeApprovals: new Map() }, dispatch: (action: any) => {
       const refused = options.saveFailures?.[0]?.type === action.type ? options.saveFailures!.shift()!.error : undefined

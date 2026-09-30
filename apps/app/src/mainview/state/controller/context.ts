@@ -109,8 +109,6 @@ export interface ControllerContext {
   identityChanged: () => void
   authReprobeAt: number
   loadSession: () => Promise<void>
-  /** Late-bound by AppController: verifies a settled change run's receipt (controller/tutorialChange.ts). */
-  finishTutorialChange: (cardId: string) => Promise<void>
   resumeWorkflowRuns: () => void
   observeFlowAuthoring: (cardId: string) => Promise<void>
   resumeFlowAuthoring: (retryCardId?: string) => void
@@ -228,7 +226,6 @@ export const createControllerContext = (
     identityChanged: () => {},
     authReprobeAt: 0,
     loadSession: async () => {},
-    finishTutorialChange: async () => {},
     resumeWorkflowRuns: () => {},
     observeFlowAuthoring: async () => {},
     resumeFlowAuthoring: () => {},

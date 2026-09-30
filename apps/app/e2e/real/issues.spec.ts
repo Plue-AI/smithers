@@ -215,7 +215,7 @@ tutorialTest(
     capabilities: [],
     description: "Research issue 3, obtain a real plan, start its real implementation, and verify the completed commits, files, tests, and rendered diff.",
     coverage: [
-      "action:issues.view", "action:issue.repro", "action:issue.implement", "action:agent.change.start",
+      "action:issues.view", "action:issue.repro", "action:issue.implement",
       "host:production", "path:success", "door:button",
       "dimension:practice-repository", "dimension:real-workflow", "dimension:implementation", "dimension:artifact-verification",
       "evidence:live-plan-run-commits-files-diff-tests"

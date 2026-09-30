@@ -2322,39 +2322,14 @@
 	overflow: hidden;
 }
 
-/* The coding plan inside a run card: the planned commits, the checks, the one door. */
+/* The coding plan inside a run card: its goals and the selected change's atoms and checks. */
 .coding-plan { display: flex; flex-direction: column; gap: var(--sp-2); }
 .coding-plan h4, .coding-plan h5 { margin: 0; font: inherit; font-weight: 600; }
-.coding-plan-title { font-size: var(--fs-md); }
-.coding-plan-intent { margin: 0; }
 .coding-plan-notice { display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-2) var(--sp-3); border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface); }
 .coding-plan-notice p { margin: 0; }
 .coding-plan-notice button { align-self: flex-start; }
-.coding-plan-commits { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
-.coding-plan-commits > li { display: grid; grid-template-columns: 2rem minmax(0, 1fr); gap: var(--sp-2); padding: var(--sp-2) 0; border-top: 1px solid var(--border); }
-.coding-plan-commits > li:first-child { border-top: 0; }
-.coding-plan-commit { overflow-wrap: anywhere; }
-.coding-plan-sha { font-family: var(--font-mono); overflow-wrap: anywhere; }
-.coding-plan-door { display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp-2); }
-.coding-plan-door .sui-approval-error { margin: 0; }
-.coding-plan-start {
-	padding: 0.375rem var(--sp-4);
-	border: 1px solid var(--action-primary);
-	border-radius: var(--r-full);
-	background: var(--action-primary);
-	color: var(--on-action-primary);
-	font: inherit;
-	font-weight: 600;
-	cursor: pointer;
-}
-.coding-plan-start:hover { background: color-mix(in srgb, var(--action-primary) 88%, var(--text)); }
-.coding-plan-start:focus-visible { outline: 2px solid var(--ring-border); outline-offset: 2px; }
-.coding-plan-started { display: flex; align-items: center; gap: var(--sp-2); margin: 0; }
-.coding-plan-started code { font-family: var(--font-mono); font-size: var(--fs-small); }
 .coding-plan summary:focus-visible { outline: 2px solid var(--ring-border); outline-offset: 2px; }
-.coding-plan-number, .coding-plan-meta { color: var(--text-muted); }
-.coding-plan-number { font-family: var(--font-mono); font-size: var(--fs-small); text-align: right; }
-.coding-plan-meta { font-size: var(--fs-small); margin: 0; }
+.coding-plan-meta { color: var(--text-muted); font-size: var(--fs-small); margin: 0; }
 .coding-plan-detail { padding: 0.75rem; overflow-wrap: anywhere; }
 .coding-plan-detail p { margin: 0.25rem 0 0.5rem; }
 .coding-plan-atoms { padding-left: 1.25rem; }

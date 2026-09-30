@@ -18,7 +18,7 @@ const phaseOf = (card: Card): "running" | "ok" | "failed" | "cancelled" | undefi
     if ("cloud" in p) return p.state === "completed" ? "ok" : p.state === "cancelled" ? "cancelled" : p.state === "failed" ? "failed" : "running"
     return p.phase === "running" ? "running" : p.exitCode === 0 ? "ok" : "failed"
   }
-  if (card.kind === "run-trace" && card.payload.kind !== "change-plan") {
+  if (card.kind === "run-trace") {
     return card.payload.phase === "completed" ? "ok"
       : card.payload.phase === "cancelled" ? "cancelled"
       : ["failed", "no-capacity"].includes(card.payload.phase) ? "failed" : "running"

@@ -93,7 +93,6 @@ import { createTabsController } from "./controller/tabs"
 import { observeBackgroundWork } from "./controller/backgroundWork"
 import { createPromptQueueController } from "./controller/promptQueue"
 import { createTurnController, type TurnController } from "./controller/turns"
-import { createTutorialChangeController,type TutorialChangeController } from "./controller/tutorialChange"
 import { createTutorialRepositoryController,type TutorialRepositoryActions } from "./controller/tutorialRepository"
 import { createFlowDurationsReader } from "./controller/flowDurations"
 import { createWorkflowPumpController } from "./controller/workflow-pump"
@@ -148,7 +147,7 @@ import { createTriggersSeam } from "./seams/TriggersSeam"
 import type { WorkspaceSeam } from "./seams/WorkspaceSeam"
 import { createWorkspaceSeam } from "./seams/WorkspaceSeam"
 
-export interface AppController extends TutorialChangeController, IssueFlowsController, RepositorySetupController {
+export interface AppController extends IssueFlowsController, RepositorySetupController {
   readonly storageRecoveryState: StorageRecoveryAction["state"]
   readonly promptStorageRecovery: () => Promise<void>
   readonly exportStorageRecovery: () => Promise<string | void>
@@ -1191,15 +1190,8 @@ export const createAppController = (
       resolveToast(key, { status: "failed", detail: error, autoDismissMs: ctx.toastAutoDismissMs })
     }
   }))
-  const tutorialChange = actors.pair(ctx, (context, select) =>
-    createTutorialChangeController(context, select(workflowController), store.nextOrdinal, select(renderFlowForm)))
   const issueFlows = actors.pair(seamCtx, (context, select) =>
     createIssueFlowsController(context, select(workflowController), select(landingsSeam)))
-  ctx.finishTutorialChange = tutorialChange.finishTutorialChange
-  /* A change run that settled while the app was closed still owes its receipt check. */
-  for (const card of store.collections.cards.values()) {
-    if (card.kind === "run-trace" && card.payload.kind === "change" && card.payload.phase === "completed") void tutorialChange.finishTutorialChange(card.id)
-  }
   const {
     createWorkflow,
     listWorkspaceWorkflows,
@@ -1708,7 +1700,6 @@ export const createAppController = (
     retryLastTurn,
     clearConversation,
     openBrowser,
-    ...tutorialChange,
     ...issueFlows,
     ...repositorySetup,
     createWorkflow,

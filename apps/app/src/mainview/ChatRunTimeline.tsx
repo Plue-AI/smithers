@@ -13,7 +13,7 @@ type RunCard = Extract<Card, { kind: "run-trace" }>
  * stays in reach even after a newer, shorter job has finished. */
 export const monitoredRun = (cards: ReadonlyArray<Card>): RunCard | undefined => {
   const runs = cards.filter((card): card is RunCard => card.kind === "run-trace" &&
-    card.payload.kind !== "change-plan" && (card.payload.events?.length ?? 0) > 0).filter(card => {
+    (card.payload.events?.length ?? 0) > 0).filter(card => {
       const trace = wholeTraceOf(card)
       return trace.bands.length > 0 || trace.milestones.length > 0
     })

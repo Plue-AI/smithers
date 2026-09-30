@@ -120,8 +120,6 @@ export const WorkflowRunCardBody = ({
   const facet = card.payload.facet ?? "steps"
   const facetRequest = card.payload.facetRequest
   const facetUnready = facetRequest !== undefined && facetRequest.state !== "complete" && facetRequest.facet === facet
-  /* A tutorial plan card is the plan alone: no facets, no lifecycle acts, no steer. */
-  const planOnly = kind === "change-plan"
   return (
     <div className="flow-run-card" data-run-kind={kind}>
       {/* Lane runs: why a live run is not moving, in the control plane's word. */}
@@ -179,7 +177,7 @@ export const WorkflowRunCardBody = ({
             </ul>
           ) :
         null}
-      {(phase === "completed" || phase === "failed" || phase === "cancelled" || phase === "no-capacity") && error !== undefined && !planOnly ?
+      {(phase === "completed" || phase === "failed" || phase === "cancelled" || phase === "no-capacity") && error !== undefined ?
         (
           <FailureNotice className="sui-approval-error run-failure" data-testid={`flow-run-failure-${runId}`}
             failure={{ tag: null, fault, sentence, actions: [], detail }} />
@@ -207,7 +205,7 @@ export const WorkflowRunCardBody = ({
           </div>
         ) :
         null}
-      {TERMINAL_RUN_PHASES.has(phase) && (error !== undefined || observationError !== undefined || card.payload.events?.some((event) => event.kind === "control.engine.projection-gap")) && !planOnly ? (
+      {TERMINAL_RUN_PHASES.has(phase) && (error !== undefined || observationError !== undefined || card.payload.events?.some((event) => event.kind === "control.engine.projection-gap")) ? (
         <Button size="sm" {...flowProps("flow.run.retry")} onClick={() => onRetryRun(card.id)}>
           Check again
         </Button>
@@ -222,75 +220,73 @@ export const WorkflowRunCardBody = ({
        * settled run, with the same input, refusing honestly when this client
        * never recorded one.
        */}
-      {planOnly ? null : (
-        <div className="flow-run-actions flow-run-footer">
-          <div className="flow-run-tabs" role="tablist" aria-label="Run views">
-            <Button
-              size="sm"
-              variant={facet === "steps" ? "default" : "outline"}
-              role="tab"
-              aria-selected={facet === "steps"}
-              data-testid={`flow-run-facet-steps-${runId}`}
-              {...flowAction(onRunCommand, "runs.steps", runId)}
-            >
-              Trace
-            </Button>
-            <Button
-              size="sm"
-              variant={facet === "transcript" ? "default" : "outline"}
-              role="tab"
-              aria-selected={facet === "transcript"}
-              data-testid={`flow-run-facet-transcript-${runId}`}
-              {...flowAction(onRunCommand, "runs.logs", runId)}
-            >
-              Transcript
-            </Button>
-            {debugVerbose ?
-              (
-                <Button
-                  size="sm"
-                  variant={facet === "events" ? "default" : "outline"}
-                  role="tab"
-                  aria-selected={facet === "events"}
-                  data-testid={`flow-run-facet-events-${runId}`}
-                  {...flowAction(onRunCommand, "runs.events", runId)}
-                >
-                  Events
-                </Button>
-              ) :
-              null}
-          </div>
-          {LIVE_RUN_PHASES.has(phase) ?
+      <div className="flow-run-actions flow-run-footer">
+        <div className="flow-run-tabs" role="tablist" aria-label="Run views">
+          <Button
+            size="sm"
+            variant={facet === "steps" ? "default" : "outline"}
+            role="tab"
+            aria-selected={facet === "steps"}
+            data-testid={`flow-run-facet-steps-${runId}`}
+            {...flowAction(onRunCommand, "runs.steps", runId)}
+          >
+            Trace
+          </Button>
+          <Button
+            size="sm"
+            variant={facet === "transcript" ? "default" : "outline"}
+            role="tab"
+            aria-selected={facet === "transcript"}
+            data-testid={`flow-run-facet-transcript-${runId}`}
+            {...flowAction(onRunCommand, "runs.logs", runId)}
+          >
+            Transcript
+          </Button>
+          {debugVerbose ?
             (
-              <div className="flow-run-lifecycle">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  {...flowProps("flow.run.stop")}
-                  data-testid={`flow-run-stop-${runId}`}
-                  onClick={() => onStopRun(card.id)}
-                >
-                  Stop
-                </Button>
-              </div>
-            ) :
-            null}
-          {TERMINAL_RUN_PHASES.has(phase) ?
-            (
-              <div className="flow-run-lifecycle">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  data-testid={`flow-run-rerun-${runId}`}
-                  {...flowAction(onRunCommand, "runs.rerun", runId)}
-                >
-                  Run again
-                </Button>
-              </div>
+              <Button
+                size="sm"
+                variant={facet === "events" ? "default" : "outline"}
+                role="tab"
+                aria-selected={facet === "events"}
+                data-testid={`flow-run-facet-events-${runId}`}
+                {...flowAction(onRunCommand, "runs.events", runId)}
+              >
+                Events
+              </Button>
             ) :
             null}
         </div>
-      )}
+        {LIVE_RUN_PHASES.has(phase) ?
+          (
+            <div className="flow-run-lifecycle">
+              <Button
+                size="sm"
+                variant="outline"
+                {...flowProps("flow.run.stop")}
+                data-testid={`flow-run-stop-${runId}`}
+                onClick={() => onStopRun(card.id)}
+              >
+                Stop
+              </Button>
+            </div>
+          ) :
+          null}
+        {TERMINAL_RUN_PHASES.has(phase) ?
+          (
+            <div className="flow-run-lifecycle">
+              <Button
+                size="sm"
+                variant="outline"
+                data-testid={`flow-run-rerun-${runId}`}
+                {...flowAction(onRunCommand, "runs.rerun", runId)}
+              >
+                Run again
+              </Button>
+            </div>
+          ) :
+          null}
+      </div>
       {/* Spec 06 §3: a prototype is never steered; its header has no Steer, so its card has no steer row. */}
       {LIVE_RUN_PHASES.has(phase) && kind !== "prototype" ? <RunSteerRow runId={runId} onRunCommand={onRunCommand} /> : null}
     </div>
@@ -535,8 +531,6 @@ export const workflowCardFamily: CardFamily<"run-trace" | "workflow-repo" | "wor
       />
     ),
     pill: (card) => {
-      /* A tutorial plan card wears the plan's state, not a run phase: pending until started, done once it is. */
-      if (card.payload.kind === "change-plan") return card.status === "acted" ? "done" : "pending"
       if (card.payload.phase === "completed") return "done"
       if (card.payload.phase === "cancelled") return "stopped"
       if (

@@ -26,7 +26,7 @@ import type { FlowEntry } from "./registry"
 import type { CommandActions } from "./entries/Declare"
 import { accountFlows } from "./entries/account"
 import { adminOperatorFlows, adminResetFlows, adminToolFlows } from "./entries/admin"
-import { agentFlows, tutorialChangeFlows } from "./entries/agent"
+import { agentFlows } from "./entries/agent"
 import { agentSessionFlows } from "./entries/agentSession"
 import { appFlows } from "./entries/app"
 import { signupFlows } from "./entries/signup"
@@ -182,7 +182,6 @@ export const baseFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
   ...agentFlows(actions),
   /* The cloud agent sessions (UI-COVERAGE-GAPS.md "agents · Cloud agent sessions"), in the agent namespace. */
   ...agentSessionFlows(actions),
-  ...tutorialChangeFlows(actions),
   ...formFlows(actions),
   ...tabFlows(actions),
   ...repoFlows(actions),

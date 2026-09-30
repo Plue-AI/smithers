@@ -477,11 +477,9 @@ describe("launch-law parity: every affordance is a command", () => {
        * The plan inside a run card: Inspect review feedback and Inspect failed
        * execution (runs.trace.select), Vibe this change (flow.run), Check
        * available flows (flow.list), the predicted Change rows
-       * (runs.coding.select), the tutorial plan's Start (agent.change.start)
-       * and, once started, Open the run (card.maximize) — all through
-       * onRunCommand with data-flow set.
+       * (runs.coding.select) — all through onRunCommand with data-flow set.
        */
-      "../cards/CodingPlanCard.tsx": 6,
+      "../cards/CodingPlanCard.tsx": 4,
       "../cards/CodingPocCard.tsx": 2, // Native execution inspection and existing steering form.
       /* The commits cards: a row's and a parent's commits.read, and the sha chip's chat.copy-message — all through onRunCommand. */
       "../cards/CommitCards.tsx": 3,

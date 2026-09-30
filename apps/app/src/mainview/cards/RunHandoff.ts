@@ -1,24 +1,17 @@
 import type { Card } from "../state/AppState"
-import { codingEvidenceOf, decodeChangeReceipt, receiptMatchesPlan } from "./CodingPlan"
+import { codingEvidenceOf } from "./CodingPlan"
 
 /** Task-level evidence only; excludes raw launch payloads and tool logs. */
 export const runHandoff = (card: Extract<Card, { kind: "run-trace" }>, sourceHref?: string): string => {
   const { repo, runId, workflow, phase, waiting, cursorSeq, observationError } = card.payload
   const { plan, outcome, reviewFeedback } = codingEvidenceOf(card)
-  let revision = "Not recorded in this evidence."
-  if (plan !== undefined && cursorSeq === undefined) {
-    try {
-      const receipt = decodeChangeReceipt(card.payload.input?.tutorialReceipt)
-      if (receiptMatchesPlan(receipt, plan, repo, runId)) revision = receipt.sha
-    } catch { /* Unverified receipts do not establish a revision. */ }
-  }
   return [
     `# Handoff: ${card.title}`,
     `Repository: ${repo}\nFlow: ${workflow}\nRun: ${runId}\nSource card: ${card.id}`,
     ...(sourceHref === undefined ? [] : [`[Open recorded run evidence](${sourceHref}) (requires this workspace's saved history).`]),
     `## Goal\n${plan?.prompt ?? (typeof card.payload.input?.prompt === "string" ? card.payload.input.prompt : "Not recorded as a structured plan; fill in the goal.")}`,
     `## Recorded state\n${cursorSeq === undefined ? `Run phase: ${phase}${waiting === undefined ? "" : `\nWaiting: ${waiting}`}${observationError === undefined ? "" : `\nObservation incomplete: ${observationError}`}` : `Historical evidence through event ${cursorSeq}; live state is not represented.`}`,
-    `Starting revision: ${plan?.base.commitId ?? "Not recorded."}\nRecorded result revision: ${revision}\nRecheck the current revision before continuing.`,
+    `Starting revision: ${plan?.base.commitId ?? "Not recorded."}\nRecheck the current revision before continuing.`,
     `## Plan and evidence\n${plan === undefined ? "No structured plan recorded." : plan.changes.map(change =>
       `- ${change.title}: ${change.intent}\n${change.checks.map(check => `  - Planned ${check.tier} check: ${check.target} (${check.id}); this declaration is not a passing result.`).join("\n")}`).join("\n")}`,
     `Recorded plan outcome: ${outcome === undefined ? "Not recorded." : `${outcome.status} after ${outcome.rounds} rounds.`}`,

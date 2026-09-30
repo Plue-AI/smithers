@@ -110,4 +110,3 @@ export const codingEvidenceOf = (card: Extract<Card, { kind: "run-trace" }>): Co
 }
 
 export const codingPlanOf = (card: Extract<Card, { kind: "run-trace" }>): Plan | undefined => codingEvidenceOf(card).plan
-export { decodeChangeReceipt, receiptMatchesPlan } from "./tutorial2-agent_change-contract"

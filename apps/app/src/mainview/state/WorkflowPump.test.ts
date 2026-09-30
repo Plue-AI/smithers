@@ -25,7 +25,6 @@ test("same-sequence suffix offsets reset the quiet bound until native observatio
   const scope = { repo: card.payload.repo, workspaceId: card.payload.workspaceId, runId }, key = runtimeRunKey(scope)
   const runtimeRuns = new Map<string, RuntimeRun>()
   const ctx = {
-    finishTutorialChange: async () => {},
     store: { committedRuntimeRun: (id: string) => runtimeRuns.get(id), committedRuntimeApproval: () => undefined, collections: { cards: { get: () => card, values: () => [card].values() }, runtimeRuns, runtimeApprovals: new Map() },
       dispatch: (event: { type: string; observation?: RuntimeRunObservation; text?: string }) => {
         if (event.type === "gateway.run.observed") {
