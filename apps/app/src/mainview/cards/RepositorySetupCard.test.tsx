@@ -268,6 +268,11 @@ test("a queued setup retry explains the delay without claiming a run or offering
     expect(t.button("Run")).toBeUndefined()
     expect(t.button("Retry")).toBeUndefined()
     expect(t.calls).toEqual([])
+    t.render({ ...card, payload: { ...projected, receipt: { ...projected.receipt!, error: "provider token=private-value" } } })
+    expect(t.host.textContent).not.toContain("private-value")
+    expect(t.host.innerHTML).not.toContain("private-value")
+    expect(t.host.textContent).not.toContain("Retrying")
+    expect(t.calls).toEqual([])
     if (recovered.setup.state !== "found") throw Error("fixture")
     const running: SetupRecoveryResponse = { ...recovered, setup: { ...recovered.setup,
       result: { ...recovered.setup.result, receipt: { ...recovered.setup.result.receipt!, phase: "running", runId: "run-accepted", error: undefined } } } }
