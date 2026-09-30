@@ -103,12 +103,12 @@ schema constant and a type of the same name unless noted.
 
 ### Authority
 
-| Export            | Shape                                                                                                             |
-| ----------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `Envelope`        | `{ capabilities: string[]; flows: string[]; budget: { tokens?: number; milliseconds?: number }; host?: string }`. |
-| `GrantScope`      | `"once" \| "run" \| "remembered"`.                                                                                |
-| `ApprovalTarget`  | `{ _tag: "Plan", planId, digest, envelope }` or `{ _tag: "Node", runId, requestId, digest, envelope }`.           |
-| `ApprovalPayload` | `{ target: ApprovalTarget; scope: GrantScope; idempotencyKey: IdempotencyKey }`.                                  |
+| Export            | Shape                                                                                                                                                          |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Envelope`        | `{ capabilities: string[]; flows: string[]; budget: { tokens?: number; milliseconds?: number; usd?: number; onExceeded?: BudgetOnExceeded }; host?: string }`. |
+| `GrantScope`      | `"once" \| "run" \| "remembered"`.                                                                                                                             |
+| `ApprovalTarget`  | `{ _tag: "Plan", planId, digest, envelope }` or `{ _tag: "Node", runId, requestId, digest, envelope }`.                                                        |
+| `ApprovalPayload` | `{ target: ApprovalTarget; scope: GrantScope; idempotencyKey: IdempotencyKey }`.                                                                               |
 
 ### Plans
 

@@ -166,7 +166,7 @@ decision fallback.
 
 A request a runaway guard makes carries an optional `incident`
 (`ControlFacts.GuardIncident`): its `Runaway` or `Stuck` classification, the
-guard `source` (`tokens`, `latency`, `model-call`, `tool-call`, `cell`), the
+guard `source` (`tokens`, `usd`, `latency`, `model-call`, `tool-call`, `cell`), the
 triggering `message`, and the numbers frozen when it tripped (`used`,
 `reserved`, `max`, `next`, the `allowance` Continue authorizes, and the
 timed-out `subject`). A host that re-parks the run reuses the recorded request

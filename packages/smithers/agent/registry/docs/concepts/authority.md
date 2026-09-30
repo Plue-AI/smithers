@@ -106,19 +106,21 @@ description: Reviews a proposed change.
 budget:
   tokens: 120000
   milliseconds: 900000
+  usd: 2.5
 ---
 ```
 
-Both ceilings are positive safe integers. The two fields are the two fields of
-a control-plane `Envelope.budget`, so a host projects them into an approved
-envelope without reinterpreting either number, and
+`tokens` and `milliseconds` are positive safe integers and `usd` is a positive
+dollar amount. They are the fields of a control-plane `Envelope.budget`, so a
+host projects them into an approved envelope without reinterpreting any
+number, and
 [`@smthrs/agent`](/api/agent)'s `Budget.layerFromEnvelope` turns that envelope
 into enforcement at the model boundary.
 
 A malformed budget is dropped rather than tightened. Effect fields have a
 conservative wildcard reading; a budget has none. Its conservative number is zero, and a zero ceiling
 refuses the run's first call, so a typo would be reported as a spending
-decision. Each of the two ceilings is read on its own, so an unreadable
+decision. Each ceiling is read on its own, so an unreadable
 `tokens` does not discard a valid `milliseconds`, and a key the budget does not
 know is reported too, because a misspelled `tokens` would otherwise read as an
 unbounded run in silence. All three cases are `invalid_budget` warnings.

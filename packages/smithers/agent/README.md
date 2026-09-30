@@ -456,8 +456,8 @@ rather than a result.
 ## Budgets
 
 `Sandbox.Limits` bounds one cell and `Agent.Options.maxFrames` bounds one loop.
-Neither accumulates, so `Envelope.budget`, the tokens and milliseconds a control
-plane approved for a plan, bound nothing until `Budget` existed.
+Neither accumulates, so `Envelope.budget`, the tokens, dollars and milliseconds
+a control plane approved for a plan, bound nothing until `Budget` existed.
 
 ```ts
 import { Budget } from "@smthrs/agent"

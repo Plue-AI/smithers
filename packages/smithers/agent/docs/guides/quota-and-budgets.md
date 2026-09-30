@@ -107,6 +107,7 @@ import * as Budget from "@smthrs/agent/Budget"
 
 const budget = Budget.layer({
   tokens: { max: 200_000, onExceeded: "fail" },
+  usd: { max: 2.5, onExceeded: "park" },
   latency: { maxMillis: 900_000 }
 })
 
@@ -116,8 +117,9 @@ const approved = Budget.layerFromEnvelope(envelope)
 
 `make`, `layer`, and `layerFromEnvelope` fail acquisition with
 `Budget.ConfigurationError` for invalid configuration. Token ceilings are
-non-negative safe integers; latency ceilings are finite non-negative
-milliseconds (fractions are allowed). `maxRuns` and `recoveryEntries` must be
+non-negative safe integers; USD ceilings are finite non-negative dollars and
+latency ceilings finite non-negative milliseconds (fractions are allowed for
+both). `maxRuns` and `recoveryEntries` must be
 positive safe integers. Omit a ceiling to leave it unbounded; infinity and
 `NaN` are errors, not opt-outs. Acquisition snapshots the validated policy,
 so mutating the original object afterward cannot change a live budget.
@@ -226,11 +228,12 @@ forget an old run's allowance.
 
 `onExceeded` is the composition's choice, defaulting to `fail`:
 
-| Setting          | Behavior                                                                                               |
-| ---------------- | ------------------------------------------------------------------------------------------------------ |
-| `fail`           | The step fails with `BudgetExceeded { scope, used, max, next }`.                                       |
-| `warn`           | A `flows.agent.budget-warning.v1` record is written and the call proceeds.                             |
-| `skip-remaining` | The budget latches. Every later model call in the run fails typed `skipped` without asking a provider. |
+| Setting          | Behavior                                                                                                 |
+| ---------------- | -------------------------------------------------------------------------------------------------------- |
+| `fail`           | The step fails with `BudgetExceeded { scope, used, max, next }`.                                         |
+| `warn`           | A `flows.agent.budget-warning.v1` record is written and the call proceeds.                               |
+| `skip-remaining` | The budget latches. Every later model call in the run fails typed `skipped` without asking a provider.   |
+| `park`           | The run parks on an approval request for a raised ceiling. Approving it resumes the run under the raise. |
 
 The skip-remaining decision is written durably before the refusal returns.
 Recovery after restart or cache eviction restores the first decision and its
@@ -252,6 +255,31 @@ import { RetryPolicy } from "@smthrs/flow"
 
 const policy = Budget.neverRetrySkipped(RetryPolicy.defaultRetryPolicy)
 ```
+
+## Raise a parked ceiling
+
+A `park` ceiling needs a host with `Budget.Parking`, which `AgentSession`
+provides; without one `park` acts as `fail`. The request's envelope carries the
+proposed ceiling: the spend, the held forecast, the refused call, and one more
+original allowance, in whole tokens and milliseconds or dollars rounded up to
+the cent. Its question names it, such as `Raise the USD budget from $1.00 to
+$2.20?`.
+
+Approve it from the app's approvals inbox, with `smthrs approvals approve` on
+the payload `smthrs approvals list` prints, or with retry on the parked flow
+tab in the TUI. Deny is Stop: the run fails before it calls the provider again.
+The resumed run recovers the spend it recorded before the park, across a
+restart, and spends against the raised ceiling. A flow declares the ceilings in
+frontmatter:
+
+```yaml
+budget:
+  usd: 2.5
+  onExceeded: park
+```
+
+`smthrs flow start` replaces them for one run with `--budget-tokens`,
+`--budget-ms`, `--budget-usd` and `--on-exceeded`.
 
 ## Cap a day across runs
 

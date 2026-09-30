@@ -1184,7 +1184,7 @@ interface TokenBudget {
 
 interface UsdBudget {
   readonly max: number
-  readonly onExceeded?: Exclude<OnExceeded, "park"> | undefined
+  readonly onExceeded?: OnExceeded | undefined
 }
 
 interface LatencyBudget {
@@ -1208,8 +1208,8 @@ its `Pricing.cost`, the provider's reported charge or its usage at the rate
 card with `Policy.prices` rows over it, and the largest call so far is the next
 one's forecast. A call whose model has no price leaves the run's spend unknown,
 so the next admission fails with `AccountingUnavailable` rather than counting
-it free. It cannot `park`, because an approval envelope carries no USD ceiling
-to raise; `Budget.make` rejects that as a `ConfigurationError`.
+it free. A USD `park` asks for a raised `Envelope.budget.usd`, as a token park
+asks for raised `tokens`.
 
 `onExceeded` decides what running out means, and defaults to `fail`:
 
@@ -1221,8 +1221,9 @@ to raise; `Budget.make` rejects that as a `ConfigurationError`.
 | `park`           | The run parks with waiting reason `budget` and an approval request for a raised budget. Approving it resumes the run under the raised ceiling; denying it fails the call as `fail` does. Timeouts park too; see [RunawayGuard](#runawayguard). |
 
 A flow sets it in frontmatter as `budget.onExceeded`, and `smthrs flow start`
-sets it for one run with `--on-exceeded`, beside `--budget-tokens` and
-`--budget-ms`. A composition without `Budget.Parking` treats `park` as `fail`.
+sets it for one run with `--on-exceeded`, beside `--budget-tokens`,
+`--budget-ms` and `--budget-usd`. A composition without `Budget.Parking`
+treats `park` as `fail`.
 
 ### Budget.Budget and Budget.Service
 
@@ -1364,9 +1365,10 @@ const layerFromEnvelope: (
 ) => Layer.Layer<Budget, ConfigurationError>
 ```
 
-Turns an approved plan envelope into a policy or a layer. A missing field is
-not a zero budget; it is no budget at all, so an envelope that approves neither
-tokens nor milliseconds produces an empty policy. The envelope's
+Turns an approved plan envelope into a policy or a layer: `budget.tokens`,
+`budget.usd` and `budget.milliseconds` become the token, USD and latency
+ceilings. A missing field is not a zero budget; it is no budget at all, so an
+envelope that approves none of them produces an empty policy. The envelope's
 `budget.onExceeded` wins over `options.onExceeded`, which is the composition's
 default.
 
@@ -1393,9 +1395,12 @@ const raisedBy: (envelope: Envelope, raises: ReadonlyArray<Envelope["budget"]>) 
 `AgentSession` provides it: it registers a `budget/` approval request whose
 envelope carries `raise`'s proposal, which is the exceeded ceiling raised to
 cover what the run spent and holds, the refused call, and one more original
-allowance. A resumed run spends against `raisedBy` of its card and every
-approved raise. Parked time does not count against a latency ceiling, so an
-approved latency raise admits the resumed call however long the park lasted.
+allowance, in whole tokens and milliseconds or dollars rounded up to the cent.
+Its question names the raise, such as `Raise the USD budget from $1.00 to
+$2.20?`. A resumed run spends against `raisedBy` of its card and every
+approved raise, and recovers the spend it recorded before the park. Parked
+time does not count against a latency ceiling, so an approved latency raise
+admits the resumed call however long the park lasted.
 The request's fact carries the guard's `incident`, so a restarted host re-parks
 on and presents the facts the park was made on.
 
@@ -1523,13 +1528,13 @@ const layerFlowLimit: (
 A run whose envelope budget sets `onExceeded: park` parks on every guard for
 an operator's Continue or Stop, through `Budget.Parking`:
 
-| Guard                                                                                    | Classification | `source`            |
-| ---------------------------------------------------------------------------------------- | -------------- | ------------------- |
-| A token or latency ceiling                                                               | `Runaway`      | `tokens`, `latency` |
-| A model call past `modelCallMs`, after its one overrun retry                             | `Stuck`        | `model-call`        |
-| A tool call past its call limit, a command's own timeout, or a child await still running | `Stuck`        | `tool-call`         |
-| A cell past its wall-clock limit                                                         | `Stuck`        | `cell`              |
-| One drive of a flow bounded by `layerFlowLimit`, past its limit                          | `Stuck`        | `tool-call`         |
+| Guard                                                                                    | Classification | `source`                   |
+| ---------------------------------------------------------------------------------------- | -------------- | -------------------------- |
+| A token, USD, or latency ceiling                                                         | `Runaway`      | `tokens`, `usd`, `latency` |
+| A model call past `modelCallMs`, after its one overrun retry                             | `Stuck`        | `model-call`               |
+| A tool call past its call limit, a command's own timeout, or a child await still running | `Stuck`        | `tool-call`                |
+| A cell past its wall-clock limit                                                         | `Stuck`        | `cell`                     |
+| One drive of a flow bounded by `layerFlowLimit`, past its limit                          | `Stuck`        | `tool-call`                |
 
 Each park is one `budget/` approval request, with waiting reason `budget`,
 whose `control.approval.requested` fact carries the exact `incident` facts

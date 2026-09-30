@@ -351,21 +351,26 @@ result may be reused. See [Declared authority](/concepts/authority/).
 ```ts
 const BudgetCeiling: Schema.Int // > 0 and <= Number.MAX_SAFE_INTEGER
 
+const UsdCeiling: Schema.Finite // > 0
+
 const FlowBudget: Schema.Struct<{
   tokens: Schema.optional<typeof BudgetCeiling>
   milliseconds: Schema.optional<typeof BudgetCeiling>
+  usd: Schema.optional<typeof UsdCeiling>
+  onExceeded: Schema.optional<typeof BudgetOnExceeded>
 }>
 
 const budgetUnbounded: FlowBudget
 const budgetOf: (descriptor: FlowDescriptor) => FlowBudget
 ```
 
-The tokens and milliseconds a flow declares that a control plane should approve
-for one of its runs. Both are positive safe integers, so the schema refuses
-zero, a negative, a fraction, `NaN`, and anything past
-`Number.MAX_SAFE_INTEGER`, and both survive durable JSON unchanged.
+The tokens, milliseconds and dollars a flow declares that a control plane
+should approve for one of its runs. Tokens and milliseconds are positive safe
+integers, so the schema refuses zero, a negative, a fraction, `NaN`, and
+anything past `Number.MAX_SAFE_INTEGER`; `usd` is a positive finite amount, so
+`0.5` is fifty cents. Every field survives durable JSON unchanged.
 
-`budgetUnbounded` is the budget of a flow that declares neither ceiling. It is
+`budgetUnbounded` is the budget of a flow that declares no ceiling. It is
 a named frozen value rather than a `{}` written at each host, for the same
 reason `@smthrs/agent`'s `Budget.layerUnbounded` is a named layer: giving up
 spending enforcement is a decision a reader has to be able to see.
