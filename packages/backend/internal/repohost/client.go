@@ -1819,6 +1819,77 @@ type ReceivePackMetadata struct {
 	// ControlPlane marks the API's own write of the mythical stack refs. It
 	// is set only in-process, never from a client request.
 	ControlPlane bool
+	// VerifyLocked runs once repo-host holds the repository's write lock
+	// for this push, and before any byte of the pack is sent. An error
+	// refuses the push: repo-host never receives the pack, and
+	// ProxyReceivePack returns that error.
+	//
+	// A producer authorizes a push for the repository ID it resolved from
+	// owner/repo, while repo-host selects native storage by owner/repo when
+	// it takes the lock. A canonical delete, transfer or rename between the
+	// two puts another repository's storage at that path. Under the lock the
+	// storage at owner/repo cannot change, so a check here that owner/repo
+	// still names RepositoryID binds the pack to the authorized repository
+	// (#2846). It returns ErrRepositoryReplaced when it does not.
+	VerifyLocked func(context.Context) error
+}
+
+// ErrRepositoryReplaced is VerifyLocked's refusal: owner/repo no longer names
+// the repository the push was authorized for.
+var ErrRepositoryReplaced = errors.New("the repository was replaced before the push reached it")
+
+// errReceivePackEnded releases a pack held for VerifyLocked when repo-host
+// answered without taking the lock (not found, busy, refused).
+var errReceivePackEnded = errors.New("receive-pack ended before repo-host took the repository lock")
+
+// lockedGate holds a receive-pack's body until repo-host reports the
+// repository lock and VerifyLocked has answered.
+type lockedGate struct {
+	once   sync.Once
+	opened chan struct{}
+	err    error
+}
+
+func newLockedGate() *lockedGate { return &lockedGate{opened: make(chan struct{})} }
+
+// open releases the body, failing every read with err when it is not nil.
+// Only the first call decides.
+func (g *lockedGate) open(err error) {
+	g.once.Do(func() {
+		g.err = err
+		close(g.opened)
+	})
+}
+
+// refusal is VerifyLocked's error, once the gate opened on one.
+func (g *lockedGate) refusal() error {
+	select {
+	case <-g.opened:
+		if g.err != nil && !errors.Is(g.err, errReceivePackEnded) {
+			return g.err
+		}
+	default:
+	}
+	return nil
+}
+
+// gatedBody is a request body no byte of which is read before its gate opens.
+type gatedBody struct {
+	ctx  context.Context
+	gate *lockedGate
+	r    io.Reader
+}
+
+func (b *gatedBody) Read(p []byte) (int, error) {
+	select {
+	case <-b.gate.opened:
+	case <-b.ctx.Done():
+		return 0, b.ctx.Err()
+	}
+	if b.gate.err != nil {
+		return 0, b.gate.err
+	}
+	return b.r.Read(p)
 }
 
 // RepositoryIDHeader binds a push callback to the original repository, even after a rename.
@@ -2033,16 +2104,37 @@ func (c *Client) proxyGitRPCWithMeta(
 
 	gitRPCURL := fmt.Sprintf("%s/git/%s", repoEndpoint(baseURL, owner, repo), rpcPath)
 	started, _ := ctx.Value(pushStartedKey{}).(func())
-	if started != nil && rpcPath == "receive-pack" {
+	var gate *lockedGate
+	if rpcPath != "receive-pack" {
+		started = nil
+	} else if meta.VerifyLocked != nil {
+		gate = newLockedGate()
+		// A body still held when repo-host answered without the lock is
+		// released, so the transport's writer does not wait on it forever.
+		defer gate.open(errReceivePackEnded)
+		stdin = &gatedBody{ctx: ctx, gate: gate, r: stdin}
+	}
+	signalStarted := started != nil || gate != nil
+	if signalStarted {
 		var once sync.Once
+		locked := func() {
+			if gate != nil {
+				if err := meta.VerifyLocked(ctx); err != nil {
+					gate.open(err)
+					return
+				}
+				gate.open(nil)
+			}
+			if started != nil {
+				started()
+			}
+		}
 		ctx = httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{Got1xxResponse: func(code int, _ textproto.MIMEHeader) error {
 			if code == http.StatusProcessing {
-				once.Do(started)
+				once.Do(locked)
 			}
 			return nil
 		}})
-	} else {
-		started = nil
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, gitRPCURL, stdin)
 	if err != nil {
@@ -2083,7 +2175,7 @@ func (c *Client) proxyGitRPCWithMeta(
 	if meta.ControlPlane {
 		req.Header.Set("X-Smithers-Control-Plane", "mythical")
 	}
-	if started != nil {
+	if signalStarted {
 		req.Header.Set(StartedHeader, "1")
 	}
 	if len(meta.AllowedPaths) > 0 {
@@ -2099,6 +2191,16 @@ func (c *Client) proxyGitRPCWithMeta(
 	client.Timeout = 0
 
 	resp, err := client.Do(req)
+	// A refused push ends in whatever the aborted body made of the request;
+	// the refusal is the answer.
+	if gate != nil {
+		if refused := gate.refusal(); refused != nil {
+			if err == nil {
+				_ = resp.Body.Close()
+			}
+			return fmt.Errorf("receive-pack refused under the repository lock: %w", refused)
+		}
+	}
 	if err != nil {
 		return fmt.Errorf("git proxy request failed: %w", err)
 	}

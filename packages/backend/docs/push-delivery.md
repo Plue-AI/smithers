@@ -16,9 +16,21 @@ creating an event. Creating another repository at the old name allocates a new
 ID and cannot inherit the old delivery. Transient lookup or insert failures keep
 the delivery pending. Delivery IDs continue to deduplicate successful retries.
 
+## Storage identity
+
+Repo-host selects native storage by owner and name when it takes the
+repository lock, after the producer authorized the push for a repository ID.
+Git HTTP and SSH hold the pack until repo-host reports the lock, then check that
+owner and name still resolve to that ID. A repository deleted, transferred or
+renamed away in between is refused with `409` over HTTP and an error over SSH;
+nothing reaches the replacement's storage. A retry authorizes against the
+repository the name holds now.
+
 ## Upgrade and recovery
 
-Deploy the API, Git HTTP and SSH producers, and repo-host together. Upgrade the
+Deploy the API, Git HTTP and SSH producers, and repo-host together. Repo-host
+must answer a push that waits for the lock before it reads the pack, so deploy
+repo-host no later than the producers. Upgrade the
 API before enabling new producers: an old API ignores the new identity field.
 Callbacks already queued without `repository_id` receive `409` and remain in the
 outbox for explicit reconciliation. Inferring an ID from owner/name is unsafe.

@@ -891,6 +891,14 @@ func (s *Server) receivePack(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
+	// A push that asked to hear about the lock may hold its pack until it
+	// does (ReceivePackMetadata.VerifyLocked). Every answer given before the
+	// 102 (not found, held) must then reach it without net/http first
+	// draining a body that is not coming. The in-process transport has no
+	// such drain and does not support the call.
+	if r.Header.Get(repohost.StartedHeader) == "1" {
+		_ = http.NewResponseController(w).EnableFullDuplex()
+	}
 	repoPath := s.config.RepoPath(owner, repo)
 	gitDir := s.config.GitBackendPath(owner, repo)
 	unlock, err := s.lockRepo(r.Context(), repoPath)
