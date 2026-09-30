@@ -83,7 +83,7 @@ describe("CloudSession.signedIn", () => {
   })
 
   it("POSTs a JSON body as the signed-in person, and refuses a path off the origin or a refusal by status", async () => {
-    const seen: Array<{ method?: string; type?: string; auth?: string; body: string }> = []
+    const seen: Array<{ method: string | undefined; type: string | undefined; auth: string | undefined; body: string }> = []
     const server = createServer((request, response) => {
       let body = ""
       request.on("data", (chunk) => (body += chunk))
