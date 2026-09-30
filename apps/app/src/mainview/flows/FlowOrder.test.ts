@@ -45,6 +45,7 @@ const PRE_SPLIT_BASE: ReadonlyArray<string> = [
   "runs.list",
   "runs.open",
   "runs.resume",
+  "runs.continue",
   "runs.rerun",
   "runs.signal",
   "runs.steer",

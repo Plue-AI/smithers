@@ -33,7 +33,9 @@ export const RunTraceSummary = ({ card, model, facts, onRunCommand: send, admin 
   const verdict = terminal.has(phase) ? phase : current.verdict
   const action = verdict !== undefined ? undefined : current.action ??
     (phase === "waiting-approval" || waiting === "approval" ? "approval" : waiting === undefined ? undefined : "resume")
-  const condition = verdict !== undefined ? undefined : action === "approval" ? "Approval needed"
+  // A guard's park is its own status: the class as the word, Continue and Stop as the acts.
+  const incident = verdict === undefined ? current.incident : undefined
+  const condition = verdict !== undefined || incident !== undefined ? undefined : action === "approval" ? "Approval needed"
     : current.condition === "thrashing" ? "Thrashing" : current.condition === "blocked" || action === "resume" ? "Blocked" : undefined
   const status = verdict ?? phase
   const activity = verdict === undefined && (phase === "running" || phase === "waiting-approval") ? current.activity : undefined
@@ -50,7 +52,7 @@ export const RunTraceSummary = ({ card, model, facts, onRunCommand: send, admin 
   const parts = meter === undefined ? undefined : runMeterParts(meter)
   return <header className="run-outcome" data-phase={status} data-testid={`run-outcome-${runId}`} aria-label="Current run status">
     <span className="run-outcome-dot" data-status={status} aria-hidden />
-    <span className="run-outcome-words">{verdict === undefined ? activity ?? words[phase] ?? phase : words[verdict]}</span>
+    <span className="run-outcome-words" title={incident?.facts.message}>{incident !== undefined ? incident.facts.classification : verdict === undefined ? activity ?? words[phase] ?? phase : words[verdict]}</span>
     {condition === undefined || condition === words[phase] && activity === undefined ? null
       : <span className="run-outcome-condition" data-condition={current.condition ?? (action === "approval" ? "approval" : "blocked")}>{condition}</span>}
     {needsHelp === undefined || needsHelp === "none" ? null : (
@@ -63,7 +65,12 @@ export const RunTraceSummary = ({ card, model, facts, onRunCommand: send, admin 
         title={NEEDS_HELP_LABELS[needsHelp]}
       />
     )}
-    {action === "approval" && canDecide(card.payload.workflow, admin) ? <button type="button" className="run-trace-filter" {...flowAction(onRunCommand, "approvals.open", runId)}>Answer</button>
+    {incident !== undefined ? <>
+      {canDecide(card.payload.workflow, admin) ? <button type="button" className="run-trace-filter" data-testid={`flow-run-continue-${runId}`}
+        {...flowAction(onRunCommand, "runs.continue", flowArgs("runs.continue", { runId, requestId: incident.requestId }))}>Continue</button> : null}
+      <button type="button" className="run-trace-filter" data-testid={`flow-run-stop-${runId}`} {...flowAction(onRunCommand, "flow.run.stop", card.id)}>Stop</button>
+    </>
+      : action === "approval" && canDecide(card.payload.workflow, admin) ? <button type="button" className="run-trace-filter" {...flowAction(onRunCommand, "approvals.open", runId)}>Answer</button>
       : action === "resume" ? <button type="button" className="run-trace-filter" data-testid={`flow-run-resume-${runId}`} {...flowAction(onRunCommand, "runs.resume", runId)}>Resume</button> : null}
     {takeover === undefined ? null : (
       <button type="button" className="run-trace-filter" data-testid={takeover === "release" ? `flow-run-release-${runId}` : `flow-run-takeover-${runId}`}

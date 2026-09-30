@@ -412,7 +412,7 @@ describe("launch-law parity: every affordance is a command", () => {
       "../cards/RunTraceCard.tsx": 15, // Includes the graph view door, the Steps view door, and a message trigger's Open (agent.session.view).
       "../cards/RunTraceSteps.tsx": 1, // Each step row selects its span.
       "../cards/RunTracePhaseStrip.tsx": 3,
-      "../cards/RunTraceSummary.tsx": 3, // + Take over / Release (runs.takeover, runs.release).
+      "../cards/RunTraceSummary.tsx": 5, // + Take over / Release (runs.takeover, runs.release); a guard's park adds Continue and Stop (runs.continue, flow.run.stop).
       "../cards/RunTraceGoals.tsx": 1,
       /*
        * Lane runs: the run inbox's Open per row, its All/status filter chips,

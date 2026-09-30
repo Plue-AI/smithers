@@ -94,6 +94,19 @@ export const runsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
     handler: ({ runId, sourceCard }) => actions.resumeRun(runId, sourceCard)
   }),
   flow({
+    /* Continue answers a runaway guard's park: the workspace resumes the run on the approval. */
+    name: "runs.continue",
+    summary: "Approve a runaway guard's request, which resumes the run",
+    hidden: true,
+    userOnly: true,
+    userOnlyReason: "approvals belong to the human",
+    runtime: ["cloud"],
+    args: "[sourceCard=id] <runId> <requestId>",
+    requires: ["signed-in"],
+    input: Schema.Struct({ sourceCard: Schema.optional(Schema.String), runId: Schema.String, requestId: Schema.String }),
+    handler: ({ runId, requestId, sourceCard }) => actions.continueRun(runId, requestId, sourceCard)
+  }),
+  flow({
     /* A relaunch is real work on the user's workspace: the launch capability. */
     name: "runs.rerun",
     confirm: "run the flow again",

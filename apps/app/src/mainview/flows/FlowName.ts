@@ -261,6 +261,7 @@ export const FLOW_NAMES = [
   "runs.open",
   "runs.rerun",
   "runs.resume",
+  "runs.continue",
   "runs.seat",
   "runs.signal",
   "runs.steer",

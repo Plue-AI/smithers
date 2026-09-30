@@ -347,3 +347,33 @@ describe("recorded goal progress", () => {
     expect(checkState(call(1, "bash", { command: "bun test tests/memory --help" }))).toBe("pending")
   })
 })
+
+describe("a runaway guard's park", () => {
+  const incident = {
+    classification: "Runaway", source: "usd", message: "The run would spend past its $1.00 budget",
+    used: 0.9, reserved: 0.1, max: 1, next: 0.25, allowance: 2
+  }
+  const parked = [event(1, "approval.requested", { requestId: "budget/run-1/usd", question: "Raise the USD budget?", incident })]
+  test("an undecided request carrying the guard's facts is the run's incident", () => {
+    expect(traceStatus(model(parked))).toMatchObject({
+      incident: { requestId: "budget/run-1/usd", facts: incident }, condition: "approval", action: "approval"
+    })
+    expect(traceStatus(model([event(1, "approval.requested", { requestId: "t", incident: { ...incident, classification: "Stuck", source: "latency" } })]))
+      .incident?.facts.classification).toBe("Stuck")
+  })
+  test("a request without valid facts is an approval, not an incident", () => {
+    expect(traceStatus(model([event(1, "approval.requested", { requestId: "q" })])).incident).toBeUndefined()
+    expect(traceStatus(model([event(1, "approval.requested", { requestId: "q", incident: { ...incident, classification: "Oops" } })])).incident).toBeUndefined()
+  })
+  test("a decision on the request settles it, by request id, token id or approval target", () => {
+    for (const decided of [{ requestId: "budget/run-1/usd" }, { tokenId: "budget/run-1/usd" }, { approvalTarget: { requestId: "budget/run-1/usd" } }]) {
+      expect(traceStatus(model([...parked, event(2, "approval.approved", decided)])).incident).toBeUndefined()
+      expect(traceStatus(model([...parked, event(2, "approval.denied", decided)])).incident).toBeUndefined()
+    }
+    expect(traceStatus(model([...parked, event(2, "approval.approved", { requestId: "another" })])).incident).toBeDefined()
+  })
+  test("a stopped run reads its verdict and no incident", () => {
+    expect(traceStatus(model([...parked, event(2, "run.cancelled")]))).toEqual({ verdict: "cancelled" })
+    expect(traceStatus(model(parked, "cancelled"))).toEqual({ verdict: "cancelled" })
+  })
+})

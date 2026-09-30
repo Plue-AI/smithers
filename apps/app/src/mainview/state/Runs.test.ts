@@ -587,6 +587,35 @@ describe("runs.open / resume / signal / steer — the run's acts", () => {
     expect(double.state.resumed).toEqual([{ runId: "run-2", reason: undefined }])
   })
 
+  test("runs.continue approves the guard's own request unchanged and sends no second resume", async () => {
+    const store = await webStore()
+    const gate = approvalRow("run-2", "budget/run-2/usd", "Raise the USD budget?")
+    const double = relay({ runs: [{ runId: "run-2", flowId: "review-pr", status: "parked", waitingReason: "budget" }], approvals: [gate] })
+    const controller = createAppController(store, silentAgent, double.services)
+    await signIn(store)
+
+    const continued = await controller.commands.run("runs.continue", flowArgs("runs.continue", { runId: "run-2", requestId: "budget/run-2/usd" }))
+    expect(said(continued)).toContain("continue-requested run=run-2")
+    expect(double.state.submitted).toEqual([{ approval: gate.payload, decision: "approve" }])
+    expect(double.state.resumed).toEqual([])
+    expect(double.state.cancelled).toEqual([])
+  })
+
+  test("runs.continue names a request the run does not hold, and approves nothing", async () => {
+    const store = await webStore()
+    const double = relay({ runs: [{ runId: "run-2", flowId: "review-pr", status: "parked" }], approvals: [approvalRow("run-2", "other", "Push?")] })
+    const controller = createAppController(store, silentAgent, double.services)
+    await signIn(store)
+
+    const refused = await controller.commands.run("runs.continue", "run-2 budget/run-2/usd")
+    expect(refused.status).toBe("failed")
+    expect(said(refused)).toContain("no pending request budget/run-2/usd")
+    expect(double.state.submitted).toEqual([])
+    // Without the request id the form law asks for it; nothing is approved.
+    expect((await controller.commands.run("runs.continue", "run-2")).status).toBe("form")
+    expect(double.state.submitted).toEqual([])
+  })
+
   test("a resume refusal crosses as the flow's error", async () => {
     const store = await webStore()
     const double = relay({

@@ -1229,3 +1229,34 @@ describe("the run card's take over", () => {
     expect(renderRun({ phase: "completed", workspaceId: box } as never).host.querySelector("[data-testid^='flow-run-takeover']")).toBeNull()
   })
 })
+
+describe("a runaway guard's park", () => {
+  const incident = { classification: "Runaway", source: "usd", message: "The run would spend past its $1.00 budget", used: 0.9, max: 1 }
+  const requested = stamp(9, "control.approval.requested", { requestId: "budget/run-1/usd", question: "Raise the USD budget?", incident }, 5500)
+  const header = (host: Element) => host.querySelector("[data-testid='run-outcome-run-1']")!
+  test("parked: the class is the status, Continue approves its request and Stop cancels", () => {
+    const { host, dispatched } = renderTrace({ events: [...JOURNAL, requested], traceView: undefined })
+    expect(header(host).querySelector(".run-outcome-words")?.textContent).toBe("Runaway")
+    expect(header(host).querySelector(".run-outcome-words")?.getAttribute("title")).toBe(incident.message)
+    expect(header(host).querySelector("[data-flow='approvals.open']")).toBeNull()
+    expect([...header(host).querySelectorAll("button")].map((button) => button.textContent)).toEqual(["Continue", "Stop"])
+    click(header(host).querySelector("[data-flow='runs.continue']"))
+    click(header(host).querySelector("[data-flow='flow.run.stop']"))
+    expect(dispatched).toEqual([
+      { name: "runs.continue", args: "sourceCard=flow-run-run-1 run-1 budget/run-1/usd" },
+      { name: "flow.run.stop", args: "flow-run-run-1" }
+    ])
+  })
+  test("continued: the approval settles the incident and the run reads as running", () => {
+    const approved = stamp(10, "control.approval.approved", { tokenId: "budget/run-1/usd" }, 5600)
+    const { host } = renderTrace({ events: [...JOURNAL, requested, approved], traceView: undefined })
+    expect(header(host).querySelector("[data-flow='runs.continue']")).toBeNull()
+    expect(header(host).querySelector("[data-flow='flow.run.stop']")).toBeNull()
+    expect(header(host).textContent).not.toContain("Runaway")
+  })
+  test("stopped: the cancelled run offers neither act", () => {
+    const { host } = renderTrace({ phase: "cancelled", events: [...JOURNAL, requested, stamp(10, "control.run.cancelled", {}, 5600)], traceView: undefined })
+    expect(header(host).querySelector(".run-outcome-words")?.textContent).toBe("Cancelled.")
+    expect(header(host).querySelectorAll("button")).toHaveLength(0)
+  })
+})

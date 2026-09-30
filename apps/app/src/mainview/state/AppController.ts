@@ -313,6 +313,7 @@ export interface AppController extends IssueFlowsController, RepositorySetupCont
   readonly prepareRunHandoff: RunsController["prepareRunHandoff"]
   readonly openRun: RunsController["openRun"]
   readonly resumeRun: RunsController["resumeRun"]
+  readonly continueRun: RunsController["continueRun"]
   readonly rerunRun: RunsController["rerunRun"]
   readonly signalRun: RunsController["signalRun"]
   readonly steerRun: RunsController["steerRun"]
@@ -1724,6 +1725,7 @@ export const createAppController = (
     prepareRunHandoff: runs.prepareRunHandoff,
     openRun: runs.openRun,
     resumeRun: runs.resumeRun,
+    continueRun: runs.continueRun,
     rerunRun: runs.rerunRun,
     signalRun: runs.signalRun,
     steerRun: runs.steerRun,

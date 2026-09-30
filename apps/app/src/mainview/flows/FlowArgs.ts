@@ -32,6 +32,7 @@ export interface FlowInput {
   readonly "runs.graph.follow": { readonly runId: string; readonly follow: boolean }
   readonly "runs.graph.execution": { readonly runId: string; readonly executionId?: string }
   readonly "runs.takeover": { readonly runId: string }
+  readonly "runs.continue": { readonly runId: string; readonly requestId: string }
   readonly "runs.release": { readonly runId: string }
   readonly "runs.coding.select": { readonly runId: string; readonly changeId: string }
   readonly "signup.set": { readonly field: string; readonly value: string }
@@ -218,6 +219,7 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "runs.graph.follow": payload => line(token(payload, "runId"), payload.follow ? "on" : "off"),
   "runs.graph.execution": payload => line(token(payload, "runId"), token(payload, "executionId")),
   "runs.takeover": payload => line(token(payload, "runId")),
+  "runs.continue": payload => line(token(payload, "runId"), token(payload, "requestId")),
   "runs.release": payload => line(token(payload, "runId")),
   "runs.coding.select": payload => line(token(payload, "runId"), token(payload, "changeId")),
   "signup.set": payload => `${payload.field} ${payload.value}`,

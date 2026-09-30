@@ -91,6 +91,7 @@ const USER_ONLY_ALLOWLIST: Readonly<Record<string, string>> = {
   "approval.approve": "approvals belong to the human",
   "triggers.approve": "approvals belong to the human",
   "approval.deny": "approvals belong to the human",
+  "runs.continue": "approvals belong to the human",
   "admin.queue.approve": "approving an access request is the operator's own decision"
 }
 

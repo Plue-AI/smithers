@@ -1,4 +1,5 @@
 import { Option, Schema } from "effect"
+import { ControlFacts } from "@smthrs/control"
 import * as Digest from "@smthrs/core/Digest"
 import { callScope, openCallIndex, uniqueCallEvents } from "@smthrs/gateway/Diagnosis"
 import { FlowActivity } from "@smthrs/registry/Descriptor"
@@ -10,6 +11,7 @@ const record = (value: unknown): Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {}
 const text = (value: unknown): string | undefined => typeof value === "string" && value !== "" ? value : undefined
 const strings = (value: unknown): ReadonlyArray<string> => Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : []
+const isIncident = Schema.is(ControlFacts.GuardIncident)
 const terminal = new Set(["completed", "failed", "cancelled", "no-capacity"])
 /** One open or just-settled call, with the semantics its record was read through. */
 interface CurrentCall {
@@ -44,7 +46,15 @@ const visible = (model: TraceModel, cursor = Infinity) => uniqueCallEvents(model
   Number.isSafeInteger(row.sequence) && row.sequence! <= cursor &&
   (row.runId === undefined || `run:${row.runId}` === model.root.id)))
 
+/** What a runaway guard parked the run on, while its request is undecided. */
+export interface ParkedIncident {
+  readonly requestId: string
+  readonly facts: typeof ControlFacts.GuardIncident.Type
+}
+
 export interface RunStatus {
+  /** The guard's park: `facts.classification` is the status word, Continue approves `requestId`, Stop cancels. */
+  readonly incident?: ParkedIncident
   readonly verdict?: string
   readonly activity?: string
   readonly condition?: "thrashing" | "blocked" | "approval"
@@ -70,6 +80,7 @@ export const traceStatus = (model: TraceModel, cursor?: number): RunStatus => {
   if ((cursor === undefined || cursor >= latest) && terminal.has(model.root.status)) return { verdict: model.root.status }
   let activity: string | undefined, verdict: string | undefined
   const approvals = new Set<string>()
+  const incidents = new Map<string, ParkedIncident>()
   const calls: Array<CurrentCall> = []
   const conditions = new Map<string, StepCondition>()
   /** The record's own step; a prompt journal records one unscoped stream. */
@@ -159,12 +170,14 @@ export const traceStatus = (model: TraceModel, cursor?: number): RunStatus => {
       // It says nothing about a brake, so it closes none.
       case "control.run.resumed": for (const one of conditions.values()) one.parked = undefined; break
       case "control.approval.requested":
-        if (text(p.requestId) !== undefined) approvals.add(p.requestId as string)
+        if (text(p.requestId) === undefined) break
+        approvals.add(p.requestId as string)
+        if (isIncident(p.incident)) incidents.set(p.requestId as string, { requestId: p.requestId as string, facts: p.incident })
         break
       case "control.approval.approved":
       case "control.approval.denied": {
-        const id = text(p.requestId) ?? text(p.tokenId)
-        if (id !== undefined) approvals.delete(id)
+        const id = text(p.requestId) ?? text(p.tokenId) ?? text(record(p.approvalTarget).requestId)
+        if (id !== undefined) { approvals.delete(id); incidents.delete(id) }
         break
       }
       case "control.run.completed": verdict = "completed"; break
@@ -184,7 +197,9 @@ export const traceStatus = (model: TraceModel, cursor?: number): RunStatus => {
     : parked !== undefined ? "blocked"
     : outstanding.some((one) => one.thrashing) ? "thrashing" : undefined
   const action: RunStatus["action"] = approvals.size > 0 ? "approval" : parked === "resume" ? "resume" : undefined
+  const incident = [...incidents.values()].at(-1)
   return {
+    ...(incident === undefined ? {} : { incident }),
     ...(activity === undefined ? {} : { activity }), ...(condition === undefined ? {} : { condition }),
     ...(action === undefined ? {} : { action })
   }

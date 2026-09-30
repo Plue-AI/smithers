@@ -542,6 +542,12 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
   },
   "runs.resume": (args) => required("runId", args, "runs.resume needs a run id"),
   "runs.rerun": (args) => required("runId", args, "runs.rerun needs a run id"),
+  "runs.continue": (args) => {
+    const [runId, requestId, ...extra] = tokensOf(args)
+    if (runId === undefined) return no("runs.continue needs a run id")
+    if (requestId === undefined || extra.length > 0) return no("runs.continue takes a run id and the request id: /runs.continue <runId> <requestId>")
+    return ok({ runId, requestId })
+  },
   "runs.signal": (args) => {
     const [runId, name] = tokensOf(args)
     if (runId === undefined) return no("runs.signal needs a run id")

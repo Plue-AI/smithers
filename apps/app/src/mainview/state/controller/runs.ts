@@ -65,6 +65,8 @@ export interface RunsController {
   }) => Promise<CommandResult>
   readonly openRun: (runId: string, repo?: string, sourceCard?: string, requestId?: string) => Promise<CommandResult>
   readonly resumeRun: (runId: string, sourceCard?: string) => Promise<CommandResult>
+  /** Approve the guard's own request unchanged through the approvals seam, which the workspace resumes the run on. */
+  readonly continueRun: (runId: string, requestId: string, sourceCard?: string) => Promise<CommandResult>
   readonly rerunRun: (runId: string, sourceCard?: string) => Promise<CommandResult>
   readonly signalRun: (runId: string, name: string, payload?: string, sourceCard?: string) => Promise<CommandResult>
   readonly steerRun: (runId: string, body: string, sourceCard?: string) => Promise<CommandResult>
@@ -540,6 +542,24 @@ export const createRunsController = (
     if (resumed.status !== "ok") return resumed.message
     pokeRun(target)
     return { value: `resume-requested run=${runId}` }
+  }
+
+  const continueRun = async (runId: string, requestId: string, sourceCard?: string): Promise<CommandResult> => {
+    const guard = workflows.workflowIdentityGuard()
+    if (guard !== undefined) return guard
+    const target = resolveRun(runId, sourceCard)
+    if ("error" in target) return target.error
+    const binding = { workspaceId: target.workspaceId }
+    const gates = await gateway.approvals(target.repo, runId, binding)
+    if (gates.status !== "ok") return gates.message
+    const gate = gates.value.find((row) => row.requestId === requestId && row.status === "pending")
+    if (gate === undefined) return `Run ${runId} has no pending request ${requestId}.`
+    const approved = await gateway.submitApproval(target.repo, gate.payload, "approve", binding)
+    if (approved.status !== "ok") return approved.message
+    if (approved.value.decision._tag === "Terminal") return "This run has finished. The workspace has not confirmed a decision for this approval."
+    // The workspace records the decision and resumes the run in one call; a second Resume would only race it.
+    pokeRun(target)
+    return { value: `continue-requested run=${runId}` }
   }
 
   const rerunRun = async (runId: string, sourceCard?: string): Promise<CommandResult> => {
@@ -1272,6 +1292,7 @@ export const createRunsController = (
     listRuns,
     openRun,
     resumeRun,
+    continueRun,
     rerunRun,
     signalRun,
     steerRun,
