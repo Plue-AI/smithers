@@ -29,6 +29,11 @@ scripted model and evaluator responses, an actual PostgreSQL service, and the
 packaged coding runtime. It checks file creation, judged completion, restart,
 backup, restore, and version mismatch refusal; it does not measure model quality.
 
+Standard file writes hold an exclusive sibling lock until the write settles.
+The coding host releases only lock directories it created successfully and
+refuses cleanup if a lock contains files. A pre-existing lock remains in place;
+confirm its writer has stopped before recovering it manually.
+
 ## Verify a parked review across process replacement
 
 The backend integration test uses a disposable PostgreSQL database and a real
@@ -65,6 +70,45 @@ one completed run. Also repeat cancellation and confirm that the cancelled run
 stays cancelled after replacement, then test host reboot and unavailable capacity.
 Keep run ids, revisions, supervisor configuration and timestamped results with the
 installation's private receipts.
+
+## Verify the admin Inbox after an upgrade
+
+Deploy the backend and app revisions together. A working edge alone does not
+prove that its upstream backend serves the app's registration review procedure.
+Record `/api/bootstrap`'s `buildSha`, the app revision, and backend readiness with
+the installation's release receipts.
+
+Sign in as an admin person, select a repository and box, and open Inbox. Capture
+`POST /api/workflow/rpc` with `procedure: "Registration.Reviews"`,
+`payload: { "after": "" }`, and the selected `repo` and `workspaceId`. Expect
+HTTP 200 with `ok: true`, `payload.inboxes`, and `payload.next`; follow nonempty
+cursors until the last page. Verify `GET /api/user` reports `is_admin: true` for
+the signed-in person. An anonymous 401 or a non-admin 403 does not prove that the
+admin route works; a run credential cannot substitute for an admin person.
+
+HTTP 400 with "The workflow seam does not relay this procedure." means the
+backend does not serve the app's procedure. Update the backend dependency and
+redeploy the API. HTTP 503 with "Registration reviews unavailable." reaches the
+registration route but fails to read its directory; it is not a successful Inbox.
+
+Include a running box with a parked registration review and a sleeping box.
+Verify that the running box's review appears, the sleeping box stays asleep,
+and Inbox reports the unchecked box without discarding readable reviews or
+claiming that no approvals are pending. Answer the parked review and verify its
+persisted completion after replacing the host and backend. Retain request
+status, run id, box status before and after listing, and completion receipts.
+A route test or successful deployment does not replace this authenticated check.
+
+Run the focused HTTP regression before release:
+
+```bash
+GOWORK=off go test ./packages/backend/internal/compose \
+  -run '^TestRegistrationReviewsInboxBodyReachesTheRegistrationRoute$' -count=1 -v
+```
+
+Use the PostgreSQL replacement test above for durable review behavior. The
+sleeping box is deliberately unread: listing never wakes it, and a review on
+that box becomes readable when it runs again.
 
 ## Publish
 

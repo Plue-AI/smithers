@@ -35,6 +35,26 @@ approval while offline, and checks completion after restart using the **same** s
 directory. It uses a scripted model provider. It does not exercise missing-box
 replacement or establish that an in-run approval survives lost storage.
 
+## Queued approval during an outage
+
+An authorized plan decision is admitted to the product queue without contacting
+the host. Delivery retries retain its original approval token, authorization,
+request identity and launch checkpoint. A duplicate request joins the same
+decision. A restarted dispatch service can deliver that decision when the
+retained runtime returns with the same artifact and source revision.
+
+`TestQueuedPlanApprovalSurvivesHostOutageAndDispatchRestart` checks this boundary
+with real PostgreSQL and a runtime protocol fixture. It checks approval admission
+during and after an outage, retries while unavailable, persisted decision
+identity, and one delivery after dispatch restart. The fixture does not qualify
+Control journal replay, an executing run's approval, or cross-box recovery.
+
+```bash
+SMITHERS_TEST_DATABASE_URL="$TEST_POSTGRES_URL" SMITHERS_REQUIRE_DATABASE_TESTS=1 \
+  go test ./packages/backend/flowdispatch \
+  -run '^TestQueuedPlanApprovalSurvivesHostOutageAndDispatchRestart$' -count=1 -v
+```
+
 ## Lost box
 
 Cross-box recovery remains tracked in

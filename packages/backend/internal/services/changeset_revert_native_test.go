@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"net/http/httptest"
 	"os"
 	"os/exec"
@@ -213,6 +214,71 @@ func TestChangesetNativeRollbackAppendsRevertAndRetryReapplies(t *testing.T) {
 	require.Equal(t, "another writer\n", n.file("api", "other.txt"))
 	require.Equal(t, "feature\n", n.file("web", "web.txt"))
 	require.Equal(t, "moved\n", n.file("web", "web-other.txt"))
+	for _, member := range landed.Members {
+		require.Equal(t, n.head(member.Path), member.LandedCommitID)
+	}
+}
+
+// lostNativeRevertResponse loses the HTTP result after real storage commits
+// the revert. A second request must return that receipt without landing again.
+type lostNativeRevertResponse struct {
+	*webMainMovesOnce
+	revertTargets []string
+	backouts      int
+}
+
+func (h *lostNativeRevertResponse) BackoutChange(ctx context.Context, owner, repo, changeID string, req repohost.BackoutChangeRequest) (repohost.Change, error) {
+	h.backouts++
+	return h.Client.BackoutChange(ctx, owner, repo, changeID, req)
+}
+
+func (h *lostNativeRevertResponse) LandChanges(ctx context.Context, owner, repo string, req repohost.LandRequest) (repohost.LandResult, error) {
+	result, err := h.webMainMovesOnce.LandChanges(ctx, owner, repo, req)
+	if err == nil && !req.LookupOnly && strings.Contains(req.OperationKey, "/revert/") {
+		h.revertTargets = append(h.revertTargets, result.TargetCommitID)
+		if len(h.revertTargets) == 1 {
+			return repohost.LandResult{}, errors.New("connection lost after revert storage commit")
+		}
+	}
+	return result, err
+}
+
+func TestChangesetNativeRollbackRecoversLostRevertResponse(t *testing.T) {
+	n := newNativeChangesetRepos(t, "api", "web", OrgSuperprojectRepoName)
+	apiBase := n.commit("api", "refs/heads/main", "", map[string]string{"api.txt": "base\n"})
+	apiFeature := n.commit("api", "refs/heads/feature", apiBase, map[string]string{"api.txt": "feature\n"})
+	webBase := n.commit("web", "refs/heads/main", "", map[string]string{"web.txt": "base\n"})
+	webFeature := n.commit("web", "refs/heads/feature", webBase, map[string]string{"web.txt": "feature\n"})
+	q := newFakeChangesetQueries()
+	host := &lostNativeRevertResponse{webMainMovesOnce: &webMainMovesOnce{Client: n.client, n: n}}
+	svc := NewChangesetService(q, host, nil, nil)
+	actor := &db.User{ID: 1, Username: "alice"}
+	created, err := svc.CreateChangeset(t.Context(), actor, "acme", CreateChangesetInput{Members: []ChangesetMemberInput{
+		{Repo: "api", ChangeID: n.changeID("api", apiFeature)},
+		{Repo: "web", ChangeID: n.changeID("web", webFeature)},
+	}})
+	require.NoError(t, err)
+
+	_, err = svc.LandChangeset(t.Context(), actor, "acme", created.ID)
+	require.ErrorContains(t, err, "rollback incomplete")
+	require.Len(t, host.revertTargets, 1)
+	revertHead := n.head("api")
+	require.Equal(t, host.revertTargets[0], revertHead)
+	require.Equal(t, "base\n", n.file("api", "api.txt"))
+	require.Equal(t, "another writer\n", n.file("api", "other.txt"))
+	require.True(t, n.isAncestor("api", apiFeature, revertHead))
+
+	// Recover from persisted database/storage state with a fresh service.
+	svc = NewChangesetService(q, host, nil, nil)
+	landed, err := svc.LandChangeset(t.Context(), actor, "acme", created.ID)
+	require.NoError(t, err)
+	require.Equal(t, "landed", landed.State)
+	require.Equal(t, []string{revertHead, revertHead}, host.revertTargets, "recovery must reuse the storage receipt")
+	require.Equal(t, 2, host.backouts, "one revert and one reapply; recovery creates no extra revert")
+	require.True(t, n.isAncestor("api", revertHead, n.head("api")))
+	require.Equal(t, "feature\n", n.file("api", "api.txt"))
+	require.Equal(t, "another writer\n", n.file("api", "other.txt"))
+	require.Equal(t, "feature\n", n.file("web", "web.txt"))
 	for _, member := range landed.Members {
 		require.Equal(t, n.head(member.Path), member.LandedCommitID)
 	}

@@ -15,11 +15,13 @@ Build the native library from the same revision as the backend, then run from
 `packages/backend` with `SMITHERS_FFI_LIBRARY_PATH` set to its absolute path:
 
 ```sh
-go test ./internal/services -run 'TestChangesetNativeRollbackAppendsRevertAndRetryReapplies|TestChangesetRollbackRetriesARefusedRevertOnce' -count=1 -v
+go test ./internal/services -run 'TestChangesetNativeRollback|TestChangesetRollbackRetriesARefusedRevertOnce' -count=1 -v
 ```
 
-The native test uses real jj/git repositories behind the repo-host HTTP API.
-Without the library path it skips; a skipped test is not release evidence.
+The native tests use real jj/git repositories behind the repo-host HTTP API,
+including recovery after losing a persisted revert response. They verify receipt
+replay adds no duplicate revert and a retry reapplies the member. Without the
+library path they skip; skipped tests are not release evidence.
 
 ## Hosted acceptance
 

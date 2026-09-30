@@ -384,12 +384,6 @@ type AuthConfig struct {
 type WebhookConfig struct {
 	SecretEncryptionKey string `mapstructure:"secret_encryption_key"`
 	GitHubAppSecret     string `mapstructure:"github_app_secret"`
-	// GitHubSyncURL and GitHubSyncSecret name the deployment's github-sync
-	// Smithers webhook endpoint and its signing secret. When both are set,
-	// every repository mirrored to GitHub gets a hook there, so landings,
-	// comments and commit statuses reach GitHub. Empty when none is deployed.
-	GitHubSyncURL    string `mapstructure:"github_sync_url"`
-	GitHubSyncSecret string `mapstructure:"github_sync_secret"`
 }
 
 // ProviderConnectionsConfig is the Codex token endpoint and the Codex CLI
@@ -556,8 +550,6 @@ func Load(configFile string) (*Config, error) {
 	v.SetDefault("provider_connections.codex_token_url", "https://auth.openai.com/oauth/token")
 	v.SetDefault("provider_connections.codex_client_id", "app_EMoamEEZ73f0CkXaXp7hrann")
 	v.SetDefault("webhook.github_app_secret", "")
-	v.SetDefault("webhook.github_sync_url", "")
-	v.SetDefault("webhook.github_sync_secret", "")
 	v.SetDefault("agents.never_started_timeout", "1h")
 	v.SetDefault("cleanup.auth_interval", "5m")
 	v.SetDefault("cleanup.workflow_cache_interval", "1h")
@@ -718,8 +710,6 @@ func Load(configFile string) (*Config, error) {
 		{"billing.enterprise_annual_price_id", "SMITHERS_BILLING_ENTERPRISE_ANNUAL_PRICE_ID"},
 		{"webhook.secret_encryption_key", "SMITHERS_WEBHOOK_SECRET_ENCRYPTION_KEY"},
 		{"webhook.github_app_secret", "SMITHERS_WEBHOOK_GITHUB_APP_SECRET"},
-		{"webhook.github_sync_url", "SMITHERS_WEBHOOK_GITHUB_SYNC_URL"},
-		{"webhook.github_sync_secret", "SMITHERS_WEBHOOK_GITHUB_SYNC_SECRET"},
 		{"agents.never_started_timeout", "SMITHERS_AGENT_NEVER_STARTED_TIMEOUT"},
 		{"cleanup.auth_interval", "SMITHERS_CLEANUP_AUTH_INTERVAL"},
 		{"cleanup.workflow_cache_interval", "SMITHERS_CLEANUP_WORKFLOW_CACHE_INTERVAL"},

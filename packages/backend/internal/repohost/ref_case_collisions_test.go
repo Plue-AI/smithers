@@ -79,3 +79,18 @@ func TestPlanRefCaseCollisionsDirectoryVariants(t *testing.T) {
 	require.Equal(t, []RefCaseCollision{{Refs: []string{"refs/heads/Mythical/x/y", "refs/heads/mythical/X/y"}, Action: RefCaseCollisionReported}},
 		PlanRefCaseCollisions([]string{"refs/heads/Mythical/x/y", "refs/heads/mythical/X/y"}, "mythical/x", nil))
 }
+
+func TestPlanRefCaseCollisionsMythicalDefault(t *testing.T) {
+	for _, name := range []string{"mythical", "Mythical", "MYTHICAL"} {
+		for _, present := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/present=%t", name, present), func(t *testing.T) {
+				refs := []string{"refs/heads/Mythical", "refs/heads/MYTHICAL"}
+				if present {
+					refs = append(refs, "refs/heads/mythical")
+				}
+				sort.Strings(refs)
+				require.Equal(t, []RefCaseCollision{{Refs: refs, Canonical: MythicalBookmarkRef, Action: RefCaseCollisionRemoved, Variants: []string{"refs/heads/MYTHICAL", "refs/heads/Mythical"}}}, PlanRefCaseCollisions(refs, name, nil))
+			})
+		}
+	}
+}

@@ -43,6 +43,8 @@ SMITHERS_REQUIRE_MICROVM_TESTS=1 SMITHERS_MICROSANDBOX_BIN=/absolute/path/to/msb
 
 The required flag turns a missing CLI into a failure instead of a skip.
 
+`pnpm install` already fetches the pinned `msb` 0.6.16 through the `microsandbox` package. On an Apple silicon Mac, point `SMITHERS_MICROSANDBOX_BIN` at `$(find node_modules/.pnpm -path '*microsandbox-darwin-arm64*/bin/msb')`; on Linux use the matching `microsandbox-linux-*` package.
+
 Final release evidence also requires the packaged coding executable to
 complete a model call through the proxy and the distribution acceptance
 script to finish with `IMAGE_ACCEPTANCE_OK`. Keep these receipts separate

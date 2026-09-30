@@ -60,8 +60,12 @@ func PlanRefCaseCollisions(refs []string, defaultBookmark string, protectedPatte
 	renamable := map[string]bool{}
 	if name := strings.TrimSpace(defaultBookmark); name != "" {
 		ref := "refs/heads/" + name
-		reserved[RefKey(ref)] = ref
-		renamable[RefKey(ref)] = true
+		// A legacy default never overrides the stack's canonical spelling or
+		// permits filling mythical from content the control plane did not write.
+		if _, controlPlane := reserved[RefKey(ref)]; !controlPlane {
+			reserved[RefKey(ref)] = ref
+			renamable[RefKey(ref)] = true
+		}
 	}
 	groups := map[string][]string{}
 	present := map[string]bool{}

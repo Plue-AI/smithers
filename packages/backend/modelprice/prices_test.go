@@ -155,6 +155,7 @@ func TestOpenAILongContextPremiumAtBelowAndAboveThreshold(t *testing.T) {
 	cards := map[string]card{
 		"gpt-6.1-sol":   {2, 0.2, 2.5, 10},
 		"gpt-6-sol":     {2, 0.2, 2.5, 10},
+		"gpt-6.1-sol":   {2, 0.1, 2.5, 10},
 		"gpt-6-luna":    {0.1, 0.01, 0.125, 0.5},
 		"gpt-5.6-sol":   {4, 0.4, 5, 20},
 		"gpt-5.6-terra": {2, 0.2, 2.5, 12},

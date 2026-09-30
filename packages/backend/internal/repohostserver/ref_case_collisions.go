@@ -80,35 +80,44 @@ func (s *Server) repairRefCaseCollisions(w http.ResponseWriter, r *http.Request)
 	report := repohost.RefCaseCollisionReport{Collisions: repohost.PlanRefCaseCollisions(names, defaultBookmark, req.ProtectedPatterns)}
 	stamp := time.Now().UTC().Format("20060102T150405.000000000Z")
 	changed := false
-	// jj drops the removed bookmarks and adopts a renamed one, also after a
-	// later variant fails; releasing the lock exports the import and records
-	// a default the repair renamed into place.
-	defer func() {
-		if !changed {
-			return
-		}
-		if err := s.ffi.ImportGitRefs(repoPath); err != nil && s.logger != nil {
-			s.logger.Warn("failed to import repaired refs", "repo_path", repoPath, "error", err)
-		}
-	}()
-	n := 0
-	for i := range report.Collisions {
-		collision := &report.Collisions[i]
-		if collision.Action == repohost.RefCaseCollisionReported {
-			continue
-		}
-		for _, variant := range collision.Variants {
-			backup := repohost.RefCaseCollisionBackup(stamp, n, variant)
-			n++
-			repair := caseVariantRepair{Variant: variant, OID: refs[variant], Canonical: collision.Canonical, Backup: backup,
-				Rename: collision.Action == repohost.RefCaseCollisionRenamed}
-			touched, err := repair.run(r.Context(), gitDir)
-			changed = changed || touched
-			if err != nil {
-				return internalError("failed to repair "+variant, err)
+	repairErr := func() error {
+		n := 0
+		for i := range report.Collisions {
+			collision := &report.Collisions[i]
+			if collision.Action == repohost.RefCaseCollisionReported {
+				continue
 			}
-			collision.Backups = append(collision.Backups, backup)
+			for _, variant := range collision.Variants {
+				backup := repohost.RefCaseCollisionBackup(stamp, n, variant)
+				n++
+				repair := caseVariantRepair{Variant: variant, OID: refs[variant], Canonical: collision.Canonical, Backup: backup,
+					Rename: collision.Action == repohost.RefCaseCollisionRenamed}
+				touched, err := repair.run(r.Context(), gitDir)
+				changed = changed || touched
+				if err != nil {
+					return internalError("failed to repair "+variant, err)
+				}
+				collision.Backups = append(collision.Backups, backup)
+			}
 		}
+		return nil
+	}()
+	// Import before answering, including changes made before a later repair
+	// failed. The lock release exports jj's view, so import must finish first.
+	if changed {
+		if err := s.ffi.ImportGitRefs(repoPath); err != nil {
+			importErr := internalError("failed to import repaired refs", err)
+			if repairErr == nil {
+				return importErr
+			}
+			// Preserve the original refusal and both causes in the error receipt.
+			if appErr, ok := repairErr.(*appError); ok {
+				appErr.Cause = errors.Join(appErr.Cause, importErr)
+			}
+		}
+	}
+	if repairErr != nil {
+		return repairErr
 	}
 	return writeJSON(w, http.StatusOK, report)
 }
