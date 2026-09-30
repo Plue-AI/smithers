@@ -20,6 +20,12 @@ export default defineConfig({
     // while a genuine hang still fails the run.
     testTimeout: 30_000,
     hookTimeout: 30_000,
+    // Process-boundary files start the CLI from source hundreds of times, and
+    // each start type-strips and compiles the whole module graph. Node's
+    // compile cache, keyed by source content, lets every start after the
+    // first reuse that work. Spawned children inherit it from this
+    // environment; nothing a command prints depends on it.
+    env: { NODE_COMPILE_CACHE: join(tmpdir(), "smithers-cli-test-compile-cache") },
     coverage: {
       enabled: true,
       provider: "v8",

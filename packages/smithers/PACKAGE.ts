@@ -33,8 +33,32 @@ const historyPostgresDatabase = Smithers.Docker.Service({
   stop: { signal: "SIGTERM", grace: "10s" }
 })
 
+const vitest = "pnpm exec vitest run --config vitest.config.ts --environment node"
+
+/**
+ * One half of the suite: its results and raw coverage go to a blob, and it
+ * prints no coverage report and checks no thresholds of its own.
+ */
+const half = `${vitest} --reporter=blob --coverage.reporter=json` +
+  " --coverage.thresholds.lines=0 --coverage.thresholds.functions=0" +
+  " --coverage.thresholds.branches=0 --coverage.thresholds.statements=0"
+
 const test = Smithers.Shell.Test({
-  shell: "cd packages/smithers && pnpm exec vitest run --config vitest.config.ts --environment node",
+  // `Bin.test.ts` took 973 s of a 2309 s ubuntu CI run against the 40-minute
+  // cap, one file after another. It runs beside the other files, and merging
+  // both blobs checks the thresholds over the whole suite as before. The
+  // runner shows a target's first 200 live lines: `github-actions` prints one
+  // line per failed case first, so a red names every failing file before
+  // `dot` prints details that may pass the limit.
+  shell: [
+    "cd packages/smithers && blobs=$(mktemp -d) && {",
+    `${half} --outputFile=$blobs/bin.json test/Bin.test.ts & bin=$!;`,
+    `${half} --outputFile=$blobs/rest.json --exclude test/Bin.test.ts; wait $bin;`,
+    "if test -f $blobs/bin.json && test -f $blobs/rest.json;",
+    `then ${vitest} --merge-reports=$blobs --reporter=github-actions --reporter=dot;`,
+    "else echo \"a half of the suite ended without its report\" >&2; false; fi; };",
+    "status=$?; rm -rf \"$blobs\"; exit $status"
+  ].join(" "),
   data: [
     lib,
     Smithers.glob("src/**/*.ts"),
