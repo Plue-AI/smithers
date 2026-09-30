@@ -133,7 +133,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, provider, http.StatusPaymentRequired, OutOfCredit, "Out of Smithers credit.")
 	case errors.Is(err, ErrSpendCapReached):
 		// The exhausted-quota shape parks the run; it retries hourly.
-		w.Header().Set("Retry-After", spendCapRetryAfter)
+		w.Header().Set("Retry-After", SpendCapRetryAfter)
 		WriteError(w, provider, http.StatusTooManyRequests, "insufficient_quota", "Platform model quota exceeded for today.")
 	case errors.Is(err, ErrModelNotOffered):
 		WriteError(w, provider, http.StatusBadRequest, "invalid_request_error", "Model "+parsed.model+" is not offered on platform keys.")
@@ -217,7 +217,7 @@ func (h *Handler) forward(ctx context.Context, w http.ResponseWriter, r *http.Re
 			// body classifies it as an exhausted quota, so the run parks;
 			// Retry-After re-checks hourly instead of waiting for the reset.
 			slog.Error(spendCapLog, "provider", provider, "model", parsed.model)
-			w.Header().Set("Retry-After", spendCapRetryAfter)
+			w.Header().Set("Retry-After", SpendCapRetryAfter)
 		}
 		w.WriteHeader(resp.StatusCode)
 		_, _ = w.Write(raw)
@@ -248,9 +248,9 @@ func (h *Handler) forward(ctx context.Context, w http.ResponseWriter, r *http.Re
 	return result, nil
 }
 
-// spendCapRetryAfter is how long a parked run waits before trying again:
+// SpendCapRetryAfter is how long a parked run waits before trying again:
 // access returns when the cap is raised, at any time.
-const spendCapRetryAfter = "3600"
+const SpendCapRetryAfter = "3600"
 
 // providerSpendCap reports a 429 body that is an account-level spend cap:
 // Anthropic's enforced_spend_limit_reached

@@ -203,6 +203,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	}
 	modelDailyCap, err := modelproxy.ParseDailySpendCap(os.Getenv(modelproxy.DailySpendCapEnv))
 	if err != nil {
+		slog.New(middleware.NewGCPJSONHandler(stderr, slog.LevelError)).Error("invalid model spend cap", "error", err)
 		return err
 	}
 	options.topology = topology{multitenant: config.IsMultitenant(cfg.Auth), duties: options.Duties}

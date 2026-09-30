@@ -65,6 +65,11 @@ func TestProxy_DailySpendCapRefusesEveryOwnerOnceReached(t *testing.T) {
 	require.Equal(t, http.StatusOK, f.call("/model-proxy/anthropic/v1/messages", body).Code)
 	require.Equal(t, http.StatusTooManyRequests, f.call("/model-proxy/anthropic/v1/messages", body).Code, "the open reservation still counts")
 
+	// A released reservation counts nothing.
+	_, err = f.pool.Exec(context.Background(), `UPDATE credit_reservations SET status = 'released', charged_nanos = 0, settled_at = now() WHERE request_key = 'open-call'`)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, f.call("/model-proxy/anthropic/v1/messages", body).Code)
+
 	// Yesterday's spend does not count.
 	_, err = f.pool.Exec(context.Background(), `UPDATE model_usage SET created_at = date_trunc('day', now(), 'UTC') - interval '1 second'`)
 	require.NoError(t, err)

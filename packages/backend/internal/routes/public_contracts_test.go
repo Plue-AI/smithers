@@ -127,6 +127,22 @@ func TestRecommendationHandler_RefusesWithoutCreditOrSignIn(t *testing.T) {
 	require.Empty(t, provider.got.Commands)
 }
 
+// The daily spend cap refuses a recommendation as a rate limit with the
+// hourly retry, so the app defers instead of asking again (plue#414).
+func TestRecommendationHandler_DefersAtTheDailySpendCap(t *testing.T) {
+	meter, account := recommendationMeter(t)
+	require.NoError(t, meter.Ledger.Grant(context.Background(), account, "test", 10_000_000, nil))
+	meter.DailyCapNanos = 1
+	provider := &recommendationFake{}
+	handler := NewRecommendationHandler(provider, &recommendationLogFake{}, meter)
+	rec := httptest.NewRecorder()
+	handler.Recommend(rec, signedIn(httptest.NewRequest(http.MethodPost, "/api/recommend", bytes.NewBufferString(`{"tail":[],"commands":[{"name":"review","summary":"Review"}]}`))))
+	require.Equal(t, http.StatusTooManyRequests, rec.Code)
+	require.Equal(t, modelproxy.SpendCapRetryAfter, rec.Header().Get("Retry-After"))
+	require.Contains(t, rec.Body.String(), `"code":"spend_cap_reached"`)
+	require.Empty(t, provider.got.Commands)
+}
+
 func TestRecommendationHandler_RejectsUnknownModelBinding(t *testing.T) {
 	provider := &recommendationFake{}
 	handler := NewRecommendationHandler(provider, &recommendationLogFake{}, &modelproxy.Meter{})

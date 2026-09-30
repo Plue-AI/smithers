@@ -112,6 +112,9 @@ func (h *RecommendationHandler) Recommend(w http.ResponseWriter, r *http.Request
 	if err != nil {
 		if errors.Is(err, credits.ErrInsufficient) || errors.Is(err, credits.ErrSealed) {
 			writeRecommendationError(w, http.StatusPaymentRequired, modelproxy.OutOfCredit)
+		} else if errors.Is(err, modelproxy.ErrSpendCapReached) {
+			w.Header().Set("Retry-After", modelproxy.SpendCapRetryAfter)
+			writeRecommendationError(w, http.StatusTooManyRequests, "spend_cap_reached")
 		} else if errors.Is(err, ports.ErrModelCredentialMissing) {
 			writeRecommendationError(w, http.StatusServiceUnavailable, "credential_missing")
 		} else {
