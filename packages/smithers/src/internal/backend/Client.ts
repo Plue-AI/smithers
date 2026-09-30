@@ -121,7 +121,9 @@ export const paginationCursor = (headers: Headers, current: URL): string => {
   const legacy = headers.get("x-next-cursor")
   if (next !== undefined && legacy !== null && legacy !== next) throw invalid()
   const cursor = next ?? legacy ?? ""
-  if (cursor.length > 4096 || /\s|[\u0000-\u001f\u007f]/.test(cursor)) throw invalid()
+  // Whitespace and C0/DEL control characters never belong in a cursor.
+  const control = [...cursor].some((char) => char <= "\u001f" || char === "\u007f")
+  if (cursor.length > 4096 || /\s/.test(cursor) || control) throw invalid()
   return cursor
 }
 /**

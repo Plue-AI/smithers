@@ -30,6 +30,8 @@ describe("pagination metadata", () => {
     "<?cursor=one; rel=\"next\"",
     "malformed",
     "<?cursor=%0A>; rel=\"next\"",
+    "<?cursor=a%01b>; rel=\"next\"",
+    "<?cursor=a%7Fb>; rel=\"next\"",
     "<?cursor=has%20space>; rel=\"next\""
   ])("refuses invalid Link pagination %s", (link) => {
     expect(() => paginationCursor(new Headers({ link }), url)).toThrow("invalid pagination")
