@@ -550,8 +550,6 @@ const readers: Readonly<Record<string, Reader>> = {
       "--word-diff"
     ]
   },
-  // `-v` assigns a shell variable, such as `HOME` or `PATH` for a later command.
-  printf: { options: ["--"] },
   rg: {
     letters: "aABcCeEfFgHiIjlLmMnNopPqrsStTuUvwx0",
     options: [
@@ -715,19 +713,15 @@ interface Parsed {
   readonly commands: ReadonlyArray<Words>
   /** An unquoted `>` other than `N>&M` or to `/dev/null`, or a here-document. */
   readonly redirects: boolean
-  /**
-   * Text the shell rewrites before it runs: `$` outside single quotes, an
-   * unquoted `~` starting a word or following `=` or `:`, or an unquoted `*`,
-   * `?`, `[` or `{`.
-   */
-  readonly expands: boolean
+  /** An unquoted `~` starting a word or following `=` or `:`. */
+  readonly tilde: boolean
 }
 
 /** Reads shell text as the shell splits it: separators and redirections inside quotes are text. */
 const parse = (shell: string): Parsed => {
   const found: Array<{ words: Array<string>; fed: boolean }> = [{ words: [], fed: false }]
   let redirects = false
-  let expands = false
+  let tilde = false
   let word: string | undefined
   let quote: string | undefined
   const end = () => {
@@ -739,10 +733,7 @@ const parse = (shell: string): Parsed => {
     if (quote !== undefined) {
       if (char === quote) quote = undefined
       else if (char === "\\" && quote === "\"" && at + 1 < shell.length) word = (word ?? "") + shell[++at]
-      else {
-        expands ||= char === "$" && quote === "\""
-        word = (word ?? "") + char
-      }
+      else word = (word ?? "") + char
     } else if (char === "'" || char === "\"") {
       quote = char
       word = word ?? ""
@@ -766,17 +757,16 @@ const parse = (shell: string): Parsed => {
     } else if (char === "&" && shell[at - 1] === "|") continue
     else if (/[;&|\n(){}]/.test(char)) {
       end()
-      expands ||= char === "{"
       // `|` and `|&` feed the next command; `||` does not.
       found.push({ words: [], fed: char === "|" && shell[at - 1] !== "|" && shell[at + 1] !== "|" })
     } else if (/\s/.test(char)) end()
     else {
-      expands ||= /[$*?[]/.test(char) || (char === "~" && (word === undefined || /[=:]$/.test(word)))
+      tilde ||= char === "~" && (word === undefined || /[=:]$/.test(word))
       word = (word ?? "") + char
     }
   }
   end()
-  return { commands: found, redirects, expands }
+  return { commands: found, redirects, tilde }
 }
 
 /**
@@ -789,9 +779,11 @@ const parse = (shell: string): Parsed => {
  * stops trusting declarations once one changed a file or could not be checked.
  */
 export const readOnly = (shell: string, root: string, base = root): Reading => {
-  if (/`|<\(|>\(/.test(shell)) return false
+  // Programs may expand quoted or escaped patterns themselves. Ask for all
+  // such words rather than trying to follow both shell and program syntax.
+  if (/[$`*?[\]{}]|<\(|>\(/.test(shell)) return false
   const parsed = parse(shell)
-  if (parsed.redirects || parsed.expands) return false
+  if (parsed.redirects || parsed.tilde) return false
   let found: Reading = "reads"
   for (const command of parsed.commands) {
     const one = reading(command, root, base)

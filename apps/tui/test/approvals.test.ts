@@ -470,18 +470,16 @@ describe("read-only declarations", () => {
       "git diff -- src",
       "git log -5 --oneline --format=%H",
       "grep -E 'a|b;c>d' src",
-      "grep -rn '^export $' .",
       "grep -r add . >/dev/null",
-      "printf 'hello' | cmp --quiet NOTES.md -",
+      "echo 'hello' | cmp --quiet NOTES.md -",
       "echo '>' | cat",
-      "find . -name '*.ts' -type f -mtime -1",
-      "rg -n --glob '*.ts' add",
+      "find . -name 'check.ts' -type f -mtime -1",
+      "rg -n --glob 'check.ts' add",
       "sort -rn in",
       "ls -la src",
       "tree -L 2",
       "head -5 a",
       "jq '.a' x.json",
-      "printf -- '%s' x",
       "git log HEAD~1 -1",
       "cat '~/x' \\~/y",
       ""
@@ -511,7 +509,7 @@ describe("read-only declarations", () => {
     expect(Approvals.readOnly("node claim.mjs", root, join(root, "scripts"))).toBe("runs")
   })
 
-  it("refuses what the shell rewrites before it runs: expansions, globs and braces", () => {
+  it("refuses shell expansions and process input even with a read-only declaration", () => {
     reads(workspace(), [
       "find . -maxdepth 0 $'-exec' sh -c 'id' \;",
       "find . -name '*.ts' $'-delete'",
@@ -536,6 +534,27 @@ describe("read-only declarations", () => {
     ], false)
   })
 
+  it("refuses dollar, backtick, glob and brace characters even quoted or escaped", () => {
+    const root = workspace()
+    for (const char of ["$", "`", "*", "?", "[", "]", "{", "}"]) {
+      for (const word of [char, `'${char}'`, `"${char}"`, `\\${char}`]) {
+        reads(root, [`echo ${word}`, `node --test ${word}`, `node check.mjs ${word}`], false)
+      }
+    }
+    reads(root, [
+      "grep -rn '^export $' .",
+      "find . -name '*.ts' -type f -mtime -1",
+      "rg -n --glob '*.ts' add",
+      "node --test '{/tmp/f09evil.test.cjs,x}'",
+      "node --test '{..,x}/escape.test.cjs'",
+      "npm test '{/tmp/f09evil.test.cjs,x}'",
+      "node --test 'scripts/*.mjs'",
+      "node --test \"scripts/?.mjs\"",
+      "pnpm test '[ab].test.ts'",
+      "yarn test 'test}'"
+    ], false)
+  })
+
   it("refuses a test runner given a path outside the workspace, which could be code from anywhere", () => {
     const root = workspace()
     const parent = join(root, "..")
@@ -554,12 +573,18 @@ describe("read-only declarations", () => {
     expect(Approvals.readOnly("node --test ../../outside.mjs", root, join(root, "scripts"))).toBe(false)
   })
 
-  it("refuses every printf option, since -v sets a variable a later command obeys", () => {
+  it("refuses printf entirely, since its formats and options can assign shell variables", () => {
     reads(workspace(), [
+      "printf 'hello'",
+      "printf -- '%s' x",
       "printf -v HOME %s /abs/dir && git status",
       "printf -v PATH %s /x; ls",
       "printf -vHOME x",
-      "printf --help"
+      "printf --help",
+      "printf 'abcde%n' PATH; ls",
+      "printf -- 'abcde%n' PATH; ls",
+      "printf 'abcde%n' HOME && git status",
+      "printf -- 'abcde%n' HOME && git status"
     ], false)
   })
 
@@ -972,6 +997,48 @@ describe("a run remembers what the person decided", () => {
         return { before, reads, asked }
       }), root)
     expect(result).toEqual({ before: 0, reads: 0, asked: ["node check.mjs", "npm test"] })
+  })
+
+  it("asks for brace runners and printf variable assignments despite writes: [], before and after a allows edits", async () => {
+    const root = scripted()
+    const commands = [
+      "node --test '{/tmp/f09evil.test.cjs,x}'",
+      "node --test '{..,x}/escape.test.cjs'",
+      "npm test '{/tmp/f09evil.test.cjs,x}'",
+      "node --test 'scripts/*.mjs'",
+      "node --test \\?.mjs",
+      "echo '$HOME'",
+      "printf 'abcde%n' PATH; ls",
+      "printf -- 'abcde%n' PATH; ls",
+      "printf 'abcde%n' HOME && git status",
+      "printf -- 'abcde%n' HOME && git status"
+    ]
+    const result = await withStore("ask", (grants) =>
+      Effect.gen(function*() {
+        const memory = new Approvals.Memory()
+        const authorize = Approvals.authorize(grants, { cwd: root, source: "t1", memory })
+        const asked: Array<ReadonlyArray<string>> = []
+        for (const editsAllowed of [false, true]) {
+          if (editsAllowed) {
+            const edit = yield* Effect.forkChild(authorize(callOf("write", { path: "5/ls", content: "x" })))
+            yield* Approvals.reply(grants, memory, (yield* settledPending(grants, 1))[0]!, "run", root)
+            yield* Fiber.join(edit)
+            yield* authorize(callOf("write", { path: "5/.gitconfig", content: "x" }))
+            expect(yield* grants.list).toEqual([])
+          }
+          const phase: Array<string> = []
+          for (const command of commands) {
+            const fiber = yield* Effect.forkChild(
+              authorize(callOf("bash", { mode: "hermetic", reads: [], writes: [], command }))
+            )
+            phase.push((yield* settledPending(grants, 1))[0]!.subject)
+            yield* Fiber.interrupt(fiber)
+          }
+          asked.push(phase)
+        }
+        return asked
+      }), root)
+    expect(result).toEqual([commands, commands])
   })
 
   it("holds a denial for the same file spelled in another case where the volume ignores case", async () => {
