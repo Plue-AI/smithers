@@ -505,14 +505,41 @@ describe("the claim brake", () => {
     expect(judged.decision).not.toHaveProperty("usage")
   })
 
-  it("is never consulted when a deterministic brake already named something", async () => {
+  it("is never consulted when a measured brake already named something", async () => {
     const jev = reading({ complete: 0.1, overclaims: 0.9, invented: 0.95 })
-    // The tree the run was handed is the tree it is completing on.
+    // A call in the completing cell failed, on the tree the run was handed.
+    const judged = await settled({
+      layer: jev.layer,
+      closed: "t0",
+      changes: { failedCallDemands: 0 },
+      calls: [call({ ok: false, message: "connection refused", failing: true, passing: false })]
+    })
+
+    expect(judged.demand?.event._tag).toBe("failed-call-demanded")
+    expect(judged.demand?.spent).toEqual({ failedCallDemands: 1 })
+    expect(jev.asked).toEqual([])
+  })
+
+  it("lets an answer stand on the tree it was asked on (#2937)", async () => {
+    const jev = reading({})
+    const judged = await settled({ layer: jev.layer, closed: "t0" })
+
+    expect(judged.demand).toBeUndefined()
+    expect(judged.unproven).toBeUndefined()
+    expect(judged.observed).toMatchObject({ demanded: false, refused: false })
+    expect(jev.asked).toHaveLength(1)
+    expect(jev.asked[0]?.state).toMatchObject({ treeMoved: false })
+  })
+
+  it("hands an unsupported claim on an unmoved tree back as the unmoved demand", async () => {
+    const jev = reading({ complete: 0.1, overclaims: 0.9, invented: 0.95 })
     const judged = await settled({ layer: jev.layer, closed: "t0" })
 
     expect(judged.demand?.event._tag).toBe("unmoved-demanded")
     expect(judged.demand?.spent).toEqual({ unmovedDemands: 1 })
-    expect(jev.asked).toEqual([])
+    expect(judged.demand?.keeps).toBe(false)
+    expect(judged.observed).toMatchObject({ demanded: false, refused: false })
+    expect(jev.asked).toHaveLength(1)
   })
 
   it("sends the task, the claim and measured check and call receipts", async () => {

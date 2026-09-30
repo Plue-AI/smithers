@@ -200,16 +200,18 @@ describe("judgeCompletion", () => {
       ).pipe(Effect.provide(Evaluator.layerUnavailable()))
     )
 
-  it("names an unmoved tree before a narrowed check, and spends only its own cap", () => {
+  it("names a narrowed check on an unmoved tree, and spends only its own cap", () => {
+    // An unmoved tree alone is no demand: it waits on the claim brake (#2937).
     const { demand } = judge(reverted())
-    expect(demand?.event._tag).toBe("unmoved-demanded")
-    expect(demand?.spent).toEqual({ unmovedDemands: 1 })
-  })
-
-  it("falls through to the narrowed check once the unmoved cap is spent", () => {
-    const { demand } = judge(reverted({ unmovedDemands: 1 }))
     expect(demand?.event).toMatchObject({ _tag: "narrowed-demanded", nextFrame: 1 })
     expect(demand?.spent).toEqual({ narrowingDemands: 1 })
+  })
+
+  it("demands nothing for an unmoved tree once the narrowing cap is spent", () => {
+    expect(judge(reverted({ narrowingDemands: 1 }))).toEqual({
+      observed: undefined,
+      demand: undefined
+    })
   })
 
   it("demands nothing once every cap it could spend is spent", () => {

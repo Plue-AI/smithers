@@ -3937,19 +3937,20 @@ describe("CellTurn unmoved workspace", () => {
 
     // This completion trips two demands at once: the run never moved the tree
     // it was handed, and the check that failed over that tree was replaced by
-    // a narrower reading of the same subject. Only the first is named, and the
-    // frame written to answer it is taken as written — every demand ends by
-    // promising exactly that, and a run told "no" twice about one decision
-    // spends two frames and two model calls on the argument instead of one.
-    expect(of(events, "unmoved-demanded")).toHaveLength(1)
-    expect(of(events, "unresolved-demanded")).toEqual([])
+    // a narrower reading of the same subject. The measured demand is named;
+    // the unmoved tree waits on the claim brake, which a handed-back frame
+    // does not reach (#2937). The frame written to answer it is taken as
+    // written — every demand ends by promising exactly that, and a run told
+    // "no" twice about one decision spends two frames and two model calls on
+    // the argument instead of one.
+    expect(of(events, "unresolved-demanded")).toHaveLength(1)
+    expect(of(events, "unmoved-demanded")).toEqual([])
     expect(of(events, "resolved")[0]?.message.content).toEqual([
       expect.objectContaining({ text: "nothing needed changing after all" })
     ])
 
-    // The same frames behind one edit, so the tree moved and the first demand
-    // has nothing to say. The second one fires, which is what makes the case
-    // above a demand suppressed rather than a demand that was never there.
+    // The same frames behind one edit, so the tree moved: the same one demand,
+    // and the same answer taken as written.
     const moved = await completing(
       [
         `await ctx.call("edit", { path: "a.py", text: "fix" })
@@ -3967,7 +3968,7 @@ describe("CellTurn unmoved workspace", () => {
   })
 
   it("takes the completion rather than the demand when the read-only cap holds the next frame", async () => {
-    const answering = [reading, reading, done("the answer to your question is 42")]
+    const answering = [reading, reading, done("changed a.py to keep the query string")]
     const idle: ScriptedEngine.CallStep = { _tag: "Success", value: null }
 
     const { events, failure } = await completing(answering, [idle, idle], { maxFrames: 6, readOnlyCap: 2 })
@@ -3981,7 +3982,7 @@ describe("CellTurn unmoved workspace", () => {
     expect(failure).toBeUndefined()
     expect(of(events, "unmoved-demanded")).toEqual([])
     expect(of(events, "resolved")[0]?.message.content).toEqual([
-      expect.objectContaining({ text: "the answer to your question is 42" })
+      expect.objectContaining({ text: "changed a.py to keep the query string" })
     ])
 
     // The same run under a cap with one frame to spare: the demand is issued,
@@ -4001,7 +4002,7 @@ describe("CellTurn unmoved workspace", () => {
   it("gives the bounced completion back whichever demand took it", async () => {
     const { events } = await completing(
       [
-        done("the run's own answer"),
+        done("changed a.py: the run's own answer"),
         `throw new Error("the answering frame broke")`,
         `throw new Error("and so did the next")`
       ],
@@ -4894,9 +4895,13 @@ describe("CellTurn unsupported claim", () => {
         ].map(emits),
         calls: [{ _tag: "Success", value: { exitCode: 0, stdout: "", mutated } }, green, green],
         tree: "a.py=base",
+        // A claim of container work reads as unsupported only over a tree the
+        // judge is told never moved.
         evaluator: Evaluator.layerScripted((request) => {
           asked.push(request)
-          return { complete: { probability: 0.95 }, overclaims: { probability: 0.02 }, invented: { probability: 0.02 } }
+          return (request.state as { readonly treeMoved: boolean }).treeMoved
+            ? { complete: { probability: 0.95 }, overclaims: { probability: 0.02 }, invented: { probability: 0.02 } }
+            : { complete: { probability: 0.4 }, overclaims: { probability: 0.9 }, invented: { probability: 0.6 } }
         })
       })
 
@@ -4920,8 +4925,9 @@ describe("CellTurn unsupported claim", () => {
       expect.objectContaining({ text: "fixed fix.py in the container; check src/a.py is green" })
     ])
 
-    // The control: the same run whose fingerprint said the tree held still is
-    // bounced as unmoved first, and the judge is then told the truth.
+    // The control: the same run whose fingerprint said the tree held still
+    // shows the judge an unmoved tree, and the unmoved demand carries the
+    // bounce for the claim it reads as unsupported.
     asked.length = 0
     const unwritten = await containerised(false)
     expect(of(unwritten.events, "unmoved-demanded")).toHaveLength(1)
