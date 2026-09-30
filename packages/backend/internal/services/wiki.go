@@ -52,6 +52,7 @@ type WikiRevisionResponse struct {
 	Body            string            `json:"body"`
 	Deleted         bool              `json:"deleted"`
 	HistoryCommitID string            `json:"history_commit_id"`
+	SourceCommit    string            `json:"source_commit"`
 	ID              int64             `json:"id"`
 	Slug            string            `json:"slug"`
 	Title           string            `json:"title"`

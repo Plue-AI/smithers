@@ -131,7 +131,7 @@ func (s *WikiService) wikiHistory(ctx context.Context, repoID, pageID int64, pag
 	}
 	revisions := make([]WikiRevisionResponse, 0, len(rows))
 	for _, row := range rows {
-		revisions = append(revisions, WikiRevisionResponse{ID: row.ID, PageID: row.PageID, Revision: row.Revision, Visibility: row.Visibility, Path: row.Path, ContentDigest: row.ContentDigest, Attachment: wikiAttachment(row.Attachment), Slug: row.Slug, Title: row.Title, Body: row.Body, Deleted: row.Deleted, HistoryCommitID: row.HistoryCommitID, Author: WikiAuthorSummary{ID: row.AuthorID.Int64, Login: row.AuthorUsername}, UpdatedAt: row.CreatedAt})
+		revisions = append(revisions, WikiRevisionResponse{ID: row.ID, PageID: row.PageID, Revision: row.Revision, Visibility: row.Visibility, Path: row.Path, ContentDigest: row.ContentDigest, Attachment: wikiAttachment(row.Attachment), Slug: row.Slug, Title: row.Title, Body: row.Body, Deleted: row.Deleted, HistoryCommitID: row.HistoryCommitID, SourceCommit: row.SourceCommit, Author: WikiAuthorSummary{ID: row.AuthorID.Int64, Login: row.AuthorUsername}, UpdatedAt: row.CreatedAt})
 	}
 	return revisions, total, nil
 }

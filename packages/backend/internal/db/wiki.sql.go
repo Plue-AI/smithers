@@ -176,7 +176,7 @@ func (q *Queries) DeleteWikiPage(ctx context.Context, arg DeleteWikiPageParams) 
 }
 
 const getWikiLatestRevision = `-- name: GetWikiLatestRevision :one
-SELECT id, repository_id, page_id, revision, slug, title, body, author_id, author_username, update_id, update_bytes, deleted, history_commit_id, created_at, visibility, path, content_digest, attachment, sequence, crdt_state, crdt_vector, title_source FROM wiki_page_revisions WHERE repository_id=$1 AND visibility=$2 AND page_id=$3 ORDER BY revision DESC LIMIT 1
+SELECT id, repository_id, page_id, revision, slug, title, body, author_id, author_username, update_id, update_bytes, deleted, history_commit_id, created_at, visibility, path, content_digest, attachment, sequence, crdt_state, crdt_vector, title_source, source_commit FROM wiki_page_revisions WHERE repository_id=$1 AND visibility=$2 AND page_id=$3 ORDER BY revision DESC LIMIT 1
 `
 
 type GetWikiLatestRevisionParams struct {
@@ -211,6 +211,7 @@ func (q *Queries) GetWikiLatestRevision(ctx context.Context, arg GetWikiLatestRe
 		&i.CrdtState,
 		&i.CrdtVector,
 		&i.TitleSource,
+		&i.SourceCommit,
 	)
 	return i, err
 }
@@ -281,7 +282,7 @@ func (q *Queries) GetWikiPageBySlug(ctx context.Context, arg GetWikiPageBySlugPa
 }
 
 const getWikiRevisionByNumber = `-- name: GetWikiRevisionByNumber :one
-SELECT id, repository_id, page_id, revision, slug, title, body, author_id, author_username, update_id, update_bytes, deleted, history_commit_id, created_at, visibility, path, content_digest, attachment, sequence, crdt_state, crdt_vector, title_source FROM wiki_page_revisions WHERE repository_id=$1 AND visibility=$2 AND page_id=$3 AND revision=$4
+SELECT id, repository_id, page_id, revision, slug, title, body, author_id, author_username, update_id, update_bytes, deleted, history_commit_id, created_at, visibility, path, content_digest, attachment, sequence, crdt_state, crdt_vector, title_source, source_commit FROM wiki_page_revisions WHERE repository_id=$1 AND visibility=$2 AND page_id=$3 AND revision=$4
 `
 
 type GetWikiRevisionByNumberParams struct {
@@ -322,6 +323,7 @@ func (q *Queries) GetWikiRevisionByNumber(ctx context.Context, arg GetWikiRevisi
 		&i.CrdtState,
 		&i.CrdtVector,
 		&i.TitleSource,
+		&i.SourceCommit,
 	)
 	return i, err
 }
@@ -344,7 +346,7 @@ func (q *Queries) GetWikiSpaceHead(ctx context.Context, arg GetWikiSpaceHeadPara
 }
 
 const listWikiEvents = `-- name: ListWikiEvents :many
-SELECT id, repository_id, page_id, revision, slug, title, body, author_id, author_username, update_id, update_bytes, deleted, history_commit_id, created_at, visibility, path, content_digest, attachment, sequence, crdt_state, crdt_vector, title_source FROM wiki_page_revisions WHERE repository_id=$1 AND visibility=$2 AND sequence>$3 ORDER BY sequence LIMIT $4
+SELECT id, repository_id, page_id, revision, slug, title, body, author_id, author_username, update_id, update_bytes, deleted, history_commit_id, created_at, visibility, path, content_digest, attachment, sequence, crdt_state, crdt_vector, title_source, source_commit FROM wiki_page_revisions WHERE repository_id=$1 AND visibility=$2 AND sequence>$3 ORDER BY sequence LIMIT $4
 `
 
 type ListWikiEventsParams struct {
@@ -391,6 +393,7 @@ func (q *Queries) ListWikiEvents(ctx context.Context, arg ListWikiEventsParams) 
 			&i.CrdtState,
 			&i.CrdtVector,
 			&i.TitleSource,
+			&i.SourceCommit,
 		); err != nil {
 			return nil, err
 		}
@@ -560,6 +563,36 @@ func (q *Queries) ListWikiPagesByRepo(ctx context.Context, arg ListWikiPagesByRe
 		return nil, err
 	}
 	return items, nil
+}
+
+const recordWikiRevisionSource = `-- name: RecordWikiRevisionSource :execrows
+UPDATE wiki_page_revisions SET source_commit=$1
+WHERE repository_id=$2 AND visibility=$3 AND page_id=$4
+ AND revision=$5 AND author_id=$6 AND NOT deleted AND source_commit=''
+`
+
+type RecordWikiRevisionSourceParams struct {
+	SourceCommit string      `json:"source_commit"`
+	RepositoryID int64       `json:"repository_id"`
+	Visibility   string      `json:"visibility"`
+	PageID       int64       `json:"page_id"`
+	Revision     int64       `json:"revision"`
+	AuthorID     pgtype.Int8 `json:"author_id"`
+}
+
+func (q *Queries) RecordWikiRevisionSource(ctx context.Context, arg RecordWikiRevisionSourceParams) (int64, error) {
+	result, err := q.db.Exec(ctx, recordWikiRevisionSource,
+		arg.SourceCommit,
+		arg.RepositoryID,
+		arg.Visibility,
+		arg.PageID,
+		arg.Revision,
+		arg.AuthorID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const searchWikiPagesByRepo = `-- name: SearchWikiPagesByRepo :many

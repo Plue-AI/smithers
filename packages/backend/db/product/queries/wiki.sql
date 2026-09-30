@@ -132,3 +132,8 @@ SELECT * FROM wiki_page_revisions WHERE repository_id=$1 AND visibility=$2 AND p
 
 -- name: GetWikiLatestRevision :one
 SELECT * FROM wiki_page_revisions WHERE repository_id=$1 AND visibility=$2 AND page_id=$3 ORDER BY revision DESC LIMIT 1;
+
+-- name: RecordWikiRevisionSource :execrows
+UPDATE wiki_page_revisions SET source_commit=sqlc.arg(source_commit)
+WHERE repository_id=sqlc.arg(repository_id) AND visibility=sqlc.arg(visibility) AND page_id=sqlc.arg(page_id)
+ AND revision=sqlc.arg(revision) AND author_id=sqlc.arg(author_id) AND NOT deleted AND source_commit='';

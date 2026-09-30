@@ -308,6 +308,12 @@ func (s *WikiService) importSyncDocument(ctx context.Context, actor *db.User, ow
 	if wikiDigest(data) != d.Digest {
 		return WikiEvent{}, api.Conflict("provider content changed")
 	}
+	source := ""
+	if reporter, ok := adapter.(WikiSyncSourceReporter); ok {
+		if source, err = reporter.SourceCommit(ctx, d, data); err != nil {
+			return WikiEvent{}, err
+		}
+	}
 	// Both slugs are stable across an interrupted create, so replay finds it.
 	slug := "sync-" + wikiDigest([]byte(adapter.Provider() + ":" + adapter.Scope() + ":" + d.ID))[:32]
 	if !isWikiMarkdownPath(d.Path) {
@@ -341,7 +347,13 @@ func (s *WikiService) importSyncDocument(ctx context.Context, actor *db.User, ow
 	if err != nil {
 		return WikiEvent{}, err
 	}
-	return WikiEvent{Version: 1, PageID: page.ID, Revision: page.Revision, Visibility: page.Visibility, Slug: page.Slug, Path: page.Path, Title: page.Title, TitleSource: page.TitleSource, ContentDigest: page.ContentDigest, Attachment: page.Attachment}, nil
+	event := WikiEvent{Version: 1, PageID: page.ID, Revision: page.Revision, Visibility: page.Visibility, Slug: page.Slug, Path: page.Path, Title: page.Title, TitleSource: page.TitleSource, ContentDigest: page.ContentDigest, Attachment: page.Attachment}
+	if source != "" {
+		if err = s.recordWikiSyncSource(ctx, actor, owner, repo, event, source); err != nil {
+			return WikiEvent{}, err
+		}
+	}
+	return event, nil
 }
 func (s *WikiService) deliverWikiDocument(ctx context.Context, q *db.Queries, actor *db.User, owner, repo, scope string, adapter WikiSyncAdapter, intent documentSyncIntent) error {
 	raw, err := json.Marshal(intent)
