@@ -53,6 +53,7 @@ const REGISTRAR_FLOW = "repository/trigger"
 
 /** A schedule's own name inside one repository (L36 §1.1). */
 const SLUG = /^[a-z0-9][a-z0-9-]{0,63}$/
+const SLUG_REFUSAL = "A schedule name is lower-case letters, digits and dashes, up to 64 characters."
 
 /** The schedule a flow gets when the person named none: every night at 02:00 UTC (the Run it every night app). */
 export const NIGHTLY_SCHEDULE = "0 2 * * *"
@@ -493,6 +494,24 @@ const namedLimits = (request: TriggerWrite): TriggerLimits | LimitsProblem | und
   return { tokens: count, milliseconds: span * 60_000 }
 }
 
+/** Validate the whole local registration before asking a human to choose a box. */
+const registrationInput = (request: TriggerWrite):
+  | { readonly quick: boolean; readonly slug: string; readonly schedule: string; readonly input: string; readonly named: TriggerLimits | undefined }
+  | { readonly error: string } => {
+  if ((request.flow ?? "").trim() === "") return { error: "Choose a flow to schedule." }
+  const quick = (request.schedule ?? "").trim() === ""
+  const slug = request.slug ?? flowSlug(request.flow ?? "")
+  if (!SLUG.test(slug)) return { error: SLUG_REFUSAL }
+  const schedule = quick ? NIGHTLY_SCHEDULE : (request.schedule ?? "").trim()
+  const fields = schedule.split(/\s+/)
+  if (fields.length !== 5 && !(fields.length === 6 && fields[0]?.startsWith("CRON_TZ="))) return { error: CRON_REFUSAL }
+  const input = (request.input ?? "").trim() || "{}"
+  try { JSON.parse(input) } catch { return { error: "Input is not valid JSON." } }
+  const named = namedLimits(request)
+  if (named && "error" in named) return { error: named.error }
+  return { quick, slug, schedule, input, named }
+}
+
 /**
  * The refusal the two limits' own shape earns, for a door that holds them
  * before the seam is asked for anything.
@@ -906,16 +925,10 @@ export const createTriggersSeam = (ctx: SeamContext, runtime: TriggersRuntime): 
      * the pump once the plan is prepared. An agent's request keeps the
      * preview and the human's Approve (approvals belong to the human).
      */
-    const quick = (request.schedule ?? "").trim() === ""
-    const slug = request.slug ?? flowSlug(request.flow ?? "")
-    if (!SLUG.test(slug)) return "A schedule name is lower-case letters, digits and dashes, up to 64 characters."
-    const schedule = quick ? NIGHTLY_SCHEDULE : (request.schedule ?? "").trim()
-    const fields = schedule.split(/\s+/)
-    if (fields.length !== 5 && !(fields.length === 6 && fields[0]?.startsWith("CRON_TZ="))) return CRON_REFUSAL
-    const input = (request.input ?? "").trim() || "{}"
-    try { JSON.parse(input) } catch { return "Input is not valid JSON." }
-    const named = namedLimits(request)
-    if (named && "error" in named) return named.error
+    // Revalidate after the form resumes: the carried draft is another command input.
+    const validated = registrationInput(request)
+    if ("error" in validated) return validated.error
+    const { quick, slug, schedule, input, named } = validated
     const login = owner()
     if (!login) return "Sign in to prepare a schedule."
     const approve = quick && ctx.actor() === "user" ? { approve: "owner" as const } : {}
@@ -990,13 +1003,6 @@ export const createTriggersSeam = (ctx: SeamContext, runtime: TriggersRuntime): 
       ...(named ? { tokens: named.tokens, minutes: named.milliseconds / 60_000 } : {}) })
   }
 
-  /** Persist first; lookup, launch and execution share the durable workflow request. */
-  const runTrigger = async (request: TriggerWrite, repo: string): Promise<string | { readonly value: string }> => {
-    const slug = request.slug ?? ""
-    if (!SLUG.test(slug)) return "A schedule name is lower-case letters, digits and dashes, up to 64 characters."
-    return runtime.requestRun(repo, slug)
-  }
-
   /*
    * A refused pause, said where it stays. The returned string reaches the
    * caller as the command-failure toast, which states itself and dismisses
@@ -1012,7 +1018,7 @@ export const createTriggersSeam = (ctx: SeamContext, runtime: TriggersRuntime): 
   /** Persist the intent before any network work; repeat input joins the pending request. */
   const pauseTrigger = async (request: TriggerWrite, repo: string): Promise<string | { readonly value: string }> => {
     const slug = request.slug ?? ""
-    if (!SLUG.test(slug)) return "A schedule name is lower-case letters, digits and dashes, up to 64 characters."
+    if (!SLUG.test(slug)) return SLUG_REFUSAL
     const login = owner()
     if (!login) return "Sign in to pause a schedule."
     const pending = pauseCard(repo)?.payload.pauseRequests?.find(row => row.owner === login && row.slug === slug
@@ -1038,21 +1044,28 @@ export const createTriggersSeam = (ctx: SeamContext, runtime: TriggersRuntime): 
   const registerTrigger = async (request: TriggerWrite): Promise<string | void | { readonly value: string }> => {
     const target = resolveTargetRepo(ctx.store, request.repo)
     if ("error" in target) return target.error
+    const slug = request.slug ?? ""
+    if (request.operation === "register") {
+      const validated = registrationInput(request)
+      if ("error" in validated) return validated.error
+    }
+    if ((request.operation === "run" || request.operation === "resume") && !SLUG.test(slug)) return SLUG_REFUSAL
     if (request.operation === "register" || request.operation === "run" || request.operation === "resume") {
       const act = request.operation === "register"
-        ? { flow: "triggers.register", args: JSON.stringify({ repo: target.repo, flow: request.flow, slug: request.slug,
-          schedule: request.schedule, input: request.input, tokens: request.tokens, minutes: request.minutes }) }
+        ? { flow: "triggers.register", args: flowArgs("triggers.register", { repo: target.repo, flow: request.flow ?? "",
+          ...(request.slug === undefined ? {} : { slug: request.slug }),
+          ...(request.schedule === undefined ? {} : { schedule: request.schedule }),
+          ...(request.input === undefined ? {} : { input: request.input }),
+          ...(request.tokens === undefined ? {} : { tokens: Number(request.tokens) }),
+          ...(request.minutes === undefined ? {} : { minutes: Number(request.minutes) }) }) }
         : { flow: request.operation === "run" ? "triggers.run" : "triggers.resume",
-          args: flowArgs(request.operation === "run" ? "triggers.run" : "triggers.resume", { slug: request.slug ?? "", repo: target.repo }) }
+          args: flowArgs(request.operation === "run" ? "triggers.run" : "triggers.resume", { slug, repo: target.repo }) }
       const prerequisite = runtime.requireJobBox(target.repo, act, `Open a box for schedules in ${target.repo}`)
       if (prerequisite !== undefined) return prerequisite
     }
     if (request.operation === "approve") return approveTrigger(request, target.repo)
-    if (request.operation === "run") return runTrigger(request, target.repo)
-    if (request.operation === "resume") {
-      if (!SLUG.test(request.slug ?? "")) return "A schedule name is lower-case letters, digits and dashes, up to 64 characters."
-      return runtime.requestRun(target.repo, request.slug!, "resume")
-    }
+    if (request.operation === "run") return runtime.requestRun(target.repo, slug)
+    if (request.operation === "resume") return runtime.requestRun(target.repo, slug, "resume")
     if (request.operation === "pause") return pauseTrigger(request, target.repo)
     return prepareTrigger(request, target.repo)
   }

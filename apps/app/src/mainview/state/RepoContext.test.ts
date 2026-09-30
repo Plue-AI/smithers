@@ -14,7 +14,7 @@ import { scopedControllers } from "./ControllerTestScope"
 import type { AppServices } from "./AppController"
 import { createAppStore } from "./AppStore"
 import type { AppStore } from "./AppStore"
-import { knownRepositories, resolveTargetRepo, splitTrailingRepo } from "./RepoContext"
+import { knownRepositories, repositoryJobBinding, resolveTargetRepo, splitTrailingRepo } from "./RepoContext"
 
 const freshStore = () => createAppStore({ kind: "localStorage", storage: memoryStorage() })
 
@@ -133,6 +133,20 @@ describe("resolveTargetRepo", () => {
 
 })
 
+test("an unbound repository job binds to the explicitly selected box", async () => {
+  const store = await freshStore()
+  const repo = "will/flows"
+  const first = "0b0c0d0e-0000-4000-8000-00000000000a"
+  const second = "0b0c0d0e-0000-4000-8000-00000000000b"
+  await loadRepositories(store, repo)
+  await dispatch(store, { type: "repo.selected", actor: "user", id: repo })
+  await loadBox(store, repo, first)
+  await loadBox(store, repo, second)
+  expect(repositoryJobBinding(store, repo)).toMatchObject({ error: expect.stringContaining("Select a box") })
+  await dispatch(store, { type: "repo.selected", actor: "user", id: `${repo}#workspace:${second}` })
+  expect(repositoryJobBinding(store, repo)).toEqual({ workspaceId: second })
+})
+
 /*
  * The symptom end to end: the production slash parser and the real issues
  * seam, will/flows the sole loaded repository, an issue title ending in a
@@ -196,7 +210,7 @@ describe("a repo-scoped command whose text ends in a path", () => {
 
 import { GatewayWorkspaceIdSchema, isGatewayWorkspaceId } from "@smthrs/rpc/GatewayWorkspace"
 import { CardSchema } from "@smthrs/rpc/Cards"
-import { memoryStorage } from "./TestFixtures"
+import { loadBox, memoryStorage } from "./TestFixtures"
 
 const createAppController = scopedControllers()
 

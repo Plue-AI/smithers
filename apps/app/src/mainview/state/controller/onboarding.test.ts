@@ -322,15 +322,15 @@ describe("feature.prototype", () => {
     expect(runCards(store)).toEqual([])
   })
 
-  /* The lesson never strands: with no box it answers with the box to open, calls nothing, and chat still answers. */
-  test("a repository with no box is refused visibly before any call, and chat stays usable", async () => {
+  /* The lesson never strands: with no box it offers the opening form, calls nothing, and chat still answers. */
+  test("a repository with no box opens its prerequisite before any call, and chat stays usable", async () => {
     const relay = relayStubs({ flows: ["prototype"] })
     const { store, controller, requests, turns } = await fixture(relay.routes, true, false)
     identity(store, "signed-in")
     await settled()
     const outcome = await controller.commands.run("feature.prototype", "a dark mode toggle")
-    expect(outcome.status).toBe("failed")
-    if (outcome.status === "failed") expect(outcome.error).toBe(`Open a box of ${REPO} first: /box.open ${REPO}`)
+    expect(outcome.status).toBe("executed")
+    expect(store.collections.cards.get("form-box.open")).toMatchObject({ kind: "flow-form", payload: { draft: { repo: REPO } } })
     expect(relay.procedures).toEqual([])
     expect(requests.some((path) => path.startsWith("/api/workflow/"))).toBe(false)
     expect(runCards(store)).toEqual([])
@@ -341,6 +341,30 @@ describe("feature.prototype", () => {
     await loadBox(store, REPO)
     expect((await controller.commands.run("feature.prototype", "a dark mode toggle")).status).toBe("executed")
     expect(relay.procedures.map((call) => call.procedure)).toContain("Run")
+  })
+
+  test("an ambiguous prototype request resumes its original prose once on the chosen box", async () => {
+    const relay = relayStubs({ flows: ["prototype"] })
+    const { store, controller } = await fixture(relay.routes, true, false)
+    identity(store, "signed-in")
+    await loadBox(store, REPO, TEST_BOX)
+    const chosen = "0b0c0d0e-0000-4000-8000-000000000002"
+    await loadBox(store, REPO, chosen)
+    const request = "Inspect owner/other first"
+    expect((await controller.commands.run("feature.prototype", `${request} ${REPO}`)).status).toBe("executed")
+    const form = store.collections.cards.get("form-box.select")
+    expect(form).toMatchObject({ kind: "flow-form", payload: { given: {
+      repo: REPO, flow: "feature.prototype", args: JSON.stringify({ request, repo: REPO })
+    } } })
+    expect(relay.procedures).toEqual([])
+    expect(runCards(store)).toEqual([])
+    await controller.commands.run("form.set", `form-box.select workspaceId ${chosen}`)
+    expect((await controller.commands.run("form.submit", "form-box.select")).status).toBe("executed")
+    expect(store.session().activeRepoKey).toBe(`${REPO}#workspace:${chosen}`)
+    expect(relay.procedures.filter((call) => call.procedure === "Run")).toHaveLength(1)
+    expect(runCards(store)[0]?.payload).toMatchObject({ workspaceId: chosen, input: { goal: request } })
+    expect((await controller.commands.run("form.submit", "form-box.select")).status).toBe("failed")
+    expect(relay.procedures.filter((call) => call.procedure === "Run")).toHaveLength(1)
   })
 
   test("any other launch refusal is surfaced as its control code's sentence, never the control plane's words", async () => {

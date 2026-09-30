@@ -7,13 +7,13 @@ import { scopedControllers } from "../ControllerTestScope"
 import { createAppStore } from "../AppStore"
 import type { AppStore } from "../AppStore"
 import { workflowLaunchOf } from "../WorkflowLaunch"
-import { waitFor } from "../TestFixtures"
+import { loadBox, waitFor } from "../TestFixtures"
 import { REFUSAL_COPY } from "@smthrs/rpc/RefusalCopy"
 import { Schema } from "effect"
 import { initialSetup } from "@smthrs/rpc/RepositorySetup"
 import { readFile } from "node:fs/promises"
 import { flowArgs } from "../../flows/FlowArgs"
-import { LIMIT_SHAPE, limitsRefusal, NO_RULES_SENTENCE, otherLimitSentence, overBoundFlowSentence, registerUnavailableSentence, unboundedFlowSentence } from "./TriggersSeam"
+import { CRON_REFUSAL, LIMIT_SHAPE, limitsRefusal, NO_RULES_SENTENCE, otherLimitSentence, overBoundFlowSentence, registerUnavailableSentence, unboundedFlowSentence } from "./TriggersSeam"
 import type { TriggerWrite } from "./TriggersSeam"
 import { GATEWAY_REFUSED } from "../controller/GatewayFailureCopy"
 
@@ -884,6 +884,31 @@ describe("triggers seam: registering a repository flow on a schedule", () => {
     expect(seen.filter((path) => path.startsWith(RPC))).toEqual([])
   })
 
+  test("an invalid dispatch name is refused before a box is chosen", async () => {
+    const seen: Array<string> = []
+    const { store, controller } = await ready(backend({ [PROJECTION]: projectionDocument(DAY_ONE) }, seen), { signedIn: true })
+    expect(await controller.registerTrigger({ operation: "run", repo: "will/flows", slug: "Nightly" })).toContain("schedule name")
+    expect(await controller.registerTrigger({ operation: "resume", repo: "will/flows", slug: "Nightly" })).toContain("schedule name")
+    expect(store.collections.cards.get("form-box.open")).toBeUndefined()
+    expect(seen.filter((path) => path.startsWith(RPC))).toEqual([])
+  })
+
+  test("invalid registration fields refuse before an ambiguous box chooser", async () => {
+    const seen: Array<string> = []
+    const { store, controller } = await ready(backend({ [PROJECTION]: projectionDocument(DAY_ONE) }, seen), { signedIn: true })
+    await loadBox(store, "will/flows", "0b0c0d0e-0000-4000-8000-000000000001")
+    await loadBox(store, "will/flows", "0b0c0d0e-0000-4000-8000-000000000002")
+    for (const [request, expected] of [
+      [{ ...REQUEST, flow: "", slug: "daily" }, "Choose a flow to schedule."],
+      [{ ...REQUEST, schedule: "0 9 * *" }, CRON_REFUSAL],
+      [{ ...REQUEST, tokens: "999999999999" }, LIMIT_SHAPE]
+    ] as const) {
+      expect(await controller.registerTrigger(request)).toContain(expected)
+      expect(store.collections.cards.get("form-box.select")).toBeUndefined()
+    }
+    expect(seen.filter((path) => path.startsWith(RPC))).toEqual([])
+  })
+
   test("input the flow's own schema refuses never reaches a plan, and an unknown flow lists what the workspace has", async () => {
     const calls: Array<RelayCall> = []
     const { controller } = await readyToRegister(
@@ -1201,15 +1226,16 @@ describe("triggers seam: registering a repository flow on a schedule", () => {
     expect(calls.map((call) => call.workspaceId)).toEqual([JOB_WORKSPACE, JOB_WORKSPACE])
   })
 
-  /* A reviewed job on another repository is not this repository's box: the repository's default box stands in, and without one nothing is asked. */
-  test("a repository with no reviewed job set up names its default box, and refuses before any call when it has none", async () => {
+  /* A reviewed job on another repository is not this repository's box: the repository's default box stands in, and without one the human gets the box form. */
+  test("a repository with no reviewed job set up offers a box before any call, then uses its default", async () => {
     const calls: Array<RelayCall> = []
     const { store, controller } = await ready(
       backend({ [PROJECTION]: projectionDocument(DAY_ONE), [RPC]: relayRoute(calls, workspaceAnswers()) }),
       { signedIn: true }
     )
     await jobSetUp(store, "will/other")
-    expect(await registrationResult(controller, REQUEST)).toBe("Open a box of will/flows first: /box.open will/flows")
+    expect(await controller.registerTrigger(REQUEST)).toMatchObject({ value: expect.stringContaining("rendered a form") })
+    expect(store.collections.cards.get("form-box.open")).toMatchObject({ kind: "flow-form", payload: { draft: { repo: "will/flows" } } })
     expect(calls).toEqual([])
     const box = "2c1b3b5e-0000-4000-8000-000000000001"
     await store.dispatch({ type: "workspaces.loaded", actor: "system", workspaces: [{

@@ -1,4 +1,5 @@
 import { gatewayBindingFor, resolveTargetRepo } from "../RepoContext"
+import { flowArgs } from "../../flows/FlowArgs"
 import type { ControllerContext } from "./context"
 import { isFlowNotFound } from "./gateway"
 import type { WorkflowController } from "./workflows"
@@ -18,7 +19,7 @@ export interface OnboardingDependencies {
   /** The one launch path (flow.run's): guards, the workspace, the launch, the run card. */
   readonly workflows: Pick<
     WorkflowController,
-    "workflowIdentityGuard" | "workflowBalanceGuard" | "provisionWorkspace" | "launchWorkflow"
+    "workflowIdentityGuard" | "workflowBalanceGuard" | "provisionWorkspace" | "launchWorkflow" | "requireBox"
   >
 }
 
@@ -69,7 +70,10 @@ export const createOnboardingController = (ctx: ControllerContext, deps: Onboard
     const target = resolveTargetRepo(store, explicit)
     if ("error" in target) return target.error
     const { repo } = target
-    // No box, no run: the refusal names the box to open or pick, and the lesson stays where it was.
+    // No box, no run: a human gets the box form; the agent keeps the refusal.
+    const prerequisite = deps.workflows.requireBox(repo, { flow: "feature.prototype", args: flowArgs("feature.prototype", { request: what, repo }) },
+      `Open a box to prototype a feature in ${repo}`)
+    if (prerequisite !== undefined) return prerequisite
     const binding = gatewayBindingFor(store, repo)
     if ("error" in binding) return binding.error
     const provisioned = await deps.workflows.provisionWorkspace(repo, binding)

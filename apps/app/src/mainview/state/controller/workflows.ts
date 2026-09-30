@@ -798,7 +798,12 @@ export const createWorkflowController = (
     if ("ask" in target) return askWhichRepo(description, target.ask)
     const repo = target.repo
     const binding = flowAuthoringBinding(store, repo)
-    if ("error" in binding) return refuseCreate(binding.error)
+    if ("error" in binding) {
+      const prerequisite = boxPrerequisite(repo, binding,
+        { flow: "flow.create", args: flowArgs("flow.create", { description, repo }) },
+        `Open a box to create a flow in ${repo}`)
+      return typeof prerequisite === "string" ? refuseCreate(prerequisite) : prerequisite
+    }
     return authoring.request(description, repo, binding, ctx.commandActor)
   }
 
