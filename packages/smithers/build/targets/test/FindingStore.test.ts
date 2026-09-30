@@ -96,6 +96,24 @@ const runs = async (): Promise<Array<LlmLint.RunRecord>> =>
   )
 
 describe("LlmLint.review finding store", () => {
+  it("keys a deleted file's run apart from the same bytes still present", async () => {
+    await write("src/a.ts", "export const a = 1\n")
+    await write("src/b.ts", "export const b = 1\n")
+    await Fs.chmod(Path.join(root, "src/a.ts"), 0o755)
+    const present = await engine({ fail: ["src/a.ts"] })
+    await Effect.runPromise(Effect.flip(review(present.executable)))
+    await Fs.rm(Path.join(root, "src/a.ts"))
+    const deleted = await engine({})
+    const report = await Effect.runPromise(review(deleted.executable))
+    expect(await deleted.calls()).toEqual(["src/a.ts"])
+    const records = await runs()
+    expect(records).toHaveLength(2)
+    const changed = records.map((record) => record.manifest.batches[0]!.changed[0]!)
+    expect(changed.map((segment) => segment.sha256)[0]).toBe(changed.map((segment) => segment.sha256)[1])
+    expect(changed.map((segment) => segment.deleted ?? false).sort()).toEqual([false, true])
+    expect(report.manifest?.batches[0]?.changed[0]).toMatchObject({ path: "src/a.ts", deleted: true })
+  })
+
   it("persists each completed batch so a later failure keeps it, then resumes only the rest", async () => {
     const failing = await engine({ fail: ["src/b.ts"], findings: { "src/a.ts": [danger] } })
     const failure = await Effect.runPromise(Effect.flip(review(failing.executable)))

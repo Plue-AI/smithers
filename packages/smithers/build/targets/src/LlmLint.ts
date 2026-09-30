@@ -391,6 +391,8 @@ export const ReviewManifest = Schema.Struct({
   batches: Schema.Array(Schema.Struct({
     changed: Schema.Array(Schema.Struct({
       path: Schema.String,
+      /** Present when the change deletes the file; its bytes are the base revision's. */
+      deleted: Schema.optional(Schema.Literal(true)),
       firstLine: Schema.Int,
       lastLine: Schema.Int,
       sha256: Schema.String
@@ -1361,7 +1363,8 @@ const gitOutput = (
 const deletedAtBase = (
   runtime: RuntimeOptions,
   base: string,
-  paths: ReadonlyArray<string>
+  paths: ReadonlyArray<string>,
+  allowance: number
 ): Effect.Effect<ReadonlyArray<Segment>, LlmReviewError> =>
   Effect.gen(function*() {
     if (paths.length === 0) return []
@@ -1382,6 +1385,7 @@ const deletedAtBase = (
       entries.set(match[4]!, { mode: match[1]!, object: match[3]! })
     }
     const segments: Array<Segment> = []
+    let total = 0
     for (const path of paths) {
       const entry = entries.get(path)
       if (entry === undefined) {
@@ -1395,6 +1399,15 @@ const deletedAtBase = (
         try: () => usableText(contents, "LLM review file", maximumReviewFileBytes, false),
         catch: (cause) => new LlmReviewError({ phase: "read", message: failureMessage(cause) })
       })
+      total += Buffer.byteLength(contents, "utf8")
+      if (total > allowance) {
+        return yield* Effect.fail(
+          new LlmReviewError({
+            phase: "read",
+            message: `LLM review file contents exceed their ${maximumReviewContentBytes}-byte aggregate limit`
+          })
+        )
+      }
       segments.push(wholeFile(path, contents, true))
     }
     return segments
@@ -2518,8 +2531,13 @@ export const review = (
       try: () => outsideStore(runtime.workspaceRoot, options.store),
       catch: storeError
     })
+    // Resolve the base once: discovery and every deleted file's contents read the same commit.
+    const resolved = snapshot === undefined && payload.scope !== "all"
+      ? yield* workspaceRevisions(runtime, payload)
+      : undefined
+    const selection = resolved === undefined ? payload : { ...payload, base: resolved.base }
     const files = (snapshot === undefined
-      ? yield* changedFiles(runtime.workspaceRoot, payload, runtime.timeoutMs, runtime.sensitiveEnv)
+      ? yield* changedFiles(runtime.workspaceRoot, selection, runtime.timeoutMs, runtime.sensitiveEnv)
       : [...snapshot.values()].filter((file) =>
         (payload.scope === "all" || file.changed) &&
         payload.include.some((glob) => matchesGlob(file.path, glob))
@@ -2548,21 +2566,13 @@ export const review = (
     const present = yield* readBatch(runtime.workspaceRoot, files, maximumReviewContentBytes, "skip", snapshot)
     // A changed path the workspace no longer holds was deleted: review its base contents, never skip it.
     const read = new Set(present.map((file) => file.path))
-    const removed = snapshot === undefined && payload.scope !== "all"
-      ? yield* deletedAtBase(runtime, payload.base, files.filter((path) => !read.has(path)))
-      : []
+    const removed = resolved === undefined ? [] : yield* deletedAtBase(
+      runtime,
+      resolved.base,
+      files.filter((path) => !read.has(path)),
+      maximumReviewContentBytes - present.reduce((total, file) => total + Buffer.byteLength(file.contents, "utf8"), 0)
+    )
     const rawChanged = [...present, ...removed].sort((left, right) => left.path < right.path ? -1 : 1)
-    if (
-      rawChanged.reduce((total, file) => total + Buffer.byteLength(file.contents, "utf8"), 0) >
-        maximumReviewContentBytes
-    ) {
-      return yield* Effect.fail(
-        new LlmReviewError({
-          phase: "read",
-          message: `LLM review file contents exceed their ${maximumReviewContentBytes}-byte aggregate limit`
-        })
-      )
-    }
     if (payload.required === true && rawChanged.length === 0) return yield* Effect.fail(emptyRequired)
     const raw = yield* relatedSources(runtime, payload, snapshot, rawChanged, new Set(paths), reviewable)
     // Scan every path and byte before planning. Slices are cut from masked text, so no request can
@@ -2650,7 +2660,9 @@ export const review = (
     // Provenance covers every byte a request carries and everything that shaped it, never budget or gating.
     const manifest: ReviewManifest = {
       version: 1,
-      ...(store === undefined ? {} : { revisions: options.revisions ?? (yield* workspaceRevisions(runtime, payload)) }),
+      ...(store === undefined
+        ? {}
+        : { revisions: options.revisions ?? resolved ?? (yield* workspaceRevisions(runtime, payload)) }),
       policy: {
         digest: policy,
         prompt: digest(payload.prompt),
@@ -2676,6 +2688,7 @@ export const review = (
       batches: loadedBatches.map((batch) => ({
         changed: batch.changed.map((segment) => ({
           path: segment.path,
+          ...(segment.deleted ? { deleted: true as const } : {}),
           firstLine: segment.firstLine,
           lastLine: segment.lastLine,
           sha256: digest(segment.contents)

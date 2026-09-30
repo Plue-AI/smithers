@@ -72,7 +72,10 @@ const fakeCli = async (
 
 const scriptCli = async (name: string, body: string): Promise<string> => {
   const executable = NodePath.join(root, `${name}.mjs`)
-  await Fs.writeFile(executable, `#!/usr/bin/env node\n${body}\n`, "utf8")
+  // The review resolves its base once before listing; answer that with a fixed commit.
+  const resolve =
+    "if (process.argv.includes('rev-parse')) { process.stdout.write('a'.repeat(40) + '\\n' + 'b'.repeat(40) + '\\n'); process.exit(0) }"
+  await Fs.writeFile(executable, `#!/usr/bin/env node\n${resolve}\n${body}\n`, "utf8")
   await Fs.chmod(executable, 0o755)
   return executable
 }
@@ -145,7 +148,10 @@ const withGitProgram = async <A>(body: string, use: () => Promise<A>): Promise<A
   const directory = NodePath.join(root, "git-bin")
   const executable = NodePath.join(directory, "git")
   await Fs.mkdir(directory, { recursive: true })
-  await Fs.writeFile(executable, `#!/usr/bin/env node\n${body}\n`, "utf8")
+  // The review resolves its base once before listing; answer that with a fixed commit.
+  const resolve =
+    "if (process.argv.includes('rev-parse')) { process.stdout.write('a'.repeat(40) + '\\n' + 'b'.repeat(40) + '\\n'); process.exit(0) }"
+  await Fs.writeFile(executable, `#!/usr/bin/env node\n${resolve}\n${body}\n`, "utf8")
   await Fs.chmod(executable, 0o755)
   const previous = process.env["PATH"]
   process.env["PATH"] = `${directory}${NodePath.delimiter}${previous ?? ""}`

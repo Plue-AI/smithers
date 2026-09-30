@@ -539,6 +539,25 @@ describe("LlmLint.review security completion", () => {
       expect(await cli.calls()).toEqual([])
     })
 
+    it("bounds deleted files by the aggregate content limit before reading past it", async () => {
+      await git("checkout", "--", "src/a.ts")
+      const size = 1_040_000
+      const count = Math.floor(LlmLint.maximumReviewContentBytes / size) + 1
+      for (let index = 0; index < count; index++) {
+        await Fs.writeFile(NodePath.join(root, `src/big-${index}.ts`), Buffer.alloc(size, 0x61))
+      }
+      await git("add", "src")
+      await git("commit", "-m", "big")
+      await Fs.rm(NodePath.join(root, "src"), { recursive: true })
+      const cli = await scriptedCli(passes())
+      const failure = await Effect.runPromise(
+        Effect.flip(LlmLint.review({ workspaceRoot: root, executable: cli.executable }, payload()))
+      )
+      expect(failure).toMatchObject({ _tag: "smithers-build/LlmReviewError", phase: "read" })
+      expect((failure as LlmLint.LlmReviewError).message).toMatch(/aggregate limit/)
+      expect(await cli.calls()).toEqual([])
+    }, 120_000)
+
     it.skipIf(process.platform === "win32")("carries no source for a deleted symlink", async () => {
       await git("checkout", "--", "src/a.ts")
       await Fs.symlink("a.ts", NodePath.join(root, "src/link.ts"))
