@@ -917,6 +917,30 @@ mod tests {
     }
 
     #[test]
+    fn exact_root_glob_ignores_trailing_separators_on_either_side() {
+        let dir = tempdir().unwrap();
+        let root = fs::canonicalize(dir.path()).unwrap();
+        fs::write(root.join("file.txt"), "").unwrap();
+        let bare = root.to_str().unwrap().to_owned();
+        let slashed = format!("{bare}/");
+        for (pattern, base) in [
+            (&bare, &bare),
+            (&bare, &slashed),
+            (&slashed, &bare),
+            (&slashed, &slashed),
+        ] {
+            let mut glob = request(&root, "glob", &root);
+            glob["root"] = json!(base);
+            glob["pattern"] = json!(pattern);
+            assert_eq!(
+                run(&glob, 1024, 1024).unwrap(),
+                json!([base]),
+                "pattern {pattern:?} under root {base:?}"
+            );
+        }
+    }
+
+    #[test]
     fn writes_reads_and_renames_through_pinned_directories() {
         let dir = tempdir().unwrap();
         let root = fs::canonicalize(dir.path()).unwrap();

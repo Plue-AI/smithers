@@ -5,6 +5,8 @@ import { defineConfig } from "vitest/config"
 export default defineConfig({
   test: {
     environment: "node",
+    // Executes the checkout helper at its current source, never a stale build.
+    globalSetup: ["./test/RebuildNativeHelper.ts"],
     // These suites drive a real filesystem — deep trees, pathological removals,
     // child-process lifecycles — under v8 coverage across parallel workers.
     // Vitest's 5 s default put five correct cases over the wall on a developer

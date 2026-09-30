@@ -320,9 +320,12 @@ pub(super) fn relative_pattern(pattern: &str, base: &str, exclusion: bool) -> St
     } else {
         pattern.to_owned()
     };
+    // One exact-root rule for every spelling: trailing separators on the base
+    // or the pattern never change which directory the pattern names.
+    let root = base.trim_end_matches('/');
     let stripped = normalized
-        .strip_prefix(base)
-        .filter(|value| value.is_empty() || value.starts_with('/') || base.ends_with('/'))
+        .strip_prefix(root)
+        .filter(|value| value.is_empty() || value.starts_with('/'))
         .map(|value| value.trim_start_matches('/'))
         .unwrap_or(&normalized)
         .trim_start_matches("./");
@@ -757,6 +760,18 @@ mod tests {
             ("/repo/src\\*.txt", "/repo", false, "src*.txt"),
             ("src\\*.txt", "/repo", true, "src*.txt"),
             ("/other/*.txt", "/repo", true, "/other/*.txt"),
+            ("/repo/", "/repo", false, ""),
+            ("/repo", "/repo/", false, ""),
+            ("/repo/", "/repo/", false, ""),
+            ("/repo//", "/repo", false, ""),
+            ("/repo", "/repo//", false, ""),
+            ("/repo/", "/repo", true, ""),
+            ("/repo", "/repo/", true, ""),
+            ("/repo/src/", "/repo/", false, "src/"),
+            ("/repository", "/repo/", false, "/repository"),
+            ("/", "/", false, ""),
+            ("/*.txt", "/", false, "*.txt"),
+            ("src/*.txt", "/", false, "src/*.txt"),
         ] {
             assert_eq!(relative_pattern(pattern, base, exclusion), expected);
         }
