@@ -29,7 +29,7 @@ const run = (id: string, status: Flows.Run["status"], extra: Partial<Flows.Run> 
 })
 const used = (input: number, cached: number, context: number): Transcript.Transcript => ({
   ...Transcript.empty,
-  usage: { input, output: 10, cached, context }
+  usage: { input, output: 10, cached, context, usd: 0 }
 })
 const rows = (tabs: ReadonlyArray<Tab>, runs: ReadonlyArray<Flows.Run> = [], transcript = () => Transcript.empty) =>
   Inbox.rows({ tabs, runs, transcript, contextWindow: () => 200_000, models: [], now })
