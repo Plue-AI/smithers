@@ -708,7 +708,7 @@ export const createStackSeam = (
       try {
         return await untilTodoSettled(repo, id, progress)
       } finally { shared.followed.delete(id) }
-    })().catch((error: unknown) => ({ ok: false as const, detail: error instanceof Error ? error.message : String(error) }))
+    })().catch((error: unknown) => ({ ok: false as const, detail: cloudUnreachable(error).error }))
       .then(async (outcome) => {
         clearTimeout(timer)
         shared.filings.delete(claim)
