@@ -296,6 +296,30 @@ WHERE wr.repository_id IN (SELECT id FROM owned_repos)
   );
 
 
+-- name: SumWorkflowAdmissionMinutesByOwner :one
+-- CI-minute admission: the minutes every run has metered, with each queued or
+-- running run reserving at least one minute. Dispatch cannot know a run's
+-- runtime, so the overrun past the cap is bounded by the in-flight runs'
+-- execution; SumWorkflowMinutesByOwner stays the usage report.
+WITH owned_repos AS (
+    SELECT id FROM repositories
+    WHERE (sqlc.arg(owner_type)::text = 'user' AND user_id = sqlc.arg(owner_id)::bigint)
+       OR (sqlc.arg(owner_type)::text = 'org' AND org_id = sqlc.arg(owner_id)::bigint)
+)
+SELECT COALESCE(SUM(
+    GREATEST(
+        CASE WHEN wr.started_at IS NULL THEN 0
+             ELSE CEIL(EXTRACT(EPOCH FROM (COALESCE(wr.completed_at, NOW()) - wr.started_at)) / 60.0)
+        END,
+        CASE WHEN wr.status IN ('queued', 'running') THEN 1 ELSE 0 END,
+        0
+    )
+), 0)::bigint
+FROM workflow_runs wr
+WHERE wr.repository_id IN (SELECT id FROM owned_repos)
+  AND wr.created_at >= sqlc.arg(period_start)
+  AND wr.created_at < sqlc.arg(period_end);
+
 -- ========================
 -- Credit audit history (balances live in credit_* tables)
 -- ========================

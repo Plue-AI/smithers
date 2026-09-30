@@ -39,12 +39,14 @@ WHERE wr.status IN ('queued', 'running')
 
 // CountActiveSandboxesForUser counts product workspace reservations. Hosted
 // deployments override this through deploymentdb to include private gateways.
+// Child workspaces (#2802) have their own plan limit and are not counted.
 func (q *Queries) CountActiveSandboxesForUser(ctx context.Context, userID int64) (int, error) {
 	var count int
 	err := q.db.QueryRow(ctx, `
-SELECT COUNT(*) FROM workspaces
-WHERE user_id = $1 AND deleted_at IS NULL
-  AND status IN ('pending', 'starting', 'running')
+SELECT COUNT(*) FROM workspaces w
+WHERE w.user_id = $1 AND w.deleted_at IS NULL
+  AND w.status IN ('pending', 'starting', 'running')
+  AND NOT EXISTS (SELECT 1 FROM workspace_children c WHERE c.workspace_id = w.id)
 `, userID).Scan(&count)
 	return count, err
 }

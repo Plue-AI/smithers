@@ -2902,6 +2902,31 @@ type Workspace struct {
 	ClientLeaseExpiresAt    pgtype.Timestamptz `json:"client_lease_expires_at"`
 }
 
+type WorkspaceChild struct {
+	WorkspaceID    string             `json:"workspace_id"`
+	BatchID        string             `json:"batch_id"`
+	UserID         int64              `json:"user_id"`
+	Ordinal        int32              `json:"ordinal"`
+	VmID           string             `json:"vm_id"`
+	StartedAt      pgtype.Timestamptz `json:"started_at"`
+	StoppedAt      pgtype.Timestamptz `json:"stopped_at"`
+	StopReason     pgtype.Text        `json:"stop_reason"`
+	FailureMessage pgtype.Text        `json:"failure_message"`
+	CreatedAt      time.Time          `json:"created_at"`
+}
+
+type WorkspaceChildBatch struct {
+	ID                string             `json:"id"`
+	ParentWorkspaceID string             `json:"parent_workspace_id"`
+	UserID            int64              `json:"user_id"`
+	Profile           string             `json:"profile"`
+	Requested         int32              `json:"requested"`
+	SnapshotID        string             `json:"snapshot_id"`
+	SnapshotDeletedAt pgtype.Timestamptz `json:"snapshot_deleted_at"`
+	ExpiresAt         time.Time          `json:"expires_at"`
+	CreatedAt         time.Time          `json:"created_at"`
+}
+
 type WorkspaceProviderUseRow struct {
 	WorkspaceID  string    `json:"workspace_id"`
 	ConnectionID string    `json:"connection_id"`

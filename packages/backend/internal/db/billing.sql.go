@@ -1021,6 +1021,50 @@ func (q *Queries) SumStorageBytesByRepository(ctx context.Context, repositoryID 
 	return column_1, err
 }
 
+const sumWorkflowAdmissionMinutesByOwner = `-- name: SumWorkflowAdmissionMinutesByOwner :one
+WITH owned_repos AS (
+    SELECT id FROM repositories
+    WHERE ($3::text = 'user' AND user_id = $4::bigint)
+       OR ($3::text = 'org' AND org_id = $4::bigint)
+)
+SELECT COALESCE(SUM(
+    GREATEST(
+        CASE WHEN wr.started_at IS NULL THEN 0
+             ELSE CEIL(EXTRACT(EPOCH FROM (COALESCE(wr.completed_at, NOW()) - wr.started_at)) / 60.0)
+        END,
+        CASE WHEN wr.status IN ('queued', 'running') THEN 1 ELSE 0 END,
+        0
+    )
+), 0)::bigint
+FROM workflow_runs wr
+WHERE wr.repository_id IN (SELECT id FROM owned_repos)
+  AND wr.created_at >= $1
+  AND wr.created_at < $2
+`
+
+type SumWorkflowAdmissionMinutesByOwnerParams struct {
+	PeriodStart time.Time `json:"period_start"`
+	PeriodEnd   time.Time `json:"period_end"`
+	OwnerType   string    `json:"owner_type"`
+	OwnerID     int64     `json:"owner_id"`
+}
+
+// CI-minute admission: the minutes every run has metered, with each queued or
+// running run reserving at least one minute. Dispatch cannot know a run's
+// runtime, so the overrun past the cap is bounded by the in-flight runs'
+// execution; SumWorkflowMinutesByOwner stays the usage report.
+func (q *Queries) SumWorkflowAdmissionMinutesByOwner(ctx context.Context, arg SumWorkflowAdmissionMinutesByOwnerParams) (int64, error) {
+	row := q.db.QueryRow(ctx, sumWorkflowAdmissionMinutesByOwner,
+		arg.PeriodStart,
+		arg.PeriodEnd,
+		arg.OwnerType,
+		arg.OwnerID,
+	)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const sumWorkflowMinutesByOwner = `-- name: SumWorkflowMinutesByOwner :one
 WITH owned_repos AS (
     SELECT id

@@ -919,6 +919,8 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	mythicalService.SetWiki(wikiService)
 	mythicalService.SetOrchestration(services.NewMythicalGitHub(queries, repoConnectionService, gitHubUserReposService, repoConnectionService),
 		nil, services.NewWorkspaceMythicalLanes(workspaceService))
+	// A lane's coding host starts only on a box with its declared tools.
+	services.WithWorkspaceBoxTools(mythicalService.LaneTools)(workspaceService)
 	userRefHandler := &routes.UserRefHandler{Service: services.NewUserRefService(repoHostClient, queries)}
 	mythicalHandler := &routes.MythicalHandler{Service: mythicalService, Broker: sseBroker,
 		MainHead: func(ctx context.Context, owner, repo, bookmark string) (string, error) {

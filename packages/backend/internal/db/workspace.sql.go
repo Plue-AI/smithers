@@ -46,16 +46,18 @@ func (q *Queries) CountActiveSessionsForWorkspace(ctx context.Context, workspace
 
 const countActiveWorkspacesByUser = `-- name: CountActiveWorkspacesByUser :one
 SELECT COUNT(*)
-FROM workspaces
-WHERE user_id = $1
-  AND deleted_at IS NULL
-  AND status <> 'failed'
+FROM workspaces w
+WHERE w.user_id = $1
+  AND w.deleted_at IS NULL
+  AND w.status <> 'failed'
+  AND NOT EXISTS (SELECT 1 FROM workspace_children c WHERE c.workspace_id = w.id)
 `
 
 // Ticket 0105: per-user quota count. Uses idx_workspaces_user_active
 // (partial WHERE deleted_at IS NULL). Failed workspaces are excluded:
 // a provisioning failure (e.g. a VM that never came up) must not
-// permanently consume quota and drive retries into quota_exceeded.
+// permanently consume quota and drive retries into quota_exceeded. Child
+// workspaces (#2802) have their own plan limit.
 func (q *Queries) CountActiveWorkspacesByUser(ctx context.Context, userID int64) (int64, error) {
 	row := q.db.QueryRow(ctx, countActiveWorkspacesByUser, userID)
 	var count int64

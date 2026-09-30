@@ -49,6 +49,7 @@ LEFT JOIN organizations o ON o.id = r.org_id
 WHERE w.deleted_at IS NULL AND (w.status IN ('pending','starting')
  OR (w.status='running' AND EXISTS (SELECT 1 FROM workspace_sessions s WHERE s.workspace_id=w.id AND s.status IN ('pending','starting'))))
 AND (w.status='running' OR w.updated_at < now()-interval '10 minutes')
+AND NOT EXISTS (SELECT 1 FROM workspace_children c WHERE c.workspace_id=w.id)
 ORDER BY w.updated_at, w.id
 LIMIT 100
 `
@@ -64,6 +65,7 @@ type ListWorkspaceProvisioningRecoveryRow struct {
 
 // Older API replicas do not hold ownership locks. Allow their bounded
 // ten-minute attempt to finish during the first rolling upgrade.
+// A child workspace boots only through its batch, never a credentialed recovery.
 func (q *Queries) ListWorkspaceProvisioningRecovery(ctx context.Context) ([]ListWorkspaceProvisioningRecoveryRow, error) {
 	rows, err := q.db.Query(ctx, listWorkspaceProvisioningRecovery)
 	if err != nil {

@@ -15,6 +15,8 @@ WHERE w.deleted_at IS NULL AND (w.status IN ('pending','starting')
 -- Older API replicas do not hold ownership locks. Allow their bounded
 -- ten-minute attempt to finish during the first rolling upgrade.
 AND (w.status='running' OR w.updated_at < now()-interval '10 minutes')
+-- A child workspace boots only through its batch, never a credentialed recovery.
+AND NOT EXISTS (SELECT 1 FROM workspace_children c WHERE c.workspace_id=w.id)
 ORDER BY w.updated_at, w.id
 LIMIT 100;
 

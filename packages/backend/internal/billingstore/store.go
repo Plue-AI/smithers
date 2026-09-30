@@ -45,6 +45,7 @@ type Querier interface {
 	SumWorkflowMinutesByOwner(ctx context.Context, arg db.SumWorkflowMinutesByOwnerParams) (int64, error)
 	CountAgentRunsByOwner(ctx context.Context, arg db.CountAgentRunsByOwnerParams) (int64, error)
 	CountAgentRunAdmissionsByOwner(ctx context.Context, arg db.CountAgentRunAdmissionsByOwnerParams) (int64, error)
+	SumWorkflowAdmissionMinutesByOwner(ctx context.Context, arg db.SumWorkflowAdmissionMinutesByOwnerParams) (int64, error)
 
 	ClaimStripeProcessedEvent(ctx context.Context, arg db.ClaimStripeProcessedEventParams) (string, error)
 	DeleteStripeProcessedEvent(ctx context.Context, eventID string) error
