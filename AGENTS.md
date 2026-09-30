@@ -142,7 +142,7 @@ settings only. `smthrs tui` is one CLI app consuming the same location and agent
 Use this shared capability instead of provider-specific login or remote harness
 commands. See [#1757](https://github.com/smithersai/smithers/issues/1757).
 
-## Native target cache contracts (#1871)
+## Cache contracts
 
 Enable default caching only after the executed toolchain, declared environment,
 dependency inputs, and produced outputs have complete content identities.

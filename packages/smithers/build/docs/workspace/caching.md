@@ -150,7 +150,7 @@ the tool environment, but does not by itself make these targets cacheable.
 A result produced without enforced confinement is stored in the local tier
 only; it never publishes to a remote cache.
 
-### Native tool contract evidence (#1871)
+### Action-backed tool contracts
 
 TsBuild, Typecheck, Vitest, EsLint, and Dprint run through the action-backed
 executor. Their planner now fingerprints the declared manager and runtime
@@ -158,10 +158,19 @@ bytes, including interpreter chains, and records the tool environment even
 without a native argv. Missing or unreadable declared executables refuse the
 plan. Vitest uses the same runtime override selection as execution.
 
-Default caching remains blocked on complete installed-tool and output contracts:
+These action-backed rules accept absolute launcher paths or bare names on an
+absolute `PATH`. Relative launcher paths and relative or empty `PATH` entries
+refuse planning: package-directory probes and workspace-directory services can
+otherwise select different executable bytes. Use an absolute launcher or
+absolute lookup directories.
+
+Default caching requires complete installed-tool and output contracts, tracked in
+[#1871](https://github.com/smithersai/smithers/issues/1871):
 
 - Identify the actual cwd-selected compiler, test runner, lint tool, dprint
   native binary, and plugin bytes, not only the manager shim or version.
+- Bind body execution to the measured lookup environment, including explicit
+  environment overrides supplied by an embedding host.
 - Restore TsBuild outputs from the artifact cache in a fresh checkout.
 - Declare and restore Typecheck build/incremental and Vitest coverage outputs,
   or keep those modes non-cacheable. Keep formatter and lint fix modes
@@ -172,12 +181,15 @@ Default caching remains blocked on complete installed-tool and output contracts:
   produce reusable successes. Retain Linux enforced-sandbox evidence before
   shared publication, and prove Affected still selects all incomplete contracts.
 
-`build-cli/test/CatalogToolIdentity.test.ts` specifies unchanged and documentation
-key stability, launcher and interpreter replacement with unchanged versions,
-config and lockfile invalidation, missing-interpreter refusal, and the retained
-non-cacheable defaults. Its POSIX shebang fixtures skip Windows; Windows wrapper
-identity still requires separate evidence. These tests require host CI execution; authoring them
-is not evidence of a passing test or cache hits.
+`build-cli/test/CatalogToolIdentity.test.ts` covers source, manifest, config,
+lockfile, and dependency invalidation; unchanged and unrelated-file stability;
+manager, runtime, and PATH-selected interpreter byte identity; relative lookup
+refusal; missing,
+non-executable, cyclic, and unidentifiable launcher refusal; and executable
+replacement between planning and execution. Defaults remain non-cacheable.
+Its POSIX shebang fixtures skip Windows; Windows wrapper identity needs separate
+evidence. Planner identity tests do not demonstrate compiler execution or cache
+hits.
 
 ## Keys vary by verb
 

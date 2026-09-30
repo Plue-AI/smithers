@@ -1430,12 +1430,22 @@ const visit = async (
     for (const tool of tools) {
       if (tool === undefined || seen.has(tool.executable)) continue
       seen.add(tool.executable)
-      const path = NodePath.isAbsolute(tool.executable)
-        ? tool.executable
-        : tool.executable.includes("/") || tool.executable.includes(NodePath.sep)
-        ? NodePath.resolve(context.root, tool.executable)
-        : PackageTree.findOnPath(tool.executable, toolContext.environment)
       try {
+        if (
+          !NodePath.isAbsolute(tool.executable) &&
+          (tool.executable.includes("/") || tool.executable.includes(NodePath.sep))
+        ) {
+          throw new Error("cwd-relative executable is unsupported for action-backed tools")
+        }
+        const searchPath = toolContext.environment["PATH"]
+        if (
+          searchPath !== undefined && searchPath.split(NodePath.delimiter).some((entry) => !NodePath.isAbsolute(entry))
+        ) {
+          throw new Error("cwd-relative PATH entry is unsupported for action-backed tools")
+        }
+        const path = NodePath.isAbsolute(tool.executable)
+          ? tool.executable
+          : PackageTree.findOnPath(tool.executable, toolContext.environment)
         if (path === undefined) throw new Error("executable is not on PATH")
         await Fs.access(path, 1)
         toolchain.push(await binaryIdentity(toolContext, path))
