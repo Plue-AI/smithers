@@ -341,7 +341,7 @@ export const createRunsCli = (runtime: Bridge.Runtime = {}) =>
             throw unknownRun(c.args.run)
           }
           await reconcileHistory(c.options, runtime)
-          return Bridge.query(
+          return Bridge.read(
             Effect.gen(function*() {
               const control = yield* Control.Control
               const page = yield* control.list({ _tag: "runs", filters: { runId: c.args.run } })
@@ -579,8 +579,7 @@ export const createApprovalsCli = (runtime: Bridge.Runtime = {}) =>
       run: (c) =>
         guard(
           c,
-          () =>
-            observe(c.options, runtime, [], () => Bridge.query(pendingApprovals(c.options.run), c.options, runtime)),
+          () => observe(c.options, runtime, [], () => Bridge.read(pendingApprovals(c.options.run), c.options, runtime)),
           { next: afterDecision }
         )
     })
