@@ -129,7 +129,8 @@ export class Continue extends Schema.TaggedClass<Continue>("flows/harness/Cell/C
  * @slop
  */
 export class Complete extends Schema.TaggedClass<Complete>("flows/harness/Cell/Complete")("complete", {
-  output: Schema.String
+  output: Schema.String,
+  value: Schema.optional(Schema.Json)
 }) {}
 
 /**

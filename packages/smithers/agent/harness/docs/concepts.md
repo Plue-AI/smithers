@@ -160,8 +160,10 @@ Enforced by `ContextWindow`, `Tokens`, and `Compaction`.
 
 ## Structured output
 
-A boundary that must produce a typed value decodes the agent's final text
-against the declared schema, spends a bounded number of correction re-prompts,
+A boundary that must produce a typed value decodes the original `ctx.done`
+value against the declared schema. String answers can use JSON text extraction
+when the schema requires another type. Older text-only completions retain text
+decoding. The boundary spends a bounded number of correction re-prompts,
 and then fails with a typed, coded failure rather than prose. The failure names
 the schema digest, the candidate digest, the corrections spent, the budget, and
 a bounded list of `{ path, message }` issues, so two identical-looking refusals

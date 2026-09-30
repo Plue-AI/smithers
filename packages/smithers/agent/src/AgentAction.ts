@@ -831,7 +831,7 @@ export const make = <
             correction: number | undefined,
             output: CellTurn.OutputCheck | undefined
           ): Effect.Effect<
-            { readonly output: string; readonly corrected: number },
+            { readonly output: string; readonly value?: Schema.Json | undefined; readonly corrected: number },
             AgentFailure,
             | FlowRuntime.FlowRuntime
             | FlowRuntime.FlowInstance
@@ -893,7 +893,7 @@ export const make = <
                     cause: outcome
                   })
                 }
-                return { output: outcome.output, corrected: outcome.corrected }
+                return { output: outcome.output, value: outcome.value, corrected: outcome.corrected }
               }).pipe(Effect.provideService(FlowEngineLike.Correction, correction))
             )
 
@@ -931,8 +931,8 @@ export const make = <
           const inSession = (spent: number): CellTurn.OutputCheck | undefined =>
             spent >= limit ? undefined : {
               cap: limit - spent,
-              check: (answer, corrected) =>
-                StructuredOutput.decode(options.output, answer, { corrections: spent + corrected, limit }).pipe(
+              check: (answer, corrected, value) =>
+                StructuredOutput.decode(options.output, answer, { corrections: spent + corrected, limit }, value).pipe(
                   Effect.as(undefined),
                   Effect.catchTag("/harness/StructuredOutputFailure", (failure) =>
                     rejected(failure, spent + corrected).pipe(
@@ -986,8 +986,8 @@ export const make = <
               undefined,
               undefined
             ).pipe(
-              Effect.flatMap(({ output }) =>
-                StructuredOutput.decode(options.output, output, { corrections: limit, limit }).pipe(
+              Effect.flatMap(({ output, value }) =>
+                StructuredOutput.decode(options.output, output, { corrections: limit, limit }, value).pipe(
                   Effect.tapError((failure) =>
                     failure._tag === "/harness/StructuredOutputFailure"
                       ? rejected(failure, limit).pipe(
@@ -1026,9 +1026,9 @@ export const make = <
             | Output["DecodingServices"]
           > =>
             ask(`${root}#${spent}`, prompt, system, seatId, spent, inSession(spent)).pipe(
-              Effect.flatMap(({ corrected, output }) => {
+              Effect.flatMap(({ corrected, output, value }) => {
                 const used = spent + corrected
-                return StructuredOutput.decode(options.output, output, { corrections: used, limit }).pipe(
+                return StructuredOutput.decode(options.output, output, { corrections: used, limit }, value).pipe(
                   Effect.catchTag("/harness/StructuredOutputFailure", (failure) =>
                     rejected(failure, used).pipe(
                       Effect.andThen(

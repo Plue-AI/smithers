@@ -6,10 +6,16 @@
 import * as Fault from "@smthrs/flow/Fault"
 import type * as AgentEvent from "@smthrs/harness/AgentEvent"
 import * as Effect from "effect/Effect"
+import type * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
 
 type Outcome =
-  | { readonly _tag: "Completed"; readonly output: string; readonly corrected: number }
+  | {
+    readonly _tag: "Completed"
+    readonly output: string
+    readonly value?: Schema.Json | undefined
+    readonly corrected: number
+  }
   | { readonly _tag: "FramesExhausted"; readonly frames: number; readonly corrected: number }
 
 // Frames spent with no completed answer is the plan not converging: a replan's.
@@ -27,6 +33,7 @@ export const agentOutcome = <E, R, E2, R2>(
   Effect.gen(function*() {
     let frames = 0
     let output: string | undefined
+    let value: Schema.Json | undefined
     // Completions the run handed back for a shape the host refused.
     let corrected = 0
     yield* stream.pipe(Stream.runForEach((event) =>
@@ -35,15 +42,17 @@ export const agentOutcome = <E, R, E2, R2>(
           frames += 1
           // A completion bounced by the controller is not the next frame's answer.
           output = undefined
+          value = undefined
         }
         if (event._tag === "output-demanded") corrected += 1
         if (event._tag === "transition-applied") {
           output = event.transition._tag === "complete" ? event.transition.output : undefined
+          value = event.transition._tag === "complete" ? event.transition.value : undefined
         }
         return record(event)
       })
     ))
     return output === undefined
       ? { _tag: "FramesExhausted", frames, corrected }
-      : { _tag: "Completed", output, corrected }
+      : { _tag: "Completed", output, value, corrected }
   })

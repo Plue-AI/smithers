@@ -524,7 +524,7 @@ const parkReasons = ["waiting-input", "waiting-event", "waiting-quota"] as const
 
 /** What `ctx.done` or `ctx.park` recorded, before the reason is judged. */
 type Recorded =
-  | { readonly kind: "done"; readonly output: string }
+  | { readonly kind: "done"; readonly output: string; readonly value: Schema.Json }
   | { readonly kind: "park"; readonly reason: Schema.Json; readonly message: string }
 
 const parkPayload = Schema.decodeUnknownSync(
@@ -593,7 +593,7 @@ const replOutcome = (recorded: Recorded | undefined, justification: string | und
   }
   return new Cell.Settled({
     transition: Sandbox.replTransition(
-      recorded === undefined ? undefined : { _tag: "Done", output: recorded.output },
+      recorded === undefined ? undefined : { _tag: "Done", output: recorded.output, value: recorded.value },
       justification
     )
   })
@@ -1163,7 +1163,7 @@ const openRealm = (
     install("__intent", (kindHandle, payloadHandle) => {
       const kind = context.getString(kindHandle)
       const payload = Schema.decodeUnknownSync(Schema.Json)(JSON.parse(context.getString(payloadHandle)))
-      if (kind === "done") recorded = { kind: "done", output: Cell.renderText(payload) }
+      if (kind === "done") recorded = { kind: "done", output: Cell.renderText(payload), value: payload }
       else if (kind === "park") {
         const park = parkPayload(payload)
         recorded = { kind: "park", reason: park.reason, message: Cell.renderText(park.message) }

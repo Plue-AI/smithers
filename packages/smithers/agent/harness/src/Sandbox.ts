@@ -441,7 +441,7 @@ export const evaluationLimits = (
  * @since 0.1.0
  */
 export type Intent =
-  | { readonly _tag: "Done"; readonly output: string }
+  | { readonly _tag: "Done"; readonly output: string; readonly value?: Schema.Json | undefined }
   | {
     readonly _tag: "Park"
     readonly reason: "waiting-input" | "waiting-event" | "waiting-quota"
@@ -465,7 +465,7 @@ export const replTransition = (
 ): Cell.Transition => {
   if (intent === undefined) return new Cell.Continue({ justification })
   return intent._tag === "Done"
-    ? new Cell.Complete({ output: intent.output })
+    ? new Cell.Complete({ output: intent.output, value: intent.value })
     : new Cell.Park({ reason: intent.reason, message: intent.message })
 }
 

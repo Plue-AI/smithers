@@ -388,6 +388,9 @@ const quoted = (text: string): boolean => {
 /**
  * Decodes one agent answer with the declared output schema.
  *
+ * Decodes an original completion value first when supplied. Only a string
+ * refused for its type proceeds to legacy text extraction; refinements and
+ * nonstring failures retain the original value's diagnostics.
  * Tries every {@link candidates} entry in order and returns the first the
  * schema accepts, then the answer itself, untrimmed, as a string unless it is
  * a JSON string literal, which is how a `ctx.done("text")` answer reaches a
@@ -402,7 +405,8 @@ const quoted = (text: string): boolean => {
 export const decode = <S extends Schema.Top>(
   schema: S,
   text: string,
-  attempt: { readonly corrections: number; readonly limit: number }
+  attempt: { readonly corrections: number; readonly limit: number },
+  value?: Schema.Json | undefined
 ): Effect.Effect<S["Type"], StructuredOutputFailure, S["DecodingServices"]> =>
   Effect.gen(function*() {
     const offered = candidates(text)
@@ -411,6 +415,25 @@ export const decode = <S extends Schema.Top>(
     let issues: ReadonlyArray<OutputIssue> = [
       new OutputIssue({ code: "no_candidate", path: "", message: "the answer held no JSON document" })
     ]
+    if (value !== undefined) {
+      const result = yield* Effect.result(decoder(value))
+      if (result._tag === "Success") return result.success
+      const rawIssues = schemaIssuesOf(result.failure)
+      // Extraction is only for text offered to a schema expecting another type.
+      // Preserve string refinements and nonstring type failures on the value.
+      if (typeof value !== "string" || !rawIssues.every((issue) => issue.code === "invalid_type")) {
+        return yield* new StructuredOutputFailure({
+          code: attempt.corrections >= attempt.limit ? "correction_exhausted" : "schema_mismatch",
+          schema: digest(schema),
+          candidate: Digest.digest(JSON.stringify(value)),
+          corrections: attempt.corrections,
+          limit: attempt.limit,
+          issues: rawIssues,
+          message:
+            `The agent's answer did not validate against its declared output schema after ${attempt.corrections} of ${attempt.limit} corrections`
+        })
+      }
+    }
     for (const candidate of offered) {
       if (candidate.length === 0) continue
       let parsed: unknown

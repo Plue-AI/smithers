@@ -6,8 +6,10 @@ sidebar:
 ---
 
 Every `AgentAction` declares an `output` schema. The schema is rendered into
-the run's system teaching, and the run's final answer, the `output` of its last
-`complete` transition, is decoded by it. A downstream step reads typed fields;
+the run's system teaching, and the original `ctx.done` value is decoded by it.
+A string such as `"12"` keeps its type and whitespace; a string answer can
+use JSON extraction when the schema expects another type. Older text-only
+completion records retain text decoding. A downstream step reads typed fields;
 nobody parses prose. This guide covers what happens when the answer misses the
 schema.
 

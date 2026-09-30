@@ -1063,7 +1063,11 @@ export interface Input {
  */
 export interface OutputCheck {
   /** `corrected` is how many completions this run has already had handed back for it. */
-  readonly check: (output: string, corrected: number) => Effect.Effect<string | undefined>
+  readonly check: (
+    output: string,
+    corrected: number,
+    value?: Schema.Json | undefined
+  ) => Effect.Effect<string | undefined>
   readonly cap: number
 }
 
@@ -3801,7 +3805,7 @@ const frame = (
         },
         success: Schema.NullOr(Schema.String),
         execute: Effect.map(
-          Effect.suspend(() => check(transition.output, state.outputDemands)),
+          Effect.suspend(() => check(transition.output, state.outputDemands, transition.value)),
           (refused) => refused ?? null
         )
       })
