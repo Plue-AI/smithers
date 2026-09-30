@@ -1587,12 +1587,13 @@ describe("the request and the decision behind a step", () => {
     })
 
     it("lets a reader tell a request the journal rewrote from the one that was sent", () => {
-      // The journal's textual rules read `apiKey: abc` and `maxTokens: 4096`
+      // The journal's textual rules read `apiKey: abc` and `password: hunter2`
       // as credentials wherever they occur, and a coding transcript is full of
-      // both. The row carries no mark of its own, so each rebuildable field
-      // travels with the digest of what it was before the journal saw it.
+      // both. (A plural `maxTokens: 4096` count is accounting and is kept.)
+      // The row carries no mark of its own, so each rebuildable field travels
+      // with the digest of what it was before the journal saw it.
       const spoken = request({
-        system: [ModelRequest.SystemPart.make({ text: "Use maxTokens: 4096 for the summary." })],
+        system: [ModelRequest.SystemPart.make({ text: "Use password: hunter2 for the summary." })],
         messages: [ModelRequest.Message.user("set apiKey: abc and rerun")]
       })
       const projected = JSON.parse(JSON.stringify(AgentSession.trace(requested({ request: spoken }))!.payload))
