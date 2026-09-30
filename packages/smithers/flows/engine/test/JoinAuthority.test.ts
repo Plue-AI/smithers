@@ -8,6 +8,7 @@ import { describe, expect, it } from "@effect/vitest"
 import { Capability, CapabilityPattern } from "@smthrs/capability/Capability"
 import * as CapabilitySet from "@smthrs/capability/CapabilitySet"
 import { Action, Flow, FlowRuntime, Interpreter } from "@smthrs/flow"
+import { Node } from "@smthrs/plan"
 import { Cause, Effect, Exit, Layer, Option, Schema } from "effect"
 import { FlowEngine } from "../src/index.ts"
 import { withCrypto } from "./Crypto.ts"
@@ -122,6 +123,14 @@ describe("joining an execution under a capability ceiling", () => {
         const polledWide = yield* flow.poll("polled")
         expect(Option.isSome(polledWide)).toBe(true)
         yield* runtime.resume(flow, "polled")
+        // A resume naming an unknown id or another declaration drives nothing.
+        yield* under(readSource)(runtime.resume(flow, "never-admitted"))
+        const Other = Flow.make("join-authority/other", {
+          payload: {},
+          success: Schema.String,
+          body: () => Node.succeed("other")
+        })
+        yield* under(readSource)(runtime.resume(Other, "polled"))
         // An unknown id is left to the engine's own not-found answer.
         const unknown = yield* Effect.flip(under(readSource)(flow.poll("never-admitted")))
         expect(unknown).toMatchObject({ code: "execution_not_found" })

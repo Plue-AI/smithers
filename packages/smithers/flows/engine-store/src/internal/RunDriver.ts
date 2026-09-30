@@ -2659,21 +2659,24 @@ export const make = (
       )
 
     /**
-     * Refuses a resume of `executionId` for `flow` by a caller whose authority
-     * does not cover the authority the row was admitted with. An unknown id,
-     * or a row another declaration owns, is left to the resume path.
+     * Whether a resume of `executionId` for `flow` may drive anything: only an
+     * admitted row of this declaration whose recorded authority the caller's
+     * covers. An unknown id or a row another declaration owns drives nothing,
+     * so a row admitted after this read is never woken on this request; a
+     * caller whose authority does not cover the row is refused.
      */
-    const authorizeResume = (flow: Flow.Any, executionId: string): Effect.Effect<void> =>
+    const authorizeResume = (flow: Flow.Any, executionId: string): Effect.Effect<boolean> =>
       Effect.gen(function*() {
         const row = yield* store.get(executionId).pipe(
           Effect.catch((error) => error.code === "not_found_row" ? Effect.succeed(undefined) : Effect.die(error))
         )
-        if (row === undefined) return
+        if (row === undefined) return false
         const state = yield* decodeState(row.stateJson)
-        if (state.flowName !== flow._tag) return
+        if (state.flowName !== flow._tag) return false
         if (!FlowEngine.joinable(state.capabilityCeilings ?? [], yield* FlowEngine.requestedAuthority(flow))) {
           return yield* Effect.die(FlowEngine.capabilityConflict(executionId))
         }
+        return true
       })
 
     const poll: Service["poll"] = Effect.fn("FlowEngine.poll")((flow, executionId) =>
@@ -2955,14 +2958,19 @@ export const make = (
       resume: Effect.fn("FlowEngine.resume")((flow, executionId, options) =>
         Effect.annotateCurrentSpan({ executionId, flow: flow._tag }).pipe(
           // A resume drives the run under its admitted authority, so a caller
-          // whose authority does not cover it may not wake or join it.
+          // whose authority does not cover it may not wake or join it, and a
+          // request that names no admitted run of this flow drives nothing.
           Effect.andThen(authorizeResume(flow, executionId)),
-          Effect.andThen(
-            options?.poll === true
-              ? Effect.void
-              : scheduleResume(flow._tag, executionId, options?.delegated === true ? "delegated" : "operator")
-          ),
-          Effect.andThen(coordinator.run(executionId))
+          Effect.flatMap((authorized) =>
+            authorized
+              ? Effect.andThen(
+                options?.poll === true
+                  ? Effect.void
+                  : scheduleResume(flow._tag, executionId, options?.delegated === true ? "delegated" : "operator"),
+                coordinator.run(executionId)
+              )
+              : Effect.void
+          )
         )
       ),
       scheduleResume,

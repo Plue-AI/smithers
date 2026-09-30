@@ -9,7 +9,7 @@ import { describe, expect, it } from "@effect/vitest"
 import { Capability, CapabilityPattern } from "@smthrs/capability/Capability"
 import * as CapabilitySet from "@smthrs/capability/CapabilitySet"
 import { FlowEngine } from "@smthrs/engine"
-import { Action, Flow, FlowRuntime, Interpreter } from "@smthrs/flow"
+import { Action, DurableDeferred, Flow, FlowRuntime, Interpreter } from "@smthrs/flow"
 import { Jj } from "@smthrs/kernel"
 import { RunStore } from "@smthrs/run-store"
 import { Cause, Effect, Exit, Layer, Option, Schema } from "effect"
@@ -17,6 +17,7 @@ import * as SqlClient from "effect/unstable/sql/SqlClient"
 import * as EngineStore from "../src/EngineStore.ts"
 import * as StepBoundary from "../src/StepBoundary.ts"
 import * as TestStores from "../src/test/TestStores.ts"
+import { executeUntilParked } from "./ExecuteUntilParked.ts"
 import { opaqueHandlerBody } from "./fixtures/OpaqueHandlerBody.ts"
 
 const secret = new Capability({ action: "fs:read", resource: "secret/key" })
@@ -147,6 +148,48 @@ describe("durable joins under a capability ceiling", () => {
       const successor = rows.find((row) => JSON.parse(row.state_json).flowName === Next._tag)!
       const state = JSON.parse(successor.state_json) as { capabilityCeilings: ReadonlyArray<ReadonlyArray<unknown>> }
       expect(state.capabilityCeilings).toContainEqual([{ action: "fs:read", resource: "src/**" }])
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(jj),
+      Effect.provide(StepBoundary.layerTest()),
+      Effect.provide(TestStores.layerAt(":memory:")),
+      Effect.provide(NodeCrypto.layer)
+    ))
+
+  it.effect("drives a resumed run only for its own declaration and a covering caller", () =>
+    Effect.gen(function*() {
+      let drives = 0
+      const gate = DurableDeferred.make("durable-join-authority/gate", { success: Schema.String })
+      const Parked = Flow.make("durable-join-authority/parked", {
+        payload: {},
+        success: Schema.String,
+        body: opaqueHandlerBody
+      })
+      const Other = Flow.make("durable-join-authority/other", {
+        payload: {},
+        success: Schema.String,
+        body: opaqueHandlerBody
+      })
+      const engine = yield* EngineStore.make({
+        owner: { hostId: "durable-join-resume" },
+        journalSource: "durable-join-resume",
+        isAlive: () => Effect.succeed(false)
+      })
+      yield* engine.register(Parked, () => Effect.suspend(() => (drives++, DurableDeferred.await(gate))))
+      yield* engine.register(Other, () => Effect.succeed("other"))
+      yield* executeUntilParked(engine, Parked, { executionId: "parked", payload: {}, discard: true })
+      const parkedDrives = drives
+      expect(parkedDrives).toBeGreaterThan(0)
+      // A restricted caller naming another flow's declaration drives nothing.
+      yield* CapabilitySet.attenuate(readSource)(engine.resume(Other, "parked"))
+      // An unknown id drives nothing either.
+      yield* CapabilitySet.attenuate(readSource)(engine.resume(Parked, "never-admitted"))
+      expect(drives).toBe(parkedDrives)
+      const refused = yield* Effect.exit(CapabilitySet.attenuate(readSource)(engine.resume(Parked, "parked")))
+      expect(conflictOf(refused)).toMatchObject({ field: "capabilities", executionId: "parked" })
+      expect(drives).toBe(parkedDrives)
+      yield* engine.resume(Parked, "parked")
+      expect(drives).toBeGreaterThan(parkedDrives)
     }).pipe(
       Effect.scoped,
       Effect.provide(jj),

@@ -109,19 +109,14 @@ export const layerMemory: Layer.Layer<FlowRuntime.FlowRuntime> = Layer.effect(Fl
     }
     const executions = new Map<string, ExecutionState>()
     /**
-     * Refuses a poll or resume of `executionId` for `flow` whose caller's
-     * authority does not cover the authority the execution was admitted with.
-     * An unknown id, or one another declaration owns, is left to the caller.
+     * Refuses a poll or resume of an execution of `flow` whose caller's
+     * authority does not cover the authority `state` was admitted with.
      */
-    const authorize = (flow: Flow.Any, executionId: string): Effect.Effect<void> =>
-      Effect.suspend(() => {
-        const state = executions.get(executionId)
-        if (state === undefined || state.instance.flow._tag !== flow._tag) return Effect.void
-        return Effect.flatMap(requestedAuthority(flow), (requested) =>
-          joinable(state.capabilityCeilings, requested)
-            ? Effect.void
-            : Effect.die(capabilityConflict(executionId)))
-      })
+    const authorize = (flow: Flow.Any, state: ExecutionState, executionId: string): Effect.Effect<void> =>
+      Effect.flatMap(requestedAuthority(flow), (requested) =>
+        joinable(state.capabilityCeilings, requested)
+          ? Effect.void
+          : Effect.die(capabilityConflict(executionId)))
     // Payload constructors and identity codecs may suspend. Serialize only
     // admission and drive installation for one id, never the body or another id.
     const executionLocks = new Map<string, { readonly semaphore: Semaphore.Semaphore; users: number }>()
@@ -586,7 +581,14 @@ export const layerMemory: Layer.Layer<FlowRuntime.FlowRuntime> = Layer.effect(Fl
         }, { concurrency: "unbounded", discard: true })
       }),
       resume(flow, executionId) {
-        return Effect.andThen(authorize(flow, executionId), resume(executionId))
+        // Only an execution of this declaration that the caller's authority
+        // covers is driven; an unknown or foreign id drives nothing.
+        return Effect.suspend(() => {
+          const state = executions.get(executionId)
+          return state === undefined || state.instance.flow._tag !== flow._tag
+            ? Effect.void
+            : Effect.andThen(authorize(flow, state, executionId), resume(executionId))
+        })
       },
       resumeSignal: (_flow, executionId) =>
         Effect.suspend(() => {
@@ -676,7 +678,7 @@ export const layerMemory: Layer.Layer<FlowRuntime.FlowRuntime> = Layer.effect(Fl
           // avoids presenting another flow's encoded result under this one.
           if (state.instance.flow._tag !== flow._tag) return Effect.succeedNone
           return Effect.andThen(
-            authorize(flow, executionId),
+            authorize(flow, state, executionId),
             Effect.suspend(() => {
               const exit = state.fiber?.pollUnsafe()
               if (!exit) {
