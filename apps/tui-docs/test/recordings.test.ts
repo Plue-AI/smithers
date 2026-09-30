@@ -1,11 +1,12 @@
 import * as Filegroup from "@smthrs/targets/Filegroup"
 import * as Target from "@smthrs/targets/Target"
 import assert from "node:assert/strict"
-import { readFileSync } from "node:fs"
+import { execFileSync } from "node:child_process"
+import { readFileSync, rmSync, writeFileSync } from "node:fs"
 import { test } from "node:test"
 import { fileURLToPath } from "node:url"
 import { docsText } from "../../site/scripts/docs-text.mjs"
-import { runtimeInputs } from "../scripts/inputs.mjs"
+import { runtimeInputs, tracked } from "../scripts/inputs.mjs"
 import { parseScripts } from "../scripts/scripts.mjs"
 import { providerFixture } from "../scripts/provider-fixture.mjs"
 import { monitorCell } from "../scripts/scenarios.mjs"
@@ -141,4 +142,21 @@ test("recording and graph inputs include the shipped native runtime and every ma
     assert(readFileSync(root + file).length > 0, `Shipped native input is empty: ${file}`)
   }
   assert.equal(new Set(inputs).size, inputs.length, "Native inputs must remain deduplicated")
+})
+
+test("source inputs are the tracked files: an untracked stray never enters the row", () => {
+  const root = fileURLToPath(new URL("../../../", import.meta.url))
+  const before = runtimeInputs()
+  const sample = before.find((file) => file.includes("/src/"))!
+  const stray = root + sample.slice(0, sample.lastIndexOf("/") + 1) + `zz-stray-${process.pid}.ts`
+  writeFileSync(stray, "export {}\n")
+  try {
+    assert.deepEqual(runtimeInputs(), before)
+    assert.deepEqual(tracked(stray), [], "an absent-from-index path lists nothing")
+  } finally {
+    rmSync(stray, { force: true })
+  }
+  const indexed = new Set(execFileSync("git", ["ls-files", "-z"], { cwd: root, maxBuffer: 1 << 28 }).toString().split("\0"))
+  for (const file of before) assert(indexed.has(file), `input ${file} is not a tracked file`)
+  assert.deepEqual(before, [...before].sort(), "inputs stay sorted")
 })
