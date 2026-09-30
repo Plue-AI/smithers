@@ -33,6 +33,7 @@ const suite = Smithers.NodeTest({
     Smithers.file("//flows/test/release-operations.test.ts"),
     Smithers.file("//flows/test/publication.test.ts"),
     Smithers.file("//flows/test/review-flow.test.ts"),
+    Smithers.file("//flows/test/registration-calibration.test.ts"),
     Smithers.file("//flows/test/host-jev-routing.test.ts"),
     Smithers.file("//flows/test/workflows.test.ts"),
     Smithers.file("//flows/test/rollout.test.ts"),
@@ -42,6 +43,8 @@ const suite = Smithers.NodeTest({
   ]),
   srcs: [
     sources,
+    Smithers.file("//flows/register-repository/calibration/corpus.json"),
+    Smithers.file("//flows/register-repository/calibration/fit.json"),
     Smithers.file("//flows/test/fixtures/notes-calendar.ics"),
     Smithers.file("//flows/test/fixtures/notes-marketing.md"),
     Smithers.file("//flows/test/fixtures/telegram-getme.json"),
