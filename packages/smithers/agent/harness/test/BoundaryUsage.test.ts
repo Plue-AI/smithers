@@ -24,7 +24,9 @@ describe("paidUsage", () => {
   })
 
   it("sums every metered reading and skips the unmetered ones", () => {
-    expect(paidUsage([{ inputTokens: 90, outputTokens: 10 }])).toEqual([{ usage: { inputTokens: 90, outputTokens: 10 } }])
+    expect(paidUsage([{ inputTokens: 90, outputTokens: 10 }])).toEqual([{
+      usage: { inputTokens: 90, outputTokens: 10 }
+    }])
     expect(paidUsage([undefined, { inputTokens: 90, outputTokens: 10 }, { inputTokens: 5, outputTokens: 1 }]))
       .toEqual([{ usage: { inputTokens: 95, outputTokens: 11 } }])
   })

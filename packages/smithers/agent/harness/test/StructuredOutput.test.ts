@@ -184,7 +184,7 @@ describe("StructuredOutput.decode completion values", () => {
       value
     )))
 
-  it.each(["12", "true", "null", '\"hello\"', "", " 12 ", 12, true, false, null])(
+  it.each(["12", "true", "null", "\"hello\"", "", " 12 ", 12, true, false, null])(
     "preserves the completion's original type and contents (%j)",
     (value) => {
       const schema = Schema.Union([Schema.String, Schema.Number, Schema.Boolean, Schema.Null])
@@ -193,7 +193,7 @@ describe("StructuredOutput.decode completion values", () => {
     }
   )
 
-  it.each(["", "12", '\"x\"'])("reports a string refinement on the original value (%j)", (value) => {
+  it.each(["", "12", "\"x\""])("reports a string refinement on the original value (%j)", (value) => {
     const result = decodeValue(Schema.String.check(Schema.isMinLength(4)), value)
     const failure = result._tag === "Failure" ? result.failure : undefined
     expect(failure?.code).toBe("schema_mismatch")
@@ -202,15 +202,18 @@ describe("StructuredOutput.decode completion values", () => {
     ])
   })
 
-  it.each([12, true, false, null, [], {}])("never renders a nonstring completion into an accepted string (%j)", (value) => {
-    const result = decodeValue(Schema.String, value)
-    const failure = result._tag === "Failure" ? result.failure : undefined
-    expect(failure?.code).toBe("schema_mismatch")
-    expect(failure?.issues[0]).toMatchObject({ code: "invalid_type", path: "", message: "Expected string" })
-  })
+  it.each([12, true, false, null, [], {}])(
+    "never renders a nonstring completion into an accepted string (%j)",
+    (value) => {
+      const result = decodeValue(Schema.String, value)
+      const failure = result._tag === "Failure" ? result.failure : undefined
+      expect(failure?.code).toBe("schema_mismatch")
+      expect(failure?.issues[0]).toMatchObject({ code: "invalid_type", path: "", message: "Expected string" })
+    }
+  )
 
   it("retains text extraction for a string completion whose schema expects an object", () => {
-    const result = decodeValue(Review, 'Review: {"approved":true,"issues":[]}')
+    const result = decodeValue(Review, "Review: {\"approved\":true,\"issues\":[]}")
     expect(result._tag === "Success" ? result.success : undefined).toEqual({ approved: true, issues: [] })
   })
 

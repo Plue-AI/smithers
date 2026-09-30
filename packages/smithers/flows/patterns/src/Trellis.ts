@@ -350,7 +350,11 @@ export const validate = (plan: unknown, envelope: Envelope): ReadonlyArray<Trell
         visit(members[index], memberPath, depth + 1)
       } else {
         found.push(
-          new TrellisError({ code: "invalid_plan", path: memberPath, message: "A plan node must not be a missing member" })
+          new TrellisError({
+            code: "invalid_plan",
+            path: memberPath,
+            message: "A plan node must not be a missing member"
+          })
         )
       }
     }

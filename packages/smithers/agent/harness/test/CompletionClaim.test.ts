@@ -1035,8 +1035,8 @@ describe("a long claim, read one sentence at a time", () => {
             )
       }))
     const paidBy = async (whole: Evaluator.Usage | undefined, sentences: Evaluator.Usage | undefined) =>
-      ((await unjudged({ layer: failing(whole, sentences), calls: [probe], claim: truthful })).cause as
-        Evaluator.EvaluatorError).usage
+      ((await unjudged({ layer: failing(whole, sentences), calls: [probe], claim: truthful }))
+        .cause as Evaluator.EvaluatorError).usage
 
     const judge = { inputTokens: 300, outputTokens: 10, modelId: "judge" }
     const again = { inputTokens: 200, outputTokens: 4, modelId: "judge" }

@@ -234,9 +234,9 @@ describe("LlmLint.review context files", () => {
       const prompt = call.stdin
       expect(prompt).toContain("=== CHANGED FILES (under review) ===")
       expect(prompt).toContain("=== CONTEXT FILES (shared reference material) ===")
-      expect(prompt).toContain(`--- CONTEXT FILE: "docs/reference/a.md" ---\n${
-        JSON.stringify({ contents: "The `a` export returns 1.\n" })
-      }`)
+      expect(prompt).toContain(
+        `--- CONTEXT FILE: "docs/reference/a.md" ---\n${JSON.stringify({ contents: "The `a` export returns 1.\n" })}`
+      )
       expect(prompt.match(/--- CONTEXT FILE:/g)).toHaveLength(1)
       expect(prompt).not.toContain("excluded reference")
       expect(prompt).not.toContain("ignored reference")

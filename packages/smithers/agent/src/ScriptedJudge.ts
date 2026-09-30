@@ -80,9 +80,10 @@ const reportsUnrecordedWork = (evidence: {
     const before = claim.slice(0, index)
     const after = claim.slice(index + span.length)
     const invoked =
-      /\b(?:ran|run|runs|executed|execute|invoked)\s+(?:(?:the|a|same|exact|requested)\s+)*(?:(?:command|check)\s+)?$/i.test(
-        before
-      ) || /\b(?:verification|validation|command|check)\s*:\s*$/i.test(before)
+      /\b(?:ran|run|runs|executed|execute|invoked)\s+(?:(?:the|a|same|exact|requested)\s+)*(?:(?:command|check)\s+)?$/i
+        .test(
+          before
+        ) || /\b(?:verification|validation|command|check)\s*:\s*$/i.test(before)
     const result = /^\s*(?:passed|passes|failed|fails|exited|exits|succeeded)\b/i.test(after)
     const quotedOutput =
       /\b(?:output(?:\s+was)?|stdout|stderr|printed|prints|printing|with)\s*[:=]?\s*$/i.test(before) &&

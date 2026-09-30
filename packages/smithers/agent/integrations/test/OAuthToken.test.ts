@@ -420,7 +420,10 @@ const strictRotatingProvider = (options: { readonly holdFirst: number }) => {
       }
       const presented = form(request).get("refresh_token")
       if (presented !== current) {
-        return json(response, 400, { error: "invalid_grant", error_description: `Token ${presented} was already used.` })
+        return json(response, 400, {
+          error: "invalid_grant",
+          error_description: `Token ${presented} was already used.`
+        })
       }
       minted += 1
       current = `rt-${minted}`
