@@ -123,7 +123,7 @@ describe("a recorded run's box", () => {
 })
 
 describe("a flow launch with no box", () => {
-  test("fails visibly before any call, keeps Chat usable, and launches once a box is open", async () => {
+  test("asks for a box before any call, keeps Chat usable, and launches once a box is open", async () => {
     const store = await signedIn()
     const workflowCalls: Array<{ path: string; body: Record<string, unknown> }> = []
     let turns = 0
@@ -141,17 +141,23 @@ describe("a flow launch with no box", () => {
       }
     })
     const refusal = `Open a box of ${REPO} first: /box.open ${REPO}`
-    // The button door: the refusal lands on the shared toast stack as a settled failure.
+    // The button door: the box form for this repository, and no failure toast.
     controller.runCommand("flow.run", `review ${REPO}`)
-    await waitFor(() => [...store.collections.toasts.values()].some((toast) => toast.status === "failed"))
-    const toast = [...store.collections.toasts.values()].find((entry) => entry.status === "failed")!
-    expect(toast.detail).toContain(`Open a box of ${REPO} first`)
+    await waitFor(() => store.collections.cards.get("form-box.open") !== undefined)
+    const form = store.collections.cards.get("form-box.open")
+    expect(form).toMatchObject({ kind: "flow-form", payload: { flow: "box.open", via: "user" } })
+    if (form?.kind === "flow-form") expect(form.payload.draft).toEqual({ repo: REPO })
+    expect([...store.collections.toasts.values()].filter((toast) => toast.status === "failed")).toEqual([])
     expect(workflowCalls).toEqual([])
     expect([...store.collections.cards.values()].filter((card) => card.kind === "run-trace")).toEqual([])
-    // The slash door answers the same sentence.
+    // The slash door renders the same form.
     const outcome = await controller.commands.run("flow.run", `review ${REPO}`)
-    expect(outcome.status).toBe("failed")
-    if (outcome.status === "failed") expect(outcome.error).toBe(refusal)
+    expect(outcome).toMatchObject({ status: "executed", value: expect.stringContaining("rendered a form for") })
+    // The agent door keeps the refusal sentence.
+    const agent = await controller.commands.runForAgent("flow.run", `review ${REPO}`)
+    expect(agent.status).toBe("failed")
+    if (agent.status === "failed") expect(agent.error).toBe(refusal)
+    expect(workflowCalls).toEqual([])
     // Chat is untouched.
     controller.send("what should I do?")
     await settle()

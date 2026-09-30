@@ -46,7 +46,7 @@ export interface FlowInput {
   readonly "prs.land": { readonly number: number; readonly repo: string }
   readonly "prs.review": { readonly number: number; readonly verdict: "approve" | "request-changes" | "comment"; readonly repo: string }
 
-  readonly "box.open": { readonly bookmark?: string; readonly repo: string; readonly kind: "container" | "vm" | "desktop" }
+  readonly "box.open": { readonly bookmark?: string; readonly repo: string; readonly kind?: "container" | "vm" | "desktop" }
   readonly "box.egress": { readonly workspaceId: string; readonly cursor?: string }
   readonly "box.session.destroy": { readonly sessionId: string; readonly workspaceId: string }
   readonly "box.delete": { readonly workspaceId: string; readonly confirmName: string }

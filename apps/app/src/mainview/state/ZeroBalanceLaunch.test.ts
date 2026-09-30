@@ -241,10 +241,18 @@ test("a selected box uses its own provider at zero balance; a repository with no
   await waitFor(() => [...store.collections.cards.values()].some(card => card.kind === "run-trace" && card.status === "error"))
   expect(calls.some(url => url.includes("workflow/provision"))).toBe(true)
   expect(transcriptTexts(store)).not.toContain(EXHAUSTED_TEXT)
-  // Another repository has no box, so its run is refused before any call, and never for the balance.
+  // Another repository has no box: the human is asked to open one before any call, and never for the balance.
   calls.length = 0
   const other = await controller.commands.run("flow.run", "review-pr someone/else")
-  expect(other.status).toBe("failed")
-  if (other.status === "failed") expect(other.error).toBe("Open a box of someone/else first: /box.open someone/else")
+  expect(other).toMatchObject({ status: "executed", value: expect.stringContaining("rendered a form for") })
+  const form = store.collections.cards.get("form-box.open")
+  expect(form).toMatchObject({ kind: "flow-form", payload: { flow: "box.open", via: "user" } })
+  // An unlisted repository prefills the repository, never the bookmark.
+  if (form?.kind === "flow-form") expect(form.payload.draft).toEqual({ repo: "someone/else" })
+  // The agent door keeps the refusal.
+  const agent = await controller.commands.runForAgent("flow.run", "review-pr someone/else")
+  expect(agent.status).toBe("failed")
+  if (agent.status === "failed") expect(agent.error).toBe("Open a box of someone/else first: /box.open someone/else")
   expect(calls.some(url => url.includes("workflow/"))).toBe(false)
+  expect(transcriptTexts(store)).not.toContain(EXHAUSTED_TEXT)
 })
