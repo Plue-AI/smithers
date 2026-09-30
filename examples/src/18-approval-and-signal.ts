@@ -19,6 +19,7 @@ import { Node } from "@smthrs/plan"
 import { Registry } from "@smthrs/registry"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
+import * as Schedule from "effect/Schedule"
 import * as Schema from "effect/Schema"
 import { durableEngine } from "./durable-layer.ts"
 
@@ -327,14 +328,24 @@ export const main = (filename: string): Effect.Effect<Summary> =>
         )
 
         // -------------------------------------------------------- the run gates
-        // A real durable run that parks. `execute` returns the moment the park
-        // is durable; nothing is driving the run after that.
+        const observe = (runId: string, ready: (row: { readonly status: string }) => boolean) =>
+          control.list({ _tag: "runs", filters: { runId } }).pipe(
+            Effect.map((listed) => listed._tag === "runs" ? listed.items[0] : undefined),
+            Effect.repeat({
+              until: (row) => row !== undefined && ready(row),
+              schedule: Schedule.spaced(10)
+            }),
+            Effect.timeout(30_000)
+          )
+
+        // A real durable run that parks. `discard` returns once the run is
+        // admitted and scheduled, so `observe` waits for the park to be
+        // durable; nothing is driving the run after that.
         //
         // Drive one reaches the clearance step, which registers its own token,
         // finds it undecided, and parks the run under `approval`.
         yield* Ship.execute({ build: "v1.4.0" }, { executionId: shipRunId, discard: true })
-        const first = yield* control.list({ _tag: "runs", filters: { runId: shipRunId } })
-        const firstRow = first._tag === "runs" ? first.items[0] : undefined
+        const firstRow = yield* observe(shipRunId, (row) => row.status === "waiting-approval")
 
         // The decision, taken from outside the run against the token the STEP
         // registered. `approve` looks the token up rather than creating one, so
@@ -351,9 +362,8 @@ export const main = (filename: string): Effect.Effect<Summary> =>
         // Drive two: the same step runs again, reads the resolved token, and
         // lets the run through to its next wait instead of asking a second
         // time.
-        yield* Ship.execute({ build: "v1.4.0" }, { executionId: shipRunId, discard: true })
-        const listed = yield* control.list({ _tag: "runs", filters: { runId: shipRunId } })
-        const row = listed._tag === "runs" ? listed.items[0] : undefined
+        yield* Ship.resume(shipRunId)
+        const row = yield* observe(shipRunId, (candidate) => candidate.status === "parked")
 
         // The signal. It records a fact and resumes nothing.
         yield* control.signal({
@@ -371,6 +381,7 @@ export const main = (filename: string): Effect.Effect<Summary> =>
         // before the following signal wait can be activated.
         const deniedRunId = `${shipRunId}-denied`
         yield* Ship.execute({ build: "v1.4.1" }, { executionId: deniedRunId, discard: true })
+        yield* observe(deniedRunId, (row) => row.status === "waiting-approval")
         yield* control.deny({
           target: clearanceRequest(deniedRunId),
           scope: "once",

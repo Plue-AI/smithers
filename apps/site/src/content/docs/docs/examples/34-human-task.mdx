@@ -43,6 +43,7 @@ import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
+import * as Schedule from "effect/Schedule"
 import * as Schema from "effect/Schema"
 import { durableEngine } from "./durable-layer.ts"
 
@@ -73,25 +74,29 @@ export const tokenFor = (executionId: string, attempt: number): DurableDeferred.
  * A suspended run has a waiting row, and a human task declares its own park, so
  * the row carries `approval` and the token of the attempt that is waiting. The
  * token is opaque, so the attempt is recovered by asking which attempt's wait
- * point that token addresses.
+ * point that token addresses. `discard` returns once the run is admitted, so the
+ * read repeats until the run has parked on an attempt after `after`.
  */
 const parkedAttempt = (
   executionId: string,
-  attempts: number
+  attempts: number,
+  after: number
 ): Effect.Effect<number, never, DurableEngineState.DurableEngineState> =>
   Effect.gen(function*() {
     const state = yield* DurableEngineState.DurableEngineState
     const row = yield* state.waiting(executionId)
-    if (Option.isNone(row)) return yield* Effect.die(`the run "${executionId}" is not parked`)
+    if (Option.isNone(row)) return 0
     const { reason, token } = row.value
-    if (reason !== "approval" || token === null) {
-      return yield* Effect.die(`the run "${executionId}" parked under ${reason} rather than on an answer`)
-    }
+    if (reason !== "approval" || token === null) return 0
     for (let attempt = 1; attempt <= attempts; attempt++) {
       if (tokenFor(executionId, attempt) === token) return attempt
     }
     return yield* Effect.die(`the run "${executionId}" parked on a token no attempt of its question owns`)
-  })
+  }).pipe(
+    Effect.repeat({ until: (attempt) => attempt > after, schedule: Schedule.spaced(10) }),
+    Effect.timeout(30_000),
+    Effect.orDie
+  )
 
 /** What a recorded refusal looks like when it is read back off its step. */
 const Refusal = Schema.Struct({
@@ -159,7 +164,7 @@ export const main = (filename: string): Effect.Effect<Summary> =>
     yield* Effect.scoped(
       Effect.gen(function*() {
         yield* Release.execute({ build: "v1.4.0" }, { executionId, discard: true })
-        parkedOn.push(yield* parkedAttempt(executionId, 3))
+        parkedOn.push(yield* parkedAttempt(executionId, 3, 0))
       }).pipe(Effect.provide(engine("worker-a")))
     )
 
@@ -168,8 +173,8 @@ export const main = (filename: string): Effect.Effect<Summary> =>
     const refusals = yield* Effect.scoped(
       Effect.gen(function*() {
         yield* HumanTask.answer({ token: tokenFor(executionId, 1), value: "yes, ship it" })
-        yield* Release.execute({ build: "v1.4.0" }, { executionId, discard: true })
-        parkedOn.push(yield* parkedAttempt(executionId, 3))
+        yield* Release.resume(executionId)
+        parkedOn.push(yield* parkedAttempt(executionId, 3, 1))
         return yield* refusalsRecorded(executionId)
       }).pipe(Effect.provide(engine("worker-b")))
     )
