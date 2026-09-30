@@ -714,8 +714,10 @@ export class FlowRuns {
     const endedAt = Date.now()
     if (settled.kind === "done") {
       this.update(id, attempt, { answer: settled.answer, endedAt, message: undefined }, "done")
-    } else if (settled.kind === "failed") this.update(id, attempt, { message: settled.message, endedAt }, "fail")
-    else this.update(id, attempt, { endedAt, message: undefined }, "cancel")
+    } else if (settled.kind === "failed") {
+      const failure = Failures.remoteFlowFailure(settled.message)
+      this.update(id, attempt, { message: settled.message, failure, endedAt }, "fail")
+    } else this.update(id, attempt, { endedAt, message: undefined }, "cancel")
   }
   /** Supplies the input a run parked for, then plans it. */
   fill = (id: string, input: Record<string, unknown>): void => {

@@ -224,3 +224,18 @@ describe("identity", () => {
     expect(Failures.identity(deep)).not.toContain("bottom")
   })
 })
+
+it.each([
+  ["Check exited 7", "Check exited 7."],
+  [" Command exited 255. ", "Command exited 255."],
+  ["Check exited 1!", "Check exited 1."],
+  ["Check exited 0", "The flow failed."],
+  ["Check exited 256", "The flow failed."],
+  ["Check exited 9999", "The flow failed."],
+  ["Check exited 7: secret diagnostic", "The flow failed."],
+  ["Check exited 7\nsecret diagnostic", "The flow failed."],
+  ["\u001b[31mCheck exited 7", "The flow failed."],
+  [RAW, "The flow failed."]
+])("remote flow copy safely classifies %j", (message, expected) => {
+  expect(Failures.remoteFlowFailure(message!)).toBe(expected!)
+})

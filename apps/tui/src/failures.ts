@@ -335,3 +335,9 @@ const instructs = (error: unknown): boolean => {
  */
 export const onCard = (error: unknown, described: FailureCopy.Description): FailureCopy.Description =>
   instructs(error) ? { ...described, line: "" } : described
+
+/** Remote diagnostic text stays private; expose only a bounded command exit receipt. */
+export const remoteFlowFailure = (message: string): string => {
+  const exit = /^(Check|Command) exited ([1-9][0-9]{0,2})[.!]?$/.exec(message.trim())
+  return exit !== null && Number(exit[2]) <= 255 ? `${exit[1]} exited ${exit[2]}.` : "The flow failed."
+}

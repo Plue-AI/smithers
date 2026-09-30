@@ -704,29 +704,53 @@ test("undelivered steering is recovered before queued follow-ups when the origin
 })
 
 test.each([
-  { outcome: { kind: "failed", message: "Remote review refused" } satisfies Settled, status: "failed" },
+  {
+    outcome: { kind: "failed", message: "Check exited 7" } satisfies Settled,
+    status: "failed",
+    failure: "Check exited 7."
+  },
+  {
+    outcome: { kind: "failed", message: "Check exited 7: secret remote diagnostic" } satisfies Settled,
+    status: "failed",
+    failure: "The flow failed."
+  },
   { outcome: { kind: "cancelled" } satisfies Settled, status: "cancelled" }
-])("remote $status receipt settles the flow without manufacturing a chat completion", async ({ outcome, status }) => {
-  const { port, launch, remote, watches } = controlledFlow(Schema.Struct({}))
-  await mount({ flows: port })
-  await type("/flow review")
-  await enter()
-  await act(async () => {
-    launch.resolve("remote-review")
-    await setImmediate()
-  })
-  await waitFor(() => watches.length === 1)
-  await act(async () => {
-    remote.resolve(outcome)
-    await setImmediate()
-  })
-  await waitFor(() => records().some((record) => record.type === "flow" && record.run.status === status))
-  const last = records().filter((record) => record.type === "flow").at(-1)!
-  expect(last.run).toMatchObject({ status, runId: "remote-review" })
-  if (outcome.kind === "failed") expect(last.run.message).toBe("Remote review refused")
-  expect(last.run.answer).toBeUndefined()
-  expect(records().filter((record) => record.type === "outcome")).toEqual([])
-  await type("Chat after remote settlement")
-  await enter()
-  expect(turns[0]?.input.prompt).toBe("Chat after remote settlement")
-})
+])(
+  "remote $status receipt settles the flow without manufacturing a chat completion",
+  async ({ outcome, status, failure }) => {
+    const { port, launch, remote, watches } = controlledFlow(Schema.Struct({}))
+    await mount({ flows: port })
+    await type("/flow review")
+    await enter()
+    await act(async () => {
+      launch.resolve("remote-review")
+      await setImmediate()
+    })
+    await waitFor(() => watches.length === 1)
+    await act(async () => {
+      remote.resolve(outcome)
+      await setImmediate()
+    })
+    await waitFor(() => records().some((record) => record.type === "flow" && record.run.status === status))
+    const last = records().filter((record) => record.type === "flow").at(-1)!
+    expect(last.run).toMatchObject({ status, runId: "remote-review" })
+    if (outcome.kind === "failed") {
+      expect(last.run.message).toBe(outcome.message)
+      expect(last.run.failure).toBe(failure)
+      await waitFor(() => setup!.captureCharFrame().includes(failure!))
+      const frame = await draw()
+      expect(frame).toContain("✗ review")
+      expect(frame).toContain(failure!)
+      if (outcome.message.includes("secret")) expect(frame).not.toContain(outcome.message)
+      expect(frame.match(/review ·/g)).toHaveLength(1)
+    } else {
+      expect(last.run.failure).toBeUndefined()
+      expect(await draw()).not.toContain("The flow failed.")
+    }
+    expect(last.run.answer).toBeUndefined()
+    expect(records().filter((record) => record.type === "outcome")).toEqual([])
+    await type("Chat after remote settlement")
+    await enter()
+    expect(turns[0]?.input.prompt).toBe("Chat after remote settlement")
+  }
+)

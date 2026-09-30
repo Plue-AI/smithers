@@ -256,7 +256,11 @@ describe("flow runs", () => {
     await tick()
     failed.watches[0]!.done.resolve({ kind: "failed", message: "boom" })
     await tick()
-    expect(failed.runs.get("r1")).toMatchObject({ status: "failed", message: "boom" })
+    expect(failed.runs.get("r1")).toMatchObject({
+      status: "failed",
+      message: "boom",
+      failure: "The flow failed."
+    })
     expect(failed.runs.panel("r1").summary).toBe("failed: boom")
     expect(actions(failed.runs.get("r1"))).toEqual({ retry: true, continue: false, stop: false })
     expect(failed.runs.busy).toBe(false)
