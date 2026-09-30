@@ -1,4 +1,7 @@
-package postgresfixture
+// Package seed inserts product rows for tests through the canonical product
+// queries. It lives apart from postgresfixture so internal/db tests can use
+// the database fixture without an import cycle.
+package seed
 
 import (
 	"context"

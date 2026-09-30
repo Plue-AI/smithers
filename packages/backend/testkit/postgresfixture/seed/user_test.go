@@ -1,4 +1,4 @@
-package postgresfixture_test
+package seed_test
 
 import (
 	"testing"
@@ -8,11 +8,12 @@ import (
 
 	"github.com/smithersai/smithers/packages/backend/credits"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
+	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture/seed"
 )
 
 func TestCreateUserNormalizesOperatorOwner(t *testing.T) {
 	pool, _ := postgresfixture.NewProductDatabase(t)
-	id, err := postgresfixture.CreateUser(t.Context(), pool, " Alice ")
+	id, err := seed.CreateUser(t.Context(), pool, " Alice ")
 	require.NoError(t, err)
 	require.Positive(t, id)
 	ownerType, ownerID, err := (credits.Ledger{DB: pool}).ResolveOwner(t.Context(), "user:ALICE")
@@ -27,9 +28,9 @@ func TestCreateUserNormalizesOperatorOwner(t *testing.T) {
 
 func TestCreateUserDuplicateReturnsErrorWithoutAnotherUser(t *testing.T) {
 	pool, _ := postgresfixture.NewProductDatabase(t)
-	id, err := postgresfixture.CreateUser(t.Context(), pool, "Alice")
+	id, err := seed.CreateUser(t.Context(), pool, "Alice")
 	require.NoError(t, err)
-	duplicateID, err := postgresfixture.CreateUser(t.Context(), pool, "ALICE")
+	duplicateID, err := seed.CreateUser(t.Context(), pool, "ALICE")
 	var pgErr *pgconn.PgError
 	require.ErrorAs(t, err, &pgErr)
 	require.Equal(t, "23505", pgErr.Code)
