@@ -204,6 +204,18 @@ const openedRound = (runId: string) =>
     return yield* store.get(runId)
   })
 
+/**
+ * Joins the drive a detached start scheduled. Since #2932 `discard: true`
+ * answers once the engine durably admits the execution and drives it in the
+ * background; a background-poll resume joins that drive, or drains the run
+ * once more, and records no resume request.
+ */
+const joinDrive = (flow: Flow.Any, executionId: string) =>
+  Effect.gen(function*() {
+    const runtime = yield* FlowRuntime.FlowRuntime
+    yield* runtime.resume(flow, executionId, { poll: true })
+  })
+
 /** The value a settled poll answered with, and `undefined` while it has none. */
 const completedValue = (result: Option.Option<Flow.Result<unknown, unknown>>): unknown =>
   Option.isSome(result) && result.value._tag === "Complete" && Exit.isSuccess(result.value.exit)
@@ -800,7 +812,7 @@ describe("a child boundary is a real execution", () => {
         yield* GateParent.execute({ value: 1 }, {
           executionId: "gate-parent",
           discard: true
-        }).pipe(Effect.provide(wiring))
+        }).pipe(Effect.andThen(joinDrive(GateParent, "gate-parent")), Effect.provide(wiring))
         return {
           child: yield* store.get(childId),
           parent: yield* store.get("gate-parent"),
@@ -873,6 +885,7 @@ describe("the system wait actions park and wake durably", { timeout: 120_000 }, 
             executionId: "napping-run",
             discard: true
           })
+          yield* joinDrive(Napping, "napping-run")
 
           const parked = yield* store.get("napping-run")
           const waiting = yield* state.waiting("napping-run")
@@ -917,6 +930,7 @@ describe("the system wait actions park and wake durably", { timeout: 120_000 }, 
             executionId: "gated-run",
             discard: true
           })
+          yield* joinDrive(Gated, "gated-run")
 
           const parked = yield* store.get("gated-run")
           const waiting = yield* state.waiting("gated-run")
@@ -1305,11 +1319,15 @@ describe("live ownership races stay fenced", () => {
             )
           ])
 
+          // Since #2932 `discard: true` answers once round 0 is admitted, and the
+          // first incarnation drives every round afterwards in its
+          // registration's scope, so that registration stays open for the race.
+          const firstRegistration = yield* Layer.build(firstWiring)
           const rootFiber = yield* Effect.forkChild(
             CountTo.execute({ value: 0, target: 2 }, {
               executionId: "ownership-race",
               discard: true
-            }).pipe(Effect.provide(firstWiring)),
+            }).pipe(Effect.provide(firstRegistration)),
             { startImmediately: true }
           )
           yield* Deferred.await(started[0]!)
