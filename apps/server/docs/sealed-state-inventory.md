@@ -83,7 +83,16 @@ assets by `keep_assets`; original binding identities are checked again after
 upload. Root must serialize this short maintenance window against the normal
 deployment pipeline, because the Cloudflare upload API has no compare-and-swap
 in this tool. Restore refuses an intervening deployment and uploads the exact
-original bytes. The temporary route then ceases to exist. Temporary secret
+original bytes.
+
+Each upload first writes `prepared/apply-intent.json` or
+`prepared/restore-intent.json`. If Cloudflare accepts an upload but its
+response is lost, rerun the same command (or run `restore` after a lost
+`apply`). It adopts the live version, without uploading again, only when that
+version is the newest upload, carries the prepared `workers/message`, and matches
+the prepared entry, module digests and original bindings exactly. The receipt
+then records `"reconciled": true`. Any other live version is refused as an
+unrelated deployment. The temporary route then ceases to exist. Temporary secret
 bindings can be removed after restoration; their fixed expiry also disables
 the route even if restoration is delayed.
 

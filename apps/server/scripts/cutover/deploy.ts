@@ -1,6 +1,6 @@
 /** One-time operator tool. prepare is GET-only; apply/restore require a reviewed plan. */
 import { createHash } from "node:crypto"
-import { lstatSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
+import { existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { accountURL, api, scriptPath, validateBindings, type Settings } from "./cloudflare"
 import { target } from "./targets"
@@ -80,49 +80,99 @@ if (mode === "prepare") {
 } else {
   const plan = JSON.parse(readFileSync(resolve(folder, "plan.json"), "utf8")) as Plan
   if (plan.target !== target.name) throw new Error("Prepared target differs from selected Worker")
-  const deployment = await current()
-  if (mode === "apply") {
-    if (deployment.id !== plan.sourceDeployment || hash(stable(settings)) !== plan.settingsHash) throw new Error("Live deployment/settings drifted; prepare again")
-    const additions = JSON.parse(readFileSync(resolve(directory, "bindings.json"), "utf8")) as Record<string, string>
-    if (!(Date.parse(additions.SMITHERS_EXPORT_EXPIRES_AT!) > Date.now() + 900_000)) throw new Error("Export window has less than 15 minutes remaining")
-  } else {
-    const applied = JSON.parse(readFileSync(resolve(folder, "applied.json"), "utf8")) as { version: string }
-    if (deployment.versions[0]!.version_id !== applied.version) throw new Error("Live version changed after export; restore refused")
-  }
+  const exists = (file: string) => existsSync(resolve(folder, file))
   const original = JSON.parse(readFileSync(resolve(folder, "original-settings.json"), "utf8")) as Settings
   if (stable(validateBindings(settings)) !== stable(validateBindings(original))) throw new Error("Durable namespace identity changed")
-  const form = new FormData()
-  const metadata = readFileSync(resolve(folder, mode === "apply" ? "maintenance-metadata.json" : "original-metadata.json"))
-  if (hash(metadata) !== (mode === "apply" ? plan.maintenanceMetadataHash : plan.originalMetadataHash)) throw new Error("Prepared metadata digest mismatch")
-  form.set("metadata", new Blob([metadata], { type: "application/json" }))
-  for (const module of mode === "apply" ? plan.modules : plan.originalModules) {
-    const content = readFileSync(resolve(folder, module.file))
-    if (hash(content) !== module.sha256) throw new Error("Prepared module digest mismatch")
-    form.set(module.name, new Blob([content], { type: module.type }), module.name)
+  /** The exact prepared artifact one mode installs: its metadata bytes, entry and modules. */
+  const artifact = (which: "apply" | "restore") => {
+    const metadata = readFileSync(resolve(folder, which === "apply" ? "maintenance-metadata.json" : "original-metadata.json"))
+    if (hash(metadata) !== (which === "apply" ? plan.maintenanceMetadataHash : plan.originalMetadataHash)) throw new Error("Prepared metadata digest mismatch")
+    const annotations = (JSON.parse(metadata.toString()) as { annotations?: Record<string, string> }).annotations ?? {}
+    return { metadata, annotations, entry: which === "apply" ? "sealed-export-entry.js" : plan.entry, modules: which === "apply" ? plan.modules : plan.originalModules }
   }
-  const result = (await api<{ id?: string; deployment_id?: string; etag?: string }>(scriptPath + "?excludeScript=true&bindings_inherit=strict", { method: "PUT", body: form })).result
-  save(mode === "apply" ? "upload-result.json" : "restore-upload-result.json", JSON.stringify({ at: new Date().toISOString(), upload: result }))
-  const version = uploadedVersion(result)
-  // Record only the version identified by this upload, never a concurrently deployed version.
-  save(mode === "apply" ? "applied.json" : "restored.json", JSON.stringify({ at: new Date().toISOString(), version, upload: result }))
-  const after = await current()
-  if (after.versions[0]!.version_id !== version) throw new Error("Another version is live after upload; automatic restore is forbidden")
-  const content = await fetch(accountURL + scriptPath + "/content/v2", { redirect: "error", signal: AbortSignal.timeout(60_000),
-    headers: { authorization: `Bearer ${process.env.CLOUDFLARE_API_TOKEN}` } })
-  if (!content.ok || content.headers.get("cf-entrypoint") !== (mode === "apply" ? "sealed-export-entry.js" : plan.entry)) throw new Error("Uploaded entrypoint differs")
-  const actualModules = await content.formData(), expectedModules = mode === "apply" ? plan.modules : plan.originalModules
-  if ([...actualModules].length !== expectedModules.length) throw new Error("Uploaded module set differs")
-  for (const module of expectedModules) {
-    const part = actualModules.get(module.name)
-    if (!part || typeof part === "string" || hash(new Uint8Array(await part.arrayBuffer())) !== module.sha256) throw new Error("Uploaded content digest differs")
+  /** Proves the live version is exactly `which`'s prepared artifact with every original binding preserved. */
+  const verifyLive = async (which: "apply" | "restore", version: string) => {
+    const expected = artifact(which)
+    const after = await current()
+    if (after.versions[0]!.version_id !== version) throw new Error("Another version is live after upload; automatic restore is forbidden")
+    const content = await fetch(accountURL + scriptPath + "/content/v2", { redirect: "error", signal: AbortSignal.timeout(60_000),
+      headers: { authorization: `Bearer ${process.env.CLOUDFLARE_API_TOKEN}` } })
+    if (!content.ok || content.headers.get("cf-entrypoint") !== expected.entry) throw new Error("Uploaded entrypoint differs")
+    const actualModules = await content.formData()
+    if ([...actualModules].length !== expected.modules.length) throw new Error("Uploaded module set differs")
+    for (const module of expected.modules) {
+      const part = actualModules.get(module.name)
+      if (!part || typeof part === "string" || hash(new Uint8Array(await part.arrayBuffer())) !== module.sha256) throw new Error("Uploaded content digest differs")
+    }
+    const observed = (await api<Settings>(scriptPath + "/settings")).result
+    if (stable(validateBindings(observed)) !== stable(validateBindings(original))) throw new Error("Post-deploy Durable Object identity differs; inspect receipt")
+    const oldSecrets = original.bindings.filter(binding => binding.type === "secret_text").map(binding => binding.name)
+    if (!oldSecrets.every(name => observed.bindings.some(binding => binding.type === "secret_text" && binding.name === name))) throw new Error("Post-deploy secret binding missing")
+    const preserved = observed.bindings.filter(binding => !maintenanceNames.includes(binding.name as typeof maintenanceNames[number])).sort((a, b) => a.name.localeCompare(b.name))
+    if (stable(preserved) !== stable([...original.bindings].sort((a, b) => a.name.localeCompare(b.name)))) throw new Error("Post-deploy original binding differs")
+    if ((await current()).versions[0]!.version_id !== version) throw new Error("Another version intervened during verification")
+    return after.versions[0]!.version_id
   }
-  const observed = (await api<Settings>(scriptPath + "/settings")).result
-  if (stable(validateBindings(observed)) !== stable(validateBindings(original))) throw new Error("Post-deploy Durable Object identity differs; inspect receipt")
-  const oldSecrets = original.bindings.filter(binding => binding.type === "secret_text").map(binding => binding.name)
-  if (!oldSecrets.every(name => observed.bindings.some(binding => binding.type === "secret_text" && binding.name === name))) throw new Error("Post-deploy secret binding missing")
-  const preserved = observed.bindings.filter(binding => !maintenanceNames.includes(binding.name as typeof maintenanceNames[number])).sort((a, b) => a.name.localeCompare(b.name))
-  if (stable(preserved) !== stable([...original.bindings].sort((a, b) => a.name.localeCompare(b.name)))) throw new Error("Post-deploy original binding differs")
-  if ((await current()).versions[0]!.version_id !== version) throw new Error("Another version intervened during verification")
-  save(mode === "apply" ? "verified.json" : "restore-verified.json", JSON.stringify({ version: after.versions[0]!.version_id, originalBindingsPreserved: true }))
-  console.log(JSON.stringify({ [mode === "apply" ? "applied" : "restored"]: true, version: after.versions[0]!.version_id, durableBindingsPreserved: true, originalSecretsPreserved: true }))
+  /*
+   * An upload whose response was lost: its intent was recorded, but no receipt.
+   * Adopt the live version only when it is the newest upload (script-level
+   * content and settings describe the newest upload, not the deployed one),
+   * carries the prepared annotations, and is byte-for-byte the prepared
+   * artifact. Anything else is an unrelated deployment and is refused.
+   */
+  const reconcile = async (which: "apply" | "restore"): Promise<string> => {
+    const version = (await current()).versions[0]!.version_id
+    const newest = (await api<{ items: Array<{ id: string }> }>(scriptPath + "/versions?per_page=1")).result.items[0]?.id
+    if (newest !== version) throw new Error("Live version is not the newest upload; reconciliation refused")
+    // The message names the prepared source revision (apply) or is the original's own, possibly absent (restore); exact bytes are proven next.
+    const expected = artifact(which).annotations["workers/message"]
+    const live = ((await api<Settings>(scriptPath + "/settings")).result.annotations as Record<string, unknown> | undefined)?.["workers/message"]
+    if (live !== expected) throw new Error("Live version is not this prepared upload; reconciliation refused")
+    await verifyLive(which, version)
+    save(which === "apply" ? "applied.json" : "restored.json", JSON.stringify({ at: new Date().toISOString(), version, reconciled: true }))
+    return version
+  }
+  const receipt = mode === "apply" ? "applied.json" : "restored.json", intent = mode === "apply" ? "apply-intent.json" : "restore-intent.json"
+  if (exists(receipt)) throw new Error(`${receipt} already exists; nothing to ${mode}`)
+  const deployment = await current()
+  const live = deployment.versions[0]!.version_id
+  let fresh: boolean
+  if (mode === "apply") {
+    fresh = deployment.id === plan.sourceDeployment && hash(stable(settings)) === plan.settingsHash
+    if (!fresh && !exists(intent)) throw new Error("Live deployment/settings drifted; prepare again")
+  } else {
+    // An apply that lost its response is reconciled first; restore then acts from that exact version.
+    const applied = exists("applied.json") ? (JSON.parse(readFileSync(resolve(folder, "applied.json"), "utf8")) as { version: string }).version
+      : exists("apply-intent.json") ? await reconcile("apply") : undefined
+    if (applied === undefined) throw new Error("Nothing was applied; restore refused")
+    fresh = live === applied
+    if (!fresh && !exists(intent)) throw new Error("Live version changed after export; restore refused")
+  }
+  let version: string
+  if (fresh) {
+    if (mode === "apply") {
+      const additions = JSON.parse(readFileSync(resolve(directory, "bindings.json"), "utf8")) as Record<string, string>
+      if (!(Date.parse(additions.SMITHERS_EXPORT_EXPIRES_AT!) > Date.now() + 900_000)) throw new Error("Export window has less than 15 minutes remaining")
+    }
+    const { metadata, modules } = artifact(mode as "apply" | "restore")
+    const form = new FormData()
+    form.set("metadata", new Blob([metadata], { type: "application/json" }))
+    for (const module of modules) {
+      const content = readFileSync(resolve(folder, module.file))
+      if (hash(content) !== module.sha256) throw new Error("Prepared module digest mismatch")
+      form.set(module.name, new Blob([content], { type: module.type }), module.name)
+    }
+    // Durable before the mutation: a lost response leaves this intent for reconciliation, never a guess.
+    writeFileSync(resolve(folder, intent), JSON.stringify({ at: new Date().toISOString(), from: live }), { mode: 0o600 })
+    const result = (await api<{ id?: string; deployment_id?: string; etag?: string }>(scriptPath + "?excludeScript=true&bindings_inherit=strict", { method: "PUT", body: form })).result
+    save(mode === "apply" ? "upload-result.json" : "restore-upload-result.json", JSON.stringify({ at: new Date().toISOString(), upload: result }))
+    version = uploadedVersion(result)
+    // Record only the version identified by this upload, never a concurrently deployed version.
+    save(receipt, JSON.stringify({ at: new Date().toISOString(), version, upload: result }))
+    await verifyLive(mode as "apply" | "restore", version)
+  } else {
+    version = await reconcile(mode as "apply" | "restore")
+  }
+  save(mode === "apply" ? "verified.json" : "restore-verified.json", JSON.stringify({ version, originalBindingsPreserved: true }))
+  console.log(JSON.stringify({ [mode === "apply" ? "applied" : "restored"]: true, version, durableBindingsPreserved: true, originalSecretsPreserved: true }))
 }
