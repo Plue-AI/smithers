@@ -1,6 +1,7 @@
 /** Repository flows, release workflows, and the retained migration fixtures. */
 import { Smithers } from "@smthrs/targets"
 import codingProject from "../.smithers/coding-project.json" with { type: "json" }
+import workspacePackage from "../package.json" with { type: "json" }
 
 const pack = Smithers.NodeTest({
   runner: Smithers.testRunner([Smithers.file("//flows/pack.test.mjs")]),
@@ -214,8 +215,15 @@ const burndown = Smithers.NodeTest({
     Smithers.file("//flows/test/burndown-round.test.ts"),
     Smithers.file("//flows/test/burndown-selection.test.ts")
   ]),
-  srcs: [sources, scripts, Smithers.file("//pnpm-workspace.yaml")],
-  deps: [],
+  // The shipped-transform qualification invokes the deployment builder. It
+  // reads every workspace manifest and embeds the existing built-in prompts.
+  srcs: [
+    ...codingSources,
+    Smithers.file("//package.json"),
+    ...workspacePackage.workspaces.map((pattern) => Smithers.glob(`//${pattern}/package.json`)),
+    Smithers.file("//pnpm-workspace.yaml")
+  ],
+  deps: codingDependencies,
   cwd
 })
 // Existing policy integration uses actual JJ and the Node SQLite fixture.

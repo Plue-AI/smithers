@@ -1,9 +1,12 @@
 import assert from "node:assert/strict"
 import { spawnSync } from "node:child_process"
+import { createHash } from "node:crypto"
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
+import { fileURLToPath, pathToFileURL } from "node:url"
+import { bundle } from "../../coding/build.mjs"
 import { acceptanceReviewPrelude, pushedReceiptProgram, verifiedReceiptProgram } from "../acceptance-program.ts"
 
 const revision = "a".repeat(40)
@@ -35,7 +38,9 @@ const partial = {
   }]
 }
 
-async function fixture(t: test.TestContext) {
+const sourcePrograms = { acceptanceReviewPrelude, pushedReceiptProgram, verifiedReceiptProgram }
+
+async function fixture(t: test.TestContext, programs = sourcePrograms) {
   const root = await mkdtemp(join(tmpdir(), "acceptance-program-"))
   t.after(() => rm(root, { recursive: true, force: true }))
   const bin = join(root, "bin")
@@ -64,7 +69,7 @@ process.stdout.write(JSON.stringify(response));
   const program = `import { execFileSync } from 'node:child_process';
 const remaining = () => 60_000;
 const sha = ${JSON.stringify(revision)};
-${acceptanceReviewPrelude()}
+${programs.acceptanceReviewPrelude()}
 process.stdout.write(acceptancePrompt);
 saveAcceptance(process.env.REPORT);
 if (process.env.FAIL_AFTER_SAVE) throw new Error('later provider failure');
@@ -81,7 +86,7 @@ if (process.env.FAIL_AFTER_SAVE) throw new Error('later provider failure');
         "--experimental-strip-types",
         "--input-type=module",
         "-e",
-        pushedReceiptProgram(),
+        programs.pushedReceiptProgram(),
         target,
         cold ? "-" : path,
         JSON.stringify({ key: "retained", repo: complete.repo, commits: issues }),
@@ -98,7 +103,7 @@ if (process.env.FAIL_AFTER_SAVE) throw new Error('later provider failure');
       return spawnSync(process.execPath, [
         "--input-type=module",
         "-e",
-        verifiedReceiptProgram(),
+        programs.verifiedReceiptProgram(),
         `${path}.pushed`,
         JSON.stringify({ key: "retained", repo: complete.repo, commits: [{ issue: 3098, commit: original }] })
       ], { encoding: "utf8", timeout: 10_000 })
@@ -279,5 +284,67 @@ test("warm embedded verified probe survives standalone loss and refuses unverifi
   await rm(f.path)
   assert.equal(f.probe().status, 0)
   await writeFile(`${f.path}.pushed`, "{}")
+  assert.equal(f.probe().status, 1)
+})
+
+test("shipped host bundler preserves generated acceptance and landing validation", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "acceptance-transform-"))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const entry = join(root, "entry.ts")
+  const output = join(root, "compiled.mjs")
+  const source = fileURLToPath(new URL("../acceptance-program.ts", import.meta.url))
+  await writeFile(
+    entry,
+    `export { acceptanceReviewPrelude, pushedReceiptProgram, verifiedReceiptProgram } from ${JSON.stringify(source)};`
+  )
+  // Execute the deployment build itself, including its aliases and exact
+  // esbuild settings. A hand-written approximation does not qualify this gate.
+  await bundle(entry, output)
+  const programs: typeof sourcePrograms = await import(pathToFileURL(output).href)
+  // Include the actual deployment host graph without executing its entry. This
+  // detects helper renaming caused by binding collisions elsewhere in the host.
+  const host = fileURLToPath(new URL("../../coding/serve.ts", import.meta.url))
+  const hostEntry = join(root, "host-entry.ts")
+  const hostOutput = join(root, "host-compiled.mjs")
+  await writeFile(hostEntry, `import ${JSON.stringify(host)}; export * from ${JSON.stringify(source)};`)
+  await bundle(hostEntry, hostOutput)
+  const hostText = await readFile(hostOutput, "utf8")
+  for (
+    const name of ["validateAcceptance", "parseAcceptanceReview", "validateMemberAcceptance", "validateLandingReceipt"]
+  ) {
+    assert.match(hostText, new RegExp(`function ${name}\\(`))
+    assert.ok(hostText.includes("${" + name + ".toString()}"), `serialized helper binding changed: ${name}`)
+  }
+  console.log(JSON.stringify({
+    qualification: "burndown-shipped-validator-transform",
+    runtime: process.version,
+    validatorBundleSha256: createHash("sha256").update(await readFile(output)).digest("hex"),
+    actualHostGraphSha256: createHash("sha256").update(hostText).digest("hex"),
+    actualHostGraphBytes: Buffer.byteLength(hostText),
+    actualHostLaunched: false
+  }))
+  const f = await fixture(t, programs)
+  const valid = f.run()
+  assert.equal(valid.status, 0, valid.stderr)
+  assert.equal(f.pushed().status, 0)
+  assert.equal(f.probe().status, 0)
+  const retained = await readFile(`${f.path}.pushed`, "utf8")
+  for (
+    const report of [
+      "ACCEPTANCE {bad JSON}\nVERDICT: PASS",
+      `ACCEPTANCE ${JSON.stringify({ ...complete, revision: original })}\nVERDICT: PASS`,
+      `ACCEPTANCE ${JSON.stringify(complete)}\nVERDICT: FAIL`
+    ]
+  ) {
+    const malformed = f.run(report)
+    assert.notEqual(malformed.status, 0)
+    assert.match(malformed.stderr, /ACCEPTANCE_REVIEW_INVALID|ACCEPTANCE_INVALID|ACCEPTANCE_REVIEW_REJECTED/)
+    assert.equal(await readFile(`${f.path}.pushed`, "utf8"), retained)
+  }
+  const changed = f.pushed({ PUSHED_SHA: original })
+  assert.notEqual(changed.status, 0)
+  assert.match(changed.stderr, /PUSHED_RECEIPT_INVALID/)
+  assert.equal(await readFile(`${f.path}.pushed`, "utf8"), retained)
+  await writeFile(`${f.path}.pushed`, JSON.stringify({ ...JSON.parse(retained), repo: "wrong/repository" }))
   assert.equal(f.probe().status, 1)
 })

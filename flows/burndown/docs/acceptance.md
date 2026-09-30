@@ -25,3 +25,10 @@ One durable landing receipt records either confirmed landing or verified
 acceptance. A confirmed landing never permits closure. Verified receipts retain
 their acceptance evidence, so losing the separate acceptance file does not lose
 recovery. Older verified receipts remain readable.
+
+Generated validators are qualified through the existing coding host deployment
+bundler (`flows/coding/build.mjs`) and the native Node source runtime. The gate
+compiles the actual deployment host graph without launching it and checks its
+validator bindings. It executes generated review, push, and verified-replay
+programs from the validator bundle with valid and malformed receipts. It preserves fail-closed validation after that transform;
+custom minifiers and other bundlers are outside this qualification.
