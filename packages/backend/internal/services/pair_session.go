@@ -1025,6 +1025,12 @@ func (s *PairSessionService) ListLinks(ctx context.Context, sessionID string, ac
 }
 
 func (s *PairSessionService) RevokeLink(ctx context.Context, sessionID string, actorID int64, linkID string) error {
+	return s.withPairSessionMutation(ctx, sessionID, func(locked *PairSessionService) error {
+		return locked.revokeLink(ctx, sessionID, actorID, linkID)
+	})
+}
+
+func (s *PairSessionService) revokeLink(ctx context.Context, sessionID string, actorID int64, linkID string) error {
 	if _, err := s.requireOwner(ctx, sessionID, actorID); err != nil {
 		return err
 	}
@@ -1055,6 +1061,33 @@ type InviteResult struct {
 // is still joinable on a matching lower_email sign-in and the result reports
 // "email delivery unavailable" honestly — never a fake sent state.
 func (s *PairSessionService) CreateInvite(ctx context.Context, sessionID string, actorID int64, rawEmail, role string) (InviteResult, error) {
+	var result InviteResult
+	err := s.withPairSessionMutation(ctx, sessionID, func(locked *PairSessionService) error {
+		var err error
+		result, err = locked.recordEmailInvite(ctx, sessionID, actorID, rawEmail, role)
+		return err
+	})
+	if err != nil {
+		return InviteResult{}, err
+	}
+	// Deliver only after the invite commits, outside the session lock: a slow
+	// mail transport must not hold membership changes behind it.
+	lowerEmail := strings.ToLower(strings.TrimSpace(rawEmail))
+	if s.deliveryConfigured() {
+		if sendErr := s.sendInviteEmail(ctx, lowerEmail, sessionID, result.Token); sendErr != nil {
+			result.Delivered = false
+			result.DeliveryDetail = "email delivery failed; the invite is still joinable on sign-in"
+		} else {
+			result.Delivered = true
+		}
+	} else {
+		result.Delivered = false
+		result.DeliveryDetail = "email delivery unavailable"
+	}
+	return result, nil
+}
+
+func (s *PairSessionService) recordEmailInvite(ctx context.Context, sessionID string, actorID int64, rawEmail, role string) (InviteResult, error) {
 	if _, err := s.requireOwner(ctx, sessionID, actorID); err != nil {
 		return InviteResult{}, err
 	}
@@ -1093,20 +1126,7 @@ func (s *PairSessionService) CreateInvite(ctx context.Context, sessionID string,
 	}); err != nil {
 		return InviteResult{}, pkgerrors.Internal("whitelist invited email: " + err.Error())
 	}
-
-	result := InviteResult{Invite: invite, Token: token}
-	if s.deliveryConfigured() {
-		if sendErr := s.sendInviteEmail(ctx, lowerEmail, sessionID, token); sendErr != nil {
-			result.Delivered = false
-			result.DeliveryDetail = "email delivery failed; the invite is still joinable on sign-in"
-		} else {
-			result.Delivered = true
-		}
-	} else {
-		result.Delivered = false
-		result.DeliveryDetail = "email delivery unavailable"
-	}
-	return result, nil
+	return InviteResult{Invite: invite, Token: token}, nil
 }
 
 // githubUsernameRe accepts GitHub login syntax on the lowercased value:
@@ -1126,6 +1146,16 @@ var githubUsernameRe = regexp.MustCompile(`^[a-z0-9](?:-?[a-z0-9])*$`)
 // flavor of the decision #6 growth loop); a whitelist row for a suspended
 // account is inert (login is blocked upstream of the alpha gate).
 func (s *PairSessionService) CreateInviteByUsername(ctx context.Context, sessionID string, actorID int64, rawUsername, role string) (InviteResult, error) {
+	var result InviteResult
+	err := s.withPairSessionMutation(ctx, sessionID, func(locked *PairSessionService) error {
+		var err error
+		result, err = locked.createInviteByUsername(ctx, sessionID, actorID, rawUsername, role)
+		return err
+	})
+	return result, err
+}
+
+func (s *PairSessionService) createInviteByUsername(ctx context.Context, sessionID string, actorID int64, rawUsername, role string) (InviteResult, error) {
 	if _, err := s.requireOwner(ctx, sessionID, actorID); err != nil {
 		return InviteResult{}, err
 	}
@@ -1184,6 +1214,12 @@ func (s *PairSessionService) ListInvites(ctx context.Context, sessionID string, 
 }
 
 func (s *PairSessionService) RevokeInvite(ctx context.Context, sessionID string, actorID int64, rawEmail string) error {
+	return s.withPairSessionMutation(ctx, sessionID, func(locked *PairSessionService) error {
+		return locked.revokeInvite(ctx, sessionID, actorID, rawEmail)
+	})
+}
+
+func (s *PairSessionService) revokeInvite(ctx context.Context, sessionID string, actorID int64, rawEmail string) error {
 	if _, err := s.requireOwner(ctx, sessionID, actorID); err != nil {
 		return err
 	}
@@ -1198,6 +1234,12 @@ func (s *PairSessionService) RevokeInvite(ctx context.Context, sessionID string,
 }
 
 func (s *PairSessionService) RevokeInviteByUsername(ctx context.Context, sessionID string, actorID int64, rawUsername string) error {
+	return s.withPairSessionMutation(ctx, sessionID, func(locked *PairSessionService) error {
+		return locked.revokeInviteByUsername(ctx, sessionID, actorID, rawUsername)
+	})
+}
+
+func (s *PairSessionService) revokeInviteByUsername(ctx context.Context, sessionID string, actorID int64, rawUsername string) error {
 	if _, err := s.requireOwner(ctx, sessionID, actorID); err != nil {
 		return err
 	}
@@ -1390,6 +1432,16 @@ func pairExecutorKey(actorID int64, clientID string) string {
 // jump the queue. Returns Conflict when another client already holds the
 // (single) active slot or the prompt is not next in line.
 func (s *PairSessionService) Claim(ctx context.Context, sessionID string, actorID int64, promptID, clientID string, lease time.Duration) (db.PairPromptQueue, error) {
+	var result db.PairPromptQueue
+	err := s.withPairSessionMutation(ctx, sessionID, func(locked *PairSessionService) error {
+		var err error
+		result, err = locked.claim(ctx, sessionID, actorID, promptID, clientID, lease)
+		return err
+	})
+	return result, err
+}
+
+func (s *PairSessionService) claim(ctx context.Context, sessionID string, actorID int64, promptID, clientID string, lease time.Duration) (db.PairPromptQueue, error) {
 	if _, err := s.requireRole(ctx, sessionID, actorID, PairRoleEditor); err != nil {
 		return db.PairPromptQueue{}, err
 	}
@@ -1445,6 +1497,16 @@ func (s *PairSessionService) requireNextClaimable(ctx context.Context, sessionID
 // (the start-CAS). A failure means the claim was cancelled/taken over — the
 // caller must abort without dispatch.
 func (s *PairSessionService) Start(ctx context.Context, sessionID string, actorID int64, promptID, clientID, runID string) (db.PairPromptQueue, error) {
+	var result db.PairPromptQueue
+	err := s.withPairSessionMutation(ctx, sessionID, func(locked *PairSessionService) error {
+		var err error
+		result, err = locked.start(ctx, sessionID, actorID, promptID, clientID, runID)
+		return err
+	})
+	return result, err
+}
+
+func (s *PairSessionService) start(ctx context.Context, sessionID string, actorID int64, promptID, clientID, runID string) (db.PairPromptQueue, error) {
 	if _, err := s.requireRole(ctx, sessionID, actorID, PairRoleEditor); err != nil {
 		return db.PairPromptQueue{}, err
 	}
@@ -1466,6 +1528,16 @@ func (s *PairSessionService) Start(ctx context.Context, sessionID string, actorI
 // id): any other caller — including a co-editor replaying the visible client
 // id — gets Conflict, never a write.
 func (s *PairSessionService) Renew(ctx context.Context, sessionID string, actorID int64, promptID, clientID string, lease time.Duration) (db.PairPromptQueue, error) {
+	var result db.PairPromptQueue
+	err := s.withPairSessionMutation(ctx, sessionID, func(locked *PairSessionService) error {
+		var err error
+		result, err = locked.renew(ctx, sessionID, actorID, promptID, clientID, lease)
+		return err
+	})
+	return result, err
+}
+
+func (s *PairSessionService) renew(ctx context.Context, sessionID string, actorID int64, promptID, clientID string, lease time.Duration) (db.PairPromptQueue, error) {
 	if _, err := s.requireRole(ctx, sessionID, actorID, PairRoleEditor); err != nil {
 		return db.PairPromptQueue{}, err
 	}
@@ -1489,6 +1561,16 @@ func (s *PairSessionService) Renew(ctx context.Context, sessionID string, actorI
 // CAS to the authenticated user that claimed the row, so no other member can
 // settle a peer's running prompt by replaying its visible client id.
 func (s *PairSessionService) Finish(ctx context.Context, sessionID string, actorID int64, promptID, clientID, status string) (db.PairPromptQueue, error) {
+	var result db.PairPromptQueue
+	err := s.withPairSessionMutation(ctx, sessionID, func(locked *PairSessionService) error {
+		var err error
+		result, err = locked.finish(ctx, sessionID, actorID, promptID, clientID, status)
+		return err
+	})
+	return result, err
+}
+
+func (s *PairSessionService) finish(ctx context.Context, sessionID string, actorID int64, promptID, clientID, status string) (db.PairPromptQueue, error) {
 	if _, err := s.requireRole(ctx, sessionID, actorID, PairRoleEditor); err != nil {
 		return db.PairPromptQueue{}, err
 	}
@@ -1515,6 +1597,16 @@ func (s *PairSessionService) Finish(ctx context.Context, sessionID string, actor
 // Cancel enforces decision #3/#8: authors cancel their OWN queued prompts; the
 // owner cancels ANY queued/claimed prompt.
 func (s *PairSessionService) Cancel(ctx context.Context, sessionID string, actorID int64, promptID string) (db.PairPromptQueue, error) {
+	var result db.PairPromptQueue
+	err := s.withPairSessionMutation(ctx, sessionID, func(locked *PairSessionService) error {
+		var err error
+		result, err = locked.cancel(ctx, sessionID, actorID, promptID)
+		return err
+	})
+	return result, err
+}
+
+func (s *PairSessionService) cancel(ctx context.Context, sessionID string, actorID int64, promptID string) (db.PairPromptQueue, error) {
 	res, err := s.requireRole(ctx, sessionID, actorID, PairRoleViewer)
 	if err != nil {
 		return db.PairPromptQueue{}, err
@@ -1591,6 +1683,16 @@ func (s *PairSessionService) GetDraft(ctx context.Context, sessionID string, act
 // PutDraft is a version-gated write (editor+). A stale version is rejected with
 // Conflict rather than clobbering the buffer.
 func (s *PairSessionService) PutDraft(ctx context.Context, sessionID string, actorID int64, content string, version int64) (db.PairSessionDraft, error) {
+	var result db.PairSessionDraft
+	err := s.withPairSessionMutation(ctx, sessionID, func(locked *PairSessionService) error {
+		var err error
+		result, err = locked.putDraft(ctx, sessionID, actorID, content, version)
+		return err
+	})
+	return result, err
+}
+
+func (s *PairSessionService) putDraft(ctx context.Context, sessionID string, actorID int64, content string, version int64) (db.PairSessionDraft, error) {
 	if _, err := s.requireRole(ctx, sessionID, actorID, PairRoleEditor); err != nil {
 		return db.PairSessionDraft{}, err
 	}
