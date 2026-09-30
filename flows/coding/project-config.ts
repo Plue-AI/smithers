@@ -3,6 +3,7 @@ import { TokenWeights } from "@smthrs/agent/Budget"
 import { Effect, FileSystem, Path, Schema, Stream } from "effect"
 import { seatRefusal } from "../../packages/smithers/src/Providers.ts"
 import { PageSpec } from "../wiki/schema.ts"
+import { LocalLander } from "./landing-schema.ts"
 import type { MemoryOptions } from "./planning-memory.ts"
 import { Check } from "./schema.ts"
 import { separateWikiOutput } from "./wiki-output.ts"
@@ -29,12 +30,15 @@ const Project = Schema.Struct({
   ),
   reviewer: Schema.optionalKey(text),
   /** Role id to seat alias or `provider:model`, e.g. `"coding/implement": "luna"`. */
-  seats: Schema.optionalKey(Schema.Record(Schema.String.check(Schema.isPattern(/^[a-z0-9][a-z0-9/_-]{0,63}$/)), text))
+  seats: Schema.optionalKey(Schema.Record(Schema.String.check(Schema.isPattern(/^[a-z0-9][a-z0-9/_-]{0,63}$/)), text)),
+  /** How a host without a provisioned repository binding lands `coding/vibe`; a binding lands through the backend. */
+  landing: Schema.optionalKey(LocalLander)
 })
 export type ProjectConfig = Omit<MemoryOptions, "repositoryPath"> & {
   readonly limits?: typeof ProjectLimits.Type
   readonly reviewer?: string
   readonly seats?: Readonly<Record<string, string>>
+  readonly landing?: LocalLander
 }
 const invalid = (message: string, filename?: string) =>
   new Error(`Invalid SMITHERS_CODING_PROJECT${filename === undefined ? "" : ` at ${filename}`}: ${message}`)

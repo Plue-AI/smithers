@@ -126,6 +126,33 @@ test("repository coding project routes roles to seat aliases and refuses jev or 
   }
 })
 
+test("repository coding project selects a local lander and refuses any other landing", async () => {
+  const root = await mkdtemp(join(tmpdir(), "coding-landing-"))
+  try {
+    const platform = process.versions.bun
+      ? (await import("@effect/platform-bun/BunServices")).layer
+      : NodeServices.layer
+    const load = async (landing: unknown) => {
+      await writeFile(join(root, "project.json"), JSON.stringify({ ...valid(), wikiOutput: undefined, landing }))
+      return Effect.runPromise(Effect.result(loadProject(root, "project.json")).pipe(Effect.provide(platform)))
+    }
+    for (const landing of ["fast-forward", "pull-request"] as const) {
+      const loaded = await load(landing)
+      assert.equal(loaded._tag, "Success")
+      assert.equal(loaded._tag === "Success" && loaded.success?.landing, landing)
+    }
+    const absent = await load(undefined)
+    assert.equal(absent._tag === "Success" && absent.success?.landing, undefined, "the backend stays the default")
+    for (const landing of ["backend", "plue", "", { kind: "fast-forward" }, true]) {
+      const refused = await load(landing)
+      assert.equal(refused._tag, "Failure", JSON.stringify(landing))
+      assert.match(refused._tag === "Failure" ? String(refused.failure) : "", /fields must match/)
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test("default project lookup, explicit override and absent default use the injected Node/Bun filesystem", async (t) => {
   const directory = await mkdtemp(join(tmpdir(), "coding-project-config-"))
   t.after(() => rm(directory, { recursive: true, force: true }))

@@ -1,5 +1,9 @@
-/** Opinionated Effect adapter over Plue's landing API; no queue or ledger here. */
-import { Cause, Context, Effect, Layer, Redacted, Schema, Stream } from "effect"
+/**
+ * The one `Landing` a host binds: this opinionated Effect adapter over the
+ * backend's landing API (Plue composes it; no queue or ledger here), or a local
+ * lander from `local-landing.ts` for a host without a repository binding.
+ */
+import { Cause, Context, Effect, Layer, Option, Redacted, Schema, Stream } from "effect"
 import { FetchHttpClient, HttpClient, HttpClientRequest, type HttpClientResponse } from "effect/unstable/http"
 import {
   AppendObservation,
@@ -8,14 +12,20 @@ import {
   type AppendRequest,
   type Delivery,
   GitHubPull,
+  type LandingCandidate,
   type LandingIdentity,
   LaneReceipt,
   LaneSubmission,
+  type LocalLander,
+  type LocalPull,
+  type MergeOutcome,
+  type PullChecks,
   type QueuedAppend,
   StackState
 } from "./landing-schema.ts"
 import { ChangeId, Resolved, SourcePublication } from "./native-schema.ts"
 import { CodingError } from "./schema.ts"
+import type { VibeCleanup } from "./vibe-schema.ts"
 
 /** Trusted provisioned workspace binding, never workflow or model input. */
 export interface Options {
@@ -25,7 +35,9 @@ export interface Options {
   readonly workspaceId: string
   readonly token: Redacted.Redacted<string>
 }
-export class Landing extends Context.Service<Landing, {
+/** The backend adapter: landing numbers, HTTP receipts, the mythical stack. */
+export interface BackendLanding {
+  readonly kind: "backend"
   readonly binding: Pick<Options, "repositoryId" | "workspaceId">
   /** Current main, a cheap read for rechecks. */
   readonly readMain: Effect.Effect<string, CodingError>
@@ -55,7 +67,44 @@ export class Landing extends Context.Service<Landing, {
   readonly readStack?: Effect.Effect<boolean, CodingError>
   /** Hand a validated, cleaned result to the stack service; replaying the same body is idempotent. */
   readonly submitLane?: (submission: LaneSubmission) => Effect.Effect<LaneReceipt, CodingError>
-}>()("coding/Landing") {}
+}
+/**
+ * A lander over the working copy's own jj repository and `gh`: no backend, no
+ * retention receipt. `kind` picks the members `coding/LandVibe` runs; every
+ * method is one durable action's work and refuses with a typed `CodingError`.
+ */
+export interface LocalLanding {
+  readonly kind: LocalLander
+  /** Build the one candidate commit (the cleaned tip merged onto main); a conflict or an empty result is `evicted`. */
+  readonly prepare: (cleanup: VibeCleanup, requestId: string) => Effect.Effect<LandingCandidate, CodingError>
+  /** Move main to the candidate; main that moved since `prepare` is `evicted`. Answers the new main. */
+  readonly fastForward: (prepared: LandingCandidate) => Effect.Effect<string, CodingError>
+  /** Drop an evicted candidate from the repository. */
+  readonly abandon: (prepared: LandingCandidate) => Effect.Effect<void, CodingError>
+  /** Push the candidate as `smithers/landing-<request>` and open, or find again, its pull request. */
+  readonly openPull: (prepared: LandingCandidate, requestId: string) => Effect.Effect<LocalPull, CodingError>
+  /** One observation of the pull request's required checks. */
+  readonly observeChecks: (pull: LocalPull) => Effect.Effect<PullChecks, CodingError>
+  /** Squash-merge the candidate with the cleanup summary, or report why GitHub keeps the pull request open. */
+  readonly merge: (pull: LocalPull, prepared: LandingCandidate) => Effect.Effect<MergeOutcome, CodingError>
+}
+export class Landing extends Context.Service<Landing, BackendLanding | LocalLanding>()("coding/Landing") {}
+/** The backend adapter when this host has one; a local lander is absent here, so repository automation never lands through it. */
+export const backendLanding: Effect.Effect<Option.Option<BackendLanding>> = Effect.map(
+  Effect.serviceOption(Landing),
+  Option.filter((landing): landing is BackendLanding => landing.kind === "backend")
+)
+/** The bound landing, refused when it is not the backend adapter. */
+export const requireBackend = Effect.flatMap(
+  Landing,
+  (landing) =>
+    landing.kind === "backend" ? Effect.succeed(landing) : Effect.fail(
+      new CodingError({
+        code: "unavailable",
+        message: `This host lands through its ${landing.kind} lander, not the backend's landing API`
+      })
+    )
+)
 
 const invalid = (message: string) => new CodingError({ code: "invalid_receipt", message })
 const unavailable = (message: string) => new CodingError({ code: "unavailable", message })
@@ -344,7 +393,8 @@ export const make = (options: Options) =>
             : Effect.fail(invalid("The stack service acknowledged another source"))
         )
       )
-    return Landing.of({
+    const service: BackendLanding = {
+      kind: "backend",
       binding: { repositoryId: options.repositoryId, workspaceId: options.workspaceId },
       readMain,
       pinMain,
@@ -444,6 +494,7 @@ export const make = (options: Options) =>
           }
           return observation
         })
-    })
+    }
+    return service
   })
 export const layer = (options: Options) => Layer.effect(Landing)(make(options))

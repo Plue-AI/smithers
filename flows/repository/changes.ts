@@ -5,7 +5,7 @@ import { Node } from "@smthrs/plan"
 import { Effect, Layer, Option, Schema } from "effect"
 import * as Jj from "../../packages/smithers/flows/jj/src/Jj.ts"
 import { type ImmutableSourceOptions, withImmutableSource } from "../coding/immutable-source.ts"
-import { Landing } from "../coding/landing.ts"
+import { backendLanding, Landing } from "../coding/landing.ts"
 import { CreateSource, NativeCoding, NativeCodingError, requestIdFor, SourceCreation } from "../coding/native.ts"
 import { normalizePath } from "../coding/planning-sources.ts"
 import { CodingError } from "../coding/schema.ts"
@@ -161,7 +161,7 @@ const writable = (work: typeof Work.Type) =>
 export const selectChangeSource = (options: ImmutableSourceOptions, work: typeof Work.Type) =>
   Effect.gen(function*() {
     if (!writable(work)) return { work, blocked: "" }
-    const landing = yield* Effect.serviceOption(Landing)
+    const landing = yield* backendLanding
     if (Option.isNone(landing)) return { work, blocked: "Connect native landing before applying this draft" }
     const main = yield* landing.value.readMain
     yield* ensureMainSource(options, main).pipe(Effect.provideService(Landing, landing.value))
@@ -183,7 +183,7 @@ export const selectChangeSource = (options: ImmutableSourceOptions, work: typeof
 /** Rechecked before offering approval and again immediately before creation. */
 export const changeAdmission = (work: typeof Work.Type) =>
   Effect.gen(function*() {
-    const native = yield* NativeCoding, current = yield* native.read(), landing = yield* Effect.serviceOption(Landing)
+    const native = yield* NativeCoding, current = yield* native.read(), landing = yield* backendLanding
     if (
       !native.createSource || !current.capabilities?.includes("create-source/v1")
     ) return "Upgrade the workspace native helper before applying this draft"

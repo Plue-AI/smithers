@@ -171,7 +171,8 @@ export class CodingError extends Schema.TaggedError<CodingError>()("coding/Error
     "source_refused",
     "source_unavailable",
     "declined",
-    "stalled"
+    "stalled",
+    "evicted"
   ]),
   message: Text,
   route: Schema.optionalKey(Route)
@@ -189,6 +190,9 @@ Fault.register(
     fast_gate: "factory",
     stale_revision: "factory",
     stalled: "factory",
+    // A local lander evicted the candidate: it conflicts with main, its checks
+    // failed on the rebased tree, or main moved under it. The plan's to redo.
+    evicted: "factory",
     // Catch-alls: an exporter exit, a decode failure, a deadline, an execution
     // that died under the plan. None is the plan's, so none spends a replan.
     invalid_receipt: "infra",

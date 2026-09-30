@@ -1,8 +1,15 @@
 /** Private browser-safe values projected from ordinary finalization receipts. */
 import { Schema } from "effect"
-import { GitHubPull, LandingIdentity, LaneReceipt } from "./landing-schema.ts"
+import {
+  GitHubPull,
+  LandingCandidate,
+  LandingIdentity,
+  LaneReceipt,
+  LocalPull,
+  MergeOutcome
+} from "./landing-schema.ts"
 import { SourcePublication } from "./native-schema.ts"
-import { RequestResult, Result, Revision } from "./schema.ts"
+import { Receipt, RequestResult, Result, Revision } from "./schema.ts"
 
 export const VibeInput = Schema.Struct({ requestExecutionId: Schema.NonEmptyString.check(Schema.isMaxLength(1024)) })
 /** Original retention gates admission; cleaned retention gates append. */
@@ -31,6 +38,15 @@ export const VibeCleanup = Schema.Struct({
   head: Revision
 })
 export type VibeCleanup = typeof VibeCleanup.Type
+/** Why a cleanup is not the tip a lander may deliver, or undefined. */
+export const cleanedTipRefusal = (cleanup: VibeCleanup): string | undefined => {
+  const atoms = cleanup.result.changes.flatMap((change) => change.implementation.atoms)
+  return cleanup.result.status !== "validated" || cleanup.result.findings.length !== 0 ||
+      cleanup.head.treeId !== cleanup.admission.validatedHead.treeId ||
+      atoms.at(-1)?.commitId !== cleanup.head.commitId
+    ? "Landing requires the cleaned, revalidated native tip"
+    : undefined
+}
 /** One appended main commit verified from the native landing receipt. Shipped is separate. */
 export const VibeLanded = Schema.Struct({
   cleanup: VibeCleanup,
@@ -56,5 +72,27 @@ export const VibeSubmitted = Schema.Struct({
   lane: LaneReceipt
 })
 export type VibeSubmitted = typeof VibeSubmitted.Type
-export const VibeDelivered = Schema.Union([VibeLanded, VibeProposed, VibeSubmitted])
+/** A host without the backend fast-forwarded main to the one verified candidate commit. */
+export const VibeFastForwarded = Schema.Struct({
+  cleanup: VibeCleanup,
+  prepared: LandingCandidate,
+  mainCommitId: Revision.fields.commitId,
+  receipts: Schema.Array(Receipt)
+})
+export type VibeFastForwarded = typeof VibeFastForwarded.Type
+/** A host without the backend opened the candidate's GitHub pull request; GitHub merged it or keeps it open. */
+export const VibePullRequested = Schema.Struct({
+  cleanup: VibeCleanup,
+  prepared: LandingCandidate,
+  pullRequest: LocalPull,
+  merge: MergeOutcome
+})
+export type VibePullRequested = typeof VibePullRequested.Type
+export const VibeDelivered = Schema.Union([
+  VibeLanded,
+  VibeProposed,
+  VibeSubmitted,
+  VibeFastForwarded,
+  VibePullRequested
+])
 export type VibeDelivered = typeof VibeDelivered.Type

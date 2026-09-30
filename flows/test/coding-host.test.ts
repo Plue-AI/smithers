@@ -18,6 +18,7 @@ import { makeHostJudge } from "./fixtures/scripted-judge.ts"
 /** Configuration never calls the adapter; every method refuses if a layer is built. */
 const refused = Effect.die("host configuration must not reach the landing adapter")
 const landing = Layer.succeed(Landing, {
+  kind: "backend",
   binding: { repositoryId: 1, workspaceId: "22222222-2222-4222-8222-222222222222" },
   readMain: refused,
   pinMain: refused,
@@ -50,6 +51,24 @@ test("the repository default and a landing binding select the coding routes", as
     "coding/verify"
   ])
   assert.deepEqual(configuredCodingRoutes({ landing }), [])
+  // A host without the backend binding lands through the project's own lander.
+  for (const lander of ["fast-forward", "pull-request"] as const) {
+    assert.deepEqual(
+      configuredCodingRoutes({ planning: { ...planning, wiki: false, landing: lander } }).map((route) => route.name),
+      ["coding/request", "coding/vibe", "coding/verify"]
+    )
+  }
+})
+
+test("a project lander configures coding/vibe without a backend binding", () => {
+  const options = {
+    repositoryPath: "/unused",
+    gatewayId: "11111111-1111-4111-8111-111111111111",
+    implementationModel: "test:model",
+    credential: "operator-key",
+    planning: { implementation: "coding/implementation", checks: [], wiki: false, landing: "fast-forward" as const }
+  }
+  assert.doesNotThrow(() => layer({ ...platform, evaluator: makeHostJudge().layer }, options))
 })
 
 test("coding deployment requires an explicit model and owning gateway before opening services", () => {

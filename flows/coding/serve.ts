@@ -28,6 +28,22 @@ const parseSeats = (text: string): Readonly<Record<string, string>> => {
   return value as Readonly<Record<string, string>>
 }
 
+/** The host's process environment, selected by name for a child process. */
+const processEnvironment = [
+  "PATH",
+  "HOME",
+  "HTTP_PROXY",
+  "HTTPS_PROXY",
+  "NO_PROXY",
+  "http_proxy",
+  "https_proxy",
+  "no_proxy",
+  "SSL_CERT_FILE",
+  "NODE_EXTRA_CA_CERTS"
+]
+const selectEnvironment = (names: ReadonlyArray<string>): Readonly<Record<string, string>> =>
+  Object.fromEntries(names.flatMap((name) => process.env[name] === undefined ? [] : [[name, process.env[name]]]))
+
 const parsed = parseArgs({
   args: process.argv.slice(2),
   allowPositionals: true,
@@ -56,6 +72,7 @@ if (parsed.values.version) {
       "Optional SMITHERS_CODING_PLAN_MODEL, SMITHERS_CODING_POC_MODEL and SMITHERS_CODING_WIKI_MODEL select provider:model roles.\n" +
       "The project's \"seats\" map routes roles to aliases (sol, luna, opus, fable, qwen); SMITHERS_CODING_SEATS (JSON) overrides it.\n" +
       "The provisioned SMITHERS_JJHUB_TOKEN and SMITHERS_JJHUB_API_URL enable coding/vibe; the token is consumed before any tool starts.\n" +
+      "Without them, the project's \"landing\" (\"fast-forward\" or \"pull-request\") lands coding/vibe with jj, git and gh from PATH.\n" +
       "The provisioned SMITHERS_CACHE_URL and read-only SMITHERS_CACHE_TOKEN reach checks only.\n"
   )
 } else {
@@ -107,7 +124,22 @@ if (parsed.values.version) {
       ? {}
       : { seats: parseSeats(process.env.SMITHERS_CODING_SEATS) }),
     checkEnvironment: repositoryProcesses.environment,
-    cacheEnvironment: repositoryProcesses.cache
+    cacheEnvironment: repositoryProcesses.cache,
+    // A local lander's jj, git and gh also get the operator's jj identity and
+    // gh selection; never the reserved repository credential.
+    landingEnvironment: selectEnvironment([
+      ...processEnvironment,
+      "JJ_USER",
+      "JJ_EMAIL",
+      "JJ_CONFIG",
+      "XDG_CONFIG_HOME",
+      "GH_TOKEN",
+      "GITHUB_TOKEN",
+      "GH_HOST",
+      "GH_CONFIG_DIR",
+      "SSH_AUTH_SOCK",
+      "GIT_SSH_COMMAND"
+    ])
   }
   // The reserved repository credential leaves process.env here, before the
   // host, model seats or any approved shell tool can inherit it.

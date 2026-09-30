@@ -9,6 +9,7 @@ import { NativeCoding } from "./native.ts"
 import { sameCode } from "./planning.ts"
 import { CodingError, Result, Revision } from "./schema.ts"
 import { ReadVibeRequest, readVibeRequest, VibeEvidence, VibeInput } from "./vibe-evidence.ts"
+import { ReadLander } from "./vibe-lander.ts"
 import { publicationLayers, PublishVibeSource } from "./vibe-publication.ts"
 import { VibeAdmission } from "./vibe-schema.ts"
 export { VibeAdmission } from "./vibe-schema.ts"
@@ -50,6 +51,10 @@ export const VerifyVibe = Flow.make("coding/VerifyVibe", {
     )
   }
 })
+/**
+ * The backend lander retains the original source before any snapshot; a local
+ * lander has nothing to retain it with and verifies the request directly.
+ */
 export const AdmitVibe = Flow.make("coding/AdmitVibe", {
   payload: VibeInput,
   success: VibeAdmission,
@@ -57,8 +62,15 @@ export const AdmitVibe = Flow.make("coding/AdmitVibe", {
   body: (input) =>
     ReadVibeRequest.call(input).pipe(
       Node.bindPlanned((evidence) =>
-        PublishVibeSource.child({ source: evidence.originalSource, phase: "original" }).pipe(
-          Node.andThen(VerifyVibe.child(evidence))
+        ReadLander.call({ phase: "admission" }).pipe(
+          Node.branch({
+            if: (lander) => lander === "backend",
+            then: () =>
+              PublishVibeSource.child({ source: evidence.originalSource, phase: "original" }).pipe(
+                Node.andThen(VerifyVibe.child(evidence))
+              ),
+            else: () => VerifyVibe.child(evidence)
+          })
         )
       )
     )

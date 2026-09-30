@@ -5,12 +5,38 @@ import { Effect, Layer, ManagedRuntime } from "effect"
 import assert from "node:assert/strict"
 import { test } from "node:test"
 import * as Jj from "../../packages/smithers/flows/jj/src/Jj.ts"
+import { type BackendLanding, Landing, type LocalLanding } from "../coding/landing.ts"
 import { NativeCoding, NativeCodingError } from "../coding/native.ts"
 import { checkInputDigest, type Implementation, type Plan, type Revision } from "../coding/schema.ts"
 import { AdmitVibe, FenceVibeSource, fenceVibeSource, VerifyVibe } from "../coding/vibe-admission.ts"
 import { ReadVibeRequest, VibeEvidence } from "../coding/vibe-evidence.ts"
+import { landerLayer } from "../coding/vibe-lander.ts"
 import { publicationLayers, PublishVibeSource } from "../coding/vibe-publication.ts"
 import { policyLayers } from "../coding/workflow.ts"
+
+/** Admission reads only the lander's kind; every landing method refuses. */
+const unusedLanding = () => Effect.die("admission must not land")
+const backendLanding: BackendLanding = {
+  kind: "backend",
+  binding: { repositoryId: 42, workspaceId: "12345678-1234-1234-1234-123456789abc" },
+  readMain: unusedLanding(),
+  pinMain: unusedLanding(),
+  readDelivery: unusedLanding(),
+  prepare: unusedLanding,
+  create: unusedLanding,
+  queue: unusedLanding,
+  observe: unusedLanding,
+  openPull: unusedLanding
+}
+const localLanding: LocalLanding = {
+  kind: "fast-forward",
+  prepare: unusedLanding,
+  fastForward: unusedLanding,
+  abandon: unusedLanding,
+  openPull: unusedLanding,
+  observeChecks: unusedLanding,
+  merge: unusedLanding
+}
 
 const revision = (name: string, parent?: string): Revision => ({
   changeId: `jj-${name}`,
@@ -181,7 +207,16 @@ for (
   })
 }
 
-for (const mode of ["cloud", "local-only", "publication-unavailable", "original-missing", "source-moved"] as const) {
+for (
+  const mode of [
+    "cloud",
+    "local-only",
+    "local-lander",
+    "publication-unavailable",
+    "original-missing",
+    "source-moved"
+  ] as const
+) {
   test(`vibe retains original source before snapshot: ${mode}`, async (t) => {
     const events: string[] = []
     const original = {
@@ -194,6 +229,7 @@ for (const mode of ["cloud", "local-only", "publication-unavailable", "original-
     const input = { ...evidence, originalSource: original }
     const leaves = Layer.mergeAll(
       publicationLayers,
+      landerLayer,
       ReadVibeRequest.toLayer(() =>
         Effect.sync(() => {
           events.push("evidence")
@@ -202,6 +238,8 @@ for (const mode of ["cloud", "local-only", "publication-unavailable", "original-
       ),
       FenceVibeSource.toLayer(fenceVibeSource)
     ).pipe(Layer.provide([
+      // A host without the backend admits without retention: there is nothing to retain with.
+      Layer.succeed(Landing, mode === "local-lander" ? localLanding : backendLanding),
       Jj.layerNoop({
         snapshot: () =>
           Effect.sync(() => {
@@ -210,7 +248,7 @@ for (const mode of ["cloud", "local-only", "publication-unavailable", "original-
           })
       }),
       Layer.succeed(NativeCoding, {
-        sourcePublication: mode === "local-only" ? "local-only" : "cloud",
+        sourcePublication: mode === "local-only" || mode === "local-lander" ? "local-only" : "cloud",
         publishOriginalSource: (request) =>
           Effect.gen(function*() {
             events.push("publish")
@@ -267,7 +305,18 @@ for (const mode of ["cloud", "local-only", "publication-unavailable", "original-
       )
     )
     t.after(() => host.dispose())
-    if (mode === "cloud") {
+    if (mode === "local-lander") {
+      const result = await host.runPromise(
+        AdmitVibe.execute({ requestExecutionId: "request" }, { executionId: "local-admission" })
+      )
+      assert.equal(result.validatedHead.commitId, implementations[1]!.head.commitId)
+      assert.deepEqual(events, ["evidence", "snapshot", "read"], "a local lander never asks for cloud retention")
+      assert.deepEqual(
+        await host.runPromise(AdmitVibe.execute({ requestExecutionId: "request" }, { executionId: "local-admission" })),
+        result
+      )
+      assert.equal(events.length, 3)
+    } else if (mode === "cloud") {
       const result = await host.runPromise(
         AdmitVibe.execute({ requestExecutionId: "request" }, { executionId: "cloud-admission" })
       )

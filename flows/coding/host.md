@@ -29,7 +29,10 @@ The host reads `<root>/.smithers/coding-project.json` by default for
 `coding/request`; `SMITHERS_CODING_PROJECT` overrides that path. Cloud uses
 this host-side lookup, so the backend does not pass a project path. With the
 provisioned landing binding and reserved `SMITHERS_JJHUB_TOKEN` and
-`SMITHERS_JJHUB_API_URL`, the same launch also registers `coding/vibe`.
+`SMITHERS_JJHUB_API_URL`, the same launch also registers `coding/vibe`; so
+does a project `landing` of `fast-forward` or `pull-request` on a host without
+that binding, landing with `jj`, `git` and `gh` from `PATH`
+(see [finalization.md](finalization.md)).
 With a project it also registers `factory/Todo`, which routes each stack request (a TODO) on Jev before it is planned (see [todo.ts](todo.ts)), and `coding/verify`, which the mythical stack runs
 on rebased candidates, and `coding/wiki` when the project enables its wiki: the stack
 runs it after every fold to refresh and review the declared pages.

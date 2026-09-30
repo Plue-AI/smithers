@@ -5,12 +5,14 @@ import { Effect, Layer, ManagedRuntime } from "effect"
 import assert from "node:assert/strict"
 import { test } from "node:test"
 import type { AppendObservation, AppendPreparation } from "../coding/landing-schema.ts"
-import { Landing } from "../coding/landing.ts"
+import { type BackendLanding, Landing, type LocalLanding } from "../coding/landing.ts"
 import { NativeCoding, NativeCodingError } from "../coding/native.ts"
 import { checkInputDigest, CodingError, type Implementation, type Plan, type Revision } from "../coding/schema.ts"
+import { landerLayer } from "../coding/vibe-lander.ts"
 import { landingLayers, LandVibe } from "../coding/vibe-landing.ts"
 import { publicationLayers } from "../coding/vibe-publication.ts"
 import type { VibeCleanup } from "../coding/vibe-schema.ts"
+import { RunCheck } from "../coding/workflow.ts"
 
 /** Native ID patterns: 32 letters k..z for changes, 40 hex for commits and trees. */
 const ids: Record<string, [letter: string, hex: string]> = {
@@ -95,6 +97,8 @@ const cleanup: VibeCleanup = {
   }
 }
 const main = "5".repeat(40)
+/** The backend verifies through its own landing policy; no check runs in this host. */
+const noChecks = RunCheck.toLayer(() => Effect.die("the backend lander never runs checks here"))
 const preparation: AppendPreparation = {
   status: "prepared",
   target_bookmark: "main",
@@ -134,7 +138,8 @@ for (const mode of modes) {
   test(`vibe landing: ${mode}`, { timeout: 60_000 }, async (t) => {
     const calls: string[] = []
     let observations = 0
-    const fake: Landing["Service"] = {
+    const fake: BackendLanding = {
+      kind: "backend",
       binding: { repositoryId: 42, workspaceId: "11111111-1111-4111-a111-111111111111" },
       readStack: Effect.sync(() => {
         if (mode === "native-stack") calls.push("stack")
@@ -237,7 +242,7 @@ for (const mode of modes) {
       }
     })
     const host = ManagedRuntime.make(
-      Layer.mergeAll(landingLayers, publicationLayers, Poll.layer, Sleep.layer).pipe(
+      Layer.mergeAll(landingLayers, landerLayer, publicationLayers, noChecks, Poll.layer, Sleep.layer).pipe(
         Layer.provide(Layer.mergeAll(Layer.succeed(Landing, fake), native)),
         Layer.provideMerge(Action.layerImplementations),
         Layer.provideMerge(FlowEngine.layerMemory),
@@ -248,7 +253,7 @@ for (const mode of modes) {
     const execute = LandVibe.execute(cleanup, { executionId: "land" })
     if (mode === "pull-request") {
       const value = await host.runPromise(execute)
-      assert.ok("pullRequest" in value)
+      assert.ok("pullRequest" in value && "landing" in value)
       assert.equal(value.pullRequest.number, 41)
       assert.equal(value.landing.number, 7)
       assert.equal(value.cleanedSource.source.commitId, last.commitId)
@@ -266,7 +271,7 @@ for (const mode of modes) {
     } else if (mode === "valid" || mode === "native-stack" || mode === "pending-then-landed") {
       // The pending case waits two real durable rounds (10 s each); nothing re-queues.
       const value = await host.runPromise(execute)
-      assert.ok("mainCommitId" in value)
+      assert.ok("taskId" in value)
       assert.equal(value.mainCommitId, "9".repeat(40))
       assert.equal(value.landedCount, 3)
       assert.equal(value.taskId, 12)
@@ -308,7 +313,8 @@ test(
   async (t) => {
     const calls: string[] = []
     const unused = () => Effect.die("a stack repository neither appends nor opens its own pull request")
-    const fake: Landing["Service"] = {
+    const fake: BackendLanding = {
+      kind: "backend",
       binding: { repositoryId: 42, workspaceId: "11111111-1111-4111-a111-111111111111" },
       readMain: unused(),
       pinMain: unused(),
@@ -352,7 +358,7 @@ test(
         })
     })
     const host = ManagedRuntime.make(
-      Layer.mergeAll(landingLayers, publicationLayers, Poll.layer, Sleep.layer).pipe(
+      Layer.mergeAll(landingLayers, landerLayer, publicationLayers, noChecks, Poll.layer, Sleep.layer).pipe(
         Layer.provide(Layer.mergeAll(Layer.succeed(Landing, fake), native)),
         Layer.provideMerge(Action.layerImplementations),
         Layer.provideMerge(FlowEngine.layerMemory),
@@ -377,3 +383,212 @@ test(
     assert.equal(calls.length, count, "replay uses receipts; nothing is submitted twice")
   }
 )
+
+/** A host without the backend: the fake lander answers the members `LandVibe` runs, in order. */
+const localModes = [
+  "ff-landed",
+  "ff-checks-failed",
+  "ff-check-outage",
+  "ff-main-moved",
+  "ff-conflict",
+  "pr-merged",
+  "pr-open",
+  "pr-checks-failed",
+  "pr-pending-then-passed"
+] as const
+for (const mode of localModes) {
+  test(`vibe landing without the backend: ${mode}`, { timeout: 60_000 }, async (t) => {
+    const calls: string[] = []
+    let observations = 0
+    const mainRevision = {
+      changeId: "m".repeat(32),
+      commitId: main,
+      treeId: "6".repeat(40),
+      operationId: "0".repeat(128),
+      parentCommitIds: []
+    }
+    const candidate = {
+      changeId: "o".repeat(32),
+      commitId: "8".repeat(40),
+      treeId: last.treeId,
+      operationId: "1".repeat(128),
+      parentCommitIds: [main]
+    }
+    const prepared = {
+      lander: mode.startsWith("ff") ? "fast-forward" as const : "pull-request" as const,
+      main: mainRevision,
+      summary: cleanup.summary,
+      candidate
+    }
+    const pull = {
+      number: 41,
+      url: "https://github.com/acme/app/pull/41",
+      state: "open" as const,
+      headRef: "smithers/landing-x",
+      headSha: candidate.commitId,
+      baseRef: "main",
+      mergeCommitId: null
+    }
+    const fake: LocalLanding = {
+      kind: prepared.lander,
+      prepare: (input, requestId) =>
+        Effect.suspend(() => {
+          calls.push(`prepare:${requestId}`)
+          assert.equal(input.head.commitId, last.commitId)
+          return mode === "ff-conflict"
+            ? Effect.fail(new CodingError({ code: "evicted", message: "The cleaned tip conflicts with main: b.txt" }))
+            : Effect.succeed(prepared)
+        }),
+      fastForward: (input) =>
+        Effect.suspend(() => {
+          calls.push("fast-forward")
+          assert.deepEqual(input, prepared)
+          return mode === "ff-main-moved"
+            ? Effect.fail(new CodingError({ code: "evicted", message: "main moved after the candidate was verified" }))
+            : Effect.succeed(candidate.commitId)
+        }),
+      abandon: () =>
+        Effect.sync(() => {
+          calls.push("abandon")
+        }),
+      openPull: (input, requestId) =>
+        Effect.sync(() => {
+          calls.push(`pull:${requestId}`)
+          assert.deepEqual(input, prepared)
+          return pull
+        }),
+      observeChecks: () =>
+        Effect.sync(() => {
+          calls.push("checks")
+          observations++
+          if (mode === "pr-checks-failed") {
+            return { status: "failed" as const, checks: [{ name: "ci", bucket: "fail" }] }
+          }
+          if (mode === "pr-pending-then-passed" && observations === 1) {
+            return { status: "pending" as const, checks: [{ name: "ci", bucket: "pending" }] }
+          }
+          return { status: "passed" as const, checks: [{ name: "ci", bucket: "pass" }] }
+        }),
+      merge: (input) =>
+        Effect.sync(() => {
+          calls.push("merge")
+          assert.equal(input.number, 41)
+          return mode === "pr-open"
+            ? { status: "open" as const, reason: "review required" }
+            : { status: "merged" as const, mainCommitId: "9".repeat(40) }
+        })
+    }
+    const native = Layer.succeed(NativeCoding, {
+      sourcePublication: "local-only",
+      read: () => Effect.die("no reads"),
+      apply: () => Effect.die("no writes"),
+      publishOriginalSource: () => Effect.die("a local lander never retains a source with the backend")
+    })
+    // The project's checks run on the candidate through the ordinary check action.
+    const checks = RunCheck.toLayer(({ implementation, check }) =>
+      Effect.sync(() => {
+        calls.push(`check:${check.id}`)
+        assert.equal(implementation.change, "landing-candidate")
+        assert.deepEqual(implementation.head, candidate)
+        assert.deepEqual(implementation.parent, mainRevision)
+        assert.deepEqual(implementation.writes, ["first", "last"])
+        const passed = !mode.startsWith("ff-check") || check.id !== "fast"
+        return {
+          ...(mode === "ff-check-outage" && !passed ? { fault: "infra" as const } : {}),
+          checkId: check.id,
+          target: check.target,
+          tier: check.tier,
+          change: implementation.change,
+          commitId: implementation.head.commitId,
+          treeId: implementation.head.treeId,
+          inputDigest: checkInputDigest(implementation, check),
+          status: passed ? "passed" as const : "failed" as const,
+          evidence: "fixture",
+          findings: passed
+            ? []
+            : [{ owner: implementation.change, sourceCommitId: candidate.commitId, message: "fast failed" }]
+        }
+      })
+    )
+    const host = ManagedRuntime.make(
+      Layer.mergeAll(landingLayers, landerLayer, publicationLayers, checks, Poll.layer, Sleep.layer).pipe(
+        Layer.provide(Layer.mergeAll(Layer.succeed(Landing, fake), native)),
+        Layer.provideMerge(Action.layerImplementations),
+        Layer.provideMerge(FlowEngine.layerMemory),
+        Layer.provideMerge(NodeCrypto.layer)
+      )
+    )
+    t.after(() => host.dispose())
+    const execute = LandVibe.execute(cleanup, { executionId: `land-${mode}` })
+    const requestId = /^[0-9a-f-]{36}$/
+    if (mode === "ff-landed") {
+      const value = await host.runPromise(execute)
+      assert.ok("receipts" in value)
+      assert.equal(value.mainCommitId, candidate.commitId)
+      assert.deepEqual(value.prepared, prepared)
+      assert.deepEqual(value.receipts.map((receipt) => [receipt.checkId, receipt.status]), [["fast", "passed"]])
+      assert.match(calls[0]!, /^prepare:[0-9a-f-]{36}$/)
+      assert.deepEqual(calls.slice(1), ["check:fast", "fast-forward"])
+      const count = calls.length
+      assert.deepEqual(await host.runPromise(execute), value)
+      assert.equal(calls.length, count, "replay uses receipts; main is not moved twice")
+    } else if (mode === "pr-merged" || mode === "pr-open" || mode === "pr-pending-then-passed") {
+      // The pending case waits one real durable round (15 s); nothing is pushed or opened twice.
+      const value = await host.runPromise(execute)
+      assert.ok("pullRequest" in value && "merge" in value)
+      assert.equal(value.pullRequest.number, 41)
+      assert.deepEqual(value.prepared, prepared)
+      assert.deepEqual(
+        value.merge,
+        mode === "pr-open"
+          ? { status: "open", reason: "review required" }
+          : { status: "merged", mainCommitId: "9".repeat(40) }
+      )
+      assert.ok(requestId.test(calls[0]!.slice("prepare:".length)))
+      assert.equal(
+        calls[1]!.slice("pull:".length),
+        calls[0]!.slice("prepare:".length),
+        "one request identity names the branch"
+      )
+      assert.deepEqual(calls.slice(2), [
+        ...Array<string>(mode === "pr-pending-then-passed" ? 2 : 1).fill("checks"),
+        "merge"
+      ])
+      const count = calls.length
+      assert.deepEqual(await host.runPromise(execute), value)
+      assert.equal(calls.length, count, "replay uses receipts; nothing is merged twice")
+    } else if (mode === "ff-check-outage") {
+      // A check the host could not run says nothing about the candidate: no eviction, no fast-forward.
+      const error = await host.runPromise(Effect.flip(execute))
+      assert(error instanceof CodingError)
+      assert.equal(error.code, "check_infra")
+      assert.deepEqual(calls.map((call) => call.replace(/:[0-9a-f-]{36}$/, "")), ["prepare", "check:fast", "abandon"])
+    } else {
+      const error = await host.runPromise(Effect.flip(execute))
+      assert(error instanceof CodingError)
+      assert.equal(error.code, "evicted")
+      const rest = calls.map((call) => call.replace(/:[0-9a-f-]{36}$/, ""))
+      if (mode === "ff-conflict") {
+        assert.match(error.message, /conflicts with main: b\.txt/)
+        assert.deepEqual(rest, ["prepare"])
+      } else if (mode === "ff-checks-failed") {
+        assert.match(error.message, /failed required checks on main: fast/)
+        assert.deepEqual(
+          rest,
+          ["prepare", "check:fast", "abandon"],
+          "an evicted candidate is dropped, never fast-forwarded"
+        )
+      } else if (mode === "ff-main-moved") {
+        assert.match(error.message, /main moved/)
+        assert.deepEqual(rest, ["prepare", "check:fast", "fast-forward", "abandon"])
+      } else {
+        assert.match(error.message, /Pull request #41 failed required checks: ci/)
+        assert.deepEqual(
+          rest,
+          ["prepare", "pull", "checks"],
+          "a failed pull request stays open for its author; nothing merges"
+        )
+      }
+    }
+  })
+}

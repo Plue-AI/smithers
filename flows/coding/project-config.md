@@ -54,6 +54,17 @@ a claim that review already passed. Page entries use the existing wiki
 (1024–92160, default 49152). A project with no adequate required checks still
 fails the existing planning/validation policy; the loader invents none.
 
+## Landing
+
+`landing` selects how `coding/vibe` lands on a host that has no provisioned
+repository binding: `"fast-forward"` runs the declared checks on the cleaned
+tip merged onto `main` as one commit and moves `main` to it, or evicts it with
+the reason; `"pull-request"` pushes that commit to `origin` as
+`smithers/landing-<request>`, opens its GitHub pull request with `gh`, waits
+for the required checks and squash-merges unless branch protection keeps it
+open. A host with the provisioned binding lands through the backend and
+ignores this key. See [finalization.md](finalization.md).
+
 ## Seats
 
 `seats` maps a role id to a seat alias (`sol`, `luna`, `opus`,

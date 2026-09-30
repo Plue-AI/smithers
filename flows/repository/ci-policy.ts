@@ -2,7 +2,7 @@
 import * as Digest from "@smthrs/core/Digest"
 import { Effect, Option, Schema } from "effect"
 import { SetupCheckSchema, SetupDraftSchema, storedSetupCandidate } from "../../packages/rpc/src/RepositorySetup.ts"
-import { Landing } from "../coding/landing.ts"
+import { backendLanding } from "../coding/landing.ts"
 import { CodingError } from "../coding/schema.ts"
 import { RepositoryRemote } from "./remote.ts"
 import { Check, Job } from "./schema.ts"
@@ -223,7 +223,7 @@ export const captureCiPolicy = (repo: string) =>
     const remote = yield* Effect.serviceOption(RepositoryRemote)
     // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion -- tsc needs it for inference
     if (Option.isNone(remote)) return { kind: "none" } as CiPolicy
-    const landing = yield* Effect.serviceOption(Landing)
+    const landing = yield* backendLanding
     const response = yield* remote.value.registrations.pipe(
       Effect.mapError((error) => error instanceof CodingError ? error : unavailable())
     )

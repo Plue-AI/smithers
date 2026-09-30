@@ -8,10 +8,13 @@ source-qualified receipt for the existing cards. Shipment is separate and not
 implemented. The existing request outcome stops at validated, changes-requested
 or blocked.
 
-The host registers `coding/vibe` only when both the prompt route's project
-configuration and a landing binding are present; it then advertises the
-`coding-vibe/v1` capability. Without a binding the workspace stays local-only
-and the descriptor is absent from the catalog.
+The host registers `coding/vibe` when the prompt route's project configuration
+is present together with a landing: the provisioned backend binding, or the
+project's own `landing` (`"fast-forward"` or `"pull-request"`) for a host
+without one; it then advertises the `coding-vibe/v1` capability. Without
+either, the workspace stays local-only and the descriptor is absent from the
+catalog. One `coding/Landing` is bound per host; `ReadLander` records which at
+admission and again at landing, so a restart never switches an in-flight run.
 
 ## Reuse the recorded request
 
@@ -267,6 +270,47 @@ payload's `writes` are the paths the rebased candidate changes on the tip, so
 an affected check selects their targets; each receipt's input digest binds
 them. The stack service keeps the receipts of the run that measured the
 current candidate on its item, where the stack view shows them.
+
+## Land without the backend
+
+A self-hosted host on plain git or GitHub declares `"landing"` in
+`.smithers/coding-project.json` (`local-landing.ts`). Its `coding/vibe` skips
+cloud retention on both sides, because there is no backend to retain with:
+`AdmitVibe` verifies the request directly, and `LandVibe` runs one of two
+member sets after cleanup. Both begin with `PrepareCandidate`: the cleaned tip
+merged onto the current `main` as ONE commit whose sole parent is main and
+whose message is the cleanup summary, built with `jj new`/`jj restore` from
+marked temporary commits that are abandoned again, without moving the working
+copy. This request's validated atoms must all lie on the tip's line after
+main. A merge conflict, or a tip that changes nothing, is a typed `evicted`
+refusal naming the paths, and nothing is left behind.
+
+`"fast-forward"`: every check the plan declared runs once on the candidate
+through the ordinary `RunCheck` action (`coding/verify` checks a rebased stack
+candidate the same way), bound to the candidate's exact commit and tree.
+`FastForward` moves `main` to the candidate with `jj bookmark set`, which
+refuses a sideways or backwards move, and answers `VibeFastForwarded` with the
+new main and the receipts. A failed required check, or a main that moved after
+the candidate was built, evicts: the candidate is abandoned and the run fails
+with `evicted` and the reason, for the worker to redo.
+
+`"pull-request"`: `OpenLocalPull` pushes the candidate unforced to
+`smithers/landing-<request>` on `origin` and opens its pull request with
+`gh pr create`, or finds it again by that branch (the idempotency key); a
+branch that moved off the candidate is refused, never pushed over. It needs a
+colocated Git repository and the operator's `gh auth login`.
+`AwaitVibePullChecks` polls `gh pr checks --required` in durable 15 second
+rounds for up to an hour; failed required checks evict (the pull request stays
+open for its author), pending ones after the last round are `unavailable`.
+`MergeLocalPull` then squash-merges with the summary and
+`--match-head-commit`; GitHub's branch protection decides, and a refused merge
+leaves the pull request open with GitHub's reason. `VibePullRequested` carries
+the candidate, the pull request and the merge outcome.
+
+The lander's `jj`, `git` and `gh` see only the selected environment
+(`landingEnvironment`: the check environment plus the jj identity and `gh`
+selection variables), never the reserved repository credential. The repository
+automation jobs land only through the backend adapter and see no local lander.
 
 ## Separate product states
 

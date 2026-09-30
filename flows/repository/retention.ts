@@ -3,7 +3,7 @@ import * as Digest from "@smthrs/core/Digest"
 import { FlowRuntime } from "@smthrs/flow"
 import { Effect, Option, Schema } from "effect"
 import { type ImmutableSourceOptions, runSourceProcess } from "../coding/immutable-source.ts"
-import { Landing } from "../coding/landing.ts"
+import { requireBackend } from "../coding/landing.ts"
 import { NativeCoding, NativeCodingError, type NativeRevision, requestIdFor } from "../coding/native.ts"
 import { CodingError } from "../coding/schema.ts"
 import { sourceEvent } from "./events.ts"
@@ -164,7 +164,7 @@ export const ensureSource = (
  * Every retained/imported source is rechecked against current main before use. */
 export const ensureMainSource = (options: ImmutableSourceOptions, expectedMain: string) =>
   Effect.gen(function*() {
-    const landing = yield* Landing, native = yield* NativeCoding
+    const landing = yield* requireBackend, native = yield* NativeCoding
     const checkMain = Effect.gen(function*() {
       if ((yield* landing.readMain) !== expectedMain) {
         return yield* new CodingError({

@@ -9,6 +9,7 @@ import { Interpreter } from "@smthrs/flow"
 import { Layer } from "effect"
 import { vibeAdmissionLayers } from "./vibe-admission.ts"
 import { cleanupLayers } from "./vibe-cleanup.ts"
+import { landerLayer } from "./vibe-lander.ts"
 import { landingLayers } from "./vibe-landing.ts"
 import Vibe from "./vibe/flow.ts"
 
@@ -20,5 +21,6 @@ export const vibeRegistration = Layer.mergeAll(
   Interpreter.layer(Vibe),
   vibeAdmissionLayers,
   cleanupLayers,
+  landerLayer,
   landingLayers
 )

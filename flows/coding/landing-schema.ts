@@ -105,3 +105,52 @@ export const LaneReceipt = Schema.Struct({
   source: CommitId
 })
 export type LaneReceipt = typeof LaneReceipt.Type
+/**
+ * Landing without the backend: `.smithers/coding-project.json` `landing`
+ * selects it for a host that has no provisioned repository binding.
+ */
+export const LocalLander = Schema.Literals(["pull-request", "fast-forward"])
+export type LocalLander = typeof LocalLander.Type
+/** Which lander a vibe run delivers through; recorded once per run. */
+export const Lander = Schema.Literals(["backend", ...LocalLander.literals])
+export type Lander = typeof Lander.Type
+/** The one candidate commit a local lander built: the cleaned tip merged onto main, with main as its sole parent. */
+const LandingRevision = Schema.Struct({
+  changeId: ChangeId,
+  commitId: CommitId,
+  treeId: CommitId,
+  operationId: Schema.NonEmptyString,
+  parentCommitIds: Schema.Array(CommitId)
+})
+export const LandingCandidate = Schema.Struct({
+  lander: LocalLander,
+  /** Main as the candidate was built on it. */
+  main: LandingRevision,
+  /** The candidate's commit message: the cleanup summary. */
+  summary: Schema.NonEmptyString.check(Schema.isMaxLength(16_384)),
+  candidate: LandingRevision
+})
+export type LandingCandidate = typeof LandingCandidate.Type
+/** GitHub's pull request for a candidate, keyed by its `smithers/landing-<request>` head branch. */
+export const LocalPull = Schema.Struct({
+  number: PositiveId,
+  url: Schema.String.check(Schema.isPattern(/^https:\/\/\S+$/), Schema.isMaxLength(2048)),
+  state: Schema.Literals(["open", "closed", "merged"]),
+  headRef: Schema.String.check(Schema.isMaxLength(255)),
+  headSha: CommitId,
+  baseRef: Schema.String.check(Schema.isMaxLength(255)),
+  mergeCommitId: Schema.NullOr(CommitId)
+})
+export type LocalPull = typeof LocalPull.Type
+/** One observation of a pull request's required checks (`gh pr checks --required`). */
+export const PullChecks = Schema.Struct({
+  status: Schema.Literals(["passed", "failed", "pending"]),
+  checks: Schema.Array(Schema.Struct({ name: Schema.String, bucket: Schema.String })).check(Schema.isMaxLength(256))
+})
+export type PullChecks = typeof PullChecks.Type
+/** GitHub merged the candidate, or keeps the pull request open and says why. */
+export const MergeOutcome = Schema.Union([
+  Schema.Struct({ status: Schema.Literal("merged"), mainCommitId: CommitId }),
+  Schema.Struct({ status: Schema.Literal("open"), reason: Schema.String.check(Schema.isMaxLength(2048)) })
+])
+export type MergeOutcome = typeof MergeOutcome.Type

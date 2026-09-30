@@ -13,7 +13,7 @@ import type { AddressInfo } from "node:net"
 import { test, type TestContext } from "node:test"
 import { initialSetup, setupCandidate } from "../../packages/rpc/src/RepositorySetup.ts"
 import { ModuleOwner } from "../../packages/smithers/src/internal/ModuleOwner.ts"
-import { Landing } from "../coding/landing.ts"
+import { type BackendLanding, Landing } from "../coding/landing.ts"
 import { NativeCoding } from "../coding/native.ts"
 import { CodingError } from "../coding/schema.ts"
 import { make, pinnedPolicy, RepositoryCheckReceipts, verifiedCheckStep } from "../repository/check-receipt.ts"
@@ -791,7 +791,8 @@ const plueRule = (policy = pinned) => (requestId: string, _count: number, body: 
   return stored(requestId, policy)
 }
 const gatewayId = "44444444-4444-4444-a444-444444444444"
-const landing = (calls: string[]): Landing["Service"] => ({
+const landing = (calls: string[]): BackendLanding => ({
+  kind: "backend",
   binding: { repositoryId: 3, workspaceId },
   readMain: Effect.sync(() => {
     calls.push("readMain")

@@ -44,6 +44,7 @@ import * as CodingFileSystem from "./filesystem.ts"
 import { atomFlows } from "./implementation/flow.ts"
 import { jevCheckDelegate, jevCheckLayers } from "./jev-check.ts"
 import type { Landing } from "./landing.ts"
+import * as LocalLanding from "./local-landing.ts"
 import { nativeActions, NativeCoding, nativeLayer, type NativeOptions } from "./native.ts"
 import { evidenceOnly } from "./planning-authority.ts"
 import { memoryLayer, type MemoryOptions } from "./planning-memory.ts"
@@ -93,6 +94,7 @@ export interface Options extends NativeOptions {
       readonly reviewer?: string
       readonly seats?: Readonly<Record<string, string>>
       readonly limits?: ProjectConfig["limits"]
+      readonly landing?: ProjectConfig["landing"]
     })
     | undefined
   readonly planningModel?: string | undefined
@@ -103,9 +105,12 @@ export interface Options extends NativeOptions {
   /**
    * Deployment-owned landing adapter over the reserved repository credential.
    * Repository automation uses it on its own; `coding/vibe` is registered only
-   * when `planning` configures the prompt route as well.
+   * when `planning` configures the prompt route as well. Without it, the
+   * project's `landing` selects a local lander (`local-landing.ts`).
    */
   readonly landing?: Layer.Layer<Landing> | undefined
+  /** What a local lander's `jj`, `git` and `gh` processes see; defaults to `checkEnvironment`. */
+  readonly landingEnvironment?: Readonly<Record<string, string>> | undefined
   readonly repositoryRemote?: Layer.Layer<RepositoryRemote> | undefined
   /**
    * Where this host keeps `control.db`, `engine.db` and their WAL companions.
@@ -121,7 +126,7 @@ export const configuredCodingRoutes = (
   options: Pick<Options, "planning" | "landing">
 ): ReadonlyArray<{ readonly name: CodingRoute; readonly capability: string }> => [
   ...(options.planning === undefined ? [] : [{ name: "coding/request" as const, capability: "coding-request/v1" }]),
-  ...(options.planning === undefined || options.landing === undefined
+  ...(options.planning === undefined || (options.landing === undefined && options.planning.landing === undefined)
     ? []
     : [{ name: "coding/vibe" as const, capability: "coding-vibe/v1" }]),
   // The mythical stack verifies rebased candidates with the same checks.
@@ -373,6 +378,14 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
             hostPolicy: reviewerPolicy!,
             evaluator
           }
+        // One Landing per host: the deployment's backend adapter, or the local
+        // lander the project declares for a host without a repository binding.
+        const landing = options.landing ?? (options.planning?.landing === undefined ? undefined : LocalLanding.layer({
+          kind: options.planning.landing,
+          repositoryPath: options.repositoryPath,
+          fs,
+          environment: options.landingEnvironment ?? options.checkEnvironment ?? {}
+        }))
         const repositoryBundle = yield* runningRepositoryPolicy
         const repositoryPolicy = Digest.digest(
           Digest.canonical({
@@ -431,9 +444,7 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
           pocModels,
           pocSource({ ...options, fs }),
           evidenceOnly(Layer.mergeAll(ReviewRequest.layer, DraftPlan.layer, SelectRepair.layer, ReviewPage.layer)),
-          ...(options.landing === undefined
-            ? []
-            : [vibeRegistration.pipe(Layer.provide(options.landing)), cleanupModels])
+          ...(landing === undefined ? [] : [vibeRegistration.pipe(Layer.provide(landing)), cleanupModels])
         )
         // Jev, the decision-only model behind every enumerable answer this host
         // makes: the intake screen over each inbound event, the duplicates step,
@@ -515,12 +526,13 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
           jevCheckLayers(evaluator)
         )
           .pipe(
+            // A local lander reads through the native helper, so it is provided first.
+            (layers) => landing === undefined ? layers : layers.pipe(Layer.provideMerge(landing)),
             Layer.provideMerge(nativeLayer(options)),
             (layers) =>
               options.repositoryRemote === undefined
                 ? layers
-                : layers.pipe(Layer.provideMerge(options.repositoryRemote)),
-            (layers) => options.landing === undefined ? layers : layers.pipe(Layer.provideMerge(options.landing))
+                : layers.pipe(Layer.provideMerge(options.repositoryRemote))
           )
         // Loading verified declaration bytes reserves a sibling temporary module.
         // This is host startup work. Register the resulting flows only after that

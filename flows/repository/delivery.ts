@@ -3,7 +3,7 @@ import { Action, Flow, Interpreter, Poll, Sleep } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"
 import { Effect, Layer, Option, Schema } from "effect"
 import { AppendObservation, AppendPreparation, LandingIdentity, QueuedAppend } from "../coding/landing-schema.ts"
-import { Landing } from "../coding/landing.ts"
+import { backendLanding } from "../coding/landing.ts"
 import { NativeCoding, requestIdFor, SourceCreation } from "../coding/native.ts"
 import { CodingError, Revision } from "../coding/schema.ts"
 import { CheckReceipt, pinnedPolicy, RepositoryCheckReceipts, verifiedCheckStep } from "./check-receipt.ts"
@@ -15,7 +15,7 @@ const unavailable = (message: string) => new CodingError({ code: "unavailable", 
 const object = (value: unknown): Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}
 const service = Effect.gen(function*() {
-  const value = yield* Effect.serviceOption(Landing)
+  const value = yield* backendLanding
   return Option.isSome(value)
     ? value.value
     : yield* invalid("Connect the native landing adapter to submit this checked change")
