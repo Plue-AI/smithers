@@ -17,11 +17,23 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 )
 
-// Run separately from fake-library coverage because dlopen binds one process-wide library.
+// clientNativeChildEnv marks the child test process that loads the native
+// library; a process binds one library, and the fake-library coverage below
+// loads its own in the parent.
+const clientNativeChildEnv = "SMITHERS_REPOHOSTFFI_NATIVE_CHILD"
+
 func TestClientNativeBookmarkLookup(t *testing.T) {
 	library := os.Getenv("SMITHERS_FFI_LIBRARY_PATH")
 	if library == "" {
 		t.Skip("requires built native library")
+	}
+	if os.Getenv(clientNativeChildEnv) != "1" {
+		child := exec.Command(os.Args[0], "-test.run=^TestClientNativeBookmarkLookup$", "-test.count=1", "-test.v")
+		child.Env = append(os.Environ(), clientNativeChildEnv+"=1")
+		output, err := child.CombinedOutput()
+		require.NoError(t, err, "%s", output)
+		require.Contains(t, string(output), "--- PASS: TestClientNativeBookmarkLookup")
+		return
 	}
 	client := New(library)
 	require.NoError(t, client.Load())
@@ -84,6 +96,10 @@ func TestClient_Cov_LoadDecodeAndMethods(t *testing.T) {
 	client := New(clientCovBuildFakeLibrary(t))
 	require.NoError(t, client.Load())
 	require.NoError(t, client.Load(), "a second Load is a no-op")
+	require.NoError(t, New(client.libPath).Load(), "another client of the loaded library loads")
+	err = New(missingLib).Load()
+	require.EqualError(t, err, "load smithers ffi library "+missingLib+": "+client.libPath+" is already loaded",
+		"a different library cannot load over the bound one")
 
 	clientCovAssertArgumentOrder(t, client)
 

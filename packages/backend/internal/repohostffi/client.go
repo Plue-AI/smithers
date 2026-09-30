@@ -440,8 +440,11 @@ import (
 )
 
 // loadMu serializes Load. The C library handle and symbol table are process
-// globals written only there.
-var loadMu sync.Mutex
+// globals written only there; loadedPath names the library they came from.
+var (
+	loadMu     sync.Mutex
+	loadedPath string
+)
 
 type Client struct {
 	libPath string
@@ -483,9 +486,18 @@ func (c *Client) Load() error {
 	var errbuf [512]C.char
 	loadMu.Lock()
 	defer loadMu.Unlock()
+	// A process binds one library. Loading another path must not report
+	// success while every call still runs the first library.
+	if loadedPath != "" {
+		if loadedPath != c.libPath {
+			return fmt.Errorf("load smithers ffi library %s: %s is already loaded", c.libPath, loadedPath)
+		}
+		return nil
+	}
 	if rc := C.smithers_load_library(cpath, &errbuf[0], C.size_t(len(errbuf))); rc != 0 {
 		return fmt.Errorf("load smithers ffi library %s: %s", c.libPath, C.GoString(&errbuf[0]))
 	}
+	loadedPath = c.libPath
 	return nil
 }
 
