@@ -4,6 +4,9 @@
 
 ### Added
 
+- `ModelCatalog` knows Cerebras's `qwen-3.8-27b`: a 128K context window (the
+  paid tier; the free trial serves 64K) instead of the unknown-model floor.
+
 - `Evaluator.layerFromSeat` judges with an already resolved seat's `Model`;
   malformed, truncated and unavailable judgments fail closed.
 - `ModelRequest.serverTools`: provider-run tools a call may use, today

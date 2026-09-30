@@ -202,6 +202,93 @@ export const seatAliases: Readonly<Record<string, string>> = {
 export const decisionSeat = { alias: "jev", modelId: Evaluator.defaultModel } as const
 
 /**
+ * The relative cost of one seat against the others, read off the provider's
+ * list prices: `low`, `mid` or `high`.
+ *
+ * @category models
+ * @since 1.0.0
+ */
+export type CostTier = "low" | "mid" | "high"
+
+/**
+ * What one seat is: the display label, one strength line, and the seat's
+ * {@link CostTier}.
+ *
+ * @category models
+ * @since 1.0.0
+ */
+export interface SeatDescription {
+  readonly label: string
+  readonly strength: string
+  readonly cost: CostTier
+}
+
+/**
+ * The description of every seat an alias in {@link seatAliases} names, plus
+ * the key-backed seats of {@link defaultSeat}, keyed by `provider:modelId`.
+ * The tiers come from the committed rate
+ * card (`packages/backend/modelprice/prices.go`): `low` under $1 per million
+ * input tokens, `high` above $3, `mid` between; a seat with no committed
+ * price (Kimi) is tiered from its provider's list price.
+ *
+ * @category constants
+ * @since 1.0.0
+ */
+export const seatDescriptions: Readonly<Record<string, SeatDescription>> = {
+  [seatAliases["sol"]!]: { label: "GPT-6.1 Sol", strength: "Strong all-round coding and reasoning.", cost: "mid" },
+  [seatAliases["luna"]!]: {
+    label: "GPT-6 Luna",
+    strength: "Fast, low-cost mechanical edits and simple tool runs.",
+    cost: "low"
+  },
+  [seatAliases["opus"]!]: {
+    label: "Claude Opus 5.5",
+    strength: "Dependable planning, review and general work.",
+    cost: "high"
+  },
+  [seatAliases["sonnet"]!]: {
+    label: "Claude Sonnet 5.5",
+    strength: "Simple, clear changes at mid cost.",
+    cost: "mid"
+  },
+  [seatAliases["fable"]!]: {
+    label: "Claude Fable 5.1",
+    strength: "The strongest seat: complex, high-stakes work and panel merges.",
+    cost: "high"
+  },
+  [seatAliases["kimi"]!]: { label: "Kimi K3", strength: "Fast UI and visual work.", cost: "low" },
+  [seatAliases["qwen"]!]: {
+    label: "Qwen 3.8",
+    strength: "Very fast, low-cost drafts and UI iterations.",
+    cost: "low"
+  },
+  [defaultSeat.gemini]: {
+    label: "Gemini 2.5 Pro",
+    strength: "Long-context general coding and reasoning.",
+    cost: "mid"
+  },
+  [defaultSeat.openai]: {
+    label: "GPT-6 Sol",
+    strength: "Strong all-round coding and reasoning.",
+    cost: "mid"
+  },
+  [defaultSeat.openrouter]: {
+    label: "GPT-6 Sol",
+    strength: "Strong all-round coding and reasoning.",
+    cost: "mid"
+  }
+}
+
+/**
+ * The {@link SeatDescription} of a seat: an alias, or a `provider:modelId`
+ * the table names. `undefined` for a seat the table has not met.
+ *
+ * @category getters
+ * @since 1.0.0
+ */
+export const describeSeat = (seat: string): SeatDescription | undefined => seatDescriptions[expandSeat(seat)]
+
+/**
  * The `provider:modelId` an alias names, or the seat unchanged. Case and
  * surrounding space are ignored for aliases only.
  *

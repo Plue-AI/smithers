@@ -4,6 +4,11 @@
 
 ### Added
 
+- `Providers.seatDescriptions` and `Providers.describeSeat` give every seat
+  alias and key-backed default seat its display label, one strength line, and
+  a relative cost tier (`low`, `mid`, `high`) read off the committed rate
+  card (#2029).
+
 - A `claude-code` seat's `settle` event carries the Claude Code `sessionId`, and
   `SMITHERS_HIJACKABLE=1` keeps its session so `claude --resume <sessionId>`
   opens it. `claude auth status` is read once per process while signed in.

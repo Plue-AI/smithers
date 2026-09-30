@@ -26,23 +26,27 @@ export const delegateModels = {
 } as const
 export type DelegateModel = string
 
-const subscription: ReadonlyArray<Omit<Model, "provider">> = [
-  { seat: "openai:gpt-6.1-sol", label: "GPT-6.1 Sol" }
-]
+/** A seat with the display label the seat catalog in `Providers` gives it. */
+const described = (seat: string): Omit<Model, "provider"> => ({
+  seat,
+  label: Providers.describeSeat(seat)?.label ?? seat
+})
+
+const subscription: ReadonlyArray<Omit<Model, "provider">> = [described(Providers.seatAliases.sol!)]
 
 const byProvider: Readonly<Record<Providers.Candidate, ReadonlyArray<Omit<Model, "provider">>>> = {
   "codex-subscription": subscription,
   openai: subscription,
-  "kimi-k3": [{ seat: Providers.defaultSeat["kimi-k3"], label: "Kimi K3" }],
-  gemini: [{ seat: Providers.defaultSeat.gemini, label: "Gemini 2.5 Pro" }],
-  openrouter: [{ seat: Providers.defaultSeat.openrouter, label: "GPT-6 Sol" }],
-  cerebras: [{ seat: Providers.defaultSeat.cerebras, label: "Qwen 3.8" }]
+  "kimi-k3": [described(Providers.defaultSeat["kimi-k3"])],
+  gemini: [described(Providers.defaultSeat.gemini)],
+  openrouter: [described(Providers.defaultSeat.openrouter)],
+  cerebras: [described(Providers.defaultSeat.cerebras)]
 }
 
 const anthropic: ReadonlyArray<Omit<Model, "provider">> = [
-  { seat: "anthropic:claude-opus-5-5", label: "Claude Opus 5.5" },
-  { seat: "anthropic:claude-sonnet-5-5", label: "Claude Sonnet 5.5" },
-  { seat: "anthropic:claude-fable-5-1", label: "Claude Fable 5.1" }
+  described(Providers.seatAliases.opus!),
+  described(Providers.seatAliases.sonnet!),
+  described(Providers.seatAliases.fable!)
 ]
 
 const claudeCode: ReadonlyArray<Omit<Model, "provider">> = Providers.claudeCodeSeats.map((seat) => ({

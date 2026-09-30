@@ -259,6 +259,41 @@ describe("Providers seat aliases", () => {
   })
 })
 
+describe("Providers seat descriptions", () => {
+  it("describes every alias's seat and every key-backed default seat", () => {
+    const described = [...Object.values(Providers.seatAliases), ...Object.values(Providers.defaultSeat)].filter(
+      (seat) => !seat.startsWith("codex:")
+    )
+    for (const seat of described) {
+      const description = Providers.describeSeat(seat)
+      expect(description?.strength).toEqual(expect.any(String))
+      expect(description?.strength).not.toBe("")
+      expect(["low", "mid", "high"]).toContain(description?.cost)
+    }
+  })
+
+  it.each([
+    ["sol", "openai:gpt-6.1-sol", "GPT-6.1 Sol", "mid"],
+    ["luna", "openai:gpt-6-luna", "GPT-6 Luna", "low"],
+    ["opus", "anthropic:claude-opus-5-5", "Claude Opus 5.5", "high"],
+    ["sonnet", "anthropic:claude-sonnet-5-5", "Claude Sonnet 5.5", "mid"],
+    ["fable", "anthropic:claude-fable-5-1", "Claude Fable 5.1", "high"],
+    ["kimi", "moonshot:kimi-k3", "Kimi K3", "low"],
+    ["qwen", "cerebras:qwen-3.8-27b", "Qwen 3.8", "low"]
+  ])("describes %s on %s as %s at %s cost", (alias, seat, label, cost) => {
+    expect(Providers.describeSeat(seat)).toEqual(Providers.describeSeat(alias))
+    expect(Providers.describeSeat(alias)).toMatchObject({ label, cost })
+  })
+
+  it("describes a seat by alias regardless of case and space, and leaves unknown seats undescribed", () => {
+    expect(Providers.describeSeat(" QWEN ")?.label).toBe("Qwen 3.8")
+    expect(Providers.describeSeat("gemini:gemini-2.5-pro")?.label).toBe("Gemini 2.5 Pro")
+    expect(Providers.describeSeat("openrouter:openai/gpt-6-sol")?.label).toBe("GPT-6 Sol")
+    expect(Providers.describeSeat("codex:sol")).toBeUndefined()
+    expect(Providers.describeSeat("nowhere:model")).toBeUndefined()
+  })
+})
+
 describe("Providers.claudeCode", () => {
   const login = (overrides: Partial<Providers.ClaudeCodeLogin> = {}): Providers.ClaudeCodeLogin => ({
     executable: "/opt/bin/claude",

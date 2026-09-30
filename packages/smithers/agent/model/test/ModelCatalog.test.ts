@@ -56,11 +56,15 @@ describe("ModelCatalog.contextWindowTokensFor", () => {
   // floor, or long sessions on it compact early and discard context.
   it.each([
     ["gpt-6-sol", 400_000],
-    ["gpt-6.1-sol", 400_000],
+    ["gpt-6.1-sol", 1_050_000],
     ["gpt-6-luna", 400_000],
     ["gpt-5.6-sol", 400_000],
     ["claude-opus-5-5", 1_000_000],
-    ["claude-fable-5-1", 1_000_000]
+    ["claude-fable-5-1", 1_000_000],
+    // Cerebras's qwen seat: a real row, never the unknown floor.
+    // https://inference-docs.cerebras.ai/models/qwen-3.8-27b
+    ["qwen-3.8-27b", 128_000],
+    ["QWEN-3.8-27B", 128_000]
   ])("budgets the TUI seat %s at %i tokens", (model, tokens) => {
     expect(ModelCatalog.contextWindowTokensFor(model)).toBe(tokens)
   })

@@ -26,7 +26,11 @@ const contextWindows: ReadonlyArray<readonly [RegExp, number]> = [
   [/gpt-[56]/i, 400_000],
   [/gpt-4\.1/i, 1_000_000],
   [/gpt-4o/i, 128_000],
-  [/^o[134]/i, 200_000]
+  [/^o[134]/i, 200_000],
+  // Cerebras serves qwen-3.8-27b at 128K on paid tiers and 64K on the free
+  // trial; the paid window is what a keyed seat resolves.
+  // https://inference-docs.cerebras.ai/models/qwen-3.8-27b
+  [/^qwen-3\.8/i, 128_000]
 ]
 
 /**
