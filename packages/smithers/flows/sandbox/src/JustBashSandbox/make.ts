@@ -28,8 +28,8 @@ import type { JustBashExecOptions, JustBashLike } from "./JustBashLike.ts"
  */
 export interface JustBashSandboxOptions {
   /**
-   * Refused: the injected interpreter's network configuration is not visible to this provider. Setting it makes `make` throw rather than hand out a
-   * machine with a network it did not ask for.
+   * Restrictions refused: the injected interpreter's network configuration is not visible to this provider. `"none"` or an allowlist makes `make` throw rather than hand
+   * out a machine with a network it did not ask for; `"open"`, which restricts nothing, is accepted.
    */
   readonly network?: NetworkPolicy | undefined
   /**

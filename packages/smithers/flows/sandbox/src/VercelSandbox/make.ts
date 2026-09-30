@@ -50,7 +50,7 @@ export interface VercelSandboxOptions extends Credentials {
   readonly namePrefix?: string | undefined
   /**
    * The guest network, enforced by Vercel's egress firewall: `"none"` and
-   * an empty list are `deny-all`, `{ allow }` its domain allowlist. Default: Vercel's own,
+   * an empty list are `deny-all`, `{ allow }` its domain allowlist. Omitted or `"open"`: Vercel's own,
    * full internet access.
    */
   readonly network?: NetworkPolicy | undefined
@@ -95,7 +95,7 @@ const decodeFile = async (
 
 // Vercel documents `deny-all` as the mode that blocks DNS, so an empty
 // allowlist says it outright.
-const vendorPolicy = (policy: NetworkPolicy): "deny-all" | { allow: Array<string> } =>
+const vendorPolicy = (policy: Exclude<NetworkPolicy, "open">): "deny-all" | { allow: Array<string> } =>
   policy === "none" || policy.allow.length === 0 ? "deny-all" : { allow: [...policy.allow] }
 
 const memoryPerVcpuMib = 2048
@@ -173,9 +173,8 @@ const resolveCredentials = (
  * @since 0.1.0
  */
 export const make = (options: VercelSandboxOptions): Provider => {
-  const networkPolicy = options.network === undefined
-    ? undefined
-    : vendorPolicy(validateNetworkPolicy("vercel-sandbox", options.network))
+  const declared = options.network === undefined ? undefined : validateNetworkPolicy("vercel-sandbox", options.network)
+  const networkPolicy = declared === undefined || declared === "open" ? undefined : vendorPolicy(declared)
   const limits = options.limits === undefined ? {} : validateResourceLimits("vercel-sandbox", options.limits)
   if (limits.timeoutSecs !== undefined && options.timeoutMs !== undefined) {
     throw new TypeError("vercel-sandbox: timeoutMs and limits.timeoutSecs are exclusive; name one")

@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Security
+
+- `MicrosandboxSandbox` gives a machine no network unless `network` or `networkPolicy` names one: the vendor's own
+  default reaches the public internet (#3227). `Sandbox.NetworkPolicy` gains `"open"`, the explicit opt-in to a
+  provider's unrestricted network; providers that cannot restrict the network accept only `"open"`. A sticky machine
+  booted under another network, or recording none, is not reattached.
+
 ### Added
 
 - Every provider takes `network: "none" | { allow: string[] }` (`Sandbox.NetworkPolicy`) (#1788). `VercelSandbox`

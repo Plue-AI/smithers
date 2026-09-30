@@ -35,8 +35,8 @@ import type { Session } from "../Sandbox/Session.ts"
  */
 export interface DirectorySandboxOptions {
   /**
-   * Refused: commands run as host processes with the host's network. Setting it makes `make` throw rather than hand out a
-   * machine with a network it did not ask for.
+   * Restrictions refused: commands run as host processes with the host's network. `"none"` or an allowlist makes `make` throw rather than hand
+   * out a machine with a network it did not ask for; `"open"`, which restricts nothing, is accepted.
    */
   readonly network?: NetworkPolicy | undefined
   /**

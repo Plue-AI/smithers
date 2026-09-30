@@ -483,7 +483,7 @@ const output = (session: Session, command: string, options: Parameters<Session["
   )
 
 describe("AwsSandbox", () => {
-  it("refuses every network policy at construction, before touching its dependencies", () => {
+  it("refuses every network restriction and accepts \"open\" at construction, before touching its dependencies", () => {
     const deps = untouchable<never>()
     for (const network of ["none", { allow: ["example.com"] }] as const) {
       expect(() =>
@@ -498,6 +498,16 @@ describe("AwsSandbox", () => {
       )
         .toThrow("aws-sandbox: cannot enforce a network policy; omit `network`")
     }
+    expect(() =>
+      AwsSandbox.make({
+        sdk: deps.value,
+        region: "us-west-2",
+        cluster: "cluster-arn",
+        taskDefinition: "family:7",
+        subnets: ["subnet-a"],
+        network: "open"
+      })
+    ).not.toThrow()
     expect(deps.touched).toEqual([])
   })
 

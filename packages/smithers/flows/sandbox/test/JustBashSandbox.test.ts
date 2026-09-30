@@ -147,12 +147,13 @@ describe("JustBashSandbox", () => {
     expect(deps.touched).toEqual([])
   })
 
-  it("refuses every network policy at construction, before touching its dependencies", () => {
+  it("refuses every network restriction and accepts \"open\" at construction, before touching its dependencies", () => {
     const deps = untouchable<never>()
     for (const network of ["none", { allow: ["example.com"] }] as const) {
       expect(() => JustBashSandbox.make({ bash: deps.value, fs: deps.value, network }))
         .toThrow("just-bash-sandbox: cannot enforce a network policy; omit `network`")
     }
+    expect(() => JustBashSandbox.make({ bash: deps.value, fs: deps.value, network: "open" })).not.toThrow()
     expect(deps.touched).toEqual([])
   })
 

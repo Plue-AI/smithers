@@ -42,8 +42,8 @@ import type { Sdk } from "./Sdk.ts"
  */
 export interface AwsSandboxCommonOptions {
   /**
-   * Refused: ECS subnets and security groups are not a host allowlist. Setting it makes `make` throw rather than hand out a
-   * machine with a network it did not ask for.
+   * Restrictions refused: ECS subnets and security groups are not a host allowlist. `"none"` or an allowlist makes `make` throw rather than hand
+   * out a machine with a network it did not ask for; `"open"`, which restricts nothing, is accepted.
    */
   readonly network?: NetworkPolicy | undefined
   /**

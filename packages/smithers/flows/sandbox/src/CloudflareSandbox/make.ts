@@ -34,8 +34,8 @@ import type { Sdk } from "./Sdk.ts"
  */
 export interface CloudflareSandboxOptions<Binding> {
   /**
-   * Refused: egress control lives on the Worker's Sandbox class, outside this provider. Setting it makes `make` throw rather than hand out a
-   * machine with a network it did not ask for.
+   * Restrictions refused: egress control lives on the Worker's Sandbox class, outside this provider. `"none"` or an allowlist makes `make` throw rather than hand
+   * out a machine with a network it did not ask for; `"open"`, which restricts nothing, is accepted.
    */
   readonly network?: NetworkPolicy | undefined
   /**

@@ -111,8 +111,17 @@ const inspectedContainer = Schema.Array(Schema.Struct({
     Privileged: Schema.Boolean,
     Binds: Schema.optional(Schema.NullOr(Schema.Array(Schema.String)))
   }),
-  Mounts: Schema.Array(Schema.Struct({ Type: Schema.String }))
+  Mounts: Schema.Array(Schema.Struct({ Type: Schema.String })),
+  State: Schema.optional(Schema.Struct({ Status: Schema.optional(Schema.String) }))
 }))
+
+// A released container is force-removed, but an engine can refuse a later
+// create or start of the same name while that removal is still finishing
+// ("marked for removal"). The engine reports that phase as State.Status
+// `removing`; the wait polls inspect until the name is gone, bounded.
+const removalPollMillis = 100
+const removalPolls = 300
+const removalRetries = 5
 
 /**
  * Builds a sandbox provider whose machines are containers this host's
@@ -236,7 +245,7 @@ export const make = (options: ContainerSandboxOptions): Provider => {
         // acquire of that key would silently reattach to.
         yield* Effect.acquireRelease(
           Effect.gen(function*() {
-            const created = yield* run([
+            const create = run([
               "create",
               "--name",
               name,
@@ -254,43 +263,78 @@ export const make = (options: ContainerSandboxOptions): Provider => {
               "sleep",
               limits.timeoutSecs === undefined ? "infinity" : String(limits.timeoutSecs)
             ], envFile)
-            if (created.code === 0) return
-            // A refused create is either a name already taken, which is the
-            // reattach this provider is built around, or anything else, which
-            // is a failure. The engine says which in English prose, and the
-            // prose is not a contract: podman words the conflict differently
-            // from docker and a localized daemon differently again. The
-            // question goes to the engine as a question instead.
-            const existing = yield* run(["container", "inspect", name])
-            if (existing.code !== 0) {
+            const awaitRemoval = Effect.gen(function*() {
+              for (let poll = 0; poll < removalPolls; poll++) {
+                if ((yield* run(["container", "inspect", name])).code !== 0) return
+                yield* Effect.sleep(removalPollMillis)
+              }
               return yield* Effect.fail(
                 new ProviderError({
                   code: "unavailable",
-                  message: `the container ${name} could not be created from ${options.image}: ${created.stderr.trim()}`
+                  message: `the container ${name} is still being removed after ${removalPolls * removalPollMillis} ms`
                 })
               )
-            }
-            const inspected = yield* Effect.try({
-              try: () =>
-                Schema.decodeUnknownSync(inspectedContainer)(JSON.parse(new TextDecoder().decode(existing.stdout))),
-              catch: providerFailure("unavailable", `the container ${name} has no verifiable configuration`)
             })
-            const held = inspected[0]
-            if (
-              held === undefined || inspected.length !== 1 ||
-              held.Config.Labels[fingerprintLabel] !== fingerprint ||
-              held.Config.Image !== options.image || held.Config.WorkingDir !== workdir ||
-              held.HostConfig.NetworkMode !== network ||
-              ((options.createArgs?.length ?? 0) === 0 && (held.HostConfig.Privileged ||
-                (held.HostConfig.Binds?.length ?? 0) > 0 || held.Mounts.some((mount) => mount.Type === "bind")))
-            ) {
-              return yield* Effect.fail(
-                new ProviderError({
-                  code: "unavailable",
-                  message: `the container ${name} does not match the requested configuration or owner`
-                })
-              )
+            let vanished = false
+            for (let attempt = 0; attempt < removalRetries; attempt++) {
+              const created = yield* create
+              if (created.code === 0) return
+              // A refused create is either a name already taken, which is the
+              // reattach this provider is built around, or anything else, which
+              // is a failure. The engine says which in English prose, and the
+              // prose is not a contract: podman words the conflict differently
+              // from docker and a localized daemon differently again. The
+              // question goes to the engine as a question instead.
+              const existing = yield* run(["container", "inspect", name])
+              if (existing.code !== 0) {
+                // A conflict whose holder is already gone means its removal
+                // finished between the two calls: create once more. A second
+                // refusal with nothing holding the name is a real failure.
+                if (!vanished) {
+                  vanished = true
+                  continue
+                }
+                return yield* Effect.fail(
+                  new ProviderError({
+                    code: "unavailable",
+                    message:
+                      `the container ${name} could not be created from ${options.image}: ${created.stderr.trim()}`
+                  })
+                )
+              }
+              const inspected = yield* Effect.try({
+                try: () =>
+                  Schema.decodeUnknownSync(inspectedContainer)(JSON.parse(new TextDecoder().decode(existing.stdout))),
+                catch: providerFailure("unavailable", `the container ${name} has no verifiable configuration`)
+              })
+              const held = inspected[0]
+              if (held?.State?.Status === "removing") {
+                yield* awaitRemoval
+                continue
+              }
+              if (
+                held === undefined || inspected.length !== 1 ||
+                held.Config.Labels[fingerprintLabel] !== fingerprint ||
+                held.Config.Image !== options.image || held.Config.WorkingDir !== workdir ||
+                held.HostConfig.NetworkMode !== network ||
+                ((options.createArgs?.length ?? 0) === 0 && (held.HostConfig.Privileged ||
+                  (held.HostConfig.Binds?.length ?? 0) > 0 || held.Mounts.some((mount) => mount.Type === "bind")))
+              ) {
+                return yield* Effect.fail(
+                  new ProviderError({
+                    code: "unavailable",
+                    message: `the container ${name} does not match the requested configuration or owner`
+                  })
+                )
+              }
+              return
             }
+            return yield* Effect.fail(
+              new ProviderError({
+                code: "unavailable",
+                message: `the container ${name} was still being removed after ${removalRetries} attempts`
+              })
+            )
           }),
           () =>
             finalizeWithin(

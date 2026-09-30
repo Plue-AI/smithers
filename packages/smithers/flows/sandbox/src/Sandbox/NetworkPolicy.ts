@@ -7,7 +7,10 @@
 /**
  * What a provisioned machine may reach over the network.
  *
- * `"none"` gives the guest no network. `{ allow }` denies egress except to
+ * `"none"` gives the guest no network. `"open"` asks for the provider's
+ * unrestricted network and is the only way to get it where a provider closes
+ * the network by default, as `MicrosandboxSandbox` and `ContainerSandbox` do.
+ * `{ allow }` denies egress except to
  * the listed hosts: each entry is an exact DNS name such as
  * `registry.npmjs.org`, or `*.` followed by one, such as `*.npmjs.org`, which
  * matches every name below that suffix. List the suffix itself separately
@@ -23,7 +26,7 @@
  * @category models
  * @since 1.0.0-rc.1
  */
-export type NetworkPolicy = "none" | { readonly allow: ReadonlyArray<string> }
+export type NetworkPolicy = "none" | "open" | { readonly allow: ReadonlyArray<string> }
 
 const label = "[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
 const host = new RegExp(`^(?:\\*\\.)?(?:${label}\\.)*${label}$`, "i")
@@ -36,9 +39,9 @@ const host = new RegExp(`^(?:\\*\\.)?(?:${label}\\.)*${label}$`, "i")
  * @since 1.0.0-rc.1
  */
 export const validateNetworkPolicy = (provider: string, policy: NetworkPolicy): NetworkPolicy => {
-  if (policy === "none") return policy
+  if (policy === "none" || policy === "open") return policy
   if (typeof policy !== "object" || policy === null || !Array.isArray(policy.allow)) {
-    throw new TypeError(`${provider}: network must be "none" or { allow: string[] }`)
+    throw new TypeError(`${provider}: network must be "none", "open" or { allow: string[] }`)
   }
   for (const entry of policy.allow) {
     if (typeof entry !== "string" || entry.length > 253 || !host.test(entry)) {
@@ -49,13 +52,14 @@ export const validateNetworkPolicy = (provider: string, policy: NetworkPolicy): 
 }
 
 /**
- * Refuses any network policy, for a provider that cannot enforce one.
+ * Refuses any network restriction, for a provider that cannot enforce one.
+ * `"open"` restricts nothing, so it is accepted.
  *
  * @category validation
  * @since 1.0.0-rc.1
  */
 export const refuseNetworkPolicy = (provider: string, policy: NetworkPolicy | undefined): void => {
-  if (policy !== undefined) {
-    throw new TypeError(`${provider}: cannot enforce a network policy; omit \`network\``)
+  if (policy !== undefined && policy !== "open") {
+    throw new TypeError(`${provider}: cannot enforce a network policy; omit \`network\` or name "open"`)
   }
 }

@@ -24,7 +24,14 @@ const image = "alpine:3.20"
 // Session keys are suite-unique so a concurrently running vitest worker
 // cannot collide on container names, and every name this suite can create is
 // force-removed at the end even when a test failed mid-acquire.
-const keys = ["conformance-suite", "machine-boundary", "crash-reattach", "host-bundle", "neutral-limits"].map(
+const keys = [
+  "conformance-suite",
+  "machine-boundary",
+  "crash-reattach",
+  "host-bundle",
+  "neutral-limits",
+  "session-reuse"
+].map(
   (name) => `sandbox-it-${process.pid}-${name}`
 )
 const nameOf = (key: string): string => `smthrs-sbx-${sessionSlug(key)}`
@@ -164,6 +171,24 @@ describe.skipIf(!engineAvailable)("ContainerSandbox against a real engine", () =
       // leaked scope must tolerate that.
       const closed = yield* Effect.exit(Scope.close(leaked, Exit.void))
       expect(Exit.isSuccess(closed)).toBe(true)
+    }), budget)
+
+  it.effect("reuses a session key immediately after its container was released", () =>
+    Effect.gen(function*() {
+      const container = yield* provider
+      const key = keys[5]!
+      // An engine may still be finishing the force removal when the same name
+      // is created again; every round must acquire, run, and release cleanly.
+      for (let round = 0; round < 5; round++) {
+        const echoed = yield* Effect.scoped(
+          Effect.gen(function*() {
+            const session = yield* container.acquire(key)
+            const process = yield* session.spawn(`echo round-${round}`, {})
+            return yield* Stream.mkString(Stream.decodeText(process.stdout))
+          })
+        )
+        expect(echoed).toBe(`round-${round}\n`)
+      }
     }), budget)
 
   it.effect("serves the host bundle from the container through layerHost", () =>

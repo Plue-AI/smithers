@@ -288,12 +288,13 @@ const output = (session: Session, command: string, options: Parameters<Session["
   )
 
 describe("KubernetesSandbox", () => {
-  it("refuses every network policy at construction, before touching its dependencies", () => {
+  it("refuses every network restriction and accepts \"open\" at construction, before touching its dependencies", () => {
     const deps = untouchable<never>()
     for (const network of ["none", { allow: ["example.com"] }] as const) {
       expect(() => KubernetesSandbox.make({ spawner: deps.value, image: "img", network }))
         .toThrow("kubernetes-sandbox: cannot enforce a network policy; omit `network`")
     }
+    expect(() => KubernetesSandbox.make({ spawner: deps.value, image: "img", network: "open" })).not.toThrow()
     expect(deps.touched).toEqual([])
   })
 

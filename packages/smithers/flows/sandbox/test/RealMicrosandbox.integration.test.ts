@@ -193,7 +193,7 @@ describe.skipIf(!available)("MicrosandboxSandbox against a real microVM", () => 
   )
 
   it.live(
-    "reaches only allowlisted hosts, and never a service on the host or its network",
+    "reaches nothing by default, only allowlisted hosts, and never a service on the host or its network",
     () =>
       Effect.gen(function*() {
         const fetches = (url: string) =>
@@ -213,6 +213,11 @@ describe.skipIf(!available)("MicrosandboxSandbox against a real microVM", () => 
               ))
           ))
 
+        // A machine that names no network reaches nothing: the provider
+        // closes the vendor's open default itself.
+        const closed = yield* probe({}, "default-network", fetches("https://example.com/"))
+        expect(closed).toBe("1\n")
+
         // An allowlist admits the listed host and nothing else.
         const allowed = yield* probe(
           { network: { allow: ["registry.npmjs.org"] } },
@@ -221,8 +226,8 @@ describe.skipIf(!available)("MicrosandboxSandbox against a real microVM", () => 
         )
         expect(allowed).toBe("0\n1\n")
 
-        // Under the default policy the public internet answers, but a service
-        // listening on every host address does not, by loopback or by LAN.
+        // Under an explicitly open network the public internet answers, but a
+        // service listening on every host address does not, by loopback or by LAN.
         const server = createServer((_request, response) => response.end("host service"))
         yield* Effect.callback<void>((resume) => {
           server.listen(0, "0.0.0.0", () => resume(Effect.void))
@@ -233,8 +238,8 @@ describe.skipIf(!available)("MicrosandboxSandbox against a real microVM", () => 
             .find((address) => address !== undefined && address.family === "IPv4" && !address.internal)?.address
           const targets = [`http://127.0.0.1:${port}/`, ...lan === undefined ? [] : [`http://${lan}:${port}/`]]
           const seen = yield* probe(
-            {},
-            "default-network",
+            { network: "open" },
+            "open-network",
             [fetches("https://example.com/"), ...targets.map(fetches)].join("; ")
           )
           expect(seen).toBe(`0\n${targets.map(() => "1\n").join("")}`)

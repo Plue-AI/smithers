@@ -54,7 +54,10 @@ const stopGraceMs = 3_000
  * The image must carry `nix`; with an environment and no `image`, the
  * provider boots `nixos/nix`. A sticky session keeps the realised closure in
  * the microVM's store across acquires, and a `snapshot` taken after the warm
- * boots with it already realised.
+ * boots with it already realised. Realising a closure fetches from the
+ * binary cache and the flake inputs' hosts, so a machine that must warm one
+ * names them in `network: { allow }`, or `"open"`; a snapshot that already
+ * holds the closure needs none.
  *
  * @category models
  * @since 0.1.0
@@ -142,8 +145,11 @@ export interface MicrosandboxSandboxOptions {
   /** Run detached from the host process. Sticky sessions default to detached. */
   readonly detached?: boolean | undefined
   /**
-   * The guest network. `"none"` boots without networking; `{ allow }` denies
-   * ingress and all egress, DNS lookups included, but to the listed hosts. Default: the vendor's own policy. Exclusive with `networkPolicy`.
+   * The guest network. `"none"`, the default, boots without networking;
+   * `{ allow }` denies ingress and all egress, DNS lookups included, but to
+   * the listed hosts; `"open"` is the vendor's own policy, which reaches the
+   * public internet. A machine gets a network only when one is named here or
+   * in `networkPolicy`. Exclusive with `networkPolicy`.
    */
   readonly network?: GuestNetworkPolicy | undefined
   /**
@@ -227,8 +233,9 @@ const retrying = <A>(effect: Effect.Effect<A, ProviderError>): Effect.Effect<A, 
 }
 
 /**
- * The label recording a machine's requested network, so a reattach under a
- * network option can refuse a machine created with another.
+ * The label recording a machine's network, so a reattach refuses a machine
+ * created with another, or one with no label, which booted under the vendor's
+ * open default.
  */
 const networkLabel = "smithers.network"
 
@@ -241,8 +248,8 @@ const limitsLabel = "smithers.limits"
 const limitsValue = (limits: ResourceLimits): string =>
   JSON.stringify({ cpus: limits.cpus, memoryMib: limits.memoryMib, timeoutSecs: limits.timeoutSecs })
 
-/** The builder network a machine boots with: none, a vendor policy, or the vendor's default. */
-type GuestNetwork = "none" | NetworkPolicy | undefined
+/** The builder network a machine boots with: none, a vendor policy, or the vendor's open default. */
+type GuestNetwork = "none" | "open" | NetworkPolicy
 
 const withLimits = (options: MicrosandboxSandboxOptions): MicrosandboxSandboxOptions => {
   if (options.limits === undefined) return options
@@ -259,13 +266,15 @@ const withLimits = (options: MicrosandboxSandboxOptions): MicrosandboxSandboxOpt
   return merged
 }
 
+// The vendor's own default reaches the public internet, so a machine that
+// names no network gets none: the provider closes it, never the caller.
 const guestNetwork = (options: MicrosandboxSandboxOptions): GuestNetwork => {
-  if (options.network === undefined) return options.networkPolicy
+  if (options.network === undefined) return options.networkPolicy ?? "none"
   if (options.networkPolicy !== undefined) {
     throw new TypeError("microsandbox: network and networkPolicy are exclusive; name one")
   }
   const network = validateNetworkPolicy("microsandbox", options.network)
-  if (network === "none") return "none"
+  if (network === "none" || network === "open") return network
   const egress = (destination: NetworkPolicy["rules"][number]["destination"]) => ({
     direction: "egress" as const,
     destination,
@@ -325,7 +334,7 @@ const configure = (
   if (options.maxDurationSecs !== undefined) configured = configured.maxDuration(options.maxDurationSecs)
   if (options.idleTimeoutSecs !== undefined) configured = configured.idleTimeout(options.idleTimeoutSecs)
   if (network === "none") configured = configured.disableNetwork()
-  else if (network !== undefined) configured = configured.network((builder) => builder.policy(network))
+  else if (network !== "open") configured = configured.network((builder) => builder.policy(network))
   return configured.ephemeral(!sticky).detached(options.detached ?? sticky)
 }
 
@@ -350,7 +359,7 @@ const openMachine = (
         const handle = await options.sdk.Sandbox.get(name)
         const recorded = Object(Reflect.get(Object(JSON.parse(handle.configJson)), "labels"))
         // A reattached machine keeps the network it booted with.
-        if (ownership[networkLabel] !== undefined && Reflect.get(recorded, networkLabel) !== ownership[networkLabel]) {
+        if (Reflect.get(recorded, networkLabel) !== ownership[networkLabel]) {
           throw new Error(`${name} was created with another network; remove it or acquire another session`)
         }
         // And the ceilings it booted with, which a restart does not change.
@@ -532,7 +541,7 @@ export const make = (input: MicrosandboxSandboxOptions): Provider => {
     [providerLabel]: providerName,
     [ownerLabel]: options.owner ?? defaultOwner,
     [holderLabel]: options.holder ?? globalThis.crypto.randomUUID(),
-    ...network === undefined ? {} : { [networkLabel]: network === "none" ? "none" : JSON.stringify(network) },
+    [networkLabel]: typeof network === "string" ? network : JSON.stringify(network),
     ...recordedLimits === "{}" ? {} : { [limitsLabel]: recordedLimits }
   }
   const local = options.backend !== "any"

@@ -17,6 +17,7 @@ import {
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { elapsed } from "../src/internal/deadline.ts"
+import { sessionSlug } from "../src/internal/sessionSlug.ts"
 import * as MicrosandboxSandbox from "../src/MicrosandboxSandbox/index.ts"
 import type { Sdk } from "../src/MicrosandboxSandbox/Sdk.ts"
 import type { RemoteProcess } from "../src/RemoteChildProcessSpawner/Provider.ts"
@@ -1006,6 +1007,45 @@ describe("MicrosandboxSandbox", () => {
       expect(fake.recorded.builds).toHaveLength(2)
     }))
 
+  it.effect("boots without a network unless a network is named, and opens one only on \"open\"", () =>
+    Effect.gen(function*() {
+      const fake = fakeSdk()
+      const boot = (key: string, network?: "none" | "open") =>
+        inSession(
+          MicrosandboxSandbox.make({ sdk: fake.sdk, workdir: join(root, `${key}-ws`), ...network === undefined ? {} : { network } }),
+          key,
+          () => Effect.void
+        )
+      yield* boot("default")
+      yield* boot("closed", "none")
+      yield* boot("opened", "open")
+      const [closedByDefault, closed, opened] = fake.recorded.builds.map(({ settings }) => settings)
+      // The provider closes the network itself: the caller named nothing.
+      expect(closedByDefault).toMatchObject({ disableNetwork: true, labels: { "smithers.network": "none" } })
+      expect(closedByDefault!["networkPolicy"]).toBeUndefined()
+      expect(closed).toMatchObject({ disableNetwork: true, labels: { "smithers.network": "none" } })
+      // Only an explicit "open" leaves the vendor's own, internet-reaching policy.
+      expect(opened!["disableNetwork"]).toBeUndefined()
+      expect(opened!["networkPolicy"]).toBeUndefined()
+      expect(opened!["labels"]).toMatchObject({ "smithers.network": "open" })
+    }))
+
+  it.effect("refuses to reattach a machine that records no network, as one booted under the vendor's open default", () =>
+    Effect.gen(function*() {
+      const fake = fakeSdk()
+      const name = `smthrs-msb-${sessionSlug("legacy")}`
+      fake.plant(name, ownership("smithers", "dead"))
+      const refused = yield* Effect.exit(
+        inSession(
+          MicrosandboxSandbox.make({ sdk: fake.sdk, workdir: join(root, "legacy-ws"), persistence: "sticky" }),
+          "legacy",
+          () => Effect.void
+        )
+      )
+      expect(String(Exit.isFailure(refused) ? refused.cause : "")).toContain("was created with another network")
+      expect(fake.recorded.modifies).toEqual([])
+    }))
+
   it.effect("maps a neutral allowlist to deny-by-default egress that allows only the listed hosts", () =>
     Effect.gen(function*() {
       const fake = fakeSdk()
@@ -1169,8 +1209,8 @@ describe("MicrosandboxSandbox", () => {
       expect(() => MicrosandboxSandbox.make({ sdk: fake.sdk, network: { allow } }))
         .toThrow("microsandbox: network allowlist entry is not a host name")
     }
-    expect(() => MicrosandboxSandbox.make({ sdk: fake.sdk, network: "open" as never }))
-      .toThrow(`microsandbox: network must be "none" or { allow: string[] }`)
+    expect(() => MicrosandboxSandbox.make({ sdk: fake.sdk, network: "all" as never }))
+      .toThrow(`microsandbox: network must be "none", "open" or { allow: string[] }`)
     expect(fake.recorded.builds).toEqual([])
   })
 
@@ -1178,17 +1218,25 @@ describe("MicrosandboxSandbox", () => {
     Effect.gen(function*() {
       const fake = fakeSdk()
       const workdir = join(root, "network-reattach-ws")
-      const sticky = (network?: "none" | { readonly allow: ReadonlyArray<string> }) =>
+      const sticky = (network?: "none" | "open" | { readonly allow: ReadonlyArray<string> }) =>
         MicrosandboxSandbox.make({
           sdk: fake.sdk,
           workdir,
           persistence: "sticky",
           ...network === undefined ? {} : { network }
         })
-      yield* inSession(sticky(), "open", () => Effect.void)
-      const refused = yield* Effect.exit(inSession(sticky("none"), "open", () => Effect.void))
-      expect(refused).toMatchObject({ _tag: "Failure" })
-      expect(String(Exit.isFailure(refused) ? refused.cause : "")).toContain("was created with another network")
+      // A machine booted open is never reattached closed, by default or by
+      // name, nor the other way round: the session would believe a network
+      // posture the machine does not have.
+      yield* inSession(sticky("open"), "open", () => Effect.void)
+      for (const network of [undefined, "none"] as const) {
+        const refused = yield* Effect.exit(inSession(sticky(network), "open", () => Effect.void))
+        expect(refused).toMatchObject({ _tag: "Failure" })
+        expect(String(Exit.isFailure(refused) ? refused.cause : "")).toContain("was created with another network")
+      }
+      yield* inSession(sticky(), "closed", () => Effect.void)
+      const opened = yield* Effect.exit(inSession(sticky("open"), "closed", () => Effect.void))
+      expect(String(Exit.isFailure(opened) ? opened.cause : "")).toContain("was created with another network")
       expect(fake.recorded.modifies).toEqual([])
 
       yield* inSession(sticky({ allow: ["example.com"] }), "fenced", () => Effect.void)
@@ -1789,7 +1837,8 @@ describe("MicrosandboxSandbox", () => {
       expect(fake.recorded.destroys).toEqual([])
       expect(fake.recorded.builds[0]?.settings).toEqual({
         snapshot: "snapshot-7",
-        labels: ownership("installation-a", "first"),
+        labels: { ...ownership("installation-a", "first"), "smithers.network": "none" },
+        disableNetwork: true,
         ephemeral: false,
         detached: false
       })
@@ -1811,7 +1860,7 @@ describe("MicrosandboxSandbox", () => {
       expect(Array.from(reopened)).toEqual(Array.from(bytes))
       expect(fake.recorded.starts).toEqual([{ name, detached: false }])
       expect(fake.recorded.modifies).toEqual([
-        { name, labels: ownership("installation-a", "second"), policy: "next_start" }
+        { name, labels: { ...ownership("installation-a", "second"), "smithers.network": "none" }, policy: "next_start" }
       ])
       expect(fake.machines.get(name)?.labels["smithers.holder"]).toBe("second")
 

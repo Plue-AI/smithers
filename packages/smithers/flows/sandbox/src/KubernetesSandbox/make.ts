@@ -45,8 +45,8 @@ export interface KubernetesSandboxResources {
  */
 export interface KubernetesSandboxOptions {
   /**
-   * Refused: a Pod NetworkPolicy depends on the cluster's network plugin and matches no host names. Setting it makes `make` throw rather than hand out a
-   * machine with a network it did not ask for.
+   * Restrictions refused: a Pod NetworkPolicy depends on the cluster's network plugin and matches no host names. `"none"` or an allowlist makes `make` throw rather than hand
+   * out a machine with a network it did not ask for; `"open"`, which restricts nothing, is accepted.
    */
   readonly network?: NetworkPolicy | undefined
   readonly spawner: ChildProcessSpawner["Service"]

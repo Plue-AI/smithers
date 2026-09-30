@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, it } from "@effect/vitest"
-import { Effect, Exit, PlatformError, Sink, Stream } from "effect"
+import { Effect, Exit, Fiber, PlatformError, Sink, Stream } from "effect"
 import * as Scope from "effect/Scope"
+import { TestClock } from "effect/testing"
 import * as ChildProcess from "effect/unstable/process/ChildProcess"
 import {
   ChildProcessSpawner,
@@ -76,7 +77,13 @@ const remap = (token: string): string => token.replaceAll("/tmp/.smthrs-sbx", `$
 
 const engine = (fault: (args: ReadonlyArray<string>) => Response | undefined = () => undefined) => {
   const calls: Array<Call> = []
-  const containers = new Map<string, { started: boolean; env: Record<string, string>; inspect: object }>()
+  // `removing` models an engine still finishing a force removal: while it is a
+  // number the container reports State.Status `removing` for that many
+  // inspects and then disappears; Infinity never finishes.
+  const containers = new Map<
+    string,
+    { started: boolean; env: Record<string, string>; inspect: object; removing?: number }
+  >()
   const canned = (response: Response) =>
     makeHandle({
       pid: ProcessId(1),
@@ -164,6 +171,14 @@ const engine = (fault: (args: ReadonlyArray<string>) => Response | undefined = (
       }
       if (args[0] === "container" && args[1] === "inspect") {
         const name = args[2]!
+        const held = containers.get(name)
+        if (held?.removing !== undefined) {
+          if (held.removing <= 0) containers.delete(name)
+          else {
+            held.removing -= 1
+            return canned({ stdout: JSON.stringify([{ ...held.inspect, State: { Status: "removing" } }]) })
+          }
+        }
         return containers.has(name)
           ? canned({ stdout: JSON.stringify([containers.get(name)!.inspect]) })
           : canned({ exitCode: 1, stderr: `Error response from daemon: No such container: ${name}\n` })
@@ -661,6 +676,101 @@ describe("ContainerSandbox", () => {
       expect(podman.calls.map((call) => call.args.slice(0, 2))).toContainEqual(["container", "inspect"])
       expect(Exit.isSuccess(yield* Effect.exit(Scope.close(leakedTwice, Exit.void)))).toBe(true)
     }), 30_000)
+
+  it.live("waits for the previous container's removal before creating the replacement", () =>
+    Effect.gen(function*() {
+      const fake = engine()
+      const provider = ContainerSandbox.make({ spawner: fake.spawner, image: "img", workdir })
+      const leaked = yield* Scope.make()
+      yield* Effect.provideService(provider.acquire("reuse"), Scope.Scope, leaked)
+      const [name] = [...fake.containers.keys()]
+      fake.containers.get(name!)!.removing = 2
+      const before = fake.calls.length
+      yield* acquired(provider, (session) => output(session, "true"), "reuse")
+      const verbs = fake.calls.slice(before).map((call) => call.args.slice(0, 2).join(" "))
+      // Refused create, the conflict inspect sees `removing`, two polls
+      // (removing, gone), then the replacement is created and started.
+      expect(verbs.slice(0, 5)).toEqual([
+        "create --name",
+        "container inspect",
+        "container inspect",
+        "container inspect",
+        "create --name"
+      ])
+      expect(verbs.some((verb) => verb.startsWith("start"))).toBe(true)
+      expect(fake.containers.size).toBe(0)
+      yield* Scope.close(leaked, Exit.void)
+    }))
+
+  it.effect("fails once a container's removal outlasts the bounded wait", () =>
+    Effect.gen(function*() {
+      const fake = engine()
+      const provider = ContainerSandbox.make({ spawner: fake.spawner, image: "img", workdir })
+      const leaked = yield* Scope.make()
+      yield* Effect.provideService(provider.acquire("stuck"), Scope.Scope, leaked)
+      fake.containers.get([...fake.containers.keys()][0]!)!.removing = Infinity
+      const attempt = yield* Effect.forkChild(Effect.flip(acquired(provider, Effect.succeed, "stuck")))
+      // Each poll is a real (canned) child-process round trip, so the virtual
+      // clock advances one poll interval at a time until the wait gives up.
+      while (attempt.pollUnsafe() === undefined) {
+        yield* TestClock.adjust("100 millis")
+        yield* Effect.promise(() => new Promise<void>((resolve) => setImmediate(resolve)))
+      }
+      const failure = yield* Fiber.join(attempt)
+      expect(failure).toMatchObject({ code: "unavailable" })
+      expect((failure as ProviderError).message).toContain("still being removed after 30000 ms")
+      expect(fake.calls.filter((call) => call.args[0] === "create")).toHaveLength(2)
+      expect(fake.calls.filter((call) => call.args[0] === "start")).toHaveLength(1)
+    }))
+
+  it.effect("retries a create once when the conflicting container vanished before inspection", () =>
+    Effect.gen(function*() {
+      let refused = false
+      const fake = engine((args) => {
+        if (args[0] !== "create" || refused) return undefined
+        refused = true
+        return { exitCode: 125, stderr: "Conflict. The container name is already in use" }
+      })
+      yield* acquired(
+        ContainerSandbox.make({ spawner: fake.spawner, image: "img", workdir }),
+        (session) => output(session, "true")
+      )
+      expect(fake.calls.filter((call) => call.args[0] === "create")).toHaveLength(2)
+
+      const refusing = engine((args) => args[0] === "create" ? { exitCode: 125, stderr: "no such image" } : undefined)
+      const failure = yield* Effect.flip(
+        acquired(ContainerSandbox.make({ spawner: refusing.spawner, image: "img", workdir }), Effect.succeed)
+      )
+      expect((failure as ProviderError).message).toContain("could not be created from img: no such image")
+      expect(refusing.calls.filter((call) => call.args[0] === "create")).toHaveLength(2)
+    }))
+
+  it.effect("gives up when the name keeps coming back mid-removal", () =>
+    Effect.gen(function*() {
+      let inspects = 0
+      const fake = engine((args) => {
+        if (args[0] === "create") return { exitCode: 125, stderr: "name in use" }
+        if (args[0] === "container" && args[1] === "inspect") {
+          inspects += 1
+          return inspects % 2 === 1
+            ? {
+              stdout: JSON.stringify([{
+                Config: { Image: "img", WorkingDir: workdir, Labels: {} },
+                HostConfig: { NetworkMode: "none", Privileged: false },
+                Mounts: [],
+                State: { Status: "removing" }
+              }])
+            }
+            : { exitCode: 1, stderr: "No such container" }
+        }
+        return undefined
+      })
+      const failure = yield* Effect.flip(
+        acquired(ContainerSandbox.make({ spawner: fake.spawner, image: "img", workdir }), Effect.succeed)
+      )
+      expect((failure as ProviderError).message).toContain("still being removed after 5 attempts")
+      expect(fake.calls.filter((call) => call.args[0] === "create")).toHaveLength(5)
+    }))
 
   it.effect("fails acquisition when the container cannot start or be prepared", () =>
     Effect.gen(function*() {
