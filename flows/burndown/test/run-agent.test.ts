@@ -4,21 +4,32 @@ import { agentArgv, parseReport } from "../run-agent.ts"
 import type { Assignment } from "../schema.ts"
 
 const assignment: Assignment = {
-  key: "smithers-2955", repo: "smithersai/smithers",
+  key: "smithers-2955",
+  repo: "smithersai/smithers",
   lead: { repo: "smithersai/smithers", n: 2955, title: "Report parsing" },
   extras: [{ repo: "smithersai/smithers", n: 2956, title: "Second fix" }],
-  account: "codex-2", tool: "codex", model: "gpt-6.1-sol", attempt: 1, placement: "local"
+  account: "codex-2",
+  tool: "codex",
+  model: "gpt-6.1-sol",
+  attempt: 1,
+  placement: "local"
 }
 const first = "a".repeat(40)
 const second = "b".repeat(40)
 const jsonl = (...values: unknown[]) => values.map((value) => JSON.stringify(value)).join("\n")
-const codex = (text: string) => jsonl(
-  { type: "item.completed", item: { type: "agent_message", text } },
-  { type: "turn.completed", usage: {} }
-)
-const claude = (text: string, overrides: Record<string, unknown> = {}) => JSON.stringify({
-  type: "result", subtype: "success", is_error: false, result: text, ...overrides
-})
+const codex = (text: string) =>
+  jsonl(
+    { type: "item.completed", item: { type: "agent_message", text } },
+    { type: "turn.completed", usage: {} }
+  )
+const claude = (text: string, overrides: Record<string, unknown> = {}) =>
+  JSON.stringify({
+    type: "result",
+    subtype: "success",
+    is_error: false,
+    result: text,
+    ...overrides
+  })
 const parse = (text: string, exitCode = 0, tool: "codex" | "claude" = "codex") =>
   parseReport({ ...assignment, tool }, exitCode, text, 1.25)
 
@@ -54,15 +65,18 @@ for (const tool of ["codex", "claude"] as const) {
     const result = parse(tool === "codex" ? codex(text) : claude(text), 0, tool)
     assert.equal(result.status, "ready")
     assert.deepEqual([...result.commits].sort((a, b) => a.issue - b.issue), [
-      { issue: 2955, commit: first }, { issue: 2956, commit: second }
+      { issue: 2955, commit: first },
+      { issue: 2956, commit: second }
     ])
   })
-  for (const [name, text] of [
-    ["unknown issue", `READY #9999 ${first}`],
-    ["conflicting issue", `READY #2955 ${first}\nREADY #2955 ${second}`],
-    ["shared commit", `READY #2955 ${first}\nREADY #2956 ${first}`],
-    ["bundle overflow", `READY ${first}\nREADY ${second}\nREADY ${"c".repeat(40)}`]
-  ]) {
+  for (
+    const [name, text] of [
+      ["unknown issue", `READY #9999 ${first}`],
+      ["conflicting issue", `READY #2955 ${first}\nREADY #2955 ${second}`],
+      ["shared commit", `READY #2955 ${first}\nREADY #2956 ${first}`],
+      ["bundle overflow", `READY ${first}\nREADY ${second}\nREADY ${"c".repeat(40)}`]
+    ]
+  ) {
     test(`${tool} rejects ${name} instead of handing an invalid bundle to the queue`, () => {
       const result = parse(tool === "codex" ? codex(text!) : claude(text!), 0, tool)
       assert.equal(result.status, "failed")
@@ -88,7 +102,10 @@ for (const tool of ["codex", "claude"] as const) {
 }
 
 test("Codex ignores incomplete turns and earlier assistant messages", () => {
-  assert.equal(parse(jsonl({ type: "item.completed", item: { type: "agent_message", text: `READY ${first}` } })).status, "failed")
+  assert.equal(
+    parse(jsonl({ type: "item.completed", item: { type: "agent_message", text: `READY ${first}` } })).status,
+    "failed"
+  )
   const result = parse(jsonl(
     { type: "item.completed", item: { type: "agent_message", text: `READY ${first}` } },
     { type: "item.completed", item: { type: "agent_message", text: "BLOCKED #2955 waiting" } },
@@ -142,8 +159,13 @@ for (const tool of ["codex", "claude"] as const) {
     ])
   })
   test(`${tool} retains separate stderr diagnostics without parsing them as results`, () => {
-    const result = parseReport({ ...assignment, tool }, 0, report("BLOCKED #2955 dependency"), 1.25,
-      `READY ${first}\nCLOSED #2955\nprivate diagnostic`)
+    const result = parseReport(
+      { ...assignment, tool },
+      0,
+      report("BLOCKED #2955 dependency"),
+      1.25,
+      `READY ${first}\nCLOSED #2955\nprivate diagnostic`
+    )
     assert.equal(result.status, "blocked")
     assert.deepEqual(result.commits, [])
     assert.match(result.notes, /private diagnostic/)
@@ -159,12 +181,25 @@ for (const tool of ["codex", "claude"] as const) {
 }
 
 test("Codex requires a completed final turn after the last assistant report", () => {
-  for (const events of [
-    [{ type: "turn.completed" }, { type: "item.completed", item: { type: "agent_message", text: `READY ${first}` } }],
-    [{ type: "item.completed", item: { type: "agent_message", text: `READY ${first}` } }, { type: "turn.failed", error: { message: "failure" } }],
-    [{ type: "item.completed", item: { type: "agent_message", text: `READY ${first}` } }, { type: "turn.completed" }, { type: "turn.started" }],
-    [{ type: "item.completed", item: { type: "agent_message", text: `READY ${first}` } }, { type: "turn.completed" }, { type: "item.completed", item: { type: "agent_message", text: `READY ${second}` } }]
-  ]) {
+  for (
+    const events of [
+      [{ type: "turn.completed" }, { type: "item.completed", item: { type: "agent_message", text: `READY ${first}` } }],
+      [{ type: "item.completed", item: { type: "agent_message", text: `READY ${first}` } }, {
+        type: "turn.failed",
+        error: { message: "failure" }
+      }],
+      [
+        { type: "item.completed", item: { type: "agent_message", text: `READY ${first}` } },
+        { type: "turn.completed" },
+        { type: "turn.started" }
+      ],
+      [
+        { type: "item.completed", item: { type: "agent_message", text: `READY ${first}` } },
+        { type: "turn.completed" },
+        { type: "item.completed", item: { type: "agent_message", text: `READY ${second}` } }
+      ]
+    ]
+  ) {
     const result = parse(jsonl(...events))
     assert.equal(result.status, "failed")
     assert.deepEqual(result.commits, [])
@@ -172,12 +207,21 @@ test("Codex requires a completed final turn after the last assistant report", ()
 })
 
 test("Codex rejects malformed report payloads and ignores nested diagnostic events", () => {
-  for (const output of [
-    jsonl({ type: "item.completed", item: { type: "agent_message", text: { text: `READY ${first}` } } }, { type: "turn.completed" }),
-    jsonl({ type: "item.completed", item: { type: "command_execution", aggregated_output: codex(`READY ${first}`) } }, { type: "turn.completed" }),
-    jsonl({ type: "item.updated", item: { type: "agent_message", text: `READY ${first}` } }, { type: "turn.completed" }),
-    `{broken json\n${jsonl({ type: "turn.completed" })}`
-  ]) {
+  for (
+    const output of [
+      jsonl({ type: "item.completed", item: { type: "agent_message", text: { text: `READY ${first}` } } }, {
+        type: "turn.completed"
+      }),
+      jsonl(
+        { type: "item.completed", item: { type: "command_execution", aggregated_output: codex(`READY ${first}`) } },
+        { type: "turn.completed" }
+      ),
+      jsonl({ type: "item.updated", item: { type: "agent_message", text: `READY ${first}` } }, {
+        type: "turn.completed"
+      }),
+      `{broken json\n${jsonl({ type: "turn.completed" })}`
+    ]
+  ) {
     const result = parse(output)
     assert.equal(result.status, "failed")
     assert.deepEqual(result.commits, [])
@@ -185,7 +229,12 @@ test("Codex rejects malformed report payloads and ignores nested diagnostic even
 })
 
 test("Claude rejects malformed final results and selects the last result", () => {
-  for (const overrides of [{ result: null }, { result: { text: `READY ${first}` } }, { type: "assistant" }, { subtype: "success", is_error: true }]) {
+  for (
+    const overrides of [{ result: null }, { result: { text: `READY ${first}` } }, { type: "assistant" }, {
+      subtype: "success",
+      is_error: true
+    }]
+  ) {
     const result = parse(claude(`READY ${first}`, overrides), 0, "claude")
     assert.equal(result.status, "failed")
     assert.deepEqual(result.commits, [])
@@ -205,10 +254,12 @@ for (const tool of ["codex", "claude"] as const) {
 }
 
 test("rejects duplicate and cross-repository assigned issues", () => {
-  for (const extras of [
-    [assignment.lead],
-    [{ ...assignment.extras[0]!, repo: "smithersai/plue" }]
-  ]) {
+  for (
+    const extras of [
+      [assignment.lead],
+      [{ ...assignment.extras[0]!, repo: "smithersai/plue" }]
+    ]
+  ) {
     const result = parseReport({ ...assignment, extras }, 0, codex(`READY ${first}`), 1.25)
     assert.equal(result.status, "failed")
     assert.deepEqual(result.commits, [])
@@ -229,10 +280,15 @@ for (const event of ["turn.failed", "error"] as const) {
 }
 
 test("Claude structured rate-limit errors stay limited with a zero process exit", () => {
-  const result = parse(claude("You've hit your limit; try again later", {
-    subtype: "error_during_execution", is_error: true,
-    errors: ["Rate limit reached for this account"]
-  }), 0, "claude")
+  const result = parse(
+    claude("You've hit your limit; try again later", {
+      subtype: "error_during_execution",
+      is_error: true,
+      errors: ["Rate limit reached for this account"]
+    }),
+    0,
+    "claude"
+  )
   assert.equal(result.status, "limited")
   assert.deepEqual(result.commits, [])
   assert.match(result.notes, /hit your limit|Rate limit reached/)
@@ -276,11 +332,13 @@ test("Codex cannot recover a failed turn merely by emitting a later completion",
 
 for (const tool of ["codex", "claude"] as const) {
   test(`${tool} queues only an explicitly ready extra when the lead is blocked`, () => {
-    for (const text of [
-      `BLOCKED #2955 dependency\nREADY #2956 ${second}`,
-      `READY #2956 ${second}\nBLOCKED #2955 dependency`,
-      `BLOCKED #2955 dependency\nREADY #2956 ${second}\nBLOCKED #2955 dependency`
-    ]) {
+    for (
+      const text of [
+        `BLOCKED #2955 dependency\nREADY #2956 ${second}`,
+        `READY #2956 ${second}\nBLOCKED #2955 dependency`,
+        `BLOCKED #2955 dependency\nREADY #2956 ${second}\nBLOCKED #2955 dependency`
+      ]
+    ) {
       const output = tool === "codex" ? codex(text) : claude(text)
       const result = parse(output, 0, tool)
       assert.equal(result.status, "ready")
@@ -304,14 +362,16 @@ for (const tool of ["codex", "claude"] as const) {
 
 for (const tool of ["codex", "claude"] as const) {
   const report = (text: string) => tool === "codex" ? codex(text) : claude(text)
-  for (const [name, text] of [
-    ["explicit READY then BLOCKED", `READY #2955 ${first}\nBLOCKED #2955 dependency`],
-    ["BLOCKED then explicit READY", `BLOCKED #2955 dependency\nREADY #2955 ${first}`],
-    ["implicit READY then BLOCKED", `READY ${first}\nBLOCKED #2955 dependency`],
-    ["BLOCKED then implicit READY", `BLOCKED #2955 dependency\nREADY ${first}`],
-    ["CLOSED then BLOCKED", "CLOSED #2955\nBLOCKED #2955 dependency"],
-    ["BLOCKED then CLOSED", "BLOCKED #2955 dependency\nCLOSED #2955"]
-  ]) {
+  for (
+    const [name, text] of [
+      ["explicit READY then BLOCKED", `READY #2955 ${first}\nBLOCKED #2955 dependency`],
+      ["BLOCKED then explicit READY", `BLOCKED #2955 dependency\nREADY #2955 ${first}`],
+      ["implicit READY then BLOCKED", `READY ${first}\nBLOCKED #2955 dependency`],
+      ["BLOCKED then implicit READY", `BLOCKED #2955 dependency\nREADY ${first}`],
+      ["CLOSED then BLOCKED", "CLOSED #2955\nBLOCKED #2955 dependency"],
+      ["BLOCKED then CLOSED", "BLOCKED #2955 dependency\nCLOSED #2955"]
+    ]
+  ) {
     test(`${tool} rejects contradictory ${name} for the same assigned issue`, () => {
       const result = parse(report(text!), 0, tool)
       assert.equal(result.status, "failed")
@@ -319,10 +379,12 @@ for (const tool of ["codex", "claude"] as const) {
     })
   }
   test(`${tool} preserves a ready lead when a different assigned issue is blocked`, () => {
-    for (const text of [
-      `READY #2955 ${first}\nBLOCKED #2956 dependency`,
-      `BLOCKED #2956 dependency\nREADY ${first}`
-    ]) {
+    for (
+      const text of [
+        `READY #2955 ${first}\nBLOCKED #2956 dependency`,
+        `BLOCKED #2956 dependency\nREADY ${first}`
+      ]
+    ) {
       const result = parse(report(text), 0, tool)
       assert.equal(result.status, "ready")
       assert.deepEqual(result.commits, [{ issue: 2955, commit: first }])
@@ -333,10 +395,12 @@ for (const tool of ["codex", "claude"] as const) {
 
 for (const tool of ["codex", "claude"] as const) {
   const report = (text: string) => tool === "codex" ? codex(text) : claude(text)
-  for (const [name, opener, nested, closer] of [
-    ["different fence marker", "~~~text", "```", "~~~"],
-    ["shorter fence marker", "````text", "```", "````"]
-  ]) {
+  for (
+    const [name, opener, nested, closer] of [
+      ["different fence marker", "~~~text", "```", "~~~"],
+      ["shorter fence marker", "````text", "```", "````"]
+    ]
+  ) {
     test(`${tool} keeps quoted READY inside a ${name}`, () => {
       const quoted = `${opener}\n${nested}\nREADY ${first}\n${closer}`
       const result = parse(report(quoted), 0, tool)

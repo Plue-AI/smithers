@@ -65,7 +65,7 @@ export default tseslint.config(
   },
   {
     // Process entry points print to the terminal.
-    files: ["invoke/serve.ts", "wiki/main.ts"],
+    files: ["invoke/serve.ts", "wiki/main.ts", "burndown/dashboard.ts"],
     rules: { "no-console": "off" }
   },
   // The shared invariant scope names `src/`; flows have no `src/`.

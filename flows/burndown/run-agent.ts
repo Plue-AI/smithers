@@ -102,7 +102,16 @@ export const agentArgv = (assignment: Assignment, workdir: string): ReadonlyArra
       workdir,
       "-"
     ]
-    : ["claude", "-p", "--output-format", "json", "--model", assignment.model, "--no-session-persistence", "--dangerously-skip-permissions"]
+    : [
+      "claude",
+      "-p",
+      "--output-format",
+      "json",
+      "--model",
+      assignment.model,
+      "--no-session-persistence",
+      "--dangerously-skip-permissions"
+    ]
 
 const limitPattern = /usage limit|rate limit|hit your limit|limit reached|429 Too Many Requests/i
 
@@ -117,7 +126,9 @@ const cliOutput = (output: string) => {
       try {
         const value = JSON.parse(line)
         if (value && typeof value === "object" && !Array.isArray(value)) records.push(value)
-      } catch { diagnostics.push(line) }
+      } catch {
+        diagnostics.push(line)
+      }
     }
   }
   return { records, diagnostics: diagnostics.join("\n") }
@@ -131,14 +142,20 @@ const finalReport = (
   if (tool === "claude") {
     const result = records.filter((record) => record.type === "result").at(-1)
     return result?.subtype === "success" && result.is_error === false && typeof result.result === "string"
-      ? { text: result.result } : { failure: JSON.stringify(result) ?? "" }
+      ? { text: result.result } :
+      { failure: JSON.stringify(result) ?? "" }
   }
   let message: string | undefined
   let completed = false
   let failure: string | undefined
   let fatal = false
   for (const record of records) {
-    if (record.type === "turn.started") { message = undefined; completed = false; failure = undefined; fatal = false }
+    if (record.type === "turn.started") {
+      message = undefined
+      completed = false
+      failure = undefined
+      fatal = false
+    }
     if (record.type === "item.completed") {
       const item = record.item as Record<string, unknown> | undefined
       if (item?.type === "agent_message") {
@@ -146,7 +163,10 @@ const finalReport = (
         completed = false
       }
     }
-    if (record.type === "turn.completed" && !fatal) { completed = true; failure = undefined }
+    if (record.type === "turn.completed" && !fatal) {
+      completed = true
+      failure = undefined
+    }
     if (record.type === "turn.failed" || record.type === "error") {
       completed = false
       failure = JSON.stringify(record)
@@ -169,14 +189,23 @@ export const parseReport = (
   const report = final.text
   const notes = `${exitCode !== 0 ? output : report ?? output}\n${diagnostics}`.slice(-2000)
   const result = (status: WorkerResult["status"], commits: WorkerResult["commits"] = [], why = ""): WorkerResult => ({
-    key: assignment.key, status, commits, notes: `${notes}${why ? `\n${why}` : ""}`, agentHours
+    key: assignment.key,
+    status,
+    commits,
+    notes: `${notes}${why ? `\n${why}` : ""}`,
+    agentHours
   })
   if (exitCode !== 0) {
-    return result(limitPattern.test(`${final.failure ?? ""}\n${parsed.diagnostics}\n${diagnostics}`) ? "limited" : "failed")
+    return result(
+      limitPattern.test(`${final.failure ?? ""}\n${parsed.diagnostics}\n${diagnostics}`) ? "limited" : "failed"
+    )
   }
   if (report === undefined) {
-    return result(final.failure !== undefined && limitPattern.test(final.failure + diagnostics) ? "limited" : "failed", [],
-      "No completed final assistant report")
+    return result(
+      final.failure !== undefined && limitPattern.test(final.failure + diagnostics) ? "limited" : "failed",
+      [],
+      "No completed final assistant report"
+    )
   }
   if ([assignment.lead, ...assignment.extras].some((issue) => issue.repo !== assignment.repo)) {
     return result("failed", [], "Inconsistent assigned repositories")
@@ -193,11 +222,16 @@ export const parseReport = (
   for (const line of report.split(/\r?\n/)) {
     const marker = /^\s*(`{3,}|~{3,})(.*)$/.exec(line)
     if (fence !== undefined) {
-      if (marker !== null && marker[1]![0] === fence[0] &&
-        marker[1]!.length >= fence.length && marker[2]!.trim() === "") fence = undefined
+      if (
+        marker !== null && marker[1]![0] === fence[0] &&
+        marker[1]!.length >= fence.length && marker[2]!.trim() === ""
+      ) fence = undefined
       continue
     }
-    if (marker !== null) { fence = marker[1]!; continue }
+    if (marker !== null) {
+      fence = marker[1]!
+      continue
+    }
     const ready = /^READY\s+(?:#?(\d+)\s+)?([0-9a-f]{40}|[0-9a-f]{64})\s*$/.exec(line)
     if (ready) {
       readyLines.push({
@@ -222,9 +256,11 @@ export const parseReport = (
   }
   // Reserve explicit issue identities before assigning ordered implicit results.
   for (const { issue, commit } of readyLines.filter((line) => line.issue !== undefined)) {
-    if (!order.includes(issue!) ||
+    if (
+      !order.includes(issue!) ||
       (byIssue.has(issue!) && byIssue.get(issue!) !== commit) ||
-      (byCommit.has(commit) && byCommit.get(commit) !== issue)) {
+      (byCommit.has(commit) && byCommit.get(commit) !== issue)
+    ) {
       return result("failed", [], "Invalid READY assignment mapping")
     }
     byIssue.set(issue!, commit)
@@ -270,7 +306,9 @@ export const layerRunAgent = (brief: (assignment: Assignment, machine: Machine) 
             `trap 'exit 129' HUP; trap 'exit 130' INT; trap 'exit 143' TERM`
           ],
           `cd ${shellQuote(machine.workdir)}`,
-          `${agentArgv(assignment, machine.workdir).map(shellQuote).join(" ")} < ${shellQuote(briefPath)} > ${shellQuote(reportPath)} 2> ${shellQuote(logPath)}`,
+          `${agentArgv(assignment, machine.workdir).map(shellQuote).join(" ")} < ${shellQuote(briefPath)} > ${
+            shellQuote(reportPath)
+          } 2> ${shellQuote(logPath)}`,
           `code=$?`,
           `cat ${shellQuote(reportPath)}`,
           `printf '\nBURNDOWN_DIAGNOSTICS='`,

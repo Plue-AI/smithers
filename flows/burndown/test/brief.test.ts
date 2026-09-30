@@ -123,13 +123,11 @@ test("Cloud prepared commits defer checks to host without claiming guest passes"
   assert.ok(!text.includes("Co-Authored-By: GPT-6.1 Sol"))
 })
 
-
 test("author trailer follows a nondefault assignment model", () => {
   const text = brief({ ...options, tool: "claude", model: "claude-fable-5-1" })
   assert.ok(text.includes("Co-Authored-By: Claude claude-fable-5-1 <noreply@anthropic.com>"))
   assert.ok(!text.includes("Co-Authored-By: Claude Opus"))
 })
-
 
 test("Cloud product bug review requires Fable without an Opus fallback", () => {
   const text = brief({ ...options, execution: "cloud" })

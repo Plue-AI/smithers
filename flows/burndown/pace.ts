@@ -42,7 +42,9 @@ export const Pace = AgentAction.make("burndown/pace", {
   prompt: ({ observation }) =>
     [
       `Now: ${new Date(observation.now).toISOString()}`,
-      `Target: ${observation.target}. In flight: ${observation.inFlight.length}. Room now: ${Math.max(0, observation.target - observation.inFlight.length)}. Open issues: ${observation.openIssues}.`,
+      `Target: ${observation.target}. In flight: ${observation.inFlight.length}. Room now: ${
+        Math.max(0, observation.target - observation.inFlight.length)
+      }. Open issues: ${observation.openIssues}.`,
       `Finished last round: ${observation.finished.map((f) => `${f.key}=${f.status}`).join(", ") || "none"}`,
       "",
       "# Accounts (slots = computed ceiling for new launches)",
@@ -50,7 +52,9 @@ export const Pace = AgentAction.make("burndown/pace", {
       "",
       "# Candidates in priority order (repo#n severity effort title)",
       ...observation.candidates.slice(0, 300).map((c) =>
-        `${c.repo}#${c.lead.n} ${c.severity} ${c.effort}${c.fix === undefined ? "" : " FIX"} ${c.lead.title.slice(0, 80)}`
+        `${c.repo}#${c.lead.n} ${c.severity} ${c.effort}${c.fix === undefined ? "" : " FIX"} ${
+          c.lead.title.slice(0, 80)
+        }`
       )
     ].join("\n"),
   corrections: 2

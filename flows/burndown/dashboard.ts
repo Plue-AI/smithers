@@ -23,7 +23,7 @@ import { createServer } from "node:http"
 import { homedir } from "node:os"
 import { join } from "node:path"
 import { DatabaseSync } from "node:sqlite"
-import { discoverAccounts, type Reading, readAccounts } from "./accounts.ts"
+import { discoverAccounts, readAccounts, type Reading } from "./accounts.ts"
 import { slots as paceSlots } from "./pacing.ts"
 
 process.env.BURNDOWN_EXCLUDE_EMAILS ??= "will@codeplane.app"
@@ -31,7 +31,9 @@ const port = Number(process.env.BURNDOWN_DASHBOARD_PORT ?? 4777)
 const repoDir = join(homedir(), "smithers")
 /** Where the burndown host runs: its own frozen checkout when one exists (see README), else the repo. */
 const hostDir = process.env.BURNDOWN_HOST ??
-  (existsSync(join(homedir(), "Smithers-Ops/burndown-host/.flows")) ? join(homedir(), "Smithers-Ops/burndown-host") : repoDir)
+  (existsSync(join(homedir(), "Smithers-Ops/burndown-host/.flows"))
+    ? join(homedir(), "Smithers-Ops/burndown-host")
+    : repoDir)
 const opsDir = join(homedir(), "Smithers-Ops/burndown")
 const engineDb = join(hostDir, ".flows/engine.db")
 
@@ -52,8 +54,12 @@ const readText = (path: string): string | null => {
 }
 const sh = (file: string, args: Array<string>, cwd = repoDir) =>
   new Promise<string>((resolve, reject) =>
-    execFile(file, args, { cwd, maxBuffer: 32 << 20, timeout: 60_000 }, (error, stdout) =>
-      error ? reject(error) : resolve(stdout))
+    execFile(
+      file,
+      args,
+      { cwd, maxBuffer: 32 << 20, timeout: 60_000 },
+      (error, stdout) => error ? reject(error) : resolve(stdout)
+    )
   )
 
 /** The host's own CLI, so run ids resolve against the host's state. */
@@ -92,8 +98,12 @@ const cli = cached(20_000, async () => {
   const newest = runs.sort((a: Json, b: Json) => b.createdAt - a.createdAt)[0]
   if (newest === undefined) return null
   const show = parse(await smthrs(["runs", "show", newest.runId, "--json"]).catch(() => "null"))
-  return { runId: newest.runId as string, status: newest.status as string, createdAt: newest.createdAt as number,
-    cause: (show?.diagnosis?.cause ?? null) as string | null }
+  return {
+    runId: newest.runId as string,
+    status: newest.status as string,
+    createdAt: newest.createdAt as number,
+    cause: (show?.diagnosis?.cause ?? null) as string | null
+  }
 })
 
 const accounts = cached(600_000, async () => {
@@ -102,9 +112,15 @@ const accounts = cached(600_000, async () => {
 })
 
 const mainCommits = cached(30_000, async () => {
-  const out = await sh("jj", ["--ignore-working-copy", "log", "--no-graph", "-r",
-    'ancestors(main@origin, 400) & committer_date(after:"72 hours ago")', "-T",
-    'commit_id ++ "\\t" ++ committer.timestamp().utc().format("%s") ++ "\\t" ++ description.first_line() ++ "\\n"'])
+  const out = await sh("jj", [
+    "--ignore-working-copy",
+    "log",
+    "--no-graph",
+    "-r",
+    "ancestors(main@origin, 400) & committer_date(after:\"72 hours ago\")",
+    "-T",
+    "commit_id ++ \"\\t\" ++ committer.timestamp().utc().format(\"%s\") ++ \"\\t\" ++ description.first_line() ++ \"\\n\""
+  ])
   return out.trim().split("\n").filter(Boolean).map((line) => {
     const [sha, at, subject] = line.split("\t")
     return { sha: sha!, at: Number(at) * 1000, subject: subject ?? "" }
@@ -147,10 +163,14 @@ function readEngine(runId: string | null, since: number) {
       ? db.prepare(`select * from flows_runs where (execution_flow = 'burndown' or execution_flow like '%/burndown')
           order by created_at_ms desc limit 1`).get()
       : db.prepare(`select * from flows_runs where execution_parent_id = ? and
-          (execution_flow = 'burndown' or execution_flow like '%/burndown') order by created_at_ms desc limit 1`).get(runId)
+          (execution_flow = 'burndown' or execution_flow like '%/burndown') order by created_at_ms desc limit 1`).get(
+        runId
+      )
     const rounds: Array<Json> = entry === undefined ? [] : db.prepare(`select run_id, status, round_ordinal,
         waiting_reason, waiting_wake_at_ms, created_at_ms, finished_at_ms, state_json from flows_runs
-        where lineage_id = ? and execution_flow = 'burndown/round' order by round_ordinal`).all(entry.run_id) as Array<Json>
+        where lineage_id = ? and execution_flow = 'burndown/round' order by round_ordinal`).all(entry.run_id) as Array<
+      Json
+    >
     const attempts = db.prepare(`select outcome_json, finished_at_ms from flows_attempts where run_id = ?
         and state = 'succeeded' and outcome_json is not null and (json_type(outcome_json, '$.capacity') is not null
         or json_type(outcome_json, '$.quarantined') is not null)`)
@@ -163,21 +183,44 @@ function readEngine(runId: string | null, since: number) {
         if (out?.capacity !== undefined) observation = out
         else if (Array.isArray(out?.landed)) land = { ...out, at: a.finished_at_ms }
       }
-      return { id: row.run_id, status: row.status, ordinal: row.round_ordinal, waiting: row.waiting_reason,
-        wakeAt: row.waiting_wake_at_ms, createdAt: row.created_at_ms, finishedAt: row.finished_at_ms,
-        payload: state?.payload ?? null, cause: failureCause(state?.result), observation, land }
+      return {
+        id: row.run_id,
+        status: row.status,
+        ordinal: row.round_ordinal,
+        waiting: row.waiting_reason,
+        wakeAt: row.waiting_wake_at_ms,
+        createdAt: row.created_at_ms,
+        finishedAt: row.finished_at_ms,
+        payload: state?.payload ?? null,
+        cause: failureCause(state?.result),
+        observation,
+        land
+      }
     })
     const workers = db.prepare(`select run_id, status, created_at_ms, finished_at_ms, state_json from flows_runs
         where execution_flow like '%burndown/worker' and created_at_ms >= ? order by created_at_ms desc limit 200`)
       .all(since) as Array<Json>
     return {
-      entry: entry === undefined ? null : { id: entry.run_id, status: entry.status, runId: entry.execution_parent_id,
-        createdAt: entry.created_at_ms, cause: failureCause(parse(entry.state_json)?.result) },
+      entry: entry === undefined ?
+        null :
+        {
+          id: entry.run_id,
+          status: entry.status,
+          runId: entry.execution_parent_id,
+          createdAt: entry.created_at_ms,
+          cause: failureCause(parse(entry.state_json)?.result)
+        },
       rounds: parsedRounds,
       workers: workers.map((w) => {
         const state = parse(w.state_json)
-        return { id: w.run_id, status: w.status, createdAt: w.created_at_ms, finishedAt: w.finished_at_ms,
-          input: state?.payload?.input ?? null, result: state?.result ?? null }
+        return {
+          id: w.run_id,
+          status: w.status,
+          createdAt: w.created_at_ms,
+          finishedAt: w.finished_at_ms,
+          input: state?.payload?.input ?? null,
+          result: state?.result ?? null
+        }
       })
     }
   } finally {
@@ -218,8 +261,14 @@ async function snapshot() {
 
   // Assignments seen anywhere: round payloads carry every in-flight worker.
   const assignments = new Map<string, Json>()
-  for (const r of rounds) for (const item of r.payload?.inFlight ?? []) {
-    assignments.set(item.assignment.key, { ...item.assignment, executionId: item.executionId, startedAt: item.startedAt })
+  for (const r of rounds) {
+    for (const item of r.payload?.inFlight ?? []) {
+      assignments.set(item.assignment.key, {
+        ...item.assignment,
+        executionId: item.executionId,
+        startedAt: item.startedAt
+      })
+    }
   }
   const finished = new Map<string, Json>()
   for (const r of rounds) for (const f of r.observation?.finished ?? []) finished.set(f.key, f)
@@ -235,31 +284,55 @@ async function snapshot() {
   for (const w of engine?.workers ?? []) {
     const key = w.input?.key
     if (typeof key !== "string" || rows.has(key)) continue
-    rows.set(key, { ...assignments.get(key), ...w.input, execution: w.id, execStatus: w.status,
-      startedAt: w.createdAt, finishedAt: w.finishedAt, result: w.result })
+    rows.set(key, {
+      ...assignments.get(key),
+      ...w.input,
+      execution: w.id,
+      execStatus: w.status,
+      startedAt: w.createdAt,
+      finishedAt: w.finishedAt,
+      result: w.result
+    })
   }
   for (const [key, a] of assignments) if (!rows.has(key)) rows.set(key, { ...a, execStatus: null })
   const workers = await Promise.all([...rows.values()].map(async (w) => {
     const value = w.result?.exit?._tag === "Success" ? w.result.exit.value : null
     const done = finished.get(w.key)
     let status: string = value?.status ?? done?.status ??
-      (w.result?.exit?._tag === "Failure" ? "failed" : w.execStatus === "failed" ? "failed" :
-        w.execStatus === "cancelled" ? "cancelled" : w.execStatus === "completed" ? "done" : "running")
+      (w.result?.exit?._tag === "Failure" ? "failed" : w.execStatus === "failed" ?
+        "failed" :
+        w.execStatus === "cancelled"
+        ? "cancelled"
+        : w.execStatus === "completed"
+        ? "done"
+        : "running")
     if (landedKeys.has(w.key)) status = "landed"
     else if (current.has(w.key) || quarantined.has(w.key)) status = "quarantined"
     const log = await tail(logPath(w.key), 16_384)
     return {
-      key: w.key, repo: w.repo, lead: w.lead?.n ?? null, title: w.lead?.title ?? "",
-      extras: (w.extras ?? []).map((e: Json) => e.n), account: w.account, model: w.model, tool: w.tool,
-      placement: w.placement, fix: w.fix !== undefined, status,
-      startedAt: w.startedAt ?? null, finishedAt: w.finishedAt ?? null,
+      key: w.key,
+      repo: w.repo,
+      lead: w.lead?.n ?? null,
+      title: w.lead?.title ?? "",
+      extras: (w.extras ?? []).map((e: Json) => e.n),
+      account: w.account,
+      model: w.model,
+      tool: w.tool,
+      placement: w.placement,
+      fix: w.fix !== undefined,
+      status,
+      startedAt: w.startedAt ?? null,
+      finishedAt: w.finishedAt ?? null,
       cause: w.result?.exit?._tag === "Failure" ? failureCause(w.result) : null,
       notes: status === "running" ? null : String(value?.notes ?? done?.notes ?? "").slice(-600),
-      commits: value?.commits ?? done?.commits ?? [], tail: lastLines(log, 3)
+      commits: value?.commits ?? done?.commits ?? [],
+      tail: lastLines(log, 3)
     }
   }))
-  workers.sort((a, b) => Number(b.status === "running") - Number(a.status === "running") ||
-    (b.startedAt ?? 0) - (a.startedAt ?? 0))
+  workers.sort((a, b) =>
+    Number(b.status === "running") - Number(a.status === "running") ||
+    (b.startedAt ?? 0) - (a.startedAt ?? 0)
+  )
 
   // Landings: the Land report names keys; main's history names the SHA per issue.
   const commits = mainCommits.value ?? []
@@ -267,12 +340,16 @@ async function snapshot() {
     const w = workers.find((x) => x.key === key) ?? assignments.get(key)
     const issues = [w?.lead, ...(w?.extras ?? [])].map((x: Json) => typeof x === "object" ? x?.n : x)
       .filter((n) => typeof n === "number")
-    const shas = issues.map((n) => ({ n, sha: commits.find((c) => new RegExp(`#${n}\\b`).test(c.subject))?.sha ?? null }))
+    const shas = issues.map((n) => ({
+      n,
+      sha: commits.find((c) => new RegExp(`#${n}\\b`).test(c.subject))?.sha ?? null
+    }))
     return { key, repo: w?.repo ?? null, at, shas }
   }).sort((a, b) => b.at - a.at)
   const scripts = existsSync(join(opsDir, "landings"))
     ? readdirSync(join(opsDir, "landings")).filter((f) => f.endsWith(".sh"))
-      .map((f) => ({ key: f.slice(0, -3), at: statSync(join(opsDir, "landings", f)).mtimeMs })) : []
+      .map((f) => ({ key: f.slice(0, -3), at: statSync(join(opsDir, "landings", f)).mtimeMs })) :
+    []
 
   // Accounts: live usage, the flow's slot ceiling, live in-flight counts.
   const running = workers.filter((w) => w.status === "running")
@@ -283,11 +360,15 @@ async function snapshot() {
     const inFlight = running.filter((w) => ids.includes(w.account)).length
     const rates = latest?.payload?.rates?.[r.account.id]
     return {
-      id: r.account.id, aliases: r.account.aliases, tool: r.account.tool, email: r.account.email,
+      id: r.account.id,
+      aliases: r.account.aliases,
+      tool: r.account.tool,
+      email: r.account.email,
       windows: (r.usage?.windows ?? []).map((w) => ({ name: w.name, used: w.used, resetsAt: w.resetsAt })),
       slots: capacity.get(r.account.id)?.slots ?? paceSlots(r, now, rates, inFlight),
       slotsSource: capacity.has(r.account.id) ? "flow" : "local",
-      inFlight, problem: r.error === null ? (r.usage?.limitReached ? "limit reached" : null) : r.error._tag
+      inFlight,
+      problem: r.error === null ? (r.usage?.limitReached ? "limit reached" : null) : r.error._tag
     }
   })
 
@@ -295,19 +376,38 @@ async function snapshot() {
   const series = new Map<number, Json>()
   for (const r of rounds) {
     const round = r.payload?.round ?? r.ordinal
-    series.set(round, { round, at: r.createdAt, inFlight: r.observation?.inFlight?.length ?? 0,
-      landed: r.land?.landed?.length ?? 0 })
+    series.set(round, {
+      round,
+      at: r.createdAt,
+      inFlight: r.observation?.inFlight?.length ?? 0,
+      landed: r.land?.landed?.length ?? 0
+    })
   }
-  for (const [round, s] of ring) series.set(round, { ...series.get(round), round, at: s.at, inFlight: s.inFlight ?? 0,
-    landed: s.landed ?? 0, launched: s.launched, open: s.open })
+  for (const [round, s] of ring) {
+    series.set(round, {
+      ...series.get(round),
+      round,
+      at: s.at,
+      inFlight: s.inFlight ?? 0,
+      landed: s.landed ?? 0,
+      launched: s.launched,
+      open: s.open
+    })
+  }
   const timeline = [...series.values()].sort((a, b) => a.round - b.round).slice(-120)
 
   // Run status: control run first; parked when the newest round sleeps or waits.
   const failed = run?.status === "failed" || latest?.status === "failed" || engine?.entry?.status === "failed"
   const parked = latest !== null && (latest.status === "suspended" || latest.waiting !== null)
-  const runStatus = run === null && engine?.entry == null ? "not started" : failed ? "failed" :
-    run?.status === "completed" || latest?.status === "completed" ? "completed" : run?.status === "cancelled" ? "cancelled" :
-    parked ? "parked" : "running"
+  const runStatus = run === null && engine?.entry == null ? "not started" : failed ?
+    "failed" :
+    run?.status === "completed" || latest?.status === "completed" ?
+    "completed" :
+    run?.status === "cancelled" ?
+    "cancelled" :
+    parked
+    ? "parked"
+    : "running"
   const cause = failed
     ? String(run?.cause ?? latest?.cause ?? engine?.entry?.cause ?? "failed").split("\n").slice(0, 4).join("\n")
     : null
@@ -315,15 +415,22 @@ async function snapshot() {
 
   const monitor = lastLines(readText(join(opsDir, "monitor.log")) ?? "", 20).reverse().map((line) => {
     const m = /^(\S+) (HEALTHY|UNHEALTHY) ?(.*)$/.exec(line)
-    return m === null ? { at: null, healthy: null, text: line } :
+    return m === null ?
+      { at: null, healthy: null, text: line } :
       { at: Date.parse(m[1]!), healthy: m[2] === "HEALTHY", text: m[3] }
   })
 
   return {
     now,
-    run: { runId: run?.runId ?? engine?.entry?.runId ?? null, status: runStatus, cause,
-      round: latest?.payload?.round ?? null, wakeAt: parked ? latest?.wakeAt ?? null : null,
-      waiting: latest?.waiting ?? null, options: latest?.payload?.options ?? null },
+    run: {
+      runId: run?.runId ?? engine?.entry?.runId ?? null,
+      status: runStatus,
+      cause,
+      round: latest?.payload?.round ?? null,
+      wakeAt: parked ? latest?.wakeAt ?? null : null,
+      waiting: latest?.waiting ?? null,
+      options: latest?.payload?.options ?? null
+    },
     counts: {
       open: observed?.openIssues ?? statusNow?.open ?? null,
       inFlight: running.length,
@@ -339,13 +446,19 @@ async function snapshot() {
     workers,
     landings,
     scripts: scripts.sort((a, b) => b.at - a.at).slice(0, 20),
-    quarantined: [...quarantined.values()].map((q) => ({ key: q.key, at: q.at, current: current.has(q.key),
-      error: String(q.error ?? "").slice(-800) })).reverse(),
+    quarantined: [...quarantined.values()].map((q) => ({
+      key: q.key,
+      at: q.at,
+      current: current.has(q.key),
+      error: String(q.error ?? "").slice(-800)
+    })).reverse(),
     monitor,
     timeline,
     sources: {
-      cli: { at: cli.at, error: cli.error }, accounts: { at: accounts.at, error: accounts.error },
-      jj: { at: mainCommits.at, error: mainCommits.error }, engine: engine === null ? "missing" : "ok"
+      cli: { at: cli.at, error: cli.error },
+      accounts: { at: accounts.at, error: accounts.error },
+      jj: { at: mainCommits.at, error: mainCommits.error },
+      engine: engine === null ? "missing" : "ok"
     }
   }
 }

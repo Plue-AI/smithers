@@ -427,10 +427,16 @@ export const runLandingProcess = (
         } finally {
           // Attempt every kill even if inspection or another signal failed.
           for (const pid of [...descendants].reverse().concat(-child.pid)) {
-            try { send(pid, "SIGKILL") } catch (cause) { cleanupErrors.push(String(cause)) }
+            try {
+              send(pid, "SIGKILL")
+            } catch (cause) {
+              cleanupErrors.push(String(cause))
+            }
           }
         }
-        if (cleanupErrors.length > 0) failure = new Error(`${reason}; process-tree cleanup: ${cleanupErrors.join("; ")}`)
+        if (cleanupErrors.length > 0) {
+          failure = new Error(`${reason}; process-tree cleanup: ${cleanupErrors.join("; ")}`)
+        }
       }
     }
     const abort = () => stop("LANDING_CANCELLED")

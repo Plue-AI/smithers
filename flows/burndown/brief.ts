@@ -41,10 +41,16 @@ export const brief = (
     : "If the issue asks for a decision, make it on Will's behalf: choose the simplest MVP option, state it in one strong sentence, record an issue comment starting `Decision (on Will's behalf):`, persist durable decisions in AGENTS.md, then build it. Never hedge or hand the decision back."
   const extra = extras.length === 0 ? "" : `
 EXTRA ISSUES IN THE SAME CODE: ${extras.map((issue) => `#${issue.n} (${issue.title})`).join(", ")}.
-Finish #${lead.n} first, then each extra in turn, one commit per issue. If an extra turns out hard, unrelated or blocked, ${execution === "cloud" ? "report the reason and ask the launcher to release its claim" : "comment why and release its claim with the exact --by value below"}; never let an extra delay or endanger the lead.`
+Finish #${lead.n} first, then each extra in turn, one commit per issue. If an extra turns out hard, unrelated or blocked, ${
+    execution === "cloud"
+      ? "report the reason and ask the launcher to release its claim"
+      : "comment why and release its claim with the exact --by value below"
+  }; never let an extra delay or endanger the lead.`
   return `YOU ARE ONE OF MANY AGENTS WORKING ON THIS REPOSITORY.
 WORKDIR: ${workdir}. Read its AGENTS.md and the nearest scoped AGENTS.md before touching files. No worktrees, no jj workspaces, no branches. Use jj only; git writes are disabled. Other agents may edit the checkout: preserve their hunks, re-read files before editing, and keep an rsync backup of your own paths.
-MODEL: You author with ${tool} ${model ?? (tool === "claude" ? "claude-opus-5-5" : "gpt-6.1-sol")}. Any delegated coding or bug-fix agent uses GPT-6.1 Sol.
+MODEL: You author with ${tool} ${
+    model ?? (tool === "claude" ? "claude-opus-5-5" : "gpt-6.1-sol")
+  }. Any delegated coding or bug-fix agent uses GPT-6.1 Sol.
 Agents active at launch${execution === "cloud" ? "" : " (also re-read ~/Smithers-Ops/dispatch/active.md)"}:
 ${active}
 
@@ -84,9 +90,13 @@ ${
       ? `CLOUD WORKSPACE LIMITS: this VM has 1 CPU, 512 MB of memory and about 1.5 GB of free disk. It cannot run pnpm install, typecheck, lint or the test suites; do not try (the OOM kills your session and loses your work). Write the tests and the fix, review your diff by reading it, and commit. The merge queue on the launcher runs typecheck and tests before anything reaches main and relaunches you with the log if they fail.
 CLOUD VCS: this workspace is yours alone, so run jj directly with no lock script. For each issue: jj commit <your paths only> -m "<emoji conventional message>" (end the message with a blank line and Co-Authored-By: ${author}), then read its id with jj log -r @- --no-graph -T commit_id. Do not push, set bookmarks, create branches or rewrite earlier commits. Report each commit as READY <full 40-hex commit id> in issue order. READY <commit-id> is a prepared result; launcher Fable and host queue CI remain required.\n`
       : ""
-  }${execution === "cloud" ? "" : `VCS: the agent does NOT push main; the merge queue lands. Prepare one commit per issue on top of main@origin in ${workdir}. All jj writes for preparing the bundle run in one executable script through python3 ${lock} ${name} /absolute/path/to/preparation.sh. Inside the lock: jj st, verify your files and other agents' changes are intact, jj git fetch, jj commit <your issue paths only> -m "<emoji conventional message>". End each message with a blank line and Co-Authored-By: ${author}. Rebase only your commits onto current main@origin if needed, preserving the bundle's commit order. Never jj new/abandon/restore/undo, jj rebase -s @, or jj squash without -u. Never rewrite main, set the main bookmark, force push or run jj git push. On a stale working copy use jj workspace update-stale under the same lock and re-verify your own paths. Report each resulting full commit id in issue order on a separate line:
+  }${
+    execution === "cloud" ?
+      "" :
+      `VCS: the agent does NOT push main; the merge queue lands. Prepare one commit per issue on top of main@origin in ${workdir}. All jj writes for preparing the bundle run in one executable script through python3 ${lock} ${name} /absolute/path/to/preparation.sh. Inside the lock: jj st, verify your files and other agents' changes are intact, jj git fetch, jj commit <your issue paths only> -m "<emoji conventional message>". End each message with a blank line and Co-Authored-By: ${author}. Rebase only your commits onto current main@origin if needed, preserving the bundle's commit order. Never jj new/abandon/restore/undo, jj rebase -s @, or jj squash without -u. Never rewrite main, set the main bookmark, force push or run jj git push. On a stale working copy use jj workspace update-stale under the same lock and re-verify your own paths. Report each resulting full commit id in issue order on a separate line:
 READY <commit-id>
-`}
+`
+  }
 ${
     execution === "cloud"
       ? "Cloud READY means a prepared commit pending launcher Fable and host queue CI. Never claim guest tests passed; the host refuses landing until its checks pass."
