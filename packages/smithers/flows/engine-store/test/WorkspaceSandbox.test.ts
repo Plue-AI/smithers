@@ -406,7 +406,7 @@ describe("WorkspaceSandbox conformance", () => {
           })
         }))
         const escaping = yield* Effect.flip(test.service.execute({
-          descriptor: descriptor({ writeSet: ["out/**"] }),
+          descriptor: descriptor({ writeSet: [{ _tag: "Glob", include: ["out/**"] }] }),
           workflow: Effect.gen(function*() {
             const workspace = yield* WorkspaceSandbox.Workspace
             yield* workspace.writeFile("../escape.txt", encoder.encode("no"))
@@ -436,7 +436,10 @@ describe("WorkspaceSandbox conformance", () => {
       const program = Effect.gen(function*() {
         const test = yield* WorkspaceSandbox.makeMemory({ "src/b.txt": "b", "src/a.txt": "a" })
         return yield* test.service.execute({
-          descriptor: descriptor({ readSet: [read("src/a.txt", "a")], writeSet: ["src/*.txt"] }),
+          descriptor: descriptor({
+            readSet: [read("src/a.txt", "a")],
+            writeSet: [{ _tag: "Glob", include: ["src/*.txt"] }]
+          }),
           workflow: Effect.gen(function*() {
             const workspace = yield* WorkspaceSandbox.Workspace
             const input = yield* workspace.readFile("./src//a.txt")
@@ -490,7 +493,7 @@ describe("WorkspaceSandbox conformance", () => {
             // `**` crosses directories, `*` does not, and a pattern containing a
             // literal space must survive translation intact — the placeholder the
             // translation uses is NUL precisely because a path cannot hold one.
-            writeSet: ["deep/**", "flat/*.txt", "with space/*.txt"]
+            writeSet: [{ _tag: "Glob", include: ["deep/**", "flat/*.txt", "with space/*.txt"] }]
           }),
           workflow: Effect.gen(function*() {
             const workspace = yield* WorkspaceSandbox.Workspace
@@ -611,7 +614,7 @@ describe("WorkspaceSandbox transaction filesystem", () => {
                 readSet: probe === "empty root"
                   ? []
                   : Object.entries(initial).map(([path, content]) => read(path, content)),
-                writeSet: ["new/**"]
+                writeSet: [{ _tag: "Glob", include: ["new/**"] }]
               }),
               workflow: Effect.gen(function*() {
                 const fs = yield* FileSystem.FileSystem
@@ -685,7 +688,7 @@ describe("WorkspaceSandbox transaction filesystem", () => {
               read("src/nested/deep.txt", "deep"),
               read("out/nope.txt", "absent")
             ],
-            writeSet: ["out/**", "src/in.txt"]
+            writeSet: [{ _tag: "Glob", include: ["out/**"] }, "src/in.txt"]
           }),
           workflow: Effect.gen(function*() {
             const fs = yield* FileSystem.FileSystem
@@ -915,7 +918,7 @@ describe("WorkspaceSandbox filesystem host", () => {
         const execution = {
           descriptor: descriptor({
             readSet: [read("src/in.txt", "seed"), read("src/absent.txt", "nothing")],
-            writeSet: ["out/**", "src/in.txt"]
+            writeSet: [{ _tag: "Glob", include: ["out/**"] }, "src/in.txt"]
           }),
           workflow: Effect.gen(function*() {
             const fs = yield* FileSystem.FileSystem
@@ -1465,7 +1468,7 @@ describe("WorkspaceSandbox filesystem host confinement", () => {
   const write = (
     sandbox: WorkspaceSandbox.Service,
     writes: ReadonlyArray<readonly [path: string, content: string]>,
-    writeSet: ReadonlyArray<string>
+    writeSet: FileBoundary["writeSet"]
   ) =>
     Effect.gen(function*() {
       const accepted = yield* sandbox.execute({
@@ -1932,7 +1935,7 @@ describe("WorkspaceSandbox filesystem host confinement", () => {
         yield* fs.makeDirectory(`${outside}/dir`)
         yield* fs.symlink(`${outside}/dir`, `${root}/out`)
         const sandbox = WorkspaceSandbox.makeFileSystem(fs, hostPath, yield* ArtifactStore.ArtifactStore, root)
-        const accepted = yield* write(sandbox, [["out/planted.txt", "PWNED"]], ["out/**"])
+        const accepted = yield* write(sandbox, [["out/planted.txt", "PWNED"]], [{ _tag: "Glob", include: ["out/**"] }])
         const refused = yield* Effect.flip(sandbox.materialize(accepted))
         return { refused, outsideEntries: yield* fs.readDirectory(`${outside}/dir`) }
       })).pipe(Effect.provide(nodeLayer))
@@ -2011,7 +2014,7 @@ describe("WorkspaceSandbox filesystem host confinement", () => {
             ["q/deep/poison.txt", "never"],
             ["sub/inside.txt", "never"]
           ],
-          ["a.txt", "b.txt", "q/**", "sub/**"]
+          ["a.txt", "b.txt", { _tag: "Glob", include: ["q/**", "sub/**"] }]
         )
         const refused = yield* Effect.flip(sandbox.materialize(accepted))
         return {
@@ -2089,7 +2092,7 @@ describe("WorkspaceSandbox copy-back symlink swaps", () => {
   const accept = (
     sandbox: WorkspaceSandbox.Service,
     writes: ReadonlyArray<readonly [path: string, content: string]>,
-    writeSet: ReadonlyArray<string>
+    writeSet: FileBoundary["writeSet"]
   ) =>
     Effect.gen(function*() {
       const accepted = yield* sandbox.execute({
@@ -2136,7 +2139,10 @@ describe("WorkspaceSandbox copy-back symlink swaps", () => {
           fs.symlink(`${outside}/dir`, `${root}/out`)
         )
         const sandbox = WorkspaceSandbox.makeFileSystem(host, hostPath, yield* ArtifactStore.ArtifactStore, root)
-        const accepted = yield* accept(sandbox, [["out/deep/planted.txt", "PWNED"]], ["out/**"])
+        const accepted = yield* accept(sandbox, [["out/deep/planted.txt", "PWNED"]], [{
+          _tag: "Glob",
+          include: ["out/**"]
+        }])
         const refused = yield* Effect.flip(sandbox.materialize(accepted))
         expect(refused).toMatchObject({ code: "path_escapes_workspace" })
         expect(yield* fs.readDirectory(`${outside}/dir`)).toEqual([])

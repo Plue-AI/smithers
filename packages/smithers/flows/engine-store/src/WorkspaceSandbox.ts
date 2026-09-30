@@ -555,14 +555,14 @@ const normalizePath = (root: string, path: string, allowRoot = false): Result.Re
 }
 
 /**
- * Whether a declared write-set entry covers an observed path. Entries are
- * ordinarily literal paths (what `StepBoundary` captures); `*` and `**` are
- * honored so a declaration written as a glob per
- * `packages/smithers/flows/plan/docs/api.md` still means what it says.
+ * Whether a declared write-set entry covers an observed path. A plain string
+ * is a literal path, even when it contains `*` or `**`, exactly as
+ * `StepBoundary` captures and `FileSet.overlaps` compares it; wildcard
+ * declarations are written as a Glob.
  */
 const covers = (entry: FileSet.Entry, path: string): boolean =>
   typeof entry === "string"
-    ? entry === path || (entry.includes("*") && FileSet.matchesPattern(entry, path))
+    ? entry === path
     : entry._tag === "TreeArtifact"
     ? path === entry.path || path.startsWith(`${entry.path}/`)
     : FileSet.matchesGlob(entry, path)

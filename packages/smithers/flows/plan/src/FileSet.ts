@@ -373,21 +373,14 @@ const matchesGlobFolded = (glob: Glob, path: string): boolean => {
 }
 
 /**
- * Whether a plain-string entry is a pattern rather than an exact path. The
- * runtime boundary (`engine-store` `WorkspaceSandbox`) honors `*` and `**` in a
- * string entry, so static overlap must read it the same way.
- */
-const wildcard = (entry: string): boolean => entry.includes("*")
-
-/**
  * Conservative static overlap. `true` may over-serialize; `false` proves that
  * no path can belong to both declarations.
  *
- * A plain string containing `*` is a pattern, matched with
- * {@link matchesPattern}; two patterns, or a pattern against a Glob or
- * TreeArtifact, overlap conservatively.
+ * A plain string is a literal path, even when it contains `*` or `**`, as it
+ * is at execution (sandbox admission, capture, removal, and replay); wildcard
+ * matching belongs to a Glob.
  *
- * Exact paths, wildcard strings, and tree roots compare in their
+ * Exact paths and tree roots compare in their
  * {@link folded} form, so separator aliases, canonically equivalent Unicode
  * spellings, and spellings that differ only in letter case overlap. A Glob
  * against an exact path matches both its `include` and `exclude` patterns in
@@ -401,18 +394,7 @@ const wildcard = (entry: string): boolean => entry.includes("*")
  * @slop
  */
 export const overlaps = (left: Entry, right: Entry): boolean => {
-  if (typeof left === "string" && typeof right === "string") {
-    const leftWild = wildcard(left)
-    const rightWild = wildcard(right)
-    if (leftWild && rightWild) return true
-    if (leftWild) return matchesPattern(folded(left), folded(right))
-    if (rightWild) return matchesPattern(folded(right), folded(left))
-    return folded(left) === folded(right)
-  }
-  // A string holding `*` is a pattern (see {@link wildcard}); against a Glob or
-  // a TreeArtifact it answers as conservatively as glob against glob.
-  if (typeof left === "string" && wildcard(left) && !(typeof right === "string")) return true
-  if (typeof right === "string" && wildcard(right) && !(typeof left === "string")) return true
+  if (typeof left === "string" && typeof right === "string") return folded(left) === folded(right)
   if (typeof left === "string" && isGlob(right)) return matchesGlobFolded(right, left)
   if (isGlob(left) && typeof right === "string") return matchesGlobFolded(left, right)
   if (isGlob(left) && isGlob(right)) return true

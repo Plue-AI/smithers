@@ -1,8 +1,9 @@
 /**
  * Rebuildable candidate index for the compiler's existing overlap predicate.
  * Exact paths and tree prefixes share a trie keyed by case-folded segments, the
- * form FileSet.overlaps compares. Globs and wildcard strings stay conservative: their
- * exclusions and pair semantics are decided by FileSet.overlaps, never here.
+ * form FileSet.overlaps compares. A plain string is a literal path there, even
+ * one holding `*`. Globs stay conservative: their exclusions and pair semantics
+ * are decided by FileSet.overlaps, never here.
  * Nothing in this index becomes persisted plan or key material.
  * @since 0.1.0
  * @private
@@ -20,12 +21,8 @@ const branch = (): Branch => ({ children: new Map(), exact: new Set(), trees: ne
 const add = (target: Set<number>, values: ReadonlySet<number>): void => {
   for (const value of values) target.add(value)
 }
-/**
- * A Glob, or a plain string holding `*`, which `FileSet.overlaps` reads as a
- * pattern. Neither has a single trie position, so both stay conservative.
- */
-const patternLike = (entry: FileSet.Entry): boolean =>
-  typeof entry === "string" ? entry.includes("*") : entry._tag === "Glob"
+/** A Glob has no single trie position, so it stays conservative. */
+const patternLike = (entry: FileSet.Entry): entry is FileSet.Glob => typeof entry !== "string" && entry._tag === "Glob"
 const ordered = (values: ReadonlySet<number>): Array<number> => Array.from(values).sort((left, right) => left - right)
 
 /**
@@ -45,7 +42,7 @@ export const make = (produced: ReadonlyArray<ReadonlyArray<FileSet.Entry>>) => {
         globs.add(owner)
         continue
       }
-      const path = typeof entry === "string" ? entry : (entry as FileSet.TreeArtifact).path
+      const path = typeof entry === "string" ? entry : entry.path
       let current = root
       for (const segment of FileSet.folded(path).split("/")) {
         let child = current.children.get(segment)
@@ -67,7 +64,7 @@ export const make = (produced: ReadonlyArray<ReadonlyArray<FileSet.Entry>>) => {
       // exclusions remain the final predicate's responsibility as well.
       if (patternLike(entry)) return ordered(all)
       add(found, globs)
-      const path = typeof entry === "string" ? entry : (entry as FileSet.TreeArtifact).path
+      const path = typeof entry === "string" ? entry : entry.path
       let current: Branch | undefined = root
       for (const segment of FileSet.folded(path).split("/")) {
         current = current.children.get(segment)

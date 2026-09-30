@@ -70,7 +70,7 @@ const securityReview = Smithers.SecurityReview({
       threat:
         "Two concurrently scheduled nodes write the same file because overlap analysis said false, corrupting a user's workspace or letting one node clobber another's output.",
       lookFor: [
-        "FileSet.overlaps returning false for a wildcard string, glob exclusion, tree prefix, or separator alias that can match the same path.",
+        "FileSet.overlaps returning false for a glob exclusion, tree prefix, or separator alias that can match the same path, or reading a plain string as a pattern when execution reads it as a literal path.",
         "EffectCandidates' trie omitting a candidate owner that the final overlap predicate would have flagged.",
         "ConflictAnnotation dropping a reader-producer edge so a reader runs before its producer.",
         "Exact-path comparison that is case-sensitive, so 'A.txt' and 'a.txt' are disjoint although a case-insensitive filesystem (default macOS APFS) maps them to one file."

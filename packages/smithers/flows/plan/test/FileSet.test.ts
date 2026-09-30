@@ -153,8 +153,7 @@ describe("FileSet", () => {
     // `src/A.ts` and `src/a.ts` as one file, so two writers must serialize.
     expect(FileSet.overlaps("src/A.ts", "src/a.ts")).toBe(true)
     expect(FileSet.overlaps("SRC\\a.ts", "src/A.ts")).toBe(true)
-    expect(FileSet.overlaps("src/*.TS", "src/a.ts")).toBe(true)
-    expect(FileSet.overlaps("src/a.ts", "SRC/*.ts")).toBe(true)
+    expect(FileSet.overlaps("src/*.TS", "SRC/*.ts")).toBe(true)
     expect(FileSet.overlaps({ _tag: "TreeArtifact", path: "Dist" }, "dist/a.js")).toBe(true)
     expect(FileSet.overlaps("DIST/a.js", { _tag: "TreeArtifact", path: "dist" })).toBe(true)
     expect(FileSet.overlaps({ _tag: "TreeArtifact", path: "dist" }, { _tag: "TreeArtifact", path: "DIST/x" }))
@@ -166,7 +165,7 @@ describe("FileSet", () => {
     expect(FileSet.overlaps(glob, "Src/deep/skip.TS")).toBe(false)
     expect(FileSet.overlaps("\u03a3.txt", "\u03c2.txt")).toBe(true)
     expect(FileSet.overlaps("src/a.ts", "src/b.ts")).toBe(false)
-    expect(FileSet.overlaps("src/a.ts", "lib/*.ts")).toBe(false)
+    expect(FileSet.overlaps("src/a.ts", "lib/a.ts")).toBe(false)
   })
 
   it("uses the conservative overlap matrix", () => {
@@ -184,18 +183,22 @@ describe("FileSet", () => {
     expect(FileSet.overlaps(glob, tree)).toBe(true)
   })
 
-  it("reads a plain string holding * as a pattern, as the runtime boundary does", () => {
-    expect(FileSet.overlaps("src/*.ts", "src/a.ts")).toBe(true)
-    expect(FileSet.overlaps("src/a.ts", "src/*.ts")).toBe(true)
-    expect(FileSet.overlaps("**", "src/a.ts")).toBe(true)
-    expect(FileSet.overlaps("src\\*.ts", "src/a.ts")).toBe(true)
-    expect(FileSet.overlaps("src/*.ts", "src/deep/a.ts")).toBe(false)
-    expect(FileSet.overlaps("src/*.ts", "lib/a.ts")).toBe(false)
-    expect(FileSet.overlaps("src/*.ts", "lib/*.js")).toBe(true)
-    expect(FileSet.overlaps({ _tag: "TreeArtifact", path: "src" }, "*")).toBe(true)
-    expect(FileSet.overlaps("*", { _tag: "TreeArtifact", path: "src" })).toBe(true)
-    expect(FileSet.overlaps("out/*.js", glob)).toBe(true)
-    expect(FileSet.overlaps(glob, "out/*.js")).toBe(true)
+  it("reads a plain string holding * as a literal path, as the execution boundary does", () => {
+    // The sandbox, capture, removal, and replay all compare a string entry
+    // literally (#2440), so static overlap must not widen it to a pattern.
+    expect(FileSet.overlaps("src/*.ts", "src/a.ts")).toBe(false)
+    expect(FileSet.overlaps("src/a.ts", "src/*.ts")).toBe(false)
+    expect(FileSet.overlaps("**", "src/a.ts")).toBe(false)
+    expect(FileSet.overlaps("src/*.ts", "lib/*.js")).toBe(false)
+    expect(FileSet.overlaps({ _tag: "TreeArtifact", path: "src" }, "*")).toBe(false)
+    expect(FileSet.overlaps("*", { _tag: "TreeArtifact", path: "src" })).toBe(false)
+    // A file literally named with `*` is still one path in folded form.
+    expect(FileSet.overlaps("src/*.ts", "SRC\\*.TS")).toBe(true)
+    expect(FileSet.overlaps({ _tag: "TreeArtifact", path: "src" }, "src/*.ts")).toBe(true)
+    // A Glob still matches such a literal path as text.
+    expect(FileSet.overlaps("src/*.ts", { _tag: "Glob", include: ["src/*.ts"] })).toBe(true)
+    expect(FileSet.overlaps({ _tag: "Glob", include: ["out/*.js"] }, "out/*.js")).toBe(true)
+    expect(FileSet.overlaps("out/*.js", glob)).toBe(false)
   })
 })
 

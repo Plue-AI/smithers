@@ -82,9 +82,9 @@ describe("ConflictAnnotation.annotate", () => {
       expect([...found.ordering]).toEqual([["b", ["a"]], ["reader", ["a", "b"]]])
     }))
 
-  it.effect("treats a wildcard string as a pattern on both the write/write and reader-after-writer passes", () =>
+  it.effect("reads a string holding * as a literal path and a Glob as the pattern on both passes", () =>
     Effect.gen(function*() {
-      const found = yield* Conflicts.annotate(
+      const literal = yield* Conflicts.annotate(
         [
           node("a", { writes: ["out/*.js"] }),
           node("b", { writes: ["out/a.js"] }),
@@ -94,13 +94,30 @@ describe("ConflictAnnotation.annotate", () => {
         0,
         false
       )
-      expect([...found.conflicts]).toEqual([
-        ["a", [serialized("b", ["out/*.js"])]],
-        ["b", [serialized("a", ["out/*.js"])]]
+      // Execution captures and admits `out/*.js` as that one file name
+      // (#2440), so it neither conflicts with `out/a.js` nor feeds the reader.
+      expect([...literal.conflicts]).toEqual([])
+      expect([...literal.ordering]).toEqual([])
+
+      const effects = (writes: Plan.NodeEffects["writes"], reads: Plan.NodeEffects["reads"] = []) => ({
+        effects: { reads, writes, boundaryMode: "expected" as const }
+      })
+      const globbed = yield* Conflicts.annotate(
+        [
+          node("a", effects([{ _tag: "Glob", include: ["out/*.js"] }])),
+          node("b", { writes: ["out/a.js"] }),
+          node("gen", { writes: ["src/gen.ts"] }),
+          node("reader", effects([], [{ _tag: "Glob", include: ["src/*.ts"] }]))
+        ],
+        0,
+        false
+      )
+      expect([...globbed.conflicts].map(([id, notes]) => [id, notes.map((note) => note.with)])).toEqual([
+        ["a", ["b"]],
+        ["b", ["a"]]
       ])
-      // Two wildcard strings overlap conservatively, as two Globs do, so the
-      // reader also waits for `a`.
-      expect([...found.ordering]).toEqual([["b", ["a"]], ["reader", ["a", "gen"]]])
+      // Two Globs overlap conservatively, so the reader also waits for `a`.
+      expect([...globbed.ordering]).toEqual([["b", ["a"]], ["reader", ["a", "gen"]]])
     }))
 
   it.effect("never annotates the frozen prefix, and lands every edge on a new node", () =>
