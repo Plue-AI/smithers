@@ -16,7 +16,7 @@ import {
   MythicalStackSchema
 } from "@smthrs/rpc/Mythical"
 import * as StackIssues from "@smthrs/rpc/StackIssues"
-import { itemReason, itemStateLabel, itemTitle } from "@smthrs/rpc/StackView"
+import { itemReason, itemStateLabel, itemTitle, retryable } from "@smthrs/rpc/StackView"
 import type * as Panels from "./panels.ts"
 
 /** Where a repository lives on Cloud: `owner/name`. */
@@ -76,14 +76,93 @@ export const filer = (
         return { ok: true, item: MythicalItemSchema.parse(body) }
       },
       (error): Filing => {
-        const settled = /HTTP 4\d\d\b/.test(String(error))
-        if (settled) requests.delete(key)
-        return { ok: false, detail: error instanceof Error ? error.message : String(error), settled }
+        const refused = failed(error)
+        if (refused.settled) requests.delete(key)
+        return refused
       }
     ).finally(() => flying.delete(key))
     flying.set(key, run)
     return run
   }
+}
+
+/** A request that failed: a refusal (HTTP 4xx) is final; anything else may not have reached Cloud. */
+const failed = (error: unknown): Filing & { readonly ok: false } => ({
+  ok: false,
+  detail: error instanceof Error ? error.message : String(error),
+  settled: /HTTP 4\d\d\b/.test(String(error))
+})
+
+/** `12` or `#12`: the issue a factory command names. */
+const issueOf = (argument: string): number | undefined => {
+  const match = /^#?(\d{1,15})$/.exec(argument.trim())
+  const number = match === null ? 0 : Number(match[1])
+  return number > 0 ? number : undefined
+}
+
+/**
+ * Retries a failed TODO with `POST …/mythical/items/{id}/retry`, the route the
+ * app's History card and `smthrs history retry` use: the stack names the
+ * issue's item, and only a retryable one (blocked, rejected, declined or held
+ * on review) is sent. Answers the item as Cloud left it.
+ */
+export const retry = async (
+  cloud: Pick<CloudSession.Cloud, "get" | "post">,
+  repo: Repository,
+  issue: number,
+  signal?: AbortSignal
+): Promise<Filing> => {
+  const [owner, name] = repo.split("/") as [string, string]
+  let stack: MythicalStack
+  try {
+    stack = await load(cloud.get, repo, signal)
+  } catch (error) {
+    return failed(error)
+  }
+  const item = stack.items.find((candidate) => candidate.issue?.number === issue)
+  if (item === undefined) return { ok: false, detail: `#${issue} is not in the factory`, settled: true }
+  if (!retryable(item)) return { ok: false, detail: `#${issue} is ${itemStateLabel(item)}`, settled: true }
+  try {
+    return {
+      ok: true,
+      item: MythicalItemSchema.parse(await cloud.post(mythicalRoute("retry", owner, name, item.id), {}, signal))
+    }
+  } catch (error) {
+    return failed(error)
+  }
+}
+
+/** One status line. */
+export interface Line {
+  readonly text: string
+  readonly tone?: "warning"
+}
+
+/**
+ * `/retry <issue>`: the status line now, and the line it settles on when
+ * Cloud answers. A command it cannot send settles at once.
+ */
+export const retryCommand = (
+  argument: string,
+  repo: Repository | undefined,
+  signIn: () => Promise<Pick<CloudSession.Cloud, "get" | "post"> | undefined>
+): { readonly now: Line; readonly settled?: Promise<Line> } => {
+  const issue = issueOf(argument)
+  if (issue === undefined) return { now: { text: "Usage: /retry <issue>", tone: "warning" } }
+  if (repo === undefined) return { now: { text: "No repository for this directory", tone: "warning" } }
+  const settled = (async (): Promise<Line> => {
+    try {
+      const cloud = await signIn()
+      if (cloud === undefined) return { text: "Sign in to retry: smthrs auth login", tone: "warning" }
+      const answer = await retry(cloud, repo, issue)
+      return answer.ok
+        ? { text: `#${issue} ${itemStateLabel(answer.item)}` }
+        : { text: `#${issue} not retried: ${answer.detail}`, tone: "warning" }
+    } catch (error) {
+      return { text: `#${issue} not retried: ${failed(error).detail}`, tone: "warning" }
+    }
+  })()
+  return { now: { text: `Retry #${issue} requested` }, settled }
 }
 
 const groupStatus: Record<StackIssues.IssueGroupId, NonNullable<Panels.Row["status"]> | undefined> = {
@@ -126,7 +205,8 @@ const detail = (stack: MythicalStack, item: MythicalItem): ReadonlyArray<Panels.
     receipts(item),
     mythicalMachine(item.placement),
     item.pullRequest === undefined ? undefined : item.pullRequest.url,
-    item.issue === undefined ? undefined : item.issue.url
+    item.issue === undefined ? undefined : item.issue.url,
+    item.issue !== undefined && retryable(item) ? `/retry #${item.issue.number}` : undefined
   ].filter((line): line is string => line !== undefined && line !== "")
   return lines.length === 0 ? [] : [{ kind: "text", text: lines.join("\n").slice(0, 4_000) }]
 }
