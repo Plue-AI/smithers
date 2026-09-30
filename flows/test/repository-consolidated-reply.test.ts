@@ -161,7 +161,15 @@ const host = async (t: TestContext, unaskable?: "timeout" | "request_invalid") =
       Effect.runPromise(Effect.scoped(
         Effect.gen(function*() {
           yield* PublishReply.execute(payload, { executionId, discard: true })
-          return yield* (yield* DurableEngineState.DurableEngineState).waiting(`${executionId}-approval`)
+          const state = yield* DurableEngineState.DurableEngineState
+          for (let attempt = 0; attempt < 3_000; attempt++) {
+            const waiting = yield* state.waiting(`${executionId}-approval`)
+            if (Option.isSome(waiting)) return waiting
+            const polled = yield* PublishReply.poll(executionId)
+            if (Option.isSome(polled) && polled.value._tag === "Complete") return waiting
+            yield* Effect.sleep(10)
+          }
+          return yield* Effect.die("Reply neither parked nor completed")
         }).pipe(Effect.provide(engine()))
       )),
     /** The absolute instant the parked question is armed to expire at. */

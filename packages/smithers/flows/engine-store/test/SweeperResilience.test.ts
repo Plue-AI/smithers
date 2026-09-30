@@ -7,6 +7,7 @@ import { opaqueHandlerBody } from "./fixtures/OpaqueHandlerBody.ts"
  * sandbox-and-log hardening `armClock` received.
  */
 import { describe, expect, it } from "@effect/vitest"
+import * as TestDatabase from "@smthrs/database/test/TestDatabase"
 // The mocks API has to come straight from vitest; re-exported it does not
 // resolve against vitest's hoisting plugin.
 import { DurableDeferred, Flow, FlowRuntime } from "@smthrs/flow"
@@ -17,7 +18,6 @@ import * as Clock from "effect/Clock"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
-import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import type * as Scope from "effect/Scope"
 import { TestClock } from "effect/testing"
@@ -113,11 +113,12 @@ describe("the cancel sweeper survives transient defects (issue #44)", () => {
               payload: {},
               discard: false
             }).pipe(Effect.forkChild)
-            for (let attempt = 0; attempt < 1_000; attempt++) {
-              const observed = yield* store.get("sweeper-resilience-cancel").pipe(Effect.option)
-              if (Option.isSome(observed) && observed.value.status === "suspended") break
-              yield* Effect.yieldNow
-            }
+            yield* TestDatabase.until(
+              store.get("sweeper-resilience-cancel").pipe(
+                Effect.map((row) => row.status === "suspended"),
+                Effect.catchIf((error) => error.code === "not_found_row", () => Effect.succeed(false))
+              )
+            )
             expect((yield* store.get("sweeper-resilience-cancel")).status).toBe("suspended")
             // Stop the caller's automatic follow loop so only the recovery
             // sweeper can deliver cancellation to this parked run.
@@ -187,11 +188,12 @@ describe("the cancel sweeper survives transient defects (issue #44)", () => {
               payload: {},
               discard: false
             }).pipe(Effect.forkChild)
-            for (let attempt = 0; attempt < 1_000; attempt++) {
-              const observed = yield* store.get("sweeper-wake-defect-cancel").pipe(Effect.option)
-              if (Option.isSome(observed) && observed.value.status === "suspended") break
-              yield* Effect.yieldNow
-            }
+            yield* TestDatabase.until(
+              store.get("sweeper-wake-defect-cancel").pipe(
+                Effect.map((row) => row.status === "suspended"),
+                Effect.catchIf((error) => error.code === "not_found_row", () => Effect.succeed(false))
+              )
+            )
             expect((yield* store.get("sweeper-wake-defect-cancel")).status).toBe("suspended")
             // Stop the caller's automatic follow loop so only the recovery
             // sweeper can deliver cancellation to this parked run.

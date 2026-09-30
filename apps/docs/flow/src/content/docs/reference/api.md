@@ -382,8 +382,13 @@ A completion wakes a parked run through `FlowRuntime.resume`.
 `flow.start(payload)` starts fresh work and returns its execution id, even for
 identical payloads or a declaration with an idempotency key.
 `flow.ensure(payload, { key })` starts or joins explicitly keyed work and returns
-its id. Use `poll(id)` to observe it, or `execute(payload, { executionId: id })`
-to await it. The default unkeyed `execute` now starts fresh work. To reattach after a crash,
+its id. Both return after admission and scheduling, before the child settles,
+including when called inside an action. The child continues after that action
+or parent round finishes. `execute(payload, { discard: true })` has the same
+return timing. Keep the engine scope open while it runs; the memory engine
+retains work only for that scope, and the durable engine records work for
+recovery after a host restart. Use `poll(id)` to observe it, or
+`execute(payload, { executionId: id })` to await it. The default unkeyed `execute` now starts fresh work. To reattach after a crash,
 retain and pass the execution id, declare an idempotency key, or deliberately
 install `Flow.layerExecutionIds(Flow.derived)`. Existing stored key encodings are
 unchanged; the library does not rewrite historical runs.

@@ -15,6 +15,7 @@ import * as Schema from "effect/Schema"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 import * as Migrations from "../../src/Migrations.ts"
 import * as OwnerIdentity from "../../src/OwnerIdentity.ts"
+import { executeUntilParked } from "../ExecuteUntilParked.ts"
 import { withCrypto } from "../Sha256.ts"
 import { opaqueHandlerBody } from "./OpaqueHandlerBody.ts"
 
@@ -123,7 +124,7 @@ const engineProgram = Effect.scoped(
         WaitFlow,
         () => DurableDeferred.await(deferred)
       )
-      yield* engine.execute(WaitFlow, {
+      yield* executeUntilParked(engine, WaitFlow, {
         executionId,
         payload: {},
         discard: true
@@ -161,7 +162,7 @@ const engineProgram = Effect.scoped(
             inMemoryThreshold: "1 millis"
           }).pipe(Effect.as("timer-fired"))
       )
-      yield* engine.execute(TimerFlow, {
+      yield* executeUntilParked(engine, TimerFlow, {
         executionId,
         payload: {},
         discard: true

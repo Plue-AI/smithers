@@ -1,3 +1,4 @@
+import { executeAndDrain } from "./ExecuteAndDrain.ts"
 import { opaqueHandlerBody } from "./fixtures/OpaqueHandlerBody.ts"
 /**
  * Pins the crash-consistency invariant: every engine-store lifecycle journal
@@ -334,7 +335,7 @@ describe("run lifecycle history is atomic with the run row", () => {
         const crashed = yield* crashingDriver.execute(DriverFlow, {
           executionId,
           payload: {},
-          discard: true
+          discard: false
         }).pipe(Effect.forkChild({ startImmediately: true }), Effect.flatMap(Fiber.await))
         const rowAfterCrash = yield* store.get(executionId)
         const decisionsAfterCrash = yield* eventsOf(executionId, "flows.engine.run-decision")
@@ -344,7 +345,7 @@ describe("run lifecycle history is atomic with the run row", () => {
         const driver = yield* makeDriver("healthy")
         yield* driver.register(DriverFlow, () => Effect.succeed("done"))
         yield* TestClock.adjust(Duration.toMillis(Ownership.heartbeatStaleAfter) + 1)
-        yield* driver.execute(DriverFlow, { executionId, payload: {}, discard: true })
+        yield* executeAndDrain(driver, DriverFlow, { executionId, payload: {}, discard: true })
         yield* TestDatabase.until(store.get(executionId).pipe(Effect.map((row) => row.status === "completed")))
         const decisions = yield* eventsOf(executionId, "flows.engine.run-decision")
         return {

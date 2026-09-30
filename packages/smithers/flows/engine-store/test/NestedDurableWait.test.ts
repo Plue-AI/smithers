@@ -1,3 +1,4 @@
+import { executeUntilParked } from "./ExecuteUntilParked.ts"
 /**
  * A durable wait taken from inside an action, on the run's own instance.
  *
@@ -129,7 +130,7 @@ describe("a durable wait taken inside an action, under the run's own instance", 
         Effect.gen(function*() {
           const engine = (yield* makeEngine) as FlowRuntime.FlowRuntime["Service"]
           yield* engine.register(NestedFlow, handler)
-          yield* engine.execute(NestedFlow, {
+          yield* executeUntilParked(engine, NestedFlow, {
             executionId: "parking-nested",
             payload: {},
             discard: true
@@ -176,7 +177,7 @@ describe("a durable wait taken inside an action, under the run's own instance", 
                 "Service"
               ]
             yield* engine.register(SignalFlow, handler)
-            yield* engine.execute(SignalFlow, {
+            yield* executeUntilParked(engine, SignalFlow, {
               executionId: "parking-signal",
               payload: {},
               discard: true
@@ -247,7 +248,7 @@ describe("a durable wait taken inside an action, under the run's own instance", 
         Effect.gen(function*() {
           const engine = (yield* makeEngine) as FlowRuntime.FlowRuntime["Service"]
           yield* engine.register(ApprovalFlow, handler)
-          yield* engine.execute(ApprovalFlow, {
+          yield* executeUntilParked(engine, ApprovalFlow, {
             executionId: "parking-approval",
             payload: {},
             discard: true

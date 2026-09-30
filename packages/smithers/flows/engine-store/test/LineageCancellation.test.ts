@@ -13,6 +13,7 @@ import { promisify } from "node:util"
 import * as DurableEngineState from "../src/DurableEngineState.ts"
 import * as RunDriver from "../src/internal/RunDriver.ts"
 import * as TestStores from "../src/test/TestStores.ts"
+import { executeAndDrain } from "./ExecuteAndDrain.ts"
 import { opaqueHandlerBody } from "./fixtures/OpaqueHandlerBody.ts"
 import { withCrypto } from "./Sha256.ts"
 
@@ -27,7 +28,7 @@ const driver = (nonce: string) =>
     engine: Effect.succeed(fakeEngine)
   })
 const state = (onParentExit: "cancel" | "detach" = "cancel") =>
-  JSON.stringify({ version: 1, flowName: Next._tag, payload: {}, onParentExit })
+  JSON.stringify({ capabilityCeilings: [[]], version: 1, flowName: Next._tag, payload: {}, onParentExit })
 
 const seedOwner = { hostId: "seed", pid: 1, nonce: "seed" }
 const complete = (store: RunStore.Service, id: string, value = state()) =>
@@ -73,7 +74,6 @@ describe("cancellation follows logical runs", () => {
             const store = yield* RunStore.RunStore
             const durableState = yield* DurableEngineState.DurableEngineState
             const owner = yield* driver("live-owner")
-            yield* seedHandoff(store)
             const entered = yield* Latch.make()
             let calls = 0
             let cleanup = 0
@@ -86,7 +86,8 @@ describe("cancellation follows logical runs", () => {
               }).pipe(Effect.ensuring(Effect.sync(() => {
                 cleanup++
               }))))
-            const drive = yield* owner.execute(Next, {
+            yield* seedHandoff(store)
+            const drive = yield* executeAndDrain(owner, Next, {
               executionId: "next",
               payload: {},
               discard: true,
@@ -135,7 +136,7 @@ describe("cancellation follows logical runs", () => {
               calls++
               return "forbidden"
             }))
-          yield* owner.execute(Next, {
+          yield* executeAndDrain(owner, Next, {
             executionId: "next",
             payload: {},
             discard: true,
@@ -177,7 +178,7 @@ describe("cancellation follows logical runs", () => {
           cancelBeforeNextTransaction = true
           return "handoff"
         }))
-      yield* owner.execute(First, { executionId: "racing-root", payload: {}, discard: true })
+      yield* executeAndDrain(owner, First, { executionId: "racing-root", payload: {}, discard: true })
       const next = yield* FlowEngine.Round.next(FlowEngine.Round.initial("racing-root"), {
         flowName: First._tag,
         maxRounds: undefined
@@ -195,7 +196,14 @@ describe("cancellation follows logical runs", () => {
           const owner = yield* driver("owner")
           yield* seedHandoff(store, JSON.stringify({ ...JSON.parse(state()), maxRounds: 2 }))
           yield* store.create("child", state(policy), { lineageId: "child", roundOrdinal: 0 })
-          yield* store.create("child-next", state(), { lineageId: "child", roundOrdinal: 1, parentRunId: "child" })
+          yield* store.create(
+            "child-next",
+            JSON.stringify({
+              ...JSON.parse(state()),
+              flowName: "LineageCancel/unregistered-child"
+            }),
+            { lineageId: "child", roundOrdinal: 1, parentRunId: "child" }
+          )
           yield* complete(store, "child", state(policy))
           yield* edges.recordRunParent("child", "root")
           yield* owner.register(Next, () =>
@@ -206,7 +214,7 @@ describe("cancellation follows logical runs", () => {
               }
               return "finished"
             }))
-          yield* owner.execute(Next, {
+          yield* executeAndDrain(owner, Next, {
             executionId: "next",
             payload: {},
             discard: true,
@@ -230,7 +238,7 @@ describe("cancellation follows logical runs", () => {
           calls++
           return "forbidden"
         }))
-      yield* owner.execute(Next, {
+      yield* executeAndDrain(owner, Next, {
         executionId: "late-child",
         payload: {},
         discard: true,
@@ -285,7 +293,7 @@ describe("cancellation follows logical runs", () => {
             finalized++
           }))
         ))
-      const work = yield* owner.execute(First, { executionId: "live", payload: {}, discard: true })
+      const work = yield* executeAndDrain(owner, First, { executionId: "live", payload: {}, discard: true })
         .pipe(Effect.forkChild({ startImmediately: true }))
       yield* Latch.await(started)
       const failed = yield* Effect.exit(journal.transact(Effect.gen(function*() {
@@ -313,7 +321,7 @@ describe("cancellation follows logical runs", () => {
           instance.handoff = new Flow.Handoff({ flow: Next._tag, payload: {} })
           return "handoff"
         }))
-      yield* owner.execute(First, { executionId: "root", payload: {}, discard: true })
+      yield* executeAndDrain(owner, First, { executionId: "root", payload: {}, discard: true })
       const next = yield* FlowEngine.Round.next(FlowEngine.Round.initial("root"), {
         flowName: First._tag,
         maxRounds: undefined
@@ -327,7 +335,7 @@ describe("cancellation follows logical runs", () => {
           executions++
           return "must not run"
         }))
-      yield* owner.execute(Next, {
+      yield* executeAndDrain(owner, Next, {
         executionId: next.executionId,
         payload: {},
         discard: true,

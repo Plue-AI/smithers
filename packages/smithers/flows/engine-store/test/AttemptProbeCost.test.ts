@@ -97,7 +97,7 @@ describe("attempt probe cost over SQL durable state (issue #77)", () => {
             const fiber = yield* engine.execute(ProbeFlow, {
               executionId: "probe-cost",
               payload: {},
-              discard: true
+              discard: false
             }).pipe(Effect.forkChild({ startImmediately: true }))
             yield* TestClock.adjust("1 seconds")
             yield* Fiber.await(fiber)

@@ -2,7 +2,7 @@ import * as DurableEngineState from "@smthrs/engine-store/DurableEngineState"
 import { Action, Graph, HumanTask, Interpreter } from "@smthrs/flow"
 import * as DurableDeferred from "@smthrs/flow/DurableDeferred"
 import * as NodeRuntime from "@smthrs/flows/NodeRuntime"
-import { Effect, Exit, Layer, Option, Schema } from "effect"
+import { Effect, Exit, Layer, Option, Schedule, Schema } from "effect"
 import assert from "node:assert/strict"
 import { execFile } from "node:child_process"
 import { join } from "node:path"
@@ -35,7 +35,10 @@ test("content approval survives exit and restart in a different Node process", {
 const waiting = (id: string) =>
   Effect.gen(function*() {
     const state = yield* DurableEngineState.DurableEngineState
-    const row = yield* state.waiting(id)
+    const row = yield* state.waiting(id).pipe(
+      Effect.repeat({ until: Option.isSome, schedule: Schedule.spaced(10) }),
+      Effect.timeout(30_000)
+    )
     assert.ok(Option.isSome(row), "run must actually park in the durable engine")
     assert.equal(row.value.reason, "approval")
     return Schema.decodeUnknownSync(DurableDeferred.Token)(row.value.token)

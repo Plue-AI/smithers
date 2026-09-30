@@ -1,3 +1,5 @@
+import { executeAndDrain } from "./ExecuteAndDrain.ts"
+import { executeUntilParked } from "./ExecuteUntilParked.ts"
 import { opaqueHandlerBody } from "./fixtures/OpaqueHandlerBody.ts"
 /**
  * Issue #171: corrupt recorded evidence on a SUCCEEDED attempt row under the
@@ -140,7 +142,7 @@ describe("succeeded-row corruption quarantines its evidence and heals on resume 
             Effect.gen(function*() {
               const engine = yield* makeEngine
               yield* engine.register(QuarantineFlow, () => sealed)
-              yield* engine.execute(QuarantineFlow, {
+              yield* executeUntilParked(engine, QuarantineFlow, {
                 executionId: "quarantine-probe",
                 payload: {},
                 discard: true
@@ -285,7 +287,7 @@ describe("succeeded-row corruption quarantines its evidence and heals on resume 
               // A fresh execute after restart also has no operator authority.
               const fresh = yield* makeEngine
               yield* fresh.register(QuarantineFlow, () => sealed)
-              yield* fresh.execute(QuarantineFlow, {
+              yield* executeUntilParked(fresh, QuarantineFlow, {
                 executionId: "quarantine-run",
                 payload: {},
                 discard: true
@@ -429,11 +431,11 @@ describe("succeeded-row corruption quarantines its evidence and heals on resume 
         // The sealed step key folds declaration and metadata material the test
         // must not re-derive by hand: a probe run discovers the real digest from
         // its own attempt-started journal record.
-        const keyDigest = yield* run(
+        const probe = yield* run(
           Effect.gen(function*() {
             const engine = yield* makeEngine
             yield* engine.register(QuarantineFlow, () => action)
-            yield* engine.execute(QuarantineFlow, {
+            yield* executeUntilParked(engine, QuarantineFlow, {
               executionId: "quarantine-probe",
               payload: {},
               discard: true
@@ -449,9 +451,13 @@ describe("succeeded-row corruption quarantines its evidence and heals on resume 
             for (const entry of page.entries.filter((entry) => entry.eventType === "flows.engine.attempt-started")) {
               yield* cache.evict((entry.payload as { readonly stepKeyDigest: string }).stepKeyDigest)
             }
-            return digest
+            const runs = yield* RunStore.RunStore
+            const seedState = JSON.parse((yield* runs.get("quarantine-probe")).stateJson)
+            delete seedState.result
+            return { keyDigest: digest, stateJson: JSON.stringify(seedState) }
           }).pipe(Effect.scoped)
         )
+        const keyDigest = probe.keyDigest
         expect(dispatches).toBe(1)
         const attemptId = {
           runId: "quarantine-run",
@@ -470,11 +476,7 @@ describe("succeeded-row corruption quarantines its evidence and heals on resume 
           Effect.gen(function*() {
             const runs = yield* RunStore.RunStore
             const attempts = yield* AttemptStore.AttemptStore
-            const stateJson = JSON.stringify({
-              version: 1,
-              flowName: "AttemptQuarantine/Flow",
-              payload: {}
-            })
+            const stateJson = probe.stateJson
             yield* runs.create("quarantine-run", stateJson, {
               lineageId: "quarantine-run",
               roundOrdinal: 0
@@ -532,7 +534,7 @@ describe("succeeded-row corruption quarantines its evidence and heals on resume 
               })
             ))
             yield* engine.register(QuarantineFlow, () => action)
-            yield* engine.execute(QuarantineFlow, {
+            yield* executeUntilParked(engine, QuarantineFlow, {
               executionId: "quarantine-run",
               payload: {},
               discard: true
@@ -576,7 +578,7 @@ describe("succeeded-row corruption quarantines its evidence and heals on resume 
             const engine = yield* makeEngine
             yield* engine.register(QuarantineFlow, () => action)
             yield* engine.resume(QuarantineFlow, "quarantine-run")
-            yield* engine.execute(QuarantineFlow, {
+            yield* executeUntilParked(engine, QuarantineFlow, {
               executionId: "quarantine-run",
               payload: {},
               discard: true
@@ -653,7 +655,7 @@ describe("a cancel that races the quarantine park", () => {
             )
           )
           yield* driver.register(CancelRaceFlow, () => Effect.die(quarantined))
-          yield* driver.execute(CancelRaceFlow, { executionId, payload: {}, discard: true })
+          yield* executeAndDrain(driver, CancelRaceFlow, { executionId, payload: {}, discard: true })
           const journal = yield* Journal.Journal
           yield* journal.flush
           const page = yield* journal.entries({ runId: executionId as never, limit: 50 })

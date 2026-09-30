@@ -250,7 +250,10 @@ export const makeExecute = (options: Encoded, declarations: Declarations) =>
             payload: decoded,
             round: advanced.round
           }
-          current = runRound(lineage, Option.getOrUndefined(parentInstance), previousExecutionId)
+          // Durable handoff already admitted and scheduled the successor. Join
+          // its drive so a successor that parked before this follower arrived
+          // is not replayed; memory adapters admit the round while joining it.
+          current = runRound(lineage, Option.getOrUndefined(parentInstance), previousExecutionId, true)
           continue
         }
         if (!opts.discard && Option.isSome(parentInstance)) {

@@ -116,7 +116,13 @@ it("resumes a prior wire declaration from reopened SQLite under the same Effect 
     const first = await Effect.gen(function*() {
       const engine = yield* FlowRuntime.FlowRuntime
       yield* engine.execute(flow, { executionId: "persisted-v1", payload: {}, discard: true })
-      return yield* (yield* RunStore.RunStore).get("persisted-v1")
+      const store = yield* RunStore.RunStore
+      let row = yield* store.get("persisted-v1")
+      for (let attempt = 0; attempt < 2_000 && row.status !== "suspended"; attempt++) {
+        yield* Effect.yieldNow
+        row = yield* store.get("persisted-v1")
+      }
+      return row
     }).pipe(Effect.provide(host(true)), Effect.scoped, Effect.runPromise)
     expect(first.status).toBe("suspended")
     expect(dispatched).toEqual([V1.effect115Key])

@@ -108,10 +108,13 @@ export interface Encoded {
         readonly previousExecutionId?: string | undefined
       }
       /**
-       * Set when the caller already dispatched this round and is following
-       * it after a suspension. Admission, a wake, or an elapsed poll's
-       * `resume` already scheduled the drive, so a durable implementation
-       * joins it instead of starting another. Absent, `execute` drives as before.
+       * Follows a round scheduled by admission, handoff, wake, or an elapsed
+       * poll's `resume`. The implementation must still admit or verify the
+       * round, including on this caller's first dispatch after a handoff.
+       * Durable adapters schedule an undriven pending round, then join its
+       * drive; they do not replay an idle suspended round. Memory adapters
+       * admit missing rounds and join their fibers. Absent, `execute` drives
+       * as before.
        */
       readonly follow?: boolean | undefined
     }

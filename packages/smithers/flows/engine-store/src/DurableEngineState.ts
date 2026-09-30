@@ -28,6 +28,17 @@ import * as EngineStateSchema from "./internal/EngineStateSchema.ts"
 import { compareText } from "./internal/Ordering.ts"
 import type { OnParentExit } from "./RunState.ts"
 
+/**
+ * A position in pending admission creation order.
+ *
+ * @since 1.0.0
+ * @category models
+ */
+export interface PendingRunCursor {
+  readonly runId: string
+  readonly createdAtMs: number
+}
+
 /** JSON text carrying an arbitrary decoded value. */
 const UnknownFromJsonString = Schema.fromJsonString(Schema.Unknown)
 
@@ -510,6 +521,19 @@ export interface Service {
   readonly waitingRuns: (
     filter?: WaitingRunsFilter
   ) => Effect.Effect<ReadonlyArray<WaitingRow>>
+  /** Pending admissions ordered by creation, strictly after and through optional cursors. */
+  readonly pendingRuns: (
+    flowName: string,
+    limit?: number | undefined,
+    after?: PendingRunCursor | undefined,
+    through?: PendingRunCursor | undefined,
+    eligibleBeforeMs?: number | undefined
+  ) => Effect.Effect<ReadonlyArray<PendingRunCursor>>
+  /** Latest pending admission, bounding one finite recovery scan cycle. */
+  readonly pendingRunTail: (
+    flowName: string,
+    eligibleBeforeMs?: number | undefined
+  ) => Effect.Effect<Option.Option<PendingRunCursor>>
   /**
    * Lists the runs whose row is `running` with a heartbeat strictly older
    * than `staleBeforeMs`, each with that heartbeat — an owner that stopped heartbeating without
@@ -1513,6 +1537,54 @@ export const make: Effect.Effect<Service, never, DurableWriter | SqlClient.SqlCl
       )
   })
 
+  const pendingRows = (
+    flowName: string,
+    limit?: number,
+    after?: PendingRunCursor,
+    through?: PendingRunCursor,
+    descending = false,
+    eligibleBeforeMs?: number
+  ): Effect.Effect<ReadonlyArray<PendingRunCursor>> =>
+    sql<{ readonly runId: string; readonly createdAtMs: number | bigint | string }>`
+      SELECT run_id AS "runId", created_at_ms AS "createdAtMs" FROM flows_runs
+        ${Dialect.isPostgres(sql) ? sql`` : sql`INDEXED BY flows_runs_listing_3`}
+      WHERE status = 'pending'
+        AND ${eligibleBeforeMs === undefined ? sql`TRUE` : sql`created_at_ms < ${eligibleBeforeMs}`}
+        AND execution_flow = ${flowName}
+        AND ${
+      after === undefined ? sql`TRUE` : sql`(
+          created_at_ms > ${after.createdAtMs}
+          OR (created_at_ms = ${after.createdAtMs} AND run_id > ${after.runId})
+        )`
+    }
+        AND ${
+      through === undefined ? sql`TRUE` : sql`(
+          created_at_ms < ${through.createdAtMs}
+          OR (created_at_ms = ${through.createdAtMs} AND run_id <= ${through.runId})
+        )`
+    }
+      ORDER BY ${descending ? sql`created_at_ms DESC, run_id DESC` : sql`created_at_ms, run_id`}
+      LIMIT ${limit ?? (Dialect.isPostgres(sql) ? null : -1)}
+    `.pipe(
+      Effect.orDie,
+      Effect.map((rows) => rows.map((row) => ({ runId: row.runId, createdAtMs: Number(row.createdAtMs) })))
+    )
+  const pendingRuns: Service["pendingRuns"] = Effect.fn("DurableEngineState.pendingRuns")((
+    flowName,
+    limit,
+    after,
+    through,
+    eligibleBeforeMs
+  ) => pendingRows(flowName, limit, after, through, false, eligibleBeforeMs))
+  const pendingRunTail: Service["pendingRunTail"] = Effect.fn("DurableEngineState.pendingRunTail")((
+    flowName,
+    eligibleBeforeMs
+  ) =>
+    pendingRows(flowName, 1, undefined, undefined, true, eligibleBeforeMs).pipe(
+      Effect.map((rows) => Option.fromNullishOr(rows[0]))
+    )
+  )
+
   const staleRunningRuns: Service["staleRunningRuns"] = Effect.fn(
     "DurableEngineState.staleRunningRuns"
   )((staleBeforeMs, limit) =>
@@ -1762,6 +1834,8 @@ export const make: Effect.Effect<Service, never, DurableWriter | SqlClient.SqlCl
     waiting,
     waitingTree,
     waitingRuns,
+    pendingRuns,
+    pendingRunTail,
     staleRunningRuns,
     attemptSurvivors,
     recordRunParent,
@@ -1791,6 +1865,8 @@ export const layer: Layer.Layer<DurableEngineState, never, DurableWriter | SqlCl
  * @category models
  */
 export interface MemoryRunView {
+  readonly flowName?: string | undefined
+  readonly createdAtMs?: number | undefined
   readonly status: "pending" | "running" | "suspended" | "completed" | "failed" | "cancelled"
   readonly owner: OwnerId | null
   /**
@@ -1954,6 +2030,26 @@ export const makeMemory = (options: MemoryOptions = {}): Service => {
       view.value.status === "suspended"
     )
   }
+
+  const pendingMemoryRows = (
+    flowName: string,
+    after?: PendingRunCursor,
+    through?: PendingRunCursor,
+    eligibleBeforeMs?: number
+  ) =>
+    Array.from(options.listRuns?.() ?? [])
+      .filter(([runId, view]) =>
+        view.status === "pending" && view.flowName === flowName &&
+        (eligibleBeforeMs === undefined || (view.createdAtMs ?? 0) < eligibleBeforeMs) &&
+        (after === undefined || (view.createdAtMs ?? 0) > after.createdAtMs ||
+          ((view.createdAtMs ?? 0) === after.createdAtMs && compareText(runId, after.runId) > 0)) &&
+        (through === undefined || (view.createdAtMs ?? 0) < through.createdAtMs ||
+          ((view.createdAtMs ?? 0) === through.createdAtMs && compareText(runId, through.runId) <= 0))
+      )
+      .sort(([leftId, left], [rightId, right]) =>
+        (left.createdAtMs ?? 0) - (right.createdAtMs ?? 0) || compareText(leftId, rightId)
+      )
+      .map(([runId, view]) => ({ runId, createdAtMs: view.createdAtMs ?? 0 }))
 
   const unguarded: Omit<Service, "transaction"> = {
     deferred: Effect.fn("DurableEngineState.deferred")((address) =>
@@ -2179,6 +2275,17 @@ export const makeMemory = (options: MemoryOptions = {}): Service => {
           .map(snapshotWaiting)
       )
     ),
+    pendingRuns: Effect.fn("DurableEngineState.pendingRuns")((flowName, limit, after, through, eligibleBeforeMs) =>
+      Effect.sync(() => {
+        const ordered = pendingMemoryRows(flowName, after, through, eligibleBeforeMs)
+        return limit === undefined ? ordered : ordered.slice(0, limit)
+      })
+    ),
+    pendingRunTail: Effect.fn("DurableEngineState.pendingRunTail")((flowName, eligibleBeforeMs) =>
+      Effect.sync(() =>
+        Option.fromNullishOr(pendingMemoryRows(flowName, undefined, undefined, eligibleBeforeMs).at(-1))
+      )
+    ),
     staleRunningRuns: Effect.fn("DurableEngineState.staleRunningRuns")((staleBeforeMs, limit) =>
       Effect.sync(() => {
         // Mirrors the SQL scan of `flows_runs`: without an enumerator there
@@ -2336,6 +2443,9 @@ export const makeMemory = (options: MemoryOptions = {}): Service => {
     waiting: (runId) => guard(unguarded.waiting(runId)),
     waitingTree: (runId) => guard(unguarded.waitingTree(runId)),
     waitingRuns: (filter) => guard(unguarded.waitingRuns(filter)),
+    pendingRuns: (flowName, limit, after, through, eligibleBeforeMs) =>
+      guard(unguarded.pendingRuns(flowName, limit, after, through, eligibleBeforeMs)),
+    pendingRunTail: (flowName, eligibleBeforeMs) => guard(unguarded.pendingRunTail(flowName, eligibleBeforeMs)),
     staleRunningRuns: (staleBeforeMs, limit) => guard(unguarded.staleRunningRuns(staleBeforeMs, limit)),
     attemptSurvivors: undefined,
     recordRunParent: (childId, parentId) => guard(unguarded.recordRunParent(childId, parentId)),

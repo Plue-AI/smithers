@@ -41,7 +41,7 @@ import { NotificationQueue } from "@smthrs/notifications"
 import { Node } from "@smthrs/plan"
 import { Registry } from "@smthrs/registry"
 import { RunStore } from "@smthrs/run-store"
-import { Deferred, Effect, Exit, Fiber, Layer, Option, Schema } from "effect"
+import { Deferred, Effect, Exit, Fiber, Layer, Option, Schedule, Schema } from "effect"
 import type * as Scope from "effect/Scope"
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
@@ -735,7 +735,7 @@ describe("EngineChildren.await", () => {
       // driven. `await` has nothing to read yet and has to come back.
       yield* store.create(
         "pending-child",
-        JSON.stringify({ version: 1, flowName: Worker._tag, payload: {} }),
+        JSON.stringify({ version: 1, flowName: Worker._tag, payload: {}, capabilityCeilings: [[]] }),
         { lineageId: FlowEngine.Round.initial("pending-child").rootExecutionId, roundOrdinal: 0 }
       )
 
@@ -1135,6 +1135,10 @@ describe("EngineChildren.send", () => {
         }).pipe(Effect.orDie))
 
       yield* runtime.execute(Parent, { executionId: "send-across-park", payload: {}, discard: true })
+      yield* runtime.poll(Parent, "send-across-park").pipe(
+        Effect.repeat({ until: Option.isSome, schedule: Schedule.spaced(10) }),
+        Effect.timeout(10_000)
+      )
       yield* runtime.deferredDone(parkGate, {
         flowName: Parent._tag,
         executionId: "send-across-park",
@@ -1197,6 +1201,10 @@ describe("EngineChildren.send", () => {
           )
           yield* runtime.register(Parent, () => body(port, "hold position"))
           yield* runtime.execute(Parent, { executionId: "send-redrive", payload: {}, discard: true })
+          yield* runtime.poll(Parent, "send-redrive").pipe(
+            Effect.repeat({ until: Option.isSome, schedule: Schedule.spaced(10) }),
+            Effect.timeout(10_000)
+          )
         })
       )
 
@@ -1274,6 +1282,10 @@ describe("EngineChildren.send", () => {
           )
           yield* runtime.register(Parent, () => body(port, "hold position"))
           yield* runtime.execute(Parent, { executionId: "send-collide", payload: {}, discard: true })
+          yield* runtime.poll(Parent, "send-collide").pipe(
+            Effect.repeat({ until: Option.isSome, schedule: Schedule.spaced(10) }),
+            Effect.timeout(10_000)
+          )
         })
       )
 

@@ -1,3 +1,4 @@
+import { executeAndDrain } from "./ExecuteAndDrain.ts"
 /**
  * A run that ends on its own terms takes its attached children with it.
  *
@@ -78,8 +79,9 @@ const run = <A, E>(effect: Effect.Effect<A, E, Services>) =>
 
 const stateJson = (policy?: OnParentExit) =>
   JSON.stringify({
+    capabilityCeilings: [[]],
     version: 1,
-    flowName: ExitFlow._tag,
+    flowName: `${ExitFlow._tag}/unregistered-child`,
     payload: {},
     ...(policy === undefined ? {} : { parentExecutionId: "parent", onParentExit: policy })
   })
@@ -135,7 +137,7 @@ describe("a terminal run applies its children's exit policy", () => {
         // parent.
         yield* linkChild("parent", "parent-legacy-child")
         yield* driver.register(ExitFlow, () => Effect.die(new Error("parent exploded")))
-        yield* driver.execute(ExitFlow, {
+        yield* executeAndDrain(driver, ExitFlow, {
           executionId: "parent",
           payload: {},
           discard: true
@@ -180,7 +182,7 @@ describe("a terminal run applies its children's exit policy", () => {
         yield* store.transitionOwned("parked-child", owner, "suspended", stateJson("cancel"))
 
         yield* driver.register(ExitFlow, () => Effect.die(new Error("parent exploded")))
-        yield* driver.execute(ExitFlow, {
+        yield* executeAndDrain(driver, ExitFlow, {
           executionId: "parked-parent",
           payload: {},
           discard: true
@@ -226,7 +228,7 @@ describe("a terminal run applies its children's exit policy", () => {
         )
 
         yield* driver.register(ExitFlow, () => Effect.die(new Error("parent exploded")))
-        yield* driver.execute(ExitFlow, {
+        yield* executeAndDrain(driver, ExitFlow, {
           executionId: "orphan-parent",
           payload: {},
           discard: true
@@ -266,7 +268,7 @@ describe("a terminal run applies its children's exit policy", () => {
         // going, so the parent's exit must not reach it either.
         yield* linkChild("detached-child", "detached-grandchild", "cancel")
         yield* driver.register(ExitFlow, () => Effect.succeed("parent done"))
-        yield* driver.execute(ExitFlow, {
+        yield* executeAndDrain(driver, ExitFlow, {
           executionId: "detach-parent",
           payload: {},
           discard: true
@@ -296,7 +298,7 @@ describe("a terminal run applies its children's exit policy", () => {
         yield* linkChild("deep-parent", "deep-child", "cancel")
         yield* linkChild("deep-child", "deep-grandchild", "cancel")
         yield* driver.register(ExitFlow, () => Effect.succeed("parent done"))
-        yield* driver.execute(ExitFlow, {
+        yield* executeAndDrain(driver, ExitFlow, {
           executionId: "deep-parent",
           payload: {},
           discard: true
@@ -329,7 +331,7 @@ describe("a terminal run applies its children's exit policy", () => {
         yield* engineState.recordRunParent("diamond-shared", "diamond-b")
 
         yield* driver.register(ExitFlow, () => Effect.succeed("parent done"))
-        yield* driver.execute(ExitFlow, {
+        yield* executeAndDrain(driver, ExitFlow, {
           executionId: "diamond-parent",
           payload: {},
           discard: true
@@ -369,7 +371,7 @@ describe("a terminal run applies its children's exit policy", () => {
         yield* engineState.recordRunParent("ghost-child", "quiet-parent")
 
         yield* driver.register(ExitFlow, () => Effect.succeed("parent done"))
-        yield* driver.execute(ExitFlow, {
+        yield* executeAndDrain(driver, ExitFlow, {
           executionId: "quiet-parent",
           payload: {},
           discard: true
@@ -408,7 +410,7 @@ describe("a terminal run applies its children's exit policy", () => {
             yield* driver.execute(ExitFlow, {
               executionId: "atomic-parent",
               payload: {},
-              discard: true
+              discard: false
             })
           }).pipe(
             Effect.provideService(RunStore.RunStore, Notifying.wrap(yield* RunStore.RunStore, crashOnCancel)),
@@ -438,7 +440,7 @@ describe("a child linked after its parent already exited", () => {
         const store = yield* RunStore.RunStore
         const driver = yield* makeDriver()
         yield* driver.register(ExitFlow, () => Effect.succeed("parent done"))
-        yield* driver.execute(ExitFlow, {
+        yield* executeAndDrain(driver, ExitFlow, {
           executionId: "late-parent",
           payload: {},
           discard: true
@@ -454,7 +456,7 @@ describe("a child linked after its parent already exited", () => {
           discard: false,
           parent: { executionId: "late-parent" } as FlowRuntime.FlowInstance["Service"]
         })
-        yield* driver.execute(ExitFlow, {
+        yield* executeAndDrain(driver, ExitFlow, {
           executionId: "late-detached-child",
           payload: {},
           discard: true,
@@ -488,7 +490,7 @@ describe("the policy is recorded from what the caller did with the result", () =
           discard: false,
           parent: { executionId: "recording-parent" } as FlowRuntime.FlowInstance["Service"]
         })
-        yield* driver.execute(ExitFlow, {
+        yield* executeAndDrain(driver, ExitFlow, {
           executionId: "recorded-detached",
           payload: {},
           discard: true,

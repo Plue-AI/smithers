@@ -1,4 +1,5 @@
 import * as TestDatabase from "@smthrs/database/test/TestDatabase"
+import { executeUntilParked } from "./ExecuteUntilParked.ts"
 import { opaqueHandlerBody } from "./fixtures/OpaqueHandlerBody.ts"
 /**
  * Issue #59: the retry verdict is durable. A persisted `failed` attempt row
@@ -202,7 +203,7 @@ describe("non-retryable verdict durability across resume", () => {
               blocked
             )
             yield* engine.register(ReplayFlow, () => fatal)
-            yield* engine.execute(ReplayFlow, {
+            yield* executeUntilParked(engine, ReplayFlow, {
               executionId: "non-retryable-run",
               payload: {},
               discard: true
@@ -226,11 +227,11 @@ describe("non-retryable verdict durability across resume", () => {
             yield* engine.register(ReplayFlow, () => fatal)
             const result = yield* engine.poll(ReplayFlow, "non-retryable-run")
             expect(Option.isNone(result)).toBe(true)
-            yield* engine.execute(ReplayFlow, {
+            yield* executeUntilParked(engine, ReplayFlow, {
               executionId: "non-retryable-run",
               payload: {},
               discard: true
-            })
+            }, ["failed"])
             // Join the resumed drive's durable terminal commit. One scheduler
             // yield is not a completion receipt; closing here otherwise
             // interrupts a still-running drive and releases it as suspended.

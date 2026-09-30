@@ -10,6 +10,7 @@ import { AttemptEvidenceQuarantined } from "../src/Errors.ts"
 import * as ExecutionSnapshot from "../src/ExecutionSnapshot.ts"
 import * as StepBoundary from "../src/StepBoundary.ts"
 import * as TestStores from "../src/test/TestStores.ts"
+import { executeUntilParked } from "./ExecuteUntilParked.ts"
 import { fixture, onFile } from "./ExecutionSnapshotFixture.ts"
 import { opaqueHandlerBody } from "./fixtures/OpaqueHandlerBody.ts"
 import { withCrypto } from "./Sha256.ts"
@@ -50,7 +51,7 @@ describe("driver cancellation acknowledgement", () => {
                     measuredDigest: "after"
                   })
                 ))
-              yield* engine.execute(CancelFlow, { executionId: "quarantined", payload: {}, discard: true })
+              yield* executeUntilParked(engine, CancelFlow, { executionId: "quarantined", payload: {}, discard: true })
             }).pipe(Effect.provide(StepBoundary.layerTest()), Effect.provideService(Jj.Jj, jj))
           )
             .pipe(Effect.provide(TestStores.layerAt(file)))

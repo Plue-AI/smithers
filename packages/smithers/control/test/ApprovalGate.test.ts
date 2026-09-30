@@ -5,7 +5,7 @@ import { Action, DurableDeferred, Flow, FlowRuntime, Interpreter } from "@smthrs
 import * as Jj from "@smthrs/jj"
 import { Node } from "@smthrs/plan"
 import { RunStore } from "@smthrs/run-store"
-import { Effect, Layer, Schema } from "effect"
+import { Effect, Layer, Option, Schedule, Schema } from "effect"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -91,7 +91,13 @@ describe("public approval gate across durable engine reopen", () => {
         return "effect completed"
       }
       await Effect.runPromise(
-        Gated.execute({}, { executionId: runId, discard: true }).pipe(
+        Effect.gen(function*() {
+          yield* Gated.execute({}, { executionId: runId, discard: true })
+          yield* Gated.poll(runId).pipe(
+            Effect.repeat({ until: Option.isSome, schedule: Schedule.spaced(10) }),
+            Effect.timeout(10_000)
+          )
+        }).pipe(
           Effect.provide(stack(filename, reads, after)),
           Effect.scoped
         )

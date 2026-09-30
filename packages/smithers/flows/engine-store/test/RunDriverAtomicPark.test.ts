@@ -20,6 +20,7 @@ import * as DurableEngineState from "../src/DurableEngineState.ts"
 import * as RunDriver from "../src/internal/RunDriver.ts"
 import * as TestStores from "../src/test/TestStores.ts"
 import * as WakeBus from "../src/WakeBus.ts"
+import { executeAndDrain } from "./ExecuteAndDrain.ts"
 import { opaqueHandlerBody } from "./fixtures/OpaqueHandlerBody.ts"
 import { withCrypto } from "./Sha256.ts"
 
@@ -161,6 +162,9 @@ for (const adapter of ["sqlite", "memory"] as const) {
           const execution = yield* driver.execute(flow, { executionId, payload: {}, discard: true }).pipe(
             Effect.forkChild({ startImmediately: true })
           )
+          // Finish admission before arming the release transaction gate. Scope.close
+          // below observes the detached drive's real ownership cleanup.
+          yield* Fiber.join(execution)
           yield* Deferred.await(running)
           const originalWaiting = { reason: "event", token: "before-release", wakeAt: 777 } as const
           if (refuseTransition) yield* state.park(executionId, originalWaiting, firstOwner)
@@ -330,7 +334,7 @@ for (const adapter of ["sqlite", "memory"] as const) {
                 return yield* Flow.suspend(instance)
               }))
             const before = yield* Clock.currentTimeMillis
-            const execution = yield* driver.execute(flow, { executionId, payload: {}, discard: true }).pipe(
+            const execution = yield* executeAndDrain(driver, flow, { executionId, payload: {}, discard: true }).pipe(
               Effect.forkChild({ startImmediately: true })
             )
             yield* Deferred.await(running)
@@ -411,7 +415,7 @@ for (const adapter of ["sqlite", "memory"] as const) {
                 instance.waiting = { reason: "released" }
                 return yield* Flow.suspend(instance)
               }))
-            const execution = yield* driver.execute(flow, { executionId, payload: {}, discard: true }).pipe(
+            const execution = yield* executeAndDrain(driver, flow, { executionId, payload: {}, discard: true }).pipe(
               Effect.forkChild({ startImmediately: true })
             )
             yield* Deferred.await(capturing)
@@ -442,7 +446,7 @@ for (const adapter of ["sqlite", "memory"] as const) {
           const journal = yield* Journal.Journal
           const sqlState = yield* DurableEngineState.DurableEngineState
           const state = adapter === "sqlite" ? sqlState : DurableEngineState.makeMemory()
-          const stateJson = JSON.stringify({ version: 1, flowName: flow._tag, payload: {} })
+          const stateJson = JSON.stringify({ capabilityCeilings: [[]], version: 1, flowName: flow._tag, payload: {} })
           yield* sql`INSERT INTO flows_runs (
             run_id, status, created_at_ms, owner_host_id, owner_pid, owner_nonce, heartbeat_at_ms, state_json
           ) VALUES (
@@ -499,7 +503,10 @@ for (const adapter of ["sqlite", "memory"] as const) {
               const driver = yield* RunDriver.make({ owner: firstOwner, journalSource: "acquisition", engine }).pipe(
                 Effect.provideService(DurableEngineState.DurableEngineState, state)
               )
-              yield* store.create(executionId, JSON.stringify({ version: 1, flowName: flow._tag, payload: {} }))
+              yield* store.create(
+                executionId,
+                JSON.stringify({ capabilityCeilings: [[]], version: 1, flowName: flow._tag, payload: {} })
+              )
               const hold = holderBoundary === "state" ? state.transaction : journal.transact
               const holder = yield* hold(
                 Deferred.succeed(acquired, undefined).pipe(Effect.andThen(Deferred.await(release)))
@@ -595,8 +602,14 @@ for (const adapter of ["sqlite", "memory"] as const) {
               ),
               Journal.Journal
             )
-            yield* store.create(executionId, JSON.stringify({ version: 1, flowName: flow._tag, payload: {} }))
-            yield* store.create("publication-child", JSON.stringify({ version: 1, flowName: flow._tag, payload: {} }))
+            yield* store.create(
+              executionId,
+              JSON.stringify({ capabilityCeilings: [[]], version: 1, flowName: flow._tag, payload: {} })
+            )
+            yield* store.create(
+              "publication-child",
+              JSON.stringify({ capabilityCeilings: [[]], version: 1, flowName: flow._tag, payload: {} })
+            )
             yield* state.recordRunParent("publication-child", executionId)
             const driver = yield* RunDriver.make({ owner: firstOwner, journalSource: "writer-fault", engine }).pipe(
               Effect.provideService(RunStore.RunStore, store),

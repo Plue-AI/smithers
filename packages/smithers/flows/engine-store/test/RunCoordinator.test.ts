@@ -5,6 +5,156 @@ import * as RunCoordinator from "../src/internal/RunCoordinator.ts"
 const effect = <E>(name: string, body: () => Effect.Effect<void, E>) => it.effect(name, () => body())
 
 describe("RunCoordinator", () => {
+  effect(
+    "reserves idle ownership before checking readiness and skips work that already parked",
+    () =>
+      Effect.scoped(Effect.gen(function*() {
+        const checking = yield* Deferred.make<void>()
+        const release = yield* Deferred.make<void>()
+        let pending = true
+        let drains = 0
+        const coordinator = yield* RunCoordinator.make({
+          drain: () =>
+            Effect.sync(() => {
+              drains++
+            })
+        })
+        yield* coordinator.scheduleIf(
+          "run",
+          Deferred.succeed(checking, undefined).pipe(
+            Effect.andThen(Deferred.await(release)),
+            Effect.map(() => pending)
+          )
+        )
+        yield* Deferred.await(checking)
+        yield* coordinator.schedule("run")
+        pending = false
+        yield* Deferred.succeed(release, undefined)
+        yield* coordinator.join("run")
+        expect(drains).toBe(0)
+        expect((yield* coordinator.active).size).toBe(0)
+        yield* coordinator.scheduleIf("run", Effect.succeed(true))
+        yield* coordinator.join("run")
+        expect(drains).toBe(1)
+      }))
+  )
+
+  effect(
+    "a follower never checks stale pending state while an active child is finishing",
+    () =>
+      Effect.scoped(Effect.gen(function*() {
+        const started = yield* Deferred.make<void>()
+        const parked = yield* Deferred.make<void>()
+        let drives = 0
+        let reads = 0
+        const coordinator = yield* RunCoordinator.make({
+          drain: () =>
+            Effect.sync(() => {
+              drives++
+            }).pipe(
+              Effect.andThen(Deferred.succeed(started, undefined)),
+              Effect.andThen(Deferred.await(parked))
+            )
+        })
+        yield* coordinator.schedule("child")
+        yield* Deferred.await(started)
+        // A read-before-schedule implementation would retain pending=true,
+        // let the original drive park, then start another drain on the idle row.
+        const staleRead = Effect.sync(() => {
+          reads++
+          return true
+        }).pipe(
+          Effect.tap(() => Deferred.succeed(parked, undefined)),
+          Effect.tap(() => coordinator.join("child"))
+        )
+        yield* coordinator.scheduleIf("child", staleRead)
+        yield* Deferred.succeed(parked, undefined)
+        yield* coordinator.join("child")
+        expect(reads).toBe(0)
+        expect(drives).toBe(1)
+      }))
+  )
+
+  effect("schedules idle admission without replaying an active drain", () =>
+    Effect.scoped(Effect.gen(function*() {
+      const started = yield* Deferred.make<void>()
+      const gate = yield* Deferred.make<void>()
+      let runs = 0
+      const coordinator = yield* RunCoordinator.make({
+        drain: () =>
+          Effect.sync(() => runs++).pipe(
+            Effect.andThen(Deferred.succeed(started, undefined)),
+            Effect.andThen(Deferred.await(gate))
+          )
+      })
+      yield* coordinator.schedule("run")
+      yield* Deferred.await(started)
+      yield* coordinator.schedule("run")
+      yield* coordinator.schedule("run")
+      expect(runs).toBe(1)
+      yield* Deferred.succeed(gate, undefined)
+      yield* coordinator.join("run")
+      expect(runs).toBe(1)
+      expect((yield* coordinator.active).size).toBe(0)
+      yield* coordinator.schedule("run")
+      yield* coordinator.join("run")
+      expect(runs).toBe(2)
+    })))
+
+  effect(
+    "an event wake still replays work after admission joins an active drain",
+    () =>
+      Effect.scoped(Effect.gen(function*() {
+        const started = yield* Deferred.make<void>()
+        const gate = yield* Deferred.make<void>()
+        let runs = 0
+        const coordinator = yield* RunCoordinator.make({
+          drain: () =>
+            Effect.sync(() => runs++).pipe(
+              Effect.andThen(Deferred.succeed(started, undefined)),
+              Effect.andThen(Deferred.await(gate))
+            )
+        })
+        yield* coordinator.schedule("run")
+        yield* Deferred.await(started)
+        yield* coordinator.wake("run")
+        yield* coordinator.schedule("run")
+        yield* Deferred.succeed(gate, undefined)
+        yield* coordinator.join("run")
+        expect(runs).toBe(2)
+      }))
+  )
+
+  effect(
+    "admission during interruption does not resurrect the stopping owner",
+    () =>
+      Effect.scoped(Effect.gen(function*() {
+        const started = yield* Deferred.make<void>()
+        const cleanupStarted = yield* Deferred.make<void>()
+        const cleanupGate = yield* Deferred.make<void>()
+        let runs = 0
+        const coordinator = yield* RunCoordinator.make({
+          drain: () =>
+            Effect.sync(() => runs++).pipe(
+              Effect.andThen(Deferred.succeed(started, undefined)),
+              Effect.andThen(Effect.never),
+              Effect.onInterrupt(() =>
+                Deferred.succeed(cleanupStarted, undefined).pipe(Effect.andThen(Deferred.await(cleanupGate)))
+              )
+            )
+        })
+        yield* coordinator.schedule("run")
+        yield* Deferred.await(started)
+        const stopping = yield* coordinator.interrupt("run").pipe(Effect.forkChild)
+        yield* Deferred.await(cleanupStarted)
+        yield* coordinator.schedule("run")
+        yield* Deferred.succeed(cleanupGate, undefined)
+        yield* Fiber.join(stopping)
+        expect(runs).toBe(1)
+        expect((yield* coordinator.active).size).toBe(0)
+      }))
+  )
+
   effect("joins a second run for the same key", () =>
     Effect.scoped(Effect.gen(function*() {
       const gate = yield* Deferred.make<void>()

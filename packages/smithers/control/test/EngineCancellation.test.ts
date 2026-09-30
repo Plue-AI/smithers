@@ -76,7 +76,7 @@ const database = Layer.mergeAll(
 
 const engine = Layer.mergeAll(
   StartChild.toLayer(() =>
-    Child.execute({}, { executionId: childRunId, discard: true }).pipe(Effect.orDie, Effect.as("started"))
+    Child.execute({}, { executionId: childRunId, discard: true }).pipe(Effect.orDie, Effect.andThen(Effect.never))
   ),
   Interpreter.layer(Parent),
   Interpreter.layer(Child)

@@ -2,7 +2,7 @@ import * as DurableEngineState from "@smthrs/engine-store/DurableEngineState"
 import { Action, HumanTask, Interpreter } from "@smthrs/flow"
 import * as DurableDeferred from "@smthrs/flow/DurableDeferred"
 import * as NodeRuntime from "@smthrs/flows/NodeRuntime"
-import { Effect, Layer, Option, Schema } from "effect"
+import { Effect, Layer, Option, Schedule, Schema } from "effect"
 import { readFile, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import ReleaseContent from "../release-content/flow.ts"
@@ -41,7 +41,10 @@ const result = await Effect.runPromise(Effect.scoped(
     }
     yield* ReleaseContent.execute(input, { executionId: "process-resume", discard: true })
     const state = yield* DurableEngineState.DurableEngineState
-    const row = yield* state.waiting("process-resume")
+    const row = yield* state.waiting("process-resume").pipe(
+      Effect.repeat({ until: Option.isSome, schedule: Schedule.spaced(10) }),
+      Effect.timeout(30_000)
+    )
     if (Option.isNone(row)) return yield* Effect.die("Run did not park")
     return { status: "waiting", reason: row.value.reason }
   }).pipe(Effect.provide(host))

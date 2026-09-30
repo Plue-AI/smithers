@@ -1,3 +1,5 @@
+import * as TestDatabase from "@smthrs/database/test/TestDatabase"
+import { executeUntilParked } from "./ExecuteUntilParked.ts"
 /**
  * N-08: a run parked inside {@link module:DurableDeferred.raceAll} resumes on
  * the durable engine.
@@ -110,7 +112,7 @@ describe("a flow body parked on a raced deferred resumes durably", () => {
       const parked = yield* Effect.scoped(Effect.gen(function*() {
         const engine = (yield* makeEngine) as FlowRuntime.FlowRuntime["Service"]
         yield* engine.register(RaceFlow, racedHandler)
-        yield* engine.execute(RaceFlow, {
+        yield* executeUntilParked(engine, RaceFlow, {
           executionId: "raced-park",
           payload: {},
           discard: true
@@ -127,11 +129,11 @@ describe("a flow body parked on a raced deferred resumes durably", () => {
           deferredName: gate.name,
           exit: Exit.succeed("answered")
         })
-        yield* engine.execute(RaceFlow, {
+        yield* executeUntilParked(engine, RaceFlow, {
           executionId: "raced-park",
           payload: {},
           discard: true
-        })
+        }, ["completed"])
         return yield* store.get("raced-park")
       }))
 
@@ -191,6 +193,7 @@ describe("HumanTask.timeoutMs on the durable engine", () => {
         const payload = { name: "release", timeoutMs: 60_000 }
 
         yield* Effect.orDie(Asked.execute(payload, { executionId: "human-raced", discard: true }))
+        yield* TestDatabase.until(Effect.map(store.get("human-raced"), (row) => row.status === "suspended"))
         const parked = yield* store.get("human-raced")
         // The attempt the question parked in is unsettled, not failed: the next
         // drive re-enters it under the same number rather than burning a retry.

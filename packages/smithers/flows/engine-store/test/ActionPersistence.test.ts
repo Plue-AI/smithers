@@ -64,6 +64,41 @@ const layer = Layer.mergeAll(TestStores.layer(), StepBoundary.layerTest(), jj)
 const tolerantLayer = Layer.provideMerge(Inconsistency.layerTolerant(owner), layer)
 
 describe("ActionPersistence", () => {
+  it.effect("finds the earliest persisted boundary across missing attempt rows", () =>
+    Effect.gen(function*() {
+      yield* activate("sparse-boundaries")
+      const attempts = yield* AttemptStore.AttemptStore
+      const digest = sha256("sparse-boundary-key")
+      expect(
+        yield* ActionPersistence.earliestBoundarySnapshot(attempts, "sparse-boundaries", digest, {
+          earliest: 1,
+          latest: 2
+        })
+      ).toEqual(Option.none())
+      for (const attempt of [2, 4]) {
+        yield* attempts.put({
+          runId: "sparse-boundaries",
+          stepKeyDigest: digest,
+          attempt,
+          state: "running",
+          startedAtMs: attempt,
+          meta: { tier: "sealed", boundarySnapshot: { handle: `snapshot-${attempt}` } }
+        }, owner)
+      }
+      expect(
+        yield* ActionPersistence.earliestBoundarySnapshot(attempts, "sparse-boundaries", digest, {
+          earliest: 1,
+          latest: 4
+        })
+      ).toEqual(Option.some("snapshot-2"))
+      expect(
+        yield* ActionPersistence.earliestBoundarySnapshot(attempts, "sparse-boundaries", digest, {
+          earliest: 3,
+          latest: 4
+        })
+      ).toEqual(Option.some("snapshot-4"))
+    }).pipe(Effect.provide(layer), withCrypto))
+
   it.effect("bounds default cache history reads per dispatch as the run grows", () =>
     withCrypto(
       Effect.gen(function*() {

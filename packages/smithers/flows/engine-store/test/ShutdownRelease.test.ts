@@ -1,3 +1,4 @@
+import { executeAndDrain } from "./ExecuteAndDrain.ts"
 import { opaqueHandlerBody } from "./fixtures/OpaqueHandlerBody.ts"
 /**
  * Pins issue #26: a drive-fiber interruption that is not an operator
@@ -8,6 +9,7 @@ import { opaqueHandlerBody } from "./fixtures/OpaqueHandlerBody.ts"
  * (`cancel_requested_at_ms`) may close the run terminally.
  */
 import { describe, expect, it } from "@effect/vitest"
+import * as TestDatabase from "@smthrs/database/test/TestDatabase"
 import { Flow, FlowRuntime } from "@smthrs/flow"
 import { Journal } from "@smthrs/journal"
 import { Node } from "@smthrs/plan"
@@ -72,7 +74,7 @@ describe("shutdown releases instead of cancelling (issue #26)", () => {
         const driver = yield* makeDriver().pipe(Scope.provide(driverScope))
         const started = yield* Latch.make(false)
         yield* driver.register(TestFlow, () => Latch.open(started).pipe(Effect.andThen(Effect.never)))
-        yield* driver.execute(TestFlow, {
+        yield* executeAndDrain(driver, TestFlow, {
           executionId: "shutdown-interrupt",
           payload: {},
           discard: true
@@ -134,7 +136,10 @@ describe("shutdown releases instead of cancelling (issue #26)", () => {
               return yield* Effect.interrupt
             }))
           // resume joins the complete round without adding a pending wake.
-          yield* store.create(executionId, JSON.stringify({ version: 1, flowName: TestFlow._tag, payload: {} }))
+          yield* store.create(
+            executionId,
+            JSON.stringify({ capabilityCeilings: [[]], version: 1, flowName: TestFlow._tag, payload: {} })
+          )
           const driving = yield* driver.resume(TestFlow, executionId).pipe(Effect.forkChild({ startImmediately: true }))
           if (boundary === "retained") {
             yield* Fiber.await(driving)
@@ -190,7 +195,10 @@ describe("shutdown releases instead of cancelling (issue #26)", () => {
             return yield* Effect.interrupt
           }))
         const runId = "shutdown-retained-cancellation"
-        yield* store.create(runId, JSON.stringify({ version: 1, flowName: TestFlow._tag, payload: {} }))
+        yield* store.create(
+          runId,
+          JSON.stringify({ capabilityCeilings: [[]], version: 1, flowName: TestFlow._tag, payload: {} })
+        )
         yield* Effect.exit(driver.resume(TestFlow, runId))
         return { row: yield* store.get(runId), exits, retained: [...yield* driver.retainedRuns] }
       })))
@@ -219,7 +227,10 @@ describe("shutdown releases instead of cancelling (issue #26)", () => {
         Scope.provide(driverScope)
       )
       yield* driver.register(TestFlow, () => Effect.die("must not start"))
-      yield* store.create("shutdown-reading", JSON.stringify({ version: 1, flowName: TestFlow._tag, payload: {} }))
+      yield* store.create(
+        "shutdown-reading",
+        JSON.stringify({ capabilityCeilings: [[]], version: 1, flowName: TestFlow._tag, payload: {} })
+      )
       yield* driver.resume(TestFlow, "shutdown-reading").pipe(Effect.forkChild({ startImmediately: true }))
       yield* Latch.await(reading)
       yield* Scope.close(driverScope, Exit.void)
@@ -250,7 +261,10 @@ describe("shutdown releases instead of cancelling (issue #26)", () => {
         Scope.provide(driverScope)
       )
       yield* driver.register(TestFlow, () => Latch.open(started).pipe(Effect.andThen(Effect.never)))
-      yield* store.create("shutdown-removed", JSON.stringify({ version: 1, flowName: TestFlow._tag, payload: {} }))
+      yield* store.create(
+        "shutdown-removed",
+        JSON.stringify({ capabilityCeilings: [[]], version: 1, flowName: TestFlow._tag, payload: {} })
+      )
       yield* driver.resume(TestFlow, "shutdown-removed").pipe(Effect.forkChild({ startImmediately: true }))
       yield* Latch.await(started)
       removed = true
@@ -271,7 +285,10 @@ describe("shutdown releases instead of cancelling (issue #26)", () => {
         const driver = yield* makeDriver().pipe(Scope.provide(driverScope))
         yield* driver.register(TestFlow, () => Latch.open(started).pipe(Effect.andThen(Effect.never)))
         const runId = "shutdown-storage-error"
-        yield* store.create(runId, JSON.stringify({ version: 1, flowName: TestFlow._tag, payload: {} }))
+        yield* store.create(
+          runId,
+          JSON.stringify({ capabilityCeilings: [[]], version: 1, flowName: TestFlow._tag, payload: {} })
+        )
         const driving = yield* driver.resume(TestFlow, runId).pipe(Effect.forkChild({ startImmediately: true }))
         yield* Latch.await(started)
 
@@ -309,15 +326,19 @@ describe("shutdown releases instead of cancelling (issue #26)", () => {
         const driver = yield* makeDriver()
         const started = yield* Latch.make(false)
         yield* driver.register(TestFlow, () => Latch.open(started).pipe(Effect.andThen(Effect.never)))
-        const fiber = yield* driver.execute(TestFlow, {
+        yield* driver.execute(TestFlow, {
           executionId: "shutdown-operator-cancel",
           payload: {},
           discard: true
-        }).pipe(Effect.forkChild({ startImmediately: true }))
+        })
         yield* Latch.await(started)
 
         yield* driver.interrupt(TestFlow, "shutdown-operator-cancel")
-        yield* Fiber.await(fiber)
+        yield* TestDatabase.until(
+          store.get("shutdown-operator-cancel").pipe(
+            Effect.map((row) => row.status === "cancelled")
+          )
+        )
         const row = yield* store.get("shutdown-operator-cancel")
         return { row }
       })))

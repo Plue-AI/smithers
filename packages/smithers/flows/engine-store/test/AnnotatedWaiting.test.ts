@@ -1,3 +1,4 @@
+import * as TestDatabase from "@smthrs/database/test/TestDatabase"
 import { opaqueHandlerBody } from "./fixtures/OpaqueHandlerBody.ts"
 /**
  * Pins issue #31: the production park path must be able to record `approval`
@@ -145,6 +146,9 @@ describe("annotated waiting reasons reach the parked row (issue #31)", () => {
             payload: {},
             discard: true
           })
+          yield* TestDatabase.until(
+            store.get("annotated-approval").pipe(Effect.map((row) => row.status === "suspended"))
+          )
           const parked = yield* state.waiting("annotated-approval")
           const approvalSweep = yield* state.waitingRuns({ reason: "approval" })
 
@@ -160,6 +164,9 @@ describe("annotated waiting reasons reach the parked row (issue #31)", () => {
             payload: {},
             discard: true
           })
+          yield* TestDatabase.until(
+            store.get("annotated-approval").pipe(Effect.map((row) => row.status === "completed"))
+          )
           const finished = yield* store.get("annotated-approval")
           const afterWake = yield* state.waiting("annotated-approval")
           return { parked, approvalSweep, finished, afterWake }
@@ -275,6 +282,7 @@ describe("annotated waiting reasons reach the parked row (issue #31)", () => {
             payload: {},
             discard: true
           })
+          yield* TestDatabase.until(state.waiting("annotated-quota").pipe(Effect.map(Option.isSome)))
           return {
             due: yield* state.waitingRuns({ reason: "quota", dueBeforeMs: 100_000 })
           }
@@ -318,6 +326,7 @@ describe("annotated waiting reasons reach the parked row (issue #31)", () => {
             payload: {},
             discard: true
           })
+          yield* TestDatabase.until(state.waiting("annotated-two-stage").pipe(Effect.map(Option.isSome)))
           const firstPark = yield* state.waiting("annotated-two-stage")
 
           // Resolve the approval gate; the next drive replays the annotation,
@@ -333,6 +342,11 @@ describe("annotated waiting reasons reach the parked row (issue #31)", () => {
             payload: {},
             discard: true
           })
+          yield* TestDatabase.until(
+            state.waiting("annotated-two-stage").pipe(
+              Effect.map((waiting) => Option.isSome(waiting) && waiting.value.reason === "timer")
+            )
+          )
           const row = yield* store.get("annotated-two-stage")
           const secondPark = yield* state.waiting("annotated-two-stage")
           const timerSweep = yield* state.waitingRuns({ reason: "timer" })

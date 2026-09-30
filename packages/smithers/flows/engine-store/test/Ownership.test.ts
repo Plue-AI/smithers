@@ -13,6 +13,7 @@ import { TestClock } from "effect/testing"
 import * as DurableEngineState from "../src/DurableEngineState.ts"
 import * as RunDriver from "../src/internal/RunDriver.ts"
 import * as TestStores from "../src/test/TestStores.ts"
+import { executeAndDrain } from "./ExecuteAndDrain.ts"
 import { opaqueHandlerBody } from "./fixtures/OpaqueHandlerBody.ts"
 import { withCrypto } from "./Sha256.ts"
 
@@ -36,11 +37,7 @@ const ownerB: Ownership.OwnerId = {
 
 const fakeEngine = {} as unknown as FlowRuntime.FlowRuntime["Service"]
 
-const persistedState = JSON.stringify({
-  version: 1,
-  flowName: TestFlow._tag,
-  payload: {}
-})
+const persistedState = JSON.stringify({ capabilityCeilings: [[]], version: 1, flowName: TestFlow._tag, payload: {} })
 
 const makeDriver = (
   owner: Ownership.OwnerId,
@@ -136,12 +133,12 @@ describe("RunDriver ownership", () => {
         yield* second.register(TestFlow, handler)
 
         yield* Effect.all([
-          first.execute(TestFlow, {
+          executeAndDrain(first, TestFlow, {
             executionId: "concurrent",
             payload: {},
             discard: true
           }),
-          second.execute(TestFlow, {
+          executeAndDrain(second, TestFlow, {
             executionId: "concurrent",
             payload: {},
             discard: true
@@ -256,7 +253,7 @@ describe("RunDriver ownership", () => {
             FlowRuntime.FlowInstance,
             Flow.suspend
           ))
-        yield* driver.execute(TestFlow, {
+        yield* executeAndDrain(driver, TestFlow, {
           executionId: "suspended",
           payload: {},
           discard: true
@@ -286,7 +283,7 @@ describe("RunDriver ownership", () => {
             )
           ))
 
-        const fiber = yield* driver.execute(TestFlow, {
+        const fiber = yield* executeAndDrain(driver, TestFlow, {
           executionId: "fence-loss",
           payload: {},
           discard: true

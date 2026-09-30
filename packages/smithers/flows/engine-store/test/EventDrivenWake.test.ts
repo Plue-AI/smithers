@@ -1,3 +1,4 @@
+import { executeUntilParked } from "./ExecuteUntilParked.ts"
 import { opaqueHandlerBody } from "./fixtures/OpaqueHandlerBody.ts"
 /**
  * Event-driven wake through the full durable composition: a deferred
@@ -270,7 +271,7 @@ describe("event-driven wake", () => {
           yield* engine.register(JoinedFlow, handler)
           // Admission drives the run to its park; the discard follower then
           // dispatches the round again and parks on the bus.
-          yield* engine.execute(JoinedFlow, {
+          yield* executeUntilParked(engine, JoinedFlow, {
             executionId: "wake-joined",
             payload: {},
             discard: true,

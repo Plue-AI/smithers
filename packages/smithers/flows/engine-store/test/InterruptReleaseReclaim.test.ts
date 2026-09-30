@@ -1,3 +1,4 @@
+import { executeAndDrain } from "./ExecuteAndDrain.ts"
 import { opaqueHandlerBody } from "./fixtures/OpaqueHandlerBody.ts"
 /**
  * Pins issue #39: a run released by a non-cancel interruption (process
@@ -59,7 +60,7 @@ const releaseMidAction = (executionId: string) =>
     const driver = yield* makeDriver("owner-1").pipe(Scope.provide(driverScope))
     const started = yield* Latch.make(false)
     yield* driver.register(TestFlow, () => Latch.open(started).pipe(Effect.andThen(Effect.never)))
-    yield* driver.execute(TestFlow, {
+    yield* executeAndDrain(driver, TestFlow, {
       executionId,
       payload: {},
       discard: true
@@ -95,7 +96,7 @@ describe("interrupt-released runs are reclaimable (issue #39)", () => {
         )
         const started = yield* Latch.make(false)
         yield* driver.register(TestFlow, () => Latch.open(started).pipe(Effect.andThen(Effect.never)))
-        yield* driver.execute(TestFlow, {
+        yield* executeAndDrain(driver, TestFlow, {
           executionId: "release-fence-lost",
           payload: {},
           discard: true

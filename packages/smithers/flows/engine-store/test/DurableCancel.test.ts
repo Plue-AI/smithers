@@ -1,3 +1,4 @@
+import { executeAndDrain } from "./ExecuteAndDrain.ts"
 import { opaqueHandlerBody } from "./fixtures/OpaqueHandlerBody.ts"
 /**
  * Pins issue #11: a durably recorded cancellation request
@@ -100,7 +101,7 @@ describe("durable cancellation", () => {
             yield* store.requestCancel("cancel-before-finalize", nowMs)
             return "done"
           }))
-        yield* driver.execute(TestFlow, {
+        yield* executeAndDrain(driver, TestFlow, {
           executionId: "cancel-before-finalize",
           payload: {},
           discard: true
@@ -123,7 +124,7 @@ describe("durable cancellation", () => {
         const driver = yield* makeDriver(ownerA)
         const started = yield* Latch.make(false)
         yield* driver.register(TestFlow, () => Latch.open(started).pipe(Effect.andThen(Effect.never)))
-        const fiber = yield* driver.execute(TestFlow, {
+        const fiber = yield* executeAndDrain(driver, TestFlow, {
           executionId: "cancel-cross-process",
           payload: {},
           discard: true

@@ -127,7 +127,11 @@ const parkedRun = (runId: string, name: string) =>
   Effect.gen(function*() {
     yield* Gated.execute({ name }, { executionId: runId, discard: true })
     const state = yield* DurableEngineState.DurableEngineState
-    const waiting = yield* state.waiting(runId)
+    let waiting = yield* state.waiting(runId)
+    for (let attempt = 0; attempt < 2_000 && Option.isNone(waiting); attempt++) {
+      yield* Effect.yieldNow
+      waiting = yield* state.waiting(runId)
+    }
     if (Option.isNone(waiting)) return yield* Effect.die(`run ${runId} did not park`)
     return waiting.value
   })

@@ -10,6 +10,7 @@ import * as State from "../src/DurableEngineState.ts"
 import * as Facts from "../src/ExecutionFacts.ts"
 import * as Snapshot from "../src/ExecutionSnapshot.ts"
 import * as RunDriver from "../src/internal/RunDriver.ts"
+import { executeAndDrain } from "./ExecuteAndDrain.ts"
 import { fixture, onFile, state as stateJson } from "./ExecutionSnapshotFixture.ts"
 import { opaqueHandlerBody } from "./fixtures/OpaqueHandlerBody.ts"
 
@@ -36,10 +37,12 @@ const ports = Effect.gen(function*() {
   const journal = yield* Journal.Journal
   return { runs, state, journal, facts: Facts.make({ runs, state, journal, sourceId: "facts-test" }) }
 })
-const verified = (executionId: string) =>
+const verified = (executionId: string, parentPolicy: "cancel" | "detach" = "cancel") =>
   Effect.gen(function*() {
     const { runs, state, journal } = yield* ports
-    const observed = yield* Facts.observe(yield* runs.get(executionId), state)
+    const row = yield* runs.get(executionId)
+    if (parentPolicy === "detach") expect(JSON.parse(row.stateJson).onParentExit).toBe("detach")
+    const observed = yield* Facts.observe(row, state)
     const reader = yield* Snapshot.make()
     const batch = yield* reader.read([executionId])
     const snapshot = batch.snapshots[0]!
@@ -56,7 +59,7 @@ const verified = (executionId: string) =>
       roundOrdinal: snapshot.roundOrdinal,
       cancelRequestedAtMs: snapshot.cancellation.requestedAtMs,
       treeVersion: 1,
-      parentPolicy: "cancel",
+      parentPolicy,
       waiting: snapshot.waiting === null
         ? null
         : {
@@ -95,7 +98,7 @@ const suspendedPointOnReopen = (token: string, point: string | null) =>
               FlowRuntime.annotateWaiting({ reason: "approval", token }).pipe(
                 Effect.andThen(Effect.flatMap(FlowRuntime.FlowInstance, Flow.suspend))
               ))
-            yield* driver.execute(TestFlow, { executionId, payload: {}, discard: true })
+            yield* executeAndDrain(driver, TestFlow, { executionId, payload: {}, discard: true })
           }).pipe(Effect.provide(services), Effect.provide(NodeCrypto.layer))
         )
       )
@@ -104,7 +107,9 @@ const suspendedPointOnReopen = (token: string, point: string | null) =>
         Effect.gen(function*() {
           const { runs, state, journal } = yield* ports
           expect((yield* runs.get(executionId)).status).toBe("suspended")
-          const observed = yield* Facts.observe(yield* runs.get(executionId), state)
+          const row = yield* runs.get(executionId)
+          expect(JSON.parse(row.stateJson).onParentExit).toBe("detach")
+          const observed = yield* Facts.observe(row, state)
           expect(observed.status).toBe("suspended")
 
           const events = yield* history(journal, executionId)
@@ -170,25 +175,25 @@ describe("native facts over file SQLite", () => {
                   yield* FlowRuntime.annotateWaiting({ reason: "approval", token: "request" })
                   return yield* Effect.flatMap(FlowRuntime.FlowInstance, Flow.suspend)
                 }))
-              yield* driver.execute(TestFlow, { executionId: "driver", payload: {}, discard: true })
-              expect((yield* verified("driver")).view?.current.waiting).toEqual({
+              yield* executeAndDrain(driver, TestFlow, { executionId: "driver", payload: {}, discard: true })
+              expect((yield* verified("driver", "detach")).view?.current.waiting).toEqual({
                 reason: "approval",
                 wakeAtMs: null,
                 tokenDigest: Sha256.digestSync("request"),
                 point: null,
                 request: null
               })
-              expect((yield* verified("driver")).provenance.baseline).toBe("created")
+              expect((yield* verified("driver", "detach")).provenance.baseline).toBe("created")
               suspend = false
               yield* driver.resume(TestFlow, "driver")
-              expect((yield* verified("driver")).view?.current.status).toBe("completed")
+              expect((yield* verified("driver", "detach")).view?.current.status).toBe("completed")
               expect((yield* runs.get("driver")).status).toBe("completed")
               const events = yield* history(journal, "driver")
               expect(events.map((event) => (event.payload as { decision?: string }).decision)).toContain("resumed")
             }).pipe(Effect.provide(services), Effect.provide(NodeCrypto.layer))
           )
         )
-        yield* onFile(file, verified("driver").pipe(Effect.provide(services)))
+        yield* onFile(file, verified("driver", "detach").pipe(Effect.provide(services)))
       })
     ))
 
@@ -212,7 +217,7 @@ describe("native facts over file SQLite", () => {
                   token,
                   request: JSON.stringify(request)
                 }).pipe(Effect.andThen(Effect.flatMap(FlowRuntime.FlowInstance, Flow.suspend))))
-              yield* driver.execute(TestFlow, { executionId: "question", payload: {}, discard: true })
+              yield* executeAndDrain(driver, TestFlow, { executionId: "question", payload: {}, discard: true })
             }).pipe(Effect.provide(services), Effect.provide(NodeCrypto.layer))
           )
         )
@@ -295,9 +300,11 @@ describe("native facts over file SQLite", () => {
               FlowRuntime.annotateWaiting({ reason: "approval", token: "request" }).pipe(
                 Effect.andThen(Effect.flatMap(FlowRuntime.FlowInstance, Flow.suspend))
               ))
-            yield* driver.execute(TestFlow, { executionId: "broken", payload: {}, discard: true }).pipe(Effect.exit)
+            yield* executeAndDrain(driver, TestFlow, { executionId: "broken", payload: {}, discard: true }).pipe(
+              Effect.exit
+            )
             expect(Option.isNone(yield* state.waiting("broken"))).toBe(true)
-            const folded = yield* verified("broken")
+            const folded = yield* verified("broken", "detach")
             expect(folded.view?.current.status).toBe("running")
             const sql = yield* SqlClient.SqlClient
             const records = yield* sql<

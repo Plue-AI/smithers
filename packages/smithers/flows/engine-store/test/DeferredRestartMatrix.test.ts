@@ -20,6 +20,7 @@ import * as DurableEngineState from "../src/DurableEngineState.ts"
 import * as EngineStore from "../src/EngineStore.ts"
 import * as StepBoundary from "../src/StepBoundary.ts"
 import * as TestStores from "../src/test/TestStores.ts"
+import { executeUntilParked } from "./ExecuteUntilParked.ts"
 import { opaqueHandlerBody } from "./fixtures/OpaqueHandlerBody.ts"
 import { withCrypto } from "./Sha256.ts"
 
@@ -134,7 +135,7 @@ describe("durable deferred outcomes across a restart", () => {
           Effect.gen(function*() {
             const first = yield* makeEngine
             yield* first.register(flow, handler)
-            yield* first.execute(flow, {
+            yield* executeUntilParked(first, flow, {
               executionId: "restart-run",
               payload: {},
               discard: true
@@ -270,7 +271,7 @@ describe("registration after a deferred was consumed", () => {
               const engine = yield* makeEngine
               yield* engine.register(flow, handler)
               for (const executionId of ["consumed", "unobserved"]) {
-                yield* engine.execute(flow, { executionId, payload: {}, discard: true })
+                yield* executeUntilParked(engine, flow, { executionId, payload: {}, discard: true })
               }
               yield* complete("consumed")
               // Direct state completion does not send a wake. execute can join
@@ -370,7 +371,7 @@ describe("partial dependency readiness across a restart", () => {
         Effect.gen(function*() {
           const engine = yield* makeEngine
           yield* engine.register(flow, handler)
-          yield* engine.execute(flow, {
+          yield* executeUntilParked(engine, flow, {
             executionId: "partial-run",
             payload: {},
             discard: true
@@ -386,11 +387,14 @@ describe("partial dependency readiness across a restart", () => {
             deferredName: first.name,
             exit: Exit.succeed("a")
           })
-          yield* afterFirstEngine.execute(flow, {
+          yield* executeUntilParked(afterFirstEngine, flow, {
             executionId: "partial-run",
             payload: {},
             discard: true
           })
+          yield* TestDatabase.until(Effect.gen(function*() {
+            return observed.includes("first:a") && (yield* store.get("partial-run")).status === "suspended"
+          }))
           const afterFirst = yield* store.get("partial-run")
 
           // and only then the second one
@@ -457,7 +461,7 @@ describe("partial dependency readiness across a restart", () => {
         Effect.gen(function*() {
           const engine = yield* makeEngine
           yield* engine.register(flow, handler)
-          yield* engine.execute(flow, {
+          yield* executeUntilParked(engine, flow, {
             executionId: "ooo-run",
             payload: {},
             discard: true
@@ -472,7 +476,7 @@ describe("partial dependency readiness across a restart", () => {
             deferredName: second.name,
             exit: Exit.succeed("b") as any
           })
-          yield* restarted.execute(flow, {
+          yield* executeUntilParked(restarted, flow, {
             executionId: "ooo-run",
             payload: {},
             discard: true
@@ -534,7 +538,7 @@ describe("partial dependency readiness across a restart", () => {
 
           const engine = yield* makeEngine
           yield* engine.register(flow, handler)
-          yield* engine.execute(flow, {
+          yield* executeUntilParked(engine, flow, {
             executionId: "mid-resume-run",
             payload: {},
             discard: true
@@ -619,7 +623,10 @@ describe("registration does not re-arm a settled run (B-03)", () => {
     status: RunStore.RunStatus
   ) =>
     Effect.gen(function*() {
-      yield* store.create(runId, JSON.stringify({ version: 1, flowName: B03Flow._tag, payload: {} }))
+      yield* store.create(
+        runId,
+        JSON.stringify({ capabilityCeilings: [[]], version: 1, flowName: B03Flow._tag, payload: {} })
+      )
       yield* store.claimAndOwn(runId, { status: "pending", owner: null, heartbeatAtMs: null }, seeder, 0)
       yield* state.scheduleClock({
         flowName: B03Flow._tag,

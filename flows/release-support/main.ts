@@ -4,7 +4,7 @@ import { Graph, HumanTask } from "@smthrs/flow"
 import * as DurableDeferred from "@smthrs/flow/DurableDeferred"
 import * as NodeRuntime from "@smthrs/flows/NodeRuntime"
 import * as RunStore from "@smthrs/run-store/RunStore"
-import { Effect, Exit, Layer, Option, Schema } from "effect"
+import { Effect, Exit, Layer, Option, Schedule, Schema } from "effect"
 import { randomUUID } from "node:crypto"
 import { mkdir, readFile } from "node:fs/promises"
 import { join, resolve } from "node:path"
@@ -83,7 +83,9 @@ const drive = (stored: StoredRun, answer?: boolean) =>
         executionId: stored.id,
         discard: true
       })
-      const result = yield* Release.poll(stored.id)
+      const result = yield* Release.poll(stored.id).pipe(
+        Effect.repeat({ until: Option.isSome, schedule: Schedule.spaced(10) })
+      )
       if (Option.isSome(result) && result.value._tag === "Complete") {
         if (Exit.isFailure(result.value.exit)) return yield* Effect.failCause(result.value.exit.cause)
         return { id: stored.id, result: result.value.exit.value }
@@ -93,7 +95,9 @@ const drive = (stored: StoredRun, answer?: boolean) =>
         executionId: stored.id,
         discard: true
       })
-      const result = yield* ReleaseContent.poll(stored.id)
+      const result = yield* ReleaseContent.poll(stored.id).pipe(
+        Effect.repeat({ until: Option.isSome, schedule: Schedule.spaced(10) })
+      )
       if (Option.isSome(result) && result.value._tag === "Complete") {
         if (Exit.isFailure(result.value.exit)) return yield* Effect.failCause(result.value.exit.cause)
         return { id: stored.id, result: result.value.exit.value }

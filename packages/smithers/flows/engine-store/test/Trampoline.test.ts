@@ -155,14 +155,16 @@ const services = Layer.mergeAll(
 const incarnation = (
   hostId: string,
   interpreters: ReadonlyArray<Layer.Layer<never, never, FlowRuntime.FlowRuntime | Action.Implementations>>,
-  storeOverride?: RunStore.RunStore["Service"]
+  storeOverride?: RunStore.RunStore["Service"],
+  canExecute?: EngineStore.Options["canExecute"]
 ) =>
   Effect.gen(function*() {
     const calls: Array<number> = []
     const makeEngine = EngineStore.make({
       owner: { hostId },
       journalSource: `trampoline-${hostId}`,
-      isAlive: () => Effect.succeed(false)
+      isAlive: () => Effect.succeed(false),
+      ...(canExecute === undefined ? {} : { canExecute })
     })
     const engine = yield* storeOverride === undefined
       ? makeEngine
@@ -179,7 +181,7 @@ const incarnation = (
       Layer.provideMerge(Action.layerImplementations),
       Layer.provideMerge(Layer.succeed(FlowRuntime.FlowRuntime, engine))
     )
-    return { calls, wiring }
+    return { calls, wiring: yield* Layer.build(wiring) }
   })
 
 /** Lands one external cancel in the seam immediately before its guarded transition. */
@@ -530,6 +532,7 @@ describe("a durable lineage", () => {
           executionId: "crash-lineage",
           discard: true
         }).pipe(Effect.provide(partial.wiring))
+        yield* TestDatabase.until(Effect.map(store.get("crash-lineage"), (row) => row.status === "completed"))
 
         const stranded = yield* store.get(roundId("crash-lineage", 1))
         const settledRoot = yield* store.get("crash-lineage")
@@ -566,6 +569,7 @@ describe("a durable lineage", () => {
           executionId: "handoff-cancel-race",
           discard: true
         }).pipe(Effect.provide(wiring))
+        yield* TestDatabase.until(Effect.map(store.get("handoff-cancel-race"), (row) => row.status === "cancelled"))
         const successor = yield* Effect.exit(store.get(roundId("handoff-cancel-race", 1)))
         return { calls, root: yield* store.get("handoff-cancel-race"), successor }
       }))
@@ -579,11 +583,19 @@ describe("a durable lineage", () => {
     Effect.gen(function*() {
       const observed = yield* durable(Effect.gen(function*() {
         const store = yield* RunStore.RunStore
+        let refused = false
         const fenceLost = RunStore.makeNoop({
           ...store,
           transitionOwned: (runId, claimant, status, stateJson, guard) =>
             runId === "handoff-fence-race" && status === "completed"
               ? store.transitionOwned(runId, { hostId: "other", pid: 1, nonce: "other" }, status, stateJson, guard)
+                .pipe(
+                  Effect.tap(() =>
+                    Effect.sync(() => {
+                      refused = true
+                    })
+                  )
+                )
               : store.transitionOwned(runId, claimant, status, stateJson, guard)
         })
         const { calls, wiring } = yield* incarnation("handoff-fence-host", [Interpreter.layer(Counter)], fenceLost)
@@ -591,6 +603,7 @@ describe("a durable lineage", () => {
           executionId: "handoff-fence-race",
           discard: true
         }).pipe(Effect.provide(wiring))
+        yield* TestDatabase.until(Effect.sync(() => refused))
         return {
           calls,
           successor: yield* Effect.exit(store.get(roundId("handoff-fence-race", 1)))
@@ -651,29 +664,45 @@ describe("a durable lineage", () => {
 
         yield* store.create(
           "someone-else",
-          JSON.stringify({ version: 1, flowName: Counter._tag, payload: rootPayload })
+          JSON.stringify({ capabilityCeilings: [[]], version: 1, flowName: Counter._tag, payload: rootPayload })
         )
 
         return yield* Effect.forEach(cases, (testCase) =>
           Effect.gen(function*() {
+            // Keep the colliding rows intact: this worker admits only the root under test.
+            const { wiring } = yield* incarnation(
+              `${testCase.name}-host`,
+              [Interpreter.layer(Counter)],
+              undefined,
+              (row) => Effect.succeed(row.runId === testCase.name)
+            )
             const successor = roundId(testCase.name, 1)
             yield* store.create(
               testCase.name,
-              JSON.stringify({ version: 1, flowName: Counter._tag, payload: rootPayload }),
+              JSON.stringify({ capabilityCeilings: [[]], version: 1, flowName: Counter._tag, payload: rootPayload }),
               { lineageId: testCase.name, roundOrdinal: 0 }
             )
             yield* testCase.metadata === undefined
               ? store.create(
                 successor,
-                JSON.stringify({ version: 1, flowName: Counter._tag, payload: successorPayload })
+                JSON.stringify({
+                  capabilityCeilings: [[]],
+                  version: 1,
+                  flowName: Counter._tag,
+                  payload: successorPayload
+                })
               )
               : store.create(
                 successor,
-                JSON.stringify({ version: 1, flowName: Counter._tag, payload: successorPayload }),
+                JSON.stringify({
+                  capabilityCeilings: [[]],
+                  version: 1,
+                  flowName: Counter._tag,
+                  payload: successorPayload
+                }),
                 testCase.metadata
               )
 
-            const { wiring } = yield* incarnation(`${testCase.name}-host`, [Interpreter.layer(Counter)])
             const exit = yield* Counter.execute({ value: 0, target: 2 }, {
               executionId: testCase.name
             }).pipe(Effect.exit, Effect.provide(wiring))
@@ -757,6 +786,9 @@ describe("a durable lineage", () => {
           executionId: "invalid-round-cancel-race",
           discard: true
         }).pipe(Effect.provide(wiring))
+        yield* TestDatabase.until(
+          Effect.map(store.get("invalid-round-cancel-race"), (row) => row.status === "cancelled")
+        )
         return { calls, root: yield* store.get("invalid-round-cancel-race") }
       }))
 
@@ -775,6 +807,7 @@ describe("a durable lineage", () => {
           executionId: "budget-cancel-race",
           discard: true
         }).pipe(Effect.provide(wiring))
+        yield* TestDatabase.until(Effect.map(store.get("budget-cancel-race"), (row) => row.status === "cancelled"))
         return { calls, root: yield* store.get("budget-cancel-race") }
       }))
 
@@ -794,16 +827,25 @@ describe("a durable lineage", () => {
         const Limited = counter(`trampoline/fence-${executionId}`, rounds)
         const observed = yield* durable(Effect.gen(function*() {
           const store = yield* RunStore.RunStore
+          let refused = false
           const fenceLost = RunStore.makeNoop({
             ...store,
             transitionOwned: (runId, claimant, status, stateJson, guard) =>
               runId === executionId && status === "failed"
                 ? store.transitionOwned(runId, { hostId: "other", pid: 1, nonce: "other" }, status, stateJson, guard)
+                  .pipe(
+                    Effect.tap(() =>
+                      Effect.sync(() => {
+                        refused = true
+                      })
+                    )
+                  )
                 : store.transitionOwned(runId, claimant, status, stateJson, guard)
           })
           const racing = malformed === undefined ? fenceLost : invalidRoundStore(fenceLost, executionId)
           const { calls, wiring } = yield* incarnation(`${executionId}-host`, [Interpreter.layer(Limited)], racing)
           yield* Limited.execute({ value: 0, target: 2 }, { executionId, discard: true }).pipe(Effect.provide(wiring))
+          yield* TestDatabase.until(Effect.sync(() => refused))
           return { calls, root: yield* store.get(executionId) }
         }))
 
@@ -843,13 +885,19 @@ describe("a durable lineage", () => {
         const store = yield* RunStore.RunStore
         const state = yield* DurableEngineState.DurableEngineState
         const { calls, wiring } = yield* incarnation("park-host", [Interpreter.layer(Opening), Interpreter.layer(Gate)])
-        const registered = yield* Layer.build(wiring)
+        const registered = wiring
 
         yield* Opening.execute({ value: 0 }, {
           executionId: "park-lineage",
           discard: true
         }).pipe(Effect.provide(registered))
 
+        yield* TestDatabase.until(
+          store.get(roundId("park-lineage", 1)).pipe(
+            Effect.map((row) => row.status === "suspended"),
+            Effect.catchIf((error) => error.code === "not_found_row", () => Effect.succeed(false))
+          )
+        )
         const readPark = state.transaction(Effect.gen(function*() {
           return {
             parked: yield* store.get(roundId("park-lineage", 1)),

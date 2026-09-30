@@ -1,3 +1,4 @@
+import { executeUntilParked } from "./ExecuteUntilParked.ts"
 import { opaqueHandlerBody } from "./fixtures/OpaqueHandlerBody.ts"
 /**
  * A round interrupted AFTER its flow asked to suspend parks under the reason
@@ -106,7 +107,7 @@ const parkByShutdown = (executionId: string, wait: DurableWait) => {
               return yield* Effect.never
             })
         )
-        yield* engine.execute(TestFlow, {
+        yield* executeUntilParked(engine, TestFlow, {
           executionId,
           payload: {},
           discard: true

@@ -19,6 +19,7 @@ import * as EngineStore from "../src/EngineStore.ts"
 import * as StepBoundary from "../src/StepBoundary.ts"
 import * as StepSandbox from "../src/StepSandbox.ts"
 import * as TestStores from "../src/test/TestStores.ts"
+import { executeUntilParked } from "./ExecuteUntilParked.ts"
 import { opaqueHandlerBody } from "./fixtures/OpaqueHandlerBody.ts"
 import { withCrypto } from "./Sha256.ts"
 
@@ -248,7 +249,7 @@ describe("EngineStore.make liveness", () => {
           const runs = yield* RunStore.RunStore
           yield* runs.create(
             "historical-deferred",
-            JSON.stringify({ version: 1, flowName: LayerFlow._tag, payload: {} })
+            JSON.stringify({ capabilityCeilings: [[]], version: 1, flowName: LayerFlow._tag, payload: {} })
           )
           yield* state.completeDeferred({
             flowName: LayerFlow._tag,
@@ -294,7 +295,7 @@ describe("EngineStore.make liveness", () => {
           const owned = yield* Effect.gen(function*() {
             yield* store.create(
               "foreign-run",
-              JSON.stringify({ version: 1, flowName: LayerFlow._tag, payload: {} })
+              JSON.stringify({ capabilityCeilings: [[]], version: 1, flowName: LayerFlow._tag, payload: {} })
             )
             const created = yield* store.get("foreign-run")
             const expected = { status: created.status, owner: created.owner, heartbeatAtMs: created.heartbeatAtMs }
@@ -353,7 +354,7 @@ describe("EngineStore.make liveness", () => {
           const owned = yield* Effect.gen(function*() {
             yield* store.create(
               "abandoned-run",
-              JSON.stringify({ version: 1, flowName: LayerFlow._tag, payload: {} })
+              JSON.stringify({ capabilityCeilings: [[]], version: 1, flowName: LayerFlow._tag, payload: {} })
             )
             const created = yield* store.get("abandoned-run")
             const expected = { status: created.status, owner: created.owner, heartbeatAtMs: created.heartbeatAtMs }
@@ -422,7 +423,7 @@ describe("EngineStore.make liveness", () => {
           })
           const first = yield* makeEngine
           yield* first.register(LayerFlow, handler)
-          yield* first.execute(LayerFlow, {
+          yield* executeUntilParked(first, LayerFlow, {
             executionId: "unkeyed-run",
             payload: {},
             discard: true

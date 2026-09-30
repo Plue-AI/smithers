@@ -56,7 +56,9 @@ describe("out-of-ladder engine-store schema (issue #92)", () => {
       expect(statement.dialects).toContain("sqlite")
     }
     // Spawn edges and their SQLite GC trigger are now owned by migration 0006.
-    expect(EngineStateSchema.statements.map((statement) => statement.name)).toEqual(["flows_runs_stale_running_idx"])
+    expect(EngineStateSchema.statements.map((statement) => statement.name)).toEqual([
+      "flows_runs_stale_running_idx"
+    ])
   })
 
   it.effect("is idempotent: a second construction over the same database adds nothing", () =>

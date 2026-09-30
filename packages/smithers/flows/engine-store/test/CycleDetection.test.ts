@@ -13,6 +13,7 @@ import * as SqlClient from "effect/unstable/sql/SqlClient"
 import * as DurableEngineState from "../src/DurableEngineState.ts"
 import * as RunDriver from "../src/internal/RunDriver.ts"
 import * as TestStores from "../src/test/TestStores.ts"
+import { executeAndDrain } from "./ExecuteAndDrain.ts"
 import { opaqueHandlerBody } from "./fixtures/OpaqueHandlerBody.ts"
 import { withCrypto } from "./Sha256.ts"
 
@@ -66,6 +67,7 @@ const createRun = (id: string, parent?: string) =>
     yield* store.create(
       id,
       JSON.stringify({
+        capabilityCeilings: [[]],
         version: 1,
         flowName: TestFlow._tag,
         payload: {},
@@ -84,7 +86,7 @@ describe("RunDriver cycle detection", () => {
       const exit = yield* withCrypto(Effect.exit(provideJournal(Effect.gen(function*() {
         const driver = yield* makeDriver()
         yield* driver.register(TestFlow, () => Effect.succeed("never runs"))
-        return yield* driver.execute(TestFlow, {
+        return yield* executeAndDrain(driver, TestFlow, {
           executionId: "self",
           payload: {},
           discard: true,
@@ -111,7 +113,7 @@ describe("RunDriver cycle detection", () => {
         yield* createRun("child", "root")
         yield* createRun("grandchild", "child")
 
-        return yield* driver.execute(TestFlow, {
+        return yield* executeAndDrain(driver, TestFlow, {
           executionId: "great-grandchild",
           payload: {},
           discard: true,
@@ -133,7 +135,7 @@ describe("RunDriver cycle detection", () => {
         yield* createRun("b", "a")
 
         // Now B attempts to execute A as its child: a cycle.
-        return yield* driver.execute(TestFlow, {
+        return yield* executeAndDrain(driver, TestFlow, {
           executionId: "a",
           payload: {},
           discard: true,
@@ -161,7 +163,7 @@ describe("RunDriver cycle detection", () => {
         yield* createRun("z", "y")
 
         // z attempts to execute x, its grandparent: a cycle.
-        return yield* driver.execute(TestFlow, {
+        return yield* executeAndDrain(driver, TestFlow, {
           executionId: "x",
           payload: {},
           discard: true,
@@ -191,7 +193,7 @@ describe("RunDriver cycle detection", () => {
 
         // B executes C: the row already exists, so this second parent edge is
         // never persisted — it must still be recorded for cycle detection.
-        yield* driver.execute(TestFlow, {
+        yield* executeAndDrain(driver, TestFlow, {
           executionId: "c",
           payload: {},
           discard: true,
@@ -199,7 +201,7 @@ describe("RunDriver cycle detection", () => {
         })
 
         // C executes B: a cycle reachable only through the C -> B request edge.
-        return yield* driver.execute(TestFlow, {
+        return yield* executeAndDrain(driver, TestFlow, {
           executionId: "b",
           payload: {},
           discard: true,
@@ -229,13 +231,13 @@ describe("RunDriver cycle detection", () => {
 
         // A creates C (persisted first-parent edge), then B converges on C
         // (request-only second-parent edge). Both must succeed.
-        const first = yield* Effect.exit(driver.execute(TestFlow, {
+        const first = yield* Effect.exit(executeAndDrain(driver, TestFlow, {
           executionId: "diamond-c",
           payload: {},
           discard: true,
           parent: { executionId: "diamond-a" } as FlowRuntime.FlowInstance["Service"]
         }))
-        const second = yield* Effect.exit(driver.execute(TestFlow, {
+        const second = yield* Effect.exit(executeAndDrain(driver, TestFlow, {
           executionId: "diamond-c",
           payload: {},
           discard: true,
@@ -272,13 +274,13 @@ describe("RunDriver cycle detection", () => {
         // Fiber 1: A executes B. Fiber 2: B executes A. Together they close a
         // cycle; exactly one must be refused.
         const exits = yield* Effect.all([
-          Effect.exit(driver.execute(TestFlow, {
+          Effect.exit(executeAndDrain(driver, TestFlow, {
             executionId: "race-b",
             payload: {},
             discard: true,
             parent: { executionId: "race-a" } as FlowRuntime.FlowInstance["Service"]
           })),
-          Effect.exit(driver.execute(TestFlow, {
+          Effect.exit(executeAndDrain(driver, TestFlow, {
             executionId: "race-a",
             payload: {},
             discard: true,
@@ -324,13 +326,13 @@ describe("RunDriver cycle detection", () => {
           // close a cycle; exactly one must be refused, and neither may
           // deadlock on mutual coordinator awaits.
           const exits = yield* Effect.all([
-            Effect.exit(driverOne.execute(TestFlow, {
+            Effect.exit(executeAndDrain(driverOne, TestFlow, {
               executionId: "xrace-b",
               payload: {},
               discard: true,
               parent: { executionId: "xrace-a" } as FlowRuntime.FlowInstance["Service"]
             })),
-            Effect.exit(driverTwo.execute(TestFlow, {
+            Effect.exit(executeAndDrain(driverTwo, TestFlow, {
               executionId: "xrace-a",
               payload: {},
               discard: true,
@@ -362,7 +364,7 @@ describe("RunDriver cycle detection", () => {
           const firstScope = yield* Scope.make()
           const first = yield* makeDriver().pipe(Scope.provide(firstScope))
           yield* first.register(TestFlow, () => Effect.succeed("ok"))
-          yield* first.execute(TestFlow, {
+          yield* executeAndDrain(first, TestFlow, {
             executionId: "restart-c",
             payload: {},
             discard: true,
@@ -375,7 +377,7 @@ describe("RunDriver cycle detection", () => {
           // refused, not admitted into a durable mutual deadlock.
           const second = yield* makeDriver()
           yield* second.register(TestFlow, () => Effect.succeed("ok"))
-          return yield* second.execute(TestFlow, {
+          return yield* executeAndDrain(second, TestFlow, {
             executionId: "restart-b",
             payload: {},
             discard: true,
@@ -410,11 +412,23 @@ describe("RunDriver cycle detection", () => {
           // table's revision trigger reads them.
           yield* store.create(
             "p",
-            JSON.stringify({ version: 1, flowName: TestFlow._tag, payload: {}, parentExecutionId: "q" })
+            JSON.stringify({
+              capabilityCeilings: [[]],
+              version: 1,
+              flowName: TestFlow._tag,
+              payload: {},
+              parentExecutionId: "q"
+            })
           )
           yield* store.create(
             "q",
-            JSON.stringify({ version: 1, flowName: TestFlow._tag, payload: {}, parentExecutionId: "p" })
+            JSON.stringify({
+              capabilityCeilings: [[]],
+              version: 1,
+              flowName: TestFlow._tag,
+              payload: {},
+              parentExecutionId: "p"
+            })
           )
           yield* sql`INSERT INTO flows_run_parents (child_id, parent_id, seq) VALUES ('p', 'q', 1)`.pipe(
             Effect.orDie
@@ -429,7 +443,7 @@ describe("RunDriver cycle detection", () => {
           expect((yield* state.runParents("p")).map((edge) => edge.parentId)).toEqual(["q"])
           expect((yield* state.runParents("q")).map((edge) => edge.parentId)).toEqual(["p"])
 
-          return yield* driver.execute(TestFlow, {
+          return yield* executeAndDrain(driver, TestFlow, {
             executionId: "unrelated-target",
             payload: {},
             discard: true,
@@ -467,13 +481,13 @@ describe("RunDriver cycle detection", () => {
           // Whatever the interleaving, the closing edge must be the one
           // refused — the max-seq arbitration this replaces picked the chord.
           const [closing, chord] = yield* Effect.all([
-            Effect.exit(driverOne.execute(TestFlow, {
+            Effect.exit(executeAndDrain(driverOne, TestFlow, {
               executionId: "chord-c",
               payload: {},
               discard: true,
               parent: { executionId: "chord-a" } as FlowRuntime.FlowInstance["Service"]
             })),
-            Effect.exit(driverTwo.execute(TestFlow, {
+            Effect.exit(executeAndDrain(driverTwo, TestFlow, {
               executionId: "chord-a",
               payload: {},
               discard: true,
@@ -530,7 +544,7 @@ describe("RunDriver cycle detection", () => {
           // fail with FlowCycleDetected forever (issue #55).
           const winnerReplay = yield* Effect.exit(driverOne.execute(TestFlow, winnerOptions))
           // A fresh child of the winner is also unaffected.
-          const freshChild = yield* Effect.exit(driverOne.execute(TestFlow, {
+          const freshChild = yield* Effect.exit(executeAndDrain(driverOne, TestFlow, {
             executionId: "wd-child",
             payload: {},
             discard: true,
@@ -560,7 +574,7 @@ describe("RunDriver cycle detection", () => {
         yield* createRun("seq-b", "seq-a")
 
         // seq-b executing seq-a would close a cycle: refused.
-        const rejected = yield* Effect.exit(driver.execute(TestFlow, {
+        const rejected = yield* Effect.exit(executeAndDrain(driver, TestFlow, {
           executionId: "seq-a",
           payload: {},
           discard: true,
@@ -570,13 +584,13 @@ describe("RunDriver cycle detection", () => {
         // runs stay fully usable afterwards (the crash window between insert
         // and withdrawal that poisoned the pair no longer exists).
         const edgesOfA = yield* state.runParents("seq-a")
-        const replay = yield* Effect.exit(driver.execute(TestFlow, {
+        const replay = yield* Effect.exit(executeAndDrain(driver, TestFlow, {
           executionId: "seq-b",
           payload: {},
           discard: true,
           parent: { executionId: "seq-a" } as FlowRuntime.FlowInstance["Service"]
         }))
-        const freshChild = yield* Effect.exit(driver.execute(TestFlow, {
+        const freshChild = yield* Effect.exit(executeAndDrain(driver, TestFlow, {
           executionId: "seq-c",
           payload: {},
           discard: true,

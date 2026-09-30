@@ -17,6 +17,7 @@ import * as RunDriver from "../src/internal/RunDriver.ts"
 import * as StepBoundary from "../src/StepBoundary.ts"
 import * as TestStores from "../src/test/TestStores.ts"
 import { activate, jj, owner } from "./CachePolicyFixtures.ts"
+import { executeAndDrain } from "./ExecuteAndDrain.ts"
 import { opaqueHandlerBody } from "./fixtures/OpaqueHandlerBody.ts"
 import { withCrypto } from "./Sha256.ts"
 
@@ -25,7 +26,7 @@ const key = "empty-output-policy"
 const keyDigest = createHash("sha256").update(key).digest("hex")
 const id = { runId: "empty-run", stepKeyDigest: keyDigest, attempt: 1 }
 const EmptyFlow = Flow.make("EmptyOutputPolicy", { payload: {}, success: Schema.String, body: opaqueHandlerBody })
-const stateJson = JSON.stringify({ version: 1, flowName: "EmptyOutputPolicy", payload: {} })
+const stateJson = JSON.stringify({ capabilityCeilings: [[]], version: 1, flowName: "EmptyOutputPolicy", payload: {} })
 const dispatch = (
   runId: string,
   execute: ActionPersistence.Dependencies["execute"],
@@ -233,7 +234,7 @@ describe("empty output evidence is eligible and still checked for corruption", (
               () => dispatch("empty-run", () => Effect.die("durable body repeated")).pipe(Effect.provide(services))
             )
             if (recover) yield* driver.resume(EmptyFlow, "empty-run")
-            else yield* driver.execute(EmptyFlow, { executionId: "empty-run", payload: {}, discard: true })
+            else yield* executeAndDrain(driver, EmptyFlow, { executionId: "empty-run", payload: {}, discard: true })
           })
         await onDatabase(file, corruptBoundary, drive())
         // Reopening and submitting again cannot authorize quarantine recovery.

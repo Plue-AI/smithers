@@ -1,5 +1,6 @@
 import * as Dialect from "@smthrs/database/Dialect"
 import * as TestDatabase from "@smthrs/database/test/TestDatabase"
+import { executeUntilParked } from "./ExecuteUntilParked.ts"
 /**
  * Retention over the real durable engine schema.
  *
@@ -43,7 +44,7 @@ const distantDeadlineMs = 30 * 24 * 60 * 60 * 1000
 
 const owner: Ownership.OwnerId = { hostId: "retention-host", pid: 11, nonce: "retention-nonce" }
 
-const runState = JSON.stringify({ version: 1, flowName: "Retention/Test", payload: {} })
+const runState = JSON.stringify({ capabilityCeilings: [[]], version: 1, flowName: "Retention/Test", payload: {} })
 
 const flowName = "Retention/Test"
 
@@ -476,7 +477,7 @@ describe("retention", () => {
         // `flows_run_parents` edge and leaves the child row's
         // `parent_run_id` NULL, because that column carries the rounds of one
         // trampoline lineage instead.
-        yield* engine.execute(ChildFlow, {
+        yield* executeUntilParked(engine, ChildFlow, {
           executionId: "spawned-child",
           payload: {},
           discard: true
@@ -1009,7 +1010,7 @@ describe("retention", () => {
         // A live run parked on a durable deferred, beside the aged one.
         const engine = yield* makeEngine
         yield* engine.register(ReplayFlow, handler)
-        yield* engine.execute(ReplayFlow, { executionId: "parked-run", payload: {}, discard: true })
+        yield* executeUntilParked(engine, ReplayFlow, { executionId: "parked-run", payload: {}, discard: true })
 
         const report = yield* retain.retain({ olderThanMs: thresholdMs })
         expect(report.runIds).toEqual(["aged-neighbour"])

@@ -1,3 +1,4 @@
+import { executeUntilParked } from "./ExecuteUntilParked.ts"
 import { opaqueHandlerBody } from "./fixtures/OpaqueHandlerBody.ts"
 /**
  * Pins issue #27: a durable cancel request against a suspended (parked) run
@@ -91,7 +92,7 @@ describe("cancel requests reach parked runs (issue #27)", () => {
             EventFlow,
             () => Effect.map(DurableDeferred.await(gate), (value) => `gated:${value}`)
           )
-          yield* engine.execute(EventFlow, {
+          yield* executeUntilParked(engine, EventFlow, {
             executionId: "cancel-parked-sweep",
             payload: {},
             discard: true
@@ -145,7 +146,7 @@ describe("cancel requests reach parked runs (issue #27)", () => {
                 Effect.andThen(Effect.map(DurableDeferred.await(gate), (value) => `gated:${value}`))
               )
           )
-          yield* engine.execute(EventFlow, {
+          yield* executeUntilParked(engine, EventFlow, {
             executionId: "cancel-parked-resume",
             payload: {},
             discard: true
@@ -157,11 +158,11 @@ describe("cancel requests reach parked runs (issue #27)", () => {
 
           // An unrelated resume arrives (operator poke). The activation guard
           // must observe the pending cancel before the flow body re-runs.
-          yield* engine.execute(EventFlow, {
+          yield* executeUntilParked(engine, EventFlow, {
             executionId: "cancel-parked-resume",
             payload: {},
             discard: true
-          })
+          }, ["cancelled"])
           const row = yield* store.get("cancel-parked-resume")
           return { runsAfterSuspend, bodyRuns, row }
         })

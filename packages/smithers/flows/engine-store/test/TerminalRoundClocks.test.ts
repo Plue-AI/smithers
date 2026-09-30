@@ -48,7 +48,7 @@ describe("terminal rounds close their clocks", () => {
             instance.handoff = new Flow.Handoff({ flow: "RoundClocks/next", payload: {} })
             return "handoff"
           }))
-        yield* driver.execute(flow, { executionId: runId, payload: {}, discard: true })
+        yield* driver.execute(flow, { executionId: runId, payload: {}, discard: false })
         expect((yield* store.get(runId)).status).toBe(ending === "handoff" ? "completed" : "failed")
         expect(Option.getOrThrow(yield* state.clock(address)).completedAtMs).not.toBeNull()
         expect(yield* state.dueClocks((yield* Clock.currentTimeMillis) + 120_000)).toEqual([])

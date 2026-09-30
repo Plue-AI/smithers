@@ -12,6 +12,7 @@ import { join } from "node:path"
 import * as DurableEngineState from "../src/DurableEngineState.ts"
 import * as RunDriver from "../src/internal/RunDriver.ts"
 import * as TestStores from "../src/test/TestStores.ts"
+import { executeAndDrain } from "./ExecuteAndDrain.ts"
 import { opaqueHandlerBody } from "./fixtures/OpaqueHandlerBody.ts"
 import { withCrypto } from "./Sha256.ts"
 
@@ -377,7 +378,7 @@ describe("a shared attached child", () => {
             return "observed"
           }))
 
-        yield* driver.execute(Child, { executionId: "lineage-child", payload: {}, discard: true })
+        yield* executeAndDrain(driver, Child, { executionId: "lineage-child", payload: {}, discard: true })
         for (let turn = 0; turn < 2000; turn++) {
           if (
             (yield* store.get(successor.executionId)).status === (ending === "cancelled" ? "suspended" : "completed")
@@ -463,7 +464,7 @@ describe("a shared attached child", () => {
           return yield* Flow.suspend(instance)
         }))
 
-      yield* driver.execute(Child, { executionId: "three-round-child", payload: {}, discard: true })
+      yield* executeAndDrain(driver, Child, { executionId: "three-round-child", payload: {}, discard: true })
       for (let turn = 0; turn < 2000; turn++) {
         if ((yield* store.get(final.executionId)).status === "completed") break
         yield* Effect.sleep("2 millis")
@@ -550,7 +551,7 @@ describe("a shared attached child", () => {
           return "observed"
         }))
 
-      yield* driver.execute(Child, { executionId: "parked-child", payload: {}, discard: true })
+      yield* executeAndDrain(driver, Child, { executionId: "parked-child", payload: {}, discard: true })
       yield* drained
       assert.strictEqual((yield* store.get(successor.executionId)).status, "suspended")
       yield* driver.execute(Parent, { executionId: "parked-parent", payload: {}, discard: false })

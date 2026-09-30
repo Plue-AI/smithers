@@ -9,6 +9,7 @@ import * as DurableEngineState from "../src/DurableEngineState.ts"
 import * as ActionPersistence from "../src/internal/ActionPersistence.ts"
 import * as RunDriver from "../src/internal/RunDriver.ts"
 import * as TestStores from "../src/test/TestStores.ts"
+import { executeAndDrain } from "./ExecuteAndDrain.ts"
 import { opaqueHandlerBody } from "./fixtures/OpaqueHandlerBody.ts"
 import { withCrypto } from "./Sha256.ts"
 
@@ -27,7 +28,7 @@ describe("quarantine arriving between preflight and claim (#2505)", () => {
       Effect.gen(function*() {
         const store = yield* RunStore.RunStore
         const state = yield* DurableEngineState.DurableEngineState
-        const stateJson = JSON.stringify({ version: 1, flowName: flow._tag, payload: {} })
+        const stateJson = JSON.stringify({ capabilityCeilings: [[]], version: 1, flowName: flow._tag, payload: {} })
         const seedOwner = { hostId: "quarantine-seed", pid: 1, nonce: "seed" }
         yield* store.create(executionId, stateJson, { lineageId: executionId, roundOrdinal: 0 })
         const pending = yield* store.get(executionId)
@@ -75,7 +76,7 @@ describe("quarantine arriving between preflight and claim (#2505)", () => {
 
               // B uses the unwrapped SQL store. Its quarantine park returns the
               // run to the same status/owner/heartbeat snapshot A already read.
-              yield* workerB.execute(flow, { executionId, payload: {}, discard: true }).pipe(Effect.orDie)
+              yield* executeAndDrain(workerB, flow, { executionId, payload: {}, discard: true }).pipe(Effect.orDie)
               const parked = yield* store.get(executionId)
               expect(parked.status).toBe(expected.status)
               expect(parked.owner).toBe(expected.owner)
@@ -92,7 +93,7 @@ describe("quarantine arriving between preflight and claim (#2505)", () => {
           engine
         }).pipe(Effect.provideService(RunStore.RunStore, workerAStore))
         yield* workerA.register(flow, handler)
-        yield* workerA.execute(flow, { executionId, payload: {}, discard: true })
+        yield* executeAndDrain(workerA, flow, { executionId, payload: {}, discard: true })
 
         expect(intercepted).toBe(1)
         expect(handlerCount).toBe(1)

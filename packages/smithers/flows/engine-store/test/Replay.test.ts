@@ -13,6 +13,7 @@ import * as DurableEngineState from "../src/DurableEngineState.ts"
 import * as EngineStore from "../src/EngineStore.ts"
 import * as StepBoundary from "../src/StepBoundary.ts"
 import * as TestStores from "../src/test/TestStores.ts"
+import { executeUntilParked } from "./ExecuteUntilParked.ts"
 import { opaqueHandlerBody } from "./fixtures/OpaqueHandlerBody.ts"
 import { withCrypto } from "./Sha256.ts"
 
@@ -108,7 +109,7 @@ describe("deterministic replay", () => {
             const firstScope = yield* Scope.make()
             const firstEngine = yield* Scope.provide(makeEngine, firstScope)
             yield* firstEngine.register(ReplayFlow, handler)
-            yield* firstEngine.execute(ReplayFlow, {
+            yield* executeUntilParked(firstEngine, ReplayFlow, {
               executionId: "replay-run",
               payload: {},
               discard: true

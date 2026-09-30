@@ -10,6 +10,7 @@ import { Action, Flow, FlowRuntime, RetryPolicy, StepIdentity } from "@smthrs/fl
 import { Jj } from "@smthrs/kernel"
 import { AttemptStore, RunStore } from "@smthrs/run-store"
 import type * as Crypto from "effect/Crypto"
+import * as Deferred from "effect/Deferred"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Fiber from "effect/Fiber"
@@ -76,6 +77,7 @@ const withRestart = <A, E>(
 describe("attemptTimeoutMs on the durable engine (issue #1804)", () => {
   it.effect("settles a hung attempt as failed and retries it after a restart", () =>
     Effect.gen(function*() {
+      const started = yield* Deferred.make<void>()
       let bodyRuns = 0
       const flow = Flow.make("ActionTimeout/Restart", {
         payload: {},
@@ -89,7 +91,9 @@ describe("attemptTimeoutMs on the durable engine (issue #1804)", () => {
         retryPolicy: RetryPolicy.make({ initialMs: 1000, factor: 1, maxMs: 1000, maxAttempts: 2 }),
         execute: Effect.suspend(() => {
           bodyRuns++
-          return bodyRuns === 1 ? Effect.never : Effect.succeed(42)
+          return bodyRuns === 1
+            ? Deferred.succeed(started, undefined).pipe(Effect.andThen(Effect.never))
+            : Effect.succeed(42)
         })
       })
       const handler = () =>
@@ -120,6 +124,8 @@ describe("attemptTimeoutMs on the durable engine (issue #1804)", () => {
           yield* TestDatabase.until(
             attempts.get(attemptId).pipe(Effect.map((row) => Option.isSome(row) && row.value.state === "running"))
           )
+          // A running row precedes timeout installation; observe the actual body before advancing.
+          yield* Deferred.await(started)
           yield* TestClock.adjust(100)
           // The expired attempt is settled inside persistence, not stranded
           // as a running row.

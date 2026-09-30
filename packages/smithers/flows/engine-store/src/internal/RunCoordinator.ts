@@ -43,6 +43,15 @@ export interface RunCoordinator<Key, E> {
    */
   readonly join: (key: Key) => Effect.Effect<void, E>
   /**
+   * Starts an idle key without joining or requesting another active drain.
+   *
+   * @since 1.0.0
+   * @category operations
+   */
+  readonly schedule: (key: Key) => Effect.Effect<void>
+  /** Reserves an idle key, then starts its drain only while the supplied durable readiness holds. */
+  readonly scheduleIf: (key: Key, ready: Effect.Effect<boolean>) => Effect.Effect<void>
+  /**
    * Ensures one coalesced drain follows the active drain for the key.
    *
    * @since 0.1.0
@@ -86,11 +95,17 @@ export const make = <Key, E, R>(options: {
       stopping: false
     })
 
-    const start = (key: Key, entry: Entry<E>, successor = false): void => {
+    const start = (
+      key: Key,
+      entry: Entry<E>,
+      successor = false,
+      onlyIf: Effect.Effect<boolean> = Effect.succeed(true)
+    ): void => {
       const ready = Deferred.makeUnsafe<void>()
       const owner = fork(
         (successor ? Effect.yieldNow : Deferred.await(ready)).pipe(
-          Effect.andThen(Effect.suspend(() => options.drain(key))),
+          Effect.andThen(onlyIf),
+          Effect.flatMap((ready) => ready ? Effect.suspend(() => options.drain(key)) : Effect.void),
           Effect.onError((cause) =>
             Cause.hasInterruptsOnly(cause)
               ? Effect.void
@@ -121,6 +136,13 @@ export const make = <Key, E, R>(options: {
       Deferred.doneUnsafe(entry.done, exit)
     }
 
+    const startIdle = (key: Key, onlyIf?: Effect.Effect<boolean>): Entry<E> => {
+      const next = makeEntry()
+      active.set(key, next)
+      start(key, next, false, onlyIf)
+      return next
+    }
+
     const run = (key: Key): Effect.Effect<void, E> =>
       Effect.uninterruptibleMask((restore) => {
         const entry = active.get(key)
@@ -130,16 +152,23 @@ export const make = <Key, E, R>(options: {
           return restore(Deferred.await(entry.done))
         }
 
-        const next = makeEntry()
-        active.set(key, next)
-        start(key, next)
-        return restore(Deferred.await(next.done))
+        return restore(Deferred.await(startIdle(key).done))
       })
 
     const join = (key: Key): Effect.Effect<void, E> =>
       Effect.suspend(() => {
         const entry = active.get(key)
         return entry === undefined ? Effect.void : Deferred.await(entry.done)
+      })
+
+    const schedule = (key: Key): Effect.Effect<void> =>
+      Effect.sync(() => {
+        if (!active.has(key)) startIdle(key)
+      })
+
+    const scheduleIf = (key: Key, ready: Effect.Effect<boolean>): Effect.Effect<void> =>
+      Effect.sync(() => {
+        if (!active.has(key)) startIdle(key, ready)
       })
 
     const wake = (key: Key): Effect.Effect<void> =>
@@ -150,9 +179,7 @@ export const make = <Key, E, R>(options: {
           return
         }
 
-        const next = makeEntry()
-        active.set(key, next)
-        start(key, next)
+        startIdle(key)
       })
 
     const interrupt = (key: Key): Effect.Effect<void> =>
@@ -179,6 +206,8 @@ export const make = <Key, E, R>(options: {
       active: Effect.fn("RunCoordinator.active")(() => Effect.sync(() => new Set(active.keys())))(),
       run: Effect.fn("RunCoordinator.run")(run),
       join: Effect.fn("RunCoordinator.join")(join),
+      schedule: Effect.fn("RunCoordinator.schedule")(schedule),
+      scheduleIf: Effect.fn("RunCoordinator.scheduleIf")(scheduleIf),
       wake: Effect.fn("RunCoordinator.wake")(wake),
       interrupt: Effect.fn("RunCoordinator.interrupt")(interrupt),
       requestInterrupt: Effect.fn("RunCoordinator.requestInterrupt")(requestInterrupt)

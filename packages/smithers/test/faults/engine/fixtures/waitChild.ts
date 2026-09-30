@@ -2,8 +2,8 @@
  * A host that parks a run, and the host that comes back for it.
  *
  * The crash family's waiting cases need a run that is genuinely parked in
- * durable state while its host dies. `execute` with `discard` returns as soon
- * as the run suspends, so in `linger` this process prints
+ * durable state while its host dies. After detached admission, the host
+ * observes the durable suspension before `linger` prints
  * `PARKED=<executionId>` and then holds the process open until somebody kills
  * it.
  *
@@ -65,6 +65,19 @@ const mode: WaitMode = modeArg
 const options = { filename, counterFile, hostId }
 const millis = millisArg === undefined ? 3_000 : Number(millisArg)
 const label = "wait"
+
+const waitForPark = Effect.gen(function*() {
+  for (let attempt = 0; attempt < 20_000; attempt++) {
+    const observed = yield* (mode === "approval"
+      ? ApprovalFlow.poll(executionId)
+      : mode === "event"
+      ? EventFlow.poll(executionId)
+      : TimerFlow.poll(executionId))
+    if (observed._tag === "Some" && observed.value._tag === "Suspended") return
+    yield* Effect.sleep("2 millis")
+  }
+  return yield* Effect.die(`run ${executionId} did not park`)
+}).pipe(Effect.orDie)
 
 /** The wait point the first attempt at the question resolves through. */
 const approvalToken = DurableDeferred.tokenFromExecutionId(HumanTask.deferred(taskName, 1), {
@@ -157,7 +170,7 @@ const exit: Exit.Exit<unknown, unknown> = phase === "notify"
   ? await run(
     answerQuestion,
     phase === "linger"
-      ? ApprovalFlow.execute({ label }, { executionId, discard: true })
+      ? ApprovalFlow.execute({ label }, { executionId, discard: true }).pipe(Effect.tap(() => waitForPark))
       : ApprovalFlow.execute({ label }, { executionId }),
     host(approvalRegistration, options)
   )
@@ -165,19 +178,21 @@ const exit: Exit.Exit<unknown, unknown> = phase === "notify"
   ? await run(
     completeSignal,
     phase === "linger"
-      ? EventFlow.execute({ label }, { executionId, discard: true })
+      ? EventFlow.execute({ label }, { executionId, discard: true }).pipe(Effect.tap(() => waitForPark))
       : EventFlow.execute({ label }, { executionId }),
     host(eventRegistration(options), options)
   )
   : await run(
     Effect.void,
     phase === "linger"
-      ? TimerFlow.execute({ millis }, { executionId, discard: true })
+      ? TimerFlow.execute({ millis }, { executionId, discard: true }).pipe(Effect.tap(() => waitForPark))
       : phase === "race-timer"
       ? Effect.gen(function*() {
         // Both hosts register and observe the same suspended execution before
         // its absolute deadline. They remain alive with their timers armed.
-        const parked = yield* TimerFlow.execute({ millis }, { executionId, discard: true })
+        const parked = yield* TimerFlow.execute({ millis }, { executionId, discard: true }).pipe(
+          Effect.tap(() => waitForPark)
+        )
         process.stdout.write(`PARKED=${parked}\n`)
         return yield* TimerFlow.execute({ millis }, { executionId })
       })

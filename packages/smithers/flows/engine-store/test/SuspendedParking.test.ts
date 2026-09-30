@@ -1,3 +1,4 @@
+import { executeUntilParked } from "./ExecuteUntilParked.ts"
 import { opaqueHandlerBody } from "./fixtures/OpaqueHandlerBody.ts"
 /**
  * Pins issue #12: a run that actually suspends through the execution path
@@ -82,7 +83,7 @@ describe("suspended runs park with a waiting reason", () => {
         Effect.gen(function*() {
           const engine = (yield* makeEngine) as FlowRuntime.FlowRuntime["Service"]
           yield* engine.register(EventFlow, handler)
-          yield* engine.execute(EventFlow, {
+          yield* executeUntilParked(engine, EventFlow, {
             executionId: "parking-event",
             payload: {},
             discard: true
@@ -97,11 +98,11 @@ describe("suspended runs park with a waiting reason", () => {
             deferredName: gate.name,
             exit: Exit.succeed("open")
           })
-          yield* engine.execute(EventFlow, {
+          yield* executeUntilParked(engine, EventFlow, {
             executionId: "parking-event",
             payload: {},
             discard: true
-          })
+          }, ["completed"])
           const completedRow = yield* store.get("parking-event")
           const afterResume = yield* state.waiting("parking-event")
           return { suspendedRow, parked, sweep, completedRow, afterResume }
@@ -131,7 +132,7 @@ describe("suspended runs park with a waiting reason", () => {
         Effect.gen(function*() {
           const engine = (yield* makeEngine) as FlowRuntime.FlowRuntime["Service"]
           yield* engine.register(TimerFlow, handler)
-          yield* engine.execute(TimerFlow, {
+          yield* executeUntilParked(engine, TimerFlow, {
             executionId: "parking-timer",
             payload: {},
             discard: true

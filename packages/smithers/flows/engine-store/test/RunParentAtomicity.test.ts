@@ -1,3 +1,4 @@
+import { executeAndDrain } from "./ExecuteAndDrain.ts"
 import { opaqueHandlerBody } from "./fixtures/OpaqueHandlerBody.ts"
 /**
  * Pins issues #80 and #81: the run-parent edge table can never hold ghost
@@ -80,7 +81,7 @@ describe("run-parent edge atomicity (issues #80/#81)", () => {
           engine: Effect.succeed(fakeEngine)
         }).pipe(Effect.provideService(RunStore.RunStore, crashing))
         yield* crashingDriver.register(AtomicFlow, () => Effect.succeed("unused"))
-        const crashed = yield* crashingDriver.execute(AtomicFlow, {
+        const crashed = yield* executeAndDrain(crashingDriver, AtomicFlow, {
           executionId: "orphan-child",
           payload: {},
           discard: true,
@@ -96,7 +97,7 @@ describe("run-parent edge atomicity (issues #80/#81)", () => {
           engine: Effect.succeed(fakeEngine)
         })
         yield* driver.register(AtomicFlow, () => Effect.succeed("done"))
-        yield* driver.execute(AtomicFlow, {
+        yield* executeAndDrain(driver, AtomicFlow, {
           executionId: "created-child",
           payload: {},
           discard: true,

@@ -1,3 +1,4 @@
+import * as TestDatabase from "@smthrs/database/test/TestDatabase"
 /**
  * The graph a real engine run was driven from, in the real journal.
  *
@@ -191,6 +192,7 @@ it("holds one row per node across a park and a resume", async () => {
         // parked forever, which is a harness bug and not the behaviour here.
         const observedRun = yield* Effect.gen(function*() {
           yield* Parking.execute({}, { executionId: "parking-run", discard: true })
+          yield* waitForStatus("parking-run", "suspended")
           const runs = yield* RunStore.RunStore
           const parked = (yield* runs.get("parking-run")).status
           const duringPark = yield* nodeRows("parking-run")
@@ -473,6 +475,7 @@ it("keeps the settlement the first walk wrote when the resumed walk observes ano
         )
         return yield* Effect.gen(function*() {
           yield* Beside.execute({ path: "abcd" }, { executionId: "beside-run", discard: true })
+          yield* waitForStatus("beside-run", "suspended")
           const runs = yield* RunStore.RunStore
           const duringPark = yield* nodeRows("beside-run")
           yield* engine.deferredDone(gate, {
@@ -558,6 +561,7 @@ it("keeps every Unicode plan page within the encoded entry budget exactly once a
               )
             )
           yield* Paged.execute({}, { executionId: runId, discard: true })
+          yield* waitForStatus(runId, "suspended")
           expect((yield* runs.get(runId)).status).toBe("suspended")
           const before = yield* pages()
           for (const page of before) {
@@ -653,6 +657,7 @@ it("pages a thousand-way fan-in through the durable envelope, once across resume
               )
             )
           yield* Wide.execute({}, { executionId: runId, discard: true })
+          yield* waitForStatus(runId, "suspended")
           expect((yield* runs.get(runId)).status).toBe("suspended")
           const before = yield* pages()
           expect(before.length).toBeGreaterThan(1)
@@ -699,6 +704,7 @@ it("pages a thousand-way fan-in through the durable envelope, once across resume
           })
           // Join the re-drive explicitly; this fixture does not advance the lease clock.
           yield* Wide.execute({}, { executionId: runId, discard: true })
+          yield* waitForStatus(runId, "completed")
           expect((yield* runs.get(runId)).status).toBe("completed")
           // Exactly once across the resume: the same page ids, the same rows.
           expect(yield* pages()).toEqual(before)
@@ -834,3 +840,9 @@ it("carries the host's declared source revision onto every recorded page", async
     await rm(root, { recursive: true, force: true })
   }
 })
+
+const waitForStatus = (runId: string, status: RunStore.RunStatus) =>
+  Effect.flatMap(
+    RunStore.RunStore,
+    (runs) => TestDatabase.until(Effect.map(runs.get(runId), (row) => row.status === status))
+  )

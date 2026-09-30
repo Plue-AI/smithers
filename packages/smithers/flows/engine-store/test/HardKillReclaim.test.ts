@@ -79,7 +79,8 @@ const insertHardKilledRun = (runId: string) =>
     const stateJson = JSON.stringify({
       version: 1,
       flowName: TestFlow._tag,
-      payload: {}
+      payload: {},
+      capabilityCeilings: [[]]
     })
     yield* writer.write(sql`
       INSERT INTO flows_runs (
@@ -227,7 +228,10 @@ describe("hard-killed running runs are reclaimed (issue #53)", () => {
         // contract the driver's own claim goes through.
         const abandoned = yield* onFile(Effect.gen(function*() {
           const store = yield* RunStore.RunStore
-          yield* store.create(runId, JSON.stringify({ version: 1, flowName: TestFlow._tag, payload: {} }))
+          yield* store.create(
+            runId,
+            JSON.stringify({ version: 1, flowName: TestFlow._tag, payload: {}, capabilityCeilings: [[]] })
+          )
           const claimed = yield* store.claimAndOwn(
             runId,
             { status: "pending", owner: null, heartbeatAtMs: null },

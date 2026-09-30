@@ -68,7 +68,7 @@ const insertHardKilledRun = (runId: string, heartbeatAtMs: number) =>
   Effect.gen(function*() {
     const sql = yield* Effect.service(SqlClient.SqlClient)
     const writer = yield* DurableWriter.DurableWriter
-    const stateJson = JSON.stringify({ version: 1, flowName: TestFlow._tag, payload: {} })
+    const stateJson = JSON.stringify({ version: 1, flowName: TestFlow._tag, payload: {}, capabilityCeilings: [[]] })
     yield* writer.write(sql`
       INSERT INTO flows_runs (
         run_id,

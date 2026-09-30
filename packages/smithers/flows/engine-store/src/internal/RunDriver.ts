@@ -1201,8 +1201,7 @@ export const make = (
      */
     const inheritParentCancellation = (
       parentId: string,
-      childId: string,
-      onParentExit: OnParentExit
+      childId: string
     ): Effect.Effect<void> =>
       Effect.gen(function*() {
         const rounds = yield* lifecycle.rounds(parentId).pipe(Effect.orDie)
@@ -1223,10 +1222,10 @@ export const make = (
         // it a child, so an attached child admitted a moment too late cannot
         // run on under a parent that is already gone.
         if (rounds.some((round) => round.status !== "completed" && round.status !== "failed")) return
-        // The policy comes from the caller rather than from a re-read: this
-        // runs inside the transaction that just wrote the child's row, so the
-        // state on disk is the state the caller is holding.
-        if (onParentExit === "detach") return
+        // Admission reads the child's recorded policy in this transaction.
+        // A later caller awaiting a detached execution cannot change the
+        // policy chosen by its original spawn.
+        if ((yield* exitPolicyOf(yield* store.get(childId).pipe(Effect.orDie))) === "detach") return
         yield* requestCancellation(childId, yield* Clock.currentTimeMillis.pipe(Effect.map(Math.floor))).pipe(
           Effect.orDie
         )
@@ -1645,7 +1644,8 @@ export const make = (
           flowName: seam.handoff.flow,
           payload,
           capabilityCeilings: [
-            ...(seam.state.capabilityCeilings ?? [[]]),
+            // The execution guard rejects missing persisted authority before a handler can hand off.
+            ...seam.state.capabilityCeilings!,
             ...(seam.handoff.capabilityCeilings ?? [[]])
           ],
           ...(seam.state.parentExecutionId === undefined
@@ -2248,6 +2248,69 @@ export const make = (
         }
       }
     })
+    // Admissions committed before a host crash have no lease to go stale.
+    // Reuse the normal coordinator and claim/activate path for these rows.
+    const pendingCycles = new Map<string, {
+      readonly through: DurableEngineState.PendingRunCursor
+      readonly eligibleBeforeMs: number
+      after?: DurableEngineState.PendingRunCursor
+    }>()
+    let pendingFlowOffset = 0
+    const sweepPending = (): Effect.Effect<void> =>
+      Effect.gen(function*() {
+        let remaining = staleRunningSweepBatch
+        const allNames = Array.from(registrations.keys())
+        const offset = allNames.length === 0 ? 0 : pendingFlowOffset % allNames.length
+        const names = [...allNames.slice(offset), ...allNames.slice(0, offset)]
+        pendingFlowOffset++
+        for (const name of names) {
+          const registration = registrations.get(name)
+          if (registration === undefined || remaining === 0) continue
+          let cycle = pendingCycles.get(name)
+          if (cycle === undefined) {
+            const eligibleBeforeMs = (yield* Clock.currentTimeMillis) - Duration.toMillis(Ownership.heartbeatStaleAfter)
+            const tail = yield* engineState.pendingRunTail(name, eligibleBeforeMs)
+            if (Option.isNone(tail)) continue
+            cycle = { through: tail.value, eligibleBeforeMs }
+            pendingCycles.set(name, cycle)
+          }
+          const requested = remaining
+          const pending = yield* engineState.pendingRuns(
+            name,
+            requested,
+            cycle.after,
+            cycle.through,
+            cycle.eligibleBeforeMs
+          )
+          for (const cursor of pending) {
+            if (remaining === 0 || registrations.get(name) !== registration) break
+            remaining--
+            const row = yield* store.get(cursor.runId).pipe(
+              Effect.catch((error) =>
+                error.code === "not_found_row" ? Effect.succeed(undefined) : error.code === "decode_failed"
+                  ? Effect.logWarning("engine-store: unreadable pending admission skipped", {
+                    runId: cursor.runId,
+                    flowName: name,
+                    error
+                  }).pipe(Effect.as(undefined))
+                  : Effect.die(error)
+              )
+            )
+            // Advance after successful reads or permanent row errors; transient failures retry this
+            // position, while a retained query cursor skips deleted rows safely.
+            cycle.after = cursor
+            if (row === undefined || row.status !== "pending" || (yield* coordinator.active).has(cursor.runId)) continue
+            if (dependencies.canExecute !== undefined && !(yield* dependencies.canExecute(row))) continue
+            if (registrations.get(name) !== registration || (yield* coordinator.active).has(cursor.runId)) continue
+            yield* coordinator.schedule(cursor.runId)
+          }
+          const last = pending.at(-1)
+          if (pending.length < requested || (last !== undefined && last.runId === cycle.through.runId)) {
+            pendingCycles.delete(name)
+          }
+        }
+      })
+
     /**
      * Reclaims hard-killed runs (issue #53). An owner that dies without
      * releasing (SIGKILL, OOM, power loss) leaves a `running` row with a
@@ -2295,6 +2358,11 @@ export const make = (
         yield* coordinator.wake(runId)
       }
     })
+    const resilientSweep = (sweep: Effect.Effect<void>, name: string) =>
+      sweep.pipe(
+        Effect.sandbox,
+        Effect.catchCause((cause) => Effect.logWarning(`engine-store: ${name} sweep failed; retrying next tick`, cause))
+      )
     yield* Effect.forkScoped(
       Effect.forever(
         Effect.sleep(Ownership.heartbeatInterval).pipe(
@@ -2305,15 +2373,9 @@ export const make = (
             // to pre-#27 behavior where cancel of parked runs is never
             // delivered. Mirror `armClock`'s hardening: expose the full cause,
             // log it, and keep ticking.
-            sweepCancelRequested.pipe(
-              Effect.andThen(sweepStaleRunning),
-              Effect.sandbox,
-              Effect.catchCause((cause) =>
-                Effect.logWarning(
-                  "engine-store: parked-run cancel sweep failed; retrying next tick",
-                  cause
-                )
-              )
+            resilientSweep(sweepCancelRequested, "parked-run cancel").pipe(
+              Effect.andThen(resilientSweep(sweepStaleRunning, "stale-running")),
+              Effect.andThen(resilientSweep(sweepPending(), "pending admission"))
             )
           )
         )
@@ -2391,9 +2453,10 @@ export const make = (
             capabilityCeilings:
               (yield* Flow.attenuateCapabilities(Flow.capabilityCeilings(flow.annotations))(CapabilitySet.current))
                 .groups,
+            onParentExit,
             ...(options.parent === undefined
               ? {}
-              : { parentExecutionId: options.parent.executionId, onParentExit }),
+              : { parentExecutionId: options.parent.executionId }),
             ...(flow.maxRounds === undefined ? {} : { maxRounds: flow.maxRounds })
           }
           const createdStateJson = yield* encodeState(state)
@@ -2477,8 +2540,7 @@ export const make = (
           if (options.parent !== undefined) {
             yield* inheritParentCancellation(
               options.parent.executionId,
-              options.executionId,
-              onParentExit
+              options.executionId
             )
             if (parentRecorded) {
               yield* emitDecision(options.executionId, {
@@ -2578,20 +2640,38 @@ export const make = (
         // hit, so no in-process gate, cross-owner arbitration, or withdrawal
         // protocol is needed here (issues #29/#40/#54/#55/#56) and the
         // mutual `coordinator.run` deadlock cannot form.
+        if (options.discard) {
+          // Keep durable admission and scheduling together across caller cancellation.
+          // The coordinator owns the drive in the engine scope, so a
+          // detached child outlives the caller's action and execution.
+          yield* Effect.uninterruptible(
+            ensureRun(flow, options).pipe(Effect.andThen(coordinator.schedule(options.executionId)))
+          )
+          return undefined as Discard extends true ? void : never
+        }
         yield* ensureRun(flow, options)
-        // Admission, a wake, or the follower's elapsed poll already scheduled
-        // this drive. Join it regardless of the waiting reason: starting a
-        // fresh drain here would claim and replay a still-suspended run again.
-        yield* (options.follow === true
-          ? coordinator.join(options.executionId)
-          : coordinator.run(options.executionId))
-        if (options.discard) return undefined as Discard extends true ? void : never
+        // Admission, handoff, or a wake normally scheduled this drive. A
+        // replacement host may instead find an admitted pending row with no
+        // drive, so schedule that row before joining. An idle suspended row
+        // stays passive until its actual wake or elapsed poll resumes it.
+        if (options.follow === true) {
+          yield* coordinator.scheduleIf(
+            options.executionId,
+            store.get(options.executionId).pipe(
+              Effect.orDie,
+              Effect.map((row) => row.status === "pending")
+            )
+          )
+          yield* coordinator.join(options.executionId)
+        } else {
+          yield* coordinator.run(options.executionId)
+        }
         // `ensureRun` created the row above, so a not-found here is a broken
         // store invariant, not a caller-recoverable state.
         // The trampoline supplies `round` and consumes each raw handoff itself.
         // A nested direct caller instead needs the child's current lineage row,
-        // including its own codec and cancellation status. `follow` only joins
-        // an already-scheduled drive; it does not select the result's scope.
+        // including its own codec and cancellation status. `follow` schedules an
+        // undriven pending row before joining; it does not select the result's scope.
         const observed = yield* Effect.orDie(readResult(
           flow,
           options.executionId,
@@ -2759,6 +2839,7 @@ export const make = (
           Effect.sync(() => {
             const registration = { flow, execute: handler }
             registrations.set(flow._tag, registration)
+            pendingCycles.delete(flow._tag)
             warnedUnregistered.clear()
             return registration
           }),
@@ -2766,6 +2847,7 @@ export const make = (
             Effect.sync(() => {
               if (registrations.get(flow._tag) === registration) {
                 registrations.delete(flow._tag)
+                pendingCycles.delete(flow._tag)
               }
             })
         ).pipe(Effect.asVoid)

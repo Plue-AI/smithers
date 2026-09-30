@@ -22,6 +22,7 @@ import * as ActionPersistence from "../src/internal/ActionPersistence.ts"
 import * as JournalRecords from "../src/internal/JournalRecords.ts"
 import * as RunDriver from "../src/internal/RunDriver.ts"
 import * as TestStores from "../src/test/TestStores.ts"
+import { executeAndDrain } from "./ExecuteAndDrain.ts"
 import { opaqueHandlerBody } from "./fixtures/OpaqueHandlerBody.ts"
 import { withCrypto } from "./Sha256.ts"
 
@@ -367,7 +368,7 @@ describe("RunDriver poll", () => {
         yield* store.create("other-flow", stateJson(OtherFlow._tag))
         yield* store.create("no-result", stateJson(EdgeFlow._tag))
         yield* driver.register(EdgeFlow, () => Effect.succeed("done"))
-        yield* driver.execute(EdgeFlow, { executionId: "settled", payload: {}, discard: true })
+        yield* executeAndDrain(driver, EdgeFlow, { executionId: "settled", payload: {}, discard: true })
         return {
           // An id with no run row at all is a typed not-found; `Option.none`
           // is reserved for a run the store knows and has not settled.
@@ -457,7 +458,7 @@ describe("RunDriver execute preconditions", () => {
     Effect.gen(function*() {
       const exit = yield* withCrypto(provideJournal(Effect.gen(function*() {
         const driver = yield* makeDriver()
-        return yield* Effect.exit(driver.execute(UnregisteredFlow, {
+        return yield* Effect.exit(executeAndDrain(driver, UnregisteredFlow, {
           executionId: "unregistered-execute",
           payload: {},
           discard: true
@@ -476,7 +477,7 @@ describe("RunDriver execute preconditions", () => {
         yield* store.create("shared-id", stateJson(OtherFlow._tag))
         const driver = yield* makeDriver()
         yield* driver.register(EdgeFlow, () => Effect.succeed("done"))
-        return yield* Effect.exit(driver.execute(EdgeFlow, {
+        return yield* Effect.exit(executeAndDrain(driver, EdgeFlow, {
           executionId: "shared-id",
           payload: {},
           discard: true
@@ -505,7 +506,7 @@ describe("RunDriver execute preconditions", () => {
         )
         const driver = yield* makeDriver()
         yield* driver.register(ObjectPayloadFlow, () => Effect.succeed("done"))
-        return yield* Effect.exit(driver.execute(ObjectPayloadFlow, {
+        return yield* Effect.exit(executeAndDrain(driver, ObjectPayloadFlow, {
           executionId: "payload-conflict",
           payload: { data: { value: "second" } },
           discard: true
@@ -533,7 +534,7 @@ describe("RunDriver execute preconditions", () => {
         })
         const driver = yield* makeDriver().pipe(Effect.provideService(RunStore.RunStore, broken))
         yield* driver.register(EdgeFlow, () => Effect.succeed("done"))
-        return yield* Effect.exit(driver.execute(EdgeFlow, {
+        return yield* Effect.exit(executeAndDrain(driver, EdgeFlow, {
           executionId: "create-broken",
           payload: {},
           discard: true
@@ -560,7 +561,7 @@ describe("RunDriver execute preconditions", () => {
         })
         const driver = yield* makeDriver().pipe(Effect.provideService(RunStore.RunStore, interrupting))
         yield* driver.register(EdgeFlow, () => Effect.succeed("done"))
-        return yield* Effect.exit(driver.execute(EdgeFlow, {
+        return yield* Effect.exit(executeAndDrain(driver, EdgeFlow, {
           executionId: "create-interrupted",
           payload: {},
           discard: true
@@ -650,7 +651,7 @@ describe("RunDriver requestResume", () => {
           yield* driver.register(EdgeFlow, () => Effect.succeed("done"))
           yield* suspend("waiting-parent")
           yield* engineState.park("waiting-parent", { reason }, owner)
-          yield* driver.execute(EdgeFlow, {
+          yield* executeAndDrain(driver, EdgeFlow, {
             executionId: "settling-child",
             payload: {},
             discard: true,
@@ -681,7 +682,7 @@ describe("RunDriver requestResume", () => {
         const driver = yield* recordingDriver(recorded)
         yield* driver.register(EdgeFlow, () => Effect.succeed("done"))
         yield* store.create("running-parent", stateJson(EdgeFlow._tag))
-        yield* driver.execute(EdgeFlow, {
+        yield* executeAndDrain(driver, EdgeFlow, {
           executionId: "running-child",
           payload: {},
           discard: true,
@@ -843,7 +844,7 @@ describe("RunDriver interruption settlement", () => {
               Effect.andThen(Effect.never)
             )
         )
-        const fiber = yield* driver.execute(EdgeFlow, {
+        const fiber = yield* executeAndDrain(driver, EdgeFlow, {
           executionId: "interrupted-release",
           payload: {},
           discard: true
@@ -977,7 +978,7 @@ describe("RunDriver parent-chain traversal", () => {
         yield* driver.register(EdgeFlow, () => Effect.succeed("child-ran"))
         // The parent execution has no persisted row at all: the walk ends
         // there rather than failing or reporting a cycle.
-        yield* driver.execute(EdgeFlow, {
+        yield* executeAndDrain(driver, EdgeFlow, {
           executionId: "orphan-child",
           payload: {},
           discard: true,
@@ -999,7 +1000,7 @@ describe("RunDriver parent-chain traversal", () => {
         })
         const driver = yield* makeDriver().pipe(Effect.provideService(RunStore.RunStore, broken))
         yield* driver.register(EdgeFlow, () => Effect.succeed("never"))
-        return yield* Effect.exit(driver.execute(EdgeFlow, {
+        return yield* Effect.exit(executeAndDrain(driver, EdgeFlow, {
           executionId: "cycle-read-broken",
           payload: {},
           discard: true,
@@ -1023,13 +1024,13 @@ describe("RunDriver registration lifecycle", () => {
           // must leave the flow unregistered.
           yield* driver.register(EdgeFlow, () => Effect.succeed("new"))
         }))
-        const afterRelease = yield* Effect.exit(driver.execute(EdgeFlow, {
+        const afterRelease = yield* Effect.exit(executeAndDrain(driver, EdgeFlow, {
           executionId: "registration-order",
           payload: {},
           discard: true
         }))
         yield* driver.register(EdgeFlow, () => Effect.succeed("re-registered"))
-        const afterReregister = yield* Effect.exit(driver.execute(EdgeFlow, {
+        const afterReregister = yield* Effect.exit(executeAndDrain(driver, EdgeFlow, {
           executionId: "registration-order-2",
           payload: {},
           discard: true
@@ -1062,7 +1063,7 @@ describe("RunDriver cancellation paths", () => {
           EdgeFlow,
           () => Deferred.succeed(running, undefined).pipe(Effect.andThen(Effect.never))
         )
-        const fiber = yield* driver.execute(EdgeFlow, {
+        const fiber = yield* executeAndDrain(driver, EdgeFlow, {
           executionId: "cancel-fence-lost",
           payload: {},
           discard: true
@@ -1194,7 +1195,7 @@ describe("RunDriver cancellation paths", () => {
         })
         yield* scheduleClockFor(state, "clocked-complete")
         yield* driver.register(EdgeFlow, () => Effect.succeed("done"))
-        yield* driver.execute(EdgeFlow, { executionId: "clocked-complete", payload: {}, discard: true })
+        yield* executeAndDrain(driver, EdgeFlow, { executionId: "clocked-complete", payload: {}, discard: true })
         return yield* clockOf(state, "clocked-complete")
       })))
 
@@ -1213,7 +1214,7 @@ describe("RunDriver cancellation paths", () => {
           EdgeFlow,
           () => Deferred.succeed(running, undefined).pipe(Effect.andThen(Effect.never))
         )
-        const fiber = yield* driver.execute(EdgeFlow, {
+        const fiber = yield* executeAndDrain(driver, EdgeFlow, {
           executionId: "clocked-cancel",
           payload: {},
           discard: true

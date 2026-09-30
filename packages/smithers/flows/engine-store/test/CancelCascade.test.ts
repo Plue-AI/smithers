@@ -1,4 +1,5 @@
 import * as TestDatabase from "@smthrs/database/test/TestDatabase"
+import { executeAndDrain } from "./ExecuteAndDrain.ts"
 /**
  * A durable cancellation must reach the linked children of the run it
  * cancelled, and must release the flow scope a parked run retained.
@@ -71,7 +72,7 @@ const provide = <A, E, R>(
   )
 
 const state = (executionId: string) =>
-  JSON.stringify({ version: 1, flowName: CascadeFlow._tag, payload: {}, executionId })
+  JSON.stringify({ capabilityCeilings: [[]], version: 1, flowName: CascadeFlow._tag, payload: {}, executionId })
 
 /**
  * Materializes a linked run family in durable state only: rows plus
@@ -111,7 +112,7 @@ describe("cancellation cascades to linked children", () => {
 
         const started = yield* Latch.make(false)
         yield* driver.register(CascadeFlow, () => Latch.open(started).pipe(Effect.andThen(Effect.never)))
-        const fiber = yield* driver.execute(CascadeFlow, {
+        const fiber = yield* executeAndDrain(driver, CascadeFlow, {
           executionId: "cascade-observed",
           payload: {},
           discard: true
@@ -218,6 +219,7 @@ describe("cancellation cascades to linked children", () => {
         yield* store.create(
           "cascade-complete-detached",
           JSON.stringify({
+            capabilityCeilings: [[]],
             version: 1,
             flowName: CascadeFlow._tag,
             payload: {},
@@ -228,7 +230,7 @@ describe("cancellation cascades to linked children", () => {
         yield* engineState.recordRunParent("cascade-complete-detached", "cascade-complete")
 
         yield* driver.register(CascadeFlow, () => Effect.succeed("done"))
-        yield* driver.execute(CascadeFlow, {
+        yield* executeAndDrain(driver, CascadeFlow, {
           executionId: "cascade-complete",
           payload: {},
           discard: true
@@ -289,7 +291,7 @@ describe("cancelling a parked flow closes its retained scope", () => {
             return yield* Flow.suspend(instance)
           }) as never
       )
-      yield* driver.execute(CascadeFlow, { executionId, payload: {}, discard: true })
+      yield* executeAndDrain(driver, CascadeFlow, { executionId, payload: {}, discard: true })
       const parked = yield* store.get(executionId)
       const retainedWhileParked = yield* driver.retainedRuns
       const finalizedWhileParked = [...finalized]
@@ -357,7 +359,7 @@ describe("cancelling a parked flow closes its retained scope", () => {
               return yield* Flow.suspend(instance)
             }) as never
         )
-        yield* driver.execute(CascadeFlow, {
+        yield* executeAndDrain(driver, CascadeFlow, {
           executionId: "parked-defective-finalizer",
           payload: {},
           discard: true
@@ -425,7 +427,7 @@ describe("cancelling a parked flow closes its retained scope", () => {
               return "done"
             }) as never
         )
-        yield* driver.execute(CascadeFlow, { executionId: "resume-supersede", payload: {}, discard: true })
+        yield* executeAndDrain(driver, CascadeFlow, { executionId: "resume-supersede", payload: {}, discard: true })
         const retainedWhileParked = [...(yield* driver.retainedRuns)]
         yield* driver.resume(CascadeFlow, "resume-supersede")
         return {
@@ -459,7 +461,7 @@ describe("cancelling a parked flow closes its retained scope", () => {
               return yield* Flow.suspend(instance)
             }) as never
         )
-        yield* driver.execute(CascadeFlow, { executionId: "shutdown-park", payload: {}, discard: true })
+        yield* executeAndDrain(driver, CascadeFlow, { executionId: "shutdown-park", payload: {}, discard: true })
         expect([...(yield* driver.retainedRuns)]).toEqual(["shutdown-park"])
       })))
 

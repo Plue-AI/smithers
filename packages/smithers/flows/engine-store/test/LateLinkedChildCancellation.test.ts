@@ -1,3 +1,4 @@
+import { executeAndDrain } from "./ExecuteAndDrain.ts"
 /**
  * Closes the late-linked-child cancellation race (issue #83).
  *
@@ -90,7 +91,7 @@ const makeDriver = (nonce: string) =>
 
 const parentInstance = (executionId: string) => ({ executionId } as FlowRuntime.FlowInstance["Service"])
 
-const stateJson = JSON.stringify({ version: 1, flowName: LateFlow._tag, payload: {} })
+const stateJson = JSON.stringify({ capabilityCeilings: [[]], version: 1, flowName: LateFlow._tag, payload: {} })
 
 /** Admits a child under `parentId` and drives it, the way a spawn does. */
 const admit = (
@@ -98,7 +99,7 @@ const admit = (
   executionId: string,
   parentId: string
 ) =>
-  driver.execute(LateFlow, {
+  executeAndDrain(driver, LateFlow, {
     executionId,
     payload: {},
     discard: true,
@@ -175,7 +176,7 @@ describe("cancellation that serializes before a child's admission", () => {
           LateFlow,
           () => Latch.open(started).pipe(Effect.andThen(Effect.never))
         )
-        const parentFiber = yield* canceller.execute(LateFlow, {
+        const parentFiber = yield* executeAndDrain(canceller, LateFlow, {
           executionId: "terminal-parent",
           payload: {},
           discard: true
@@ -493,7 +494,7 @@ describe("a parent that was never cancelled", () => {
           () => Effect.sync(() => (executed.push("body"), "ran"))
         )
 
-        yield* driver.execute(LateFlow, {
+        yield* executeAndDrain(driver, LateFlow, {
           executionId: "normal-parent",
           payload: {},
           discard: true

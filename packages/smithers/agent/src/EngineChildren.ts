@@ -378,10 +378,11 @@ export const make = (
         // this child survives its parent's completion instead of being
         // cancelled with it.
         //
-        // Forked, because `execute` returns only once the child has settled or
-        // parked, and a spawn that waited for that would leave `await` with
-        // nothing to do. The fork is not what makes the child durable — the
-        // run row is — so the id is only answered once the row exists.
+        // Fork admission so the start budget and cancellation cleanup can
+        // observe a submission that has not returned yet. Discarded execute
+        // admits and schedules the child without waiting for its outcome.
+        // The durable run row, rather than the fiber, owns the child's lifetime;
+        // answer its id only after that row exists.
         // Acquire the fiber with an atomic cleanup registration. It belongs
         // to this start attempt until admission succeeds; every failed exit,
         // including defects and interruption, interrupts and joins it.

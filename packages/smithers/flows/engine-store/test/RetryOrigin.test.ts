@@ -1,3 +1,4 @@
+import { executeUntilParked } from "./ExecuteUntilParked.ts"
 import { opaqueHandlerBody } from "./fixtures/OpaqueHandlerBody.ts"
 /**
  * Issue #45: the schedule-to-close (`expirationMs`) budget is measured from
@@ -99,7 +100,7 @@ describe("durable schedule-to-close origin", () => {
           yield* Effect.scoped(Effect.gen(function*() {
             const engine = yield* makeEngine
             yield* engine.register(OriginFlow, () => flaky)
-            yield* engine.execute(OriginFlow, {
+            yield* executeUntilParked(engine, OriginFlow, {
               executionId: "retry-origin",
               payload: {},
               discard: true
@@ -124,11 +125,11 @@ describe("durable schedule-to-close origin", () => {
             const engine = yield* makeEngine
             yield* engine.register(OriginFlow, () =>
               flaky)
-            const fiber = yield* engine.execute(OriginFlow, {
+            const fiber = yield* executeUntilParked(engine, OriginFlow, {
               executionId: "retry-origin",
               payload: {},
               discard: true
-            }).pipe(Effect.forkChild({ startImmediately: true }))
+            }, ["failed"]).pipe(Effect.forkChild({ startImmediately: true }))
             yield* TestDatabase.until(
               TestClock.adjust("100 millis").pipe(Effect.map(() => fiber.pollUnsafe() !== undefined))
             )
@@ -200,7 +201,7 @@ describe("durable schedule-to-close origin", () => {
           yield* Effect.scoped(Effect.gen(function*() {
             const engine = yield* makeEngine
             yield* engine.register(OriginFlow, () => flaky)
-            yield* engine.execute(OriginFlow, {
+            yield* executeUntilParked(engine, OriginFlow, {
               executionId: "retry-origin-pruned",
               payload: {},
               discard: true
@@ -226,11 +227,11 @@ describe("durable schedule-to-close origin", () => {
           yield* Effect.scoped(Effect.gen(function*() {
             const engine = yield* makeEngine
             yield* engine.register(OriginFlow, () => flaky)
-            const fiber = yield* engine.execute(OriginFlow, {
+            const fiber = yield* executeUntilParked(engine, OriginFlow, {
               executionId: "retry-origin-pruned",
               payload: {},
               discard: true
-            }).pipe(Effect.forkChild({ startImmediately: true }))
+            }, ["failed"]).pipe(Effect.forkChild({ startImmediately: true }))
             yield* TestDatabase.until(
               TestClock.adjust("100 millis").pipe(Effect.map(() => fiber.pollUnsafe() !== undefined))
             )

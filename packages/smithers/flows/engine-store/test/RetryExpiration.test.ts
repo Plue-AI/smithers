@@ -1,3 +1,4 @@
+import { executeUntilParked } from "./ExecuteUntilParked.ts"
 import { opaqueHandlerBody } from "./fixtures/OpaqueHandlerBody.ts"
 /**
  * Pins issue #45: a `RetryPolicy.expirationMs` (schedule-to-close) bound must
@@ -136,7 +137,7 @@ describe("expirationMs survives a restart mid-retry (issue #45)", () => {
           const firstScope = yield* Scope.make()
           const first = yield* makeEngine.pipe(Scope.provide(firstScope))
           yield* first.register(flow, handler)
-          const driveFiber = yield* first.execute(flow, {
+          const driveFiber = yield* executeUntilParked(first, flow, {
             executionId: "retry-expiration-run",
             payload: {},
             discard: true
@@ -170,11 +171,11 @@ describe("expirationMs survives a restart mid-retry (issue #45)", () => {
           // of re-dispatching the body with a reset origin.
           const restarted = yield* makeEngine
           yield* restarted.register(flow, handler)
-          const resumeFiber = yield* restarted.execute(flow, {
+          const resumeFiber = yield* executeUntilParked(restarted, flow, {
             executionId: "retry-expiration-run",
             payload: {},
             discard: true
-          }).pipe(Effect.forkChild({ startImmediately: true }))
+          }, ["failed"]).pipe(Effect.forkChild({ startImmediately: true }))
           let row = yield* store.get("retry-expiration-run")
           for (let i = 0; i < 2000 && row.status !== "failed"; i++) {
             yield* Effect.promise(() => new Promise<void>((resolve) => setTimeout(resolve, 2)))

@@ -1,4 +1,5 @@
 import * as TestDatabase from "@smthrs/database/test/TestDatabase"
+import { executeAndDrain } from "./ExecuteAndDrain.ts"
 import { opaqueHandlerBody } from "./fixtures/OpaqueHandlerBody.ts"
 /**
  * Pins issue #62: the #39 reclaim wakes released rows through `drive()`, but
@@ -78,7 +79,7 @@ const releaseMidAction = (executionId: string) =>
     const driver = yield* makeDriver("owner-1").pipe(Scope.provide(driverScope))
     const started = yield* Latch.make(false)
     yield* driver.register(TestFlow, () => Latch.open(started).pipe(Effect.andThen(Effect.never)))
-    yield* driver.execute(TestFlow, {
+    yield* executeAndDrain(driver, TestFlow, {
       executionId,
       payload: {},
       discard: true
@@ -181,6 +182,7 @@ describe("a parked run of an unregistered flow still cancels (B-01)", () => {
           yield* store.create(
             "b01-child",
             JSON.stringify({
+              capabilityCeilings: [[]],
               version: 1,
               flowName: TestFlow._tag,
               payload: {},
@@ -254,11 +256,7 @@ describe("a parked run of an unregistered flow still cancels (B-01)", () => {
           // must leave the run to the worker that won it.
           yield* store.create(
             "b01-contended",
-            JSON.stringify({
-              version: 1,
-              flowName: TestFlow._tag,
-              payload: {}
-            })
+            JSON.stringify({ capabilityCeilings: [[]], version: 1, flowName: TestFlow._tag, payload: {} })
           )
           yield* store.claimAndOwn(
             "b01-contended",
@@ -342,7 +340,7 @@ describe("a parked run of an unregistered flow still cancels (B-01)", () => {
           // No release, no waiting row, so only the stale-running sweep sees it.
           yield* store.create(
             "b01-hardkilled",
-            JSON.stringify({ version: 1, flowName: TestFlow._tag, payload: {} })
+            JSON.stringify({ capabilityCeilings: [[]], version: 1, flowName: TestFlow._tag, payload: {} })
           )
           const pending = yield* store.get("b01-hardkilled")
           const expected = { status: pending.status, owner: pending.owner, heartbeatAtMs: pending.heartbeatAtMs }

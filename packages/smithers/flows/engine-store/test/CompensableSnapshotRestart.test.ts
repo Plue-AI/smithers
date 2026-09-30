@@ -1,3 +1,4 @@
+import { executeUntilParked } from "./ExecuteUntilParked.ts"
 /**
  * Issue #1805: the compensable restore-before-retry handle is durable. The
  * engine's `SnapshotBoundary` handle taken before attempt 1 is persisted in
@@ -99,7 +100,7 @@ const run = (options: {
     yield* Effect.scoped(Effect.gen(function*() {
       const engine = yield* makeEngine
       yield* engine.register(RestartFlow, () => action)
-      yield* engine.execute(RestartFlow, {
+      yield* executeUntilParked(engine, RestartFlow, {
         executionId: options.executionId,
         payload: {},
         discard: true
@@ -122,11 +123,11 @@ const run = (options: {
     yield* Effect.scoped(Effect.gen(function*() {
       const engine = yield* makeEngine
       yield* engine.register(RestartFlow, () => action)
-      const fiber = yield* engine.execute(RestartFlow, {
+      const fiber = yield* executeUntilParked(engine, RestartFlow, {
         executionId: options.executionId,
         payload: {},
         discard: true
-      }).pipe(Effect.forkChild({ startImmediately: true }))
+      }, ["completed", "failed"]).pipe(Effect.forkChild({ startImmediately: true }))
       yield* TestDatabase.until(
         TestClock.adjust("1 second").pipe(Effect.map(() => fiber.pollUnsafe() !== undefined))
       )

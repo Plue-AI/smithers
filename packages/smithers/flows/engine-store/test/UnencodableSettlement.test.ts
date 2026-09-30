@@ -1,3 +1,4 @@
+import { executeUntilParked } from "./ExecuteUntilParked.ts"
 import { opaqueHandlerBody } from "./fixtures/OpaqueHandlerBody.ts"
 /**
  * What the driver writes for a settlement the flow's own codec rejects.
@@ -108,7 +109,7 @@ describe("a run whose failure the flow's own codec cannot encode", () => {
                 new SeatRejected({ code: "quota_exceeded", message: "You have no credits remaining" })
               )
           )
-          yield* engine.execute(UnencodableFlow, {
+          yield* executeUntilParked(engine, UnencodableFlow, {
             executionId: "unencodable-settlement",
             payload: {},
             discard: true
