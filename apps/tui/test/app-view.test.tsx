@@ -404,6 +404,50 @@ test("a value box is as wide as its text, between its bounds", () => {
   expect(AppView.boxWidth("x".repeat(60), 8, 40)).toBe(40)
   expect(AppView.boxWidth("x", 8, 0)).toBe(1)
 })
+test.each([false, true])(
+  "question paging compact=%s preserves choices and reverses to its first line",
+  async (compact) => {
+    const changes: Array<[string, string]> = []
+    const frame = await draw(
+      <AppView.FlowFormView
+        form={{
+          ...form,
+          ask: {
+            question: Array.from({ length: 18 }, (_, index) => `Question line ${index + 1}`).join("\n"),
+            options: ["sum", "plus"],
+            choice: 0,
+            armedAt: 0
+          }
+        }}
+        height={12}
+        width={80}
+        compact={compact}
+        onField={(name, value) => changes.push([name, value])}
+      />
+    )
+    expect(frame).toContain("◆ Question line 1")
+    expect(frame).not.toContain("Question line 18")
+    for (let page = 0; page < 5; page++) {
+      await act(async () => {
+        setup!.renderer.stdin.emit("data", Buffer.from("\x1b[6~"))
+      })
+      await setup!.renderOnce()
+    }
+    expect(setup!.captureCharFrame()).toContain("Question line 18")
+    expect(setup!.captureCharFrame()).toContain("> sum")
+    expect(setup!.captureCharFrame()).toContain("  plus")
+    expect(setup!.captureCharFrame()).toContain("  other…")
+    for (let page = 0; page < 5; page++) {
+      await act(async () => {
+        setup!.renderer.stdin.emit("data", Buffer.from("\x1b[5~"))
+      })
+      await setup!.renderOnce()
+    }
+    expect(setup!.captureCharFrame()).toContain("◆ Question line 1")
+    expect(setup!.captureCharFrame()).not.toContain("Question line 18")
+    expect(changes).toEqual([])
+  }
+)
 
 test.each([
   { outdated: false, irrelevant: false, context: "" },

@@ -357,7 +357,7 @@ test("bracketed paste selects other and preserves the complete answer instead of
   expect(await answered()).toMatchObject({ answer: "total λ and 2" })
 })
 
-test("an 18-line question keeps the focused answer and footer visible at 80 by 24", async () => {
+test("an 18-line question scrolls by keyboard while keeping the answer and footer visible at 80 by 24", async () => {
   await act(async () => {
     setup!.renderer.resize(80, 24)
     await setImmediate()
@@ -376,6 +376,28 @@ test("an 18-line question keeps the focused answer and footer visible at 80 by 2
   expect(frame()).toContain("  plus")
   expect(frame()).toContain("  other…")
   expect(frame()).toContain("enter Answer  esc Back")
+  expect(frame()).not.toContain("Question line 18")
+  for (let page = 0; page < 3; page++) {
+    await act(async () => {
+      setup!.renderer.stdin.emit("data", Buffer.from("\x1b[6~"))
+      await setImmediate()
+    })
+    await render()
+  }
+  expect(frame()).toContain("Question line 18")
+  expect(frame()).toContain("> sum")
+  expect(frame()).toContain("  plus")
+  expect(frame()).toContain("  other…")
+  expect(frame()).toContain("enter Answer  esc Back")
+  for (let page = 0; page < 3; page++) {
+    await act(async () => {
+      setup!.renderer.stdin.emit("data", Buffer.from("\x1b[5~"))
+      await setImmediate()
+    })
+    await render()
+  }
+  expect(frame()).toContain("◆ Question line 1")
+  expect(frame()).not.toContain("Question line 18")
   await key("ARROW_DOWN")
   await key("ARROW_DOWN")
   await type("total")

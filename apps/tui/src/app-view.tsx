@@ -1,13 +1,13 @@
 /**
  * The app's own panels below and over the transcript: a flow run's input
  * form, the completion menu, the dialog, and the status line. They draw
- * what they are given; state and keys stay with the app.
+ * what they are given.
  */
-import { TextBuffer, TextBufferView } from "@opentui/core"
-import { flushSync, usePaste, useRenderer } from "@opentui/react"
+import { type ScrollBoxRenderable, TextBuffer, TextBufferView } from "@opentui/core"
+import { flushSync, useKeyboard, usePaste, useRenderer } from "@opentui/react"
 import { usd } from "@smthrs/gateway/Diagnosis"
 import { basename } from "node:path"
-import type { ReactNode } from "react"
+import { type ReactNode, useRef } from "react"
 import stringWidth from "string-width"
 import type * as Complete from "./complete.ts"
 import * as Editor from "./editor.ts"
@@ -186,8 +186,14 @@ function AskFormView(props: {
   readonly onField: (name: string, text: string) => void
 }) {
   const { ask } = props
+  const question = useRef<ScrollBoxRenderable>(null)
   const lines = Dispatch.choices(ask)
   const typing = Dispatch.typed(ask)
+  useKeyboard((key) => {
+    if (key.name !== "pageup" && key.name !== "pagedown") return
+    key.preventDefault()
+    question.current?.scrollBy(key.name === "pageup" ? -0.75 : 0.75, "viewport")
+  })
   usePaste((event) => {
     if (typing) return
     event.preventDefault()
@@ -234,6 +240,7 @@ function AskFormView(props: {
         backgroundColor={color.element}
       >
         <scrollbox
+          ref={question}
           scrollX={false}
           style={{
             height: Math.min(questionHeight, questionRows),
