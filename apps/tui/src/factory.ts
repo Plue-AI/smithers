@@ -94,7 +94,7 @@ const failed = (error: unknown): Filing & { readonly ok: false } => ({
 })
 
 /** `12` or `#12`: the issue a factory command names. */
-const issueOf = (argument: string): number | undefined => {
+export const issueOf = (argument: string): number | undefined => {
   const match = /^#?(\d{1,15})$/.exec(argument.trim())
   const number = match === null ? 0 : Number(match[1])
   return number > 0 ? number : undefined
@@ -111,14 +111,15 @@ const issueAct = async (
   issue: number,
   allowed: (item: MythicalItem) => boolean,
   send: (item: MythicalItem, owner: string, name: string) => readonly [path: string, body: unknown],
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  presentFailure?: (error: unknown) => string
 ): Promise<Filing> => {
   const [owner, name] = repo.split("/") as [string, string]
   let stack: MythicalStack
   try {
     stack = await load(cloud.get, repo, signal)
   } catch (error) {
-    return failed(error)
+    return { ...failed(error), ...(presentFailure === undefined ? {} : { detail: presentFailure(error) }) }
   }
   const item = stack.items.find((candidate) => candidate.issue?.number === issue)
   if (item === undefined) return { ok: false, detail: `#${issue} is not in the factory`, settled: true }
@@ -127,7 +128,7 @@ const issueAct = async (
   try {
     return { ok: true, item: MythicalItemSchema.parse(await cloud.post(path, body, signal)) }
   } catch (error) {
-    return failed(error)
+    return { ...failed(error), ...(presentFailure === undefined ? {} : { detail: presentFailure(error) }) }
   }
 }
 
@@ -141,9 +142,18 @@ export const retry = (
   cloud: Pick<CloudSession.Cloud, "get" | "post">,
   repo: Repository,
   issue: number,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  presentFailure?: (error: unknown) => string
 ): Promise<Filing> =>
-  issueAct(cloud, repo, issue, retryable, (item, owner, name) => [mythicalRoute("retry", owner, name, item.id), {}], signal)
+  issueAct(
+    cloud,
+    repo,
+    issue,
+    retryable,
+    (item, owner, name) => [mythicalRoute("retry", owner, name, item.id), {}],
+    signal,
+    presentFailure
+  )
 
 /**
  * Lands a proposed TODO with `POST …/mythical/items/{id}/land`, the route the
@@ -156,12 +166,21 @@ export const land = (
   cloud: Pick<CloudSession.Cloud, "get" | "post">,
   repo: Repository,
   issue: number,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  presentFailure?: (error: unknown) => string
 ): Promise<Filing> =>
-  issueAct(cloud, repo, issue, landable, (item, owner, name) => [
-    mythicalRoute("land", owner, name, item.id),
-    { head: item.pullRequest?.head }
-  ], signal)
+  issueAct(
+    cloud,
+    repo,
+    issue,
+    landable,
+    (item, owner, name) => [
+      mythicalRoute("land", owner, name, item.id),
+      { head: item.pullRequest?.head }
+    ],
+    signal,
+    presentFailure
+  )
 
 /** One status line. */
 export interface Line {
@@ -175,29 +194,48 @@ export interface Line {
  */
 const issueCommand = (
   words: { readonly verb: string; readonly requested: string; readonly not: string },
-  act: (cloud: Pick<CloudSession.Cloud, "get" | "post">, repo: Repository, issue: number) => Promise<Filing>
+  act: (
+    cloud: Pick<CloudSession.Cloud, "get" | "post">,
+    repo: Repository,
+    issue: number,
+    signal?: AbortSignal,
+    presentFailure?: (error: unknown) => string
+  ) => Promise<Filing>
 ) =>
 (
   argument: string,
   repo: Repository | undefined,
-  signIn: () => Promise<Pick<CloudSession.Cloud, "get" | "post"> | undefined>
+  signIn: () => Promise<Pick<CloudSession.Cloud, "get" | "post"> | undefined>,
+  persist?: (requested: Line) => void,
+  presentFailure?: (error: unknown) => string
 ): { readonly now: Line; readonly settled?: Promise<Line> } => {
   const issue = issueOf(argument)
   if (issue === undefined) return { now: { text: `Usage: /${words.verb} <issue>`, tone: "warning" } }
   if (repo === undefined) return { now: { text: "No repository for this directory", tone: "warning" } }
+  const now = { text: `${words.requested} #${issue} requested` }
+  try {
+    persist?.(now)
+  } catch (error) {
+    return {
+      now: {
+        text: `${words.requested} #${issue} not requested: ${presentFailure?.(error) ?? failed(error).detail}`,
+        tone: "warning"
+      }
+    }
+  }
   const settled = (async (): Promise<Line> => {
     try {
       const cloud = await signIn()
       if (cloud === undefined) return { text: `Sign in to ${words.verb}: smthrs auth login`, tone: "warning" }
-      const answer = await act(cloud, repo, issue)
+      const answer = await act(cloud, repo, issue, undefined, presentFailure)
       return answer.ok
         ? { text: `#${issue} ${itemStateLabel(answer.item)}` }
         : { text: `#${issue} ${words.not}: ${answer.detail}`, tone: "warning" }
     } catch (error) {
-      return { text: `#${issue} ${words.not}: ${failed(error).detail}`, tone: "warning" }
+      return { text: `#${issue} ${words.not}: ${presentFailure?.(error) ?? failed(error).detail}`, tone: "warning" }
     }
   })()
-  return { now: { text: `${words.requested} #${issue} requested` }, settled }
+  return { now, settled }
 }
 
 /** `/retry <issue>`. */

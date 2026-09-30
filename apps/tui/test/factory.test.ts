@@ -340,6 +340,76 @@ it("shows a refused retry as a typed failure, and never posts for an issue that 
   expect(received.filter((each) => each.method === "POST")).toHaveLength(2)
 })
 
+it("persists a retry request before authentication or lookup and refuses a failed durable write", async () => {
+  const ordering: string[] = []
+  const request = Factory.retryCommand("#2431", "o/r", async () => {
+    ordering.push("authenticate")
+    return undefined
+  }, (line) => {
+    expect(line).toEqual({ text: "Retry #2431 requested" })
+    ordering.push("persist")
+  })
+  expect(ordering).toEqual(["persist", "authenticate"])
+  expect(await request.settled).toEqual({ text: "Sign in to retry: smthrs auth login", tone: "warning" })
+  const refused = Factory.retryCommand("#2431", "o/r", async () => {
+    ordering.push("must not authenticate")
+    return undefined
+  }, () => {
+    throw new Error("disk full")
+  })
+  expect(refused.settled).toBeUndefined()
+  expect(refused.now).toEqual({ text: "Retry #2431 not requested: disk full", tone: "warning" })
+  expect(ordering).toEqual(["persist", "authenticate"])
+})
+
+it("the visible retry door presents lookup, POST, authentication and persistence failures without changing domain refusals", async () => {
+  const raw: unknown[] = []
+  const present = (error: unknown) => {
+    raw.push(error)
+    return "The command could not run."
+  }
+  const lookup = await cloudAt(() => ({ status: 503, body: {} }))
+  expect(await Factory.retryCommand("#2431", "o/r", signIn(lookup), undefined, present).settled).toEqual({
+    text: "#2431 not retried: The command could not run.",
+    tone: "warning"
+  })
+  const post = await cloudAt((method) => method === "GET" ? { status: 200, body: served } : { status: 403, body: {} })
+  expect(await Factory.retryCommand("#2431", "o/r", signIn(post), undefined, present).settled).toEqual({
+    text: "#2431 not retried: The command could not run.",
+    tone: "warning"
+  })
+  expect(raw.map((error) => (error as { fault: string }).fault)).toEqual(["infra", "user"])
+  expect(raw.map((error) => String(error))).toEqual([
+    expect.stringContaining("HTTP 503"),
+    expect.stringContaining("HTTP 403")
+  ])
+  const refused = await Factory.retryCommand("#2412", "o/r", signIn(post), undefined, present).settled
+  expect(refused).toEqual({ text: "#2412 not retried: #2412 is implementing", tone: "warning" })
+  expect(raw).toHaveLength(2)
+  const auth = new Error("private keyring path")
+  expect(
+    await Factory.retryCommand(
+      "#2431",
+      "o/r",
+      async () => {
+        throw auth
+      },
+      undefined,
+      present
+    ).settled
+  ).toEqual({
+    text: "#2431 not retried: The command could not run.",
+    tone: "warning"
+  })
+  const disk = new Error("private disk path")
+  expect(Factory.retryCommand("#2431", "o/r", signIn(post), () => {
+    throw disk
+  }, present)).toEqual({
+    now: { text: "Retry #2431 not requested: The command could not run.", tone: "warning" }
+  })
+  expect(raw.slice(2)).toEqual([auth, disk])
+})
+
 it("settles an unreachable Cloud as a failure that may not have been sent", async () => {
   const origin = await cloudAt(() => ({ status: 200, body: served }))
   servers.splice(0).forEach((close) => close())

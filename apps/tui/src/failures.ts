@@ -11,6 +11,7 @@
  * the only place those become words for a person.
  */
 import type * as Permission from "@smthrs/capability/Permission"
+import type { Refused as CliRefused } from "@smthrs/cli/CliError"
 import type * as Cell from "@smthrs/harness/Cell"
 import * as Evaluator from "@smthrs/model/Evaluator"
 import type { PlueFault } from "@smthrs/rpc/PlueFailureCodes"
@@ -32,6 +33,7 @@ import type { AgentDepthExceeded } from "./workspace.ts"
 
 /** Every tagged failure the TUI presents. */
 export type Known =
+  | CliRefused
   | AgentError
   | AgentDepthExceeded
   | Refusal
@@ -188,6 +190,7 @@ const search: Readonly<Record<SearchFailed["reason"], UserFailureCopy>> = {
 }
 
 export const registry: UserFailureRegistry<Known> = {
+  "/cli/Refused": (failure) => copy(failure.fault, unknownSentence.command),
   "@smthrs/capability/GrantStoreError": (failure) => grant[failure.code],
   AgentError: agent,
   AgentDepthExceeded: copy("user", "Workers can delegate three levels deep."),

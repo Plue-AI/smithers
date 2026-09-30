@@ -29,7 +29,7 @@ describe("unknown commands", () => {
     expect(Editor.unknown(typed)).toBe(sentence)
   })
 
-  it.each(["hotkeys", "tabs", "stop", "retry", "ui", "x", "ab", "not-a-command"])(
+  it.each(["hotkeys", "tabs", "stop", "ui", "x", "ab", "not-a-command"])(
     "suggests nothing when no listed command is close to /%s",
     (typed) => {
       expect(Editor.nearest(typed)).toBeUndefined()
@@ -46,12 +46,17 @@ describe("unknown commands", () => {
   it("knows the listed commands and the unlisted wrapped workers and alias, and nothing removed", () => {
     for (const command of Editor.commands) expect(Editor.known(command.name)).toBe(true)
     for (const name of ["claude", "codex", "exit"]) expect(Editor.known(name)).toBe(true)
-    for (const name of ["hotkeys", "tabs", "retry", "stop", "ui", "flwo", ""]) expect(Editor.known(name)).toBe(false)
+    for (const name of ["hotkeys", "tabs", "stop", "ui", "flwo", ""]) expect(Editor.known(name)).toBe(false)
+    expect(Editor.commands.find((command) => command.name === "retry")).toEqual({
+      name: "retry",
+      args: "#<issue>",
+      description: "Retry a factory issue"
+    })
   })
 
   it("no longer lists the removed commands", () => {
     const names = Editor.commands.map((command) => command.name)
-    for (const removed of ["hotkeys", "tabs", "claude", "codex", "retry", "stop", "ui"]) {
+    for (const removed of ["hotkeys", "tabs", "claude", "codex", "stop", "ui"]) {
       expect(names).not.toContain(removed)
     }
   })

@@ -1,0 +1,85 @@
+{
+  "issue": 3188,
+  "base": "fdd84762d7d6428355d3a6dc8c88c9c3160fa8a9",
+  "manifestSha256": "ad2e43b755dabbe1b1ca74d86b70f8b02e543ff1c6d4c52384cfbd2cb5a0c2b9",
+  "archiveSha256": "d2f9c5d02441de1963581e8a27a91267f3bca4dd6e06fdcb9f4c61c751562292",
+  "sources": {
+    "apps/tui/README.md": "0d6f1820cca86be23761e8adc279664e0ba75c42d8234f38686a9dfd163c9dd5",
+    "apps/tui/src/app.tsx": "d61874b9c434db0c5be309957eb287db9f6a81a4e9d42022d65bc9889ea1ca7d",
+    "apps/tui/src/editor.ts": "d1e88e2f9b81a90643d31830c24637d83b6ce7ea0c486d351ec82ce6db5e30af",
+    "apps/tui/src/factory.ts": "fdc1cc96663876d1cc7c5a0d7bdf40495f85a8d0c52da48fcb87151fc5ed6aa5",
+    "apps/tui/src/failures.ts": "3c6d9eb68b29fcc3ebfc59311b777553dba334eec603712aa69577a6f927d506",
+    "apps/tui/test/composer.test.ts": "700d404cbcf3010f33f3bf5c068f2fca61f7645438cd288547b6dcd1fa9e9b60",
+    "apps/tui/test/factory.test.ts": "c6fd655f7d1033ec716173dfb28adb860aef059a7f3d3c4061021c5ff6707ed7",
+    "apps/tui/test/failures.test.ts": "dbe6e028c31425d5ab87a42dc195ebb3f97db1e9a24adff2340462c07869852e",
+    "apps/tui/e2e/factory-retry.test.ts": "a67d4f415d7b5349d2d45a81b7ca752263b1943041f37d33866892d060d9361b"
+  },
+  "inputs": {
+    "apps/tui/src/session.ts": "1521decdd5f46339737387c5d73a13d476d295f28fc2f143eabaa64d0d8d03a6",
+    "apps/tui/src/toasts.ts": "88c15dbdb94f9ee9cf78fc66491862013e946322328cce036687131c7afcbd47",
+    "apps/tui/src/log.ts": "3beb258a34a8f509e62fa58c264da13699ba56b3d6c4f8b10648e4d5f094a150",
+    "apps/tui/src/main.tsx": "c25cffc96fb2c0e25b75a42cce72c8ad002cd2ffb0129d6fb29c0c2b835bee80",
+    "apps/tui/src/run.tsx": "d58440e604ff8b74deef2b8228915347d765e2977f0c39c174e657afbf467fcf",
+    "apps/tui/src/replay.ts": "07290b8c2584f86513c150058674ffec9a0f79e5673d79b2fca84442017a6906",
+    "apps/tui/src/host.ts": "b4afd9343b5e687bbfe521b66a02b0ea69c0d314d3ca56e5863a41d9673090ae",
+    "apps/tui/e2e/tmux.ts": "68111e02b754efde3267ed702936f8e703861697ace4ed449d7cb110c6af1d2b",
+    "apps/tui/e2e/command-routes.test.ts": "4996510068617d05883a0e96c215b427283b4f00dd378989595b4ebff4c59ca7",
+    "packages/rpc/src/Mythical.ts": "4f86876b697e598febb74925fb1ccdf9ea3d291a69d47a1c515d1a500fe8691c",
+    "packages/smithers/src/CloudSession.ts": "fedb1720c885e64d75b35601a8a2d17777fb9614d774d52337bae91293c6e548",
+    "packages/backend/internal/compose/router.go": "09867dff052c9612c5a85dd3fd5f16ea0b3bc41b5d24a914252510c34fb2cfa5",
+    "packages/backend/internal/routes/mythical.go": "6d9ed68338a4bdd421f317c1270004cecfba959aa6885a43e2d8aab312429524",
+    "apps/tui/tsconfig.json": "46ac0aed629aece048748ffec84f6c21ffb006cd92798057af66c356fe7a359e",
+    "apps/tui/dprint.json": "f38f0f738afae4aa223527ede3ea4116f37bf0906d74adc4f4d41dff90ac5159"
+  },
+  "validation": [
+    {
+      "cwd": "apps/tui",
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:/Users/williamcory/.bun/bin:$PATH TMPDIR=/private/tmp SMITHERS_WORKSPACE_JJ_EXPORT_BINARY=/Users/williamcory/smithers/target/release/smithers-jj-export bun test ./test",
+      "result": "1898 pass, 4 foreign fail; 10782 assertions, 1902 tests, 121 files, 85.87s"
+    },
+    {
+      "cwd": "apps/tui",
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:/Users/williamcory/.bun/bin:$PATH TMPDIR=/private/tmp SMITHERS_WORKSPACE_JJ_EXPORT_BINARY=/Users/williamcory/smithers/target/release/smithers-jj-export SMITHERS_TUI_FACTORY_RETRY_RECEIPT=/tmp/smithers-burndown-20260930-receipts/ui-flow-batch2/3188-rebased-terminal-wire-journal.json bun test e2e/factory-retry.test.ts e2e/command-routes.test.ts",
+      "result": "4 pass, 0 fail, 31 assertions, 2 files, 17.92s"
+    },
+    {
+      "cwd": "apps/tui",
+      "command": "./node_modules/.bin/tsc --noEmit -p tsconfig.json",
+      "result": "exit 2: one foreign packages/smithers/src/history/History.ts:369 TS2559; tracked claimed #3283 assigned API. Zero owned-path diagnostics; prior candidate owning strict types passed."
+    },
+    {
+      "cwd": "apps/tui",
+      "command": "./node_modules/.bin/dprint check src/app.tsx src/factory.ts src/editor.ts src/failures.ts test/factory.test.ts test/composer.test.ts test/failures.test.ts e2e/factory-retry.test.ts README.md",
+      "result": "exit 0"
+    },
+    {
+      "command": "git diff --check -- apps/tui",
+      "result": "exit 0"
+    },
+    {
+      "cwd": "packages/backend",
+      "command": "go test ./internal/routes -run 'TestMythicalWriteRoutes|TestMythicalRoutes' -count=1 -v",
+      "result": "pass on pre-checkpoint candidate; no backend edit. Fake service + real handlers/context, not deployed auth or real PostgreSQL qualification."
+    }
+  ],
+  "acceptance": [
+    "Only factory /retry #issue added. Existing removed worker/flow retry remains unknown and keeps the composer draft; Ctrl+K worker stop/resume actual terminal test passes. Source decision e3e8cbc377/#3048 preserved.",
+    "Strict original session writer append occurs before authentication/lookup and before requested receipt. A failed write refuses dispatch; pending issue retry is deduplicated. Factory/CloudSession/mythicalRoute remains shared authority, no new execution model.",
+    "Production src/main.tsx tmux journey holds real HTTP lookup and POST separately, while real Chat replay answers. Actual POST uses URI-encoded stack item id slot:2431, not issue number; body {}, owner/repo o/r, fixture authenticated header. Invalid/nonretryable/missing issue sends no POST. Actual retrying response and subsequent factory GET readback qualified.",
+    "403 refuses actual operation, diagnostic retained in private log, raw endpoint/error absent from rendered sentence. Existing Failures now recognizes real /cli/Refused fault and uses existing command copy; infra/user preserved. Presenter optional on helper so existing pure helper diagnostics stay compatible; newly visible caller always supplies presentation.",
+    "Late response after /new writes only captured original session, cannot overwrite new transcript/status; original request and result restore through actual /resume."
+  ],
+  "limits": [
+    "All production terminal/HTTP/model seats are local isolated fixture boundaries. No deployed owner credential, hosted factory completion, provider spending or whole release green claimed.",
+    "Native helper is pre-existing absolute configured artifact, no fresh rebuild claim.",
+    "No declaration baseline/public package source/lock/generated projections/git/issue mutations.",
+    "No automatic retry of factory operations after restart is claimed; durable backend remains execution authority and request/result journal projection restores truthfully."
+  ],
+  "foreignFailures": [
+    "raw-error inventory: committed and current factory.ts 3 and issue-views.ts 3 absent from unchanged allowlist; do not bless sites. Parent says existing #3181/#3266 scopes are foreign.",
+    "models.integration: real HTTP pool TUI startup fails invalid Jev judgment (fixture drift); no owned model/provider source changes.",
+    "flow-control exported module action: explicit environment:{} fixture does not propagate configured absolute native helper, AtomicHelperError missing helper.",
+    "flow-control malformed input: actual InvalidInput at text is thrown rather than expected failure record; no owned flow-control/flows/source changes."
+  ],
+  "review": "Orchestrator reviewed synchronous strict original request journal, duplicate issue key, shared CloudSession/mythical route, presentation registry and stale-session result routing. Actual production entry held lookup/POST and readback controls pass. Broad existing failures preserved; no gate weakened."
+}

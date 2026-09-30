@@ -160,12 +160,10 @@ export function App(props: AppProps) {
     setStatus(text, "danger")
     setTranscript((current) => Transcript.alert(current, text, Date.now()))
   }, [])
-  const writer = useRef<Session.Writer>(
-    Session.guarded(
-      restored.file === undefined ? Session.create(props.host.cwd) : Session.reopen(restored.file),
-      unsaved
-    )
+  const durableWriter = useRef<Session.Writer>(
+    restored.file === undefined ? Session.create(props.host.cwd) : Session.reopen(restored.file)
   )
+  const writer = useRef<Session.Writer>(Session.guarded(durableWriter.current, unsaved))
   // The interrupted turn's receipt, once: nothing runs it after a restart.
   useEffect(() => {
     if (restored.receipt !== undefined) writer.current.append(restored.receipt)
@@ -580,6 +578,7 @@ export function App(props: AppProps) {
   // `/todo` files through the session it resolves; the filer keeps a request id per unanswered TODO.
   const todoCloud = useRef<CloudSession.Cloud | undefined>(undefined)
   const todoFiler = useRef(Factory.filer((path, body, signal) => todoCloud.current!.post(path, body, signal)))
+  const factoryRetries = useRef(new Set<string>())
   const smithersShown = surface === `ui:${Smithers.id}`
   useEffect(() => {
     if (!smithersShown) return
@@ -1316,6 +1315,7 @@ export function App(props: AppProps) {
   const adopt = useCallback((next: Session.Writer, records: ReadonlyArray<Session.Record>) => {
     const recovered = Session.recover(records)
     const state = Session.restore(recovered.records)
+    durableWriter.current = next
     writer.current = Session.guarded(next, unsaved)
     if (recovered.receipt !== undefined) writer.current.append(recovered.receipt)
     entries.current = state.entries
@@ -1427,6 +1427,46 @@ export function App(props: AppProps) {
             setStatus(Failures.line("flow", error), "warning")
           }
         })()
+        return true
+      }
+      case "retry": {
+        // Factory rows name issues; worker and flow controls stay in Ctrl+K.
+        const key = `${factoryRepo}:${Factory.issueOf(argument)}`
+        if (factoryRetries.current.has(key)) {
+          setStatus(`Retry #${Factory.issueOf(argument)} requested`)
+          return true
+        }
+        const requestedWriter = writer.current
+        const record = (line: Factory.Line, required = false) => {
+          const at = Date.now()
+          const note: Session.Record = { type: "note", at, text: line.text }
+          if (required) durableWriter.current.append(note)
+          else requestedWriter.append(note)
+          setTranscript((current) => Transcript.note(current, line.text, at))
+          setStatus(line.text, line.tone)
+        }
+        const request = Factory.retryCommand(
+          argument,
+          factoryRepo,
+          () => CloudSession.signedIn(process.env),
+          (line) => {
+            record(line, true)
+            factoryRetries.current.add(key)
+          },
+          (error) => {
+            Log.write("factory.retry", error)
+            return Failures.line("retry", error)
+          }
+        )
+        if (request.settled === undefined) setStatus(request.now.text, request.now.tone)
+        else {
+          void request.settled.then((line) => {
+            factoryRetries.current.delete(key)
+            // A response belongs to the conversation that persisted its request.
+            if (writer.current.file === requestedWriter.file) record(line)
+            else requestedWriter.append({ type: "note", at: Date.now(), text: line.text })
+          })
+        }
         return true
       }
       case "chat":
@@ -1676,9 +1716,12 @@ export function App(props: AppProps) {
     // A driven worker reads plain text as its next message; `/` and `!` stay commands and shell.
     const route = Composer.route(text, steering !== undefined || driving !== undefined || continuing !== undefined)
     const verb = route._tag === "command" ? Editor.parseCommand(text)?.name : undefined
-    if (verb !== undefined && !Editor.known(verb)) {
+    if (
+      verb !== undefined && (!Editor.known(verb) ||
+        (verb === "retry" && !Editor.parseCommand(text)?.argument.trim().startsWith("#")))
+    ) {
       // The typo stays in the composer to fix, without the menu over the suggestion.
-      setStatus(Editor.unknown(verb), "warning")
+      setStatus(verb === "retry" ? "Unknown command /retry" : Editor.unknown(verb), "warning")
       return dismissMenu()
     }
     clearFailure()

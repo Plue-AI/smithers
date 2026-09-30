@@ -1,3 +1,4 @@
+import { Refused as CliRefused } from "@smthrs/cli/CliError"
 import { describe, expect, it } from "bun:test"
 import { appendFileSync, existsSync, readFileSync } from "node:fs"
 import { join } from "node:path"
@@ -20,6 +21,17 @@ const logged = (): string => existsSync(Log.path()) ? readFileSync(Log.path(), "
 const sentence = (error: unknown) => Failures.present("worker", error)
 
 describe("tagged failures read as one plain sentence", () => {
+  it("Cloud command refusals preserve their fault and keep raw diagnostics out of the sentence", () => {
+    for (const fault of ["user", "infra"] as const) {
+      const failure = new CliRefused({ fault, code: "cloud_request_failed", message: RAW })
+      const presented = Failures.present("retry", failure)
+      expect(presented.fault).toBe(fault)
+      expect(presented.sentence).toBe("That command could not run.")
+      expect(presented.detail).toContain(RAW)
+      expect(Failures.line("retry", failure)).not.toContain(RAW)
+      expect(Failures.line("retry", failure).includes("Details: /conversation")).toBe(fault !== "user")
+    }
+  })
   it("words every agent refusal code by its subject, never its message", () => {
     const cases: ReadonlyArray<readonly [AgentError, string, string]> = [
       [new AgentError("unknown_agent", RAW, "review"), "No agent named review; /agent lists them.", "user"],
