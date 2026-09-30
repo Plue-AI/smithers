@@ -407,7 +407,13 @@ export const make = (fs: FileSystem.FileSystem, path: Path.Path): Discovery =>
                   ...(imports.length === 0 ? {} : { imports })
                 }),
                 input: metadata.hasInput
-                  ? new SchemaRefModule({ path: location, field: "input" })
+                  ? new SchemaRefModule({
+                    path: location,
+                    field: "input",
+                    ...metadata.inputDocument === undefined
+                      ? {} :
+                      { document: metadata.inputDocument }
+                  })
                   : new SchemaRefNone({}),
                 output: metadata.hasOutput
                   ? new SchemaRefModule({ path: location, field: "output" })

@@ -300,6 +300,7 @@ class SchemaRefModule {
   readonly _tag: "Module"
   readonly path: string
   readonly field: "input" | "output"
+  readonly document?: Schema.Json
 }
 class SchemaRefNone {
   readonly _tag: "None"
@@ -324,18 +325,22 @@ A serializable locator for a flow's input or output schema.
 carries: its input is `{ args: string }` and its output is a string. `Module`
 records the field location on a module's default `Flow.make` value, so
 discovery can name a schema without evaluating the module that defines it.
+For a proven literal primitive payload, its optional `document` contains
+display metadata. The module locator still selects the actual admission decoder.
 `None` is a flow that declared neither.
 
-`Inline` is the one variant that carries a schema by value, as a
+`Inline` carries an admission schema by value, as a
 `Schema.toJsonSchemaDocument` output kept as plain JSON. The other four are
-locators; a host that binds a declaration it already holds has the schema
+locators, including a `Module` with optional display metadata. A host that
+binds a declaration it already holds has the schema
 itself and nothing to locate, and a locator pointing at a synthetic path would
 be unreadable downstream. Use `Inline` when the binding already has the schema in memory.
 
-`Descriptor.inputDocument(ref)` returns an inline document unchanged or the
-JSON Schema document for markdown's required `{ args: string }` input. It
-returns `undefined` for an absent reference, `None`, `MarkdownOutput`, or a
-`Module` locator. Reading this metadata never evaluates a repository module.
+`Descriptor.inputDocument(ref)` returns an inline or optional module document
+unchanged, or the JSON Schema document for markdown's required `{ args: string }`
+input. It returns `undefined` for an absent reference, `None`, `MarkdownOutput`,
+or a module without proven display metadata. Reading this metadata never
+evaluates a repository module.
 
 ### Descriptor.EffectDeclaration, EffectTier, Placement
 

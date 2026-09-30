@@ -1,12 +1,12 @@
 import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem"
 import * as NodePath from "@effect/platform-node/NodePath"
 import { Effect, FileSystem, Layer, Option, Path, PlatformError } from "effect"
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
-import { type Source, SourceScan } from "../src/Descriptor.ts"
+import { inputDocument, type Source, SourceScan } from "../src/Descriptor.ts"
 import * as Discovery from "../src/Discovery.ts"
 
 const projectRoot = fileURLToPath(new URL("./fixtures/project/flows", import.meta.url))
@@ -50,6 +50,48 @@ const withTemporaryRoot = async <A>(run: (root: string) => Promise<A>): Promise<
 }
 
 describe("Discovery", () => {
+  it("publishes proven payload metadata from real files without evaluating their modules", async () => {
+    await withTemporaryRoot(async (root) => {
+      const marker = join(root, "evaluated.txt")
+      const directory = join(root, "echo")
+      mkdirSync(directory)
+      const file = join(directory, "flow.ts")
+      writeFileSync(
+        file,
+        `import { Schema as S } from "effect";
+import { writeFileSync } from "node:fs";
+writeFileSync(${JSON.stringify(marker)}, "loaded");
+throw new Error("must never evaluate during metadata discovery");
+export default Flow.make("echo", { description: "Echo a value", payload: { value: S.String } });`
+      )
+      const scanned = await scan({ source: "project", root, naming: "path" })
+      expect(scanned.entries).toHaveLength(1)
+      const descriptor = scanned.entries[0]!
+      expect(descriptor.input).toMatchObject({ _tag: "Module", path: file, field: "input" })
+      expect(inputDocument(descriptor.input)).toMatchObject({
+        schema: {
+          type: "object",
+          properties: { value: { type: "string" } },
+          required: ["value"]
+        }
+      })
+      expect(scanned.warnings).toEqual([])
+      expect(existsSync(marker)).toBe(false)
+      writeFileSync(
+        file,
+        "import { Schema as S } from \"effect\"; export default Flow.make(\"echo\", { description: \"Echo a value\", payload: { value: S.String.check(refine) } });"
+      )
+      const edited = await scan({ source: "project", root, naming: "path" })
+      expect(edited.entries[0]!.input).toMatchObject({ _tag: "Module", path: file, field: "input" })
+      expect(inputDocument(edited.entries[0]!.input)).toBeUndefined()
+      expect(edited.warnings).toContainEqual(expect.objectContaining({
+        code: "unsupported_module_metadata",
+        path: file,
+        message: "Payload schema cannot be projected statically; retaining its module locator"
+      }))
+      expect(existsSync(marker)).toBe(false)
+    })
+  })
   it("discovers path-named markdown and module flows without loading their bodies", async () => {
     const result = await scan({
       source: "project",

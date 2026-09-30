@@ -153,13 +153,16 @@ export class SchemaRefMarkdownOutput
 /**
  * A schema field on a module's default `Flow.make` value. Discovery records
  * the field location without evaluating the module.
+ * A proven literal payload may also carry display metadata; execution still
+ * loads and decodes the schema at this location.
  *
  * @category models
  * @since 0.1.0
  */
 export class SchemaRefModule extends Schema.TaggedClass<SchemaRefModule>("flows/registry/SchemaRef/Module")("Module", {
   path: Schema.String,
-  field: Schema.Literals(["input", "output"])
+  field: Schema.Literals(["input", "output"]),
+  document: Schema.optionalKey(Schema.Json)
 }) {}
 
 /**
@@ -199,7 +202,7 @@ export class SchemaRefInline extends Schema.TaggedClass<SchemaRefInline>("flows/
  * @since 1.0.0
  */
 export const inputDocument = (ref: SchemaRef | undefined): Schema.Json | undefined =>
-  ref?._tag === "Inline" ? ref.document : ref?._tag === "MarkdownArgs"
+  ref?._tag === "Inline" || ref?._tag === "Module" ? ref.document : ref?._tag === "MarkdownArgs"
     ? Schema.decodeUnknownSync(Schema.Json)(Schema.toJsonSchemaDocument(Schema.Struct({ args: Schema.String })))
     : undefined
 

@@ -43,6 +43,11 @@ is the name a descriptor falls back to when it names none, and
 
 ## Build the catalog
 
+Metadata discovery can display literal primitive payload fields without
+evaluating their module. Dynamic schemas and refinements remain unavailable
+in that view. Planning and starting a run load the actual module decoder and
+reject invalid input before creating a plan or admitting a run.
+
 `Executable.catalog(options)` builds every descriptor the host can run and
 reports the rest:
 

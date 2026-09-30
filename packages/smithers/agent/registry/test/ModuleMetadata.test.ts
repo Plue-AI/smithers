@@ -1,9 +1,112 @@
-import { Option } from "effect"
+import { Option, Schema } from "effect"
 import { describe, expect, it } from "vitest"
 import * as ModuleMetadata from "../src/internal/ModuleMetadata.ts"
 import discoveredFlow from "./fixtures/project/flows/review/read-pr/flow.ts"
 
 describe("ModuleMetadata", () => {
+  it.each([
+    ["import { Schema } from \"effect\"", "Schema"],
+    ["import { Option, Schema as S } from \"effect\"", "S"],
+    ["import * as S from \"effect/Schema\"", "S"]
+  ])("projects a trusted literal payload without importing source (%s)", (declaration, namespace) => {
+    const payload =
+      `{ value: ${namespace}.String, count: ${namespace}.Number, enabled: ${namespace}.Boolean, empty: ${namespace}.Null }`
+    const metadata = ModuleMetadata.parse(
+      `${declaration}; throw new Error("must never execute"); export default Flow.make("echo", { payload: ${payload} })`
+    )
+    expect(metadata.inputDocument).toEqual(
+      Schema.decodeUnknownSync(Schema.Json)(Schema.toJsonSchemaDocument(Schema.Struct({
+        value: Schema.String,
+        count: Schema.Number,
+        enabled: Schema.Boolean,
+        empty: Schema.Null
+      })))
+    )
+    expect(metadata.hasInput).toBe(true)
+    expect(metadata.warnings).toEqual([])
+  })
+
+  it("projects an empty literal payload and ignores misleading strings and comments", () => {
+    const metadata = ModuleMetadata.parse(
+      "/* Schema = fake; */ const text = \"Schema = fake\"; export default Flow.make(\"echo\", { payload: {} })"
+    )
+    expect(metadata.inputDocument).toEqual(
+      Schema.decodeUnknownSync(Schema.Json)(Schema.toJsonSchemaDocument(Schema.Struct({})))
+    )
+    expect(
+      ModuleMetadata.parse(
+        "import { Schema } from \"effect\"; /* Schema = fake; */ const text = \"Schema = fake\"; export default Flow.make(\"echo\", { payload: { value: Schema.String } })"
+      ).inputDocument
+    )
+      .toMatchObject({ schema: { properties: { value: { type: "string" } } } })
+  })
+
+  it.each([
+    ["import { Schema } from \"other\";", "{ value: Schema.String }"],
+    ["// import { Schema } from \"effect\"\n", "{ value: Schema.String }"],
+    ["const text = 'import { Schema } from \"effect\"';", "{ value: Schema.String }"],
+    ["import type { Schema } from \"effect\";", "{ value: Schema.String }"],
+    ["import { Schema } from \"effect\"; function helper(Schema) { return Schema.String }", "{ value: Schema.String }"],
+    ["import { Schema } from \"effect\"; const Schema = fake;", "{ value: Schema.String }"],
+    ["import { Schema } from \"effect\"; Schema.String = fake;", "{ value: Schema.String }"],
+    ["import { Schema as S } from \"effect\"; delete S.String;", "{ value: S.String }"],
+    ["import { Schema as S } from \"effect\"; delete (S.String);", "{ value: S.String }"],
+    ["import { Schema as S } from \"effect\"; (S.String) = fake;", "{ value: S.String }"],
+    ["import { Schema as S } from \"effect\"; ++S.String;", "{ value: S.String }"],
+    ["import { Schema as S } from \"effect\"; --S.String;", "{ value: S.String }"],
+    ["import { Schema } from \"effect\"; mutate(Schema);", "{ value: Schema.String }"],
+    ["import { Schema } from \"effect\"; const Text = Schema.String;", "{ value: Text }"],
+    ["import { Schema } from \"effect\";", "{ value: Schema.String.pipe(refine) }"],
+    ["import { Schema } from \"effect\";", "{ ...fields, value: Schema.String }"],
+    ["import { Schema } from \"effect\";", "{ [key]: Schema.String }"],
+    ["import { Schema } from \"effect\";", "{ get value() { return Schema.String } }"],
+    ["import { Schema } from \"effect\";", "{ value }"],
+    ["import { Schema } from \"effect\";", "{ value: \"Schema.String\" }"],
+    ["import { Schema } from \"effect\";", "make({ value: Schema.String })"],
+    ["import { Schema } from \"effect\";", "fields"],
+    ["import { Schema } from \"effect\";", "{ value: Schema.Unknown }"],
+    ["import { Schema as S extra } from \"effect\";", "{ value: S.String }"],
+    ["import { Schema } from \"effect\";", "{ value: Schema.String } || { value: Schema.String }"],
+    ["import { Schema } from \"effect\";", "{ __proto__: Schema.String }"],
+    ["import { Schema } from \"effect\";", "{ 'v\\u0061lue': Schema.String }"],
+    ["import { Schema } from \"effect\"; import { Schema } from \"effect\";", "{ value: Schema.String }"]
+  ])("keeps unsupported or unprovable payload metadata unavailable (%s/%s)", (declaration, payload) => {
+    const metadata = ModuleMetadata.parse(`${declaration} export default Flow.make("echo", { payload: ${payload} })`)
+    expect(metadata.hasInput).toBe(true)
+    expect(metadata.inputDocument).toBeUndefined()
+    expect(metadata.warnings).toContainEqual({
+      message: "Payload schema cannot be projected statically; retaining its module locator"
+    })
+  })
+
+  it("refuses an otherwise supported schema when outer spread can replace the payload", () => {
+    const metadata = ModuleMetadata.parse(
+      "import { Schema } from \"effect\"; export default Flow.make(\"echo\", { payload: { value: Schema.String }, ...options })"
+    )
+    expect(metadata.inputDocument).toBeUndefined()
+    expect(metadata.warnings).toContainEqual({
+      message:
+        "Object spread or computed properties make schemas and authority unprojectable; using conservative projections"
+    })
+  })
+  it("refuses an incomplete namespace use at the end of the source", () => {
+    const metadata = ModuleMetadata.parse(
+      "import { Schema } from \"effect\"; export default Flow.make(\"echo\", { payload: { value: Schema.String } }); Schema.String"
+    )
+    expect(metadata.inputDocument).toBeUndefined()
+    expect(metadata.warnings).toContainEqual({
+      message: "Payload schema cannot be projected statically; retaining its module locator"
+    })
+  })
+
+  it("recognizes an ESM import declared after a harmless initial namespace read", () => {
+    const metadata = ModuleMetadata.parse(
+      "S.String; import { Schema as S } from \"effect\"; export default Flow.make(\"echo\", { payload: { value: S.String } })"
+    )
+    expect(metadata.inputDocument).toMatchObject({ schema: { properties: { value: { type: "string" } } } })
+    expect(metadata.warnings).toEqual([])
+  })
+
   it("preserves an ordered model list in module metadata", () => {
     const metadata = ModuleMetadata.parse("export default Flow.make(\"review\", { model: [\"opus\", \"sol\"] })")
     expect(Option.getOrThrow(metadata.model)).toEqual(["opus", "sol"])
@@ -173,6 +276,7 @@ describe("ModuleMetadata", () => {
   it("reads the @smthrs/flow call shape, whose schemas are payload and success", () => {
     const metadata = ModuleMetadata.parse([
       "\"use local\"",
+      "import { Schema } from \"effect\"",
       "export default Flow.make(\"test/standalone\", {",
       "  description: \"Shouts a name through its own graph.\",",
       "  payload: { name: Schema.String },",
@@ -726,6 +830,7 @@ describe("ModuleMetadata effect envelope parity", () => {
   ].join("\n"))
 
   const flow = ModuleMetadata.parse([
+    "import { Schema } from \"effect\"",
     "export default Flow.make(\"builder/build\", {",
     "  description: \"Builds the package.\",",
     "  payload: { target: Schema.String },",

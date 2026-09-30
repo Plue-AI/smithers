@@ -25,6 +25,7 @@ export interface MetadataWarning {
 export interface Metadata {
   readonly description: string | undefined
   readonly hasInput: boolean
+  readonly inputDocument?: Schema.Json
   readonly hasOutput: boolean
   readonly model: Option.Option<ModelSelection>
   readonly flows: ReadonlyArray<string>
@@ -824,6 +825,98 @@ const effectDeclaration = (
   return projection.effects
 }
 
+// Only imported, unshadowed namespace reads can identify a trusted schema.
+// This is a conservative projection over the metadata lexer, never an import
+// of repository code. Any other use of the binding makes its identity opaque.
+const schemaNamespaces = (source: string): ReadonlySet<string> => {
+  const tokens = tokenize(source)
+  const imported = new Map<string, number>()
+  const importTokens = new Set<number>()
+  let depth = 0
+  for (let index = 0; index < tokens.length; index++) {
+    const token = tokens[index]!
+    if (token.value === "import" && token.escaped !== true && depth === 0) {
+      let end = index + 1
+      while (end < tokens.length && tokens[end]!.value !== "from" && tokens[end]!.value !== ";") end++
+      const module = stringLiteral(tokens[end + 1]?.value)
+      if (module === "effect" || module === "effect/Schema") {
+        const specifiers = tokens.slice(index + 1, end)
+        const bindings: Array<string> = []
+        if (
+          module === "effect/Schema" && specifiers.length === 3 &&
+          specifiers[0]?.value === "*" && specifiers[1]?.value === "as" &&
+          specifiers[2]?.kind === "identifier" && specifiers[2].escaped !== true
+        ) {
+          bindings.push(specifiers[2].value)
+        } else if (module === "effect" && specifiers[0]?.value === "{" && specifiers.at(-1)?.value === "}") {
+          for (let part = 1; part < specifiers.length - 1; part++) {
+            if (
+              specifiers[part]?.value !== "Schema" || specifiers[part]?.escaped === true ||
+              !["{", ","].includes(specifiers[part - 1]!.value)
+            ) continue
+            const alias = specifiers[part + 1]?.value === "as" ? specifiers[part + 2] : specifiers[part]
+            const after = specifiers[part + 1]?.value === "as" ? part + 3 : part + 1
+            if (
+              alias?.kind === "identifier" && alias.escaped !== true &&
+              [",", "}"].includes(specifiers[after]!.value)
+            ) {
+              bindings.push(alias.value)
+            }
+          }
+        }
+        for (const binding of bindings) {
+          imported.set(binding, (imported.get(binding) ?? 0) + 1)
+          for (let part = index; part <= end + 1; part++) importTokens.add(part)
+        }
+      }
+    }
+    if (["{", "(", "["].includes(token.value)) depth++
+    if (["}", ")", "]"].includes(token.value)) depth--
+  }
+  const trusted = new Set<string>()
+  for (const [name, count] of imported) {
+    if (count !== 1) continue
+    const safe = tokens.every((token, index) => {
+      if (token.kind !== "identifier" || token.value !== name || importTokens.has(index)) return true
+      // A declaration, argument, assignment, computed access or alias escapes
+      // the namespace identity. Member mutation is also refused.
+      return token.escaped !== true &&
+        !["delete", "+", "-", "("].includes(tokens[index - 1]?.value ?? "") &&
+        tokens[index + 1]?.value === "." &&
+        tokens[index + 2]?.kind === "identifier" &&
+        [",", "}", "]", ")", ";", "("].includes(tokens[index + 3]?.value ?? "")
+    })
+    if (safe) trusted.add(name)
+  }
+  return trusted
+}
+
+const payloadDocument = (source: string, payload: string | undefined): Schema.Json | undefined => {
+  if (payload === undefined) return undefined
+  const tokens = tokenize(payload)
+  if (tokens[0]?.value !== "{" || tokens.at(-1)?.value !== "}") return undefined
+  let depth = 0
+  for (let index = 0; index < tokens.length; index++) {
+    if (tokens[index]!.value === "{") depth++
+    if (tokens[index]!.value === "}" && --depth === 0 && index !== tokens.length - 1) return undefined
+  }
+  const properties = propertiesFrom(payload.slice(tokens[0].end, tokens.at(-1)!.start))
+  if (properties.hasUnprojectableMembers) return undefined
+  const namespaces = schemaNamespaces(source)
+  const primitives = { String: Schema.String, Number: Schema.Number, Boolean: Schema.Boolean, Null: Schema.Null }
+  const fields: Record<string, Schema.Top> = Object.create(null)
+  for (const [key, value] of properties.values) {
+    const expression = tokenize(value)
+    if (
+      key === "__proto__" || key.includes("\\") || expression.length !== 3 ||
+      !namespaces.has(expression[0]!.value) || expression[1]?.value !== "." ||
+      !Object.hasOwn(primitives, expression[2]!.value)
+    ) return undefined
+    fields[key] = primitives[expression[2]!.value as keyof typeof primitives]
+  }
+  return Schema.decodeUnknownSync(Schema.Json)(Schema.toJsonSchemaDocument(Schema.Struct(fields)))
+}
+
 /**
  * Statically reads the metadata carried by the default `Flow.make` value
  * without evaluating the module.
@@ -854,6 +947,12 @@ export const parse = (source: string): Metadata => {
 
   const parsedProperties = propertiesFrom(source.slice(flowObject.start + 1, flowObject.end))
   const properties = parsedProperties.values
+  const inputDocument = parsedProperties.hasUnprojectableMembers
+    ? undefined
+    : payloadDocument(source, properties.get("payload"))
+  if (properties.has("payload") && inputDocument === undefined && !parsedProperties.hasUnprojectableMembers) {
+    warnings.push({ message: "Payload schema cannot be projected statically; retaining its module locator" })
+  }
   const capabilitiesSource = properties.get("capabilities")
   const literalCapabilities = capabilitiesSource === undefined ? [] : stringArray(capabilitiesSource)
   const flowsSource = properties.get("flows")
@@ -914,6 +1013,7 @@ export const parse = (source: string): Metadata => {
     // file without importing it, so it reads both spellings rather than
     // reporting a flow that declares a payload as one that takes no input.
     hasInput: properties.has("input") || properties.has("payload") || parsedProperties.hasUnprojectableMembers,
+    ...inputDocument === undefined ? {} : { inputDocument },
     hasOutput: properties.has("output") || properties.has("success") || parsedProperties.hasUnprojectableMembers,
     model: Schema.is(ModelSelection)(model) ? Option.some(model) : Option.none(),
     flows: literalFlows ?? [],

@@ -28,7 +28,12 @@ would run third-party code before anyone decided to.
 The consequence is that a descriptor describes a schema by reference rather
 than by value. `SchemaRefModule` records that a module's default export has an
 `input` field and where the file is; it does not hold the schema, because
-holding it would mean importing the module. A markdown flow's input and output
+holding it would mean importing the module. A proven literal payload using
+String, Number, Boolean or Null from an unshadowed Effect Schema import can
+also carry an optional JSON Schema `document` for display. Aliases are supported;
+dynamic or refined schemas retain their locator and report unavailable display
+metadata. Planning and execution use the module's actual decoder in every case.
+A markdown flow's input and output
 are fixed, so `SchemaRefMarkdownArgs` and `SchemaRefMarkdownOutput` are markers
 with nothing to locate. `SchemaRefInline` is the one variant that carries a
 schema by value, as a JSON Schema document, for a host that already holds the

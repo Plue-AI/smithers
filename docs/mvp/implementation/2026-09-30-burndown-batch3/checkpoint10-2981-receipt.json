@@ -1,0 +1,94 @@
+{
+  "issue": 2981,
+  "base": "9ea5aa5418b8ece0c769731caf338fcd519b4b85",
+  "qualifiedFiles": {
+    "packages/smithers/agent/registry/README.md": "66bdde7c3ff34978f2b7985c58469ecea3deb0f3f890dcc39290c1f38cac365e",
+    "packages/smithers/agent/registry/src/Descriptor.ts": "aaa767cadc26d0011285f82711fddc9e894a520226c8b41a278abfac79499ad9",
+    "packages/smithers/agent/registry/src/Discovery.ts": "ef571ec9b2bafe0a3729a254448901d9f3acebda2e5cfea74ba2afb84a6a86d9",
+    "packages/smithers/agent/registry/src/internal/ModuleMetadata.ts": "f83bc88606d7097c6119d47edbb1031bcc4b093ca3b9012cc07510d6a7444850",
+    "packages/smithers/agent/registry/test/Descriptor.test.ts": "4415e8e9b419819b616cb8202b90e13846aa715c16a77831a09f55901956a0b2",
+    "packages/smithers/agent/registry/test/Discovery.test.ts": "dfd7500a0d11a00c667570ed09b965d99cf8294d1110d2d48cbcd06c7455cfb6",
+    "packages/smithers/agent/registry/test/ModuleMetadata.test.ts": "d99079d2c807b91f63f38e24cd206606d19b4aad8be102e4733e9f31ed0e9904",
+    "packages/smithers/test/FileFlowInputCli.test.ts": "ee9c5bb01e36516439641ccaf1e355c1803aa507694dcc56aac29be056b4d3d2"
+  },
+  "authoredDocs": {
+    "packages/smithers/agent/registry/docs/api.md": "6289581c8d694bbd1ef621f222e9a7546014efc0dd54f7e13bd63c5b86b2bb83",
+    "packages/smithers/agent/registry/docs/concepts/descriptors.md": "d39df569c07ebdd3fb12421e3d2d9c4f80fa1ce9235fe2a44c0501076abbd9a1",
+    "packages/smithers/agent/registry/docs/guides/run-a-discovered-flow.md": "71e01267a43d4944f474520bf347a674700f679121132f2ffd8360efaff717cf"
+  },
+  "checks": [
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH pnpm exec vitest run --coverage",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers/agent/registry",
+      "exit": 0,
+      "result": "917 tests/33 files pass; 100% statements2291/2291 branches1737/1737 functions404/404 lines2103/2103",
+      "receipt": "2981-final-coverage.log",
+      "receiptSha256": "c49690f81a800c01a6a0cfadec333caa2f19f0012bd249926e25618d3846c3e1"
+    },
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp SMITHERS_WORKSPACE_JJ_EXPORT_BINARY=/Users/williamcory/smithers/target/debug/smithers-jj-export pnpm exec vitest run test/FileFlowInputCli.test.ts --coverage.enabled=false",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+      "exit": 0,
+      "result": "actual source CLI file-flow show/list, pre-admission failure, refined decoder and valid native Node.capture completion pass",
+      "receipt": "2981-final-cli.log",
+      "receiptSha256": "bd51327676a4954a287b1c6607f04e8de2c3a66831e4a7e0b17b07bb3e4df41e"
+    },
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH pnpm exec tsc -p tsconfig.test.json --noEmit",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers/agent/registry",
+      "exit": 0,
+      "result": "full owning registry strict test/source types",
+      "receipt": "2981-final-registry-types.log",
+      "receiptSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH pnpm exec eslint src/Descriptor.ts src/Discovery.ts src/internal/ModuleMetadata.ts --max-warnings=0",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers/agent/registry",
+      "exit": 0,
+      "result": "pass",
+      "receipt": "2981-final-lint.log",
+      "receiptSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH pnpm exec dprint check src/Descriptor.ts src/Discovery.ts src/internal/ModuleMetadata.ts test/Descriptor.test.ts test/ModuleMetadata.test.ts test/Discovery.test.ts README.md",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers/agent/registry",
+      "exit": 0,
+      "result": "pass",
+      "receipt": "2981-final-registry-format-check.log",
+      "receiptSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH pnpm exec tsc -p /tmp/smithers-burndown-20260930-receipts/api-batch3/2981-cli-types.json --noEmit",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+      "exit": 0,
+      "result": "all CLI source plus owned test, original strict compiler configuration",
+      "receipt": "2981-final-cli-types.log",
+      "receiptSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH pnpm exec dprint check test/FileFlowInputCli.test.ts",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+      "exit": 0,
+      "result": "pass",
+      "receipt": "2981-final-cli-format-check.log",
+      "receiptSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp SMITHERS_WORKSPACE_JJ_EXPORT_BINARY=/Users/williamcory/smithers/target/debug/smithers-jj-export pnpm exec vitest run test/FileFlowInputCli.test.ts --coverage.enabled=false",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+      "exit": 1,
+      "result": "original corrected-helper test exposes two flow show/list missing inputSchema assertions; all pre-admission controls execute",
+      "receipt": "2981-metadata-red.log",
+      "receiptSha256": "1041eb9bf6125a66dbbce4f8b54ddee3d7c335f1bcde9ae0ece3ea2e8d2dfdaf"
+    }
+  ],
+  "limits": [
+    "Conservative metadata MVP supports literal primitive payload fields only; dynamic/refined schemas remain unavailable with module locator/warning and actual runtime decoder.",
+    "Native helper reused from existing /Users/williamcory/smithers/target/debug/smithers-jj-export; actual native behavior executed, no rebuilt-source provenance claimed.",
+    "No full CLI test suite, CLI coverage, published consumer, hosted service or release proof claimed; CLI types scope includes all source and this owned fixture.",
+    "Earlier malformed Discovery fixture omitted required description and failed independently; corrected fixture and exact red/green logs retained. Original inherited FileFlowInput child fixture omitted helper environment and failed before input admission; corrected explicit helper environment retained."
+  ],
+  "manifestSha256": "3f5bf642ca25d901bd47ede54bfe98d51f7a3e31d13d339a5891244b396cf5a1",
+  "archiveSha256": "83a6cec6a652bd8bd49720f52d39ea65d8fa125d747bce358a83555c970ca349",
+  "review": "Orchestrator reviewed trusted literal projection, mutation/shadow controls, retained module decoder, actual no-admission counts and refined schema refusal. Authored API/concept/guide docs updated; canonical generated projections follow rebase."
+}

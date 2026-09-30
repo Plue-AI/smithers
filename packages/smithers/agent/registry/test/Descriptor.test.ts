@@ -9,6 +9,18 @@ describe("inputDocument", () => {
     expect(Descriptor.inputDocument(new Descriptor.SchemaRefInline({ document }))).toBe(document)
   })
 
+  it("round-trips optional module metadata while preserving the authoritative decoder locator", () => {
+    const document = Schema.decodeUnknownSync(Schema.Json)(
+      Schema.toJsonSchemaDocument(Schema.Struct({ value: Schema.String }))
+    )
+    const ref = new Descriptor.SchemaRefModule({ path: "/flow.ts", field: "input", document })
+    const restored = Schema.decodeUnknownSync(Descriptor.SchemaRef)(Schema.encodeSync(Descriptor.SchemaRef)(ref))
+    expect(restored).toEqual(ref)
+    expect(Descriptor.inputDocument(restored)).toEqual(document)
+    expect(Schema.decodeUnknownSync(Descriptor.SchemaRef)({ _tag: "Module", path: "/legacy.ts", field: "input" }))
+      .toEqual(new Descriptor.SchemaRefModule({ path: "/legacy.ts", field: "input" }))
+  })
+
   it("describes markdown input as one required string argument", () => {
     expect(Descriptor.inputDocument(new Descriptor.SchemaRefMarkdownArgs({}))).toMatchObject({
       schema: {
