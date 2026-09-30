@@ -1394,7 +1394,12 @@ func TestQueue_EnqueueCapacityCaps(t *testing.T) {
 
 	// Lifetime cap: a fresh session with pairQueueMaxTotal SETTLED rows (zero
 	// pending) still refuses new prompts — total rows bound the queue listing.
-	ws2 := mkPairWorkspace(t, fx.pool, owner, fx.repoID)
+	// uq_workspaces_active reserves one live workspace per repository, user,
+	// kind, bookmark and name, so the second session's workspace is named.
+	var ws2 string
+	require.NoError(t, fx.pool.QueryRow(ctx,
+		`INSERT INTO workspaces (repository_id, user_id, name) VALUES ($1,$2,'lifetime-cap') RETURNING id`,
+		fx.repoID, owner).Scan(&ws2))
 	session2, err := svc.CreateSession(ctx, owner, fx.repoID, ws2)
 	require.NoError(t, err)
 	_, err = fx.pool.Exec(ctx,
