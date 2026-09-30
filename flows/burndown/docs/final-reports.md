@@ -3,6 +3,7 @@
 Queue results come from the coding CLI's successful structured final assistant
 report: Codex JSON events ending in a completed turn, or Claude's successful
 JSON result. Tool output and stderr remain diagnostics, never queue results.
+Quoted examples stay excluded until their matching Markdown fence closes.
 A failed process exit cannot produce READY. Structured final quota errors return
 limited even when the CLI exits zero; limit words in a successful report or tool
 output do not override a successful final result.

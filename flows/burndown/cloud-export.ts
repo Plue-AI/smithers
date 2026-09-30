@@ -15,7 +15,9 @@ export interface ExportOptions {
 export const cloudDiagnostic = (value: string, redactions: ReadonlyArray<string> = []): string => {
   let text = value
   for (const secret of redactions) if (secret) text = text.replaceAll(secret, "[redacted]")
-  return text.replaceAll(/Bearer\s+[^\s"']+|(?:gh[pousr]_|github_pat_)[A-Za-z0-9_]+|sk-[A-Za-z0-9_-]+|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/gi, "[redacted]")
+  return text.replaceAll(/(https?:\/\/)[^\s/@]+:[^\s/@]+@/gi, "$1[redacted]@")
+    .replaceAll(/((?:access_token|refresh_token|api_key|token|password|secret)=)[^&\s"']+/gi, "$1[redacted]")
+    .replaceAll(/Bearer\s+[^\s"']+|(?:gh[pousr]_|github_pat_)[A-Za-z0-9_]+|sk-[A-Za-z0-9_-]+|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/gi, "[redacted]")
     .replaceAll(/[\x00-\x08\x0b-\x1f\x7f]/g, "").slice(0, 2048)
 }
 type Entry = { oid: string; type: "file" | "symlink"; executable: boolean }

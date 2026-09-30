@@ -723,7 +723,7 @@ for (
           repository: "smithersai/smithers",
           repoDirectory: directory,
           artifactDirectory: join(directory, "receipts"),
-          attribution,
+          attribution: attribution as NonNullable<Parameters<typeof prepareCloudHandoff>[1]["attribution"]>,
           run: async () => {
             calls++
           }

@@ -22,6 +22,7 @@ if (!process.execArgv.includes("--experimental-test-module-mocks")) {
   const claims: Array<Array<string>> = []
   let ownership = { mine: true, holder: { host: hostname() } }
   const starts: Array<{ assignment: unknown; options: unknown }> = []
+  let pollFailure = false
   let accountReadings: Array<unknown> = []
   const queue: Array<{ results: unknown; workers: unknown }> = []
   // GitHub claims and detached workers are external boundaries: fixtures avoid
@@ -42,7 +43,7 @@ if (!process.execArgv.includes("--experimental-test-module-mocks")) {
           starts.push({ assignment, options })
           return `execution-${starts.length}`
         }),
-      poll: () => Effect.succeed({ _tag: "None" })
+      poll: () => pollFailure ? Effect.fail({ _tag: "FlowExecutionNotFound", executionId: "missing-worker" }) : Effect.succeed({ _tag: "None" })
     }
   })
   mock.module("../burndown/land.ts", {
@@ -171,6 +172,63 @@ if (!process.execArgv.includes("--experimental-test-module-mocks")) {
       }).pipe(Effect.scoped)
     )
   }
+
+
+  test("partial READY is quarantined intact rather than killing the persisted round", async () => {
+    const partial = { ...result, commits: result.commits.slice(0, 1), notes: "extra BLOCKED" }
+    const state = { ...initial(), inFlight: [{ assignment, executionId: "partial-worker", startedAt: 0 }] }
+    const settled = await settle(state, { ...observation(), finished: [partial] } as never)
+    assert.equal(settled.done, false)
+    assert.deepEqual(settled.next.ready, [])
+    assert.deepEqual(settled.next.inFlight, [])
+    assert.deepEqual(settled.next.quarantined[0]!.assignment, assignment)
+    assert.deepEqual(settled.next.quarantined[0]!.result, partial)
+    assert.match(settled.next.quarantined[0]!.error, /incomplete|READY|bundle/i)
+    assert.doesNotThrow(() => Schema.decodeUnknownSync(RoundState)(JSON.parse(JSON.stringify(settled.next))))
+  })
+
+  test("unknown worker poll frees its slot and retains failure diagnostics for retry", async () => {
+    const state = { ...initial(), inFlight: [{ assignment, executionId: "missing-worker", startedAt: Date.now() - 1000 }] }
+    pollFailure = true
+    try {
+      const observed = await invoke(Observe.name, { state }) as typeof Observe.successSchema.Type
+      assert.deepEqual(observed.inFlight, [])
+      assert.equal(observed.finished[0]!.status, "failed")
+      assert.match(observed.finished[0]!.notes, /FlowExecutionNotFound|missing-worker/)
+      const settled = await settle(state, observed as never)
+      const history = settled.next.history as Record<string, { attempts: number; notes: string }>
+      assert.equal(history[`${assignment.repo}#2950`]!.attempts, 1)
+      assert.match(history[`${assignment.repo}#2950`]!.notes, /FlowExecutionNotFound|missing-worker/)
+    } finally { pollFailure = false }
+  })
+
+  test("READY landing refuses another owner's claims and keeps the queue receipt", async () => {
+    queue.length = 0
+    claims.length = 0
+    ownership = { mine: false, holder: { host: hostname() } }
+    try {
+      const state = { ...initial(), ready: [ready] }
+      const landed = await invoke(Land.name, { state, observation: observation() }) as typeof Land.successSchema.Type
+      assert.equal(queue.length, 0)
+      assert.deepEqual((await settle(state, observation(), landed)).next.ready, [ready])
+      assert.equal(claims.some((args) => args[1] === "claim"), false)
+    } finally { ownership = { mine: true, holder: { host: hostname() } } }
+  })
+
+  test("quarantine persists while cooldown prevents repeated immediate repair admission", async () => {
+    const settled = await settle({ ...initial(), ready: [ready] }, observation(), { landed: [], quarantined: [{ key: assignment.key, error: "conflict" }] })
+    const history = settled.next.history as Record<string, { attempts: number; last: number }>
+    assert.equal(history[`${assignment.repo}#2950`]!.attempts, 1)
+    assert.equal(history[`${assignment.repo}#2951`]!.attempts, 1)
+    const waiting = await invoke(Observe.name, { state: settled.next }) as typeof Observe.successSchema.Type
+    assert.deepEqual(waiting.candidates, [])
+    assert.equal((await settle(settled.next, waiting as never)).done, false)
+    const cooled = { ...settled.next, history: Object.fromEntries(Object.entries(history).map(([key, value]) => [key, { ...value, last: Date.now() / 1000 - 3 * 3600 - 1 }])) }
+    const eligible = await invoke(Observe.name, { state: cooled }) as typeof Observe.successSchema.Type
+    assert.equal(eligible.candidates.length, 1)
+    assert.equal(eligible.candidates[0]!.fix, "conflict")
+    assert.deepEqual(eligible.candidates[0]!.extras, assignment.extras)
+  })
 
   test("an idle round retains READY work and cannot finish while the queue is disabled", async () => {
     const state = { ...initial(), ready: [ready] }
@@ -382,12 +440,12 @@ if (!process.execArgv.includes("--experimental-test-module-mocks")) {
     const held = {
       ...initial(),
       inFlight: [{ assignment, executionId: "still-running", startedAt: 0 }],
-      ready: [ready],
-      quarantined: [{ ...ready, key: assignment.key, error: "conflict" }]
+      ready: [{ assignment: { ...assignment, key: "ready-worker" }, result: { ...result, key: "ready-worker" } }],
+      quarantined: [{ assignment: { ...assignment, key: "quarantined-worker" }, result: { ...result, key: "quarantined-worker" }, key: "quarantined-worker", error: "conflict" }]
     }
     claims.length = 0
     await invoke(Observe.name, { state: held })
-    assert.equal(claims.filter((args) => args[1] === "claim").length, 2)
+    assert.equal(claims.filter((args) => args[1] === "claim").length, 6)
     ownership = { mine: true, holder: { host: "another-host" } }
     claims.length = 0
     try {

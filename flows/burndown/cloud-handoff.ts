@@ -376,6 +376,17 @@ const retainValidated = async (artifact: CloudHandoff, artifactDirectory: string
   return artifactPath
 }
 
+/** Atomic, bounded host recovery evidence. Guest logs and credentials never belong here. */
+export const retainCloudRecovery = async (directory: string, value: Readonly<Record<string, unknown>>): Promise<void> => {
+  if (!isAbsolute(directory)) throw new Error("recovery directory must be absolute")
+  const bytes = JSON.stringify(value)
+  if (Buffer.byteLength(bytes) > 16 * 1024) throw new Error("Cloud recovery receipt exceeds limit")
+  await mkdir(directory, { recursive: true, mode: 0o700 })
+  if ((await lstat(directory)).isSymbolicLink()) throw new Error("recovery directory cannot use symlinks")
+  await replaceHostFile(join(directory, "recovery.json"), bytes, 0o600)
+  await syncDirectory(directory)
+}
+
 /** Durably retain validated committed bytes before review or sandbox release. */
 export const retainCloudHandoff = async (
   value: unknown,

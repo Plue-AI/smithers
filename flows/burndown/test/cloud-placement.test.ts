@@ -91,7 +91,7 @@ for (const tool of ["codex", "claude"] as const) {
           )
         }).pipe(Effect.provide(NodeServices.layer))
       )
-      assert.deepEqual(calls, ["POST", "GET", "DELETE"])
+      assert.deepEqual(calls, ["POST", "GET"])
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
@@ -177,7 +177,7 @@ for (const mode of ["failure", "cancellation"] as const) {
           yield* Effect.promise(() => assert.rejects(readdir(dirname(config))))
         }).pipe(Effect.provide(NodeServices.layer))
       )
-      assert.deepEqual(calls, ["POST", "GET", "DELETE"])
+      assert.deepEqual(calls, ["POST", "GET"])
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
@@ -340,7 +340,9 @@ test("READY artifacts are retained and reviewed on the host before local IDs rep
         }, (program, args) => {
           assert.ok(program === "git" || program === "sh", "review must never execute in the coding guest")
           reads++
-          if (args[1]!.includes("git show")) return Effect.succeed(Buffer.from(`${guestSha}\0${"b".repeat(40)}\0fix: fixture`).toString("base64"))
+          if (args[1]!.includes("git show")) {
+            return Effect.succeed(Buffer.from(`${guestSha}\0${"b".repeat(40)}\0fix: fixture`).toString("base64"))
+          }
           if (args[1]!.includes("diff-tree")) {
             return Effect.succeed(
               Buffer.from(`:100644 100644 ${"1".repeat(40)} ${"2".repeat(40)} M\0file\0`).toString("base64")
@@ -926,87 +928,179 @@ test("Cloud export failure retains report and workspace for recovery", async () 
   const sha = "a".repeat(40)
   const calls: string[] = []
   try {
-    await Effect.runPromise(Effect.gen(function*() {
-      const spawner = yield* ChildProcessSpawner
-      const machine = yield* makeCloudPlacement({
-        spawner, workdir: dir, install: false, artifactDirectory: dir,
-        identity: async () => "smithers-dev", prepareRepository: async () => {},
-        credential: async () => ({ auth: {} }),
-        api: {
-          request: async (method) => { calls.push(method); return { id: "ws-recovery", status: "running" } },
-          sshPrefix: async () => []
-        }
-      }).machine(assignment, account)
-      yield* Effect.gen(function*() {
-        const guest = yield* ChildProcessSpawner
-        const command = yield* machine.command!("printf 'READY " + sha + "\\n'")
-        const output = yield* guest.string(ChildProcess.make("sh", ["-c", command.script], {
-          stdin: Stream.make(command.stdin!), env: machine.env, extendEnv: true
-        }))
-        assert.match(output, /READY/)
-        const exit = yield* Effect.exit(machine.handoff!({
-          key: assignment.key, status: "ready", commits: [{ issue: 42, commit: sha }],
-          notes: "PRIVATE-REPORT-NOTES", agentHours: 0
-        }, () => Effect.fail("PRIVATE-TRANSPORT-ERROR")))
-        assert.equal(exit._tag, "Failure")
-        const raw = yield* Effect.promise(() => readFile(join(dir, "recovery.json"), "utf8"))
-        assert.ok(!raw.includes("PRIVATE-REPORT-NOTES"))
-        assert.ok(!raw.includes("PRIVATE-TRANSPORT-ERROR"))
-        assert.match(raw, /ws-recovery/)
-        assert.match(raw, /gpt-6.1-sol/)
-        assert.match(raw, new RegExp(sha))
-      }).pipe(Effect.provide(Sandbox.layerHost(machine.provider, { session: assignment.key + dir })), Effect.scoped)
-    }).pipe(Effect.provide(NodeServices.layer)))
-    assert.deepEqual(calls, ["POST", "GET"], "failed export must keep remote committed code")
-  } finally { await rm(dir, { recursive: true, force: true }) }
-})
-
-for (const tool of ["codex", "claude"] as const) {
-  test(`Cloud retained ${tool} artifact permits cleanup and preserves assignment attribution`, async () => {
-    const dir = await mkdtemp(join(tmpdir(), "burndown-retained-cleanup-"))
-    const sha = "a".repeat(40)
-    const model = tool === "codex" ? "gpt-6.1-sol" : "claude-opus-5-5"
-    const calls: string[] = []
-    let reconstructed = false
-    try {
-      await Effect.runPromise(Effect.gen(function*() {
+    await Effect.runPromise(
+      Effect.gen(function*() {
         const spawner = yield* ChildProcessSpawner
         const machine = yield* makeCloudPlacement({
-          spawner, workdir: dir, install: false, artifactDirectory: dir,
-          identity: async () => "smithers-dev", prepareRepository: async () => {},
-          credential: async () => tool === "codex" ? { auth: {} } : { token: "fixture" },
+          spawner,
+          workdir: dir,
+          install: false,
+          artifactDirectory: dir,
+          identity: async () => "smithers-dev",
+          prepareRepository: async () => {},
+          credential: async () => ({ auth: {} }),
           api: {
             request: async (method) => {
               calls.push(method)
-              if (method === "DELETE") {
-                assert.ok((await readdir(dir)).some((entry) => /^[a-f0-9]{64}$/.test(entry)), "retain before cleanup")
-              }
-              return { id: "ws-retained", status: "running" }
-            }, sshPrefix: async () => []
-          },
-          review: async () => "VERDICT: PASS",
-          handoff: async (_artifact, attribution) => {
-            assert.deepEqual(attribution, { tool, model })
-            reconstructed = true
-            return { artifactPath: dir, receiptPath: dir, commit: sha, commits: [{ source: sha, local: sha }] }
+              return { id: "ws-recovery", status: "running" }
+            },
+            sshPrefix: async () => []
           }
-        }).machine({ ...assignment, tool, model }, { ...account, tool })
+        }).machine(assignment, account)
         yield* Effect.gen(function*() {
           const guest = yield* ChildProcessSpawner
-          const command = yield* machine.command!("printf READY")
-          assert.equal(yield* guest.string(ChildProcess.make("sh", ["-c", command.script], {
-            stdin: Stream.make(command.stdin!), env: machine.env, extendEnv: true
-          })), "READY")
-          yield* machine.handoff!({ key: assignment.key, status: "ready", commits: [{ issue: 42, commit: sha }], notes: "", agentHours: 0 },
-            (_program, args) => Effect.succeed(args[1]!.includes("git show")
-              ? Buffer.from(`${sha}\0${"b".repeat(40)}\0fix: retained`).toString("base64")
-              : args[1]!.includes("diff-tree")
-              ? Buffer.from(`:000000 100644 ${"0".repeat(40)} ${"1".repeat(40)} A\0file\0`).toString("base64")
-              : Buffer.from("retained").toString("base64")))
+          const command = yield* machine.command!("printf 'READY " + sha + "\\n'")
+          const output = yield* guest.string(ChildProcess.make("sh", ["-c", command.script], {
+            stdin: Stream.make(command.stdin!),
+            env: machine.env,
+            extendEnv: true
+          }))
+          assert.match(output, /READY/)
+          const exit = yield* Effect.exit(machine.handoff!({
+            key: assignment.key,
+            status: "ready",
+            commits: [{ issue: 42, commit: sha }],
+            notes: "PRIVATE-REPORT-NOTES",
+            agentHours: 0
+          }, () => Effect.fail("PRIVATE-TRANSPORT-ERROR")))
+          assert.equal(exit._tag, "Failure")
+          const raw = yield* Effect.promise(() => readFile(join(dir, "recovery.json"), "utf8"))
+          assert.ok(!raw.includes("PRIVATE-REPORT-NOTES"))
+          assert.ok(!raw.includes("PRIVATE-TRANSPORT-ERROR"))
+          assert.match(raw, /ws-recovery/)
+          assert.match(raw, /gpt-6.1-sol/)
+          assert.match(raw, new RegExp(sha))
         }).pipe(Effect.provide(Sandbox.layerHost(machine.provider, { session: assignment.key + dir })), Effect.scoped)
-      }).pipe(Effect.provide(NodeServices.layer)))
-      assert.equal(reconstructed, true)
-      assert.deepEqual(calls, ["POST", "GET", "DELETE"])
-    } finally { await rm(dir, { recursive: true, force: true }) }
-  })
+      }).pipe(Effect.provide(NodeServices.layer))
+    )
+    assert.deepEqual(calls, ["POST", "GET"], "failed export must keep remote committed code")
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+for (const tool of ["codex", "claude"] as const) {
+  for (const outcome of ["success", "review-failure", "reconstruction-failure"] as const) {
+    test(`Cloud retained ${tool} artifact permits cleanup after ${outcome} and preserves attribution`, async () => {
+      const dir = await mkdtemp(join(tmpdir(), "burndown-retained-cleanup-"))
+      const sha = "a".repeat(40)
+      const model = tool === "codex" ? "gpt-6.1-sol" : "claude-opus-5-5"
+      const calls: string[] = []
+      let reconstructed = false
+      try {
+        await Effect.runPromise(
+          Effect.gen(function*() {
+            const spawner = yield* ChildProcessSpawner
+            const machine = yield* makeCloudPlacement({
+              spawner,
+              workdir: dir,
+              install: false,
+              artifactDirectory: dir,
+              identity: async () => "smithers-dev",
+              prepareRepository: async () => {},
+              credential: async () => tool === "codex" ? { auth: {} } : { token: "fixture" },
+              api: {
+                request: async (method) => {
+                  calls.push(method)
+                  if (method === "DELETE") {
+                    assert.ok(
+                      (await readdir(dir)).some((entry) => /^[a-f0-9]{64}$/.test(entry)),
+                      "retain before cleanup"
+                    )
+                  }
+                  return { id: "ws-retained", status: "running" }
+                },
+                sshPrefix: async () => []
+              },
+              review: async () => outcome === "review-failure" ? "VERDICT: FAIL" : "VERDICT: PASS",
+              handoff: async (_artifact, attribution) => {
+                assert.deepEqual(attribution, { tool, model })
+                reconstructed = true
+                if (outcome === "reconstruction-failure") throw Error("reconstruction fixture failed")
+                return { artifactPath: dir, receiptPath: dir, commit: sha, commits: [{ source: sha, local: sha }] }
+              }
+            }).machine({ ...assignment, tool, model }, { ...account, tool })
+            yield* Effect.gen(function*() {
+              const guest = yield* ChildProcessSpawner
+              const command = yield* machine.command!("printf READY")
+              assert.equal(
+                yield* guest.string(ChildProcess.make("sh", ["-c", command.script], {
+                  stdin: Stream.make(command.stdin!),
+                  env: machine.env,
+                  extendEnv: true
+                })),
+                "READY"
+              )
+              const exit = yield* Effect.exit(machine.handoff!({
+                key: assignment.key,
+                status: "ready",
+                commits: [{ issue: 42, commit: sha }],
+                notes: "",
+                agentHours: 0
+              }, (_program, args) =>
+                Effect.succeed(
+                  args[1]!.includes("git show")
+                    ? Buffer.from(`${sha}\0${"b".repeat(40)}\0fix: retained`).toString("base64")
+                    : args[1]!.includes("diff-tree")
+                    ? Buffer.from(`:000000 100644 ${"0".repeat(40)} ${"1".repeat(40)} A\0file\0`).toString("base64")
+                    : Buffer.from("retained").toString("base64")
+                )))
+              assert.equal(exit._tag, outcome === "success" ? "Success" : "Failure")
+            }).pipe(
+              Effect.provide(Sandbox.layerHost(machine.provider, { session: assignment.key + dir })),
+              Effect.scoped
+            )
+          }).pipe(Effect.provide(NodeServices.layer))
+        )
+        assert.equal(reconstructed, outcome !== "review-failure")
+        assert.deepEqual(calls, ["POST", "GET", "DELETE"])
+      } finally {
+        await rm(dir, { recursive: true, force: true })
+      }
+    })
+  }
 }
+
+test("Cloud grant failure is redacted and allows cleanup before guest execution", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "burndown-grant-failure-"))
+  const calls: string[] = []
+  try {
+    await Effect.runPromise(
+      Effect.gen(function*() {
+        const spawner = yield* ChildProcessSpawner
+        const machine = yield* makeCloudPlacement({
+          spawner,
+          workdir: dir,
+          install: false,
+          artifactDirectory: dir,
+          identity: async () => "smithers-dev",
+          prepareRepository: async () => {},
+          api: {
+            request: async (method) => {
+              calls.push(method)
+              return { id: "ws-grant", status: "running" }
+            },
+            sshPrefix: async () => {
+              throw Error("PRIVATE-GRANT-TOKEN")
+            }
+          }
+        }).machine(assignment, account)
+        const exit = yield* Effect.exit(
+          Effect.gen(function*() {
+            const guest = yield* ChildProcessSpawner
+            yield* guest.string(ChildProcess.make("sh", ["-c", "true"]))
+          }).pipe(Effect.provide(Sandbox.layerHost(machine.provider, { session: assignment.key + dir })), Effect.scoped)
+        )
+        assert.equal(exit._tag, "Failure")
+        assert.ok(!JSON.stringify(exit).includes("PRIVATE-GRANT-TOKEN"))
+        const raw = yield* Effect.promise(() => readFile(join(dir, "recovery.json"), "utf8"))
+        assert.match(raw, /ssh-grant/)
+        assert.match(raw, /ws-grant/)
+        assert.ok(!raw.includes("PRIVATE-GRANT-TOKEN"))
+      }).pipe(Effect.provide(NodeServices.layer))
+    )
+    assert.deepEqual(calls, ["POST", "GET", "DELETE"])
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})

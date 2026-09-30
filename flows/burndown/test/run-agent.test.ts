@@ -278,3 +278,21 @@ for (const tool of ["codex", "claude"] as const) {
     }
   })
 }
+
+for (const tool of ["codex", "claude"] as const) {
+  const report = (text: string) => tool === "codex" ? codex(text) : claude(text)
+  for (const [name, opener, nested, closer] of [
+    ["different fence marker", "~~~text", "```", "~~~"],
+    ["shorter fence marker", "````text", "```", "````"]
+  ]) {
+    test(`${tool} keeps quoted READY inside a ${name}`, () => {
+      const quoted = `${opener}\n${nested}\nREADY ${first}\n${closer}`
+      const result = parse(report(quoted), 0, tool)
+      assert.equal(result.status, "failed")
+      assert.deepEqual(result.commits, [])
+      const closed = parse(report(`${quoted}\nREADY ${second}`), 0, tool)
+      assert.equal(closed.status, "ready")
+      assert.deepEqual(closed.commits, [{ issue: 2955, commit: second }])
+    })
+  }
+}

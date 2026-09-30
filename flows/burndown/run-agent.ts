@@ -19,7 +19,7 @@ import { Assignment, WorkerResult } from "./schema.ts"
  * re-running hours of agent work.
  */
 export const RunAgent = Action.make("burndown/run-agent", {
-  implementationVersion: "burndown/run-agent/v5",
+  implementationVersion: "burndown/run-agent/v6",
   payload: Assignment,
   success: WorkerResult,
   error: Schema.String,
@@ -165,12 +165,17 @@ export const parseReport = (
   const byCommit = new Map<string, number>()
   const statuses = new Map<number, string>()
   const readyLines: Array<{ readonly issue?: number; readonly commit: string }> = []
-  let fenced = false
+  let fence: string | undefined
   let closed = false
   let blocked = false
   for (const line of report.split(/\r?\n/)) {
-    if (/^\s*(```|~~~)/.test(line)) { fenced = !fenced; continue }
-    if (fenced) continue
+    const marker = /^\s*(`{3,}|~{3,})(.*)$/.exec(line)
+    if (fence !== undefined) {
+      if (marker !== null && marker[1]![0] === fence[0] &&
+        marker[1]!.length >= fence.length && marker[2]!.trim() === "") fence = undefined
+      continue
+    }
+    if (marker !== null) { fence = marker[1]!; continue }
     const ready = /^READY\s+(?:#?(\d+)\s+)?([0-9a-f]{40}|[0-9a-f]{64})\s*$/.exec(line)
     if (ready) {
       readyLines.push({
@@ -304,5 +309,5 @@ export const layerRunAgent = (brief: (assignment: Assignment, machine: Machine) 
           Effect.mapError((cause) => `agent ${assignment.key} could not run: ${String(cause)}`)
         )
       }),
-    { implementationVersion: "burndown/run-agent/v5" }
+    { implementationVersion: "burndown/run-agent/v6" }
   )

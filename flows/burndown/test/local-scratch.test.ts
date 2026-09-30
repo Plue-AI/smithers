@@ -5,7 +5,7 @@
  */
 import { NodeServices } from "@effect/platform-node"
 import { Action, FlowRuntime } from "@smthrs/flow"
-import { Duration, Effect, Layer } from "effect"
+import { type Duration, Effect, Layer, Option } from "effect"
 import assert from "node:assert/strict"
 import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
@@ -63,7 +63,8 @@ const assignment = (n: number): Assignment => ({
   placement: "local"
 })
 
-const run = (input: Assignment, within?: Duration.Input) => {
+/** Runs RunAgent over the local placement; `undefined` when `within` elapses first. */
+const run = (input: Assignment, within: Duration.Input = "2 minutes"): Promise<WorkerResult | undefined> => {
   const handlers = new Map<string, (input: unknown) => { execute: Effect.Effect<unknown, unknown> }>()
   const runtime = {
     register: (declared: { _tag: string }, handler: never) => Effect.sync(() => handlers.set(declared._tag, handler))
@@ -84,7 +85,8 @@ const run = (input: Assignment, within?: Duration.Input) => {
         Effect.provide(layerLocal)
       )) as WorkerResult
     }).pipe(
-      (effect) => within === undefined ? effect : Effect.timeoutOption(effect, within),
+      Effect.timeoutOption(within),
+      Effect.map(Option.getOrUndefined),
       Effect.scoped,
       Effect.provide(NodeServices.layer)
     )
@@ -109,7 +111,7 @@ for (const outcome of ["ready", "failed"] as const) {
     process.env.BURNDOWN_PROBE_FAIL = outcome === "ready" ? "0" : "1"
     process.env.BURNDOWN_PROBE_SLEEP = "0"
     const result = await run(input)
-    assert.equal(result.status, outcome)
+    assert.equal(result?.status, outcome)
     const stateDir = join(home, "Smithers-Ops/burndown/runs", input.key)
     const [scratch] = await probed(input.key)
     assert.ok(scratch!.startsWith(`${stateDir}/`), `scratch ${scratch} is not inside ${stateDir}`)
@@ -124,9 +126,11 @@ test("separate local runs share one Go build cache outside their scratch", async
   process.env.BURNDOWN_PROBE_FAIL = "0"
   for (const input of inputs) {
     process.env.BURNDOWN_PROBE_NAME = input.key
-    assert.equal((await run(input)).status, "ready")
+    assert.equal((await run(input))?.status, "ready")
   }
-  const [[scratchA, cacheA], [scratchB, cacheB]] = await Promise.all(inputs.map((input) => probed(input.key)))
+  const [a, b] = await Promise.all(inputs.map((input) => probed(input.key)))
+  const [scratchA, cacheA] = a!
+  const [scratchB, cacheB] = b!
   assert.notEqual(scratchA, scratchB)
   assert.ok(cacheA)
   assert.equal(cacheA, cacheB)
@@ -139,7 +143,7 @@ test("an interrupted local run removes its scratch", async () => {
   process.env.BURNDOWN_PROBE_FAIL = "0"
   process.env.BURNDOWN_PROBE_SLEEP = "1"
   try {
-    await run(input, "3 seconds")
+    assert.equal(await run(input, "3 seconds"), undefined)
   } finally {
     process.env.BURNDOWN_PROBE_SLEEP = "0"
   }
