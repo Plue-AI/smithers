@@ -83,6 +83,12 @@ const causeCode = (cause: object): string | undefined | typeof Uninspectable =>
  */
 const retryablePostgresStates = new Set(["40001", "40P01", "55P03"])
 
+/**
+ * Postgres SQLSTATEs for a statement that names what the schema lacks:
+ * `42P01` undefined_table, `42703` undefined_column.
+ */
+const missingSchemaPostgresStates = new Set(["42P01", "42703"])
+
 const isRetryableCode = (code: string | undefined): boolean =>
   code !== undefined &&
   (code.startsWith("SQLITE_BUSY") ||
@@ -149,6 +155,23 @@ export const isIoCause = (cause: unknown): boolean =>
   )
 
 /**
+ * Returns whether a cause chain names a table or column the database does not
+ * have: SQLite's `no such table` / `no such column`, or PostgreSQL's
+ * `undefined_table` / `undefined_column`. A store written by an older schema
+ * answers this way to a statement a newer binary issues.
+ *
+ * @category guards
+ * @since 1.0.0
+ */
+export const isSchemaCause = (cause: unknown): boolean =>
+  hasCause(
+    cause,
+    (code, message) =>
+      (code !== undefined && missingSchemaPostgresStates.has(code)) ||
+      message.includes("no such table") || message.includes("no such column")
+  )
+
+/**
  * The stable category a structured SQL failure normalizes to.
  *
  * Every code `DurableWriter.DatabaseError` reports except `unsupported`, which
@@ -184,10 +207,18 @@ export const classifySqlError = (error: SqlError.SqlError): SqlFailureCode =>
     ? "io"
     : isBusyCause(error.reason.cause)
     ? "busy"
+    : isSchemaCause(error.reason.cause)
+    ? "schema"
     : "unknown"
 
-/** Finds SQL provenance, including a redacted normalized error, in a cause chain. */
-const findFailureCode = (error: unknown): DurableWriter.DatabaseErrorCode | undefined => {
+/**
+ * The category SQL provenance in a cause chain normalizes to, including a
+ * redacted normalized error, or `undefined` when the chain carries none.
+ *
+ * @category classifying
+ * @since 1.0.0
+ */
+export const findFailureCode = (error: unknown): DurableWriter.DatabaseErrorCode | undefined => {
   const seen = new Set<unknown>()
   let current = error
   while (typeof current === "object" && current !== null && !seen.has(current)) {
@@ -201,7 +232,8 @@ const findFailureCode = (error: unknown): DurableWriter.DatabaseErrorCode | unde
     // remains insufficient provenance for replaying application failures.
     if (readProperty(current, "_tag") === "@smthrs/database/DatabaseError") {
       const code = readProperty(current, "code")
-      if (code === "busy" || code === "io" || code === "constraint" || code === "unsupported" || code === "unknown") {
+      if (code === "busy" || code === "io" || code === "constraint" || code === "schema" || code === "unsupported" ||
+        code === "unknown") {
         return code
       }
     }

@@ -27,12 +27,14 @@ import * as WriteRetry from "./internal/WriteRetry.ts"
 export type WriteRetryOptions = WriteRetry.WriteRetryOptions
 
 /**
- * Stable categories exposed for database failures.
+ * Stable categories exposed for database failures. `schema` is a statement
+ * naming a table or column the database does not have, as a store written by
+ * an older schema answers a newer binary.
  *
  * @category models
  * @since 0.1.0
  */
-export const DatabaseErrorCode = Schema.Literals(["busy", "constraint", "io", "unsupported", "unknown"])
+export const DatabaseErrorCode = Schema.Literals(["busy", "constraint", "io", "schema", "unsupported", "unknown"])
 
 /**
  * Stable database failure code.
@@ -141,6 +143,17 @@ export const afterCommit = CommitScope.afterCommit
  */
 export const fromSqlError = (error: SqlError.SqlError): DatabaseError =>
   new DatabaseError({ code: WriteRetry.classifySqlError(error), cause: error })
+
+/**
+ * The stable code a failure carries: its own structured SQL error or
+ * normalized `DatabaseError`, or one found by following `cause` chains through
+ * the domain errors that wrap them. `undefined` when there is no SQL
+ * provenance at all.
+ *
+ * @category converting
+ * @since 1.0.0
+ */
+export const codeOf = (error: unknown): DatabaseErrorCode | undefined => WriteRetry.findFailureCode(error)
 
 const normalizeSqlErrors = <E>(
   cause: Cause.Cause<E>

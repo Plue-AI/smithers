@@ -156,7 +156,7 @@ Delays use Effect's `Clock`, so `TestClock` drives them.
 ### DatabaseErrorCode
 
 ```ts
-const DatabaseErrorCode: Schema.Literals<["busy", "constraint", "io", "unsupported", "unknown"]>
+const DatabaseErrorCode: Schema.Literals<["busy", "constraint", "io", "schema", "unsupported", "unknown"]>
 type DatabaseErrorCode = typeof DatabaseErrorCode.Type
 ```
 
@@ -180,6 +180,7 @@ it with `Schema.is(DatabaseError)` or catch it by its tag
 | `busy`        | A transient lock or serialization conflict. The only category that is replayed.        |
 | `constraint`  | A constraint or unique violation. Never replayed: it is the first-writer-wins signal.  |
 | `io`          | An I/O failure. Normalized but never replayed, even when a busy cause sits beneath it. |
+| `schema`      | A statement named a table or column the database lacks: a store older than the binary. |
 | `unsupported` | The noop writer, or a raw result with no readable affected-row count.                  |
 | `unknown`     | A SQL failure in none of the above categories.                                         |
 
@@ -195,13 +196,25 @@ and the decision to replay cannot disagree about one error.
 
 Classification, in precedence order: a lock timeout is `busy`; a constraint or
 unique violation is `constraint`; an I/O cause is `io`; a busy cause is `busy`;
-anything else is `unknown`.
+a missing table or column is `schema`; anything else is `unknown`.
 
 The busy vocabulary is `SQLITE_BUSY*`, `SQLITE_LOCKED*`, SQLSTATE `40001`,
 `40P01`, `55P03`, and the texts `database is locked`, `database is busy`,
 `could not serialize access`, `deadlock detected`, and
 `cannot rollback - no transaction is active`. The I/O vocabulary is
-`SQLITE_IOERR*` and the text `disk i/o error`.
+`SQLITE_IOERR*` and the text `disk i/o error`. The schema vocabulary is
+SQLSTATE `42P01`, `42703`, and the texts `no such table` and `no such column`.
+
+### codeOf
+
+```ts
+const codeOf: (error: unknown) => DatabaseErrorCode | undefined
+```
+
+The code a failure carries, found by following `cause` chains through the
+domain errors that wrap a structured SQL error or a normalized
+`DatabaseError`, including one a store redacted to its code alone. `undefined`
+when the chain has no SQL provenance.
 
 ### affectedRows
 

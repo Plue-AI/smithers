@@ -553,8 +553,49 @@ describe("DurableWriter", () => {
     expect(DurableWriter.fromSqlError(unknownSqlError({ code: "40P01" }))).toMatchObject({ code: "busy" })
     expect(DurableWriter.fromSqlError(unknownSqlError({ message: "cannot rollback - no transaction is active" })))
       .toMatchObject({ code: "busy" })
-    expect(DurableWriter.fromSqlError(unknownSqlError({ code: "42P01" }))).toMatchObject({ code: "unknown" })
+    expect(DurableWriter.fromSqlError(unknownSqlError({ code: "42P01" }))).toMatchObject({ code: "schema" })
   })
+
+  // A store written by an older schema answers a newer binary's statement with
+  // a missing table or column; that is its own category, never replayed.
+  it("classifies a missing table or column as schema on either backend", () => {
+    for (const cause of [{ code: "42P01" }, { code: "42703" }]) {
+      expect(DurableWriter.fromSqlError(unknownSqlError(cause))).toMatchObject({ code: "schema" })
+    }
+    for (const message of ["no such table: control_plans", "no such column: meta_json"]) {
+      expect(DurableWriter.fromSqlError(unknownSqlError(new Error(message)))).toMatchObject({ code: "schema" })
+      expect(DurableWriter.fromSqlError(unknownSqlError({ cause: { message } }))).toMatchObject({ code: "schema" })
+    }
+    expect(WriteRetry.isRetryableWriteError(unknownSqlError({ code: "42703" }))).toBe(false)
+    // A busy or I/O cause outranks a schema text quoted beside it.
+    expect(DurableWriter.fromSqlError(unknownSqlError({ code: "40001", message: "no such table: t" })))
+      .toMatchObject({ code: "busy" })
+    expect(DurableWriter.fromSqlError(unknownSqlError({ code: "SQLITE_IOERR", message: "no such table: t" })))
+      .toMatchObject({ code: "io" })
+    expect(DurableWriter.fromSqlError(unknownSqlError({ code: "42601", message: "syntax error" })))
+      .toMatchObject({ code: "unknown" })
+  })
+
+  it("reads the code a failure carries through wrapping and redacting domain errors", () => {
+    expect(DurableWriter.codeOf(unknownSqlError({ code: "42P01" }))).toBe("schema")
+    expect(DurableWriter.codeOf({ cause: { cause: unknownSqlError({ code: "42703" }) } })).toBe("schema")
+    expect(DurableWriter.codeOf({ cause: new DurableWriter.DatabaseError({ code: "schema" }) })).toBe("schema")
+    expect(DurableWriter.codeOf({ cause: new DurableWriter.DatabaseError({ code: "busy" }) })).toBe("busy")
+    expect(DurableWriter.codeOf(new Error("no such table: t"))).toBeUndefined()
+    expect(DurableWriter.codeOf(undefined)).toBeUndefined()
+    expect(DurableWriter.codeOf({ _tag: "@smthrs/database/DatabaseError", code: "invalid" })).toBeUndefined()
+  })
+
+  it.effect("classifies a real SQLite statement against a missing table or column as schema", () =>
+    Effect.gen(function*() {
+      const sql = yield* SqlClient.SqlClient
+      yield* sql`CREATE TABLE present (id INTEGER)`
+      const table = yield* Effect.flip(sql`SELECT * FROM absent`)
+      const column = yield* Effect.flip(sql`SELECT missing FROM present`)
+      expect(DurableWriter.codeOf(table)).toBe("schema")
+      expect(DurableWriter.codeOf(column)).toBe("schema")
+      expect(DurableWriter.fromSqlError(table).code).toBe("schema")
+    }).pipe(Effect.provide(TestDatabase.layer)))
 
   it.effect("retries a Postgres serialization failure through the same schedule", () =>
     Effect.gen(function*() {
@@ -1044,7 +1085,7 @@ describe("DurableWriter", () => {
     ).toBe(true)
   })
 
-  it.each(["busy", "io", "constraint", "unknown", "unsupported"] as const)(
+  it.each(["busy", "io", "constraint", "schema", "unknown", "unsupported"] as const)(
     "classifies a payload-free DatabaseError with code %s through domain causes",
     (code) => {
       const error = { cause: new DurableWriter.DatabaseError({ code }) }
