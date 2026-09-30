@@ -90,6 +90,16 @@ its database. The host receives only that role's `SMITHERS_POSTGRES_URL` and the
 webhook secret encryption key, so a live host keeps reconnecting across backend
 restarts. Only the SCRAM verifier reaches the server.
 
+A journal lives as long as its workspace. Stopping or suspending a workspace,
+including when its client lease lapses, keeps the journal. Deleting the
+workspace drops its database, ending any open session, and then its role.
+This includes a delete after a lease lapse. The workspace cleaner also drops
+the journal of a workspace whose row is gone or tombstoned, such as after a
+repository deletion or a failed drop. Each journal role is tagged with the
+backend's database name. The sweep lists only roles with that tag and names
+that match `smithers_flows_<workspace>` exactly, so it never drops another
+backend's journals on a shared server.
+
 The backend role needs `CREATEROLE` and `CREATEDB`, or superuser. It revokes
 `CONNECT` on its own database from `PUBLIC` at startup. If it does not own that
 database, revoke the grant yourself; until then every host start is refused. A

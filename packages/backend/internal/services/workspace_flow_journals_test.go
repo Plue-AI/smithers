@@ -60,13 +60,10 @@ func TestWorkspaceFlowJournalsFollowTheWorkspace(t *testing.T) {
 	assert.False(t, exists(deleted.ID), "deleting the workspace drops its journal")
 	assert.True(t, exists(live.ID))
 
-	// A repository deletion cascades its workspace rows away without the
+	// A repository or account deletion cascades the row away without the
 	// workspace delete path; the sweep finds the journal left behind.
-	_, otherRepo := setupTestUserAndRepo(t, pool)
-	var otherOwner int64
-	require.NoError(t, pool.QueryRow(ctx, `SELECT user_id FROM repositories WHERE id = $1`, otherRepo).Scan(&otherOwner))
-	cascaded := create("cascaded", otherRepo)
-	_, err = pool.Exec(ctx, `DELETE FROM repositories WHERE id = $1`, otherRepo)
+	cascaded := create("cascaded", repo)
+	_, err = pool.Exec(ctx, `DELETE FROM workspaces WHERE id = $1`, cascaded.ID)
 	require.NoError(t, err)
 	// A tombstoned workspace whose drop failed at delete time is swept too.
 	tombstoned := create("tombstoned", repo)
