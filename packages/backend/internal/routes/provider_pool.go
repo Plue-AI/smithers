@@ -18,6 +18,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/flowhost"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
+	"github.com/smithersai/smithers/packages/backend/modelproxy"
 )
 
 // The provider account pool route. Workspaces' and managed Flow hosts'
@@ -282,6 +283,11 @@ func (h *ProviderPoolHandler) servePool(w http.ResponseWriter, r *http.Request, 
 			raw, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 			_ = resp.Body.Close()
 			until := modelPoolLimitReset(resp.Header, raw, time.Now())
+			if modelproxy.ProviderSpendCap(raw) {
+				// A spend cap names no reset and clears only when the key's
+				// owner raises it: re-check it as the model proxy does.
+				until = modelPoolLimitReset(http.Header{"Retry-After": {modelproxy.SpendCapRetryAfter}}, nil, time.Now())
+			}
 			if err := h.Pool.MarkLimited(context.WithoutCancel(ctx), conn.ConnectionID, until); err != nil {
 				slog.Warn("mark provider connection limited failed", "connection_id", conn.ConnectionID, "error", err)
 			}

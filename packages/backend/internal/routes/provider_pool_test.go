@@ -335,6 +335,33 @@ func TestProviderPool_AnthropicAPIKeys(t *testing.T) {
 	assert.Empty(t, calls)
 }
 
+// A spend-capped Anthropic key names no reset: it is parked for the model
+// proxy's re-check interval, not the short default, and the next key serves.
+func TestProviderPool_ASpendCappedKeyIsParkedUntilTheRecheck(t *testing.T) {
+	var calls []providerCall
+	upstream := accountUpstream(t, &calls, map[string]func(http.ResponseWriter){
+		"sk-ant-api03-a": func(w http.ResponseWriter) {
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = io.WriteString(w, `{"type":"error","error":{"type":"rate_limit_error","message":"You will regain access on 2099-10-01 at 00:00 UTC.","details":{"error_code":"enforced_spend_limit_reached"}}}`)
+		},
+		"sk-ant-api03-b": func(w http.ResponseWriter) {
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = io.WriteString(w, `{"type":"error","error":{"type":"rate_limit_error","message":"slow down"}}`)
+		},
+		"sk-ant-api03-c": func(w http.ResponseWriter) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"type":"message","content":[]}`)
+		},
+	})
+	pool := &fakePool{pooled: true, limited: map[string]time.Time{}, accounts: claudeKeys("a", "b", "c")}
+	h := &ProviderPoolHandler{Pool: pool, Scopes: fakeScopes{ok: true}, Upstreams: map[string]string{"anthropic": upstream.URL}}
+	rec := proxyRequest(t, h, "/provider-pool/anthropic/v1/messages", `{"model":"claude-sonnet-4-6","messages":[]}`, workspaceContext())
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	require.Len(t, calls, 3)
+	assert.WithinDuration(t, time.Now().Add(time.Hour), pool.limited["a"], 10*time.Second, "a spend cap is re-checked hourly")
+	assert.WithinDuration(t, time.Now().Add(modelPoolDefaultLimit), pool.limited["b"], 10*time.Second, "a rate limit with no reset keeps the short default")
+}
+
 func TestProviderPool_RefusesWithoutAWorkspaceCredentialOrAPool(t *testing.T) {
 	var calls []providerCall
 	upstream := accountUpstream(t, &calls, nil)

@@ -162,11 +162,11 @@ func TestParametersUnitMalformedProviderReportsCannotProveUsageOrSpendCap(t *tes
 		require.Zero(t, usage.OutputTokens)
 	}
 	for _, raw := range []string{`<html>temporary rate limit</html>`, ``, `{"error":{"code":123}}`, `{"error":{"type":"rate_limit_error"}}`} {
-		require.False(t, providerSpendCap([]byte(raw)), raw)
+		require.False(t, ProviderSpendCap([]byte(raw)), raw)
 	}
 	usage, ok := usageFromJSON([]byte(`{"usage":{"input_tokens":7,"output_tokens":2}}`))
 	require.True(t, ok)
 	require.Equal(t, int64(7), usage.InputTokens)
 	require.Equal(t, int64(2), usage.OutputTokens)
-	require.True(t, providerSpendCap([]byte(`{"error":{"code":"insufficient_quota"}}`)))
+	require.True(t, ProviderSpendCap([]byte(`{"error":{"code":"insufficient_quota"}}`)))
 }

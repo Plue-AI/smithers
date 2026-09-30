@@ -211,7 +211,7 @@ func (h *Handler) forward(ctx context.Context, w http.ResponseWriter, r *http.Re
 			return Result{Outcome: outcome, Status: resp.StatusCode}, err
 		}
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, defaultMaxBody))
-		if resp.StatusCode == http.StatusTooManyRequests && providerSpendCap(raw) {
+		if resp.StatusCode == http.StatusTooManyRequests && ProviderSpendCap(raw) {
 			// The platform key's spend cap, not this caller's rate limit:
 			// every caller is refused until the cap is raised. The provider's
 			// body classifies it as an exhausted quota, so the run parks;
@@ -252,11 +252,11 @@ func (h *Handler) forward(ctx context.Context, w http.ResponseWriter, r *http.Re
 // access returns when the cap is raised, at any time.
 const SpendCapRetryAfter = "3600"
 
-// providerSpendCap reports a 429 body that is an account-level spend cap:
+// ProviderSpendCap reports a 429 body that is an account-level spend cap:
 // Anthropic's enforced_spend_limit_reached
 // (https://platform.claude.com/docs/en/api/rate-limits) or OpenAI's
 // insufficient_quota. Neither clears on retry.
-func providerSpendCap(body []byte) bool {
+func ProviderSpendCap(body []byte) bool {
 	var doc struct {
 		Error struct {
 			Type    string `json:"type"`
