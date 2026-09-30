@@ -68,3 +68,27 @@ it("ignores an ambient DATABASE_URL and keeps SQLite-owned opens local (#2175)",
   vi.stubEnv("SMITHERS_POSTGRES_URL", "postgres://host/database")
   expect(Selection.layer("local.db")).toBeDefined()
 })
+
+it("locates a store's schema the way the layer opens it", () => {
+  clear()
+  expect(Selection.location("local.db")).toBeUndefined()
+  expect(Selection.location("postgres://user@host/database?schema=explicit&sslmode=require")).toEqual({
+    url: "postgres://user@host/database?sslmode=require",
+    schema: "explicit"
+  })
+  expect(Selection.location("postgresql://host/database")).toEqual({
+    url: "postgresql://host/database",
+    schema: "smithers_flows"
+  })
+  vi.stubEnv("SMITHERS_POSTGRES_URL", "postgres://host/database")
+  const hashed = Selection.location("/project/.flows/engine.db")
+  expect(hashed?.url).toBe("postgres://host/database")
+  expect(hashed?.schema).toMatch(/^smithers_[0-9a-f]{32}$/)
+  // Unprefixed, the whole path names the schema, so another directory is another schema.
+  expect(Selection.location("/copy/.flows/engine.db")?.schema).not.toBe(hashed?.schema)
+  vi.stubEnv("SMITHERS_POSTGRES_SCHEMA", "workspace")
+  // Prefixed, only the basename does: a copy needs a name of its own.
+  expect(Selection.location("/project/.flows/engine.db")?.schema).toBe("workspace_engine_db")
+  expect(Selection.location("/copy/.flows/engine.db")?.schema).toBe("workspace_engine_db")
+  expect(Selection.location("/copy/.flows/verify_ab_engine.db")?.schema).toBe("workspace_verify_ab_engine_db")
+})

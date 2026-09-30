@@ -22,13 +22,16 @@ export const isUrl = (value: string): boolean => /^postgres(?:ql)?:\/\//.test(va
 const sqliteOwned = (filename: string): boolean =>
   filename === "" || filename === ":memory:" || filename.startsWith("file:")
 
-/** Explicit URLs select one schema; environment selection preserves each local store's identity.
+/** Where a filename's store lives on PostgreSQL: the connection URL (without
+ * its `schema` parameter) and the schema the store's tables are in, or
+ * `undefined` for a store SQLite keeps.
+ * Explicit URLs select one schema; environment selection preserves each local store's identity.
  * Only Smithers' own settings select PostgreSQL: `SMITHERS_POSTGRES_URL`, or the generic
  * `DATABASE_URL` when `SMITHERS_BACKEND=postgres` asks for it.
  * @since 1.0.0
  * @private
  */
-export const layer = (filename: string, readOnly = false): Layer.Layer<SqlClient> | undefined => {
+export const location = (filename: string): { readonly url: string; readonly schema: string } | undefined => {
   const explicit = isUrl(filename)
   const backend = process.env.SMITHERS_BACKEND
   if (!explicit && (backend === "sqlite" || sqliteOwned(filename))) return undefined
@@ -59,9 +62,19 @@ export const layer = (filename: string, readOnly = false): Layer.Layer<SqlClient
     ? `${process.env.SMITHERS_POSTGRES_SCHEMA}_${basename(filename).replaceAll(/[^a-zA-Z0-9_]/g, "_")}`
     : `smithers_${createHash("sha256").update(resolve(filename)).digest("hex").slice(0, 32)}`
   parsed.searchParams.delete("schema")
+  return { url: parsed.toString(), schema }
+}
+
+/** The PostgreSQL client for a filename {@link location} places on PostgreSQL.
+ * @since 1.0.0
+ * @private
+ */
+export const layer = (filename: string, readOnly = false): Layer.Layer<SqlClient> | undefined => {
+  const selected = location(filename)
+  if (selected === undefined) return undefined
   return Layer.unwrap(
     Effect.promise(() => import("../postgres/PostgresDatabase.ts")).pipe(
-      Effect.map((database) => database.layer({ url: parsed.toString(), schema, readOnly }))
+      Effect.map((database) => database.layer({ url: selected.url, schema: selected.schema, readOnly }))
     )
   )
 }

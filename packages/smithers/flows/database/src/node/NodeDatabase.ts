@@ -13,6 +13,19 @@ import * as SqliteOpen from "../internal/SqliteOpen.ts"
 
 export { isUnsupportedDatabase, UnsupportedDatabase, UnsupportedDatabaseCode } from "../internal/SqliteOpen.ts"
 
+/**
+ * Where the store at `filename` lives on PostgreSQL, as this module would open
+ * it: the connection URL without its `schema` parameter, and the schema. It is
+ * `undefined` for a store SQLite keeps. `postgres://…?schema=<schema>` opens
+ * that exact schema, so a caller holding a copy of a store in another schema
+ * addresses it by URL.
+ *
+ * @since 1.0.0
+ * @category getters
+ */
+export const postgresLocation: (filename: string) => { readonly url: string; readonly schema: string } | undefined =
+  PostgresSelection.location
+
 /** Connection settings; write policy is supplied separately by DurableWriter.
  * @since 1.0.0
  * @category models
