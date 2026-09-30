@@ -83,6 +83,8 @@ export interface PlanReport {
      * declaration alone never said whether the posture was actually kept.
      */
     readonly sandboxEnforced?: boolean | undefined
+    /** The approval digest of a target that declares `approval: "required"`. */
+    readonly approval?: string | undefined
     readonly refusal?: string | undefined
   }>
 }
@@ -157,6 +159,33 @@ export interface RunOptions {
   readonly environment?: Readonly<Record<string, string | undefined>> | undefined
   /** Package name supplied to scaffold targets. */
   readonly packageName?: string | undefined
+  /** Durable approvals for `approval: "required"` targets; without them those targets refuse. */
+  readonly approvals?: TargetApprovals | undefined
+}
+
+/**
+ * One revision of a target that declares `approval: "required"`.
+ *
+ * @category models
+ * @since 1.0.0
+ */
+export interface TargetApprovalRequest {
+  /** The workspace root whose approval store holds the decision. */
+  readonly root: string
+  readonly label: string
+  /** The planner's approval digest for this exact revision. */
+  readonly digest: string
+}
+
+/**
+ * A durable approval store the planner asks before a `required` target runs.
+ * `granted` must fail closed: an unreadable store rejects rather than answering.
+ *
+ * @category models
+ * @since 1.0.0
+ */
+export interface TargetApprovals {
+  readonly granted: (request: TargetApprovalRequest) => Promise<boolean>
 }
 
 /**

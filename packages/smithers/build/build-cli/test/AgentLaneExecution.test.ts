@@ -302,7 +302,7 @@ export const Package = S.Package({ targets: { srcs, gate, fix, never, escape, un
     const approval = await serve(root, ["//:approved"])
     expect(approval.exitCode).toBe(1)
     expect(approval.logs).toContain("approval required")
-    expect(approval.logs).toContain("no approval was granted")
+    expect(approval.logs).toContain("this host has no approval store")
     // A refused consumer schedules no gates.
     expect(approval.logs).not.toContain("//:gate ")
 

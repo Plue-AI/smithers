@@ -61,7 +61,15 @@ import * as CoreRuleSelection from "./CoreRuleSelection.ts"
 import { gitPathspecBatches } from "./GitPathspecBatches.ts"
 import * as HostProbes from "./HostProbes.ts"
 import { inputPackage } from "./InputPackage.ts"
-import type { CrateRow, Mode, PackageNode, PackagePlan, RunOptions, TestOperandPlan } from "./PackageOptions.ts"
+import type {
+  CrateRow,
+  Mode,
+  PackageNode,
+  PackagePlan,
+  RunOptions,
+  TargetApprovals,
+  TestOperandPlan
+} from "./PackageOptions.ts"
 import * as Path from "./Path.ts"
 import type * as RuleContract from "./RuleContract.ts"
 import * as RulePolicy from "./RulePolicy.ts"
@@ -313,6 +321,8 @@ interface PlanContext {
   readonly write: boolean
   /** The verb-effective target view, absent only for the bare-label form. */
   readonly kind: Target.Kind | undefined
+  /** The durable approvals a `required` target is checked against; absent refuses it. */
+  readonly approvals: TargetApprovals | undefined
 }
 
 /** Opens (once) the cache store the planner uses for closure rows and graph digests. */
@@ -2610,9 +2620,9 @@ const visit = async (
 
   // Invoker preconditions settle at plan time, before any session, probe, or
   // gate runs: a missing or undeclared payload input is a typed needs-input
-  // refusal; `approval: "required"` refuses because local build execution has no
-  // durable approval store yet and an autonomous invocation is never
-  // consent; and a gate that is itself an outward or Run target refuses the
+  // refusal; `approval: "required"` refuses unless the host's durable approval
+  // store holds an approval for this exact revision, since an autonomous
+  // invocation is never consent; and a gate that is itself an outward or Run target refuses the
   // consumer, since scheduling such a gate would execute its side effect in
   // the name of a check. Each is visible in `--plan` and costs nothing.
   if (lane?.kind === "agent" && lane.flavor !== "lint") {
@@ -2660,11 +2670,34 @@ const visit = async (
       }
     }
   }
-  if (attrMember(attrs, "approval") === "required") {
-    noteRefusal(
-      `approval required: ${label} declares approval: "required" and no approval was granted; ` +
-        "the build system has no durable approval store, so the invocation refuses before any effect"
-    )
+  // The approval binds to this exact revision: the label, the rule, the
+  // effective attrs with each dependency's content key substituted, the
+  // declared inputs and the dependency keys. Any edit, rebuilt image or moved
+  // input is a new revision that needs its own approval.
+  const approval = attrMember(attrs, "approval") === "required"
+    ? Planner.keyOf({
+      body: { approval: label, target: rule },
+      inputs: {
+        attrs: Planner.attrsValue(attrs, depKeys, inputDigests),
+        declared: declaredInputs,
+        dependencies: dependencyRows
+      },
+      layers: [],
+      capabilities: []
+    })
+    : undefined
+  if (approval !== undefined) {
+    if (context.approvals === undefined) {
+      noteRefusal(
+        `approval required: ${label} declares approval: "required"; this host has no approval store, ` +
+          "so the invocation refuses before any effect"
+      )
+    } else if (!(await context.approvals.granted({ root: context.root, label, digest: approval }))) {
+      noteRefusal(
+        `approval required: ${label} declares approval: "required" and revision ${approval.slice(0, 12)} ` +
+          `is not approved; approve it with: smthrs approvals grant ${label}`
+      )
+    }
   }
   if (rule === "Install") {
     // The workspace fills the manager in after the target was constructed, so
@@ -2955,6 +2988,7 @@ const visit = async (
     wouldRun: true,
     keyMaterial: previewMaterial,
     keyPreview: Planner.keyOf(previewMaterial),
+    ...(approval === undefined ? {} : { approval }),
     ...(targetExecutablePaths.length === 0 ? {} : { targetExecutablePaths }),
     ...(context.nixEnvironment === undefined ? {} : {
       nixEnvironment: {
@@ -3368,7 +3402,8 @@ export const plan = async (options: RunOptions): Promise<PackagePlan> => {
     childPlan: options.plan === true,
     reporter,
     write: options.write === true,
-    kind: verb === "auto" ? undefined : verb
+    kind: verb === "auto" ? undefined : verb,
+    approvals: options.approvals
   }
   const roots: Array<string> = []
   try {

@@ -19,6 +19,8 @@ export type {
   PackageVerb,
   PlanReport,
   RunOptions,
+  TargetApprovalRequest,
+  TargetApprovals,
   TestOperandPlan
 } from "./internal/PackageOptions.ts"
 export {
@@ -81,6 +83,7 @@ export async function run(options: RunOptions): Promise<Executor.Summary | PlanR
               ExecSandbox.host()
             )
           }),
+        ...(node.approval === undefined ? {} : { approval: node.approval }),
         ...(node.refusal === undefined ? {} : { refusal: node.refusal })
       }))
     }

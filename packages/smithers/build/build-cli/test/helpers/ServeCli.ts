@@ -6,6 +6,7 @@
  */
 import type * as Audience from "../../src/Audience.ts"
 import { makeCli, normalizeArgv } from "../../src/Cli.ts"
+import type * as PackageExec from "../../src/PackageExec.ts"
 import type * as Reporter from "../../src/Reporter.ts"
 import { executionPresentation } from "../fixtures/presentation.ts"
 
@@ -17,6 +18,8 @@ export interface ServeOptions {
   readonly signal?: AbortSignal | undefined
   /** Observes each standard error chunk as it is written, for suites that act mid-run. */
   readonly onLog?: ((text: string) => void) | undefined
+  /** The durable approval store `approval: "required"` targets are checked against. */
+  readonly approvals?: PackageExec.TargetApprovals | undefined
 }
 
 export interface Served {
@@ -47,6 +50,7 @@ export const serve = async (
     presentation: options.presentation ?? executionPresentation,
     environment: options.environment,
     signal: options.signal,
+    approvals: options.approvals,
     stdout: terminal((text) => {
       output += text
     }),

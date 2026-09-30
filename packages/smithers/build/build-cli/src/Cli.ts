@@ -159,6 +159,8 @@ export interface RuntimeConfig {
   readonly stderr?: Reporter.Terminal | undefined
   readonly presentation?: Audience.Policy | undefined
   readonly exit?: ((code: number) => void) | undefined
+  /** The durable approval store `approval: "required"` targets are checked against; absent, they refuse. */
+  readonly approvals?: PackageExec.TargetApprovals | undefined
 }
 
 /** The slice of an incur command context the presentation helpers read. */
@@ -603,8 +605,39 @@ export const runPackageVerb = async (
     sweep: flags.sweep,
     inputs: parseInputs(flags.input),
     environment: config.environment,
-    packageName: flags.name
+    packageName: flags.name,
+    approvals: config.approvals
   })
+}
+
+/**
+ * Plans one target inertly and returns the revision an approval must name.
+ * Refuses a label that selects no single target declaring `approval: "required"`.
+ * @category execution
+ * @since 1.0.0
+ */
+export const approvalRevision = async (
+  label: string,
+  flags: WorkspaceFlags,
+  config: RuntimeConfig
+): Promise<PackageExec.TargetApprovalRequest> => {
+  const index = await openPackageIndex(flags, config)
+  const planned = await PackageExec.plan({
+    index,
+    cacheDirectory: flags.cacheDir === undefined
+      ? index.workspace.cache.directory
+      : Config.normalizeCacheDirectory(flags.cacheDir),
+    verb: "auto",
+    patterns: [label],
+    plan: true,
+    readCache: false,
+    signal: config.signal,
+    environment: config.environment
+  })
+  if (planned.roots.length !== 1) throw new Error(`${label} selects ${planned.roots.length} targets; name one`)
+  const node = planned.nodes.get(planned.roots[0]!)!
+  if (node.approval === undefined) throw new Error(`${node.label} does not declare approval: "required"`)
+  return { root: index.root, label: node.label, digest: node.approval }
 }
 
 /**

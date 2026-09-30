@@ -177,6 +177,8 @@ export interface SharedFields extends Planner.PlannedTarget {
    */
   readonly keyTemplate: Planner.KeyMaterial | undefined
   readonly refusal: string | undefined
+  /** The approval digest of a target that declares `approval: "required"`. */
+  readonly approval?: string | undefined
   readonly sandbox: "none" | { readonly network?: boolean | "loopback" | undefined } | undefined
   readonly secrets: ReadonlyArray<Secret.HttpCredential>
   /** Tool outputs are identified after their producers settle, before cache lookup. */
