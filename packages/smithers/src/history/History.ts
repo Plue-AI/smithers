@@ -364,7 +364,16 @@ const planInput = (root: string, runId: string, input: Schema.Json, modules: Opt
       .planId as string}`
     const budget = (JSON.parse(plan!.card_json) as { envelope: { budget: Control.PlanInput["budget"] } })
       .envelope.budget
-    const config = { root, startsRuns: false, plansFlows: true, evaluator: Evaluator.layerUnavailable() }
+    // The project root is also the persisted history's state location. Give
+    // planning and the native engine the same database authority, while keeping
+    // execution-only settings on the application composition.
+    const config = {
+      root,
+      stateRoot: root,
+      startsRuns: false,
+      plansFlows: true,
+      evaluator: Evaluator.layerUnavailable()
+    }
     const registry = NodeControl.layerRegistry(root)
     const engine = NodeControl.engineDurable(root, registry, config)
     return yield* Effect.gen(function*() {

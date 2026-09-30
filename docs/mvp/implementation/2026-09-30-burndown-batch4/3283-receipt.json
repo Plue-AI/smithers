@@ -1,0 +1,71 @@
+{
+  "issue": 3283,
+  "scope": "issue fix",
+  "candidateBase": "b00abe0e088febd9db19acd2706206dd247ed3cc",
+  "manifestSha256": "8d16d6fa9b7a2bb7e0c113169223d058475caa3d5ef34b2f32f74b77804aa965",
+  "sourceSha256": {
+    "packages/smithers/src/history/History.ts": "44b541870f4e1a0645aceee38f282f34b9f5e5630e11e33275eb04e930c4e429",
+    "packages/smithers/test/HistoryForkChild.test.ts": "bb8a205c9fdddab9fec0f154c4b2696758d229d7cbdc0756a7924f47e42b7a04"
+  },
+  "generatedSha256": {},
+  "archiveSha256": "0c7f8644042280f3af7440e92acc5fe13799520b4c859dad9fba599b4c800297",
+  "rawReceipts": {
+    "3278-3283-3284-final-tests.log": "35759b10e8e49cdd7889295fc13f80c41fc6bca3d235c05dadc5327eac7aae99",
+    "3278-3283-3284-frozen-format.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3278-3283-3284-frozen-types.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3278-3283-alias-lint.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3278-3283-types-green.log": "da946a92ef12c1235062bedf2274b8acb869fc93d91c38b380466f4d7b4df9a7",
+    "3278-3283-types.json": "f444e979559482b7aa717c551e1b55021c593ed76ad2e53d71d6a7ab41318a8c",
+    "3278-second-types.log": "bc936dd3a4899bcfff3e3828fafc5a00127707e4fc8c0c4d80f7d00bec8d21d6",
+    "3283-ready-evidence.json": "8d16d6fa9b7a2bb7e0c113169223d058475caa3d5ef34b2f32f74b77804aa965"
+  },
+  "qualification": [
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp SMITHERS_WORKSPACE_JJ_EXPORT_BINARY=/Users/williamcory/smithers/target/debug/smithers-jj-export pnpm exec vitest run test/McpModeCli.test.ts test/Argv.test.ts test/UnifiedEntry.test.ts test/Positionals.test.ts test/HistoryForkChild.test.ts test/DidYouMean.test.ts --coverage.enabled=false",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+      "exit": 0,
+      "result": "401 tests/6 files pass, including2 real HistoryForkChild cases; no skip",
+      "receipt": {
+        "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3278-3283-3284-final-tests.log",
+        "sha256": "35759b10e8e49cdd7889295fc13f80c41fc6bca3d235c05dadc5327eac7aae99"
+      }
+    },
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH pnpm exec tsc -p /tmp/smithers-burndown-20260930-receipts/api-batch3/3278-3283-types.json --noEmit",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+      "exit": 0,
+      "result": "Unchanged strict CLI test configuration, all CLI source + Argv, Entry, MCP process, HistoryForkChild and Positionals owning tests; green",
+      "receipt": {
+        "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3278-3283-3284-frozen-types.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH pnpm exec eslint src/Cli.ts src/cli/Argv.ts src/cli/Entry.ts src/history/History.ts --max-warnings=0",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+      "exit": 0,
+      "result": "Four changed production files pass lint",
+      "receipt": {
+        "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3278-3283-alias-lint.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH pnpm exec dprint check src/Cli.ts src/cli/Argv.ts src/cli/Entry.ts src/history/History.ts test/Argv.test.ts test/UnifiedEntry.test.ts test/McpModeCli.test.ts test/HistoryForkChild.test.ts test/Positionals.test.ts build/build-cli/src/Audience.ts build/build-cli/test/Audience.test.ts",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+      "exit": 0,
+      "result": "All eleven owned files formatted",
+      "receipt": {
+        "path": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3278-3283-3284-frozen-format.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    }
+  ],
+  "limitations": [
+    "Scoped decisive checks, not a fresh full CLI suite or configured full CLI coverage gate; coverage thresholds and production inclusion unchanged.",
+    "No rebuilt native artifact claim. Actual history boundary reused /Users/williamcory/smithers/target/debug/smithers-jj-export and installed jj.",
+    "Fresh packed npm/pnpm consumer proof remains separate assigned #3093; this is source qualification.",
+    "Execution/settling of a resumed module fork remains separate claimed #3260; these history-fork persistence controls do not imply that issue resolved."
+  ],
+  "targetIndex": null
+}
