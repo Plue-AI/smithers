@@ -195,6 +195,9 @@ func mythicalReviewFault(item db.MythicalItem) string {
 	case strings.HasPrefix(review.Verdict, mythicalStopped):
 		class, _, _ := strings.Cut(strings.TrimPrefix(review.Verdict, mythicalStopped), ": ")
 		return class
+	case strings.HasPrefix(review.Verdict, mythicalOutage):
+		class, _, _ := strings.Cut(strings.TrimPrefix(review.Verdict, mythicalOutage), ": ")
+		return class
 	case strings.HasPrefix(review.Verdict, "failed"):
 		return "factory"
 	}

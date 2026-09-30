@@ -1206,9 +1206,11 @@ func mythicalRetry(item db.MythicalItem, reason string, fault *mythicalFault, no
 	next := item
 	checks := mythicalChecksOf(item)
 	checks.Outages = 0
+	// A retry no failure caused ends the one before it too.
 	said := mythicalSentence(reason)
+	checks.Fault = fault
 	if fault != nil {
-		checks.Fault, said = fault, fault.sentence()
+		said = fault.sentence()
 	}
 	switch {
 	case item.Attempt < mythicalAttempts:
@@ -1406,6 +1408,11 @@ func (st *mythicalItemStep) advance(ctx context.Context, item db.MythicalItem) (
 		return st.gate(ctx, *next)
 	case "proposed":
 		next, err := st.follow(ctx, item)
+		if err == nil && next != nil && mythicalChecksOf(*next).GitHubOutages > mythicalChecksOf(item).GitHubOutages {
+			// The pull request was not read: its outage and back-off stand,
+			// and nothing gates on what GitHub did not say.
+			return next, false, nil
+		}
 		if err != nil || next == nil || next.State != "proposed" {
 			return next, false, err
 		}

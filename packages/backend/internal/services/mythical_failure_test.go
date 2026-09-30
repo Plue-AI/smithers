@@ -115,6 +115,10 @@ func TestMythicalFailureOfStates(t *testing.T) {
 	lapsed.Checks = mythicalChecks{Todo: true, Outages: mythicalOutageBound + 1, Review: &mythicalReview{Head: "head", Verdict: "outage: infra: x"}}.encode()
 	failure, _ = mythicalFailureOf(lapsed)
 	assert.Equal(t, &MythicalFailureView{Kind: "review", Fault: "infra"}, failure)
+	lapsed.Checks = mythicalChecks{Todo: true, Outages: mythicalOutageBound + 1,
+		Review: &mythicalReview{Head: "head", Verdict: "outage: dependency: flows/model/ModelError/overloaded"}}.encode()
+	failure, _ = mythicalFailureOf(lapsed)
+	assert.Equal(t, &MythicalFailureView{Kind: "review", Fault: "dependency"}, failure, "a model outage's review is the provider's fault")
 
 	// A chat item's held review is not a person's retry.
 	held.Source = "chat"
@@ -170,6 +174,13 @@ func TestMythicalChecksFailureIsTyped(t *testing.T) {
 	assert.Equal(t, "Smithers stopped this TODO: it is very hard. Checks failed. Press Retry on it in Smithers to go on.", mythicalChecksOf(*stopped).Notice.Body)
 	assert.Equal(t, "Every plan failed", mythicalItemView(*stopped).Reason)
 	assert.Equal(t, "", mythicalSentence(""))
+
+	// A conflict after a held CI failure is the conflict, not the old fault.
+	held := item
+	held.Checks = mythicalChecks{Todo: true, Fault: &mythicalFault{Class: "factory", Tag: "ci", Kind: mythicalFailChecks}}.encode()
+	conflicted := mythicalRetry(held, "rebasing onto the new tip conflicted in a.go", nil, now)
+	assert.Nil(t, mythicalChecksOf(*conflicted).Fault)
+	assert.Nil(t, mythicalItemView(*conflicted).Failure)
 }
 
 // leakyLanes cannot provision a lane, and says why in words no person
@@ -340,4 +351,30 @@ func TestMythicalLaunchClearsTheFailedLaunchsReason(t *testing.T) {
 	view, _ = mythicalSnapshotItem(t, o, 351)
 	assert.Nil(t, view["failure"])
 	assert.Nil(t, view["reason"])
+}
+
+// A pull request GitHub does not answer for is not gated on: an approved
+// automerge TODO keeps the outage and its back-off, never the one-minute
+// CI wait that would erase them.
+func TestMythicalUnreadPullRequestIsNotGated(t *testing.T) {
+	o := newMythicalOrchestration(t)
+	ctx := context.Background()
+	issue := mythicalIssue{Number: 361, Title: "Unread", State: "open", TextByMaintainer: true, Labels: []string{"todo", "automerge"}}
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, issue, maintainerTodo))
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, issue, gitHubLabelApplication{Label: automergeLabel, ByMaintainer: true}))
+	o.propose(361, "three-sixty-one.md")
+	o.github.mu.Lock()
+	o.github.ci = map[string]string{o.item(361).PRHead: mythicalCIPending}
+	o.github.mu.Unlock()
+	o.answerReviews(`"approve"`)
+	require.Equal(t, "waiting for CI on the approved head", o.item(361).Reason)
+	_, err := o.pool.Exec(ctx, `UPDATE mythical_items SET next_attempt_at = now() - interval '1 minute' WHERE id = $1`, o.item(361).ID)
+	require.NoError(t, err)
+	o.service.SetOrchestration(pullsDown{o.github}, o.launcher, o.lanes)
+	o.wake()
+	item := o.item(361)
+	assert.Equal(t, &mythicalFault{Class: "infra", Tag: "github", Kind: "landing"}, mythicalChecksOf(item).Fault)
+	assert.WithinDuration(t, time.Now().Add(2*time.Minute), item.NextAttemptAt.Time, 30*time.Second, "the outage's back-off stands")
+	view, _ := mythicalSnapshotItem(t, o, 361)
+	assert.Equal(t, "GitHub did not answer", view["reason"])
 }
