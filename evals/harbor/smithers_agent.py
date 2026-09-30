@@ -520,12 +520,15 @@ def trajectory(events: list[dict[str, Any]], *, agent_name: str, agent_version: 
             "total_prompt_tokens": totals["prompt"],
             "total_completion_tokens": totals["completion"],
             "total_cached_tokens": totals["cached"],
-            "cached_share": (
-                totals["cached"] / totals["prompt"]
-                if totals["prompt"] is not None and totals["prompt"] > 0 and totals["cached"] is not None
-                else None
-            ),
             "total_steps": len(steps),
+            # ATIF's FinalMetrics forbids unknown keys; custom aggregates go in `extra`.
+            "extra": {
+                "cached_share": (
+                    totals["cached"] / totals["prompt"]
+                    if totals["prompt"] is not None and totals["prompt"] > 0 and totals["cached"] is not None
+                    else None
+                ),
+            },
         },
     }
 
