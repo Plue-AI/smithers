@@ -62,7 +62,7 @@ func TestWorkspaceArtifactKeyReusesDigestOnlyForUnchangedFile(t *testing.T) {
 	_, err = workspaceArtifactKey(t.Context(), "script", disguised)
 	require.NoError(t, err)
 	require.Equal(t, first[0].digest, disguised[0].digest, "unchanged metadata reuses the remembered digest")
-	client := &artifactRecordingClient{}
+	client := &artifactRecordingClient{content: map[string]string{}}
 	err = streamWorkspaceArtifactChecked(t.Context(), client, "vm", source, "/guest/cli.tar.b64", disguised[0].digest)
 	require.ErrorContains(t, err, "changed during transfer")
 
@@ -137,7 +137,7 @@ func TestWorkspaceBootstrapDiagnosticKeepsTailAndRedacts(t *testing.T) {
 		},
 		{
 			name: "assignments and headers", log: "export GITHUB_TOKEN=ghp_abcdefghijklmnop123456\nAuthorization: Bearer abc.def.ghi-jkl\npassword: hunter2hunter2\n",
-			want:       []string{"GITHUB_TOKEN=[redacted]", "Bearer [redacted]", "password: [redacted]"},
+			want:       []string{"GITHUB_TOKEN=[redacted]", "Authorization: [redacted]", "password: [redacted]"},
 			wantAbsent: []string{"ghp_abcdefghijklmnop123456", "abc.def.ghi-jkl", "hunter2hunter2"},
 		},
 		{

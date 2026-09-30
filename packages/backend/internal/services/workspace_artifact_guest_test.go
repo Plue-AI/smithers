@@ -357,3 +357,90 @@ func TestWorkspaceCreateWaitsForBootstrapBeforeEnvironmentSetup(t *testing.T) {
 		t.Fatal("create did not finish after bootstrap completed")
 	}
 }
+
+// holdArtifactLock holds the guest bootstrap lock from another process, as a
+// long toolchain install does, until the returned release is called.
+func holdArtifactLock(t *testing.T, root string) func() {
+	t.Helper()
+	require.NoError(t, os.MkdirAll(root, 0700))
+	// One process owns the lock descriptor, so killing it releases the lock.
+	holder := exec.Command("/bin/sh", "-c", "exec 9>"+shellQuote(root+"/bootstrap.lock")+"; flock 9; exec sleep 60")
+	require.NoError(t, holder.Start())
+	require.Eventually(t, func() bool {
+		return exec.Command("flock", "-n", root+"/bootstrap.lock", "true").Run() != nil
+	}, 3*time.Second, 10*time.Millisecond)
+	released := false
+	release := func() {
+		if released {
+			return
+		}
+		released = true
+		_ = holder.Process.Kill()
+		_ = holder.Wait()
+	}
+	t.Cleanup(release)
+	return release
+}
+
+func TestWorkspaceArtifactOrphanSurvivesLongLockAndIsSweptLater(t *testing.T) {
+	client := artifactGuestFixture(t)
+	require.NoError(t, os.MkdirAll(client.root, 0700))
+	require.NoError(t, os.WriteFile(client.root+"/release", nil, 0600))
+	client.failWrite = 2
+	release := holdArtifactLock(t, client.root)
+	require.ErrorContains(t, finishWorkspaceArtifacts(t.Context(), client, "guest", client.scriptContent(t)), "interrupted guest RPC")
+	staged, err := filepath.Glob(client.root + "/*/*")
+	require.NoError(t, err)
+	require.Len(t, staged, 1, "the bounded cleanup cannot take a lock a long install holds")
+	release()
+
+	// Age the orphan past the sweep bound; a fresh concurrent attempt stays.
+	old := time.Now().Add(-2 * workspaceArtifactOrphanAge)
+	require.NoError(t, os.Chtimes(staged[0], old, old))
+	active := filepath.Join(filepath.Dir(staged[0]), "active-attempt")
+	require.NoError(t, os.MkdirAll(active, 0700))
+
+	client.failWrite = 0
+	require.NoError(t, finishWorkspaceArtifacts(t.Context(), client, "guest", client.scriptContent(t)))
+	require.NoError(t, waitForWorkspaceArtifactBootstrap(t.Context(), client, "guest"))
+	_, err = os.Stat(staged[0])
+	require.True(t, os.IsNotExist(err), "the next bootstrap sweeps the stale attempt")
+	_, err = os.Stat(active)
+	require.NoError(t, err, "an attempt still being transferred is kept")
+	current, err := os.Readlink(client.root + "/current")
+	require.NoError(t, err)
+	_, err = os.Stat(current + "/bootstrap.done")
+	require.NoError(t, err, "the published winner is kept")
+}
+
+func TestWorkspaceArtifactPublicationOutwaitsBusyLockWithinDeadline(t *testing.T) {
+	client := artifactGuestFixture(t)
+	require.NoError(t, os.MkdirAll(client.root, 0700))
+	require.NoError(t, os.WriteFile(client.root+"/release", nil, 0600))
+	previous := workspaceArtifactPublishLockWait
+	workspaceArtifactPublishLockWait = time.Second
+	t.Cleanup(func() { workspaceArtifactPublishLockWait = previous })
+	release := holdArtifactLock(t, client.root)
+	go func() { time.Sleep(2500 * time.Millisecond); release() }()
+	start := time.Now()
+	require.NoError(t, finishWorkspaceArtifacts(t.Context(), client, "guest", client.scriptContent(t)))
+	require.GreaterOrEqual(t, time.Since(start), 2*time.Second, "publication waited past one bounded lock wait")
+	require.NoError(t, waitForWorkspaceArtifactBootstrap(t.Context(), client, "guest"))
+
+	// A deadline still ends the wait.
+	release = holdArtifactLock(t, client.root)
+	defer release()
+	require.NoError(t, os.WriteFile(os.Getenv(workspaceCLIPackageEnv), []byte("next deployment"), 0600))
+	ctx, cancel := context.WithTimeout(t.Context(), 1500*time.Millisecond)
+	defer cancel()
+	require.Error(t, finishWorkspaceArtifacts(ctx, client, "guest", client.scriptContent(t)))
+}
+
+func TestWorkspaceArtifactFailedGuestScriptReportsRedactedLog(t *testing.T) {
+	client := artifactGuestFixture(t)
+	script := "#!/bin/sh\necho 'resolving toolchain'\necho 'NPM_TOKEN=npm_abcdefghijklmnopqrstuvwxyz0123456789'\necho 'error: attribute nodejs missing' >&2\nexit 3\n"
+	require.NoError(t, finishWorkspaceArtifacts(t.Context(), client, "guest", script))
+	err := waitForWorkspaceArtifactBootstrap(t.Context(), client, "guest")
+	require.ErrorContains(t, err, "workspace bootstrap failed (exit 3): resolving toolchain | NPM_TOKEN=[redacted] | error: attribute nodejs missing")
+	require.NotContains(t, err.Error(), "npm_abcdefghijklmnopqrstuvwxyz0123456789")
+}

@@ -37,5 +37,5 @@ func addWorkspaceJJExport(files map[string]sandbox.SandboxFile) bool {
 
 func isWorkspaceArtifactCommand(command string) bool {
 	command = strings.TrimPrefix(command, workspaceArtifactGuestPath)
-	return strings.Contains(command, workspaceArtifactRoot) && (strings.HasPrefix(command, "owner=$(cat ") || strings.HasPrefix(command, "if ! test -L ") || strings.HasPrefix(command, `if test "$(readlink `) || strings.HasPrefix(command, "mkdir -p -- "))
+	return strings.Contains(command, workspaceArtifactRoot) && (strings.HasPrefix(command, "owner=$(cat ") || strings.HasPrefix(command, "if ! test -L ") || strings.HasPrefix(command, `if test "$(readlink `) || strings.HasPrefix(command, "mkdir -p -- ") || strings.HasPrefix(command, "exec 9>") || strings.HasPrefix(command, "tail -c "))
 }
