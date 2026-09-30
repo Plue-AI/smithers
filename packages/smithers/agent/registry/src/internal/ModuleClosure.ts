@@ -1,12 +1,11 @@
 /**
  * The other files a discovered module's body runs.
  *
- * A module body's `contentDigest` measures the ENTRY FILE and nothing else,
- * and {@link module:Executable.fromDescriptor} imports a verified copy of those
- * entry bytes written as a SIBLING of the original, precisely so the entry's
- * relative imports resolve to the live files beside it. Everything reached that
- * way is code the flow runs and the entry digest never saw: a sibling edited
- * after a plan was approved would keep the approval.
+ * A module body's `contentDigest` measures the ENTRY FILE and nothing else.
+ * Everything the entry reaches is code the flow runs and the entry digest
+ * never saw: a helper edited after a plan was approved would keep the
+ * approval, and a loader that reopened the helper's path would run bytes no
+ * one measured.
  *
  * This module closes that gap by naming what the entry reaches. It walks the
  * transitive closure of RELATIVE specifiers (`./`, `../`) statically — the same
@@ -14,7 +13,8 @@
  * module as a path relative to the entry's directory plus the digest of its
  * bytes. Discovery puts that list on the module {@link module:Descriptor.BodyRef},
  * so it rides `Descriptor.executionDigest` through the existing schema
- * encoding, and the loader recomputes it before importing anything.
+ * encoding, and the loader recomputes it with {@link snapshot} before
+ * importing anything, then evaluates the very bytes it measured.
  *
  * A BARE SPECIFIER IS NOT ALWAYS A PACKAGE. `@smthrs/flow` and `effect`
  * resolve into installed code, which is the host's own code and carries the
@@ -44,7 +44,7 @@ import * as Effect from "effect/Effect"
 import type * as FileSystem from "effect/FileSystem"
 import type * as Path from "effect/Path"
 import type { ModuleImport } from "../Descriptor.ts"
-import { stringLiteral, tokenize } from "./ModuleMetadata.ts"
+import { stringLiteral, type Token, tokenize } from "./ModuleMetadata.ts"
 
 /**
  * How many modules one entry's closure may name.
@@ -92,6 +92,20 @@ const typeScriptCounterparts: ReadonlyArray<readonly [string, ReadonlyArray<stri
 const indexNames = ["index.ts", "index.tsx", "index.mts", "index.js", "index.mjs"]
 
 /**
+ * The literal specifier of one static `import` or `export`, and the source
+ * range of the string token that spells it, quotes included.
+ *
+ * @category models
+ * @since 1.0.0
+ * @private
+ */
+export interface StaticSpecifier {
+  readonly literal: string
+  readonly start: number
+  readonly end: number
+}
+
+/**
  * What one module's source says it loads from beside itself.
  *
  * `opaque` counts the loads whose target is not a literal: an `import(...)` or
@@ -106,6 +120,9 @@ const indexNames = ["index.ts", "index.tsx", "index.mts", "index.js", "index.mjs
  * relative to the entry and does not follow them, so they are unpinnable too.
  * `bare` lists every other literal specifier except `node:` and `bun:`
  * builtins; {@link collect} decides which of them name project files.
+ * `statics` locates every literal specifier of a static `import` or `export`
+ * — not of an `import()` or `require()` call — as the string token's source
+ * range, which is what {@link snapshot} rewrites.
  *
  * @category parsing
  * @since 1.0.0-rc.0
@@ -116,12 +133,19 @@ export const specifiersOf = (source: string): {
   readonly opaque: number
   readonly absolute: ReadonlyArray<string>
   readonly bare: ReadonlyArray<string>
+  readonly statics: ReadonlyArray<StaticSpecifier>
 } => {
   const tokens = tokenize(source)
   const relative: Array<string> = []
   const absolute: Array<string> = []
   const bare: Array<string> = []
+  const statics: Array<StaticSpecifier> = []
   let opaque = 0
+  const recordStatic = (token: Token) => {
+    const literal = stringLiteral(token.value)
+    if (literal !== undefined) statics.push({ literal, start: token.start, end: token.end })
+    record(literal)
+  }
   const record = (literal: string | undefined) => {
     if (literal === undefined) return
     if (literal.startsWith("./") || literal.startsWith("../")) relative.push(literal)
@@ -177,7 +201,7 @@ export const specifiersOf = (source: string): {
     }
     // `import "./side-effect.ts"`, which names no bindings and so has no `from`.
     if (token.value === "import" && tokens[index + 1]?.kind === "string") {
-      record(stringLiteral(tokens[index + 1]!.value))
+      recordStatic(tokens[index + 1]!)
       continue
     }
     // Every other module specifier — `import … from "x"`, `export … from "x"`,
@@ -186,10 +210,10 @@ export const specifiersOf = (source: string): {
     // module: an object key is `from:`, an argument is `from,`, an assignment
     // is `from =`.
     if (token.value === "from" && tokens[index + 1]?.kind === "string") {
-      record(stringLiteral(tokens[index + 1]!.value))
+      recordStatic(tokens[index + 1]!)
     }
   }
-  return { relative, opaque, absolute, bare }
+  return { relative, opaque, absolute, bare, statics }
 }
 
 /**
@@ -538,6 +562,27 @@ export const collect = (
     files: closureFileLimit,
     bytes: closureByteLimit
   }
+): Effect.Effect<ReadonlyArray<ModuleImport>> => walk(fs, path, entryPath, entrySource, memo, bounds, undefined)
+
+/** What {@link walk} keeps of each module it reads when asked to: the bytes it measured. */
+interface Read {
+  readonly bytes: Uint8Array
+  readonly source: string
+}
+
+/**
+ * The closure walk behind {@link collect} and {@link snapshot}. With `reads`,
+ * every module is read afresh rather than answered from `memo`, and its bytes
+ * — the very bytes its digest is taken over — are kept there by path.
+ */
+const walk = (
+  fs: FileSystem.FileSystem,
+  path: Path.Path,
+  entryPath: string,
+  entrySource: string,
+  memo: Cache,
+  bounds: { readonly files: number; readonly bytes: number },
+  reads: Map<string, Read> | undefined
 ): Effect.Effect<ReadonlyArray<ModuleImport>> =>
   Effect.gen(function*() {
     const normalizedEntryPath = path.resolve(entryPath)
@@ -613,7 +658,7 @@ export const collect = (
         break
       }
       const recorded = relativePath(path, entryDirectory, resolved)
-      const cached = memo.files.get(resolved)
+      const cached = reads === undefined ? memo.files.get(resolved) : undefined
       if (cached !== undefined) {
         bytes += cached.size
         if (bytes > bounds.bytes) {
@@ -641,7 +686,9 @@ export const collect = (
         break
       }
       const contentDigest = Digest.digest(read.success)
-      const specifiers = specifiersOf(new TextDecoder().decode(read.success))
+      const source = new TextDecoder().decode(read.success)
+      reads?.set(resolved, { bytes: read.success, source })
+      const specifiers = specifiersOf(source)
       reportOpaque(`"${recorded}"`, specifiers.opaque)
       reportAbsolute(`"${recorded}"`, specifiers.absolute)
       memo.files.set(resolved, {
@@ -658,4 +705,89 @@ export const collect = (
     }
 
     return [...found.values()].sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0)
+  })
+
+/**
+ * One module of a {@link snapshot}: the bytes that were measured, their text,
+ * and each static specifier in it that names another module of the closure.
+ *
+ * @category models
+ * @since 1.0.0
+ * @private
+ */
+export interface Module {
+  readonly bytes: Uint8Array
+  readonly source: string
+  readonly links: ReadonlyArray<{ readonly start: number; readonly end: number; readonly target: string }>
+}
+
+/**
+ * The closure {@link collect} records, together with the bytes it measured,
+ * keyed by absolute path, entry included.
+ *
+ * A loader that evaluates these bytes, rather than reopening the paths,
+ * runs exactly the version the records describe. A static specifier is
+ * linked when it is relative, or a package.json `imports` key that maps to
+ * exactly one file, and it resolves to a module of this closure. Other
+ * loads — `import()` and `require()` calls, and bare specifiers another
+ * mapping resolves — are left to the host's loader.
+ *
+ * @category constructors
+ * @since 1.0.0
+ * @private
+ */
+export const snapshot = (
+  fs: FileSystem.FileSystem,
+  path: Path.Path,
+  entryPath: string,
+  entryBytes: Uint8Array
+): Effect.Effect<{
+  readonly imports: ReadonlyArray<ModuleImport>
+  readonly modules: ReadonlyMap<string, Module>
+}> =>
+  Effect.gen(function*() {
+    const memo = cache()
+    const entrySource = new TextDecoder().decode(entryBytes)
+    const reads = new Map<string, Read>([[path.resolve(entryPath), { bytes: entryBytes, source: entrySource }]])
+    const imports = yield* walk(
+      fs,
+      path,
+      entryPath,
+      entrySource,
+      memo,
+      { files: closureFileLimit, bytes: closureByteLimit },
+      reads
+    )
+    const modules = new Map<string, Module>()
+    for (const [file, read] of reads) {
+      const directory = path.dirname(file)
+      const links: Array<Module["links"][number]> = []
+      for (const site of specifiersOf(read.source).statics) {
+        const target = site.literal.startsWith("./") || site.literal.startsWith("../")
+          ? yield* resolve(fs, path, directory, site.literal, memo)
+          : site.literal.startsWith("#")
+          ? yield* soleImportsTarget(fs, path, directory, site.literal, memo)
+          : undefined
+        if (target !== undefined && reads.has(target)) links.push({ start: site.start, end: site.end, target })
+      }
+      modules.set(file, { ...read, links })
+    }
+    return { imports, modules }
+  })
+
+/** The one file a package.json `imports` key maps to, or `undefined` when it maps to none or several. */
+const soleImportsTarget = (
+  fs: FileSystem.FileSystem,
+  path: Path.Path,
+  directory: string,
+  specifier: string,
+  memo: Cache
+): Effect.Effect<string | undefined> =>
+  Effect.gen(function*() {
+    // The walk followed every bare specifier of every module it read, so the
+    // mapping is already in `memo`.
+    const targets = memo.bare.get(`${directory}\0${specifier}`)!
+    return targets.files.length === 1 && targets.unpinnable.length === 0
+      ? yield* resolve(fs, path, directory, targets.files[0]!, memo)
+      : undefined
   })

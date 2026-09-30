@@ -718,3 +718,80 @@ describe("the walk", () => {
       expect(found[0]!.path).toContain("could not be read")
     }).pipe(Effect.scoped, Effect.provide(platform)))
 })
+
+describe("the measured closure a loader evaluates", () => {
+  const snapshot = (root: string, entry: string) =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const entryPath = `${root}/${entry}`
+      return yield* ModuleClosure.snapshot(fs, path, entryPath, yield* fs.readFile(entryPath))
+    })
+
+  /** Each link of `file`, as the specifier text it replaces and the target's path under `root`. */
+  const linksOf = (root: string, closure: ReadonlyMap<string, ModuleClosure.Module>, file: string) => {
+    const module = closure.get(`${root}/${file}`)!
+    return module.links.map((link) => [module.source.slice(link.start, link.end), link.target.slice(root.length + 1)])
+  }
+
+  it.effect("links each static specifier naming a closure module, and no call or package", () =>
+    Effect.gen(function*() {
+      const root = yield* tree({
+        "package.json": JSON.stringify({
+          imports: { "#impl": "./impl.ts", "#either": { bun: "./a.ts", default: "./b.ts" } }
+        }),
+        "flow.ts": [
+          `import { helper } from "./helper.ts"`,
+          `import "./side.ts"`,
+          `export * from './lib/reexport.ts'`,
+          `import { suffix } from "#impl"`,
+          `import { either } from "#either"`,
+          `import { Effect } from "effect"`,
+          `const late = () => import("./late.ts")`
+        ].join("\n"),
+        "helper.ts": `import { back } from "./flow.ts"\nexport const helper = 1`,
+        "side.ts": ``,
+        "lib/reexport.ts": `export { helper as again } from "../helper.ts"`,
+        "impl.ts": `export const suffix = "impl"`,
+        "a.ts": `export const either = "a"`,
+        "b.ts": `export const either = "b"`,
+        "late.ts": `export const late = 1`
+      })
+      const { imports, modules } = yield* snapshot(root, "flow.ts")
+      expect([...modules.keys()].map((file) => file.slice(root.length + 1)).sort()).toEqual([
+        "a.ts",
+        "b.ts",
+        "flow.ts",
+        "helper.ts",
+        "impl.ts",
+        "late.ts",
+        "lib/reexport.ts",
+        "side.ts"
+      ])
+      expect(linksOf(root, modules, "flow.ts")).toEqual([
+        [`"./helper.ts"`, "helper.ts"],
+        [`"./side.ts"`, "side.ts"],
+        [`'./lib/reexport.ts'`, "lib/reexport.ts"],
+        [`"#impl"`, "impl.ts"]
+      ])
+      // A cycle back to the entry is a link like any other.
+      expect(linksOf(root, modules, "helper.ts")).toEqual([[`"./flow.ts"`, "flow.ts"]])
+      expect(linksOf(root, modules, "lib/reexport.ts")).toEqual([[`"../helper.ts"`, "helper.ts"]])
+      expect(linksOf(root, modules, "late.ts")).toEqual([])
+      // The records are the walk's own, over the very bytes kept for loading.
+      expect(imports).toEqual(yield* walk(root, "flow.ts"))
+      for (const record of imports) {
+        expect(Digest.digest(modules.get(`${root}/${record.path}`)!.bytes)).toBe(record.contentDigest)
+      }
+    }).pipe(Effect.scoped, Effect.provide(platform)))
+
+  it.effect("keeps the bytes it measured, not what the path holds afterwards", () =>
+    Effect.gen(function*() {
+      const root = yield* tree({ "flow.ts": `import "./helper.ts"`, "helper.ts": `export const v = 7` })
+      const { imports, modules } = yield* snapshot(root, "flow.ts")
+      const fs = yield* FileSystem.FileSystem
+      yield* fs.writeFileString(`${root}/helper.ts`, `export const v = 9`)
+      expect(new TextDecoder().decode(modules.get(`${root}/helper.ts`)!.bytes)).toBe(`export const v = 7`)
+      expect(imports[0]!.contentDigest).toBe(Digest.digest(new TextEncoder().encode(`export const v = 7`)))
+    }).pipe(Effect.scoped, Effect.provide(platform)))
+})

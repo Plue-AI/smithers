@@ -780,6 +780,36 @@ describe("the modules a flow's entry imports", () => {
       expect(failure.message).toContain("refresh")
     }).pipe(Effect.scoped, Effect.provide(platform)))
 
+  it.effect("evaluates the whole measured closure from siblings it removes afterwards", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const root = yield* project({
+        "flows/pinned/flow.ts": [
+          `import { Annotations } from "@smthrs/core"`,
+          `import { Flow } from "@smthrs/flow"`,
+          `import { Schema } from "effect"`,
+          `import { value } from "./a.ts"`,
+          `import { deep } from "../shared/deep.ts"`,
+          `export default Flow.make("test/pinned", {`,
+          `  description: "A flow whose priority comes from beside and above itself.",`,
+          `  capabilities: [],`,
+          `  effects: { reads: [], writes: [], mode: "hermetic", onConflict: "serialize", tier: "sealed" },`,
+          `  payload: {},`,
+          `  success: Schema.Unknown,`,
+          `  body: () => undefined as never`,
+          `}).annotate(Annotations.Priority, value + deep)`
+        ].join("\n"),
+        "flows/pinned/a.ts": `export const value = 3`,
+        "flows/shared/deep.ts": `export const deep = 4`
+      })
+      const executable = yield* Executable.fromDescriptor(yield* descriptorIn(root, "pinned"), options())
+      expect(executable.lowered.priority).toBe(7)
+      for (const directory of ["flows/pinned", "flows/shared"]) {
+        expect((yield* fs.readDirectory(`${root}/${directory}`)).filter((name) => name.startsWith(".smithers-")))
+          .toEqual([])
+      }
+    }).pipe(Effect.scoped, Effect.provide(platform)))
+
   it.effect("keeps a load whose sibling will not unlink, and sweeps only stale siblings", () =>
     Effect.gen(function*() {
       const fs = yield* FileSystem.FileSystem

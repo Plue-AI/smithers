@@ -879,19 +879,26 @@ to. `agent` renames the fallback delegate for a host that calls its driver
 something other than `agent`.
 
 `load` receives the resolved filesystem path (or the original `file:` URL),
-the verified entry bytes, and their SHA-256 `contentDigest`. Custom loaders
-must evaluate those bytes and key any evaluation cache by both source path
-and digest. Reopening the original path or caching only by path violates the
-integrity and refresh contract. Existing one-argument loaders remain assignable
-but must adopt this contract to support edited modules safely.
+the verified entry bytes, their SHA-256 `contentDigest`, and `modules`: the
+verified bytes of the entry and of every module it reaches through static
+relative imports, keyed by absolute path, with the static specifiers that name
+another module of that closure. Custom loaders must evaluate those bytes and
+key any evaluation cache by both source path and digest. Reopening the
+original paths or caching only by path violates the integrity and refresh
+contract. Existing one-argument loaders remain assignable but must adopt this
+contract to support edited modules safely.
 
-The default loader writes the verified bytes to an exclusively created,
-owner-readable sibling file whose unique name includes the digest. Each load
-gets a fresh module identity. Relative imports and package resolution retain
-the original directory; `import.meta.url` names the temporary sibling. The
-source directory must be writable. Temporary files are removed when loading
-settles or is interrupted. Imported dependencies retain the host's normal
-module cache and are outside the entry digest.
+The default loader writes each module of the closure to an exclusively
+created, owner-readable sibling of its original whose unique name includes the
+entry digest, and rewrites each linked static specifier to name its target's
+sibling. Each load evaluates the measured bytes of the whole closure under
+fresh module identities, so an edited helper is adopted after a refresh and
+import cycles stay cycles. Relative imports and package resolution retain each
+module's directory; `import.meta.url` names the temporary sibling. Source
+directories must be writable. Temporary files are removed when loading settles
+or is interrupted. `import()` and `require()` calls, and bare specifiers other
+than a package.json `imports` key naming one file, load through the host's
+normal module cache.
 
 `loadTimeoutMs` bounds each `catalog` entry, including custom loaders, and
 defaults to 30,000 milliseconds. Supply a positive finite number. Expiry becomes

@@ -388,6 +388,17 @@ export interface Executable {
 const moduleScopes = new WeakMap<Executable, Scope.Closeable>()
 
 /**
+ * One module of a flow's verified closure: the bytes discovery's identity
+ * measured, their text, and each static specifier in that text that names
+ * another module of the closure, as the specifier token's source range and
+ * the absolute path of the module it names.
+ *
+ * @category models
+ * @since 1.0.0
+ */
+export type ClosureModule = ModuleClosure.Module
+
+/**
  * How a descriptor is loaded and what it may delegate to.
  *
  * @category models
@@ -406,12 +417,16 @@ export interface Options {
   /**
    * Evaluates the verified entry bytes. Any cache must include both path and
    * contentDigest; reopening path does not honor the verified identity.
-   * Defaults to importing a private, digest-qualified sibling file.
+   * `modules` holds the verified bytes of every module the entry statically
+   * reaches, entry included, keyed by absolute path; reopening those paths
+   * does not honor the verified closure either. Defaults to importing
+   * private sibling copies of that whole closure.
    */
   readonly load?:
     | ((path: string, source: {
       readonly bytes: Uint8Array
       readonly contentDigest: string
+      readonly modules: ReadonlyMap<string, ClosureModule>
     }) => Effect.Effect<unknown, unknown>)
     | undefined
 }
@@ -538,47 +553,102 @@ const removeStaleSiblings = (
     Effect.ignore
   )
 
+/**
+ * Evaluates a verified closure as one coherent version.
+ *
+ * Every module is written as a private sibling of its original, so each keeps
+ * its directory — the base of its relative imports, its nearest package.json,
+ * the node_modules it resolves packages from — and every linked static
+ * specifier is rewritten to name the sibling of its target. Each load
+ * therefore evaluates exactly the measured bytes of the whole closure under
+ * fresh module specifiers: a refreshed helper is never answered from the
+ * host's module cache with the exports of an earlier version, and cycles
+ * stay cycles among the siblings. The siblings are removed once the import
+ * settles.
+ */
 const importModule = (
   path: string,
-  source: { readonly bytes: Uint8Array; readonly contentDigest: string }
+  source: {
+    readonly bytes: Uint8Array
+    readonly contentDigest: string
+    readonly modules: ReadonlyMap<string, ClosureModule>
+  }
 ): Effect.Effect<unknown, unknown, FileSystem.FileSystem | Path.Path> =>
   Effect.gen(function*() {
     const fs = yield* FileSystem.FileSystem
     const platformPath = yield* Path.Path
     const sourcePath = path.startsWith("file:") ? yield* platformPath.fromFileUrl(new URL(path)) : path
-    // The module is a sibling of the source file, so relative imports retain
-    // the source's base directory, and its name carries the content digest, so
-    // two different revisions of one file are two module specifiers and the
-    // ESM cache cannot answer a later load with the earlier body.
-    const prefix = platformPath.join(
-      platformPath.dirname(sourcePath),
-      `.smithers-${source.contentDigest}-`
-    )
-    yield* removeStaleSiblings(fs, platformPath, platformPath.dirname(sourcePath))
-    const modulePath = yield* Effect.acquireRelease(
-      reserveSibling(fs, prefix, platformPath.extname(sourcePath) || ".mjs"),
-      // The module is already evaluated; a sibling that will not unlink (EBUSY
-      // on Windows, a guard refusal) must not undo a successful load. The next
-      // load in this directory sweeps it once it is stale.
-      (reserved) =>
-        fs.remove(reserved).pipe(
-          Effect.catch((cause) =>
-            Effect.logWarning("could not remove a module load sibling").pipe(
-              Effect.annotateLogs({ path: reserved, reason: String(cause) })
+    // The closure is keyed by absolute path and always holds the entry.
+    const entryPath = platformPath.resolve(sourcePath)
+    const modules = source.modules
+    const swept = new Set<string>()
+    const siblings = new Map<string, string>()
+    for (const original of modules.keys()) {
+      const directory = platformPath.dirname(original)
+      if (!swept.has(directory)) {
+        swept.add(directory)
+        yield* removeStaleSiblings(fs, platformPath, directory)
+      }
+      const reserved = yield* Effect.acquireRelease(
+        reserveSibling(
+          fs,
+          platformPath.join(directory, `.smithers-${source.contentDigest}-`),
+          platformPath.extname(original) || ".mjs"
+        ),
+        // The module is already evaluated; a sibling that will not unlink
+        // (EBUSY on Windows, a guard refusal) must not undo a successful
+        // load. The next load in this directory sweeps it once it is stale.
+        (sibling) =>
+          fs.remove(sibling).pipe(
+            Effect.catch((cause) =>
+              Effect.logWarning("could not remove a module load sibling").pipe(
+                Effect.annotateLogs({ path: sibling, reason: String(cause) })
+              )
             )
           )
-        )
-    )
-    yield* fs.writeFile(modulePath, source.bytes)
-    // Said before the import, because a declaration captures its site while
-    // the module is evaluated: without it every node of this flow would name
-    // the scratch file removed on the line above's release (D-068).
-    Graph.evaluatedFrom(modulePath, sourcePath)
+      )
+      siblings.set(original, reserved)
+    }
+    for (const [original, module] of modules) {
+      const sibling = siblings.get(original)!
+      yield* fs.writeFile(sibling, rewriteLinks(platformPath, original, module, siblings))
+      // Said before the import, because a declaration captures its site while
+      // the module is evaluated: without it every node of this flow would name
+      // a scratch file removed when the load settles (D-068).
+      Graph.evaluatedFrom(sibling, original)
+    }
     return yield* Effect.tryPromise({
-      try: () => import(/* @vite-ignore */ fileSpecifier(modulePath)) as Promise<unknown>,
+      try: () => import(/* @vite-ignore */ fileSpecifier(siblings.get(entryPath)!)) as Promise<unknown>,
       catch: (cause) => cause
     })
   }).pipe(Effect.scoped)
+
+/**
+ * A module's bytes with each linked specifier naming its target's sibling.
+ *
+ * The replacement is the sibling's path relative to the importer's directory,
+ * spelled literally as the closure walk resolved the original. A module with
+ * no links is written byte for byte.
+ */
+const rewriteLinks = (
+  platformPath: Path.Path,
+  original: string,
+  module: ClosureModule,
+  siblings: ReadonlyMap<string, string>
+): Uint8Array => {
+  if (module.links.length === 0) return module.bytes
+  const directory = platformPath.dirname(original)
+  let text = ""
+  let copied = 0
+  // Links arrive in source order, as the scanner met them.
+  for (const link of module.links) {
+    const relative = platformPath.relative(directory, siblings.get(link.target)!).replaceAll("\\", "/")
+    text += module.source.slice(copied, link.start) +
+      JSON.stringify(relative.startsWith("../") ? relative : `./${relative}`)
+    copied = link.end
+  }
+  return new TextEncoder().encode(text + module.source.slice(copied))
+}
 
 /**
  * The registry name of the flow a descriptor delegates to.
@@ -807,24 +877,20 @@ const loadMarkdown = (
   })
 
 /**
- * Re-measures what the entry loads from beside itself, and refuses when it is
- * not what discovery recorded.
+ * Re-measures what the entry loads from beside itself, refuses when it is not
+ * what discovery recorded, and returns the measured closure.
  *
- * `sourceBytes` verifies the ENTRY and nothing else, and {@link importModule}
- * writes those verified bytes as a SIBLING of the original so the entry's
- * relative imports resolve to the live files. Everything reached that way is
- * code this flow runs, so it is measured here, against the list on the
- * descriptor's {@link module:Descriptor.BodyRefModule.imports} — the same list
- * `Descriptor.executionDigest` folds into the identity a plan was approved
- * under.
+ * `sourceBytes` verifies the ENTRY and nothing else. Everything the entry
+ * reaches is code this flow runs, so it is measured here, against the list on
+ * the descriptor's {@link module:Descriptor.BodyRefModule.imports} — the same
+ * list `Descriptor.executionDigest` folds into the identity a plan was
+ * approved under. The bytes measured are the bytes {@link importModule}
+ * evaluates, so no module of the static closure is read a second time between
+ * this check and the import.
  *
- * WHAT THIS DOES NOT CLOSE: the window between this measurement and the import
- * below. A sibling rewritten in that interval is imported unmeasured, exactly
- * as an entry rewritten after `readVerifiedBody` would be — the loader reads
- * the entry's bytes once and evaluates those, while a sibling is read by the
- * host's own module loader from the path, a second time. Narrowing that needs
- * the loader to evaluate bytes for the whole closure rather than paths, which
- * is a change to how modules are imported, not to what is measured.
+ * WHAT THIS DOES NOT CLOSE: `import()` and `require()` calls, and bare
+ * specifiers that a tsconfig mapping resolves, are measured but still loaded
+ * by the host's own loader from their paths when they run.
  *
  * BARE SPECIFIERS ARE NOT MEASURED. `@smthrs/flow`, `effect`, and every other
  * package resolve into installed code, which is the host's own code under the
@@ -835,7 +901,7 @@ const verifyImports = (
   path: string,
   bytes: Uint8Array,
   recorded: ReadonlyArray<Descriptor.ModuleImport>
-): Effect.Effect<void, ExecutableError, FileSystem.FileSystem | Path.Path> =>
+): Effect.Effect<ReadonlyMap<string, ClosureModule>, ExecutableError, FileSystem.FileSystem | Path.Path> =>
   Effect.gen(function*() {
     const fs = yield* FileSystem.FileSystem
     const platformPath = yield* Path.Path
@@ -844,12 +910,7 @@ const verifyImports = (
         Effect.flatMap(Effect.try(() => new URL(path)), (url) => platformPath.fromFileUrl(url))
       )
       : platformPath.normalize(path)
-    const measured = yield* ModuleClosure.collect(
-      fs,
-      platformPath,
-      entryPath,
-      new TextDecoder().decode(bytes)
-    )
+    const { imports: measured, modules } = yield* ModuleClosure.snapshot(fs, platformPath, entryPath, bytes)
     const unpinnable = measured.find((entry) => entry.contentDigest === undefined)
     if (unpinnable !== undefined) {
       return yield* Effect.fail(
@@ -876,6 +937,7 @@ const verifyImports = (
         })
       )
     }
+    return modules
   })
 
 const loadModule = (
@@ -889,11 +951,12 @@ const loadModule = (
     const bytes = yield* sourceBytes(descriptor, path)
     // Before anything is imported: what runs is the entry AND every module it
     // loads from beside itself, and only the entry has been verified so far.
-    yield* verifyImports(descriptor, path, bytes, recorded)
+    const modules = yield* verifyImports(descriptor, path, bytes, recorded)
     const loadPath = path.startsWith("file:") ? path : platformPath.resolve(path)
     const loaded = yield* (options.load ?? importModule)(loadPath, {
       bytes,
-      contentDigest: descriptor.body.contentDigest!
+      contentDigest: descriptor.body.contentDigest!,
+      modules
     }).pipe(
       Effect.mapError((cause) =>
         refuse({
