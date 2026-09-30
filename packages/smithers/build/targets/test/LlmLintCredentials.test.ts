@@ -182,6 +182,7 @@ it("pre-scans every batch before sending a shared credential in an earlier file"
 it.each([
   ["quoted JSON API key", "export const headers = {\"api_key\": \"tiny42\"}\n", "tiny42"],
   ["object literal token", "export const config = {token: \"objtok42\"}\n", "objtok42"],
+  ["nested call argument", "export const config = makeConfig({api_key: \"liveSecret42\"})\n", "liveSecret42"],
   ["uppercase password", "export const DB_PASSWORD = \"UPPERCASE42\"\n", "UPPERCASE42"],
   ["short password", "export const DB_PASSWORD = \"p4ss\"\n", "p4ss"],
   ["dotenv key", "API_KEY=short-secret\n", "short-secret"]
@@ -210,6 +211,44 @@ it.each([
   expect(await Fs.readFile(record, "utf8")).not.toContain(credential)
   expect(JSON.stringify(outcome)).not.toContain(credential)
   expect(outcome._tag).toBe("Failure")
+})
+
+it.each([
+  ["a sample-prefixed value", "export const API_KEY = \"test-live-secret42\"\n", "Review", "test-live-secret42"],
+  ["a path-like value", "export const DB_PASSWORD = \"/liveSecret42\"\n", "Review", "/liveSecret42"],
+  [
+    "review instructions",
+    "export const a = 2\n",
+    "Review GITHUB_TOKEN=ghp_abcdefghijklmnopqrstuvwxyz1234567890",
+    "ghp_abcdefghijklmnopqrstuvwxyz1234567890"
+  ]
+])("masks %s without reporting a location", async (_label, source, prompt, credential) => {
+  await Fs.writeFile(Path.join(root, "src/a.ts"), source)
+  const executable = Path.join(root, "sample-reviewer.mjs")
+  const record = Path.join(root, "sample-prompt.txt")
+  await Fs.writeFile(
+    executable,
+    `#!/usr/bin/env node\nimport {writeFileSync} from 'node:fs'; let p=''; for await(const c of process.stdin)p+=c; writeFileSync(${
+      JSON.stringify(record)
+    },p); process.stdout.write(JSON.stringify({result:'[]'}))`
+  )
+  await Fs.chmod(executable, 0o755)
+  const outcome = await Effect.runPromise(Effect.result(LlmLint.review({ workspaceRoot: root, executable }, {
+    base: "HEAD",
+    include: [Input.glob("src/**/*.ts")],
+    context: [],
+    prompt,
+    rubric: "Credentials",
+    engine: "claude",
+    model: "test",
+    batchSize: 1,
+    failOn: "error"
+  })))
+  const sent = await Fs.readFile(record, "utf8")
+  expect(sent).not.toContain(credential)
+  expect(sent).toContain("<credential:")
+  expect(JSON.stringify(outcome)).not.toContain(credential)
+  expect(outcome._tag).toBe("Success")
 })
 
 const reviewPayload: LlmLint.Payload = {

@@ -31,9 +31,15 @@ setInterval(() => {
           process.kill("SIGKILL")
         })
     )
-    const code = yield* Effect.async<number, unknown>((resume) => {
-      child.once("error", (error) => resume(Effect.fail(error)))
-      child.once("exit", (code) => resume(Effect.succeed(code ?? -1)))
+    const code = yield* Effect.callback<number, unknown>((resume) => {
+      const onError = (error: Error) => resume(Effect.fail(error))
+      const onExit = (code: number | null) => resume(Effect.succeed(code ?? -1))
+      child.once("error", onError)
+      child.once("exit", onExit)
+      return Effect.sync(() => {
+        child.removeListener("error", onError)
+        child.removeListener("exit", onExit)
+      })
     })
     if (code !== 0) return yield* Effect.fail({ code })
     return child.pid!

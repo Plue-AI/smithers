@@ -709,8 +709,13 @@ export const make = (
         budget: Descriptor.budgetOf(descriptor)
       },
       ...(executable?.input === undefined ? {} : {
+        // Planning has no implementation services. A payload codec that needs
+        // one refuses input here rather than escaping as an untyped defect.
         decode: (input: unknown) => Schema.decodeUnknownEffect(executable.input!)(input).pipe(
-          Effect.mapError((cause) => new ControlError.InvalidInput({ issue: String(cause) }))
+          Effect.provideContext(Context.empty()),
+          Effect.catchCause((cause) => Cause.hasInterruptsOnly(cause)
+            ? Effect.interrupt
+            : Effect.fail(new ControlError.InvalidInput({ issue: Cause.pretty(cause) })))
         )
       }),
       ...(executable === undefined ? {} : { plan: planExecutable(executable, root) })

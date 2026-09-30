@@ -576,14 +576,15 @@ class CredentialMask {
         /(?:url|uri|header|path|env|name|pattern)$/i.test(name)
       ) continue
       const value = (match[4] ?? match[5] ?? match[6] ?? match[7])!
+      // Template references such as `{smthrs:bun}` or `${TOKEN}` and code expressions hold no value.
       if (
-        match[7] !== undefined && file?.endsWith(".ts") === true &&
-        /^(?:process\.|[A-Za-z_$][\w$]*[.(]|true$|false$|null$|undefined$)/.test(value)
+        /^[{$]/.test(value) ||
+        (match[7] !== undefined && file?.endsWith(".ts") === true &&
+          /^(?:process\.|[A-Za-z_$][\w$]*[.(]|true$|false$|null$|undefined$)/.test(value))
       ) continue
-      // Placeholder-like values are still masked, but only reported when they
-      // cannot be a sample; short ones would mask unrelated text.
+      // Sample-like values are still masked but not reported; short ones would mask unrelated text.
       const sample = /^(?:example|placeholder|replace|dummy|test|your)[-_ ]/i.test(value) ||
-        /^(?:[/{$]|https?:\/\/)/.test(value)
+        /^(?:\/|https?:\/\/)/.test(value)
       if (sample && value.length < 8) continue
       found.push({ value, name, offset: match.index + match[1]!.indexOf(value), report: !sample })
     }
