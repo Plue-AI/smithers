@@ -340,15 +340,14 @@ const indexState = async (cwd: string, blob: string, before: FileStat): Promise<
  * receipts, so a shell receipt leaves them out.
  */
 const shells = new Set<Set<string>>()
-const claim = (cwd: string, files: ReadonlyArray<string>): void => {
-  for (const claimed of shells) for (const file of files) claimed.add(resolve(cwd, file))
-}
+/** The resolved files of named writers in flight: a shell starting meanwhile leaves them out too. */
+const writing = new Set<ReadonlyArray<string>>()
 
 /** A bash call's changes against pre-call files, relative to `cwd`; no receipt outside a repository. */
 const shell = (binding: FlowBinding.Binding, call: Cell.Call, cwd: string, onPatch: (receipt: Receipt) => void) =>
   Effect.acquireUseRelease(
     Effect.sync(() => {
-      const claimed = new Set<string>()
+      const claimed = new Set([...writing].flat())
       shells.add(claimed)
       return claimed
     }),
@@ -429,10 +428,16 @@ const within = (cwd: string, path: string): string => {
 const named = (binding: FlowBinding.Binding, call: Cell.Call, cwd: string, onPatch: (receipt: Receipt) => void) =>
   Effect.gen(function*() {
     const files = [...new Set(paths(call.flowName, call.input).map((path) => within(cwd, path)))]
-    yield* Effect.sync(() => claim(cwd, files))
+    const resolved = files.map((file) => resolve(cwd, file))
     const before = yield* Effect.promise(() => states(cwd, files))
-    // Claimed again once it ends: a shell that started meanwhile saw no claim at the start.
-    const result = yield* binding.run(call).pipe(Effect.ensuring(Effect.sync(() => claim(cwd, files))))
+    const result = yield* Effect.acquireUseRelease(
+      Effect.sync(() => {
+        for (const claimed of shells) for (const file of resolved) claimed.add(file)
+        writing.add(resolved)
+      }),
+      () => binding.run(call),
+      () => Effect.sync(() => writing.delete(resolved))
+    )
     const patches: Array<Patch> = []
     let additional = 0
     for (const path of files) {

@@ -704,6 +704,83 @@ describe("undo", () => {
     expect(writeReceipts.map((receipt) => receipt.patches.map((patch) => patch.path))).toEqual([["b.ts"]])
   })
 
+  it("leaves a named write's file out of a shell call that starts and ends while the write runs", async () => {
+    const cwd = gitRepo()
+    put(cwd, "a.ts", "original A\n")
+    put(cwd, "b.ts", "original B\n")
+    gitCommit(cwd)
+    const gate = () => {
+      let open!: () => void
+      const opened = new Promise<void>((resolve) => {
+        open = resolve
+      })
+      return { open, opened }
+    }
+    const [writerEntered, shellEntered, writeNow, written, writerDone, shellDone] = [
+      gate(),
+      gate(),
+      gate(),
+      gate(),
+      gate(),
+      gate()
+    ]
+    const binding = async (receipts: Changes.Receipt[], body: () => Promise<void>) => {
+      const source = {
+        name: "test",
+        bindings: () =>
+          Effect.succeed([{
+            run: () =>
+              Effect.promise(async () => {
+                await body()
+                return { outcome: "success", value: {} }
+              })
+          }])
+      } as unknown as Parameters<typeof Changes.capture>[0]
+      const [bound] = await Effect.runPromise(
+        Changes.capture(source, cwd, (receipt) => receipts.push(receipt)).bindings()
+      )
+      return bound!
+    }
+    const shellReceipts: Changes.Receipt[] = []
+    const writeReceipts: Changes.Receipt[] = []
+    const writer = await binding(writeReceipts, async () => {
+      writerEntered.open()
+      await writeNow.opened
+      put(cwd, "b.ts", "worker B\n")
+      written.open()
+      await writerDone.opened
+    })
+    const shell = await binding(shellReceipts, async () => {
+      shellEntered.open()
+      await shellDone.opened
+      put(cwd, "a.ts", "shell A\n")
+    })
+    const writing = Effect.runPromise(
+      writer.run({
+        flowName: "write",
+        input: { path: "b.ts", content: "worker B\n" },
+        identity: { session: "B", frame: 1, cell: 1, ordinal: 0 }
+      } as never)
+    )
+    await writerEntered.opened
+    const running = Effect.runPromise(
+      shell.run({
+        flowName: "bash",
+        input: { command: "edit a.ts" },
+        identity: { session: "A", frame: 1, cell: 1, ordinal: 0 }
+      } as never)
+    )
+    await shellEntered.opened
+    writeNow.open()
+    await written.opened
+    shellDone.open()
+    await running
+    writerDone.open()
+    await writing
+    expect(shellReceipts.map((receipt) => receipt.patches.map((patch) => patch.path))).toEqual([["a.ts"]])
+    expect(writeReceipts.map((receipt) => receipt.patches.map((patch) => patch.path))).toEqual([["b.ts"]])
+  })
+
   it.skipIf(Bun.which("jj") === null)(
     "lists a concurrent edit a shell call observed, for the person to uncheck",
     async () => {
