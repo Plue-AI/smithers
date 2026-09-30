@@ -2188,6 +2188,54 @@ describe("the settlement a failure is persisted as", () => {
  * exact write rather than a moment after it.
  */
 describe("the executor's terminal ordering", () => {
+  it.each(["cancelled", "shutdown", "missing", "unreadable"] as const)(
+    "settles interrupt-only execution from durable intent (%s)",
+    async (intent) => {
+      const record = recorder()
+      const read = Deferred.makeUnsafe<void>()
+      const runs: Partial<RunStore.Service> = {
+        get: () =>
+          Effect.gen(function*() {
+            yield* Deferred.succeed(read, void 0)
+            if (intent === "missing" || intent === "unreadable") {
+              return yield* new RunStore.RunStoreError({
+                code: intent === "missing" ? "not_found_row" : "persistence_failed",
+                method: "get",
+                message: "intent unavailable",
+                cause: undefined
+              })
+            }
+            return {
+              runId,
+              status: "running" as const,
+              owner: null,
+              heartbeatAtMs: null,
+              claim: null,
+              claimedAtMs: null,
+              createdAtMs: 0,
+              startedAtMs: 0,
+              finishedAtMs: null,
+              parentRunId: null,
+              cancelRequestedAtMs: intent === "cancelled" ? 1 : null,
+              stateJson: "{}"
+            }
+          })
+      }
+      await withExecutor(record, {
+        runs,
+        agent: Agent.makeNoop({ run: () => Stream.fromEffect(Effect.interrupt) })
+      }, (executor) =>
+        Effect.gen(function*() {
+          yield* executor.launch(launchInput)
+          yield* Deferred.await(read).pipe(Effect.timeout(Duration.seconds(10)))
+          if (intent === "cancelled") yield* Deferred.await(record.settled).pipe(Effect.timeout(Duration.seconds(10)))
+          else yield* Effect.repeat(Effect.yieldNow, { times: 100 })
+        }))
+      expect(record.statuses).toEqual(intent === "cancelled" ? ["cancelled"] : [])
+      expect(record.journaled.some((entry) => entry.eventType === "control.run.cancelled")).toBe(intent === "cancelled")
+    }
+  )
+
   /** A journal that records as the default one does and names the write. */
   const journalWatching = (record: Recorder, wrote: Deferred.Deferred<void>): Partial<Journal.Service> => ({
     emitDurableUnfenced: (input) =>

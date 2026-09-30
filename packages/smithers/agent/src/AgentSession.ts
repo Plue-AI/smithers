@@ -2793,8 +2793,16 @@ export const make = (
      * detach: the status is written inline, exactly as it was.
      */
     const settleTerminal = (runId: string, status: RunStatus, detail?: string, fault?: Fault.Fault) => {
+      const write = writeStatus(runId, status, detail, fault).pipe(
+        Effect.catchTag("/control/ClaimLost", (cause) =>
+          status === "cancelled"
+            ? runtime.getRun(runId).pipe(
+              Effect.flatMap((run) => run.status === "cancelled" ? Effect.void : Effect.fail(cause))
+            )
+            : Effect.fail(cause))
+      )
       const order = options.orderTerminalStatus
-      if (order === undefined) return writeStatus(runId, status, detail, fault)
+      if (order === undefined) return write
       return Effect.sync(() => {
         const key = {}
         terminalWrites.set(
@@ -2811,7 +2819,7 @@ export const make = (
                   { runId, status, cause: Cause.pretty(cause) }
                 )
               ),
-              Effect.andThen(writeStatus(runId, status, detail, fault)),
+              Effect.andThen(write),
               // Nothing joins this fiber, so an unwritten terminal status would
               // otherwise be silent. It is the run's outcome of record.
               Effect.catchCause((cause) =>
@@ -2826,6 +2834,24 @@ export const make = (
         )
       })
     }
+
+    // An interrupt can mean shutdown or durable cancellation. Only the engine
+    // row's recorded intent authorizes a terminal cancellation; an unreadable
+    // or absent row must remain reclaimable.
+    const settleInterrupted = (runId: string) =>
+      engineRuns.get(runId).pipe(
+        Effect.map((row) => row.cancelRequestedAtMs !== null),
+        Effect.catchCause((cause) =>
+          Effect.as(
+            Effect.annotateLogs(Effect.logWarning("Cancellation intent could not be read"), {
+              runId,
+              cause: Cause.pretty(cause)
+            }),
+            false
+          )
+        ),
+        Effect.flatMap((cancelled) => cancelled ? settleTerminal(runId, "cancelled") : Effect.void)
+      )
 
     /**
      * Settles the control-plane status from one execution attempt's exit. A
@@ -2848,11 +2874,7 @@ export const make = (
         : Cause.hasInterruptsOnly(exit.cause)
         ? suspended
           ? writeStatus(runId, waitingReason === "approval" ? "waiting-approval" : "parked")
-          // Cancellation and process shutdown both close the execution scope.
-          // The control operation owns cancellation's terminal write, while a
-          // shutdown must leave the run reclaimable rather than misreport it
-          // as a model failure.
-          : Effect.void
+          : settleInterrupted(runId)
         : exit.cause.reasons.some((
             reason
           ) => (Cause.isDieReason(reason) && reason.defect instanceof AttemptEvidenceQuarantined)
