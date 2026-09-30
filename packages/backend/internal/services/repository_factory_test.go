@@ -8,6 +8,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/stretchr/testify/require"
+	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -446,4 +448,49 @@ func moveRepositoryForTest(t *testing.T, pool *pgxpool.Pool, repo int64, user, o
 	_, err = tx.Exec(ctx, `DELETE FROM repository_storage_operations WHERE repository_id=$1`, repo)
 	require.NoError(t, err)
 	require.NoError(t, tx.Commit(ctx))
+}
+
+// The committed factory promises no issue-opened triage: its old
+// issue.opened -> issue rule named no discovered flow, so it could never be a
+// live registration (#2915). Every issue-event rule it declares names a
+// discovered flow, issue-triage stays a manual flow no rule starts, and no
+// registration the projection yields reacts to an opened issue.
+func TestCheckedInFactoryDeclaresNoUndiscoveredIssueRule(t *testing.T) {
+	t.Parallel()
+	raw, err := os.ReadFile("../../../../.smithers/factory.json")
+	require.NoError(t, err)
+	var projection FactoryProjection
+	require.NoError(t, json.Unmarshal(raw, &projection))
+	discovered := map[string]bool{}
+	for _, flow := range projection.Flows {
+		discovered[flow.ID] = true
+	}
+	require.True(t, discovered["issue-triage"], "triage is still offered as a manual flow")
+	for _, rule := range projection.On {
+		require.NotEqual(t, "issue.opened", rule.Event, "no rule promises triage of every new issue")
+		if !strings.HasPrefix(rule.Event, "issue.") {
+			continue
+		}
+		var names []string
+		var name string
+		if json.Unmarshal(rule.Flow, &name) == nil {
+			names = []string{name}
+		} else {
+			require.NoError(t, json.Unmarshal(rule.Flow, &names))
+		}
+		for _, name := range names {
+			require.True(t, discovered[name], "%s names the undiscovered flow %s", rule.Event, name)
+			require.NotEqual(t, "issue-triage", name, "triage never runs from an issue event")
+		}
+	}
+	registrations, err := factoryRegistrations(projection, strings.Repeat("a", 40))
+	require.NoError(t, err)
+	for _, registration := range registrations {
+		for _, event := range registration.input.Events {
+			require.False(t, event.Type == "issue" && slices.Contains(event.Actions, "opened"), registration.input.FlowID)
+		}
+	}
+	source, err := os.ReadFile("../../../../.smithers/FACTORY.ts")
+	require.NoError(t, err)
+	require.NotContains(t, string(source), `"issue.opened":`, "the declaration and its projection agree")
 }
