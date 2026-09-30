@@ -184,6 +184,63 @@
       }
     },
     {
+      "id": "burndown",
+      "description": "Burns down every open issue in the named repositories with paced coding agents and a merge queue.",
+      "summary": null,
+      "featured": false,
+      "kind": "ts",
+      "path": "flows/burndown/flow.ts",
+      "capabilities": [
+        "fs:read:**",
+        "fs:write:**",
+        "proc:spawn:*",
+        "net:get:*",
+        "net:post:*",
+        "model:call:*"
+      ],
+      "model": null,
+      "modelInvocable": false,
+      "flows": []
+    },
+    {
+      "id": "burndown/monitor",
+      "description": "Watches a burndown run on a schedule and reports whether it is healthy.",
+      "summary": null,
+      "featured": false,
+      "kind": "ts",
+      "path": "flows/burndown/monitor/flow.ts",
+      "capabilities": [
+        "fs:read:**",
+        "fs:write:**",
+        "proc:spawn:*",
+        "net:get:*",
+        "net:post:*",
+        "model:call:*"
+      ],
+      "model": null,
+      "modelInvocable": false,
+      "flows": []
+    },
+    {
+      "id": "burndown/worker",
+      "description": "Works one issue bundle end to end with one coding agent on one subscription account.",
+      "summary": null,
+      "featured": false,
+      "kind": "ts",
+      "path": "flows/burndown/worker/flow.ts",
+      "capabilities": [
+        "fs:read:**",
+        "fs:write:**",
+        "proc:spawn:*",
+        "net:get:*",
+        "net:post:*",
+        "model:call:*"
+      ],
+      "model": null,
+      "modelInvocable": false,
+      "flows": []
+    },
+    {
       "id": "checks/affected-lint",
       "description": "Lint every target the Change's written files affect; a known red does not fail it.",
       "summary": null,
@@ -581,7 +638,7 @@
     },
     {
       "id": "coding/vibe",
-      "description": "Retain the original source, clean and revalidate the validated native history, retain the cleaned source, and append one commit to main through the existing landing policy, or open a GitHub pull request when the repository sends changes upstream.",
+      "description": "Clean and revalidate the validated native history, then deliver one commit: through the backend's landing policy (appended to main, or a GitHub pull request when the repository sends changes upstream), or, on a host without the backend, by fast-forwarding main to the verified candidate or opening its GitHub pull request.",
       "summary": null,
       "featured": false,
       "kind": "ts",
@@ -1172,7 +1229,7 @@
     },
     {
       "id": "wrapped",
-      "description": "Run Claude Code on a task with the memory a native agent starts with and the shared Smithers prompt appended through its own mechanism.",
+      "description": "Run Claude Code or Codex on a task with the memory a native agent starts with and the shared Smithers prompt appended through its own mechanism.",
       "summary": null,
       "featured": false,
       "kind": "ts",
