@@ -96,8 +96,16 @@ const projectionFields = {
  * server (`url`), never both, so a mixed entry cannot silently drop a field.
  */
 const McpServerEntry = Schema.Union([
-  Schema.Struct({ ...McpClient.ConnectOptionsSchema.fields, ...projectionFields, url: Schema.optionalKey(Schema.Never) }),
-  Schema.Struct({ ...McpClient.HttpConnectOptionsSchema.fields, ...projectionFields, command: Schema.optionalKey(Schema.Never) })
+  Schema.Struct({
+    ...McpClient.ConnectOptionsSchema.fields,
+    ...projectionFields,
+    url: Schema.optionalKey(Schema.Never)
+  }),
+  Schema.Struct({
+    ...McpClient.HttpConnectOptionsSchema.fields,
+    ...projectionFields,
+    command: Schema.optionalKey(Schema.Never)
+  })
 ])
 
 /**

@@ -79,7 +79,8 @@ const maximumItems = 10_000
  * @since 1.0.0
  */
 export const paginationCursor = (headers: Headers, current: URL): string => {
-  const invalid = () => new Refused({ fault: "infra", code: "backend_protocol", message: "API returned invalid pagination" })
+  const invalid = () =>
+    new Refused({ fault: "infra", code: "backend_protocol", message: "API returned invalid pagination" })
   const link = headers.get("link") || ""
   const entries: Array<string> = []
   let start = 0, quoted = false, angle = false, escaped = false
@@ -87,7 +88,7 @@ export const paginationCursor = (headers: Headers, current: URL): string => {
     const char = link[index]
     if (escaped) escaped = false
     else if (quoted && char === "\\") escaped = true
-    else if (!angle && char === '"') quoted = !quoted
+    else if (!angle && char === "\"") quoted = !quoted
     else if (!quoted && char === "<") angle = true
     else if (!quoted && char === ">") angle = false
     else if (!quoted && !angle && char === ",") {
@@ -466,7 +467,8 @@ export class Client {
         throw new Refused({
           fault: "user",
           code: "pagination_limit",
-          message: `Stopped after ${items.length} items in ${seen.size} pages. Narrow the list with filters or use --limit and --cursor`
+          message:
+            `Stopped after ${items.length} items in ${seen.size} pages. Narrow the list with filters or use --limit and --cursor`
         })
       }
     } while (cursor)

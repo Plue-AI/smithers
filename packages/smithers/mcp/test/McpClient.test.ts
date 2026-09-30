@@ -1267,7 +1267,11 @@ describe("McpClient.HttpConnectOptionsSchema", () => {
     ["a url with a password", { server: "remote", url: "https://user:secret@mcp.example.test/" }],
     ["a url with a username", { server: "remote", url: "https://token@mcp.example.test/" }],
     ["an empty server", { server: "", url: "https://mcp.example.test/" }],
-    ["a credential variable that is not a name", { server: "remote", url: "https://mcp.example.test/", bearerTokenEnv: "A B" }],
+    ["a credential variable that is not a name", {
+      server: "remote",
+      url: "https://mcp.example.test/",
+      bearerTokenEnv: "A B"
+    }],
     ["a zero limit", { server: "remote", url: "https://mcp.example.test/", maxTools: 0 }]
   ])("rejects %s", (_label, entry) => {
     expect(() => Schema.decodeUnknownSync(McpClient.HttpConnectOptionsSchema)(entry)).toThrow()

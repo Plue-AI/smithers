@@ -298,7 +298,10 @@ export const plan = async (
  * execution directory when it is missing, otherwise the executable with a PATH
  * hint. Failures with another cause pass through unchanged.
  */
-const launchFailure = async (error: Error, target: { readonly command: string; readonly cwd?: string | undefined }): Promise<unknown> => {
+const launchFailure = async (
+  error: Error,
+  target: { readonly command: string; readonly cwd?: string | undefined }
+): Promise<unknown> => {
   const code = (error as NodeJS.ErrnoException).code
   const directory = target.cwd ?? process.cwd()
   if (code === "ENOENT" || code === "ENOTDIR") {

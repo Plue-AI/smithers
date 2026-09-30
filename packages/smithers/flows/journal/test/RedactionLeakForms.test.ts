@@ -217,11 +217,15 @@ describe("redactDiagnostic", () => {
     expect(Redaction.redactDiagnostic(JSON.stringify([["Authorization", `Token ${secret}`], ["Accept", "a"]]))).toBe(
       `[["Authorization","${Redaction.placeholder}"],["Accept","a"]]`
     )
-    expect(Redaction.redactDiagnostic(`[ [ 'cookie', 'a=${secret}' ] ]`)).toBe(`[ [ 'cookie', '${Redaction.placeholder}' ] ]`)
+    expect(Redaction.redactDiagnostic(`[ [ 'cookie', 'a=${secret}' ] ]`)).toBe(
+      `[ [ 'cookie', '${Redaction.placeholder}' ] ]`
+    )
   })
 
   it("redacts a header pair whose value the text cuts off", () => {
-    expect(Redaction.redactDiagnostic(`[["Authorization","Token ${secret}`)).toBe(`[["Authorization","${Redaction.placeholder}`)
+    expect(Redaction.redactDiagnostic(`[["Authorization","Token ${secret}`)).toBe(
+      `[["Authorization","${Redaction.placeholder}`
+    )
   })
 
   it.each([

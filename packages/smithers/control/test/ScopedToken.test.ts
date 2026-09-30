@@ -22,7 +22,15 @@ describe("minting and verifying", () => {
     expect(token.split(".")).toHaveLength(3)
     expect(claims).toMatchObject({
       v: 1,
-      procedures: ["List", "Watch", "Projection.Snapshot", "Projection.Subscribe", "Approve", "Deny", "Approval.Submit"],
+      procedures: [
+        "List",
+        "Watch",
+        "Projection.Snapshot",
+        "Projection.Subscribe",
+        "Approve",
+        "Deny",
+        "Approval.Submit"
+      ],
       runId: "run-1",
       flowId: "demo",
       iat: 1_000,

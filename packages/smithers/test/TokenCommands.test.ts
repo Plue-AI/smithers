@@ -64,7 +64,15 @@ describe("smthrs token mint", () => {
     const document = JSON.parse(result.stdout) as TokenCommands.MintedToken
     expect(document).toMatchObject({
       scopes: ["read:runs", "approve:runs"],
-      procedures: ["List", "Watch", "Projection.Snapshot", "Projection.Subscribe", "Approve", "Deny", "Approval.Submit"],
+      procedures: [
+        "List",
+        "Watch",
+        "Projection.Snapshot",
+        "Projection.Subscribe",
+        "Approve",
+        "Deny",
+        "Approval.Submit"
+      ],
       runId: "run-1"
     })
     expect(document).not.toHaveProperty("flowId")

@@ -172,7 +172,9 @@ describe("box remote execution", () => {
       const client = new Client({ environment: { ...c.env, SMITHERS_API_ORIGIN: "https://api.example.test" } }, live)
       vi.spyOn(client, "request").mockImplementation(async (method, path) => {
         if (method === "POST" && path.endsWith("/command-runs")) return { operationId: "r" }
-        if (method === "GET" && path.endsWith("/command-runs/r")) return { operationId: "r", state: "completed", result }
+        if (method === "GET" && path.endsWith("/command-runs/r")) {
+          return { operationId: "r", state: "completed", result }
+        }
         throw new Error(`Unexpected ${method} ${path}`)
       })
       return workspaces["workspace exec"]!(client, { id: "box" }, { ...options, command: "x" })

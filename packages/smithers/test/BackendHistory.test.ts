@@ -8,7 +8,15 @@ import { MythicalItemSchema, MythicalItemStateSchema, mythicalMachine } from "..
 import { issueGroupOf } from "../../rpc/src/StackIssues.ts"
 import { itemStateLabel, settled } from "../../rpc/src/StackView.ts"
 import { main } from "../src/cli/Entry.ts"
-import { groupOf, itemLine, machineLine, outOfLanes, receiptLine, render, stateLabel } from "../src/internal/backend/History.ts"
+import {
+  groupOf,
+  itemLine,
+  machineLine,
+  outOfLanes,
+  receiptLine,
+  render,
+  stateLabel
+} from "../src/internal/backend/History.ts"
 
 const dirs: Array<string> = []
 afterEach(async () => {
@@ -92,7 +100,9 @@ describe("history rendering", () => {
       }
     })
     const container = item("running", { placement: { declared: {}, kind: "container", vcpus: 2, memoryMiB: 4096 } })
-    const refused = item("blocked", { placement: { declared: { vcpus: 8 }, refusal: "machine_too_small", reason: "too big" } })
+    const refused = item("blocked", {
+      placement: { declared: { vcpus: 8 }, refusal: "machine_too_small", reason: "too big" }
+    })
     for (const value of [placed, container, refused, item("running")]) {
       expect(machineLine(value)).toBe(mythicalMachine(MythicalItemSchema.parse(value).placement) ?? "")
     }
@@ -520,7 +530,9 @@ describe("the factory from the terminal, over a local HTTP server", () => {
       expect((await f.run(["history", "todo", "  "])).code).toBe(2)
       expect((await f.run(["history", "todo", "x", "--request", "bad id!"])).code).toBe(2)
       const sent = f.requests.map((r) => JSON.parse(r.body ?? "{}") as { title: string; body: string; request: string })
-      expect(f.requests.every((r) => r.method === "POST" && r.url === "/api/repos/owner/repo/mythical/todos")).toBe(true)
+      expect(f.requests.every((r) => r.method === "POST" && r.url === "/api/repos/owner/repo/mythical/todos")).toBe(
+        true
+      )
       expect(sent).toHaveLength(3)
       expect(sent[0]).toMatchObject({ title: "Add dark mode", body: "Follow the system theme" })
       expect(sent[0]!.request).toMatch(/^[0-9a-f-]{36}$/)

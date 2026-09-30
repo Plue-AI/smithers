@@ -116,7 +116,9 @@ export const receiptLine = (item: Values): string =>
  */
 export const machineLine = (item: Values): string => {
   const placement = object(item.placement)
-  return placement.kind === undefined ? "" : [str(placement.kind), str(placement.image)].filter(Boolean).map(clean).join(" · ")
+  return placement.kind === undefined
+    ? ""
+    : [str(placement.kind), str(placement.image)].filter(Boolean).map(clean).join(" · ")
 }
 
 /**

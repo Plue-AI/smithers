@@ -21,7 +21,9 @@ misc.api = async (c, a, o) => {
       list(values).map(str).map((value) => {
         const index = value.indexOf(separator)
         if (index < 0) {
-          throw new UsageError({ message: separator === "=" ? "Fields require an equals sign" : "Headers require a colon" })
+          throw new UsageError({
+            message: separator === "=" ? "Fields require an equals sign" : "Headers require a colon"
+          })
         }
         return [value.slice(0, index).trim(), value.slice(index + 1).trim()]
       })

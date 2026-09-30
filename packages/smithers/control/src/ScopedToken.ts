@@ -152,8 +152,9 @@ export const isScopedToken = (credential: string): boolean => credential.startsW
  * @category getters
  * @since 1.0.0
  */
-export const procedures = (names: ReadonlyArray<Scope>): ReadonlyArray<string> =>
-  [...new Set(names.flatMap((name) => scopes[name]))]
+export const procedures = (
+  names: ReadonlyArray<Scope>
+): ReadonlyArray<string> => [...new Set(names.flatMap((name) => scopes[name]))]
 
 /**
  * Mints one token under the key.

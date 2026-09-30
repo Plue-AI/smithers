@@ -57,7 +57,9 @@ export const mint = (
     }
     const ttlMillis = duration(options.ttl)
     if (ttlMillis === undefined) {
-      return yield* new CliError.UsageError({ message: `--ttl must be a positive duration such as 30s, 15m, 1h, or 2d, not ${options.ttl}` })
+      return yield* new CliError.UsageError({
+        message: `--ttl must be a positive duration such as 30s, 15m, 1h, or 2d, not ${options.ttl}`
+      })
     }
     const minted = yield* ScopedToken.mint({
       key,

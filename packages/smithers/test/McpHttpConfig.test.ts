@@ -11,9 +11,9 @@ import * as GrantStore from "@smthrs/kernel/GrantStore"
 import * as Workspace from "@smthrs/kernel/Workspace"
 import type * as McpClient from "@smthrs/mcp/McpClient"
 import { Effect, Exit, Layer, Redacted } from "effect"
+import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { createServer, type IncomingMessage, type Server } from "node:http"
 import type { AddressInfo } from "node:net"
-import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
@@ -156,7 +156,11 @@ describe("--mcp-config Streamable HTTP entries", () => {
   })
 
   it("refuses an unset or empty credential variable by name, never echoing a value", async () => {
-    const file = await configFile([{ server: "remote", url: "https://mcp.example.test/", bearerTokenEnv: "REMOTE_MCP_TOKEN" }])
+    const file = await configFile([{
+      server: "remote",
+      url: "https://mcp.example.test/",
+      bearerTokenEnv: "REMOTE_MCP_TOKEN"
+    }])
     const error = new CliError.UsageError({
       message: `--mcp-config ${file}: server "remote" needs REMOTE_MCP_TOKEN set to its bearer token`
     })
@@ -185,7 +189,12 @@ describe("--mcp-config Streamable HTTP entries", () => {
   })
 
   it("rejects a stdio entry that also names a url", async () => {
-    const file = await configFile([{ server: "local", command: "local-mcp", args: [], url: "https://mcp.example.test/" }])
+    const file = await configFile([{
+      server: "local",
+      command: "local-mcp",
+      args: [],
+      url: "https://mcp.example.test/"
+    }])
     expect(() => NodeControl.makeConfig(["--mcp-config", file], {}, "/work")).toThrow(usage(file))
   })
 
