@@ -1027,6 +1027,7 @@ describe("a run remembers what the person decided", () => {
     mkdirSync(join(root, "target", "sub"), { recursive: true })
     writeFileSync(join(root, "target", "NOTES.md"), "existing\n")
     symlinkSync("target", join(root, "alias"))
+    symlinkSync("target", join(root, "alias[literal]"))
     symlinkSync("target/sub", join(root, "deep"))
     const patterns = [
       ["alias/**", "target/**"],
@@ -1034,6 +1035,8 @@ describe("a run remembers what the person decided", () => {
       ["alias/*.md", "target/*.md"],
       ["alias/N?TES.md", "target/N?TES.md"],
       ["alias/NOTES.md", "target/NOTES.md"],
+      ["alias[literal]/NOTES.md", "target/NOTES.md"],
+      ["alias[literal]/*.md", "target/*.md"],
       ["deep/../**", "target/**"],
       ["alias/missing/**", "target/missing/**"]
     ] as const
@@ -1067,6 +1070,73 @@ describe("a run remembers what the person decided", () => {
     expect(result.messages).toHaveLength(patterns.length)
     for (const message of result.messages) expect(message).toStartWith(Approvals.deniedPrefix)
     expect(result.pending).toBe(0)
+  })
+
+  it("asks about shell expansions and canonical symlink globs despite a command grant", async () => {
+    const root = scripted()
+    mkdirSync(join(root, "target", "sub"), { recursive: true })
+    writeFileSync(join(root, "target", "NOTES.md"), "existing\n")
+    symlinkSync("target", join(root, "alias"))
+    symlinkSync("target/sub", join(root, "deep"))
+    const commands = [
+      "cat source > alias/NOTES.m?",
+      "cat source > target/NOTES.m?",
+      `cat source > ${join(root, "alias", "NOTES.m?")}`,
+      "cat source > deep/../NOTES.m?",
+      "cat source > alias/NOTES.[m]d",
+      "cat source > alias/*.md",
+      'name=NOTES; echo hello > "$name.md"',
+      'name=target/NOTES; echo hello > "${name}.md"',
+      'echo hello > "$(echo target/NOTES).md"',
+      'echo hello > "`echo target/NOTES`.md"',
+      "echo hello > target/{NOTES,OTHER}.md",
+      "echo '$name'",
+      "echo '`name`'",
+      "echo '*'",
+      "echo '?'",
+      "echo '['",
+      "echo ']'",
+      "echo '{'",
+      "echo '}'",
+      String.raw`echo \$name`,
+      "cat source > elsewhere/*.md"
+    ]
+    const result = await withStore("ask", (grants) =>
+      Effect.gen(function*() {
+        const memory = new Approvals.Memory()
+        const authorize = Approvals.authorize(grants, { cwd: root, source: "t1", memory })
+        // A grant alone still authorizes commands; expansion becomes uncertain
+        // once this run has a refused file.
+        const grant = yield* Effect.forkChild(authorize(callOf("bash", { command: "true" })))
+        yield* Approvals.reply(grants, memory, (yield* settledPending(grants, 1))[0]!, "run", root)
+        yield* Fiber.join(grant)
+        yield* authorize(callOf("bash", { command: commands[6] }))
+        const write = yield* Effect.forkChild(authorize(callOf("write", {
+          path: "target/NOTES.md", content: "hello\n"
+        })))
+        yield* Approvals.reply(grants, memory, (yield* settledPending(grants, 1))[0]!, "deny", root)
+        yield* Fiber.await(write)
+        const asked: Array<string> = []
+        for (const command of commands) {
+          const fiber = yield* Effect.forkChild(authorize(callOf("bash", { command })))
+          asked.push((yield* settledPending(grants, 1))[0]!.subject)
+          yield* Fiber.interrupt(fiber)
+        }
+        const literal = yield* Effect.exit(authorize(callOf("bash", { command: "cat source > alias/NOTES.md" })))
+        // Literal unrelated commands keep the grant, and another run's refusal
+        // cannot force an approval in this run.
+        yield* authorize(callOf("bash", { command: "echo hello > OTHER.md" }))
+        const otherAuthorize = Approvals.authorize(grants, { cwd: root, source: "t2", memory })
+        const otherGrant = yield* Effect.forkChild(otherAuthorize(callOf("bash", { command: "true" })))
+        yield* Approvals.reply(grants, memory, (yield* settledPending(grants, 1))[0]!, "run", root)
+        yield* Fiber.join(otherGrant)
+        yield* otherAuthorize(callOf("bash", { command: commands[6] }))
+        return { asked, literal: exitMessage(literal), pending: (yield* grants.list).length }
+      }), root)
+    expect(result.asked).toEqual(commands)
+    expect(result.literal).toStartWith(Approvals.deniedPrefix)
+    expect(result.pending).toBe(0)
+    expect(readFileSync(join(root, "target", "NOTES.md"), "utf8")).toBe("existing\n")
   })
 
   it("a denial wins over a allowing edits for the run", async () => {

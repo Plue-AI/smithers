@@ -796,7 +796,7 @@ export const readOnly = (shell: string, root: string, base = root): Reading => {
   return found
 }
 
-/** A declared write pattern with its literal prefix resolved, and its wildcard suffix unchanged. */
+/** A write pattern with its literal prefix resolved, and its wildcard suffix unchanged. */
 const realGlob = (glob: string, base: string): string => {
   const absolute = isAbsolute(glob) ? glob : `${base.replace(/\/+$/, "")}/${glob}`
   const wildcard = absolute.search(/[*?]/)
@@ -1063,11 +1063,14 @@ const touches = (shell: Command, path: string): "names" | "may" | undefined => {
         const named = key(basename(word)) === name
         if (target === refused) return "names"
         may ||= named || refused.startsWith(`${target.replace(/\/+$/, "")}/`) || (/[*?[]/.test(word) &&
-          covers(key(resolved), refused))
+          covers(key(realGlob(word, shell.base)), refused))
       }
     }
   }
-  return may ? "may" : undefined
+  // Neither shell nor program expansion can prove it avoids a refused path.
+  // Keep this conservative even for quoted or escaped syntax, after checking
+  // literal targets and canonical wildcard prefixes above.
+  return may || /[$`*?[\]{}]/.test(shell.text) ? "may" : undefined
 }
 
 /** Whether a write glob covers a path. */

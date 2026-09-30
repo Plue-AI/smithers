@@ -87,7 +87,9 @@ Each run remembers its answers: `y` allows that identical request again, `n`
 denies the change for the rest of the run through edit, write, apply_patch and
 any shell command that names the file or declares a write covering it, and `a`
 allows every edit (except to `.git` or `.jj`) or every command for the rest of
-the run. A command that declares `mode: "hermetic"` with `writes: []` and reads
+the run. After a file denial, commands containing expansion or patterns ask
+again, even under a commands grant. A command that declares `mode: "hermetic"`
+with `writes: []` and reads
 as only reading runs unasked in a git or jj repository, until one such command
 is captured changing a file or the run denies anything. Only reading programs
 with their listed options, a script file inside the repository, or its tests
