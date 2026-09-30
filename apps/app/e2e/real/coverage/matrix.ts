@@ -94,7 +94,13 @@ export const MATRIX_OBLIGATIONS: readonly MatrixObligation[] = [
   { id: "setup-inspection", scenarios: [{ id: "setup.inspect-recovery", capabilities: ["identity", "cloud"] }], tier: "local-infrastructure" },
   { id: "issue", scenarios: [{ id: "issues.product-create-readback", capabilities: ["identity"] }], tier: "local-infrastructure" },
   { id: "landing", scenarios: [{ id: "landings.local-change-land", capabilities: ["identity"] }], tier: "local-infrastructure" },
-  { id: "reload", scenarios: [{ id: "issues.product-reload-readback", capabilities: ["identity"] }], tier: "local-infrastructure" }
+  { id: "reload", scenarios: [{ id: "issues.product-reload-readback", capabilities: ["identity"] }], tier: "local-infrastructure" },
+  { id: "approval", scenarios: [
+    { id: "approvals.product-approve", capabilities: ["identity", "cloud"] },
+    { id: "approvals.product-deny", capabilities: ["identity", "cloud"] }
+  ], tier: "local-infrastructure" },
+  { id: "duplicate-input", scenarios: [{ id: "issues.owner-resolution-durable-replay", capabilities: ["identity", "cloud"] }], tier: "local-infrastructure" },
+  { id: "error-surfaced", scenarios: [{ id: "flows.product-no-box", capabilities: ["identity", "cloud"] }], tier: "local-infrastructure" }
 ]
 
 export const MATRIX_SCENARIO_IDS = [...new Set(MATRIX_OBLIGATIONS.flatMap((entry) => entry.scenarios.map(({ id }) => id)))]

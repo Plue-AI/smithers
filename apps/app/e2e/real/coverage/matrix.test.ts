@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { cloudCapabilities, localCapabilities } from "@smthrs/rpc/HostCapabilities"
@@ -140,6 +140,49 @@ describe("deployment mode matrix", () => {
       expect(rows.map(({ scenarioId }) => scenarioId)).toEqual([...owedScenarioIds(mode)])
     }
   })
+
+  test("the self-hosting release journey is a matrix obligation (#1668)", () => {
+    const ids = MATRIX_OBLIGATIONS.map(({ id }) => id)
+    for (const id of ["approval", "duplicate-input", "error-surfaced"]) expect(ids).toContain(id)
+    expect(MATRIX_OBLIGATIONS.find(({ id }) => id === "approval")?.scenarios.map(({ id }) => id))
+      .toEqual(["approvals.product-approve", "approvals.product-deny"])
+    for (const mode of DEPLOYMENT_MODES) {
+      expect(owedScenarioIds(mode)).toEqual(expect.arrayContaining([
+        "approvals.product-approve", "approvals.product-deny",
+        "issues.owner-resolution-durable-replay", "flows.product-no-box"
+      ]))
+    }
+  })
+
+  test("a scenario both providers owe declares both hosts, and the catalog repeats each spec's capabilities", () => {
+    const report = checkRealE2E({
+      realDir: resolve(import.meta.dir, ".."),
+      flowNameFile: resolve(import.meta.dir, "../../../src/mainview/flows/FlowName.ts")
+    })
+    const hosts = new Map(report.scenarios.map(({ id, coverage }) => [id, coverage.filter((token) => token.startsWith("host:"))]))
+    const selfhost = new Set(owedScenarioIds("web-selfhost"))
+    const shared = owedScenarioIds("web-plue").filter((id) => selfhost.has(id))
+    expect(shared.length).toBeGreaterThan(10)
+    expect(shared.filter((id) => !hosts.get(id)?.includes("host:local") || !hosts.get(id)?.includes("host:production"))).toEqual([])
+    const declared = new Map(report.scenarios.map(({ id, capabilities }) => [id, [...capabilities].sort()]))
+    expect(MATRIX_OBLIGATIONS.flatMap(({ scenarios }) => scenarios)
+      .filter(({ id, capabilities }) => JSON.stringify([...capabilities].sort()) !== JSON.stringify(declared.get(id)))
+      .map(({ id }) => id)).toEqual([])
+  }, 30_000)
+
+  test("every owed scenario runs in the signed-in fixture a mode's credential reaches", () => {
+    const report = checkRealE2E({
+      realDir: resolve(import.meta.dir, ".."),
+      flowNameFile: resolve(import.meta.dir, "../../../src/mainview/flows/FlowName.ts")
+    })
+    const files = new Map(report.scenarios.map(({ id, file }) => [id, file]))
+    const fixture = (id: string): string | undefined => {
+      const source = readFileSync(files.get(id)!, "utf8")
+      const declaration = source.slice(0, source.indexOf(`scenario("${id}"`))
+      return [...declaration.matchAll(/^\s*(\w+)(?:\.\w+)?\(/gm)].at(-1)?.[1]
+    }
+    expect(MATRIX_SCENARIO_IDS.map((id) => [id, fixture(id)]).filter(([, name]) => name !== "authenticatedTest")).toEqual([])
+  }, 30_000)
 
   test("parses credential-free origins and secret references without requiring every mode", () => {
     expect(parseMatrixConfig({

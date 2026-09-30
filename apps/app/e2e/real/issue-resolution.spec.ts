@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto"
 import { authenticatedTest } from "./auth-permissions/profile"
 import { scenario } from "./coverage/types"
-import { awaitBoot, closeComposer, command, expect, realApi, reloadApp } from "./support/test"
+import { awaitBoot, closeComposer, command, expect, productUrl, realApi, reloadApp } from "./support/test"
 import { finishFirstVisit } from "./support/first-visit"
 import { scenarioOutcome, TEARDOWN_ANNOTATION, TeardownProblem } from "./support/teardown"
 
@@ -65,7 +65,7 @@ authenticatedTest("an owner resolves unknown deliveries with skip, sent and retr
       expect(await readMapping()).toMatchObject({ state: "outcome_unknown", delivery_id: deliveryId, resolution_token: claim.token })
 
       const started = performance.now()
-      await page.goto(`/${repo}`, { waitUntil: "domcontentloaded" })
+      await page.goto(productUrl(page, `/${repo}`), { waitUntil: "domcontentloaded" })
       await awaitBoot(page, "navigate", started)
       await finishFirstVisit(page)
       await command(page, `/issues.view ${issue.number} ${repo}`)

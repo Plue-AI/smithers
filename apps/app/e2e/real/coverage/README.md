@@ -150,6 +150,11 @@ A mode owes each scenario whose capabilities its host type opens, read from
 modes also owe `github`: Plue serves GitHub import behind the Worker's
 `/api/github/import` proxy. The report has one row per owed scenario, and
 every obligation is owed by at least one mode.
+A scenario both providers owe declares `host:local` and `host:production`,
+so self-hosted and Plue builds run the same assertions. Beyond the core loop,
+the catalog owes approve and deny, duplicate-input replay, and a surfaced
+flow error in every mode. Owed scenarios use `authenticatedTest`: a
+signed-out scenario cannot run under a mode's application token.
 
 Each invocation creates an execution UUID and a directory beside its report:
 `<report-name>.evidence/<executionID>/`. It retains the exact launcher and raw
