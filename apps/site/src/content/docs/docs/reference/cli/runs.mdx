@@ -51,6 +51,10 @@ Current-state commands accept the connection options `--root` and `--remote`, an
 
 `--lineage` selects a lineage explicitly. `--limit` bounds journal entries read, defaulting to 10,000 for these CLI history commands.
 
+## Verify against current code
+
+`runs verify <run>` reports what `runs resume` would do under the flow code now on disk, before anything runs. It resumes a copy of the project's stores with an engine that executes no action code, and lists the recorded steps that `replayed`, the first step that would execute again (`executes`), and the recorded steps nothing asked for (`notReplayed`). It exits `0` when every recorded step replays and `1` with `run_divergent` when a recorded step would be dropped or re-keyed. The project's own stores are only read. It needs the local SQLite stores.
+
 ## Fork or rewind
 
 `runs fork <run> --at <sequence>` creates an isolated child from an eligible parked or terminal agent run. It requires an approved plan and `jj`. The child workspace is retained under `.flows/forks/`; use `runs resume` with the returned child ID to continue it.

@@ -6,6 +6,7 @@
 import { type Cli, z } from "incur"
 import * as Environment from "../Environment.ts"
 import * as History from "../history/History.ts"
+import * as Verify from "../history/Verify.ts"
 import * as Project from "../Project.ts"
 import * as Bridge from "./ControlBridge.ts"
 import * as Presentation from "./Presentation.ts"
@@ -67,6 +68,24 @@ export const appendHistoryCommands = (cli: Cli.Cli, runtime: Bridge.Runtime = {}
             ),
           refusal
         )
+      }
+    })
+    .command("verify", {
+      description: "Report which recorded steps the current flow code would replay and which it would execute again",
+      mcp: { annotations: { readOnlyHint: true } },
+      args,
+      options: Bridge.connectionOptions,
+      run(c) {
+        return Presentation.guard(c, async () => {
+          const report = await Verify.verify(
+            Project.localRoot(c.options, runtime.environment ?? process.env),
+            c.args.run,
+            {},
+            runtime.signal
+          )
+          if (report.verdict === "divergent") throw Verify.divergence(report)
+          return report
+        })
       }
     })
     .command("fork", {

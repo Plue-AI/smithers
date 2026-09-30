@@ -7,6 +7,7 @@
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
 import type { ApprovalAuthority, Control, ControlExecutor, ControlSchema, Health } from "@smthrs/control"
 import { ControlClient, ControlRuntime } from "@smthrs/control"
+import type * as ReplayOnly from "@smthrs/engine-store/ReplayOnly"
 import type { Journal } from "@smthrs/journal"
 import * as TestJournal from "@smthrs/journal/test/TestJournal"
 import type * as McpClient from "@smthrs/mcp/McpClient"
@@ -74,6 +75,12 @@ export interface Config {
    * the very code a run is reading.
    */
   readonly stateRoot?: string | undefined
+  /**
+   * Composes the local engine replay-only: a recorded step replays, and a step
+   * the current code would execute stops the run instead. `smthrs runs verify`
+   * sets it over a copy of the stores.
+   */
+  readonly replayOnly?: Layer.Layer<ReplayOnly.ReplayOnly> | undefined
   readonly remote?: string | undefined
   readonly credential?: string | undefined
   /**

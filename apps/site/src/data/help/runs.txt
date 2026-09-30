@@ -19,6 +19,7 @@ Commands:
   show        Show a run's current status and diagnosis
   signal      Deliver a durable JSON signal
   steer       Send an attributed operator message
+  verify      Report which recorded steps the current flow code would replay and which it would execute again
   wait        Wait for a durable run to settle
   watch       Watch a workflow run in real-time (streams logs, status changes, and completion)
 

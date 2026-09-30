@@ -27,6 +27,7 @@ import type * as ControlSchema from "@smthrs/control/ControlSchema"
 import * as DurableWriter from "@smthrs/database/DurableWriter"
 import { ExecutionFacts } from "@smthrs/engine-store"
 import * as DurableEngineState from "@smthrs/engine-store/DurableEngineState"
+import type * as ReplayOnly from "@smthrs/engine-store/ReplayOnly"
 import * as StepBoundary from "@smthrs/engine-store/StepBoundary"
 import * as WorkspaceSandbox from "@smthrs/engine-store/WorkspaceSandbox"
 import { Action, FlowRuntime } from "@smthrs/flow"
@@ -284,6 +285,8 @@ export interface ExecutorOptions {
   readonly executionRoot?: string | undefined
   /** Where `engine.db` lives, when that is not the project root. */
   readonly stateRoot?: string | undefined
+  /** Replays recorded steps and executes none; see `Application.Config.replayOnly`. */
+  readonly replayOnly?: Layer.Layer<ReplayOnly.ReplayOnly> | undefined
   /**
    * Whether this executor may drive a run. `false` builds the observing
    * executor described on `Application.Config.startsRuns`: no judge is
@@ -1533,6 +1536,8 @@ export const make = (
       registration
     ).pipe(
       Layer.provide([platform, native.crypto, engineJj]),
+      // Resolved by the engine at composition, like its sandboxes.
+      (runtime) => options.replayOnly === undefined ? runtime : Layer.provide(runtime, options.replayOnly),
       Layer.tap(() => secureSqliteFiles(executionDatabasePath(stateRoot)).pipe(Effect.provide(native.host))),
       // Failure to open or migrate the local execution engine is a startup
       // defect, just like the control database above: no command can execute
@@ -1597,6 +1602,7 @@ export const make = (
         mcpServers: config.mcpServers ?? [],
         executionRoot: config.executionRoot ?? root,
         ...(config.stateRoot === undefined ? {} : { stateRoot: config.stateRoot }),
+        ...(config.replayOnly === undefined ? {} : { replayOnly: config.replayOnly }),
         ...(config.rebuildAuthoredFlows === undefined ? {} : { rebuildAuthoredFlows: config.rebuildAuthoredFlows }),
         modules
       }),
