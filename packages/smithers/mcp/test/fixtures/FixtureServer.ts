@@ -281,23 +281,26 @@ reader?.on("line", (line) => {
       tools: [addTool, errorTool]
     })
     if (mode === "exit-after-list") setImmediate(() => process.exit(0))
+    return
+  }
+
+  if (request.method === "tools/call") {
     if (mode === "close-stdin") {
       process.stdin.once("close", () => {
         // The stream and fd 0 can own separate handles. Close the original
         // descriptor after the stream releases its handle.
         try { fs.closeSync(0) } catch (error) { if (error.code !== "EBADF") throw error }
-        if (closeMarker) fs.writeFileSync(closeMarker, "stdin closed")
+        if (closeMarker) fs.writeFileSync(closeMarker, JSON.stringify({
+          method: request.method, requestId: request.id, pid: process.pid
+        }))
       })
       setImmediate(() => {
         reader.close()
         process.stdin.destroy()
       })
       setInterval(() => {}, 1000)
+      return
     }
-    return
-  }
-
-  if (request.method === "tools/call") {
     if (mode === "private-schema") {
       succeed(request, { content: [], structuredContent: {} })
       return
@@ -475,4 +478,67 @@ reader?.on("line", (line) => {
     })
   }
 })
+`
+
+/**
+ * Windows libuv deliberately leaves descriptors 0–2 open in fs.closeSync.
+ * Read and close the real stdin handle without Node's duplicated stdio handle;
+ * stdout and the process stay alive so only the client's writer can fail.
+ */
+export const windowsCloseStdinSource = String.raw`
+$ProgressPreference = 'SilentlyContinue'
+$ErrorActionPreference = 'Stop'
+Add-Type -TypeDefinition @'
+using System;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+using System.Text;
+public static class McpStdin {
+  [DllImport("kernel32.dll", SetLastError = true)]
+  public static extern IntPtr GetStdHandle(int kind);
+  [DllImport("kernel32.dll", SetLastError = true)]
+  [return: MarshalAs(UnmanagedType.Bool)]
+  public static extern bool CloseHandle(IntPtr handle);
+  [DllImport("kernel32.dll", SetLastError = true)]
+  [return: MarshalAs(UnmanagedType.Bool)]
+  private static extern bool ReadFile(IntPtr handle, [Out] byte[] data, uint size, out uint read, IntPtr overlapped);
+  public static string ReadLine(IntPtr handle) {
+    var bytes = new List<byte>();
+    var data = new byte[1];
+    uint read;
+    while (ReadFile(handle, data, 1, out read, IntPtr.Zero) && read != 0) {
+      if (data[0] == 10) return Encoding.UTF8.GetString(bytes.ToArray());
+      bytes.Add(data[0]);
+    }
+    return null;
+  }
+}
+'@
+$inputHandle = [McpStdin]::GetStdHandle(-10)
+:requests while ($null -ne ($line = [McpStdin]::ReadLine($inputHandle))) {
+  $request = ConvertFrom-Json -InputObject $line
+  switch ($request.method) {
+    'initialize' {
+      $result = @{
+        protocolVersion = '2025-06-18'
+        capabilities = @{ tools = @{} }
+        serverInfo = @{ name = 'fixture' }
+      }
+    }
+    'tools/list' {
+      $result = @{ tools = @(@{ name = 'add'; inputSchema = @{ type = 'object' } }) }
+    }
+    'tools/call' {
+      if (-not [McpStdin]::CloseHandle($inputHandle)) { throw 'Failed to close stdin' }
+      $receipt = @{ method = $request.method; requestId = $request.id; pid = $PID } |
+        ConvertTo-Json -Compress
+      [System.IO.File]::WriteAllText($env:MCP_CLOSE_STDIN_MARKER, $receipt)
+      while ($true) { Start-Sleep -Seconds 1 }
+    }
+    default { continue requests }
+  }
+  $response = @{ jsonrpc = '2.0'; id = $request.id; result = $result } |
+    ConvertTo-Json -Depth 6 -Compress
+  [Console]::WriteLine($response)
+}
 `

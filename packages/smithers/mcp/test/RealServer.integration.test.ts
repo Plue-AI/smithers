@@ -10,7 +10,7 @@
  */
 import { NodeServices } from "@effect/platform-node"
 import * as ChildProcessSpawner from "@smthrs/kernel/ChildProcessSpawner"
-import { Deferred, Effect, Redacted, Schema, Sink, Stream } from "effect"
+import { Deferred, Effect, Fiber, Redacted, Schema, Sink, Stream } from "effect"
 import { ProcessId } from "effect/unstable/process/ChildProcessSpawner"
 import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
@@ -603,13 +603,67 @@ describe("McpClient against a real MCP server", () => {
     const directory = mkdtempSync(join(tmpdir(), "smithers-mcp-stdin-"))
     const marker = join(directory, "closed")
     try {
-      const error = await execute(Effect.scoped(Effect.gen(function*() {
-        const client = yield* connectNode("close-stdin", [marker])
-        yield* Effect.promise(() => vi.waitFor(() => expect(existsSync(marker)).toBe(true), { timeout: 2_000 }))
-        return yield* Effect.flip(client.callTool("add", { a: 1, b: 2 }).pipe(Effect.timeout("2 seconds")))
+      const errors = await execute(Effect.scoped(Effect.gen(function*() {
+        const client = yield* connectNode(
+          "close-stdin",
+          [marker],
+          process.platform === "win32"
+            ? {
+              command: join(
+                process.env.SystemRoot ?? "C:\\Windows",
+                "System32",
+                "WindowsPowerShell",
+                "v1.0",
+                "powershell.exe"
+              ),
+              args: [
+                "-NoLogo",
+                "-NoProfile",
+                "-NonInteractive",
+                "-EncodedCommand",
+                Buffer.from(FixtureServer.windowsCloseStdinSource, "utf16le").toString("base64")
+              ],
+              env: {
+                ...Object.fromEntries(
+                  Object.entries(process.env).filter(([name, value]) =>
+                    value !== undefined && /^(SystemRoot|TEMP|TMP|USERPROFILE)$/i.test(name)
+                  )
+                ),
+                MCP_CLOSE_STDIN_MARKER: marker
+              },
+              handshakeTimeoutMs: 15_000
+            }
+            : {}
+        )
+        const pending = yield* Effect.forkChild(
+          Effect.flip(client.callTool("add", { a: 1, b: 2 }).pipe(Effect.timeout("5 seconds"))),
+          { startImmediately: true }
+        )
+        yield* Effect.promise(() =>
+          vi.waitFor(() => {
+            const receipt = JSON.parse(readFileSync(marker, "utf8")) as {
+              method: string
+              requestId: number
+              pid: number
+            }
+            expect(receipt).toMatchObject({ method: "tools/call", requestId: 3 })
+            expect(Number.isSafeInteger(receipt.pid) && receipt.pid > 1).toBe(true)
+            // The fixture remains alive after closing stdin.
+            expect(process.kill(receipt.pid, 0)).toBe(true)
+          }, { timeout: 2_000 })
+        )
+        const next = yield* Effect.flip(client.callTool("add", {}).pipe(Effect.timeout("2 seconds")))
+        const first = yield* Fiber.join(pending)
+        const later = yield* Effect.flip(client.callTool("add", {}).pipe(Effect.timeout("2 seconds")))
+        return { first, next, later }
       })))
-      expect(error).toMatchObject({ code: "connection_closed", server: "close-stdin" })
-      expect(readFileSync(marker, "utf8")).toBe("stdin closed")
+      expect(errors.first).toMatchObject({
+        code: "connection_closed",
+        server: "close-stdin",
+        message: "MCP server \"close-stdin\" stdin closed"
+      })
+      expect(errors.next).toBe(errors.first)
+      expect(errors.later).toBe(errors.first)
     } finally {
       rmSync(directory, { recursive: true, force: true })
     }
