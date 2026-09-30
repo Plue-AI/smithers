@@ -4,9 +4,8 @@
  * what they are given; state and keys stay with the app.
  */
 import { TextBuffer, TextBufferView } from "@opentui/core"
-import { useRenderer } from "@opentui/react"
+import { flushSync, usePaste, useRenderer } from "@opentui/react"
 import { usd } from "@smthrs/gateway/Diagnosis"
-import { flushSync, usePaste } from "@opentui/react"
 import { basename } from "node:path"
 import type { ReactNode } from "react"
 import stringWidth from "string-width"
@@ -234,7 +233,14 @@ function AskFormView(props: {
         }}
         backgroundColor={color.element}
       >
-        <scrollbox scrollX={false} style={{ height: Math.min(questionHeight, questionRows), flexShrink: 0, scrollbarOptions: { visible: false } }}>
+        <scrollbox
+          scrollX={false}
+          style={{
+            height: Math.min(questionHeight, questionRows),
+            flexShrink: 0,
+            scrollbarOptions: { visible: false }
+          }}
+        >
           <text fg={color.text} wrapMode="word">
             <span fg={color.needs}>{"◆ "}</span>
             {ask.question}

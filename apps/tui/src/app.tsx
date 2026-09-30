@@ -2576,9 +2576,10 @@ export function App(props: AppProps) {
   const activityVisible = showActivity && monitored !== undefined && (!short || activeInspection !== undefined) &&
     reviewTab === undefined
   const activityModel = activityVisible ? Activity.model(monitored.activity) : undefined
-  const activityHeight = activityModel !== undefined && (activityModel.bands.length > 0 || activityModel.milestones.length > 0)
-    ? Scrubber.layout(monitored!.activity, width, activeInspection?.seq, now).rows + 3
-    : 0
+  const activityHeight =
+    activityModel !== undefined && (activityModel.bands.length > 0 || activityModel.milestones.length > 0)
+      ? Scrubber.layout(monitored!.activity, width, activeInspection?.seq, now).rows + 3
+      : 0
   const formHeight = Math.max(
     3,
     chatHeight - (short ? 2 : 4) - activityHeight -

@@ -214,8 +214,12 @@ test("two asks from one worker count separately and keep a as chat text", async 
   const first = await ask(1, "New name?", ["sum"])
   const second = await ask(1, "New export?", ["plus"])
   let answers = 0
-  void first().then(() => { answers++ })
-  void second().then(() => { answers++ })
+  void first().then(() => {
+    answers++
+  })
+  void second().then(() => {
+    answers++
+  })
   await waitFor(() => frame().includes("Summary ◆2"))
   await settle()
   expect(frame()).not.toContain("ctrl+s Summary  a Answer")
@@ -333,7 +337,10 @@ test("an 18-line question keeps the focused answer and footer visible at 80 by 2
   await render()
   await showActivity()
   await delegate("add")
-  const answered = await ask(1, Array.from({ length: 18 }, (_, index) => `Question line ${index + 1}`).join("\n"), ["sum", "plus"])
+  const answered = await ask(1, Array.from({ length: 18 }, (_, index) => `Question line ${index + 1}`).join("\n"), [
+    "sum",
+    "plus"
+  ])
   await waitFor(() => frame().includes("Summary ◆1"))
   await settle()
   await type("a")
@@ -350,15 +357,19 @@ test("an 18-line question keeps the focused answer and footer visible at 80 by 2
   expect(await answered()).toMatchObject({ answer: "total" })
 })
 
-test.each([
-  ["paste and suffix", "\x1b[200~total\x1b[201~All\r", "totalAll", true],
-  ["consecutive pastes", "\x1b[200~total\x1b[201~\x1b[200~All\x1b[201~\r", "totalAll", true],
-  ["explicit paste before arming", "\x1b[200~total\x1b[201~\r", "total", false]
-] as const)("%s survives one terminal burst", async (_name, burst, expected, armed) => {
+test.each(
+  [
+    ["paste and suffix", "\x1b[200~total\x1b[201~All\r", "totalAll", true],
+    ["consecutive pastes", "\x1b[200~total\x1b[201~\x1b[200~All\x1b[201~\r", "totalAll", true],
+    ["explicit paste before arming", "\x1b[200~total\x1b[201~\r", "total", false]
+  ] as const
+)("%s survives one terminal burst", async (_name, burst, expected, armed) => {
   await delegate("add")
   const answered = await ask(1, "New name?", ["sum", "plus"])
   let answer: string | undefined
-  void answered().then((result) => { answer = result.answer })
+  void answered().then((result) => {
+    answer = result.answer
+  })
   await waitFor(() => frame().includes("Summary ◆1"))
   await settle()
   await type("a")

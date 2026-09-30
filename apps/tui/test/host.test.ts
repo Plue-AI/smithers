@@ -97,14 +97,18 @@ describe("Host.run required asks", () => {
         const outcome = await host.run({
           prompt: "Ask before renaming",
           role,
-          seat: `replay:${doneReplay(cwd, `ctx.park("waiting-input", ${JSON.stringify(question)})`, 'ctx.done("picked sum myself")')}`,
+          seat: `replay:${
+            doneReplay(cwd, `ctx.park("waiting-input", ${JSON.stringify(question)})`, "ctx.done(\"picked sum myself\")")
+          }`,
           history: [],
           onEvent: (event) => events.push(event)
         }).done
         expect(outcome).toMatchObject({ _tag: "failed", message: `No one answered: ${question}` })
         expect(events.filter((event) => event._tag === "model-requested")).toHaveLength(1)
         expect(events.some((event) => event._tag === "resolved")).toBe(false)
-        expect(events.some((event) => event._tag === "transition-applied" && event.transition._tag === "park")).toBe(true)
+        expect(events.some((event) => event._tag === "transition-applied" && event.transition._tag === "park")).toBe(
+          true
+        )
       } finally {
         await host.dispose()
       }
@@ -117,18 +121,24 @@ describe("Host.run required asks", () => {
     const events: Array<AgentEvent.AgentEvent> = []
     let answer: ((value: string) => void) | undefined
     let asked: (() => void) | undefined
-    const waiting = new Promise<void>((resolve) => { asked = resolve })
-    const queue = Steering.make({ ask: (question) => {
-      expect(question).toBe("New name?")
-      asked?.()
-      return new Promise<string>((resolve) => { answer = resolve })
-    } })
+    const waiting = new Promise<void>((resolve) => {
+      asked = resolve
+    })
+    const queue = Steering.make({
+      ask: (question) => {
+        expect(question).toBe("New name?")
+        asked?.()
+        return new Promise<string>((resolve) => {
+          answer = resolve
+        })
+      }
+    })
     try {
       const running = host.run({
         prompt: "Ask before renaming",
         role: "worker",
         steering: queue.source,
-        seat: `replay:${doneReplay(cwd, 'ctx.park("waiting-input", "New name?")', 'ctx.done("total")')}`,
+        seat: `replay:${doneReplay(cwd, "ctx.park(\"waiting-input\", \"New name?\")", "ctx.done(\"total\")")}`,
         history: [],
         onEvent: (event) => events.push(event)
       })
