@@ -1,6 +1,6 @@
 import { testRender } from "@opentui/react/test-utils"
 import { afterEach, beforeEach, expect, test } from "bun:test"
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { setImmediate } from "node:timers/promises"
@@ -67,7 +67,7 @@ const body = (text = "Review the named file only."): Body => ({
   digest: "b".repeat(64),
   capabilities: ["fs:read:**"]
 })
-const mount = async (resume?: string) => {
+const mount = async (resume?: string, width = 140, height = 35) => {
   await act(async () => {
     setup = await testRender(
       <App
@@ -83,7 +83,7 @@ const mount = async (resume?: string) => {
         flows={flows}
         {...(resume === undefined ? {} : { resume })}
       />,
-      { width: 140, height: 35, exitOnCtrlC: false, kittyKeyboard: true }
+      { width, height, exitOnCtrlC: false, kittyKeyboard: true }
     )
     await setImmediate()
   })
@@ -238,7 +238,7 @@ test("/flow <agent> <prompt> starts the agent with the rest of the line as its p
 })
 
 // Remount with the first discovery held open, as right after launch.
-const remountUndiscovered = async () => {
+const remountUndiscovered = async (resume?: string) => {
   await act(async () => {
     setup!.renderer.destroy()
   })
@@ -251,17 +251,18 @@ const remountUndiscovered = async () => {
     }
   }
   discoveries = 0
-  await mount()
+  await mount(resume, 80, 24)
   await waitFor(() => discoveries > 0)
   return gate
 }
 
-test("/flow <agent> <prompt> typed before discovery settles waits, then starts the agent", async () => {
+test("/flow <agent> before discovery persists and shows its request, then dispatches the agent", async () => {
   const gate = await remountUndiscovered()
   await command("/flow review Check math.js")
   expect(bodies).toEqual([])
-  expect(records().filter((record) => record.type === "run")).toEqual([])
-  expect(frame()).not.toMatch(/review · /)
+  expect(JSON.stringify(records())).toContain("/flow review Check math.js")
+  expect(frame()).toContain("/flow review Check math.js")
+  expect(frame()).toMatch(/review.*requested/)
   await act(async () => {
     gate.resolve(listed)
     await setImmediate()
@@ -269,6 +270,204 @@ test("/flow <agent> <prompt> typed before discovery settles waits, then starts t
   await waitFor(() => bodies.length === 1)
   expect(tabs().at(-1)!.tab).toMatchObject({ prompt: "Check math.js", agent: { name: "review" } })
   expect(records().filter((record) => record.type === "run")).toEqual([])
+})
+
+test("an undiscovered /flow request survives restart and ignores the old discovery without duplicating agent admission", async () => {
+  const stale = await remountUndiscovered()
+  const request = "/flow review Check math.js"
+  await command(request)
+  expect(frame()).toContain(request)
+  expect(frame()).toMatch(/review.*requested/)
+  const file = Session.list(cwd)[0]!.file
+  expect(JSON.stringify(Session.load(file))).toContain(request)
+  const admitted = Session.restore(Session.load(file)).flowCommands
+  expect(admitted).toHaveLength(1)
+
+  const current = await remountUndiscovered(file)
+  expect(frame()).toContain(request)
+  expect(frame()).toMatch(/review.*requested/)
+  expect(Session.restore(Session.load(file)).flowCommands).toEqual(admitted)
+  expect(bodies).toEqual([])
+  expect(turns).toEqual([])
+  await act(async () => {
+    stale.resolve(listed)
+    await setImmediate()
+  })
+  await render()
+  expect(bodies).toEqual([])
+  expect(tabs()).toEqual([])
+  expect(frame()).toMatch(/review.*requested/)
+
+  await act(async () => {
+    current.resolve(listed)
+    await setImmediate()
+  })
+  await waitFor(() => bodies.length === 1)
+  expect(bodies[0]!.name).toBe("review")
+  const restored = Session.restore(Session.load(file))
+  expect(restored.flowCommands).toEqual([])
+  expect(restored.workspace.tabs).toHaveLength(1)
+  expect(restored.workspace.tabs[0]).toMatchObject({ prompt: "Check math.js", agent: { name: "review" } })
+  bodies[0]!.gate.resolve(body())
+  await waitFor(() => turns.length === 1)
+  expect(turns[0]!.input.prompt).toBe("Check math.js")
+  await render()
+  expect(bodies).toHaveLength(1)
+  expect(turns).toHaveLength(1)
+})
+
+test("an undiscovered module request survives restart and launches once from the recovered request", async () => {
+  const stale = await remountUndiscovered()
+  const request = "/flow module a=1"
+  let planned = 0
+  let launched = 0
+  const done = Promise.withResolvers<{ kind: "done"; answer: string }>()
+  flows = {
+    ...flows,
+    plan: async (name, input) => {
+      expect(name).toBe("module")
+      expect(input).toEqual({ a: "1" })
+      planned++
+      return { raw: {} }
+    },
+    start: async () => {
+      launched++
+      return "module-run"
+    },
+    watch: () => ({ done: done.promise, close: () => {} })
+  }
+  await command(request)
+  expect(frame()).toContain(request)
+  expect(frame()).toMatch(/module.*requested/)
+  const file = Session.list(cwd)[0]!.file
+  expect(JSON.stringify(Session.load(file))).toContain(request)
+  const admitted = Session.restore(Session.load(file)).flowCommands
+  expect(admitted).toHaveLength(1)
+  const current = await remountUndiscovered(file)
+  expect(frame()).toContain(request)
+  expect(frame()).toMatch(/module.*requested/)
+  expect(Session.restore(Session.load(file)).flowCommands).toEqual(admitted)
+  await act(async () => {
+    stale.resolve(listed)
+    await setImmediate()
+  })
+  await render()
+  expect(planned).toBe(0)
+  expect(launched).toBe(0)
+  await act(async () => {
+    current.resolve(listed)
+    await setImmediate()
+  })
+  await waitFor(() => launched === 1)
+  const restored = Session.restore(Session.load(file))
+  expect(restored.flowCommands).toEqual([])
+  expect(restored.flows).toHaveLength(1)
+  expect(restored.flows[0]).toMatchObject({ flow: "module", input: { a: "1" }, runId: "module-run" })
+  expect(restored.workspace.tabs).toEqual([])
+  done.resolve({ kind: "done", answer: "5" })
+  await waitFor(() => frame().includes("→ 5"))
+  expect(planned).toBe(1)
+  expect(launched).toBe(1)
+  expect(bodies).toEqual([])
+  expect(turns).toEqual([])
+})
+
+// A crash can leave admission durable but its dispatch acknowledgment unwritten.
+const loseDispatchReceipt = (file: string) => {
+  const lines = readFileSync(file, "utf8").trimEnd().split("\n")
+  const receipts = lines.filter((line) => JSON.parse(line).type === "flow-command-dispatched")
+  expect(receipts).toHaveLength(1)
+  writeFileSync(
+    file,
+    lines.filter((line) => JSON.parse(line).type !== "flow-command-dispatched").join("\n") + "\n"
+  )
+  expect(Session.restore(Session.load(file)).flowCommands).toHaveLength(1)
+}
+
+test("recovery retires an agent request admitted before its dispatch receipt without executing it twice", async () => {
+  const gate = await remountUndiscovered()
+  await command("/flow review Check math.js")
+  gate.resolve(listed)
+  await waitFor(() => bodies.length === 1)
+  bodies[0]!.gate.resolve(body())
+  await waitFor(() => turns.length === 1)
+  turns[0]!.gate.resolve({ _tag: "done", answer: "Checked." })
+  await waitFor(() => tabs().at(-1)?.tab.status === "done")
+  const file = Session.list(cwd)[0]!.file
+  const admitted = Session.restore(Session.load(file)).workspace.tabs[0]!
+  await act(async () => {
+    setup!.renderer.destroy()
+  })
+  loseDispatchReceipt(file)
+  await mount(file)
+  await waitFor(() => Session.restore(Session.load(file)).flowCommands.length === 0)
+  expect(Session.restore(Session.load(file)).workspace.tabs).toHaveLength(1)
+  expect(Session.restore(Session.load(file)).workspace.tabs[0]!.id).toBe(admitted.id)
+  expect(bodies).toHaveLength(1)
+  expect(turns).toHaveLength(1)
+})
+
+test("recovery retires a module request admitted before its dispatch receipt without executing it twice", async () => {
+  await act(async () => {
+    setup!.renderer.destroy()
+  })
+  let planned = 0
+  let launched = 0
+  const discovery = Promise.withResolvers<ReadonlyArray<Listed>>()
+  flows = {
+    ...flows,
+    discover: () => discovery.promise,
+    plan: async () => {
+      planned++
+      return { raw: {} }
+    },
+    start: async () => {
+      launched++
+      return "module-run"
+    },
+    watch: () => ({ done: Promise.resolve({ kind: "done", answer: "5" }), close: () => {} })
+  }
+  await mount(undefined, 80, 24)
+  await command("/flow module a=1")
+  discovery.resolve(listed)
+  await waitFor(() => frame().includes("→ 5"))
+  const file = Session.list(cwd)[0]!.file
+  const admitted = Session.restore(Session.load(file)).flows[0]!
+  await act(async () => {
+    setup!.renderer.destroy()
+  })
+  loseDispatchReceipt(file)
+  await mount(file)
+  await waitFor(() => Session.restore(Session.load(file)).flowCommands.length === 0)
+  expect(Session.restore(Session.load(file)).flows).toHaveLength(1)
+  expect(Session.restore(Session.load(file)).flows[0]!.id).toBe(admitted.id)
+  expect(planned).toBe(1)
+  expect(launched).toBe(1)
+  expect(bodies).toEqual([])
+  expect(turns).toEqual([])
+})
+
+test("/new keeps an undiscovered request in its conversation until real completion", async () => {
+  const discovery = await remountUndiscovered()
+  await command("/flow review Check math.js")
+  const file = Session.list(cwd)[0]!.file
+  await command("/new")
+  expect(frame()).toContain("Stop running work first")
+  expect(frame()).toContain("/flow review Check math.js")
+  expect(Session.restore(Session.load(file)).flowCommands).toHaveLength(1)
+  expect(bodies).toEqual([])
+  expect(turns).toEqual([])
+  discovery.resolve(listed)
+  await waitFor(() => bodies.length === 1)
+  bodies[0]!.gate.resolve(body())
+  await waitFor(() => turns.length === 1)
+  turns[0]!.gate.resolve({ _tag: "done", answer: "Checked." })
+  await waitFor(() => tabs().at(-1)?.tab.status === "done")
+  await key("y", { ctrl: true })
+  await command("/new")
+  expect(frame()).not.toContain("/flow review Check math.js")
+  expect(Session.restore(Session.load(file)).flowCommands).toEqual([])
+  expect(Session.restore(Session.load(file)).workspace.tabs[0]!.status).toBe("done")
 })
 
 test("/flow typed before discovery settles waits; a failed discovery still runs it as a flow", async () => {

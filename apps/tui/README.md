@@ -476,8 +476,10 @@ selection. `/flow <name>` is the direct call: a flow takes a JSON object or
 With declared flows, the home screen lists them with their keys; a click runs
 one. A directory without flows keeps the quiet home screen.
 
-A person’s run shows in Chat as the line they typed and a host-owned card that
-updates in place: `◌ sum` until it launches, then its clock, then
+A direct call is saved and shown as requested before discovery; restart resumes a
+call still waiting for discovery. A person’s run shows in Chat as the line they
+typed and a host-owned card that updates in place: `◌ sum` until it launches,
+then its clock, then
 `✓ sum · 40ms → 5` (the result's first line), `✗ sum · 1s · <why>` or
 `■ sum · 2s`. Every flow, including an extension key or `smithers.run` call, gets the same card. While
 that card is on screen the run shows no toast. Click it, or `tab` then `enter`

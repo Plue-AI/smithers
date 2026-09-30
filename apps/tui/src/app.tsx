@@ -37,7 +37,13 @@ import * as Extension from "./extension.ts"
 import * as External from "./external.ts"
 import * as Factory from "./factory.ts"
 import * as Files from "./files.ts"
-import { actions as flowActions, discoveryNotice, FlowRuns, type Port as FlowPort } from "./flows.ts"
+import {
+  actions as flowActions,
+  discoveryNotice,
+  FlowRuns,
+  type Port as FlowPort,
+  type Run as FlowRun
+} from "./flows.ts"
 import * as Home from "./home.ts"
 import type * as Host from "./host.ts"
 import * as Inbox from "./inbox.ts"
@@ -358,7 +364,21 @@ export function App(props: AppProps) {
     flowWatch.current = watcher
     return () => watcher.dispose()
   }, [runs, props.flows, props.host.cwd])
-  const flowRuns = runs.snapshot()
+  const [flowCommands, setFlowCommands] = useState<ReadonlyArray<Session.FlowCommand>>(
+    restored.current?.flowCommands ?? []
+  )
+  const flowRuns: ReadonlyArray<FlowRun> = [
+    ...runs.snapshot(),
+    ...flowCommands.filter((command) => !runs.has(command.id) && !workspace.has(command.id)).map((command) => ({
+      id: command.id,
+      flow: command.flow,
+      by: "user" as const,
+      input: {},
+      requested: command.argument,
+      status: "requested" as const,
+      startedAt: command.at
+    }))
+  ]
   /** Opens a run's form for its missing input. */
   const openForm = useCallback((id: string) => {
     const run = runs.get(id)
@@ -1285,7 +1305,7 @@ export function App(props: AppProps) {
   const undoBlocked = () => {
     const current = live.current
     return current.turn !== undefined || current.shell !== undefined || current.undoing !== undefined ||
-      workspace.busy || runs.busy
+      workspace.busy || runs.busy || flowCommands.length > 0
   }
 
   /** Marks the undone files of `plan` in the transcript, the session file and the context. */
@@ -1401,6 +1421,7 @@ export function App(props: AppProps) {
     userRuns.current = new Set()
     formOpened.current = new Set()
     setQueue(state.queued)
+    setFlowCommands(state.flowCommands)
     setFilter(Timeline.all)
     setOverview({ pane: "tree" })
     clearInspection()
@@ -1441,7 +1462,7 @@ export function App(props: AppProps) {
   /** `/new` and `/resume` wait for a turn, a `!cmd`, an undo, workers and flow runs, from any door. */
   const occupied = () =>
     live.current.turn !== undefined || live.current.shell !== undefined || live.current.undoing !== undefined ||
-    workspace.busy || runs.busy
+    workspace.busy || runs.busy || flowCommands.length > 0
 
   /** Places a run a person started in the chat, with the line they typed, and keeps it on the conversation. */
   const showRun = (id: string, title: string, request?: string) => {
@@ -1451,9 +1472,9 @@ export function App(props: AppProps) {
     setTranscript((current) => Transcript.run(current, started, at))
   }
   /** A person's flow run: acknowledged at once in the chat, settled there from the control plane. */
-  const startRun = (flow: string, input: Record<string, unknown>, request?: string) => {
+  const startRun = (flow: string, input: Record<string, unknown>, request?: string, requestId?: string) => {
     try {
-      const { id } = runs.request({ flow, input, by: "user" })
+      const { id } = runs.request({ flow, input, by: "user", ...(requestId === undefined ? {} : { id: requestId }) })
       userRuns.current.add(id)
       showRun(id, flow, request)
     } catch (error) {
@@ -1461,11 +1482,11 @@ export function App(props: AppProps) {
     }
   }
   /** A custom agent in a worker tab; without a prompt it does what it describes. */
-  const startAgent = (agent: string, prompt: string) => {
+  const startAgent = (agent: string, prompt: string, requestId?: string) => {
     const said = prompt !== "" ? prompt : runs.listed().find((each) => each.name === agent)?.description || agent
     try {
       workspace.request({
-        id: `${agent}-${Date.now().toString(36)}`,
+        id: requestId ?? `${agent}-${Date.now().toString(36)}`,
         title: said.replace(/\s+/g, " ").slice(0, 60),
         prompt: said,
         agent,
@@ -1475,6 +1496,32 @@ export function App(props: AppProps) {
       setStatus(Failures.line("worker", error), "warning")
     }
   }
+  useEffect(() => {
+    if (flowCommands.length === 0) return
+    let current = true
+    const dispatch = () => {
+      if (!current || runsRef.current !== runs || workspaceRef.current !== workspace) return
+      for (const command of flowCommands) {
+        const listed = runs.listed().find((each) => each.name === command.flow)
+        if (runs.has(command.id) || workspace.has(command.id)) {
+          // Admission persisted before a crash; retire only its pending dispatch.
+        } else if (listed !== undefined && Extension.isAgent(listed)) {
+          startAgent(command.flow, command.argument.trim(), command.id)
+        } else {
+          const parsed = parseArgs(command.argument)
+          if ("error" in parsed) setStatus(parsed.error, "warning")
+          else startRun(command.flow, parsed.input, command.request, command.id)
+        }
+        writer.current.append({ type: "flow-command-dispatched", id: command.id })
+      }
+      setFlowCommands((pending) => pending.filter((command) => !flowCommands.includes(command)))
+    }
+    // Drawing and persistence precede discovery, including on session recovery.
+    void Promise.resolve().then(() => runs.known() === undefined ? runs.listing() : undefined).then(dispatch, dispatch)
+    return () => {
+      current = false
+    }
+  }, [flowCommands, runs, workspace])
 
   const command = useCallback((text: string): boolean => {
     const parsed = Editor.parseCommand(text)
@@ -1581,22 +1628,17 @@ export function App(props: AppProps) {
           setPicker({ kind: "flows", query: "", selected: 0 })
           return true
         }
-        const start = () => {
-          // An agent's one field is its prompt: the rest of the line, as typed.
-          const listed = runs.listed().find((each) => each.name === flow)
-          if (listed !== undefined && Extension.isAgent(listed)) return startAgent(flow, rest.trim())
-          const parsed = parseArgs(rest)
-          if ("error" in parsed) return setStatus(parsed.error, "warning")
-          startRun(flow, parsed.input, text.trim())
-        }
-        // Before the first discovery settles, an agent is not told from a flow yet.
-        if (runs.known() !== undefined) start()
-        else {
-          const settle = () => {
-            if (runsRef.current === runs) start()
-          }
-          void runs.listing().then(settle, settle)
-        }
+        const at = Date.now()
+        const command = { id: `${flow}-${crypto.randomUUID()}`, flow, argument: rest, request: text.trim(), at }
+        writer.current.append({ type: "flow-command", command })
+        setTranscript((current) =>
+          Transcript.run(current, {
+            surface: `flow:${command.id}`,
+            title: flow,
+            request: command.request
+          }, at)
+        )
+        setFlowCommands((current) => [...current, command])
         return true
       }
       case "claude":

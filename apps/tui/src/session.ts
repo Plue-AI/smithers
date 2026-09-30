@@ -45,6 +45,15 @@ import * as Shell from "./shell.ts"
 import * as Transcript from "./transcript.ts"
 import type * as Workspace from "./workspace.ts"
 
+/** A direct call retained while discovery decides between a flow and an agent. */
+export interface FlowCommand {
+  readonly id: string
+  readonly flow: string
+  readonly argument: string
+  readonly request: string
+  readonly at: number
+}
+
 export type Record =
   | { readonly type: "caption"; readonly prose: string }
   /** A worker's card is placed here and drawn in its own file's `card` record. */
@@ -59,6 +68,8 @@ export type Record =
   }
   | { readonly type: "tab"; readonly tab: Workspace.Tab }
   | { readonly type: "flow"; readonly run: Flows.Run }
+  | { readonly type: "flow-command"; readonly command: FlowCommand }
+  | { readonly type: "flow-command-dispatched"; readonly id: string }
   /** A run a person started, placed in the chat: its card follows the `flow` records. */
   | {
     readonly type: "run"
@@ -232,6 +243,7 @@ const line = (record: Record): string => {
     case "patch":
     case "undo":
     case "queued":
+    case "flow-command":
       return JSON.stringify(record) + "\n"
     case "panel":
     case "card":
@@ -661,6 +673,7 @@ export const restore = (records: ReadonlyArray<Record>): {
   readonly transcript: Transcript.Transcript
   readonly workspace: Workspace.Snapshot
   readonly flows: ReadonlyArray<Flows.Run>
+  readonly flowCommands: ReadonlyArray<FlowCommand>
   readonly monitors: ReadonlyArray<Monitors.Monitor>
   /** Runtime status items and keys, latest per owner and id. */
   readonly contributions: ReadonlyArray<{ readonly owner: string; readonly contribution: Extension.Contribution }>
@@ -675,6 +688,7 @@ export const restore = (records: ReadonlyArray<Record>): {
   const contributions = new Map<string, { readonly owner: string; readonly contribution: Extension.Contribution }>()
   const tabs = new Map<string, Workspace.Tab>()
   const flows = new Map<string, Flows.Run>()
+  const flowCommands = new Map<string, FlowCommand>()
   const monitors = new Map<string, Monitors.Monitor>()
   let transcript = Transcript.empty
   const entries: Array<Context.Entry> = []
@@ -716,6 +730,17 @@ export const restore = (records: ReadonlyArray<Record>): {
         break
       case "flow":
         flows.set(record.run.id, record.run)
+        break
+      case "flow-command":
+        flowCommands.set(record.command.id, record.command)
+        transcript = Transcript.run(transcript, {
+          surface: `flow:${record.command.id}`,
+          title: record.command.flow,
+          request: record.command.request
+        }, record.command.at)
+        break
+      case "flow-command-dispatched":
+        flowCommands.delete(record.id)
         break
       case "run":
         transcript = Transcript.run(transcript, {
@@ -794,6 +819,7 @@ export const restore = (records: ReadonlyArray<Record>): {
       cards: [...cards].filter((id) => panels.has(id))
     },
     flows: [...flows.values()],
+    flowCommands: [...flowCommands.values()],
     monitors: [...monitors.values()],
     contributions: [...contributions.values()]
   }
