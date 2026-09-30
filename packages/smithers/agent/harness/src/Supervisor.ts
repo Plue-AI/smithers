@@ -312,7 +312,7 @@ export const skillBytes = 256
 export const calledLimit = 64
 
 /**
- * One skill the run could read and has not called.
+ * One skill the run could read and has neither called nor read.
  *
  * @category schemas
  * @since 1.0.0-rc.0
@@ -354,7 +354,9 @@ export const Snapshot = Schema.Struct({
   task: Schema.String.annotate({ description: "The task, as the person stated it" }),
   frames: Schema.Array(Frame).annotate({ description: "The newest frames, oldest first" }),
   signals: Signals,
-  skills: Schema.Array(Skill).annotate({ description: "Skills the run could read and has not called, by index" }),
+  skills: Schema.Array(Skill).annotate({
+    description: "Skills the run could read and has neither called nor read, by index"
+  }),
   called: Schema.Array(Schema.String).annotate({ description: "Distinct flows the run has called" }),
   jevAvailable: Schema.Boolean.annotate({ description: "Whether the run can call the jev flow" })
 })

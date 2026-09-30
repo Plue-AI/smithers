@@ -222,8 +222,24 @@ export const signals = (
 })
 
 /**
+ * Whether one ledger subject names `path`. The subject is the call's target
+ * as `CallLedger.subject` clipped it, so a path longer than `CallLedger.width`
+ * survives only as its head and an elision notice, and an input no sole
+ * target was lexed from is quoted whole, with the path inside it (#2028).
+ *
+ * @since 1.0.0-rc.0
+ * @private
+ */
+const namesPath = (subject: string, path: string): boolean => {
+  if (subject.includes(path)) return true
+  const elided = subject.indexOf("… [+")
+  return elided > 0 && path.startsWith(subject.slice(0, elided))
+}
+
+/**
  * What a snapshot says about the frame's catalog: the Markdown skills the
- * model may call and has not, sorted by name and at most
+ * model may call and has not — neither called by name nor read through a
+ * `read` call on the skill's path — sorted by name and at most
  * `Supervisor.skillLimit` of them, offered only when `read` is in the catalog
  * to read them with; the distinct flows the ledger names, newest
  * `Supervisor.calledLimit` of them; and whether `jev` is in the catalog.
@@ -233,14 +249,18 @@ export const signals = (
  */
 export const catalog = (
   flows: ReadonlyArray<Descriptor.FlowDescriptor>,
-  ledger: ReadonlyArray<{ readonly flow: string }>
+  ledger: ReadonlyArray<{ readonly flow: string; readonly subject: string }>
 ): Pick<Supervisor.Snapshot, "skills" | "called" | "jevAvailable"> & { readonly capped: boolean } => {
   const called = [...new Set(ledger.map((entry) => entry.flow))]
   const readable = flows.some((descriptor) => descriptor.name === "read")
+  // A skill read through `read` is as called as one invoked by name: the
+  // reminder says to read it, and the ledger is where that read shows.
+  const readSubjects = ledger.flatMap((entry) => entry.flow === "read" ? [entry.subject] : [])
   const skills = readable
     ? flows
       .filter((descriptor) =>
-        descriptor.modelInvocable && descriptor.body._tag === "Markdown" && !called.includes(descriptor.name)
+        descriptor.modelInvocable && descriptor.body._tag === "Markdown" && !called.includes(descriptor.name) &&
+        !readSubjects.some((subject) => namesPath(subject, descriptor.body.path))
       )
       .sort((a, b) => a.name < b.name ? -1 : 1)
     : []

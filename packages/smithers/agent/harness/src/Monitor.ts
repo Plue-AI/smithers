@@ -249,13 +249,28 @@ export const clarifyText = "Stance: unsure of the task. Restate it in one line a
 const mood = (
   id: string,
   text: string,
-  fires: (reading: Supervisor.Reading) => boolean,
+  fires: (reading: Supervisor.Reading, snapshot: Supervisor.Snapshot) => boolean,
   budget: Partial<Budget> = {}
 ): Monitor =>
-  make({ _tag: "Derived", id, kind: "mood", ...budget, score: (reading) => fires(reading) ? 1 : 0, say: () => text })
+  make({
+    _tag: "Derived",
+    id,
+    kind: "mood",
+    ...budget,
+    score: (reading, snapshot) => fires(reading, snapshot) ? 1 : 0,
+    say: () => text
+  })
 
 /**
  * Stance monitors over the emotions and help the supervisor already reads.
+ *
+ * `paranoid` scores on a signal the `supervisor` lint does not own: a demand
+ * counter increased. A completion the run survived is a bounced one — a
+ * standing completion ends the run, so no reading ever follows it — and a
+ * bounce is what spends a narrowing, unmoved, unresolved or claim demand, so
+ * a frame whose transition is `complete` in the snapshot is the increase.
+ * Scoring it on `suspect` instead crossed exactly when the priority-30 lint
+ * did, and the mood never won the slot (#2028).
  *
  * @category constructors
  * @since 1.0.0-rc.0
@@ -264,7 +279,9 @@ export const moods = (): ReadonlyArray<Monitor> => [
   mood(
     "paranoid",
     paranoidText,
-    (reading) => reading.suspect >= Supervisor.suspectAt && reading.emotions.confident === "strong"
+    (reading, snapshot) =>
+      reading.emotions.confident === "strong" &&
+      snapshot.frames.some((frame) => frame.transition === "complete")
   ),
   mood(
     "careful",

@@ -30,6 +30,7 @@ import * as Descriptor from "@smthrs/registry/Descriptor"
 import { Deferred, Effect, Layer, Option, Result, Schema, Stream } from "effect"
 import { describe, expect, it } from "vitest"
 import * as AgentEvent from "../src/AgentEvent.ts"
+import * as CallLedger from "../src/CallLedger.ts"
 import * as CellTurn from "../src/CellTurn.ts"
 import * as ContextWindow from "../src/ContextWindow.ts"
 import * as EngineLike from "../src/EngineLike.ts"
@@ -119,21 +120,23 @@ const itemsOf = (request: Evaluator.Request): ReadonlyArray<Relevance.Item> =>
   (request.state as { readonly items: ReadonlyArray<Relevance.Item> }).items
 
 /**
- * An evaluator that answers the completion brake at once, the supervisor
- * from `answer`, each relevance item at the probability `unnecessary` gives
- * it, or with `unnecessary` when it is a failure, and every compaction mark
- * low. It records every supervisor request, every relevance request over
- * memory rows and every marks request.
+ * An evaluator that answers the completion brake from `brake` (at once when
+ * omitted), the supervisor from `answer`, each relevance item at the
+ * probability `unnecessary` gives it, or with `unnecessary` when it is a
+ * failure, and every compaction mark low. It records every supervisor
+ * request, every relevance request over memory rows and every marks request.
  */
 const scripted = (
   answer: (request: Evaluator.Request, ordinal: number) =>
     | Readonly<Record<string, Evaluator.ScriptedAnswer>>
     | Effect.Effect<Readonly<Record<string, Evaluator.ScriptedAnswer>>, Evaluator.EvaluatorError>,
-  unnecessary: ((item: Relevance.Item) => number) | Evaluator.EvaluatorError = () => 0.1
+  unnecessary: ((item: Relevance.Item) => number) | Evaluator.EvaluatorError = () => 0.1,
+  brake: (ordinal: number) => Readonly<Record<string, Evaluator.ScriptedAnswer>> = () => confident
 ) => {
   const contacted: Array<Evaluator.Request> = []
   const relevance: Array<Evaluator.Request> = []
   const marks: Array<Evaluator.Request> = []
+  let completions = 0
   const layer = Evaluator.layerScripted((request) => {
     if (isMarks(request)) {
       marks.push(request)
@@ -146,7 +149,7 @@ const scripted = (
         ? Object.fromEntries(items.map((item, index) => [`unnecessary_${index}`, { probability: unnecessary(item) }]))
         : Effect.fail(unnecessary)
     }
-    if (!isSupervisor(request)) return confident
+    if (!isSupervisor(request)) return brake(completions++)
     contacted.push(request)
     const declined = quietMonitors(request)
     const scripted = answer(request, contacted.length - 1)
@@ -266,8 +269,21 @@ const deliveredBy = (events: ReadonlyArray<AgentEvent.AgentEvent>): ReadonlyArra
 const withheldBy = (events: ReadonlyArray<AgentEvent.AgentEvent>) =>
   of(events, "steering-drained").map((event) => event.suppressed ?? [])
 
-/** The paranoid mood's evidence: suspect, and confident all the same. */
-const paranoid = () => calm({ suspect: { probability: 0.9 } })
+/** The paranoid mood's evidence: confident strong, beside a bounced completion in the frames. */
+const paranoid = () => calm()
+
+/** The completion brake bounces the first completion as an unsupported claim and stands the rest. */
+const bouncedFirst = (ordinal: number): Readonly<Record<string, Evaluator.ScriptedAnswer>> =>
+  ordinal === 0
+    ? { complete: { probability: 0.4 }, overclaims: { probability: 0.9 }, invented: { probability: 0.6 } }
+    : confident
+
+/** A bounced completion, then prints, then one that stands: the frames paranoid reads. */
+const bouncedRun = (frames: number) => [
+  emits(`ctx.done("done")`),
+  ...Array.from({ length: frames - 2 }, (_, index) => emits(`console.log(${index})`)),
+  emits(`ctx.done("done")`)
+]
 
 /** The legacy nudge, unchanged, for a thrashing reading of a first frame that changed nothing. */
 const legacyNudge = "Supervisor: a reading of this run's last 1 frames, through frame 0, finds it repeating itself " +
@@ -445,10 +461,10 @@ describe("Supervisor", () => {
   describe("monitors", () => {
     it("delivers a mood once its streak holds, and withholds the next crossing for its cooldown", async () => {
       const read = untilRead()
-      const { layer } = scripted(paranoid)
+      const { layer } = scripted(paranoid, () => 0.1, bouncedFirst)
       const { engine, events, failure } = await run({
-        state: state(6),
-        script: framesOf(6),
+        state: state(7),
+        script: bouncedRun(7),
         evaluator: layer,
         ...read,
         judged: true,
@@ -461,27 +477,32 @@ describe("Supervisor", () => {
         "step_back",
         "clarify"
       ])
-      // Frame 0's reading is taken at frame 1's boundary and starts the
-      // streak; frame 1's, taken at frame 2's, completes it, so frame 3 is the
-      // first request to read it, and every later one reads it once.
-      expect(carrying(engine, Monitor.paranoidText)).toEqual([0, 0, 0, 1, 1, 1])
+      // Frame 0's completion is bounced, and its reading — frames carry the
+      // refused `complete` — is taken at frame 1's boundary and starts the
+      // streak; frame 1's, taken at frame 2's, completes it, so frame 3 is
+      // the first request to read it, and every later one reads it once. The
+      // bounced frame ages out of the window after frame 2's reading, so the
+      // later readings stop crossing.
+      expect(carrying(engine, Monitor.paranoidText)).toEqual([0, 0, 0, 1, 1, 1, 1])
       expect(deliveredBy(events)).toEqual(["paranoid"])
       expect(withheldBy(events)).toEqual([
         [],
         [{ id: "paranoid", reason: "streak" }],
         [],
         [{ id: "paranoid", reason: "cooldown" }],
-        [{ id: "paranoid", reason: "cooldown" }],
+        [],
+        [],
         []
       ])
       const settled = of(read.seen, "supervisor-settled")
-      expect(settled.every((event) => event.crossed && event.nudged)).toBe(true)
       expect(settled[0]?.monitors).toContainEqual({ id: "paranoid", kind: "mood", p: 1, crossed: true })
+      expect(settled[0]).toMatchObject({ crossed: true, nudged: true })
+      expect(settled[3]?.monitors).toContainEqual({ id: "paranoid", kind: "mood", p: 0, crossed: false })
     })
 
     it("gives the one slot to the lint and withholds a mood crossing beside it", async () => {
       const read = untilRead()
-      const { layer } = scripted(() => calm({ thrashing: { probability: 0.9 }, suspect: { probability: 0.9 } }))
+      const { layer } = scripted(() => calm({ thrashing: { probability: 0.9 }, scared: { score: 2 } }))
       const { events, failure } = await run({
         state: state(4),
         script: framesOf(4),
@@ -493,8 +514,8 @@ describe("Supervisor", () => {
       expect(deliveredBy(events)).toEqual(["supervisor", "supervisor"])
       expect(withheldBy(events)).toEqual([
         [],
-        [{ id: "paranoid", reason: "streak" }],
-        [{ id: "paranoid", reason: "slot" }],
+        [{ id: "careful", reason: "streak" }],
+        [{ id: "careful", reason: "slot" }],
         []
       ])
     })
@@ -586,6 +607,45 @@ describe("Supervisor", () => {
       expect(contacted.some((request) => Object.hasOwn(request.questions, skillQuestion))).toBe(false)
       expect(snapshotOf(contacted[0]!)).toMatchObject({ skills: [], called: ["review-checklist"] })
       expect(deliveredBy(events)).toEqual([])
+    })
+
+    it("stops asking about a skill whose path the cell has read", async () => {
+      // #2028: the reminder says to `ctx.call("read", { path })`, and that
+      // call settles against the `read` flow, not the skill's name — the
+      // exclusion has to read the ledger's subjects, not only its flows.
+      const read = untilRead()
+      const { contacted, layer } = scripted(answering(skillQuestion, 0.9))
+      const { events, failure } = await run({
+        state: state(3),
+        script: [
+          emits(`await ctx.call("read", { path: "/skills/review-checklist/SKILL.md" })`),
+          emits(`console.log("two")`),
+          emits(`ctx.done("done")`)
+        ],
+        calls: [{ _tag: "Success", value: "Check the diff." }],
+        flows: [descriptor("read"), checklist],
+        evaluator: layer,
+        ...read,
+        judged: true
+      })
+      expect(failure).toBeUndefined()
+      expect(contacted.length).toBeGreaterThanOrEqual(1)
+      expect(contacted.some((request) => Object.hasOwn(request.questions, skillQuestion))).toBe(false)
+      expect(snapshotOf(contacted[0]!)).toMatchObject({ skills: [], called: ["read"] })
+      expect(deliveredBy(events)).toEqual([])
+    })
+
+    it("reads the exclusion off a clipped subject too, without hiding a skill nobody read", () => {
+      const longPath = `/skills/${"deep/".repeat(40)}SKILL.md`
+      const deep = new Descriptor.FlowDescriptor({
+        ...descriptor("deep-skill"),
+        body: new Descriptor.BodyRefMarkdown({ path: longPath, baseDirectory: "/skills/deep" })
+      })
+      const entry = CallLedger.entry(1, { flow: "read", input: { path: longPath }, ok: true, value: "body" })
+      expect(entry.subject.length).toBeLessThan(longPath.length)
+      const offered = Supervision.catalog([descriptor("read"), deep, checklist], [entry])
+      expect(offered.skills.map((skill) => skill.path)).toEqual(["/skills/review-checklist/SKILL.md"])
+      expect(offered.called).toEqual(["read"])
     })
 
     it("asks about no skill when the catalog has no read flow", async () => {
@@ -1081,8 +1141,8 @@ describe("Supervisor", () => {
 
     it("replays a monitor's delivery without asking again, and a resumed state keeps its cooldown", async () => {
       const records = new Map<string, unknown>()
-      const armed = { judged: true, monitors: Monitor.moods(), script: framesOf(4) } as const
-      const first = scripted(paranoid)
+      const armed = { judged: true, monitors: Monitor.moods(), script: bouncedRun(4) } as const
+      const first = scripted(paranoid, () => 0.1, bouncedFirst)
       const original = await run({ ...armed, state: state(4), evaluator: first.layer, ...untilRead(), records })
       expect(original.failure).toBeUndefined()
       expect(deliveredBy(original.events)).toEqual(["paranoid"])
@@ -1105,8 +1165,14 @@ describe("Supervisor", () => {
         )
       )
       expect(resumed.monitorLedger["paranoid"]).toEqual({ streak: 2, delivered: 1, lastFrame: 2 })
-      const fresh = scripted(paranoid)
-      const live = await run({ ...armed, script: framesOf(3), state: resumed, evaluator: fresh.layer, ...untilRead(3) })
+      const fresh = scripted(paranoid, () => 0.1, bouncedFirst)
+      const live = await run({
+        ...armed,
+        script: bouncedRun(3),
+        state: resumed,
+        evaluator: fresh.layer,
+        ...untilRead(3)
+      })
       expect(live.failure).toBeUndefined()
       expect(fresh.contacted.length).toBeGreaterThanOrEqual(1)
       expect(deliveredBy(live.events)).toEqual([])

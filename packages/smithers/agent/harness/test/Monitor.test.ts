@@ -237,15 +237,49 @@ describe("Monitor", () => {
       expect(score("supervisor", reading({ onTarget: 0.4 }))).toBe(1)
     })
 
-    it("paranoid needs suspect evidence held with strong confidence", () => {
+    it("paranoid needs a bounced completion in the frames, held with strong confidence", () => {
+      // A frame whose transition is "complete" in a reading is a bounced
+      // completion: a standing one ends the run, so only a bounce — a demand
+      // counter increasing — leaves one to be read. That signal is the
+      // completion brake's, not the supervisor lint's, so a crossing no lint
+      // crosses beside can win the slot (#2028).
       const confident = { ...reading().emotions, confident: "strong" } as const
-      expect(score("paranoid", reading({ suspect: 0.5, emotions: confident }))).toBe(1)
-      expect(score("paranoid", reading({ suspect: 0.4, emotions: confident }))).toBe(0)
-      expect(score("paranoid", reading({ suspect: 0.9 }))).toBe(0)
+      const bounced: Supervisor.Snapshot = {
+        ...snapshot(),
+        frames: [{ frame: 1, cell: "", prose: "", printed: "", transition: "complete", mutated: false }]
+      }
+      expect(score("paranoid", reading({ emotions: confident }), bounced)).toBe(1)
+      expect(score("paranoid", reading({ emotions: confident }))).toBe(0)
+      expect(score("paranoid", reading(), bounced)).toBe(0)
+      // suspect is the lint's signal; paranoid no longer reads it either way.
+      expect(score("paranoid", reading({ suspect: 0.9 }), bounced)).toBe(0)
+      expect(score("paranoid", reading({ suspect: 0, emotions: confident }), bounced)).toBe(1)
     })
 
-    it("paranoid does not fire on claimDemands alone", () => {
-      expect(score("paranoid", reading(), snapshot({ claimDemands: 3, narrowingDemands: 2 }))).toBe(0)
+    it("delivers paranoid from the default set on a signal the lint does not own", () => {
+      const monitors = Monitor.defaults()
+      const at: Supervisor.Snapshot = {
+        ...snapshot(),
+        frames: [{ frame: 1, cell: "", prose: "", printed: "", transition: "complete", mutated: false }]
+      }
+      const value = reading({ emotions: { ...reading().emotions, confident: "strong" } })
+      expect(Supervisor.crosses(value)).toBe(false)
+      const evaluation = Monitor.evaluate({ monitors, reading: value, snapshot: at, values: {} })
+      expect(evaluation.candidates.map((candidate) => candidate.id)).toEqual(["paranoid"])
+      const first = Monitor.gate({ ...evaluation, monitors, ledger: {}, frame: 2 })
+      expect(first.message).toBeUndefined()
+      expect(first.suppressed).toEqual([{ id: "paranoid", reason: "streak" }])
+      const second = Monitor.gate({ ...evaluation, monitors, ledger: first.ledger, frame: 3 })
+      expect(second.message).toEqual({ id: "paranoid", text: Monitor.paranoidText })
+      expect(second.ledger["paranoid"]).toEqual({ streak: 2, delivered: 1, lastFrame: 3 })
+    })
+
+    it("paranoid does not fire on demand counters alone", () => {
+      // The counters persist after the bounce's frame has aged out of the
+      // window; without the frame there is no increase to score.
+      const confident = { ...reading().emotions, confident: "strong" } as const
+      expect(score("paranoid", reading({ emotions: confident }), snapshot({ claimDemands: 3, narrowingDemands: 2 })))
+        .toBe(0)
     })
 
     it("careful fires on strong fear or a risky action", () => {

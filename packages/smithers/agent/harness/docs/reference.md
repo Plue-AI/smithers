@@ -804,7 +804,7 @@ The reading Jev takes of a run while it is still running.
 | `skillLimit` | const | constants | The most skills one snapshot offers. |
 | `skillBytes` | const | constants | The most of one skill's description a snapshot carries, in UTF-8 bytes. |
 | `calledLimit` | const | constants | The most distinct flow names a snapshot's `called` carries. |
-| `Skill` | const, type | schemas, models | One skill the run could read and has not called. |
+| `Skill` | const, type | schemas, models | One skill the run could read and has neither called nor read. |
 | `skill` | const | constructors | One skill as a snapshot offers it: its description's head, wrapped as untrusted data. |
 | `Snapshot` | const | schemas | Everything one supervisor reading is a reading of. |
 | `monitorPrefix` | const | constants | The prefix of every question a monitor adds to a reading. |
