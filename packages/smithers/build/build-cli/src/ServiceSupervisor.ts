@@ -26,10 +26,12 @@ import * as ScopedProcess from "@smthrs/platform-node/ScopedProcess"
 import { inheritedEnvironmentNames } from "@smthrs/targets/Exec"
 import * as Secret from "@smthrs/targets/Secret"
 import * as SecretProxy from "@smthrs/targets/SecretProxy"
+import * as Clock from "effect/Clock"
 import * as Context from "effect/Context"
 import * as Data from "effect/Data"
 import * as Deferred from "effect/Deferred"
 import * as Effect from "effect/Effect"
+import * as Fiber from "effect/Fiber"
 import * as RcMap from "effect/RcMap"
 import * as Schedule from "effect/Schedule"
 import * as Scope from "effect/Scope"
@@ -1133,10 +1135,52 @@ const runPrepare = (parsed: ParsedSpec, environment: Readonly<Record<string, str
 const runCleanup = (parsed: ParsedSpec, environment: Readonly<Record<string, string>>): Effect.Effect<void> =>
   runBestEffort(parsed, parsed.spec.cleanup, environment)
 
+const containerId = /^[0-9a-f]{64}$/
+
+/**
+ * Removes a container the daemon creates under `name` after its create client
+ * timed out. The client's kill cannot cancel a create the daemon is still
+ * processing, and `rm -f` succeeds on a missing name, so this polls for the
+ * minted name for one more creation bound and removes it by ID once it appears.
+ * The name is unique to one acquisition, so nothing else can own it. The
+ * supervisor's own scope waits for this bounded poll before it closes.
+ */
+const reapLateContainer = (
+  docker: string,
+  name: string,
+  context: ProbeContext,
+  parsed: ParsedSpec
+): Effect.Effect<void> =>
+  Effect.gen(function*() {
+    const pollMs = Math.min(1_000, Math.max(readinessPollMs, Math.floor(parsed.readinessTimeoutMs / 4)))
+    const commandMs = parsed.stopGraceMs + stopSettleMs
+    const filter = `name=^/?${name.replaceAll(".", "\\.")}$`
+    const deadline = (yield* Clock.currentTimeMillis) + parsed.readinessTimeoutMs
+    let removed = false
+    while ((yield* Clock.currentTimeMillis) < deadline) {
+      yield* Effect.sleep(pollMs)
+      const listed = yield* runServiceCommand(
+        [docker, "ps", "--all", "--quiet", "--no-trunc", "--filter", filter],
+        context,
+        commandMs
+      )
+      const ids = listed.ok
+        ? listed.stdout.split("\n").map((line) => line.trim()).filter((line) => containerId.test(line))
+        : []
+      if (ids.length === 0) {
+        if (removed) return
+        continue
+      }
+      for (const id of ids) yield* runServiceCommand([docker, "rm", "-f", id], context, commandMs)
+      removed = true
+    }
+  })
+
 /** Owns container removal before closing the create client's process scope. */
 const createDockerService = (
   parsed: ParsedSpec,
-  environment: Readonly<Record<string, string>>
+  environment: Readonly<Record<string, string>>,
+  reaps: Set<Fiber.Fiber<void>>
 ): Effect.Effect<ParsedSpec, ServiceError, Scope.Scope> =>
   Effect.gen(function*() {
     const spec = parsed.spec
@@ -1157,20 +1201,31 @@ const createDockerService = (
           Scope.provide(clientScope),
           Effect.map((result) => {
             const id = result.stdout.trim()
-            return { ...result, id, target: /^[0-9a-f]{64}$/.test(id) ? id : name }
+            return { ...result, id, target: containerId.test(id) ? id : name }
           })
         ),
         (result) =>
           // Failed commands can still return an ID. If it is unreadable, only
           // this acquisition's unique name is safe; unparsed output is never
-          // a removal target. Late daemon completion remains best effort.
+          // a removal target. A timed-out client leaves the daemon's create
+          // pending, so its name is reaped in the background for a bounded time.
           runServiceCommand([docker, "rm", "-f", result.target], context, parsed.stopGraceMs + stopSettleMs).pipe(
+            Effect.andThen(
+              result.timedOut && result.target === name
+                ? Effect.forkDetach(reapLateContainer(docker, name, context, parsed)).pipe(
+                  Effect.map((fiber) => {
+                    reaps.add(fiber)
+                    fiber.addObserver(() => reaps.delete(fiber))
+                  })
+                )
+                : Effect.void
+            ),
             Effect.asVoid
           )
       )
     )
     const id = created.id
-    if (!created.ok || !/^[0-9a-f]{64}$/.test(id)) {
+    if (!created.ok || !containerId.test(id)) {
       return yield* Effect.fail(
         new ServiceError({
           key: spec.key,
@@ -1199,7 +1254,10 @@ const createDockerService = (
  * Spawns one service in its own process group, awaits readiness, and starts
  * the health loop, all inside the scope the `RcMap` provides for its key.
  */
-const startService = (initial: ParsedSpec): Effect.Effect<RunningService, ServiceError, Scope.Scope> =>
+const startService = (
+  initial: ParsedSpec,
+  reaps: Set<Fiber.Fiber<void>>
+): Effect.Effect<RunningService, ServiceError, Scope.Scope> =>
   Effect.gen(function*() {
     let parsed = initial
     const key = parsed.spec.key
@@ -1236,7 +1294,8 @@ const startService = (initial: ParsedSpec): Effect.Effect<RunningService, Servic
     if (parsed.spec.docker !== undefined) {
       parsed = yield* createDockerService(
         { ...parsed, spec: { ...parsed.spec, argv: secretBoundary.argv } },
-        environment
+        environment,
+        reaps
       )
     }
     const argv = parsed.spec.docker === undefined ? secretBoundary.argv : parsed.spec.argv
@@ -1343,12 +1402,16 @@ const startService = (initial: ParsedSpec): Effect.Effect<RunningService, Servic
  */
 export const make: Effect.Effect<ServiceSupervisor, never, Scope.Scope> = Effect.gen(function*() {
   const specs = new Map<string, ParsedSpec>()
+  // Registered before the services map, so it runs after every service scope
+  // has closed and started its bounded late-container reap.
+  const reaps = new Set<Fiber.Fiber<void>>()
+  yield* Effect.addFinalizer(() => Fiber.awaitAll([...reaps]))
   const services = yield* RcMap.make({
     lookup: (key: string): Effect.Effect<RunningService, ServiceError, Scope.Scope> => {
       const parsed = specs.get(key)
       return parsed === undefined
         ? Effect.die(new Error(`service ${key} was looked up before its spec was registered`))
-        : startService(parsed)
+        : startService(parsed, reaps)
     }
   })
   const acquire = (spec: ServiceSpec): Effect.Effect<ServiceHandle, ServiceError, Scope.Scope> =>

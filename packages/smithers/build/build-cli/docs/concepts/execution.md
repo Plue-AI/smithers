@@ -274,8 +274,10 @@ argv contains creation options, and its exec readiness/init contain container
 commands; the supervisor adds the operation and resource ID at acquisition.
 Preparation never deletes an existing container. When creation answers with no
 readable ID, cleanup falls back to the unique name that acquisition minted,
-which no other lifetime ever uses; a daemon that finishes that creation after
-the bound expires can still outlive the removal. A container left by a
+which no other lifetime ever uses. When the create client times out, the
+daemon may still finish that creation, so the supervisor keeps looking for the
+name for one more creation bound, removes it by ID when it appears, and waits
+for that search before it closes. A container left by a
 hard-killed command may require manual cleanup; a later command cannot assume
 it is abandoned. A service captures a
 bounded tail of its output, which is what a failure reports.

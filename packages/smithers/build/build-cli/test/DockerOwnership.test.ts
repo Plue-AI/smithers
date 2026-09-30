@@ -23,6 +23,8 @@ const dockerHost = (
     startCode?: number
     initCode?: number
     holdCreateResponse?: boolean
+    /** The daemon completes the create only after a removal misses it, or when the test lands it. */
+    lateCreate?: "after-missed-rm" | "manual"
   } = {}
 ) => {
   vi.spyOn(PackageTree, "findOnPath").mockReturnValue("/docker")
@@ -34,6 +36,13 @@ const dockerHost = (
   const commands: Array<ReadonlyArray<string>> = []
   let nextPid = 100
   let delayedPid: number | undefined
+  const pendingCreates: Array<{ name: string; id: string }> = []
+  const landLateCreates = () =>
+    Effect.gen(function*() {
+      for (const { name, id } of pendingCreates.splice(0)) {
+        containers.set(name, { id, pid: -1, exit: yield* Deferred.make<ExitCode>(), initialized: false })
+      }
+    })
   const stopping = Deferred.makeUnsafe<void>()
   const releaseStop = Deferred.makeUnsafe<void>()
   const creating = Deferred.makeUnsafe<void>()
@@ -63,7 +72,9 @@ const dockerHost = (
             yield* Deferred.succeed(exit, ExitCode(125))
           } else {
             const id = pid.toString(16).padStart(64, "0")
-            if (faults.createOutput === undefined) {
+            if (faults.lateCreate) {
+              pendingCreates.push({ name, id })
+            } else if (faults.createOutput === undefined) {
               containers.set(name, { id, pid: -1, exit: yield* Deferred.make<ExitCode>(), initialized: false })
             }
             output = faults.createOutput ?? id + "\n"
@@ -82,9 +93,21 @@ const dockerHost = (
           }
           break
         }
-        case "rm":
-          yield* Deferred.succeed(exit, ExitCode(remove(args[2]!) ? 0 : 1))
+        case "rm": {
+          const removed = remove(args[2]!)
+          yield* Deferred.succeed(exit, ExitCode(removed ? 0 : 1))
+          if (!removed && faults.lateCreate === "after-missed-rm") yield* landLateCreates()
           break
+        }
+        case "ps": {
+          // Only the exact-name filter the supervisor uses is modeled.
+          const filter = args[args.indexOf("--filter") + 1]!
+          const pattern = new RegExp(filter.slice("name=".length))
+          output = [...containers.entries()].filter(([name]) => pattern.test(`/${name}`))
+            .map(([, container]) => container.id + "\n").join("")
+          yield* Deferred.succeed(exit, ExitCode(0))
+          break
+        }
         case "exec": {
           const container = lookup(args[1]!)?.[1]
           if (container !== undefined && args[2] === "initialize") container.initialized = true
@@ -148,7 +171,9 @@ const dockerHost = (
     releaseStop,
     creating,
     releaseCreate,
-    delayStop: (pid: number) => delayedPid = pid
+    delayStop: (pid: number) => delayedPid = pid,
+    /** Completes every create the daemon was still processing. */
+    landLateCreates
   }
 }
 
@@ -378,6 +403,73 @@ describe("Docker invocation ownership", () => {
     expect(failure.message).toContain("container creation failed after 1000ms")
     const name = host.commands.find((args) => args[0] === "create")![3]!
     expect(host.commands.find((args) => args[0] === "rm")).toEqual(["rm", "-f", name])
+  })
+
+  it("removes a container the daemon creates after the create client timed out", async () => {
+    const host = dockerHost({ holdCreateResponse: true, lateCreate: "after-missed-rm" })
+    const spec = await specFor("invocation-a", "/workspace")
+    const failure = await Effect.runPromise(Effect.scoped(Effect.gen(function*() {
+      const supervisor = yield* ServiceSupervisor.make
+      return yield* Effect.flip(supervisor.acquire(spec)).pipe(
+        Effect.ensuring(Deferred.succeed(host.releaseCreate, undefined))
+      )
+    })))
+    expect(failure.message).toContain("container creation failed after 1000ms")
+    const name = host.commands.find((args) => args[0] === "create")![3]!
+    const id = (100).toString(16).padStart(64, "0")
+    // The removal by name missed the pending create; the daemon then created
+    // it, and closing the supervisor waited for the reap that removed it.
+    expect(host.containers.size).toBe(0)
+    expect(host.commands.filter((args) => args[0] === "rm")).toEqual([["rm", "-f", name], ["rm", "-f", id]])
+    expect(host.commands.find((args) => args[0] === "ps")).toEqual([
+      "ps",
+      "--all",
+      "--quiet",
+      "--no-trunc",
+      "--filter",
+      `name=^/?${name}$`
+    ])
+    // The reap stopped once the name was gone rather than polling to its bound.
+    const after = host.commands.findIndex((args) => args[0] === "rm" && args[2] === id)
+    expect(host.commands.slice(after + 1).map((args) => args[0])).toEqual(["ps"])
+  })
+
+  it("stops looking for a late container after one more creation bound", async () => {
+    const host = dockerHost({ holdCreateResponse: true, lateCreate: "manual" })
+    const spec = await specFor("invocation-a", "/workspace")
+    let failed = 0
+    await Effect.runPromise(Effect.scoped(Effect.gen(function*() {
+      const supervisor = yield* ServiceSupervisor.make
+      yield* Effect.flip(supervisor.acquire(spec)).pipe(
+        Effect.ensuring(Deferred.succeed(host.releaseCreate, undefined))
+      )
+      failed = Date.now()
+    })))
+    // Closing the supervisor waited for the reap: a 1s creation bound polls
+    // every 250ms for one more second after the failed create, then stops.
+    expect(Date.now() - failed).toBeGreaterThanOrEqual(1_000)
+    const polls = () => host.commands.filter((args) => args[0] === "ps").length
+    const settled = polls()
+    expect(settled).toBeGreaterThan(0)
+    expect(settled).toBeLessThanOrEqual(4)
+    await new Promise((resolve) => setTimeout(resolve, 750))
+    expect(polls()).toBe(settled)
+    // A create landing after the window is not the supervisor's to find.
+    await Effect.runPromise(host.landLateCreates())
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    expect(host.containers.size).toBe(1)
+    expect(host.commands.filter((args) => args[0] === "rm")).toHaveLength(1)
+  })
+
+  it("does not poll for a late container when the daemon answered the create", async () => {
+    const host = dockerHost({ createOutput: "", createCode: 1 })
+    const spec = await specFor("invocation-a", "/workspace")
+    const failure = await Effect.runPromise(Effect.scoped(Effect.gen(function*() {
+      const supervisor = yield* ServiceSupervisor.make
+      return yield* Effect.flip(supervisor.acquire(spec))
+    })))
+    expect(failure).toMatchObject({ key: "//:service", reason: "spawn-failed" })
+    expect(host.commands.map((args) => args[0])).toEqual(["create", "rm"])
   })
 
   it("fails an active consumer when its own container is removed", async () => {
