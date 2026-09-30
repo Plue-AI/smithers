@@ -171,10 +171,16 @@ func TestBilling_Cov_UserOverviewPortalRefreshAndGuards(t *testing.T) {
 	assert.Equal(t, trialEnd.Time, *overview.Subscription.TrialEnd)
 	require.Len(t, overview.Entitlements, 1)
 	assert.Equal(t, "priority_support", overview.Entitlements[0].FeatureKey)
-	require.Len(t, overview.Usage, 6)
-	assert.Equal(t, []string{BillingMetricPrivateRepos, BillingMetricStorageBytes, BillingMetricCIMinutes, BillingMetricAgentRuns, BillingMetricSeats, BillingMetricSandboxHours},
-		[]string{overview.Usage[0].MetricKey, overview.Usage[1].MetricKey, overview.Usage[2].MetricKey, overview.Usage[3].MetricKey, overview.Usage[4].MetricKey, overview.Usage[5].MetricKey})
-	assert.Equal(t, int64(5), overview.Usage[3].ConsumedQuantity)
+	require.Len(t, overview.Usage, 8)
+	metricKeys := make([]string, 0, len(overview.Usage))
+	usageByMetric := make(map[string]BillingUsageSummary, len(overview.Usage))
+	for _, metric := range overview.Usage {
+		require.NotContains(t, usageByMetric, metric.MetricKey)
+		metricKeys = append(metricKeys, metric.MetricKey)
+		usageByMetric[metric.MetricKey] = metric
+	}
+	assert.ElementsMatch(t, []string{BillingMetricPrivateRepos, BillingMetricRepos, BillingMetricStorageBytes, BillingMetricCIMinutes, BillingMetricAgentRuns, BillingMetricSeats, BillingMetricOrgs, BillingMetricSandboxHours}, metricKeys)
+	assert.Equal(t, int64(5), usageByMetric[BillingMetricAgentRuns].ConsumedQuantity)
 
 	portal, err := svc.CreateUserPortal(ctx, user)
 	require.NoError(t, err)
