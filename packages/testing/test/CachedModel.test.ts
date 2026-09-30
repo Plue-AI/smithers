@@ -89,6 +89,14 @@ const countingStore = () => {
 }
 
 describe("CachedModel", () => {
+  it.effect("keeps the live model's declared OpenTelemetry provider name", () =>
+    Effect.gen(function*() {
+      const fixture = yield* FixtureStore.makeMemory()
+      const declared = Model.make({ providerName: "openai", stream: () => Stream.fromIterable(events) })
+      expect(CachedModel.make({ live: declared, fixture }).providerName).toBe("openai")
+      expect("providerName" in CachedModel.make({ live: failingLive, fixture })).toBe(false)
+    }))
+
   it.effect("runs the live model on a miss and records the call", () =>
     Effect.gen(function*() {
       const fixture = yield* FixtureStore.makeMemory()

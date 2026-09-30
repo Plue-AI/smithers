@@ -110,14 +110,16 @@ export const parse = (stdout: string): ReadonlyArray<ModelEvent> => {
   let usage: Record<string, unknown> | undefined
   let completed = false
   for (const line of stdout.split("\n").filter((line) => line.trim() !== "")) {
-    let event: Record<string, unknown>
+    let value: unknown
     try {
-      const value: unknown = JSON.parse(line)
-      if (value === null || typeof value !== "object" || Array.isArray(value)) throw new Error()
-      event = value as Record<string, unknown>
+      value = JSON.parse(line)
     } catch {
       throw failure("invalid_provider_output", "Codex returned invalid JSONL")
     }
+    if (value === null || typeof value !== "object" || Array.isArray(value)) {
+      throw failure("invalid_provider_output", "Codex returned invalid JSONL")
+    }
+    const event = value as Record<string, unknown>
     if (typeof event.type !== "string" || event.type === "") {
       throw failure("invalid_provider_output", "Codex returned an invalid event")
     }
@@ -277,6 +279,7 @@ export const make = (options: Options): Model.Model => {
   // One last answer per conversation; bounded so completed runs do not retain unlimited histories.
   const answers = new Map<string, { readonly request: string; readonly events: ReadonlyArray<ModelEvent> }>()
   return Model.make({
+    providerName: "openai",
     stream: (request) =>
       Stream.unwrap(Effect.gen(function*() {
         const canonical = yield* Effect.try({

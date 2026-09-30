@@ -64,6 +64,10 @@ describe("Codex vendor model", () => {
   const emit = (events: Array<unknown>) =>
     `process.stdout.write(${JSON.stringify(events.map((event) => JSON.stringify(event)).join("\n") + "\n")});`
 
+  it("declares openai as its OpenTelemetry GenAI provider name", () => {
+    expect(fakeModel("process.exit(0)").model.providerName).toBe("openai")
+  })
+
   it("encodes developer instructions with TOML-safe DEL and preserves valid Unicode", () => {
     const text = "say \"hello\"\n\u007f🦄"
     const args = CodexCode.command(

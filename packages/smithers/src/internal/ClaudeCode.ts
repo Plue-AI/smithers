@@ -391,6 +391,7 @@ export const make = (options: Options): Model.Model => {
   }
 
   return Model.make({
+    providerName: "anthropic",
     stream: (request) =>
       Stream.unwrap(
         Effect.map(

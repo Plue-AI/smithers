@@ -36,6 +36,14 @@ const liveOf = (stream: Stream.Stream<ModelEvent.ModelEvent, Model.ModelFailure>
   Model.make({ stream: () => stream })
 
 describe("RecordingModel", () => {
+  it.effect("keeps the live model's declared OpenTelemetry provider name", () =>
+    Effect.gen(function*() {
+      const sink = yield* collector
+      const declared = Model.make({ providerName: "anthropic", stream: () => Stream.fromIterable(events) })
+      expect(RecordingModel.make(declared, sink.sink).providerName).toBe("anthropic")
+      expect("providerName" in RecordingModel.make(liveOf(Stream.empty), sink.sink)).toBe(false)
+    }))
+
   it.effect("records the request, model, and events of a settled call", () =>
     Effect.gen(function*() {
       const sink = yield* collector

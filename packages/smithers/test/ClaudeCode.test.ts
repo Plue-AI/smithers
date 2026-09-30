@@ -129,6 +129,10 @@ const settled = (events: ReadonlyArray<ModelEvent.ModelEvent>) => ModelEvent.Mod
 const cell = (code: string) => `\`\`\`cell\n${code}\n\`\`\``
 
 describe("ClaudeCode.make", () => {
+  it("declares anthropic as its OpenTelemetry GenAI provider name", () => {
+    expect(model(scripted(() => ({ text: "ok" })).start).providerName).toBe("anthropic")
+  })
+
   it("starts a locked-down session and passes Claude's reply through as text", async () => {
     const claude = scripted(() => ({ text: `I will list.\n${cell("await ctx.call('ls')")}` }))
     const events = await run(model(claude.start), request([user("do the task")]))

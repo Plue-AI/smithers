@@ -78,6 +78,7 @@ const replay = (call: RecordedCall): Stream.Stream<ModelEvent.ModelEvent, Model.
 export const make = (options: Options): Model.Model => {
   const recording = RecordingModel.make(options.live, options.fixture.append)
   return Model.make({
+    ...(options.live.providerName === undefined ? {} : { providerName: options.live.providerName }),
     stream: (request) =>
       Stream.unwrap(
         options.fixture.load().pipe(

@@ -116,6 +116,7 @@ const guarded = (call: RecordedCall, sink: Sink): Effect.Effect<void> =>
  */
 export const make = (live: Model.Model, sink: Sink): Model.Model =>
   Model.make({
+    ...(live.providerName === undefined ? {} : { providerName: live.providerName }),
     stream: (request) =>
       Stream.suspend(() => {
         // Projected here, at stream acquisition, rather than in `onExit` after
