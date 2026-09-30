@@ -13,6 +13,7 @@ import * as Stream from "effect/Stream"
 import * as ChildProcess from "effect/unstable/process/ChildProcess"
 import { type ChildProcessHandle, ExitCode, makeHandle, ProcessId } from "effect/unstable/process/ChildProcessSpawner"
 import * as Native from "node:child_process"
+import { NativeProcessError } from "./ProcessFault.ts"
 
 const ownerDescriptors = new WeakMap<ChildProcessHandle, ReadonlyArray<number | "ignore">>()
 
@@ -41,7 +42,7 @@ const promise = <A>() => {
  * @since 1.0.0
  */
 export const failure = (method: string, cause: unknown): PlatformError.PlatformError => {
-  const error = cause instanceof Error ? cause : new Error(String(cause))
+  const error = cause instanceof Error ? cause : new NativeProcessError({ message: String(cause) })
   const code = (error as NodeJS.ErrnoException).code
   return PlatformError.systemError({
     _tag: code === "ENOENT" ? "NotFound" : code === "EACCES" || code === "EPERM" ? "PermissionDenied" : "Unknown",
@@ -278,7 +279,7 @@ export const spawn = (
         const error = state.pipeErrors.get(pipe) ?? writable.errored ?? undefined
         if (error !== undefined) return Sink.fail(failure(method, error))
         if (writable.destroyed || writable.writableEnded) {
-          return Sink.fail(failure(method, Object.assign(new Error(`${method} is closed`), { code: "EPIPE" })))
+          return Sink.fail(failure(method, new NativeProcessError({ message: `${method} is closed`, code: "EPIPE" })))
         }
         return NodeSink.fromWritable({
           evaluate: () => writable,
@@ -326,7 +327,10 @@ export const spawn = (
           ? Effect.fail(
             failure(
               "exitCode",
-              Object.assign(new Error(`Process interrupted due to receipt of signal: '${signal}'`), { signal })
+              new NativeProcessError({
+                message: `Process interrupted due to receipt of signal: '${signal}'`,
+                signal: String(signal)
+              })
             )
           )
           : Effect.succeed(ExitCode(code))

@@ -6,6 +6,10 @@
  * @since 1.0.0
  */
 export const source = String.raw`
+// A fault of the owner itself: reason is its stable code on the status wire.
+class SupervisorFault extends Error {
+  constructor(reason, message) { super(message); this.name = 'SupervisorFault'; this.reason = reason; }
+}
 const fs = require('node:fs');
 const net = require('node:net');
 const cp = require('node:child_process');
@@ -20,10 +24,10 @@ if (jobHelper !== undefined) {
   const result = cp.spawnSync(jobHelper, ['--process-identity', String(process.pid)], {
     encoding: 'utf8', timeout: 5000, killSignal: 'SIGKILL', maxBuffer: 4096, env: {}
   });
-  if (result.error || result.signal !== null || result.status !== 0) throw new Error('Owner identity unavailable');
+  if (result.error || result.signal !== null || result.status !== 0) throw new SupervisorFault('owner_identity_unavailable', 'Owner identity unavailable');
   const identity = JSON.parse(result.stdout);
   if (identity?.status !== 'started' || typeof identity.created !== 'string' || !/^[1-9][0-9]{0,19}$/.test(identity.created)) {
-    throw new Error('Owner creation identity unavailable');
+    throw new SupervisorFault('owner_identity_unavailable', 'Owner creation identity unavailable');
   }
   created = identity.created;
 }
@@ -56,7 +60,7 @@ let escaped = new Map();
 const procSnapshot = () => {
   let names;
   try { names = fs.readdirSync('/proc'); }
-  catch { throw new Error('Descendant observation unavailable'); }
+  catch { throw new SupervisorFault('descendant_observation_unavailable', 'Descendant observation unavailable'); }
   const rows = new Map();
   for (const name of names) {
     if (!/^[0-9]+$/.test(name)) continue;
@@ -65,16 +69,16 @@ const procSnapshot = () => {
     catch (error) {
       // A process that ended after the listing is not an unreadable table.
       if (error.code === 'ENOENT' || error.code === 'ESRCH') continue;
-      throw new Error('Descendant observation unavailable');
+      throw new SupervisorFault('descendant_observation_unavailable', 'Descendant observation unavailable');
     }
     // comm may contain spaces and parentheses; fields follow its last paren.
     const close = text.lastIndexOf(')');
     const head = text.slice(0, text.indexOf('(')).trim();
     const fields = text.slice(close + 1).trim().split(/[ \t]+/);
-    if (close < 0 || head !== name || fields.length < 20) throw new Error('Invalid descendant observation');
+    if (close < 0 || head !== name || fields.length < 20) throw new SupervisorFault('descendant_observation_invalid', 'Invalid descendant observation');
     // Fields 4, 5 and 22: parent, group and start time in clock ticks since boot.
     const [pid, parent, group, start] = [head, fields[1], fields[2], fields[19]].map(Number);
-    if (![pid, parent, group, start].every(Number.isSafeInteger)) throw new Error('Invalid descendant identity');
+    if (![pid, parent, group, start].every(Number.isSafeInteger)) throw new SupervisorFault('descendant_identity_invalid', 'Invalid descendant identity');
     rows.set(pid, { pid, parent, group, start, zombie: fields[0] === 'Z' });
   }
   return rows;
@@ -84,14 +88,14 @@ const psSnapshot = () => {
     encoding: 'utf8', timeout: 500, killSignal: 'SIGKILL', maxBuffer: 4 * 1024 * 1024,
     env: { PATH: '/usr/bin:/bin', LC_ALL: 'C' }
   });
-  if (result.error || result.status !== 0) throw new Error('Descendant observation unavailable');
+  if (result.error || result.status !== 0) throw new SupervisorFault('descendant_observation_unavailable', 'Descendant observation unavailable');
   const rows = new Map();
   for (const line of result.stdout.trim().split('\n')) {
     const match = /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s+(.+)$/.exec(line);
-    if (!match) throw new Error('Invalid descendant observation');
+    if (!match) throw new SupervisorFault('descendant_observation_invalid', 'Invalid descendant observation');
     const [pid, parent, group] = match.slice(1, 4).map(Number);
     const start = Date.parse(match[5]);
-    if (![pid, parent, group, start].every(Number.isSafeInteger)) throw new Error('Invalid descendant identity');
+    if (![pid, parent, group, start].every(Number.isSafeInteger)) throw new SupervisorFault('descendant_identity_invalid', 'Invalid descendant identity');
     rows.set(pid, { pid, parent, group, start, zombie: match[4].startsWith('Z') });
   }
   return rows;
@@ -117,13 +121,13 @@ const signalEscaped = (signal) => {
     const row = rows.get(pid);
     if (!row || row.zombie) { escaped.delete(pid); continue; }
     if (row.start !== recorded.start || row.group !== recorded.group) {
-      throw new Error('Escaped descendant identity changed before signalling');
+      throw new SupervisorFault('descendant_identity_changed', 'Escaped descendant identity changed before signalling');
     }
     try { process.kill(pid, signal); }
     catch (error) { if (error.code === 'ESRCH') escaped.delete(pid); else throw error; }
   }
 };
-const cleanupError = (error) => send({ type: 'cleanup_error', message: String(error.message).slice(0, 2048) });
+const cleanupError = (error) => send({ type: 'cleanup_error', reason: error.reason, message: String(error.message).slice(0, 2048) });
 const escapedSettled = () => {
   if (escaped.size === 0) return true;
   const rows = snapshot();
@@ -131,7 +135,7 @@ const escapedSettled = () => {
     const row = rows.get(pid);
     if (!row || row.zombie) { escaped.delete(pid); continue; }
     if (row.start !== recorded.start || row.group !== recorded.group) {
-      throw new Error('Escaped descendant identity changed before cleanup verification');
+      throw new SupervisorFault('descendant_identity_changed', 'Escaped descendant identity changed before cleanup verification');
     }
   }
   return escaped.size === 0;
@@ -155,7 +159,7 @@ const force = () => {
     try {
       if (!escapedSettled()) {
         if (Date.now() < deadline) { setTimeout(complete, 10); return; }
-        throw new Error('Escaped descendants did not settle before the cleanup bound');
+        throw new SupervisorFault('descendants_unsettled', 'Escaped descendants did not settle before the cleanup bound');
       }
     } catch (error) { cleanupError(error); }
     // TLS write completion does not prove the peer received terminal status.
@@ -215,7 +219,7 @@ const spawnError = (error) => {
 process.on('SIGTERM', () => { if (!stopping) stop(); });
 process.on('SIGINT', () => { if (!stopping) stop(); });
 process.on('uncaughtException', (error) => {
-  try { send({ type: 'fault', message: String(error.message).slice(0, 2048) }, force); }
+  try { send({ type: 'fault', reason: error.reason, message: String(error.message).slice(0, 2048) }, force); }
   finally { force(); }
 });
 process.on('unhandledRejection', (error) => { throw error; });
@@ -226,7 +230,7 @@ requests.on('error', () => stop({ explicit: true }));
 requests.setEncoding('utf8');
 requests.on('data', (data) => {
   buffer += data;
-  if (Buffer.byteLength(buffer) > 4 * 1024 * 1024) throw new Error('Control frame too large');
+  if (Buffer.byteLength(buffer) > 4 * 1024 * 1024) throw new SupervisorFault('control_frame_too_large', 'Control frame too large');
   for (;;) {
     const end = buffer.indexOf('\n');
     if (end < 0) break;
@@ -234,14 +238,14 @@ requests.on('data', (data) => {
     buffer = buffer.slice(end + 1);
     const message = JSON.parse(line);
     if (message.type === 'configure') {
-      if (config !== undefined || stopping) throw new Error('Duplicate or late configuration');
+      if (config !== undefined || stopping) throw new SupervisorFault('configuration_invalid', 'Duplicate or late configuration');
       config = message;
     } else if (message.type === 'cleanup_ack') {
-      if (!config?.acknowledgeCleanup || !killing) throw new Error('Unexpected cleanup acknowledgment');
+      if (!config?.acknowledgeCleanup || !killing) throw new SupervisorFault('cleanup_acknowledgment_unexpected', 'Unexpected cleanup acknowledgment');
       selfKill();
     } else if (message.type === 'stop') stop(message);
     else if (message.type === 'start') {
-      if (config === undefined || target !== undefined || stopping) throw new Error('Invalid activation');
+      if (config === undefined || target !== undefined || stopping) throw new SupervisorFault('activation_invalid', 'Invalid activation');
       const descriptors = Array.from({ length: Math.max(2, ...config.userFds) + 1 }, () => 'ignore');
       for (const fd of [0, 1, 2, ...config.userFds]) descriptors[fd] = fd;
       if (config.standardFds !== undefined) {
@@ -265,7 +269,7 @@ requests.on('data', (data) => {
           for (const fd of [0, 1, 2]) {
             fs.closeSync(fd);
             const replacement = fs.openSync(require('node:os').devNull, fd === 0 ? 'r' : 'w');
-            if (replacement !== fd) throw new Error('Could not detach supervisor standard streams');
+            if (replacement !== fd) throw new SupervisorFault('stream_detach_failed', 'Could not detach supervisor standard streams');
           }
         }
         for (const fd of config.userFds) fs.closeSync(fd);
@@ -278,7 +282,7 @@ requests.on('data', (data) => {
         if (grouped) { stop(); settleVacantGroup(); }
         else { killing = false; clearTimeout(timer); force(); }
       });
-    } else throw new Error('Invalid control message');
+    } else throw new SupervisorFault('control_message_invalid', 'Invalid control message');
   }
 });
 control.once('connect', () => send({ type: 'ready', version: 1, pid: process.pid, created }));

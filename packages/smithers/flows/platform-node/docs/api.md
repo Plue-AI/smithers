@@ -279,6 +279,18 @@ operation as `BadArgument` whose `cause` is the `AtomicHelperError`;
 | `staging_directory_not_private` | the per-user staging directory is a link or has another owner               |
 | `staging_unavailable`           | no location can hold a staged copy of the helper                            |
 
+**Protocol faults.** A helper that answers out of protocol, over a bound, or
+not at all fails closed: the operation fails with a `PlatformError` whose `cause`
+is an `AtomicHelperFault` (`_tag` `@smthrs/platform-node/AtomicHelperFault`).
+Classify one by `code`: `response_unframed`, `response_tag_unknown`,
+`response_length_invalid`, `response_length_mismatch`, `envelope_malformed`,
+`field_malformed`, `file_type_unknown`, `payload_malformed`,
+`read_limit_exceeded`, `entries_malformed`, `batch_malformed`,
+`digest_malformed`, `result_malformed`, `operation_unsupported`,
+`helper_timeout`, `response_limit_exceeded`, `helper_rejected`, `helper_exited`.
+An errno the helper itself reports is an `AtomicHelperRejection` with the native
+`code` and `syscall`.
+
 **Cost.** Every operation starts one helper process. Under the kernel's guarded
 layer, authorization adds two more, resolving the path before and after the
 grant decision. That is the price of descriptor-relative confinement on a runtime with no

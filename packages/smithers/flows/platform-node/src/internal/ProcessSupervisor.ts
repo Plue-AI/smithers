@@ -21,6 +21,7 @@ import { join, parse, resolve } from "node:path"
 import * as Tls from "node:tls"
 import { standardFdsOf } from "./PipedProcess.ts"
 import type { Policy, Snapshot, System } from "./ProcessCleanup.ts"
+import { NativeProcessError, processFault } from "./ProcessFault.ts"
 import { source } from "./SupervisorProgram.ts"
 import { resolveJobExecutable, WindowsProcessJob } from "./WindowsProcessJob.ts"
 
@@ -44,10 +45,19 @@ const processClock = Clock.Clock.defaultValue()
 export const targetPidOf = (handle: ChildProcessHandle): number | undefined => targets.get(handle)?.targetPid
 
 /** Native error fields remain data on the public PlatformError cause. */
-const nativeError = (cause: unknown): Error & { code?: string; syscall?: string } => {
+const nativeError = (cause: unknown): Error & { code?: string | undefined; syscall?: string | undefined } => {
   if (cause instanceof Error) return cause
-  const value = cause as { message?: string } | null
-  return Object.assign(new Error(value?.message ?? "The process supervisor failed"), cause)
+  const value = (cause ?? {}) as Record<string, unknown>
+  const text = (field: string): string | undefined => typeof value[field] === "string" ? value[field] : undefined
+  return new NativeProcessError({
+    message: text("message") ?? "The process supervisor failed",
+    code: text("code"),
+    errno: typeof value.errno === "number" ? value.errno : undefined,
+    reason: text("reason"),
+    syscall: text("syscall"),
+    path: text("path"),
+    signal: text("signal")
+  })
 }
 
 /**
@@ -138,7 +148,10 @@ const bounded = <A, E, R>(effect: Effect.Effect<A, E, R>, millis: number, method
   effect.pipe(
     Effect.timeoutOrElse({
       duration: millis,
-      orElse: () => Effect.fail(failure(method, command, new Error(`Process supervisor ${method} timed out`)))
+      orElse: () =>
+        Effect.fail(
+          failure(method, command, processFault("supervisor_timeout", `Process supervisor ${method} timed out`))
+        )
     }),
     Effect.provideService(Clock.Clock, processClock)
   )
@@ -155,7 +168,10 @@ export const bootstrapArguments = (runtime: { readonly bun: boolean; readonly ma
       failure(
         "spawn",
         process.execPath,
-        new Error("Process supervision requires a Node or Bun runtime executable, not a compiled application")
+        processFault(
+          "runtime_unsupported",
+          "Process supervision requires a Node or Bun runtime executable, not a compiled application"
+        )
       )
     )
     : Effect.succeed(runtime.bun ? ["--no-env-file", "--config=/dev/null"] : [])
@@ -286,7 +302,7 @@ export class Control {
 
   /** Validate the stored READY after the raw spawn effect has returned its pid. */
   withdraw(pid: number, actual: number): void {
-    if (pid !== actual) throw new Error("Wrong supervisor identity")
+    if (pid !== actual) throw processFault("identity_mismatch", "Wrong supervisor identity")
     this.server.close()
     this.server.unref()
     this.requestServer.close()
@@ -323,12 +339,12 @@ export class Control {
     return new Promise((resolve, reject) => {
       const socket = this.requestSocket
       if (socket === undefined || socket.destroyed || !socket.writable) {
-        reject(new Error("Private process control channel closed"))
+        reject(processFault("control_channel_closed", "Private process control channel closed"))
         return
       }
       const data = `${JSON.stringify(message)}\n`
       if (Buffer.byteLength(data) > 4 * 1024 * 1024) {
-        reject(new Error("Process configuration exceeds the private frame limit"))
+        reject(processFault("configuration_too_large", "Process configuration exceeds the private frame limit"))
         return
       }
       socket.write(data, (error) => error ? reject(error) : resolve())
@@ -337,7 +353,8 @@ export class Control {
 
   private closed(): void {
     this.disconnect()
-    const cause = this.fault ?? new Error("Process supervisor closed before reporting its outcome")
+    const cause = this.fault ??
+      processFault("outcome_missing", "Process supervisor closed before reporting its outcome")
     if (this.activationSent && !this.targetDone && !this.spawnFailed) this.lost.reject(cause)
     this.ready.reject(cause)
     this.requestsReady.reject(cause)
@@ -371,7 +388,9 @@ export class Control {
     socket.on("data", (data: string) => {
       try {
         buffer += data
-        if (Buffer.byteLength(buffer) > 16 * 1024) throw new Error("Process status frame exceeds its limit")
+        if (Buffer.byteLength(buffer) > 16 * 1024) {
+          throw processFault("status_too_large", "Process status frame exceeds its limit")
+        }
         for (;;) {
           const end = buffer.indexOf("\n")
           if (end < 0) break
@@ -391,14 +410,14 @@ export class Control {
   }
 
   private receive(value: unknown): void {
-    if (typeof value !== "object" || value === null) throw new Error("Invalid process status")
+    if (typeof value !== "object" || value === null) throw processFault("status_invalid", "Invalid process status")
     const message = value as Record<string, unknown>
     switch (message.type) {
       case "ready":
         if (
           this.receivedReady || message.version !== 1 || !Number.isSafeInteger(message.pid) || Number(message.pid) <= 1
         ) {
-          throw new Error("Invalid process readiness")
+          throw processFault("status_invalid", "Invalid process readiness")
         }
         this.receivedReady = true
         this.ownerCreation = message.created
@@ -408,14 +427,16 @@ export class Control {
         if (
           !this.activationSent || this.receivedStarted || !Number.isSafeInteger(message.pid) || Number(message.pid) <= 1
         ) {
-          throw new Error("Invalid target startup")
+          throw processFault("status_invalid", "Invalid target startup")
         }
         this.receivedStarted = true
         this.targetPid = Number(message.pid)
         this.started.resolve()
         return
       case "spawn_error":
-        if (!this.activationSent || this.receivedStarted) throw new Error("Invalid target spawn failure")
+        if (!this.activationSent || this.receivedStarted) {
+          throw processFault("status_invalid", "Invalid target spawn failure")
+        }
         this.spawnFailed = true
         this.fault = message
         this.started.reject(message)
@@ -432,7 +453,7 @@ export class Control {
           !(Number.isInteger(message.code) && Number(message.code) >= 0 && message.signal === null ||
             message.code === null && typeof message.signal === "string" && /^SIG[A-Z0-9]+$/.test(message.signal))
         ) {
-          throw new Error("Invalid target exit status")
+          throw processFault("status_invalid", "Invalid target exit status")
         }
         this.targetDone = true
         if (message.code === null) {
@@ -452,7 +473,7 @@ export class Control {
         this.onCleanup()
         return
       default:
-        throw new Error("Unknown process status")
+        throw processFault("status_unknown", "Unknown process status")
     }
   }
 }
@@ -581,7 +602,8 @@ export const prepare = (
             failure(
               "kill",
               command.command,
-              new Error(
+              processFault(
+                "cleanup_unverified",
                 "Process cleanup could not be verified; its ledger record is retained " +
                   `(${unverifiedCleanup(control, requireCleanupReceipt, vacant, observed)})`,
                 {

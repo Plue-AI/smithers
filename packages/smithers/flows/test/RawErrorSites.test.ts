@@ -21,10 +21,6 @@ const raw = /new Error\(|Effect\.(?:fail|die)\(\s*["'`]|throw\s+["'`]/
 const wrappedCause = "the Error is the `cause` of a tagged failure; only the tag and its own fields reach a caller"
 const invariantDefect = "Effect.die on a broken internal invariant: a defect (a bug), never a typed failure"
 const testSupport = "published test support: its failure fails the caller's test"
-const helperProtocol =
-  "atomic-helper protocol and transport checks; AtomicFileSystemProtocol.failure wraps each one as the cause of a tagged PlatformError"
-const supervisor =
-  "process-supervisor protocol checks; ProcessSupervisor wraps each one as the cause of a tagged PlatformError"
 
 /** Reviewed files, with the number of raw sites each keeps and why. */
 const reviewed: ReadonlyArray<readonly [file: string, count: number, why: string]> = [
@@ -68,16 +64,6 @@ const reviewed: ReadonlyArray<readonly [file: string, count: number, why: string
     "a DNS lookup callback error; the HTTP client reports it as a tagged transport error"
   ],
   ["platform-node/src/ScopedProcess.ts", 1, wrappedCause],
-  ["platform-node/src/internal/AtomicFileSystemProtocol.ts", 31, helperProtocol],
-  ["platform-node/src/internal/AtomicFileSystemTransport.ts", 5, helperProtocol],
-  ["platform-node/src/internal/PipedProcess.ts", 3, "the cause of a tagged PlatformError from PipedProcess.failure"],
-  ["platform-node/src/internal/ProcessSupervisor.ts", 15, supervisor],
-  [
-    "platform-node/src/internal/SupervisorProgram.ts",
-    18,
-    "the supervisor child program; its failures travel to the parent as status frames"
-  ],
-  ["platform-node/src/internal/WindowsProcessJob.ts", 4, supervisor],
   [
     "src/internal/SandboxedFlowGuest.ts",
     1,

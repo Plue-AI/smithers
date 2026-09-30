@@ -7,6 +7,7 @@ import { spawn } from "node:child_process"
 import type { Socket } from "node:net"
 import { parse } from "node:path"
 import { packageRoot, resolveConfiguredExecutable, resolveDefaultExecutable } from "./AtomicFileSystemExecutable.ts"
+import { processFault } from "./ProcessFault.ts"
 
 const deferred = <A>() => {
   let resolve!: (value: A) => void
@@ -47,7 +48,7 @@ export class WindowsProcessJob {
 
   constructor(ownerPid: number, created: unknown, executable: string) {
     if (typeof created !== "string" || !/^[1-9][0-9]{0,19}$/.test(created)) {
-      throw new Error("Windows process owner has no exact creation identity")
+      throw processFault("owner_identity_missing", "Windows process owner has no exact creation identity")
     }
     const options = { cwd: parse(process.execPath).root, env: {}, windowsHide: true }
     this.child = spawn(executable, ["--process-job", String(ownerPid), created], {
@@ -60,7 +61,9 @@ export class WindowsProcessJob {
       if (this.failed) return
       try {
         buffer += data
-        if (Buffer.byteLength(buffer) > 4096) throw new Error("Windows job status exceeds its bound")
+        if (Buffer.byteLength(buffer) > 4096) {
+          throw processFault("status_too_large", "Windows job status exceeds its bound")
+        }
         for (;;) {
           const end = buffer.indexOf("\n")
           if (end < 0) break
@@ -71,7 +74,7 @@ export class WindowsProcessJob {
             this.ready.resolve()
           } else if (frame?.status === "settled" && this.receivedReady && !this.receivedSettled) {
             this.receivedSettled = true
-          } else throw new Error("Invalid Windows job status")
+          } else throw processFault("status_invalid", "Invalid Windows job status")
         }
       } catch (cause) {
         this.fail(cause)
@@ -86,7 +89,7 @@ export class WindowsProcessJob {
     this.child.once("close", (code, signal) => {
       if (!this.failed && code === 0 && signal === null && this.receivedSettled && buffer === "") {
         this.settled.resolve()
-      } else this.fail(new Error("Windows job cleanup could not be verified"))
+      } else this.fail(processFault("cleanup_unverified", "Windows job cleanup could not be verified"))
     })
   }
 

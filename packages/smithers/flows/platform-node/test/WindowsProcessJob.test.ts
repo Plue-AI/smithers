@@ -113,7 +113,7 @@ describe("Windows native job connection", () => {
     it(`refuses out-of-order or malformed status ${JSON.stringify(frames)}`, async () => {
       const job = new WindowsProcessJob(4321, identity, resolveJobExecutable())
       for (const message of frames) frame(message)
-      await expect(job.settled.promise).rejects.toThrow("Invalid Windows job status")
+      await expect(job.settled.promise).rejects.toMatchObject({ code: "status_invalid" })
       expect(processChild.stdin.destroyed).toBe(true)
       // Further frames cannot rehabilitate an already failed guardian.
       frame(ready)
@@ -155,7 +155,10 @@ describe("Windows native job connection", () => {
       if (receipt) frame(settled)
       processChild.stdout.write(trailing)
       processChild.emit("close", code, signal)
-      await expect(job.settled.promise).rejects.toThrow("cleanup could not be verified")
+      await expect(job.settled.promise).rejects.toMatchObject({
+        _tag: "@smthrs/platform-node/ProcessFault",
+        code: "cleanup_unverified"
+      })
     })
   }
 })

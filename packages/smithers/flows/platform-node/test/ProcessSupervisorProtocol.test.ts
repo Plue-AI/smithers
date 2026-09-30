@@ -76,7 +76,9 @@ describe.each(process.platform === "win32" ? ["native" as const] : ["native", "t
         } else expect(readdirSync(control.directory)).toEqual([])
         await send(socket, ready)
         expect(await bounded(control.ready.promise)).toBe(4242)
-        expect(() => control.withdraw(4242, 4244)).toThrow("Wrong supervisor identity")
+        expect(() => control.withdraw(4242, 4244)).toThrowError(
+          expect.objectContaining({ _tag: "@smthrs/platform-node/ProcessFault", code: "identity_mismatch" })
+        )
         expect(existsSync(control.directory)).toBe(true)
         // Node's server.close() may already unlink this UNIX socket. Withdrawing
         // it must still succeed, and an accepted connection remains usable.
@@ -167,7 +169,10 @@ describe.each(process.platform === "win32" ? ["native" as const] : ["native", "t
         const closed = once(control.requestSocket!, "close")
         requests.end()
         await bounded(closed)
-        await expect(control.write({ type: "stop" })).rejects.toThrow("channel closed")
+        await expect(control.write({ type: "stop" })).rejects.toMatchObject({
+          _tag: "@smthrs/platform-node/ProcessFault",
+          code: "control_channel_closed"
+        })
         expect(control.socket!.destroyed).toBe(false)
         await send(socket, exited, { type: "cleanup" })
         socket.end()
@@ -182,7 +187,10 @@ describe.each(process.platform === "win32" ? ["native" as const] : ["native", "t
         await bounded(control.listening)
         control.rawEnded()
         await bounded(control.ended.promise)
-        await expect(control.ready.promise).rejects.toThrow("closed before reporting")
+        await expect(control.ready.promise).rejects.toMatchObject({
+          _tag: "@smthrs/platform-node/ProcessFault",
+          code: "outcome_missing"
+        })
         await expect(control.started.promise).rejects.toThrow("closed before reporting")
         await expect(control.exited.promise).rejects.toThrow("closed before reporting")
         await expect(control.write({ type: "start" })).rejects.toThrow("channel closed")
@@ -394,7 +402,7 @@ describe.each(process.platform === "win32" ? ["native" as const] : ["native", "t
         await send(socket, ready)
         await bounded(control.ready.promise)
         await expect(control.write({ type: "configure", command: "x".repeat(4 * 1024 * 1024) }))
-          .rejects.toThrow("configuration exceeds")
+          .rejects.toMatchObject({ _tag: "@smthrs/platform-node/ProcessFault", code: "configuration_too_large" })
         const received = once(requests, "data")
         await control.write({ type: "stop" })
         expect(String((await bounded(received))[0])).toBe("{\"type\":\"stop\"}\n")

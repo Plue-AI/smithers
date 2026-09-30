@@ -14,6 +14,7 @@ import { basename, dirname, isAbsolute, join, parse, relative, sep } from "node:
 import type { Limits } from "../AtomicFileSystem.ts"
 import { convert, decode, failure, frameHeaderBytes, type HelperResult } from "./AtomicFileSystemProtocol.ts"
 import { AtomicHelperError } from "./AtomicHelperError.ts"
+import { atomicHelperFault } from "./AtomicHelperFault.ts"
 
 let startedHelpers = 0
 
@@ -165,7 +166,7 @@ export const spawnHelper = <A>(
     const deadline = setTimeout(() => {
       complete(Effect.fail(failure(
         request,
-        new Error(`atomic helper did not answer within ${settings.timeoutMs} ms`)
+        atomicHelperFault("helper_timeout", `atomic helper did not answer within ${settings.timeoutMs} ms`)
       )))
     }, settings.timeoutMs)
     deadline.unref()
@@ -185,7 +186,10 @@ export const spawnHelper = <A>(
         }
         complete(Effect.fail(failure(
           request,
-          new Error(`atomic helper wrote more than ${limits.response} response bytes`)
+          atomicHelperFault(
+            "response_limit_exceeded",
+            `atomic helper wrote more than ${limits.response} response bytes`
+          )
         )))
         return
       }
@@ -232,7 +236,7 @@ export const spawnHelper = <A>(
         // syscall produced.
         complete(Effect.fail(failure(
           request,
-          new Error(envelope.message ?? "atomic helper rejected the operation"),
+          atomicHelperFault("helper_rejected", envelope.message ?? "atomic helper rejected the operation"),
           envelope
         )))
         return
@@ -249,12 +253,15 @@ export const spawnHelper = <A>(
       complete(Effect.fail(failure(
         request,
         text !== ""
-          ? new Error(`atomic helper exited ${code}: ${text}${truncated ? " (truncated)" : ""}`)
+          ? atomicHelperFault(
+            "helper_exited",
+            `atomic helper exited ${code}: ${text}${truncated ? " (truncated)" : ""}`
+          )
           : writeFailure !== undefined
           ? writeFailure
           : malformed !== undefined
           ? malformed
-          : new Error(`atomic helper exited ${code}`)
+          : atomicHelperFault("helper_exited", `atomic helper exited ${code}`)
       )))
     })
     child.stdin.end(payload)

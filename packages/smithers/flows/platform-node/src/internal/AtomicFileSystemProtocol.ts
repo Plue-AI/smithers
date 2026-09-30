@@ -10,6 +10,7 @@ import type * as KernelFileSystem from "@smthrs/kernel/FileSystem"
 import { Effect, type FileSystem, Option, PlatformError, Result } from "effect"
 import * as ByteSize from "effect/ByteSize"
 import type { Limits } from "../AtomicFileSystem.ts"
+import { atomicHelperFault, AtomicHelperRejection } from "./AtomicHelperFault.ts"
 
 /**
  * One helper answer: a value, or a rejection carrying the errno name and the
@@ -130,10 +131,12 @@ export const failure = (
       : rejection?.message,
     // Match the native Node adapter's errno contract. Artifact path checks
     // distinguish a non-link (EINVAL) from a helper or transport failure.
-    cause: code === undefined ? cause : Object.assign(
-      new Error(rejection?.message, { cause }),
-      { code, syscall: rejection?.syscall }
-    )
+    cause: code === undefined ? cause : new AtomicHelperRejection({
+      code,
+      syscall: rejection?.syscall ?? undefined,
+      message: rejection?.message ?? "",
+      cause
+    })
   })
 }
 
@@ -161,25 +164,34 @@ export const encode = (body: Buffer, limits: Limits): Buffer => {
 export const decode = (frame: Buffer, limits: Limits): HelperResult => {
   const newline = frame.indexOf(10)
   if (newline < 0 || newline >= frameHeaderBytes) {
-    throw new Error("atomic helper response is not framed")
+    throw atomicHelperFault("response_unframed", "atomic helper response is not framed")
   }
   const fields = frame.subarray(0, newline).toString("ascii").split(" ")
   if (fields.length !== 2 || fields[0] !== protocol) {
-    throw new Error("atomic helper response carries an unknown protocol tag")
+    throw atomicHelperFault("response_tag_unknown", "atomic helper response carries an unknown protocol tag")
   }
   const declared = fields[1]!
   if (!decimal.test(declared)) {
-    throw new Error(`atomic helper declared a non-decimal response length: ${declared}`)
+    throw atomicHelperFault(
+      "response_length_invalid",
+      `atomic helper declared a non-decimal response length: ${declared}`
+    )
   }
   const length = Number(declared)
   if (!Number.isSafeInteger(length) || length < 0 || length > limits.response) {
-    throw new Error(`atomic helper declared an out-of-range response length: ${declared}`)
+    throw atomicHelperFault(
+      "response_length_invalid",
+      `atomic helper declared an out-of-range response length: ${declared}`
+    )
   }
   const body = frame.subarray(newline + 1)
   if (body.byteLength !== length) {
     // Fewer bytes is a truncated response (a killed helper); more is a second
     // frame appended to the first. Either way the stream is not one answer.
-    throw new Error(`atomic helper declared ${length} response bytes and wrote ${body.byteLength}`)
+    throw atomicHelperFault(
+      "response_length_mismatch",
+      `atomic helper declared ${length} response bytes and wrote ${body.byteLength}`
+    )
   }
   // Decoded from the complete frame, so a multi-byte character split across
   // two stdout chunks is never mangled on the way in.
@@ -189,33 +201,33 @@ export const decode = (frame: Buffer, limits: Limits): HelperResult => {
 const resultEnvelope = (input: unknown): HelperResult => {
   const value = input as HelperResult
   if (value === null || typeof value !== "object" || typeof value.ok !== "boolean") {
-    throw new Error("atomic helper response is not a result envelope")
+    throw atomicHelperFault("envelope_malformed", "atomic helper response is not a result envelope")
   }
   if (value.code !== undefined && value.code !== null && typeof value.code !== "string") {
-    throw new Error("atomic helper response carries a non-string error code")
+    throw atomicHelperFault("envelope_malformed", "atomic helper response carries a non-string error code")
   }
   if (value.syscall !== undefined && value.syscall !== null && typeof value.syscall !== "string") {
-    throw new Error("atomic helper response carries a non-string syscall")
+    throw atomicHelperFault("envelope_malformed", "atomic helper response carries a non-string syscall")
   }
   if (value.badArgument !== undefined && typeof value.badArgument !== "boolean") {
-    throw new Error("atomic helper response carries a non-boolean badArgument flag")
+    throw atomicHelperFault("envelope_malformed", "atomic helper response carries a non-boolean badArgument flag")
   }
   if (value.message !== undefined && typeof value.message !== "string") {
-    throw new Error("atomic helper response carries a non-string message")
+    throw atomicHelperFault("envelope_malformed", "atomic helper response carries a non-string message")
   }
   return value
 }
 
 const record = (value: unknown, what: string): Record<string, unknown> => {
   if (value === null || typeof value !== "object") {
-    throw new Error(`atomic helper returned a non-object ${what}`)
+    throw atomicHelperFault("field_malformed", `atomic helper returned a non-object ${what}`)
   }
   return value as Record<string, unknown>
 }
 
 const finite = (value: unknown, field: string): number => {
   if (typeof value !== "number" || !Number.isFinite(value)) {
-    throw new Error(`atomic helper returned a non-numeric ${field}`)
+    throw atomicHelperFault("field_malformed", `atomic helper returned a non-numeric ${field}`)
   }
   return value
 }
@@ -223,7 +235,7 @@ const finite = (value: unknown, field: string): number => {
 const integer = (value: unknown, field: string): number => {
   const numeric = finite(value, field)
   if (!Number.isSafeInteger(numeric) || numeric < 0) {
-    throw new Error(`atomic helper returned an out-of-range ${field}: ${numeric}`)
+    throw atomicHelperFault("field_malformed", `atomic helper returned an out-of-range ${field}: ${numeric}`)
   }
   return numeric
 }
@@ -231,7 +243,7 @@ const integer = (value: unknown, field: string): number => {
 const date = (value: unknown, field: string): Date => {
   const result = new Date(finite(value, field))
   if (!Number.isFinite(result.getTime())) {
-    throw new Error(`atomic helper returned an out-of-range ${field}`)
+    throw atomicHelperFault("field_malformed", `atomic helper returned an out-of-range ${field}`)
   }
   return result
 }
@@ -261,7 +273,7 @@ const fileTypes = new Set<string>([
 const toInfo = (value: unknown): FileSystem.File.Info => {
   const info = record(value, "stat")
   if (!fileTypes.has(info.type as string)) {
-    throw new Error(`atomic helper returned an unknown file type: ${String(info.type)}`)
+    throw atomicHelperFault("file_type_unknown", `atomic helper returned an unknown file type: ${String(info.type)}`)
   }
   return {
     type: info.type as FileSystem.File.Type,
@@ -306,18 +318,21 @@ const toBytes = (value: unknown, limit: number): Uint8Array => {
   // Buffer.from silently drops characters it does not recognise, so the shape
   // is checked before the decode rather than inferred from its output.
   if (typeof encoded !== "string" || !isBase64(encoded)) {
-    throw new Error("atomic helper returned a malformed base64 payload")
+    throw atomicHelperFault("payload_malformed", "atomic helper returned a malformed base64 payload")
   }
   const bytes = Buffer.from(encoded, "base64")
   if (bytes.byteLength > limit) {
-    throw new Error(`atomic helper returned ${bytes.byteLength} bytes, over the ${limit} byte read limit`)
+    throw atomicHelperFault(
+      "read_limit_exceeded",
+      `atomic helper returned ${bytes.byteLength} bytes, over the ${limit} byte read limit`
+    )
   }
   return Uint8Array.from(bytes)
 }
 
 const toStringResult = (value: unknown, what: string): string => {
   if (typeof value !== "string" || value.includes("\0")) {
-    throw new Error(`atomic helper returned an invalid ${what}`)
+    throw atomicHelperFault("entries_malformed", `atomic helper returned an invalid ${what}`)
   }
   return value
 }
@@ -326,11 +341,11 @@ const maxListingEntries = 100_000
 
 const toStringArray = (value: unknown, what: string): Array<string> => {
   if (!Array.isArray(value) || value.length > maxListingEntries) {
-    throw new Error(`atomic helper returned an invalid ${what}`)
+    throw atomicHelperFault("entries_malformed", `atomic helper returned an invalid ${what}`)
   }
   const result = value.map((entry) => toStringResult(entry, `${what} entry`))
   if (new Set(result).size !== result.length) {
-    throw new Error(`atomic helper returned duplicate ${what} entries`)
+    throw atomicHelperFault("entries_malformed", `atomic helper returned duplicate ${what} entries`)
   }
   return result
 }
@@ -353,7 +368,7 @@ export const convert = <A>(
       response.rootIdentity !== request.rootIdentity || !Array.isArray(response.entries) ||
       response.entries.length !== requests.length
     ) {
-      throw new Error("atomic helper returned a foreign or incomplete batch")
+      throw atomicHelperFault("batch_malformed", "atomic helper returned a foreign or incomplete batch")
     }
     const seen = new Set<number>()
     let previous = ""
@@ -366,32 +381,40 @@ export const convert = <A>(
         member === undefined || seen.has(index) || entry.path !== member.path ||
         member.path < previous || (member.path === previous && index <= previousIndex)
       ) {
-        throw new Error("atomic helper returned an invalid batch member identity or order")
+        throw atomicHelperFault("batch_malformed", "atomic helper returned an invalid batch member identity or order")
       }
       seen.add(index)
       previous = member.path
       previousIndex = index
       if (Buffer.byteLength(JSON.stringify(entry.result), "utf8") > limits.batchEntry) {
-        throw new Error("atomic helper returned an oversized batch entry")
+        throw atomicHelperFault("batch_malformed", "atomic helper returned an oversized batch entry")
       }
       const envelope = resultEnvelope(entry.result)
       const identity = { index, path: member.path }
       if (!envelope.ok) {
         return Effect.succeed({
           ...identity,
-          result: Result.fail(failure(member, new Error(envelope.message ?? "atomic batch member failed"), envelope))
+          result: Result.fail(
+            failure(
+              member,
+              atomicHelperFault("helper_rejected", envelope.message ?? "atomic batch member failed"),
+              envelope
+            )
+          )
         })
       }
       if (member.operation === "digest") {
         const measured = record(envelope.value, "digest")
         if (typeof measured.digest !== "string" || !/^[a-f0-9]{64}$/.test(measured.digest)) {
-          throw new Error("atomic helper returned an invalid SHA-256 digest")
+          throw atomicHelperFault("digest_malformed", "atomic helper returned an invalid SHA-256 digest")
         }
         const sizeBytes = integer(measured.sizeBytes, "digest size")
-        if (sizeBytes > limits.content) throw new Error("atomic helper returned an oversized digest measurement")
+        if (sizeBytes > limits.content) {
+          throw atomicHelperFault("digest_malformed", "atomic helper returned an oversized digest measurement")
+        }
         const bytes = member.content === true ? toBytes(measured, limits.content) : undefined
         if (bytes !== undefined && bytes.length !== sizeBytes) {
-          throw new Error("atomic helper returned a mismatched digest size")
+          throw atomicHelperFault("digest_malformed", "atomic helper returned a mismatched digest size")
         }
         return Effect.succeed({
           ...identity,
@@ -441,7 +464,7 @@ export const convert = <A>(
   }
   if (request.operation === "exists") {
     if (typeof value !== "boolean") {
-      throw new Error("atomic helper returned a non-boolean exists result")
+      throw atomicHelperFault("result_malformed", "atomic helper returned a non-boolean exists result")
     }
     return Effect.succeed(value as A)
   }
@@ -467,11 +490,12 @@ export const convert = <A>(
     request.operation === "rename"
   ) {
     if (value !== null) {
-      throw new Error(`atomic helper returned a non-null ${request.operation} result`)
+      throw atomicHelperFault("result_malformed", `atomic helper returned a non-null ${request.operation} result`)
     }
     return Effect.succeed(undefined as A)
   }
-  throw new Error(
+  throw atomicHelperFault(
+    "operation_unsupported",
     `atomic helper returned success for unsupported operation ${(request as FramedRequest).operation}`
   )
 }

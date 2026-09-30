@@ -377,32 +377,62 @@ describe("supervisor descendant observation", () => {
     expect(helper.signals).toEqual([[-4101, "SIGTERM"]])
   })
 
-  const failures: ReadonlyArray<readonly [string, (helper: ReturnType<typeof program>) => void, string]> = [
-    ["an unlistable table", (helper) => {
-      helper.listing.error = gone("EACCES")
-    }, "Descendant observation unavailable"],
-    ["an unreadable stat file", (helper) => {
-      helper.proc.set("4103", gone("EACCES"))
-    }, "Descendant observation unavailable"],
-    ["a stat line without a command name", (helper) => {
-      helper.proc.set("4103", "4103 S 4102 4103\n")
-    }, "Invalid descendant observation"],
-    ["a stat line for another pid", (helper) => {
-      helper.proc.set("4103", stat(4104, "node", "S", 4102, 4103, 7000))
-    }, "Invalid descendant observation"],
-    ["a truncated stat line", (helper) => {
-      helper.proc.set("4103", "4103 (node) S 4102 4103 0\n")
-    }, "Invalid descendant observation"],
-    ["a non-numeric identity", (helper) => {
-      helper.proc.set("4103", stat(4103, "node", "S", 4102, 4103, 7000).replace(" 7000 ", " soon "))
-    }, "Invalid descendant identity"]
+  const failures: ReadonlyArray<readonly [string, (helper: ReturnType<typeof program>) => void, string, string]> = [
+    [
+      "an unlistable table",
+      (helper) => {
+        helper.listing.error = gone("EACCES")
+      },
+      "Descendant observation unavailable",
+      "descendant_observation_unavailable"
+    ],
+    [
+      "an unreadable stat file",
+      (helper) => {
+        helper.proc.set("4103", gone("EACCES"))
+      },
+      "Descendant observation unavailable",
+      "descendant_observation_unavailable"
+    ],
+    [
+      "a stat line without a command name",
+      (helper) => {
+        helper.proc.set("4103", "4103 S 4102 4103\n")
+      },
+      "Invalid descendant observation",
+      "descendant_observation_invalid"
+    ],
+    [
+      "a stat line for another pid",
+      (helper) => {
+        helper.proc.set("4103", stat(4104, "node", "S", 4102, 4103, 7000))
+      },
+      "Invalid descendant observation",
+      "descendant_observation_invalid"
+    ],
+    [
+      "a truncated stat line",
+      (helper) => {
+        helper.proc.set("4103", "4103 (node) S 4102 4103 0\n")
+      },
+      "Invalid descendant observation",
+      "descendant_observation_invalid"
+    ],
+    [
+      "a non-numeric identity",
+      (helper) => {
+        helper.proc.set("4103", stat(4103, "node", "S", 4102, 4103, 7000).replace(" 7000 ", " soon "))
+      },
+      "Invalid descendant identity",
+      "descendant_identity_invalid"
+    ]
   ]
-  for (const [label, corrupt, message] of failures) {
+  for (const [label, corrupt, message, reason] of failures) {
     it(`reports ${label} as a cleanup fault instead of claiming the stop verified`, () => {
       const helper = program("SIGKILL")
       corrupt(helper)
       stopped(helper)
-      expect(faults(helper)).toContainEqual({ type: "cleanup_error", message })
+      expect(faults(helper)).toContainEqual({ type: "cleanup_error", reason, message })
       expect(helper.signals).toEqual([[-4101, "SIGTERM"]])
     })
   }
@@ -415,6 +445,7 @@ describe("supervisor descendant observation", () => {
     expect(helper.signals).toEqual([[4103, "SIGTERM"], [-4101, "SIGTERM"], [-4101, "SIGKILL"]])
     expect(faults(helper)).toContainEqual({
       type: "cleanup_error",
+      reason: "descendant_identity_changed",
       message: "Escaped descendant identity changed before signalling"
     })
   })

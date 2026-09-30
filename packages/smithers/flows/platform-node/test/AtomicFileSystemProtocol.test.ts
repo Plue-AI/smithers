@@ -29,6 +29,28 @@ const info = {
 
 describe("atomic helper response validation", () => {
   it.each([
+    ["other/1 2\n{}", "response_tag_unknown"],
+    ["flows-atomic/1 NaN\n{}", "response_length_invalid"],
+    ["flows-atomic/1 3\n{}", "response_length_mismatch"],
+    ["no-newline", "response_unframed"]
+  ])("tags %j as %s", (input, code) => {
+    expect(() => Protocol.decode(Buffer.from(input), defaultLimits)).toThrowError(
+      expect.objectContaining({ _tag: "@smthrs/platform-node/AtomicHelperFault", code })
+    )
+  })
+
+  it.each([
+    [() => convert("stat", { ...info, type: "FutureType" }), "file_type_unknown"],
+    [() => convert("stat", { ...info, mtime: "now" }), "field_malformed"],
+    [() => convert("readFile", { base64: "!" }), "payload_malformed"],
+    [() => convert("exists", "true"), "result_malformed"],
+    [() => convert("glob", ["a", "a"]), "entries_malformed"],
+    [() => convert("link" as Protocol.FramedRequest["operation"], null), "operation_unsupported"]
+  ])("tags a corrupt success as %#", (run, code) => {
+    expect(run).toThrowError(expect.objectContaining({ _tag: "@smthrs/platform-node/AtomicHelperFault", code }))
+  })
+
+  it.each([
     ["other/1 2\n{}", "unknown protocol tag"],
     ["flows-atomic/1 2 extra\n{}", "unknown protocol tag"],
     ["flows-atomic/1 NaN\n{}", "non-decimal"],
