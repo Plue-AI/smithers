@@ -5,7 +5,8 @@
  * `export const factory = S.Factory({...})` is how a repository configures
  * the factory that develops it: one `summary` line, the `flows` it features
  * ({@link Flow.Flow} declarations), the `on` table the Dispatcher listens
- * with, and the `github` policy that says who writes `main`. `export const
+ * with, the `github` policy that says who writes `main`, and the `machine`
+ * its TODO lanes need. `export const
  * home = S.Factory.Home({ blocks })` in the same file is the homepage
  * (`Home.ts`). The file sits beside `WORKSPACE.ts`, may import it, and never
  * imports a `PACKAGE.ts`: a target it needs is named by label
@@ -360,6 +361,62 @@ export const Policy = (options: GithubPolicyOptions = {}): GithubPolicy => {
 }
 
 /**
+ * The machine the factory's TODO lanes need: at least `vcpus` vCPUs and
+ * `memoryMiB` MiB of memory, and the `tools` (executable names) the
+ * repository's `.smithers/environment.nix` puts on `PATH`. A TODO runs only
+ * on a lane machine that meets it: one booted from the repository's own
+ * NixOS environment when the repository declares one, and never a smaller
+ * machine. When none matches, the TODO stops with the reason.
+ *
+ * @category schemas
+ * @since 1.0.0
+ */
+export const Machine = Schema.Struct({
+  vcpus: Schema.optionalKey(Schema.Int),
+  memoryMiB: Schema.optionalKey(Schema.Int),
+  tools: Schema.optionalKey(Schema.Array(Schema.String))
+})
+
+/**
+ * The machine the factory's TODO lanes need.
+ *
+ * @category models
+ * @since 1.0.0
+ */
+export type Machine = typeof Machine.Type
+
+/** The largest vCPU count a machine may declare. */
+const maximumMachineVcpus = 1024
+/** The most memory a machine may declare, in MiB (4 TiB). */
+const maximumMachineMemoryMiB = 4 * 1024 * 1024
+/** The most tools a machine may name. */
+const maximumMachineTools = 64
+/** One executable name on `PATH`. */
+const machineTool = /^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$/
+
+const decodeMachine = (value: unknown): Machine => {
+  const plain = Home.plainOptions("Factory machine", value, new Set(["vcpus", "memoryMiB", "tools"]))
+  const machine = Home.decode("Factory machine", Machine, plain)
+  if (machine.vcpus !== undefined && (machine.vcpus < 1 || machine.vcpus > maximumMachineVcpus)) {
+    throw new TypeError(`Factory machine: vcpus must be between 1 and ${maximumMachineVcpus}`)
+  }
+  if (machine.memoryMiB !== undefined && (machine.memoryMiB < 1 || machine.memoryMiB > maximumMachineMemoryMiB)) {
+    throw new TypeError(`Factory machine: memoryMiB must be between 1 and ${maximumMachineMemoryMiB}`)
+  }
+  const tools = machine.tools ?? []
+  if (tools.length > maximumMachineTools) {
+    throw new TypeError(`Factory machine: tools names more than ${maximumMachineTools} tools`)
+  }
+  tools.forEach((tool, index) => {
+    if (!machineTool.test(tool)) {
+      throw new TypeError(`Factory machine: tools entry ${JSON.stringify(tool)} is not a tool name`)
+    }
+    if (tools.indexOf(tool) !== index) throw new TypeError(`Factory machine: tools names ${JSON.stringify(tool)} twice`)
+  })
+  return machine
+}
+
+/**
  * The factory declaration `.smithers/FACTORY.ts` exports as `factory`.
  *
  * @category schemas
@@ -373,7 +430,9 @@ export const Declaration = Schema.TaggedStruct("FactoryDeclaration", {
   /** The Dispatcher table. */
   on: On,
   /** Who writes `main` and how Changes and issues move. */
-  github: GithubPolicy
+  github: GithubPolicy,
+  /** The machine the factory's TODO lanes need, when declared. */
+  machine: Schema.optionalKey(Machine)
 })
 
 /**
@@ -416,6 +475,7 @@ export interface FactoryOptions {
   readonly flows?: ReadonlyArray<Flow.Declaration> | undefined
   readonly on?: Readonly<Record<string, RuleOptions>> | undefined
   readonly github?: GithubPolicy | undefined
+  readonly machine?: Machine | undefined
 }
 
 /**
@@ -423,8 +483,9 @@ export interface FactoryOptions {
  *
  * Every `flows` entry has to be a `Smithers.Flow` value, and no two may name
  * one flow; the `on` table's keys and values are validated against the event
- * and flow id shapes where they are written. Whether a featured flow exists
- * is decided when the projection is rendered, because only discovery knows.
+ * and flow id shapes where they are written, and a `machine` against its
+ * bounds. Whether a featured flow exists is decided when the projection is
+ * rendered, because only discovery knows.
  *
  * @example
  * ```ts
@@ -447,7 +508,7 @@ export interface FactoryOptions {
  * @since 1.0.0
  */
 export const Factory = (options: FactoryOptions): Declaration => {
-  const plain = Home.plainOptions("Factory", options, new Set(["summary", "flows", "on", "github"]))
+  const plain = Home.plainOptions("Factory", options, new Set(["summary", "flows", "on", "github", "machine"]))
   const flows = plain["flows"] ?? []
   if (!Array.isArray(flows)) throw new TypeError("Factory flows must be an array of Smithers.Flow declarations")
   const seen = new Set<string>()
@@ -471,12 +532,14 @@ export const Factory = (options: FactoryOptions): Declaration => {
   }
   const github = plain["github"] ?? Policy()
   if (!Schema.is(GithubPolicy)(github)) throw new TypeError("Factory github must be a Smithers.Github.Policy value")
+  const machine = plain["machine"] === undefined ? undefined : decodeMachine(plain["machine"])
   return Home.freezeDeep(Home.decode("Factory", Declaration, {
     _tag: "FactoryDeclaration",
     summary: plain["summary"],
     flows,
     on,
-    github
+    github,
+    ...(machine === undefined ? {} : { machine })
   }))
 }
 
@@ -541,7 +604,7 @@ export const GithubProjection = Schema.Struct({
 /**
  * The document `.smithers/factory.json` holds: the summary, the flow catalog
  * rows (featured first, see {@link FlowCatalog.rows}), the Dispatcher rows,
- * and the GitHub policy.
+ * the GitHub policy, and the machine when one is declared.
  *
  * @category schemas
  * @since 1.0.0
@@ -550,7 +613,8 @@ export const Projection = Schema.Struct({
   summary: Summary,
   flows: Schema.Array(FlowCatalog.Row),
   on: Schema.Array(Rule),
-  github: GithubProjection
+  github: GithubProjection,
+  machine: Schema.optionalKey(Machine)
 })
 
 /**
@@ -593,7 +657,8 @@ export const renderProjection = (declaration: Declaration, catalog: ReadonlyArra
           ...(declaration.github.maintainers.length > 0 ? { maintainers: declaration.github.maintainers } : {}),
           ...(declaration.github.todoSince === undefined ? {} : { todoSince: declaration.github.todoSince }),
           ...(declaration.github.dailyTokens === undefined ? {} : { dailyTokens: declaration.github.dailyTokens })
-        }
+        },
+        ...(declaration.machine === undefined ? {} : { machine: declaration.machine })
       }),
       null,
       2

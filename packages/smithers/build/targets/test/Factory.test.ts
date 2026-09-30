@@ -276,6 +276,41 @@ describe("Smithers.Factory", () => {
     expect(() => Factory.Policy({ dailyTokens: 0 })).toThrow(/dailyTokens/)
   })
 
+  it("projects the machine the TODO lanes need, and refuses one no lane could be sized to", () => {
+    const factory = Factory.Factory({
+      summary: "S.",
+      on,
+      github,
+      machine: { vcpus: 4, memoryMiB: 8192, tools: ["go", "pnpm", "g++"] }
+    })
+    expect(factory.machine).toEqual({ vcpus: 4, memoryMiB: 8192, tools: ["go", "pnpm", "g++"] })
+    expect(Object.isFrozen(factory.machine)).toBe(true)
+    const projected = Factory.parseProjection(Factory.renderProjection(factory, []))
+    expect(typeof projected === "string" ? projected : projected.machine).toEqual({
+      vcpus: 4,
+      memoryMiB: 8192,
+      tools: ["go", "pnpm", "g++"]
+    })
+    const bounds = Factory.Factory({ summary: "S.", machine: { vcpus: 1024, memoryMiB: 4 * 1024 * 1024 } })
+    expect(bounds.machine).toEqual({ vcpus: 1024, memoryMiB: 4 * 1024 * 1024 })
+    expect(Factory.Factory({ summary: "S.", machine: {} }).machine).toEqual({})
+
+    const undeclared = Factory.renderProjection(Factory.Factory({ summary: "S.", on, github }), [])
+    expect(undeclared).not.toContain("machine")
+
+    expect(() => Factory.Factory({ summary: "S.", machine: { vcpus: 0 } })).toThrow(/vcpus must be between 1 and 1024/)
+    expect(() => Factory.Factory({ summary: "S.", machine: { vcpus: 1025 } })).toThrow(/vcpus/)
+    expect(() => Factory.Factory({ summary: "S.", machine: { vcpus: 1.5 } })).toThrow(/Factory machine/)
+    expect(() => Factory.Factory({ summary: "S.", machine: { memoryMiB: 0 } })).toThrow(/memoryMiB/)
+    expect(() => Factory.Factory({ summary: "S.", machine: { memoryMiB: 4 * 1024 * 1024 + 1 } })).toThrow(/memoryMiB/)
+    expect(() => Factory.Factory({ summary: "S.", machine: { tools: ["/bin/sh"] } })).toThrow(/not a tool name/)
+    expect(() => Factory.Factory({ summary: "S.", machine: { tools: ["go", "go"] } })).toThrow(/"go" twice/)
+    expect(() => Factory.Factory({ summary: "S.", machine: { tools: Array.from({ length: 65 }, (_, i) => `t${i}`) } }))
+      .toThrow(/more than 64 tools/)
+    expect(() => Factory.Factory({ summary: "S.", machine: { gpus: 1 } as never })).toThrow(/unknown option "gpus"/)
+    expect(() => Factory.Factory({ summary: "S.", machine: "big" as never })).toThrow(/must be a plain object/)
+  })
+
   it("projects declared protected paths", () => {
     const guarded = Factory.Policy({ mirror: "push", issues: "two-way", changes: "land", protectedPaths: ["infra"] })
     const projected = Factory.parseProjection(
