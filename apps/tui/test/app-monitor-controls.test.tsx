@@ -50,9 +50,9 @@ const type = async (text: string) => {
   })
   await render()
 }
-const key = async (name: string) => {
+const key = async (name: string, modifiers: { ctrl?: boolean } = {}) => {
   await act(async () => {
-    setup!.mockInput.pressKey(name)
+    setup!.mockInput.pressKey(name, modifiers)
     await setImmediate()
   })
   await render()
@@ -234,6 +234,39 @@ test("monitor updates are visible and durable while pending judge/compose preser
     text: "Review finished safely"
   })
   expect(frame()).toContain("Keep drafting")
+}, 15000)
+
+test("an active monitor shows under Summary's Working group and x stops it", async () => {
+  await start()
+  await key("s", { ctrl: true })
+  expect(frame()).toMatch(/Working 2/)
+  expect(frame()).toMatch(/Review watcher\s+monitor/)
+  await key("ARROW_DOWN")
+  await key("ARROW_DOWN")
+  expect(frame()).toContain("x Stop")
+  expect(frame()).not.toContain("g Graph")
+  expect(frame()).not.toContain("enter Open")
+  await key(" ")
+  expect(frame()).toContain("Tell me when review finishes")
+  await key("x")
+  expect(monitors().list()).toMatchObject([{ id: "watch-review", status: "stopped" }])
+  expect(records().filter((r) => r.type === "monitor").at(-1)).toMatchObject({ monitor: { status: "stopped" } })
+  await render()
+  expect(frame()).not.toMatch(/Review watcher\s+monitor/)
+  expect(turns[1]!.cancelled).toBe(0)
+}, 15000)
+
+test("Ctrl+K lists an active monitor's stop with its key and stops only that monitor", async () => {
+  await start()
+  await key("k", { ctrl: true })
+  await type("stop watcher")
+  expect(frame()).toMatch(/Stop\s+x\s+Review watcher/)
+  await key("RETURN")
+  expect(monitors().list()).toMatchObject([{ id: "watch-review", status: "stopped" }])
+  expect(turns[1]!.cancelled).toBe(0)
+  await key("k", { ctrl: true })
+  await type("stop watcher")
+  expect(frame()).not.toMatch(/Stop\s+x\s+Review watcher/)
 }, 15000)
 
 test("routine monitor changes remain silent without calling the composer", async () => {

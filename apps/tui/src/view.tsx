@@ -68,7 +68,7 @@ export function Home(props: { readonly width: number }) {
           ? (
             <>
               <span fg={color.muted}>/</span> commands{"  "}<span fg={color.muted}>@</span> files{"  "}
-              <span fg={color.muted}>!</span> shell{"  "}<span fg={color.muted}>ctrl+o</span> keys
+              <span fg={color.muted}>!</span> shell{"  "}<span fg={color.muted}>?</span> keys
             </>
           )
           : props.width >= 32

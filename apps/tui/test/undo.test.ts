@@ -733,6 +733,44 @@ describe("undo", () => {
     expect(Undo.target(shell, shell.items.at(-1)!.id)).toEqual({ _tag: "NothingToUndo" })
   })
 
+  it("latest picks the newest prompt with changes left, passing over questions and undone turns", async () => {
+    const cwd = scratch()
+    put(cwd, "a.ts", "a\n")
+    const r = recorder(cwd)
+    expect(Undo.latest(r.transcript())).toEqual({ _tag: "NothingToUndo" })
+    r.prompt("edit a")
+    r.cell()
+    const first = await r.call("write", { path: "a.ts" }, write(cwd, "a.ts", "b\n"))
+    r.settle()
+    r.prompt("edit again")
+    r.cell()
+    const second = await r.call("write", { path: "a.ts" }, write(cwd, "a.ts", "c\n"))
+    r.settle()
+    r.prompt("just a question")
+    const newest = Undo.latest(r.transcript()) as Undo.Target
+    expect(newest.calls.map((call) => call.identity)).toEqual([second.identity])
+    r.records.push({ type: "undo", at: 60, calls: [second.identity], paths: ["a.ts"] })
+    const older = Undo.latest(r.transcript()) as Undo.Target
+    expect(older.calls.map((call) => call.identity)).toEqual([first.identity])
+    r.records.push({ type: "undo", at: 61, calls: [first.identity], paths: ["a.ts"] })
+    expect(Undo.latest(r.transcript())).toEqual({ _tag: "AlreadyUndone" })
+  })
+
+  it("latest stops at the newest prompt that refuses, rather than undoing an older one", async () => {
+    const cwd = scratch()
+    put(cwd, "a.ts", "a\n")
+    const r = recorder(cwd)
+    r.prompt("edit a")
+    r.cell()
+    await r.call("write", { path: "a.ts" }, write(cwd, "a.ts", "b\n"))
+    r.settle()
+    r.prompt("legacy edit")
+    r.cell()
+    await r.call("write", { path: "a.ts" }, write(cwd, "a.ts", "c\n"), false)
+    r.settle()
+    expect(Undo.latest(r.transcript())).toEqual({ _tag: "Uncaptured", flows: ["write"] })
+  })
+
   it("records the undo: restored transcript, summary row, context, and a second undo refuses", async () => {
     const cwd = scratch()
     put(cwd, "math.js", "a - b\n")

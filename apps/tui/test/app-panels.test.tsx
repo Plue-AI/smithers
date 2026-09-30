@@ -60,6 +60,12 @@ const complete = async () => {
   })
   await render()
 }
+/** Ctrl+K lists each view by title; Enter opens it. */
+const openView = async (title: string) => {
+  await key("k", { ctrl: true })
+  await type(title)
+  await key("RETURN")
+}
 const panel = (rows: ReadonlyArray<Panels.Row>, placement?: Panels.Panel["placement"]): Panels.Panel => ({
   id: "audit",
   title: "Audit view",
@@ -192,8 +198,7 @@ test.each(["legacy", "typed"] as const)(
       ])
     })
     await complete()
-    await type("/ui audit")
-    await key("RETURN")
+    await openView("Audit view")
     expect(frame()).toContain("First row")
     expect(frame()).toContain("Second row")
     expect(turns).toHaveLength(1)
@@ -216,8 +221,7 @@ test("a legacy shell-looking row prompt reaches the Host as text and never execu
     panel: panel([{ id: "shell", label: "Send literal prompt", details: [], action: { label: "Send", prompt } }])
   })
   await complete()
-  await type("/ui audit")
-  await key("RETURN")
+  await openView("Audit view")
   await key("a")
   expect(turns[1]?.input.prompt).toBe(prompt)
   expect(existsSync(sentinel)).toBe(false)
@@ -298,8 +302,7 @@ test("a panel open action selects its named view only after explicit invocation"
   })
   expect(frame()).not.toContain("Owned detail content")
   await complete()
-  await type("/ui audit")
-  await key("RETURN")
+  await openView("Audit view")
   expect(frame()).toContain("Open detail")
   expect(frame()).not.toContain("Owned detail content")
   await key("a")
@@ -319,8 +322,7 @@ test("an unavailable target in a panel action remains visible as a refusal inste
     }])
   })
   await complete()
-  await type("/ui audit")
-  await key("RETURN")
+  await openView("Audit view")
   await key("a")
   expect(frame()).toContain("No view ui:missing")
   expect(frame()).toContain("Missing target row")

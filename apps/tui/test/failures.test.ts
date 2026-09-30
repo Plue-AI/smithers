@@ -10,7 +10,6 @@ import * as Log from "../src/log.ts"
 import { MonitorError } from "../src/monitors.ts"
 import * as Search from "../src/search.ts"
 import * as Session from "../src/session.ts"
-import * as Command from "../src/tab-command.ts"
 import { TabError } from "../src/tab-error.ts"
 import { AgentDepthExceeded } from "../src/workspace.ts"
 
@@ -60,7 +59,7 @@ describe("tagged failures read as one plain sentence", () => {
     })
   })
 
-  it("words every tab refusal a key or /retry can hit", () => {
+  it("words every tab refusal a key or Ctrl+K can hit", () => {
     const cases: ReadonlyArray<readonly [TabError, string]> = [
       [new TabError("unknown_tab", RAW, "w1"), "No tab w1."],
       [new TabError("not_retryable", RAW, "w1"), "Only a failed, stopped or parked tab can be retried."],
@@ -144,24 +143,11 @@ describe("unknown failures", () => {
 })
 
 describe("surfaces", () => {
-  it("/retry and /stop report a sentence for a thrown refusal or an unknown error", () => {
-    const reports: string[] = []
-    const refusing = {
-      has: () => true,
-      retry: () => {
-        throw new TabError("not_retryable", RAW, "w")
-      },
-      cancel: () => {
-        throw new Error(RAW)
-      }
-    }
-    const options = { flows: refusing, workers: refusing, pick: () => {}, report: (m: string) => reports.push(m) }
-    Command.run("retry", "w", options)
-    Command.run("stop", "w", options)
-    expect(reports).toEqual([
-      "Only a failed, stopped or parked tab can be retried.",
-      "The stop was not sent; press x again. Details: /conversation"
-    ])
+  it("Ctrl+K resume and stop report a sentence for a thrown refusal or an unknown error", () => {
+    expect(Failures.line("retry", new TabError("not_retryable", RAW, "w"))).toBe(
+      "Only a failed, stopped or parked tab can be retried."
+    )
+    expect(Failures.line("stop", new Error(RAW))).toBe("The stop was not sent; press x again. Details: /conversation")
   })
 
   it("a damaged conversation is named by line and moved aside", () => {

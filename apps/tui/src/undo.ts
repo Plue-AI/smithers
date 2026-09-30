@@ -117,6 +117,23 @@ export const target = (transcript: Transcript.Transcript, rowId: string): Target
 }
 
 /**
+ * The newest prompt's changes that can still be undone, for Ctrl+K where no
+ * row is selected. A prompt with nothing, or nothing left, to undo is passed
+ * over; any other refusal is the answer.
+ */
+export const latest = (transcript: Transcript.Transcript): Target | Failure => {
+  let passed: Failure = { _tag: "NothingToUndo" }
+  for (const item of transcript.items.toReversed()) {
+    if (item.kind !== "user" || item.queued !== undefined) continue
+    const found = target(transcript, item.id)
+    if (!("_tag" in found)) return found
+    if (found._tag !== "NothingToUndo" && found._tag !== "AlreadyUndone") return found
+    if (found._tag === "AlreadyUndone") passed = found
+  }
+  return passed
+}
+
+/**
  * Receipts come from a session file, so their paths are data: undo writes only
  * where a path lands inside the workspace after following every symlink.
  */

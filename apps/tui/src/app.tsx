@@ -4,7 +4,6 @@ import { parseArgs } from "@smthrs/ui/flow-arguments"
 import { NOTICE_SETTLE_MS } from "@smthrs/ui/notification-policy"
 import * as Failures from "./failures.ts"
 import * as Log from "./log.ts"
-import * as TabCommand from "./tab-command.ts"
 /**
  * The terminal UI: a transcript of cells above a composer.
  *
@@ -820,7 +819,8 @@ export function App(props: AppProps) {
     contextWindow: props.contextWindow,
     models: props.models,
     now,
-    asks: workspace.asks.list()
+    asks: workspace.asks.list(),
+    monitors: monitors.list()
   })
   const inboxRows = Inbox.flat(inbox)
   const overviewShown = surface === "summary" && inboxRows.length > 0 && !focusMain
@@ -832,10 +832,12 @@ export function App(props: AppProps) {
   const overviewTab = overviewRow?.worker
   const overviewBranch = overviewTab === undefined ? [] : Tree.branch(snapshot.tabs, overviewTab.id)
   const overviewCard = overviewBranch.find((tab) => tab.id === overview.card) ?? overviewBranch[0]
-  /** A flow row has no cards, nor does the graph: however it was selected, the keys stay on the list. */
+  /** A flow or monitor row has no cards, nor does the graph: however it was selected, the keys stay on the list. */
   /** The graph shows for a worker or flow row, never the chat. */
-  const overviewGraph = overview.graph === true && overviewRow !== undefined
-  const overviewPane = overviewRow?.run === undefined && !overviewGraph ? overview.pane : "tree"
+  const overviewGraph = overview.graph === true && overviewRow !== undefined && overviewRow.monitor === undefined
+  const overviewPane = overviewRow?.run === undefined && overviewRow?.monitor === undefined && !overviewGraph
+    ? overview.pane
+    : "tree"
   // The graph of a flow run draws its node calls, read from the run's events.
   useEffect(() => {
     if (overviewGraph && overviewRow?.run !== undefined) void runs.hydrate(overviewRow.run.id)
@@ -900,6 +902,15 @@ export function App(props: AppProps) {
     )
   ]
   const actionsKey = JSON.stringify(paletteActions)
+  /** Built-in actions that apply now, each beside the key that does it in its own view. */
+  const paletteActs = Palette.actions({
+    diff: panel !== undefined && workerTab === undefined && !overviewShown,
+    tabs: snapshot.tabs,
+    runs: flowRuns,
+    monitors: monitors.list(),
+    views: uiPanels
+  })
+  const actsKey = JSON.stringify(paletteActs)
   const rows = useMemo(
     () =>
       picker === undefined
@@ -913,9 +924,10 @@ export function App(props: AppProps) {
           files.current,
           search?.hits ?? [],
           runs.listed(),
-          paletteActions
+          paletteActions,
+          paletteActs
         ),
-    [picker, props.models, seat, filter, tabsKey, search?.hits, runs, revision, actionsKey]
+    [picker, props.models, seat, filter, tabsKey, search?.hits, runs, revision, actionsKey, actsKey]
   )
 
   // Key handlers read the latest values through these, never a stale render.
@@ -1324,6 +1336,7 @@ export function App(props: AppProps) {
     live.current.turn !== undefined || live.current.shell !== undefined || live.current.undoing !== undefined ||
     workspace.busy || runs.busy
 
+  /** Runs a `/` line naming a known command; false when the line is not a command. */
   const command = useCallback((text: string): boolean => {
     const parsed = Editor.parseCommand(text)
     if (parsed === undefined) return false
@@ -1362,9 +1375,6 @@ export function App(props: AppProps) {
         })()
         return true
       }
-      case "tabs":
-        showTab(snapshot.tabs[0] === undefined ? "summary" : `tab:${snapshot.tabs[0].id}`)
-        return true
       case "chat":
         setSurface("chat")
         setPanelFocus(false)
@@ -1378,19 +1388,6 @@ export function App(props: AppProps) {
         setSurface("chat")
         setPanelFocus(false)
         setFilter((current) => ({ ...current, query: argument }))
-        return true
-      case "retry":
-      case "stop":
-        TabCommand.run(verb, argument, {
-          flows: runs,
-          workers: {
-            has: (id) => workspace.snapshot().tabs.some((tab) => tab.id === id),
-            retry: workspace.retry,
-            cancel: workspace.cancel
-          },
-          pick: () => setPicker({ kind: "palette", query: "tab:", selected: 0 }),
-          report: (message) => setStatus(message, "warning")
-        })
         return true
       case "flows":
         runs.refresh()
@@ -1461,14 +1458,6 @@ export function App(props: AppProps) {
           })
         } catch (error) {
           setStatus(Failures.line("worker", error), "warning")
-        }
-        return true
-      }
-      case "ui": {
-        const target = uiPanels.find((panel) => panel.id === argument) ?? uiPanels[0]
-        if (target === undefined) setStatus("No custom views")
-        else {
-          showTab(`ui:${target.id}`)
         }
         return true
       }
@@ -1562,9 +1551,6 @@ export function App(props: AppProps) {
         )
         return true
       }
-      case "hotkeys":
-        setTranscript((current) => Transcript.note(current, Keys.sheet(), Date.now()))
-        return true
       case "devtools": {
         const emit = () =>
           setTranscript((current) =>
@@ -1590,7 +1576,7 @@ export function App(props: AppProps) {
         quit()
         return true
       default:
-        setStatus(`Unknown command /${verb}`, "warning")
+        setStatus(Editor.unknown(verb), "warning")
         return true
     }
   }, [
@@ -1630,15 +1616,21 @@ export function App(props: AppProps) {
       return
     }
     if (text === "") return
+    const steering = live.current.steered
+    const continuing = live.current.continued
+    // A driven worker reads plain text as its next message; `/` and `!` stay commands and shell.
+    const route = Composer.route(text, steering !== undefined || driving !== undefined || continuing !== undefined)
+    const verb = route._tag === "command" ? Editor.parseCommand(text)?.name : undefined
+    if (verb !== undefined && !Editor.known(verb)) {
+      // The typo stays in the composer to fix, without the menu over the suggestion.
+      setStatus(Editor.unknown(verb), "warning")
+      return dismissMenu()
+    }
     clearFailure()
     const parked = parkedDraft.current
     parkedDraft.current = undefined
     history.current.add(text)
     setText(parked ?? "")
-    const steering = live.current.steered
-    const continuing = live.current.continued
-    // A driven worker reads plain text as its next message; `/` and `!` stay commands and shell.
-    const route = Composer.route(text, steering !== undefined || driving !== undefined || continuing !== undefined)
     if (route._tag === "steer" && continuing !== undefined) {
       try {
         workspace.continue(continuing.id, text)
@@ -1816,6 +1808,8 @@ export function App(props: AppProps) {
           return setPicker({ kind: "palette", query: chosen.prefix, selected: 0 })
         case "action":
           return perform(chosen.action)
+        case "act":
+          return actRef.current(chosen.act)
       }
     }
     resumeGuarded(value)
@@ -1838,7 +1832,16 @@ export function App(props: AppProps) {
     })
 
   /** Undoes a Summary or worker tab row's changes after the confirm dialog. */
-  const undoRow = (row: Panels.Row | undefined, tab: string | undefined) => {
+  const undoRow = (row: Panels.Row | undefined, tab: string | undefined) =>
+    undoFound(
+      () =>
+        row === undefined
+          ? { _tag: "NothingToUndo" as const }
+          : Undo.target(tab === undefined ? transcript : workspace.transcript(tab), row.id),
+      tab
+    )
+  /** Asks to undo what `find` picks, or says why nothing can be. */
+  const undoFound = (find: () => Undo.Target | Undo.Failure, tab: string | undefined) => {
     const current = live.current
     if (
       current.turn !== undefined || current.shell !== undefined || current.undoing !== undefined || workspace.busy ||
@@ -1846,9 +1849,7 @@ export function App(props: AppProps) {
     ) {
       return setStatus(Undo.message({ _tag: "Busy" }), "warning")
     }
-    const found = row === undefined
-      ? { _tag: "NothingToUndo" as const }
-      : Undo.target(tab === undefined ? transcript : workspace.transcript(tab), row.id)
+    const found = find()
     if ("_tag" in found) {
       return setStatus(
         Undo.message(found),
@@ -1858,14 +1859,57 @@ export function App(props: AppProps) {
     return setPicker({ kind: "undo", query: "", selected: 0, target: found, ...(tab === undefined ? {} : { tab }) })
   }
 
+  /** A Ctrl+K action: what its key does in its own view, or the newest change for undo elsewhere. */
+  const act = (chosen: Palette.Act) => {
+    switch (chosen.act) {
+      case "undo":
+        // A worker tab or the Summary review undoes its selected row, as `u` does there.
+        if (panel !== undefined && (workerTab !== undefined || (surface === "summary" && !overviewShown))) {
+          return undoRow(panel.rows[Math.min(navigation.selected, panel.rows.length - 1)], workerTab?.id)
+        }
+        return undoFound(() => Undo.latest(transcript), undefined)
+      case "diff":
+      case "split":
+        if (panel === undefined) return
+        return setNavigation((current) => Panels.navigate(current, chosen.act === "diff" ? "d" : "v", panel.rows))
+      case "worker": {
+        const tab = workspace.snapshot().tabs.find((each) => each.id === chosen.id)
+        if (tab !== undefined) workerAction(tab, chosen.action)
+        return
+      }
+      case "run":
+        try {
+          if (chosen.action === "retry") runs.retry(chosen.id)
+          else runs.cancel(chosen.id)
+        } catch (error) {
+          setStatus(Failures.line(chosen.action, error), "warning")
+        }
+        return
+      case "monitor":
+        try {
+          monitors.stop(chosen.id)
+        } catch (error) {
+          setStatus(Failures.line("monitor", error), "warning")
+        }
+        return
+      case "view":
+        return showTab(`ui:${chosen.id}`)
+      case "harness": {
+        // The composer takes the prompt; the draft comes back on the next submit.
+        const draft = composer.current?.plainText ?? ""
+        if (draft.trim() !== "") parkedDraft.current = draft
+        setPanelFocus(false)
+        return setText(`/${chosen.harness} `)
+      }
+    }
+  }
+  const actRef = useRef(act)
+  actRef.current = act
+
   const handleKey = (key: KeyEvent): void => {
     const { turn: running, shell: shellRunning, picker: open } = live.current
     const { menu: completing, index: completingIndex } = liveMenu()
     const text = composer.current?.plainText ?? ""
-    if (key.ctrl && key.name === "o" && lines.length === 0 && surface === "chat" && open === undefined) {
-      key.preventDefault()
-      return setWhichKeyOpen(!whichKeyRef.current)
-    }
     if (whichKeyRef.current) {
       if (
         Dispatch.whichKeyKey(key, Keys.bindingFor(key, keyContext(), merged), {
@@ -2012,7 +2056,7 @@ export function App(props: AppProps) {
       // The overview's tab switches between its tree and the selected branch, the review included.
       // A flow row has no cards to act on; the cards pane always shows cards, never a peek.
       key.preventDefault()
-      if (overviewRow?.run !== undefined || overviewGraph) return
+      if (overviewRow?.run !== undefined || overviewRow?.monitor !== undefined || overviewGraph) return
       return setOverview((current) => ({
         ...current,
         selected: overviewSelected,
@@ -2072,7 +2116,8 @@ export function App(props: AppProps) {
       const ids = [SubagentView.chat, ...inboxRows.map((row) => row.key)]
       return Dispatch.overviewKey(key, {
         pane: overviewPane,
-        worker: overviewPane === "tree" ? overviewTab : overviewCard
+        worker: overviewPane === "tree" ? overviewTab : overviewCard,
+        monitor: overviewRow?.monitor?.id
       }, {
         close: () =>
           flushSync(() => {
@@ -2081,8 +2126,9 @@ export function App(props: AppProps) {
             setOverview((current) => ({ ...current, peek: false, graph: false }))
           }),
         release: () => flushSync(() => setPanelFocus(false)),
+        stopMonitor: (id) => actRef.current({ act: "monitor", id }),
         pane: () => {
-          if (overviewRow?.run === undefined) {
+          if (overviewRow?.run === undefined && overviewRow?.monitor === undefined) {
             setOverview((current) => ({ ...current, selected: overviewSelected, pane: "cards", peek: false }))
           }
         },
@@ -2125,6 +2171,7 @@ export function App(props: AppProps) {
         open: () => {
           setOverview((current) => ({ ...current, peek: false, graph: false }))
           if (overviewPane === "tree" && overviewRow?.run !== undefined) return clickTab(`flow:${overviewRow.run.id}`)
+          if (overviewRow?.monitor !== undefined) return
           if (overviewPane === "tree" && overviewTab === undefined) {
             return setOverview((current) => ({ ...current, selected: overviewSelected, pane: "cards" }))
           }
@@ -2282,12 +2329,17 @@ export function App(props: AppProps) {
       )
     ]
     : footerContext === "overview"
-    // `a` shows only on a row it answers.
-    ? Keys.hintsFor("overview", merged).filter((binding) =>
-      binding.id !== "overview-answer" || overviewRow?.ask !== undefined || overviewRow?.run?.status === "input" ||
-      (overviewRow?.worker !== undefined && overviewRow.worker.status === "failed" &&
-        Budget.capped(overviewRow.worker.failure) && props.host.runCap !== undefined)
-    )
+    // `a` shows only on a row it answers; a monitor row has no cards, graph or view to open.
+    ? [
+      ...(overviewRow?.monitor === undefined ? [] : cardHint("stop")),
+      ...Keys.hintsFor("overview", merged).filter((binding) =>
+        (binding.id !== "overview-answer" || overviewRow?.ask !== undefined || overviewRow?.run?.status === "input" ||
+          (overviewRow?.worker !== undefined && overviewRow.worker.status === "failed" &&
+            Budget.capped(overviewRow.worker.failure) && props.host.runCap !== undefined)) &&
+        (overviewRow?.monitor === undefined ||
+          !["overview-graph", "overview-open", "overview-pane"].includes(binding.id))
+      )
+    ]
     : Keys.hintsFor(footerContext, merged)
   const meter = AppView.meter(transcript, window)
   // The hints get the row less its padding, the margins, the status items and the meter; the path gives way first.

@@ -762,7 +762,39 @@ test.each(
     open: () => calls.push("open"),
     files: () => calls.push("files"),
     scroll: (step) => calls.push(["scroll", step]),
-    workerAction: () => calls.push("worker")
+    workerAction: () => calls.push("worker"),
+    stopMonitor: (id) => calls.push(["monitor", id])
+  })
+  expect<ReadonlyArray<unknown>>(calls).toEqual(expected)
+  expect(event.defaultPrevented).toBe(true)
+})
+
+test.each(
+  [
+    ["x", [["monitor", "watch"]]],
+    ["r", []],
+    ["s", []],
+    ["j", [["tree", 1]]],
+    ["space", ["peek"]],
+    ["escape", ["close"]]
+  ] as const
+)("a selected monitor stops only on x; %s", (name, expected) => {
+  const calls: unknown[] = []
+  const event = key(name)
+  Dispatch.overviewKey(event, { pane: "tree", worker: undefined, monitor: "watch" }, {
+    close: () => calls.push("close"),
+    release: () => calls.push("release"),
+    pane: () => calls.push("pane"),
+    tree: (step) => calls.push(["tree", step]),
+    peek: () => calls.push("peek"),
+    answer: () => calls.push("answer"),
+    graph: () => calls.push("graph"),
+    card: (step) => calls.push(["card", step]),
+    open: () => calls.push("open"),
+    files: () => calls.push("files"),
+    scroll: (step) => calls.push(["scroll", step]),
+    workerAction: () => calls.push("worker"),
+    stopMonitor: (id) => calls.push(["monitor", id])
   })
   expect<ReadonlyArray<unknown>>(calls).toEqual(expected)
   expect(event.defaultPrevented).toBe(true)

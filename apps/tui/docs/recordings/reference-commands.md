@@ -8,7 +8,8 @@ Type "/"
 Capture "Browse the command menu."
 Press Escape
 Press Ctrl+C
-Type "/hotkeys"
+Type "/flwo"
 Press Enter
-Capture "Print the complete contextual key list into the transcript."
+Wait for "Try /flow."
+Capture "A mistyped command stays in the editor beside the nearest one."
 ```

@@ -1062,7 +1062,7 @@ describe("completion", () => {
   it("moves through / commands with the arrows and runs the chosen one with enter", async () => {
     const { tui } = await start()
     await tui.type("/")
-    await tui.until((screen) => screen.includes("/hotkeys") || screen.includes("/model"), 5_000, "command menu")
+    await tui.until((screen) => screen.includes("/model"), 5_000, "command menu")
     await tui.type("conv")
     await tui.until((screen) => /\/conversation\s+Show the conversation file/.test(screen), 5_000, "filtered menu")
     await tui.press(key.enter)
@@ -1193,8 +1193,8 @@ describe("search palette", () => {
       "prefix list"
     )
     await tui.press(key.enter)
-    await tui.type("hotk")
-    await tui.until((screen) => /\/hotkeys\s+Show the keys/.test(screen), 5_000, "typed after the prefix")
+    await tui.type("summ")
+    await tui.until((screen) => /\/summary\s+Review this conversation/.test(screen), 5_000, "typed after the prefix")
   }, 60_000)
 
   it("a picked command keeps the draft out of the way and out of history", async () => {
@@ -1735,8 +1735,8 @@ describe("runtime views", () => {
     await tui.type("/flow review title=x")
     await tui.press(key.enter)
     await tui.until((screen) => screen.includes("review · running"))
-    await tui.type("/tabs")
-    await tui.press(key.enter)
+    await tui.press(key.ctrlBracket)
+    await tui.press(key.ctrlBracket)
     await tui.until(
       (screen) => screen.includes("esc Chat") && screen.includes("u Undo changes"),
       5_000,
@@ -1868,7 +1868,9 @@ describe("runtime views", () => {
       30_000,
       "runtime UI published"
     )
-    await first.type("/ui")
+    await first.press(key.ctrlK)
+    await first.type("Checks")
+    await first.until((screen) => screen.includes("esc Back"), 5_000, "search open")
     await first.press(key.enter)
     await first.until(
       (screen) => screen.includes("The addition check passed.") && screen.includes("Checked addition"),
@@ -1879,7 +1881,9 @@ describe("runtime views", () => {
     await first.until((screen) => screen.includes("assert(add(2, 3) === 5)"), 5_000, "custom code")
     await first.stop()
     const resumed = await launch(true)
-    await resumed.type("/ui")
+    await resumed.press(key.ctrlK)
+    await resumed.type("Checks")
+    await resumed.until((screen) => screen.includes("esc Back"), 5_000, "search open")
     await resumed.press(key.enter)
     await resumed.until((screen) => screen.includes("The addition check passed."), 5_000, "persisted custom view")
   }, 90_000)

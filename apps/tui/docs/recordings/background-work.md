@@ -8,8 +8,8 @@ Type "Review the addition function in the background."
 Press Enter
 Wait for answer "Requested the review."
 Capture "The request returns while the worker runs."
-Type "/tabs"
-Press Enter
+Press Ctrl+]
+Press Ctrl+]
 Wait for "Review addition"
 Capture "Open the worker's own status and transcript."
 Wait for answer "Review complete"
@@ -21,8 +21,8 @@ Use "workers"
 Type "Review the addition function in the background."
 Press Enter
 Wait for answer "Requested the review."
-Type "/tabs"
-Press Enter
+Press Ctrl+]
+Press Ctrl+]
 Press s
 Type "Check negative inputs too."
 Capture "Steer one worker from its composer."
@@ -42,8 +42,8 @@ Type "Delegate a lead review and a child addition check."
 Press Enter
 Wait for answer "Requested the review tree."
 Wait 500 ms
-Type "/tabs"
-Press Enter
+Press Ctrl+]
+Press Ctrl+]
 Capture "Follow nested child reviews while chat remains available."
 Wait for worker "lead" status "done"
 Press Ctrl+S

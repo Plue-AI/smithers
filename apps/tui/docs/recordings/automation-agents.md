@@ -12,7 +12,7 @@ Press Enter
 Type "Review the addition function."
 Press Enter
 Wait for answer "Review complete"
-Type "/tabs"
-Press Enter
+Press Ctrl+]
+Press Ctrl+]
 Capture "Inspect its worker transcript and result."
 ```

@@ -68,24 +68,62 @@ export const commands: ReadonlyArray<Command> = [
   { name: "name", args: "<name>", description: "Name this conversation" },
   { name: "copy", description: "Copy the last answer" },
   { name: "summary", description: "Review this conversation" },
-  { name: "tabs", description: "Review background work" },
   { name: "chat", description: "Return to chat" },
   { name: "filter", description: "Show or hide kinds of rows" },
   { name: "grep", args: "[text]", description: "Show only rows containing text" },
-  { name: "ui", args: "[id]", description: "Open a custom view" },
   { name: "smithers", description: "Flows and runs" },
   { name: "todo", args: "<title>", description: "File a TODO for the factory" },
   { name: "devtools", args: "[id] [node]", description: "Inspect a run's nodes" },
   { name: "flows", description: "Run a flow" },
   { name: "flow", args: "<name> [json|key=value]", description: "Run a flow" },
   { name: "agent", args: "[name] [prompt]", description: "Run a custom agent" },
-  { name: "claude", args: "<prompt>", description: "Run Claude Code as a worker" },
-  { name: "codex", args: "<prompt>", description: "Run Codex as a worker" },
-  { name: "retry", args: "<id>", description: "Retry a stopped worker or flow" },
-  { name: "stop", args: "<id>", description: "Stop a worker or flow" },
-  { name: "hotkeys", description: "Show the keys" },
   { name: "quit", description: "Quit" }
 ]
+
+/**
+ * Commands that run when typed but are not listed: the wrapped workers, whose
+ * prompt line Ctrl+K starts, and `/quit`'s alias.
+ */
+export const unlisted: ReadonlyArray<string> = ["claude", "codex", "exit"]
+
+/** A name the command switch handles: listed or unlisted. */
+export const known = (name: string): boolean =>
+  commands.some((command) => command.name === name) || unlisted.includes(name)
+
+/** Edits from `a` to `b`, a swap of two neighbors counting as one (optimal string alignment). */
+const distance = (a: string, b: string): number => {
+  const rows = Array.from({ length: a.length + 1 }, (_, i) => Array.from({ length: b.length + 1 }, (_, j) => i + j))
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1
+      rows[i]![j] = Math.min(rows[i - 1]![j]! + 1, rows[i]![j - 1]! + 1, rows[i - 1]![j - 1]! + cost)
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) {
+        rows[i]![j] = Math.min(rows[i]![j]!, rows[i - 2]![j - 2]! + 1)
+      }
+    }
+  }
+  return rows[a.length]![b.length]!
+}
+
+/**
+ * The listed command a mistyped `/name` most likely meant: at most two edits
+ * away and fewer edits than half its letters; the earlier command wins a tie.
+ */
+export const nearest = (name: string): Command | undefined => {
+  const typed = name.toLowerCase()
+  let best: { readonly command: Command; readonly edits: number } | undefined
+  for (const command of commands) {
+    const edits = distance(typed, command.name)
+    if (edits <= 2 && edits * 2 < typed.length && (best === undefined || edits < best.edits)) best = { command, edits }
+  }
+  return best?.command
+}
+
+/** What an unknown `/name` says: the nearest listed command, when one is close. */
+export const unknown = (name: string): string => {
+  const near = nearest(name)
+  return near === undefined ? `Unknown command /${name}` : `Unknown command /${name}. Try /${near.name}.`
+}
 
 /** Tab and Enter insert `/name ` for these, so the argument can be typed or completed. */
 export const takesArgument = (command: Command): boolean =>

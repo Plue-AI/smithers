@@ -38,7 +38,7 @@ it("takes over a worker with t, drives a frame from the composer, and releases i
       "driving"
     )
     // A command stays a command while driving; only plain text goes to the worker.
-    await tui.type("/hotkeys")
+    await tui.type("/conversation")
     await tui.press(key.enter)
     await tui.type("use the session cookie")
     await tui.press(key.enter)
@@ -47,7 +47,7 @@ it("takes over a worker with t, drives a frame from the composer, and releases i
       15_000,
       "the frame ran with the message"
     )
-    expect(tui.screen()).not.toMatch(/Frame \d: \/hotkeys/)
+    expect(tui.screen()).not.toMatch(/Frame \d: \/conversation/)
     await tui.press("\x19") // ctrl+y: release
     await tui.until(
       (screen) => screen.includes("⇄ you released") && screen.includes("Back (ctrl+y)"),

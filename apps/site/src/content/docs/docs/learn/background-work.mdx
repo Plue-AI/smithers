@@ -26,7 +26,7 @@ Fix the failing search tests. Keep changes inside src/search.ts and its tests.
 
 **Available now.** Ask in chat. Smithers starts a worker in its own tab and returns to chat. Up to six run at once (`SMITHERS_TUI_WORKERS`); more wait in order.
 
-Use `/claude <prompt>` or `/codex <prompt>` to run a signed-in CLI as a worker.
+Use Ctrl+K **Run Claude Code…** or **Run Codex…** to run a signed-in CLI as a worker.
 
 <AppScreenshot src="/images/learn/tui-background-worker.gif" alt="A worker runs in its own TUI tab while chat stays available." caption="The TUI with a scripted test model." width={880} height={480} />
 
@@ -70,7 +70,7 @@ Ctrl+S shows every subagent as a tree beside the chat; press it again to close.
 </TabItem>
 <TabItem label="TUI">
 
-**Available now.** Open a worker with `/tabs` or Ctrl+]. In its tab: `s` steers a Smithers worker, `x` stops, and `r` resumes with its earlier steps. `t` takes over any running worker: a Smithers worker pauses at each step until Enter, and Ctrl+Y releases it; a `/claude` or `/codex` worker opens its CLI on the same session, and quitting that CLI hands it back. Failed workers also offer `m` to pick another model and `w` to wait for the provider's reset. Ctrl+Y returns to the parent worker or Chat; Ctrl+\ returns directly to Chat. Only actions available for the current state are shown. `/stop <id>` and `/retry <id>` work from anywhere.
+**Available now.** Open a worker with Ctrl+]. In its tab: `s` steers a Smithers worker, `x` stops, and `r` resumes with its earlier steps. `t` takes over any running worker: a Smithers worker pauses at each step until Enter, and Ctrl+Y releases it; a Claude Code or Codex worker opens its CLI on the same session, and quitting that CLI hands it back. Failed workers also offer `m` to pick another model and `w` to wait for the provider's reset. Ctrl+Y returns to the parent worker or Chat; Ctrl+\ returns directly to Chat. Only actions available for the current state are shown. Ctrl+K lists the same actions, with their keys, from anywhere.
 
 <AppScreenshot src="/images/learn/tui-worker-controls.gif" alt="Stopping and retrying a worker from its TUI tab." caption="The TUI with a scripted test model." width={880} height={480} />
 

@@ -22,23 +22,16 @@ Type `/` to browse commands. Up/Down choose, Tab completes, Enter runs, Esc clos
 | `/name <name>` | Name this conversation. | [Guide](/docs/learn/chat/) |
 | `/copy` | Copy the last answer. | [Guide](/docs/learn/chat/) |
 | `/summary` | Review this conversation. | [Guide](/docs/learn/review-a-change/) |
-| `/tabs` | Review background work. | [Guide](/docs/learn/background-work/) |
 | `/chat` | Return to chat. | [Guide](/docs/tui/views/) |
 | `/filter` | Show or hide kinds of rows. | [Guide](/docs/tui/views/) |
 | `/grep [text]` | Show only rows containing text. | [Guide](/docs/tui/views/) |
-| `/ui [id]` | Open a custom view. | [Guide](/docs/tui/extend/) |
 | `/smithers` | Flows and runs. | [Guide](/docs/learn/run-a-flow/) |
 | `/todo <title>` | File a TODO for the factory. | [Guide](/docs/learn/issue-to-main/#file-a-todo) |
 | `/devtools [id] [node]` | Inspect a run's nodes. | [Guide](/docs/learn/devtools/) |
 | `/flows` | Run a flow. | [Guide](/docs/learn/run-a-flow/) |
 | `/flow <name> [json\|key=value]` | Run a flow. | [Guide](/docs/learn/run-a-flow/) |
 | `/agent [name] [prompt]` | Run a custom agent. | [Guide](/docs/how-it-works/agents/) |
-| `/claude <prompt>` | Run Claude Code as a worker. | [Guide](/docs/learn/background-work/) |
-| `/codex <prompt>` | Run Codex as a worker. | [Guide](/docs/learn/background-work/) |
-| `/retry <id>` | Retry a stopped worker or flow. | [Guide](/docs/learn/background-work/) |
-| `/stop <id>` | Stop a worker or flow. | [Guide](/docs/learn/background-work/) |
-| `/hotkeys` | Show the keys. | [Guide](/docs/tui/keys/) |
 | `/quit` | Quit. | [Guide](/docs/tui/cli/) |
 | `/exit` | Alias for `/quit`. | [Guide](/docs/tui/cli/) |
 
-Repository flows also appear in the menu. `/model`, `/thinking`, `/flow`, and `/agent` complete their arguments. Start a line with `!` to run a shell command and add its output to the conversation, or `!!` to keep it out.
+Repository flows also appear in the menu. `/model`, `/thinking`, `/flow`, and `/agent` complete their arguments. An unknown command stays in the editor and names the nearest one. Stop, resume, steer, undo, custom views, and Claude Code or Codex workers are in Ctrl+K search. Start a line with `!` to run a shell command and add its output to the conversation, or `!!` to keep it out.

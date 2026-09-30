@@ -293,14 +293,12 @@ test("conversation reports owning session and token receipts without writing a p
   expect(turns[0]!.input.history).toEqual(expectedHistory)
 })
 
-test("palette Summary and empty Tabs return to Chat with the native draft still owned by the composer", async () => {
+test("palette Summary returns to Chat with the native draft still owned by the composer", async () => {
   await mount()
   await type("Draft preserved")
   await palette("summary")
   expect(frame()).toContain("Asked: Alpha question")
   expect(frame()).toContain("Draft preserved")
-  await palette("tabs")
-  expect(frame()).toContain("Asked: Alpha question")
   await palette("chat")
   expect(frame()).not.toContain("Asked: Alpha question")
   expect(frame()).toContain("Alpha question")
@@ -311,16 +309,15 @@ test("palette Summary and empty Tabs return to Chat with the native draft still 
   expect(turns[0]!.input.history).toEqual(expectedHistory)
 })
 
-test("hotkeys and unknown command stay local without polluting the next Host conversation", async () => {
+test("an unknown command stays local, keeps its line, and never pollutes the next Host conversation", async () => {
   await mount(140)
   const original = records()
-  await command("/hotkeys")
-  expect(frame()).toMatch(/ctrl\+shift\+p\s+Previous model/)
-  expect(turns).toEqual([])
   await command("/not-a-command value")
   expect(frame()).toContain("Unknown command /not-a-command")
+  expect(frame()).toContain("/not-a-command value")
   expect(turns).toEqual([])
   expect(records()).toEqual(original)
+  await key("c", { ctrl: true })
   await command("A real question")
   expect(turns).toHaveLength(1)
   expect(turns[0]!.input.prompt).toBe("A real question")

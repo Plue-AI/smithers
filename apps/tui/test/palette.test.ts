@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test"
 import * as Complete from "../src/complete.ts"
 import * as Editor from "../src/editor.ts"
+import type * as Flows from "../src/flows.ts"
 import * as Palette from "../src/palette.ts"
 import type { Tab } from "../src/workspace.ts"
 
@@ -158,5 +159,85 @@ describe("contributed actions", () => {
       value: { kind: "action", action: { kind: "flow", flow: "review" } }
     })
     expect(rows("/revi", { actions }).some((row) => row.value.kind === "action")).toBe(false)
+  })
+})
+
+describe("built-in actions", () => {
+  const run = (id: string, status: Flows.Run["status"]): Flows.Run => ({
+    id,
+    flow: `flow-${id}`,
+    by: "user",
+    input: {},
+    requested: "{}",
+    status,
+    startedAt: 0
+  })
+  const acts = (input: Partial<Parameters<typeof Palette.actions>[0]> = {}) =>
+    Palette.actions({ diff: false, tabs: [], runs: [], monitors: [], views: [], ...input })
+
+  it("always offers undo and the wrapped workers, and the diff keys only on a view", () => {
+    expect(acts().map((row) => [row.label, row.hint])).toEqual([
+      ["Undo changes…", "u"],
+      ["Run Claude Code…", undefined],
+      ["Run Codex…", undefined]
+    ])
+    expect(acts({ diff: true }).map((row) => [row.label, row.hint]).slice(1, 3)).toEqual([
+      ["Toggle diff", "d"],
+      ["Split diff", "v"]
+    ])
+  })
+
+  it("lists each worker's allowed actions with their keys and no action its status refuses", () => {
+    const listed = acts({ tabs: [tab("w1", "Investigation", "running"), tab("w2", "Docs pass", "failed")] })
+    const worker = listed.filter((row) => row.act.act === "worker")
+    expect(worker.map((row) => [row.label, row.detail, row.hint])).toEqual([
+      ["Stop", "Investigation", "x"],
+      ["Steer", "Investigation", "s"],
+      ["Take over", "Investigation", "t"],
+      ["Resume", "Docs pass", "r"],
+      ["Switch model", "Docs pass", "m"]
+    ])
+    expect(worker[0]!.act).toEqual({ act: "worker", id: "w1", action: "stop" })
+    expect(worker.some((row) => row.detail === "Investigation" && row.label === "Resume")).toBe(false)
+  })
+
+  it("lists a flow run's stop while it runs and its resume once stopped, never both", () => {
+    const listed = acts({ runs: [run("a", "running"), run("b", "cancelled"), run("c", "done")] })
+      .filter((row) => row.act.act === "run")
+    expect(listed.map((row) => [row.label, row.detail, row.hint, row.act])).toEqual([
+      ["Stop", "flow-a", "x", { act: "run", id: "a", action: "stop" }],
+      ["Resume", "flow-b", "r", { act: "run", id: "b", action: "retry" }]
+    ])
+  })
+
+  it("lists a stop for each active monitor and every custom view by title", () => {
+    const listed = acts({
+      monitors: [
+        { id: "ci", title: "CI watcher", status: "active" },
+        { id: "old", title: "Old watcher", status: "stopped" }
+      ],
+      views: [{ id: "checks", title: "Addition checks" }]
+    })
+    expect(listed.filter((row) => row.act.act === "monitor").map((row) => [row.label, row.detail, row.hint]))
+      .toEqual([["Stop", "CI watcher", "x"]])
+    expect(listed.find((row) => row.act.act === "view")).toMatchObject({
+      label: "Addition checks",
+      act: { act: "view", id: "checks" }
+    })
+  })
+
+  it("finds an action by its words or its target in the plain search, never after /", () => {
+    const listed = acts({ tabs: [tab("w1", "Investigation", "running")] })
+    expect(rows("undo", { acts: listed })[0]).toMatchObject({
+      label: "Undo changes…",
+      hint: "u",
+      value: { kind: "act", act: { act: "undo" } }
+    })
+    expect(rows("stop inv", { acts: listed }).map((row) => row.value)[0]).toEqual({
+      kind: "act",
+      act: { act: "worker", id: "w1", action: "stop" }
+    })
+    expect(rows("claude", { acts: listed }).map((row) => row.label)).toContain("Run Claude Code…")
+    expect(rows("/undo", { acts: listed }).some((row) => row.value.kind === "act")).toBe(false)
   })
 })

@@ -113,7 +113,7 @@ export const registry: ReadonlyArray<Binding> = [
   { id: "undo", keys: ["u"], label: "Undo changes", context: "panel", group: "Panel" },
   { id: "next-panel-tab", keys: ["tab"], label: "Next tab", context: "panel", group: "Tabs" },
 
-  { id: "close-picker", keys: ["esc"], label: "Close", context: "picker", group: "Picker" },
+  { id: "close-picker", keys: ["esc"], label: "Back", context: "picker", group: "Picker" },
   {
     id: "pick-move",
     keys: ["up", "down", "ctrl+p", "ctrl+n"],
@@ -416,7 +416,7 @@ export const displayKeys = (binding: Binding): string =>
 /** The footer shows only the first spelling. */
 export const primaryKey = (binding: Binding): string => binding.display ?? binding.keys[0]!
 
-/** Every binding by group, for `/hotkeys` and the Ctrl+O home screen. */
+/** Every binding by group, for the `?` popup. */
 export const groups = (
   bindings: ReadonlyArray<Binding> = registry
 ): ReadonlyArray<{ readonly group: string; readonly bindings: ReadonlyArray<Binding> }> =>
@@ -424,14 +424,6 @@ export const groups = (
     group,
     bindings: bindings.filter((binding) => binding.group === group)
   }))
-
-/** `/hotkeys` text: group headings, then aligned key and label columns. */
-export const sheet = (): string => {
-  const width = Math.max(...registry.map((binding) => displayKeys(binding).length)) + 2
-  return groups().map(({ group, bindings }) =>
-    [group, ...bindings.map((binding) => `  ${displayKeys(binding).padEnd(width)}${binding.label}`)].join("\n")
-  ).join("\n\n")
-}
 
 /** Registry completeness invariant used by tests and development assertions. */
 export const duplicateKeys = (): ReadonlyArray<string> => {

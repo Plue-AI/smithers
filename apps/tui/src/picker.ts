@@ -73,7 +73,8 @@ export const rows = (
   files: () => ReadonlyArray<string>,
   hits: ReadonlyArray<Search.Hit>,
   flows: ReadonlyArray<Listed>,
-  actions: NonNullable<Palette.Sources["actions"]> = []
+  actions: NonNullable<Palette.Sources["actions"]> = [],
+  acts: ReadonlyArray<Palette.ActRow> = []
 ): ReadonlyArray<View.Row & { readonly value: string }> => {
   if (picker.kind === "agents") {
     return Fuzzy.filter(flows.filter(Extension.isAgent), picker.query, (agent) => agent.name).map((agent) => {
@@ -103,6 +104,7 @@ export const rows = (
       tabs,
       hits,
       now: Date.now(),
+      acts,
       actions
     }
     // The value is the JSON of a `Palette.Value`, so every dialog picks a string.

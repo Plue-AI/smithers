@@ -95,7 +95,7 @@ describe("TUI files never show a raw error", () => {
 
   test("the user-facing entry points hold no raw site at all", () => {
     for (
-      const file of ["run.tsx", "cli.ts", "tab-command.ts", "shell.ts", "picker.ts", "failures.ts"]
+      const file of ["run.tsx", "cli.ts", "shell.ts", "picker.ts", "failures.ts"]
     ) {
       expect(countSites(readFileSync(join(SOURCE, file), "utf8"))).toBe(0)
     }

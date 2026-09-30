@@ -192,14 +192,18 @@ export const cardKey = (key: KeyEvent, act: {
 /**
  * The Summary overview: arrows or hjkl move in the pane (right leaves the
  * tree), enter opens, esc closes; `app.tsx` switches panes with tab. The
- * worker keys act on the selected worker; `f` opens a card's files.
+ * worker keys act on the selected worker, `x` stops a selected monitor, and
+ * `f` opens a card's files.
  */
 export const overviewKey = (key: KeyEvent, state: {
   readonly pane: "tree" | "cards"
   /** The worker the keys act on: the tree's selection, or the focused card's. */
   readonly worker: Tab | undefined
+  /** The selected monitor's id. */
+  readonly monitor?: string | undefined
 }, act: {
   readonly close: () => void
+  readonly stopMonitor: (id: string) => void
   readonly release: () => void
   readonly pane: () => void
   readonly tree: (step: -1 | 1) => void
@@ -230,6 +234,10 @@ export const overviewKey = (key: KeyEvent, state: {
   }
   if (moved !== undefined) return act.card(moved)
   if (key.name === "f" && state.pane === "cards") return act.files()
+  if (state.monitor !== undefined) {
+    if (Keys.bindingFor(key, "panel")?.id === "stop") act.stopMonitor(state.monitor)
+    return
+  }
   const worker = state.worker
   const binding = worker === undefined ? undefined : workerBinding(key)
   const action = binding === undefined || worker === undefined ? undefined : Tabs.actionFor(binding, worker)

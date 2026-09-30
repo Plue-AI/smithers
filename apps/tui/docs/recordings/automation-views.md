@@ -7,7 +7,8 @@ Use "panels"
 Type "Show the addition checks in a custom view."
 Press Enter
 Wait for answer "Published the checks view."
-Type "/ui checks"
+Press Ctrl+K
+Type "Checks"
 Press Enter
 Wait for "Addition"
 Press l

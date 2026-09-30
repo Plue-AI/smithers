@@ -1,6 +1,7 @@
 /**
  * The Summary overview's rows: every worker and flow run grouped as Needs you,
- * Working and Done, each row `glyph name seat clock window cache`. A node that
+ * Working and Done, each row `glyph name seat clock window cache`, and each
+ * active monitor under Working. A node that
  * needs the person appears once, flat, under Needs you; the rest keep their
  * worker tree. Pure: `subagent-view.tsx` draws it and `app.tsx` moves over it.
  */
@@ -10,6 +11,7 @@ import * as Asks from "./asks.ts"
 import type * as Flows from "./flows.ts"
 import { settled } from "./lifecycle.ts"
 import type { Model } from "./models.ts"
+import type * as Monitors from "./monitors.ts"
 import { tabTitle } from "./surfaces.ts"
 import * as Tabs from "./tabs.ts"
 import type * as Transcript from "./transcript.ts"
@@ -21,15 +23,17 @@ export type Group = "needs" | "working" | "done"
 export const headings: Record<Group, string> = { needs: "Needs you", working: "Working", done: "Done" }
 
 export interface Row {
-  /** Unique in the overview: the worker's tab id, or `flow:<id>`. */
+  /** Unique in the overview: the worker's tab id, `flow:<id>`, or `monitor:<id>`. */
   readonly key: string
   readonly group: Group
   readonly level: number
   readonly worker?: Tab
   readonly run?: Flows.Run
+  /** An active monitor: `x` stops it. */
+  readonly monitor?: Pick<Monitors.Monitor, "id" | "title" | "watch" | "createdAt">
   readonly status: Tab["status"] | Flows.Run["status"]
   readonly name: string
-  /** The node kind: a model alias, `fn` for a flow. */
+  /** The node kind: a model alias, `fn` for a flow, `monitor` for a monitor. */
   readonly seat: string
   /** Elapsed, a park's reset time, or blank. */
   readonly clock: string
@@ -74,6 +78,8 @@ export const rows = (input: {
   readonly now: number
   /** Open asks; those the person holds put their asker under Needs you. */
   readonly asks?: ReadonlyArray<Asks.Ask>
+  /** Only the active ones show. */
+  readonly monitors?: ReadonlyArray<Pick<Monitors.Monitor, "id" | "title" | "watch" | "createdAt" | "status">>
 }): ReadonlyArray<Section> => {
   const asking = (tab: Tab) => input.asks?.find((ask) => ask.from === tab.id && ask.holder === Asks.person)
   const needs = (tab: Tab) =>
@@ -132,6 +138,19 @@ export const rows = (input: {
     else if (settled(run.status)) done.push(flow(run, "done"))
     else working.push(flow(run, "working"))
   }
+  for (const monitor of input.monitors ?? []) {
+    if (monitor.status !== "active") continue
+    working.push({
+      key: `monitor:${monitor.id}`,
+      group: "working",
+      level: 0,
+      monitor: { id: monitor.id, title: monitor.title, watch: monitor.watch, createdAt: monitor.createdAt },
+      status: "running",
+      name: monitor.title,
+      seat: "monitor",
+      clock: SubagentCard.duration(Math.max(0, input.now - monitor.createdAt))
+    })
+  }
   return ([["needs", needing], ["working", working], ["done", done]] as const)
     .filter(([, list]) => list.length > 0)
     .map(([group, list]) => ({ group, rows: list }))
@@ -164,6 +183,7 @@ export const peek = (row: Row, transcript: (id: string) => Transcript.Transcript
     ]
   }
   if (row.run !== undefined) return row.run.message === undefined ? [] : [row.run.message]
+  if (row.monitor !== undefined) return [row.monitor.watch]
   const tab = row.worker
   if (tab === undefined) return []
   // A backup seat answering, as `fable → sol`.

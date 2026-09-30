@@ -1,6 +1,6 @@
 /**
- * Ctrl+K: one search over commands, files, file text, sessions, and worker
- * tabs. The first token picks the mode, as in the app's Cmd+K palette
+ * Ctrl+K: one search over commands, the actions that apply now, files, file
+ * text, sessions, and worker tabs. The first token picks the mode, as in the app's Cmd+K palette
  * (`apps/app/src/mainview/flows/SearchQuery.ts`, `PREFIXES` and `parseQuery`).
  * `/`, `text:` (with `/re/`) and `?` keep the app's meaning; `conversation:` and
  * `tab:` are the terminal's own. The app's `@` is symbols there, but `@` is a
@@ -11,9 +11,13 @@
 import { display, fileLimit, mention, rankFiles } from "./complete.ts"
 import type * as Editor from "./editor.ts"
 import type * as Extension from "./extension.ts"
+import * as Flows from "./flows.ts"
 import * as Fuzzy from "./fuzzy.ts"
+import * as Keys from "./keys.ts"
 import type * as Search from "./search.ts"
 import type * as Session from "./session.ts"
+import { tabTitle } from "./surfaces.ts"
+import * as Tabs from "./tabs.ts"
 import * as View from "./view.tsx"
 import type { Tab } from "./workspace.ts"
 
@@ -54,6 +58,84 @@ export type Value =
   | { readonly kind: "prefix"; readonly prefix: string }
   /** A contributed key or status item: choosing it runs its action. */
   | { readonly kind: "action"; readonly action: Extension.Action }
+  /** A built-in action where the person is: choosing it does what its key does. */
+  | { readonly kind: "act"; readonly act: Act }
+
+/** The built-in actions Ctrl+K indexes beside the commands. */
+export type Act =
+  /** `u`: the selected row's changes in a worker tab, else the newest prompt's. */
+  | { readonly act: "undo" }
+  /** `d` and `v` on the shown view. */
+  | { readonly act: "diff" | "split" }
+  | { readonly act: "worker"; readonly id: string; readonly action: Tabs.ActionId }
+  | { readonly act: "run"; readonly id: string; readonly action: "retry" | "stop" }
+  | { readonly act: "monitor"; readonly id: string }
+  | { readonly act: "view"; readonly id: string }
+  /** The composer asks for the prompt of a wrapped Claude Code or Codex worker. */
+  | { readonly act: "harness"; readonly harness: "claude" | "codex" }
+
+export interface ActRow extends View.Row {
+  readonly act: Act
+}
+
+const keyOf = (id: string): string => Keys.primaryKey(Keys.registry.find((binding) => binding.id === id)!)
+const labelOf = (id: string): string => Keys.registry.find((binding) => binding.id === id)!.label
+
+/**
+ * Every built-in action that applies now, each with the key that does the
+ * same in its own view: undo, the shown view's diff keys, each worker's and
+ * flow run's actions, each active monitor's stop, the custom views, and the
+ * wrapped workers.
+ */
+export const actions = (input: {
+  /** The shown view navigates rows, so `d` and `v` act on it. */
+  readonly diff: boolean
+  readonly tabs: ReadonlyArray<Tab>
+  readonly runs: ReadonlyArray<Flows.Run>
+  readonly monitors: ReadonlyArray<{ readonly id: string; readonly title: string; readonly status: string }>
+  readonly views: ReadonlyArray<{ readonly id: string; readonly title: string }>
+}): ReadonlyArray<ActRow> => [
+  { key: "act:undo", label: `${labelOf("undo")}…`, hint: keyOf("undo"), act: { act: "undo" } },
+  ...(input.diff
+    ? [
+      { key: "act:diff", label: labelOf("diff"), hint: keyOf("diff"), act: { act: "diff" } } as const,
+      { key: "act:split", label: labelOf("split"), hint: keyOf("split"), act: { act: "split" } } as const
+    ]
+    : []),
+  ...input.tabs.flatMap((tab) =>
+    Tabs.actions(tab).map((action): ActRow => ({
+      key: `act:worker:${tab.id}:${action.id}`,
+      label: action.label,
+      detail: tabTitle(tab),
+      hint: keyOf(action.binding),
+      act: { act: "worker", id: tab.id, action: action.id }
+    }))
+  ),
+  ...input.runs.flatMap((run) => {
+    const allowed = Flows.actions(run)
+    return (["retry", "stop"] as const).filter((action) => allowed[action]).map((action): ActRow => ({
+      key: `act:run:${run.id}:${action}`,
+      label: labelOf(action),
+      detail: run.flow,
+      hint: keyOf(action),
+      act: { act: "run", id: run.id, action }
+    }))
+  }),
+  ...input.monitors.filter((monitor) => monitor.status === "active").map((monitor): ActRow => ({
+    key: `act:monitor:${monitor.id}`,
+    label: labelOf("stop"),
+    detail: monitor.title,
+    hint: keyOf("stop"),
+    act: { act: "monitor", id: monitor.id }
+  })),
+  ...input.views.map((view): ActRow => ({
+    key: `act:view:${view.id}`,
+    label: view.title,
+    act: { act: "view", id: view.id }
+  })),
+  { key: "act:claude", label: "Run Claude Code…", act: { act: "harness", harness: "claude" } },
+  { key: "act:codex", label: "Run Codex…", act: { act: "harness", harness: "codex" } }
+]
 
 export interface Row extends View.Row {
   readonly value: Value
@@ -67,6 +149,8 @@ export interface Sources {
   readonly tabs: ReadonlyArray<Tab>
   readonly hits: ReadonlyArray<Search.Hit>
   readonly now: number
+  /** Built-in actions that apply now, from `actions`. */
+  readonly acts?: ReadonlyArray<ActRow>
   /** Contributed keys and status items; `hint` is the key. */
   readonly actions?: ReadonlyArray<
     { readonly key: string; readonly label: string; readonly hint?: string; readonly action: Extension.Action }
@@ -103,6 +187,9 @@ export const rows = (parsed: Parsed, sources: Sources): ReadonlyArray<Row> => {
     case "all":
       return [
         ...commandRows(sources.commands, query),
+        ...Fuzzy.filter(sources.acts ?? [], query, (each) => `${each.label} ${each.detail ?? ""}`).map((
+          { act, ...row }
+        ): Row => ({ ...row, value: { kind: "act", act } })),
         ...Fuzzy.filter(sources.actions ?? [], query, (each) => each.label).map(({ action, ...row }): Row => ({
           ...row,
           value: { kind: "action", action }

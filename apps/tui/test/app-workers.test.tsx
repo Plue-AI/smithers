@@ -39,12 +39,30 @@ const type = async (text: string) => {
   })
   await render()
 }
-const key = async (name: string) => {
+const key = async (name: string, modifiers: { ctrl?: boolean } = {}) => {
   await act(async () => {
-    setup!.mockInput.pressKey(name)
+    setup!.mockInput.pressKey(name, modifiers)
     await setImmediate()
   })
   await render()
+}
+/** Esc closes the palette once the terminal parser gives up waiting for a longer sequence. */
+const closePalette = async () => {
+  await key("ESCAPE")
+  const deadline = Date.now() + 2000
+  while (frame().includes("esc Back")) {
+    if (Date.now() > deadline) throw new Error("The palette did not close")
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    })
+    await render()
+  }
+}
+/** Ctrl+K, the query, Enter: runs the first match. */
+const palette = async (query: string) => {
+  await key("k", { ctrl: true })
+  await type(query)
+  await key("RETURN")
 }
 const command = async (text: string) => {
   await type(text)
@@ -187,14 +205,18 @@ test("same worker admission deduplicates while conflicting reuse refuses without
   expect(tabs().at(-1)!.tab.prompt).toBe("Review src/one.ts only.")
 })
 
-test("the stop command cancels only its named worker and retry reuses its prompt and chosen seat", async () => {
+test("Ctrl+K stop cancels only its named worker and resume reuses its prompt and chosen seat", async () => {
   await delegate(turns[0]!.input)
   await delegate(turns[0]!.input, { id: "other", title: "Other review", prompt: "Review src/two.ts only." })
-  await command("/stop review")
+  await key("k", { ctrl: true })
+  await type("stop review one")
+  expect(frame()).toMatch(/Stop\s+x\s+Review one file/)
+  expect(frame()).not.toMatch(/Stop\s+x\s+Other review/)
+  await key("RETURN")
   expect(turns.map((turn) => turn.cancelled)).toEqual([0, 1, 0])
   expect(tabs().filter((record) => record.tab.id === "review").at(-1)!.tab.status).toBe("cancelled")
   expect(tabs().filter((record) => record.tab.id === "other").at(-1)!.tab.status).toBe("running")
-  await command("/retry review")
+  await palette("resume review one")
   expect(turns[3]!.input.prompt).toBe("Review src/one.ts only.")
   expect(turns[3]!.input.seat).toBe("replay:worker")
   expect(turns[3]!.input.source).toBe("review")
@@ -203,12 +225,14 @@ test("the stop command cancels only its named worker and retry reuses its prompt
   expect(turns[2]!.cancelled).toBe(0)
 })
 
-test("unknown stop and retry commands are visible refusals with no cancellation or extra work", async () => {
+test("the removed /stop and /retry commands keep their line and never act", async () => {
   await delegate(turns[0]!.input)
-  await command("/stop missing")
-  expect(frame()).toContain("Unknown tab: missing")
-  await command("/retry missing")
-  expect(frame()).toContain("Unknown tab: missing")
+  await command("/stop review")
+  expect(frame()).toContain("Unknown command /stop")
+  expect(frame()).toContain("/stop review")
+  await key("c", { ctrl: true })
+  await command("/retry review")
+  expect(frame()).toContain("Unknown command /retry")
   expect(turns.map((turn) => turn.cancelled)).toEqual([0, 0])
   expect(turns).toHaveLength(2)
   expect(tabs().at(-1)!.tab.status).toBe("running")
@@ -272,13 +296,21 @@ test.each([
   }
 )
 
-test("repeated stop is idempotent and repeated retry cannot launch two replacements", async () => {
+test("Ctrl+K lists stop only while a worker runs and resume only once it stopped, so neither repeats", async () => {
   await delegate(turns[0]!.input)
-  await command("/stop review")
-  await command("/stop review")
+  await palette("stop review")
+  await key("k", { ctrl: true })
+  await type("review one")
+  expect(frame()).not.toMatch(/Stop\s+x\s+Review one file/)
+  expect(frame()).toMatch(/Resume\s+r\s+Review one file/)
+  await closePalette()
   expect(turns.map((turn) => turn.cancelled)).toEqual([0, 1])
-  await command("/retry review")
-  await command("/retry review")
+  await palette("resume review")
+  await key("k", { ctrl: true })
+  await type("review one")
+  expect(frame()).not.toMatch(/Resume\s+r\s+Review one file/)
+  expect(frame()).toMatch(/Stop\s+x\s+Review one file/)
+  await closePalette()
   expect(turns.map((turn) => turn.input.prompt)).toEqual([
     "Coordinate a review",
     "Review src/one.ts only.",
@@ -286,7 +318,6 @@ test("repeated stop is idempotent and repeated retry cannot launch two replaceme
   ])
   expect(tabs().at(-1)!.tab.status).toBe("running")
   expect(turns[2]!.cancelled).toBe(0)
-  expect(frame()).toContain("Only a failed, stopped or parked tab can be retried.")
 })
 
 test("a failed worker is retried in a new linked session and its repaired answer reaches later chat context", async () => {
@@ -294,7 +325,7 @@ test("a failed worker is retried in a new linked session and its repaired answer
   const failedFile = tabs().at(-1)!.tab.file
   await finish(1, { _tag: "failed", message: "Review refused", detail: "Fixture refusal" })
   expect(tabs().at(-1)!.tab.status).toBe("failed")
-  await command("/retry review")
+  await palette("resume review")
   const replacement = tabs().at(-1)!.tab
   expect(replacement.file).not.toBe(failedFile)
   expect(Session.load(replacement.file)[0]).toMatchObject({ type: "session", parent: failedFile })
@@ -311,8 +342,7 @@ test("a failed worker is retried in a new linked session and its repaired answer
 
 test("worker steering drains only from the selected worker and never from the coordinator", async () => {
   await delegate(turns[0]!.input)
-  await command("/tabs")
-  await key("s")
+  await palette("steer review")
   await command("Check the tests too")
   const workerDrain = Effect.runSync(turns[1]!.input.steering!.drain({ boundary: "worker-cell", wouldIdle: false }))
   const chatDrain = Effect.runSync(turns[0]!.input.steering!.drain({ boundary: "chat-cell", wouldIdle: false }))

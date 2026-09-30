@@ -67,7 +67,7 @@ errors in each run); these reports do **not** qualify a passing TUI gate.
 | Background workers      | Saved requests, duplicate input, unresolved execution, usable chat, completion toasts, steering, cancellation, retry controls, tree navigation, and worker undo. |
 | Flows and approvals     | Discovery, live refresh, input forms, burst navigation, short panes, quoted values, durable parks, fallback models, approval/denial, and real completion.        |
 | Extensions and monitors | Repository contributions, key conflicts, panel actions, hot reload, notable/routine updates, and shell-monitor cleanup on stop, quit, and conversation switch.   |
-| Command effects         | Typed help/navigation/resume and worker stop/retry routes, clipboard recovery, compaction persistence, and budget counts in chat, reload, and print mode.        |
+| Command effects         | Typed help/navigation/resume routes, Ctrl+K worker stop/resume, clipboard recovery, compaction persistence, and budget counts in chat, reload, and print mode.   |
 
 The unit suite separately exercises parsing, projections, persistence,
 capabilities, worker scheduling, cancellation, and recovery. Terminal fixtures

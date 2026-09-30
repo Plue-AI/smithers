@@ -54,6 +54,40 @@ describe("the overview inbox", () => {
     expect(sections[0]!.rows[0]!.clock).toBe("14:05")
   })
 
+  it("lists each active monitor under Working with its clock and its watch as the peek", () => {
+    const monitor = (id: string, status: "active" | "stopped" | "failed") => ({
+      id,
+      title: `Watch ${id}`,
+      watch: `Tell me when ${id} changes`,
+      createdAt: now - 90_000,
+      status
+    })
+    const sections = Inbox.rows({
+      tabs: [tab("done", "done")],
+      runs: [run("going", "running")],
+      transcript: () => Transcript.empty,
+      contextWindow: () => 200_000,
+      models: [],
+      now,
+      monitors: [monitor("ci", "active"), monitor("old", "stopped"), monitor("broke", "failed")]
+    })
+    expect(shape(sections)).toEqual([["working", ["flow:going", "monitor:ci"]], ["done", ["done"]]])
+    const row = sections[0]!.rows[1]!
+    expect(row).toMatchObject({ name: "Watch ci", seat: "monitor", status: "running", monitor: { id: "ci" } })
+    expect(row.clock).not.toBe("")
+    expect(Inbox.peek(row, () => Transcript.empty)).toEqual(["Tell me when ci changes"])
+    const stoppedOnly = Inbox.rows({
+      tabs: [],
+      runs: [],
+      transcript: () => Transcript.empty,
+      contextWindow: () => 200_000,
+      models: [],
+      now,
+      monitors: [monitor("old", "stopped")]
+    })
+    expect(stoppedOnly).toEqual([])
+  })
+
   it("drops empty groups", () => {
     expect(shape(rows([tab("a", "done")]))).toEqual([["done", ["a"]]])
   })
