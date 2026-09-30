@@ -1212,6 +1212,24 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
         collections.frames.insert(frame)
         return frame
       }
+      // A signup choice is a one-time initial target. Keep the poll answer,
+      // but consume this pending choice so a later inventory refresh cannot
+      // undo a user's explicit deselection or navigation.
+      const settleSignupRepo = (inventoryLoaded: boolean): void => {
+        const session = collections.sessions.get(SESSION_ID)
+        const chosen = session?.signup?.stage === "done" ? session.signup.repo : undefined
+        if (!session || !chosen) return
+        if (inventoryLoaded && collections.identitySessions.get("identity")?.state !== "signed-in") return
+        const known = chosen !== "new" && collections.repositories.has(chosen)
+        // An empty or stale inventory may precede a later repository upsert.
+        // Leave the choice pending until it is known, or the user chooses
+        // another target. Fresh signup completion may use its loaded row.
+        if (!known && chosen !== "new" && session.activeRepoKey == null && session.repositoryEntry == null) return
+        collections.sessions.update(SESSION_ID, draft => {
+          if (known && draft.activeRepoKey == null && draft.repositoryEntry == null) draft.activeRepoKey = chosen
+          if (draft.signup) delete draft.signup.repo
+        })
+      }
       switch (transition.type) {
         case "gateway.run.observed": {
           const id = runtimeRunKey(transition.observation.scope), previous = collections.runtimeRuns.get(id)
@@ -2022,6 +2040,7 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
         }
         case "signup.changed": {
           collections.sessions.update(SESSION_ID, draft => { draft.signup = { ...(draft.signup ?? initialSignup()), ...transition.patch } })
+          if (transition.patch.stage === "done") settleSignupRepo(false)
           break
         }
         // Retired with the Librarian history flow (#2165); existing journals can contain it.
@@ -2614,7 +2633,10 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
             draft.updatedAt = createdAt
             draft.revision = revision
           })
-          if (transition.state === "signed-in") answerSignInPrompts(collections, "identity", transition.login, createdAt, transition.provider)
+          if (transition.state === "signed-in") {
+            settleSignupRepo(true)
+            answerSignInPrompts(collections, "identity", transition.login, createdAt, transition.provider)
+          }
           break
         }
 
@@ -3003,6 +3025,8 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
               })
             }
           }
+          // Recover an older completed signup once the private inventory arrives.
+          settleSignupRepo(true)
           break
         }
         case "repository.upserted": {
@@ -3025,6 +3049,7 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
               Object.assign(draft, row)
             })
           }
+          settleSignupRepo(true)
           break
         }
         case "workingcopies.workspaces.loaded": {
