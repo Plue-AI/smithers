@@ -8,7 +8,7 @@ import { MythicalItemStateSchema } from "../../rpc/src/Mythical.ts"
 import { issueGroupOf } from "../../rpc/src/StackIssues.ts"
 import { itemStateLabel, settled } from "../../rpc/src/StackView.ts"
 import { main } from "../src/cli/Entry.ts"
-import { groupOf, itemLine, outOfLanes, render, stateLabel } from "../src/internal/backend/History.ts"
+import { groupOf, itemLine, outOfLanes, receiptLine, render, stateLabel } from "../src/internal/backend/History.ts"
 
 const dirs: Array<string> = []
 afterEach(async () => {
@@ -65,6 +65,19 @@ describe("history rendering", () => {
       itemLine(item("blocked", { checks: { state: "failed", failed: ["ci/test", "lint"] }, reason: "out of attempts" }))
     )
       .toBe("#12 Fix login · blocked · checks failed: ci/test, lint · out of attempts")
+  })
+  it("lists each check receipt, failed ones marked, and nothing without receipts", () => {
+    expect(receiptLine(item("blocked", {
+      checks: {
+        state: "failed",
+        failed: ["affected-test"],
+        receipts: [
+          { check: "affected-lint", tier: "fast", status: "passed", commit: "abcdef0123" },
+          { check: "affected-test\u001b[2J", tier: "slow", status: "failed", fault: "infra", commit: "abcdef0123" }
+        ]
+      }
+    }))).toBe("✓ affected-lint abcdef0 · ✗ affected-test abcdef0")
+    expect(receiptLine(item("running"))).toBe("")
   })
   it("names a chat item by its stack change, else its id", () => {
     const chat = { ...item("running"), issue: undefined }
@@ -231,7 +244,14 @@ describe("the factory from the terminal, over a local HTTP server", () => {
       [item("running", { lane: 0 })],
       [item("verifying", { lane: 0, checks: { state: "pending", failed: [] } })],
       [item("proposed", {
-        checks: { state: "passed", failed: [] },
+        checks: {
+          state: "passed",
+          failed: [],
+          receipts: [
+            { check: "affected-lint", tier: "fast", status: "passed", commit: "1a2b3c4d5e".padEnd(40, "0") },
+            { check: "affected-test", tier: "slow", status: "passed", commit: "1a2b3c4d5e".padEnd(40, "0") }
+          ]
+        },
         runs: { verify: "run-verify-1" },
         pullRequest: { number: 5, url: "https://github.com/owner/repo/pull/5", state: "open" }
       })]
@@ -271,7 +291,8 @@ describe("the factory from the terminal, over a local HTTP server", () => {
         "#12 · not in the history yet",
         "#12 Fix login · implementing",
         "#12 Fix login · checking · checks pending",
-        "#12 Fix login · PR open · checks passed · https://github.com/owner/repo/pull/5"
+        "#12 Fix login · PR open · checks passed · https://github.com/owner/repo/pull/5",
+        "  ✓ affected-lint 1a2b3c4 · ✓ affected-test 1a2b3c4"
       ])
       expect(watched.output).toContain("#12 Fix login · PR open · checks passed")
       expect(f.requests.filter((r) => r.url === "/api/repos/owner/repo/mythical/items/12")).toHaveLength(4)

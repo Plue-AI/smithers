@@ -95,6 +95,16 @@ export const itemLine = (item: Values, changes: ReadonlyArray<unknown> = []): st
 }
 
 /**
+ * Each check receipt on the item's candidate, as the TUI shows them: `✓ affected-lint 1a2b3c4 · ✗ affected-test 1a2b3c4`.
+ * @private
+ * @since 1.0.0
+ */
+export const receiptLine = (item: Values): string =>
+  list(object(item.checks).receipts).map(object).map((receipt) =>
+    `${receipt.status === "passed" ? "✓" : "✗"} ${clean(receipt.check)} ${str(receipt.commit).slice(0, 7)}`
+  ).join(" · ")
+
+/**
  * The History as lines: the stack's state and lanes, then Needs you, Working
  * and Done (the last 24 hours), ordered as the app lists them.
  * @private
@@ -241,7 +251,10 @@ export const history: Record<string, Handler> = {
     try {
       for (;;) {
         const item = await one(c, o, ref)
-        const line = item === undefined ? `${named(ref)} · not in the history yet` : itemLine(item)
+        const receipts = item === undefined ? "" : receiptLine(item)
+        const line = item === undefined
+          ? `${named(ref)} · not in the history yet`
+          : `${itemLine(item)}${receipts === "" ? "" : `\n  ${receipts}`}`
         if (line !== last) c.write(`${line}\n`)
         last = line
         if (item !== undefined && outOfLanes(item)) {
