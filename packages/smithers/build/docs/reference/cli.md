@@ -178,6 +178,8 @@ smithers-build watch build //packages/api:lib --once
 ```
 
 The first argument and optional patterns match [`affected`](#affected).
+Watch rescans the workspace every second, so an edit the file-system notifier
+drops still starts a cycle.
 `--debounce-ms` defaults to 200 and has a minimum of 20. `--once` runs one
 cycle and exits. Watch is deliberately unavailable over MCP. A failing
 one-shot cycle uses `watch_cycle_failed`; setup and watcher failures use

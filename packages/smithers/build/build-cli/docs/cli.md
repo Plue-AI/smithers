@@ -470,8 +470,9 @@ default to `//...`. `clean` executes only declared `Clean` targets and refuses
 an empty selection.
 `watch` runs the selected verb in fresh child processes, cancels stale work,
 and replans after a change. It ignores `.git`, `node_modules`, cache state, and
-declared outputs. `--debounce-ms` defaults to 200 with a minimum of 20;
-`--once` performs one cycle. Watch is deliberately unavailable through MCP.
+declared outputs. It also rescans the workspace every second, so an edit the
+file-system notifier drops still starts a cycle. `--debounce-ms` defaults to
+200 with a minimum of 20; `--once` performs one cycle. Watch is deliberately unavailable through MCP.
 
 On POSIX, stopping a cycle sends SIGTERM to its process group, escalates to
 SIGKILL after five seconds if any member survives, and waits for the group to

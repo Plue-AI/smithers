@@ -4,16 +4,35 @@ import { tmpdir } from "node:os"
 import { basename, join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-const fixtureEntry = vi.hoisted(() => ({ manifest: "", watcher: undefined as import("node:fs").FSWatcher | undefined }))
+const fixtureEntry = vi.hoisted(() => ({
+  manifest: "",
+  watcher: undefined as import("node:fs").FSWatcher | undefined,
+  // When set, the notifier loses every real event, as a coalescing FSEvents
+  // stream under load does; `notify` still delivers an injected one.
+  drop: false,
+  notify: (_event: string, _file: string | null) => {},
+  rootReads: 0
+}))
 vi.mock("node:fs", async (original) => {
   const fs = await original<typeof import("node:fs")>()
   return {
     ...fs,
     watch: (root: string, options: object, listener: (event: string, file: string | null) => void) => {
-      fixtureEntry.watcher = fs.watch(root, options, listener)
+      fixtureEntry.notify = listener
+      fixtureEntry.watcher = fs.watch(root, options, (event, file) => {
+        if (!fixtureEntry.drop) listener(event, file)
+      })
       return fixtureEntry.watcher
     }
   }
+})
+vi.mock("node:fs/promises", async (original) => {
+  const fs = await original<typeof import("node:fs/promises")>()
+  const readdir = ((path: string, options: object) => {
+    if (path === fixtureEntry.manifest.slice(0, -"/package.json".length)) fixtureEntry.rootReads++
+    return fs.readdir(path, options as never)
+  }) as typeof fs.readdir
+  return { ...fs, default: { ...fs, readdir }, readdir }
 })
 vi.mock("node:module", async (original) => {
   const module = await original<typeof import("node:module")>()
@@ -48,6 +67,8 @@ const alive = (pid: number) => {
 }
 afterEach(async () => {
   vi.restoreAllMocks()
+  fixtureEntry.drop = false
+  fixtureEntry.rootReads = 0
   for (const pid of pids.splice(0)) if (alive(pid)) process.kill(pid, "SIGKILL")
   for (const root of roots.splice(0)) await Fs.rm(root, { recursive: true, force: true })
 })
@@ -323,6 +344,129 @@ describe.skipIf(process.platform === "win32")("watch process-group containment",
       expect(frames).toBe(2)
       expect(result).toEqual({ cycles: 2, exitCode: 1, stopped: true })
       expect(pids.every((pid) => !alive(pid))).toBe(true)
+    } finally {
+      clearTimeout(deadline)
+    }
+  })
+
+  it("rescans and replaces the cycle when the notifier drops an edit", async () => {
+    const root = await fixture("")
+    fixtureEntry.drop = true
+    const controller = new AbortController()
+    let started = 0
+    vi.spyOn(ContainedProcess, "runEffect").mockReturnValue(
+      Effect.promise(async () => {
+        started++
+        if (started === 1) await Fs.writeFile(join(root, "src/edited.ts"), "export {}")
+        else controller.abort()
+      }).pipe(Effect.andThen(Effect.never))
+    )
+    expect(
+      await Watch.run({
+        root,
+        args: [],
+        ignored: [],
+        debounceMs: 1,
+        rescanMs: 5,
+        once: false,
+        signal: controller.signal,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).toEqual({ cycles: 2, exitCode: 1, stopped: true })
+  })
+
+  it("rescans at once on a notification without a filename", async () => {
+    const root = await fixture("")
+    fixtureEntry.drop = true
+    const controller = new AbortController()
+    let started = 0
+    vi.spyOn(ContainedProcess, "runEffect").mockReturnValue(
+      Effect.promise(async () => {
+        started++
+        if (started === 1) {
+          await Fs.writeFile(join(root, "src/edited.ts"), "export {}")
+          fixtureEntry.notify("rename", null)
+        } else controller.abort()
+      }).pipe(Effect.andThen(Effect.never))
+    )
+    expect(
+      await Watch.run({
+        root,
+        args: [],
+        ignored: [],
+        debounceMs: 1,
+        // Longer than the test budget: only the unnamed notification can rescan.
+        rescanMs: 3_600_000,
+        once: false,
+        signal: controller.signal,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).toEqual({ cycles: 2, exitCode: 1, stopped: true })
+  })
+
+  it("keeps the cycle when rescans find only unchanged or ignored paths", async () => {
+    const root = await fixture("")
+    fixtureEntry.drop = true
+    const controller = new AbortController()
+    vi.spyOn(ContainedProcess, "runEffect").mockReturnValue(
+      Effect.promise(async () => {
+        await Fs.mkdir(join(root, "node_modules/dep"), { recursive: true })
+        await Fs.writeFile(join(root, "node_modules/dep/index.js"), "")
+        await Fs.mkdir(join(root, "out"))
+        await Fs.writeFile(join(root, "out/built.js"), "")
+        fixtureEntry.notify("rename", null)
+        const reads = fixtureEntry.rootReads
+        await vi.waitFor(() => expect(fixtureEntry.rootReads).toBeGreaterThan(reads + 3), { timeout: 20_000 })
+        controller.abort()
+      }).pipe(Effect.andThen(Effect.never))
+    )
+    expect(
+      await Watch.run({
+        root,
+        args: [],
+        ignored: ["out"],
+        debounceMs: 1,
+        rescanMs: 5,
+        once: false,
+        signal: controller.signal,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).toEqual({ cycles: 1, exitCode: 1, stopped: true })
+  })
+
+  it("fails the watch when a rescan cannot read the workspace", async () => {
+    const root = await fixture("")
+    fixtureEntry.drop = true
+    const controller = new AbortController()
+    const deadline = setTimeout(() => controller.abort(), 20_000)
+    let started = 0
+    vi.spyOn(ContainedProcess, "runEffect").mockReturnValue(
+      Effect.promise(async () => {
+        started++
+        // The root becomes a symlink to itself: reading it fails with ELOOP,
+        // which is neither a vanished nor a permission-denied entry.
+        await Fs.rename(root, `${root}.moved`)
+        await Fs.symlink(root, `${root}.loop`)
+        await Fs.rename(`${root}.loop`, root)
+        roots.push(`${root}.moved`)
+      }).pipe(Effect.andThen(Effect.never))
+    )
+    try {
+      await expect(Watch.run({
+        root,
+        args: [],
+        ignored: [],
+        debounceMs: 1,
+        rescanMs: 5,
+        once: false,
+        signal: controller.signal,
+        stdout: () => {},
+        stderr: () => {}
+      })).rejects.toMatchObject({ code: "ELOOP" })
+      expect(started).toBe(1)
     } finally {
       clearTimeout(deadline)
     }

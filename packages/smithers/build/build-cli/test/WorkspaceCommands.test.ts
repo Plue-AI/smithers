@@ -246,16 +246,16 @@ describe("watch", () => {
           output += pending
           pending = ""
           frames += 1
+          // The first cycle recorded its digest before it launched, so this
+          // edit starts a replacement even if the notifier loses it.
           if (frames === 1) {
-            setTimeout(() => {
-              void write(
-                root,
-                "lib/PACKAGE.ts",
-                `import { Smithers as S } from "@smthrs/targets"
+            void write(
+              root,
+              "lib/PACKAGE.ts",
+              `import { Smithers as S } from "@smthrs/targets"
 export const Package = S.Package({ targets: { srcs: S.Filegroup({ srcs: [S.file("new-source.txt")] }) } })`
-              )
-                .catch(() => controller.abort())
-            }, 100)
+            )
+              .catch(() => controller.abort())
           } else controller.abort()
         },
         stderr: (text) => {
