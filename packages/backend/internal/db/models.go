@@ -1717,6 +1717,8 @@ type OrganizationSecret struct {
 	CreatedAt                  time.Time          `json:"created_at"`
 	UpdatedAt                  time.Time          `json:"updated_at"`
 	SubscriptionTokenFlaggedAt pgtype.Timestamptz `json:"subscription_token_flagged_at"`
+	Hosts                      []string           `json:"hosts"`
+	MatchHeaders               []string           `json:"match_headers"`
 }
 
 type OrganizationVariable struct {
@@ -2199,6 +2201,14 @@ type RepositoryCreationJob struct {
 	UpdatedAt          time.Time   `json:"updated_at"`
 }
 
+type RepositoryEgressPolicy struct {
+	RepositoryID int64       `json:"repository_id"`
+	AllowDomains []string    `json:"allow_domains"`
+	UpdatedBy    pgtype.Int8 `json:"updated_by"`
+	CreatedAt    time.Time   `json:"created_at"`
+	UpdatedAt    time.Time   `json:"updated_at"`
+}
+
 type RepositoryJobApproval struct {
 	RepositoryID int64           `json:"repository_id"`
 	Job          string          `json:"job"`
@@ -2301,6 +2311,8 @@ type RepositorySecret struct {
 	UpdatedAt                  time.Time          `json:"updated_at"`
 	SubscriptionTokenFlaggedAt pgtype.Timestamptz `json:"subscription_token_flagged_at"`
 	MainOnly                   bool               `json:"main_only"`
+	Hosts                      []string           `json:"hosts"`
+	MatchHeaders               []string           `json:"match_headers"`
 }
 
 type RepositorySetupRequest struct {

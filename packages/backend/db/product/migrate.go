@@ -127,6 +127,7 @@ var migrationRegistry = []migrationSpec{
 	{89, "migrations/0089_workspace_children.sql"},
 	{90, "migrations/0090_workspace_child_release.sql"},
 	{91, "migrations/0091_workflow_sandbox_claims.sql"},
+	{92, "migrations/0092_repository_egress_policies.sql"},
 }
 
 type migration struct {

@@ -104,6 +104,10 @@ DELETE FROM wiki_pages
 WHERE id = sqlc.arg(id)
   AND (sqlc.narg(expected_revision)::bigint IS NULL OR revision = sqlc.narg(expected_revision));
 
+-- name: GetWikiSpaceHead :one
+-- The last committed event sequence of one wiki, 0 before its first event.
+SELECT coalesce(max(head), 0)::bigint AS head FROM wiki_spaces WHERE repository_id = $1 AND visibility = $2;
+
 -- name: ListWikiIndex :many
 SELECT wp.*, u.username AS author_username
 FROM wiki_pages wp JOIN users u ON u.id = wp.author_id
