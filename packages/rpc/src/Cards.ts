@@ -969,6 +969,8 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
       repo: z.string(),
       space: z.enum(["public", "private"]),
       pageId: z.number().int().positive(),
+      /* The page's indexed slug, independent of its path: pagination requests it back. */
+      slug: z.string(),
       title: z.string(),
       path: z.string(),
       revisions: z.array(z.object({

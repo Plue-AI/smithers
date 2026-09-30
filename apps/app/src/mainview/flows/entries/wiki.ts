@@ -257,10 +257,10 @@ export const wikiFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
   flow({
     name: "wiki.history",
     summary: "Show a Wiki page's history: every revision, renames and the deletion included",
-    args: "<slug> [owner/repo]",
-    input: Schema.Struct({ slug: Schema.String, repo: Schema.optional(Schema.String), page: Schema.optional(Schema.Number) }),
-    form: { fields: { repo: { hidden: true }, page: { hidden: true } } },
-    handler: ({ slug, repo, page }) => actions.showWikiHistory(slug, repo, page)
+    args: "<slug> [owner/repo] [--space public|private]",
+    input: Schema.Struct({ slug: Schema.String, repo: Schema.optional(Schema.String), page: Schema.optional(Schema.Number), space: Schema.optional(Schema.Literals(["public", "private"])) }),
+    form: { fields: { repo: { hidden: true }, page: { hidden: true }, space: { hidden: true } } },
+    handler: ({ slug, repo, page, space }) => actions.showWikiHistory(slug, repo, page, space)
   }),
   flow({
     /* The file comes from the human's own dialog (the gesture); a model has no file to give. */

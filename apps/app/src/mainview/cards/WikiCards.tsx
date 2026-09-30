@@ -155,8 +155,7 @@ export const WikiGraphCardBody = ({ card, onRunCommand, worldDocuments }: { read
  * or a deletion keeps every earlier version reachable.
  */
 export const WikiHistoryCardBody = ({ card, onRunCommand }: { readonly card: WikiHistoryCard; readonly onRunCommand: RunCommand }) => {
-  const { repo, space, pageId, path, revisions, page, hasNext } = card.payload
-  const slug = path.replace(/\.md$/i, "").split("/").pop() ?? path
+  const { repo, space, pageId, slug, path, revisions, page, hasNext } = card.payload
   return (
     <div className="world-card-list wiki-history" data-testid="wiki-history" data-space={space}>
       <div className="world-card-row">
@@ -180,8 +179,8 @@ export const WikiHistoryCardBody = ({ card, onRunCommand }: { readonly card: Wik
         </ol>
       )}
       {page > 1 || hasNext ? <div className="wiki-card-pages">
-        {page <= 1 ? null : <Button size="sm" variant="ghost" {...flowAction(onRunCommand, "wiki.history", flowArgs("wiki.history", { slug, repo, page: page - 1 }))}>Previous page</Button>}
-        {hasNext ? <Button size="sm" variant="ghost" {...flowAction(onRunCommand, "wiki.history", flowArgs("wiki.history", { slug, repo, page: page + 1 }))}>Next page</Button> : null}
+        {page <= 1 ? null : <Button size="sm" variant="ghost" {...flowAction(onRunCommand, "wiki.history", flowArgs("wiki.history", { slug, repo, page: page - 1, space }))}>Previous page</Button>}
+        {hasNext ? <Button size="sm" variant="ghost" {...flowAction(onRunCommand, "wiki.history", flowArgs("wiki.history", { slug, repo, page: page + 1, space }))}>Next page</Button> : null}
       </div> : null}
     </div>
   )

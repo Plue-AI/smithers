@@ -746,11 +746,13 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
     return rest === "" || /\s/.test(rest) ? no("wiki.cloud.delete takes a page slug.") : ok({ slug: rest, ...(repo === undefined ? {} : { repo }) })
   },
   "wiki.history": (args) => {
-    const { rest, repo } = splitTrailingRepo(args)
+    const { line: positional, space } = wikiSpaceFlag(args)
+    if (typeof space === "object") return no(space.error)
+    const { rest, repo } = splitTrailingRepo(positional)
     const [slug, page, ...more] = tokensOf(rest)
     if (slug === undefined || more.length > 0) return no("wiki.history takes a page slug.")
     if (page !== undefined && !/^\d+$/.test(page)) return no("A history page is a whole number.")
-    return ok({ slug, ...(page === undefined ? {} : { page: Number(page) }), ...(repo === undefined ? {} : { repo }) })
+    return ok({ slug, ...(page === undefined ? {} : { page: Number(page) }), ...(repo === undefined ? {} : { repo }), ...(space === undefined ? {} : { space }) })
   },
   "wiki.attach": (args) => {
     const { rest, repo } = splitTrailingRepo(args)

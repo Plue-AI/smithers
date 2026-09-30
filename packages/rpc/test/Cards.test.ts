@@ -2528,6 +2528,7 @@ const FIXTURES: Record<Card["kind"], KindFixtures> = {
       repo: "smithersai/smithers",
       space: "public",
       pageId: 1,
+      slug: "home",
       title: "Home",
       path: "Home.md",
       revisions: [],
@@ -2538,6 +2539,7 @@ const FIXTURES: Record<Card["kind"], KindFixtures> = {
       repo: "smithersai/smithers",
       space: "private",
       pageId: 3,
+      slug: "generated-3",
       title: "logo.png",
       path: "assets/logo.png",
       revisions: [

@@ -714,11 +714,11 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
   }
 
   /** `wiki.history <slug> [owner/repo]`: the page's revisions as a card, renames and the deletion included. */
-  const showWikiHistory = async (slug: string, repoArg?: string, page = 1): Promise<string | void | { value: string }> => {
+  const showWikiHistory = async (slug: string, repoArg?: string, page = 1, spaceArg?: WikiSpace): Promise<string | void | { value: string }> => {
     const repo = targetRepo(repoArg)
     if (typeof repo !== "string") return repo.error
     if (shared.login() === null) return `Sign in to read the repository ${WIKI_DISPLAY_NAME}.`
-    const space = shared.space()
+    const space = spaceArg ?? shared.space()
     const found = pageOf(repo, space, slug)
     if (found === undefined) return `There is no ${space} ${WIKI_DISPLAY_NAME} page ${slug} in ${repo}. Open the space first.`
     const actor = ctx.commandActor
@@ -735,7 +735,7 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
         id: cardId, kind: "wiki-history", title: `History · ${found.path}`, status: "active",
         createdAt: previous?.createdAt ?? Date.now(), ordinal: nextOrdinal(),
         payload: {
-          repo, space, pageId: found.pageId, title: found.title, path: found.path, page, hasNext: answer.length === 50,
+          repo, space, pageId: found.pageId, slug, title: found.title, path: found.path, page, hasNext: answer.length === 50,
           revisions: answer.map((row) => ({
             revision: row.revision, title: row.title, path: row.path, author: row.author.login, at: row.updated_at, deleted: row.deleted, digest: row.content_digest,
             ...(row.attachment === undefined ? {} : { attachment: { digest: row.attachment.digest, mediaType: row.attachment.media_type, size: row.attachment.size } })

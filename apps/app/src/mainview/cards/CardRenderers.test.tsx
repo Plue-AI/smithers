@@ -245,7 +245,7 @@ describe("CardRenderers", () => {
 describe("wiki history card (#1922)", () => {
   test("lists every revision newest first, each a link to that revision's own scoped bytes, with the space and the deletion marked", () => {
     const card: Card = { ...base, kind: "wiki-history", status: "active", payload: {
-      repo: "org/repo", space: "private", pageId: 7, title: "Home", path: "Home.md", page: 1, hasNext: true,
+      repo: "org/repo", space: "private", pageId: 7, slug: "home", title: "Home", path: "Home.md", page: 1, hasNext: true,
       revisions: [
         { revision: 3, title: "Home", path: "Home.md", author: "will", at: "2026-09-26T03:00:00Z", deleted: true, digest: "a".repeat(64) },
         { revision: 2, title: "Home", path: "Old/Home.md", author: "ada", at: "2026-09-26T02:00:00Z", deleted: false, digest: "b".repeat(64), attachment: { digest: "b".repeat(64), mediaType: "image/png", size: 12 } }

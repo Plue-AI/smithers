@@ -235,7 +235,7 @@ export interface AppController extends TutorialChangeController, IssueFlowsContr
   readonly setWikiSpace: (space: string, repo?: string) => Promise<string | void>
   readonly setWikiPageView: (view: string) => Promise<string | void>
   readonly loadWikiIndex: (repo?: string, space?: WikiSpace, quiet?: boolean) => Promise<string | { value: string }>
-  readonly showWikiHistory: (slug: string, repo?: string, page?: number) => Promise<string | void | { value: string }>
+  readonly showWikiHistory: (slug: string, repo?: string, page?: number, space?: WikiSpace) => Promise<string | void | { value: string }>
   readonly createCloudWikiPage: (title: string, repo?: string) => Promise<string | void | { value: string }>
   readonly renameCloudWikiPage: (slug: string, path: string, repo?: string) => Promise<string | void>
   readonly deleteCloudWikiPage: (slug: string, repo?: string) => Promise<string | void>

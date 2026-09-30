@@ -41,7 +41,7 @@ export interface FlowInput {
   readonly "wiki.view": { readonly view: "read" | "edit" }
   readonly "wiki.cloud.rename": { readonly slug?: string; readonly path: string; readonly repo?: string }
   readonly "wiki.cloud.delete": { readonly slug: string; readonly repo?: string }
-  readonly "wiki.history": { readonly slug: string; readonly repo?: string; readonly page?: number }
+  readonly "wiki.history": { readonly slug: string; readonly repo?: string; readonly page?: number; readonly space?: "public" | "private" }
   readonly "wiki.attach": { readonly slug: string; readonly path?: string; readonly repo?: string }
   readonly "wiki.card.select": { readonly cardId: string; readonly documentId: string }
   readonly "wiki.card.view": { readonly cardId: string; readonly view: string }
@@ -225,7 +225,7 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "wiki.view": payload => line(token(payload, "view")),
   "wiki.cloud.rename": payload => line(token(payload, "slug"), token(payload, "path"), token(payload, "repo")),
   "wiki.cloud.delete": payload => line(token(payload, "slug"), token(payload, "repo")),
-  "wiki.history": payload => line(token(payload, "slug"), token(payload, "page"), token(payload, "repo")),
+  "wiki.history": payload => line(token(payload, "slug"), token(payload, "page"), token(payload, "repo"), payload.space === undefined ? undefined : `--space ${String(payload.space)}`),
   "wiki.attach": payload => line(token(payload, "slug"), token(payload, "path"), token(payload, "repo")),
   "wiki.card.select": payload => fileArgs(String(payload.cardId), String(payload.documentId)),
   "wiki.card.view": payload => line(token(payload, "cardId"), token(payload, "view")),
