@@ -826,6 +826,16 @@ func (s *Server) sessionHandler(sess ssh.Session) {
 			return
 		}
 
+		if stdErrors.Is(err, repohost.ErrRepositoryReplaced) {
+			// Deleted, transferred or renamed away while the push waited for
+			// the repository lock; nothing was written (#2846).
+			slog.Warn("ssh git push refused: repository replaced while it waited",
+				"session_id", sessionID, "git_command", gitCmd, "owner", owner, "repo", repo)
+			_, _ = fmt.Fprintf(sess.Stderr(), "ERROR: repository was replaced during the push; retry the push\n")
+			_ = sess.Exit(1)
+			return
+		}
+
 		if status, ok := repohost.IsStatusError(err); ok && (status.Held() || status.Code == repohost.PushTooSlowCode) {
 			slog.Warn("ssh git write refused by repo-host",
 				"session_id", sessionID, "git_command", gitCmd, "owner", owner, "repo", repo, "code", status.Code)
@@ -1281,6 +1291,7 @@ func (s *Server) proxyReceivePack(ctx context.Context, sess ssh.Session, owner, 
 		PusherID:         userID,
 		PusherLogin:      pusher.Username,
 		PusherCredential: middleware.CredentialPerson,
+		VerifyLocked:     services.RepositoryStillAt(s.Queries, repository.ID, owner, repo),
 	}
 	proxyErr := s.RepoHostClient.ProxyReceivePack(proxyCtx, owner, repo, pipeReader, sess, meta)
 	if proxyErr != nil {

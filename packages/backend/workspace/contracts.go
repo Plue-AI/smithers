@@ -88,6 +88,10 @@ type WorkspaceCapabilities struct {
 	LoopbackPreview  bool
 	FileOperations   bool
 	ColdSnapshots    bool
+	// EnvironmentImages: CreateWorkspace boots WorkspaceSpec.Environment's
+	// image exactly. The product never sends an environment to an adapter
+	// without it.
+	EnvironmentImages bool
 }
 
 // WorkspaceSpec carries only durable execution identity. Authentication,
@@ -98,6 +102,19 @@ type WorkspaceSpec struct {
 	// it knows it. An isolated adapter uses it only to choose a prepared
 	// environment; it confers no repository authority.
 	Source *WorkspaceSource
+	// Environment is the registered NixOS image the workspace was placed on,
+	// when it was. The adapter boots exactly this image or fails the create;
+	// it never substitutes another.
+	Environment *WorkspaceEnvironmentImage
+}
+
+// WorkspaceEnvironmentImage is one registered NixOS image: the workspace
+// kind it boots (vm or desktop), its registry reference, and the closure
+// hash of the NixOS toplevel the reference's tag carries.
+type WorkspaceEnvironmentImage struct {
+	Kind        string
+	Image       string
+	ClosureHash string
 }
 
 // WorkspaceSource is an owner/name repository slug and the revision the
