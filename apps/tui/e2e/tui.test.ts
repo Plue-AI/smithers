@@ -25,6 +25,9 @@ import * as Approvals from "../src/approvals.ts"
 import * as Session from "../src/session.ts"
 import { key, Tui } from "./tmux.ts"
 
+/** What the screen says when the disk refuses a session record (`Failures` registry). */
+const unsavedSentence = "The conversation is not being saved; check the disk."
+
 let previousSessionDirectory: string | undefined
 beforeEach(() => {
   previousSessionDirectory = process.env.SMITHERS_TUI_SESSION_DIR
@@ -940,7 +943,9 @@ describe("turns", () => {
     await tui.until((screen) => screen.includes("esc Interrupt"), 10_000, "running turn")
     const folder = sessionFolder(sessions)
     chmodSync(join(folder, readdirSync(folder).find((name) => name.endsWith(".jsonl"))!), 0o444)
-    await tui.until((screen) => screen.includes("Conversation not saved: EACCES"), 10_000, "unsaved record")
+    await tui.until((screen) => screen.includes(unsavedSentence), 10_000, "unsaved record")
+    // The screen says our sentence; the refused write's own error goes to the log.
+    expect(readFileSync(join(sessions, "tui.log"), "utf8")).toContain("EACCES")
     // This case deliberately refuses every later journal write, so require the
     // real completed UI state and changed file instead of a persisted outcome.
     await tui.until((screen) => idle(screen) && /●\s+Done/.test(screen), 90_000, "completed unsaved turn")
@@ -1010,7 +1015,7 @@ describe("turns", () => {
     await first.tui.type("remember this deep project")
     await first.tui.press(key.enter)
     await successfulAnswer(first, "pong", 15_000)
-    expect(first.tui.screen()).not.toContain("Conversation not saved")
+    expect(first.tui.screen()).not.toContain(unsavedSentence)
     process.env.SMITHERS_TUI_SESSION_DIR = first.sessions
     const file = Session.latest(cwd)!
     expect(Session.load(file)).toContainEqual({
