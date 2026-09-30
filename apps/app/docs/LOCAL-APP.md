@@ -494,15 +494,25 @@ module's continuation. `src/bun/NativeApp.ts` registers its `open-url`
 listener in that continuation, before anything else awaits. The native probe
 (`src/bun/Main.test.ts`) delivers launch links through a real threadsafe
 callback called from native code during the SDK import; a listener registered
-one task later fails it.
+one task later fails it. The probe passes strings the test owns, so it does
+not model the native string lifetime below.
 
-Registration needs a bundle in `/Applications`, so the packaged check is
-manual (#1969):
+Known defect (#3061): the native wrapper frees each buffered link right after
+queuing its pointer to that callback, so the app reads freed memory. In 10
+packaged cold launches the first window opened the linked page 0 times; 8
+links arrived as garbage and were refused. The fix is upstream: `strdup` the
+URL before calling the handler.
 
-1. Quit Smithers; install the stable build in `/Applications`.
-2. `open smithers://open/smithersai/smithers`.
-3. The first window shows the smithersai/smithers page. Repeat with the app
-   running: the open window navigates to the link.
+Packaged check (#1969). It needs no install: `open -a` delivers the link
+through the same `application:openURLs:` path a `smithers://` click uses.
+
+1. `pnpm build`, then launch the stable bundle once without a link so it
+   unpacks itself.
+2. `open -n -a build/stable-macos-arm64/Smithers.app --env HOME=<scratch>
+   --env SMITHERS_E2E_BRIDGE=1 --env SMITHERS_E2E_BRIDGE_PORT=<port> --env
+   SMITHERS_E2E_BRIDGE_TOKEN=<token> smithers://open/smithersai/smithers`.
+3. `GET /state` on the bridge: `window.url` ends with `/smithersai/smithers`.
+   Repeat with the app running: the open window navigates to the link.
 
 ### Approval ownership
 

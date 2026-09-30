@@ -64,7 +64,8 @@ const emit = (name: string, data: unknown): void => {
  * So this fake flushes the launch URLs through a real threadsafe JSCallback,
  * called from native code (libc qsort's comparator) while the fake SDK module
  * is first imported: a listener registered any later than the entrypoint's
- * would miss them.
+ * would miss them. It passes strings this process owns, so it does not model
+ * the native wrapper freeing each link before the callback reads it (#3061).
  */
 const nativeCallbacks: Array<JSCallback> = []
 const flushLaunchUrlsLikeNative = (urls: ReadonlyArray<string>): void => {
