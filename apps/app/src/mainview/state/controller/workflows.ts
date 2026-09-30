@@ -145,9 +145,6 @@ export const createWorkflowController = (
     if (identity?.state !== "signed-in") {
       return "Sign in with GitHub first: flows run on your own workspace."
     }
-    if (!identity.allowlisted) {
-      return "Flows open up with the closed alpha: your account isn't allowlisted yet."
-    }
     return undefined
   }
 

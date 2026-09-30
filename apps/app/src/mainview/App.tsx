@@ -59,13 +59,6 @@ type TranscriptEntry =
   | { readonly kind: "init"; readonly message: InitMessage }
   | { readonly kind: "card"; readonly card: Card }
 
-/*
- * The chat line a failed access request adds. The stored refusal (a server
- * body) never reaches the transcript text, which has no Details to hide it in;
- * the Request access button beside the line is the retry.
- */
-export const ACCESS_REQUEST_FAILED = "Your access request didn't go through. Not your fault."
-
 const entryOrdinal = (entry: TranscriptEntry): number =>
   entry.kind === "card" ? entry.card.ordinal : entry.message.ordinal
 
@@ -197,7 +190,7 @@ function AppContent() {
   }
   /*
    * One page: the chat. Auth is a conversation state, never a view — a
-   * definitive signed-out or non-allowlisted answer opens the transcript
+   * definitive signed-out answer opens the transcript
    * with the Smithers message whose action IS the one available step.
    * "Unknown" is not a definitive answer and changes nothing. "Unavailable"
    * IS one about the BUILD: a deployment with no identity seam can never
@@ -286,24 +279,6 @@ function AppContent() {
         ordinal: 0
       }
       : undefined
-    : identity?.state === "signed-in" && !identity.allowlisted
-    ? {
-      id: "auth-state",
-      role: "smithers",
-      text: `${
-        identity.accessRequested
-          ? "Your request is in — we'll let you know as soon as there's a spot."
-          : `You're signed in as ${
-            identity.login ?? "a GitHub user"
-          }, but Smithers is open to design partners only right now.`
-      }${identity.accessError !== null ? `\n\n${ACCESS_REQUEST_FAILED}` : ""}`,
-      status: "complete",
-      ...(identity.accessRequested
-        ? {}
-        : { action: { flow: "auth.request-access", label: "Request access" } }),
-      createdAt: 0,
-      ordinal: 0
-    }
     : identity?.state === "unavailable"
     ? {
       id: "auth-state",
@@ -341,7 +316,7 @@ function AppContent() {
   /*
    * The opening entry: what the host registered, derived from the live
    * collections (never stored), with the repo step riding it as its action.
-   * A gated auth state (signed out, not allowlisted) still shows only itself.
+   * A gated auth state (signed out) still shows only itself.
    */
   /*
    * In the desktop shell sign-in is an option, never a gate (docs/LOCAL-APP.md):
@@ -349,8 +324,7 @@ function AppContent() {
    * Signed out on any web origin — hosted or self-hosted — sign-in is the whole
    * transcript. The shell is the `native.shell` row, never the host name.
    */
-  const gatedByAuth = (identity?.state === "signed-out" && !nativeShellHost) ||
-    (identity?.state === "signed-in" && !identity.allowlisted)
+  const gatedByAuth = identity?.state === "signed-out" && !nativeShellHost
   const repositoryCatalog = controller.repositoryFlows()
   // An app names a flow; a tile whose flow this host does not register would be a dead button, so it is not shown.
   const home = repositoryCatalog?.home?.kind === "blocks"

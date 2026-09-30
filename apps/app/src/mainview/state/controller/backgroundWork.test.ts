@@ -15,7 +15,7 @@ const cleanups: Array<() => Promise<void>> = []
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup() })
 const fixture = async (storage = memoryStorage()) => {
   const store = await createAppStore({ kind: "localStorage", storage })
-  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "owner", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "owner", admin: false, scopesPlain: null }).isPersisted.promise
   const ctx = createControllerContext(store, unavailableAgent, { workflowPollMs: 1, toastAutoDismissMs: 10000 })
   const failures = createFailureController(ctx)
   ctx.withToast = failures.withToast

@@ -31,7 +31,7 @@ const pendingHttpAgent = (requests: StartAgentTurnRequest[]): AgentPort => ({
 
 async function fixture(agent?: (requests: StartAgentTurnRequest[]) => AgentPort, beforeRecovery?: Promise<void>, settleRecovery = true, storage: StorageApi = memoryStorage()) {
   const store = await createAppStore({ kind: "localStorage", storage })
-  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "maintainer", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "maintainer", admin: false, scopesPlain: null }).isPersisted.promise
   const payload = { ...initialSetup("example/repo", "issues", "maintainer"), inspectedAt: 1234 }
   if (!store.collections.cards.has(id)) await store.dispatch({ type: "card.upsert", actor: "user", card: {
     id, kind: "repository-setup", title: "Handle issues", status: "active", createdAt: 1, ordinal: store.nextOrdinal(), payload
@@ -352,7 +352,7 @@ test("an account change while discovery is held cannot render or recreate the pr
     await waitFor(() => t.fetches.some(({ url }) => url.includes("/repository-setup/state?")))
     await t.controller.commands.run("setup.guide", id)
     const requested = t.guidance()
-    await t.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "other", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+    await t.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "other", admin: false, scopesPlain: null }).isPersisted.promise
     release(); await t.store.settled?.()
     await t.store.dispatch({ type: "composer.changed", actor: "user", draft: "Other account question" }).isPersisted.promise
     expect(requested?.state).toBe("requested")

@@ -16,7 +16,6 @@ type SessionBody = {
 
 export type AuthenticatedSession = {
   readonly login: string
-  readonly allowlisted: boolean
   readonly admin: boolean
 }
 
@@ -142,7 +141,7 @@ export const parseAuthenticatedUser = (status: number, body: SessionBody | undef
       (body.is_admin !== undefined && typeof body.is_admin !== "boolean")) {
     throw new Error("Authenticated-user preflight returned an unrecognized user body.")
   }
-  return { login: body.username, allowlisted: true, admin: body.is_admin ?? false }
+  return { login: body.username, admin: body.is_admin ?? false }
 }
 
 const readSessionAtOrigin = async (context: BrowserContext, origin: string): Promise<AuthenticatedSession | undefined> => {

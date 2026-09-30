@@ -16,7 +16,7 @@ afterEach(async () => {
 const fixture = async (send: (store: AppStore) => TurnController["send"], foreignFirst = false) => {
   const original = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   await original.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "alice",
-    allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+    admin: false, scopesPlain: null }).isPersisted.promise
   const scope = promptQueueScope(original.session())
   const prompt = { id: "queued-request", text: "queued request", scope }
   if (foreignFirst) await original.dispatch({ type: "prompt.queued", actor: "user",

@@ -104,7 +104,7 @@ const readyController = async (relay: ReturnType<typeof scriptedRelay>, storage 
   const store = supplied ?? await createAppStore({ kind: "localStorage", storage })
   await store.dispatch({
     type: "identity.session.loaded", actor: "system", state: "signed-in",
-    login: "will", allowlisted: true, admin: false, scopesPlain: null
+    login: "will", admin: false, scopesPlain: null
   }).isPersisted.promise
   await store.dispatch({
     type: "repositories.loaded", actor: "system",
@@ -543,9 +543,9 @@ describe("plan workspace and account ownership", () => {
     try {
       await controller.planFlow(FLOW, REPO)
       await settle(10)
-      await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, allowlisted: false, admin: false, scopesPlain: null }).isPersisted.promise
+      await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, admin: false, scopesPlain: null }).isPersisted.promise
       await settle(10)
-      await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login, allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+      await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login, admin: false, scopesPlain: null }).isPersisted.promise
       // Sign-out forgets the account's boxes; the new session loads its own.
       await loadBox(store, REPO)
       await controller.planFlow(FLOW, REPO)
@@ -578,7 +578,7 @@ test("an account change during provisioning sends no Plan and resolves no succes
     await settle(10)
     expect(entered).toBe(true)
     expect([...store.collections.toasts.values()].filter(toast => toast.status === "running")).toHaveLength(1)
-    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, allowlisted: false, admin: false, scopesPlain: null }).isPersisted.promise
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, admin: false, scopesPlain: null }).isPersisted.promise
     provisioning.resolve()
     await settle(15)
     expect(plans).toBe(0)

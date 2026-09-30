@@ -66,7 +66,7 @@ const installProjectorFixture = async (storage: StorageApi, version: number, ret
     payload: { repo: "org/repo", path: "kept.ts", content: "retained", truncated: false }
   } }).isPersisted.promise
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "alice",
-    allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+    admin: false, scopesPlain: null }).isPersisted.promise
   await store.dispatch({ type: "world.document.upserted", actor: "user", document: {
     id: "kept", path: "kept.md", title: "Kept", body: "Retain wiki", links: [], tags: [], sources: [], confidence: 1
   } }).isPersisted.promise
@@ -144,7 +144,7 @@ describe("the live store's authoritative event path", () => {
     test(`a pre-v26 ${stage} signup with ${compact ? "compacted" : "live"} history retires once`, async () => {
     const storage = memoryStorage(), store = await open(storage)
     await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "new-owner",
-      provider: "github", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+      provider: "github", admin: false, scopesPlain: null }).isPersisted.promise
     await store.dispatch({ type: "signup.changed", actor: "user", patch: {
       stage, name: "PRIVATE OLD NAME", account: "chosen-slug", question: 2,
       answers: { heard: "PRIVATE OLD ANSWER" }, repo: "private/repo",
@@ -153,10 +153,10 @@ describe("the live store's authoritative event path", () => {
     if (compact) await store.compactEvents()
     const old = await store.eventHistory()
     await store.dispose?.(); opened.splice(opened.indexOf(store), 1)
-    const { hash: _, ...checkpointBody } = { ...old.checkpoint, projectorVersion: APP_PROJECTOR_VERSION - 1 }
+    const { hash: _, ...checkpointBody } = { ...old.checkpoint, projectorVersion: 25 }
     const checkpoint = { ...checkpointBody, hash: digest("smithers-app/checkpoint/v1:" + canonicalEventValue(checkpointBody)) }
     editEnvelope(storage, entries => {
-      for (const [id, data] of [["app-event-heads", { ...old.head, projectorVersion: APP_PROJECTOR_VERSION - 1 }],
+      for (const [id, data] of [["app-event-heads", { ...old.head, projectorVersion: 25 }],
         ["app-event-checkpoints", checkpoint]] as const) {
         entries[`smithers-mvp.${id}`] = JSON.stringify({ "s:current": { versionKey: "fixture", data } })
       }
@@ -180,7 +180,7 @@ describe("the live store's authoritative event path", () => {
   test("current-version signup edits keep their chosen slug across same-owner reload", async () => {
     const storage = memoryStorage(), store = await open(storage)
     await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "new-owner",
-      provider: "github", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+      provider: "github", admin: false, scopesPlain: null }).isPersisted.promise
     await store.dispatch({ type: "signup.changed", actor: "user", patch: { stage: "poll", name: "Chosen Name",
       account: "chosen-slug", answers: { size: "Just me" }, draft: { account: "chosen-slug" } } }).isPersisted.promise
     const saved = store.session().signup
@@ -188,28 +188,67 @@ describe("the live store's authoritative event path", () => {
     const restored = await open(storage)
     expect(restored.session().signup).toEqual(saved)
     await restored.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "new-owner",
-      provider: "github", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+      provider: "github", admin: false, scopesPlain: null }).isPersisted.promise
     expect(restored.session().signup).toEqual(saved)
     await restored.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "other-owner",
-      provider: "github", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+      provider: "github", admin: false, scopesPlain: null }).isPersisted.promise
     expect(restored.session().signup).toEqual({ stage: "account", door: "github", account: "other-owner",
       question: 0, answers: {}, draft: { account: "other-owner" } })
     expect((await restored.verifyState()).valid).toBe(true)
   })
 
+  test("a pre-v27 store retires the closed-alpha identity fields and the request queue once", async () => {
+    const storage = memoryStorage(), store = await open(storage)
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "new-owner",
+      provider: "github", admin: true, scopesPlain: null }).isPersisted.promise
+    await store.compactEvents()
+    const old = await store.eventHistory()
+    await store.dispose?.(); opened.splice(opened.indexOf(store), 1)
+    const { hash: _, ...body } = { ...old.checkpoint, projectorVersion: 26 }
+    const checkpoint = { ...body, hash: digest("smithers-app/checkpoint/v1:" + canonicalEventValue(body)) }
+    editEnvelope(storage, entries => {
+      const identities = JSON.parse(entries["smithers-mvp.app-identity-sessions"]!)
+      Object.assign(identities["s:identity"].data, { allowlisted: false, accessRequested: true, accessError: "ACCESS REQUEST FAILED" })
+      entries["smithers-mvp.app-identity-sessions"] = JSON.stringify(identities)
+      const cards = entries["smithers-mvp.app-cards"] === undefined ? {} : JSON.parse(entries["smithers-mvp.app-cards"])
+      cards["s:admin-requests"] = { versionKey: "fixture", data: { id: "admin-requests", kind: "request-queue",
+        title: "Request-access queue — 1 waiting", status: "active", createdAt: 1, ordinal: 1,
+        payload: { requests: [{ login: "QUEUED LOGIN", note: null, createdAt: "" }], approving: null } } }
+      entries["smithers-mvp.app-cards"] = JSON.stringify(cards)
+      for (const [id, data] of [["app-event-heads", { ...old.head, projectorVersion: 26 }],
+        ["app-event-checkpoints", checkpoint]] as const) {
+        entries[`smithers-mvp.${id}`] = JSON.stringify({ "s:current": { versionKey: "fixture", data } })
+      }
+    })
+    expect(JSON.stringify(envelopeRows(storage))).toContain("ACCESS REQUEST FAILED")
+    const upgraded = await open(storage)
+    const identity = upgraded.collections.identitySessions.get("identity")!
+    expect(identity).toMatchObject({ state: "signed-in", login: "new-owner", admin: true })
+    for (const retired of ["allowlisted", "accessRequested", "accessError"]) expect(identity).not.toHaveProperty(retired)
+    expect(upgraded.collections.cards.get("admin-requests")).toBeUndefined()
+    expect((await upgraded.eventHistory()).checkpoint.reason).toBe("projector-upgrade")
+    expect(JSON.stringify(envelopeRows(storage))).not.toContain("ACCESS REQUEST FAILED")
+    expect(JSON.stringify(envelopeRows(storage))).not.toContain("QUEUED LOGIN")
+    expect((await upgraded.verifyState()).valid).toBe(true)
+    await upgraded.dispose?.(); opened.splice(opened.indexOf(upgraded), 1)
+    const reopened = await open(storage)
+    expect(reopened.collections.identitySessions.get("identity")).toEqual(identity)
+    expect((await reopened.verifyState()).valid).toBe(true)
+  })
+
   test("a signed-out legacy row has no account to claim its signup details", async () => {
     const storage = memoryStorage(), store = await open(storage)
     await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null,
-      provider: "github", allowlisted: false, admin: false, scopesPlain: null }).isPersisted.promise
+      provider: "github", admin: false, scopesPlain: null }).isPersisted.promise
     await store.dispatch({ type: "signup.changed", actor: "user", patch: { stage: "poll", name: "PRIVATE NAME",
       account: "old-owner", answers: { size: "PRIVATE ANSWER" }, draft: { account: "old-owner" } } }).isPersisted.promise
     await store.compactEvents()
     const old = await store.eventHistory()
     await store.dispose?.(); opened.splice(opened.indexOf(store), 1)
-    const { hash: _, ...body } = { ...old.checkpoint, projectorVersion: APP_PROJECTOR_VERSION - 1 }
+    const { hash: _, ...body } = { ...old.checkpoint, projectorVersion: 25 }
     const checkpoint = { ...body, hash: digest("smithers-app/checkpoint/v1:" + canonicalEventValue(body)) }
     editEnvelope(storage, entries => {
-      for (const [id, data] of [["app-event-heads", { ...old.head, projectorVersion: APP_PROJECTOR_VERSION - 1 }],
+      for (const [id, data] of [["app-event-heads", { ...old.head, projectorVersion: 25 }],
         ["app-event-checkpoints", checkpoint]] as const) {
         entries[`smithers-mvp.${id}`] = JSON.stringify({ "s:current": { versionKey: "fixture", data } })
       }
@@ -229,7 +268,7 @@ describe("the live store's authoritative event path", () => {
     try {
       const store = await open(storage)
       await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "new-owner",
-        provider: "github", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+        provider: "github", admin: false, scopesPlain: null }).isPersisted.promise
       const saved = store.session().signup!
       expect(writeEntityRecovery(recovery, { key: "signup", revision: 1, value: { kind: "signup", signup: {
         ...saved, draft: { ...saved.draft, name: "PRIVATE STALE EDIT" }
@@ -254,7 +293,7 @@ describe("the live store's authoritative event path", () => {
     try {
       const store = await open(storage)
       await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "new-owner",
-        provider: "github", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+        provider: "github", admin: false, scopesPlain: null }).isPersisted.promise
       await store.dispatch({ type: "signup.changed", actor: "user", patch: { stage: "account",
         name: "PRIVATE SUBMITTED", account: "chosen-slug", draft: { account: "chosen-slug" } } }).isPersisted.promise
       await store.compactEvents()
@@ -265,10 +304,10 @@ describe("the live store's authoritative event path", () => {
       expect(readEntityRecoveries(recovery).some(row => row.value.kind === "signup" && row.value.signup.draft.name === "PRIVATE PENDING")).toBe(true)
       const old = await store.eventHistory()
       await store.dispose?.(); opened.splice(opened.indexOf(store), 1)
-      const { hash: _, ...checkpointBody } = { ...old.checkpoint, projectorVersion: APP_PROJECTOR_VERSION - 1 }
+      const { hash: _, ...checkpointBody } = { ...old.checkpoint, projectorVersion: 25 }
       const checkpoint = { ...checkpointBody, hash: digest("smithers-app/checkpoint/v1:" + canonicalEventValue(checkpointBody)) }
       editEnvelope(storage, entries => {
-        for (const [id, data] of [["app-event-heads", { ...old.head, projectorVersion: APP_PROJECTOR_VERSION - 1 }],
+        for (const [id, data] of [["app-event-heads", { ...old.head, projectorVersion: 25 }],
           ["app-event-checkpoints", checkpoint]] as const) {
           entries[`smithers-mvp.${id}`] = JSON.stringify({ "s:current": { versionKey: "fixture", data } })
         }
@@ -318,7 +357,7 @@ describe("the live store's authoritative event path", () => {
 
   test("version 5 upgrade preserves a chore policy; its observed next execution survives reopen without granting evidence", async () => {
     const storage = memoryStorage(), store = await open(storage)
-    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "alice", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "alice", admin: false, scopesPlain: null }).isPersisted.promise
     const payload = initialSetup("org/repo", "chores", "alice")
     payload.draft.schedule = "0 9 * * *"
     payload.active = { revision: 1, digest: setupCandidate(payload), registrationId: "chore", sourceRevision: "immutable-source", enabled: true, owned: true }
@@ -353,7 +392,7 @@ describe("the live store's authoritative event path", () => {
 
   test("version 4 upgrade preserves setup cases and an unfinished receipt; recovery markers survive the next reopen", async () => {
     const storage = memoryStorage(), store = await open(storage)
-    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "alice", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "alice", admin: false, scopesPlain: null }).isPersisted.promise
     const payload = initialSetup("org/repo", "issues", "alice")
     payload.draft.cases = [{ id: "retained-case", name: "Retained case", input: "An issue", expected: "A source-bound answer", required: true }]
     const candidate = setupCandidate(payload)
@@ -641,7 +680,7 @@ describe("the live store's authoritative event path", () => {
      * out. Changing this list owes a bump and an upgrade test like the ones
      * below.
      */
-    expect({ version: APP_PROJECTOR_VERSION, roster: [...APP_PROJECTION_COLLECTION_NAMES].sort() }).toEqual({ version: 26, roster: [
+    expect({ version: APP_PROJECTOR_VERSION, roster: [...APP_PROJECTION_COLLECTION_NAMES].sort() }).toEqual({ version: 27, roster: [
       "agents", "approvalRequests", "billingAccounts", "branches", "cardHistories", "cards", "changes",
       "cloudSessions", "cloudWorkspaces", "commandIntents", "connectorOperations", "connectors", "flowDurations", "frames",
       "githubAppStatuses", "httpTurnLegs", "httpTurns", "identitySessions", "messages", "models",
@@ -719,7 +758,7 @@ describe("the live store's authoritative event path", () => {
     await store.dispatch({ type: "composer.changed", actor: "user", draft: "kept" }).isPersisted.promise
     await store.compactEvents()
     await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "alice",
-      allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+      admin: false, scopesPlain: null }).isPersisted.promise
     const old = await store.eventHistory()
     const current = replayAppEvents(old.checkpoint, old.events, old.head).snapshot
     const legacy = structuredClone(current)
@@ -991,7 +1030,7 @@ describe("the live store's authoritative event path", () => {
     const storage = memoryStorage()
     const first = await open(storage)
     await first.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "alice",
-      allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+      admin: false, scopesPlain: null }).isPersisted.promise
     const sandbox = { concurrentSandboxes: 2, concurrentInUse: 1, idleTimeoutSecs: 60, hoursPerDay: 3,
       secondsUsedToday: 120, dayResetsAt: "2026-09-16T00:00:00Z" }
     const plans = [{ key: "pro" as const, display_name: "Observed plan", price_cents: 1234, interval: "month",
@@ -1124,7 +1163,7 @@ describe("the live store's authoritative event path", () => {
     const storage = memoryStorage()
     const store = await open(storage)
     await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "alice",
-      allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+      admin: false, scopesPlain: null }).isPersisted.promise
     await store.dispatch({ type: "message.submitted", actor: "user", turnId: "private", text: "secret-before-signout" }).isPersisted.promise
     const old = await store.eventHistory()
     await store.dispatch({ type: "identity.session.cleared", actor: "user" }).isPersisted.promise

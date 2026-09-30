@@ -478,7 +478,6 @@ describe("billing plans are available to every signed-in account", () => {
       actor: "system",
       state: "signed-in",
       login: "codeplanesmithers",
-      allowlisted: true,
       admin: false,
       scopesPlain: null
     })
@@ -497,7 +496,6 @@ describe("billing plans are available to every signed-in account", () => {
       actor: "system",
       state: "signed-in",
       login: "will",
-      allowlisted: true,
       admin: true,
       scopesPlain: null
     })
@@ -598,15 +596,15 @@ describe("command registry bindings", () => {
       actor: "system",
       state: "signed-in",
       login: "will",
-      allowlisted: true,
       admin: true,
       scopesPlain: null
     })
     const adminNames = controller.commands.all().map((command) => command.name)
-    expect(adminNames).toContain("admin.allowlist.add")
-    expect(adminNames).toContain("admin.allowlist.remove")
     expect(adminNames).toContain("admin.grant")
-    expect(adminNames).toContain("admin.requests")
+    // The closed-alpha gate retired with its operator doors (#2145).
+    for (const retired of ["admin.allowlist.add", "admin.allowlist.remove", "admin.requests", "admin.queue.approve", "auth.request-access"]) {
+      expect(adminNames).not.toContain(retired)
+    }
     expect(adminNames).toContain("admin.health")
     expect(adminNames).toContain("admin.reset")
     expect(adminNames).toContain("admin.reset.ask")

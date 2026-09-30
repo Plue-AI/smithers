@@ -74,7 +74,6 @@ const identity = async (store: AppStore, state: "signed-in" | "signed-out"): Pro
     actor: "system",
     state,
     login: state === "signed-in" ? "will" : null,
-    allowlisted: state === "signed-in",
     admin: false,
     scopesPlain: null
   })

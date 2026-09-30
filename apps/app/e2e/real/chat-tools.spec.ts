@@ -287,12 +287,11 @@ authenticatedTest("production recommendations come from the live recommender and
   await bootWorkspace(page)
   const sessionResponse = await realApi(page, request, "GET", "/api/user")
   expect(sessionResponse.status()).toBe(200)
-  const identity = await sessionResponse.json() as { readonly login?: unknown; readonly allowlisted?: unknown; readonly admin?: unknown }
+  const identity = await sessionResponse.json() as { readonly login?: unknown; readonly admin?: unknown }
   expect(identity.login,
     "Live recommendation success requires a real signed-in production browser session; anonymous refusal is not coverage.")
     .toEqual(expect.any(String))
   expect((identity.login as string).trim()).not.toBe("")
-  expect(identity.allowlisted, "The real identity must have access to production chat.").toBe(true)
   expect(identity.admin, "The durable outcome audit requires the real admin canary profile.").toBe(true)
   const bootstrapResponse = await realApi(page, request, "GET", "/api/bootstrap")
   expect(bootstrapResponse.status()).toBe(200)

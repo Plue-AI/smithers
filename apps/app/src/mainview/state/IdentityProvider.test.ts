@@ -8,8 +8,8 @@ import { memoryStorage, scriptedToolAgent, settle } from "./TestFixtures"
 
 const createAppController = scopedControllers()
 
-const signedOut = { state: "signed-out" as const, login: null, allowlisted: false, admin: false }
-const signedIn = { state: "signed-in" as const, login: "owner", allowlisted: true, admin: false }
+const signedOut = { state: "signed-out" as const, login: null, admin: false }
+const signedIn = { state: "signed-in" as const, login: "owner", admin: false }
 const servicesFor = (mode: "owner" | "bearer" | "github"): AppServices => ({
   bootstrap: { apiVersion: 1, host: mode === "owner" ? "local" : "cloud", version: "test", buildSha: "test", capabilities: ["identity", "agent"], authFlow: mode === "owner" ? "credentials" : "redirect", sandbox: null },
   ...(mode === "github" ? {} : {

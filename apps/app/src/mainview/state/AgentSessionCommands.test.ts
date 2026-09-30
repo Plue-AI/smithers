@@ -32,7 +32,7 @@ test.each(["slash", "button", "form", "agent"] as const)("session view reaches i
       return Response.json(body, { status: path === target || path === `${target}/messages` ? 200 : 503 })
     }
   })
-  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", allowlisted: true, admin: false, scopesPlain: null })
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", admin: false, scopesPlain: null })
   await store.dispatch({ type: "cloud.session.loaded", actor: "system", state: "signed-in", username: "will", expiresAt: null, scopes: null })
   expect(store.collections.repositories.size).toBe(0)
   const args = `${session.id} ${repo}`

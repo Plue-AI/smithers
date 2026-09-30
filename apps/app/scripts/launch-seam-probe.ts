@@ -42,10 +42,10 @@ const no501 = async (label: string, response: Response): Promise<string> => {
 const session = await fetch(`${origin}/api/user`, { headers: { cookie } })
 const sessionBody = await no501("identity seam /api/user", session)
 {
-  const body = JSON.parse(sessionBody || "{}") as { login?: string; allowlisted?: boolean }
+  const body = JSON.parse(sessionBody || "{}") as { login?: string }
   check(
-    "identity session is signed in + allowlisted",
-    typeof body.login === "string" && body.allowlisted === true,
+    "identity session is signed in",
+    typeof body.login === "string",
     sessionBody.trim().slice(0, 160)
   )
 }

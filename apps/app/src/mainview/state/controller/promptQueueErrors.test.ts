@@ -20,7 +20,7 @@ const fixture = async (storage = memoryStorage()) => {
     await store.settled()
   }
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "alice",
-    allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+    admin: false, scopesPlain: null }).isPersisted.promise
   const scope = promptQueueScope(store.session())
   const prompt = { id: "queued-one", text: "first queued request", scope }
   await store.dispatch({ type: "prompt.queued", actor: "user", prompt }).isPersisted.promise

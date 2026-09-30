@@ -103,7 +103,7 @@ const harness = async (bootstrap: AppBootstrap = bootstraps[0]!) => {
   }
   externalWork.push({ controller, requests, starts, cancellations })
   // Once constructed, the scoped controller owns store disposal too.
-  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", admin: false, scopesPlain: null }).isPersisted.promise
   const read = async (call: AgentToolCall): Promise<string> => {
     await settleStore()
     const before = await store.eventHistory()

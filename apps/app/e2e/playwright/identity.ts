@@ -9,10 +9,8 @@
  * everyone else, which is the permission bug the suite exists to catch.
  *
  * `SCOPED_TEST_USER` is a plain signed-in GitHub account: no `admin` claim, no
- * maintainer claim on any repository, and no entry on the hand-seeded
- * closed-alpha roster. `allowlisted` is `true` because open sign-in makes
- * identity answer `true` for every login (Factory spec 01 §3); the privilege
- * is the `admin` claim and the seeded roster, never that flag.
+ * maintainer claim on any repository. Signup is public (#2145), so the
+ * privilege is the `admin` claim alone.
  *
  * The login matches the deployed test account, so one account name reads the
  * same across the doubles, the real tier's persistent profile, and the server
@@ -23,7 +21,6 @@
  */
 export const SCOPED_TEST_USER = {
   login: "codeplanesmithers",
-  allowlisted: true,
   admin: false
 } as const
 

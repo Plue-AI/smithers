@@ -33,7 +33,7 @@ const until = async (predicate: () => boolean) => {
 }
 async function fixture(answer: (body: Body, method: string) => Promise<Response>, storage = memoryStorage(), dependencies?: RepositorySetupDependencies) {
   const store = await createAppStore({ kind: "localStorage", storage })
-  store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "maintainer", allowlisted: true, admin: false, scopesPlain: null })
+  store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "maintainer", admin: false, scopesPlain: null })
   if (!store.collections.cards.get("setup")) await store.dispatch({ type: "card.upsert", actor: "user", card: {
     id: "setup", kind: "repository-setup", title: "Handle issues", status: "active", createdAt: 1, ordinal: store.nextOrdinal(),
     payload: { ...initialSetup("example/repo", "issues", "maintainer"), inspectedAt: 1 }
@@ -513,7 +513,7 @@ test("draft commands cannot forge active authority or run as another account", a
   try {
     expect(await t.setup.configureRepositorySetup("setup", "active", true)).toBe("That setting cannot be edited.")
     const prior = t.store.collections.cards.get("setup")!
-    t.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "other", allowlisted: true, admin: false, scopesPlain: null })
+    t.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "other", admin: false, scopesPlain: null })
     // Account switching already clears old cards; a restored foreign card is
     // refused by the controller independently of that presentation policy.
     await t.store.dispatch({ type: "card.upsert", actor: "system", card: prior }).isPersisted.promise
@@ -571,7 +571,7 @@ test("signed-out setup stays editable and offers the sign-in door without inspec
   let signIns = 0
   const t = await fixture(async body => response(body), memoryStorage(), doors({ promptSignIn: () => { signIns++ } }))
   try {
-    t.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, allowlisted: false, admin: false, scopesPlain: null })
+    t.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, admin: false, scopesPlain: null })
     await t.setup.openRepositorySetup("issues", "example/preview")
     expect(signIns).toBe(0)
     const card = [...t.store.collections.cards.values()].find(card => card.kind === "repository-setup")!
@@ -727,7 +727,7 @@ test("new setup ignores an ambient older workspace and keeps the server's compat
       await again.setup.retryRepositorySetup(card.id); await Promise.all(again.background)
       expect(again.calls).toHaveLength(1)
       expect(again.calls[0]?.body.workspaceId).toBe(workspaceId)
-      await again.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "other", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+      await again.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "other", admin: false, scopesPlain: null }).isPersisted.promise
       expect(runScopeFromCard(again.store, card, "run-1")).toBeUndefined()
     } finally { await again.close() }
   } finally { await t.close() }
@@ -913,7 +913,7 @@ test.each(["pause", "account", "dispose"])("%s cancels and fences a pending chor
       await until(() => t.state().active?.enabled === false)
     } else if (stop === "account") {
       Object.assign(t.ctx, { accountEpoch: t.ctx.accountEpoch + 1 })
-      await t.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "other", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+      await t.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "other", admin: false, scopesPlain: null }).isPersisted.promise
       t.setup.resumeRepositorySetups()
     } else await t.close()
     // Pause refreshes registration once from the host; the retired schedule adds no read.
@@ -987,7 +987,7 @@ test("an account switch discards the pending schedule refresh from a busy old-ow
     await until(() => t.state().active?.schedule === undefined)
     expect(t.recovery.calls).toHaveLength(1)
     Object.assign(t.ctx, { accountEpoch: t.ctx.accountEpoch + 1 })
-    await t.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "other", allowlisted: true,
+    await t.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "other", 
       admin: false, scopesPlain: null }).isPersisted.promise
     t.setup.resumeRepositorySetups()
     held.release(); await Promise.all(t.background)
@@ -1314,7 +1314,7 @@ test("pending recovery survives restart; late old-owner replies and edited draft
     t.recovery.answer = async () => { await again.promise; return Response.json(recoveredInspection()) }
     await t.setup.openRepositorySetup("issues", "example/repo")
     Object.assign(t.ctx, { accountEpoch: t.ctx.accountEpoch + 1 })
-    await t.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "bob", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+    await t.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "bob", admin: false, scopesPlain: null }).isPersisted.promise
     again.release(); await Promise.all(t.background)
     expect(setupCard(t)).toBeUndefined()
     expect([...t.store.collections.cards.values()].some(card => card.kind === "repository-setup")).toBe(false)

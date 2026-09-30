@@ -313,7 +313,7 @@ for (const hold of ["DTO", "diff"] as const) {
         return release.promise
       } }, { isDisposed: () => disposed })
       try {
-        await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", provider: "github", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+        await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", provider: "github", admin: false, scopesPlain: null }).isPersisted.promise
         const pending = seam.viewChange("qupxosqw")
         await entered.promise
         const cloud = (username: string | null) => store.dispatch({
@@ -325,7 +325,7 @@ for (const hold of ["DTO", "diff"] as const) {
         if (retirement === "A to B to A") { await cloud("other"); await cloud("will") }
         if (retirement === "identity sign-out" || retirement === "identity account B") await store.dispatch({
           type: "identity.session.loaded", actor: "system", state: retirement === "identity sign-out" ? "signed-out" : "signed-in",
-          login: retirement === "identity sign-out" ? null : "other", provider: "github", allowlisted: retirement !== "identity sign-out", admin: false, scopesPlain: null
+          login: retirement === "identity sign-out" ? null : "other", provider: "github", admin: false, scopesPlain: null
         }).isPersisted.promise
         if (retirement === "controller disposal") disposed = true
         await store.eventHistory()
@@ -354,10 +354,10 @@ for (const hold of ["DTO", "diff"] as const) {
       return release.promise
     } })
     try {
-      await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", provider: "github", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+      await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", provider: "github", admin: false, scopesPlain: null }).isPersisted.promise
       const pending = seam.viewChange("qupxosqw")
       await entered.promise
-      await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", provider: "github", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+      await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", provider: "github", admin: false, scopesPlain: null }).isPersisted.promise
       await store.dispatch({ type: "cloud.session.loaded", actor: "system", state: "signed-in", username: "will", expiresAt: "2099-01-01T00:00:00Z", scopes: null }).isPersisted.promise
       release.resolve(json(200, hold === "DTO" ? CHANGE : DIFF)({ method: "GET", body: null }))
       expect(textOf(await pending)).toContain("Change qupxosqw")

@@ -44,7 +44,7 @@ for (const count of [1, 12]) test(`a refused real SQLite write stops ${count} pe
       diagnostics.push(parts)
       if (count === 12) { diagnosticSinkThrew = true; throw new Error("diagnostic sink failed") }
     }
-    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "owner", provider: "github", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "owner", provider: "github", admin: false, scopesPlain: null }).isPersisted.promise
     const controller = controllerFor(store, silentAgent, {})
     await store.settled?.()
     const failures: Error[] = []
@@ -161,7 +161,7 @@ test("a queued privacy retirement still closes reads after an earlier SQLite wri
   const store = await createAppStore({ backend: { kind: "opfs", ...adapter, storageEventApi: { addEventListener() {}, removeEventListener() {} } },
     mode: "opfs", degraded: false, privacy: { record, eraseInactiveDatabase: async () => {} } })
   try {
-    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "old-owner", provider: "github", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "old-owner", provider: "github", admin: false, scopesPlain: null }).isPersisted.promise
     const failures: Error[] = []
     store.onStorageFailure(error => { failures.push(error) })
     fail = true

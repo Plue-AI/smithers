@@ -19,7 +19,7 @@ import { runCause } from "../RunCause"
 test("requests waiting on admission when the account ends save nothing and acknowledge nothing", async () => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "owner",
-    allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+    admin: false, scopesPlain: null }).isPersisted.promise
   const ctx = createControllerContext(store, unavailableAgent, { fetchImpl: () => new Promise<Response>(() => {}) })
   const prepared: string[] = []
   const launch = createWorkflowLaunchController(ctx, () => 1, () => new Promise(() => {}), (repo) => {
@@ -46,7 +46,7 @@ test("a failed post-launch save keeps the job pending and retries without relaun
     if (failSave && value.includes('remote-run')) { failSave = false; rejected++; throw Error("disk unavailable") }
     durable.setItem(key, value)
   } } })
-  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "owner", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "owner", admin: false, scopesPlain: null }).isPersisted.promise
   const ctx = createControllerContext(store, unavailableAgent, { workflowPollMs: 1, toastDebounceMs: 1, toastAutoDismissMs: 10000 })
   let launches = 0, pumps = 0
   ctx.gateway = { ...ctx.gateway, launch: async () => { launches++; failSave = true; return { status: "ok", value: { runId: "remote-run", workspaceId: "0b0c0d0e-0000-4000-8000-000000000001" } } } } as typeof ctx.gateway
@@ -90,7 +90,7 @@ const launchFixture = async (config: {
 } = {}) => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "owner",
-    allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+    admin: false, scopesPlain: null }).isPersisted.promise
   const ctx = createControllerContext(store, unavailableAgent, { workflowPollMs: 1, toastDebounceMs: 1, toastAutoDismissMs: 10_000,
     ...(config.workflowPreparationTimeoutMs === undefined ? {} : { workflowPreparationTimeoutMs: config.workflowPreparationTimeoutMs }) })
   const launched: string[] = [], launchedInputs: Array<Record<string, unknown>> = []
@@ -206,7 +206,7 @@ test("a late launch answer from the previous account cannot publish a run into t
     expect(await t.controller.start(request)).toEqual({ value: expect.stringContaining("run-requested workflow=review") })
     await waitFor(() => t.launched.length === 1)
     await t.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "another",
-      allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+      admin: false, scopesPlain: null }).isPersisted.promise
     answer.resolve({ status: "ok", value: { runId: "old-run", workspaceId } })
     await settle()
     expect(t.ctx.accountOwner()).toBe("another")

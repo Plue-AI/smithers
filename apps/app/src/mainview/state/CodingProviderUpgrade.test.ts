@@ -49,12 +49,12 @@ const signedOutFixture = async (version = APP_PROJECTOR_VERSION, completeMarker 
   const first = await open(storage)
   if (completeMarker) {
     await first.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "alice",
-      allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+      admin: false, scopesPlain: null }).isPersisted.promise
     await first.dispatch({ type: "identity.session.cleared", actor: "user" }).isPersisted.promise
     expect(readPrivacyRetirement(storage)?.phase).toBe("complete")
   } else {
     await first.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null,
-      allowlisted: false, admin: false, scopesPlain: null }).isPersisted.promise
+      admin: false, scopesPlain: null }).isPersisted.promise
   }
   if (!completeMarker) await first.compactEvents()
   const before = await first.eventHistory()
@@ -179,7 +179,7 @@ test("a pending old cleanup targeting the contaminated stream rotates again befo
   const reopened = await open(storage)
   await expectClean(reopened, storage, oldStream)
   await reopened.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "bob",
-    allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+    admin: false, scopesPlain: null }).isPersisted.promise
   expect(reopened.session().codingProviderRequests ?? []).toEqual([])
 })
 
@@ -188,10 +188,10 @@ for (const identity of ["signed-in", "unavailable"] as const) {
     const { storage } = memory()
     const first = await open(storage)
     await first.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "alice",
-      allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+      admin: false, scopesPlain: null }).isPersisted.promise
     await first.dispatch({ type: "coding.provider.requests.changed", actor: "system", requests: [request] }).isPersisted.promise
     if (identity === "unavailable") await first.dispatch({ type: "identity.session.loaded", actor: "system",
-      state: "unavailable", login: null, allowlisted: false, admin: false, scopesPlain: null }).isPersisted.promise
+      state: "unavailable", login: null, admin: false, scopesPlain: null }).isPersisted.promise
     await first.dispose?.()
     opened.splice(opened.indexOf(first), 1)
     const reopened = await open(storage)
@@ -200,7 +200,7 @@ for (const identity of ["signed-in", "unavailable"] as const) {
     expect(storage.getItem(ENVELOPE_STORAGE_KEY)).toContain(secret)
     if (identity === "unavailable") {
       await reopened.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "alice",
-        allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+        admin: false, scopesPlain: null }).isPersisted.promise
       expect(reopened.session().codingProviderRequests).toEqual([request])
     }
   })
@@ -265,7 +265,7 @@ test("missing identity in an older checkpoint never turns a synthetic null owner
   expect((await second.eventHistory()).head.streamId).not.toBe(oldStream)
   expect(readPrivacyRetirement(storage)).toBeUndefined()
   await second.dispatch({ type: "identity.session.loaded", actor: "system", state: "unavailable", login: null,
-    allowlisted: false, admin: false, scopesPlain: null }).isPersisted.promise
+    admin: false, scopesPlain: null }).isPersisted.promise
   expect(second.session().codingProviderRequests).toEqual(requests)
   await second.dispose?.()
   opened.splice(opened.indexOf(second), 1)
@@ -274,7 +274,7 @@ test("missing identity in an older checkpoint never turns a synthetic null owner
   expect(third.session().codingProviderRequests).toEqual(requests)
   expect(readPrivacyRetirement(storage)).toBeUndefined()
   await third.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "alice",
-    allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+    admin: false, scopesPlain: null }).isPersisted.promise
   expect(third.session().codingProviderRequests).toEqual(requests)
   expect((await third.verifyState()).valid).toBe(true)
   expect(storage.getItem(ENVELOPE_STORAGE_KEY)).toContain(secret)
@@ -284,7 +284,7 @@ test("older checkpoint keeps Alice's requests when a materialized identity false
   const { storage } = memory()
   const first = await open(storage)
   await first.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "alice",
-    allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+    admin: false, scopesPlain: null }).isPersisted.promise
   await first.dispatch({ type: "coding.provider.requests.changed", actor: "system", requests }).isPersisted.promise
   await first.compactEvents()
   const history = await first.eventHistory()
@@ -333,7 +333,7 @@ test("an older signed-out checkpoint with an uncovered event suffix is refused b
   const { storage } = memory()
   const first = await open(storage)
   await first.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null,
-    allowlisted: false, admin: false, scopesPlain: null }).isPersisted.promise
+    admin: false, scopesPlain: null }).isPersisted.promise
   await first.dispatch({ type: "coding.provider.requests.changed", actor: "system", requests }).isPersisted.promise
   await first.compactEvents()
   await first.dispatch({ type: "theme.changed", actor: "user", theme: "dark" }).isPersisted.promise

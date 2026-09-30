@@ -497,7 +497,7 @@ describe("the composer card, bound to the store", () => {
     const saved = structuredClone(store.collections.cards.get(composer.id))
     const noop = () => {}
     const Bound = () => modelCardFamily["model-call"].render(composer as Extract<Card, { kind: "model-call" }>, { projectionStore: store, worldDocuments: [], onRunCommand: noop,
-      onDecideApproval: noop, onGrantConfirm: noop, onGrantCancel: noop, onQueueApprove: noop,
+      onDecideApproval: noop, onGrantConfirm: noop, onGrantCancel: noop, 
       onConnectGitHub: noop, onRunWorkflow: noop, onStopRun: noop,
       onRetryRun: noop, onChooseWorkflowRepo: noop, onChangeWorldDocument: noop })
     const host = mount(<Bound />)

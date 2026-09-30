@@ -8,7 +8,7 @@ import { createRepositoryUpdate } from "./repositoryUpdate"
 const repo = "alice/private"
 const identity = (store: AppStore, login: string | null, provider: "github" | "local" = "github") => store.dispatch({
   type: "identity.session.loaded", actor: "system", state: login === null ? "signed-out" : "signed-in",
-  login, provider, allowlisted: login !== null, admin: false, scopesPlain: null
+  login, provider, admin: false, scopesPlain: null
 }).isPersisted.promise
 const issue = (title = "PRIVATE_ISSUE") => Response.json([{ number: 1, title, state: "open", updated_at: "2026-09-27T00:00:00Z" }])
 type Phase = "network" | "repo.update.observed" | "repo.update.published"

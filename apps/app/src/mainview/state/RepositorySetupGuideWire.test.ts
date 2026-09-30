@@ -10,7 +10,7 @@ const id = "setup:maintainer:example%2Frepo:issues"
 
 async function fixture() {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
-  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "maintainer", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "maintainer", admin: false, scopesPlain: null }).isPersisted.promise
   const payload = { ...initialSetup("example/repo", "issues", "maintainer"), inspectedAt: 1234 }
   await store.dispatch({ type: "card.upsert", actor: "user", card: {
     id, kind: "repository-setup", title: "Handle issues", status: "active", createdAt: 1, ordinal: store.nextOrdinal(), payload

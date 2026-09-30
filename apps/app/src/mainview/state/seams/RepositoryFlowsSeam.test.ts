@@ -9,7 +9,7 @@ import { createRepositoryFlowsSeam } from "./RepositoryFlowsSeam"
 const repo = "alice/private"
 const identity = (store: AppStore, login: string | null) => store.dispatch({
   type: "identity.session.loaded", actor: "system", state: login === null ? "signed-out" : "signed-in",
-  login, allowlisted: login !== null, admin: false, scopesPlain: null
+  login, admin: false, scopesPlain: null
 }).isPersisted.promise
 const deferred = <T>() => {
   let resolve!: (value: T) => void

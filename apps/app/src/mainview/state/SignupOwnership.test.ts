@@ -8,7 +8,7 @@ const open = async (storage: PrivacyStorage) => createAppStore({ backend: { kind
   privacy: { record: storage, eraseInactiveDatabase: async () => {} } })
 const identity = (store: AppStore, login: string, provider: "github" | "local" = "github") =>
   store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login, provider,
-    allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+    admin: false, scopesPlain: null }).isPersisted.promise
 const fixture = async (stage: SignupStage | "automatic", provider: "github" | "local" = "github") => {
   const bytes = new Map<string, string>()
   const storage: PrivacyStorage = {
@@ -68,7 +68,7 @@ test("same-owner refresh and a transient outage preserve intentional signup edit
     await identity(f.store, "old-owner")
     expect(f.store.session().signup).toEqual(signup)
     await f.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "unavailable", login: null,
-      allowlisted: false, admin: false, scopesPlain: null }).isPersisted.promise
+      admin: false, scopesPlain: null }).isPersisted.promise
     await identity(f.store, "old-owner")
     expect(f.store.session().signup).toEqual(signup)
     expect((await f.store.verifyState()).valid).toBe(true)

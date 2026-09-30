@@ -20,7 +20,7 @@ const BOX_B = "0b0c0d0e-0000-4000-8000-00000000000b"
 
 const signedIn = async (): Promise<AppStore> => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
-  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", admin: false, scopesPlain: null }).isPersisted.promise
   await store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: REPO, org: "will", ownerKind: "user", name: "flows", head: null }] }).isPersisted.promise
   return store
 }

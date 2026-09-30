@@ -342,12 +342,12 @@ describe("agent.session.list", () => {
     const { store, seam, requests } = await harness({
       [`GET api/repos/${REPO}/agent/sessions`]: () => hold ? response.promise : json(200, [AGENT_SESSION_WIRE.session()])
     })
-    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", admin: false, scopesPlain: null }).isPersisted.promise
     await seam.listSessions(REPO)
     hold = true
     const pending = seam.listSessions(REPO)
     await until(() => requests.length === 2)
-    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, allowlisted: false, admin: false, scopesPlain: null }).isPersisted.promise
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, admin: false, scopesPlain: null }).isPersisted.promise
     expect(store.collections.cards.get(`agent-sessions-${REPO}`)).toBeUndefined()
     response.resolve(json(200, [AGENT_SESSION_WIRE.session()]))
     expect(await pending).toBe(SIGN_OUT_REFUSAL)

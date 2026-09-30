@@ -257,7 +257,7 @@ test("refresh preserves concurrent durable connect changes made while both reads
   expect(rows()).toEqual([{ id: "slack", state: "connected", detail: "CURRENT" }, { id: "linear", state: "not-connected" }])
 })
 
-const signIn = (store: AppStore, login: string) => store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login, allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+const signIn = (store: AppStore, login: string) => store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login, admin: false, scopesPlain: null }).isPersisted.promise
 
 for (const owner of ["same", "account", "sign-out"] as const) {
   test(`a held successful integration read belongs to ${owner === "same" ? "the unchanged account" : "the original account after " + owner}`, async () => {
@@ -276,7 +276,7 @@ for (const owner of ["same", "account", "sign-out"] as const) {
     const command = seam.listIntegrations("Owner/Repo")
     await admission
     if (owner === "account") await signIn(store, "ada")
-    else if (owner === "sign-out") await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, allowlisted: false, admin: false, scopesPlain: null }).isPersisted.promise
+    else if (owner === "sign-out") await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, admin: false, scopesPlain: null }).isPersisted.promise
     const atRelease = store.collections.cards.get("connect-embedded")
     release()
     const result = await command

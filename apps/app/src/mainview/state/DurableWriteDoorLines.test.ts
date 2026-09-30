@@ -142,7 +142,7 @@ const reachEveryDoor = async (): Promise<ReadonlyArray<Reached>> => {
     const store = await createAppStore({ kind: "localStorage", storage })
     await store.dispatch({
       type: "identity.session.loaded", actor: "system", state: "signed-in",
-      login: "maintainer", allowlisted: true, admin: true, scopesPlain: null
+      login: "maintainer", admin: true, scopesPlain: null
     }).isPersisted.promise
     const controller = createAppController(store, recordingAgent([]), {
       // No poll of its own: the only writes in this test are the acts under test.

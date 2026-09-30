@@ -65,7 +65,6 @@ const ready = async () => {
     actor: "system",
     state: "signed-in",
     login: "will",
-    allowlisted: true,
     admin: false,
     scopesPlain: null
   })

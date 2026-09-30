@@ -48,7 +48,6 @@ const storeWith = async (state: IdentityFixture): Promise<AppStore> => {
     actor: "system",
     state,
     login: state === "signed-in" ? "will" : null,
-    allowlisted: state === "signed-in",
     admin: false,
     scopesPlain: null
   })
@@ -162,7 +161,7 @@ test("sign-in answers the anonymous ceiling's persisted sign-in card", async () 
   const before = ceilingCards[0]!
   expect(before.status).toBe("active")
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in",
-    login: "codeplanesmithers", allowlisted: false, admin: false, scopesPlain: null }).isPersisted.promise
+    login: "codeplanesmithers", admin: false, scopesPlain: null }).isPersisted.promise
   expect(store.collections.cards.get(before.id)).toMatchObject({ id: before.id, payload: before.payload,
     ordinal: before.ordinal, createdAt: before.createdAt, status: "acted" })
 })

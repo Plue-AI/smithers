@@ -191,7 +191,7 @@ describe("a repo-scoped command whose text ends in a path", () => {
     const controller = createAppController(store, unavailableAgent, services)
     await dispatch(store, {
       type: "identity.session.loaded", actor: "system", state: "signed-in",
-      login: "will", allowlisted: true, admin: false, scopesPlain: null
+      login: "will", admin: false, scopesPlain: null
     })
     await loadRepositories(store, "will/flows")
     if (target !== "will/flows") {

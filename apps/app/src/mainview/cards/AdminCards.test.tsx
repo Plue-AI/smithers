@@ -5,39 +5,16 @@ import type { CardActions } from "./CardFamily"
 import { adminCardFamily } from "./AdminCards"
 
 /*
- * The admin cards never show the admin route's or a probe's raw words as a
- * sentence: a failed approval and a failing probe say ours, with the raw text
- * behind a collapsed Details.
+ * The admin health card never shows a probe's raw words as a sentence: a
+ * failing probe says ours, with the raw text behind a collapsed Details.
  */
 
 const base = { title: "Admin", status: "acted" as const, createdAt: 0, ordinal: 0 }
-const actions = { onRunCommand: () => {}, onQueueApprove: () => {} } as unknown as CardActions
-
-const queue = (error: string | undefined): Extract<Card, { kind: "request-queue" }> => ({
-  ...base, id: "admin-requests", kind: "request-queue",
-  payload: { requests: [{ login: "octo", note: null, createdAt: "2026-09-29T00:00:00Z" }], approving: null, ...(error === undefined ? {} : { error }) }
-})
+const actions = { onRunCommand: () => {} } as unknown as CardActions
 
 const health = (services: Extract<Card, { kind: "admin-health" }>["payload"]["services"]): Extract<Card, { kind: "admin-health" }> => ({
   ...base, id: "admin-health", kind: "admin-health",
-  payload: { services, queueDepth: null, charges: null, checkedAt: "2026-09-29T00:00:00Z" }
-})
-
-describe("the request queue", () => {
-  test("a failed approval says our sentence; the route's body stays behind Details", () => {
-    const html = renderToStaticMarkup(adminCardFamily["request-queue"].render(queue("Approving octo didn't go through. (403 {\"error\":\"forbidden\"})"), actions))
-    expect(html).toMatch(/role="alert"[^>]*data-fault="infra"[^>]*data-failure="AdminApproveFailed"[^>]*data-testid="queue-approve-failure"/)
-    expect(html).toContain("<p>Smithers could not approve that request. Not your fault.</p>")
-    expect(html).toContain("<details><summary>Details</summary>")
-    expect(html.slice(html.indexOf("<details>"))).toContain("403")
-    expect(html.slice(0, html.indexOf("<details>"))).not.toContain("403")
-    // Approve on the row is the way to try again; the notice adds no second door.
-    expect(html.match(/<button/g)?.length).toBe(1)
-  })
-
-  test("no error, no notice", () => {
-    expect(renderToStaticMarkup(adminCardFamily["request-queue"].render(queue(undefined), actions))).not.toContain("queue-approve-failure")
-  })
+  payload: { services, charges: null, checkedAt: "2026-09-29T00:00:00Z" }
 })
 
 describe("the health readout", () => {

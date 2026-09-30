@@ -74,7 +74,7 @@ describe("Signup", () => {
       await store.dispatch({ type: "signup.changed", actor: "user", patch: { draft: { name: "Ada Park" } } }).isPersisted.promise
       expect(store.session().signup?.stage).toBe("sign-in")
       expect(store.session().signup?.draft).toEqual({ name: "Ada Park" })
-      await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "adapark", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+      await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "adapark", admin: false, scopesPlain: null }).isPersisted.promise
       expect(store.session().signup?.stage).toBe("account")
       expect(store.session().signup?.account).toBe("adapark")
     } finally { await closeStore(store) }

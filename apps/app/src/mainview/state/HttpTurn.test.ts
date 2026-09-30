@@ -395,7 +395,7 @@ test("a failed real batch commit cannot start a tool or continuation and reload 
 
 test("account replacement during a held batch receipt prevents old tools, cards and text entering the new account", async () => {
   const store = await open(), remote = journalAgent()
-  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "alice", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "alice", admin: false, scopesPlain: null }).isPersisted.promise
   let release!: () => void
   const held = new Promise<void>(resolve => { release = resolve })
   const gated: AppStore = { ...store, dispatch: transition => {
@@ -412,7 +412,7 @@ test("account replacement during a held batch receipt prevents old tools, cards 
     { type: "done", runId: request.runId, reason: "tool_call" }])
   const receipt = remote.emit({ type: "batch", batch, cursor: cursorOf(batch) })
   await store.settled?.()
-  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "bob", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "bob", admin: false, scopesPlain: null }).isPersisted.promise
   release(); await receipt
   const before = await store.eventHistory()
   await remote.emit({ type: "batch", batch, cursor: cursorOf(batch) })

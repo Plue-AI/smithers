@@ -94,7 +94,6 @@ const identity = (store: AppStore, state: "signed-out" | "signed-in"): void => {
     actor: "system",
     state,
     login: state === "signed-in" ? "will" : null,
-    allowlisted: state === "signed-in",
     admin: false,
     scopesPlain: null
   })

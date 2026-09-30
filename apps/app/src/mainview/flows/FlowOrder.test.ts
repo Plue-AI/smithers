@@ -77,7 +77,6 @@ const PRE_SPLIT_BASE: ReadonlyArray<string> = [
   "auth.sign-in",
   "auth.prompt",
   "auth.sign-out",
-  "auth.request-access",
   "app.download",
   "app.download.prompt",
   "storage.recovery",
@@ -184,13 +183,9 @@ const PRE_SPLIT_ADMIN: ReadonlyArray<string> = [
   "debug.events",
   "debug.net",
   "debug.seams",
-  "admin.allowlist.add",
-  "admin.allowlist.remove",
   "admin.grant",
   "admin.grant.confirm",
   "admin.grant.cancel",
-  "admin.requests",
-  "admin.queue.approve",
   "admin.health"
 ]
 

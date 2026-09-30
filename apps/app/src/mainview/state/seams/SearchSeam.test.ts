@@ -60,7 +60,6 @@ const identity = async (store: AppStore, state: "signed-in" | "signed-out"): Pro
     actor: "system",
     state,
     login: state === "signed-in" ? "will" : null,
-    allowlisted: state === "signed-in",
     admin: false,
     scopesPlain: null
   })
@@ -476,7 +475,7 @@ for (const mode of ["secrets", "targets"] as const) {
     try {
       const pending = controller.search(`search.${mode}`, mode, { query: "private", repo: "search/private" })
       await entered.promise
-      await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "second", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+      await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "second", admin: false, scopesPlain: null }).isPersisted.promise
       const payload = mode === "secrets"
         ? { setup_script: "", env: [], secrets: [{ name: "PRIVATE_TOKEN", hosts: ["private.example.test"], match_headers: [], updated_at: null }] }
         : { content: JSON.stringify({ on: [], flows: [{ id: "private-flow", description: "Private work", summary: "Private work", featured: true, kind: "mdx", path: "flows/private/flow.mdx", capabilities: [], model: null, modelInvocable: true }] }) }
@@ -509,7 +508,7 @@ for (const mode of ["secrets", "targets", "history", "boxes"] as const) {
           : {}
       const wait = async () => { reads++; entered.resolve(); await gate.promise }
       try {
-        await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", provider: "github", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+        await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", provider: "github", admin: false, scopesPlain: null }).isPersisted.promise
         await store.dispatch({ type: "cloud.session.loaded", actor: "system", state: "signed-in", username: "will", expiresAt: null, scopes: null }).isPersisted.promise
         const seam = createSearchSeam({ store, baseUrl: "", dispatch: store.dispatch, actor: () => actor, nextOrdinal: store.nextOrdinal, isDisposed: () => disposed,
           http: async () => {
@@ -520,7 +519,7 @@ for (const mode of ["secrets", "targets", "history", "boxes"] as const) {
         const pending = seam.search(`search.${mode}`, mode, { query: "private", repo: "search/private" })
         await entered.promise
         const loaded = (login: string | null, provider: "github" | "local" = "github") => store.dispatch({ type: "identity.session.loaded", actor: "system",
-          state: login === null ? "signed-out" : "signed-in", login, provider, allowlisted: login !== null, admin: false, scopesPlain: null }).isPersisted.promise
+          state: login === null ? "signed-out" : "signed-in", login, provider, admin: false, scopesPlain: null }).isPersisted.promise
         if (change === "account") await loaded("second")
         if (change === "provider") await loaded("will", "local")
         if (change === "sign-out-return") { await loaded(null); await loaded("will") }
@@ -562,7 +561,7 @@ for (const mode of ["secrets", "targets"] as const) {
     try {
       const pending = controller.search(`search.${mode}`, mode, { query: "private", repo: "search/private" })
       await entered.promise
-      await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "second", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+      await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "second", admin: false, scopesPlain: null }).isPersisted.promise
       reply.resolve(json(503, { message: "Private account failure" }))
       expect(await pending).toBe(SIGN_OUT_REFUSAL)
       expect(store.collections.cards.has(`search-search.${mode}`)).toBe(false)
@@ -580,7 +579,7 @@ test("retirement between search stages starts no factory read, and disposal star
   }, { registry: () => controller.commands })
   try {
     const pending = seam.search("search.targets", "targets", { query: "private", repo: "search/private" })
-    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "second", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "second", admin: false, scopesPlain: null }).isPersisted.promise
     expect(await pending).toBe(SIGN_OUT_REFUSAL)
     disposed = true
     expect(await seam.search("search.secrets", "secrets", { query: "private", repo: "search/private" })).toBe(SIGN_OUT_REFUSAL)

@@ -13,7 +13,7 @@ const pause = (ms = 0) => new Promise(resolve => setTimeout(resolve, ms))
 const until = async (check: () => boolean) => { for (let i = 0; i < 150 && !check(); i++) await pause(10); expect(check()).toBe(true) }
 const setup = async (storage = memoryStorage(), fetchImpl: FetchLike = async () => json(404, {}), backend?: PersistenceBackend) => {
   const store = await createAppStore(backend ?? { kind: "localStorage", storage })
-  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, allowlisted: false, admin: false, scopesPlain: null }).isPersisted.promise
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, admin: false, scopesPlain: null }).isPersisted.promise
   await store.dispatch({ type: "repository.entry.changed", actor: "system", entry: { requestId: crypto.randomUUID(), repo, phase: "pending" } }).isPersisted.promise
   const controller = createAppController(store, silentAgent, { fetchImpl: (input, init) => String(input).includes("/contents/.smithers/factory.json") || /\/api\/repos\/[^/]+\/[^/]+\/home$/.test(String(input)) ? Promise.resolve(json(404, {})) : fetchImpl(input, init), toastDebounceMs: 10 })
   const ready = async () => {
@@ -119,7 +119,7 @@ for (const phase of ["pending", "ready"] as const) test(`root reload waits for t
   try {
     controller.changeDraft("Chat is available before identity finishes")
     await pause(15)
-    const adopting = controller.adoptSession({ state: "signed-out", login: null, allowlisted: false, admin: false })
+    const adopting = controller.adoptSession({ state: "signed-out", login: null, admin: false })
     await pause(25)
     expect(hits.filter(path => path === "/api/public/repos")).toEqual([])
     expect(hits.filter(path => path.includes("/contents/docs"))).toEqual([])
@@ -195,7 +195,7 @@ for (const change of ["account", "dispose", "target"] as const) {
       await h.store.dispatch({ type: "repository.entry.changed", actor: "system", entry: null }).isPersisted.promise
       await h.controller.commands.run("files.list", `docs ${repo}`)
       await until(() => catalogs === 1)
-      if (change === "account") await h.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "bob", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+      if (change === "account") await h.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "bob", admin: false, scopesPlain: null }).isPersisted.promise
       if (change === "dispose") await h.controller.dispose()
       if (change === "target") {
         await h.controller.commands.run("files.list", "other beta/two")
@@ -225,7 +225,7 @@ test("a cold catalog response still serves its command through a same-owner iden
     await h.store.dispatch({ type: "repository.entry.changed", actor: "system", entry: null }).isPersisted.promise
     await h.controller.commands.run("files.list", `docs ${repo}`)
     await until(() => catalogs === 1)
-    await h.controller.adoptSession({ state: "signed-out", login: null, allowlisted: false, admin: false })
+    await h.controller.adoptSession({ state: "signed-out", login: null, admin: false })
     release(json(200, { repos: [{ name: repo }] }))
     await until(() => h.store.collections.repositories.has(repo))
   } finally { release(json(503, {})); await h.close() }
@@ -363,7 +363,7 @@ test("a persisted request reconnects after reload and retains its explicit targe
   const hits: string[] = []
   const second = await setup(storage, async input => { hits.push(String(input)); return json(200, { path: "README.md", type: "file", content: "RESTORED", encoding: "utf-8" }) })
   try {
-    await second.controller.adoptSession({ state: "signed-out", login: null, allowlisted: false, admin: false })
+    await second.controller.adoptSession({ state: "signed-out", login: null, admin: false })
     await second.ready()
     await until(() => second.store.collections.cards.get("file-alpha/one-README.md")?.status === "active")
     expect(hits.filter(path => path.includes("/contents/README.md"))).toEqual([expect.stringContaining("/alpha/one/contents/README.md")])
@@ -481,7 +481,7 @@ for (const change of ["selection", "request", "account-owner", "dispose"] as con
         expect(h.store.session().activeRepoKey).toBe("beta/two")
       }
       if (change === "request") beginRepositoryEntry(h.store, "beta/two")
-      if (change === "account-owner") await h.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "bob", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+      if (change === "account-owner") await h.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "bob", admin: false, scopesPlain: null }).isPersisted.promise
       if (change === "dispose") await h.controller.dispose()
       release()
       await pause(30)
@@ -508,7 +508,7 @@ test("a same-owner identity answer while deferral clear persists still submits t
     await h.controller.commands.run("files.list", `docs ${repo}`)
     await h.ready()
     await until(() => clearing)
-    await h.controller.adoptSession({ state: "signed-out", login: null, allowlisted: false, admin: false })
+    await h.controller.adoptSession({ state: "signed-out", login: null, admin: false })
     release()
     await until(() => hits.some(path => path.includes("contents/docs")))
   } finally { release(); spy.mockRestore(); await h.close() }
@@ -648,7 +648,7 @@ for (const scope of ["account", "selection", "entry"] as const) {
     try {
       await catalogFailed(h.store)
       await h.controller.commands.run("files.list", `docs ${repo}`)
-      if (scope === "account") await h.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "bob", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+      if (scope === "account") await h.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "bob", admin: false, scopesPlain: null }).isPersisted.promise
       if (scope === "selection") {
         await h.store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: "selected/repo", org: "selected", name: "repo", ownerKind: "user", head: null }] }).isPersisted.promise
         await h.store.dispatch({ type: "repo.selected", actor: "user", id: "selected/repo" }).isPersisted.promise
@@ -723,7 +723,7 @@ for (const [name, args, error] of invalidSavedRequests) test(`saved ${name} requ
     await h.store.dispatch({ type: "command.deferred", actor: "user", name, args, requirement: "repository-ready" }).isPersisted.promise
     const pending = h.store.session().pendingCommand
     // Boot identity admission reconnects the saved request through the real controller subscription.
-    await h.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, allowlisted: false, admin: false, scopesPlain: null }).isPersisted.promise
+    await h.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, admin: false, scopesPlain: null }).isPersisted.promise
     await until(() => [...h.store.collections.toasts.values()].some(toast => toast.status === "failed"))
     expect([...h.store.collections.toasts.values()].filter(toast => toast.status === "failed").map(toast => toast.detail)).toEqual([error])
     expect(hits).toEqual([])

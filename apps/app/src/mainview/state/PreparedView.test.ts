@@ -229,7 +229,7 @@ test("a cloud session change retires a held prepared view", async () => {
 
 test("same-owner session refresh preserves a held prepared view", async () => {
   const { ctx, store } = await setup()
-  const identity = { type: "identity.session.loaded", actor: "system", state: "signed-in", login: "alice", allowlisted: true, admin: false, scopesPlain: null } as const
+  const identity = { type: "identity.session.loaded", actor: "system", state: "signed-in", login: "alice", admin: false, scopesPlain: null } as const
   const cloud = { type: "cloud.session.loaded", actor: "system", state: "signed-in", username: "alice", expiresAt: null, scopes: null } as const
   await store.dispatch(identity).isPersisted.promise
   await store.dispatch(cloud).isPersisted.promise

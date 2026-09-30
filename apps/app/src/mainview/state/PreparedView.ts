@@ -36,7 +36,7 @@ const scopeOf = (ctx: SeamContext) => {
   const identity = ctx.store.collections.identitySessions.get("identity")
   const cloud = ctx.store.collections.cloudSessions.get("cloud")
   return JSON.stringify([
-    identity && [identity.state, identity.accountOwnerLogin, identity.login, identity.allowlisted, identity.admin, identity.ownerRevision ?? identity.revision],
+    identity && [identity.state, identity.accountOwnerLogin, identity.login, identity.admin, identity.ownerRevision ?? identity.revision],
     cloud && [cloud.state, cloud.username, cloud.scopes, cloud.ownerRevision ?? cloud.revision],
     ctx.store.session().activeRepoKey,
     ctx.store.session().activeWorkspaceId,

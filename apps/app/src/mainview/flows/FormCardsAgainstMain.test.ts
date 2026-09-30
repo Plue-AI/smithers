@@ -123,7 +123,7 @@ const boot = async () => {
       return json(404, { error: { code: "absent", message: `no stub for ${method} ${path}` } })
     }
   })
-  store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", allowlisted: true, admin: true, scopesPlain: null })
+  store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", admin: true, scopesPlain: null })
   await settle()
   return { store, controller }
 }

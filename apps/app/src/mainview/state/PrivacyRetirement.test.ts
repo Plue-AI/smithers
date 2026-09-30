@@ -36,7 +36,7 @@ const open = async (storage: PrivacyStorage, eraseInactiveDatabase: () => Promis
 }
 const fill = async (store: AppStore) => {
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "alice",
-    allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+    admin: false, scopesPlain: null }).isPersisted.promise
   await store.dispatch({ type: "message.submitted", actor: "user", turnId: "private", text: secret }).isPersisted.promise
   await store.dispatch({ type: "world.document.upserted", actor: "user", document: {
     id: "local-note", title: "Local", path: "local.md", body: "permitted machine note", links: [], tags: [], sources: [], confidence: 1

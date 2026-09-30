@@ -83,7 +83,6 @@ const openConnectors = async (
       actor: "system",
       state: "signed-in",
       login: "codeplanesmithers",
-      allowlisted: true,
       admin: false,
       scopesPlain: null
     })

@@ -1,6 +1,6 @@
 import { scenario } from "./coverage/types"
 import { authenticatedTest } from "./auth-permissions/profile"
-import { command, expect, closeComposer, reloadApp } from "./support"
+import { command, expect, closeComposer } from "./support"
 
 import { bootProductionRepository } from "./repositories-github/production"
 
@@ -93,44 +93,3 @@ authenticatedTest("admin grant rejects zero amount before any billing mutation",
   await expect(form).toBeHidden()
 })
 
-authenticatedTest("admin allowlist add and remove are real, observable, and cleaned up", scenario("admin.allowlist-add-remove-cleanup", {
-  capabilities: ["identity"],
-  coverage: [
-    "action:admin.allowlist.add", "action:admin.allowlist.remove", "host:production", "path:success", "path:error",
-    "path:persistence", "door:slash", "dimension:allowlist-roundtrip", "dimension:cleanup", "evidence:post-response-and-reload"
-  ],
-  description: "A unique disposable login is added and removed through the live admin allowlist route; both responses are observed and cleanup runs even when an assertion fails."
-}), async ({ page }) => {
-  await bootProductionRepository(page)
-  const login = `smithers-e2e-${Date.now()}`
-  const responses: Array<{ action: string; status: number }> = []
-  page.on("response", async response => {
-    const url = new URL(response.url())
-    if (url.pathname !== "/api/admin/allowlist" && url.pathname !== "/api/identity/admin/allowlist") return
-    if (response.request().method() !== "POST") return
-    const body = response.request().postDataJSON() as { action?: unknown } | null
-    if (body?.action === "add" || body?.action === "remove") responses.push({ action: body.action, status: response.status() })
-  })
-  try {
-    await command(page, `/admin.allowlist.add ${login}`)
-    await expect(page.getByTestId("transcript")).toContainText(login)
-    await expect(page.getByTestId("transcript")).toContainText(/allowlist/i)
-    await expect.poll(() => [200, 201, 204].includes(responses.find(response => response.action === "add")?.status ?? 0)).toBe(true)
-    await reloadApp(page)
-    await bootProductionRepository(page)
-    await command(page, `/admin.allowlist.remove ${login}`)
-    await expect(page.getByTestId("transcript")).toContainText(login)
-    await expect(page.getByTestId("transcript")).toContainText(/allowlist/i)
-    await expect.poll(() => [200, 201, 204].includes(responses.find(response => response.action === "remove")?.status ?? 0)).toBe(true)
-    expect(responses).toEqual([{ action: "add", status: expect.any(Number) }, { action: "remove", status: expect.any(Number) }])
-    expect(responses.every(response => response.status >= 200 && response.status < 300)).toBe(true)
-  } finally {
-    // A failed assertion after add must not strand the disposable login.
-    const cleanup = await page.context().request.post(new URL("/api/admin/allowlist", page.url()).toString(), {
-      data: { login, action: "remove" }
-    }).catch(() => undefined)
-    if (cleanup !== undefined && !cleanup.ok()) {
-      throw new Error(`Disposable allowlist cleanup failed: HTTP ${cleanup.status()}.`)
-    }
-  }
-})

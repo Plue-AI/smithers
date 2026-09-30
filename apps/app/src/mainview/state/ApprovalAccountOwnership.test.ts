@@ -40,7 +40,7 @@ const fixture = async (hold: Hold = "receipt", rejectReceipt = false, refuseResp
   const returned = Promise.withResolvers<void>()
   const store = await createAppStore({ kind: "localStorage", storage })
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "old-owner",
-    provider: "github", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+    provider: "github", admin: false, scopesPlain: null }).isPersisted.promise
   await store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [
     { id: repo, org: "owner", ownerKind: "user", name: "private-repo", head: null }
   ] }).isPersisted.promise
@@ -97,8 +97,8 @@ const fixture = async (hold: Hold = "receipt", rejectReceipt = false, refuseResp
       expect((await controller.commands.run("auth.sign-out")).status).toBe("executed")
     } else if (kind === "dispose") await controller.dispose()
     else {
-      await controller.adoptSession({ state: "signed-in", login: "new-owner", allowlisted: true, admin: false })
-      if (kind === "ABA") await controller.adoptSession({ state: "signed-in", login: "old-owner", allowlisted: true, admin: false })
+      await controller.adoptSession({ state: "signed-in", login: "new-owner", admin: false })
+      if (kind === "ABA") await controller.adoptSession({ state: "signed-in", login: "old-owner", admin: false })
     }
   }
   const close = async () => { release.resolve(); Object.assign(store, { dispatch }); await controller.dispose() }

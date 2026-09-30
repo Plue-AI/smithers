@@ -503,7 +503,7 @@ describe("openRequestedRepo", () => {
 
 test("a signed-in repository URL waits for the user's inventory and selects its row without publishing it", async () => {
   const { store, controller, ran } = await fixture()
-  store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "codeplanesmithers", allowlisted: true, admin: false, scopesPlain: null })
+  store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "codeplanesmithers", admin: false, scopesPlain: null })
   let loaded = false
   controller.loadRepositories = async () => {
     await Promise.resolve()
@@ -519,7 +519,7 @@ test("a signed-in repository URL waits for the user's inventory and selects its 
 
 test("a signed-in catalog visitor keeps the shared tree without waiting on private inventory", async () => {
   const { store, controller, ran } = await fixture()
-  store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "codeplanesmithers", allowlisted: true, admin: false, scopesPlain: null })
+  store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "codeplanesmithers", admin: false, scopesPlain: null })
   controller.loadRepositories = async () => { throw new Error("private inventory unavailable") }
   expect(await openRequestedRepo(controller, async () => jsonResponse(catalog), "smithersai/smithers")).toBeUndefined()
   expect(store.session().activeRepoKey).toBe("smithersai/smithers")

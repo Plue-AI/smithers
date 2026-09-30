@@ -17,7 +17,7 @@ const fixture = async (options: {
   startRegistration?: (cloudRepo: string, link: string, box: string | null) => Promise<{ value: string } | string>
 } = {}) => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
-  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "owner", provider: "github", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "owner", provider: "github", admin: false, scopesPlain: null }).isPersisted.promise
   const ctx = createControllerContext(options.wrapStore?.(store) ?? store, unavailableAgent, { toastDebounceMs: 1, workflowPollMs: 5, fetchImpl: async () => new Response(null, { status: 500 }) })
   Object.assign(ctx, createFailureController(ctx))
   const imports: Array<string> = []
@@ -165,7 +165,7 @@ test("a registered repository replays its recorded run: no import, no launch", a
 })
 
 const switchAccount = async (t: Awaited<ReturnType<typeof fixture>>, login: string) => {
-  await t.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login, provider: "github", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+  await t.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login, provider: "github", admin: false, scopesPlain: null }).isPersisted.promise
 }
 
 test("a new account can register the same repository while the previous launch is unresolved", async () => {
@@ -321,7 +321,7 @@ for (const outcome of ["success", "failure"] as const) test(`an identity outage 
     await t.importCard("acme/widgets", "done")
     await waitFor(() => t.launches.length === 1)
     await t.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "unavailable", login: null,
-      allowlisted: false, admin: false, scopesPlain: null }).isPersisted.promise
+      admin: false, scopesPlain: null }).isPersisted.promise
     t.pending.resolve(outcome === "success" ? { value: "run-requested" } : "launch refused")
     await settle()
     expect(t.card("acme/widgets")?.payload).toMatchObject({ accountOwner: "owner", phase: outcome === "success" ? "launched" : "failed" })

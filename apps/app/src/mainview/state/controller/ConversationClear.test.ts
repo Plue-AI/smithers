@@ -88,7 +88,6 @@ const signIn = (store: AppStore) =>
     actor: "system",
     state: "signed-in",
     login: "will",
-    allowlisted: true,
     admin: false,
     scopesPlain: null
   }).isPersisted.promise
@@ -328,7 +327,7 @@ describe("local archive and append-only summary notes", () => {
       }
       if (change === "identity") {
         await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "other",
-          allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+          admin: false, scopesPlain: null }).isPersisted.promise
       }
       if (change === "dispose") ctx.dispose()
       const before = state(store)

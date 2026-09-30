@@ -77,7 +77,6 @@ const signedIn = async (store: AppStore): Promise<void> => {
     actor: "system",
     state: "signed-in",
     login: "will",
-    allowlisted: true,
     admin: false,
     scopesPlain: null
   })
@@ -375,7 +374,7 @@ test("a retired mark-read command cannot open the new account's inbox", async ()
     await signedIn(store)
     const pending = controller.markNotificationsRead()
     await entered.promise
-    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "second", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "second", admin: false, scopesPlain: null }).isPersisted.promise
     const before = await store.eventHistory()
     reply.resolve(new Response(null, { status: 205 }))
     await pending
@@ -394,7 +393,7 @@ for (const actor of ["user", "smithers"] as const) {
       const entered = Promise.withResolvers<void>(), reply = Promise.withResolvers<Response>()
       let writes = 0, reads = 0, disposed = false
       const loaded = (login: string | null, provider: "github" | "local" = "github") => store.dispatch({ type: "identity.session.loaded", actor: "system",
-        state: login === null ? "signed-out" : "signed-in", login, provider, allowlisted: login !== null, admin: false, scopesPlain: null }).isPersisted.promise
+        state: login === null ? "signed-out" : "signed-in", login, provider, admin: false, scopesPlain: null }).isPersisted.promise
       try {
         await loaded("will")
         await store.dispatch({ type: "cloud.session.loaded", actor: "system", state: "signed-in", username: "will", expiresAt: null, scopes: null }).isPersisted.promise
@@ -458,7 +457,7 @@ test("an account change while reading a mark-read refusal hides that account's m
     await signedIn(store)
     const pending = seam.markNotificationsRead()
     await entered.promise
-    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "second", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "second", admin: false, scopesPlain: null }).isPersisted.promise
     body.resolve("Private account refusal")
     expect(await pending).toBe(SIGN_OUT_REFUSAL)
     expect(store.collections.cards.has("notifications")).toBe(false)

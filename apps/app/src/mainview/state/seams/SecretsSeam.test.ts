@@ -91,7 +91,6 @@ const signedIn = async (store: AppStore): Promise<void> => {
     actor: "system",
     state: "signed-in",
     login: "will",
-    allowlisted: true,
     admin: false,
     scopesPlain: null
   })
@@ -104,7 +103,6 @@ const signedOut = async (store: AppStore): Promise<void> => {
     actor: "system",
     state: "signed-out",
     login: null,
-    allowlisted: false,
     admin: false,
     scopesPlain: null
   })
@@ -399,7 +397,7 @@ for (const retirement of ["account", "sign-out", "dispose"] as const) for (const
     const reading = track(controller.commands.run("secrets.list"))
     await bounded(entered.promise)
     controller.changeDraft("Keep my current chat")
-    if (retirement === "account") await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ada", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+    if (retirement === "account") await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ada", admin: false, scopesPlain: null }).isPersisted.promise
     else if (retirement === "sign-out") await signedOut(store)
     else await controller.dispose()
     if (answer === "success") reply.resolve(json(200, metadataAnswer("RETIRED_SECRET")))

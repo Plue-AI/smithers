@@ -53,7 +53,7 @@ const fixture = () => {
 }
 const ready = async (relay: ReturnType<typeof fixture>, storage = memoryStorage()) => {
   const store = await createAppStore({ kind: "localStorage", storage })
-  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", admin: false, scopesPlain: null }).isPersisted.promise
   await loadBox(store, REPO)
   const controller = createController(store, silentAgent, { fetchImpl: relay.fetchImpl, workflowPollMs: 1, toastDebounceMs: 0, toastAutoDismissMs: 10000 })
   return { store, controller }
@@ -168,7 +168,7 @@ test("a launch from a previous identity cannot write a run or a completion toast
   const { store, controller } = await ready(relay)
   await controller.createWorkflow("make a review flow", REPO)
   await waitFor(() => relay.calls.some(call => call.procedure === "Plan"))
-  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "someone-else", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "someone-else", admin: false, scopesPlain: null }).isPersisted.promise
   relay.release()
   await settle(30)
   expect(runs(store)).toHaveLength(0)
@@ -282,7 +282,7 @@ test("a request whose card could not be saved can be requested again", async () 
 
 test("an authoring wait holds no scope registration after it settles and still wakes on disposal", async () => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
-  const signIn = (login: string) => store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login, allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+  const signIn = (login: string) => store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login, admin: false, scopesPlain: null }).isPersisted.promise
   await signIn("will")
   const ctx = createControllerContext(store, silentAgent, { toastDebounceMs: 0, toastAutoDismissMs: 10000 })
   const { withToast } = createFailureController(ctx)
@@ -324,7 +324,7 @@ test("an untagged authoring failure toasts its sentence and keeps the raw words 
   const relay = fixture()
   relay.release()
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
-  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", admin: false, scopesPlain: null }).isPersisted.promise
   await loadBox(store, REPO)
   let thrown = false
   const guarded = new Proxy(store, { get: (target, key, receiver) => key === "dispatch"

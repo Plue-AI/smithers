@@ -42,7 +42,6 @@ const signInAtZeroBalance = async (
     actor: "system",
     state: "signed-in",
     login: "will",
-    allowlisted: true,
     admin: false,
     scopesPlain: null
   })
@@ -128,7 +127,6 @@ describe("zero-balance workflow launch (Launch Checklist D-4)", () => {
       actor: "system",
       state: "signed-in",
       login: "will",
-      allowlisted: true,
       admin: false,
       scopesPlain: null
     })
@@ -172,7 +170,6 @@ describe("zero-balance workflow launch (Launch Checklist D-4)", () => {
       actor: "system",
       state: "signed-in",
       login: "will",
-      allowlisted: true,
       admin: false,
       scopesPlain: null
     })

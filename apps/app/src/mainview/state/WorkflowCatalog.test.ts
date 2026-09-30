@@ -37,7 +37,7 @@ async function fixture(options: {
     } }
   const controller = controllerFor(store, silentAgent, services)
   await store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: repo, org: "codeplanesmithers", ownerKind: "user", name: "canary-sandbox", head: null }] }).isPersisted.promise
-  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "codeplanesmithers", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "codeplanesmithers", admin: false, scopesPlain: null }).isPersisted.promise
   if (options.boxStatus !== "none") await loadBox(store, repo, TEST_BOX, options.boxStatus ?? "running")
   await settle(2)
   return { store, storage, controller, calls }
@@ -368,7 +368,7 @@ test("an account change fences a pending catalog and never resumes another owner
   const { controller, store, calls } = await fixture({ provision: () => provision.promise })
   await acknowledged(controller.commands.run("flow.list"))
   await waitFor(() => calls.length === 1)
-  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "another-user", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "another-user", admin: false, scopesPlain: null }).isPersisted.promise
   provision.resolve(ready())
   await settle(5)
   expect(calls).toHaveLength(1)

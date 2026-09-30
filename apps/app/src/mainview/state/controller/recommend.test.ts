@@ -12,7 +12,7 @@ const deferred = <T>() => {
 
 const identity = (store: Awaited<ReturnType<typeof createAppStore>>, login: string) => store.dispatch({
   type: "identity.session.loaded", actor: "system", state: "signed-in", login,
-  allowlisted: true, admin: false, scopesPlain: null
+  admin: false, scopesPlain: null
 }).isPersisted.promise
 
 const fixture = async (answer: () => Promise<Response>, services: Pick<AppServices, "baseUrl"> = {}, storage = memoryStorage(), refuseCleanup = false) => {

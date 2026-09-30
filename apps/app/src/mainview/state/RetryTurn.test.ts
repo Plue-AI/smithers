@@ -52,7 +52,6 @@ const signedInStore = async (): Promise<AppStore> => {
     actor: "system",
     state: "signed-in",
     login: "will",
-    allowlisted: true,
     admin: false,
     scopesPlain: null
   })
@@ -278,7 +277,7 @@ test("a non-admission submit whose durable write fails cancels its launched turn
     if (rejectSubmit && value.includes("unsaved prompt")) { rejectSubmit = false; throw Error("disk unavailable") }
     durable.setItem(key, value)
   } } })
-  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", admin: false, scopesPlain: null }).isPersisted.promise
   const cancelled: string[] = []
   const remote = recordingAgent({ cancelTurn: async id => { cancelled.push(id) } })
   const controller = createAppController(store, remote.agent)

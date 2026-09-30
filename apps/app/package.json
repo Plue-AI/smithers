@@ -2,7 +2,7 @@
   "name": "smithers-app",
   "private": true,
   "version": "1.0.0",
-  "description": "Smithers closed-alpha native app",
+  "description": "Smithers native app",
   "scripts": {
     "postinstall": "node scripts/ensure-devkit.mjs --soft",
     "devkit": "node scripts/ensure-devkit.mjs",

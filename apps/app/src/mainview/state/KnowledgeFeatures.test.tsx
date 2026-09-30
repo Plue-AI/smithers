@@ -173,7 +173,7 @@ const readyToArchive = async () => {
     }
   })
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will",
-    allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+    admin: false, scopesPlain: null }).isPersisted.promise
   await store.dispatch({ type: "message.appended", actor: "user", text: "remember that I prefer dark mode" }).isPersisted.promise
   return { store, controller, sweeps }
 }

@@ -256,7 +256,7 @@ describe("pure app event projection", () => {
     state = apply(state, { type: "conversation.cleared", actor: "user", branchId: "next-conversation", notes: [] })
     const archive = state.branches.find(row => row.id === before.activeBranchId)!.snapshot!
     const signedIn: AppTransition = { type: "identity.session.loaded", actor: "system", state: "signed-in",
-      login: "alice", allowlisted: true, admin: false, scopesPlain: null }
+      login: "alice", admin: false, scopesPlain: null }
     expect(appTransitionErasesPrivateState(state, signedIn)).toBe(false)
     state = apply(state, signedIn, 450)
     expect(state.identitySessions[0]!.sessionObservation).toEqual({ at: 450, revision: 3 })

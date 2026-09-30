@@ -112,7 +112,7 @@ export const main = async (
   const proof = await fetchImpl(`${identityBase}/api/user`, {
     headers: { cookie: `${cookie.name}=${cookie.value}` }
   })
-  const session = (await proof.json()) as { login?: string; allowlisted?: boolean; admin?: boolean }
+  const session = (await proof.json()) as { login?: string; admin?: boolean }
   console.log(
     `minted session cookie '${cookie.name}' for ${appUrl.hostname} -> ${outPath}\n` +
       `session proof: HTTP ${proof.status} ${JSON.stringify(session)}`

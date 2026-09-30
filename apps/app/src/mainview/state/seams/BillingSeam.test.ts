@@ -165,7 +165,6 @@ const freshController = async (services: AppServices) => {
     actor: "system",
     state: "signed-in",
     login: "will",
-    allowlisted: true,
     // §17.4: the Stripe flows register in the admin plugin only — an MVP
     // account is never offered a checkout it has no plan for.
     admin: true,
@@ -289,7 +288,7 @@ describe("billing seam — the honest failure paths", () => {
 /** Direct public-seam units below; the original command controls above compose the AppController. */
 const sessionFixture = async (answer: () => Response) => {
   const store = await createOwnedStore({ kind: "localStorage", storage: memoryStorage() })
-  await track(store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise)
+  await track(store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", admin: false, scopesPlain: null }).isPersisted.promise)
   const calls: BillingCall[] = []
   const ctx: SeamContext = { store, actor: () => "user", nextOrdinal: store.nextOrdinal, baseUrl: "",
     dispatch: transition => { const receipt = store.dispatch(transition); track(receipt.isPersisted.promise); return receipt },

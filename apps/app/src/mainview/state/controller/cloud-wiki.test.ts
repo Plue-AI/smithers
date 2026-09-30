@@ -38,7 +38,6 @@ const signIn = (store: AppStore, login = "will") =>
     actor: "system",
     state: "signed-in",
     login,
-    allowlisted: true,
     admin: false,
     scopesPlain: null
   }).isPersisted.promise

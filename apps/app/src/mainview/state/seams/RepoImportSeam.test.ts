@@ -111,7 +111,6 @@ const signedIn = async (store: AppStore): Promise<void> => {
     actor: "system",
     state: "signed-in",
     login: "will",
-    allowlisted: true,
     admin: false,
     scopesPlain: null
   })
@@ -580,7 +579,7 @@ describe("repo import — instant background lifecycle", () => {
       return json(404, {})
     } })
     await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "other",
-      allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+      admin: false, scopesPlain: null }).isPersisted.promise
     releaseObservation(json(200, jobBody("failed", null, "retry me")))
     await new Promise(resolve => setTimeout(resolve, 20))
     expect(retries).toBe(0)
@@ -670,7 +669,7 @@ describe("repo import — instant background lifecycle", () => {
       await settled()
       if (boundary === "owner switch") {
         await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "other",
-          allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+          admin: false, scopesPlain: null }).isPersisted.promise
       } else {
         await controller.dispose()
       }
@@ -709,7 +708,7 @@ describe("repo import — instant background lifecycle", () => {
     const admission = controller.commands.run("repos.import", "will/flows")
       await settled()
     await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "other",
-      allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+      admin: false, scopesPlain: null }).isPersisted.promise
     releasePersistence()
       await admission
     await new Promise(resolve => setTimeout(resolve, 20))
@@ -764,7 +763,7 @@ describe("repo import — instant background lifecycle", () => {
         requestId: "owner-a-request", requestKind: "start", accountOwner: "owner-a" }
     } }).isPersisted.promise
     await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "owner-b",
-      allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+      admin: false, scopesPlain: null }).isPersisted.promise
     const services: AppServices = { fetchImpl: async (input, init) => {
       const path = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url, "https://app.test").pathname
       if (path.endsWith("/github/import") && init?.method === "POST") { postedBody = JSON.parse(String(init.body)); return json(202, jobBody("ready")) }
@@ -784,7 +783,7 @@ describe("repo import — instant background lifecycle", () => {
     await controller.commands.run("repos.import", "will/flows")
     await until(() => importCard(store)?.payload.phase === "running", "the running receipt")
     await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "other",
-      allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+      admin: false, scopesPlain: null }).isPersisted.promise
     const upsertsBeforeRelease = importUpserts(store).length
     releasePoll(json(200, jobBody("failed", null, "old account failed")))
     await new Promise(resolve => setTimeout(resolve, 20))
@@ -860,7 +859,7 @@ describe("repo import account fences", () => {
     try {
       await controller.importRepository("will/flows")
       await until(() => starts === 1, "old launch")
-      await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "other", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+      await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "other", admin: false, scopesPlain: null }).isPersisted.promise
       await controller.importRepository("will/flows")
       await until(() => importCard(store)?.payload.phase === "done", "new owner's import")
       expect(starts).toBe(2)
@@ -936,7 +935,7 @@ test("a held import start stays stale across an A to B to A account cycle", asyn
   const pending = controller.importRepository("will/flows")
   await started
   for (const login of ["other", "will"]) {
-    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login, allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login, admin: false, scopesPlain: null }).isPersisted.promise
   }
   release(json(202, jobBody("ready")))
   await pending

@@ -2829,7 +2829,7 @@ describe("workspace account fences", () => {
       "GET api/repos/will/smithers/workspace/sessions": json(404, { message: "sessions unavailable" }),
       "GET api/repos/will/smithers/workspaces/ws-1": () => { requested(); return held }
     })
-    const identity = { type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", allowlisted: true, admin: false, scopesPlain: null } as const
+    const identity = { type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", admin: false, scopesPlain: null } as const
     await store.dispatch(identity).isPersisted.promise
     await seedWorkspace(store)
     const pending = seam.viewWorkspace("ws-1")

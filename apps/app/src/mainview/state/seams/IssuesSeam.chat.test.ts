@@ -168,7 +168,7 @@ const backend = (routes: Record<string, RouteAnswer>, calls: Array<{ line: strin
 })
 const settled = checkpoint
 const signedIn = async (store: AppStore): Promise<void> => {
-  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", admin: false, scopesPlain: null }).isPersisted.promise
   await store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: "will/flows", org: "will", ownerKind: "user", name: "flows", head: null }] }).isPersisted.promise
   await settled()
 }

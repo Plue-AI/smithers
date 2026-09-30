@@ -61,7 +61,6 @@ const signedIn = async (store: AppStore): Promise<void> => {
     actor: "system",
     state: "signed-in",
     login: "will",
-    allowlisted: true,
     admin: false,
     scopesPlain: null
   })

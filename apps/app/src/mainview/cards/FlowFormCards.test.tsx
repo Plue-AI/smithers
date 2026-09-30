@@ -117,7 +117,7 @@ const mount = (node: React.ReactNode): HTMLElement => {
 
 test("a completed PR box form offers its retained Review action only on its ready selected box", async () => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
-  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", admin: false, scopesPlain: null }).isPersisted.promise
   await store.dispatch({ type: "repo.selected", actor: "user", id: "will/flows" }).isPersisted.promise
   const boxId = "0b0c0d0e-0000-4000-8000-00000000000a"
   const calls: Array<[string, string | undefined]> = []

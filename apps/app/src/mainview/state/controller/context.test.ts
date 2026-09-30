@@ -7,9 +7,9 @@ import type { AgentInvocation } from "../../flows/AgentInvocation"
 
 type Store = Awaited<ReturnType<typeof createAppStore>>
 const signedIn = (store: Store, login: string) => store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in",
-  login, allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+  login, admin: false, scopesPlain: null }).isPersisted.promise
 const answered = (store: Store, state: "signed-out" | "unavailable") => store.dispatch({ type: "identity.session.loaded", actor: "system", state,
-  login: null, allowlisted: false, admin: false, scopesPlain: null }).isPersisted.promise
+  login: null, admin: false, scopesPlain: null }).isPersisted.promise
 const cleared = (store: Store) => store.dispatch({ type: "identity.session.cleared", actor: "user" }).isPersisted.promise
 
 const harness = async (seed?: (store: Store) => Promise<unknown>) => {

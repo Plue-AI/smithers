@@ -167,7 +167,7 @@ describe("authoritative app event stream", () => {
       { type: "flow.invoked", actor: "user", name: "help", args: null, hidden: true, outcome: "invented", detail: null, durationMs: 1 },
       { type: "theme.changed", actor: "smithers", theme: "dark" },
       { type: "composer.changed", actor: "user", draft: 123 },
-      { type: "identity.session.loaded", actor: "system", state: "signed-in", login: "alice", allowlisted: "true", admin: false, scopesPlain: null }
+      { type: "identity.session.loaded", actor: "system", state: "signed-in", login: "alice", admin: "false", scopesPlain: null }
     ]) expect(() => append(initial, transition as unknown as AppTransition)).toThrow("event")
     const valid = append(initial, { type: "theme.changed", actor: "user", theme: "dark" })
     // A recomputed checksum cannot turn a forbidden actor into an admissible domain fact.

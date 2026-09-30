@@ -675,7 +675,7 @@ export const createTriggersSeam = (ctx: SeamContext, runtime: TriggersRuntime): 
   type Pause = NonNullable<TriggerListCard["payload"]["pauseRequests"]>[number]
   const owner = () => {
     const identity = ctx.store.collections.identitySessions.get("identity")
-    return identity?.state === "signed-in" && identity.allowlisted ? accountOwnerOf(identity) : undefined
+    return identity?.state === "signed-in" ? accountOwnerOf(identity) : undefined
   }
   // Pause uses the account HTTP route even when the workspace is offline.
   const capturePauseOwner = () => {
@@ -766,7 +766,7 @@ export const createTriggersSeam = (ctx: SeamContext, runtime: TriggersRuntime): 
     const current = captureCloudOwner(ctx, false)
     const version = pauses.versions.get(repo)
     const identity = ctx.store.collections.identitySessions.get("identity")
-    const signedIn = identity?.state === "signed-in" && identity.allowlisted
+    const signedIn = identity?.state === "signed-in"
     const [declared, registered] = await Promise.all([
       readDeclaredRules(ctx, repo),
       signedIn ? readTriggerRegistrations(ctx, repo) : Promise.resolve(NO_LIVE)

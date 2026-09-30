@@ -149,7 +149,7 @@ authenticatedTest("an authenticated production user reads a live change and trav
   ],
   description: "The sanctioned GitHub identity opens a current public mirror change, matches its real revision and diff data, traverses History and Review through keyboard-operated controls, and retains the selected facet after reload."
 }), async ({ page, request }, testInfo) => {
-  const expectedSession = { login: "codeplanesmithers", allowlisted: true, admin: true }
+  const expectedSession = { login: "codeplanesmithers", admin: true }
   expect(await readAuthenticatedSession(page)).toEqual(expectedSession)
   const startedAt = performance.now()
   await page.goto(`/${PUBLIC_REPO}`, { waitUntil: "domcontentloaded" })
@@ -225,7 +225,7 @@ authenticatedTest("an authenticated production user opens the exact live diff th
   ],
   description: "A live public diff is independently read from production, then the authenticated UI opens the same file and byte counts through both the slash action and the change card's keyboard-operated file row, preserving the rendered diff over reload."
 }), async ({ page, request }, testInfo) => {
-  const expectedSession = { login: "codeplanesmithers", allowlisted: true, admin: true }
+  const expectedSession = { login: "codeplanesmithers", admin: true }
   expect(await readAuthenticatedSession(page)).toEqual(expectedSession)
   const startedAt = performance.now()
   await page.goto(`/${PUBLIC_REPO}`, { waitUntil: "domcontentloaded" })

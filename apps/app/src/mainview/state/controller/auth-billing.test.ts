@@ -9,7 +9,7 @@ import { createFailureController } from "./failures"
 import { settle, waitFor } from "../TestFixtures"
 import { refusalOf } from "@smthrs/rpc/Refusal"
 import { refusalLead } from "@smthrs/rpc/RefusalCopy"
-import { ADMIN_ALLOWLIST_PATH, ADMIN_GRANT_PATH, ADMIN_HEALTH_PATH, ADMIN_REQUESTS_PATH, IDENTITY_REQUEST_ACCESS_PATH } from "@smthrs/rpc/AgentApiRoutes"
+import { ADMIN_GRANT_PATH, ADMIN_HEALTH_PATH } from "@smthrs/rpc/AgentApiRoutes"
 
 /** The lead an uncoded HTTP refusal of `status` carries once its raw body is withheld. */
 const uncodedLead = (status: number) => refusalLead(refusalOf({ body: null, status, message: "" }))
@@ -34,7 +34,6 @@ const agent: AgentPort = {
 const signedIn = {
   state: "signed-in" as const,
   login: "will",
-  allowlisted: true,
   admin: false
 }
 
@@ -126,7 +125,7 @@ const runSignedInEntry = async (entry: "load" | "adopt", sessionAnswer: Record<s
 describe("signed-in session adoption", () => {
   test("a selected backend identity supplies its own admin authority", async () => {
     const publicSession = await runSignedInEntry("load", { login: "new-user", admin: true })
-    expect(publicSession.transitions[0]?.payload).toMatchObject({ login: "new-user", allowlisted: true, admin: true })
+    expect(publicSession.transitions[0]?.payload).toMatchObject({ login: "new-user", admin: true })
     expect(publicSession.calls).toContain("resumeWorkflowRuns")
   })
   test("live and server-resolved sessions share every transition and follow-on call", async () => {
@@ -203,7 +202,6 @@ describe("sign-in return path", () => {
       actor: "system",
       state: "signed-out",
       login: null,
-      allowlisted: false,
       admin: false,
       scopesPlain: null
     })
@@ -286,7 +284,6 @@ test("selected backend identity also supplies the Cloud capability session", asy
   expect(store.collections.identitySessions.get("identity")).toMatchObject({
     state: "signed-in",
     login: "owner",
-    allowlisted: true,
     admin: true
   })
   expect(store.collections.cloudSessions.get("cloud")).toMatchObject({
@@ -545,7 +542,7 @@ describe("a balance refresh the account outlives", () => {
 
     // A focus re-read adopted a different session while the request was out.
     await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "other",
-      allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+      admin: false, scopesPlain: null }).isPersisted.promise
     release(
       new Response(
         JSON.stringify({
@@ -641,7 +638,6 @@ describe("automatic balance refreshes", () => {
           actor: "system",
           state: "signed-out",
           login: null,
-          allowlisted: false,
           admin: false,
           scopesPlain: null
         }).isPersisted.promise,
@@ -750,7 +746,7 @@ describe("automatic balance refreshes", () => {
     await h.inFlight()
     await pastDebounce()
     await h.ctx.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "other",
-      allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+      admin: false, scopesPlain: null }).isPersisted.promise
     h.release(Response.json(balanceOk))
     await pastDebounce()
     expect(h.balance()?.state).not.toBe("ok")
@@ -875,7 +871,7 @@ describe("identity re-probes", () => {
  * no toast.
  */
 describe("account answers that outlive their account", () => {
-  const setup = async (identity: { login: string; allowlisted: boolean; admin: boolean }) => {
+  const setup = async (identity: { login: string; admin: boolean }) => {
     const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
     await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", ...identity, scopesPlain: null })
       .isPersisted.promise
@@ -909,16 +905,11 @@ describe("account answers that outlive their account", () => {
       dispose: async () => { await ctx.dispose(); await store.dispose?.() }
     }
   }
-  const admin = { login: "will", allowlisted: true, admin: true }
-  const queue = { requests: [{ login: "stranger", note: "let me in", createdAt: "2026-09-23T00:00:00Z" }] }
-  const health = { services: [{ name: "billing", status: "failed", detail: "down" }], queueDepth: 1, checkedAt: "2026-09-23T00:00:00Z" }
+  const admin = { login: "will", admin: true }
+  const health = { services: [{ name: "billing", status: "failed", detail: "down" }], checkedAt: "2026-09-23T00:00:00Z" }
   const cases: ReadonlyArray<readonly [string, (controller: ReturnType<typeof createAuthBillingController>) => Promise<unknown>, string, () => Response]> = [
-    ["the request queue", (c) => c.adminRequests(), ADMIN_REQUESTS_PATH, () => Response.json(queue)],
-    ["a refused request queue", (c) => c.adminRequests(), ADMIN_REQUESTS_PATH, () => new Response("down", { status: 500 })],
     ["service health", (c) => c.adminHealth(), ADMIN_HEALTH_PATH, () => Response.json(health)],
-    ["a refused service health read", (c) => c.adminHealth(), ADMIN_HEALTH_PATH, () => new Response("down", { status: 500 })],
-    ["an allowlist change", (c) => c.adminAllowlist("add", "stranger"), ADMIN_ALLOWLIST_PATH, () => Response.json({ applied: true })],
-    ["a queue approval", (c) => c.adminQueueApprove("stranger"), ADMIN_ALLOWLIST_PATH, () => new Response("down", { status: 500 })]
+    ["a refused service health read", (c) => c.adminHealth(), ADMIN_HEALTH_PATH, () => new Response("down", { status: 500 })]
   ]
   for (const [name, act, path, response] of cases) {
     test(`${name} answered after sign-out writes nothing`, async () => {
@@ -952,19 +943,6 @@ describe("account answers that outlive their account", () => {
     } finally { await h.dispose() }
   })
 
-  for (const [name, response] of [["refused", () => new Response("down", { status: 500 })], ["filed", () => Response.json({})]] as const) {
-    test(`an access request ${name} after another login leaves the new account's access state alone`, async () => {
-      const h = await setup({ login: "will", allowlisted: false, admin: false })
-      try {
-        const requesting = h.controller.requestAccess()
-        await h.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "other",
-          allowlisted: false, admin: false, scopesPlain: null }).isPersisted.promise
-        await h.answer(IDENTITY_REQUEST_ACCESS_PATH, response())
-        expect(await requesting).toBeUndefined()
-        expect(h.store.collections.identitySessions.get("identity")).toMatchObject({ login: "other", accessRequested: false, accessError: null })
-      } finally { await h.dispose() }
-    })
-  }
 })
 
 test.each([
@@ -987,37 +965,10 @@ test.each([
   } finally { await ctx.dispose(); await store.dispose?.() }
 })
 
-test("requesting access refuses ineligible states and recovers after a lost request", async () => {
-  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
-  let networkFails = true
-  const calls: Array<{ path: string; body: unknown }> = []
-  const ctx = createControllerContext(store, agent, { fetchImpl: async (input, init) => {
-    calls.push({ path: String(input), body: init?.body === undefined ? null : JSON.parse(String(init.body)) })
-    if (networkFails) throw Error("offline")
-    return Response.json({})
-  } })
-  const controller = createAuthBillingController(ctx, store.nextOrdinal)
-  try {
-    expect(await controller.requestAccess()).toBe("Sign in with GitHub first — an access request needs an account to attach to.")
-    await store.dispatch({ type: "identity.session.loaded", actor: "system", ...signedIn, scopesPlain: null }).isPersisted.promise
-    expect(await controller.requestAccess()).toBe("You already have access as will — there is no request to file.")
-    expect(calls).toEqual([])
-    await store.dispatch({ type: "identity.session.loaded", actor: "system", ...signedIn, allowlisted: false, scopesPlain: null }).isPersisted.promise
-    expect(await controller.requestAccess()).toBeUndefined()
-    expect(store.collections.identitySessions.get("identity")).toMatchObject({ login: "will", accessRequested: false,
-      accessError: "The access request did not go through. Try again." })
-    networkFails = false
-    expect(await controller.requestAccess()).toBeUndefined()
-    expect(store.collections.identitySessions.get("identity")).toMatchObject({ login: "will", accessRequested: true, accessError: null })
-    expect(calls.map(call => call.body)).toEqual([{ login: "will" }, { login: "will" }])
-    expect(calls.every(call => call.path.endsWith(IDENTITY_REQUEST_ACCESS_PATH))).toBe(true)
-  } finally { await ctx.dispose(); await store.dispose?.() }
-})
-
 test("a grant whose route fails remains retryable with one stable operation key", async () => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will",
-    allowlisted: true, admin: true, scopesPlain: null }).isPersisted.promise
+    admin: true, scopesPlain: null }).isPersisted.promise
   let networkFails = true
   const posted: Array<{ login: string; amountUsd: number; operationKey: string }> = []
   const ctx = createControllerContext(store, agent, { toastDebounceMs: 0, toastAutoDismissMs: 10_000,
@@ -1050,7 +1001,7 @@ test("a grant whose route fails remains retryable with one stable operation key"
 test("a refused grant keeps its exact confirmation card and does not claim credit", async () => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will",
-    allowlisted: true, admin: true, scopesPlain: null }).isPersisted.promise
+    admin: true, scopesPlain: null }).isPersisted.promise
   const posted: unknown[] = []
   const ctx = createControllerContext(store, agent, { toastDebounceMs: 0, toastAutoDismissMs: 10_000,
     fetchImpl: async (input, init) => {
@@ -1078,7 +1029,7 @@ test("a refused grant keeps its exact confirmation card and does not claim credi
 test("grant cancellation removes an unposted card but cannot interrupt a posted operation", async () => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will",
-    allowlisted: true, admin: true, scopesPlain: null }).isPersisted.promise
+    admin: true, scopesPlain: null }).isPersisted.promise
   const remote = Promise.withResolvers<Response>()
   const posted: unknown[] = []
   const ctx = createControllerContext(store, agent, { fetchImpl: async (input, init) => {
@@ -1118,7 +1069,7 @@ test.each([
 ])("sign-in from $state states the actual identity status without opening a browser", async ({ state, key, status, detail }) => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   if (state !== "unknown") await store.dispatch({ type: "identity.session.loaded", actor: "system", state,
-    login: state === "signed-in" ? "will" : null, allowlisted: state === "signed-in", admin: false,
+    login: state === "signed-in" ? "will" : null, admin: false,
     scopesPlain: null }).isPersisted.promise
   let fetches = 0
   const ctx = createControllerContext(store, agent, { fetchImpl: async () => { fetches++; throw Error("Unexpected network call") } })
@@ -1131,53 +1082,13 @@ test.each([
   } finally { await ctx.dispose(); await store.dispose?.() }
 })
 
-test.each(["http", "throw"] as const)("queue approval %s refusal stays on its card and a retry refreshes from the host", async refusal => {
-  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
-  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will",
-    allowlisted: true, admin: true, scopesPlain: null }).isPersisted.promise
-  let refuse: typeof refusal | false = refusal, waiting = true
-  const posts: unknown[] = []
-  const ctx = createControllerContext(store, agent, { toastDebounceMs: 0, toastAutoDismissMs: 10_000,
-    fetchImpl: async (input, init) => {
-      const path = String(input)
-      if (path.endsWith(ADMIN_REQUESTS_PATH)) return Response.json({ requests: waiting
-        ? [{ login: "recipient", note: "Please", createdAt: "2026-09-23T00:00:00Z" }] : [] })
-      if (path.endsWith(ADMIN_ALLOWLIST_PATH)) {
-        posts.push(JSON.parse(String(init?.body)))
-        if (refuse === "throw") throw Error("offline")
-        if (refuse === "http") return Response.json({ message: "Host refused approval" }, { status: 500 })
-        waiting = false
-        return Response.json({ applied: true })
-      }
-      throw Error("Unexpected route")
-    } })
-  ctx.withToast = createFailureController(ctx).withToast
-  const controller = createAuthBillingController(ctx, store.nextOrdinal)
-  try {
-    await controller.adminRequests()
-    expect(store.collections.cards.get("admin-requests")).toMatchObject({ title: "Request-access queue — 1 waiting",
-      payload: { requests: [{ login: "recipient", note: "Please" }] } })
-    await controller.adminQueueApprove("recipient")
-    expect(store.collections.cards.get("admin-requests")).toMatchObject({ status: "error",
-      payload: { approving: null, error: refusal === "http" ? `Approving recipient didn't go through. ${uncodedLead(500)}` :
-        "Approving recipient didn't go through — the admin route didn't answer." } })
-    expect(JSON.stringify(store.collections.cards.get("admin-requests"))).not.toContain("Host refused approval")
-    expect(waiting).toBe(true)
-    refuse = false
-    await controller.adminQueueApprove("recipient")
-    expect(store.collections.cards.get("admin-requests")).toMatchObject({ status: "active",
-      title: "Request-access queue — 0 waiting", payload: { requests: [] } })
-    expect(posts).toEqual([{ login: "recipient", action: "add" }, { login: "recipient", action: "add" }])
-  } finally { await ctx.dispose(); await store.dispose?.() }
-})
-
 test.each([
   { name: "malformed", answer: () => Response.json({ services: "not-a-list" }), message: "The health read answered in a shape I didn't understand." },
   { name: "unreachable", answer: () => { throw Error("offline") }, message: "The health read didn't answer — the admin route is unreachable." }
 ])("$name health answer reports one refusal without inventing a service card", async ({ answer, message }) => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will",
-    allowlisted: true, admin: true, scopesPlain: null }).isPersisted.promise
+    admin: true, scopesPlain: null }).isPersisted.promise
   const ctx = createControllerContext(store, agent, { toastDebounceMs: 0, toastAutoDismissMs: 10_000,
     fetchImpl: async input => {
       if (!String(input).endsWith(ADMIN_HEALTH_PATH)) throw Error("Unexpected route")
@@ -1196,16 +1107,16 @@ test.each([
 test("health reread filters invalid rows and replaces failed service evidence with the host's recovery", async () => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will",
-    allowlisted: true, admin: true, scopesPlain: null }).isPersisted.promise
+    admin: true, scopesPlain: null }).isPersisted.promise
   let recovered = false
   const ctx = createControllerContext(store, agent, { fetchImpl: async input => {
     if (!String(input).endsWith(ADMIN_HEALTH_PATH)) throw Error("Unexpected route")
     return Response.json(recovered
-      ? { services: [{ name: "billing", status: "ok", detail: "Recovered" }], charges: null, queueDepth: 0,
+      ? { services: [{ name: "billing", status: "ok", detail: "Recovered" }], charges: null,
         checkedAt: "2026-09-24T00:00:00Z" }
       : { services: [{ name: "billing", status: "failed", detail: "Unavailable" },
         { name: "bad", status: "mystery", detail: "Ignore" }],
-      charges: { chargeCount: 3, lifetimeChargedUsd: "12" }, queueDepth: 2, checkedAt: "2026-09-23T00:00:00Z" })
+      charges: { chargeCount: 3, lifetimeChargedUsd: "12" }, checkedAt: "2026-09-23T00:00:00Z" })
   } })
   ctx.withToast = createFailureController(ctx).withToast
   const controller = createAuthBillingController(ctx, store.nextOrdinal)
@@ -1214,41 +1125,13 @@ test("health reread filters invalid rows and replaces failed service evidence wi
     const first = store.collections.cards.get("admin-health")!
     expect(first).toMatchObject({ kind: "admin-health", status: "error", payload: {
       services: [{ name: "billing", status: "failed", detail: "Unavailable" }],
-      charges: { chargeCount: 3, lifetimeChargedUsd: "12" }, queueDepth: 2, checkedAt: "2026-09-23T00:00:00Z" } })
+      charges: { chargeCount: 3, lifetimeChargedUsd: "12" }, checkedAt: "2026-09-23T00:00:00Z" } })
     recovered = true
     await controller.adminHealth()
     expect(store.collections.cards.get("admin-health")).toMatchObject({ status: "active", createdAt: first.createdAt,
       payload: { services: [{ name: "billing", status: "ok", detail: "Recovered" }], charges: null,
-        queueDepth: 0, checkedAt: "2026-09-24T00:00:00Z" } })
+        checkedAt: "2026-09-24T00:00:00Z" } })
     expect([...store.collections.cards.values()].filter(card => card.kind === "admin-health")).toHaveLength(1)
-  } finally { await ctx.dispose(); await store.dispose?.() }
-})
-
-test("an unreachable queue reread reports failure without replacing the last confirmed queue", async () => {
-  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
-  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will",
-    allowlisted: true, admin: true, scopesPlain: null }).isPersisted.promise
-  let offline = false
-  const ctx = createControllerContext(store, agent, { toastDebounceMs: 0, toastAutoDismissMs: 10_000,
-    fetchImpl: async input => {
-      if (!String(input).endsWith(ADMIN_REQUESTS_PATH)) throw Error("Unexpected route")
-      if (offline) throw Error("offline")
-      return Response.json({ requests: [{ login: "recipient", note: "Please", createdAt: "2026-09-23T00:00:00Z" }] })
-    } })
-  ctx.withToast = createFailureController(ctx).withToast
-  const controller = createAuthBillingController(ctx, store.nextOrdinal)
-  try {
-    await controller.adminRequests()
-    const confirmed = store.collections.cards.get("admin-requests")!
-    expect(confirmed).toMatchObject({ title: "Request-access queue — 1 waiting",
-      payload: { requests: [{ login: "recipient" }] } })
-    offline = true
-    await controller.adminRequests()
-    expect(store.collections.cards.get("admin-requests")).toEqual(confirmed)
-    expect([...store.collections.messages.values()].map(row => row.text))
-      .toEqual(["The request queue didn't answer — the admin route is unreachable."])
-    expect(store.collections.toasts.get("toast-admin.requests")).toMatchObject({ status: "failed",
-      detail: "The request queue didn't answer — the admin route is unreachable." })
   } finally { await ctx.dispose(); await store.dispose?.() }
 })
 
@@ -1276,36 +1159,10 @@ test.each([
   } finally { await ctx.dispose(); await store.dispose?.() }
 })
 
-test.each([
-  { action: "add" as const, duplicate: false, text: "recipient added to the allowlist, recorded under your name." },
-  { action: "add" as const, duplicate: true, text: "recipient was already on the allowlist — nothing changed." },
-  { action: "remove" as const, duplicate: false, text: "recipient removed from the allowlist, recorded under your name." },
-  { action: "remove" as const, duplicate: true, text: "recipient was already off the allowlist — nothing changed." }
-])("allowlist $action with duplicate=$duplicate states the host's verdict", async ({ action, duplicate, text }) => {
-  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
-  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will",
-    allowlisted: true, admin: true, scopesPlain: null }).isPersisted.promise
-  const posted: unknown[] = []
-  const ctx = createControllerContext(store, agent, { toastDebounceMs: 0, toastAutoDismissMs: 10_000,
-    fetchImpl: async (input, init) => {
-      if (!String(input).endsWith(ADMIN_ALLOWLIST_PATH)) throw Error("Unexpected route")
-      posted.push(JSON.parse(String(init?.body)))
-      return Response.json({ applied: !duplicate, duplicate })
-    } })
-  ctx.withToast = createFailureController(ctx).withToast
-  const controller = createAuthBillingController(ctx, store.nextOrdinal)
-  try {
-    expect(await controller.adminAllowlist(action, "recipient")).toBeUndefined()
-    expect(posted).toEqual([{ login: "recipient", action }])
-    expect([...store.collections.messages.values()].map(row => row.text)).toEqual([text])
-    expect([...store.collections.toasts.values()].some(toast => toast.status === "running" || toast.status === "failed")).toBe(false)
-  } finally { await ctx.dispose(); await store.dispose?.() }
-})
-
 test("three refused native claims end sign-in with the host's error", async () => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null,
-    allowlisted: false, admin: false, scopesPlain: null }).isPersisted.promise
+    admin: false, scopesPlain: null }).isPersisted.promise
   const opened: string[] = []
   let claims = 0, sessionReads = 0
   const ctx = createControllerContext(store, agent, { handoffPollMs: 1, toastAutoDismissMs: 10_000,
@@ -1327,30 +1184,6 @@ test("three refused native claims end sign-in with the host's error", async () =
     expect(sessionReads).toBe(0)
     expect(opened).toHaveLength(1)
     expect(store.collections.identitySessions.get("identity")?.state).toBe("signed-out")
-  } finally { await ctx.dispose(); await store.dispose?.() }
-})
-
-test.each([
-  { name: "HTTP refusal", answer: () => new Response("denied", { status: 503 }),
-    message: `The allowlist change didn't go through. ${uncodedLead(503)}` },
-  { name: "network error", answer: () => { throw Error("offline") },
-    message: "The allowlist change didn't go through — the admin route didn't answer." }
-])("an allowlist $name records one refusal without claiming an update", async ({ answer, message }) => {
-  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
-  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will",
-    allowlisted: true, admin: true, scopesPlain: null }).isPersisted.promise
-  const ctx = createControllerContext(store, agent, { toastDebounceMs: 0, toastAutoDismissMs: 10_000,
-    fetchImpl: async input => {
-      if (!String(input).endsWith(ADMIN_ALLOWLIST_PATH)) throw Error("Unexpected route")
-      return answer()
-    } })
-  ctx.withToast = createFailureController(ctx).withToast
-  const controller = createAuthBillingController(ctx, store.nextOrdinal)
-  try {
-    expect(await controller.adminAllowlist("add", "recipient")).toBeUndefined()
-    expect([...store.collections.messages.values()].map(row => row.text)).toEqual([message])
-    expect(store.collections.toasts.get("toast-admin.allowlist")).toMatchObject({ status: "failed", detail: message })
-    expect(store.collections.toasts.get("toast-admin.allowlist")?.detail).not.toContain("(denied)")
   } finally { await ctx.dispose(); await store.dispose?.() }
 })
 

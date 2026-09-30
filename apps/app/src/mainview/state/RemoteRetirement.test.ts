@@ -154,7 +154,7 @@ describe("private delete-only remote retirement outbox", () => {
     expect(JSON.stringify(await store.readRecovery())).not.toContain(entry().retirementProof)
     expect(JSON.stringify(store.agentContextSnapshot())).not.toContain(entry().retirementProof)
     expect(JSON.stringify(await store.eventHistory())).not.toContain(entry().retirementProof)
-    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "bob", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "bob", admin: false, scopesPlain: null }).isPersisted.promise
     expect(store.session().phase).toBe("idle")
     await start(store, "-new", nextToken)
     await store.dispatch({ type: "app.reset", actor: "user" }).isPersisted.promise

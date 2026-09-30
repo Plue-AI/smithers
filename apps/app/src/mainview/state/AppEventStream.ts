@@ -37,7 +37,9 @@ export const APP_EVENT_FORMAT_VERSION = 1
 // copies retired (smithersai/smithers#2239); an older store's local rows fail their schema and seed a fresh stream.
 // 25: repository job observations add a disposable projection; older saved rows seed the new roster (#2536).
 // 26: retire signup details with no owner receipt once, including edited legacy rows (#2065).
-export const APP_PROJECTOR_VERSION = 26
+// 27: the closed-alpha gate retired: identity rows drop `allowlisted`/`accessRequested`/`accessError`, the
+// `identity.access.requested`/`identity.access.failed` transitions and the `request-queue` card retire (#2145).
+export const APP_PROJECTOR_VERSION = 27
 
 const JsonSchema: z.ZodType<EventJson> = z.lazy(() => z.union([
   z.null(), z.boolean(), z.number().finite(), z.string(), z.array(JsonSchema), z.record(z.string(), JsonSchema)

@@ -39,7 +39,6 @@ import type { PlueFault } from "./PlueFailureCodes.ts"
  * @category constants
  */
 export const WORKER_FAILURE_CODES = [
-  "account_not_allowlisted",
   "client_disconnected",
   "cloud_token_unavailable",
   "cross_origin_blocked",
@@ -111,8 +110,6 @@ export interface WorkerFailureEntry {
  * @category constants
  */
 export const WORKER_FAILURES = {
-  /** The session is valid but the account is not off the closed-alpha allowlist. */
-  "account_not_allowlisted": { fault: "user", status: 403, retryAfter: 0 },
   /** The caller went away before the response settled. Answered at the Effect boundary, never restated as a 500. */
   "client_disconnected": { fault: "user", status: 499, retryAfter: 0 },
   /** The Worker could not mint this account's Smithers Cloud token, so it never got to ask plue anything. */

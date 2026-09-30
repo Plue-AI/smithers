@@ -34,7 +34,7 @@ const open = async (storage: PrivacyStorage) => {
 }
 const close = async (store: AppStore) => { await store.dispose?.(); opened.splice(opened.indexOf(store), 1) }
 const signIn = (store: AppStore, login: string) => store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login,
-  allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+  admin: false, scopesPlain: null }).isPersisted.promise
 
 /** A pre-fix store: Bob is signed in and Alice's request metadata was never cleaned. */
 const saved = async (requests: Request[], login = "bob") => {
@@ -90,7 +90,7 @@ test("an unavailable identity is unknown ownership and keeps every request", asy
   const { storage } = await saved([...alice, bob])
   const first = await open(storage)
   const scrubbed = first.session().codingProviderRequests
-  await first.dispatch({ type: "identity.session.loaded", actor: "system", state: "unavailable", login: null, allowlisted: false,
+  await first.dispatch({ type: "identity.session.loaded", actor: "system", state: "unavailable", login: null, 
     admin: false, scopesPlain: null }).isPersisted.promise
   await first.dispatch({ type: "coding.provider.requests.changed", actor: "system", requests: [...alice, bob] }).isPersisted.promise
   expect(scrubbed).toEqual([bob])

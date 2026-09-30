@@ -118,7 +118,7 @@ const context = (store: AppStore, http: SeamContext["http"] = async path => repl
   store, dispatch: store.dispatch, http, baseUrl: "", actor: () => "user", nextOrdinal: store.nextOrdinal
 })
 const signIn = (store: AppStore, login: string) => store.dispatch({ type: "identity.session.loaded", actor: "system",
-  state: "signed-in", login, allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+  state: "signed-in", login, admin: false, scopesPlain: null }).isPersisted.promise
 
 test("billing reads wait for the account receipt before publishing a card or result, then reopen identically", async () => {
   const storage = memoryStorage(), store = await createOwnedStore({ kind: "localStorage", storage })

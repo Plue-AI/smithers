@@ -9,7 +9,7 @@ import { SIGN_OUT_REFUSAL } from "./CloudSignIn"
 const stores: AppStore[] = [], seams: CodeIntelSeam[] = []
 afterEach(async () => { for (const seam of seams.splice(0)) seam.dispose(); for (const store of stores.splice(0)) await store.dispose?.() })
 const identity = (login: string | null, provider: "github" | "local" = "github") => ({ type: "identity.session.loaded" as const, actor: "system" as const,
-  state: login === null ? "signed-out" as const : "signed-in" as const, login, provider, allowlisted: login !== null, admin: false, scopesPlain: null })
+  state: login === null ? "signed-out" as const : "signed-in" as const, login, provider, admin: false, scopesPlain: null })
 const cloud = (username: string | null) => ({ type: "cloud.session.loaded" as const, actor: "system" as const,
   state: username === null ? "signed-out" as const : "signed-in" as const, username, expiresAt: null, scopes: null })
 const card: Extract<Card, { kind: "file" }> = { id: "file-owner/repo-index.ts", kind: "file", title: "File", status: "active", ordinal: 1, createdAt: 1,

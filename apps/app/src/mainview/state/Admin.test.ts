@@ -63,23 +63,10 @@ const adminStore = async (): Promise<AppStore> => {
     actor: "system",
     state: "signed-in",
     login: "will",
-    allowlisted: true,
     admin: true,
     scopesPlain: null
   })
   return store
-}
-
-const QUEUE = {
-  requests: [
-    {
-      login: "octocat",
-      note: "design partner",
-      createdAt: "2026-08-07T10:00:00.000Z",
-      updatedAt: "2026-08-07T10:00:00.000Z"
-    },
-    { login: "hubot", note: null, createdAt: "2026-08-08T08:00:00.000Z", updatedAt: "2026-08-08T08:00:00.000Z" }
-  ]
 }
 
 describe("the admin plugin (admin session)", () => {
@@ -89,32 +76,7 @@ describe("the admin plugin (admin session)", () => {
     const callable = controller.commands.callable().map((entry) => entry.binding.descriptor.name)
     expect(callable).not.toContain("admin.grant.confirm")
     expect(callable).not.toContain("admin.grant.cancel")
-    expect(callable).not.toContain("admin.queue.approve")
     expect((await controller.commands.runForAgent("admin.grant.confirm", "grant-card")).status).toBe("failed")
-  })
-
-  test("allowlist add posts and confirms from the server echo", async () => {
-    const store = await adminStore()
-    const recorded: RecordedRequest[] = []
-    const controller = createAppController(store, silentAgent, {
-      ...backend(
-        {
-          "/api/admin/allowlist": json(201, {
-            applied: true,
-            action: "add",
-            login: "octocat",
-            requester: "will"
-          })
-        },
-        recorded
-      )
-    })
-    const outcome = await controller.commands.run("admin.allowlist.add", "octocat")
-    expect(outcome.status).toBe("executed")
-    const posted = recorded.find((r) => r.path === "/api/admin/allowlist")
-    expect(posted?.body).toEqual({ login: "octocat", action: "add" })
-    const line = [...store.collections.messages.values()].find((m) => m.text.includes("octocat added to the allowlist"))
-    expect(line).toBeDefined()
   })
 
   test("grant asks first: the confirmation card states exactly what happens before posting", async () => {
@@ -193,36 +155,6 @@ describe("the admin plugin (admin session)", () => {
     expect(recorded.some((r) => r.path === "/api/admin/grant")).toBe(false)
   })
 
-  test("requests renders the queue card and one-click approve posts allowlist add then re-reads", async () => {
-    const store = await adminStore()
-    const recorded: RecordedRequest[] = []
-    const controller = createAppController(store, silentAgent, {
-      ...backend(
-        {
-          // The landed identity contract does NOT drain the queue on
-          // approval (allowlistApply writes the entry + audit only), so the
-          // double keeps the row; the product re-reads the server's truth.
-          "/api/admin/requests": () => json(200, QUEUE),
-          "/api/admin/allowlist": () => json(201, { applied: true, action: "add", login: "octocat", requester: "will" })
-        },
-        recorded
-      )
-    })
-    expect((await controller.commands.run("admin.requests")).status).toBe("executed")
-    const card = cardOf(store, "admin-requests", "request-queue")
-    expect(card.payload.requests.map((r) => r.login)).toEqual(["octocat", "hubot"])
-
-    expect((await controller.commands.run("admin.queue.approve", "octocat")).status).toBe("executed")
-    const posted = recorded.find((r) => r.path === "/api/admin/allowlist")
-    expect(posted?.body).toEqual({ login: "octocat", action: "add" })
-    // The card re-read from the server after the approve — never local optimism.
-    const queueReads = recorded.filter((r) => r.path === "/api/admin/requests")
-    expect(queueReads.length).toBeGreaterThanOrEqual(2)
-    const refreshed = cardOf(store, "admin-requests", "request-queue")
-    expect(refreshed.payload.approving).toBeNull()
-    expect(refreshed.payload.requests.map((r) => r.login)).toEqual(["octocat", "hubot"])
-  })
-
   test("health composes the per-service card from the real read", async () => {
     const store = await adminStore()
     const controller = createAppController(store, silentAgent, {
@@ -233,7 +165,6 @@ describe("the admin plugin (admin session)", () => {
             { name: "identity", status: "ok", detail: "healthz ok." }
           ],
           charges: { chargeCount: 3, lifetimeChargedUsd: "0.16125" },
-          queueDepth: 2,
           checkedAt: "2026-08-08T09:30:00.000Z"
         })
       })
@@ -244,7 +175,6 @@ describe("the admin plugin (admin session)", () => {
       "billing:ok",
       "identity:ok"
     ])
-    expect(card.payload.queueDepth).toBe(2)
     expect(card.payload.charges?.lifetimeChargedUsd).toBe("0.16125")
   })
 
@@ -256,14 +186,14 @@ describe("the admin plugin (admin session)", () => {
     }
     const controller = createAppController(store, silentAgent, {
       ...backend({
-        "/api/admin/requests": json(501, refused)
+        "/api/admin/health": json(501, refused)
       })
     })
-    await controller.commands.run("admin.requests")
-    const expected = `The request queue didn't answer. ${refusalLead(refusalOf({ body: refused, status: 501, message: refused.message }))}`
+    await controller.commands.run("admin.health")
+    const expected = `The health read didn't answer. ${refusalLead(refusalOf({ body: refused, status: 501, message: refused.message }))}`
     const texts = [...store.collections.messages.values()].map((m) => m.text)
     expect(texts).toContain(expected)
     expect(texts.join("\n")).not.toContain("IDENTITY_ADMIN_TOKEN")
-    expect(store.collections.cards.get("admin-requests")).toBeUndefined()
+    expect(store.collections.cards.get("admin-health")).toBeUndefined()
   })
 })

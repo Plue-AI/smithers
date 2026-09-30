@@ -96,7 +96,7 @@ const relay = (options: { readonly registered?: boolean } = {}) => {
 const signedInStore = async () => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in",
-    login: "codeplanesmithers", allowlisted: true, admin: false, scopesPlain: null })
+    login: "codeplanesmithers", admin: false, scopesPlain: null })
   store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{
     id: REPO, org: REPO.split("/")[0] ?? "", ownerKind: "user", name: REPO.split("/")[1] ?? "", head: null
   }] })

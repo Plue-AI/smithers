@@ -118,7 +118,6 @@ const bootProgram = (options: ControllerBootOptions = {}) =>
       yield* promiseEffect("record unavailable identity", () => controller.adoptSession({
         state: "unavailable",
         login: null,
-        allowlisted: false,
         admin: false
       }))
     } else if (nativeShell(bootstrap) || canPaintAppBeforeIdentity({

@@ -108,7 +108,7 @@ const fixture = async (holdAdmission = false, initial = seed()) => {
   }
   // Own the real store before the first seed receipt or actor construction can fail.
   ownedFixtures.add({ dispose })
-  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", admin: false, scopesPlain: null }).isPersisted.promise
   await store.dispatch({ type: "card.upsert", actor: "system", card: initial }).isPersisted.promise
   let read = async (_url: string): Promise<Response> => Response.json({ message: "No authoritative issue read fixture" }, { status: 404 })
   const dispatch: AppStore["dispatch"] = transition => {
@@ -234,7 +234,7 @@ test("an old owner's completion cannot clear or block the new owner's flight", a
   const t = await fixture()
   try {
     await t.human.resolveIssueSync(seed().id, 41, "retry", "First owner", "")
-    await t.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "bob", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+    await t.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "bob", admin: false, scopesPlain: null }).isPersisted.promise
     await t.store.dispatch({ type: "card.upsert", actor: "system", card: seed("bob-claim") }).isPersisted.promise
     await t.agent.resolveIssueSync(seed().id, 41, "skip", "New owner", "")
     await t.checkpoint()
@@ -252,7 +252,7 @@ for (const boundary of ["account", "dispose"]) test(`${boundary} retirement duri
   const requested = t.human.resolveIssueSync(seed().id, 41, "retry", "Old request", "")
   try {
     await bounded(t.admissionEntered.promise)
-    if (boundary === "account") await t.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "bob", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+    if (boundary === "account") await t.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "bob", admin: false, scopesPlain: null }).isPersisted.promise
     else t.retire()
     t.admission.resolve()
     expect(await requested).toBe("Resolution is no longer current.")

@@ -142,7 +142,6 @@ export function DevtoolsPanel() {
 										: {
 												state: identity.state,
 												login: identity.login,
-												allowlisted: identity.allowlisted,
 												admin: identity.admin,
 											},
 								billing: billing === undefined ? null : { state: billing.state, totalUsd: billing.totalUsd },

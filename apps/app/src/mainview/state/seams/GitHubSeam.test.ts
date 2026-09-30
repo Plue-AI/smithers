@@ -1063,7 +1063,7 @@ describe("the mirror run poll's fences", () => {
   const identity = (login: string | null, provider: "github" | "local" = "github") => ({
     type: "identity.session.loaded" as const, actor: "system" as const,
     state: login === null ? "signed-out" as const : "signed-in" as const,
-    login, provider, allowlisted: login !== null, admin: false, scopesPlain: null
+    login, provider, admin: false, scopesPlain: null
   })
 
   for (const change of ["account", "sign-out", "provider", "away-and-back", "cloud-account", "dispose", "refresh"] as const) {
@@ -1199,7 +1199,7 @@ describe("the mirror run poll's fences", () => {
 
 describe("GitHub setup account ownership", () => {
   const identity = (login: string | null, provider: "github" | "local" = "github") => ({ type: "identity.session.loaded" as const, actor: "system" as const,
-    state: login === null ? "signed-out" as const : "signed-in" as const, login, provider, allowlisted: login !== null, admin: false, scopesPlain: null })
+    state: login === null ? "signed-out" as const : "signed-in" as const, login, provider, admin: false, scopesPlain: null })
   const inventory = { repos: [{ fullName: "will/private", installationId: 5511 }] }
   for (const action of ["status", "installation"] as const) for (const change of ["account", "provider", "away-and-back", "dispose", "cloud-sign-out", "refresh"] as const) {
     test.each(["success", "refusal", "drop"] as const)(`${action} %s respects ${change}`, async result => {
@@ -1361,7 +1361,7 @@ describe("GitHub public admission and recovery", () => {
     const { store, seam, requests } = await harness({ [path]: json(200, { repos: [] }) }, {
       openExternal: async url => { opened.push(url); return opens }
     })
-    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", provider: "github", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", provider: "github", admin: false, scopesPlain: null }).isPersisted.promise
     await store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [] }).isPersisted.promise
     expect(await seam.openInstall()).toBe("The GitHub install page could not open. Try again.")
     expect(store.collections.toasts.get("toast-github.install")?.status).toBe("failed")

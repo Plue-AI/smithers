@@ -1,10 +1,8 @@
 import { accountProviderChanged } from "../AccountOwner"
 import { identityProviderFor, signInByHandoff } from "../IdentityProvider"
 import {
-ADMIN_ALLOWLIST_PATH,
 ADMIN_GRANT_PATH,
 ADMIN_HEALTH_PATH,
-ADMIN_REQUESTS_PATH,
 AUTH_LOGOUT_PATH,
 AUTH_NATIVE_CLAIM_PATH,
 AUTH_NATIVE_START_PATH,
@@ -12,8 +10,7 @@ AUTH_RETURN_TO_PARAM,
 AUTH_SCOPES_PATH,
 AUTH_SIGN_IN_PATH,
 AUTH_SIGNED_IN_PARAM,
-BILLING_BALANCE_PATH,
-IDENTITY_REQUEST_ACCESS_PATH
+BILLING_BALANCE_PATH
 } from "@smthrs/rpc/AgentApiRoutes"
 import { signInReturnTo } from "../../RepoLink"
 import type { Card } from "../AppState"
@@ -42,15 +39,11 @@ export interface AuthBillingController {
   readonly loadSession: () => Promise<void>
   readonly signIn: (reservedOpen?: (url: string) => Promise<boolean>) => Promise<void> | void
   readonly signOut: () => Promise<string | void>
-  readonly requestAccess: () => Promise<string | void>
   readonly refreshBalance: () => Promise<void>
   readonly showBalance: () => Promise<string | { readonly value: string }>
-  readonly adminAllowlist: (action: "add" | "remove", login: string) => Promise<string | void>
   readonly adminGrant: (amountUsd: number, login: string) => string | void
   readonly adminGrantConfirm: (cardId: string) => Promise<string | void>
   readonly adminGrantCancel: (cardId: string) => string | void
-  readonly adminRequests: () => Promise<string | void>
-  readonly adminQueueApprove: (login: string) => Promise<string | void>
   readonly adminHealth: () => Promise<string | void>
   readonly settleTurnBilling: () => void
   readonly watchIdentityAcrossTabs: () => void
@@ -59,7 +52,6 @@ export interface AuthBillingController {
 export interface ResolvedSession {
   readonly state: "signed-in" | "signed-out" | "unavailable"
   readonly login: string | null
-  readonly allowlisted: boolean
   readonly admin: boolean
   readonly scopes?: "degraded" | null
 }
@@ -153,8 +145,8 @@ export const createAuthBillingController = (
   }
 
   /*
-   * Identity seam. Only definitive answers gate the app: a signed-out or
-   * non-allowlisted response drives the landing states; "unavailable" (seam
+   * Identity seam. Only definitive answers gate the app: a signed-out
+   * response drives the landing state; "unavailable" (seam
    * unset or unreachable) is recorded honestly but never blocks the surface.
    */
   const fetchScopesPlain = async (signal?: AbortSignal): Promise<string | null> => {
@@ -194,11 +186,10 @@ export const createAuthBillingController = (
       actor: "system",
       state: "signed-out",
       login: null,
-      allowlisted: false,
       admin: false,
       scopesPlain
     }).isPersisted.promise
-    await mirrorSelectedCloud({ state: "signed-out", login: null, allowlisted: false, admin: false })
+    await mirrorSelectedCloud({ state: "signed-out", login: null, admin: false })
     // The read that WRITES the row makes the first run's target choice: a read
     // that returned at its probe guard has none to make, so a boot read raced
     // by a focus re-read (watchIdentityAcrossTabs) leaves no command parked.
@@ -213,7 +204,6 @@ export const createAuthBillingController = (
       actor: "system",
       state: "unavailable",
       login: null,
-      allowlisted: false,
       admin: false,
       scopesPlain: null
     })
@@ -221,7 +211,7 @@ export const createAuthBillingController = (
   }
 
   const finishSignedInSession = async (
-    session: Pick<ResolvedSession, "login" | "allowlisted" | "admin" | "scopes">,
+    session: Pick<ResolvedSession, "login" | "admin" | "scopes">,
     previous: ReturnType<typeof store.collections.identitySessions.get>,
     mine: number
   ): Promise<void> => {
@@ -234,7 +224,6 @@ export const createAuthBillingController = (
       actor: "system",
       state: "signed-in",
       login: session.login,
-      allowlisted: session.allowlisted,
       admin: session.admin,
       scopesPlain: null
     })
@@ -248,10 +237,8 @@ export const createAuthBillingController = (
     // logged by the browser as a console error anyway.
     void refreshBalanceSilently()
     if (disposed || probe !== mine) return
-    if (session.allowlisted) {
-      // Wave 11: a live run card's event pump resumes from its lastSeq.
-      resumeWorkflowRuns()
-    }
+    // Wave 11: a live run card's event pump resumes from its lastSeq.
+    resumeWorkflowRuns()
     // The signed-in answer can satisfy a parked command's requirement — the
     // command that deferred into this sign-in continues here, across the
     // OAuth redirect.
@@ -300,7 +287,6 @@ export const createAuthBillingController = (
       }
       await finishSignedInSession({
         login: identity.username,
-        allowlisted: true,
         admin: identity.admin,
         scopes: identity.scopes
       }, previous, mine)
@@ -616,48 +602,8 @@ export const createAuthBillingController = (
       return
     }
     if (!retired()) return
-    await mirrorSelectedCloud({ state: "signed-out", login: null, allowlisted: false, admin: false }, retired)
+    await mirrorSelectedCloud({ state: "signed-out", login: null, admin: false }, retired)
     if (retired()) ctx.identityChanged()
-  }
-
-  /*
-   * A.38: this used to answer nothing at all when there was nothing to do.
-   * For a non-allowlisted account the auth message carries both the filed
-   * request and any failure, so the outcome is visible where it belongs; for
-   * everyone else the flow now says why it did nothing instead of POSTing
-   * quietly and returning.
-   */
-  const requestAccess = async (): Promise<string | void> => {
-    const identity = store.collections.identitySessions.get("identity")
-    if (identity === undefined || identity.state !== "signed-in" || identity.login === null) {
-      return "Sign in with GitHub first — an access request needs an account to attach to."
-    }
-    if (identity.allowlisted) {
-      return `You already have access as ${identity.login} — there is no request to file.`
-    }
-    const current = admitAccount()
-    try {
-      const response = await http(`${baseUrl}${IDENTITY_REQUEST_ACCESS_PATH}`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ login: identity.login })
-      })
-      if (!response.ok) {
-        const message = await errorMessageOf(response, "The access request did not go through. Try again.")
-        if (current()) store.dispatch({ type: "identity.access.failed", actor: "system", message })
-        return
-      }
-    } catch {
-      if (current()) {
-        store.dispatch({
-          type: "identity.access.failed",
-          actor: "system",
-          message: "The access request did not go through. Try again."
-        })
-      }
-      return
-    }
-    if (current()) store.dispatch({ type: "identity.access.requested", actor: "user" })
   }
 
   /**
@@ -797,52 +743,6 @@ export const createAuthBillingController = (
    * answer 404-never-403 to non-admins; a 404 here therefore means "not an
    * admin (or not configured)" and is surfaced as an honest line.
    */
-  const adminAllowlistImpl = async (
-    action: "add" | "remove",
-    login: string,
-    current: () => boolean
-  ): Promise<true | typeof TOAST_SUPERSEDED | string> => {
-    try {
-      const response = await http(`${baseUrl}${ADMIN_ALLOWLIST_PATH}`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ login, action })
-      })
-      if (!response.ok) {
-        return adminRefusal(current, await errorMessageOf(response, "The allowlist change didn't go through."))
-      }
-      const echo = (await response.json().catch(() => undefined)) as
-        | { applied?: unknown; duplicate?: unknown }
-        | undefined
-      if (!current()) return TOAST_SUPERSEDED
-      const verb = action === "add" ? "added to" : "removed from"
-      store.dispatch({
-        type: "message.appended",
-        actor: "system",
-        text: echo?.duplicate === true
-          ? `${login} was already ${action === "add" ? "on" : "off"} the allowlist — nothing changed.`
-          : `${login} ${verb} the allowlist, recorded under your name.`
-      })
-    } catch {
-      return adminRefusal(current, "The allowlist change didn't go through — the admin route didn't answer.")
-    }
-    return true
-  }
-
-  const adminAllowlist = (action: "add" | "remove", login: string): Promise<string | void> => {
-    const current = admitAccount()
-    return withToast(
-      "admin.allowlist",
-      "Updating the allowlist…",
-      "Allowlist updated",
-      () => adminAllowlistImpl(action, login, current),
-      false,
-      current
-    ).then(
-      () => undefined
-    )
-  }
-
   const adminGrant = (amountUsd: number, login: string): string | void => {
     // Never post directly: the confirmation card states exactly what will happen first.
     const card: Card = {
@@ -941,101 +841,6 @@ export const createAuthBillingController = (
     return undefined
   }
 
-  const ADMIN_REQUESTS_CARD_ID = "admin-requests"
-
-  /** Re-read the queue and refresh the queue card (also the post-approve refresh). */
-  const adminRequestsImpl = async (current: () => boolean): Promise<true | typeof TOAST_SUPERSEDED | string> => {
-    try {
-      const response = await http(`${baseUrl}${ADMIN_REQUESTS_PATH}`)
-      if (!response.ok) return adminRefusal(current, await errorMessageOf(response, "The request queue didn't answer."))
-      const body = (await response.json().catch(() => undefined)) as
-        | { requests?: Array<{ login?: unknown; note?: unknown; createdAt?: unknown }> }
-        | undefined
-      if (!current()) return TOAST_SUPERSEDED
-      const requests = (Array.isArray(body?.requests) ? body.requests : [])
-        .filter((row) => typeof row.login === "string")
-        .map((row) => ({
-          login: row.login as string,
-          note: typeof row.note === "string" ? row.note : null,
-          createdAt: typeof row.createdAt === "string" ? row.createdAt : ""
-        }))
-      const existing = store.collections.cards.get(ADMIN_REQUESTS_CARD_ID)
-      const card: Card = {
-        id: ADMIN_REQUESTS_CARD_ID,
-        kind: "request-queue",
-        title: `Request-access queue — ${requests.length} waiting`,
-        status: "active",
-        createdAt: existing?.createdAt ?? Date.now(),
-        ordinal: nextTranscriptOrdinal(),
-        payload: { requests, approving: null }
-      }
-      store.dispatch({ type: "card.upsert", actor: "system", card })
-    } catch {
-      return adminRefusal(current, "The request queue didn't answer — the admin route is unreachable.")
-    }
-    return true
-  }
-
-  const adminRequests = (): Promise<string | void> => {
-    const current = admitAccount()
-    return withToast("admin.requests", "Reading the request queue…", "Request queue read", () => adminRequestsImpl(current), false, current)
-      .then(() => undefined)
-  }
-
-  const adminQueueApprove = async (login: string): Promise<string | void> => {
-    const card = store.collections.cards.get(ADMIN_REQUESTS_CARD_ID)
-    if (card !== undefined && card.kind === "request-queue") {
-      store.dispatch({
-        type: "card.updated",
-        actor: ctx.commandActor,
-        id: card.id,
-        patch: { payload: { ...card.payload, approving: login, error: undefined } }
-      })
-    }
-    const current = admitAccount()
-    const post = await withToast("admin.queue.approve", `Approving ${login}…`, `${login} approved`, async () => {
-      try {
-        const response = await http(`${baseUrl}${ADMIN_ALLOWLIST_PATH}`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ login, action: "add" })
-        })
-        if (!response.ok) {
-          const message = await errorMessageOf(response, `Approving ${login} didn't go through.`)
-          if (!current()) return TOAST_SUPERSEDED
-          const queue = store.collections.cards.get(ADMIN_REQUESTS_CARD_ID)
-          if (queue !== undefined && queue.kind === "request-queue") {
-            store.dispatch({
-              type: "card.updated",
-              actor: "system",
-              id: queue.id,
-              patch: { status: "error", payload: { ...queue.payload, approving: null, error: message } }
-            })
-          }
-          return message
-        }
-      } catch {
-        if (!current()) return TOAST_SUPERSEDED
-        const message = `Approving ${login} didn't go through — the admin route didn't answer.`
-        const queue = store.collections.cards.get(ADMIN_REQUESTS_CARD_ID)
-        if (queue !== undefined && queue.kind === "request-queue") {
-          store.dispatch({
-            type: "card.updated",
-            actor: "system",
-            id: queue.id,
-            patch: { status: "error", payload: { ...queue.payload, approving: null, error: message } }
-          })
-        }
-        return message
-      }
-      return current() ? true : TOAST_SUPERSEDED
-    }, false, current)
-    if (post !== true) return undefined
-    // The queue card re-reads from the server — never from local optimism.
-    await adminRequests()
-    return undefined
-  }
-
   const adminHealthImpl = async (current: () => boolean): Promise<true | typeof TOAST_SUPERSEDED | string> => {
     try {
       const response = await http(`${baseUrl}${ADMIN_HEALTH_PATH}`)
@@ -1044,7 +849,6 @@ export const createAuthBillingController = (
         | {
           services?: Array<{ name?: unknown; status?: unknown; detail?: unknown }>
           charges?: { chargeCount?: unknown; lifetimeChargedUsd?: unknown } | null
-          queueDepth?: unknown
           checkedAt?: unknown
         }
         | undefined
@@ -1080,7 +884,6 @@ export const createAuthBillingController = (
         ordinal: nextTranscriptOrdinal(),
         payload: {
           services,
-          queueDepth: typeof body.queueDepth === "number" ? body.queueDepth : null,
           charges,
           checkedAt: typeof body.checkedAt === "string" ? body.checkedAt : new Date().toISOString()
         }
@@ -1164,15 +967,11 @@ export const createAuthBillingController = (
     loadSession,
     signIn,
     signOut,
-    requestAccess,
     refreshBalance,
     showBalance,
-    adminAllowlist,
     adminGrant,
     adminGrantConfirm,
     adminGrantCancel,
-    adminRequests,
-    adminQueueApprove,
     adminHealth,
     settleTurnBilling,
     watchIdentityAcrossTabs

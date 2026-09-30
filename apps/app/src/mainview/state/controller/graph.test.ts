@@ -203,7 +203,6 @@ const signIn = async (store: Awaited<ReturnType<typeof webStore>>) => {
     actor: "system",
     state: "signed-in",
     login: "codeplanesmithers",
-    allowlisted: true,
     admin: false,
     scopesPlain: null
   })
@@ -747,7 +746,7 @@ for (const kind of ["plan", "run"] as const) {
       fixture.code()
       await waitFor(() => fixture.reads.length === 1)
       const previous = kind === "plan" ? planCard(fixture.store)! : runCard(fixture.store)!
-      await fixture.controller.adoptSession({ state: "signed-in", login: "another-owner", allowlisted: true, admin: false })
+      await fixture.controller.adoptSession({ state: "signed-in", login: "another-owner", admin: false })
       const view = { node: "gate", tab: "code" as const, codeError: { path: sites[0]!.declaredAt.path, message: "Current account refusal" } }
       const replacement = previous.kind === "flow-plan" ? { ...previous, payload: { ...previous.payload, view } }
         : { ...previous, payload: { ...previous.payload, graph: view } }
@@ -1006,7 +1005,7 @@ for (const kind of ["plan", "run"] as const) {
     try {
       const result = fixture.tab()
       await waitFor(held.held)
-      await fixture.controller.adoptSession({ state: "signed-in", login: "another-owner", allowlisted: true, admin: false })
+      await fixture.controller.adoptSession({ state: "signed-in", login: "another-owner", admin: false })
       const card = fixture.card.kind === "flow-plan"
         ? { ...fixture.card, payload: { ...fixture.card.payload, view: { node: "gate", tab: "code" as const } } }
         : { ...fixture.card, payload: { ...fixture.card.payload, graph: { node: "gate", tab: "code" as const } } }

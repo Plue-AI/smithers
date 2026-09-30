@@ -56,7 +56,7 @@ const platform = (secrets: Secret[] = [{ name: "NPM_TOKEN", hosts: ["registry.np
 const boot = async (persisted = new Map<string, string>(), world = platform()) => {
   const store = await createAppStore({ kind: "localStorage", storage: storage(persisted) })
   const controller = createAppController(store, unavailableAgent, { bootstrap: BOOT(), fetchImpl: world.fetchImpl })
-  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "alice", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "alice", admin: false, scopesPlain: null }).isPersisted.promise
   await store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: "alice/app", org: "alice", ownerKind: "user", name: "app", head: null }] }).isPersisted.promise
   return { store, controller, world, persisted }
 }
@@ -196,7 +196,7 @@ test("an account change drops a held save's answer instead of settling it", asyn
   expect(await controller.commands.run("secrets.set", JSON.stringify({ name: "API_TOKEN", repo: "alice/app" }))).toMatchObject({ status: "form" })
   expect(await submit(controller)).toMatchObject({ status: "executed", value: "Requested" })
   await waitFor(() => world.calls.some(call => call.method === "PUT"))
-  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "bob", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "bob", admin: false, scopesPlain: null }).isPersisted.promise
   put.resolve(Response.json({ name: "API_TOKEN", hosts: [], match_headers: [] }, { status: 201 }))
   await new Promise(resolve => setTimeout(resolve, 20))
   expect(requests(store).some(row => row.state === "completed")).toBe(false)

@@ -564,7 +564,6 @@ export interface WorkerRefusalCopyRow {
  * @category constants
  */
 export const WORKER_REFUSAL_COPY = {
-  account_not_allowlisted: { lead: "This account isn't off the closed-alpha waitlist yet.", doors: [] },
   client_disconnected: { lead: "That request stopped before it finished — the page went away.", doors: ["retry"] },
   cloud_token_unavailable: {
     lead: "Smithers couldn't get a Cloud token for your account, so it never got as far as asking.",

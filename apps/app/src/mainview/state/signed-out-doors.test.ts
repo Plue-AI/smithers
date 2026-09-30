@@ -21,7 +21,7 @@ const setup = async (fetchImpl?: import("./AppController").AppServices["fetchImp
       return fetchImpl ? fetchImpl(input, init) : Response.json({ message: "Unexpected request" }, { status: 404 })
     },
   })
-  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, allowlisted: false, admin: false, scopesPlain: null }).isPersisted.promise
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, admin: false, scopesPlain: null }).isPersisted.promise
   await store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: "smithersai/smithers", org: "smithersai", name: "smithers", ownerKind: "user", head: null }] }).isPersisted.promise
   await store.dispatch({ type: "repo.selected", actor: "user", id: "smithersai/smithers" }).isPersisted.promise
   await settle()
@@ -116,7 +116,7 @@ test("signed-out chrome doors share one short GitHub sign-in step", async () => 
     bootstrap: WEB,
     fetchImpl: async () => Response.json({ message: "Unexpected request" }, { status: 404 })
   })
-  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, allowlisted: false, admin: false, scopesPlain: null }).isPersisted.promise
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, admin: false, scopesPlain: null }).isPersisted.promise
   await settle()
   const doors = ["triggers.list", "flows", "secrets.list", "history.show"]
   for (const door of doors) expect(controller.commands.find(door)).toBeDefined()

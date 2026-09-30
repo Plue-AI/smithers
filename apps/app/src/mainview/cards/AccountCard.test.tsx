@@ -34,11 +34,11 @@ for (const provider of ["local", "github"] as const) {
           : new Response(null, { status: 404 })
       }
     })
-    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "owner", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "owner", admin: false, scopesPlain: null }).isPersisted.promise
     const result = await controller.showAccount()
     await store.settled?.()
     expect(paths).toEqual([])
-    expect(result).toEqual({ value: "account: @owner; access allowed; 0 box(es) listed" })
+    expect(result).toEqual({ value: "account: @owner; 0 box(es) listed" })
     const restored = await createAppStore({ kind: "localStorage", storage })
     try {
       const card = restored.collections.cards.get("account")!
@@ -49,13 +49,15 @@ for (const provider of ["local", "github"] as const) {
       expect(html.includes("GitHub")).toBe(provider === "github")
       expect(html.includes("read:user")).toBe(provider === "github")
       expect(html).toContain('data-flow="auth.sign-out"')
+      // Signup is public (#2145): the card states no access gate.
+      expect(html).not.toMatch(/Allowed|Requested, waiting on an answer|Not yet allowed|account-access/)
     } finally { await restored.dispose?.() }
   })
 }
 
 test("legacy account cards without provider evidence do not claim GitHub authorization", () => {
   const html = renderToStaticMarkup(<AccountCardBody card={{ id: "account", kind: "account", title: "Account", status: "active", createdAt: 1, ordinal: 1,
-    payload: { login: "owner", allowlisted: true, accessRequested: false, scopes: [], boxes: [] } }} onRunCommand={() => {}} />)
+    payload: { login: "owner", scopes: [], boxes: [] } }} onRunCommand={() => {}} />)
   expect(html).not.toContain("GitHub")
   expect(html).not.toContain("read:user")
   expect(html).toContain("owner")
@@ -63,7 +65,7 @@ test("legacy account cards without provider evidence do not claim GitHub authori
 
 test("failed permissions keep a keyboard Retry door on the Account card", () => {
   const html = renderToStaticMarkup(<AccountCardBody card={{ id: "account", kind: "account", title: "Account", status: "error", createdAt: 1, ordinal: 1,
-    payload: { login: "owner", provider: "github", allowlisted: true, accessRequested: false, scopes: [], boxes: [],
+    payload: { login: "owner", provider: "github", scopes: [], boxes: [],
       refresh: { id: "read", state: "failed", error: "Permissions could not be loaded (HTTP 500)." } } }} onRunCommand={() => {}} />)
   expect(html).toMatch(/role="alert"[^>]*data-fault="infra"[^>]*data-failure="AccountPermissionsFailed"/)
   expect(html).toContain("<p>Smithers could not load your permissions. Not your fault.</p>")

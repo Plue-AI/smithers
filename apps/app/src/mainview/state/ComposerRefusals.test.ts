@@ -16,7 +16,7 @@ const createAppController = scopedControllers()
  * its refusal — the same flow, the same seam, two behaviours.
  */
 
-/** A signed-in, allowlisted session: the state every repository flow requires. */
+/** A signed-in session: the state every repository flow requires. */
 const signedInStore = async (): Promise<AppStore> => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   store.dispatch({
@@ -24,7 +24,6 @@ const signedInStore = async (): Promise<AppStore> => {
     actor: "system",
     state: "signed-in",
     login: "will",
-    allowlisted: true,
     admin: true,
     scopesPlain: null
   })

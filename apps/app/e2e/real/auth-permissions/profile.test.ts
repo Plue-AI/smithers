@@ -7,12 +7,10 @@ describe("matrix authenticated-user probe", () => {
   test("reads the canonical GET /api/user shape", () => {
     expect(parseAuthenticatedUser(200, { username: "owner", is_admin: true })).toEqual({
       login: "owner",
-      allowlisted: true,
       admin: true
     })
     expect(parseAuthenticatedUser(200, { username: "member" })).toEqual({
       login: "member",
-      allowlisted: true,
       admin: false
     })
   })

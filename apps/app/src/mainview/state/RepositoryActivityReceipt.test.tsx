@@ -21,7 +21,7 @@ const failureText = (error: unknown): string => error instanceof AggregateError
 const noop = () => {}
 const handlers: Omit<CardViewProps, "card"> = {
   maximized: false, onDecideApproval: noop, onGrantConfirm: noop, onGrantCancel: noop,
-  onQueueApprove: noop, onMaximize: noop, onMinimize: noop, onOpenInTab: noop,
+  onMaximize: noop, onMinimize: noop, onOpenInTab: noop,
   onConnectGitHub: noop, onRunWorkflow: noop, onStopRun: noop,
   onRetryRun: noop, onChooseWorkflowRepo: noop, worldDocuments: [], onChangeWorldDocument: noop,
   onRunCommand: noop
@@ -54,7 +54,7 @@ for (const refresh of [false, true]) for (const interrupted of [false, true]) {
       storageEventApi: { addEventListener: noop, removeEventListener: noop } })
   }
   const store = await open()
-  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "alice", provider: "github", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "alice", provider: "github", admin: false, scopesPlain: null }).isPersisted.promise
   let title = "Committed previous receipt"
   const controller = createController(store, silentAgent, {
     applicationIdentity: { current: async () => null },
@@ -138,7 +138,7 @@ for (const refresh of [false, true]) for (const interrupted of [false, true]) {
           expect(restoredHost.textContent).toContain(interrupted ? "Committed previous receipt" : "Uncommitted activity receipt")
         } finally { flushSync(() => restoredRoot.unmount()); restoredHost.remove() }
       }
-      await reopened.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "bob", provider: "github", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+      await reopened.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "bob", provider: "github", admin: false, scopesPlain: null }).isPersisted.promise
       expect(reopened.collections.savedRepositoryUpdates.size).toBe(0)
     } finally { await reopened.dispose?.() }
   } finally {

@@ -22,7 +22,7 @@ async function fixture(options: { workflowPreparationTimeoutMs?: number; answer?
     disk.setItem(key, value)
   } }
   const store = await createAppStore({ kind: "localStorage", storage })
-  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "owner", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "owner", admin: false, scopesPlain: null }).isPersisted.promise
   await store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: repo, org: "owner", ownerKind: "user", name: "launch-test", head: null }] }).isPersisted.promise
   await loadBox(store, repo)
   const calls: Array<{ procedure: string; payload: Record<string, unknown>; repo: string; workspaceId?: string }> = []
@@ -308,7 +308,7 @@ test("late preparation from a different account never launches or replaces the n
   const gate = deferred<Response>()
   t.provision(() => gate.promise)
   await t.controller.commands.run("flow.run", `review ${repo}`)
-  await t.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "different-owner", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+  await t.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "different-owner", admin: false, scopesPlain: null }).isPersisted.promise
   gate.resolve(json(200, { status: "ready" }))
   await settle()
   expect(t.calls.filter(call => call.procedure === "Plan" || call.procedure === "Run")).toHaveLength(0)
@@ -320,7 +320,7 @@ test("refreshing the same signed-in identity does not reject an unresolved prepa
   const gate = deferred<Response>()
   t.provision(() => gate.promise)
   await t.controller.commands.run("flow.run", `review ${repo}`)
-  await t.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "owner", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+  await t.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "owner", admin: false, scopesPlain: null }).isPersisted.promise
   gate.resolve(json(200, { status: "ready" }))
   await waitFor(() => t.cards()[0]?.payload.runId === "run-1")
   expect(t.cards()[0]?.status).toBe("active")

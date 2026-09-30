@@ -34,7 +34,6 @@ const handlers = {
   onDecideApproval: () => {},
   onGrantConfirm: () => {},
   onGrantCancel: () => {},
-  onQueueApprove: () => {},
   onMaximize: () => {},
   onMinimize: () => {},
   onOpenInTab: () => {},

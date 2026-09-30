@@ -150,7 +150,6 @@ describe("card bindings are stable for their controller and origin", () => {
         "onDecideApproval",
         "onGrantConfirm",
         "onGrantCancel",
-        "onQueueApprove",
         "onMaximize",
         "onMinimize",
         "onFrameBack",

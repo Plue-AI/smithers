@@ -22,7 +22,7 @@ const fixture = async (options: {
   const storage = memoryStorage()
   const store = await createAppStore({ kind: "localStorage", storage })
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "alice",
-    provider: "github", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+    provider: "github", admin: false, scopesPlain: null }).isPersisted.promise
   const launches: StartAgentTurnRequest[] = []
   const cancellations: string[] = []
   const listeners = new Set<(frame: AgentTurnFrame) => void>()
@@ -73,7 +73,7 @@ const fixture = async (options: {
 }
 
 const owner = (login: string) => ({ type: "identity.session.loaded" as const, actor: "system" as const,
-  state: "signed-in" as const, login, provider: "github" as const, allowlisted: true, admin: false, scopesPlain: null })
+  state: "signed-in" as const, login, provider: "github" as const, admin: false, scopesPlain: null })
 
 const journalOutput = (request: StartAgentTurnRequest): AgentTurnJournalDelivery[] => {
   const { runId, journal } = request

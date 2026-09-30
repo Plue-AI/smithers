@@ -2,7 +2,7 @@ import { flowAction } from "../flows/FlowAction"
 /*
  * The account card (factory mock 21, design session §6c): read-only seam
  * facts about the signed-in person, and the Sign out door. The login
- * and the allowlist answer always render (the identity seam holds both); the
+ * always renders (the identity seam holds it); the
  * GitHub App permissions section renders only when the identity worker answered.
  * OAuth requests only read:user for the profile. The
  * boxes section only when the workspaces seam has listed any. Nothing else
@@ -18,10 +18,6 @@ import { settledPill } from "./CardFamily"
 /* A failed permissions read; the read's own words stay behind Details. */
 const PERMISSIONS_FAILED: UserFailureCopy = { fault: "infra", sentence: "Smithers could not load your permissions. Not your fault.", actions: ["retry"] }
 
-/** The allowlist answer in words: allowed, requested and waiting, or not yet allowed. */
-export const accessLabel = (payload: { readonly allowlisted: boolean; readonly accessRequested: boolean }): string =>
-  payload.allowlisted ? "Allowed" : payload.accessRequested ? "Requested, waiting on an answer" : "Not yet allowed"
-
 export const AccountCardBody = ({
   card,
   onRunCommand
@@ -35,10 +31,6 @@ export const AccountCardBody = ({
         <tr data-testid="account-login">
           <th scope="row">{card.payload.provider === "github" ? "GitHub" : "Account"}</th>
           <td>{card.payload.provider === "github" ? "Connected as " : ""}@{card.payload.login}</td>
-        </tr>
-        <tr data-testid="account-access">
-          <th scope="row">Access</th>
-          <td>{accessLabel(card.payload)}</td>
         </tr>
       </tbody>
     </table>

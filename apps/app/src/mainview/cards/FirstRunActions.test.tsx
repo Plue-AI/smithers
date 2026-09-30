@@ -87,7 +87,7 @@ test("the live first-run card follows the selected repository's featured project
   const render = () => flushSync(() => root.render(<ControllerContext value={{ store, commands: { all: () => catalog },
     runCommand: () => {}, dismissFirstRun: () => {} } as unknown as AppController}><FirstRunActions /></ControllerContext>))
   try {
-    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", admin: false, scopesPlain: null }).isPersisted.promise
     await store.dispatch({ type: "repository.entry.changed", actor: "system", entry: { requestId: "home", repo: "will/demo", phase: "pending" } }).isPersisted.promise
     await store.dispatch({ type: "repository.entry.changed", actor: "system", entry: { requestId: "home", repo: "will/demo", phase: "ready" } }).isPersisted.promise
     expect(store.session().repositoryEntry?.repo).toBe("will/demo")
@@ -137,7 +137,7 @@ test("flow buttons dispatch once and dismissal survives the next render and relo
   const data = new Map<string, string>()
   const storage = { getItem: (key: string) => data.get(key) ?? null, setItem: (key: string, value: string) => { data.set(key, value) }, removeItem: (key: string) => { data.delete(key) } }
   let store = await createAppStore({ kind: "localStorage", storage })
-  store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, allowlisted: false, admin: false, scopesPlain: null })
+  store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, admin: false, scopesPlain: null })
   const calls: unknown[][] = []
   const host = document.createElement("div")
   document.body.append(host)
@@ -212,7 +212,7 @@ test("the live catalog keeps unavailable runtime and admin plugin flows out", as
     expect(names()).not.toContain("prs.list")
     expect(names()).not.toContain("admin.health")
     expect(names().some(name => name.startsWith("system."))).toBe(false)
-    store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "admin", allowlisted: true, admin: true, scopesPlain: null })
+    store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "admin", admin: true, scopesPlain: null })
     expect(firstRunGroups(controller.commands.all(), { ...state, signedOut: false, admin: true }).flatMap(group => group.flows.map(flow => flow.name))).not.toContain("admin.health")
   } finally {
     await controller.dispose()
@@ -226,7 +226,7 @@ const configuredHome = async (calls: Array<[string, string | undefined]>) => {
   const store = await createAppStore({ kind: "localStorage", storage: {
     getItem: key => data.get(key) ?? null, setItem: (key, value) => { data.set(key, value) }, removeItem: key => { data.delete(key) },
   } })
-  store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", allowlisted: true, admin: false, scopesPlain: null })
+  store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", admin: false, scopesPlain: null })
   store.dispatch({ type: "repository.entry.changed", actor: "system", entry: { requestId: "home", repo: "will/demo", phase: "pending" } })
   store.dispatch({ type: "repository.entry.changed", actor: "system", entry: { requestId: "home", repo: "will/demo", phase: "ready" } })
   const card = (job: "issues" | "review", enabled?: boolean) => {

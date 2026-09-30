@@ -74,7 +74,7 @@ test.each([
     if (path === `/api/repos/${target}/landings/42/reviews`) return Response.json(method === "POST" ? { id: 1 } : [], { status: method === "POST" ? 201 : 200 })
     return Response.json({ message: "Fixture refuses this request" }, { status: 503 })
   } })
-  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "owner", allowlisted: true, admin: false, scopesPlain: null })
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "owner", admin: false, scopesPlain: null })
   await store.dispatch({ type: "cloud.session.loaded", actor: "system", state: "signed-in", username: "owner", expiresAt: null, scopes: null })
   await store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: ambient, org: "owner", ownerKind: "user", name: "ambient", head: null }] })
   await store.dispatch({ type: "repo.selected", actor: "user", id: ambient })

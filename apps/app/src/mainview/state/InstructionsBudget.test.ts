@@ -223,7 +223,7 @@ describe("the instructions budget", () => {
     const workspaceId = "af1e3bc5-6388-419e-98cc-e13372a89646"
     const setupId = (job: RepositoryJob) => `setup:codeplanesmithers:${encodeURIComponent(repo)}:${job}`
     const turn = await capturedTurn((store) => {
-      store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "codeplanesmithers", allowlisted: true, admin: false, scopesPlain: null })
+      store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "codeplanesmithers", admin: false, scopesPlain: null })
       store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: repo, org: "codeplanesmithers", ownerKind: "user", name: "canary-sandbox", head: null }] })
       const setupCard = (job: RepositoryJob) => store.dispatch({ type: "card.upsert", actor: "user", card: {
         id: setupId(job), kind: "repository-setup", title: REPOSITORY_JOB_TITLES[job], status: "active", createdAt: 1, ordinal: store.nextOrdinal(),

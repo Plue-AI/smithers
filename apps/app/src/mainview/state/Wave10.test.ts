@@ -45,7 +45,6 @@ const signIn = async (store: Awaited<ReturnType<typeof webStore>>): Promise<void
     actor: "system",
     state: "signed-in",
     login: "will",
-    allowlisted: true,
     admin: false,
     scopesPlain: null
   })
@@ -379,7 +378,6 @@ describe("wave 10 — sign-in IS the GitHub connector (§2a′)", () => {
       actor: "system",
       state: "signed-in",
       login: "will",
-      allowlisted: true,
       admin: true,
       scopesPlain: null
     })

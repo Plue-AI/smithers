@@ -104,7 +104,7 @@ describe("the signup controller", () => {
   test("a completed signup from an older session restores its chosen repo after inventory loads", async () => {
     const { store, controller } = await boot()
     controller.signupChange({ stage: "done", repo: "roninjin10/smithers" })
-    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "roninjin10", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "roninjin10", admin: false, scopesPlain: null }).isPersisted.promise
     const rows = ["roninjin10/smithers", "roninjin10/plue"].map(id => ({
       id, org: "roninjin10", ownerKind: "user" as const, name: id.split("/")[1]!, head: null
     }))
@@ -127,11 +127,11 @@ describe("the signup controller", () => {
     const rows = ["roninjin10/smithers", "roninjin10/plue"].map(id => ({
       id, org: "roninjin10", ownerKind: "user" as const, name: id.split("/")[1]!, head: null
     }))
-    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, allowlisted: false, admin: false, scopesPlain: null }).isPersisted.promise
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, admin: false, scopesPlain: null }).isPersisted.promise
     await store.dispatch({ type: "repositories.loaded", actor: "system", repositories: rows }).isPersisted.promise
     expect(store.session().activeRepoKey).toBeNull()
     expect(store.session().signup?.repo).toBe("roninjin10/smithers")
-    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "roninjin10", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "roninjin10", admin: false, scopesPlain: null }).isPersisted.promise
     expect(store.session().activeRepoKey).toBe("roninjin10/smithers")
     await store.dispatch({ type: "repo.selected", actor: "user", id: "roninjin10/plue" }).isPersisted.promise
     await store.dispatch({ type: "repositories.loaded", actor: "system", repositories: rows }).isPersisted.promise
@@ -143,7 +143,7 @@ describe("the signup controller", () => {
   test("an early empty inventory does not consume a legacy signup choice before its repo arrives", async () => {
     const { store, controller } = await boot()
     controller.signupChange({ stage: "done", repo: "roninjin10/smithers" })
-    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "roninjin10", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "roninjin10", admin: false, scopesPlain: null }).isPersisted.promise
     await store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [] }).isPersisted.promise
     expect(store.session().activeRepoKey).toBeNull()
     expect(store.session().signup?.repo).toBe("roninjin10/smithers")

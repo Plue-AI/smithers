@@ -10,7 +10,7 @@ type Requests = NonNullable<ReturnType<AppStore["session"]>["codingProviderReque
 
 const signIn = (store: AppStore, login: string, provider: "github" | "local" = "github") =>
   store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login,
-    provider, allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+    provider, admin: false, scopesPlain: null }).isPersisted.promise
 
 const sampleRequests: Requests = [
   { id: "alice-connect-requested", owner: "alice", action: "connect", state: "requested" },
@@ -125,7 +125,7 @@ test("an identity outage preserves Alice's requests and recovery of the same acc
   const rows = sampleRequests
   await saveRequests(store, rows)
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "unavailable", login: null,
-    allowlisted: false, admin: false, scopesPlain: null }).isPersisted.promise
+    admin: false, scopesPlain: null }).isPersisted.promise
   expect(store.session().codingProviderRequests).toEqual(rows)
   await store.dispose?.()
   const reopened = await createAppStore({ kind: "localStorage", storage })

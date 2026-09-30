@@ -295,7 +295,7 @@ test("identical repository-import polls do not grow the committed journal or SQL
   const { createRepoImportSeam, repoImportPolling } = await import("./seams/RepoImportSeam")
   const fixture = await open()
   const store = fixture.store
-  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "owner", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "owner", admin: false, scopesPlain: null }).isPersisted.promise
   const previousDelay = repoImportPolling.delayMs
   repoImportPolling.delayMs = 1
   let disposed = false
@@ -415,7 +415,7 @@ for (const action of ["message", "status", "repair"] as const) test(`replayed ag
 
 test.each(["eof", "unavailable"] as const)("Wiki reconnects after %s retain their failure without growing SQLite", async (failure) => {
   const fixture = await open(), { store } = fixture
-  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", allowlisted: true, admin: false, scopesPlain: null })
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", admin: false, scopesPlain: null })
   const doc = new Y.Doc(), id = wikiDocumentId("owner/repo", 42)
   doc.getText("markdown").insert(0, "# Page")
   let revision = 1
@@ -722,7 +722,7 @@ test.each(["adopt", "notice", "open"] as const)("GitHub installation %s stops ac
   const { createGitHubSeam } = await import("./seams/GitHubSeam")
   const fixture = await open(), { store } = fixture
   const identity = (login: string) => ({ type: "identity.session.loaded" as const, actor: "system" as const, state: "signed-in" as const,
-    login, allowlisted: true, admin: false, scopesPlain: null })
+    login, admin: false, scopesPlain: null })
   await store.dispatch(identity("owner")).isPersisted.promise
   const dispatched: string[] = [], opened: string[] = []
   const seam = createGitHubSeam({ store, baseUrl: "", actor: () => "user", nextOrdinal: () => 1,
@@ -848,7 +848,7 @@ test.each(["commit", "reject"] as const)("identical quiet issue-poll failures do
   const { createIssuesSeam } = await import("./seams/IssuesSeam")
   const { createFailureController } = await import("./controller/failures")
   const fixture = await open(), { store } = fixture
-  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", admin: false, scopesPlain: null }).isPersisted.promise
   const issue: Extract<Card, { kind: "issue" }> = { id: "issue-growth", kind: "issue", title: "Growth", status: "active", createdAt: 1, ordinal: 1, payload: {
     repo: "will/flows", number: 8, kind: "chat", visibility: "private", title: "Growth", state: "open", author: "will", issueBody: "", labels: [], comments: []
   } }
@@ -946,7 +946,7 @@ test("identical running repository-setup receipts do not grow SQLite", async () 
   const { initialSetup } = await import("@smthrs/rpc/RepositorySetup")
   const { createOperationalFailureReporter } = await import("./OperationalFailures")
   const fixture = await open(), { store } = fixture
-  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "maintainer", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "maintainer", admin: false, scopesPlain: null }).isPersisted.promise
   await store.dispatch({ type: "card.upsert", actor: "user", card: {
     id: "setup", kind: "repository-setup", title: "Handle issues", status: "active", createdAt: 1, ordinal: store.nextOrdinal(),
     payload: { ...initialSetup("example/repo", "issues", "maintainer"), inspectedAt: 1 }

@@ -25,7 +25,7 @@ const store = await createAppStore({ kind: "localStorage", storage: localStorage
 for (const card of fixtureCards()) {
   await store.dispatch({ type: "card.upsert", actor: "system", card }).isPersisted.promise
 }
-store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "owner", allowlisted: true, admin: false, scopesPlain: null })
+store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "owner", admin: false, scopesPlain: null })
 const seededAgents = JSON.stringify(store.collections.cards.get("agents")?.payload)
 const fetchImpl: FetchLike = async input => new URL(String(input), location.origin).pathname === "/api/user"
   ? Response.json({ id: 1, username: "owner", is_admin: false })

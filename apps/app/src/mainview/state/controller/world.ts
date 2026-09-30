@@ -103,7 +103,7 @@ export const createWorldController = (
           let notes: SweepNote[] = []
           if (summarize) {
             const identity = ctx.store.collections.identitySessions.get("identity")
-            if (identity?.state !== "signed-in" || !identity.allowlisted) {
+            if (identity?.state !== "signed-in") {
               return "Sign in to summarize, or run /chat.clear without arguments to archive locally."
             }
             const transcript = ctx.contextMessages()

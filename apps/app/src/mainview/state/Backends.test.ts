@@ -70,7 +70,7 @@ describe("identity session record", () => {
     const identity = store.collections.identitySessions.get("identity")
     expect(identity?.state).toBe("signed-in")
     expect(identity?.login).toBe("will")
-    expect(identity?.allowlisted).toBe(true)
+    expect(identity).not.toHaveProperty("allowlisted")
     const journal = [...store.collections.transitions.values()]
     expect(journal.some((r) => r.type === "identity.session.loaded" && r.actor === "system")).toBe(true)
   })
@@ -129,40 +129,6 @@ describe("identity session record", () => {
     })
     await controller.loadSession()
     expect(store.collections.identitySessions.get("identity")?.state).toBe("unavailable")
-  })
-
-  test("request access confirms once and is honest when the post fails", async () => {
-    const store = await webStore()
-    const controller = createAppController(store, silentAgent, {
-      ...backend({
-        "/api/identity/request-access": json(200, { status: "requested" })
-      })
-    })
-    await controller.adoptSession({ state: "signed-in", login: "newcomer", allowlisted: false, admin: false })
-    await controller.requestAccess()
-    const identity = store.collections.identitySessions.get("identity")
-    expect(identity?.accessRequested).toBe(true)
-    expect(
-      [...store.collections.transitions.values()].some(
-        (r) => r.type === "identity.access.requested" && r.actor === "user"
-      )
-    ).toBe(true)
-  })
-
-  test("a failed access request is an honest state, not a dead end", async () => {
-    const store = await webStore()
-    const controller = createAppController(store, silentAgent, {
-      ...backend({
-        "/api/identity/request-access": json(500, { status: "error", message: "queue unavailable" })
-      })
-    })
-    await controller.adoptSession({ state: "signed-in", login: "newcomer", allowlisted: false, admin: false })
-    await controller.requestAccess()
-    const identity = store.collections.identitySessions.get("identity")
-    expect(identity?.accessRequested).toBe(false)
-    const lead = refusalLead(refusalOf({ body: { status: "error", message: "queue unavailable" }, status: 500, message: "queue unavailable" }))
-    expect(identity?.accessError).toBe(`The access request did not go through. Try again. ${lead}`)
-    expect(identity?.accessError).not.toContain("queue unavailable")
   })
 
   test("sign out posts to the seam and clears the record", async () => {

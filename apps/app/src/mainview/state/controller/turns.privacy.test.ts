@@ -11,7 +11,7 @@ import { createTurnController } from "./turns"
 
 const cleanups: Array<() => Promise<void>> = []
 afterEach(async () => { for (const cleanup of cleanups.splice(0)) await cleanup() })
-const signedIn = (login: string) => ({ state: "signed-in" as const, login, allowlisted: true, admin: false })
+const signedIn = (login: string) => ({ state: "signed-in" as const, login, admin: false })
 
 const fixture = async (options: {
   readonly start?: (request: StartAgentTurnRequest) => Promise<StartAgentTurnResult>
@@ -155,7 +155,7 @@ describe("turn ownership at account boundaries", () => {
     f.turns.send("Alice prompt")
     await settled()
     const alice = f.launches[0]!.runId
-    await f.auth.adoptSession({ state: "unavailable", login: null, allowlisted: false, admin: false })
+    await f.auth.adoptSession({ state: "unavailable", login: null, admin: false })
     expect(f.cancellations).toHaveLength(0)
     f.emit({ runId: alice, type: "delta", kind: "text", text: "Still " })
     await f.auth.adoptSession(signedIn("alice"))

@@ -27,7 +27,7 @@ test.each(["slash", "button", "form", "agent"] as const)("Wiki Open reaches its 
     if (path === `${target}/stream`) return new Response(new ReadableStream(), { headers: { "content-type": "text/event-stream" } })
     return Response.json(path === `${target}/document` ? document : { message: "Inventory unavailable" }, { status: path === `${target}/document` ? 200 : 503 })
   } })
-  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "owner", allowlisted: true, admin: false, scopesPlain: null })
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "owner", admin: false, scopesPlain: null })
   expect(store.collections.repositories.size).toBe(0)
   const args = `${slug} ${repo}`
   if (door === "form") {

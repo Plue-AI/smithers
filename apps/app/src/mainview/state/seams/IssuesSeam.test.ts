@@ -87,7 +87,6 @@ const signedIn = async (store: AppStore, login = "will"): Promise<void> => {
     actor: "system",
     state: "signed-in",
     login,
-    allowlisted: true,
     admin: false,
     scopesPlain: null
   })
@@ -243,7 +242,7 @@ describe("issues seam — the list", () => {
     const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
     const controller = createAppController(store, unavailableAgent,
       backend({ "GET /api/repos/smithersai/smithers/issues": json(401, { status: "error", message: "sign in first" }) }))
-    store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, allowlisted: false, admin: false, scopesPlain: null })
+    store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, admin: false, scopesPlain: null })
     store.dispatch({ type: "repositories.loaded", actor: "system",
       repositories: [{ id: "smithersai/smithers", org: "smithersai", ownerKind: "org", name: "smithers", head: null, catalog: true }] })
     await settled()

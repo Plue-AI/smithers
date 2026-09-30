@@ -29,7 +29,6 @@ const signedIn = (store: AppStore, login = "codeplanesmithers"): void => {
     actor: "system",
     state: "signed-in",
     login,
-    allowlisted: true,
     admin: false,
     scopesPlain: null
   })
@@ -145,7 +144,6 @@ describe("signing out leaves nothing of the account behind", () => {
       actor: "system",
       state: "signed-in",
       login: "bob",
-      allowlisted: true,
       admin: false,
       scopesPlain: null
     })
@@ -217,7 +215,7 @@ describe("signing out leaves nothing of the account behind", () => {
 const loadIdentity = (store: AppStore, state: "signed-in" | "signed-out" | "unavailable", login: string | null = null) =>
   store.dispatch({
     type: "identity.session.loaded", actor: "system", state, login,
-    allowlisted: state === "signed-in", admin: false, scopesPlain: null
+    admin: false, scopesPlain: null
   }).isPersisted.promise
 
 describe("retained account ownership", () => {

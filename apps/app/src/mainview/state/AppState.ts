@@ -1094,9 +1094,9 @@ export type ConnectorOperation = z.infer<typeof ConnectorOperationSchema>
  * The identity session record: one row, driven only by real answers from the
  * identity seam (GET /api/user). "unknown" is pre-load; "unavailable"
  * is an honest seam failure — neither changes the chat, because neither is a
- * definitive answer about the person. Signed-out and non-allowlisted are
- * definitive and change what the chat CONTAINS (the opening Smithers message
- * carries the one available action) — never which page exists.
+ * definitive answer about the person. Signed-out is definitive and changes
+ * what the chat CONTAINS (the opening Smithers message carries the one
+ * available action) — never which page exists.
  */
 export const IdentitySessionSchema = z.object({
   /** Present on provider-aware session observations; absent only in legacy journal history. */
@@ -1106,12 +1106,9 @@ export const IdentitySessionSchema = z.object({
   login: z.string().nullable(),
   /** Owner of retained account data, even while identity is unavailable. Missing only on legacy rows. */
   accountOwnerLogin: z.string().nullable().optional(),
-  /** Session evidence has its own clock: access-request updates are not a new sign-in. */
+  /** Session evidence has its own clock: a row update is not a new sign-in. */
   sessionObservation: z.object({ at: z.number(), revision: z.number().int().nonnegative() }).optional(),
-  allowlisted: z.boolean(),
   admin: z.boolean(),
-  accessRequested: z.boolean(),
-  accessError: z.string().nullable(),
   /** Plain-words scope list fetched from GET /api/auth/scopes; null = honest fallback copy. */
   scopesPlain: z.string().nullable(),
   updatedAt: z.number(),
@@ -1554,12 +1551,9 @@ export type AppTransition =
     actor: "system"
     state: "signed-out" | "signed-in" | "unavailable"
     login: string | null
-    allowlisted: boolean
     admin: boolean
     scopesPlain: string | null
   }
-  | { type: "identity.access.requested"; actor: "user" }
-  | { type: "identity.access.failed"; actor: "system"; message: string }
   | { type: "identity.session.cleared"; actor: "user" }
   | {
     type: "billing.refreshed"
@@ -1824,10 +1818,7 @@ export const initialIdentitySession = (createdAt = Date.now()): IdentitySession 
   state: "unknown",
   login: null,
   accountOwnerLogin: null,
-  allowlisted: false,
   admin: false,
-  accessRequested: false,
-  accessError: null,
   scopesPlain: null,
   updatedAt: createdAt,
   revision: 0

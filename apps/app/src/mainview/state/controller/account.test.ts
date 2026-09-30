@@ -9,7 +9,7 @@ import { createFailureController } from "./failures"
 const fixture = async (provider: "github" | "local" = "github", storage = memoryStorage(), readsScopes = true) => {
   const store = await createAppStore({ kind: "localStorage", storage })
   const identity = (login: string) => store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login,
-    provider, allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+    provider, admin: false, scopesPlain: null }).isPersisted.promise
   await identity("old-owner")
   const reads: ReturnType<typeof Promise.withResolvers<Response>>[] = []
   const ctx = createControllerContext(store, unavailableAgent, { fetchImpl: async () => {
@@ -49,7 +49,7 @@ for (const boundary of ["response", "body"] as const) {
           await t.store.dispatch({ type: "identity.session.cleared", actor: "user" }).isPersisted.promise
           if (change === "same-login return") await t.identity("old-owner")
         }
-        if (change === "provider switch") await t.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "old-owner", provider: "local", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+        if (change === "provider switch") await t.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "old-owner", provider: "local", admin: false, scopesPlain: null }).isPersisted.promise
         if (change === "ended account") t.ctx.endAccount()
         if (change === "dispose") await t.ctx.dispose()
         t.reads[0]!.resolve(scopes())
@@ -182,7 +182,7 @@ test("a disposed Account controller starts no read or write", async () => {
 test("a selected backend identity shows the GitHub account without the identity worker's scopes read", async () => {
   const t = await fixture("github", memoryStorage(), false)
   try {
-    expect(await t.account.showAccount()).toEqual({ value: "account: @old-owner; access allowed; 0 box(es) listed" })
+    expect(await t.account.showAccount()).toEqual({ value: "account: @old-owner; 0 box(es) listed" })
     await settle()
     expect(t.reads).toHaveLength(0)
     const card = t.store.collections.cards.get("account")

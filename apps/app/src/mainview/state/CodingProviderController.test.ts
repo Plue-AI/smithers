@@ -21,7 +21,7 @@ test("Claude form and controller keep a held token out of history and persisted 
       return Response.json([])
     }
   })
-  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "alice", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "alice", admin: false, scopesPlain: null }).isPersisted.promise
   const start = await controller.commands.runForAgent("secrets.connect")
   expect(start).toMatchObject({ status: "executed" })
   const confirmation = [...store.collections.messages.values()].find(message => message.action?.flow === "secrets.connect")!
@@ -50,7 +50,7 @@ test("reload reconciles a token-free connect receipt and revocation through the 
   const persisted = new Map<string, string>()
   const storage = { getItem: (key: string) => persisted.get(key) ?? null, setItem: (key: string, value: string) => { persisted.set(key, value) }, removeItem: (key: string) => { persisted.delete(key) } }
   const first = await createAppStore({ kind: "localStorage", storage })
-  await first.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "alice", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+  await first.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "alice", admin: false, scopesPlain: null }).isPersisted.promise
   await first.dispatch({ type: "coding.provider.requests.changed", actor: "system", requests: [{ id: "request-1", owner: "alice", action: "connect", state: "requested" }] }).isPersisted.promise
   await first.dispose?.()
   const reopened = await createAppStore({ kind: "localStorage", storage })
@@ -69,7 +69,7 @@ test("reload reconciles a token-free connect receipt and revocation through the 
       return Response.json([])
     }
   })
-  await reopened.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "alice", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+  await reopened.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "alice", admin: false, scopesPlain: null }).isPersisted.promise
   await waitFor(() => reopened.session().codingProviderRequests?.[0]?.state === "completed")
   expect(calls).toContainEqual({ path: "/api/user/provider-connections", method: "GET" })
   expect(calls.some(call => call.method === "POST")).toBe(false)
@@ -101,7 +101,7 @@ test("cloud session ownership changes reconnect a held coding receipt", async ()
       return Response.json([])
     }
   })
-  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "alice", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "alice", admin: false, scopesPlain: null }).isPersisted.promise
   await waitFor(() => reads === 1)
   await store.dispatch({ type: "cloud.session.loaded", actor: "system", state: "signed-in", username: "alice", expiresAt: null, scopes: null }).isPersisted.promise
   await waitFor(() => store.session().codingProviderRequests?.[0]?.state === "completed")
@@ -133,7 +133,7 @@ test("the account pool doors: the card renders, move and Codex answer before the
       return Response.json([])
     }
   })
-  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "alice", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "alice", admin: false, scopesPlain: null }).isPersisted.promise
   expect(await controller.commands.run("secrets.connections")).toMatchObject({ status: "executed" })
   const card = store.collections.cards.get("provider-accounts")
   expect(card?.kind === "provider-accounts" && card.payload.accounts.map(row => row.id)).toEqual(["a", "b"])

@@ -47,7 +47,7 @@ test("local owner setup names sign-in before and after authentication", async ()
     expect(button.textContent).toBe("Sign in")
     button.click()
     expect(calls).toEqual(["auth.sign-in"])
-    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "owner", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "owner", admin: false, scopesPlain: null }).isPersisted.promise
     await new Promise(resolve => setTimeout(resolve, 20))
     expect(host.querySelector("li")?.textContent).toBe("✓Sign in")
     expect(host.querySelector("li")?.getAttribute("data-complete")).toBe("true")
@@ -116,7 +116,7 @@ test("setup needs a registration and keeps the five jobs reachable after pausing
   const data = new Map<string, string>()
   const storage = { getItem: (key: string) => data.get(key) ?? null, setItem: (key: string, value: string) => { data.set(key, value) }, removeItem: (key: string) => { data.delete(key) } }
   let store = await createAppStore({ kind: "localStorage", storage })
-  store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, allowlisted: false, admin: false, scopesPlain: null })
+  store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, admin: false, scopesPlain: null })
   const calls: unknown[][] = []
   const host = document.createElement("div")
   document.body.append(host)
@@ -128,7 +128,7 @@ test("setup needs a registration and keeps the five jobs reachable after pausing
     expect(host.querySelectorAll("li button").length).toBe(3)
     flushSync(() => host.querySelector<HTMLButtonElement>('[data-flow="auth.sign-in"]')!.click())
     expect(calls).toEqual([["auth.sign-in", undefined]])
-    store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", allowlisted: true, admin: false, scopesPlain: null })
+    store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", admin: false, scopesPlain: null })
     await new Promise(resolve => setTimeout(resolve, 20))
     expect(host.querySelector('[data-flow="auth.sign-in"]')).toBeNull()
     expect(host.querySelector("header")?.textContent).toContain("1 of 3")
@@ -163,7 +163,7 @@ test("setup needs a registration and keeps the five jobs reachable after pausing
     expect(host.querySelector('[data-testid="setup-checklist"]')).toBeNull()
     expect(jobs().map(button => button.dataset.flow)).toEqual([...FIRST_RUN_JOBS])
     expect(jobs()[0]?.textContent).toBe("Handle issues · Paused")
-    store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "other", allowlisted: true, admin: false, scopesPlain: null })
+    store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "other", admin: false, scopesPlain: null })
     await new Promise(resolve => setTimeout(resolve, 20))
     expect(host.querySelector("header")?.textContent).toContain("1 of 3")
   } finally {
@@ -184,7 +184,7 @@ const dismissedHome = async (calls: Array<[string, string | undefined]>, options
   const store = await createAppStore({ kind: "localStorage", storage: {
     getItem: (key: string) => data.get(key) ?? null, setItem: (key: string, value: string) => { data.set(key, value) }, removeItem: (key: string) => { data.delete(key) },
   } })
-  store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", allowlisted: true, admin: false, scopesPlain: null })
+  store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", admin: false, scopesPlain: null })
   if (options.repositories !== false) store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: "will/demo", org: "will", ownerKind: "user", name: "demo", head: null }] })
   store.dispatch({ type: "repository.entry.changed", actor: "system", entry: { requestId: "home", repo: "will/demo", phase: "pending" } })
   store.dispatch({ type: "repository.entry.changed", actor: "system", entry: { requestId: "home", repo: "will/demo", phase: "ready" } })

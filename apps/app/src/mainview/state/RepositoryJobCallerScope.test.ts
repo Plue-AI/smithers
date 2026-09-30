@@ -60,7 +60,7 @@ async function fixture(select = true) {
     await store.dispose()
   }
   try {
-    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: owner, allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: owner, admin: false, scopesPlain: null }).isPersisted.promise
     await store.dispatch({ type: "repository.upserted", actor: "system", repository: { id: repo, org: "example", name: "repo", ownerKind: "user", head: null, catalog: true } }).isPersisted.promise
     await store.dispatch({ type: "workspaces.loaded", actor: "system", workspaces: [
       { id: selected, repoId: repo, name: "Selected computer", targetBookmark: null, status: "suspended", provisioningStage: null, suspendedAt: null, createdAt: null },
@@ -77,7 +77,7 @@ async function fixture(select = true) {
 
 const cardActions = (store: Awaited<ReturnType<typeof createAppStore>>, calls: Array<[string, string | undefined]>): CardActions => ({
   projectionStore: store, signedOut: false,
-  onDecideApproval: () => {}, onGrantConfirm: () => {}, onGrantCancel: () => {}, onQueueApprove: () => {},
+  onDecideApproval: () => {}, onGrantConfirm: () => {}, onGrantCancel: () => {}, 
   onConnectGitHub: () => {}, onRunWorkflow: () => {}, onStopRun: () => {}, onRetryRun: () => {},
   onChooseWorkflowRepo: () => {}, worldDocuments: [], onChangeWorldDocument: () => {},
   onRunCommand: (name, args) => { calls.push([name, args]) }

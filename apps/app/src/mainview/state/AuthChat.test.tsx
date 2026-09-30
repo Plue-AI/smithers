@@ -4,7 +4,7 @@ import { cloudCapabilities } from "@smthrs/rpc/HostCapabilities"
 import { afterAll,afterEach,describe,expect,test } from "bun:test"
 import { flushSync } from "react-dom"
 import { createRoot } from "react-dom/client"
-import App, { ACCESS_REQUEST_FAILED } from "../App"
+import App from "../App"
 import { ControllerTestProvider } from "../ControllerContext"
 import { openRequestedRepo,requestedRepo } from "../RepoLink"
 import type { AppController as AppControllerType } from "./AppController"
@@ -17,7 +17,7 @@ const createAppController = scopedControllers()
 
 /*
  * One page: the chat. Auth is a conversation state, never a view — these pin
- * that a definitive signed-out or non-allowlisted answer renders THE CHAT
+ * that a definitive signed-out answer renders THE CHAT
  * (transcript + composer) carrying the one available action, that there is no
  * second surface anywhere, and that the composer's attempted send resolves to
  * the calm one-line reply.
@@ -118,7 +118,7 @@ describe("auth is a conversation state — the chat is the only page", () => {
       bootstrap: WEB,
       ...backend({ "/api/user": json(401, {}) })
     })
-    await controller.adoptSession({ state: "signed-out", login: null, allowlisted: false, admin: false })
+    await controller.adoptSession({ state: "signed-out", login: null, admin: false })
     await settled()
 
     await controller.commands.runForAgent("auth.prompt")
@@ -461,41 +461,22 @@ describe("auth is a conversation state — the chat is the only page", () => {
     expect(host.querySelector(".smithers-chat-message .message-cta")).toBeNull()
   })
 
-  test("signed-in but not allowlisted: the same chat carries the request-access message", async () => {
+  test("a fresh signed-in account reaches the chat with no access gate (#2145)", async () => {
     const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
     const controller = createAppController(store, silentAgent, {
       ...backend({})
     })
-    await controller.adoptSession({ state: "signed-in", login: "newcomer", allowlisted: false, admin: false })
+    await controller.adoptSession({ state: "signed-in", login: "newcomer", admin: false })
     await settled()
 
     const { host, markup } = mount(controller)
     expect(host.querySelector(".smithers-transcript")).not.toBeNull()
     expect(host.querySelector(".smithers-composer")).not.toBeNull()
     expect(host.querySelector(".landing-surface")).toBeNull()
-    expect(markup()).toContain("design partners only right now")
-    const request = host.querySelector<HTMLButtonElement>("[data-flow=\"auth.request-access\"]")
-    expect(request?.textContent).toContain("Request access")
+    expect(markup()).not.toMatch(/design partners|Request access|Your request is in|access request/)
+    expect(host.querySelector("[data-flow=\"auth.request-access\"]")).toBeNull()
+    expect(host.querySelector("[data-flow=\"auth.sign-in\"]")).toBeNull()
     expect(host.querySelector("textarea")?.placeholder).toBe("Ask Smithers to work on something…")
-  })
-
-  test("a failed access request adds one fixed sentence and never the server's refusal", async () => {
-    const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
-    const controller = createAppController(store, silentAgent, {
-      ...backend({})
-    })
-    await controller.adoptSession({ state: "signed-in", login: "newcomer", allowlisted: false, admin: false })
-    await settled()
-    const raw = "HTTP 500 access_queue_unavailable: pq: relation does not exist"
-    store.dispatch({ type: "identity.access.failed", actor: "system", message: raw })
-    await settled()
-
-    const { host, markup } = mount(controller)
-    expect(markup()).toContain(ACCESS_REQUEST_FAILED)
-    expect(markup()).not.toContain("access_queue_unavailable")
-    expect(markup()).not.toContain("HTTP 500")
-    // The request door stays beside the line; it is the retry.
-    expect(host.querySelector("[data-flow=\"auth.request-access\"]")).not.toBeNull()
   })
 
   test("a definitive $0 keeps the composer live, and a healthy composer renders NO status text (§2g)", async () => {
@@ -576,7 +557,7 @@ test("the web wiki empty state offers Create Wiki through the registered flow", 
   const controller = createAppController(store, silentAgent, { bootstrap: WEB,
     ...backend({ "/api/user": json(401, {}), "/api/auth/scopes": json(200, { scopes: [] }) }) })
   // Select the repository before opening its Wiki: changing scope replaces the transcript.
-  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, allowlisted: false, admin: false, scopesPlain: null }).isPersisted.promise
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, admin: false, scopesPlain: null }).isPersisted.promise
   await store.dispatch({ type: "repository.upserted", actor: "system", repository: { id: "smithersai/smithers", org: "smithersai", name: "smithers", ownerKind: "org", head: null, catalog: true } }).isPersisted.promise
   await store.dispatch({ type: "repo.selected", actor: "user", id: "smithersai/smithers" }).isPersisted.promise
   await controller.commands.run("wiki")
@@ -595,7 +576,7 @@ test("the web wiki empty state offers Create Wiki through the registered flow", 
 test("the expanded empty wiki carries the current repository through Create Wiki", async () => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   const controller = createAppController(store, silentAgent, { bootstrap: WEB })
-  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, allowlisted: false, admin: false, scopesPlain: null }).isPersisted.promise
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, admin: false, scopesPlain: null }).isPersisted.promise
   await store.dispatch({ type: "repository.upserted", actor: "system", repository: { id: "smithersai/smithers", org: "smithersai", name: "smithers", ownerKind: "org", head: null, catalog: true } }).isPersisted.promise
   await store.dispatch({ type: "repo.selected", actor: "user", id: "smithersai/smithers" }).isPersisted.promise
   await store.dispatch({ type: "surface.changed", actor: "user", surface: "world" }).isPersisted.promise
@@ -611,10 +592,10 @@ test("the signup's sign-in door closes when its identity requirement is met", as
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   const controller = createAppController(store, silentAgent, { bootstrap: WEB,
     fetchImpl: async () => Response.json({}, { status: 404 }) })
-  await controller.adoptSession({ state: "signed-out", login: null, allowlisted: false, admin: false })
+  await controller.adoptSession({ state: "signed-out", login: null, admin: false })
   const { host } = mount(controller)
   expect(host.querySelector('.signup-door[data-flow="auth.sign-in"]')).not.toBeNull()
-  await controller.adoptSession({ state: "signed-in", login: "codeplanesmithers", allowlisted: true, admin: false })
+  await controller.adoptSession({ state: "signed-in", login: "codeplanesmithers", admin: false })
   await settled()
   flushSync(() => {})
   expect(host.querySelectorAll('.signup-door[data-flow="auth.sign-in"]').length).toBe(0)

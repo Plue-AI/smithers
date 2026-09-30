@@ -42,7 +42,7 @@ const recordedSetup = (): RepositorySetup => {
 const controllerFor = async (payload: RepositorySetup) => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   const card: SetupCard = { id: "setup", kind: "repository-setup", title: "Setup", status: "active", createdAt: 1, ordinal: 1, payload }
-  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "maintainer", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "maintainer", admin: false, scopesPlain: null }).isPersisted.promise
   await store.dispatch({ type: "card.upsert", actor: "user", card }).isPersisted.promise
   const dispose: Array<() => void> = []
   const controller = createRepositorySetupController({ store, commandActor: "smithers", accountEpoch: 0,
@@ -277,7 +277,7 @@ test("another account's setup and an account switch both refuse the answer", asy
       .toBe("This setup belongs to a different account.")
     expect((t.store.collections.cards.get("foreign") as SetupCard).payload).toEqual(foreign)
     const before = structuredClone(t.current())
-    await t.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "other", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+    await t.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "other", admin: false, scopesPlain: null }).isPersisted.promise
     expect(await t.answer("issues.steps.automatic", "approved", before)).toBeTypeOf("string")
     const after = t.store.collections.cards.get("setup")
     if (after?.kind === "repository-setup") expect(after.payload).toEqual(before)

@@ -90,7 +90,7 @@ test.each([...REPOSITORY_JOBS])("every %s advertised field and enum is accepted 
   const card = setupCard(job)
   card.payload.draft.checks = structuredClone(initialChecks)
   card.payload.draft.cases = structuredClone(initialCases)
-  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "maintainer", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "maintainer", admin: false, scopesPlain: null }).isPersisted.promise
   await store.dispatch({ type: "card.upsert", actor: "user", card }).isPersisted.promise
   const dispose: Array<() => void> = []
   const controller = createRepositorySetupController({ store, commandActor: "smithers", accountEpoch: 0,

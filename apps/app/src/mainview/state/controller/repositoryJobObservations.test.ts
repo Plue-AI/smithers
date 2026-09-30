@@ -41,7 +41,7 @@ const registration = (job: RepositoryJob, enabled: boolean, revision: number): E
 // run so that no existing setup card can supply a registration accidentally.
 test("a fresh conversation reads all selected repository job registrations without opening setup cards", async () => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
-  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: owner, allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: owner, admin: false, scopesPlain: null }).isPersisted.promise
   await store.dispatch({ type: "repository.upserted", actor: "system", repository: { id: repo, org: "example", name: "repo", ownerKind: "user", head: null, catalog: true } }).isPersisted.promise
   await store.dispatch({ type: "repo.selected", actor: "user", id: repo }).isPersisted.promise
   const calls: Array<{ method: string; repo: string | null; job: string | null }> = []
@@ -103,7 +103,7 @@ const known = (read: Read): SetupRecoveryResponse => ({
 async function fixture(answer: (read: Read) => Promise<Response> = async read => Response.json(known(read))) {
   const storage = memoryStorage()
   const store = await createAppStore({ kind: "localStorage", storage })
-  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: owner, allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: owner, admin: false, scopesPlain: null }).isPersisted.promise
   for (const id of [repo, "other/repo"]) await store.dispatch({ type: "repository.upserted", actor: "system", repository: {
     id, org: id.split("/")[0]!, name: "repo", ownerKind: "user", head: null, catalog: true
   } }).isPersisted.promise
@@ -125,7 +125,7 @@ async function fixture(answer: (read: Read) => Promise<Response> = async read =>
   const labels = (target = repo, login: string | null = owner, selectedWorkspaceId: string | null = null) =>
     repositoryJobStates(rows(), store.collections.cards.values(), target, login, selectedWorkspaceId)
   const identity = (login: string | null) => store.dispatch({ type: "identity.session.loaded", actor: "system",
-    state: login === null ? "signed-out" : "signed-in", login, allowlisted: login !== null, admin: false, scopesPlain: null }).isPersisted.promise
+    state: login === null ? "signed-out" : "signed-in", login, admin: false, scopesPlain: null }).isPersisted.promise
   return { store, storage, ctx, controller, calls, rows, labels, identity,
     close: async () => { await ctx.dispose(); await store.dispose?.() } }
 }

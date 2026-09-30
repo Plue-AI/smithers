@@ -178,7 +178,6 @@ describe("what a person is told about a Worker refusal", () => {
     expect(refusalDoors(await workerRefusal("sign_in_required", "x"))).toContain("sign-in")
     expect(refusalDoors(await workerRefusal("session_expired", "x"))).toContain("sign-in")
     expect(refusalDoors(await workerRefusal("route_not_found", "x"))).toEqual([])
-    expect(refusalDoors(await workerRefusal("account_not_allowlisted", "x"))).toEqual([])
     /* The report door stays carried and unattached: no surface renders it yet. */
     expect(refusalDoors(await workerRefusal("deployment_not_configured", "x"))).toContain("report")
     expect(refusalDoors(await workerRefusal("unexpected_failure", "x"))).toContain("report")

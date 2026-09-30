@@ -27,7 +27,6 @@ const signIn = async (store: Awaited<ReturnType<typeof webStore>>) => {
     actor: "system",
     state: "signed-in",
     login: "codeplanesmithers",
-    allowlisted: true,
     admin: false,
     scopesPlain: null
   })

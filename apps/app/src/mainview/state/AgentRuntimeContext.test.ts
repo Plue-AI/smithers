@@ -224,13 +224,13 @@ describe("per-turn runtime context", () => {
       id: "smithersai/smithers", org: "smithersai", ownerKind: "org", name: "smithers", head: null, catalog: true
     } }).isPersisted.promise
     await store.dispatch({ type: "repo.selected", actor: "user", id: "smithersai/smithers" }).isPersisted.promise
-    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, allowlisted: false, admin: false, scopesPlain: null }).isPersisted.promise
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, admin: false, scopesPlain: null }).isPersisted.promise
     controller.send("hi")
     await settled()
     expect(requests).toHaveLength(1)
     expect(requests[0]?.context?.activeRepository).toBe("smithersai/smithers")
     expect(requests[0]?.context?.cloud).toEqual({ state: "signed-out", username: null })
-    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", admin: false, scopesPlain: null }).isPersisted.promise
     controller.send("again")
     await settled()
     expect(requests).toHaveLength(2)
@@ -290,7 +290,7 @@ test("browser chat sees a desktop opened outside chat and refreshes its stream s
   const controller = createAppController(store, recordingAgent(requests), {
     bootstrap: { apiVersion: 1, host: "cloud", version: "test", buildSha: "test", capabilities: ["agent", "identity", "cloud"], authFlow: "redirect", sandbox: null },
   })
-  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", admin: false, scopesPlain: null }).isPersisted.promise
   await store.dispatch({ type: "card.upsert", actor: "user", card: {
     id: "desktop-context", kind: "workspace", title: "My desktop", status: "active", ordinal: 1, createdAt: 1,
     payload: { workspaceId: "ws-context", repo: "acme/api", name: "My desktop", targetBookmark: "main", status: "running",

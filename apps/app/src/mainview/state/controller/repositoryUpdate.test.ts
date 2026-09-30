@@ -159,7 +159,7 @@ test("read receipts stay isolated by repository, account, and source", async () 
   const rows = [...store.collections.repositoryNotifications.values()]
   expect(rows.filter(row => row.readVersion === row.version).map(row => [row.repo, row.source])).toEqual([["org/repo", "smithers"]])
   await readRepositoryDetail(ctx, "else/repo", "issue", 3, async () => {
-    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "another-user", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "another-user", admin: false, scopesPlain: null }).isPersisted.promise
     return { value: "Loaded before account change" }
   })
   expect([...store.collections.repositoryNotifications.values()].filter(row => row.repo === "else/repo").every(row => row.readVersion === undefined)).toBe(true)

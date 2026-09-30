@@ -98,7 +98,7 @@ async function walk(options: { readonly explodeAfterCardWrite?: boolean; readonl
         : Reflect.get(target, property, receiver) })
     }
   } as typeof store
-  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "maintainer", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "maintainer", admin: false, scopesPlain: null }).isPersisted.promise
   /*
    * A finished inspection whose host receipt names the run it produced. That
    * is what renders this card's `Run` button, the door `runs.open` hangs on.

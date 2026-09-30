@@ -25,7 +25,7 @@ const privatePage = {
   }, backlinks: []
 }
 const index = { pages: [privatePage], folders: ["Private"], tags: ["ALICE-SECRET-TAG"] }
-const signedIn = (login: string) => ({ state: "signed-in" as const, login, allowlisted: true, admin: false })
+const signedIn = (login: string) => ({ state: "signed-in" as const, login, admin: false })
 
 const fixture = async () => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
@@ -191,7 +191,7 @@ for (const status of [403, 404, 410, 451] as const) test(`a denied private read 
 test("ending an account clears the loaded index synchronously before its identity row changes", async () => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "alice",
-    allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+    admin: false, scopesPlain: null }).isPersisted.promise
   const ctx = createControllerContext(store, silentAgent, { fetchImpl: async () => Response.json(index) })
   ctx.withToast = async (_key, _title, _doneTitle, work) => work()
   const wiki = createCloudWikiController(ctx, store.nextOrdinal)

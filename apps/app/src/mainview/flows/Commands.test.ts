@@ -131,7 +131,6 @@ const signIn = (store: AppStore): void => {
     actor: "system",
     state: "signed-in",
     login: "codeplanesmithers",
-    allowlisted: true,
     admin: false,
     scopesPlain: null
   })
@@ -143,7 +142,6 @@ const signOut = (store: AppStore): void => {
     actor: "system",
     state: "signed-out",
     login: null,
-    allowlisted: false,
     admin: false,
     scopesPlain: null
   })

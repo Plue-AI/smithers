@@ -111,7 +111,6 @@ const firstTurnInstructions = async (host: AppBootstrap["host"], prompt = "hello
     actor: "system",
     state: "signed-in",
     login: "codeplanesmithers",
-    allowlisted: true,
     admin: false,
     scopesPlain: null
   })

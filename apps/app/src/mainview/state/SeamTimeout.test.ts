@@ -36,7 +36,6 @@ describe("a seam that never answers becomes an honest answer", () => {
       actor: "system",
       state: "signed-in",
       login: "will",
-      allowlisted: true,
       admin: false,
       scopesPlain: null
     })

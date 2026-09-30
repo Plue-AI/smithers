@@ -8,7 +8,7 @@ import { createFailureController } from "./failures"
 
 const fixture = async (storage = memoryStorage()) => {
   const store = await createAppStore({ kind: "localStorage", storage })
-  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "owner", provider: "github", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "owner", provider: "github", admin: false, scopesPlain: null }).isPersisted.promise
   const reads: ReturnType<typeof Promise.withResolvers<Response>>[] = []
   const ctx = createControllerContext(store, unavailableAgent, { toastDebounceMs: 1, fetchImpl: async () => {
     const read = Promise.withResolvers<Response>(); reads.push(read); return read.promise

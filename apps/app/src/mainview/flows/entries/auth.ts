@@ -101,13 +101,5 @@ export const authFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
     requires: ["signed-in"],
     input: NoPayload,
     handler: () => actions.signOut()
-  }),
-  flow({
-    name: "auth.request-access",
-    summary: "Request access to Smithers",
-    runtime: ["identity"],
-    requires: ["signed-in"],
-    input: NoPayload,
-    handler: () => actions.requestAccess()
   })
 ]

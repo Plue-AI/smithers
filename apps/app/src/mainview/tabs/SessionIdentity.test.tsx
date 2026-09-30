@@ -19,7 +19,7 @@ test("the header carries the sign-in door and leaves itself empty once signed in
   document.body.append(host)
   const root = createRoot(host)
   try {
-    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, allowlisted: false, admin: false, scopesPlain: null }).isPersisted.promise
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, admin: false, scopesPlain: null }).isPersisted.promise
     flushSync(() => root.render(<ControllerTestProvider controller={{ ...controller, runCommand: name => { calls.push(name); return true } }}><SessionNavigation /></ControllerTestProvider>))
     await settle()
     const signIn = host.querySelector<HTMLButtonElement>('.session-navigation [data-testid="chrome-sign-in"]')
@@ -29,7 +29,7 @@ test("the header carries the sign-in door and leaves itself empty once signed in
     expect(document.activeElement).toBe(signIn)
     signIn!.click()
     expect(calls).toEqual(["auth.sign-in"])
-    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "reader", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "reader", admin: false, scopesPlain: null }).isPersisted.promise
     await settle()
     expect(host.querySelector('[data-testid="chrome-sign-in"]')).toBeNull()
     expect(host.querySelector(".session-identity")).toBeNull()

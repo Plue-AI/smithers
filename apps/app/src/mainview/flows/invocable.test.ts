@@ -107,7 +107,6 @@ describe("every listed flow is a tool call", () => {
       actor: "system",
       state: "signed-in",
       login: "will",
-      allowlisted: true,
       admin: false,
       scopesPlain: null
     })

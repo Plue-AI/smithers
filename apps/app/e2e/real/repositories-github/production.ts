@@ -29,10 +29,10 @@ export const bootProductionRepository = async (page: Page, repo = PRODUCTION_REP
   await expect(page.getByRole("button", { name: "Chat", exact: true })).toBeVisible()
   const session = await readAuthenticatedSession(page)
   if (process.env.SMITHERS_REAL_AUTH_KIND === "application-token") {
-    expect(session?.allowlisted).toBe(true)
+    expect(session?.login).toEqual(expect.any(String))
   } else {
     // The scoped-down account (e2e/README.md): a suite that passes as an admin hides permission bugs.
-    expect(session).toEqual({ login: "codeplanesmithers", allowlisted: true, admin: false })
+    expect(session).toEqual({ login: "codeplanesmithers", admin: false })
   }
 }
 

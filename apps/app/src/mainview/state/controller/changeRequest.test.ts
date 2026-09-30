@@ -30,7 +30,7 @@ const toasts = (store: AppStore) => [...store.collections.toasts.values()]
 
 async function launchFixture(launch: (workflow: string) => Promise<{ status: "ok"; value: { runId: string } } | { status: "error"; message: string; code?: string }>) {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
-  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "owner", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "owner", admin: false, scopesPlain: null }).isPersisted.promise
   const ctx = createControllerContext(store, unavailableAgent, { workflowPollMs: 1, toastDebounceMs: 1, toastAutoDismissMs: 60_000 })
   const launched: string[] = []
   ctx.gateway = { ...ctx.gateway, launch: async (_repo: string, workflow: string) => { launched.push(workflow); return launch(workflow) },
@@ -134,7 +134,7 @@ const deferred = <T>() => {
 
 test("change.request returns before an unresolved launch, keeps Chat usable, dedupes a repeat, and holds its toast", async () => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
-  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "owner", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "owner", admin: false, scopesPlain: null }).isPersisted.promise
   await store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: repo, org: "owner", ownerKind: "user", name: "repo", head: null }] }).isPersisted.promise
   await store.dispatch({ type: "workspaces.loaded", actor: "system", workspaces: [{ id: workspaceId, repoId: repo, name: "Coding", targetBookmark: "main", status: "running", provisioningStage: null, suspendedAt: null, createdAt: null }] }).isPersisted.promise
   await store.dispatch({ type: "repo.selected", actor: "user", id: `${repo}#workspace:${workspaceId}` }).isPersisted.promise
@@ -176,7 +176,7 @@ const sourceBase = { commitId: "c".repeat(40), ref: `refs/smithers/workspaces/${
 
 test("change.request starts from the caller's pushed ref: pinned once as coding/request's base, named on the card", async () => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
-  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "owner", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "owner", admin: false, scopesPlain: null }).isPersisted.promise
   await store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: repo, org: "owner", ownerKind: "user", name: "repo", head: null }] }).isPersisted.promise
   await store.dispatch({ type: "workspaces.loaded", actor: "system", workspaces: [{ id: workspaceId, repoId: repo, name: "Coding", targetBookmark: "main", status: "running", provisioningStage: null, suspendedAt: null, createdAt: null }] }).isPersisted.promise
   await store.dispatch({ type: "repo.selected", actor: "user", id: `${repo}#workspace:${workspaceId}` }).isPersisted.promise
@@ -237,7 +237,7 @@ test("change.request starts from the caller's pushed ref: pinned once as coding/
 
 test("change.request without a selected Cloud workspace opens the box form instead of launching", async () => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
-  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "owner", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "owner", admin: false, scopesPlain: null }).isPersisted.promise
   await store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: repo, org: "owner", ownerKind: "user", name: "repo", head: null }] }).isPersisted.promise
   const chat = scriptedToolAgent([])
   const controller = createAppController(store, chat.agent, { fetchImpl: async () => json(404, {}) })

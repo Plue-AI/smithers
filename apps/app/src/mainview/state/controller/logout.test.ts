@@ -7,7 +7,7 @@ import { createAuthBillingController } from "./auth-billing"
 const fixture = async (provider: "github" | "local" = "github", storage = memoryStorage()) => {
   const store = await createAppStore({ kind: "localStorage", storage })
   const identity = (login: string) => store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login,
-    provider, allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+    provider, admin: false, scopesPlain: null }).isPersisted.promise
   await identity("old-owner")
   const logout = Promise.withResolvers<Response>(), session = Promise.withResolvers<Response>()
   const paths: string[] = []
@@ -39,7 +39,7 @@ const fixture = async (provider: "github" | "local" = "github", storage = memory
     await ctx.dispose(); logout.resolve(Response.json({})); session.resolve(Response.json({ state: "signed-out" })); await store.dispose?.()
   } }
 }
-const signedIn = (login: string) => Response.json({ state: "signed-in", login, allowlisted: true, admin: false })
+const signedIn = (login: string) => Response.json({ state: "signed-in", login, admin: false })
 
 for (const provider of ["github", "local"] as const) for (const boundary of ["replacement", "same-login return", "dispose"] as const) {
   for (const result of ["success", "HTTP failure", "network failure"] as const) {
@@ -144,7 +144,7 @@ for (const boundary of ["replacement", "dispose"] as const) {
     try {
       const signingOut = t.auth.signOut()
       await waitFor(() => t.paths.includes("/api/auth/logout"))
-      await t.auth.adoptSession({ state: "signed-in", login: "new-owner", allowlisted: true, admin: false })
+      await t.auth.adoptSession({ state: "signed-in", login: "new-owner", admin: false })
       t.logout.resolve(new Response(null, { status: 204 }))
       await waitFor(() => t.paths.includes(t.sessionPath))
       let reading = false
@@ -156,7 +156,7 @@ for (const boundary of ["replacement", "dispose"] as const) {
       } })))
       await waitFor(() => reading)
       if (boundary === "dispose") await t.ctx.dispose()
-      else await t.auth.adoptSession({ state: "signed-in", login: "latest-owner", allowlisted: true, admin: false })
+      else await t.auth.adoptSession({ state: "signed-in", login: "latest-owner", admin: false })
       body.resolve()
       await signingOut
       expect(t.store.collections.identitySessions.get("identity")?.login).toBe(boundary === "dispose" ? "new-owner" : "latest-owner")

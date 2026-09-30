@@ -153,7 +153,7 @@ const ready = async (rows: ReadonlyArray<ControlEvent>, served: Served = {}) => 
   const store: AppStore = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   await store.dispatch({
     type: "identity.session.loaded", actor: "system", state: "signed-in",
-    login: "will", allowlisted: true, admin: false, scopesPlain: null
+    login: "will", admin: false, scopesPlain: null
   }).isPersisted.promise
   await store.dispatch({
     type: "repositories.loaded", actor: "system",

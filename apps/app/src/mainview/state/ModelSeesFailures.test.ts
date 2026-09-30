@@ -46,7 +46,6 @@ const ready = async (): Promise<{ store: AppStore; controller: ReturnType<typeof
     actor: "system",
     state: "signed-in",
     login: "codeplanesmithers",
-    allowlisted: true,
     admin: false,
     scopesPlain: null
   })
@@ -148,7 +147,6 @@ describe("the model is told the numbers it is asked about", () => {
       actor: "system",
       state: "signed-in",
       login: "codeplanesmithers",
-      allowlisted: true,
       admin: false,
       scopesPlain: null
     })
@@ -190,7 +188,6 @@ describe("the model is told the numbers it is asked about", () => {
       actor: "system",
       state: "signed-in",
       login: "codeplanesmithers",
-      allowlisted: true,
       admin: false,
       scopesPlain: null
     })

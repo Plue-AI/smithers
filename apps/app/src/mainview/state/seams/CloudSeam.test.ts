@@ -200,7 +200,7 @@ for (const state of ["signed-in", "signed-out", "degraded"] as const) {
       upstream.push(request)
       const path = new URL(request.url).pathname
       if (path === "/api/identity/validate") return state === "signed-out"
-        ? json(401, {}) : json(200, { login: "will", allowlisted: true, admin: false })
+        ? json(401, {}) : json(200, { login: "will", admin: false })
       if (path === "/api/identity/cloud-token") return json(200, { found: true, token: TOKEN })
       if (path === "/api/repos/will/smithers/workspaces" && request.method === "POST") return json(409, { message: "fixture desktop create reached Cloud" })
       /*

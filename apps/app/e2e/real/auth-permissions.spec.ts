@@ -218,7 +218,7 @@ authenticatedTest("the saved admin identity can read admin health and survives a
   ],
   description: "The current sanctioned admin session proves its claim through the real session endpoint, reads the deployed admin health route, and retains admin UI after reload."
 }), async ({ page, request }, testInfo) => {
-  const expectedSession = { login: "codeplanesmithers", allowlisted: true, admin: true }
+  const expectedSession = { login: "codeplanesmithers", admin: true }
   const expectedWireSession = expectedSession
   await expect.poll(() => readAuthenticatedSession(page)).toEqual(expectedSession)
   const requestSession = await request.get("/api/user")
@@ -254,7 +254,7 @@ authenticatedTest("authenticated cookies survive the canonical document and boot
   description: "A restored production session and the saved GitHub login survive real HTML and bootstrap reads, with only cookie names retained as diagnostics."
 }), async ({ page, context, request }, testInfo) => {
   const baseURL = String(testInfo.project.use.baseURL)
-  const expectedSession = { login: "codeplanesmithers", allowlisted: true, admin: true }
+  const expectedSession = { login: "codeplanesmithers", admin: true }
   const expectedWireSession = expectedSession
   expect(await browserSession(page)).toEqual(expectedWireSession)
   const beforeCookies = await authCookieNames(context, baseURL)
@@ -289,30 +289,6 @@ authenticatedTest("authenticated cookies survive the canonical document and boot
     .toContainText("@codeplanesmithers")
 })
 
-authenticatedTest("an allowlisted identity refuses request-access without filing it", scenario("auth.allowlisted-request-access-noop", {
-  capabilities: ["identity"],
-  coverage: [
-    "action:auth.request-access", "host:production", "path:error", "path:permission", "door:slash",
-    "dimension:allowlisted-request-access-noop", "evidence:visible-refusal-no-post-and-unchanged-session"
-  ],
-  description: "The deployed UI tells an allowlisted user there is no request to file, emits no request-access POST, and preserves the verified session."
-}), async ({ page }) => {
-  const expectedSession = { login: "codeplanesmithers", allowlisted: true, admin: true }
-  expect(await readAuthenticatedSession(page)).toEqual(expectedSession)
-  const posts: string[] = []
-  page.on("request", (request) => {
-    const url = new URL(request.url())
-    if (request.method() === "POST" && url.pathname === "/api/identity/request-access") posts.push(url.pathname)
-  })
-
-  await openChat(page)
-  await command(page, "/auth.request-access")
-  await expect(page.getByText("You already have access as codeplanesmithers — there is no request to file.", { exact: true }).last())
-    .toBeVisible()
-  expect(posts).toEqual([])
-  expect(await readAuthenticatedSession(page)).toEqual(expectedSession)
-})
-
 authenticatedTest("sign-out clears the real session and a real OAuth round trip restores it", scenario("auth.sign-out-reauth-restart", {
   capabilities: ["identity"],
   coverage: [
@@ -324,7 +300,7 @@ authenticatedTest("sign-out clears the real session and a real OAuth round trip 
 }), async ({ page }, testInfo) => {
   const baseURL = String(testInfo.project.use.baseURL)
   await openApp(page)
-  await expect.poll(() => readAuthenticatedSession(page)).toEqual({ login: "codeplanesmithers", allowlisted: true, admin: true })
+  await expect.poll(() => readAuthenticatedSession(page)).toEqual({ login: "codeplanesmithers", admin: true })
   await openChat(page)
   await command(page, "/account.show")
   const account = page.locator('.smithers-card[data-kind="account"]')
@@ -339,7 +315,7 @@ authenticatedTest("sign-out clears the real session and a real OAuth round trip 
   expect(await readAuthenticatedSession(page)).toBeUndefined()
 
   const restored = await restoreAuthenticatedSession(page, baseURL)
-  expect(restored).toEqual({ login: "codeplanesmithers", allowlisted: true, admin: true })
+  expect(restored).toEqual({ login: "codeplanesmithers", admin: true })
   // A raw reload: the restart evidence is the session endpoint, which answers
   // from the browser's cookie jar whether or not the app has finished booting.
   await page.reload({ waitUntil: "domcontentloaded" })
@@ -388,7 +364,7 @@ ordinaryTest("signing out one real user does not alter another user's live sessi
   expect(ordinary?.admin).toBe(false)
   const admin = await launchAuthenticatedProfile(playwright, baseURL)
   try {
-    expect(admin.session).toEqual({ login: "codeplanesmithers", allowlisted: true, admin: true })
+    expect(admin.session).toEqual({ login: "codeplanesmithers", admin: true })
     expect(admin.session.login).not.toBe(ordinary?.login)
     await openApp(page)
     await openChat(page)

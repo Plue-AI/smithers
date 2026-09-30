@@ -23,7 +23,7 @@ for (const accepted of [false, true]) test(`signup edits survive a crash ${accep
   const pending: Array<Promise<unknown>> = []
   try {
     store = await createAppStore({ kind: "localStorage", storage: storageFor(values) })
-    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "old-owner", provider: "github", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "old-owner", provider: "github", admin: false, scopesPlain: null }).isPersisted.promise
     const active = store
     const controller = controllerFor({ ...active, dispatch: transition => {
       const receipt = active.dispatch(transition)
@@ -66,7 +66,7 @@ const withRecovery = async (body: (store: AppStore, recovery: StorageApi, reopen
   const open = async () => { const store = await createAppStore({ kind: "localStorage", storage }); stores.push(store); return store }
   try {
     const store = await open()
-    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "old-owner", provider: "github", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "old-owner", provider: "github", admin: false, scopesPlain: null }).isPersisted.promise
     await body(store, recovery, async () => { await store.dispose?.(); return open() })
   } finally {
     for (const store of stores) await store.dispose?.()
@@ -96,7 +96,7 @@ for (const boundary of ["submitted", "account", "signed-out", "settled", "foreig
     store.stagePendingSignupInput("name", "PRIVATE-PENDING-NAME", "edit")
     const pending = readEntityRecoveries(recovery)[0]!
     if (boundary === "submitted") await store.dispatch({ type: "signup.changed", actor: "user", patch: { stage: "poll", name: "Submitted Name", account: "submitted-slug" } }).isPersisted.promise
-    if (boundary === "account") await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "new-owner", provider: "github", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+    if (boundary === "account") await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "new-owner", provider: "github", admin: false, scopesPlain: null }).isPersisted.promise
     if (boundary === "signed-out") await store.dispatch({ type: "identity.session.cleared", actor: "user" }).isPersisted.promise
     if (boundary === "settled" || boundary === "foreign-command") {
       await store.dispatch({ type: "command.intent.accepted", actor: "user", id: "edit", name: boundary === "settled" ? "signup.set" : "form.set", source: "command" }).isPersisted.promise
@@ -128,7 +128,7 @@ for (const refusal of ["write", "disposed", "account"] as const) test(`${refusal
     try {
       expect(readEntityRecoveries(recovery)).toHaveLength(1)
       if (refusal === "disposed") await controller.dispose()
-      if (refusal === "account") await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "new-owner", provider: "github", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+      if (refusal === "account") await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "new-owner", provider: "github", admin: false, scopesPlain: null }).isPersisted.promise
       if (refusal === "write") held.reject(new Error("fixture refused command receipt")); else held.resolve()
       expect((await pending).status).toBe("failed")
       expect(readEntityRecoveries(recovery)).toEqual([])
@@ -151,7 +151,7 @@ for (const boundary of ["reload", "reload-account", "reload-write"] as const) te
     try {
       expect(readEntityRecoveries(recovery)).toHaveLength(1)
       pageLifetime.abort() // The browser's beforeunload fence, before pagehide.
-      if (boundary === "reload-account") await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "new-owner", provider: "github", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+      if (boundary === "reload-account") await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "new-owner", provider: "github", admin: false, scopesPlain: null }).isPersisted.promise
       if (boundary === "reload-write") held.reject(new Error("refused write during navigation")); else held.resolve()
       expect((await pending).status).toBe("failed")
       expect(store.session().signup?.draft.name).toBeUndefined()

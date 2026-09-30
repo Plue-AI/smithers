@@ -24,7 +24,7 @@ test("a bare repository command during first-run selection parks instead of aski
     expect(forms()).toEqual([])
     expect(store.session().pendingCommand).toMatchObject({ name: "issues.list", requirement: "first-run-target" })
 
-    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, allowlisted: false, admin: false, scopesPlain: null }).isPersisted.promise
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, admin: false, scopesPlain: null }).isPersisted.promise
     selectFirstRunRepository(store, controller.settleFirstRunTarget)
     await until(() => store.session().pendingCommand?.requirement === "repo-source")
     expect(forms()).toEqual([])
@@ -35,7 +35,7 @@ test("a bare repository command during first-run selection parks instead of aski
 
 test("signed-out entry leaves repository selection empty", async () => {
   const store = await createAppStore({ kind: "localStorage", storage: (() => { const data = new Map<string, string>(); return { getItem: (key: string) => data.get(key) ?? null, setItem: (key: string, value: string) => { data.set(key, value) }, removeItem: (key: string) => { data.delete(key) } } })() })
-  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, allowlisted: false, admin: false, scopesPlain: null }).isPersisted.promise
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, admin: false, scopesPlain: null }).isPersisted.promise
   selectFirstRunRepository(store)
   expect(store.session().activeRepoKey ?? null).toBeNull()
   expect(resolveTargetRepo(store, undefined)).toEqual({ error: expect.stringContaining("No repository is loaded") })
@@ -45,7 +45,7 @@ test("signed-out entry leaves repository selection empty", async () => {
 test("signed-in entry keeps the existing selection", async () => {
   const store = await createAppStore({ kind: "localStorage", storage: (() => { const data = new Map<string, string>(); return { getItem: (key: string) => data.get(key) ?? null, setItem: (key: string, value: string) => { data.set(key, value) }, removeItem: (key: string) => { data.delete(key) } } })() })
   const before = store.session().activeRepoKey
-  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "alice", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "alice", admin: false, scopesPlain: null }).isPersisted.promise
   selectFirstRunRepository(store)
   expect(store.session().activeRepoKey).toBe(before)
   await store.dispose?.()
@@ -86,7 +86,7 @@ for (const [branch, identity] of [["non-blocking boot", undefined], ["settled id
       const controller = createAppController(store, silentAgent, { fetchImpl: async () => json(404, {}) })
       try {
         if (identity !== undefined) {
-          await store.dispatch({ type: "identity.session.loaded", actor: "system", state: identity, login: null, allowlisted: false, admin: false, scopesPlain: null }).isPersisted.promise
+          await store.dispatch({ type: "identity.session.loaded", actor: "system", state: identity, login: null, admin: false, scopesPlain: null }).isPersisted.promise
         }
         await store.dispatch({ type: "command.deferred", actor: "user", name: "issues.view", args: "3 acme/private", requirement }).isPersisted.promise
         selectFirstRunRepository(store, controller.settleFirstRunTarget)
@@ -104,7 +104,7 @@ test("a first-run-target park resumes exactly once when the selection settles", 
   const controller = createAppController(store, silentAgent, { fetchImpl: async () => json(404, {}) })
   try {
     expect(await controller.commands.run("issues.list")).toEqual({ status: "executed", value: "Requested" })
-    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, allowlisted: false, admin: false, scopesPlain: null }).isPersisted.promise
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, admin: false, scopesPlain: null }).isPersisted.promise
     selectFirstRunRepository(store, controller.settleFirstRunTarget)
     selectFirstRunRepository(store, controller.settleFirstRunTarget)
     await until(() => store.session().pendingCommand?.requirement === "repo-source")
@@ -118,7 +118,7 @@ test("a first-run-target park whose choice settles with no target renders the re
   const controller = createAppController(store, silentAgent, { fetchImpl: async () => json(404, {}) })
   try {
     expect(await controller.commands.run("issues.list")).toEqual({ status: "executed", value: "Requested" })
-    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "alice", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "alice", admin: false, scopesPlain: null }).isPersisted.promise
     selectFirstRunRepository(store, controller.settleFirstRunTarget)
     await until(() => store.collections.cards.get("form-issues.list") !== undefined)
     expect([...store.collections.cards.values()].filter(card => card.kind === "flow-form")).toHaveLength(1)
@@ -137,7 +137,7 @@ test("a command issued after signed-out but before the selection settles parks a
   const controller = createAppController(store, silentAgent, { fetchImpl: async () => json(404, {}) })
   const forms = () => [...store.collections.cards.values()].filter(card => card.kind === "flow-form")
   try {
-    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, allowlisted: false, admin: false, scopesPlain: null }).isPersisted.promise
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, admin: false, scopesPlain: null }).isPersisted.promise
     expect(store.session().activeRepoKey ?? null).toBeNull()
     expect(await controller.commands.run("issues.list")).toEqual({ status: "executed", value: "Requested" })
     expect(forms()).toEqual([])
@@ -155,7 +155,7 @@ test("a signed-in entry with no persisted target keeps today's behaviour: it ask
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   const controller = createAppController(store, silentAgent, { fetchImpl: async () => json(404, {}) })
   try {
-    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "alice", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "alice", admin: false, scopesPlain: null }).isPersisted.promise
     await controller.commands.run("issues.list")
     await until(() => store.collections.cards.get("form-issues.list") !== undefined)
     expect(store.session().pendingCommand ?? null).toBeNull()
@@ -180,7 +180,7 @@ test("a signed-out visitor's issues door offers sign-in and nothing to fill in",
   const controller = createAppController(store, silentAgent, { fetchImpl: async () => json(404, {}) })
   const forms = () => [...store.collections.cards.values()].filter(card => card.kind === "flow-form")
   try {
-    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, allowlisted: false, admin: false, scopesPlain: null }).isPersisted.promise
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, admin: false, scopesPlain: null }).isPersisted.promise
     await store.dispatch({ type: "repo.selected", actor: "system", id: "codeplanesmithers/canary-sandbox" }).isPersisted.promise
     controller.settleFirstRunTarget()
     await controller.commands.run("issues.list")

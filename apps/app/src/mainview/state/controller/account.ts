@@ -159,7 +159,7 @@ export const createAccountController = (ctx: ControllerContext, deps: AccountCon
       .map(({ id, repoId, name, status }) => ({ id, repoId, name, status }))
       .sort((left, right) => left.repoId.localeCompare(right.repoId) || left.name.localeCompare(right.name))
     const next: AccountCard = { id: ACCOUNT_CARD_ID, kind: "account", title: `Account · @${identity.login}`, status: "active", createdAt: Date.now(), ordinal: deps.nextOrdinal(),
-      payload: { login: identity.login, provider: deps.provider, scopes: [], allowlisted: identity.allowlisted, accessRequested: identity.accessRequested, boxes,
+      payload: { login: identity.login, provider: deps.provider, scopes: [], boxes,
         ...(refreshes ? { refresh: { id: flight.id, state: "requested" as const } } : {}) } }
     try {
       flight.admission = store.dispatch({ type: "card.upsert", actor: ctx.commandActor, card: next }).isPersisted.promise.then(() => {
@@ -169,7 +169,7 @@ export const createAccountController = (ctx: ControllerContext, deps: AccountCon
         }
         if (refreshes) { launch(flight); return REQUESTED }
         reads.flight = undefined
-        return { value: `account: @${identity.login}; access ${identity.allowlisted ? "allowed" : identity.accessRequested ? "requested" : "not yet allowed"}; ${boxes.length} box(es) listed` }
+        return { value: `account: @${identity.login}; ${boxes.length} box(es) listed` }
       }).catch(error => {
         const current = owns(flight)
         if (reads.flight === flight) reads.flight = undefined

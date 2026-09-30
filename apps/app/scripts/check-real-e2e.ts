@@ -50,7 +50,7 @@ function joinDefault(root: string, child: string): string {
       "debug.reset", "debug.seams", "debug.snapshot", "debug.verbose", "model.fixture",
     ],
     owed: [
-      "admin.grant.confirm", "admin.queue.approve", "admin.requests", "agent.list",
+      "admin.grant.confirm", "agent.list",
       "agent.session.list", "agent.session.new", "agent.session.say", "agent.session.stop", "agent.session.view",
       "app.download", "approvals.open", "billing.plans", "billing.portal", "billing.upgrade",
       "branches.list", "change.checks", "change.pins", "change.request", "change.resolve",

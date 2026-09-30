@@ -48,7 +48,7 @@ Both hosts answer both routes themselves. Neither is proxied: no `PLATFORM_PROXY
 - 200 body for BOTH outcomes: `ModelTestResult`
   - pass: `{ ok: true, latencyMs: number, sample: string, output: ModelCallOutput }` (`sample` = `modelCallSample(output, secretValue)`: the generated words scrubbed and cut, or the first answer as `true 0.97`; may be `""`; an empty sample is still a pass). `output` is optional on the wire for an older host and carried by both hosts today.
   - fail: `{ ok: false, latencyMs: number, failure: ModelTestFailure, fault: PlueFault }`; build it ONLY with `failedModelTest(failure, latencyMs, host)`.
-- Non-200 only for a refusal to run the test: `request_invalid`, body-size codes, `sign_in_required`, `account_not_allowlisted`, the turn limit. Worker: `requireTurnSession` then one `loginBudget` turn. Local: no sign-in (R8).
+- Non-200 only for a refusal to run the test: `request_invalid`, body-size codes, `sign_in_required`, the turn limit. Worker: `requireTurnSession` then one `loginBudget` turn. Local: no sign-in (R8).
 - Host procedure, identical on both hosts:
   1. `const table = <this host's ModelCredentialListing[]>`
   2. `const planned = planModelBinding(bindingOf(model), table, { egress })`; `!planned.ok` -> `failedModelTest(planned.failure, ...)`, NO network call.

@@ -14,7 +14,7 @@ afterEach(() => { while (cleanups.length) cleanups.pop()!() })
 const noop = () => {}
 const issue = CardSchema.parse({ id: "issue", kind: "issue", title: "Issue", status: "active", ordinal: 1, createdAt: 1, payload: { repo: "smithersai/hello-server", number: 3, title: "Greet the world", state: "open", author: "Ada", issueBody: "Body", labels: [], comments: [] } })
 const props: CardViewProps = { card: issue, maximized: false, onMaximize: noop, onMinimize: noop, onOpenInTab: noop,
-  onDecideApproval: noop, onGrantConfirm: noop, onGrantCancel: noop, onQueueApprove: noop, onConnectGitHub: noop,
+  onDecideApproval: noop, onGrantConfirm: noop, onGrantCancel: noop, onConnectGitHub: noop,
   onRunWorkflow: noop, onStopRun: noop, onRetryRun: noop, onChooseWorkflowRepo: noop,
   worldDocuments: [], onChangeWorldDocument: noop, onRunCommand: noop }
 const mount = (overrides: Partial<CardViewProps> = {}, onKeyDown = noop) => {

@@ -155,7 +155,7 @@ describe("app diagnostics without a repository", () => {
 
   test("account changes scrub old evidence and late requests cannot restore it", async () => {
     const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
-    const identity = (login: string | null) => store.dispatch({ type: "identity.session.loaded", actor: "system", state: login ? "signed-in" : "signed-out", login, allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+    const identity = (login: string | null) => store.dispatch({ type: "identity.session.loaded", actor: "system", state: login ? "signed-in" : "signed-out", login, admin: false, scopesPlain: null }).isPersisted.promise
     await identity("alice")
     const late = Promise.withResolvers<Response>()
     const entered = Promise.withResolvers<void>()

@@ -68,7 +68,6 @@ const signedIn = async (store: AppStore, admin = false): Promise<void> => {
     actor: "system",
     state: "signed-in",
     login: "will",
-    allowlisted: true,
     admin,
     scopesPlain: null
   })
@@ -94,7 +93,6 @@ describe("wave 10 — the derived pill row (§2a/§2f)", () => {
       actor: "system",
       state: "signed-out",
       login: null,
-      allowlisted: false,
       admin: false,
       scopesPlain: null
     })
@@ -202,7 +200,6 @@ describe("local app: identity is not a gate on the chat (LOCAL-APP.md)", () => {
       actor: "system",
       state: "signed-out",
       login: null,
-      allowlisted: false,
       admin: false,
       scopesPlain: null
     })

@@ -104,7 +104,6 @@ const signIn = (store: Awaited<ReturnType<typeof boot>>["store"], login = "will"
     actor: "system",
     state: "signed-in",
     login,
-    allowlisted: true,
     admin: false,
     scopesPlain: null
   })
@@ -453,7 +452,7 @@ describe("recommend: the flow", () => {
     expect(row(store)?.retry).toEqual({ at: far, owner: "will", origin: "same-origin" })
 
     // The identity seam goes away; the persisted owner still binds the window.
-    store.dispatch({ type: "identity.session.loaded", actor: "system", state: "unavailable", login: null, allowlisted: false, admin: false, scopesPlain: null })
+    store.dispatch({ type: "identity.session.loaded", actor: "system", state: "unavailable", login: null, admin: false, scopesPlain: null })
     materialChange(store, "outage")
     await settle()
     expect(store.collections.identitySessions.get("identity")?.accountOwnerLogin).toBe("will")

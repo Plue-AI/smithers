@@ -1034,19 +1034,10 @@ const FIXTURES: Record<Card["kind"], KindFixtures> = {
     minimal: { login: "ada", amountUsd: 25, phase: "confirm" },
     full: { login: "ada", amountUsd: 25, phase: "failed", grantId: "grant-1", error: "the grant call failed (500)" }
   },
-  "request-queue": {
-    minimal: { requests: [], approving: null },
-    full: {
-      requests: [{ login: "ada", note: "reviewing smithers", createdAt: "2026-09-05T09:00:00Z" }],
-      approving: "ada",
-      error: "the allowlist add failed (500)"
-    }
-  },
   "admin-health": {
-    minimal: { services: [], queueDepth: null, charges: null, checkedAt: "2026-09-05T09:00:00Z" },
+    minimal: { services: [], charges: null, checkedAt: "2026-09-05T09:00:00Z" },
     full: {
       services: [{ name: "gateway", status: "ok", detail: "200 in 12 ms" }],
-      queueDepth: 3,
       charges: { chargeCount: 2, lifetimeChargedUsd: "1.00" },
       checkedAt: "2026-09-05T09:00:00Z"
     }
@@ -1708,14 +1699,12 @@ const FIXTURES: Record<Card["kind"], KindFixtures> = {
     }
   },
   account: {
-    minimal: { login: "will", scopes: [], allowlisted: false, accessRequested: false, boxes: [] },
+    minimal: { login: "will", scopes: [], boxes: [] },
     full: {
       login: "will",
       provider: "github",
       scopes: [{ scope: "repo", plain: "read and write your repositories" }],
       refresh: { id: "account-read", state: "failed", error: "Permissions could not be loaded." },
-      allowlisted: true,
-      accessRequested: true,
       boxes: [{ id: "ws-1", repoId: "smithersai/smithers", name: "review", status: "running" }]
     }
   },

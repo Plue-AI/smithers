@@ -79,7 +79,6 @@ describe("the connect surface's roving arrows walk the row actions", () => {
       actor: "system",
       state: "signed-in",
       login: "codeplanesmithers",
-      allowlisted: true,
       admin: false,
       scopesPlain: null
     })

@@ -505,7 +505,7 @@ describe("runtime-owned pending approvals", () => {
 describe("persisted account ownership", () => {
   const identity = (store: AppStore, state: "signed-in" | "signed-out" | "unavailable", login: string | null = null) =>
     store.dispatch({ type: "identity.session.loaded", actor: "system", state, login,
-      allowlisted: state === "signed-in", admin: false, scopesPlain: null }).isPersisted.promise
+      admin: false, scopesPlain: null }).isPersisted.promise
 
   test("same-account recovery keeps private state and owner across repeated outages and reload", async () => {
     const storage = memoryStorage()

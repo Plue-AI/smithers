@@ -452,7 +452,7 @@
 }
 
 /*
- * The signed-out (or not-yet-allowlisted) shortcut: the first tab stop in the
+ * The signed-out shortcut: the first tab stop in the
  * document, and invisible until it is focused.
  *
  * Out of flow, so the chat column lays out exactly as it did before this

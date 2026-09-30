@@ -105,7 +105,7 @@ test("boot reconnects a persisted catalog refresh once after identity adoption",
     fetchImpl: async () => { calls += 1; return new Promise<Response>((resolve) => { release = resolve }) }
   })
   expect(calls).toBe(0)
-  await controller.adoptSession({ state: "unavailable", login: null, allowlisted: false, admin: false })
+  await controller.adoptSession({ state: "unavailable", login: null, admin: false })
   await controller.commands.run("model.list")
   await waitFor(() => store.collections.toasts.get("toast-model.list")?.status === "running")
   expect(calls).toBe(1)

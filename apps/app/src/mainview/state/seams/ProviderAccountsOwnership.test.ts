@@ -62,7 +62,7 @@ const fixture = async () => {
   stores.add(store)
   let disposed = false
   retirements.add(() => { disposed = true })
-  const login = async (name: string) => { await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: name, allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise }
+  const login = async (name: string) => { await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: name, admin: false, scopesPlain: null }).isPersisted.promise }
   await login("alice")
   let fetch = async (): Promise<Response> => Response.json([active])
   const work: Promise<unknown>[] = []

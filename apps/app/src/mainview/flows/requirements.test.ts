@@ -80,7 +80,6 @@ const signedOut = async (store: AppStore): Promise<void> => {
     actor: "system",
     state: "signed-out",
     login: null,
-    allowlisted: false,
     admin: false,
     scopesPlain: null
   })
@@ -93,7 +92,6 @@ const signedIn = async (store: AppStore): Promise<void> => {
     actor: "system",
     state: "signed-in",
     login: "will",
-    allowlisted: true,
     admin: false,
     scopesPlain: null
   })

@@ -16,7 +16,7 @@ const fixture = async (receipt?: ReturnType<typeof Promise.withResolvers<void>>)
   const storage = memoryStorage()
   const original = await createAppStore({ kind: "localStorage", storage })
   await original.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "alice",
-    allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+    admin: false, scopesPlain: null }).isPersisted.promise
   const receiptEntered = Promise.withResolvers<void>()
   const store: AppStore = receipt === undefined ? original : { ...original, dispatch: transition => {
     const transaction = original.dispatch(transition)

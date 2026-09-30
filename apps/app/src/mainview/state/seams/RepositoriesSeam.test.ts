@@ -312,7 +312,7 @@ describe("repositories seam", () => {
         : json(404, {}))
       const identity = (state: "signed-in" | "signed-out", login: string | null) => store.dispatch({
         type: "identity.session.loaded", actor: "system", state, login,
-        allowlisted: state === "signed-in", admin: false, scopesPlain: null
+        admin: false, scopesPlain: null
       }).isPersisted.promise
 
       await identity("signed-in", "alice")
@@ -343,7 +343,7 @@ describe("repositories seam", () => {
       : json(404, {}))
     const signIn = () => store.dispatch({
       type: "identity.session.loaded", actor: "system", state: "signed-in", login: "alice",
-      allowlisted: true, admin: false, scopesPlain: null
+      admin: false, scopesPlain: null
     }).isPersisted.promise
 
     await signIn()

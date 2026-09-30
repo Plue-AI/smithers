@@ -140,7 +140,6 @@ const signedOut = async (store: AppStore): Promise<void> => {
     actor: "system",
     state: "signed-out",
     login: null,
-    allowlisted: false,
     admin: false,
     scopesPlain: null
   })

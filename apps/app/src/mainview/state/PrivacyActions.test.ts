@@ -21,7 +21,7 @@ const fixture = async (fails = false) => {
       if (fails) throw new Error("PRIVATE CLEANUP ERROR")
     } } })
   const identity = (login: string) => store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in",
-    login, provider: "github", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+    login, provider: "github", admin: false, scopesPlain: null }).isPersisted.promise
   await identity("old-owner")
   const controller = createAppController(store, silentAgent, { fetchImpl: async () => Response.json({ scopes: [] }) })
   await store.settled?.()

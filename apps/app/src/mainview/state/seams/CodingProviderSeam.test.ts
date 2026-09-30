@@ -397,7 +397,7 @@ async function storeHarness(options: {
   stores.add(store)
   let disposed = false
   retirements.add(() => { disposed = true; ready = false })
-  const account = (login: string) => track(store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login, allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise)
+  const account = (login: string) => track(store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login, admin: false, scopesPlain: null }).isPersisted.promise)
   await account("alice")
   if (options.rows) await store.dispatch({ type: "coding.provider.requests.changed", actor: "system", requests: options.rows }).isPersisted.promise
   const calls: RequestInit[] = []
@@ -538,7 +538,7 @@ const refusedGestures = [
 ]
 test.each(refusedGestures)("$label admission consumes and releases every one-shot field without persisting its contents", async ({ signedOut, token, expected }) => {
   const h = await storeHarness({ http: async () => { throw new Error("Refused gesture must not reach HTTP") } })
-  if (signedOut) await track(h.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, allowlisted: false, admin: false, scopesPlain: null }).isPersisted.promise)
+  if (signedOut) await track(h.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, admin: false, scopesPlain: null }).isPersisted.promise)
   const input: Record<string, string> = { value: token, spare: "unconsumed-write-only-fixture" }
   const gesture = writeOnlyGesture("secrets.connect", input)
   expect(input).toEqual({})

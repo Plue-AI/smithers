@@ -24,7 +24,6 @@ const signIn = async (store: Awaited<ReturnType<typeof createAppStore>>, login =
     actor: "system",
     state: "signed-in",
     login,
-    allowlisted: true,
     admin: false,
     scopesPlain: null
   }).isPersisted.promise
@@ -298,7 +297,6 @@ for (const next of ["signed-out", "other"] as const) {
         actor: "system",
         state: "signed-out",
         login: null,
-        allowlisted: false,
         admin: false,
         scopesPlain: null
       }).isPersisted.promise}

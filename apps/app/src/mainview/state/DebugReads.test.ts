@@ -30,7 +30,6 @@ const adminStore = async (): Promise<AppStore> => {
     actor: "system",
     state: "signed-in",
     login: "will",
-    allowlisted: true,
     admin: true,
     scopesPlain: null
   })

@@ -339,7 +339,7 @@ Priority: P0 blocks the workbench or a daily task; P1 next; P2 later. Effort S/M
 ### admin · Admin users/orgs/repos/runners lists, cross-repo run list, audit log, feature flags, metrics, canary and alert incidents with remediation outcomes
 
 - Source: plue · coverage: partial · effort: M
-- Exists: admin.health, admin.requests, admin.allowlist.*, admin.grant built (Flows.ts:1561-1630); github.reconcile designed (ADR 0005 L98-99).
+- Exists: admin.health, admin.grant built (Flows.ts:1561-1630); github.reconcile designed (ADR 0005 L98-99).
 - UI: admin-health card gains facets Users (login · admin · disabled with Grant/Disable/Token), Orgs, Repos (incl. the GitHub synced-repos feed), Runners (pool rows), Runs (cross-repo), Audit (actor · action · target · at), Flags (name toggle), Metrics (query row → result rows), Incidents (canary/alert rows with outcome); every facet named in the feature has a flow.
 - Flows: `admin.users; admin.user.create <login>; admin.user.disable <login>; admin.user.delete <login> (confirm); admin.user.token <login>; admin.orgs; admin.repos; admin.synced-repos; admin.runners; admin.runs; admin.audit [query]; admin.flags; admin.flag.set <name> <on|off>; admin.metrics <query>; admin.incidents`
 

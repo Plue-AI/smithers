@@ -132,13 +132,6 @@ export const AUTH_SIGNED_IN_PARAM = "signed-in"
  */
 export const AUTH_LOGOUT_PATH = "/api/auth/logout"
 /**
- * The identity request access route shared by server and client.
- *
- * @since 1.0.0
- * @category constants
- */
-export const IDENTITY_REQUEST_ACCESS_PATH = "/api/identity/request-access"
-/**
  * The billing balance route shared by server and client.
  *
  * @since 1.0.0
@@ -270,26 +263,12 @@ export const publicRepoActivityPath = (repo: string): string => `${PUBLIC_REPOS_
  */
 export const ADMIN_ROUTE_PREFIX = "/api/admin/"
 /**
- * The admin allowlist route shared by server and client.
- *
- * @since 1.0.0
- * @category constants
- */
-export const ADMIN_ALLOWLIST_PATH = "/api/admin/allowlist"
-/**
  * The admin grant route shared by server and client.
  *
  * @since 1.0.0
  * @category constants
  */
 export const ADMIN_GRANT_PATH = "/api/admin/grant"
-/**
- * The admin requests route shared by server and client.
- *
- * @since 1.0.0
- * @category constants
- */
-export const ADMIN_REQUESTS_PATH = "/api/admin/requests"
 /**
  * The admin health route shared by server and client.
  *

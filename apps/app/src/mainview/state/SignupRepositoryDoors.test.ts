@@ -11,7 +11,7 @@ test("Review PRs opens the chosen signup repository after onboarding with severa
     fetchImpl: async () => Response.json({ message: "Not found" }, { status: 404 })
   })
   try {
-    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "roninjin10", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "roninjin10", admin: false, scopesPlain: null }).isPersisted.promise
     await store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [
       { id: "roninjin10/smithers", org: "roninjin10", ownerKind: "user", name: "smithers", head: null },
       { id: "roninjin10/plue", org: "roninjin10", ownerKind: "user", name: "plue", head: null },

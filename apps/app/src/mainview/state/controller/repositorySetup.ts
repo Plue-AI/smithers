@@ -837,7 +837,6 @@ export function createRepositorySetupController(ctx: ControllerContext, dependen
         dependencies?.promptSignIn()
         return { value: "Sign-in is open. The setup remains a preview." }
       }
-      if (!identity.allowlisted) return "This account is not in the alpha yet."
     }
     /*
      * The app's first question is asked about the exact candidate an evaluate,

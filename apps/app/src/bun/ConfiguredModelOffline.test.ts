@@ -32,7 +32,7 @@ test("an offline host tests and assigns a loopback model, then answers through t
   const runtime = createRuntime({ bootstrap, http })
   const controller = createAppController(store, runtime.backend.agent ?? unavailableAgent(), { bootstrap, fetchImpl: http })
   try {
-    await controller.adoptSession({ state: "unavailable", login: null, allowlisted: false, admin: false })
+    await controller.adoptSession({ state: "unavailable", login: null, admin: false })
     expect(await controller.explain("the loopback provider")).toBe("There is no agent on this host to explain with.")
     expect(await provider.journal()).toHaveLength(0)
     await controller.commands.run("model.list")

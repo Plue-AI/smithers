@@ -54,7 +54,7 @@ export const createWorkflowLaunchController = (
   const controllers = new Set<AbortController>()
   const owner = () => {
     const identity = store.collections.identitySessions.get("identity")
-    return identity?.state === "signed-in" && identity.allowlisted ? identity.login : undefined
+    return identity?.state === "signed-in" ? identity.login : undefined
   }
   const read = (id: string): RunCard | undefined => { const card = store.collections.cards.get(id); return card?.kind === "run-trace" ? card : undefined }
   const save = (card: RunCard) => store.dispatch({ type: "card.upsert", actor: "system", card }).isPersisted.promise
@@ -75,7 +75,7 @@ export const createWorkflowLaunchController = (
     previous?.controller.abort()
     const controller = new AbortController()
     controllers.add(controller)
-    // Admission needs a signed-in, allowlisted owner; work already admitted
+    // Admission needs a signed-in owner; work already admitted
     // continues through an identity outage and stops only on an owner change.
     const current = () => !ctx.disposed && !controller.signal.aborted && ctx.accountEpoch === epoch && ctx.accountOwner() === request.owner && workflowLaunchOf(read(id))?.id === request.id
     const preparationExpired = () => Date.now() - (request.preparationStartedAt ?? read(id)!.createdAt) >= ctx.workflowPreparationTimeoutMs

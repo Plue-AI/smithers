@@ -16,7 +16,7 @@ const setup = async (options: { bootstrap?: AppBootstrap; services?: AppServices
   const store = await createAppStore({ kind: "localStorage", storage })
   if (options.state !== "unknown") {
     const state = options.state ?? "signed-out"
-    await store.dispatch({ type: "identity.session.loaded", actor: "system", state, login: state === "signed-in" ? "will" : null, allowlisted: state === "signed-in", admin: false, scopesPlain: null }).isPersisted.promise
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state, login: state === "signed-in" ? "will" : null, admin: false, scopesPlain: null }).isPersisted.promise
   }
   const requests: StartAgentTurnRequest[] = []
   const controller = createAppController(store, { ...silentAgent, available: true,

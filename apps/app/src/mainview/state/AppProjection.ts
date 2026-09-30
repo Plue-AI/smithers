@@ -257,8 +257,6 @@ export const APP_TRANSITION_TYPES = {
   "card.approval.observed": true,
   "card.approval.decided": true,
   "identity.session.loaded": true,
-  "identity.access.requested": true,
-  "identity.access.failed": true,
   "identity.session.cleared": true,
   "billing.refreshed": true,
   "billing.plans.loaded": true,
@@ -2684,11 +2682,8 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
             draft.login = transition.login
             if (transition.provider !== undefined && transition.state !== "unavailable") draft.provider = transition.provider
             draft.sessionObservation = { at: createdAt, revision }
-            draft.allowlisted = transition.allowlisted
             draft.admin = transition.admin
             if (transition.scopesPlain !== null) draft.scopesPlain = transition.scopesPlain
-            if (transition.state !== "signed-in") draft.accessRequested = false
-            if (transition.state === "signed-in") draft.accessError = null
             draft.updatedAt = createdAt
             draft.revision = revision
           })
@@ -2696,28 +2691,6 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
             settleSignupRepo(true)
             answerSignInPrompts(collections, "identity", transition.login, createdAt, transition.provider)
           }
-          break
-        }
-
-        case "identity.access.requested": {
-          const identity = collections.identitySessions.get("identity")
-          if (identity === undefined || identity.state !== "signed-in") return
-          collections.identitySessions.update("identity", (draft) => {
-            draft.accessRequested = true
-            draft.accessError = null
-            draft.updatedAt = createdAt
-            draft.revision = revision
-          })
-          break
-        }
-
-        case "identity.access.failed": {
-          if (collections.identitySessions.get("identity") === undefined) return
-          collections.identitySessions.update("identity", (draft) => {
-            draft.accessError = transition.message
-            draft.updatedAt = createdAt
-            draft.revision = revision
-          })
           break
         }
 
@@ -2729,10 +2702,7 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
             draft.state = "signed-out"
             draft.login = null
             draft.accountOwnerLogin = null
-            draft.allowlisted = false
             draft.admin = false
-            draft.accessRequested = false
-            draft.accessError = null
             draft.updatedAt = createdAt
             draft.revision = revision
           })

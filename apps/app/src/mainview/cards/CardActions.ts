@@ -50,7 +50,6 @@ export const cardActions = (controller: AppController, card?: Card): CardBinding
         : controller.answerApproval(id, answer, question),
     onGrantConfirm: (id) => runCommand("admin.grant.confirm", id),
     onGrantCancel: (id) => runCommand("admin.grant.cancel", id),
-    onQueueApprove: (login) => runCommand("admin.queue.approve", login),
     onMaximize: (id) => runCommand("card.maximize", id),
     onMinimize: () => runCommand("card.minimize"),
     onFrameBack: () => runCommand("frame.back"),

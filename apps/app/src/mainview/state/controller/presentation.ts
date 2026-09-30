@@ -246,7 +246,7 @@ export const createPresentationController = (
         worldDocuments: ctx.store.collections.worldDocuments.size,
         identity: identity === undefined
           ? null
-          : { state: identity.state, login: identity.login, allowlisted: identity.allowlisted, admin: identity.admin },
+          : { state: identity.state, login: identity.login, admin: identity.admin },
         billing: billing === undefined ? null : { state: billing.state, totalUsd: billing.totalUsd },
         repositories: [...ctx.store.collections.repositories.keys()],
         commands: ctx.commands.entries().map((entry) => ({

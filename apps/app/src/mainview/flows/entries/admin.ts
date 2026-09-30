@@ -61,24 +61,8 @@ export const adminToolFlows = (actions: CommandActions): ReadonlyArray<FlowEntry
   ]
 }
 
-/** The operator flows: allowlist, grants, requests, queue, health. */
+/** The operator flows: grants and health. */
 export const adminOperatorFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
-  flow({
-    name: "admin.allowlist.add",
-    summary: "Add a GitHub login to the allowlist",
-    runtime: ["identity"],
-    args: "<login>",
-    input: Schema.Struct({ login: Schema.String }),
-    handler: ({ login }) => actions.adminAllowlist("add", login)
-  }),
-  flow({
-    name: "admin.allowlist.remove",
-    summary: "Remove a GitHub login from the allowlist",
-    runtime: ["identity"],
-    args: "<login>",
-    input: Schema.Struct({ login: Schema.String }),
-    handler: ({ login }) => actions.adminAllowlist("remove", login)
-  }),
   flow({
     name: "admin.grant",
     summary: "Grant balance to a login (asks for confirmation first)",
@@ -110,26 +94,8 @@ export const adminOperatorFlows = (actions: CommandActions): ReadonlyArray<FlowE
     handler: ({ cardId }) => actions.adminGrantCancel(cardId)
   }),
   flow({
-    name: "admin.requests",
-    summary: "Show the request-access queue",
-    runtime: ["identity"],
-    input: NoPayload,
-    handler: () => actions.adminRequests()
-  }),
-  flow({
-    name: "admin.queue.approve",
-    summary: "Approve a request-access queue entry",
-    runtime: ["identity"],
-    hidden: true,
-    args: "<login>",
-    userOnly: true,
-    userOnlyReason: "approving an access request is the operator's own decision",
-    input: Schema.Struct({ login: Schema.String }),
-    handler: ({ login }) => actions.adminQueueApprove(login)
-  }),
-  flow({
     name: "admin.health",
-    summary: "What failed overnight? Service health, charges, queue depth",
+    summary: "What failed overnight? Service health and charges",
     runtime: ["identity"],
     input: NoPayload,
     handler: () => actions.adminHealth()

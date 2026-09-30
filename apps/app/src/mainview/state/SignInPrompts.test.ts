@@ -12,8 +12,8 @@ const createAppController = scopedControllers()
 const WEB: AppBootstrap = { apiVersion: 1, host: "cloud", version: "test", buildSha: "test",
   capabilities: cloudCapabilities({ identity: true, cloud: true, agent: true, checkout: true, terminal: false }),
   authFlow: "redirect", sandbox: null }
-const signedIn = { state: "signed-in" as const, login: "codeplanesmithers", allowlisted: true, admin: false }
-const signedOut = { state: "signed-out" as const, login: null, allowlisted: false, admin: false }
+const signedIn = { state: "signed-in" as const, login: "codeplanesmithers", admin: false }
+const signedOut = { state: "signed-out" as const, login: null, admin: false }
 
 const setup = async (web = true, storage = memoryStorage(), initiallySignedIn = false) => {
   const store = await createAppStore({ kind: "localStorage", storage })
@@ -318,13 +318,13 @@ test("unavailable identity and unrelated fulfilled requirements cannot answer a 
   const h = await setup(false)
   h.controller.promptSignIn()
   const prompt = [...h.store.collections.messages.values()].at(-1)!
-  await h.store.dispatch({ type: "message.appended", actor: "system", text: "Request access to this repository.",
-    action: { flow: "auth.request-access", label: "Request access" } }).isPersisted.promise
+  await h.store.dispatch({ type: "message.appended", actor: "system", text: "Your balance is ready.",
+    action: { flow: "billing.balance", label: "Show balance" } }).isPersisted.promise
   const access = [...h.store.collections.messages.values()].at(-1)!
   await h.controller.adoptSession({ ...signedOut, state: "unavailable" })
   await h.cloud("signed-in")
   expect(h.store.collections.messages.get(prompt.id)?.action).toEqual(prompt.action)
-  await h.controller.adoptSession({ ...signedIn, allowlisted: false })
+  await h.controller.adoptSession({ ...signedIn })
   expect(h.store.collections.messages.get(prompt.id)?.action).toBeUndefined()
   expect(h.store.collections.messages.get(access.id)?.action).toEqual(access.action)
 })
@@ -374,22 +374,6 @@ test("reopening a conversation answers its old prompt from a later observed sess
   expect(h.store.collections.messages.get(prompt.id)?.action).toBeUndefined()
   expect(h.store.collections.messages.get(prompt.id)?.answeredAction?.answer).toContain("@codeplanesmithers")
   expect(h.store.collections.branches.get(branchId)?.snapshot).toEqual(archive)
-})
-
-test("requesting access after a reauthentication prompt is not a new sign-in observation", async () => {
-  const h = await setup()
-  await h.signIn()
-  h.controller.promptSignIn(true)
-  const prompt = [...h.store.collections.messages.values()].at(-1)!
-  const branchId = h.store.session().activeBranchId!
-  const frameId = h.store.session().activeFrameId!
-  const workspaceId = h.store.session().activeWorkspaceId!
-  await h.store.dispatch({ type: "conversation.cleared", actor: "user", branchId: "after-reauth-prompt", notes: [] }).isPersisted.promise
-  await h.store.dispatch({ type: "identity.access.requested", actor: "user" }).isPersisted.promise
-  await h.store.dispatch({ type: "frame.navigated", actor: "user", workspaceId, branchId, frameId }).isPersisted.promise
-  expect(h.store.collections.messages.get(prompt.id)?.action).toEqual(prompt.action)
-  await h.signIn()
-  expect(h.store.collections.messages.get(prompt.id)?.action).toBeUndefined()
 })
 
 test("a hosted-session reset signs out through the backend and never asks the PAT session's route", async () => {
