@@ -180,6 +180,8 @@ describe("key registry", () => {
       "enter Expand row",
       "? Keys"
     ])
+    // A parked run offers Continue in place of Resume, beside Stop.
+    expect(hints({ continue: true, stop: true }).slice(0, 2)).toEqual(["c Continue", "x Stop"])
     expect(read("panel-view.tsx")).not.toMatch(/esc chat|r retry|x stop|u undo/)
   })
 

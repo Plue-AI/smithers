@@ -424,13 +424,15 @@ export const panelKey = (key: KeyEvent, panel: Panels.Panel, state: {
   readonly navigation: Panels.Navigation
   /** The shown worker tab, whose actions are its own keys. */
   readonly worker: Tab | undefined
-  readonly flow: { readonly retry: boolean; readonly stop: boolean }
+  readonly flow: { readonly retry: boolean; readonly continue: boolean; readonly stop: boolean }
 }, act: {
   /** Back to the chat. */
   readonly close: () => void
   /** Keys back to the composer, the panel still shown. */
   readonly release: () => void
   readonly retryRun: (id: string) => void
+  /** Approves a parked run's open request and resumes it. */
+  readonly continueRun: (id: string) => void
   readonly cancelRun: (id: string) => void
   readonly fillRun: (id: string) => void
   /** Opens the form for a worker's ask the person holds. */
@@ -451,6 +453,7 @@ export const panelKey = (key: KeyEvent, panel: Panels.Panel, state: {
   if (key.name === "escape") return act.close()
   if (key.name === "i") return act.release()
   if (key.name === "r" && surface.startsWith("flow:") && state.flow.retry) return act.retryRun(surface.slice(5))
+  if (key.name === "c" && surface.startsWith("flow:") && state.flow.continue) return act.continueRun(surface.slice(5))
   if (key.name === "x" && surface.startsWith("flow:") && state.flow.stop) return act.cancelRun(surface.slice(5))
   if (key.name === "a" && surface.startsWith("flow:")) return act.fillRun(surface.slice(5))
   if (key.name === "u" && surface === "summary") {

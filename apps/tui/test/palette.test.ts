@@ -223,6 +223,14 @@ describe("built-in actions", () => {
     ])
   })
 
+  it("lists a parked flow run's Continue and Stop, never Resume", () => {
+    const listed = acts({ runs: [run("p", "parked")] }).filter((row) => row.act.act === "run")
+    expect(listed.map((row) => [row.label, row.hint, row.act])).toEqual([
+      ["Continue", "c", { act: "run", id: "p", action: "continue" }],
+      ["Stop", "x", { act: "run", id: "p", action: "stop" }]
+    ])
+  })
+
   it("lists a stop for each active monitor and every custom view by title", () => {
     const listed = acts({
       monitors: [

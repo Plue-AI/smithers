@@ -106,6 +106,7 @@ export const registry: ReadonlyArray<Binding> = [
   { id: "diff", keys: ["d"], label: "Diff", context: "panel", group: "Panel" },
   { id: "split", keys: ["v"], label: "Split diff", context: "panel", group: "Panel" },
   { id: "retry", keys: ["r"], label: "Resume", context: "panel", group: "Panel" },
+  { id: "continue", keys: ["c"], label: "Continue", context: "panel", group: "Panel" },
   { id: "worker-model", keys: ["m"], label: "Switch model", context: "panel", group: "Panel" },
   { id: "worker-wait", keys: ["w"], label: "Wait for reset", context: "panel", group: "Panel" },
   { id: "stop", keys: ["x"], label: "Stop", context: "panel", group: "Panel" },
@@ -424,6 +425,7 @@ export const fit = (
 export const panelHints = (
   panel: {
     readonly retry?: boolean
+    readonly continue?: boolean
     readonly stop?: boolean
     readonly diff?: boolean
     readonly undo?: boolean
@@ -433,6 +435,7 @@ export const panelHints = (
   const byId = (id: string) => registry.find((binding) => binding.id === id)!
   return [
     ...(panel.retry === true ? [byId("retry")] : []),
+    ...(panel.continue === true ? [byId("continue")] : []),
     ...(panel.stop === true ? [byId("stop")] : []),
     ...(panel.diff === true ? [byId("diff")] : []),
     ...(panel.undo === true ? [byId("undo")] : []),

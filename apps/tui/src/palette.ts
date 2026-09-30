@@ -70,7 +70,7 @@ export type Act =
   /** A settled worker's captured run, from any surface. */
   | { readonly act: "review"; readonly id: string }
   | { readonly act: "worker"; readonly id: string; readonly action: Tabs.ActionId }
-  | { readonly act: "run"; readonly id: string; readonly action: "retry" | "stop" }
+  | { readonly act: "run"; readonly id: string; readonly action: "retry" | "continue" | "stop" }
   | { readonly act: "monitor"; readonly id: string }
   | { readonly act: "view"; readonly id: string }
   /** The composer asks for the prompt of a wrapped Claude Code or Codex worker. */
@@ -124,7 +124,7 @@ export const actions = (input: {
   ),
   ...input.runs.flatMap((run) => {
     const allowed = Flows.actions(run)
-    return (["retry", "stop"] as const).filter((action) => allowed[action]).map((action): ActRow => ({
+    return (["retry", "continue", "stop"] as const).filter((action) => allowed[action]).map((action): ActRow => ({
       key: `act:run:${run.id}:${action}`,
       label: labelOf(action),
       detail: run.flow,

@@ -193,7 +193,7 @@ const fields = (value: unknown): Record<string, unknown> =>
 
 /**
  * The newest approval request in a run's events that no decision answered: a
- * budget raise, for one. Retry on the parked run approves it.
+ * budget raise, for one. Continue on the parked run approves it.
  */
 export const openGate = (events: ReadonlyArray<ControlEvent>): Gate | undefined => {
   const decided = new Set<string>()
@@ -229,9 +229,14 @@ export const running = (run: Run): boolean =>
 /** Holds a seat: in flight, or parked here for the user's input. */
 const active = (run: Run) => running(run) || run.status === "input"
 
-/** The controller, keyboard, and footer share the same action eligibility. */
-export const actions = (run: Run | undefined): { retry: boolean; stop: boolean } => ({
-  retry: run !== undefined && (run.status === "failed" || run.status === "cancelled" || run.status === "parked"),
+/**
+ * The controller, keyboard, and footer share the same action eligibility. A
+ * parked run (a budget or time guard, or an approval) offers Continue, which
+ * approves its open request and resumes it, in place of Resume.
+ */
+export const actions = (run: Run | undefined): { retry: boolean; continue: boolean; stop: boolean } => ({
+  retry: run !== undefined && (run.status === "failed" || run.status === "cancelled"),
+  continue: run?.status === "parked",
   stop: run !== undefined && (active(run) || run.status === "queued" || run.status === "parked")
 })
 
@@ -632,7 +637,7 @@ export class FlowRuns {
   retry = (id: string): { id: string; status: Run["status"] } => {
     const run = this.runs.get(id)
     if (run === undefined) throw new TabError("unknown_tab", "Unknown tab", id)
-    if (!actions(run).retry) {
+    if (!actions(run).retry && !actions(run).continue) {
       throw new TabError(
         "not_retryable",
         `Only a failed, stopped, or parked run can be retried; ${id} is ${run.status}`,

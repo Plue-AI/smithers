@@ -1588,7 +1588,7 @@ An agent's history is its runs. Each run has a timeline.
 | Thrashing | The agent repeats work without progress. |
 | Blocked | The run paused and needs a resume. |
 | Approval needed | The run waits for your decision. |
-| Runaway | A budget or time limit paused it. Planned. |
+| Runaway | A budget or time limit paused it. Continue or stop it. |
 
 ## Find an agent's runs
 
@@ -1719,6 +1719,8 @@ Design preview with example data. Not connected yet.
 ```sh
 smthrs tui --approve ask
 ```
+
+**Available now.** A flow run a budget or time guard paused shows under **Needs you**. In its tab, press **c** to continue or **x** to stop it.
 
 **Planned.** A list of pending approvals across runs ([#2119](https://github.com/smithersai/smithers/issues/2119)).
 

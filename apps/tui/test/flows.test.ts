@@ -234,7 +234,7 @@ describe("flow runs", () => {
     f.runs.request({ id: "r1", flow: "review", input: {}, by: "user" })
     await tick()
     expect(f.runs.get("r1")?.status).toBe("running")
-    expect(actions(f.runs.get("r1"))).toEqual({ retry: false, stop: true })
+    expect(actions(f.runs.get("r1"))).toEqual({ retry: false, continue: false, stop: true })
     f.watches[0]!.emit(call("control.agent.cell-call-started", 1))
     f.watches[0]!.emit(call("control.agent.cell-call-settled", 2))
     expect(f.runs.get("r1")?.status).toBe("running")
@@ -246,7 +246,7 @@ describe("flow runs", () => {
     done.watches[0]!.done.resolve({ kind: "done", answer: "Looks good." })
     await tick()
     expect(done.runs.get("r1")).toMatchObject({ status: "done", answer: "Looks good." })
-    expect(actions(done.runs.get("r1"))).toEqual({ retry: false, stop: false })
+    expect(actions(done.runs.get("r1"))).toEqual({ retry: false, continue: false, stop: false })
     expect(done.runs.get("r1")?.endedAt).toBeNumber()
     const panel = done.runs.panel("r1")
     expect(panel.summary).toMatch(/^\d+ms → Looks good\.$/)
@@ -267,7 +267,7 @@ describe("flow runs", () => {
     await tick()
     expect(failed.runs.get("r1")).toMatchObject({ status: "failed", message: "boom" })
     expect(failed.runs.panel("r1").summary).toBe("failed: boom")
-    expect(actions(failed.runs.get("r1"))).toEqual({ retry: true, stop: false })
+    expect(actions(failed.runs.get("r1"))).toEqual({ retry: true, continue: false, stop: false })
     expect(failed.runs.busy).toBe(false)
   })
 
@@ -344,10 +344,11 @@ describe("flow runs", () => {
       return f
     }
 
-    it("shows the raise it asks, and Retry approves it before resuming", async () => {
+    it("shows the raise it asks, and Continue approves it before resuming", async () => {
       const f = await parkedOnBudget()
       expect(f.runs.get("r1")?.status).toBe("parked")
       expect(f.runs.panel("r1").summary).toBe(question)
+      expect(actions(f.runs.get("r1"))).toEqual({ retry: false, continue: true, stop: true })
 
       expect(f.runs.retry("r1")).toEqual({ id: "r1", status: "running" })
       await tick()

@@ -123,7 +123,9 @@ describe("worker actions", () => {
     expect(run("s", "queued")).toBeUndefined()
     expect(run("t", "running")).toBe("takeover")
     expect(run("t", "waiting")).toBeUndefined()
-    expect(Keys.bindingFor({ name: "c" }, "panel")).toBeUndefined()
+    // `c` continues a parked flow run; it runs no worker action.
+    expect(Keys.bindingFor({ name: "c" }, "panel")?.id).toBe("continue")
+    expect(run("c", "parked")).toBeUndefined()
   })
   it("takes every action's keys and label from a panel binding in the registry", () => {
     for (const action of Tabs.bindings) {

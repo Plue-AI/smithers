@@ -52,6 +52,7 @@ export type Act =
   | "approval"
   | "cap"
   | "command"
+  | "continue"
   | "estimates"
   | "flow"
   | "fork"
@@ -75,6 +76,7 @@ const unknownSentence: Readonly<Record<Act, string>> = {
   approval: "Your answer was not sent; press y, n or a again.",
   cap: "The new cap was not applied.",
   command: "That command could not run.",
+  continue: "The run did not continue; press c again.",
   estimates: "Estimates were not saved.",
   flow: "The flow could not start.",
   fork: "This conversation could not be forked.",

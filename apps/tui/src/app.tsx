@@ -1983,8 +1983,8 @@ export function App(props: AppProps) {
       }
       case "run":
         try {
-          if (chosen.action === "retry") runs.retry(chosen.id)
-          else runs.cancel(chosen.id)
+          if (chosen.action === "stop") runs.cancel(chosen.id)
+          else runs.retry(chosen.id)
         } catch (error) {
           setStatus(Failures.line(chosen.action, error), "warning")
         }
@@ -2315,6 +2315,13 @@ export function App(props: AppProps) {
             runs.retry(id)
           } catch (error) {
             setStatus(Failures.line("retry", error), "warning")
+          }
+        },
+        continueRun: (id) => {
+          try {
+            runs.retry(id)
+          } catch (error) {
+            setStatus(Failures.line("continue", error), "warning")
           }
         },
         cancelRun: runs.cancel,

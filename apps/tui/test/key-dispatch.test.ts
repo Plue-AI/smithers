@@ -209,7 +209,7 @@ test("panel navigation applies the updater to the latest selection in an ordered
       surface: "ui:checks",
       navigation,
       worker: undefined,
-      flow: { retry: false, stop: false }
+      flow: { retry: false, continue: false, stop: false }
     }, {
       ...panelActs(calls),
       navigate: (update) => {
@@ -585,6 +585,7 @@ const panelActs = (calls: unknown[]): Parameters<typeof Dispatch.panelKey>[3] =>
   close: () => calls.push("close"),
   release: () => calls.push("release"),
   retryRun: (id) => calls.push(["retry", id]),
+  continueRun: (id) => calls.push(["continue", id]),
   cancelRun: (id) => calls.push(["cancel", id]),
   fillRun: (id) => calls.push(["fill", id]),
   answerWorker: (id) => calls.push(["answer", id]),
@@ -616,7 +617,26 @@ test.each(
     surface: "flow:run/a",
     navigation: Panels.initial(),
     worker: undefined,
-    flow: { retry, stop }
+    flow: { retry, continue: false, stop }
+  }, panelActs(calls))
+  expect<ReadonlyArray<unknown>>(calls).toEqual(expected)
+  expect(event.defaultPrevented).toBe(true)
+})
+
+test.each(
+  [
+    ["c", true, [["continue", "run/a"]]],
+    ["c", false, ["navigate"]],
+    ["r", true, ["navigate"]]
+  ] as const
+)("parked flow panel %s honors continue=%s", (name, allowed, expected) => {
+  const calls: unknown[] = []
+  const event = key(name)
+  Dispatch.panelKey(event, panel, {
+    surface: "flow:run/a",
+    navigation: Panels.initial(),
+    worker: undefined,
+    flow: { retry: false, continue: allowed, stop: true }
   }, panelActs(calls))
   expect<ReadonlyArray<unknown>>(calls).toEqual(expected)
   expect(event.defaultPrevented).toBe(true)
@@ -628,7 +648,7 @@ test("a panel prompt releases focus and sends literal text instead of running sh
     surface: "ui:checks",
     navigation: Panels.initial(),
     worker: undefined,
-    flow: { retry: false, stop: false }
+    flow: { retry: false, continue: false, stop: false }
   }, panelActs(calls))
   expect(calls).toEqual(["release", ["send", "!echo literal"]])
 })
@@ -867,7 +887,7 @@ test("u on the Summary undoes the selected row's turn", () => {
     surface: "summary",
     navigation: { ...Panels.initial(), selected: 10 },
     worker: undefined,
-    flow: { retry: false, stop: false }
+    flow: { retry: false, continue: false, stop: false }
   }, panelActs(calls))
   expect(calls).toEqual([["undo", "check", undefined]])
 })
@@ -881,7 +901,7 @@ test.each([["u", [["undo", undefined, "worker"]]], ["d", [["diff", "worker"]]], 
       surface: "tab:worker",
       navigation: Panels.initial(),
       worker: worker("done"),
-      flow: { retry: false, stop: false }
+      flow: { retry: false, continue: false, stop: false }
     }, panelActs(calls))
     expect<ReadonlyArray<unknown>>(calls).toEqual(expected)
     expect(event.defaultPrevented).toBe(true)
@@ -894,7 +914,7 @@ test.each(["d", "u"] as const)("%s on a flow or custom panel keeps its own meani
     surface: "ui:checks",
     navigation: Panels.initial(),
     worker: undefined,
-    flow: { retry: false, stop: false }
+    flow: { retry: false, continue: false, stop: false }
   }, panelActs(calls))
   expect(calls).toEqual(["navigate"])
 })
@@ -987,7 +1007,7 @@ test("a declared panel action executes only after the action key, without sendin
     surface: "ui:checks",
     navigation: Panels.initial(),
     worker: undefined,
-    flow: { retry: false, stop: false }
+    flow: { retry: false, continue: false, stop: false }
   }, panelActs(calls))
   expect(calls).toEqual([{ kind: "open", surface: "flow:run" }])
 })
@@ -1159,7 +1179,7 @@ test("a in a worker tab opens the form for that worker's ask", () => {
     surface: "tab:worker",
     navigation: Panels.initial(),
     worker: worker("running"),
-    flow: { retry: false, stop: false }
+    flow: { retry: false, continue: false, stop: false }
   }, panelActs(calls))
   expect(calls).toEqual([["answer", "worker"]])
 })
