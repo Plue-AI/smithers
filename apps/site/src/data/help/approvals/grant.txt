@@ -8,6 +8,7 @@ Arguments:
 Options:
   --root <string>  Project directory; defaults to the nearest Smithers project
   --quiet          Suppress progress messages
+  --input <array>  Payload input the target runs with, as name=value; repeatable
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

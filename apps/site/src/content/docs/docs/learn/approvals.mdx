@@ -89,6 +89,38 @@ smthrs approvals deny @approval.json
 </TabItem>
 </Tabs>
 
+## Approve a build target
+
+A target that declares `approval: "required"`, such as `S.Docker.Push`, runs only after its current revision is approved. Any change to the target or its inputs needs a new approval.
+
+<Tabs syncKey="surface">
+<TabItem label="GUI">
+
+**Planned** ([#3152](https://github.com/smithersai/smithers/issues/3152)).
+
+</TabItem>
+<TabItem label="TUI">
+
+**Planned** ([#3152](https://github.com/smithersai/smithers/issues/3152)).
+
+</TabItem>
+<TabItem label="CLI">
+
+**Available now.**
+
+```sh
+smthrs approvals grant //images:push
+smthrs target //images:push
+```
+
+</TabItem>
+<TabItem label="API">
+
+**Available now.** `Plan { flowId: "system/target", input: { label, digest }, idempotencyKey: "target:<label>:<digest>" }`, then `Approval.Submit` with the returned plan and `decision: "approve"`. `digest` is the target's `approval` in `smthrs target <label> --plan --json`.
+
+</TabItem>
+</Tabs>
+
 ## Correct it instead
 
 If the request is too broad or targets the wrong repository, deny it and tell Smithers what to change. For a running flow, [steer the run](/docs/learn/watch-an-agent/#steer-or-stop).

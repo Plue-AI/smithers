@@ -26,11 +26,11 @@ a push publishes the image the build produced, never a same-named image already
 in the daemon. The executor stops after the first failed command and reports
 success only after every command succeeds.
 
-The CLI currently refuses `approval: "required"` because its build executor
-has no durable approval store. `Docker.Push` requires that declaration, so
-`--plan` shows the commands and the refusal, and execution fails before any
-push. [#2577](https://github.com/smithersai/smithers/issues/2577) tracks the
-approval dependency and the remaining public CLI execution evidence.
+A target declaring `approval: "required"`, which `Docker.Push` must, runs only
+once its current revision is approved: `smthrs approvals grant <target>`. The
+revision covers the target's attrs, declared inputs, tools, dependency keys and
+`--input` values, so any change needs a new grant. `--plan` reports it as `approval`. Without a grant, or
+on a host with no approval store, the target refuses before any effect.
 
 ## Generated outputs
 

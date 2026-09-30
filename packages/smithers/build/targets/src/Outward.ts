@@ -13,9 +13,10 @@
  *   Only the declaration is read: a variable that is declared but carries no
  *   value on this host is refused later, at the transport boundary that
  *   resolves it, so no value is ever read here.
- * - **Approval.** `approval: "required"` refuses until a durable approval is
- *   granted. Package mode has no approval store, so the refusal is the
- *   honest answer there and the invocation has no side effect to undo.
+ * - **Approval.** `approval: "required"` refuses until a durable approval of
+ *   the target's current revision is granted (`smthrs approvals grant`). A
+ *   host with no approval store refuses, and the invocation has no side
+ *   effect to undo.
  *
  * No rule has an outward transport yet. The package planner refuses each
  * one as not implemented, before this gate or any rule gate runs, so a

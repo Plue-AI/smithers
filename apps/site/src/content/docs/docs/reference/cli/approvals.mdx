@@ -39,6 +39,17 @@ A plan-level approval records a decision without launching work. Execute the app
 
 `smthrs approvals deny <approval>` refuses the exact request. The argument can be serialized JSON or `@file`, just as for `approve`.
 
-All three commands accept `--root` and `--remote` to select the host, and read the bearer from `SMITHERS_TOKEN`. The saved `smithers auth login` session is shared with repository commands; `SMITHERS_TOKEN` is the non-interactive override. Use `--format json` for a structured decision receipt.
+## grant
+
+`smthrs approvals grant <target>` approves the current revision of a build target that declares `approval: "required"`, such as `S.Docker.Push`:
+
+```bash
+smthrs approvals grant //images:push
+smthrs target //images:push
+```
+
+The approval covers that revision only: the declaration, its inputs, its tools, its dependencies and the `--input` values, which `grant` takes the same way. Any change needs a new grant. `--plan` shows the revision as `approval`. Grants are stored in the workspace, so `grant` refuses while `SMITHERS_REMOTE` is set.
+
+`list`, `approve` and `deny` accept `--root` and `--remote` to select the host, and read the bearer from `SMITHERS_TOKEN`. The saved `smithers auth login` session is shared with repository commands; `SMITHERS_TOKEN` is the non-interactive override. Use `--format json` for a structured decision receipt.
 
 For a parked execution, [Waiting for approval](/docs/troubleshooting/waiting-approval/) explains how to locate its request and resume after a decision.

@@ -1666,6 +1666,49 @@
       }
     },
     {
+      "name": "approvals grant",
+      "description": "Approve the current revision of a build target that declares approval: \"required\"",
+      "schema": {
+        "args": {
+          "type": "object",
+          "properties": {
+            "target": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "target"
+          ],
+          "additionalProperties": false
+        },
+        "options": {
+          "type": "object",
+          "properties": {
+            "root": {
+              "description": "Project directory; defaults to the nearest Smithers project",
+              "type": "string"
+            },
+            "quiet": {
+              "default": false,
+              "description": "Suppress progress messages",
+              "type": "boolean"
+            },
+            "input": {
+              "description": "Payload input the target runs with, as name=value; repeatable",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "quiet"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
       "name": "approvals list",
       "description": "List pending in-run approvals with their exact authorization payloads",
       "schema": {

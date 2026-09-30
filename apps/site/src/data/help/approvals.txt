@@ -5,6 +5,7 @@ Usage: smthrs approvals <command>
 Commands:
   approve  Approve the exact serialized payload or @file
   deny     Deny the exact serialized payload or @file
+  grant    Approve the current revision of a build target that declares approval: "required"
   list     List pending in-run approvals with their exact authorization payloads
 
 Custom Global Options:
