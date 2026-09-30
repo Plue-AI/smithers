@@ -44,7 +44,7 @@ func (h *SandboxEnvironmentImageHandler) register(w http.ResponseWriter, r *http
 		return
 	}
 	var req registerEnvironmentImageRequest
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10)).Decode(&req); err != nil {
+	if err := decodeSingleJSONDocument(json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10)), &req); err != nil {
 		pkgerrors.WriteError(w, pkgerrors.BadRequest("invalid JSON body"))
 		return
 	}

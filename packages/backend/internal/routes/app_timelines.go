@@ -114,7 +114,7 @@ func appTimelineErr(w http.ResponseWriter, err error) {
 }
 
 func appTimelineDecode(w http.ResponseWriter, r *http.Request, v any) bool {
-	if err := json.NewDecoder(r.Body).Decode(v); err != nil {
+	if err := decodeSingleJSONDocument(json.NewDecoder(r.Body), v); err != nil {
 		pkgerrors.WriteError(w, pkgerrors.BadRequest("invalid body"))
 		return false
 	}

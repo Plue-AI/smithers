@@ -17,7 +17,6 @@ package routes
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"strings"
 
@@ -148,7 +147,7 @@ func (h *ApprovalsHandler) Decide(w http.ResponseWriter, r *http.Request) {
 	var req decideApprovalRequest
 	// Small fixed-size body; prevent payload abuse.
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<10)
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeJSONBodyError(w, r, &req); err != nil {
 		pkgerrors.WriteError(w, pkgerrors.BadRequest("invalid JSON body"))
 		return
 	}

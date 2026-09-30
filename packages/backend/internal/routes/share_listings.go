@@ -229,7 +229,7 @@ func (h *ShareListingHandler) Publish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body publishShareListingRequest
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeSingleJSONDocument(json.NewDecoder(r.Body), &body); err != nil {
 		pkgerrors.WriteError(w, pkgerrors.BadRequest("invalid body"))
 		return
 	}
@@ -346,7 +346,7 @@ func (h *ShareListingHandler) RecordEvent(w http.ResponseWriter, r *http.Request
 	var body struct {
 		Type string `json:"type"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeSingleJSONDocument(json.NewDecoder(r.Body), &body); err != nil {
 		pkgerrors.WriteError(w, pkgerrors.BadRequest("invalid body"))
 		return
 	}

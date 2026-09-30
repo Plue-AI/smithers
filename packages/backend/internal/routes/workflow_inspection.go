@@ -2,7 +2,6 @@ package routes
 
 import (
 	"context"
-	"encoding/json"
 	"encoding/xml"
 	"fmt"
 	"net/http"
@@ -317,7 +316,7 @@ func (h *WorkflowHandler) DispatchWorkflowByIdentifier(w http.ResponseWriter, r 
 	}
 
 	var req dispatchWorkflowRequest
-	if decErr := json.NewDecoder(r.Body).Decode(&req); decErr != nil {
+	if decErr := decodeJSONBodyError(w, r, &req); decErr != nil {
 		pkgerrors.WriteError(w, pkgerrors.BadRequest("invalid request body"))
 		return
 	}

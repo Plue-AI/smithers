@@ -34,7 +34,7 @@ func (h *WorkspacePreviewTicketHandler) Authorize(w http.ResponseWriter, r *http
 		return
 	}
 	var body previewgateway.AuthorizeRequest
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10)).Decode(&body); err != nil {
+	if err := decodeSingleJSONDocument(json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10)), &body); err != nil {
 		pkgerrors.WriteError(w, pkgerrors.BadRequest("invalid request body"))
 		return
 	}

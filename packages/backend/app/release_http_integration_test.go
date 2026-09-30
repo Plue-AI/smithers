@@ -21,7 +21,7 @@ import (
 // This uses the public composition with PostgreSQL and the native repository
 // engine behind a real TCP HTTP client. No route service or database is mocked.
 func TestReleaseHTTPWriteAndPaginationContracts(t *testing.T) {
-	_, databaseURL := postgresfixture.NewProductDatabase(t)
+	pool, databaseURL := postgresfixture.NewProductDatabase(t)
 	ffi := os.Getenv("SMITHERS_FFI_LIBRARY_PATH")
 	require.NotEmpty(t, ffi, "real repository engine is required")
 	local, err := repository.OpenLocal(repository.Config{StoragePath: t.TempDir(), AuthToken: "release-audit-repo", FFILibraryPath: ffi})
@@ -100,6 +100,8 @@ func TestReleaseHTTPWriteAndPaginationContracts(t *testing.T) {
 	}
 	for _, tc := range []struct{ route, body string }{
 		{"/api/user/repos", `{"name":"discarded"}`},
+		{"/api/app-timelines", `{"client_key":"discarded"}`},
+		{"/api/share/listings", `{"name":"discarded"}`},
 		{path + "/issues", `{"title":"discarded"}`},
 		{path + "/variables", `{"name":"DISCARDED","value":"value"}`},
 		{path + "/secrets", `{"name":"DISCARDED","value":"scratch"}`},
@@ -109,6 +111,14 @@ func TestReleaseHTTPWriteAndPaginationContracts(t *testing.T) {
 			request("POST", tc.route, tc.body+suffix, 400, nil)
 		}
 	}
+	for _, suffix := range []string{" {}", " null", " broken"} {
+		request("PUT", path+"/agent-environment/secrets/DISCARDED", `{"value":"scratch"}`+suffix, 400, nil)
+	}
+	var discardedTimelines int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM app_timelines WHERE client_key='discarded'`).Scan(&discardedTimelines))
+	require.Zero(t, discardedTimelines, "rejected timeline documents must not persist their prefix")
+	request("POST", "/api/app-timelines", `{"client_key":"discarded","future":true}`, 201, nil)
+	request("POST", "/api/app-timelines", `{"client_key":"discarded"}`, 200, nil)
 	request("GET", "/api/repos/releaseowner/discarded", "", 404, nil)
 	request("GET", path+"/variables/DISCARDED", "", 404, nil)
 	request("GET", path+"/wiki/discarded", "", 404, nil)

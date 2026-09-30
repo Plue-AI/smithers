@@ -174,9 +174,9 @@ func (h *WorkspaceHandler) LaunchWorkspaceService(w http.ResponseWriter, r *http
 		return
 	}
 	var input services.WorkspaceServiceLaunchInput
-	decoder := json.NewDecoder(r.Body)
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, middleware.MaxRequestBodySize))
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&input); err != nil {
+	if err := decodeSingleJSONDocument(decoder, &input); err != nil {
 		pkgerrors.WriteError(w, pkgerrors.BadRequest("invalid request body"))
 		return
 	}
@@ -366,7 +366,7 @@ func (h *WorkspaceHandler) CreateWorkspace(w http.ResponseWriter, r *http.Reques
 	}
 
 	var req createWorkspaceRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeJSONBodyError(w, r, &req); err != nil {
 		pkgerrors.WriteError(w, pkgerrors.BadRequest("invalid request body"))
 		return
 	}
@@ -729,7 +729,7 @@ func (h *WorkspaceHandler) ForkWorkspace(w http.ResponseWriter, r *http.Request)
 	}
 
 	var req forkWorkspaceRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeJSONBodyError(w, r, &req); err != nil {
 		pkgerrors.WriteError(w, pkgerrors.BadRequest("invalid request body"))
 		return
 	}
@@ -769,7 +769,7 @@ func (h *WorkspaceHandler) CreateWorkspaceSnapshot(w http.ResponseWriter, r *htt
 	}
 
 	var req createWorkspaceSnapshotRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeJSONBodyError(w, r, &req); err != nil {
 		pkgerrors.WriteError(w, pkgerrors.BadRequest("invalid request body"))
 		return
 	}
@@ -803,7 +803,7 @@ func (h *WorkspaceHandler) CreateWorkspaceSnapshotTemplate(w http.ResponseWriter
 	}
 
 	var req createWorkspaceSnapshotRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeJSONBodyError(w, r, &req); err != nil {
 		pkgerrors.WriteError(w, pkgerrors.BadRequest("invalid request body"))
 		return
 	}
@@ -930,7 +930,7 @@ func (h *WorkspaceHandler) CreateSession(w http.ResponseWriter, r *http.Request)
 	}
 
 	var req createWorkspaceSessionRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeJSONBodyError(w, r, &req); err != nil {
 		pkgerrors.WriteError(w, pkgerrors.BadRequest("invalid request body"))
 		return
 	}

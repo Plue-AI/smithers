@@ -132,7 +132,7 @@ func (h *MythicalHandler) Bootstrap(w http.ResponseWriter, r *http.Request) {
 	var body mythicalBootstrapRequest
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096))
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&body); err != nil && err != io.EOF {
+	if err := decodeSingleJSONDocument(decoder, &body); err != nil && err != io.EOF {
 		pkgerrors.WriteError(w, pkgerrors.BadRequest("Invalid bootstrap request"))
 		return
 	}
@@ -180,7 +180,7 @@ func (h *MythicalHandler) Events(w http.ResponseWriter, r *http.Request) {
 func decodeMythicalBody(w http.ResponseWriter, r *http.Request, limit int64, out any) bool {
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, limit))
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(out); err != nil {
+	if err := decodeSingleJSONDocument(decoder, out); err != nil {
 		pkgerrors.WriteError(w, pkgerrors.BadRequest("Invalid request body"))
 		return false
 	}

@@ -160,7 +160,7 @@ func pairSessionErr(w http.ResponseWriter, err error) {
 }
 
 func pairSessionDecode(w http.ResponseWriter, r *http.Request, v any) bool {
-	if err := json.NewDecoder(r.Body).Decode(v); err != nil {
+	if err := decodeJSONBodyError(w, r, v); err != nil {
 		pkgerrors.WriteError(w, pkgerrors.BadRequest("invalid body"))
 		return false
 	}

@@ -2,7 +2,6 @@ package routes
 
 import (
 	"context"
-	"encoding/json"
 	stdErrors "errors"
 	"io"
 	"net/http"
@@ -409,7 +408,7 @@ func (h *LinearIntegrationHandler) ConfigureLinearIntegration(w http.ResponseWri
 	}
 
 	var req configureLinearIntegrationRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeJSONBodyError(w, r, &req); err != nil {
 		errors.WriteError(w, errors.BadRequest("invalid request body"))
 		return
 	}

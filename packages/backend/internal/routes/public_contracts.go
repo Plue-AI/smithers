@@ -104,8 +104,8 @@ func (h *RecommendationHandler) Recommend(w http.ResponseWriter, r *http.Request
 		return
 	}
 	var input ports.RecommendationRequest
-	decoder := json.NewDecoder(io.LimitReader(r.Body, recommendBodyLimit+1))
-	if err := decoder.Decode(&input); err != nil || !validRecommendationRequest(input) {
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, recommendBodyLimit))
+	if err := decodeSingleJSONDocument(decoder, &input); err != nil || !validRecommendationRequest(input) {
 		writeRecommendationError(w, http.StatusBadRequest, "request_invalid")
 		return
 	}
@@ -181,8 +181,8 @@ func (h *RecommendationHandler) Outcome(w http.ResponseWriter, r *http.Request) 
 		ID      string `json:"id"`
 		Command string `json:"command"`
 	}
-	decoder := json.NewDecoder(io.LimitReader(r.Body, 4<<10))
-	if err := decoder.Decode(&input); err != nil || strings.TrimSpace(input.ID) == "" || strings.TrimSpace(input.Command) == "" || len(input.Command) > recommendNameMax {
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10))
+	if err := decodeSingleJSONDocument(decoder, &input); err != nil || strings.TrimSpace(input.ID) == "" || strings.TrimSpace(input.Command) == "" || len(input.Command) > recommendNameMax {
 		writeRecommendationError(w, http.StatusBadRequest, "request_invalid")
 		return
 	}

@@ -89,3 +89,69 @@ func TestReleaseWorkspaceFileWriteRefusesTrailingDataBeforeStorage(t *testing.T)
 		require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
 	}
 }
+
+func TestReleaseDirectHandlersRefuseTrailingDataBeforeServices(t *testing.T) {
+	// Nil services make an accepted prefix fail loudly. Every handler must
+	// refuse the entire body before calling its persistence or runtime port.
+	workspace := &WorkspaceHandler{}
+	for _, route := range []struct {
+		name   string
+		handle http.HandlerFunc
+	}{
+		{"workspace", workspace.CreateWorkspace},
+		{"fork", workspace.ForkWorkspace},
+		{"snapshot", workspace.CreateWorkspaceSnapshot},
+		{"template", workspace.CreateWorkspaceSnapshotTemplate},
+		{"session", workspace.CreateSession},
+		{"linear", (&LinearIntegrationHandler{}).ConfigureLinearIntegration},
+		{"protected bookmark", (&ProtectedBookmarkHandler{}).UpsertProtectedBookmark},
+		{"environment secret", (&SecretHandler{}).PutAgentEnvironmentSecret},
+		{"share", (&ShareListingHandler{}).Publish},
+	} {
+		for _, suffix := range []string{" {}", " null", " true", " 1", " []", ` "extra"`, " junk"} {
+			t.Run(route.name+suffix, func(t *testing.T) {
+				req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{}`+suffix))
+				req = withWorkspaceRepoCtx(withAuth(req, 1, "alice"), "alice", "demo")
+				req = withRouteParams(req, map[string]string{"owner": "alice", "repo": "demo", "id": "workspace", "name": "SECRET"})
+				rec := httptest.NewRecorder()
+				route.handle(rec, req)
+				require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+				require.Contains(t, rec.Body.String(), "invalid")
+			})
+		}
+	}
+}
+
+func TestReleaseCustomDecodersPreserveFieldPolicy(t *testing.T) {
+	for _, decoder := range []struct {
+		name   string
+		decode func(http.ResponseWriter, *http.Request, any) bool
+		strict bool
+	}{
+		{"timeline", appTimelineDecode, false},
+		{"pair", pairSessionDecode, false},
+		{"mythical", func(w http.ResponseWriter, r *http.Request, v any) bool { return decodeMythicalBody(w, r, 4096, v) }, true},
+	} {
+		for _, body := range []string{`{"name":"kept"}`, "{\"name\":\"kept\"}\n\t", `{"name":"kept","future":1}`, `{"name":"kept"} {}`, `{"name":"kept"} junk`} {
+			t.Run(decoder.name+body, func(t *testing.T) {
+				var dst struct {
+					Name string `json:"name"`
+				}
+				req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+				rec := httptest.NewRecorder()
+				accepted := decoder.decode(rec, req, &dst)
+				want := !strings.Contains(body, "} junk") && !(decoder.strict && strings.Contains(body, "future"))
+				// A second document is refused regardless of unknown-field policy.
+				if strings.Contains(body, "} {}") {
+					want = false
+				}
+				require.Equal(t, want, accepted, rec.Body.String())
+				if accepted {
+					require.Equal(t, "kept", dst.Name)
+				} else {
+					require.Equal(t, 400, rec.Code)
+				}
+			})
+		}
+	}
+}

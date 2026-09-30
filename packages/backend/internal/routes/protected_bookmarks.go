@@ -2,7 +2,6 @@ package routes
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
@@ -43,7 +42,7 @@ func (h *ProtectedBookmarkHandler) UpsertProtectedBookmark(w http.ResponseWriter
 	}
 
 	var req upsertProtectedBookmarkRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeJSONBodyError(w, r, &req); err != nil {
 		errors.WriteError(w, errors.BadRequest("invalid request body"))
 		return
 	}

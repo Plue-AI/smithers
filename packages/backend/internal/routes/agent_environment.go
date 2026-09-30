@@ -94,9 +94,9 @@ func (h *SecretHandler) PutAgentEnvironmentSecret(w http.ResponseWriter, r *http
 		return
 	}
 	var input putAgentEnvironmentSecretRequest
-	decoder := json.NewDecoder(r.Body)
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, middleware.MaxRequestBodySize))
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&input); err != nil {
+	if err := decodeSingleJSONDocument(decoder, &input); err != nil {
 		errors.WriteError(w, errors.BadRequest("invalid request body"))
 		return
 	}

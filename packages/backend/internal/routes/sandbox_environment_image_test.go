@@ -64,3 +64,40 @@ func TestSandboxEnvironmentImageHandlerRegisterRepoImageUsesRouteRepository(t *t
 	assert.Equal(t, int64(42), service.registered[0].RepositoryID)
 	assert.Equal(t, int64(7), service.registered[0].CreatedBy)
 }
+
+func TestSandboxEnvironmentImageRegistrationRequiresOneBoundedDocument(t *testing.T) {
+	body := `{"kind":"vm","closure_hash":"0123456789abcdefghijklmnopqrstuv","image":"registry/base:0123456789abcdefghijklmnopqrstuv","future":true}`
+	for _, scope := range []string{"repository", "platform"} {
+		for _, tc := range []struct {
+			name, suffix string
+			accepted     bool
+		}{
+			{"one document", "", true}, {"whitespace", "\n\t ", true},
+			{"exact limit", strings.Repeat(" ", (16<<10)-len(body)), true},
+			{"above limit", strings.Repeat(" ", (16<<10)-len(body)+1), false},
+			{"object", " {}", false}, {"null", " null", false}, {"array", " []", false},
+			{"boolean", " true", false}, {"number", " 1", false}, {"string", ` "text"`, false}, {"junk", " junk", false},
+		} {
+			t.Run(scope+"/"+tc.name, func(t *testing.T) {
+				service := &fakeEnvironmentImageRouteService{}
+				handler := &SandboxEnvironmentImageHandler{Service: service}
+				req := withAuth(httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body+tc.suffix)), 7, "owner")
+				rec := httptest.NewRecorder()
+				if scope == "repository" {
+					req = withWorkspaceRepoCtx(req, "owner", "demo")
+					handler.RegisterRepoImage(rec, req)
+				} else {
+					handler.RegisterBaseImage(rec, req)
+				}
+				if tc.accepted {
+					require.Equal(t, 201, rec.Code, rec.Body.String())
+					require.Len(t, service.registered, 1)
+					require.Equal(t, "vm", service.registered[0].Kind)
+				} else {
+					require.Equal(t, 400, rec.Code, rec.Body.String())
+					require.Empty(t, service.registered)
+				}
+			})
+		}
+	}
+}
