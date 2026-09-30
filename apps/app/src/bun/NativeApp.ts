@@ -13,20 +13,18 @@ import { startNativeBackend } from "./NativeBackendProcess"
 import { parseNativeApiOrigin } from "./NativeApiOrigin"
 import { startNativeRendererServer } from "./NativeRendererServer"
 import { createNativeShutdown } from "./NativeShutdown"
+import { retainNativeUrlOpens } from "./NativeUrlOpen"
+import { nativeUrlOpenHost } from "./NativeWrapper"
 import { nativeStateDirectory } from "./NativeState"
 import { encodeRgbaPng, startPackagedE2EBridge } from "./PackagedE2EBridge"
 import { defaultDistDir, startLocalServer } from "./server"
 
-// This must stay dynamic: Bun hoists external static imports even from lazy
-// local modules. A daemon must never dlopen/initialize Electrobun's native SDK.
-const { default: Electrobun, BrowserView, BrowserWindow, BuildConfig, Screen, Utils } = await import("electrobun/main")
-
 /*
- * `smithers://open/<owner>/<repo>` (DeepLink.ts). Registered before anything
- * awaits: a cold launch by URL delivers it while the backend is still
- * starting, before a window exists, so the newest valid link waits in
- * `pendingDeepLink` and becomes the window's first URL. `SMITHERS_OPEN_URL`
- * is the same link for the dev build `smthrs open` starts.
+ * `smithers://open/<owner>/<repo>` (DeepLink.ts). A cold launch by URL
+ * delivers it while the backend is still starting, before a window exists,
+ * so the newest valid link waits in `pendingDeepLink` and becomes the
+ * window's first URL. `SMITHERS_OPEN_URL` is the same link for the dev build
+ * `smthrs open` starts.
  */
 let pendingDeepLink: string | undefined
 let openDeepLink: ((path: string) => void) | undefined
@@ -39,10 +37,17 @@ const receiveDeepLink = (url: string): void => {
   if (openDeepLink === undefined) pendingDeepLink = path
   else openDeepLink(path)
 }
-Electrobun.events.on(
-  "open-url",
-  (event: { readonly data: { readonly url: string } }) => receiveDeepLink(event.data.url)
-)
+// Before the SDK loads: the native wrapper frees links it hands the SDK's
+// handler, so this copying handler takes the links macOS buffered before
+// launch, then replaces the SDK's once it has loaded (NativeUrlOpen.ts).
+const urlOpenHost = nativeUrlOpenHost()
+const urlOpens = urlOpenHost === null ? null : retainNativeUrlOpens(urlOpenHost, receiveDeepLink)
+
+// This must stay dynamic: Bun hoists external static imports even from lazy
+// local modules. A daemon must never dlopen/initialize Electrobun's native SDK.
+const { default: Electrobun, BrowserView, BrowserWindow, BuildConfig, Screen, Utils } = await import("electrobun/main")
+urlOpens?.install()
+
 const launchLink = Bun.env.SMITHERS_OPEN_URL
 // Read once: the backend and agents inherit Bun.env.
 delete Bun.env.SMITHERS_OPEN_URL

@@ -487,21 +487,19 @@ the GitHub fixture scenario requires network access.
 
 `smithers://open/<owner>/<repo>` (`src/bun/DeepLink.ts`) opens that
 repository page. On a cold launch macOS can deliver the link before the SDK
-loads. Electrobun 2.0.1's native wrapper holds such links until
-`setURLOpenHandler` runs while `electrobun/main` evaluates, then flushes them
-into a threadsafe `JSCallback`, which Bun runs as a task after the importing
-module's continuation. `src/bun/NativeApp.ts` registers its `open-url`
-listener in that continuation, before anything else awaits. The native probe
-(`src/bun/Main.test.ts`) delivers launch links through a real threadsafe
-callback called from native code during the SDK import; a listener registered
-one task later fails it. The probe passes strings the test owns, so it does
-not model the native string lifetime below.
+loads; it waits in `pendingDeepLink` and becomes the window's first URL.
 
-Known defect (#3061): the native wrapper frees each buffered link right after
-queuing its pointer to that callback, so the app reads freed memory. In 10
-packaged cold launches the first window opened the linked page 0 times; 8
-links arrived as garbage and were refused. The fix is upstream: `strdup` the
-URL before calling the handler.
+Electrobun 2.0.1's native wrapper frees each link right after calling its URL
+handler, and the SDK's handler is a threadsafe `JSCallback` that reads the
+string a task later: freed memory (#3061). In 10 packaged cold launches the
+first window opened the linked page 0 times. So `src/bun/NativeUrlOpen.ts`
+installs its own handler, a few lines of C compiled by Bun that copy the link
+inside the native call. It installs before `electrobun/main` loads, which
+drains the links buffered before launch, and again right after, replacing the
+SDK's. The native probe (`src/bun/Main.test.ts`) and
+`src/bun/NativeUrlOpen.test.ts` deliver links through a fake wrapper with the
+same string lifetime (`e2e/native/FakeNativeWrapper.ts`); the SDK's own
+handler reads garbage there.
 
 Packaged check (#1969). It needs no install: `open -a` delivers the link
 through the same `application:openURLs:` path a `smithers://` click uses.

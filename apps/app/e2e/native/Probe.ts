@@ -19,7 +19,7 @@ export interface ProbeScenario {
   /** What the host says when asked to open a URL in the system browser. */
   readonly openExternalAnswer?: boolean
   readonly exercises?: ReadonlyArray<ProbeExercise>
-  /** URLs the host delivers through Electrobun's "open-url" event: before the entrypoint loads, then after. */
+  /** URLs macOS hands the native wrapper: before the entrypoint loads, then after it has started. */
   readonly openUrlsAtLaunch?: ReadonlyArray<string>
   readonly openUrlsAfterStart?: ReadonlyArray<string>
 }
