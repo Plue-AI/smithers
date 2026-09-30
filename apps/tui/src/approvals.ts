@@ -1041,14 +1041,18 @@ const touches = (shell: Command, path: string): "names" | "may" | undefined => {
   const name = basename(refused)
   let may = false
   for (const { words } of parse(shell.text).commands) {
-    for (const word of words) {
-      if (word === "") continue
-      const resolved = isAbsolute(word) ? word : join(shell.base, word)
-      const target = key(real(resolved))
-      const named = key(basename(word)) === name
-      if (target === refused) return "names"
-      may ||= named || refused.startsWith(`${target.replace(/\/+$/, "")}/`) || (/[*?[]/.test(word) &&
-        covers(key(resolved), refused))
+    for (const argument of words) {
+      // An option's attached value names the same path as a separate argument.
+      const equal = argument.startsWith("-") ? argument.indexOf("=") : -1
+      for (const word of equal === -1 ? [argument] : [argument, argument.slice(equal + 1)]) {
+        if (word === "") continue
+        const resolved = isAbsolute(word) ? word : `${shell.base}/${word}`
+        const target = key(real(resolved))
+        const named = key(basename(word)) === name
+        if (target === refused) return "names"
+        may ||= named || refused.startsWith(`${target.replace(/\/+$/, "")}/`) || (/[*?[]/.test(word) &&
+          covers(key(resolved), refused))
+      }
     }
   }
   return may ? "may" : undefined

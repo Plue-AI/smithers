@@ -960,9 +960,49 @@ describe("a run remembers what the person decided", () => {
         return { messages, pending: (yield* grants.list).length }
       }), root)
     expect(result.pending).toBe(0)
-    expect(result.messages).toEqual(commands.map((command) =>
-      `Denied: bash ${command}. It names NOTES.md, whose change the person refused for the rest of the run; do not change it another way.`
-    ))
+    expect(result.messages).toEqual(
+      commands.map((command) =>
+        `Denied: bash ${command}. It names NOTES.md, whose change the person refused for the rest of the run; do not change it another way.`
+      )
+    )
+  })
+
+  it("denies refused paths in option values before applying a command grant", async () => {
+    const root = scripted()
+    writeFileSync(join(root, "NOTES.md"), "existing\n")
+    mkdirSync(join(root, "sub", "inside"), { recursive: true })
+    symlinkSync("NOTES.md", join(root, "alias.txt"))
+    symlinkSync("sub/inside", join(root, "deep"))
+    const calls = [
+      { command: "git diff --output=NOTES.md" },
+      { command: "git diff --output='NOTES.md'" },
+      { command: "git diff '--output=NOTES.md'" },
+      { command: "git diff --output NOTES.md" },
+      { command: "git diff --output=./sub/../NOTES.md" },
+      { command: `git diff --output=${join(root, "NOTES.md")}` },
+      { command: "git diff --output=alias.txt" },
+      { command: "git diff --output=deep/../../NOTES.md" },
+      { command: "git diff --output=../NOTES.md", cwd: "sub" }
+    ]
+    const result = await withStore("ask", (grants) =>
+      Effect.gen(function*() {
+        const memory = new Approvals.Memory()
+        const authorize = Approvals.authorize(grants, { cwd: root, source: "t1", memory })
+        const write = yield* Effect.forkChild(authorize(notes("write")))
+        yield* Approvals.reply(grants, memory, (yield* settledPending(grants, 1))[0]!, "deny", root)
+        yield* Fiber.await(write)
+        const run = yield* Effect.forkChild(authorize(callOf("bash", { command: "true" })))
+        yield* Approvals.reply(grants, memory, (yield* settledPending(grants, 1))[0]!, "run", root)
+        yield* Fiber.join(run)
+        const messages: Array<string | undefined> = []
+        for (const input of calls) messages.push(exitMessage(yield* Effect.exit(authorize(callOf("bash", input)))))
+        yield* authorize(callOf("bash", { command: "git diff --output=NOTES.mdx" }))
+        yield* authorize(callOf("bash", { command: "git diff --output=check.mjs" }))
+        return { messages, pending: (yield* grants.list).length }
+      }), root)
+    expect(result.messages).toHaveLength(calls.length)
+    for (const message of result.messages) expect(message).toStartWith(Approvals.deniedPrefix)
+    expect(result.pending).toBe(0)
   })
 
   it("a denial wins over a allowing edits for the run", async () => {
