@@ -1775,6 +1775,60 @@ describe("AgentAction seat auto", () => {
     expect(requests[0]!.indexOf(answerVariant)).toBeLessThan(requests[0]!.indexOf("You review diffs."))
   })
 
+  it("routes a role its host routes by the graph, as the host's phase", async () => {
+    const Role = AgentAction.make("agent/test/Role", {
+      payload: { diff: Schema.String },
+      output: Review,
+      seat: "coding/review",
+      prompt: ({ diff }) => `Review this diff:\n${diff}`
+    })
+    const RoleFlow = Flow.make("agent/test/RoleFlow", {
+      payload: { diff: Schema.String },
+      success: Review,
+      error: AgentAction.AgentFailure,
+      body: ({ diff }) => Role.call({ diff })
+    })
+    const routed: Array<Evaluator.Request> = []
+    const asked: Array<string> = []
+    const requests: Array<string> = []
+    const model = scripted([decodes], requests)
+    // The host routes its `coding/review` role by the graph as a review; it
+    // has no fixed seat, so resolving the role itself is a defect.
+    const roles = SeatResolver.layer({
+      resolve: (id) =>
+        id === "coding/review"
+          ? Effect.fail(new Seat.SeatUnresolved({ seat: id, message: "coding/review has no fixed seat" }))
+          : Effect.sync(() => {
+            asked.push(id)
+            return Seat.make({ id, modelId: id, model, route, contextWindowTokens: 200_000 })
+          }),
+      routedAs: (id) => id === "coding/review" ? { phase: "review" } : undefined
+    })
+    const result = await Effect.runPromise(
+      RoleFlow.execute({ diff: "diff" }, { executionId: "auto-role" }).pipe(
+        Effect.provide(
+          Layer.mergeAll(Role.layer, Interpreter.layer(RoleFlow)).pipe(
+            Layer.provideMerge(AgentAction.layerHost(host)),
+            Layer.provideMerge(roles),
+            // Jev would call this an implementation, which runs on Sonnet;
+            // the host's review phase wins and routes it to Opus.
+            Layer.provideMerge(Layer.mergeAll(Agent.layer, Agent.layerDefaults, judge([toSonnet], routed), catalog)),
+            Layer.provideMerge(Safety.layer),
+            Layer.provideMerge(Action.layerImplementations),
+            Layer.provideMerge(FlowEngine.layerMemory),
+            Layer.provideMerge(NodeCrypto.layer)
+          )
+        )
+      )
+    )
+
+    expect(result).toEqual({ approved: true, issues: [] })
+    expect(routed).toHaveLength(1)
+    expect(Object.keys(routed[0]!.questions)).not.toContain("phase")
+    expect(asked[0]).toBe("opus")
+    expect(asked).not.toContain("coding/review")
+  })
+
   it("reuses the routed seat for a correction and the repair", async () => {
     const Repaired = AgentAction.make("agent/test/Repaired", {
       payload: { diff: Schema.String },

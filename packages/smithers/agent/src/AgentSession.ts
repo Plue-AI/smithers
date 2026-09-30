@@ -112,7 +112,7 @@ import { waitingAnnotation } from "./internal/WaitingAnnotation.ts"
 import type * as QuotaPolicy from "./QuotaPolicy.ts"
 import * as RunawayGuard from "./RunawayGuard.ts"
 import * as Seat from "./Seat.ts"
-import { contextWindowResolver, SeatResolver } from "./SeatResolver.ts"
+import { contextWindowResolver, type Routed, SeatResolver } from "./SeatResolver.ts"
 import * as SeatRouter from "./SeatRouter.ts"
 import * as StandardFlows from "./StandardFlows.ts"
 
@@ -2982,6 +2982,13 @@ export const make = (
       })
 
     /**
+     * How the host routes a flow's one declared role by the graph, as a
+     * declared `auto` routes; `undefined` resolves the seat as declared.
+     */
+    const routedRole = (seatIds: ReadonlyArray<string>): Routed | undefined =>
+      seatIds.length === 1 ? seats.routedAs?.(seatIds[0]!) : undefined
+
+    /**
      * The catalog an `auto` seat is routed over, with at least one seat in
      * it. Checked at launch, so an unroutable run is refused before it is
      * accepted, and again on every attempt, which is where Jev is asked.
@@ -3100,6 +3107,7 @@ export const make = (
         }
         const seatIds = yield* approvedSeats(payload.runId, card, descriptor)
         const seatId = seatIds[0]!
+        const role = routedRole(seatIds)
         const steering = yield* Notifications.make({ runId: payload.runId, lineageId: payload.runId })
         // The three services a durable flow body already holds, captured
         // together: `StandardFlows.clock` hands them back to a `DurableClock`
@@ -3130,20 +3138,22 @@ export const make = (
         // where it sits: before every frame, and derived from the same
         // material on a resumed attempt, so the unique index deduplicates it.
         const rendered = prompt(flowBody.text, plan.decodedInput)
-        // Jev routes an `auto` seat once per run: the decision is a sealed
-        // step keyed by this execution, so a resumed attempt is served the
-        // route and variant it first started on and asks nothing.
-        const routing = seatId === Seat.auto
+        // Jev routes an `auto` seat, or a role the host routes by the graph,
+        // once per run: the decision is a sealed step keyed by this
+        // execution, so a resumed attempt is served the route and variant it
+        // first started on and asks nothing.
+        const routing = seatId === Seat.auto || role !== undefined
           ? yield* Effect.gen(function*() {
             const catalog = yield* routingCatalog(payload.runId)
             const decision = yield* SeatRouter.durable({
-              declared: seatId,
+              declared: Seat.auto,
               state: {
                 task: rendered.text,
                 flow: card.flowId,
                 description: descriptor.description,
                 capabilities: card.envelope.capabilities
               },
+              phase: role?.phase,
               // An interactive run does not fan out, so it routes to one seat.
               panel: false
             }, { executionId: payload.runId, purpose: "run" }).pipe(
@@ -4045,7 +4055,7 @@ export const make = (
           // typed failure instead of failing the run after it was accepted.
           // An `auto` seat has no seat yet: Jev picks it when the run starts,
           // never here, so the launch only checks there is something to pick.
-          if (seatIds[0] === Seat.auto) {
+          if (seatIds[0] === Seat.auto || routedRole(seatIds) !== undefined) {
             yield* routingCatalog(input.run.runId)
           } else {
             yield* Effect.forEach(seatIds, (seatId) => seats.resolve(seatId)).pipe(

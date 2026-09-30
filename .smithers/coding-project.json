@@ -4,15 +4,16 @@
   "reviewer": "smithers-public-engineering-v1",
   "implementation": "coding/implementation",
   "seats": {
-    "coding/implement": "luna",
-    "coding/dispatch": "luna",
-    "repository/author": "luna",
-    "flow/author": "luna",
-    "coding/plan": "sol",
-    "coding/poc": "sol",
-    "repository/research": "sol",
-    "repository/evaluator": "sol",
-    "wiki/reviewer": "sol"
+    "coding/implement": "auto",
+    "coding/dispatch": "auto",
+    "coding/plan": "auto",
+    "coding/poc": "auto",
+    "coding/review": "auto",
+    "wiki/reviewer": "auto",
+    "repository/research": "auto",
+    "repository/evaluator": "auto",
+    "repository/author": "auto",
+    "flow/author": "auto"
   },
   "pages": [
     {
@@ -378,8 +379,8 @@
       "excerpts": {
         "apps/app/src/mainview/flows/entries/wiki.ts": [
           {
-            "start": 69,
-            "end": 115
+            "start": 20,
+            "end": 57
           }
         ]
       },

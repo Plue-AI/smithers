@@ -25,6 +25,7 @@ import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Seat from "./Seat.ts"
+import type * as SeatRouter from "./SeatRouter.ts"
 
 /**
  * The resolver: one seat string in, one resolved seat out.
@@ -34,6 +35,24 @@ import * as Seat from "./Seat.ts"
  */
 export interface Service {
   readonly resolve: (id: string) => Effect.Effect<Seat.Seat, Seat.SeatUnresolved>
+  /**
+   * How the host routes `id` by the routing graph instead of resolving it to
+   * one seat, as a declared {@link Seat.auto} routes: a host that maps a role
+   * to `auto` answers here with the phase the role routes as. `undefined`,
+   * or no method, resolves `id` as declared.
+   */
+  readonly routedAs?: ((id: string) => Routed | undefined) | undefined
+}
+
+/**
+ * A seat id the host routes by the graph: the phase it routes as, or
+ * `undefined` for Jev to classify.
+ *
+ * @category models
+ * @since 1.0.0
+ */
+export interface Routed {
+  readonly phase: SeatRouter.Phase | undefined
 }
 
 /**

@@ -67,17 +67,31 @@ ignores this key. See [finalization.md](finalization.md).
 
 ## Seats
 
-`seats` maps a role id to a seat alias (`sol`, `luna`, `opus`,
-`fable`, `qwen`) or an explicit `provider:model`, for example
-`{"coding/implement": "luna", "coding/plan": "sol"}`. A declared role wins over
+`seats` maps a role id to a seat alias (`sol`, `luna`, `opus`, `sonnet`,
+`fable`, `kimi`, `qwen`), an explicit `provider:model`, or `auto`, for example
+`{"coding/implement": "auto", "coding/plan": "opus"}`. A declared role wins over
 the `SMITHERS_CODING_*_MODEL` defaults; `SMITHERS_CODING_SEATS` (a JSON object of
 the same shape) is the operator's override over both. The seat's provider picks
 the subscription the workspace binds: `openai:` the ChatGPT connection,
-`anthropic:` the Claude connection, directly or through the account pool. `jev` is refused here: Jev answers
-classifier questions through the same subscription evaluator as the native
-host, as in the `coding/JevCheck` lint check, and never runs an agent turn.
-A missing subscription or invalid verdict fails the check; provider API keys
-and gateway keys cannot substitute for a subscription.
+`anthropic:` the Claude connection, directly or through the account pool.
+
+`auto` routes the role by the routing graph (`@smthrs/agent/SeatRouter`): Jev
+reads each step's prompt once, the graph picks the seat and its backups from
+the seats the host can run, and the run journals the route. A built-in role
+routes as its phase: `coding/implement`, `coding/poc`, `repository/author` and
+`flow/author` as implementation, `coding/plan` as planning, `coding/review`,
+`wiki/reviewer` and `repository/evaluator` as review, and `repository/research`
+as other work; `coding/dispatch` and a repository's own role leave the phase to
+Jev. When `coding/implement` is `auto` and nothing names `coding/review`, the
+review routes by the graph too. This repository routes every coding role this
+way.
+
+`jev` is refused as a seat: Jev answers classifier questions through the host
+evaluator, as in the `coding/JevCheck` lint check, and never runs an agent turn.
+The evaluator asks Jev through the AI Gateway and asks GPT-6 Luna only when Jev
+is unconfigured, unreachable, times out, or stays unavailable through its
+retries. An invalid
+verdict fails the check.
 
 ```sh
 SMITHERS_CODING_PROJECT=/etc/smithers/project.json \

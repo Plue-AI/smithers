@@ -1,5 +1,6 @@
 /** Private operator input, loaded once before the configured host is constructed. */
 import { TokenWeights } from "@smthrs/agent/Budget"
+import * as Seat from "@smthrs/agent/Seat"
 import { Effect, FileSystem, Path, Schema, Stream } from "effect"
 import { seatRefusal } from "../../packages/smithers/src/Providers.ts"
 import { PageSpec } from "../wiki/schema.ts"
@@ -29,7 +30,7 @@ const Project = Schema.Struct({
     Schema.Int.check(Schema.isGreaterThanOrEqualTo(1024), Schema.isLessThanOrEqualTo(90 * 1024))
   ),
   reviewer: Schema.optionalKey(text),
-  /** Role id to seat alias or `provider:model`, e.g. `"coding/implement": "luna"`. */
+  /** Role id to seat alias, `provider:model` or `auto`, e.g. `"coding/implement": "auto"`. */
   seats: Schema.optionalKey(Schema.Record(Schema.String.check(Schema.isPattern(/^[a-z0-9][a-z0-9/_-]{0,63}$/)), text)),
   /** How a host without a provisioned repository binding lands `coding/vibe`; a binding lands through the backend. */
   landing: Schema.optionalKey(LocalLander)
@@ -40,6 +41,12 @@ export type ProjectConfig = Omit<MemoryOptions, "repositoryPath"> & {
   readonly seats?: Readonly<Record<string, string>>
   readonly landing?: LocalLander
 }
+/**
+ * Why a role cannot take `seat`, or `undefined` when it can: a seat alias, a
+ * `provider:model`, or `auto`, which routes the role by the routing graph.
+ */
+export const roleSeatRefusal = (seat: string): string | undefined => seat === Seat.auto ? undefined : seatRefusal(seat)
+
 const invalid = (message: string, filename?: string) =>
   new Error(`Invalid SMITHERS_CODING_PROJECT${filename === undefined ? "" : ` at ${filename}`}: ${message}`)
 const maximumBytes = 256 * 1024
@@ -115,7 +122,7 @@ export const loadProject = (repositoryPath: string, filename: string | undefined
       return yield* Effect.fail(fail("output, reviewer and implementation must be nonempty"))
     }
     for (const [role, seat] of Object.entries(project.seats ?? {})) {
-      const refusal = seatRefusal(seat)
+      const refusal = roleSeatRefusal(seat)
       if (refusal !== undefined) return yield* Effect.fail(fail(`seat ${role}: ${refusal}`))
     }
     const wikiOutput = project.wikiOutput === undefined ?

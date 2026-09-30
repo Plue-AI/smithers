@@ -70,7 +70,7 @@ if (parsed.values.version) {
       "SMITHERS_FLOW_ARTIFACT_SHA256, SMITHERS_SOURCE_REVISION and SMITHERS_OWNER_GENERATION bind the runtime bridge.\n" +
       "SMITHERS_WORKSPACE_JJ_EXPORT_BINARY selects the packaged native workspace helper.\n" +
       "Optional SMITHERS_CODING_PLAN_MODEL, SMITHERS_CODING_POC_MODEL, SMITHERS_CODING_WIKI_MODEL and SMITHERS_CODING_REVIEW_MODEL select provider:model roles; review defaults to a second provider.\n" +
-      "The project's \"seats\" map routes roles to aliases (sol, luna, opus, fable, qwen); SMITHERS_CODING_SEATS (JSON) overrides it.\n" +
+      "The project's \"seats\" map routes roles to aliases (sol, luna, opus, sonnet, fable, kimi, qwen) or auto (the routing graph); SMITHERS_CODING_SEATS (JSON) overrides it.\n" +
       "The provisioned SMITHERS_JJHUB_TOKEN and SMITHERS_JJHUB_API_URL enable coding/vibe; the token is consumed before any tool starts.\n" +
       "Without them, the project's \"landing\" (\"fast-forward\" or \"pull-request\") lands coding/vibe with jj, git and gh from PATH.\n" +
       "The provisioned SMITHERS_CACHE_URL and read-only SMITHERS_CACHE_TOKEN reach checks only.\n"

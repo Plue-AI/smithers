@@ -731,6 +731,11 @@ credentialed half of the composition lives here and nowhere else.
 ```ts
 interface Service {
   readonly resolve: (id: string) => Effect.Effect<Seat.Seat, Seat.SeatUnresolved>
+  readonly routedAs?: ((id: string) => Routed | undefined) | undefined
+}
+
+interface Routed {
+  readonly phase: SeatRouter.Phase | undefined
 }
 ```
 
@@ -738,6 +743,12 @@ One seat string in, one resolved seat out. Because the resolver owns the seat
 vocabulary, a host may define its own: `provider:modelId` is the convention the
 resolver in [`@smthrs/cli`](https://cli.smithers.sh/reference/api/) understands, not a rule the agent
 enforces.
+
+`routedAs` names the ids the host routes by the routing graph instead of
+resolving them, such as a role it maps to `auto`, and the phase each routes
+as; `undefined` leaves Jev to classify the phase. `AgentAction` and
+`AgentSession` route such an id exactly as a declared `auto`, with that phase
+pinned. Without the method, every id resolves as declared.
 
 ### SeatResolver.SeatResolver
 

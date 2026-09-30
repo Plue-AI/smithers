@@ -333,7 +333,9 @@ export interface Options<
    * so each subagent routes on its own prompt. A route to a panel runs the
    * step once per member seat and then on the merger, given the members'
    * answers. Every correction and the repair run on the routed seat unless
-   * {@link Repair.seat} names one.
+   * {@link Repair.seat} names one. A role the host's resolver routes by the
+   * graph (`SeatResolver.routedAs`) routes the same way, as the host's phase
+   * unless {@link Options.phase} names one.
    */
   readonly seat: ModelSelection | ((payload: PayloadSchemaOf<Payload>["Type"]) => ModelSelection)
   /** The phase of work an `auto` seat routes as; Jev classifies it when absent. */
@@ -672,10 +674,13 @@ export const make = <
           cause: { _tag: "flows/agent/InvalidSeatDeclaration" }
         })
       }
-      // `auto` asks Jev once per execution, as a sealed step, so each subagent
-      // routes on its own prompt and a replay is served the seat it ran on.
-      const routed = declaredSeat === Seat.auto
-        ? yield* routeSeat(tag, task, instance.executionId, stepId, options.phase)
+      // `auto`, or a role the host routes by the graph, asks Jev once per
+      // execution, as a sealed step, so each subagent routes on its own prompt
+      // and a replay is served the seat it ran on. The step's own phase wins
+      // over the one the host gives the role.
+      const routedAs = typeof declaredSeat === "string" ? seats.routedAs?.(declaredSeat) : undefined
+      const routed = declaredSeat === Seat.auto || routedAs !== undefined
+        ? yield* routeSeat(tag, task, instance.executionId, stepId, options.phase ?? routedAs?.phase)
         : undefined
       const ids = routed === undefined ? declaredIds : [routed.decision.seat, ...routed.decision.backups]
       /** The trace coordinates of one ask, when the dispatch has an identity. */

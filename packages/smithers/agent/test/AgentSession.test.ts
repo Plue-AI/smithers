@@ -134,16 +134,33 @@ const autoDescriptor = new Descriptor.FlowDescriptor({
   path: "/flows/agents/auto"
 })
 
+/** A prompt flow that declares a role its host routes by the graph. */
+const roleDescriptor = new Descriptor.FlowDescriptor({
+  ...agentDescriptor,
+  name: "agents/role",
+  model: Option.some("coding/plan"),
+  path: "/flows/agents/role"
+})
+
 const descriptors = new Map([
   [agentDescriptor.name, agentDescriptor],
   [effortDescriptor.name, effortDescriptor],
   [moduleDescriptor.name, moduleDescriptor],
   [seatlessDescriptor.name, seatlessDescriptor],
-  [autoDescriptor.name, autoDescriptor]
+  [autoDescriptor.name, autoDescriptor],
+  [roleDescriptor.name, roleDescriptor]
 ])
 
 const registryService = Registry.makeNoop({
-  list: () => Effect.succeed([agentDescriptor, effortDescriptor, moduleDescriptor, seatlessDescriptor, autoDescriptor]),
+  list: () =>
+    Effect.succeed([
+      agentDescriptor,
+      effortDescriptor,
+      moduleDescriptor,
+      seatlessDescriptor,
+      autoDescriptor,
+      roleDescriptor
+    ]),
   visible: () => Effect.succeed([]),
   get: (name) =>
     descriptors.has(name)
@@ -198,6 +215,13 @@ const memoryFlows: ReadonlyArray<ControlRuntime.MemoryFlow> = [
     flowId: "agents/auto",
     executionDigest: Descriptor.executionDigest(autoDescriptor),
     description: "A prompt flow whose seat Jev picks.",
+    deployClass: false,
+    envelope: { capabilities: [], flows: [], budget: {} }
+  },
+  {
+    flowId: "agents/role",
+    executionDigest: Descriptor.executionDigest(roleDescriptor),
+    description: "A prompt flow whose role its host routes.",
     deployClass: false,
     envelope: { capabilities: [], flows: [], budget: {} }
   },
@@ -286,6 +310,8 @@ interface StackOptions {
   readonly judge?: Layer.Layer<Evaluator.Evaluator> | undefined
   /** The seat catalog an undeclared or `auto` seat is routed over. */
   readonly catalog?: SeatRouter.Service | undefined
+  /** The roles the host routes by the graph. */
+  readonly routedAs?: SeatResolver.Service["routedAs"]
   /** The host's own system text. */
   readonly system?: ReadonlyArray<string> | undefined
   readonly instructions?: AgentSession.Options["instructions"]
@@ -363,7 +389,7 @@ const stack = (options: StackOptions) => {
     Layer.provide(
       Layer.mergeAll(
         Agent.layer,
-        SeatResolver.layer({ resolve: options.resolve }),
+        SeatResolver.layer({ resolve: options.resolve, routedAs: options.routedAs }),
         options.judge ?? scriptedCompletionJudge,
         options.catalog === undefined ? Layer.empty : SeatRouter.layer(options.catalog)
       ).pipe(
@@ -2452,6 +2478,7 @@ const routedRun = (options: {
   readonly flowId: string
   readonly judge: Layer.Layer<Evaluator.Evaluator>
   readonly catalog?: SeatRouter.Service | undefined
+  readonly routedAs?: SeatResolver.Service["routedAs"]
   readonly status: ControlSchema.RunStatus
   /** The host's own system text. */
   readonly system?: ReadonlyArray<string> | undefined
@@ -2520,6 +2547,7 @@ const routedRun = (options: {
         bare: true,
         judge: options.judge,
         catalog: options.catalog,
+        routedAs: options.routedAs,
         system: options.system,
         instructions: options.instructions,
         ...(options.refusing === true ? { asks: "refuse" as const } : {})
@@ -2595,6 +2623,39 @@ describe("AgentSession seat routing", () => {
     const system = run.requests[0]!.system.map((part) => part.text).join("\n")
     expect(system.indexOf("Host rule.")).toBeGreaterThanOrEqual(0)
     for (const line of investigate) expect(system.indexOf(line)).toBeGreaterThan(system.indexOf("Host rule."))
+  })
+
+  it("routes a role its host routes by the graph, as the host's phase", async () => {
+    const questions: Array<ReadonlyArray<string>> = []
+    // Jev would call this a clear implementation, which runs on Sonnet; the
+    // host routes `coding/plan` as a plan, which runs on Opus.
+    const judge = Evaluator.layerScripted((request) => {
+      if (!("size" in request.questions)) {
+        return { complete: { probability: 0.95 }, overclaims: { probability: 0.05 }, invented: { probability: 0.02 } }
+      }
+      questions.push(Object.keys(request.questions))
+      const answers: Readonly<Record<string, Evaluator.ScriptedAnswer>> = {
+        phase: { choice: "implement" },
+        size: { choice: "simple" },
+        clarity: { choice: "clear" },
+        binary: { probability: 0.1 },
+        system: { choice: "investigate" }
+      }
+      return Object.fromEntries(Object.entries(answers).filter(([id]) => id in request.questions))
+    })
+    const run = await routedRun({
+      flowId: "agents/role",
+      judge,
+      catalog: catalogOf(["sonnet", "opus", "sol"]),
+      routedAs: (id) => id === "coding/plan" ? { phase: "plan" } : undefined,
+      status: "completed"
+    })
+
+    expect(questions).toHaveLength(1)
+    expect(questions[0]).not.toContain("phase")
+    expect(run.resolved).toEqual(["opus", "sol"])
+    expect(run.resolved).not.toContain("coding/plan")
+    expect(seatRouted(run.trail)[0]!.payload).toMatchObject({ seat: "opus", backups: ["sol"] })
   })
 
   it("starts on the routed seat with its backups as the fallbacks", async () => {

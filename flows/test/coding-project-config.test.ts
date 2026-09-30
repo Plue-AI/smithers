@@ -95,7 +95,7 @@ test("repository coding project decodes with registered flows, real source paths
   )
 })
 
-test("repository coding project routes roles to seat aliases and refuses jev or unknown seats", async () => {
+test("repository coding project routes roles to seat aliases or the routing graph and refuses jev or unknown seats", async () => {
   const root = await mkdtemp(join(tmpdir(), "coding-seats-"))
   try {
     const platform = process.versions.bun
@@ -105,10 +105,14 @@ test("repository coding project routes roles to seat aliases and refuses jev or 
       await writeFile(join(root, "project.json"), JSON.stringify({ ...valid(), wikiOutput: undefined, seats }))
       return Effect.runPromise(Effect.result(loadProject(root, "project.json")).pipe(Effect.provide(platform)))
     }
-    const loaded = await load({ "coding/implement": "luna", "coding/plan": "openai:gpt-6-sol", triage: "luna" })
+    const loaded = await load({
+      "coding/implement": "auto",
+      "coding/plan": "openai:gpt-6-sol",
+      triage: "luna"
+    })
     assert.equal(loaded._tag, "Success")
     assert.deepEqual(loaded._tag === "Success" && loaded.success?.seats, {
-      "coding/implement": "luna",
+      "coding/implement": "auto",
       "coding/plan": "openai:gpt-6-sol",
       triage: "luna"
     })

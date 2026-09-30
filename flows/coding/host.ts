@@ -1,6 +1,7 @@
 /** Private deployment recipe. Existing native host, catalog, agents and JJ ports. */
 import * as Seat from "@smthrs/agent/Seat"
 import * as SeatResolver from "@smthrs/agent/SeatResolver"
+import type * as SeatRouter from "@smthrs/agent/SeatRouter"
 import * as Digest from "@smthrs/core/Digest"
 import { HumanTask } from "@smthrs/flow"
 import * as Executable from "@smthrs/registry/Executable"
@@ -54,7 +55,7 @@ import { declineLayer, DraftPlan, planningPolicy, preparePlanLayer, ReviewReques
 import { pocSource } from "./poc-source.ts"
 import { pocModels, pocPolicy } from "./poc.ts"
 import { preparationLayers } from "./preparation.ts"
-import type { ProjectConfig } from "./project-config.ts"
+import { type ProjectConfig, roleSeatRefusal } from "./project-config.ts"
 import { prototypeRegistration } from "./prototype.ts"
 import { registration } from "./registration.ts"
 import { requestRegistration } from "./request.ts"
@@ -210,7 +211,7 @@ const configured = (options: Options) => {
     }
   }
   for (const [role, seat] of Object.entries(options.seats ?? {})) {
-    const refusal = seatRefusal(seat)
+    const refusal = roleSeatRefusal(seat)
     if (refusal !== undefined || !/^[a-z0-9][a-z0-9/_-]{0,63}$/.test(role)) {
       throw new Error(`SMITHERS_CODING_SEATS ${role}: ${refusal ?? "invalid role id"}`)
     }
@@ -251,7 +252,9 @@ const configured = (options: Options) => {
  *
  * The operator environment supplies the defaults; the repository's own
  * `seats` declaration (`.smithers/coding-project.json`) wins for every role it
- * names, and may name roles only its flows declare (`model: triage`).
+ * names, and may name roles only its flows declare (`model: triage`). A role
+ * whose seat is `auto` has no fixed seat: the agent routes it by the routing
+ * graph, as {@link rolePhases} names its phase.
  */
 export const roleResolver = (
   base: SeatResolver.Service,
@@ -259,12 +262,33 @@ export const roleResolver = (
   models: RoleModels = {}
 ): SeatResolver.Service => {
   const roles = effectiveRoles(implementationModel, models)
+  const routed = (id: string) => Object.hasOwn(roles, id) && roles[id] === Seat.auto
   return SeatResolver.make({
     resolve: (id) =>
-      base.resolve(Object.hasOwn(roles, id) ? roles[id]! : id).pipe(
-        Effect.map((seat) => Object.hasOwn(roles, id) ? Seat.make({ ...seat, id }) : seat)
-      )
+      routed(id)
+        ? Effect.fail(new Seat.SeatUnresolved({ seat: id, message: `${id} routes by the routing graph` }))
+        : base.resolve(Object.hasOwn(roles, id) ? roles[id]! : id).pipe(
+          Effect.map((seat) => Object.hasOwn(roles, id) ? Seat.make({ ...seat, id }) : seat)
+        ),
+    routedAs: (id) => routed(id) ? { phase: Object.hasOwn(rolePhases, id) ? rolePhases[id] : undefined } : undefined
   })
+}
+
+/**
+ * The phase each built-in role routes as when its seat is `auto`. A
+ * repository's own role, and `coding/dispatch`, whose turn may be anything,
+ * leave the phase to Jev.
+ */
+export const rolePhases: Readonly<Record<string, SeatRouter.Phase>> = {
+  "coding/implement": "implement",
+  "coding/plan": "plan",
+  "coding/poc": "implement",
+  [reviewRole]: "review",
+  "wiki/reviewer": "review",
+  "repository/research": "other",
+  "repository/evaluator": "review",
+  "repository/author": "implement",
+  "flow/author": "implement"
 }
 
 type RoleModels = Pick<Options, "planningModel" | "pocModel" | "wikiModel" | "reviewModel"> & {
@@ -293,9 +317,11 @@ export const seatProvider = (seat: string): string => {
  * The seat `coding/review` runs on when nothing names one: the first alias on
  * a provider other than the implementer's, so a change is never reviewed
  * only by the model that wrote it. The implementer is the effective one,
- * after the repository's and the operator's `seats`.
+ * after the repository's and the operator's `seats`. An implementer the graph
+ * routes (`auto`) leaves the review to the graph too.
  */
 export const reviewDefault = (implementationSeat: string): string => {
+  if (implementationSeat === Seat.auto) return Seat.auto
   const provider = seatProvider(implementationSeat)
   return Object.entries(seatAliases).find(([, seat]) => seatProvider(seat) !== provider)?.[0] ?? implementationSeat
 }

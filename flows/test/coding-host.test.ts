@@ -284,6 +284,73 @@ test("an undeclared or auto flow routes by the graph over the host's seats, and 
   assert.equal(declared.seat.modelId, "luna")
 })
 
+test("a role whose seat is auto routes by the graph as its phase, and never resolves to a fixed seat", async () => {
+  const resolved: Array<string> = []
+  const model = Model.make({
+    stream: () => {
+      throw new Error("seat resolution must not invoke a provider")
+    }
+  })
+  const base: SeatResolver.Service = {
+    resolve: (id) =>
+      Effect.sync(() => {
+        resolved.push(id)
+        return Seat.make({
+          id,
+          model,
+          modelId: id,
+          contextWindowTokens: 16_000,
+          route: {
+            prepare: () => {
+              throw new Error("seat resolution must not prepare provider requests")
+            }
+          }
+        })
+      })
+  }
+  const roles = roleResolver(base, "sol", {
+    seats: { "coding/implement": "auto", "coding/review": "auto", "wiki/reviewer": "auto", triage: "auto" }
+  })
+  assert.deepEqual(roles.routedAs?.("coding/implement"), { phase: "implement" })
+  assert.deepEqual(roles.routedAs?.("coding/review"), { phase: "review" })
+  assert.deepEqual(roles.routedAs?.("wiki/reviewer"), { phase: "review" })
+  // A repository's own role routes too; Jev classifies its phase.
+  assert.deepEqual(roles.routedAs?.("triage"), { phase: undefined })
+  // Roles with a fixed seat, and ids that are not roles, resolve as declared.
+  assert.equal(roles.routedAs?.("coding/plan"), undefined)
+  assert.equal(roles.routedAs?.("opus"), undefined)
+  const unresolved = await Effect.runPromise(Effect.flip(roles.resolve("coding/implement")))
+  assert.equal(unresolved.seat, "coding/implement")
+  assert.equal((await Effect.runPromise(roles.resolve("coding/plan"))).modelId, "sol")
+  assert.deepEqual(resolved, ["sol"])
+  // An implementer the graph routes leaves the review to the graph as well.
+  assert.equal(reviewDefault(Seat.auto), Seat.auto)
+  assert.deepEqual(roleResolver(base, "sol", { seats: { "coding/implement": "auto" } }).routedAs?.("coding/review"), {
+    phase: "review"
+  })
+})
+
+test("this repository routes every coding role by the graph", async () => {
+  const root = await realpath(fileURLToPath(new URL("../../", import.meta.url)))
+  const planning = await Effect.runPromise(loadProject(root, undefined).pipe(Effect.provide(NodeServices.layer)))
+  assert.ok(planning?.seats)
+  const roles = roleResolver(SeatResolver.makeNoop(), "sol", { seats: planning.seats })
+  for (
+    const [role, phase] of [
+      ["coding/implement", "implement"],
+      ["coding/dispatch", undefined],
+      ["coding/plan", "plan"],
+      ["coding/poc", "implement"],
+      ["coding/review", "review"],
+      ["wiki/reviewer", "review"],
+      ["repository/research", "other"],
+      ["repository/evaluator", "review"],
+      ["repository/author", "implement"],
+      ["flow/author", "implement"]
+    ] as const
+  ) assert.deepEqual(roles.routedAs?.(role), { phase }, role)
+})
+
 test("coding/review defaults to a provider different from the effective implementer", async () => {
   const model = Model.make({
     stream: () => {
