@@ -1,0 +1,31 @@
+{
+  "issue": 3275,
+  "candidate": "776a03efab7161e5e2ca7317b3f1d73a47322b29",
+  "reconciliation": "Upstream e7d43726d28aeb04a4fa330a2b283de749807283 generated the stale projections; 3827cd4c0ade17bd36ae92a3b3360c65e564f1d2 explicitly admitted Deadline. This checkpoint independently qualifies both, with five additional reviewed admissions from #3184 restoring the entire export gate. Original public baseline was not rewritten.",
+  "checks": [
+    {
+      "command": "pnpm run docs:check",
+      "exit": 0,
+      "result": "49 sites and owning package content/LLMS drift checks clean"
+    },
+    {
+      "command": "pnpm --filter @smithers/site run check:docs",
+      "exit": 0,
+      "result": "81 checks pass; 278 pages zero violations; 48 API pages checked, three owned-generator skips; six ingested pages clean, one existing non-owned page skip; 41 example pages clean; all invoked generator checks pass"
+    },
+    {
+      "command": "node --test scripts/repo-contract/public-export-maps.test.mjs",
+      "exit": 0,
+      "result": "39/39 pass; Deadline explicitly admitted; original surface retained"
+    }
+  ],
+  "archiveSha256": "f58dc0ed615df95d2106ff54bf65552214b0f8092ffc49be4a44c9548ac21295",
+  "rawReceipts": {
+    "smithers-burndown-20260930-3275-docs-check-final.log": "ac3268684518a6eeb79c286a92d63d79c80a80e52147f52bae0f0dc24ff275ab",
+    "smithers-burndown-20260930-3275-site-check-final.log": "91e5501bb99053053eb87f121c5465a74c506501e5e8853430114a4cb489416e",
+    "smithers-burndown-20260930-3275-export-check-final.log": "8432f3b884abd88778afa75896b736f7ecfe0fecdb776721123f92023b7d47f8"
+  },
+  "limits": [
+    "Documentation/export source qualification only; fresh complete declarations stay tracked by #3184 and release consumers by #3093. Calibration artifacts stay tracked separately by #3150."
+  ]
+}
