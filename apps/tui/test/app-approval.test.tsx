@@ -16,6 +16,8 @@ let root = ""
 let previousRoot: string | undefined
 let setup: Awaited<ReturnType<typeof testRender>> | undefined
 let gate: ReturnType<typeof Promise.withResolvers<Host.Outcome>>
+let gates: Array<ReturnType<typeof Promise.withResolvers<Host.Outcome>>> = []
+let runCap: number | undefined
 let pending: ReadonlyArray<Approvals.Pending> = []
 let replies: Array<{ request: Approvals.Pending; choice: Approvals.Choice }> = []
 let answer: NonNullable<Host.Host["approvals"]>["reply"]
@@ -71,6 +73,8 @@ beforeEach(async () => {
   previousRoot = process.env.SMITHERS_TUI_SESSION_DIR
   process.env.SMITHERS_TUI_SESSION_DIR = join(root, "sessions")
   gate = Promise.withResolvers<Host.Outcome>()
+  gates = []
+  runCap = 100
   pending = [request]
   pendingReads = 0
   inputs = []
@@ -83,9 +87,14 @@ beforeEach(async () => {
   const host: Host.Host = {
     cwd: join(root, "workspace"),
     judged: false,
+    get runCap() {
+      return runCap
+    },
     run: (input) => {
       inputs.push(input)
-      return { done: gate.promise, cancel: () => gate.resolve({ _tag: "cancelled" }) }
+      const turn = inputs.length === 1 ? gate : Promise.withResolvers<Host.Outcome>()
+      gates.push(turn)
+      return { done: turn.promise, cancel: () => turn.resolve({ _tag: "cancelled" }) }
     },
     dispose: async () => {},
     approvals: {
@@ -118,8 +127,8 @@ beforeEach(async () => {
 afterEach(async () => {
   try {
     await act(async () => {
-      gate.resolve({ _tag: "cancelled" })
-      await gate.promise
+      for (const turn of gates) turn.resolve({ _tag: "cancelled" })
+      await Promise.all(gates.map((turn) => turn.promise))
       await setImmediate()
       setup?.renderer.destroy()
     })
@@ -337,6 +346,100 @@ test.each(
     expect(replies).toEqual([{ request: workerRequest, choice }])
     expect(replies[0]!.request).toBe(workerRequest)
     await waitFor(() => !frame().includes("? bash run checks"))
+  },
+  15000
+)
+
+test.each(
+  [
+    { action: "cap", rows: false, draft: "", key: "y", choice: "once" },
+    { action: "cap", rows: true, draft: "Keep this draft", key: "n", choice: "deny" },
+    { action: "disabled-cap", rows: true, draft: "", key: "n", choice: "deny" },
+    { action: "ask", rows: false, draft: "Keep this draft", key: "n", choice: "deny" },
+    { action: "ask", rows: true, draft: "", key: "y", choice: "once" }
+  ] as const
+)(
+  "Alt+A opens the current worker's $action without approving another worker, rows=$rows, draft=$draft",
+  async ({ action, rows, draft, key, choice }) => {
+    const workerRequest: Approvals.Pending = {
+      ...request,
+      requestId: "other-worker-edit",
+      source: "writing-worker",
+      flow: "write",
+      subject: "update src/app.ts",
+      action: "fs:write"
+    }
+    await act(async () => {
+      pending = [workerRequest]
+      inputs[0]!.runtime!.delegate!({ id: "answer-worker", title: "Answer worker", prompt: "Check the cap" })
+      inputs[0]!.runtime!.delegate!({ id: "writing-worker", title: "Writing worker", prompt: "Update src/app.ts" })
+      await setImmediate()
+      if (action !== "ask") {
+        gates[1]!.resolve({
+          _tag: "failed",
+          message: "cap",
+          detail: "",
+          error: { _tag: "flows/agent/BudgetExceeded", scope: "tokens", used: 100, max: 100 }
+        })
+        if (action === "disabled-cap") runCap = undefined
+      } else {
+        void inputs[1]!.runtime!.ask!({ question: "Which path?", to: "person" })
+      }
+      await setImmediate()
+    })
+    await press("ARROW_RIGHT", true)
+    await press("ARROW_RIGHT", true)
+    await waitFor(() => frame().includes("Subagent · Answer worker") && frame().includes("alt+y allow"))
+    expect(frame()).toContain(action !== "ask" ? "alt+a Raise cap" : "Which path?")
+    expect(frame()).toContain("alt+n deny")
+    expect(frame()).not.toContain("alt+a all edits")
+    expect(frame()).not.toContain("alt+a Allow all")
+    await press("?")
+    expect(frame()).not.toContain("Allow all")
+    expect(frame()).toContain("alt+y")
+    expect(frame()).toContain("alt+n")
+    await press("?")
+    if (draft !== "") await type(draft)
+    const editor = textarea(setup!.renderer.root)!
+    if (draft !== "") {
+      await press("HOME")
+      await press("ARROW_RIGHT")
+    }
+    const cursor = editor.cursorOffset
+    if (rows) await press("TAB")
+    await press("a", false, true)
+    expect(replies).toEqual([])
+    if (action === "disabled-cap") {
+      expect(frame()).not.toContain("tab Next field")
+      await press(key, false, true)
+      expect(replies).toEqual([{ request: workerRequest, choice }])
+      expect(inputs).toHaveLength(3)
+      return
+    }
+    expect(frame()).toContain("tab Next field")
+    if (action === "cap") expect(frame()).toMatch(/Cap\s+100/)
+    else expect(frame()).toContain("Which path?")
+    await act(async () => {
+      await setTimeout(300)
+    })
+    await setup!.renderOnce()
+    expect(frame()).toContain("tab Next field")
+    expect(frame()).not.toContain("alt+y allow")
+    expect(replies).toEqual([])
+    await press("ESCAPE")
+    await waitFor(() => !frame().includes("tab Next field"))
+    expect(textarea(setup!.renderer.root)).toBe(editor)
+    expect(editor.plainText).toBe(draft)
+    expect(editor.cursorOffset).toBe(cursor)
+    if (draft !== "") {
+      await type("X")
+      expect(editor.plainText).toBe(`${draft.slice(0, cursor)}X${draft.slice(cursor)}`)
+      await press("c", true)
+    }
+    await waitFor(() => frame().includes("alt+y allow"))
+    await press(key, false, true)
+    expect(replies).toEqual([{ request: workerRequest, choice }])
+    expect(inputs).toHaveLength(3)
   },
   15000
 )

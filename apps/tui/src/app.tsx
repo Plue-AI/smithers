@@ -460,8 +460,10 @@ export function App(props: AppProps) {
         : open.id.startsWith(capForm)
         ? capped?.status === "failed" && Budget.capped(capped.failure)
         : runs.get(open.id)?.status === "input"
-      // A pending tool approval takes the keys; the run stays parked and `a` in its tab reopens the form.
-      if (!live || approvals.length > 0) changeForm(undefined)
+      // An explicitly opened worker form owns the keys while other calls await approval.
+      if (!live || (approvals.length > 0 && !open.id.startsWith(askForm) && !open.id.startsWith(capForm))) {
+        changeForm(undefined)
+      }
       return
     }
     // Never pull the keyboard away from a draft, a dialog or an approval; a later render opens it.
@@ -785,8 +787,19 @@ export function App(props: AppProps) {
   const focusMain = basePanel?.placement === "main"
   const summaryAction = () =>
     Surfaces.summaryKey({ surface, main: focusMain, from: summaryFrom.current, strip: surfaces })
+  /** An agent's answer/cap chord and a focused panel's row action take precedence over allow-all. */
+  const reservedApprovalKeys = workerTab !== undefined
+    ? workspace.asks.fromPerson(workerTab.id) !== undefined || Tabs.actionFor("approve-form", workerTab) !== undefined
+      ? ["a"]
+      : []
+    : panelFocus && panel !== undefined &&
+        (surface.startsWith("flow:") || surface === "summary" ||
+          panel.rows[Math.min(navigation.selected, panel.rows.length - 1)]?.action !== undefined)
+    ? ["a"]
+    : []
   const merged = Keys.bindings(extensions.keys, summaryAction()).flatMap((binding): Array<Keys.Binding> => {
     if (binding.context === "approval") {
+      if (binding.id === "allow-all" && reservedApprovalKeys.includes("a")) return []
       return [{ ...binding, keys: binding.keys.filter((key) => key.startsWith("alt+") === (workerTab !== undefined)) }]
     }
     if (workerTab === undefined || binding.owner !== undefined) return [binding]
@@ -798,15 +811,6 @@ export function App(props: AppProps) {
     const keys = binding.keys.filter((key) => key.startsWith("alt+"))
     return keys.length === 0 ? [] : [{ ...binding, keys, context: panelFocus ? "panel" : "composer" }]
   })
-  /**
-   * Approval keys the focused panel acts on: its `a` runs the selected row's action, opens a flow's form,
-   * or answers the overview's or a worker tab's question, never an approval's "allow all".
-   */
-  const panelKeys = workerTab === undefined && panelFocus && panel !== undefined &&
-      (surface.startsWith("flow:") || surface.startsWith("tab:") || surface === "summary" ||
-        panel.rows[Math.min(navigation.selected, panel.rows.length - 1)]?.action !== undefined)
-    ? ["a"]
-    : []
   const dimensions = useTerminalDimensions()
   const activeTabs = snapshot.tabs.filter((tab) => Tabs.live(tab.status))
   const sideChat = focusMain && dimensions.width >= 120
@@ -2139,7 +2143,7 @@ export function App(props: AppProps) {
       armed: open === undefined && activeInspection === undefined &&
         Approvals.armed(arming.current, live.current.approvals[0]?.requestId, live.current.now),
       pending: live.current.approvals,
-      reserved: panelKeys
+      reserved: reservedApprovalKeys
     })
     if (choice !== undefined && props.host.approvals !== undefined) {
       key.preventDefault()
@@ -2532,7 +2536,7 @@ export function App(props: AppProps) {
   const tabsWidth = width - (focusMain ? 6 : 0)
   const footerContext = keyContext()
   // The front row's keys, as the row and the footer both offer them.
-  const offered = approvals[0] === undefined ? [] : Approvals.choices(approvals[0], !panelKeys.includes("a"))
+  const offered = approvals[0] === undefined ? [] : Approvals.choices(approvals[0], !reservedApprovalKeys.includes("a"))
   const approvalReady = approvals[0] !== undefined && picker === undefined && form === undefined &&
     activeInspection === undefined && Approvals.ready(arming.current, approvals[0].requestId, now, draft)
   /** A worker action's registry binding, as a footer hint. */
