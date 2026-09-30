@@ -195,6 +195,8 @@ export const registry: ReadonlyArray<Binding> = [
   { id: "overview-open", keys: ["enter"], label: "Open", context: "overview", group: "Summary" },
   { id: "overview-peek", keys: ["space"], label: "Peek", context: "overview", group: "Summary" },
   { id: "overview-answer", keys: ["a"], label: "Answer", context: "overview", group: "Summary" },
+  { id: "overview-approve", keys: ["y"], label: "Approve", context: "overview", group: "Summary" },
+  { id: "overview-deny", keys: ["n"], label: "Deny", context: "overview", group: "Summary" },
   { id: "overview-graph", keys: ["g"], label: "Graph", context: "overview", group: "Summary" },
   { id: "overview-files", keys: ["f"], label: "Files", context: "overview", group: "Summary" },
   { id: "overview-diff", keys: ["d"], label: "Diff", context: "overview", group: "Summary" },

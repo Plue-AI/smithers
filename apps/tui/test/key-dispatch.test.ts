@@ -796,6 +796,36 @@ test.each(
 
 test.each(
   [
+    ["y", true, [["decide", "approve"]]],
+    ["n", true, [["decide", "deny"]]],
+    ["y", false, []],
+    ["n", false, []]
+  ] as const
+)("a selected build target decides on %s when offered (%s)", (name, offered, expected) => {
+  const calls: unknown[] = []
+  const event = key(name)
+  Dispatch.overviewKey(event, { pane: "tree", worker: undefined }, {
+    close: () => calls.push("close"),
+    release: () => calls.push("release"),
+    pane: () => calls.push("pane"),
+    tree: (step) => calls.push(["tree", step]),
+    peek: () => calls.push("peek"),
+    answer: () => calls.push("answer"),
+    graph: () => calls.push("graph"),
+    card: (step) => calls.push(["card", step]),
+    open: () => calls.push("open"),
+    files: () => calls.push("files"),
+    scroll: (step) => calls.push(["scroll", step]),
+    workerAction: () => calls.push("worker"),
+    stopMonitor: (id) => calls.push(["monitor", id]),
+    decideTarget: offered ? (decision) => calls.push(["decide", decision]) : undefined
+  })
+  expect<ReadonlyArray<unknown>>(calls).toEqual(expected)
+  expect(event.defaultPrevented).toBe(true)
+})
+
+test.each(
+  [
     ["x", [["monitor", "watch"]]],
     ["r", []],
     ["s", []],

@@ -110,14 +110,21 @@ if (values.print !== undefined) {
 let flows: ReturnType<typeof FlowControl.make> | undefined
 try {
   await import("./native.ts")
-  const [{ createCliRenderer }, { createRoot }, { App }, { createElement }, { applyColorMode, colorModeOf }] =
-    await Promise.all([
-      import("@opentui/core"),
-      import("@opentui/react"),
-      import("./app.tsx"),
-      import("react"),
-      import("./theme.ts")
-    ])
+  const [
+    { createCliRenderer },
+    { createRoot },
+    { App },
+    { createElement },
+    { applyColorMode, colorModeOf },
+    TargetApprovals
+  ] = await Promise.all([
+    import("@opentui/core"),
+    import("@opentui/react"),
+    import("./app.tsx"),
+    import("react"),
+    import("./theme.ts"),
+    import("./target-approvals.ts")
+  ])
   // App warms the host after first draw; discovery alone never imports a flow module.
   flows = FlowControl.make({ cwd, environment: available.environment, approvals: host.approvals! })
   const resumeFile = values.continue === true ? Session.latest(cwd) : undefined
@@ -136,6 +143,7 @@ try {
       ...(resumeFile === undefined ? {} : { resume: resumeFile }),
       pickSession: values.resume === true,
       flows,
+      targets: TargetApprovals.make({ cwd }),
       ...(branch === undefined || branch === "" ? {} : { branch })
     })
   )

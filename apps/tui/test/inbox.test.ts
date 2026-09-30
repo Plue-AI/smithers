@@ -37,6 +37,35 @@ const shape = (sections: ReadonlyArray<Inbox.Section>) =>
   sections.map((section) => [section.group, section.rows.map((row) => `${"  ".repeat(row.level)}${row.key}`)])
 
 describe("the overview inbox", () => {
+  it("lists a pending build target under Needs you by label and short revision", () => {
+    const target = {
+      key: "plan-1",
+      target: "//images:push",
+      revision: "177f95506bee0123456789",
+      approval: {} as never
+    }
+    const sections = Inbox.rows({
+      tabs: [],
+      runs: [],
+      transcript: () => Transcript.empty,
+      contextWindow: () => 200_000,
+      models: [],
+      now,
+      targets: [target]
+    })
+    expect(sections.map((section) => section.group)).toEqual(["needs"])
+    expect(sections[0]!.rows).toEqual([{
+      key: "target:plan-1",
+      group: "needs",
+      level: 0,
+      target,
+      status: "input",
+      name: "//images:push 177f95506bee",
+      seat: "target",
+      clock: ""
+    }])
+  })
+
   it("lists what needs the person first, then working trees, then done trees", () => {
     const sections = rows([
       tab("root", "running"),

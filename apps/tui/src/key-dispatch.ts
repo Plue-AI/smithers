@@ -238,9 +238,14 @@ export const overviewKey = (key: KeyEvent, state: {
   readonly diff?: (() => void) | undefined
   /** `u`: undo the selected worker's run, when it can be undone now. */
   readonly undo?: (() => void) | undefined
+  /** `y` and `n`: approve or deny the selected build target. */
+  readonly decideTarget?: ((decision: "approve" | "deny") => void) | undefined
 }) => {
   key.preventDefault()
   if (key.name === "escape") return act.close()
+  if ((key.name === "y" || key.name === "n") && act.decideTarget !== undefined) {
+    return act.decideTarget(key.name === "y" ? "approve" : "deny")
+  }
   if (key.name === "d" && act.diff !== undefined) return act.diff()
   if (key.name === "u" && act.undo !== undefined) return act.undo()
   if (key.name === "i") return act.release()

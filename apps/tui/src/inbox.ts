@@ -1,7 +1,7 @@
 /**
  * The Summary overview's rows: every worker and flow run grouped as Needs you,
- * Working and Done, each row `glyph name seat clock window cache`, and each
- * active monitor under Working. A node that
+ * Working and Done, each row `glyph name seat clock window cache`, each build
+ * target waiting for approval under Needs you, and each active monitor under Working. A node that
  * needs the person appears once, flat, under Needs you; the rest keep their
  * worker tree. Pure: `subagent-view.tsx` draws it and `app.tsx` moves over it.
  */
@@ -14,6 +14,7 @@ import type { Model } from "./models.ts"
 import type * as Monitors from "./monitors.ts"
 import { tabTitle } from "./surfaces.ts"
 import * as Tabs from "./tabs.ts"
+import * as TargetApprovals from "./target-approvals.ts"
 import type * as Transcript from "./transcript.ts"
 import * as Tree from "./tree.ts"
 import type { Tab } from "./workspace.ts"
@@ -23,12 +24,14 @@ export type Group = "needs" | "working" | "done"
 export const headings: Record<Group, string> = { needs: "Needs you", working: "Working", done: "Done" }
 
 export interface Row {
-  /** Unique in the overview: the worker's tab id, `flow:<id>`, or `monitor:<id>`. */
+  /** Unique in the overview: the worker's tab id, `flow:<id>`, `target:<plan id>`, or `monitor:<id>`. */
   readonly key: string
   readonly group: Group
   readonly level: number
   readonly worker?: Tab
   readonly run?: Flows.Run
+  /** A build target revision waiting for approval: `y` approves it, `n` denies it. */
+  readonly target?: TargetApprovals.Row
   /** An active monitor: `x` stops it. */
   readonly monitor?: Pick<Monitors.Monitor, "id" | "title" | "watch" | "createdAt">
   readonly status: Tab["status"] | Flows.Run["status"]
@@ -78,6 +81,8 @@ export const rows = (input: {
   readonly now: number
   /** Open asks; those the person holds put their asker under Needs you. */
   readonly asks?: ReadonlyArray<Asks.Ask>
+  /** Build target revisions waiting for approval; each is a Needs you row. */
+  readonly targets?: ReadonlyArray<TargetApprovals.Row>
   /** Only the active ones show. */
   readonly monitors?: ReadonlyArray<Pick<Monitors.Monitor, "id" | "title" | "watch" | "createdAt" | "status">>
 }): ReadonlyArray<Section> => {
@@ -132,6 +137,18 @@ export const rows = (input: {
       const group = tree.live ? "working" : "done"
       ;(tree.live ? working : done).push(worker(each.tab, group, each.level))
     }
+  }
+  for (const target of input.targets ?? []) {
+    needing.push({
+      key: `target:${target.key}`,
+      group: "needs",
+      level: 0,
+      target,
+      status: "input",
+      name: TargetApprovals.label(target),
+      seat: "target",
+      clock: ""
+    })
   }
   for (const run of input.runs) {
     if (needsYou(run.status)) needing.push(flow(run, "needs"))

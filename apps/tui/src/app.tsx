@@ -66,6 +66,7 @@ import * as Surfaces from "./surfaces.ts"
 import { tabTitle } from "./surfaces.ts"
 import { chip as workerChip, TabStrip, WorkerList, WorkerView } from "./tabs-view.tsx"
 import * as Tabs from "./tabs.ts"
+import type * as TargetApprovals from "./target-approvals.ts"
 import { color, isTheme, loadTheme, saveTheme, setTheme, spinner } from "./theme.ts"
 import * as Timeline from "./timeline.ts"
 import * as Toasts from "./toasts.ts"
@@ -95,6 +96,8 @@ export interface AppProps {
   readonly branch?: string
   /** The directory's file flows; absent where flows cannot run. */
   readonly flows?: FlowPort
+  /** Build targets waiting for approval in the workspace; absent where none can be read. */
+  readonly targets?: TargetApprovals.Port
 }
 
 interface TurnState {
@@ -149,6 +152,7 @@ export function App(props: AppProps) {
   const { toast, setStatus, clearFailure } = Toasts.useToast()
   const [name, setName] = useState(restored.current?.name)
   const [approvals, setApprovals] = useState<ReadonlyArray<Approvals.Pending>>([])
+  const [targets, setTargets] = useState<ReadonlyArray<TargetApprovals.Row>>([])
   // Answered but maybe still listed: a poll can land before the store drops it.
   const answered = useRef(new Set<string>())
   // When the front row starts taking y, n and a; see `Approvals.Arming`.
@@ -834,6 +838,7 @@ export function App(props: AppProps) {
     models: props.models,
     now,
     asks: workspace.asks.list(),
+    targets,
     monitors: monitors.list()
   })
   const inboxRows = Inbox.flat(inbox)
@@ -848,8 +853,10 @@ export function App(props: AppProps) {
   const overviewCard = overviewBranch.find((tab) => tab.id === overview.card) ?? overviewBranch[0]
   /** A flow or monitor row has no cards, nor does the graph: however it was selected, the keys stay on the list. */
   /** The graph shows for a worker or flow row, never the chat. */
-  const overviewGraph = overview.graph === true && overviewRow !== undefined && overviewRow.monitor === undefined
-  const overviewPane = overviewRow?.run === undefined && overviewRow?.monitor === undefined && !overviewGraph
+  const overviewGraph = overview.graph === true && overviewRow !== undefined && overviewRow.monitor === undefined &&
+    overviewRow.target === undefined
+  const overviewPane = overviewRow?.run === undefined && overviewRow?.monitor === undefined &&
+      overviewRow?.target === undefined && !overviewGraph
     ? overview.pane
     : "tree"
   // The graph of a flow run draws its node calls, read from the run's events.
@@ -1045,6 +1052,26 @@ export function App(props: AppProps) {
       stop()
     }
   }, [clockRunning, props.host, setStatus])
+
+  // A build elsewhere leaves a pending target revision; it is read on its own slow poll.
+  const readTargets = useCallback(() => {
+    const port = props.targets
+    if (port === undefined) return
+    port.pending().then(
+      (listed) =>
+        setTargets((current) =>
+          current.length === listed.length && current.every((each, index) => each.key === listed[index]!.key)
+            ? current
+            : listed
+        ),
+      (error) => setStatus(Failures.line("approvals", error), "danger")
+    )
+  }, [props.targets, setStatus])
+  useEffect(() => {
+    readTargets()
+    const timer = setInterval(readTargets, 10_000)
+    return () => clearInterval(timer)
+  }, [readTargets])
 
   const quitting = useRef(false)
   const quit = useCallback(() => {
@@ -2163,7 +2190,10 @@ export function App(props: AppProps) {
       // The overview's tab switches between its tree and the selected branch, the review included.
       // A flow row has no cards to act on; the cards pane always shows cards, never a peek.
       key.preventDefault()
-      if (overviewRow?.run !== undefined || overviewRow?.monitor !== undefined || overviewGraph) return
+      if (
+        overviewRow?.run !== undefined || overviewRow?.monitor !== undefined || overviewRow?.target !== undefined ||
+        overviewGraph
+      ) return
       return setOverview((current) => ({
         ...current,
         selected: overviewSelected,
@@ -2243,7 +2273,9 @@ export function App(props: AppProps) {
         release: () => flushSync(() => setPanelFocus(false)),
         stopMonitor: (id) => actRef.current({ act: "monitor", id }),
         pane: () => {
-          if (overviewRow?.run === undefined && overviewRow?.monitor === undefined) {
+          if (
+            overviewRow?.run === undefined && overviewRow?.monitor === undefined && overviewRow?.target === undefined
+          ) {
             setOverview((current) => ({ ...current, selected: overviewSelected, pane: "cards", peek: false }))
           }
         },
@@ -2286,7 +2318,7 @@ export function App(props: AppProps) {
         open: () => {
           setOverview((current) => ({ ...current, peek: false, graph: false }))
           if (overviewPane === "tree" && overviewRow?.run !== undefined) return clickTab(`flow:${overviewRow.run.id}`)
-          if (overviewRow?.monitor !== undefined) return
+          if (overviewRow?.monitor !== undefined || overviewRow?.target !== undefined) return
           if (overviewPane === "tree" && overviewTab === undefined) {
             return setOverview((current) => ({ ...current, selected: overviewSelected, pane: "cards" }))
           }
@@ -2299,7 +2331,19 @@ export function App(props: AppProps) {
         scroll: (direction) => panelScroll.current?.(direction),
         workerAction,
         diff: canDiff(overviewWorker) ? () => openReview(overviewWorker) : undefined,
-        undo: canUndo(overviewWorker) ? () => undoWorker(overviewWorker) : undefined
+        undo: canUndo(overviewWorker) ? () => undoWorker(overviewWorker) : undefined,
+        decideTarget: overviewRow?.target === undefined || props.targets === undefined
+          ? undefined
+          : (decision) => {
+            const target = overviewRow.target!
+            props.targets!.decide(target, decision).then(
+              () => {
+                setTargets((current) => current.filter((each) => each.key !== target.key))
+                readTargets()
+              },
+              (error) => setStatus(Failures.line("approval", error), "warning")
+            )
+          }
       })
     }
     if (panelFocus && panel !== undefined && open === undefined && !key.ctrl && !key.meta && !key.option) {
@@ -2509,13 +2553,14 @@ export function App(props: AppProps) {
     // `d` and `u` act on a settled worker; a monitor has no cards, graph or view to open.
     ? [
       ...(overviewRow?.monitor === undefined ? [] : cardHint("stop")),
+      ...(overviewRow?.target === undefined ? [] : [...cardHint("overview-approve"), ...cardHint("overview-deny")]),
       ...(canDiff(overviewPane === "tree" ? overviewTab : overviewCard) ? cardHint("overview-diff") : []),
       ...(canUndo(overviewPane === "tree" ? overviewTab : overviewCard) ? cardHint("overview-undo") : []),
       ...Keys.hintsFor("overview", merged).filter((binding) =>
         (binding.id !== "overview-answer" || overviewRow?.ask !== undefined || overviewRow?.run?.status === "input" ||
           (overviewRow?.worker !== undefined && overviewRow.worker.status === "failed" &&
             Budget.capped(overviewRow.worker.failure) && props.host.runCap !== undefined)) &&
-        (overviewRow?.monitor === undefined ||
+        ((overviewRow?.monitor === undefined && overviewRow?.target === undefined) ||
           !["overview-graph", "overview-open", "overview-pane"].includes(binding.id))
       )
     ]
