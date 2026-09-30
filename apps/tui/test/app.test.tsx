@@ -754,3 +754,66 @@ test.each([
     expect(turns[0]?.input.prompt).toBe("Chat after remote settlement")
   }
 )
+
+test.each([[80, 24], [110, 32]])(
+  "Enter opens a visible settlement when eight notices overflow Chat at %s×%s",
+  async (width, height) => {
+    const gates = Array.from({ length: 8 }, () => Promise.withResolvers<Settled>())
+    const names = gates.map((_, index) => `flow${index}`)
+    const watched: string[] = []
+    releaseFlow = () => gates.forEach((gate) => gate.resolve({ kind: "cancelled" }))
+    const port: Port = {
+      discover: async () =>
+        names.map((name) => ({
+          name,
+          description: name,
+          modelInvocable: true,
+          kind: "module" as const,
+          flows: [],
+          capabilities: [],
+          path: join(cwd, `flows/${name}/flow.ts`)
+        })),
+      input: async () => Schema.Struct({}),
+      body: async () => {
+        throw new FlowError("refused", "Module flow")
+      },
+      plan: async (flow) => ({ raw: flow }),
+      start: async (card) => String(card.raw),
+      resume: async (runId) => ({ runId }),
+      watch: (runId) => {
+        watched.push(runId)
+        return { done: gates[names.indexOf(runId)]!.promise, close: () => {} }
+      },
+      events: async () => [],
+      cancel: async () => {},
+      dispose: async () => {}
+    }
+    await mount({ flows: port })
+    await act(async () => setup!.renderer.resize(width, height))
+    for (const name of names) {
+      await type(`/flow ${name}`)
+      await enter()
+      await waitFor(() => records().some((record) => record.type === "flow" && record.run.flow === name))
+    }
+    expect(watched.length).toBeGreaterThan(0)
+    await key("s", { ctrl: true })
+    await act(async () => {
+      gates.forEach((gate, index) => gate.resolve({ kind: "done", answer: `result-${index}` }))
+      await setImmediate()
+    })
+    await waitFor(() =>
+      names.every((name) =>
+        records().some((record) => record.type === "flow" && record.run.flow === name && record.run.status === "done")
+      )
+    )
+    await key("s", { ctrl: true })
+    const chat = await draw()
+    const visible = chat.split("\n").filter((row) => row.includes("enter") && /flow\d/.test(row))
+      .map((row) => row.match(/flow\d/)![0])
+    expect(visible.length).toBeGreaterThan(0)
+    expect(visible.length).toBeLessThan(names.length)
+    await enter()
+    const opened = await draw()
+    expect(opened).toContain(`result-${names.indexOf(visible[0]!)}`)
+  }
+)

@@ -17,7 +17,7 @@ import * as Keys from "./keys.ts"
 import type * as Panels from "./panels.ts"
 import * as Scrubber from "./scrubber.ts"
 import { color, mix, syntax } from "./theme.ts"
-import type * as Toasts from "./toasts.ts"
+import * as Toasts from "./toasts.ts"
 import { TranscriptRail } from "./transcript-rail.tsx"
 import * as Transcript from "./transcript.ts"
 
@@ -996,6 +996,8 @@ export function ToastStack(
   }
 ) {
   if (props.rows.length === 0) return null
+  const compact = props.compact || props.height < 2
+  const rows = Toasts.visibleRows(props.rows, props.height, compact)
   return (
     <scrollbox
       stickyScroll
@@ -1008,15 +1010,15 @@ export function ToastStack(
         contentOptions: { alignItems: "flex-end" }
       }}
     >
-      {props.rows.map((row) => (
+      {rows.map((row) => (
         <TranscriptRail
           key={row.id}
-          style={{ border: ["left"], marginTop: props.compact ? 0 : 1, maxWidth: 60, flexShrink: 0 }}
+          style={{ border: ["left"], marginTop: compact ? 0 : 1, maxWidth: 60, flexShrink: 0 }}
           borderColor={row.tone === "info" ? color.brand : color[row.tone]}
           customBorderChars={bar}
         >
           <box style={{ flexDirection: "row", paddingLeft: 1, paddingRight: 2 }} backgroundColor={color.element}>
-            <text fg={color.text}>{row.text}</text>
+            <text fg={color.text} wrapMode="none">{row.text}</text>
             {row.surface === undefined ?
               null :
               (

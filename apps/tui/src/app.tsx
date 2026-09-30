@@ -2120,10 +2120,10 @@ export function App(props: AppProps) {
       (key.name === "return" || key.name === "kpenter") && text === "" &&
       open === undefined && liveForm.current === undefined && !key.ctrl && !key.meta && !key.option &&
       ["composer", "working", "shell"].includes(keyContext()) &&
-      settleNotices[0]?.surface !== undefined
+      visibleSettleNotice?.surface !== undefined
     ) {
       key.preventDefault()
-      return clickTab(settleNotices[0].surface)
+      return clickTab(visibleSettleNotice.surface)
     }
     if (
       focusedCard !== undefined && open === undefined && !key.ctrl &&
@@ -2808,6 +2808,7 @@ export function App(props: AppProps) {
     2,
     Math.min(Math.floor(chatHeight / 2), controlsHeight - queueHeight - completionHeight)
   )
+  const visibleSettleNotice = Toasts.visibleRows(toastRows, toastLimit, short).find((row) => row.surface !== undefined)
   const formHeight = Math.max(
     3,
     chatHeight - (short ? 2 : 4) -

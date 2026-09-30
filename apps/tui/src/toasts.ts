@@ -131,3 +131,7 @@ export const rows = (input: {
     ...(toast === undefined ? [] : [{ id: "notice", ...toast }])
   ]
 }
+
+/** Whole rows shown at the bottom of the bounded stack; keys use the same slice. */
+export const visibleRows = (rows: ReadonlyArray<Row>, height: number, compact: boolean): ReadonlyArray<Row> =>
+  rows.slice(-Math.max(1, Math.floor(height / (compact || height < 2 ? 1 : 2))))
