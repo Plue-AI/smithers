@@ -529,3 +529,65 @@ describe("malformed notification lists", () => {
     } finally { await controller.dispose(); await store.dispose?.() }
   })
 })
+
+test("one unreadable row is an exact failure rather than a successful empty inbox", async () => {
+  const recorded: RecordedRequest[] = []
+  const { store, controller } = await freshController(backend({ "/api/notifications/list": json(200, [{ id: "missing-subject" }]) }, recorded))
+  await signedIn(store)
+  expect(await controller.commands.run("notifications.list")).toEqual({ status: "failed", error: "Your notifications came back in a shape Smithers couldn't read (1 row)." })
+  expect(store.collections.cards.get("notifications")?.body).toBe("Your notifications came back in a shape Smithers couldn't read (1 row).")
+  expect(notificationsCard(store)).toBeUndefined()
+  expect(recorded).toEqual([{ path: "/api/notifications/list?limit=20&all=true", method: "GET" }])
+})
+
+for (const status of [200, 205]) {
+  test.each(["http", "network"])(`mark-read ${status} waits for its actual refresh and reports %s failure`, async failure => {
+    let reads = 0
+    const recorded: RecordedRequest[] = []
+    const { store, controller } = await freshController(backend({
+      "/api/notifications/list": () => {
+        if (++reads === 1) return json(200, wireInbox)
+        if (failure === "network") throw new TypeError("private transport detail")
+        return json(503, { message: "Inbox refresh unavailable" })
+      },
+      "/api/notifications/mark-read": () => new Response(null, { status })
+    }, recorded))
+    await signedIn(store)
+    await controller.commands.run("notifications.list")
+    const original = structuredClone(notificationsCard(store)?.payload)
+    const message = failure === "http" ? "Your notifications couldn't be loaded right now. Something on Smithers' side failed. Not your fault, and nothing your request could have changed." : "Your notifications couldn't be loaded — the platform didn't answer."
+    expect(await controller.commands.run("notifications.read")).toEqual({ status: "failed", error: message })
+    const card = notificationsCard(store)
+    expect(card?.status).toBe("error")
+    expect(card?.body).toBe(message)
+    expect(message).not.toContain("Inbox refresh unavailable")
+    expect(message).not.toContain("private transport detail")
+    expect(card?.payload).toEqual(original)
+    expect(card?.payload.unread).toBe(2)
+    expect(recorded).toEqual([
+      { path: "/api/notifications/list?limit=20&all=true", method: "GET" },
+      { path: "/api/notifications/mark-read", method: "PUT" },
+      { path: "/api/notifications/list?limit=20&all=true", method: "GET" }
+    ])
+  })
+}
+
+const repositoryWireCases = [
+  { label: "string repository takes precedence", wire: { repository: "owner/source", repo: "owner/fallback" }, expected: "owner/source" },
+  { label: "missing repository uses repo", wire: { repo: "owner/fallback" }, expected: "owner/fallback" },
+  { label: "null repository uses repo", wire: { repository: null, repo: "owner/fallback" }, expected: "owner/fallback" },
+  { label: "blank repository uses repo", wire: { repository: "  ", repo: "owner/fallback" }, expected: "owner/fallback" }
+] as const
+for (const row of repositoryWireCases) test(`notification wire ${row.label}`, async () => {
+  const recorded: RecordedRequest[] = []
+  const wire = { id: 7, subject: "An owning repository", status: "unread", ...row.wire }
+  const before = structuredClone(wire)
+  const { store, controller } = await freshController(backend({ "/api/notifications/list": json(200, [wire]) }, recorded))
+  await signedIn(store)
+  expect((await controller.commands.run("notifications.list")).status).toBe("executed")
+  expect(notificationsCard(store)?.payload).toEqual({
+    items: [{ id: "7", title: "An owning repository", repo: row.expected, reason: null, createdAt: null, read: false }], unread: 1
+  })
+  expect(recorded).toEqual([{ method: "GET", path: "/api/notifications/list?limit=20&all=true" }])
+  expect(wire).toEqual(before)
+})
