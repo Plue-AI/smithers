@@ -1,7 +1,10 @@
 import * as NodeControl from "@smthrs/cli/NodeControl"
-import type * as RequestExecutor from "@smthrs/model/RequestExecutor"
+import * as KernelHttpClient from "@smthrs/kernel/HttpClient"
+import * as RequestExecutor from "@smthrs/model/RequestExecutor"
 import { describe, expect, test } from "bun:test"
-import { Effect } from "effect"
+import { Effect, Layer } from "effect"
+import * as HttpClient from "effect/unstable/http/HttpClient"
+import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse"
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -75,6 +78,89 @@ describe("default chat seat", () => {
     } finally {
       rmSync(codexHome, { recursive: true, force: true })
     }
+  })
+})
+
+describe("account pool startup discovery", () => {
+  const environment = {
+    PATH: "",
+    CODEX_HOME: "/nonexistent",
+    SMITHERS_ACCOUNT_POOL_URL: "https://pool.test",
+    SMITHERS_ACCOUNT_POOL_KEY: "fixture-key",
+    SMITHERS_ACCOUNT_POOL_PROVIDERS: "chatgpt,anthropic"
+  }
+  const transport = (body: string, status = 200) => {
+    const requests: string[] = []
+    const client = HttpClient.make((request) =>
+      Effect.sync(() => {
+        requests.push(request.url)
+        expect(request.headers.authorization).toBe("Bearer fixture-key")
+        return HttpClientResponse.fromWeb(request, new Response(body, { status }))
+      })
+    )
+    return {
+      requests,
+      layer: RequestExecutor.layer.pipe(Layer.provide(Layer.succeed(KernelHttpClient.HttpClient)(client)))
+    }
+  }
+
+  test.each([
+    { routes: ["chatgpt"], seat: "openai:gpt-6-luna" },
+    { routes: ["anthropic"], seat: "anthropic:claude-sonnet-4-6" },
+    { routes: ["anthropic", "chatgpt"], seat: "openai:gpt-6-luna" }
+  ])("offers only a shared resolver default grounded in connected routes $routes", async ({ routes, seat }) => {
+    const fixture = transport(JSON.stringify({ routes }))
+    const available = await Models.detect(environment, fixture.layer)
+    expect(available.defaultSeat).toBe(seat)
+    expect(available.workerSeat).toBe(seat)
+    expect(available.models).toEqual([{ seat, label: expect.any(String), provider: "Account pool" }])
+    expect(fixture.requests).toEqual(["https://pool.test/routes"])
+    expect(available.environment).toEqual(environment)
+  })
+
+  test.each([
+    { body: "not json", status: 200 },
+    { body: "null", status: 200 },
+    { body: JSON.stringify({ routes: [] }), status: 200 },
+    { body: JSON.stringify({ routes: ["unknown"] }), status: 200 },
+    { body: JSON.stringify({ routes: ["chatgpt"] }), status: 401 },
+    { body: JSON.stringify({ routes: ["chatgpt"] }), status: 403 }
+  ])("refuses failed or unusable discovery %j without inventing a model", async ({ body, status }) => {
+    const fixture = transport(body, status)
+    const available = await Models.detect(environment, fixture.layer)
+    expect(available.models).toEqual([])
+    expect(available.defaultSeat).toBeUndefined()
+    expect(available.workerSeat).toBeUndefined()
+    expect(fixture.requests).toEqual(["https://pool.test/routes"])
+  })
+
+  test("unpermitted routes and incomplete credentials never produce an offered seat", async () => {
+    const fixture = transport(JSON.stringify({ routes: ["chatgpt"] }))
+    expect(
+      (await Models.detect({ ...environment, SMITHERS_ACCOUNT_POOL_PROVIDERS: "anthropic" }, fixture.layer)).models
+    ).toEqual([])
+    for (
+      const missing of ["SMITHERS_ACCOUNT_POOL_URL", "SMITHERS_ACCOUNT_POOL_KEY", "SMITHERS_ACCOUNT_POOL_PROVIDERS"]
+    ) {
+      const before = fixture.requests.length
+      expect((await Models.detect({ ...environment, [missing]: "" }, fixture.layer)).models).toEqual([])
+      expect(fixture.requests.length).toBe(before)
+    }
+  })
+
+  test("keeps local credentials and explicit chat/worker overrides while adding a discovered pool seat", async () => {
+    const fixture = transport(JSON.stringify({ routes: ["chatgpt"] }))
+    const keyed = await Models.detect({ ...environment, OPENAI_API_KEY: "local-key" }, fixture.layer)
+    expect(keyed.defaultSeat).toBe(Models.delegateModels.sol)
+    expect(keyed.models.map((model) => model.seat)).toEqual([Models.delegateModels.sol, "openai:gpt-6-luna"])
+    const overridden = await Models.detect({
+      ...environment,
+      SMITHERS_TUI_SEAT: "custom:chat",
+      SMITHERS_TUI_WORKER_SEAT: "custom:worker"
+    }, fixture.layer)
+    expect(overridden.defaultSeat).toBe("custom:chat")
+    expect(overridden.workerSeat).toBe("custom:worker")
+    expect(overridden.models).toHaveLength(1)
   })
 })
 

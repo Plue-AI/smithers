@@ -196,6 +196,7 @@ try {
       }
       const send = (data) => child.stdin.write(JSON.stringify({ input: Buffer.from(data).toString("base64") }) + "\n")
       const captured = []
+      let execution
       try {
         if (scenario !== "print") {
           await until("↑")
@@ -283,6 +284,7 @@ try {
               updates.length !== 1 || monitor?.updates !== 1 || monitor.status !== "stopped") {
             throw new Error(`Monitor recording receipts: ${JSON.stringify({ calls: provider.calls, updates, monitor })}`)
           }
+          execution = { kind: "live-monitor", calls: { ...provider.calls }, monitor, updates }
         }
         if (scenario === "monitor-refusal") {
           const monitor = records().filter((row) => row.type === "monitor" && row.monitor.id === "checks").at(-1)?.monitor
@@ -290,6 +292,7 @@ try {
               Object.values(provider.calls).some((count) => count !== 0)) {
             throw new Error(`Monitor refusal receipts: ${JSON.stringify({ calls: provider.calls, monitor })}`)
           }
+          execution = { kind: "unavailable-judge", calls: { ...provider.calls }, monitor }
         }
         await page.close()
         const staging = mkdtempSync(join(cache, `${digest}.`))
@@ -314,6 +317,7 @@ try {
           digest,
           script: script.id,
           scenario,
+          ...(execution === undefined ? {} : { execution }),
           captions: captured.map((frame) => frame.split("\n")[0]),
           ...Object.fromEntries(
             ["gif", "txt", "png"].map(

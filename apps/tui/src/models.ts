@@ -5,11 +5,17 @@
  * Detection is `smithers`' own (`@smthrs/cli/Providers`): a codex login makes
  * `openai:*` seats run on the ChatGPT subscription, a Claude subscription
  * signed in to Claude Code adds `claude-code:*` seats when no Anthropic key is
- * set, and a provider key makes that provider's seats available.
+ * set, and a provider key makes that provider's seats available. Account pools
+ * offer their shared default only after connected, permitted routes are read.
  */
 import * as SeatRouter from "@smthrs/agent/SeatRouter"
+import * as NodeControl from "@smthrs/cli/NodeControl"
 import * as Providers from "@smthrs/cli/Providers"
-import { Effect } from "effect"
+import * as GrantStore from "@smthrs/kernel/GrantStore"
+import * as KernelHttpClient from "@smthrs/kernel/HttpClient"
+import * as RequestExecutor from "@smthrs/model/RequestExecutor"
+import { Effect, Layer } from "effect"
+import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient"
 import { readFileSync } from "node:fs"
 import { homedir } from "node:os"
 
@@ -83,13 +89,35 @@ const hostOf = (environment: NodeJS.ProcessEnv): Providers.Host => ({
   claudeCode: () => Providers.claudeCodeLogin(environment)
 })
 
-export const detect = async (environment: NodeJS.ProcessEnv): Promise<Available> => {
+const poolTransport = RequestExecutor.layer.pipe(
+  Layer.provide(KernelHttpClient.layer),
+  // Model discovery uses the same credentialed HTTP boundary as model calls.
+  // eslint-disable-next-line no-restricted-syntax -- model HTTP, not a tool capability
+  Layer.provide(GrantStore.layerNoop),
+  Layer.provide(FetchHttpClient.layer)
+)
+
+export const detect = async (
+  environment: NodeJS.ProcessEnv,
+  poolExecutor: Layer.Layer<RequestExecutor.RequestExecutor> = poolTransport
+): Promise<Available> => {
   const base = detectWithoutClaude(environment)
-  if (!(await Providers.claudeCode(hostOf(base.environment))).available) return base
-  return withModels(
-    [...base.models, ...claudeCode.map((model) => ({ ...model, provider: "Claude Code" }))],
-    base.environment
-  )
+  const [claude, poolSeat] = await Promise.all([
+    Providers.claudeCode(hostOf(base.environment)),
+    Effect.runPromise(
+      NodeControl.accountPoolDefaultModel(base.environment).pipe(
+        Effect.provide(poolExecutor),
+        Effect.timeout(5000),
+        Effect.orElseSucceed(() => undefined)
+      )
+    )
+  ])
+  const models = [...base.models]
+  if (claude.available) models.push(...claudeCode.map((model) => ({ ...model, provider: "Claude Code" })))
+  if (poolSeat !== undefined && !models.some((model) => model.seat === poolSeat)) {
+    models.push({ ...described(poolSeat), provider: "Account pool" })
+  }
+  return withModels(models, base.environment)
 }
 
 /** The key-backed seats when a synchronous host is built without a startup scan. */
