@@ -27,6 +27,8 @@ interface CloneFrame {
   readonly descriptors: PropertyDescriptorMap
   readonly keys: ReadonlyArray<string> | undefined
   readonly path: ClonePath
+  /** Sources whose callable `toJSON` resolved to this container. */
+  readonly replaced: ReadonlyArray<object>
   index: number
 }
 
@@ -101,6 +103,13 @@ const inheritedDataProperty = (
  * cycles, honors callable `toJSON`, omits object members without a JSON
  * representation, and writes `null` for those values in arrays.
  *
+ * `toJSON` receives the key canonical serialization passes it: the member
+ * name, the array index, or `""` at the root. Its replacement is therefore
+ * memoized per source and key, since one shared source may serialize
+ * differently at two positions. A source met again inside its own
+ * replacement reuses that replacement, so a cycle through `toJSON` clones as
+ * a cycle whatever key it recurs at.
+ *
  * A planned value becomes whatever `plannedValue` returns for it. Refusals
  * throw a {@link GraphBuildError} naming the member's path.
  *
@@ -113,6 +122,8 @@ export const jsonMirror = (
 ): unknown => {
   const missing = Symbol("missing JSON representation")
   const seen = new WeakMap<object, unknown>()
+  const replacedAt = new WeakMap<object, Map<string, unknown>>()
+  const open = new Map<object, unknown>()
   let result: unknown
   const frames: Array<CloneFrame> = []
   /** Resolves one member, opening a frame when it is an unseen container. */
@@ -122,10 +133,15 @@ export const jsonMirror = (
     path: ClonePath
   ): void => {
     let current = initial
+    const key = path === undefined ? "" : path.key
     const replacements: Array<object> = []
     const resolving = new WeakSet<object>()
     const finish = (member: unknown | typeof missing): void => {
-      for (const replacement of replacements) seen.set(replacement, member)
+      for (const replacement of replacements) {
+        let byKey = replacedAt.get(replacement)
+        if (byKey === undefined) replacedAt.set(replacement, byKey = new Map())
+        byKey.set(key, member)
+      }
       place(member)
     }
     while (true) {
@@ -152,9 +168,18 @@ export const jsonMirror = (
         throw payloadError(path, "has an accessor-backed toJSON member")
       }
       if (toJSON.kind === "data" && typeof toJSON.value === "function") {
+        const byKey = replacedAt.get(source)
+        if (byKey !== undefined && byKey.has(key)) {
+          finish(byKey.get(key))
+          return
+        }
+        if (open.has(source)) {
+          finish(open.get(source))
+          return
+        }
         resolving.add(source)
         replacements.push(source)
-        current = Reflect.apply(toJSON.value, source, [])
+        current = Reflect.apply(toJSON.value, source, [key])
         continue
       }
       if (kind === "function") {
@@ -183,8 +208,10 @@ export const jsonMirror = (
             typeof key === "string" && descriptors[key]!.enumerable === true
           ),
         path,
+        replaced: replacements,
         index: 0
       })
+      for (const replacement of replacements) open.set(replacement, output)
       return
     }
   }
@@ -195,6 +222,7 @@ export const jsonMirror = (
     const frame = frames[frames.length - 1]!
     if (frame.index >= (frame.keys ?? frame.source as ReadonlyArray<unknown>).length) {
       frames.pop()
+      for (const replacement of frame.replaced) open.delete(replacement)
       continue
     }
     const position = frame.index

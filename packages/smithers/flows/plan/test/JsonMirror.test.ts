@@ -105,6 +105,8 @@ describe("jsonMirror", () => {
       readonly a: unknown
       readonly nested: { readonly a: unknown }
     }
+    // One replacement per source and key: the repeated key reuses it.
+    expect(calls).toEqual(["a", "b", "0", "1"])
     expect(JSON.stringify(mirror)).toBe(JSON.stringify(input))
     expect(mirror).toEqual({
       a: { key: "a" },
@@ -112,8 +114,6 @@ describe("jsonMirror", () => {
       list: [{ key: "0" }, { key: "1" }],
       nested: { a: { key: "a" } }
     })
-    // One replacement per source and key: the repeated key reuses it.
-    expect(calls).toEqual(["a", "b", "0", "1"])
     expect(mirror.nested.a).toBe(mirror.a)
     expect(JSON.stringify(jsonMirror(keyed, refuseEveryPlannedValue))).toBe(JSON.stringify(keyed))
     expect(jsonMirror(keyed, refuseEveryPlannedValue)).toEqual({ key: "" })
