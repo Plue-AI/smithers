@@ -1017,6 +1017,14 @@ export const definitions = {
     })
   },
   "repo status": { description: "Show local repository connection status", args: z.object({}), options: z.object({}) },
+  "repo report": {
+    description:
+      "Read the registration report another account recorded for a public repository at its current commit, without analysing it again; prints cached: false when there is none",
+    args: z.object({ "repo": z.string().describe("Public GitHub repository in OWNER/REPO format") }),
+    options: z.object({
+      "workspace": z.string().describe("ID of one of your workspaces that answers the lookup")
+    })
+  },
   "repo transfer": {
     description: "Transfer repository ownership",
     args: z.object({ "repo": z.string().describe("Repository in OWNER/REPO format") }),
