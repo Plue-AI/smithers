@@ -2,9 +2,15 @@ import { afterEach, describe, expect, test } from "bun:test"
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
+import { RuntimeCapabilitySchema } from "@smthrs/rpc/AppBootstrap"
 import { cloudCapabilities, localCapabilities } from "@smthrs/rpc/HostCapabilities"
 import {
-  canonicalBootstrapSHA256,
+  canonicalSHA256,
+  FEATURE_MATRIX,
+  FEATURE_MATRIX_VERSION,
+  featureMatrixSHA256,
+  featureReceipts,
+  coreFeatures,
   MANDATORY_DETERMINISTIC_BUN_TESTS,
   MANDATORY_DETERMINISTIC_BROWSER_SPECS,
   MATRIX_OBLIGATIONS,
@@ -80,10 +86,10 @@ const writeReceipt = (value: unknown): string => {
 describe("deployment mode matrix", () => {
   test("bootstrap identity includes complete configuration and ignores only object key order", () => {
     const body = { buildSha: deployed, capabilities: ["identity", "cloud"], sandbox: { mode: "remote", ready: true } }
-    expect(canonicalBootstrapSHA256(body)).toBe(canonicalBootstrapSHA256({ sandbox: { ready: true, mode: "remote" }, capabilities: body.capabilities, buildSha: deployed }))
-    expect(canonicalBootstrapSHA256(body)).not.toBe(canonicalBootstrapSHA256({ ...body, sandbox: { mode: "remote", ready: false } }))
-    expect(canonicalBootstrapSHA256(body)).not.toBe(canonicalBootstrapSHA256({ ...body, capabilities: [...body.capabilities].reverse() }))
-    expect(() => canonicalBootstrapSHA256({ value: undefined })).toThrow("JSON response")
+    expect(canonicalSHA256(body)).toBe(canonicalSHA256({ sandbox: { ready: true, mode: "remote" }, capabilities: body.capabilities, buildSha: deployed }))
+    expect(canonicalSHA256(body)).not.toBe(canonicalSHA256({ ...body, sandbox: { mode: "remote", ready: false } }))
+    expect(canonicalSHA256(body)).not.toBe(canonicalSHA256({ ...body, capabilities: [...body.capabilities].reverse() }))
+    expect(() => canonicalSHA256({ value: undefined })).toThrow("JSON value")
   })
 
   test("enumerates six modes over one obligation catalog", () => {
@@ -117,15 +123,18 @@ describe("deployment mode matrix", () => {
   test("a Plue mode owes GitHub import and fails it while its host does not advertise github", () => {
     const readiness = { mode: "web-plue" as const, status: "passed" as const, tier: "plue-production" as const, origin: "https://example.test", endpoint: "https://example.test",
       capabilities: cloudBootstrap(deployed).capabilities, buildSha: deployed, reasons: [] }
-    const rows = scenarioReceipts(readiness, revision, [])
-    expect(rows.find(({ obligation }) => obligation === "github-import")).toMatchObject({
-      status: "failed", reason: "bootstrap does not advertise github"
+    expect(featureReceipts(readiness).filter(({ status }) => status !== "passed")).toEqual([
+      { mode: "web-plue", capability: "github", status: "failed", reason: "core feature github is disabled" }
+    ])
+    expect(scenarioReceipts(readiness, revision, []).find(({ obligation }) => obligation === "github-import")).toMatchObject({
+      status: "unavailable", reason: "no executed receipt"
     })
     const ready = MATRIX_OBLIGATIONS.flatMap(({ scenarios }) => scenarios)
-      .filter(({ id }) => id !== "repositories.github-import-direct-readback")
       .map(({ id }) => ({ scenarioId: id, host: "production" as const, mode: "web-plue" as const, revision, buildSha: deployed,
         status: "passed" as const, startedAt: "2026-09-21T00:00:00Z", finishedAt: "2026-09-21T00:00:01Z" }))
-    expect(matrixPasses([readiness], scenarioReceipts(readiness, revision, ready), true, ["web-plue"])).toBe(false)
+    const rows = scenarioReceipts(readiness, revision, ready)
+    expect(rows.filter(({ status }) => status !== "passed")).toEqual([])
+    expect(matrixPasses([readiness], rows, true, ["web-plue"])).toBe(false)
   })
 
   test("every obligation is owed by some mode, and a mode reports exactly the scenarios it owes", () => {
@@ -152,6 +161,65 @@ describe("deployment mode matrix", () => {
         "issues.owner-resolution-durable-replay", "flows.product-no-box"
       ]))
     }
+  })
+
+  test("the published feature matrix classifies every runtime capability for both providers (#1668)", () => {
+    expect(Object.keys(FEATURE_MATRIX).sort()).toEqual([...RuntimeCapabilitySchema.options].sort())
+    for (const [capability, providers] of Object.entries(FEATURE_MATRIX)) {
+      expect(Object.keys(providers).sort(), capability).toEqual(["plue", "selfhost"])
+      for (const row of Object.values(providers)) {
+        expect(["core", "optional", "absent"], capability).toContain(row.support)
+        if (row.support !== "core") expect(row.reason.trim(), capability).not.toBe("")
+      }
+    }
+    // Every published version keeps its digest. A row change bumps FEATURE_MATRIX_VERSION and appends a digest.
+    const published = ["73c9cf348cc84c9dbd7ef927e3c1f3040e3636d1b6b8be9531aeaf580129a2e4"]
+    expect(published).toHaveLength(FEATURE_MATRIX_VERSION)
+    expect(new Set(published).size).toBe(published.length)
+    expect(published.at(-1)).toBe(featureMatrixSHA256())
+  })
+
+  test("the README publishes the same feature matrix", () => {
+    const readme = readFileSync(resolve(import.meta.dir, "README.md"), "utf8")
+    const published = [...readme.matchAll(/^\| `([a-z.]+)` \| (core|optional|absent) \| (core|optional|absent) \|/gm)]
+      .map(([, capability, selfhost, plue]) => [capability, selfhost, plue])
+    expect(published).toEqual(Object.entries(FEATURE_MATRIX).map(([capability, { selfhost, plue }]) => [capability, selfhost.support, plue.support]))
+    expect(readme).toContain(`Feature matrix version ${FEATURE_MATRIX_VERSION}`)
+  })
+
+  test("every core feature is exercised by a scenario each of its modes owes, so a stub cannot stand in for it", () => {
+    for (const mode of DEPLOYMENT_MODES) {
+      const owed = MATRIX_OBLIGATIONS.flatMap(({ scenarios }) => scenarios).filter(({ id }) => owedScenarioIds(mode).includes(id))
+      const exercised = new Set(owed.flatMap(({ capabilities }) => capabilities))
+      expect(coreFeatures(mode).filter((capability) => !exercised.has(capability)), mode).toEqual([])
+    }
+  })
+
+  test("the shared Go backend can advertise every core feature of both providers", () => {
+    const source = readFileSync(resolve(import.meta.dir, "../../../../../packages/backend/internal/compose/bootstrap.go"), "utf8")
+    const advertised = new Set([...source.matchAll(/append\(result\.Capabilities, "([a-z.]+)"\)/g)].map(([, capability]) => capability))
+    expect(advertised.size).toBeGreaterThan(5)
+    for (const mode of DEPLOYMENT_MODES) expect(coreFeatures(mode).filter((capability) => !advertised.has(capability)), mode).toEqual([])
+  })
+
+  test("a disabled core feature fails the release gate even when every other row passed", () => {
+    const passing = (capabilities: readonly string[]) => ({ mode: "web-plue" as const, status: "passed" as const, tier: "plue-production" as const,
+      origin: "https://example.test", endpoint: "https://example.test", capabilities, buildSha: deployed, reasons: [] })
+    const runs = owedScenarioIds("web-plue").map((scenarioId) => ({ scenarioId, host: "production" as const, mode: "web-plue" as const, revision,
+      buildSha: deployed, status: "passed" as const, startedAt: "2026-09-21T00:00:00Z", finishedAt: "2026-09-21T00:00:01Z" }))
+    const complete = passing(coreFeatures("web-plue"))
+    expect(featureReceipts(complete).map(({ status }) => status)).toEqual(coreFeatures("web-plue").map(() => "passed"))
+    expect(matrixPasses([complete], scenarioReceipts(complete, revision, runs), true, ["web-plue"])).toBe(true)
+
+    const disabled = passing(coreFeatures("web-plue").filter((capability) => capability !== "cloud.terminal"))
+    expect(featureReceipts(disabled).filter(({ status }) => status !== "passed")).toEqual([{
+      mode: "web-plue", capability: "cloud.terminal", status: "failed", reason: "core feature cloud.terminal is disabled"
+    }])
+    expect(matrixPasses([disabled], scenarioReceipts(disabled, revision, runs), true, ["web-plue"])).toBe(false)
+
+    const unconfigured = missingModeReadiness("web-plue", "not configured")
+    expect(featureReceipts(unconfigured).map(({ status, reason }) => [status, reason]))
+      .toEqual(coreFeatures("web-plue").map(() => ["not-configured", "readiness not-configured"]))
   })
 
   test("a scenario both providers owe declares both hosts, and the catalog repeats each spec's capabilities", () => {
@@ -251,7 +319,7 @@ describe("deployment mode matrix", () => {
       mode: "local-plue", origin: "https://example.test", endpoint: "https://example.test", auth: { kind: "browser-profile", environment: "PROFILE" }, executionReceipt: path
     }] }).modes[0]!
     const { fetcher } = recordingOrigin(cloudBootstrap(deployed))
-    expect(await probeMode(config, revision, { PROFILE: "configured" }, fetcher)).toMatchObject({ status: "passed", bootstrapSHA256: canonicalBootstrapSHA256(cloudBootstrap(deployed)) })
+    expect(await probeMode(config, revision, { PROFILE: "configured" }, fetcher)).toMatchObject({ status: "passed", bootstrapSHA256: canonicalSHA256(cloudBootstrap(deployed)) })
   })
 
   test.each(["web-plue", "local-plue", "native-plue"] as const)("%s rejects a local Bun API surface", async (mode) => {
@@ -353,7 +421,7 @@ describe("deployment mode matrix", () => {
     expect(() => readExecutionReceipt(path)).toThrow("malformed execution receipt")
   })
 
-  test("an owed capability the bootstrap omits fails its obligation and filters its scenario", async () => {
+  test("a core feature the bootstrap omits fails its feature row and filters its scenario", async () => {
     const root = mkdtempSync(join(tmpdir(), "smithers-mode-matrix-"))
     roots.push(root)
     const path = join(root, "receipt.json")
@@ -367,7 +435,8 @@ describe("deployment mode matrix", () => {
     const runs = applicableScenarioIds(result.capabilities).map((scenarioId) => ({ scenarioId, host: "production" as const, mode: "local-plue" as const,
       revision, buildSha: deployed, status: "passed" as const, startedAt: "2026-09-21T00:00:00Z", finishedAt: "2026-09-21T00:00:01Z" }))
     const rows = scenarioReceipts(result, revision, runs)
-    expect(rows.find(({ obligation }) => obligation === "terminal")).toMatchObject({ status: "failed", reason: "bootstrap does not advertise cloud.terminal" })
+    expect(rows.find(({ obligation }) => obligation === "terminal")).toMatchObject({ status: "unavailable", reason: "no executed receipt" })
+    expect(featureReceipts(result).find(({ capability }) => capability === "cloud.terminal")).toMatchObject({ status: "failed", reason: "core feature cloud.terminal is disabled" })
     expect(matrixPasses([result], rows, true, ["local-plue"])).toBe(false)
   })
 
@@ -424,16 +493,12 @@ describe("deployment mode matrix", () => {
     expect(matrixVerdict(selection, readiness, missing, true).sixModeAccepted).toBe(false)
   })
 
-  test("owed scenarios come from the host tables, so a Plue host never owes model.turn", () => {
+  test("owed scenarios come from the feature matrix, so a Plue host never owes model.turn", () => {
     const owedCapabilities = (mode: (typeof DEPLOYMENT_MODES)[number]) => [...new Set(MATRIX_OBLIGATIONS.flatMap(({ scenarios }) => scenarios)
       .filter(({ id }) => owedScenarioIds(mode).includes(id)).flatMap(({ capabilities }) => capabilities))].sort()
     expect(owedCapabilities("web-plue")).toEqual(["cloud", "cloud.terminal", "github", "identity"])
     expect(owedCapabilities("native-plue")).toEqual(["cloud", "cloud.terminal", "github", "identity"])
     expect(owedCapabilities("web-selfhost")).toEqual(["cloud", "cloud.terminal", "identity", "model.turn"])
-    const worker = cloudCapabilities({ identity: true, cloud: true, agent: true, checkout: true, terminal: true, browser: true })
-    expect(owedCapabilities("web-plue").filter((capability) => !worker.includes(capability))).toEqual(["github"])
-    const bun = localCapabilities({ identity: true, cloud: true, agent: true, browser: true })
-    expect(owedCapabilities("local-own").every((capability) => bun.includes(capability))).toBe(true)
   })
 
   test("web-plue readiness certifies the deployed Worker build without a health route or the checkout revision", async () => {
@@ -505,7 +570,7 @@ describe("deployment mode matrix", () => {
     const result = await probeMode(config, revision, { OWNER: "configured", NATIVE_DRIVER: "configured" }, origin.fetcher)
     expect(result).toMatchObject({ status: "passed", tier: "local-infrastructure", buildSha: revision, reasons: [] })
     expect(result.capabilities).toEqual(bootstrap.capabilities)
-    expect(result.bootstrapSHA256).toBe(canonicalBootstrapSHA256(bootstrap))
+    expect(result.bootstrapSHA256).toBe(canonicalSHA256(bootstrap))
     expect(origin.paths).toEqual(["/api/bootstrap", "/api/health"])
 
     const stale = await probeMode(config, revision, { OWNER: "configured", NATIVE_DRIVER: "configured" },

@@ -2,17 +2,16 @@ import { createHash } from "node:crypto"
 import { existsSync, readFileSync } from "node:fs"
 import { AppBootstrapSchema } from "@smthrs/rpc/AppBootstrap"
 import type { RuntimeCapability } from "@smthrs/rpc/AppBootstrap"
-import { cloudCapabilities, localCapabilities } from "@smthrs/rpc/HostCapabilities"
 import { DEPLOYMENT_MODES } from "./types"
 import type { DeploymentMode, RealHost, RealScenarioRunEvidence } from "./types"
 
-/** Digest the actual public bootstrap response, independent of JSON object key order. */
-export const canonicalBootstrapSHA256 = (body: unknown): string => {
+/** Digest a JSON value, such as the public bootstrap response, independent of object key order. */
+export const canonicalSHA256 = (body: unknown): string => {
   const canonical = (value: unknown): string => {
     if (value === null || typeof value === "string" || typeof value === "boolean" || (typeof value === "number" && Number.isFinite(value))) return JSON.stringify(value)
     if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`
     if (typeof value === "object" && value !== null && Object.getPrototypeOf(value) === Object.prototype) return `{${Object.entries(value).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([key, item]) => `${JSON.stringify(key)}:${canonical(item)}`).join(",")}}`
-    throw new Error("Bootstrap digest requires a JSON response")
+    throw new Error("Canonical digest requires a JSON value")
   }
   return createHash("sha256").update(canonical(body)).digest("hex")
 }
@@ -105,21 +104,53 @@ export const MATRIX_OBLIGATIONS: readonly MatrixObligation[] = [
 
 export const MATRIX_SCENARIO_IDS = [...new Set(MATRIX_OBLIGATIONS.flatMap((entry) => entry.scenarios.map(({ id }) => id)))]
 
+export type FeatureSupport = "core" | "optional" | "absent"
+export type FeatureRow = { readonly support: "core" } | { readonly support: "optional" | "absent"; readonly reason: string }
+
+/** Bump with any row change; every matrix report publishes this version and the table's digest. */
+export const FEATURE_MATRIX_VERSION = 1
+
+const core = { support: "core" } as const
+const optional = (reason: string): FeatureRow => ({ support: "optional", reason })
+const absent = (reason: string): FeatureRow => ({ support: "absent", reason })
+const billing = optional("needs the operator's payment provider")
+
 /**
- * Every door each host type must open, read from the one table the Worker and the Bun server emit from.
- * Plue also owes `github`: its backend serves GitHub import behind the Worker's `/api/github/import`
- * proxy, so a Plue mode fails that obligation until its bootstrap advertises the capability.
+ * Every runtime capability, classified per provider. A core feature must be advertised by every mode of that
+ * provider, or the release gate fails; an optional one needs operator configuration; an absent one is not served.
+ * Plue owes `github`: its hosted backend serves GitHub sign-in and import.
  */
-const PROVIDER_CAPABILITY_UNIVERSE: Readonly<Record<ProductProvider, readonly RuntimeCapability[]>> = {
-  selfhost: localCapabilities({ agent: true, identity: true, cloud: true, browser: true }),
-  plue: [...cloudCapabilities({ identity: true, cloud: true, agent: true, checkout: true, terminal: true, browser: true }), "github"]
+export const FEATURE_MATRIX: Readonly<Record<RuntimeCapability, Readonly<Record<ProductProvider, FeatureRow>>>> = {
+  "agent": { selfhost: optional("needs a configured default agent"), plue: optional("needs a configured default agent") },
+  "model.turn": { selfhost: core, plue: optional("needs a configured model provider") },
+  "recommend": { selfhost: optional("needs a recommendation provider"), plue: optional("needs a recommendation provider") },
+  "browser.read": { selfhost: optional("needs a pinned HTTPS transport"), plue: optional("needs a pinned HTTPS transport") },
+  "identity": { selfhost: core, plue: core },
+  "github": { selfhost: optional("needs the operator's GitHub OAuth app"), plue: core },
+  "cloud": { selfhost: core, plue: core },
+  "billing.balance": { selfhost: billing, plue: billing },
+  "billing.overview": { selfhost: billing, plue: billing },
+  "billing.plans": { selfhost: billing, plue: billing },
+  "billing.checkout": { selfhost: billing, plue: billing },
+  "billing.portal": { selfhost: billing, plue: billing },
+  "cloud.terminal": { selfhost: core, plue: core },
+  "cloud.pat": { selfhost: optional("a local host's session with its configured backend"), plue: absent("the shared backend holds no Smithers Cloud PAT session") },
+  "native.shell": { selfhost: absent("the desktop shell appends it; no backend advertises it"), plue: absent("the desktop shell appends it; no backend advertises it") }
 }
 
-/** A mode owes every scenario whose capabilities its host type opens; each one it owes must pass. */
+export const featureMatrixSHA256 = (): string => canonicalSHA256(FEATURE_MATRIX)
+
+/** The features a mode's bootstrap must advertise. */
+export const coreFeatures = (mode: DeploymentMode): readonly RuntimeCapability[] => {
+  const provider = MODE_DESCRIPTORS[mode].provider
+  return (Object.keys(FEATURE_MATRIX) as RuntimeCapability[]).filter((capability) => FEATURE_MATRIX[capability][provider].support === "core")
+}
+
+/** A mode owes every scenario whose capabilities are all core for its provider; each one it owes must pass. */
 export const owedScenarioIds = (mode: DeploymentMode): readonly string[] => {
-  const universe = PROVIDER_CAPABILITY_UNIVERSE[MODE_DESCRIPTORS[mode].provider]
+  const owed = coreFeatures(mode)
   return MATRIX_OBLIGATIONS.flatMap(({ scenarios }) => scenarios
-    .filter(({ capabilities }) => capabilities.every((capability) => universe.includes(capability)))
+    .filter(({ capabilities }) => capabilities.every((capability) => owed.includes(capability)))
     .map(({ id }) => id))
 }
 
@@ -192,6 +223,13 @@ export interface MatrixScenarioReceipt {
   readonly status: MatrixStatus
   readonly revision: string
   readonly origin?: string
+  readonly reason?: string
+}
+
+export interface MatrixFeatureReceipt {
+  readonly mode: DeploymentMode
+  readonly capability: RuntimeCapability
+  readonly status: MatrixStatus
   readonly reason?: string
 }
 
@@ -330,7 +368,7 @@ export const probeMode = async (
       const parsed = AppBootstrapSchema.safeParse(body)
       if (!parsed.success) reasons.push(`bootstrap contract is invalid: ${parsed.error.message}`)
       else {
-        bootstrapSHA256 = canonicalBootstrapSHA256(body)
+        bootstrapSHA256 = canonicalSHA256(body)
         capabilities = parsed.data.capabilities
         // `cloud` names the shared web API, including self-hosted Go deployments.
         // Provider identity comes from config and its bound launch receipt; Plue still cannot be a Bun host.
@@ -373,29 +411,35 @@ export const probeMode = async (
   }
 }
 
-/** One row per scenario the mode owes. An owed capability the bootstrap does not advertise fails its row. */
+/** One row per core feature of the mode. A core feature its bootstrap does not advertise fails its row. */
+export const featureReceipts = (readiness: ModeReadiness): readonly MatrixFeatureReceipt[] =>
+  coreFeatures(readiness.mode).map((capability): MatrixFeatureReceipt => {
+    const reason = readiness.status !== "passed" ? `readiness ${readiness.status}`
+      : readiness.capabilities.includes(capability) ? undefined : `core feature ${capability} is disabled`
+    const status: MatrixStatus = readiness.status !== "passed" ? readiness.status : reason === undefined ? "passed" : "failed"
+    return { mode: readiness.mode, capability, status, ...(reason === undefined ? {} : { reason }) }
+  })
+
+/** One row per scenario the mode owes. A scenario its host did not run has no executed receipt. */
 export const scenarioReceipts = (
   readiness: ModeReadiness,
   revision: string,
   runs: readonly RealScenarioRunEvidence[]
 ): readonly MatrixScenarioReceipt[] => {
   const owed = owedScenarioIds(readiness.mode)
-  return MATRIX_OBLIGATIONS.flatMap((obligation) => obligation.scenarios.filter(({ id }) => owed.includes(id)).map((scenario): MatrixScenarioReceipt => {
-    const scenarioId = scenario.id
+  return MATRIX_OBLIGATIONS.flatMap((obligation) => obligation.scenarios.filter(({ id }) => owed.includes(id)).map(({ id: scenarioId }): MatrixScenarioReceipt => {
     const tier = readiness.tier === "plue-production" ? readiness.tier : obligation.tier
-    const missingCapabilities = scenario.capabilities.filter((capability) => !readiness.capabilities.includes(capability))
     const attempts = runs.filter((run) => run.mode === readiness.mode && run.scenarioId === scenarioId && run.revision === revision)
     const moved = MODE_DESCRIPTORS[readiness.mode].provider === "plue" ? attempts.find((run) => run.buildSha !== readiness.buildSha) : undefined
     const failure = moved ?? attempts.find((run) => run.status !== "passed")
     const passed = attempts.find((run) => run.status === "passed")
     const reason = readiness.status !== "passed" ? readiness.reasons.join("; ")
-      : missingCapabilities.length > 0 ? `bootstrap does not advertise ${missingCapabilities.join(", ")}`
       : moved ? `deployment changed during the run: ${moved.buildSha ?? "unrecorded"} is not ${readiness.buildSha ?? "unrecorded"}`
       : failure ? `unsuccessful attempt: ${failure.status}`
         : !passed ? "no executed receipt" : undefined
     const status: MatrixStatus = reason === undefined ? "passed"
       : readiness.status !== "passed" ? readiness.status
-        : missingCapabilities.length > 0 || failure !== undefined ? "failed" : "unavailable"
+        : failure !== undefined ? "failed" : "unavailable"
     return {
       mode: readiness.mode, obligation: obligation.id, scenarioId, tier, status,
       revision, ...(readiness.origin ? { origin: readiness.origin } : {}), ...(reason ? { reason } : {})
@@ -445,6 +489,7 @@ export const matrixPasses = (
   scenarios.every(({ mode, scenarioId }) => requiredModes.includes(mode) && owedScenarioIds(mode).includes(scenarioId)) &&
   new Set(scenarios.map(({ mode, scenarioId }) => `${mode}:${scenarioId}`)).size === scenarios.length &&
   readiness.every(({ status }) => status === "passed") &&
+  readiness.flatMap(featureReceipts).every(({ status }) => status === "passed") &&
   scenarios.every(({ status }) => status === "passed")
 
 export const matrixVerdict = (

@@ -145,11 +145,11 @@ restart. `native-own` must prove its supervisor, app, and PostgreSQL;
 Plue-backed local/native modes fail if they started any of those processes.
 
 Readiness reads `/api/bootstrap` for every mode and records its `buildSha`.
-A mode owes each scenario whose capabilities its host type opens, read from
-`@smthrs/rpc/HostCapabilities`, so a Plue mode never owes `model.turn`. Plue
-modes also owe `github`: Plue serves GitHub import behind the Worker's
-`/api/github/import` proxy. The report has one row per owed scenario, and
-every obligation is owed by at least one mode.
+A mode owes each scenario whose capabilities are all core features of its
+provider in the feature matrix below, so a Plue mode never owes `model.turn`.
+The report has one row per owed scenario, and every obligation is owed by at
+least one mode.
+
 A scenario both providers owe declares `host:local` and `host:production`,
 so self-hosted and Plue builds run the same assertions. Beyond the core loop,
 the catalog owes approve and deny, duplicate-input replay, and a surfaced
@@ -189,8 +189,9 @@ and has `sixModeAccepted: false`. Only a passing full selection sets
 `sixModeAccepted: true`.
 
 Rows are `passed`, `failed`, `unavailable`, or `not-configured`; there is no
-skip state. `failed` means the mode's launch or readiness failed, an attempt
-failed, the Plue build moved, or the bootstrap omits an owed capability.
+skip state. A scenario row is `failed` when the mode's launch or readiness
+failed, an attempt failed, or the Plue build moved. A feature row is `failed`
+when the bootstrap omits that core feature.
 `unavailable` means no executed receipt. Every status but `passed` fails the
 gate. Deterministic, local-infrastructure, live-provider, and Plue-production
 tiers remain separate rows.
@@ -202,3 +203,38 @@ Use `run-real-e2e.ts` for targeted `--grep` runs: it combines the requested
 name expression with the host filter instead of overriding it. Omitted
 applicable scenarios still appear as execution gaps; aggregate review still
 requires all declared hosts. Test discovery (`--list`) is not execution proof.
+
+### Feature matrix
+
+Feature matrix version 1. `FEATURE_MATRIX` in `matrix.ts` classifies every
+runtime capability for each provider:
+
+- `core`: every mode of the provider must advertise it. The report has one
+  feature row per core feature; a disabled one fails the gate.
+- `optional`: served only when the operator configures it. Not owed.
+- `absent`: the provider does not serve it. Not owed.
+
+Every core feature is exercised by a scenario its modes owe, so a stub cannot
+stand in for it. Each report publishes `featureMatrix` with the version and a
+SHA-256 digest of the table. Change a row only with a version bump.
+
+| Capability | selfhost | Plue |
+| --- | --- | --- |
+| `agent` | optional | optional |
+| `model.turn` | core | optional |
+| `recommend` | optional | optional |
+| `browser.read` | optional | optional |
+| `identity` | core | core |
+| `github` | optional | core |
+| `cloud` | core | core |
+| `billing.balance` | optional | optional |
+| `billing.overview` | optional | optional |
+| `billing.plans` | optional | optional |
+| `billing.checkout` | optional | optional |
+| `billing.portal` | optional | optional |
+| `cloud.terminal` | core | core |
+| `cloud.pat` | optional | absent |
+| `native.shell` | absent | absent |
+
+Plue owes `github` because its hosted backend serves GitHub sign-in and
+import. A self-hosted operator enables it with a GitHub OAuth app.

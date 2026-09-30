@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { cloudCapabilities, localCapabilities } from "@smthrs/rpc/HostCapabilities"
-import { READINESS_DEADLINE_MS, parseMatrixConfig, probeMode } from "./matrix"
+import { FEATURE_MATRIX_VERSION, READINESS_DEADLINE_MS, coreFeatures, featureMatrixSHA256, parseMatrixConfig, probeMode } from "./matrix"
 import { sourceRevision } from "../../../scripts/mode-matrix/source-revision"
 
 const appDir = resolve(import.meta.dirname, "../../..")
@@ -184,5 +184,14 @@ describe("mode matrix CLI readiness deadline", () => {
     expect(report.readiness[0]).toMatchObject({ mode: "web-plue", status: "failed" })
     expect(report.readiness[0]!.reasons).toContain(timedOut)
     expect(report.readiness[1]!.reasons).toContain("configuration for local-plue is unavailable")
+    const published = report as unknown as {
+      featureMatrix: { version: number; sha256: string }
+      features: Array<{ mode: string; capability: string; status: string }>
+    }
+    expect(published.featureMatrix).toMatchObject({ version: FEATURE_MATRIX_VERSION, sha256: featureMatrixSHA256() })
+    expect(published.features.map(({ mode, capability, status }) => [mode, capability, status])).toEqual([
+      ...coreFeatures("web-plue").map((capability) => ["web-plue", capability, "failed"]),
+      ...coreFeatures("local-plue").map((capability) => ["local-plue", capability, "not-configured"])
+    ])
   })
 })

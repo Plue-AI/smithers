@@ -4,11 +4,15 @@ import { randomUUID } from "node:crypto"
 import { basename, dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import {
+  FEATURE_MATRIX,
+  FEATURE_MATRIX_VERSION,
   MANDATORY_DETERMINISTIC_BROWSER_SPECS,
   MANDATORY_DETERMINISTIC_BUN_TESTS,
   MODE_DESCRIPTORS,
   READINESS_DEADLINE_MS,
   applicableScenarioIds,
+  featureMatrixSHA256,
+  featureReceipts,
   missingModeReadiness,
   matrixVerdict,
   parseMatrixConfig,
@@ -161,6 +165,7 @@ for (const mode of selectedModes) {
 }
 
 const scenarios: MatrixScenarioReceipt[] = readiness.flatMap((state) => scenarioReceipts(state, config.revision, runs))
+const features = readiness.flatMap(featureReceipts)
 const report = {
   ...matrixVerdict(selection, readiness, scenarios, deterministicPassed, commands),
   generatedAt: new Date().toISOString(),
@@ -171,6 +176,8 @@ const report = {
   evidence,
   commands,
   readiness,
+  featureMatrix: { version: FEATURE_MATRIX_VERSION, sha256: featureMatrixSHA256(), rows: FEATURE_MATRIX },
+  features,
   scenarios
 }
 mkdirSync(dirname(reportPath), { recursive: true })
@@ -180,5 +187,7 @@ writeFileSync(reportPath, JSON.stringify(report, null, 2) + "\n")
 for (const state of readiness) console.log(`${state.status.toUpperCase()} ${state.mode}${state.reasons.length ? `: ${state.reasons.join("; ")}` : ""}`)
 const counts = scenarios.reduce((result, row) => ({ ...result, [row.status]: result[row.status] + 1 }), { passed: 0, failed: 0, unavailable: 0, "not-configured": 0 })
 console.log(`matrix scenarios: ${counts.passed} passed, ${counts.failed} failed, ${counts.unavailable} unavailable, ${counts["not-configured"]} not configured`)
+const ready = new Set(readiness.filter(({ status }) => status === "passed").map(({ mode }) => mode))
+for (const row of features) if (ready.has(row.mode) && row.status !== "passed") console.log(`${row.status.toUpperCase()} ${row.mode} feature ${row.capability}: ${row.reason}`)
 console.log(`matrix report: ${reportPath}`)
 if (!report.ok) process.exitCode = 1
