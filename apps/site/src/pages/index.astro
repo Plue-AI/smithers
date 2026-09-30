@@ -1,7 +1,7 @@
 ---
 import Base from "../layouts/Base.astro"
 import project from "../data/project.json"
-import { AVAILABLE_REPOS } from "../../../server/src/publicRepoCatalog"
+import { DEFAULT_APP_DOCUMENT_PATH } from "../../../server/src/appDocument"
 // The app's entrance mark (apps/app/src/mainview/SessionShell.tsx), reused verbatim.
 import { WORDMARK } from "../../../app/src/mainview/Wordmark"
 
@@ -10,12 +10,12 @@ const description = project.tagline
 /*
  * Get started for free opens the app in this document: the script below mounts
  * apps/app (AppMount.tsx) directly and the wordmark becomes the
- * app's own. The href is the first catalog repository's app page
- * (src/pages/[owner]/[repo].astro) for a middle-click, a new tab, or a
- * browser without JavaScript. Docs and GitHub are plain secondary links,
+ * app's own. The href resumes the same signup for a middle-click or a new
+ * tab. The prerendered app document supplies assets independently of any
+ * repository's availability. Docs and GitHub are plain secondary links,
  * beside Get started for free and in the top-right corner.
  */
-const appHref = `/${AVAILABLE_REPOS[0].name}/?tutorial`
+const appHref = "/?tutorial"
 const githubHref = "https://github.com/smithersai/smithers"
 ---
 
@@ -34,7 +34,7 @@ const githubHref = "https://github.com/smithersai/smithers"
     <div class="actions">
       {/* JS hides the button (html.js) until the app is loaded; without JS it shows at once. */}
       <script is:inline>document.documentElement.classList.add("js")</script>
-      <a id="start" class="start" href={appHref} aria-keyshortcuts="s">
+      <a id="start" class="start" href={appHref} data-app-document={DEFAULT_APP_DOCUMENT_PATH} aria-keyshortcuts="s">
         <span>Get started for free</span>
         <kbd class="start-key" aria-hidden="true">s</kbd>
       </a>
@@ -55,7 +55,7 @@ const githubHref = "https://github.com/smithersai/smithers"
   import { sameOriginUrl } from "../lib/sameOriginUrl"
   /*
    * The app arrives in this document. After `load` and an idle moment the
-   * page reads the prerendered app page (Get started for free's href) for the app's
+   * page reads the prerendered app document for the app's
    * island chunk and stylesheets, imports the chunk, and Get started for free appears.
    * AppMount stays out of this page's module graph: Astro would link
    * every stylesheet the graph reaches into this page's head, render-blocking.
@@ -91,6 +91,7 @@ const githubHref = "https://github.com/smithersai/smithers"
   `
 
   if (start) {
+    const appDocument = new URL(start.dataset.appDocument!, location.href).href
     /*
      * The app's stylesheets restyle html and body (its base.css), so each one
      * the import adds stays inert (media="not all") until the app mounts, and
@@ -112,10 +113,10 @@ const githubHref = "https://github.com/smithersai/smithers"
 
     /* The app page names its island chunk (AppIsland, whose default export carries mountApp) and its stylesheets. */
     const importApp = async (): Promise<AppMount> => {
-      const response = await fetch(start.href, { priority: "low", credentials: "same-origin" } as RequestInit)
+      const response = await fetch(appDocument, { priority: "low", credentials: "same-origin" } as RequestInit)
       if (!response.ok) throw new Error(`The app page answered HTTP ${response.status}.`)
       // Every chunk and stylesheet the page names must stay on this origin, including after a redirect.
-      const pageUrl = sameOriginUrl(response.url || start.href, start.href, location.origin)
+      const pageUrl = sameOriginUrl(response.url || appDocument, appDocument, location.origin)
       const page = new DOMParser().parseFromString(await response.text(), "text/html")
       const chunk = page.querySelector("astro-island[component-url]")?.getAttribute("component-url")
       if (!chunk) throw new Error("The app page names no island chunk.")

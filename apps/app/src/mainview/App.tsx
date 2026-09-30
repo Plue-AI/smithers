@@ -17,7 +17,6 @@ import { useLiveQuery } from "@tanstack/react-db"
 import { Sparkles } from "lucide-react"
 import type { PointerEvent as ReactPointerEvent } from "react"
 import { useMemo,useRef } from "react"
-import { AVAILABLE_REPOS } from "smithers-server/publicRepoCatalog"
 import { cardActions } from "./cards/CardActions"
 import { homeApps, RepositoryHomeCard } from "./cards/RepositoryHomeCard"
 import { FirstRunActions } from "./cards/FirstRunActions"
@@ -240,6 +239,9 @@ function AppContent() {
     ? catalogRepositoryOf(session.activeRepoKey, repositoryRows)
     : null
   const repositoryNotice = missingBootRepository !== null && identity?.state === "signed-out" && githubIdentity
+  const publicRepositoryLinks = (bootEntry?.publicRepositories ?? [])
+    .filter(repo => repo.toLowerCase() !== missingBootRepository?.toLowerCase())
+    .map(repo => `- [${repo}](/${repo.toLowerCase()}/)`)
   // The signup onboarding owns the transcript until its stage is done (state/Signup.ts).
   // A repository URL is a page about that repository; the signup meets the landing entry, or resumes wherever its row is.
   const signingUp = githubIdentity && (session.signup !== undefined || controller.repositoryApp === null) && signupOpening(session.signup, identity?.state, identity?.accountOwnerLogin) !== false
@@ -275,8 +277,8 @@ function AppContent() {
         role: "smithers",
         text: missingBootRepository === null
           ? "This is the Smithers web app. Sign in with GitHub to open one of your repositories and read its files here."
-          : `${missingBootRepository} isn't on Smithers yet. Sign in with GitHub to open your own repositories, or pick one below.\n\n${
-            AVAILABLE_REPOS.map((repo) => `- [${repo.name}](/${repo.name.toLowerCase()}/)`).join("\n")
+          : `${missingBootRepository} isn't on Smithers yet. Sign in with GitHub to open your own repositories${
+            publicRepositoryLinks.length === 0 ? "." : `, or pick one below.\n\n${publicRepositoryLinks.join("\n")}`
           }`,
         status: "complete",
         action: { flow: "auth.sign-in", label: "Sign in with GitHub" },

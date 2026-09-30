@@ -71,7 +71,7 @@ You can register one repository at a time.
 # Quickstart
 https://smithers.sh/docs/quickstart/
 
-Open [Smithers](https://smithers.sh/smithersai/smithers) in your browser. You do not need the CLI to use the app. Available actions depend on sign-in, repository permissions, and the services enabled by your host.
+Open [Smithers](https://smithers.sh/?tutorial) in your browser. You do not need the CLI to use the app. Available actions depend on sign-in, repository permissions, and the services enabled by your host.
 
 ## 1. Connect your account
 

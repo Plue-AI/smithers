@@ -20,6 +20,28 @@ For the alpha, prioritize maintainers and small teams handling real repositories
 
 The primary quality question is **“Did the maintainer have less work afterward?”** A supported duplicate decision, reproducible failure, precise question, useful review, validated feature, or completed chore counts. More agent messages, generated plans, or runs do not establish value.
 
+### Current product focus, 2026-09-29
+
+Execution priorities selected under Will's delegated product goal: build something
+people love before optimizing revenue.
+
+The next product milestone is one complete maintainer loop: approve an issue,
+receive a tested and reviewed pull request, inspect the evidence, and merge it.
+The GUI and TUI must make that same loop understandable, keep work recoverable,
+and show what actually finished. First use must reach useful work through a
+working entry, with a completion receipt a maintainer can inspect.
+
+Prioritize activation, this complete loop, and repeat use over expanding the
+catalog or adding product surfaces. Validate with Smithers maintaining itself,
+then a small group of real maintainers. The product evidence is an accepted
+result and a voluntarily requested second job in the same repository. Record
+time to first useful result and where a person had to intervene. Collect these
+measurements with real users.
+
+The [product audit](implementation/product-audit-20260929.md) records observed
+GUI/TUI behavior, the immediate repair, and existing issues owning the remaining
+work. The complete loop remains tracked in [#1780](https://github.com/smithersai/smithers/issues/1780).
+
 ## Decision record
 
 The following are user decisions, not implementation defaults:

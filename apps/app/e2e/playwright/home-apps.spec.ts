@@ -27,6 +27,7 @@ const landing = { number: 70, title: "Make the help link visible", state: "open"
 
 /** The homepage, the open issues and pull requests the pickers read, and nothing invented. */
 const installHome = async (page: Page) => {
+  await page.route(url => url.pathname === `/api/repos/${repo}`, route => route.fulfill({ json: { full_name: repo } }))
   await page.route(url => url.pathname === `/api/repos/${repo}/home`, route => route.fulfill({ json: home }))
   await page.route(url => url.pathname === `/api/repos/${repo}/issues`, route => route.fulfill({ json: [
     { number: 42, title: "Footer help link is hard to find", state: "open", author: { login: "ada" }, updated_at: "2026-09-26T00:00:00Z", labels: [] }
@@ -186,7 +187,16 @@ test("a refused launch stays visible on the run card and the toast, and the home
   await expect(page.locator('[data-toast-status="running"]').filter({ hasText: "pr-triage" })).toBeVisible()
   refusal.release()
   await expect(page.locator('[data-toast-status="failed"]').filter({ hasText: "pr-triage" })).toBeVisible()
-  await expect(page.locator('[data-kind="run-trace"]').getByRole("alert")).toHaveText("Provider unavailable")
+  const failure = page.locator('[data-kind="run-trace"]').getByRole("alert")
+  await expect(failure).toHaveAttribute("data-fault", "infra")
+  await expect(failure).toHaveAttribute("data-stage", "launch")
+  await expect(failure.locator("p")).toHaveText("Smithers could not start this run. Not your fault.")
+  await expect(failure.getByRole("button", { name: "Retry", exact: true })).toBeEnabled()
+  const details = failure.locator("details")
+  await expect(details).not.toHaveAttribute("open", "")
+  await details.getByText("Details", { exact: true }).click()
+  await expect(details.locator("pre")).toContainText("provider_unavailable")
+  await expect(details.locator("pre")).toContainText("The workspace refused the call.")
   await expect(page.getByTestId("app-tile")).toHaveCount(4)
   const input = await openChat(page)
   await expect(input).toBeEditable()

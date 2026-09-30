@@ -1,6 +1,7 @@
 import { describe,expect,test } from "bun:test"
 import {
 beginRepositoryEntry,
+catalogRepositories,
 catalogRepository,
 openRequestedRepo,
 paramRepo,
@@ -63,6 +64,61 @@ const fixture = async () => {
     }
   }
 }
+
+describe("public catalog suggestions", () => {
+  test("publishes valid identities in catalog order, preserving spelling and deduplicating case", () => {
+    expect(catalogRepositories({ repos: [
+      null, { name: 123 }, { name: "../secret" }, { name: "owner/." },
+      { name: "owner/repo/extra" }, { name: "owner/<script>" },
+      { name: "Live/Mirror", summary: "  A public mirror.  " },
+      { name: "live/mirror", summary: "duplicate" },
+      { name: "other/repo", summary: " " }
+    ] })).toEqual([
+      { id: "Live/Mirror", org: "Live", name: "Mirror", summary: "A public mirror." },
+      { id: "other/repo", org: "other", name: "repo" }
+    ])
+    for (const value of [undefined, null, [], {}, { repos: null }, { repos: "unavailable" }]) {
+      expect(catalogRepositories(value)).toEqual([])
+    }
+  })
+
+  test("a missing route retains only the current catalog's valid alternatives without selecting one", async () => {
+    const { store, controller } = await fixture()
+    try {
+      expect(await openRequestedRepo(controller, async () => jsonResponse({ repos: [
+        { name: "Live/Mirror" }, { name: "live/mirror" }, { name: "../secret" }
+      ] }), "smithersai/smithers")).toBe("smithersai/smithers is not in the public repository catalog.")
+      expect(store.session().repositoryEntry).toMatchObject({
+        repo: "smithersai/smithers", phase: "failed", failureKind: "not-public", publicRepositories: ["Live/Mirror"]
+      })
+      expect(store.session().activeRepoKey ?? null).toBeNull()
+      expect(store.collections.repositories.size).toBe(0)
+
+      await openRequestedRepo(controller, async () => jsonResponse({ repos: [] }), "smithersai/smithers")
+      expect(store.session().repositoryEntry?.publicRepositories).toEqual([])
+      await openRequestedRepo(controller, async () => jsonResponse({}, 503), "smithersai/smithers")
+      expect(store.session().repositoryEntry?.publicRepositories).toBeUndefined()
+    } finally { await store.dispose?.() }
+  })
+
+  test("an older catalog cannot replace the suggestions of a newer repository entry", async () => {
+    const { store, controller } = await fixture()
+    const oldCatalog = Promise.withResolvers<Response>()
+    const earlier = openRequestedRepo(controller, async () => oldCatalog.promise, "missing/old")
+    try {
+      await openRequestedRepo(controller, async () => jsonResponse({ repos: [{ name: "current/mirror" }] }), "missing/current")
+      const current = structuredClone(store.session().repositoryEntry)
+      oldCatalog.resolve(jsonResponse({ repos: [{ name: "retired/mirror" }] }))
+      await earlier
+      expect(store.session().repositoryEntry).toEqual(current)
+      expect(store.session().repositoryEntry?.publicRepositories).toEqual(["current/mirror"])
+    } finally {
+      oldCatalog.resolve(jsonResponse({ repos: [] }))
+      await earlier
+      await store.dispose?.()
+    }
+  })
+})
 
 describe("paramRepo", () => {
   test("reads an owner/name from the repo parameter", () => {
