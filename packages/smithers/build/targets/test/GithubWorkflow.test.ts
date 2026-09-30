@@ -653,7 +653,6 @@ describe("parseWorkflow", () => {
     const workflow = parseWorkflow(source)
     expect(workflow.name).toBe("CI")
     expect(workflow.jobs.map((job) => job.id)).toEqual([
-      "cache-publish",
       "test",
       "scripts",
       "docs",

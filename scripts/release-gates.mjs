@@ -167,12 +167,10 @@ export const releaseGateSetForHost = (host = process) => {
  * proves each is still a ci.yml gate, that the inventory does not run it (or
  * the reason would be false), and that every other CI gate is run by an
  * inventory gate. A job with no entry is mirrored whole: `test`, `scripts`, `docs`, `e2e-faults`
- * and `wasm-repro` step for step; `cache-publish` through the Workspace
- * targets gate it repeats; `browser` through `//scripts/...`, which selects
+ * and `wasm-repro` step for step; `browser` through `//scripts/...`, which selects
  * `//scripts:webBundleContract`, explicitly pinned in ciCommands. Even omitted
  * jobs enumerate today's commands so future additions cannot hide behind a
- * whole-job waiver. `push` is an `on` trigger, not a job;
- * `cache-publish` is the additional job enabled for pushes to main.
+ * whole-job waiver. `push` is an `on` trigger, not a job.
  *
  * @type {readonly ReleaseGateExclusion[]}
  */

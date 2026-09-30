@@ -95,7 +95,7 @@ describe("the CLI remote cache against the Worker", () => {
     const warnings: Array<string> = []
     const result = resultFor("c".repeat(64))
 
-    // The cache-publish job: both credentials, SMITHERS_CACHE_NAMESPACE unset.
+    // A publishing job: both credentials, SMITHERS_CACHE_NAMESPACE unset.
     const publisher = await openCache({
       workspaceRoot: root,
       endpoint,

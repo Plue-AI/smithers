@@ -450,8 +450,6 @@ const ci = Smithers.GithubCiGen({
   featured: true,
   cacheUrlSecret: cacheUrl,
   cacheTokenSecret: cacheToken,
-  cacheWriteTokenSecret: cacheWriteToken,
-  cacheWriteEnvironment: "cache-publish",
   workflowDispatch: false,
   // Targets already red on main, each with an owner and an expiry. A step
   // fails only on a red target this list does not name, so a new regression
@@ -480,27 +478,6 @@ const ci = Smithers.GithubCiGen({
     "rust-ffi"
   ],
   jobs: [
-    {
-      id: "cache-publish",
-      name: "Publish reviewed workspace results to the cache",
-      runsOn: ubuntu,
-      timeoutMinutes: 120,
-      publishesToCache: true,
-      toolchain: Smithers.CiToolchain.Needs({
-        cargoBinaries: nativeFilesystem,
-        runtimes: [node, bun],
-        jj,
-        ripgrep,
-        apt: bubblewrap,
-        go,
-        foundry,
-        postgres,
-        docker: dockerImageStore
-      }),
-      steps: [
-        { name: "Workspace targets", verb: Smithers.Verb.Ci, pattern: "//packages/...", parallelism: 2 }
-      ]
-    },
     {
       id: "test",
       name: "workspace graph (coverage gates enforced)",

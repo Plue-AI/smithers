@@ -79,11 +79,13 @@ publishing job would satisfy (its guard means GitHub skips it on every pull
 request, so it proves nothing).
 
 The root `PACKAGE.ts` declares `SMITHERS_CACHE_READ_TOKEN` and
-`SMITHERS_CACHE_WRITE_TOKEN`. Every target step receives the read credential;
-only `cache-publish`, guarded to pushes on `main` and bound to the
-`cache-publish` environment (`cacheWriteEnvironment`), receives the write
-credential. That job runs the workspace package CI targets. The required PR
-jobs remain unconditional. Release gates receive only the read credential.
+`SMITHERS_CACHE_WRITE_TOKEN`. Every target step receives the read credential.
+No job publishes today: the `cache-publish` job was removed (#2254) because no
+result is shareable while every target runs unsandboxed. To restore it, sandbox
+the CI targets, then re-add `cacheWriteTokenSecret`, `cacheWriteEnvironment:
+"cache-publish"` and a `publishesToCache` job running `//packages/...` to the
+`ci` declaration in `PACKAGE.ts`. The required PR jobs remain unconditional.
+Release gates receive only the read credential.
 
 The existing `.smithers/WORKSPACE.ts` declares `cache.remote` with those same
 read and write names. This declaration is necessary: with only an endpoint
@@ -140,7 +142,7 @@ database and R2 bucket, so step 4 below has nothing left to rotate.
 
 The target cache publishes only results a confined run produced. This
 repository's `.smithers/WORKSPACE.ts` declares `S.Sandbox.None()` as the
-default sandbox, so its CI jobs, `cache-publish` included, read from the remote
+default sandbox, so its CI jobs read from the remote
 and publish nothing until target confinement is enabled there.
 
 As an interim guard, `GithubCiGen` emits this environment entry on target steps

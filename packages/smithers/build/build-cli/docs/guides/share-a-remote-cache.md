@@ -99,6 +99,19 @@ is an environment variable rather than a declaration.
 A job whose credential may not publish still reads everything. A refused
 publication stops publication only; it never fails the run.
 
+## Decide whether to publish from CI
+
+Publishing pays only when results are shareable. A result is shared only when a
+confined run produced it, so a workspace whose default sandbox is
+`S.Sandbox.None()` publishes nothing, and the runner warns once that
+publication was skipped. Most targets (formatters, typecheck, test suites) are
+not cacheable at all, so a remote saves little on them.
+
+Smithers' own CI reads the remote and has no publishing job for that reason.
+Restore one only after the CI targets run sandboxed and a dry run shows
+publications: declare `publishesToCache` on a trunk-only job and pair it with
+the write credential and environment described above.
+
 ## Tell whether it is working
 
 The transport reads through HTTP `/ac`. A local hit avoids the network, a

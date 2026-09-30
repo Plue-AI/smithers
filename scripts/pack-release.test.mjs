@@ -268,9 +268,7 @@ test("every gate in ci.yml also runs in release.yml", () => {
 
   // The roster is pinned so a new CI job forces a decision here instead of
   // silently landing outside the release's proof. The jobs release.yml
-  // does not mirror: `cache-publish` re-runs `ci '//packages/...'` on main
-  // pushes only to publish its results to the remote cache, and `test`
-  // already carries that gate; `browser` runs `//scripts:webBundleContract`, which
+  // does not mirror: `browser` runs `//scripts:webBundleContract`, which
   // `//scripts/...` already covers; `packages` runs `test '//packages/...'`,
   // which `ci '//packages/...'` already covers; `apps-e2e` needs the runner's
   // Chrome; the native Rust crate remains in `rust`, while the shipped FFI
@@ -278,7 +276,6 @@ test("every gate in ci.yml also runs in release.yml", () => {
   // committed artifact is rebuilt and byte-compared before packing.
   const jobs = Object.keys(parse(ci).jobs)
   assert.deepEqual(jobs, [
-    "cache-publish",
     "test",
     "scripts",
     "docs",

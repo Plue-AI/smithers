@@ -38,11 +38,11 @@ describe("ci conformance", () => {
     ]
     const owners = commands.map((command) => {
       const matches = Object.entries(ci.jobs).flatMap(([id, job]) =>
-        id === "cache-publish" ? [] : job.steps
+        job.steps
           .filter((step) => step.run?.startsWith(command))
           .map((step) => ({ id, job, step }))
       )
-      assert.equal(matches.length, 1, `${command} must run exactly once outside the publisher`)
+      assert.equal(matches.length, 1, `${command} must run exactly once`)
       const { id, job, step } = matches[0]!
       assert.equal(job["runs-on"], "ubuntu-latest")
       assert.equal(job.needs, undefined, `${id} must not wait behind another gate`)
@@ -68,21 +68,14 @@ describe("ci conformance", () => {
   it("keeps cache write credentials out of every pull-request job", () => {
     const ci = readCi()
     assert.doesNotMatch(JSON.stringify(ci), /secrets\.SMITHERS_CACHE_TOKEN\b/)
-    const publishers = Object.entries(ci.jobs).filter(([, job]) =>
-      JSON.stringify(job).includes("secrets.SMITHERS_CACHE_WRITE_TOKEN"))
-    assert.equal(publishers.length, 1)
-    assert.equal(publishers[0]![0], "cache-publish")
-    assert.equal(publishers[0]![1].if, "${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}")
-    // The guard only decides whether the job starts. GitHub withholds an
-    // environment secret from any ref the environment's branch policy does
-    // not admit, so an edited workflow on a branch cannot read the credential.
-    assert.equal(publishers[0]![1].environment, "cache-publish")
-    for (const [id, job] of Object.entries(ci.jobs)) {
+    // No job publishes: every build target runs unsandboxed, so no result is
+    // shareable (#2254). Re-enabling needs a `publishesToCache` job.
+    assert.doesNotMatch(JSON.stringify(ci), /SMITHERS_CACHE_WRITE_TOKEN/)
+    assert.equal(Object.keys(ci.jobs).includes("cache-publish"), false)
+    for (const job of Object.values(ci.jobs)) {
       for (const step of job.steps) {
         if (!step.run?.startsWith("pnpm exec smthrs")) continue
         assert.equal(step.env?.SMITHERS_CACHE_READ_TOKEN, "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}")
-        if (id === "cache-publish") continue
-        assert.doesNotMatch(JSON.stringify(step), /SMITHERS_CACHE_WRITE_TOKEN|SMITHERS_CACHE_TOKEN/)
         assert.equal(step.env?.SMITHERS_CACHE_NAMESPACE, "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}")
       }
     }
@@ -410,9 +403,7 @@ describe("ci conformance", () => {
     assert.deepEqual(ci.on.push, { branches: ["main"] })
     assert.ok(Object.hasOwn(ci.on, "pull_request"))
     for (const [id, job] of Object.entries(ci.jobs)) {
-      assert.equal(job.if, id === "cache-publish"
-        ? "${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}"
-        : undefined)
+      assert.equal(job.if, undefined, `${id} must run on pushes and pull requests`)
       for (const step of job.steps) {
         const artifact = /^(?:Collect|Upload) (?:ci-test-tier-evidence|apps-e2e-artifacts)$/.test(step.name ?? "")
         // A gate runs after an earlier red gate, never after failed setup (#2071).

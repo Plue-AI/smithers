@@ -256,7 +256,7 @@ test("exception and exclusion drift checks use literal tokens and reject dynamic
 })
 
 /** Pin every job so a new one forces a release decision. `on.push` is a trigger, not a job. */
-const ciJobs = ["cache-publish", "test", "scripts", "docs", "apps-e2e", "rust", "rust-ffi", "wasm-repro", "e2e-faults", "browser", "packages", "go-backend"]
+const ciJobs = ["test", "scripts", "docs", "apps-e2e", "rust", "rust-ffi", "wasm-repro", "e2e-faults", "browser", "packages", "go-backend"]
 
 /** A copy of the release workflow with one more gate step ahead of the build. */
 const withUnlistedStep = (source, name, command) => {
@@ -437,8 +437,7 @@ test("flow-only gates are the root flows' own targets, which no CI job runs", ()
 test("the release proves every CI gate the exclusions do not name, and every exclusion still describes ci.yml", () => {
   // Release is a superset of CI: each ci.yml job is mirrored gate by gate,
   // covered by a recursive inventory selection, or named in the exclusions
-  // with a reason. `cache-publish` and `browser` need no entry: their gates
-  // are the Workspace targets gate and a `//scripts/...` member.
+  // with a reason. `browser` needs no entry: its gate is a `//scripts/...` member.
   assert.deepEqual(workflowJobs(ci), ciJobs)
   assert.deepEqual(ciGatesMissingFromInventory(releaseGates, ci, releaseGateExclusions), [], "these CI gates run in neither the release nor the exclusions")
   assert.deepEqual(staleExclusions(releaseGates, ci, releaseGateExclusions), [])
@@ -470,8 +469,8 @@ test("a CI gate added outside the exclusions is reported, and an exclusion that 
   // Dropping an inventory gate a mirrored CI job carries is a CI gap too.
   const mutated = releaseGates.filter((gate) => gate.target !== "//crates/flows-jj:buildScript")
   assert.deepEqual(ciGatesMissingFromInventory(mutated, ci, releaseGateExclusions).map((step) => step.command), ["pnpm exec smthrs test '//crates/flows-jj:buildScript' --verbose"])
-  assert.deepEqual(staleExclusions(releaseGates, ci, [{ job: "cache-publish", reason: "stale" }]), [
-    "cache-publish excludes pnpm exec smthrs ci '//packages/...' --jobs 2 --verbose, which the inventory runs"
+  assert.deepEqual(staleExclusions(releaseGates, ci, [{ job: "test", commands: ["pnpm exec smthrs ci '//packages/...' --jobs 2 --verbose"], reason: "stale" }]), [
+    "test excludes pnpm exec smthrs ci '//packages/...' --jobs 2 --verbose, which the inventory runs"
   ])
   assert.deepEqual(staleExclusions(releaseGates, ci, [{ job: "rust", reason: "whole job" }]), [
     "rust excludes pnpm exec smthrs test '//scripts:thirdPartyNotices' --verbose, which the inventory runs"
