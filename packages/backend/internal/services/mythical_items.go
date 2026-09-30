@@ -97,9 +97,14 @@ type mythicalLauncher interface {
 // unbound workspace; Delete of an absent workspace succeeds. Owned reports a
 // live workspace of the user's in the repository.
 type mythicalLanes interface {
-	// Create records the workspace, calls bind with its ID, and provisions it
-	// only after bind succeeds; a failed bind deletes the record.
-	Create(ctx context.Context, repository db.Repository, owner string, actorUserID int64, name string, bind func(workspaceID string) error) (string, error)
+	// Create records the workspace on the placement's machine, calls bind
+	// with its ID, and provisions it only after bind succeeds; a failed bind
+	// deletes the record.
+	Create(ctx context.Context, repository db.Repository, owner string, actorUserID int64, name string, placement MythicalPlacement, bind func(workspaceID string) error) (string, error)
+	// Offer is the machine a lane boots on (mythical_placement.go).
+	Offer(ctx context.Context, repositoryID int64) (mythicalMachineOffer, error)
+	// Placed reports whether a lane workspace runs on the placement's machine.
+	Placed(ctx context.Context, workspaceID string, placement MythicalPlacement) (bool, error)
 	Delete(ctx context.Context, repositoryID, actorUserID int64, workspaceID string) error
 	Owned(ctx context.Context, repositoryID, userID int64, workspaceID string) (bool, error)
 	// NarrowOutsiderEgress narrows a marked lane's running box
@@ -196,7 +201,7 @@ func (s *MythicalService) ObserveIssue(ctx context.Context, repositoryID int64, 
 			checks.AutoTodo = applied.AutoTodo
 		}
 		if applied.FiledBy != "" {
-			checks.Filed = digest
+			checks.Filed, checks.FiledRequest = digest, applied.FiledRequest
 		}
 		// Text a maintainer person filed through Smithers (FileTodo) is
 		// theirs while it stands exactly as filed; GitHub names the App.
@@ -1457,7 +1462,7 @@ func (st *mythicalItemStep) commit(ctx context.Context, item db.MythicalItem, ph
 // the series is used, so a swept lane never strands its item. The binding is
 // recorded before the workspace is provisioned, so only a crash between the
 // two inserts can leave an unbound, unprovisioned workspace row.
-func (st *mythicalItemStep) lane(ctx context.Context, item db.MythicalItem, name string) (string, error) {
+func (st *mythicalItemStep) lane(ctx context.Context, item db.MythicalItem, name string, placement MythicalPlacement) (string, error) {
 	s, r := st.s, st.r
 	q := s.queries()
 	for k := 0; k < 16; k++ {
@@ -1466,6 +1471,20 @@ func (st *mythicalItemStep) lane(ctx context.Context, item db.MythicalItem, name
 			candidate = fmt.Sprintf("%s r%d", name, k)
 		}
 		bound, err := q.GetMythicalLaneByName(ctx, item.ID, candidate)
+		if err == nil && !bound.RetiredAt.Valid {
+			// A lane bound by an attempt whose launch failed is recovered
+			// only while it runs on this placement's machine.
+			matches, placedErr := s.lanes.Placed(ctx, bound.WorkspaceID, placement)
+			if placedErr != nil {
+				return "", placedErr
+			}
+			if !matches {
+				if err := s.retireLane(ctx, r, bound.WorkspaceID); err != nil {
+					return "", err
+				}
+				continue
+			}
+		}
 		switch {
 		case err == nil && bound.RetiredAt.Valid:
 			continue
@@ -1486,7 +1505,7 @@ func (st *mythicalItemStep) lane(ctx context.Context, item db.MythicalItem, name
 			return "", err
 		}
 		var winner db.MythicalLane
-		workspaceID, err := s.lanes.Create(ctx, repository, owner, r.row.ActorUserID.Int64, candidate, func(workspaceID string) error {
+		workspaceID, err := s.lanes.Create(ctx, repository, owner, r.row.ActorUserID.Int64, candidate, placement, func(workspaceID string) error {
 			// An outsider's lane is marked before it is provisioned: its box
 			// boots with GitHub conversation withheld, and its credentials
 			// read no issue or conversation (middleware.ConversationWithheld).
@@ -1584,6 +1603,15 @@ func (st *mythicalItemStep) start(ctx context.Context, item db.MythicalItem) (*d
 	if err != nil {
 		return mythicalInfraOutage(item, "launch", "the lane could not be read: "+err.Error(), st.now), false, nil
 	}
+	// A reused lane keeps the machine it was placed on; a new one is placed
+	// before the previous lane is retired, so a refusal changes nothing else.
+	var placement MythicalPlacement
+	if !reuse {
+		var refused *db.MythicalItem
+		if placement, refused = st.place(ctx, item); refused != nil {
+			return refused, false, nil
+		}
+	}
 	if item.WorkspaceID != "" && !reuse {
 		// The previous attempt's lane is retired before a new one opens.
 		if err := s.retireLane(ctx, r, item.WorkspaceID); err != nil {
@@ -1597,10 +1625,13 @@ func (st *mythicalItemStep) start(ctx context.Context, item db.MythicalItem) (*d
 	next.CandidateBase, next.CandidateHead, next.CandidateVerified = "", "", false
 	workspaceID := item.WorkspaceID
 	if !reuse {
-		workspaceID, err = st.lane(ctx, item, fmt.Sprintf("mythical #%d attempt %d g%d", item.IssueNumber.Int64, next.Attempt, next.Generation))
+		workspaceID, err = st.lane(ctx, item, fmt.Sprintf("mythical #%d attempt %d g%d", item.IssueNumber.Int64, next.Attempt, next.Generation), placement)
 		if err != nil {
 			return mythicalInfraOutage(item, "launch", "no lane workspace: "+err.Error(), st.now), false, nil
 		}
+		placed := mythicalChecksOf(next)
+		placed.Placement = &placement
+		next.Checks = placed.encode()
 	}
 	next.WorkspaceID, next.BaseCommit = workspaceID, r.row.TipCommit
 	next.Lane = pgtype.Int4{Int32: st.freeLane(item.ID), Valid: true}
@@ -1813,9 +1844,16 @@ func (st *mythicalItemStep) integrate(ctx context.Context, item db.MythicalItem)
 	}
 	if workspaceID == "" {
 		// A proposal refreshed after its lane was retired verifies on a fresh one.
-		if workspaceID, err = st.lane(ctx, item, fmt.Sprintf("mythical #%d verify %d", item.IssueNumber.Int64, item.Generation+1)); err != nil {
+		placement, refused := st.place(ctx, item)
+		if refused != nil {
+			return refused, false, nil
+		}
+		if workspaceID, err = st.lane(ctx, item, fmt.Sprintf("mythical #%d verify %d", item.IssueNumber.Int64, item.Generation+1), placement); err != nil {
 			return mythicalInfraOutage(item, "launch", "no lane workspace to verify on: "+err.Error(), st.now), false, nil
 		}
+		placed := mythicalChecksOf(next)
+		placed.Placement = &placement
+		next.Checks = placed.encode()
 		next.Lane = pgtype.Int4{Int32: st.freeLane(item.ID), Valid: true}
 		next.LaneStartedAt = pgtype.Timestamptz{Time: st.now, Valid: true}
 	}
@@ -2288,13 +2326,18 @@ func (st *mythicalItemStep) review(ctx context.Context, item db.MythicalItem) (*
 	// so a file the agent left there would reach the reviewer unframed. It
 	// runs on a fresh lane of the stack's own bookmark, which holds only
 	// landed code; the change arrives only as the framed diff.
+	placement, refused := st.place(ctx, item)
+	if refused != nil {
+		return refused, false, nil
+	}
+	checks.Placement = &placement
 	if next.WorkspaceID != "" {
 		if err := s.retireLane(ctx, r, next.WorkspaceID); err != nil {
 			return mythicalInfraOutage(item, "launch", "the coding lane could not be retired before the review: "+err.Error(), st.now), false, nil
 		}
 		next.WorkspaceID, next.Lane, next.LaneStartedAt = "", pgtype.Int4{}, pgtype.Timestamptz{}
 	}
-	workspaceID, err := st.lane(ctx, next, fmt.Sprintf("mythical #%d review g%d", item.IssueNumber.Int64, item.Generation+1))
+	workspaceID, err := st.lane(ctx, next, fmt.Sprintf("mythical #%d review g%d", item.IssueNumber.Int64, item.Generation+1), placement)
 	if err != nil {
 		return mythicalInfraOutage(item, "launch", "no lane workspace to review on: "+err.Error(), st.now), false, nil
 	}
@@ -2525,11 +2568,11 @@ func NewWorkspaceMythicalLanes(workspaces *WorkspaceService) *workspaceMythicalL
 	return &workspaceMythicalLanes{workspaces: workspaces}
 }
 
-func (l *workspaceMythicalLanes) Create(ctx context.Context, repository db.Repository, owner string, actorUserID int64, name string, bind func(string) error) (string, error) {
+func (l *workspaceMythicalLanes) Create(ctx context.Context, repository db.Repository, owner string, actorUserID int64, name string, placement MythicalPlacement, bind func(string) error) (string, error) {
 	if l == nil || l.workspaces == nil || l.workspaces.q == nil {
 		return "", pkgerrors.Internal("workspaces are unavailable")
 	}
-	workspace, err := l.workspaces.createDerivedWorkspaceForBookmark(ctx, repository.ID, actorUserID, name, MythicalBookmark, workspaceCreateMetadata{})
+	workspace, err := l.workspaces.createDerivedWorkspaceForBookmark(ctx, repository.ID, actorUserID, name, MythicalBookmark, placedWorkspaceMetadata(placement))
 	if err != nil {
 		return "", err
 	}
@@ -3064,9 +3107,14 @@ type mythicalChecks struct {
 	// Route is the route Jev gave the TODO (factory/Todo) on its latest
 	// request, from the request's result or failure; each replan asks again.
 	Route string `json:"route,omitempty"`
+	// Placement is the machine the item's latest lane was placed on, or the
+	// typed refusal it stopped at (mythical_placement.go).
+	Placement *MythicalPlacement `json:"placement,omitempty"`
 	// Filed is the digest of the text a maintainer person filed through
 	// Smithers (FileTodo): that text, and only that text, is theirs.
-	Filed string `json:"filed,omitempty"`
+	// FiledRequest is that filing's request id, so a repeat answers it.
+	Filed        string `json:"filed,omitempty"`
+	FiledRequest string `json:"filedRequest,omitempty"`
 	// Receipts are the check receipts of the run that last measured the
 	// candidate (mythicalRunReceipts).
 	Receipts *mythicalReceipts `json:"receipts,omitempty"`

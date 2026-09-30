@@ -91,12 +91,17 @@ type MythicalItemView struct {
 	// ReviewHeld is whether a proposed TODO waits on a review of its current
 	// head that did not finish; a person may retry it (RetryItem).
 	ReviewHeld bool `json:"reviewHeld,omitempty"`
+	// Request is the request id of the Smithers filing that made this TODO.
+	Request string `json:"request,omitempty"`
 	// Failure is why the item stopped or retries, typed; Reason is then its
 	// sentence (mythicalFailureOf), never an error's text.
 	Failure *MythicalFailureView `json:"failure,omitempty"`
 	// CostNanos is the settled platform-key model cost of the item's lanes,
 	// in USD nanos; pending calls and pooled subscription calls count for none.
-	CostNanos   int64                    `json:"costNanos,omitempty"`
+	CostNanos int64 `json:"costNanos,omitempty"`
+	// Placement is the machine the item's latest lane was placed on, or the
+	// typed refusal it stopped at.
+	Placement   *MythicalPlacement       `json:"placement,omitempty"`
 	PullRequest *MythicalPullRequestView `json:"pullRequest,omitempty"`
 	DependsOn   []string                 `json:"dependsOn"`
 	UpdatedAt   string                   `json:"updatedAt"`
@@ -434,7 +439,9 @@ func mythicalItemView(item db.MythicalItem) MythicalItemView {
 	row := MythicalItemView{ID: uuidString(item.ID), State: item.State, Reason: item.Reason, Attempt: item.Attempt,
 		Runs: MythicalRunsView{Request: item.RequestRunID, Vibe: item.VibeRunID, Verify: item.VerifyRunID},
 		Plan: item.Plan, Integration: item.Integration, Checks: mythicalChecksView(item), Todo: mythicalTodoView(item), Route: mythicalRouteView(item),
-		HumanEdited: len(mythicalDrivers(item.Checks)) > 0, ReviewHeld: item.Source == "issue" && mythicalReviewHeld(item), DependsOn: []string{}}
+		Placement:   mythicalChecksOf(item).Placement,
+		HumanEdited: len(mythicalDrivers(item.Checks)) > 0, ReviewHeld: item.Source == "issue" && mythicalReviewHeld(item), DependsOn: []string{},
+		Request: mythicalChecksOf(item).FiledRequest}
 	if failure, sentence := mythicalFailureOf(item); failure != nil {
 		row.Failure, row.Reason = failure, sentence
 	}

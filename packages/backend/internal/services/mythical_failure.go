@@ -125,6 +125,8 @@ func (f mythicalFault) sentence() string {
 			sentence = "It reached its run limit"
 		case f.Tag == "protected_paths":
 			sentence = "It changes protected paths"
+		case f.Tag == "placement":
+			sentence = "No machine matches what this repository declares"
 		case f.Class == "bug":
 			sentence = "Smithers hit a defect"
 		case f.Class == "user":

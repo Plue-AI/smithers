@@ -311,9 +311,14 @@ type fakeMythicalLanes struct {
 	// provision observes a bound lane where the real lanes start its box.
 	provision func(id string)
 	narrowed  []string
+	// offer is the lane machine Offer answers (a 2 vCPU, 4096 MiB container
+	// machine when unset), and placements the placement of every lane created.
+	offer      *mythicalMachineOffer
+	offerErr   error
+	placements []MythicalPlacement
 }
 
-func (l *fakeMythicalLanes) Create(_ context.Context, _ db.Repository, _ string, _ int64, name string, bind func(string) error) (string, error) {
+func (l *fakeMythicalLanes) Create(_ context.Context, _ db.Repository, _ string, _ int64, name string, placement MythicalPlacement, bind func(string) error) (string, error) {
 	id := uuid.NewString()
 	if err := bind(id); err != nil {
 		return "", err
@@ -324,7 +329,35 @@ func (l *fakeMythicalLanes) Create(_ context.Context, _ db.Repository, _ string,
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.created = append(l.created, id)
+	l.placements = append(l.placements, placement)
 	return id, nil
+}
+
+// Placed compares a lane's recorded placement the way the real lanes compare
+// its workspace: kind, and closure for a NixOS lane.
+func (l *fakeMythicalLanes) Placed(_ context.Context, id string, placement MythicalPlacement) (bool, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for i, created := range l.created {
+		if created == id {
+			was := l.placements[i]
+			kind := normalizeWorkspaceKind(placement.Kind)
+			return normalizeWorkspaceKind(was.Kind) == kind && (kind != "vm" || was.ClosureHash == placement.ClosureHash), nil
+		}
+	}
+	return true, nil
+}
+
+func (l *fakeMythicalLanes) Offer(context.Context, int64) (mythicalMachineOffer, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.offerErr != nil {
+		return mythicalMachineOffer{}, l.offerErr
+	}
+	if l.offer != nil {
+		return *l.offer, nil
+	}
+	return mythicalMachineOffer{VCPUs: 2, MemoryMiB: 4096}, nil
 }
 
 func (l *fakeMythicalLanes) NarrowOutsiderEgress(_ context.Context, id string) error {

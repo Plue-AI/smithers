@@ -151,7 +151,7 @@ func TestMythicalChecksFailureIsTyped(t *testing.T) {
 // should read.
 type leakyLanes struct{ *fakeMythicalLanes }
 
-func (leakyLanes) Create(context.Context, db.Repository, string, int64, string, func(string) error) (string, error) {
+func (leakyLanes) Create(context.Context, db.Repository, string, int64, string, MythicalPlacement, func(string) error) (string, error) {
 	return "", errors.New("dial tcp 10.0.0.7:5432: password authentication failed for user admin")
 }
 

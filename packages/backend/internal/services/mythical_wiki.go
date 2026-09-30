@@ -269,7 +269,9 @@ func (s *MythicalService) launchWiki(ctx context.Context, r *mythicalRun, row db
 		s.wakeWikiAt(r.row.RepositoryID, next.NextAttemptAt.Time)
 		return s.saveWiki(ctx, r, next)
 	}
-	workspaceID, err := s.lanes.Create(ctx, repository, owner, r.row.ActorUserID.Int64, fmt.Sprintf("mythical wiki g%d", saved.Generation),
+	// The wiki refresh reads and writes pages only: it runs on the
+	// platform's default machine, never a TODO's placement.
+	workspaceID, err := s.lanes.Create(ctx, repository, owner, r.row.ActorUserID.Int64, fmt.Sprintf("mythical wiki g%d", saved.Generation), MythicalPlacement{},
 		func(workspaceID string) error {
 			bound, err := q.BindMythicalWikiWorkspace(ctx, r.row.RepositoryID, saved.Generation, workspaceID)
 			if err == nil && !bound {

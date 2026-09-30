@@ -670,6 +670,10 @@ func (h policyHost) ListBookmarks(context.Context, string, string, string, int) 
 }
 
 func (h policyHost) GetFileAtChange(_ context.Context, _, _, _, path string) (repohost.FileContent, error) {
+	if path == defaultWorkspaceEnvironmentSource {
+		// The committed main declares no NixOS environment.
+		return repohost.FileContent{}, &repohost.StatusError{StatusCode: 404}
+	}
 	if path != factoryProjectionPath {
 		return repohost.FileContent{}, errors.New("unexpected path " + path)
 	}
@@ -1201,7 +1205,7 @@ func TestMythicalDeliveryLaunchesCountTowardTheBound(t *testing.T) {
 // failingLanes cannot provision a lane.
 type failingLanes struct{ *fakeMythicalLanes }
 
-func (failingLanes) Create(context.Context, db.Repository, string, int64, string, func(string) error) (string, error) {
+func (failingLanes) Create(context.Context, db.Repository, string, int64, string, MythicalPlacement, func(string) error) (string, error) {
 	return "", errors.New("provisioning is down")
 }
 

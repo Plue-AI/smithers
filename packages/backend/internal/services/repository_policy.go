@@ -125,17 +125,11 @@ func readRepositoryPolicy(ctx context.Context, host repositoryPolicyHost, owner,
 	if !found {
 		return factoryGitHubPolicy{}, nil
 	}
-	file, err := host.GetFileAtChange(ctx, owner, repo, commit, factoryProjectionPath)
-	if status, ok := repohost.IsStatusError(err); ok && status.StatusCode == 404 {
-		return factoryGitHubPolicy{}, nil
-	}
+	projection, _, err := readCommittedText(ctx, host, owner, repo, commit, factoryProjectionPath)
 	if err != nil {
-		return factoryGitHubPolicy{}, fmt.Errorf("read %s: %w", factoryProjectionPath, err)
+		return factoryGitHubPolicy{}, err
 	}
-	if file.TooLarge || file.Encoding == "base64" {
-		return factoryGitHubPolicy{}, errors.New(factoryProjectionPath + " is not readable text")
-	}
-	return parseFactoryGitHubPolicy([]byte(file.Content))
+	return parseFactoryGitHubPolicy([]byte(projection))
 }
 
 // bookmarkCommit is the commit a bookmark names on the repo host. A missing
