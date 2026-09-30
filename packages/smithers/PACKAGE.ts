@@ -42,7 +42,9 @@ const test = Smithers.Shell.Test({
     Smithers.file("vitest.config.ts"),
     Smithers.glob("//packages/repo-targets/test-utils/effect-property.*"),
     // `EvaluationCli.test.ts` lists the repository's shipped suites.
-    Smithers.glob("//evals/**/*.eval.ts")
+    Smithers.glob("//evals/**/*.eval.ts"),
+    // `ProductApi.test.ts` checks the generated client against the spec.
+    Smithers.file("//docs/api/openapi.yaml")
   ],
   timeout: "40m",
   hosts: ["linux"],

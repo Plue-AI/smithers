@@ -80,16 +80,9 @@ const lockfile = Smithers.Lockfile({
 const nodeModules = Smithers.Install({
   lockfilePath,
   lockfile,
+  // The workspace definition also keys the install on every patch file its
+  // patchedDependencies names, so no patch list is kept here.
   workspaceManifest: workspace,
-  patches: [
-    Smithers.file("patches/@alchemy.run__cloudflare-runtime@2.0.0-beta.76.patch"),
-    Smithers.file("patches/@distilled.cloud__aws@1.0.0-rc.8.patch"),
-    Smithers.file("patches/@distilled.cloud__axiom@1.0.0-rc.8.patch"),
-    Smithers.file("patches/@distilled.cloud__cloudflare@1.0.0-rc.8.patch"),
-    Smithers.file("patches/@distilled.cloud__core@1.0.0-rc.8.patch"),
-    Smithers.file("patches/@distilled.cloud__fly-io@1.0.0-rc.8.patch"),
-    Smithers.file("patches/@distilled.cloud__hetzner@1.0.0-rc.8.patch")
-  ],
   // The registry, and the Playwright browser builds (with their apt
   // dependencies) the prepared environment installs for the locked release.
   destinations: [
@@ -407,6 +400,15 @@ const openapiBundle = Smithers.Generate({
   script: Smithers.file("//scripts/openapi-bundle.mjs"),
   data: [Smithers.glob("//docs/api/openapi/*.yaml")],
   changes: ["docs/api/openapi.yaml"]
+})
+
+// The Go and TypeScript product API clients are generated from the bundle.
+// `run` regenerates both; `lint` fails when either is stale.
+const openapiClients = Smithers.Generate({
+  summary: "Generate the Go and TypeScript product API clients from docs/api/openapi.yaml and drift-check them.",
+  script: Smithers.file("//scripts/openapi-clients.mjs"),
+  data: [Smithers.file("//docs/api/openapi.yaml")],
+  changes: ["packages/backend/apiclient/client.gen.go", "packages/smithers/src/internal/backend/ProductApi.ts"]
 })
 
 const nativeFilesystem = [{
@@ -1259,6 +1261,7 @@ export const Package = Smithers.Package({
     lockfile,
     nodeModules,
     openapiBundle,
+    openapiClients,
     projectCopy,
     repoAbout,
     targetIndex,

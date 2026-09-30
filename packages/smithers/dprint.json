@@ -18,6 +18,7 @@
     "**/dist",
     "**/build",
     "**/coverage",
+    "src/internal/backend/ProductApi.ts",
     ".smithers",
     "docs",
     "agent",

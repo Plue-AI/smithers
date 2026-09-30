@@ -278,6 +278,19 @@ const openapiBundle = Smithers.NodeTest({
   deps: []
 })
 
+// The product API client generator: naming, schema mapping, refusals, the
+// --check drift report, and that the committed clients match the spec.
+const openapiClients = Smithers.NodeTest({
+  runner: Smithers.testRunner([Smithers.file("//scripts/openapi-clients.test.mjs")]),
+  srcs: [
+    ...sources,
+    Smithers.file("//docs/api/openapi.yaml"),
+    Smithers.file("//packages/backend/apiclient/client.gen.go"),
+    Smithers.file("//packages/smithers/src/internal/backend/ProductApi.ts")
+  ],
+  deps: []
+})
+
 const driftJob = Smithers.NodeTest({
   runner: Smithers.testRunner([Smithers.file("//scripts/ci/drift-job.test.mjs")]),
   srcs: [
@@ -825,6 +838,7 @@ export const Package = Smithers.Package({
     docsDrift,
     driftJob,
     openapiBundle,
+    openapiClients,
     nativeWindowsWorkflow,
     bunCoverage,
     commit,

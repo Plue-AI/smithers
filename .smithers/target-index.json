@@ -689,6 +689,37 @@
     }
   },
   {
+    "label": "//:openapiClients",
+    "package": "",
+    "name": "openapiClients",
+    "rule": "Generate",
+    "kinds": [
+      "run",
+      "lint"
+    ],
+    "summary": "Generate the Go and TypeScript product API clients from docs/api/openapi.yaml and drift-check them.",
+    "mode": "write",
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "scripts/openapi-clients.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "docs/api/openapi.yaml"
+      }
+    ],
+    "outputs": [
+      "packages/backend/apiclient/client.gen.go",
+      "packages/smithers/src/internal/backend/ProductApi.ts"
+    ],
+    "dependencies": [],
+    "source": {
+      "file": "PACKAGE.ts"
+    }
+  },
+  {
     "label": "//:projectCopy",
     "package": "",
     "name": "projectCopy",
@@ -52273,6 +52304,10 @@
         "kind": "glob",
         "pattern": "evals/**/*.eval.ts",
         "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "docs/api/openapi.yaml"
       }
     ],
     "outputs": [],
@@ -54414,6 +54449,54 @@
       {
         "kind": "file",
         "path": "docs/api/openapi.yaml"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:openapiClients",
+    "package": "scripts",
+    "name": "openapiClients",
+    "rule": "NodeTest",
+    "kinds": [
+      "test"
+    ],
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "scripts/openapi-clients.test.mjs"
+      },
+      {
+        "kind": "glob",
+        "pattern": "scripts/**/*.mjs",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "scripts/**/*.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "scripts/fixtures/**/*.json",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "docs/api/openapi.yaml"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/apiclient/client.gen.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/src/internal/backend/ProductApi.ts"
       }
     ],
     "outputs": [],
