@@ -95,12 +95,12 @@ const observe = (state: RoundState) =>
     // Accounts and live usage.
     const { accounts } = yield* Effect.promise(() => discoverAccounts())
     const previous = (state.readings as { readings?: Array<Reading> }).readings ?? []
-    // The usage endpoint rate-limits reads. An unavailable reading keeps the account's last good one,
-    // so a throttled read never takes a working login out of the fleet.
+    // Retain the last good usage as evidence, but preserve the current read failure.
+    // Stale usage must neither authorize launches nor prove current exhaustion.
     const readings = (yield* Effect.promise(() => readAccounts(accounts))).map((reading) => {
       if (reading.error?._tag !== "UsageUnavailable") return reading
       const last = previous.find((p) => p.account.id === reading.account.id && p.usage !== null && p.error === null)
-      return last === undefined ? reading : { ...last, account: reading.account }
+      return last === undefined ? reading : { ...reading, usage: last.usage }
     })
     const since = (state.readings as { at?: number }).at ?? now
     const rates = learnRates(
@@ -179,8 +179,17 @@ const refreshOwned = async (assignment: Assignment): Promise<boolean> => {
 
 const claim = (repo: string, n: number, by: string) =>
   run("node", [claimScript, "claim", `${repo}#${n}`, "--by", by]).then(() => true, () => false)
-const release = (repo: string, n: number, by: string, note: string) =>
-  run("node", [claimScript, "release", `${repo}#${n}`, "--by", by, "--note", note]).then(() => true, () => false)
+const release = async (repo: string, n: number, by: string, note: string): Promise<boolean> => {
+  try {
+    const { stdout } = await run("node", [claimScript, "check", `${repo}#${n}`, "--by", by])
+    const ownership = JSON.parse(stdout.trim()) as { mine?: boolean; holder?: { host?: string } }
+    if (ownership.mine !== true || ownership.holder?.host !== hostname()) return false
+    await run("node", [claimScript, "release", `${repo}#${n}`, "--by", by, "--note", note])
+    return true
+  } catch {
+    return false
+  }
+}
 
 const launch = (
   state: RoundState,
