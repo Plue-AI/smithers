@@ -86,8 +86,8 @@ it.effect("fails with SecretUnavailable when the table runs the action on the ca
     )
     // The defect crossed the caller's journal, so it is the recorded shape, not the class instance.
     expect(Exit.isFailure(exit) && Cause.squash(exit.cause)).toMatchObject({
-      name: new SecretUnavailable("DEPLOY_TOKEN").name,
-      message: new SecretUnavailable("DEPLOY_TOKEN").message
+      name: new SecretUnavailable({ env: "DEPLOY_TOKEN" }).name,
+      message: new SecretUnavailable({ env: "DEPLOY_TOKEN" }).message
     })
     expect(callerEndpoint.seen).toEqual([])
   }).pipe(Effect.scoped), 60_000)
