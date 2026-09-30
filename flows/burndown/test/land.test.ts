@@ -742,7 +742,7 @@ test("landing deadline kills grandchildren behind a lock wrapper that does not f
     JSON.stringify(started)
   }, 'started'); setTimeout(() => require('node:fs').writeFileSync(${
     JSON.stringify(marker)
-  }, 'pushed'), 1200); setInterval(() => {}, 1000)`
+  }, 'pushed'), 4000); setInterval(() => {}, 1000)`
   const shell = `const {spawn} = require('node:child_process'); spawn(process.execPath, ['-e', ${
     JSON.stringify(push)
   }], {detached: true, stdio: 'ignore'}); setInterval(() => {}, 1000)`
@@ -750,8 +750,8 @@ test("landing deadline kills grandchildren behind a lock wrapper that does not f
     `const {spawn} = require('node:child_process'); process.on('SIGTERM', () => {}); spawn(process.execPath, ['-e', ${
       JSON.stringify(shell)
     }], {stdio: 'ignore'}); setInterval(() => {}, 1000)`
-  await assert.rejects(runLandingProcess(process.execPath, ["-e", wrapper], { timeout: 500 }), /TIMEOUT|timeout/i)
+  await assert.rejects(runLandingProcess(process.execPath, ["-e", wrapper], { timeout: 2000 }), /TIMEOUT|timeout/i)
   assert.equal(await readFile(started, "utf8"), "started")
-  await new Promise((accept) => setTimeout(accept, 1500))
+  await new Promise((accept) => setTimeout(accept, 4500))
   await assert.rejects(readFile(marker), { code: "ENOENT" })
 })

@@ -1,7 +1,9 @@
 # Burndown queue contract
 
 The public flow accepts full READY assignment/result pairs for standalone-worker
-recovery through the existing merge queue. Never edit engine state by hand.
+recovery through the existing merge queue. A READY bundle belongs to one configured
+repository; reject inconsistent repository identities before admission. Never edit
+engine state by hand.
 READY and quarantined members retain assignment, result, and claim identity
 across rounds. Completion requires both queues to drain. Repair keeps the
 original claim owner and uses a new execution key for each attempt. Refresh

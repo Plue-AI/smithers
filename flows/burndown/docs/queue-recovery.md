@@ -3,7 +3,8 @@
 The `burndown` flow accepts an optional `ready` array of complete
 `{ assignment, result }` pairs using the schemas in `../schema.ts`. Supply the
 original assignment key and issue bundle, and a `ready` result containing the
-prepared commits in issue order. Start through the normal public flow entry;
+prepared commits in issue order. Every bundle member must name the assignment
+repository, which must be included in `repos`. Start through the normal public flow entry;
 it feeds those members into the existing merge queue. Claims must still belong
 to `burndown-<assignment.key>` on the queue host. This entry does not transfer
 claims or require editing the engine database.

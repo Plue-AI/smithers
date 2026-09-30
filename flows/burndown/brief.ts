@@ -25,7 +25,9 @@ export interface BriefOptions {
 export const brief = (
   { repo, lead, extras = [], others = [], workdir, execution = "local", tool = "codex", model, landing }: BriefOptions
 ): string => {
-  const author = tool === "claude" ? "Claude Opus <noreply@anthropic.com>" : "GPT-6.1 Sol <noreply@openai.com>"
+  const author = tool === "claude"
+    ? `Claude ${model === undefined || model.includes("opus") ? "Opus" : model} <noreply@anthropic.com>`
+    : `${model === undefined || model === "gpt-6.1-sol" ? "GPT-6.1 Sol" : model} <noreply@openai.com>`
   const validation = execution === "cloud"
     ? "Write behavioral regression tests and the minimal fix; guest suites are deferred to host queue CI. Do not run pnpm install, typecheck, lint or test suites in this VM. Never claim guest tests passed."
     : "Confirm the regression fails, then run relevant tests, typecheck and lint in the FOREGROUND. Run pnpm docs:sync and pass pnpm docs:check. For unrelated reds from another agent, retry once, prove the failing file is not yours, and retain that evidence."
@@ -39,7 +41,7 @@ export const brief = (
     : "If the issue asks for a decision, make it on Will's behalf: choose the simplest MVP option, state it in one strong sentence, record an issue comment starting `Decision (on Will's behalf):`, persist durable decisions in AGENTS.md, then build it. Never hedge or hand the decision back."
   const extra = extras.length === 0 ? "" : `
 EXTRA ISSUES IN THE SAME CODE: ${extras.map((issue) => `#${issue.n} (${issue.title})`).join(", ")}.
-Finish #${lead.n} first, then each extra in turn, one commit per issue. If an extra turns out hard, unrelated or blocked, comment why and release its claim with the exact --by value below; never let an extra delay or endanger the lead.`
+Finish #${lead.n} first, then each extra in turn, one commit per issue. If an extra turns out hard, unrelated or blocked, ${execution === "cloud" ? "report the reason and ask the launcher to release its claim" : "comment why and release its claim with the exact --by value below"}; never let an extra delay or endanger the lead.`
   return `YOU ARE ONE OF MANY AGENTS WORKING ON THIS REPOSITORY.
 WORKDIR: ${workdir}. Read its AGENTS.md and the nearest scoped AGENTS.md before touching files. No worktrees, no jj workspaces, no branches. Use jj only; git writes are disabled. Other agents may edit the checkout: preserve their hunks, re-read files before editing, and keep an rsync backup of your own paths.
 MODEL: You author with ${tool} ${model ?? (tool === "claude" ? "claude-opus-5-5" : "gpt-6.1-sol")}. Any delegated coding or bug-fix agent uses GPT-6.1 Sol.
@@ -80,14 +82,11 @@ ${
 ${
     execution === "cloud"
       ? `CLOUD WORKSPACE LIMITS: this VM has 1 CPU, 512 MB of memory and about 1.5 GB of free disk. It cannot run pnpm install, typecheck, lint or the test suites; do not try (the OOM kills your session and loses your work). Write the tests and the fix, review your diff by reading it, and commit. The merge queue on the launcher runs typecheck and tests before anything reaches main and relaunches you with the log if they fail.
-CLOUD VCS: this workspace is yours alone, so run jj directly with no lock script. For each issue: jj commit <your paths only> -m "<emoji conventional message>" (end the message with a blank line and Co-Authored-By: ${author}), then read its id with jj log -r @- --no-graph -T commit_id. Do not push, set bookmarks, create branches or rewrite earlier commits. Report each commit as READY <full 40-hex commit id> in issue order. The VCS section below describes local workers; its lock script and fetch steps do not apply here.\n`
+CLOUD VCS: this workspace is yours alone, so run jj directly with no lock script. For each issue: jj commit <your paths only> -m "<emoji conventional message>" (end the message with a blank line and Co-Authored-By: ${author}), then read its id with jj log -r @- --no-graph -T commit_id. Do not push, set bookmarks, create branches or rewrite earlier commits. Report each commit as READY <full 40-hex commit id> in issue order. READY <commit-id> is a prepared result; launcher Fable and host queue CI remain required.\n`
       : ""
-  }VCS: the agent does NOT push main; the merge queue lands. Prepare one commit per issue on top of ${
-    execution === "cloud" ? "the checked-out main revision" : "main@origin"
-  } in ${workdir}. All jj writes for preparing the bundle run in one executable script through python3 ${lock} ${name} /absolute/path/to/preparation.sh. Inside the lock: jj st, verify your files and other agents' changes are intact, ${
-    execution === "cloud" ? "" : "jj git fetch, "
-  }jj commit <your issue paths only> -m "<emoji conventional message>". End each message with a blank line and Co-Authored-By: ${author}. Rebase only your commits onto current main@origin if needed, preserving the bundle's commit order. Never jj new/abandon/restore/undo, jj rebase -s @, or jj squash without -u. Never rewrite main, set the main bookmark, force push or run jj git push. On a stale working copy use jj workspace update-stale under the same lock and re-verify your own paths. Report each resulting full commit id in issue order on a separate line:
+  }${execution === "cloud" ? "" : `VCS: the agent does NOT push main; the merge queue lands. Prepare one commit per issue on top of main@origin in ${workdir}. All jj writes for preparing the bundle run in one executable script through python3 ${lock} ${name} /absolute/path/to/preparation.sh. Inside the lock: jj st, verify your files and other agents' changes are intact, jj git fetch, jj commit <your issue paths only> -m "<emoji conventional message>". End each message with a blank line and Co-Authored-By: ${author}. Rebase only your commits onto current main@origin if needed, preserving the bundle's commit order. Never jj new/abandon/restore/undo, jj rebase -s @, or jj squash without -u. Never rewrite main, set the main bookmark, force push or run jj git push. On a stale working copy use jj workspace update-stale under the same lock and re-verify your own paths. Report each resulting full commit id in issue order on a separate line:
 READY <commit-id>
+`}
 ${
     execution === "cloud"
       ? "Cloud READY means a prepared commit pending launcher Fable and host queue CI. Never claim guest tests passed; the host refuses landing until its checks pass."

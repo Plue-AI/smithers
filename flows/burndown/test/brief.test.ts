@@ -94,7 +94,7 @@ test("claim mutations require a successful mine check even after expiry", () => 
   assert.match(text, /never[^\n]*takeover/i)
 })
 
-test("Cloud brief delegates GitHub and review to launcher, uses guest lock and retained artifacts", () => {
+test("Cloud brief delegates GitHub and review to launcher and commits directly", () => {
   const text = brief({
     ...options,
     execution: "cloud",
@@ -103,7 +103,9 @@ test("Cloud brief delegates GitHub and review to launcher, uses guest lock and r
   assert.ok(!text.includes("gh issue view"))
   assert.ok(!text.includes("~/Smithers-Ops"))
   assert.ok(!text.includes("node ~/smithers/scripts/issue-claim"))
-  assert.ok(text.includes("/tmp/guest/vcs_lock.py"))
+  assert.ok(!text.includes("/tmp/guest/vcs_lock.py"))
+  assert.ok(!text.includes("All jj writes"))
+  assert.match(text, /run jj directly with no lock script/)
   assert.match(text, /launcher.*Fable/)
   assert.match(text, /artifact/)
   assert.match(text, /READY <commit-id>/)
@@ -119,4 +121,11 @@ test("Cloud prepared commits defer checks to host without claiming guest passes"
   assert.match(text, /launcher.*hostname/i)
   assert.ok(text.includes("Co-Authored-By: Claude Opus"))
   assert.ok(!text.includes("Co-Authored-By: GPT-6.1 Sol"))
+})
+
+
+test("author trailer follows a nondefault assignment model", () => {
+  const text = brief({ ...options, tool: "claude", model: "claude-fable-5-1" })
+  assert.ok(text.includes("Co-Authored-By: Claude claude-fable-5-1 <noreply@anthropic.com>"))
+  assert.ok(!text.includes("Co-Authored-By: Claude Opus"))
 })
