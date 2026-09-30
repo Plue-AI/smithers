@@ -334,6 +334,25 @@ describe("LlmLint.review token budget", () => {
     ])
   })
 
+  it("masks credentials before slicing so no request carries a fragment of one", async () => {
+    await write("src/min.js", "export {}\n")
+    commit()
+    const token = `ghp_${"Z".repeat(36)}`
+    // One overlong line of repeated tokens forces character slices, so raw slicing would cut through one.
+    await write("src/min.js", `${`${token} `.repeat(3_000)}\n`)
+    const cli = await recorder("[]")
+    await Effect.runPromise(Effect.flip(LlmLint.review(
+      { workspaceRoot: root, executable: cli.executable },
+      payload({ contextTokens: 32_768 })
+    )))
+    const prompts = await cli.prompts()
+    expect(prompts.length).toBeGreaterThan(1)
+    for (let start = 0; start + 8 <= token.length; start += 4) {
+      for (const prompt of prompts) expect(prompt).not.toContain(token.slice(start, start + 8))
+    }
+    expect(prompts.join("")).toContain("<credential:github-token:1>")
+  })
+
   it("fails before inference when instructions and context leave no room for source", async () => {
     await write("src/a.ts", "export const a = 1\n")
     await write("docs/big.md", "context line\n".repeat(12_000))
@@ -349,22 +368,53 @@ describe("LlmLint.review token budget", () => {
     expect(await cli.prompts()).toEqual([])
   })
 
-  it("refuses a masked request that outgrows the window instead of sending it", async () => {
+  it("refuses a request that outgrows the window after planning instead of sending it", async () => {
     await write("src/a.ts", "export const a = 1\n")
     commit()
-    // Masking lengthens each short credential value, so the sent request outgrows its planned size.
-    await write("src/a.ts", `const password = "k9z8y7x6"\n${"k9z8y7x6 ".repeat(9_000)}\n`)
-    const cli = await recorder("[]")
+    await write("src/a.ts", "export const a = 2\n")
+    // A verification request quotes its candidate, which can outgrow the room planning reserved.
+    const long = "e".repeat(16_000)
+    const completion = JSON.stringify({
+      status: "completed",
+      coverage: [{ checkId: "general", status: "completed", evidence: "Inspected." }],
+      missingContext: [],
+      findings: [{
+        file: "src/a.ts",
+        line: 1,
+        severity: "warning",
+        message: long,
+        security: {
+          checkId: "general",
+          impact: "low",
+          verification: "suspected",
+          releaseRecommendation: "allow",
+          attackerPreconditions: long,
+          evidence: long,
+          nextConfirmationStep: long
+        }
+      }]
+    })
+    const executable = Path.join(root, "verbose.mjs")
+    const record = Path.join(root, "verbose.calls")
+    await Fs.writeFile(
+      executable,
+      "#!/usr/bin/env node\nimport { appendFileSync } from \"node:fs\"\nfor await (const _ of process.stdin) {}\n" +
+        `appendFileSync(${JSON.stringify(record)}, "call\\n")\n` +
+        `const answer = ${JSON.stringify(completion)}\n` +
+        "process.stdout.write(process.argv[2] === \"exec\"\n" +
+        "  ? JSON.stringify({ type: \"item.completed\", item: { type: \"agent_message\", text: answer } }) + " +
+        "\"\\n\" + JSON.stringify({ type: \"turn.completed\" }) + \"\\n\"\n" +
+        "  : JSON.stringify({ type: \"result\", subtype: \"success\", is_error: false, result: answer }))\n",
+      { mode: 0o755 }
+    )
     const failure = await Effect.runPromise(Effect.flip(LlmLint.review(
-      { workspaceRoot: root, executable: cli.executable },
-      payload({ contextTokens: 32_768 })
+      { workspaceRoot: root, executable },
+      payload({ contextTokens: 32_768, securityChecks: ["general"] })
     )))
     expect(failure).toBeInstanceOf(LlmLint.LlmReviewError)
     expect(failure.message).toMatch(/exceeding the 32768-token context window/)
-    // Only the slice that still fit after masking was sent.
-    const prompts = await cli.prompts()
-    expect(prompts).toHaveLength(1)
-    expect(prompts[0]).not.toContain("k9z8y7x6")
+    // The three review passes ran; no oversized verification request was sent.
+    expect((await Fs.readFile(record, "utf8")).split("\n").filter(Boolean)).toHaveLength(3)
   })
 
   it("declares and validates the context window", () => {

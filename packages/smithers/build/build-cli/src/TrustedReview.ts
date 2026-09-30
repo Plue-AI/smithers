@@ -170,6 +170,7 @@ export const prepare = async (options: Options) => {
     policies.push({ label: row.label, payload: payloadOf(attrs, policyRevision) })
   }
   if (policies.length === 0) throw new Error("No trusted review policies match the requested labels")
+  const trustedPolicies = [...policies]
   const changed = new Set(
     (await git(root, [
       "diff",
@@ -256,7 +257,9 @@ export const prepare = async (options: Options) => {
           model: trusted?.model ?? SecurityReview.defaultClaudeModel,
           ...(trusted?.contextTokens === undefined ? {} : { contextTokens: trusted.contextTokens }),
           scope: "all"
-        }
+        },
+        // Filled below from files the trusted policies already review.
+        snapshot: []
       })
     }
   }
@@ -344,6 +347,27 @@ export const prepare = async (options: Options) => {
     .filter((path) => blobs.has(path) && eligible(path))
     .slice(0, LlmLint.maximumRelatedFiles)
   for (const path of related) await addBlob(path, blobs.get(path)!, { changed: false })
+  // Proposed checks never widen what reaches the provider: they review only files a trusted policy includes.
+  const trustedScope = (path: string) =>
+    trustedPolicies.some(({ payload }) => matches(path, payload.include) || matches(path, payload.context))
+  const loaded = new Map(snapshot.map((file) => [file.path, file.contents]))
+  for (const policy of policies) {
+    if (!policy.label.endsWith("#proposed-checks")) continue
+    const files: Array<LlmLint.SnapshotFile> = []
+    for (const [path, oid] of [...blobs].sort(([left], [right]) => left < right ? -1 : 1)) {
+      if (!usablePath(path) || !trustedScope(path)) continue
+      if (!matches(path, policy.payload.include) && !matches(path, policy.payload.context)) continue
+      let contents = loaded.get(path)
+      if (contents === undefined) {
+        contents = await git(root, ["cat-file", "blob", oid], LlmLint.maximumReviewFileBytes)
+        bytes += Buffer.byteLength(contents, "utf8")
+        if (bytes > 64 * 1024 * 1024) throw new Error("Review snapshot exceeds its size limit")
+        loaded.set(path, contents)
+      }
+      files.push({ path, contents, changed: changed.has(path) })
+    }
+    policy.snapshot = files
+  }
   const declarationPolicy = policies.find(({ label }) => label === "//:proposed-security-policy")
   if (declarationPolicy !== undefined) {
     declarationPolicy.snapshot = snapshot.filter(({ path }) => declarations.has(path))
@@ -371,8 +395,34 @@ export const restrictFindings = async <A extends Restrictable>(store: string, va
     (await Effect.runPromise(LlmLint.storedFindings(store))).map((record) => [record.fingerprint, record])
   )
   const { fingerprints = [], findings: _findings, ...rest } = value
-  return { ...rest, findings: fingerprints.map((fingerprint) => LlmLint.publicSummary(records.get(fingerprint)!)) }
+  return {
+    ...rest,
+    ...("attempts" in rest ? { attempts: restrictAttempts(rest.attempts as Attempts) } : {}),
+    findings: fingerprints.map((fingerprint) => LlmLint.publicSummary(records.get(fingerprint)!))
+  }
 }
+
+type Attempts = ReadonlyArray<typeof LlmLint.ReviewAttempt.Type> | undefined
+
+/** Attempt receipts without their completion envelopes or messages, which can carry finding evidence. */
+const restrictAttempts = (attempts: Attempts) =>
+  attempts?.map(({ completion: _completion, message: _message, ...receipt }) => receipt)
+
+/**
+ * A failed review's disclosable error: parse failures can quote model output,
+ * so their text stays in the private run record.
+ * @category execution
+ * @since 1.0.0
+ */
+export const restrictError = (error: LlmLint.LlmReviewError | LlmLint.ModelCliMissing) =>
+  error._tag === "smithers-build/ModelCliMissing" ? error : {
+    _tag: error._tag,
+    phase: error.phase,
+    message: error.phase === "parse"
+      ? "The review response could not be used; see the private run record"
+      : error.message,
+    ...(error.attempts === undefined ? {} : { attempts: restrictAttempts(error.attempts) })
+  }
 
 /**
  * Runs pinned policy against pinned source with tool-free inference.
@@ -427,7 +477,7 @@ export const run = async (options: Options) => {
           status: "failed" as const,
           error: result.failure._tag === "smithers-build/FindingsError"
             ? await restricted(result.failure)
-            : result.failure
+            : restrictError(result.failure)
         })
     })
   }

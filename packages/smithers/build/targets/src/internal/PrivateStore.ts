@@ -30,6 +30,17 @@ export const ensure = (directory: string): string => {
   return NodeFs.realpathSync(directory)
 }
 
+/** A collection is a real directory inside the store, never a link out of it. */
+const collection = (directory: string, name: string): string | undefined => {
+  const path = NodePath.join(directory, name)
+  const stats = NodeFs.lstatSync(path, { throwIfNoEntry: false })
+  if (stats === undefined) return undefined
+  if (stats.isSymbolicLink() || !stats.isDirectory()) {
+    throw new Error(`Review finding store collection is not a directory: ${name}`)
+  }
+  return path
+}
+
 const recordPath = (directory: string, name: string): string => {
   if (!recordName.test(name)) throw new Error(`Review finding store record name is not usable: ${name}`)
   return NodePath.join(directory, name)
@@ -55,10 +66,23 @@ export const write = (directory: string, name: string, value: unknown): void => 
  */
 export const read = (directory: string, name: string): unknown => {
   const path = recordPath(directory, name)
-  const stats = NodeFs.lstatSync(path, { throwIfNoEntry: false })
-  if (stats === undefined) return undefined
-  if (!stats.isFile()) throw new Error(`Review finding store record is not a regular file: ${name}`)
-  return JSON.parse(NodeFs.readFileSync(path, "utf8")) as unknown
+  if (collection(directory, NodePath.dirname(name)) === undefined) return undefined
+  let descriptor: number
+  try {
+    // O_NOFOLLOW refuses a final-component link at open time, so a swap after a check cannot redirect the read.
+    descriptor = NodeFs.openSync(path, NodeFs.constants.O_RDONLY | NodeFs.constants.O_NOFOLLOW)
+  } catch (cause) {
+    if ((cause as NodeJS.ErrnoException).code === "ENOENT") return undefined
+    throw new Error(`Review finding store record is not a regular file: ${name}`, { cause })
+  }
+  try {
+    if (!NodeFs.fstatSync(descriptor).isFile()) {
+      throw new Error(`Review finding store record is not a regular file: ${name}`)
+    }
+    return JSON.parse(NodeFs.readFileSync(descriptor, "utf8")) as unknown
+  } finally {
+    NodeFs.closeSync(descriptor)
+  }
 }
 
 /**
@@ -66,10 +90,10 @@ export const read = (directory: string, name: string): unknown => {
  * @category store
  * @since 1.0.0
  */
-export const list = (directory: string, collection: string): ReadonlyArray<unknown> => {
-  const path = NodePath.join(directory, collection)
-  if (NodeFs.lstatSync(path, { throwIfNoEntry: false }) === undefined) return []
-  return NodeFs.readdirSync(path).filter((name) => name.endsWith(".json")).sort().map((name) =>
-    read(directory, `${collection}/${name}`)
+export const list = (directory: string, name: string): ReadonlyArray<unknown> => {
+  const path = collection(directory, name)
+  if (path === undefined) return []
+  return NodeFs.readdirSync(path).filter((entry) => entry.endsWith(".json")).sort().map((entry) =>
+    read(directory, `${name}/${entry}`)
   )
 }

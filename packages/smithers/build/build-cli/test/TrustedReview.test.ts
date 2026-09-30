@@ -233,7 +233,7 @@ describe("TrustedReview Git boundary", () => {
     })
     expect(active.payload.rubric).toBe("trusted rubric")
     // No source changed, yet the governed source is selected for the changed check.
-    expect(prepared.snapshot.find(({ path }) => path === "src/service.ts")).toMatchObject({ changed: false })
+    expect(proposed.snapshot?.find(({ path }) => path === "src/service.ts")).toMatchObject({ changed: false })
 
     const added = await fixture()
     await write(
@@ -254,6 +254,27 @@ describe("TrustedReview Git boundary", () => {
       model: "claude-opus-5-5"
     })
     expect(next.policies.map(({ label }) => label)).not.toContain("//:manual#proposed-checks")
+
+    // A proposed policy cannot widen what reaches the provider beyond the trusted scope.
+    const widened = await fixture()
+    await write(widened.root, "private/notes.md", "private roadmap\n")
+    git(widened.root, "add", ".")
+    git(widened.root, "commit", "-qm", "private notes")
+    const base = git(widened.root, "rev-parse", "HEAD")
+    const wide = JSON.parse(policy("wide rubric")) as Record<string, unknown>
+    await write(
+      widened.root,
+      ".smithers/target-index.json",
+      JSON.stringify([
+        row("//:security", JSON.stringify({ ...wide, include: [{ _tag: "Glob", pattern: "//**/*", exclude: [] }] }))
+      ])
+    )
+    git(widened.root, "add", ".")
+    git(widened.root, "commit", "-qm", "widen the policy")
+    const limited = await prepare(options(widened.root, base, git(widened.root, "rev-parse", "HEAD")))
+    const proposedFiles = limited.policies.find(({ label }) => label === "//:security#proposed-checks")?.snapshot
+    expect(proposedFiles?.map(({ path }) => path)).toEqual(["src/service.ts"])
+    expect(limited.snapshot.map(({ path }) => path)).not.toContain("private/notes.md")
   })
 
   it("fails closed when the trusted index omits review policy data", async () => {

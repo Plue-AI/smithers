@@ -473,6 +473,8 @@ export const RunRecord = Schema.Struct({
     findings: Schema.Array(Finding),
     attempts: Schema.Array(ReviewAttempt)
   })),
+  /** Model calls and estimated prompt tokens spent across every invocation of this run. */
+  usage: Schema.Struct({ modelCalls: Schema.Int, promptTokens: Schema.Int }),
   error: Schema.optional(Schema.String),
   startedAt: Schema.String,
   updatedAt: Schema.String
@@ -2053,6 +2055,12 @@ const reviewBatch = (
     )
   )
 
+const impactRank = { low: 0, medium: 1, high: 2, critical: 3 } as const
+
+/** Orders findings by severity, then by security impact. */
+const strength = (finding: Finding): number =>
+  severityRank[finding.severity] * 4 + (finding.security === undefined ? 0 : impactRank[finding.security.impact])
+
 /**
  * Keeps one finding per file, line and check for files several requests saw,
  * preferring the most severe; other findings pass through untouched.
@@ -2372,7 +2380,7 @@ export const review = (
         new LlmReviewError({ phase: "read", message: "Review context matched no snapshot files" })
       )
     }
-    const context = yield* readBatch(
+    const rawContext = yield* readBatch(
       runtime.workspaceRoot,
       paths,
       maximumContextContentBytes,
@@ -2380,9 +2388,48 @@ export const review = (
       snapshot
     )
     // Snapshot every bounded changed file before planning or the first provider request.
-    const changed = yield* readBatch(runtime.workspaceRoot, files, maximumReviewContentBytes, "skip", snapshot)
-    if (payload.required === true && changed.length === 0) return yield* Effect.fail(emptyRequired)
-    const relations = yield* relatedSources(runtime, payload, snapshot, changed, new Set(paths))
+    const rawChanged = yield* readBatch(runtime.workspaceRoot, files, maximumReviewContentBytes, "skip", snapshot)
+    if (payload.required === true && rawChanged.length === 0) return yield* Effect.fail(emptyRequired)
+    const raw = yield* relatedSources(runtime, payload, snapshot, rawChanged, new Set(paths))
+    // Scan every path and byte before planning. Slices are cut from masked text, so no request can
+    // carry part of a credential, and every later identity (prompt, finding, manifest, store) is masked.
+    const mask = new CredentialMask()
+    const everything = [...rawContext, ...rawChanged, ...raw.files.values()]
+    for (const file of everything) mask.scan(file.path, file.path)
+    for (const file of everything) mask.scan(file.path, file.contents)
+    // Review instructions reach the provider too; mask them without reporting a file.
+    mask.scan(undefined, payload.prompt)
+    mask.scan(undefined, payload.rubric)
+    for (const location of mask.locations) location.file = mask.sanitize(location.file)
+    const name = (path: string) => mask.sanitize(path)
+    const masked = (file: Segment): Segment =>
+      wholeFile(name(file.path), mask.sanitize(file.contents), file.deleted === true)
+    const context = rawContext.map(masked)
+    const changed = rawChanged.map(masked)
+    const contextNames = new Set(context.map((file) => file.path))
+    const relations = {
+      edges: new Map([...raw.edges].map(([from, to]) => [name(from), new Set([...to].map(name))] as const)),
+      related: new Map([...raw.related].map(([from, to]) => [name(from), to.map(name)] as const)),
+      files: new Map([...raw.files.values()].map((file) => [name(file.path), masked(file)] as const))
+    }
+    if (mask.locations.length > maximumFindings) {
+      return yield* Effect.fail(new LlmReviewError({ phase: "review", message: "Too many credential discoveries" }))
+    }
+    if (mask.locations.length > 0 && options.onCredentials !== undefined) {
+      const discoveries = mask.locations.map(({ file, line, name }) => Object.freeze({ file, line, name }))
+      yield* Effect.suspend(() => options.onCredentials!(Object.freeze(discoveries))).pipe(
+        Effect.catchCause((cause) =>
+          Cause.hasInterruptsOnly(cause)
+            ? Effect.failCause(cause as Cause.Cause<never>)
+            : Effect.fail(
+              new LlmReviewError({
+                phase: "review",
+                message: "Private credential rotation delivery failed"
+              })
+            )
+        )
+      )
+    }
     const plan = yield* Effect.try({
       try: () => {
         const window = payload.contextTokens ?? defaultContextTokens
@@ -2424,32 +2471,6 @@ export const review = (
       related: batch.related.map((path) => relations.files.get(path)!),
       omittedRelated: batch.omittedRelated
     }))
-    const mask = new CredentialMask()
-    for (const file of context) mask.scan(file.path, file.contents)
-    for (const file of changed) mask.scan(file.path, file.contents)
-    const sentRelated = [...new Set(loadedBatches.flatMap((batch) => batch.related.map((file) => file.path)))].sort()
-    for (const path of sentRelated) mask.scan(path, relations.files.get(path)!.contents)
-    // Review instructions reach the provider too; mask them without reporting a file.
-    mask.scan(undefined, payload.prompt)
-    mask.scan(undefined, payload.rubric)
-    if (mask.locations.length > maximumFindings) {
-      return yield* Effect.fail(new LlmReviewError({ phase: "review", message: "Too many credential discoveries" }))
-    }
-    if (mask.locations.length > 0 && options.onCredentials !== undefined) {
-      const discoveries = mask.locations.map(({ file, line, name }) => Object.freeze({ file, line, name }))
-      yield* Effect.suspend(() => options.onCredentials!(Object.freeze(discoveries))).pipe(
-        Effect.catchCause((cause) =>
-          Cause.hasInterruptsOnly(cause)
-            ? Effect.failCause(cause as Cause.Cause<never>)
-            : Effect.fail(
-              new LlmReviewError({
-                phase: "review",
-                message: "Private credential rotation delivery failed"
-              })
-            )
-        )
-      )
-    }
     const digest = (text: string) => createHash("sha256").update(text).digest("hex")
     const policy = digest(JSON.stringify([payload.prompt, payload.rubric, payload.securityChecks ?? null]))
     // Provenance covers every byte a request carries and everything that shaped it, never budget or gating.
@@ -2503,15 +2524,20 @@ export const review = (
     })
     const now = () => new Date().toISOString()
     // Only an unfinished run resumes; a completed run is never reused as a current verdict.
+    const resumed = previous !== undefined && previous.status !== "completed" && previous.owner === store?.owner
+      ? previous
+      : undefined
+    // A resumed run keeps spending its declared budget; completed batches are never free.
+    spend.modelCalls = resumed?.usage.modelCalls ?? 0
+    spend.promptTokens = resumed?.usage.promptTokens ?? 0
     let run: RunRecord = {
       run: runKey,
       manifest,
       ...(store?.owner === undefined ? {} : { owner: store.owner }),
       status: "running",
       total: loadedBatches.length,
-      batches: previous !== undefined && previous.status !== "completed" && previous.owner === store?.owner
-        ? previous.batches
-        : [],
+      batches: resumed?.batches ?? [],
+      usage: resumed?.usage ?? { modelCalls: 0, promptTokens: 0 },
       startedAt: now(),
       updatedAt: now()
     }
@@ -2534,13 +2560,18 @@ export const review = (
           mask.sanitize(sources.get(finding.file)!.split("\n")[finding.line - 1]!).trim()
         }`
       )
-    const record = (stored: ReadonlyArray<Finding>) =>
+    const record = (reported: ReadonlyArray<Finding>) =>
       storeRoot === undefined ? Effect.void : Effect.try({
         try: () => {
-          for (const finding of stored) {
+          for (const finding of reported) {
             const fingerprint = fingerprintOf(finding)
-            const name = `findings/${fingerprint}.json`
-            const prior = PrivateStore.read(storeRoot, name)
+            const recordName = `findings/${fingerprint}.json`
+            const stored = PrivateStore.read(storeRoot, recordName)
+            const prior = stored === undefined ? undefined : decodeFindingRecord(stored)
+            // Within one run a weaker report of the same flaw never replaces a stronger one.
+            if (prior !== undefined && prior.lastSeenRun === runKey && strength(prior.finding) >= strength(finding)) {
+              continue
+            }
             const next: FindingRecord = {
               fingerprint,
               ...(store?.owner === undefined ? {} : { owner: store.owner }),
@@ -2548,12 +2579,12 @@ export const review = (
               state: "open",
               reproductionSteps: finding.security?.nextConfirmationStep ??
                 `Review line ${finding.line} of ${finding.file} against the rubric again.`,
-              firstSeenRun: prior === undefined ? runKey : decodeFindingRecord(prior).firstSeenRun,
+              firstSeenRun: prior?.firstSeenRun ?? runKey,
               lastSeenRun: runKey,
               updatedAt: now(),
               finding
             }
-            PrivateStore.write(storeRoot, name, next)
+            PrivateStore.write(storeRoot, recordName, next)
           }
         },
         catch: storeError
@@ -2607,7 +2638,8 @@ export const review = (
               files,
               findings: batchFindings,
               attempts: attempts.slice(before)
-            }]
+            }],
+            usage: { modelCalls: spend.modelCalls, promptTokens: spend.promptTokens }
           })
           yield* record(batchFindings)
         }
@@ -2654,7 +2686,7 @@ export const review = (
       findings.splice(
         0,
         findings.length,
-        ...mergeRepeated(findings, (path) => paths.includes(path) || (appearances.get(path) ?? 0) > 1)
+        ...mergeRepeated(findings, (path) => contextNames.has(path) || (appearances.get(path) ?? 0) > 1)
       )
       for (const location of mask.locations) {
         findings.push({

@@ -343,3 +343,78 @@ describe("LlmLint.review provenance manifest", () => {
     expect(base).toMatchObject({ phase: "diff", message: expect.stringContaining("git rev-parse exited") })
   })
 })
+
+describe("LlmLint.review review hardening", () => {
+  const token = `ghp_${"Q".repeat(36)}`
+
+  it("never sends, stores or reports a credential named by a file path", async () => {
+    await write(`src/${token}.ts`, `export const leaked = "${token}"\n`)
+    const cli = await engine({})
+    const prompts = Path.join(root, "prompts.log")
+    await Fs.writeFile(
+      cli.executable,
+      (await Fs.readFile(cli.executable, "utf8")).replace(
+        "const files =",
+        `appendFileSync(${JSON.stringify(prompts)}, prompt)\nconst files =`
+      )
+    )
+    const failure = await Effect.runPromise(Effect.flip(review(cli.executable)))
+    expect(failure).toBeInstanceOf(LlmLint.FindingsError)
+    const text = JSON.stringify(failure) + (await Fs.readFile(prompts, "utf8"))
+    const stored = await Promise.all(
+      ["runs", "findings"].flatMap((collection) => [collection]).map(async (collection) =>
+        Promise.all(
+          (await Fs.readdir(Path.join(store, collection))).map((file) =>
+            Fs.readFile(Path.join(store, collection, file), "utf8")
+          )
+        )
+      )
+    )
+    expect(text + stored.flat().join("")).not.toContain(token)
+    expect((failure as LlmLint.FindingsError).findings.map(({ file }) => file)).toContain(
+      "src/<credential:github-token:1>.ts"
+    )
+  })
+
+  it("keeps the strongest report of one flaw within a run", async () => {
+    const cli = await engine({
+      findings: { "src/a.ts": [{ ...danger, severity: "error" }, { ...danger, severity: "info", message: "fine" }] }
+    })
+    const failure = await Effect.runPromise(Effect.flip(review(cli.executable, { include: [Input.glob("src/a.ts")] })))
+    const fingerprints = (failure as LlmLint.FindingsError).fingerprints!
+    expect(new Set(fingerprints).size).toBe(1)
+    const [record] = await Effect.runPromise(LlmLint.storedFindings(store))
+    expect(record!.finding).toMatchObject({ severity: "error", message: danger.message })
+  })
+
+  it("charges a resumed run for the calls its earlier invocations spent", async () => {
+    const cli = await engine({})
+    const first = await Effect.runPromise(Effect.flip(review(cli.executable, { budget: { modelCalls: 1 } })))
+    expect(first.message).toBe("Review budget exhausted: 1 model calls")
+    const again = await Effect.runPromise(Effect.flip(review(cli.executable, { budget: { modelCalls: 1 } })))
+    expect(again.message).toBe("Review budget exhausted: 1 model calls")
+    expect(await cli.calls()).toEqual(["src/a.ts"])
+    const report = await Effect.runPromise(review(cli.executable, { budget: { modelCalls: 2 } }))
+    expect(report.usage).toMatchObject({ modelCalls: 2 })
+    expect(await cli.calls()).toEqual(["src/a.ts", "src/b.ts"])
+    expect((await runs())[0]!.usage.modelCalls).toBe(2)
+  })
+
+  it("refuses store collections and records reached through links", async () => {
+    const cli = await engine({ findings: { "src/a.ts": [danger] } })
+    await Effect.runPromise(review(cli.executable))
+    const outside = Path.join(root, "outside")
+    await Fs.rename(Path.join(store, "findings"), outside)
+    await Fs.symlink(outside, Path.join(store, "findings"))
+    expect((await Effect.runPromise(Effect.flip(LlmLint.storedFindings(store)))).message).toContain(
+      "collection is not a directory"
+    )
+    await Fs.rm(Path.join(store, "findings"))
+    await Fs.mkdir(Path.join(store, "findings"), { mode: 0o700 })
+    const [name] = await Fs.readdir(outside)
+    await Fs.symlink(Path.join(outside, name!), Path.join(store, "findings", name!))
+    expect((await Effect.runPromise(Effect.flip(LlmLint.storedFindings(store)))).message).toContain(
+      "not a regular file"
+    )
+  })
+})

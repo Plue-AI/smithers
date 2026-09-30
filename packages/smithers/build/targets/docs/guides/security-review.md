@@ -175,7 +175,8 @@ text, so moving the line keeps it. A finding the same owner and policy no
 longer reports after reviewing its file becomes `fixed-pending-retest`; it
 closes only through `closeFinding` with a trusted host's receipt of the
 reproduced fix, and reopens if reported again. The review receipt and console
-show only `publicSummary` data: fingerprint, restricted reference, state,
+show only `publicSummary` data and attempt receipts without their envelopes or
+messages: fingerprint, restricted reference, state,
 severity, owner, check and impact, plus the file once the fix is closed. Keep
 exploit details in private advisories and link public issues to the restricted
 reference.
@@ -191,7 +192,8 @@ and parse failures fail every security review.
 
 `budget` bounds the whole review: `modelCalls` counts every attempt,
 `promptTokens` sums the estimated tokens sent, and `wallMs` limits wall-clock
-time, each call's timeout shrinking to what remains. A call that would exceed a
+time, each call's timeout shrinking to what remains. A resumed run keeps
+counting the calls and tokens its earlier invocations spent. A call that would exceed a
 bound is not sent, is never retried, and fails the review. A budgeted report
 includes its `usage`. Interrupting a review stops its model calls.
 
@@ -199,7 +201,7 @@ includes its `usage`. Interrupting a review stops its model calls.
 
 With a finding store, every report carries a `manifest`: the SHA-256 and size
 of every context file, the SHA-256 and line range of every changed slice and
-related file in each batch, the policy digests, the base and head commits,
+related file in each batch (of the credential-masked bytes each request carried), the policy digests, the base and head commits,
 the transport and each security pass's engine and model, and an explicit
 executable's resolved path and SHA-256. The run id is the manifest's SHA-256,
 so a verdict names exactly the bytes, policy and engine that produced it.
@@ -208,8 +210,9 @@ Reviews are never cached: a rerun is a new inference.
 
 A change to a review's policy in the target index also runs
 `<label>#proposed-checks`: the proposed prompt, rubric and checks over every
-file they include, on the trusted engine and model. The active trusted policy
-still gates the change; the proposed checks cannot replace it.
+file they include that a trusted policy already reviews, on the trusted engine
+and model. A proposal cannot widen what reaches the provider, and the active
+trusted policy still gates the change.
 
 ## Cost and CI
 
