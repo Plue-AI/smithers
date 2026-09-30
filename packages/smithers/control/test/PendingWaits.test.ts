@@ -15,7 +15,7 @@ import * as EngineStore from "@smthrs/engine-store/EngineStore"
 import * as EngineMigrations from "@smthrs/engine-store/Migrations"
 import * as OwnerIdentity from "@smthrs/engine-store/OwnerIdentity"
 import * as StepBoundary from "@smthrs/engine-store/StepBoundary"
-import { Action, DurableDeferred, Flow, type FlowRuntime, HumanTask, Interpreter } from "@smthrs/flow"
+import { Action, DurableDeferred, Flow, type FlowRuntime, HumanTask, Interpreter, RetryPolicy } from "@smthrs/flow"
 import * as Jj from "@smthrs/jj"
 import * as SqlJournal from "@smthrs/journal/SqlJournal"
 import { NotificationQueue } from "@smthrs/notifications"
@@ -180,6 +180,11 @@ describe("regression: Control wait metadata and answer classification misdecode 
 
   it.each(names)("names a real HumanTask wait %s and answers it through its projected target", async (name) => {
     const Ask = Flow.make(`unicode/Ask/${name}`, {
+      // Only the answer may re-drive the run. An elapsed-poll re-drive clears
+      // the waiting row until replay parks again, and an answer that lands in
+      // that window is recorded for a host inbox this bridge does not run, so
+      // a slow PostgreSQL leg left the run suspended.
+      suspendedRetryPolicy: RetryPolicy.make({ initialMs: 3_600_000, factor: 1, maxMs: 3_600_000 }),
       payload: {},
       success: Schema.Json,
       error: HumanTask.HumanTaskFailed,
