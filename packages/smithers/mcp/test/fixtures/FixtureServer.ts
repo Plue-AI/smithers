@@ -488,6 +488,11 @@ reader?.on("line", (line) => {
 export const windowsCloseStdinSource = String.raw`
 $ProgressPreference = 'SilentlyContinue'
 $ErrorActionPreference = 'Stop'
+$startupMarker = $env:MCP_CLOSE_STDIN_MARKER + '.startup'
+function Set-FixtureStartupPhase($phase) {
+  try { [System.IO.File]::WriteAllText($startupMarker, $phase) } catch {}
+}
+Set-FixtureStartupPhase 'compiling'
 Add-Type -TypeDefinition @'
 using System;
 using System.Collections.Generic;
@@ -514,8 +519,9 @@ public static class McpStdin {
   }
 }
 '@
-$inputHandle = [McpStdin]::GetStdHandle(-10)
-:requests while ($null -ne ($line = [McpStdin]::ReadLine($inputHandle))) {
+$stdinHandle = [McpStdin]::GetStdHandle(-10)
+Set-FixtureStartupPhase 'reading'
+:requests while ($null -ne ($line = [McpStdin]::ReadLine($stdinHandle))) {
   $request = ConvertFrom-Json -InputObject $line
   switch ($request.method) {
     'initialize' {
@@ -529,7 +535,7 @@ $inputHandle = [McpStdin]::GetStdHandle(-10)
       $result = @{ tools = @(@{ name = 'add'; inputSchema = @{ type = 'object' } }) }
     }
     'tools/call' {
-      if (-not [McpStdin]::CloseHandle($inputHandle)) { throw 'Failed to close stdin' }
+      if (-not [McpStdin]::CloseHandle($stdinHandle)) { throw 'Failed to close stdin' }
       $receipt = @{ method = $request.method; requestId = $request.id; pid = $PID } |
         ConvertTo-Json -Compress
       [System.IO.File]::WriteAllText($env:MCP_CLOSE_STDIN_MARKER, $receipt)
@@ -540,5 +546,6 @@ $inputHandle = [McpStdin]::GetStdHandle(-10)
   $response = @{ jsonrpc = '2.0'; id = $request.id; result = $result } |
     ConvertTo-Json -Depth 6 -Compress
   [Console]::WriteLine($response)
+  Set-FixtureStartupPhase ('answered ' + $request.method)
 }
 `

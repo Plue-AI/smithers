@@ -12,7 +12,7 @@ import { NodeServices } from "@effect/platform-node"
 import * as ChildProcessSpawner from "@smthrs/kernel/ChildProcessSpawner"
 import { Deferred, Effect, Fiber, Redacted, Schema, Sink, Stream } from "effect"
 import { ProcessId } from "effect/unstable/process/ChildProcessSpawner"
-import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs"
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it, vi } from "vitest"
@@ -602,7 +602,9 @@ describe("McpClient against a real MCP server", () => {
   it("fails a pending call when the server closes stdin", async () => {
     const directory = mkdtempSync(join(tmpdir(), "smithers-mcp-stdin-"))
     const marker = join(directory, "closed")
+    const script = join(directory, "close-stdin.ps1")
     try {
+      if (process.platform === "win32") writeFileSync(script, `\uFEFF${FixtureServer.windowsCloseStdinSource}`, "utf8")
       const errors = await execute(Effect.scoped(Effect.gen(function*() {
         const client = yield* connectNode(
           "close-stdin",
@@ -620,8 +622,10 @@ describe("McpClient against a real MCP server", () => {
                 "-NoLogo",
                 "-NoProfile",
                 "-NonInteractive",
-                "-EncodedCommand",
-                Buffer.from(FixtureServer.windowsCloseStdinSource, "utf16le").toString("base64")
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                script
               ],
               env: {
                 ...Object.fromEntries(
@@ -664,6 +668,15 @@ describe("McpClient against a real MCP server", () => {
       })
       expect(errors.next).toBe(errors.first)
       expect(errors.later).toBe(errors.first)
+    } catch (error) {
+      if (process.platform === "win32") {
+        let phase = "unavailable"
+        try {
+          phase = readFileSync(`${marker}.startup`, "utf8")
+        } catch {}
+        throw new Error(`Windows stdin fixture phase: ${phase}`, { cause: error })
+      }
+      throw error
     } finally {
       rmSync(directory, { recursive: true, force: true })
     }
