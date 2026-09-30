@@ -13,7 +13,8 @@ import * as Changes from "./changes.ts"
 import type * as Panels from "./panels.ts"
 import * as Shell from "./shell.ts"
 
-export type CellStatus = "writing" | "running" | "done" | "failed" | "rejected"
+/** `stopped` is a person's stop: neither done nor failed. */
+export type CellStatus = "writing" | "running" | "done" | "failed" | "rejected" | "stopped"
 
 /** A captured change; `undone` once the user reversed it. */
 export type Patch = Changes.Patch & { readonly undone?: true }
@@ -23,7 +24,8 @@ export interface Call {
   readonly patches?: ReadonlyArray<Patch>
   readonly flow: string
   readonly subject: string
-  readonly status: "running" | "ok" | "failed"
+  /** `stopped`: a person stopped the turn while the call ran. */
+  readonly status: "running" | "ok" | "failed" | "stopped"
   readonly message?: string
   /** A command's exit status; a nonzero one is a failed command even though the call succeeded. */
   readonly exit?: number
@@ -217,7 +219,7 @@ export const card = (transcript: Transcript, panel: Panels.Panel, at?: number): 
 
 /** Ends the turn: nothing streams or waits on a model after it. */
 const end = (transcript: Transcript, status: "failed" | "cancelled", text: string, at: number): Transcript => ({
-  ...settleOpen(transcript, at, "failed"),
+  ...settleOpen(transcript, at, status === "cancelled" ? "stopped" : "failed"),
   streaming: "",
   thinking: false,
   requestedAt: undefined,
@@ -294,14 +296,17 @@ const updateCell = (transcript: Transcript, update: (cell: CellItem) => CellItem
   return { ...transcript, items: transcript.items.map((item) => (item === cell ? update(cell) : item)) }
 }
 
-const settleOpen = (transcript: Transcript, at: number, status: "failed" | "done"): Transcript =>
+/** Settles the open cell; a stop settles its open calls as stopped, anything else as failed. */
+const settleOpen = (transcript: Transcript, at: number, status: "failed" | "done" | "stopped"): Transcript =>
   updateCell(transcript, (cell) =>
     cell.status === "writing" || cell.status === "running"
       ? {
         ...cell,
         status,
         endedAt: at,
-        calls: cell.calls.map((call) => (call.status === "running" ? { ...call, status: "failed" } : call))
+        calls: cell.calls.map((call) =>
+          call.status === "running" ? { ...call, status: status === "stopped" ? "stopped" : "failed" } : call
+        )
       }
       : cell)
 

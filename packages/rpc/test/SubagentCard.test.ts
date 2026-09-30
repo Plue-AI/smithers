@@ -63,6 +63,9 @@ describe("activity rows", () => {
       .toEqual({ text: "Ran node check.mjs  exit 0", mark: "✓", state: "done" })
     expect(SubagentCard.describe({ kind: "tool", tool: "bash", state: "error", target: "bun test auth" }))
       .toEqual({ text: "Ran bun test auth", mark: "✗", state: "error" })
+    // A stopped call reads what it was doing, with the stop's mark, never a failure's.
+    expect(SubagentCard.describe({ kind: "tool", tool: "read", state: "stopped", target: "src/auth.ts" }))
+      .toEqual({ text: "Reading src/auth.ts", mark: "■", state: "stopped" })
   })
 
   test("prefers the tool's own verbs, capitalized, and names an unknown tool", () => {
@@ -91,8 +94,9 @@ describe("activity rows", () => {
     [
       { state: "pending", expected: { text: "Running…", mark: "", state: "pending" } },
       { state: "done", expected: { text: "Ran", mark: "✓", state: "done" } },
-      { state: "error", expected: { text: "Ran", mark: "✗", state: "error" } }
-    ] satisfies Array<{ state: "pending" | "done" | "error"; expected: Omit<SubagentCard.Row, "branch"> }>
+      { state: "error", expected: { text: "Ran", mark: "✗", state: "error" } },
+      { state: "stopped", expected: { text: "Running", mark: "■", state: "stopped" } }
+    ] satisfies Array<{ state: "pending" | "done" | "error" | "stopped"; expected: Omit<SubagentCard.Row, "branch"> }>
   )(
     "a $state tool without a target keeps its verb and status without a stray space",
     ({ state, expected }) => {

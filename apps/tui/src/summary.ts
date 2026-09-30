@@ -49,7 +49,9 @@ const callLabel = (call: Transcript.Call): string => {
     const failure = call.verb?.failure ?? `failed to call ${call.flow}`
     return `${failure.charAt(0).toUpperCase()}${failure.slice(1)}: ${sentence(call.subject)}`
   }
-  if (call.status === "running") return `${call.verb?.pending ?? `Running ${call.flow}`}: ${sentence(call.subject)}`
+  if (call.status === "running" || call.status === "stopped") {
+    return `${call.verb?.pending ?? `Running ${call.flow}`}: ${sentence(call.subject)}`
+  }
   if (call.flow === "bash") {
     return `Ran ${sentence(call.subject)}${call.exit === undefined || call.exit === 0 ? "" : ` (exit ${call.exit})`}`
   }
@@ -73,6 +75,7 @@ const cellLabel = (cell: Extract<Transcript.Item, { kind: "cell" }>): string => 
   if (cell.prose.trim() !== "") return sentence(cell.prose)
   if (cell.status === "writing") return "Preparing the next step"
   if (cell.status === "running") return "Running the next step"
+  if (cell.status === "stopped") return "Stopped"
   if (/ctx\.(done|resolve)\(/.test(cell.source)) return "Returned the answer"
   return cell.printed.trim() === "" ? "Finished the calculation" : "Collected the results"
 }
@@ -97,6 +100,8 @@ export const panel = (transcript: Transcript.Transcript, id = "summary", title =
           ? "failed"
           : item.status === "writing"
           ? "running"
+          : item.status === "stopped"
+          ? "cancelled"
           : item.status,
         details: [
           ...(item.source === "" ? [] : [{ kind: "code" as const, code: item.source, language: "javascript" }]),

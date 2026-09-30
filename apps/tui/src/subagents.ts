@@ -16,7 +16,7 @@ import * as Tree from "./tree.ts"
 import * as Undo from "./undo.ts"
 import type { Tab } from "./workspace.ts"
 
-const states = { running: "pending", ok: "done", failed: "error" } as const
+const states = { running: "pending", ok: "done", failed: "error", stopped: "stopped" } as const
 
 const sum = (counts: ReadonlyArray<{ readonly added: number; readonly removed: number }>) =>
   counts.reduce((total, each) => ({ added: total.added + each.added, removed: total.removed + each.removed }), {
@@ -28,7 +28,7 @@ const sum = (counts: ReadonlyArray<{ readonly added: number; readonly removed: n
 export const entry = (call: Transcript.Call): SubagentCard.Entry => {
   const lines = call.patches !== undefined && call.patches.length > 0
     ? sum(call.patches.map((each) => SubagentCard.diffCounts(each.patch)))
-    : call.change !== undefined && call.status !== "failed"
+    : call.change !== undefined && call.status !== "failed" && call.status !== "stopped"
     ? SubagentCard.diffCounts(Transcript.unified(call.change))
     : undefined
   return {

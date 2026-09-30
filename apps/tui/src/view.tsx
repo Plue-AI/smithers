@@ -364,7 +364,8 @@ export const statusColor = (status: Transcript.CellStatus): string =>
     running: color.info,
     done: color.faint,
     failed: color.danger,
-    rejected: color.warning
+    rejected: color.warning,
+    stopped: color.faint
   })[status]
 
 function ShellView(props: { readonly item: ShellItem; readonly tick: string; readonly expanded: boolean }) {
@@ -589,13 +590,16 @@ export const plumbing = (flow: string): boolean =>
   flow.startsWith("monitor.")
 
 /**
- * What a settled call's glyph says: a command's exit status (`✓` only for
- * exit 0), a failed call's `✗`, a change's `✓`, else the flow's own icon.
+ * What a settled call's glyph says: a stopped call's `■`, a command's exit
+ * status (`✓` only for exit 0), a failed call's `✗`, a change's `✓`, else the
+ * flow's own icon.
  */
 export const callMark = (
   call: Transcript.Call
-): { readonly glyph: string; readonly tone: "success" | "danger" | "muted" } =>
-  call.status === "failed" || (call.exit !== undefined && call.exit !== 0)
+): { readonly glyph: string; readonly tone: "success" | "danger" | "muted" | "faint" } =>
+  call.status === "stopped"
+    ? { glyph: "■", tone: "faint" }
+    : call.status === "failed" || (call.exit !== undefined && call.exit !== 0)
     ? { glyph: "✗", tone: "danger" }
     : call.exit !== undefined || call.change !== undefined || (call.patches?.length ?? 0) > 0
     ? { glyph: "✓", tone: "success" }
@@ -628,13 +632,15 @@ function CallView(
   const command = call.exit !== undefined
   const verb = call.verb === undefined
     ? call.flow
-    : call.status === "running"
+    : call.status === "running" || call.status === "stopped"
     ? call.verb.pending
     : call.status === "ok"
     ? call.verb.success
     : call.verb.failure
   const subject = call.subject.split("\n")[0]!
-  const diff = call.change === undefined || call.status === "failed" ? undefined : Transcript.unified(call.change)
+  const diff = call.change === undefined || call.status === "failed" || call.status === "stopped"
+    ? undefined
+    : Transcript.unified(call.change)
   const diffRows = diff === undefined ? 0 : diff.split("\n").length - 3
   const counts = call.status === "ok" && !command ? changeCounts(call) : undefined
   return (

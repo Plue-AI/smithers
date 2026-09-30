@@ -67,9 +67,10 @@
 .subagent-earlier { color: var(--text-faint); }
 .subagent-activity-row { display: flex; gap: 0.5ch; min-width: 0; white-space: nowrap; }
 .subagent-activity-text { overflow: hidden; min-width: 0; text-overflow: ellipsis; }
-.subagent-activity-row:is([data-state="pending"], [data-state="text"]) .subagent-activity-text { color: var(--text-faint); }
+.subagent-activity-row:is([data-state="pending"], [data-state="stopped"], [data-state="text"]) .subagent-activity-text { color: var(--text-faint); }
 .subagent-mark { flex: none; }
 .subagent-mark[data-mark="✗"] { color: var(--danger); }
+.subagent-mark[data-mark="■"] { color: var(--text-faint); }
 .subagent-footer { display: flex; justify-content: space-between; gap: 8px; color: var(--text-muted); font-size: var(--fs-caption); }
 .subagent-files { padding: 0; border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; }
 .subagent-aside { margin-left: 8px; color: var(--warning); }

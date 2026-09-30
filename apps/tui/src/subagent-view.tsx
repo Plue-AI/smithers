@@ -88,12 +88,12 @@ function CardView(props: {
         const whole = SubagentCard.line(row, inner)
         const mark = row.mark === "" ? "" : ` ${row.mark}`
         const words = whole.slice(2, whole.length - mark.length)
-        const dim = row.state === "pending" || row.state === "text"
+        const dim = row.state === "pending" || row.state === "stopped" || row.state === "text"
         return (
           <text key={index} wrapMode="none">
             <span fg={color.muted}>{whole.slice(0, 2)}</span>
             <span fg={dim ? color.faint : color.text}>{words}</span>
-            <span fg={row.mark === "✗" ? color.danger : color.text}>{mark}</span>
+            <span fg={row.mark === "✗" ? color.danger : row.mark === "■" ? color.faint : color.text}>{mark}</span>
           </text>
         )
       })}

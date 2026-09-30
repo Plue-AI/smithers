@@ -3,9 +3,11 @@
  * ends in one outcome word, a stop is never a failure, and a run no judge
  * could check is done, unchecked.
  */
+import { rgbToHex } from "@opentui/core"
 import { testRender } from "@opentui/react/test-utils"
 import { EvaluatorError } from "@smthrs/model/Evaluator"
 import * as FailureCopy from "@smthrs/model/FailureCopy"
+import * as SubagentCard from "@smthrs/rpc/SubagentCard"
 import { afterEach, describe, expect, it } from "bun:test"
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
@@ -13,7 +15,10 @@ import { act } from "react"
 import * as Failures from "../src/failures.ts"
 import { uncheckedAnswer } from "../src/host.ts"
 import * as Session from "../src/session.ts"
+import * as Subagents from "../src/subagents.ts"
+import * as Summary from "../src/summary.ts"
 import * as Tabs from "../src/tabs.ts"
+import { color } from "../src/theme.ts"
 import * as Transcript from "../src/transcript.ts"
 import * as View from "../src/view.tsx"
 import type { Tab } from "../src/workspace.ts"
@@ -113,6 +118,42 @@ describe("a run's ending in its transcript", () => {
     expect(stopped.activity?.status).toBe("cancelled")
     const text = await frame(stopped.items.at(-1)!)
     expect(lines(text)).toEqual(["■ stopped"])
+  })
+
+  it("settles a call the stop interrupted as stopped: ■ in faint, never ✗ or red", async () => {
+    const identity = { session: "s", frame: 0, cell: "c", ordinal: 0, declaration: "d", layers: [] }
+    const events = [
+      { _tag: "cell-produced", cell: { language: "javascript", text: "await ctx.call(\"read\", {})" } },
+      { _tag: "cell-call-started", call: { flowName: "read", input: { path: "src/auth.ts" }, identity } }
+    ] as unknown as ReadonlyArray<Parameters<typeof Transcript.apply>[1]>
+    const open = events.reduce((state, event, index) => Transcript.apply(state, event, index), Transcript.empty)
+    const cellOf = (transcript: Transcript.Transcript) =>
+      transcript.items.find((item): item is Extract<Transcript.Item, { kind: "cell" }> => item.kind === "cell")!
+
+    const stopped = cellOf(Transcript.stopped(open, 5))
+    expect(stopped.status).toBe("stopped")
+    expect(stopped.calls.map((each) => each.status)).toEqual(["stopped"])
+    // A failure still fails what it interrupted.
+    const failed = cellOf(Transcript.failure(open, "Model call failed", 5))
+    expect(failed.status).toBe("failed")
+    expect(failed.calls.map((each) => each.status)).toEqual(["failed"])
+
+    setup = await testRender(<View.Entry item={stopped} now={1_000} tick="." expanded={false} />, {
+      width: 100,
+      height: 14
+    })
+    await setup.renderOnce()
+    const row = lines(setup.captureCharFrame()).find((each) => each.includes("src/auth.ts"))!
+    expect(row).toMatch(/^■ \S+ src\/auth\.ts/)
+    const spans = setup.captureSpans().lines.flatMap((line) => line.spans)
+    expect(spans.filter((span) => span.text.includes("■")).map((span) => rgbToHex(span.fg))).toEqual([color.faint])
+    for (const span of spans) expect(rgbToHex(span.fg)).not.toBe(color.danger)
+
+    // The worker card's row and the summary say the same.
+    const card = SubagentCard.describe(Subagents.entry(stopped.calls[0]!))
+    expect(card).toMatchObject({ mark: "■", state: "stopped" })
+    expect(card.text).toMatch(/ src\/auth\.ts$/)
+    expect(Summary.panel(Transcript.stopped(open, 5)).rows[0]).toMatchObject({ status: "cancelled" })
   })
 
   it("says failed and its cause", async () => {

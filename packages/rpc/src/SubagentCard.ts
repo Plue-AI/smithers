@@ -108,7 +108,8 @@ export type Entry =
     readonly kind: "tool"
     /** The flow or tool name; it picks the default verbs. */
     readonly tool: string
-    readonly state: "pending" | "done" | "error"
+    /** `stopped`: a person stopped the worker while the call ran. */
+    readonly state: "pending" | "done" | "error" | "stopped"
     readonly target: string
     /** The tool's own verbs, when it reports them; they win over the defaults. */
     readonly verb?: Verb
@@ -249,13 +250,14 @@ const oneLine = (text: string): string =>
 export interface Row {
   readonly branch: "├" | "└"
   readonly text: string
-  readonly mark: "" | "✓" | "✗"
-  /** `pending` and `text` rows draw dim. */
-  readonly state: "pending" | "done" | "error" | "text"
+  readonly mark: "" | "✓" | "✗" | "■"
+  /** `pending`, `stopped` and `text` rows draw dim. */
+  readonly state: "pending" | "done" | "error" | "stopped" | "text"
 }
 
 /**
- * An entry's words and mark: `Editing x…`, `Edited x +18 -4 ✓`, `Ran cmd ✗`.
+ * An entry's words and mark: `Editing x…`, `Edited x +18 -4 ✓`, `Ran cmd ✗`,
+ * and a stopped call's `Reading x ■`.
  * @since 1.0.0
  * @category activity
  */
@@ -265,6 +267,7 @@ export const describe = (entry: Entry): Omit<Row, "branch"> => {
   const target = oneLine(entry.target)
   const subject = target === "" ? "" : ` ${target}`
   if (entry.state === "pending") return { text: `${words.pending}${subject}…`, mark: "", state: "pending" }
+  if (entry.state === "stopped") return { text: `${words.pending}${subject}`, mark: stopped, state: "stopped" }
   const state = entry.exit !== undefined && entry.exit !== 0 ? "error" : entry.state
   return {
     text: `${words.done}${subject}${counts(entry.added, entry.removed)}${
