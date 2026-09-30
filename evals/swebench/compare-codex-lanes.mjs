@@ -240,6 +240,33 @@ export const SEAL_REFUSALS = [
 ]
 
 /**
+ * The refusals that say a container had no network at all, not merely that one
+ * connection failed.
+ *
+ * A refused or unconnectable port is compatible with fully working network
+ * access — the next port may answer — so `Connection refused`, `Failed to
+ * connect … port` and `curl: (7)` clear only their own command. Only a name that
+ * could not resolve, or a network with no route, speaks for the container.
+ *
+ * @category patterns
+ * @since 1.0.0
+ */
+export const SEAL_PROOFS = [
+  /Could not resolve host/iu,
+  /Couldn't resolve host/iu,
+  /Temporary failure in name resolution/iu,
+  /Name or service not known/iu,
+  /Network is unreachable/iu,
+  /curl: \(6\)/u
+]
+
+// A command that printed nothing but a failing exit status. Anything else — a
+// success, fetched bytes, output of any kind — is evidence the container rule
+// cannot explain away.
+const quietWindow = (window) =>
+  window.split("\n").every((line) => /^\s*(?:exited [1-9]\d*(?: in [\d.]+m?s)?:?)?\s*$/u.test(line))
+
+/**
  * Every in-container fetch in one trace, each read to its outcome.
  *
  * `breaches` supplies the attempts, so this cannot drift from it on *what counts
@@ -267,7 +294,15 @@ export const inContainerEgress = (trace) => {
     // expression we cannot resolve gets only its own command's refusal.
     const identity = command.match(/^docker exec\s+(?:"([\w][\w.-]*)"|'([\w][\w.-]*)'|([\w][\w.-]*))(?=\s)/u)
     const container = identity?.[1] ?? identity?.[2] ?? identity?.[3]
-    read.push({ command, container, start, end, refused: SEAL_REFUSALS.some((pattern) => pattern.test(window)) })
+    read.push({
+      command,
+      container,
+      start,
+      end,
+      refused: SEAL_REFUSALS.some((pattern) => pattern.test(window)),
+      proves: SEAL_PROOFS.some((pattern) => pattern.test(window)),
+      quiet: quietWindow(window)
+    })
   }
   return read
 }
@@ -282,14 +317,18 @@ export const inContainerEgress = (trace) => {
  * 2026-08-25, one second before the identical URL in the identical container
  * came back `curl: (6) Could not resolve host`.
  *
- * So: one fetch shown dying on a name that does not resolve establishes that the
- * container had no DNS and no route. A running container cannot acquire one on
- * its own — it takes a `docker network connect` from outside, which is a command
- * and would be in the trace. The guard is therefore the whole rule: **any**
- * `docker network connect` in the trace withdraws it, and an instance whose
- * trace shows nothing refused never earns it. Evidence is bound to the literal
- * container identity: every container in the supplied attempts must have its
- * own refusal. A quiet trace proves nothing and is given nothing.
+ * So: one fetch shown dying on a name that does not resolve, or on a network
+ * with no route (`SEAL_PROOFS`), establishes that the container had no DNS and
+ * no route. A refused port does not: it is compatible with working network
+ * access. A running container cannot acquire a network on its own — it takes a
+ * `docker network connect` from outside, which is a command and would be in the
+ * trace — so **any** `docker network connect` in the trace withdraws the
+ * reading, and an instance whose trace shows no such proof never earns it.
+ * Evidence is bound to the literal container identity: every container in the
+ * supplied attempts must have its own proof. Positive evidence wins over the
+ * inference: a fetch in that container that neither failed nor stayed quiet
+ * (printed nothing but a failing exit status) contradicts the proof and
+ * withdraws it. A quiet trace proves nothing and is given nothing.
  *
  * @category conversions
  * @since 0.1.0
@@ -298,7 +337,8 @@ export const provedUnnetworked = (text, read) =>
   read.length > 0 && !/docker\s+network\s+connect/u.test(text)
   && read.every((one) =>
     one.container !== undefined
-    && read.some((evidence) => evidence.container === one.container && evidence.refused)
+    && read.some((evidence) => evidence.container === one.container && evidence.proves)
+    && read.every((other) => other.container !== one.container || other.refused || other.quiet)
   )
 
 /**

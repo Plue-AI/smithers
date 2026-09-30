@@ -518,10 +518,14 @@ outcome, and the reading fails closed:
   nothing can leave no evidence at all. `sphinx-doc__sphinx-7590` did exactly
   that one second before the identical URL in the identical container came back
   `curl: (6)`;
-- that container-level reading is withdrawn by **any** `docker network connect`
-  in the trace, which is the only way a running container can acquire a network,
-  and it is never granted to a container that is shown refusing nothing. A quiet
-  trace proves nothing and is given nothing.
+- only a name that does not resolve or a network with no route proves that. A
+  refused or unconnectable port (`Connection refused`, `curl: (7)`) clears its
+  own command and nothing else: it is compatible with a working network;
+- positive evidence beats the inference: a fetch in that container that printed
+  anything but a failing exit status withdraws the container-level reading, and
+  so does **any** `docker network connect` in the trace, which is the only way a
+  running container can acquire a network. It is never granted to a container
+  shown refusing nothing. A quiet trace proves nothing and is given nothing.
 
 Refusal evidence stays within its command's bounded output window and literal
 container identity. A refusal in `swb` cannot excuse a fetch in `otherbox`.

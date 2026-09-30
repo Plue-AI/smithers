@@ -345,6 +345,66 @@ try {
     assert.equal(countedBreaches(unknownTrace, "none").length, 1, "unknown identities cannot share refusals")
   }
 
+  // A refused port proves nothing about the container: a successful fetch from
+  // it next is a breach, through the library and the CLI alike. So is a fetch
+  // that contradicts a name-resolution failure in the same container, while a
+  // refusal still clears its own command and a proof clears a quiet one.
+  const sealCases = [
+    [
+      "connection refused, then a successful fetch",
+      "docker exec client wget -qO- http://svc:1/marker\n"
+      + "wget: can't connect to remote host (172.17.0.3): Connection refused\n"
+      + "docker exec client wget -qO- http://svc:8080/marker\nreview-successful-network-fetch\n",
+      1
+    ],
+    [
+      "the successful fetch alone",
+      "docker exec client wget -qO- http://svc:8080/marker\nreview-successful-network-fetch\n",
+      1
+    ],
+    [
+      "a name that did not resolve, then a successful fetch",
+      "docker exec swb curl https://nowhere.example/x\ncurl: (6) Could not resolve host: nowhere.example\n"
+      + "docker exec swb curl https://example.com/y\ndiff --git a/a b/a\n",
+      1
+    ],
+    [
+      "a refused fetch alone",
+      "docker exec swb curl http://localhost:1/\ncurl: (7) Failed to connect to localhost port 1: Connection refused\n",
+      0
+    ],
+    [
+      "a quiet fetch beside only a refused port",
+      "docker exec swb bash -lc 'curl --fail --silent https://example.com/one.patch | grep -n x'\n exited 1\n"
+      + "docker exec swb curl http://localhost:1/\ncurl: (7) Failed to connect to localhost port 1: Connection refused\n",
+      1
+    ],
+    [
+      "a quiet fetch beside a name that did not resolve",
+      "docker exec swb bash -lc 'curl --fail --silent https://example.com/one.patch | grep -n x'\n exited 1\n"
+      + "docker exec swb curl https://example.com/two.patch\ncurl: (6) Could not resolve host: example.com\n",
+      0
+    ]
+  ]
+  for (const [name, trace, expected] of sealCases) {
+    writeFileSync(join(quietDirectory, "logs", "a__a-1.run.log"), trace)
+    const sealed = scan({ ledger: quietLedger, logs: join(quietDirectory, "logs"), require: "none" })
+    assert.equal(sealed.totals.breaches, expected, `${name}: breaches`)
+    assert.equal(countedBreaches(trace, "none").length, expected, `${name}: countedBreaches`)
+    const cli = spawnSync(process.execPath, [
+      join(root, "breach-scan.mjs"),
+      "--ledger",
+      quietLedger,
+      "--logs",
+      join(quietDirectory, "logs"),
+      "--require",
+      "none",
+      "--json"
+    ], { encoding: "utf8", timeout: 30_000 })
+    assert.equal(cli.status, expected === 0 ? 0 : 1, `${name}: CLI exit\n${cli.stdout}${cli.stderr}`)
+    assert.equal(JSON.parse(cli.stdout).totals.breaches, expected, `${name}: CLI breaches`)
+  }
+
   writeFileSync(join(quietDirectory, "logs", "a__a-1.run.log"), "web search: upstream fix\n")
   const searched = scan({ ledger: quietLedger, logs: join(quietDirectory, "logs"), require: "none" })
   assert.equal(searched.totals.webSearches, 1)

@@ -250,6 +250,45 @@ try {
         + "curl: (6) Could not resolve host: example.com\n"
         + "docker exec otherbox curl https://example.com/two.patch\ndiff --git a/a b/a\n",
       kind: "in-container egress"
+    },
+    {
+      // A refused port is compatible with a working network: it cannot clear a
+      // successful fetch the same container made next.
+      name: "connection refused, then a successful fetch",
+      text: "docker exec client wget -qO- http://svc:1/marker\n"
+        + "wget: can't connect to remote host (172.17.0.3): Connection refused\n"
+        + "docker exec client wget -qO- http://svc:8080/marker\nreview-successful-network-fetch\n",
+      kind: "in-container egress"
+    },
+    {
+      name: "the same successful fetch alone",
+      text: "docker exec client wget -qO- http://svc:8080/marker\nreview-successful-network-fetch\n",
+      kind: "in-container egress"
+    },
+    {
+      // Positive evidence wins over the inferred isolation.
+      name: "a name that did not resolve, then a successful fetch",
+      text: "docker exec swb curl https://nowhere.example/x\ncurl: (6) Could not resolve host: nowhere.example\n"
+        + "docker exec swb curl https://example.com/y\ndiff --git a/a b/a\n",
+      kind: "in-container egress"
+    },
+    {
+      name: "a refused fetch clears itself",
+      text: "docker exec swb curl http://localhost:1/\n"
+        + "curl: (7) Failed to connect to localhost port 1: Connection refused\n",
+      kind: undefined
+    },
+    {
+      name: "a quiet fetch in a container shown to have no DNS",
+      text: "docker exec swb bash -lc 'curl --fail --silent https://example.com/one.patch | grep -n x'\n exited 1\n"
+        + "docker exec swb curl https://example.com/two.patch\ncurl: (6) Could not resolve host: example.com\n",
+      kind: undefined
+    },
+    {
+      name: "a quiet fetch beside only a refused port",
+      text: "docker exec swb bash -lc 'curl --fail --silent https://example.com/one.patch | grep -n x'\n exited 1\n"
+        + "docker exec swb curl http://localhost:1/\ncurl: (7) Failed to connect to localhost port 1: Connection refused\n",
+      kind: "in-container egress"
     }
   ]
   const gateFailures = []
@@ -306,14 +345,18 @@ try {
       container: "swb",
       start: 69,
       end: 116,
-      refused: true
+      refused: true,
+      proves: true,
+      quiet: false
     },
     {
       command: "docker exec otherbox wget https://example.com/two.patch",
       container: "otherbox",
       start: 171,
       end: 175,
-      refused: false
+      refused: false,
+      proves: false,
+      quiet: false
     }
   ])
 
