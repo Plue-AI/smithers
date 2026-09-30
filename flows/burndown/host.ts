@@ -13,6 +13,7 @@ import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 import { discoverAccounts, readAccounts, type Reading } from "./accounts.ts"
 import { type History, issueKey, selectCandidates } from "./issues.ts"
+import { refuseIfClosed, type Refusal } from "./closed-guard.ts"
 import { hasPushedReceipt, landAll } from "./land.ts"
 import { earliestReset, exhausted, learnRates, type Rates, slots } from "./pacing.ts"
 import { Land, Launch, Observe, Settle } from "./round.ts"
@@ -213,6 +214,12 @@ const refreshOwned = async (assignment: Assignment): Promise<boolean> => {
   return true
 }
 
+const issueState = (repo: string, n: number) =>
+  run("gh", ["issue", "view", String(n), "--repo", repo, "--json", "state", "--jq", ".state"], {
+    timeout: 60_000,
+    maxBuffer: 1 << 20
+  }).then(({ stdout }) => stdout)
+
 const claim = (repo: string, n: number, by: string) =>
   run("node", [claimScript, "claim", `${repo}#${n}`, "--by", by]).then(() => true, () => false)
 const release = async (repo: string, n: number, by: string, note: string): Promise<boolean> => {
@@ -370,23 +377,37 @@ const land = (state: RoundState, observation: Observation) => {
     return Effect.succeed({ landed: [], quarantined: [] })
   }
   return Effect.gen(function*() {
+    const refused: Array<Refusal> = []
     const owned = yield* Effect.filter(
       ready,
       (member) =>
-        Effect.promise(async () =>
-          await hasPushedReceipt({
-            key: member.result.key,
-            repo: member.assignment.repo,
-            commits: member.result.commits
-          }) ||
-          await alreadyOnRemoteMain(member) || await refreshOwned(member.assignment)
-        )
+        Effect.promise(async () => {
+          if (
+            await hasPushedReceipt({
+              key: member.result.key,
+              repo: member.assignment.repo,
+              commits: member.result.commits
+            }) || await alreadyOnRemoteMain(member)
+          ) return true
+          // A closed issue never lands, whoever holds the claim.
+          try {
+            const refusal = await refuseIfClosed(member, { view: issueState, release })
+            if (refusal !== undefined) {
+              refused.push(refusal)
+              return false
+            }
+          } catch {
+            return false
+          }
+          return await refreshOwned(member.assignment)
+        })
     )
-    if (owned.length === 0) return { landed: [], quarantined: [] }
-    return yield* landAll(
+    if (owned.length === 0) return { landed: [], quarantined: [], refused }
+    const report = yield* landAll(
       owned.map((r) => r.result),
       owned.map((r) => ({ assignment: r.assignment, executionId: r.assignment.key, startedAt: 0 }))
     )
+    return { ...report, refused }
   })
 }
 
@@ -407,6 +428,7 @@ const settle = (
     quarantined: ReadonlyArray<{ key: string; error: string }>
     receiptsPending?: ReadonlyArray<{ key: string; error: string }> | undefined
     retainedSnapshots?: ReadonlyArray<{ path: string; error: string }> | undefined
+    refused?: ReadonlyArray<Refusal> | undefined
   }
 ) =>
   Effect.promise(async () => {
@@ -431,7 +453,8 @@ const settle = (
     }))
     const ready = queue.filter((r) =>
       ((landed.receiptsPending ?? []).some((q) => q.key === r.result.key) || !landed.landed.includes(r.result.key)) &&
-      !landed.quarantined.some((q) => q.key === r.result.key)
+      !landed.quarantined.some((q) => q.key === r.result.key) &&
+      !(landed.refused ?? []).some((q) => q.key === r.result.key)
     )
     const quarantined = [
       ...invalid,
@@ -466,6 +489,15 @@ const settle = (
         history[key] = { ...prior, attempts: (prior.attempts ?? 0) + 1, last: now / 1000, notes: member.error }
       }
     }
+    // A refused bundle is closed work: its receipt keeps the commits, and selection never retries it.
+    for (const refusal of landed.refused ?? []) {
+      const assignment = queue.find((r) => r.assignment.key === refusal.key)?.assignment
+      if (assignment === undefined) continue
+      for (const issue of [assignment.lead, ...assignment.extras]) {
+        const key = issueKey(assignment.repo, issue.n)
+        history[key] = { ...(history[key] ?? {}), closed: true }
+      }
+    }
     const capped = observation.candidates.length > 0 && launched.length === 0 &&
       observation.exhausted
     await mkdir(opsDir, { recursive: true })
@@ -478,6 +510,9 @@ const settle = (
       `${line}\n${
         [
           ...(landed.receiptsPending ?? []).map((item) => `receipts pending ${item.key}: ${item.error}`),
+          ...(landed.refused ?? []).map((item) =>
+            `refused ${item.key}: ${item.reason} ${item.issues.map((n) => `#${n}`).join(" ")}`
+          ),
           ...(landed.retainedSnapshots ?? []).map((item) => `snapshot retained ${item.path}: ${item.error}`)
         ].join("\n")
       }\n`
@@ -525,12 +560,12 @@ export const layer = Layer.mergeAll(
     implementationVersion: "burndown/launch/v3"
   }),
   Land.toLayer(({ observation, state }) => land(state, observation), {
-    implementationVersion: "burndown/land/v4"
+    implementationVersion: "burndown/land/v5"
   }),
   Settle.toLayer(
     ({ landed, launched, observation, plan, state }) => settle(state, observation, plan, launched, landed),
     {
-      implementationVersion: "burndown/settle/v5"
+      implementationVersion: "burndown/settle/v6"
     }
   )
 )
