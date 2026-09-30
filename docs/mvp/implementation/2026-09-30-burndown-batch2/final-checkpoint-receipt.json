@@ -5,5 +5,7 @@
   "app": "Prior full run: 8307 pass, 1 skip, 4 fail; 3 failures and type error tracked #3195; runs.continue inventory gap tracked #3203. No full green CI claim.",
   "nativeWiki": "Projection fencing passes; explicit lifecycle fails on existing dylib missing smithers_get_bookmark; retained without fresh artifact claim",
   "evidence": "final-checkpoint-validation.tar.gz",
-  "generated": "docs synchronization/check, target index generation/drift, conflict markers separately logged"
+  "generated": "docs synchronization/check, target index generation/drift, conflict markers separately logged",
+  "postrebase": "Newest upstream doc sync refreshed engine-store ownership text. Target-index now refuses during startup with Missing backend command: history land; previous generation/drift passed. Separate incoming registration blocker investigation, no final whole CI green claim.",
+  "nativeWikiIssue": 3218
 }
