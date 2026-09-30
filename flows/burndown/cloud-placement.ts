@@ -12,7 +12,7 @@ import { setTimeout as wait } from "node:timers/promises"
 import { promisify } from "node:util"
 import { Client } from "../../packages/smithers/src/internal/backend/Client.ts"
 import { type Account, discoverAccounts, freshAccessToken } from "./accounts.ts"
-import { cloudDiagnostic, exportCloudCommits, type ReadCommand } from "./cloud-export.ts"
+import { cloudDiagnostic, exportCloudCommits, type ReadCommand, redactCloudText } from "./cloud-export.ts"
 import {
   type CloudAttribution,
   type CloudHandoff,
@@ -436,6 +436,18 @@ export const makeCloudPlacement = (options: CloudPlacementOptions): Placement["S
           GOCACHE: `${stateDir}/go-cache`
         },
         logFile: false,
+        // Diagnostics are a byte tail of the guest's stderr, so a known secret
+        // may also start the text truncated.
+        redact: (diagnostics: string) =>
+          redactCloudText(
+            redactions.reduce((text, secret) => {
+              for (let length = secret.length - 1; length >= 4; length--) {
+                if (text.startsWith(secret.slice(-length))) return "[redacted]" + text.slice(length)
+              }
+              return text
+            }, diagnostics),
+            redactions
+          ),
         handoff: (result: WorkerResult, read: ReadCommand) =>
           Effect.gen(function*() {
             reportedWork = result.status !== "closed" || result.commits.length > 0

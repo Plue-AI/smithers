@@ -39,6 +39,8 @@ export interface Machine {
   readonly files?: ReadonlyArray<{ readonly path: string; readonly contents: string }>
   readonly handoff?: (result: WorkerResult, read: ReadCommand) => Effect.Effect<WorkerResult, string>
   readonly command?: (script: string) => Effect.Effect<{ readonly script: string; readonly stdin?: Uint8Array }, string>
+  /** Removes the machine's known secrets from decoded stderr diagnostics before they are retained. */
+  readonly redact?: (diagnostics: string) => string
 }
 
 export class Placement extends Context.Service<Placement, {
@@ -281,6 +283,27 @@ export const parseReport = (
   return commits.length > 0 ? result("ready", commits) : result(blocked ? "blocked" : "failed")
 }
 
+/**
+ * Read the run script's output. Stderr arrives base64-encoded, beyond the reach
+ * of output-side redaction, so it is decoded and redacted before retention.
+ */
+export const readRunOutput = (
+  assignment: Assignment,
+  output: string,
+  agentHours: number,
+  redact: (diagnostics: string) => string = (diagnostics) => diagnostics
+): WorkerResult => {
+  const exit = /BURNDOWN_EXIT=(\d+)\s*$/.exec(output)
+  const diagnostic = /\nBURNDOWN_DIAGNOSTICS=([A-Za-z0-9+/=]*)\nBURNDOWN_EXIT=\d+\s*$/.exec(output)
+  return parseReport(
+    assignment,
+    exit === null ? 1 : Number(exit[1]),
+    diagnostic === null ? "" : output.slice(0, diagnostic.index),
+    agentHours,
+    redact(diagnostic === null ? output : Buffer.from(diagnostic[1]!, "base64").toString("utf8"))
+  )
+}
+
 /** Implements `RunAgent` over whichever `Placement` the host provides. */
 export const layerRunAgent = (brief: (assignment: Assignment, machine: Machine) => string) =>
   RunAgent.toLayer(
@@ -334,15 +357,7 @@ export const layerRunAgent = (brief: (assignment: Assignment, machine: Machine) 
               extendEnv: true
             })
           )
-          const exit = /BURNDOWN_EXIT=(\d+)\s*$/.exec(output)
-          const diagnostic = /\nBURNDOWN_DIAGNOSTICS=([A-Za-z0-9+/=]*)\nBURNDOWN_EXIT=\d+\s*$/.exec(output)
-          const result = parseReport(
-            assignment,
-            exit === null ? 1 : Number(exit[1]),
-            diagnostic === null ? "" : output.slice(0, diagnostic.index),
-            (Date.now() - started) / 3_600_000,
-            diagnostic === null ? output : Buffer.from(diagnostic[1]!, "base64").toString("utf8")
-          )
+          const result = readRunOutput(assignment, output, (Date.now() - started) / 3_600_000, machine.redact)
           const read: ReadCommand = (program, args, stdin) =>
             Effect.scoped(Effect.gen(function*() {
               const handle = yield* spawner.spawn(

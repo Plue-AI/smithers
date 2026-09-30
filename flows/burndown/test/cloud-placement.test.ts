@@ -11,7 +11,7 @@ import test from "node:test"
 import { type Account, discoverAccounts } from "../accounts.ts"
 import type { CloudHandoff } from "../cloud-handoff.ts"
 import { layerPlacementWith, makeCloudPlacement } from "../cloud-placement.ts"
-import { agentArgv, Placement } from "../run-agent.ts"
+import { agentArgv, Placement, readRunOutput } from "../run-agent.ts"
 import type { Assignment } from "../schema.ts"
 
 const assignment: Assignment = {
@@ -1673,6 +1673,80 @@ for (
           "oversized retained file is not truncated or rewritten"
         )
       }
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+}
+
+for (const exitCode of [0, 1]) {
+  test(`Cloud worker stderr decoded from its base64 transport is redacted on ${exitCode === 0 ? "success" : "failure"}`, async () => {
+    const dir = await mkdtemp(join(tmpdir(), "burndown-diagnostics-"))
+    const secret = "opaque-cloud-login-fixture-0123456789"
+    const sha = "c".repeat(40)
+    const claude: Assignment = { ...assignment, tool: "claude", model: "claude-opus-5-5" }
+    try {
+      await Effect.runPromise(
+        Effect.gen(function*() {
+          const spawner = yield* ChildProcessSpawner
+          const machine = yield* makeCloudPlacement({
+            spawner,
+            identity: async () => "smithers-dev",
+            prepareRepository: async () => {},
+            install: false,
+            workdir: dir,
+            artifactDirectory: dir,
+            credential: async () => ({ token: secret }),
+            api: { request: async () => ({ id: "ws-diagnostics", status: "running" }), sshPrefix: async () => [] }
+          }).machine(claude, { ...account, tool: "claude" })
+          const report = JSON.stringify({ type: "result", subtype: "success", is_error: false, result: `READY ${sha}` })
+          // The run script's shape: report on stdout, then a base64 byte tail of
+          // stderr that starts inside the secret, then the exit receipt.
+          const stderr = `${secret}\nagent warning ${secret}\nlast diagnostic line\n`
+          const command = yield* machine.command!([
+            `printf '%s' '${report}'`,
+            `printf '\\nBURNDOWN_DIAGNOSTICS='`,
+            `printf '${stderr.replaceAll("\n", "\\n")}' | tail -c ${stderr.length - 7} | base64 | tr -d '\\n'`,
+            `printf '\\n'`,
+            `echo "BURNDOWN_EXIT=${exitCode}"`
+          ].join("\n"))
+          const output = yield* Effect.gen(function*() {
+            const guest = yield* ChildProcessSpawner
+            return yield* guest.string(
+              ChildProcess.make("sh", ["-c", command.script], {
+                stdin: Stream.make(command.stdin!),
+                env: machine.env,
+                extendEnv: true
+              })
+            )
+          }).pipe(
+            Effect.provide(Sandbox.layerHost(machine.provider, { session: `${assignment.key}:${dir}` })),
+            Effect.scoped
+          )
+          const encoded = /BURNDOWN_DIAGNOSTICS=([A-Za-z0-9+/=]+)/.exec(output)![1]!
+          assert.ok(!output.includes(secret), "guest-side output redaction never saw the encoded stderr")
+          assert.ok(Buffer.from(encoded, "base64").toString("utf8").includes(secret))
+          assert.ok(Buffer.from(encoded, "base64").toString("utf8").startsWith(secret.slice(7)))
+
+          const result = readRunOutput(claude, output, 0.5, machine.redact)
+          assert.equal(result.status, exitCode === 0 ? "ready" : "failed")
+          assert.deepEqual(result.commits, exitCode === 0 ? [{ issue: 42, commit: sha }] : [])
+          assert.ok(!result.notes.includes(secret))
+          assert.ok(!result.notes.includes(secret.slice(7)), "a secret cut by the byte tail is redacted too")
+          assert.match(result.notes, /\[redacted\]\nagent warning \[redacted\]\nlast diagnostic line/)
+          if (exitCode === 0) assert.match(result.notes, new RegExp(`READY ${sha}`))
+
+          const handed = yield* Effect.exit(
+            machine.handoff!(
+              exitCode === 0 ? { ...result, status: "blocked" } : result,
+              () => Effect.fail("no export for an unready result")
+            )
+          )
+          assert.equal(handed._tag, "Success")
+          assert.ok(!JSON.stringify(handed).includes(secret))
+          assert.ok(!(yield* Effect.promise(() => readRecovery(dir))).includes(secret))
+        }).pipe(Effect.provide(NodeServices.layer))
+      )
     } finally {
       await rm(dir, { recursive: true, force: true })
     }

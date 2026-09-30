@@ -12,7 +12,10 @@ export interface ExportOptions {
   readonly redactions?: ReadonlyArray<string>
 }
 /** Bounded terminal-safe diagnostics; never retain command argv or an SSH grant. */
-export const cloudDiagnostic = (value: string, redactions: ReadonlyArray<string> = []): string => {
+export const cloudDiagnostic = (value: string, redactions: ReadonlyArray<string> = []): string =>
+  redactCloudText(value, redactions).slice(0, 2048)
+/** Known credentials and common token formats removed, terminal controls dropped; unbounded. */
+export const redactCloudText = (value: string, redactions: ReadonlyArray<string> = []): string => {
   let text = value
   for (const secret of redactions) if (secret) text = text.replaceAll(secret, "[redacted]")
   return text.replaceAll(/(https?:\/\/)[^\s/@]+:[^\s/@]+@/gi, "$1[redacted]@")
@@ -21,7 +24,7 @@ export const cloudDiagnostic = (value: string, redactions: ReadonlyArray<string>
       /Bearer\s+[^\s"']+|(?:gh[pousr]_|github_pat_)[A-Za-z0-9_]+|sk-[A-Za-z0-9_-]+|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/gi,
       "[redacted]"
     )
-    .replaceAll(/(?![\n\t])\p{Cc}/gu, "").slice(0, 2048)
+    .replaceAll(/(?![\n\t])\p{Cc}/gu, "")
 }
 type Entry = { oid: string; type: "file" | "symlink"; executable: boolean }
 
