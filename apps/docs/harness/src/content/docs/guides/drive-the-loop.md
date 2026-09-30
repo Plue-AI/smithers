@@ -183,7 +183,7 @@ ends on `TurnClosed` with its outcome, beside `Resolved`, `Suspended`, or
 The full list is in the [`AgentEvent` reference](/reference/api/#agentevent).
 
 `ClaimDemanded` is the sixth brake on a completion and the only one that is
-not a measurement. Once the five deterministic demands have found nothing, the
+not a measurement. Once the measured demands have found nothing, the
 controller sends the task, the completion message, whether the tree moved,
 the check ledger, the last check's output, and bounded receipts for recent
 settled calls to the `Evaluator` service. The receipts retain classification
@@ -192,9 +192,12 @@ satisfy the person's current request, does the claim assert something the eviden
 does not show, and does it report a command or result the record does not
 contain? A probability of 0.3 or below on the first, 0.8 or above on the second,
 or 0.5 or above on the third hands the frame back,
-from `claimCap`, exactly as `UnmovedDemanded` does. A confident "complete" ends
-no run and bypasses no other demand, and the brake is never consulted when one
-of the five already spoke. Every reading is journaled, demand or not, with all
+from `claimCap`. An unmoved tree is not a demand on its own: a read-only
+question is answered on the tree it was asked on. When the tree never moved and
+Jev reads the completion as unsupported, the bounce is `UnmovedDemanded` from
+`unmovedCap` while that cap lasts. A confident "complete" ends no run and
+bypasses no other demand, and the brake is never consulted when a measured
+demand already spoke. Every reading is journaled, demand or not, with all
 three probabilities and the evaluator latency, so a wave can be read for
 agreement rather than only for firings. A replay uses the recorded reading
 without another evaluator request.
