@@ -3,11 +3,13 @@
  * @since 1.0.0
  */
 
+import { RunState } from "@smthrs/engine-store/RunState"
 import { Ownership, type RunStore } from "@smthrs/run-store"
-import { Cause, Clock, Duration, Effect } from "effect"
+import { Cause, Clock, Duration, Effect, Schema } from "effect"
 
 interface Options {
   readonly runs: RunStore.Service
+  readonly engineRuns?: RunStore.Service | undefined
   readonly claimant: Ownership.OwnerId
   readonly isAlive?: Ownership.LivenessCheck | undefined
 }
@@ -19,22 +21,56 @@ interface Options {
  * @since 1.0.0
  * @private
  */
+const ParkedOwner = Schema.Struct({ parkedBy: Schema.String, updatedAt: Schema.Number })
+const decodeState = Schema.decodeUnknownEffect(Schema.fromJsonString(RunState))
+const decodePark = Schema.decodeUnknownEffect(Schema.fromJsonString(ParkedOwner))
+const decodeOwner = Schema.decodeUnknownEffect(Schema.fromJsonString(Ownership.OwnerId))
+
 export const make =
-  ({ runs, claimant, isAlive = Ownership.sameHostPidProbe }: Options) => (runId: string): Effect.Effect<boolean> =>
+  ({ runs, engineRuns, claimant, isAlive = Ownership.sameHostPidProbe }: Options) => (runId: string): Effect.Effect<boolean> =>
     Effect.gen(function*() {
-      const row = yield* runs.get(runId).pipe(
+      const readControl = (id: string) => runs.get(id).pipe(
         Effect.catch((error) => error.code === "not_found_row" ? Effect.succeed(undefined) : Effect.fail(error))
       )
-      // Engine-only children have no control row. Suspended control rows have
-      // released their claim and retain the session's resume delegation policy.
-      if (row === undefined || row.status !== "running") return true
-      if (row.owner === null) return false
-      if (row.owner.hostId === claimant.hostId && row.owner.pid === claimant.pid) return true
+      const sameProcess = (owner: Ownership.OwnerId) => owner.hostId === claimant.hostId && owner.pid === claimant.pid
       const nowMs = yield* Clock.currentTimeMillis
-      if (row.heartbeatAtMs === null || row.heartbeatAtMs >= nowMs - Duration.toMillis(Ownership.heartbeatStaleAfter)) {
-        return false
+      const stale = (at: number | null) => at !== null && at < nowMs - Duration.toMillis(Ownership.heartbeatStaleAfter)
+      const admitsRunning = (row: RunStore.RunRow) => Effect.gen(function*() {
+        if (row.status !== "running") return true
+        if (row.owner === null) return false
+        if (sameProcess(row.owner)) return true
+        if (!stale(row.heartbeatAtMs)) return false
+        return !(yield* isAlive(row.owner, { claimant, heartbeatAtMs: row.heartbeatAtMs, nowMs }))
+      })
+      const exact = yield* readControl(runId)
+      // Root admission keeps the control session's existing resume policy.
+      if (exact !== undefined) return yield* admitsRunning(exact)
+      if (engineRuns === undefined) return true
+      let native = yield* engineRuns.get(runId)
+      if (native.cancelRequestedAtMs !== null) return true
+      let state = yield* decodeState(native.stateJson)
+      if (state.cancellation !== undefined) return true
+      const released = native.status === "suspended" && state.result === undefined
+      const seen = new Set([runId])
+      for (;;) {
+        const parent = state.parentExecutionId ?? native.parentRunId
+        if (parent === undefined || parent === null) return true
+        if (seen.has(parent)) return false
+        seen.add(parent)
+        const control = yield* readControl(parent)
+        if (control !== undefined) {
+          if (control.status !== "suspended") return yield* admitsRunning(control)
+          const park = yield* decodePark(control.stateJson)
+          const owner = yield* decodeOwner(park.parkedBy)
+          // A lease interruption releases the child, not its external effect.
+          // A live parked parent must explicitly resume before that effect retries.
+          if (sameProcess(owner)) return !released
+          if (!stale(park.updatedAt)) return false
+          return !(yield* isAlive(owner, { claimant, heartbeatAtMs: park.updatedAt, nowMs }))
+        }
+        native = yield* engineRuns.get(parent)
+        state = yield* decodeState(native.stateJson)
       }
-      return !(yield* isAlive(row.owner, { claimant, heartbeatAtMs: row.heartbeatAtMs, nowMs }))
     }).pipe(Effect.catchCause((cause) =>
       Cause.hasInterruptsOnly(cause)
         ? Effect.interrupt

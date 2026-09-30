@@ -1,7 +1,7 @@
 import { expect, it } from "@effect/vitest"
 import { Ownership, RunStore } from "@smthrs/run-store"
 import * as TestRunStore from "@smthrs/run-store/test/TestRunStore"
-import { Clock, Context, Duration, Effect, Layer } from "effect"
+import { Cause, Clock, Context, Duration, Effect, Exit, Layer } from "effect"
 import { TestClock } from "effect/testing"
 import { vi } from "vitest"
 import * as ControlAffinity from "../src/internal/ControlAffinity.ts"
@@ -39,6 +39,81 @@ const parent = (runs: RunStore.Service, owner = peer, parked = true) =>
     }
     return yield* runs.get("root")
   })
+
+const releaseChild = (runs: RunStore.Service, intentional = false) =>
+  Effect.gen(function*() {
+    yield* child(runs)
+    const now = yield* Clock.currentTimeMillis
+    expect((yield* runs.claimAndOwn("child", yield* runs.get("child"), claimant, now))._tag).toBe("Activated")
+    const state = JSON.parse((yield* runs.get("child")).stateJson)
+    if (intentional) state.result = { _tag: "Suspended", token: "signal" }
+    expect((yield* runs.transitionOwned("child", claimant, "suspended", JSON.stringify(state)))._tag).toBe(
+      "Transitioned"
+    )
+    return yield* runs.get("child")
+  })
+
+it.effect("keeps a released child stopped under its own live parked parent across nonce changes", () =>
+  stores((runs, engineRuns) =>
+    Effect.gen(function*() {
+      const root = yield* parent(runs, { ...claimant, nonce: "earlier" })
+      const released = yield* releaseChild(engineRuns)
+      const probe = vi.fn(() => Effect.succeed(false))
+      const admit = ControlAffinity.make({ runs, engineRuns, claimant, isAlive: probe })
+      expect(yield* admit("child")).toBe(false)
+      yield* TestClock.adjust(staleAfter + 1)
+      expect(yield* admit("child")).toBe(false)
+      expect(probe).not.toHaveBeenCalled()
+      expect(yield* runs.get("root")).toEqual(root)
+      expect(yield* engineRuns.get("child")).toEqual(released)
+    })
+  ))
+
+it.effect("admits a released child when explicit resume has activated its parent", () =>
+  stores((runs, engineRuns) =>
+    Effect.gen(function*() {
+      yield* parent(runs, claimant, false)
+      yield* releaseChild(engineRuns)
+      expect(yield* ControlAffinity.make({ runs, engineRuns, claimant })("child")).toBe(true)
+    })
+  ))
+
+it.effect("admits an intentional suspension for the parked parent's own process", () =>
+  stores((runs, engineRuns) =>
+    Effect.gen(function*() {
+      yield* parent(runs, claimant)
+      yield* releaseChild(engineRuns, true)
+      expect(yield* ControlAffinity.make({ runs, engineRuns, claimant })("child")).toBe(true)
+    })
+  ))
+
+it.effect("recovers a released child only after its foreign parked owner is stale and dead", () =>
+  stores((runs, engineRuns) =>
+    Effect.gen(function*() {
+      yield* parent(runs)
+      yield* releaseChild(engineRuns)
+      const probe = vi.fn(() => Effect.succeed(false))
+      const admit = ControlAffinity.make({ runs, engineRuns, claimant, isAlive: probe })
+      expect(yield* admit("child")).toBe(false)
+      expect(probe).not.toHaveBeenCalled()
+      yield* TestClock.adjust(staleAfter + 1)
+      probe.mockImplementation(() => Effect.succeed(true))
+      expect(yield* admit("child")).toBe(false)
+      probe.mockImplementation(() => Effect.succeed(false))
+      expect(yield* admit("child")).toBe(true)
+    })
+  ))
+
+it.effect("settles cancellation of a released child despite its own parked ancestor", () =>
+  stores((runs, engineRuns) =>
+    Effect.gen(function*() {
+      yield* parent(runs, claimant)
+      yield* releaseChild(engineRuns)
+      const now = yield* Clock.currentTimeMillis
+      expect((yield* engineRuns.requestCancel("child", now))._tag).toBe("CancelRequested")
+      expect(yield* ControlAffinity.make({ runs, engineRuns, claimant })("child")).toBe(true)
+    })
+  ))
 
 it.effect("keeps engine-only children parked while a foreign control parent has a fresh lease", () =>
   stores((runs, engineRuns) =>
@@ -184,5 +259,32 @@ it.effect("fails closed for malformed parked ownership and inconclusive liveness
           isAlive: () => Effect.die("unavailable")
         })("child")
       ).toBe(false)
+    })
+  ))
+
+it.effect("fails closed for engine read failures while preserving interruption", () =>
+  stores((runs, engineRuns) =>
+    Effect.gen(function*() {
+      yield* parent(runs)
+      yield* child(engineRuns)
+      const error = new RunStore.RunStoreError({
+        code: "persistence_failed",
+        method: "get",
+        message: "unavailable",
+        cause: null
+      })
+      // Inject only transport errors; ancestry and lifecycle cases above use
+      // the actual SQLite persistence service and its public writes.
+      for (const get of [() => Effect.fail(error), () => Effect.die("broken read")]) {
+        expect(yield* ControlAffinity.make({ runs, engineRuns: { ...engineRuns, get }, claimant })("child")).toBe(false)
+      }
+      const exit = yield* Effect.exit(
+        ControlAffinity.make({
+          runs,
+          engineRuns: { ...engineRuns, get: () => Effect.interrupt },
+          claimant
+        })("child")
+      )
+      expect(Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause)).toBe(true)
     })
   ))

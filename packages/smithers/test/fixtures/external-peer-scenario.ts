@@ -95,10 +95,12 @@ if (["observe", "stall", "cancel", "recover"].includes(mode!)) {
       }
       return (await workers(root)).length > 0
     }, "external worker entered")
+    await poll(() => access(join(root, "run-id")).then(() => true, () => false), "accepted root receipt")
     const runId = await readFile(join(root, "run-id"), "utf8")
     const first = (await workers(root))[0]!
     await new Promise((resolve) => setTimeout(resolve, 2_000))
     await writeFile(join(root, "observer-close"), "close")
+    await poll(() => observer.exitCode !== null || observer.signalCode !== null, "observation host scope closure")
     await observerExited
     assert.equal(observer.exitCode, 0, observerOutput)
     await new Promise((resolve) => setTimeout(resolve, 1_000))
@@ -108,6 +110,7 @@ if (["observe", "stall", "cancel", "recover"].includes(mode!)) {
     if (mode === "recover") {
       original.kill("SIGKILL")
       await exited
+      await poll(() => !alive(first.pid), "dead owner external worker exit")
       // Expire the real lease by elapsed time; neither store is mutated.
       await new Promise((resolve) => setTimeout(resolve, 31_000))
     }
@@ -142,9 +145,21 @@ if (["observe", "stall", "cancel", "recover"].includes(mode!)) {
         for (let tick = 0; tick < 40; tick++) {
           yield* control.list({ _tag: "runs", filters: { runId } })
           assert.deepEqual(yield* Effect.promise(() => workers(root)), [first])
-          assert.equal(alive(first.pid), true)
+          if (mode !== "stall") assert.equal(alive(first.pid), true)
           assert.equal(rows(root).every((row) => row.cancel_requested_at_ms === null), true)
           yield* Effect.sleep("1 second")
+        }
+        if (mode === "stall") {
+          // The existing lease safety guard must still stop unconfirmed work.
+          // A parked parent must not silently restart that external action.
+          yield* Effect.promise(() => poll(() => !alive(first.pid), "expired lease worker stopped"))
+          assert.deepEqual(yield* Effect.promise(() => workers(root)), [first])
+          assert.equal(rows(root).some((row) => row.status === "suspended" && row.waiting_reason === "released"), true)
+          const resume = yield* control.resume({ runId, idempotencyKey: "explicit-retry-after-stall" })
+          assert.equal(resume._tag, "Accepted")
+          yield* Effect.promise(() =>
+            poll(async () => (await workers(root)).length === 2, "explicit public retry starts external worker")
+          )
         }
         yield* Effect.promise(() => writeFile(join(root, "release"), "finish"))
         yield* Effect.promise(() =>
@@ -152,7 +167,8 @@ if (["observe", "stall", "cancel", "recover"].includes(mode!)) {
         )
         const page = yield* control.list({ _tag: "runs", filters: { runId } })
         assert.equal(page._tag === "runs" && page.items[0]?.status, "completed")
-        assert.deepEqual(yield* Effect.promise(() => workers(root)), [first])
+        if (mode === "stall") assert.equal((yield* Effect.promise(() => workers(root))).length, 2)
+        else assert.deepEqual(yield* Effect.promise(() => workers(root)), [first])
       }).pipe(Effect.provide(host(root)), Effect.scoped)
     )
   } catch (error) {

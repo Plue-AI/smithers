@@ -8,7 +8,7 @@ const fixture = fileURLToPath(new URL("./fixtures/external-peer-scenario.ts", im
 for (
   const [mode, behavior] of [
     ["observe", "keeps one external worker through peer registration and observation"],
-    ["stall", "keeps the worker after a live owner stalls beyond heartbeat write tolerance"],
+    ["stall", "requires explicit retry after a live owner stalls beyond heartbeat write tolerance"],
     ["cancel", "cancels the external worker from another host"],
     ["recover", "recovers a genuinely dead owner and settles the parent"]
   ]

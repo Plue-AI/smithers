@@ -1265,6 +1265,7 @@ export const make = (
         })
         const controlAffinity = ControlAffinity.make({
           runs: yield* RunStore.RunStore.pipe(Effect.provide(engine.stores)),
+          engineRuns: yield* RunStore.RunStore,
           claimant: { hostId: hostname(), pid: process.pid, nonce: "control-admission" }
         })
         admission = (runId) =>
