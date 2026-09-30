@@ -77,7 +77,12 @@ const step = (call: Transcript.Call): string => {
   }${call.flow === "bash" && call.status !== "running" && call.exit !== undefined ? ` exit ${call.exit}` : ""}`
 }
 
-export const worker = (tab: Tab, transcript: Transcript.Transcript, now: number): Card => {
+export const worker = (
+  tab: Tab,
+  transcript: Transcript.Transcript,
+  now: number,
+  availability: { readonly undo?: boolean } = {}
+): Card => {
   const cells = Undo.run(transcript)
   const calls = cells.flatMap((cell) => cell.calls)
   const files = Undo.changes(cells)
@@ -109,7 +114,7 @@ export const worker = (tab: Tab, transcript: Transcript.Transcript, now: number)
       ...(command?.exit === undefined ? [] : [`${command.command} exit ${command.exit}`])
     ],
     diff: settled && files.length > 0,
-    undo: settled && Undo.possible(cells),
+    undo: settled && availability.undo !== false && Undo.possible(cells),
     undone: Undo.undone(cells)
   }
 }

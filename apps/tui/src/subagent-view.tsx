@@ -32,6 +32,7 @@ export interface Cards {
   readonly onOpen: (id: string) => void
   readonly onDiff?: (tab: Tab) => void
   readonly onUndo?: (tab: Tab) => void
+  readonly canUndo?: (tab: Tab) => boolean
   readonly onRunOpen?: (surface: string) => void
   readonly flowSteps?: (id: string) => ReadonlyArray<string>
   /** The ask the person holds from a worker: its card shows the question instead of its steps. */
@@ -111,7 +112,9 @@ export function Grid(props: { readonly tabs: ReadonlyArray<Tab>; readonly width:
             </TranscriptRail>
           )
         }
-        const card = RunCard.worker(tab, props.cards.transcript(tab.id), props.cards.now)
+        const card = RunCard.worker(tab, props.cards.transcript(tab.id), props.cards.now, {
+          undo: props.cards.canUndo?.(tab) ?? true
+        })
         return (
           <RunCardView
             key={tab.id}

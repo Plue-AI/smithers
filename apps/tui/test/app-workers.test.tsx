@@ -5,12 +5,13 @@ import * as Cell from "@smthrs/harness/Cell"
 import * as ModelRequest from "@smthrs/model/ModelRequest"
 import { afterEach, beforeEach, expect, test } from "bun:test"
 import { Effect, Option } from "effect"
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { setImmediate } from "node:timers/promises"
 import { act } from "react"
 import { App } from "../src/app.tsx"
+import * as Changes from "../src/changes.ts"
 import type * as Host from "../src/host.ts"
 import * as Session from "../src/session.ts"
 import { seats } from "../src/workspace.ts"
@@ -249,6 +250,79 @@ test.each(["Summary", "Chat card"])("an off-screen settlement preserves Enter on
   await key("RETURN")
   expect(frame()).toContain("Subagent · Review one file")
   expect(frame()).not.toContain("Subagent · Other file")
+})
+
+test("a captured worker edit offers Undo only after concurrent work settles", async () => {
+  writeFileSync(join(cwd, "one.ts"), "new\n")
+  await delegate(turns[0]!.input)
+  await delegate(turns[0]!.input, { id: "other", title: "Other file", prompt: "Review another file." })
+  const worker = turns[1]!.input
+  const cell = Cell.source("await ctx.call(\"edit\", {}); ctx.done(\"Changed.\")")
+  const identity = new Cell.CallIdentity({
+    session: "review",
+    frame: 0,
+    cell: cell.digest,
+    ordinal: 0,
+    declaration: "edit",
+    layers: []
+  })
+  await act(async () => {
+    worker.onEvent(new AgentEvent.CellProduced({ eventType: "flows.harness.cell-produced.v1", cell }))
+    worker.onEvent(
+      new AgentEvent.CellCallStarted({
+        eventType: "flows.harness.cell-call-started.v1",
+        call: new Cell.Call({
+          flowName: "edit",
+          input: { path: "one.ts" },
+          identity,
+          capabilities: [],
+          placement: Option.none(),
+          effects: { reads: [], writes: ["one.ts"], tier: "compensable", mode: "expected", onConflict: "serialize" }
+        })
+      })
+    )
+    worker.onPatch!({
+      call: Changes.identity(identity),
+      patches: [{ path: "one.ts", patch: "--- a/one.ts\n+++ b/one.ts\n@@ -1 +1 @@\n-old\n+new\n" }]
+    })
+    worker.onEvent(
+      new AgentEvent.CellCallSettled({
+        eventType: "flows.harness.cell-call-settled.v1",
+        flowName: "edit",
+        identity,
+        result: new Cell.CallResult({ outcome: "success", value: "Changed." })
+      })
+    )
+  })
+  await finish(0, { _tag: "done", answer: "" })
+  await finish(1, { _tag: "done", answer: "Changed." })
+  expect(frame()).toContain("one.ts")
+  expect(frame()).toContain("d Diff")
+  expect(frame()).not.toContain("u Undo")
+  await finish(2, { _tag: "done", answer: "Other complete." })
+  expect(frame()).toContain("u Undo")
+  const lines = frame().split("\n")
+  const y = lines.findIndex((line) => line.includes("u Undo"))
+  const x = lines[y]!.indexOf("u Undo")
+  await act(async () => {
+    await setup!.mockMouse.click(x + 1, y)
+  })
+  const deadline = Date.now() + 2_000
+  while (!frame().includes("Undo Review one file") && Date.now() < deadline) {
+    await act(async () => {
+      await setImmediate()
+    })
+    await render()
+  }
+  expect(frame()).toContain("Undo Review one file")
+  await key("RETURN")
+  while (readFileSync(join(cwd, "one.ts"), "utf8") !== "old\n" && Date.now() < deadline) {
+    await act(async () => {
+      await setImmediate()
+    })
+    await render()
+  }
+  expect(readFileSync(join(cwd, "one.ts"), "utf8")).toBe("old\n")
 })
 
 test("a settled coordinator admits the next chat while its worker remains unresolved", async () => {

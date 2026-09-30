@@ -2719,6 +2719,7 @@ export function App(props: AppProps) {
     now,
     lane,
     focused: focusedCard,
+    canUndo,
     onOpen: (id) => clickTab(`tab:${id}`),
     onRunOpen: clickTab,
     flowSteps: (id) =>
