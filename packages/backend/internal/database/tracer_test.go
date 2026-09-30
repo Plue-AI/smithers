@@ -72,7 +72,44 @@ func TestMetricsTracer_TraceQueryStartEndRecordsDuration(t *testing.T) {
 	assert.True(t, metrics.containsQuery("SELECT"))
 }
 
-func TestMetricsTracer_TraceQueryStartEndEmitsSpan(t *testing.T) {
+func TestMetricsTracer_TraceQueryStartEndEmitsChildSpan(t *testing.T) {
+	recorder := installRecordingTracerProvider(t)
+	parentCtx, parent := otel.Tracer("test").Start(context.Background(), "GET /api/repos")
+	defer parent.End()
+
+	tracer := NewMetricsTracer(nil)
+	ctx := tracer.TraceQueryStart(parentCtx, nil, pgx.TraceQueryStartData{SQL: "SELECT 1"})
+	tracer.TraceQueryEnd(ctx, nil, pgx.TraceQueryEndData{})
+
+	spans := recorder.Ended()
+	require.Len(t, spans, 1)
+	assert.Equal(t, "db.query SELECT", spans[0].Name())
+	assert.Equal(t, parent.SpanContext().TraceID(), spans[0].SpanContext().TraceID())
+	assert.Equal(t, parent.SpanContext().SpanID(), spans[0].Parent().SpanID())
+	assert.Contains(t, spans[0].Attributes(), attribute.String("db.system.name", "postgresql"))
+	assert.Contains(t, spans[0].Attributes(), attribute.String("db.operation.name", "SELECT"))
+}
+
+// A query outside any trace (a background worker) must not start its own root
+// trace: each one would be sampled as a separate trace and exhaust the
+// exporter quota. Its duration metric is still recorded.
+func TestMetricsTracer_ParentlessQueryRecordsMetricWithoutSpan(t *testing.T) {
+	recorder := installRecordingTracerProvider(t)
+	metrics := &dbQueryMetricsStub{}
+	tracer := NewMetricsTracer(metrics)
+
+	for _, sql := range []string{"DELETE FROM leases", "BEGIN", "COMMIT"} {
+		ctx := tracer.TraceQueryStart(context.Background(), nil, pgx.TraceQueryStartData{SQL: sql})
+		tracer.TraceQueryEnd(ctx, nil, pgx.TraceQueryEndData{})
+	}
+
+	assert.Empty(t, recorder.Started())
+	assert.Empty(t, recorder.Ended())
+	assert.Equal(t, 3, metrics.count())
+}
+
+func installRecordingTracerProvider(t *testing.T) *tracetest.SpanRecorder {
+	t.Helper()
 	originalProvider := otel.GetTracerProvider()
 	recorder := tracetest.NewSpanRecorder()
 	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
@@ -81,16 +118,7 @@ func TestMetricsTracer_TraceQueryStartEndEmitsSpan(t *testing.T) {
 		otel.SetTracerProvider(originalProvider)
 		require.NoError(t, provider.Shutdown(context.Background()))
 	})
-
-	tracer := NewMetricsTracer(nil)
-	ctx := tracer.TraceQueryStart(context.Background(), nil, pgx.TraceQueryStartData{SQL: "SELECT 1"})
-	tracer.TraceQueryEnd(ctx, nil, pgx.TraceQueryEndData{})
-
-	spans := recorder.Ended()
-	require.Len(t, spans, 1)
-	assert.Equal(t, "db.query SELECT", spans[0].Name())
-	assert.Contains(t, spans[0].Attributes(), attribute.String("db.system.name", "postgresql"))
-	assert.Contains(t, spans[0].Attributes(), attribute.String("db.operation.name", "SELECT"))
+	return recorder
 }
 
 // TestMetricsTracer_ClassifiesSQLKeywords verifies that classifyQueryLabel
@@ -406,24 +434,19 @@ func TestMetricsTracer_ClassifiesEveryGeneratedQueryByVerb(t *testing.T) {
 }
 
 func TestMetricsTracer_SpanCarriesSqlcQueryNameNotMetricLabel(t *testing.T) {
-	originalProvider := otel.GetTracerProvider()
-	recorder := tracetest.NewSpanRecorder()
-	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
-	otel.SetTracerProvider(provider)
-	t.Cleanup(func() {
-		otel.SetTracerProvider(originalProvider)
-		require.NoError(t, provider.Shutdown(context.Background()))
-	})
+	recorder := installRecordingTracerProvider(t)
+	parentCtx, parent := otel.Tracer("test").Start(context.Background(), "request")
+	defer parent.End()
 
 	metrics := &dbQueryMetricsStub{}
 	tracer := NewMetricsTracer(metrics)
 
 	named := "-- name: GetAuthInfoByTokenHash :one\nSELECT t.id FROM access_tokens t WHERE t.token_hash = $1"
-	ctx := tracer.TraceQueryStart(context.Background(), nil, pgx.TraceQueryStartData{SQL: named})
+	ctx := tracer.TraceQueryStart(parentCtx, nil, pgx.TraceQueryStartData{SQL: named})
 	tracer.TraceQueryEnd(ctx, nil, pgx.TraceQueryEndData{})
 
 	raw := "SELECT pg_sleep(0.01)"
-	ctx = tracer.TraceQueryStart(context.Background(), nil, pgx.TraceQueryStartData{SQL: raw})
+	ctx = tracer.TraceQueryStart(parentCtx, nil, pgx.TraceQueryStartData{SQL: raw})
 	tracer.TraceQueryEnd(ctx, nil, pgx.TraceQueryEndData{})
 
 	spans := recorder.Ended()
@@ -451,11 +474,9 @@ func TestMetricsTracer_SpanCarriesSqlcQueryNameNotMetricLabel(t *testing.T) {
 func TestMetricsTracer_GeneratedQueryThroughPostgres(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	original := otel.GetTracerProvider()
-	recorder := tracetest.NewSpanRecorder()
-	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
-	otel.SetTracerProvider(provider)
-	t.Cleanup(func() { otel.SetTracerProvider(original); require.NoError(t, provider.Shutdown(context.Background())) })
+	recorder := installRecordingTracerProvider(t)
+	ctx, parent := otel.Tracer("test").Start(ctx, "request")
+	defer parent.End()
 	// Same convention as the other PostgreSQL-backed tests in this package:
 	// the unit gate runs without a database and skips; the PostgreSQL step
 	// runs the package with SMITHERS_TEST_DATABASE_URL set.
@@ -489,21 +510,21 @@ func TestMetricsTracer_GeneratedQueryThroughPostgres(t *testing.T) {
 }
 
 func TestMetricsTracer_OnlyWellFormedBoundedSqlcNamesReachSpans(t *testing.T) {
-	original := otel.GetTracerProvider()
-	recorder := tracetest.NewSpanRecorder()
-	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
-	otel.SetTracerProvider(provider)
-	t.Cleanup(func() { otel.SetTracerProvider(original); require.NoError(t, provider.Shutdown(context.Background())) })
+	recorder := installRecordingTracerProvider(t)
+	parentCtx, parent := otel.Tracer("test").Start(context.Background(), "request")
+	defer parent.End()
 	tracer := NewMetricsTracer(nil)
-	for _, header := range []string{
+	headers := []string{
 		"-- name: " + strings.Repeat("X", 129) + " :one",
 		"-- name: password=secret :one",
 		"-- name: MissingCommand",
 		"-- name: BadCommand :unrecognized",
-	} {
-		ctx := tracer.TraceQueryStart(context.Background(), nil, pgx.TraceQueryStartData{SQL: header + "\nSELECT 1"})
+	}
+	for _, header := range headers {
+		ctx := tracer.TraceQueryStart(parentCtx, nil, pgx.TraceQueryStartData{SQL: header + "\nSELECT 1"})
 		tracer.TraceQueryEnd(ctx, nil, pgx.TraceQueryEndData{})
 	}
+	require.Len(t, recorder.Ended(), len(headers))
 	for _, span := range recorder.Ended() {
 		for _, attr := range span.Attributes() {
 			assert.NotEqual(t, attribute.Key("db.query.name"), attr.Key, "malformed annotations must not become telemetry")

@@ -41,6 +41,12 @@ func (t *MetricsTracer) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data p
 	label := classifyQueryLabel(data.SQL)
 	ctx = context.WithValue(ctx, queryStartTimeKey{}, time.Now())
 	ctx = context.WithValue(ctx, queryLabelKey{}, label)
+	// Trace a query only inside an existing trace. A parentless query (a
+	// background worker) would otherwise become its own root trace and be
+	// sampled separately; its duration metric is still recorded.
+	if !oteltrace.SpanContextFromContext(ctx).IsValid() {
+		return ctx
+	}
 	attrs := []attribute.KeyValue{
 		attribute.String("db.system.name", "postgresql"),
 		attribute.String("db.operation.name", label),

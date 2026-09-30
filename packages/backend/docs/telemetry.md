@@ -39,3 +39,6 @@ sampled independently, so distributed traces can be partial.
 
 Operator tools use the same policy. Supplying a sampled `traceparent` does not
 guarantee an exported trace.
+
+Database queries create `db.query` spans only inside an existing request or job
+trace. A query outside any trace records its duration metric and no span.
