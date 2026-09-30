@@ -656,6 +656,13 @@
       "required": false
     },
     {
+      "id": "security",
+      "target": ".",
+      "flow": "checks/security",
+      "tier": "slow",
+      "required": false
+    },
+    {
       "id": "affected-lint",
       "target": ".",
       "flow": "checks/affected-lint",

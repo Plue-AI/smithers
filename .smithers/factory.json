@@ -602,6 +602,38 @@
       ]
     },
     {
+      "id": "checks/security",
+      "description": "Run the trusted security reviews that govern the implemented Change on subscription seats and return only public finding summaries.",
+      "summary": null,
+      "featured": false,
+      "kind": "mdx",
+      "path": "flows/checks/security/flow.mdx",
+      "capabilities": [
+        "fs:read:**"
+      ],
+      "model": null,
+      "modelInvocable": true,
+      "inputSchema": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "args": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "args"
+          ],
+          "additionalProperties": true
+        },
+        "definitions": {}
+      },
+      "flows": [
+        "coding/SecurityReviewCheck"
+      ]
+    },
+    {
       "id": "checks/wiki",
       "description": "Review the configured public wiki against the implemented immutable JJ revision and return ordinary owning-Change findings.",
       "summary": null,
