@@ -39,8 +39,9 @@ recovery and returns an error.
 The host reconstructs one local commit per exported commit under the existing
 VCS lock. It refuses conflicting local edits or mismatched base bytes, preserves
 unrelated working copy changes, and leaves `main` unchanged. Reconstruction
-anchors to the artifact base even when the shared parent is stale; the queue
-rebases the resulting commits. Retained artifacts can be requalified with
+anchors to the artifact base even when main has newer owned bytes or the shared
+parent is stale; it preserves those checked shared bytes. The queue rebases the
+resulting commits and handles conflicts with newer main. Retained artifacts can be requalified with
 `recoverCloudHandoff(recoveryPath)` without launching Cloud coding again. The worker returns
 these local commit IDs to the existing merge queue. After durable artifact retention, scope release may delete the Cloud workspace.
 Export failure preserves the workspace and recovery receipt; review or

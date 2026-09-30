@@ -264,7 +264,66 @@ test("real jj handoff reconstructs ordered commits and portable tree entries whi
   }
 })
 
-for (const conflict of ["shared WIP", "main", "symlink ancestor"] as const) {
+for (const mainOwned of ["newer-main-owned", "guest historical bytes"] as const) {
+  test(`real jj historical artifact reconstruction preserves newer main owned bytes ${mainOwned === "guest historical bytes" ? "equal to artifact after" : "different from artifact before and after"} and unrelated WIP`, async () => {
+    const env = await fixture()
+    try {
+      const advance = join(env.directory, "advance-main-before-historical-handoff.sh")
+      await writeFile(
+        advance,
+        `#!/bin/sh
+set -eu
+cd ${shellQuote(env.repoDirectory)}
+printf %s ${shellQuote(mainOwned)} > owned.txt
+printf newer-main-only > upstream.txt
+jj --config user.name=Fixture --config user.email=fixture@example.test commit owned.txt upstream.txt -m 'advance main'
+jj bookmark set main -r @-
+printf 'another agent WIP' > wip.txt
+printf 'another agent untracked' > other-agent.txt
+jj st
+`
+      )
+      await chmod(advance, 0o700)
+      await exec("python3", [env.lockPath, "smithers", advance])
+      const newerMain = await env.jj("log", "--no-graph", "-r", "main", "-T", "commit_id")
+      const beforeWorking = await env.jj("log", "--no-graph", "-r", "@", "-T", "commit_id")
+      assert.notEqual(newerMain, env.base)
+      const value = {
+        ...artifact(),
+        base: env.base,
+        commits: [{
+          ...artifact().commits[0]!,
+          parent: env.base,
+          changes: [{ path: "owned.txt", before: entry("old"), after: entry("guest historical bytes") }]
+        }]
+      }
+      const prepared = await prepareCloudHandoff(value, env.options)
+      assert.deepEqual(prepared.commits, [{ source, local: prepared.commit }])
+      assert.equal(
+        await env.jj("log", "--no-graph", "-r", prepared.commit, "-T", "parents.map(|p| p.commit_id()).join(\"\")"),
+        env.base
+      )
+      assert.equal(await env.jj("diff", "--from", env.base, "--to", prepared.commit, "--name-only"), "owned.txt\n")
+      assert.equal(await env.jj("file", "show", "-r", prepared.commit, "owned.txt"), "guest historical bytes")
+      assert.equal(await env.jj("file", "show", "-r", prepared.commit, "wip.txt"), "clean")
+      assert.equal(await env.jj("file", "list", "-r", prepared.commit, "upstream.txt", "other-agent.txt"), "")
+      assert.equal(await env.jj("log", "--no-graph", "-r", "main", "-T", "commit_id"), newerMain)
+      assert.equal(await env.jj("log", "--no-graph", "-r", "@-", "-T", "commit_id"), newerMain)
+      assert.equal(await env.jj("diff", "--from", beforeWorking, "--to", "@", "--name-only"), "")
+      assert.equal(await readFile(join(env.repoDirectory, "owned.txt"), "utf8"), mainOwned)
+      assert.equal(await readFile(join(env.repoDirectory, "upstream.txt"), "utf8"), "newer-main-only")
+      assert.equal(await readFile(join(env.repoDirectory, "wip.txt"), "utf8"), "another agent WIP")
+      assert.equal(await readFile(join(env.repoDirectory, "other-agent.txt"), "utf8"), "another agent untracked")
+      const replay = await prepareCloudHandoff(value, env.options)
+      assert.deepEqual(replay.commits, prepared.commits)
+      assert.equal(await env.jj("diff", "--from", beforeWorking, "--to", "@", "--name-only"), "")
+    } finally {
+      await rm(env.directory, { recursive: true, force: true })
+    }
+  })
+}
+
+for (const conflict of ["shared WIP", "prepared local parent", "symlink ancestor"] as const) {
   test(`real jj handoff refuses ${conflict} conflict and retains guest bytes without clobbering`, async () => {
     const env = await fixture()
     try {
@@ -283,13 +342,13 @@ for (const conflict of ["shared WIP", "main", "symlink ancestor"] as const) {
       if (conflict === "symlink ancestor") {
         await symlink(env.directory, join(env.repoDirectory, "outside"))
       }
-      if (conflict === "main") {
+      if (conflict === "prepared local parent") {
         const script = join(env.directory, "advance.sh")
         await writeFile(
           script,
           `#!/bin/sh\nset -eu\ncd ${
             shellQuote(env.repoDirectory)
-          }\nprintf changed > owned.txt\njj --config user.name=Fixture --config user.email=fixture@example.test commit owned.txt -m changed\njj bookmark set main -r @-\n`
+          }\nprintf changed > owned.txt\njj --config user.name=Fixture --config user.email=fixture@example.test commit owned.txt -m prepared\njj bookmark set other-prepared -r @-\n`
         )
         await chmod(script, 0o700)
         await exec("python3", [env.lockPath, "smithers", script])
@@ -299,15 +358,16 @@ for (const conflict of ["shared WIP", "main", "symlink ancestor"] as const) {
         prepareCloudHandoff(value, env.options),
         conflict === "shared WIP"
           ? /shared working-copy edits/
-          : conflict === "main"
-          ? /main changed an owned path/
+          : conflict === "prepared local parent"
+          ? /prepared local commit changed an owned path/
           : /symlink ancestor/
       )
       assert.equal(await env.jj("log", "--no-graph", "-r", "@-", "-T", "commit_id"), parent)
+      assert.equal(await env.jj("log", "--no-graph", "-r", "main", "-T", "commit_id"), env.base)
       if (conflict !== "symlink ancestor") {
         assert.equal(
           await readFile(join(env.repoDirectory, "owned.txt"), "utf8"),
-          conflict === "main" ? "changed" : "another agent"
+          conflict === "prepared local parent" ? "changed" : "another agent"
         )
       }
       const retained = join(
@@ -355,7 +415,7 @@ test("Cloud handoff enforces count and byte limits and rejects ambiguous host pa
   assert.throws(() => validateCloudHandoff(ancestor, ancestor.repository), /path ancestry/)
 })
 
-test("real jj failure retains completed detached mappings and shared bytes, and refuses duplicate partial replay", async () => {
+test("real jj partial chain recovery preserves newer main owned bytes and reconstructs remaining historical commits exactly", async () => {
   const env = await fixture()
   try {
     const actualJj = (await exec("which", ["jj"])).stdout.trim()
@@ -412,7 +472,26 @@ test("real jj failure retains completed detached mappings and shared bytes, and 
     assert.deepEqual(JSON.parse(await readFile(join(directory, "artifact.json"), "utf8")), value)
     await assert.rejects(prepareCloudHandoff(value, options), /partial preparation retained/)
     assert.equal(await readFile(count, "utf8"), "2")
-    assert.equal(await env.jj("log", "--no-graph", "-r", "main", "-T", "commit_id"), env.base)
+    const advance = join(env.directory, "advance-main-before-chain-recovery.sh")
+    await writeFile(
+      advance,
+      `#!/bin/sh
+set -eu
+cd ${shellQuote(env.repoDirectory)}
+printf upstream-owned > owned.txt
+printf upstream-only > upstream.txt
+jj --config user.name=Fixture --config user.email=fixture@example.test commit owned.txt upstream.txt -m 'newer main'
+jj bookmark set main -r @-
+printf 'unrelated WIP after failure' > wip.txt
+printf 'untracked WIP after failure' > other-agent.txt
+jj st
+`
+    )
+    await chmod(advance, 0o700)
+    await exec("python3", [env.lockPath, "smithers", advance])
+    const newerMain = await env.jj("log", "--no-graph", "-r", "main", "-T", "commit_id")
+    const beforeWorking = await env.jj("log", "--no-graph", "-r", "@", "-T", "commit_id")
+    assert.notEqual(newerMain, env.base)
     const recoveryOptions = { ...options, recoverPartial: true }
     const recovered = await prepareCloudHandoff(value, recoveryOptions)
     assert.equal(recovered.commits.length, 2)
@@ -423,7 +502,7 @@ test("real jj failure retains completed detached mappings and shared bytes, and 
       receipt.commits[0].local
     )
     assert.equal(
-      await env.jj("log", "--no-graph", "-r", `children(${env.base}) ~ @`, "-T", "commit_id"),
+      await env.jj("log", "--no-graph", "-r", `children(${env.base}) ~ @ ~ main`, "-T", "commit_id"),
       receipt.commits[0].local
     )
     assert.equal(
@@ -433,7 +512,27 @@ test("real jj failure retains completed detached mappings and shared bytes, and 
     assert.equal(await readFile(count, "utf8"), "3")
     assert.deepEqual((await prepareCloudHandoff(value, recoveryOptions)).commits, recovered.commits)
     assert.equal(await readFile(count, "utf8"), "3")
-    assert.equal(await readFile(join(env.repoDirectory, "owned.txt"), "utf8"), "old")
+    assert.equal(
+      await env.jj(
+        "log",
+        "--no-graph",
+        "-r",
+        receipt.commits[0].local,
+        "-T",
+        "parents.map(|p| p.commit_id()).join(\"\")"
+      ),
+      env.base
+    )
+    assert.equal(await env.jj("diff", "--from", env.base, "--to", recovered.commit, "--name-only"), "owned.txt\n")
+    assert.equal(await env.jj("file", "list", "-r", recovered.commit, "upstream.txt", "other-agent.txt"), "")
+    assert.equal(await env.jj("file", "show", "-r", recovered.commit, "wip.txt"), "clean")
+    assert.equal(await env.jj("log", "--no-graph", "-r", "main", "-T", "commit_id"), newerMain)
+    assert.equal(await env.jj("log", "--no-graph", "-r", "@-", "-T", "commit_id"), newerMain)
+    assert.equal(await env.jj("diff", "--from", beforeWorking, "--to", "@", "--name-only"), "")
+    assert.equal(await readFile(join(env.repoDirectory, "owned.txt"), "utf8"), "upstream-owned")
+    assert.equal(await readFile(join(env.repoDirectory, "upstream.txt"), "utf8"), "upstream-only")
+    assert.equal(await readFile(join(env.repoDirectory, "wip.txt"), "utf8"), "unrelated WIP after failure")
+    assert.equal(await readFile(join(env.repoDirectory, "other-agent.txt"), "utf8"), "untracked WIP after failure")
   } finally {
     await rm(env.directory, { recursive: true, force: true })
   }
@@ -1316,15 +1415,20 @@ os.execv(${JSON.stringify(actualJj)},[${JSON.stringify(actualJj)},*sys.argv[1:]]
   })
 }
 
-test("real jj post-split failure restores retained seeded bytes before refusing partial replay", async () => {
-  const env = await fixture()
-  try {
-    const actualJj = (await exec("which", ["jj"])).stdout.trim()
-    const shim = join(env.directory, "jj")
-    const count = join(env.directory, "split-count")
-    await writeFile(
-      shim,
-      `#!/usr/bin/env python3
+for (const sharedOwned of ["old", "upstream-owned"] as const) {
+  test(
+    sharedOwned === "old"
+      ? "real jj post-split failure restores retained seeded bytes before refusing partial replay"
+      : "real jj historical newer-main rollback restores today's owned bytes after interrupted extraction",
+    async () => {
+      const env = await fixture()
+      try {
+        const actualJj = (await exec("which", ["jj"])).stdout.trim()
+        const shim = join(env.directory, "jj")
+        const count = join(env.directory, "split-count")
+        await writeFile(
+          shim,
+          `#!/usr/bin/env python3
 import os,pathlib,signal,subprocess,sys
 os.environ['PATH']=os.environ['PATH'].split(':',1)[1]
 if 'split' in sys.argv[1:]:
@@ -1335,54 +1439,82 @@ if 'split' in sys.argv[1:]:
  sys.exit(42)
 os.execv(${JSON.stringify(actualJj)},[${JSON.stringify(actualJj)},*sys.argv[1:]])
 `
-    )
-    await chmod(shim, 0o700)
-    await writeFile(join(env.repoDirectory, "wip.txt"), "other agent during extraction")
-    const value = {
-      ...artifact(),
-      base: env.base,
-      commits: [{
-        ...artifact().commits[0]!,
-        parent: env.base,
-        changes: [{ path: "owned.txt", before: entry("old"), after: entry("new") }]
-      }]
-    }
-    const options = {
-      ...env.options,
-      run: async (command: string, args: ReadonlyArray<string>) => {
-        await exec(command, [...args], { env: { ...process.env, PATH: env.directory + ":" + process.env.PATH } })
+        )
+        await chmod(shim, 0o700)
+        if (sharedOwned !== "old") {
+          const advance = join(env.directory, "advance-main-before-interrupted-extraction.sh")
+          await writeFile(
+            advance,
+            `#!/bin/sh
+set -eu
+cd ${shellQuote(env.repoDirectory)}
+printf upstream-owned > owned.txt
+printf upstream-only > upstream.txt
+jj --config user.name=Fixture --config user.email=fixture@example.test commit owned.txt upstream.txt -m 'newer main before interruption'
+jj bookmark set main -r @-
+`
+          )
+          await chmod(advance, 0o700)
+          await exec("python3", [env.lockPath, "smithers", advance])
+        }
+        const currentMain = await env.jj("log", "--no-graph", "-r", "main", "-T", "commit_id")
+        await writeFile(join(env.repoDirectory, "wip.txt"), "other agent during extraction")
+        const value = {
+          ...artifact(),
+          base: env.base,
+          commits: [{
+            ...artifact().commits[0]!,
+            parent: env.base,
+            changes: [{ path: "owned.txt", before: entry("old"), after: entry("new") }]
+          }]
+        }
+        const options = {
+          ...env.options,
+          run: async (command: string, args: ReadonlyArray<string>) => {
+            await exec(command, [...args], { env: { ...process.env, PATH: env.directory + ":" + process.env.PATH } })
+          }
+        }
+        await assert.rejects(prepareCloudHandoff(value, options))
+        const artifactPath = await retainCloudHandoff(value, env.options)
+        const receiptPath = join(artifactPath, "..", "receipt.json")
+        const failed = JSON.parse(await readFile(receiptPath, "utf8"))
+        assert.equal(failed.pending.source, source)
+        assert.equal(await readFile(join(env.repoDirectory, "owned.txt"), "utf8"), "new")
+        assert.ok(failed.seeding, "pending extraction retains rollback intent until shared bytes are restored")
+        const extracted = await env.jj("log", "--no-graph", "-r", `children(${env.base}) ~ @ ~ main`, "-T", "commit_id")
+        assert.equal(extracted.length, 40)
+        await assert.rejects(prepareCloudHandoff(value, options), /partial preparation retained/)
+        assert.equal(await readFile(join(env.repoDirectory, "owned.txt"), "utf8"), sharedOwned)
+        assert.equal(await readFile(join(env.repoDirectory, "wip.txt"), "utf8"), "other agent during extraction")
+        assert.equal(await readFile(count, "utf8"), "1")
+        assert.equal(
+          await env.jj("log", "--no-graph", "-r", `children(${env.base}) ~ @ ~ main`, "-T", "commit_id"),
+          extracted
+        )
+        const archives = (await readdir(join(artifactPath, ".."))).filter((path) =>
+          /^recovery-from-.*\.json$/.test(path)
+        )
+        const archived = await Promise.all(
+          archives.map(async (path) => JSON.parse(await readFile(join(artifactPath, "..", path), "utf8")))
+        )
+        assert.ok(
+          archived.some((receipt) => JSON.stringify(receipt) === JSON.stringify(failed)),
+          "locked replay archives the original pending and seed evidence before restoring shared bytes"
+        )
+        const recovered = JSON.parse(await readFile(receiptPath, "utf8"))
+        assert.ok(recovered.pending, "partial extraction mapping remains recoverable after rollback")
+        assert.equal(recovered.seeding, undefined)
+        assert.equal(await env.jj("log", "--no-graph", "-r", "main", "-T", "commit_id"), currentMain)
+        assert.equal(await env.jj("file", "show", "-r", currentMain, "owned.txt"), sharedOwned)
+        if (sharedOwned !== "old") {
+          assert.equal(await readFile(join(env.repoDirectory, "upstream.txt"), "utf8"), "upstream-only")
+        }
+      } finally {
+        await rm(env.directory, { recursive: true, force: true })
       }
     }
-    await assert.rejects(prepareCloudHandoff(value, options))
-    const artifactPath = await retainCloudHandoff(value, env.options)
-    const receiptPath = join(artifactPath, "..", "receipt.json")
-    const failed = JSON.parse(await readFile(receiptPath, "utf8"))
-    assert.equal(failed.pending.source, source)
-    assert.equal(await readFile(join(env.repoDirectory, "owned.txt"), "utf8"), "new")
-    assert.ok(failed.seeding, "pending extraction retains rollback intent until shared bytes are restored")
-    const extracted = await env.jj("log", "--no-graph", "-r", `children(${env.base}) ~ @`, "-T", "commit_id")
-    assert.equal(extracted.length, 40)
-    await assert.rejects(prepareCloudHandoff(value, options), /partial preparation retained/)
-    assert.equal(await readFile(join(env.repoDirectory, "owned.txt"), "utf8"), "old")
-    assert.equal(await readFile(join(env.repoDirectory, "wip.txt"), "utf8"), "other agent during extraction")
-    assert.equal(await readFile(count, "utf8"), "1")
-    assert.equal(await env.jj("log", "--no-graph", "-r", `children(${env.base}) ~ @`, "-T", "commit_id"), extracted)
-    const archives = (await readdir(join(artifactPath, ".."))).filter((path) => /^recovery-from-.*\.json$/.test(path))
-    const archived = await Promise.all(
-      archives.map(async (path) => JSON.parse(await readFile(join(artifactPath, "..", path), "utf8")))
-    )
-    assert.ok(
-      archived.some((receipt) => JSON.stringify(receipt) === JSON.stringify(failed)),
-      "locked replay archives the original pending and seed evidence before restoring shared bytes"
-    )
-    const recovered = JSON.parse(await readFile(receiptPath, "utf8"))
-    assert.ok(recovered.pending, "partial extraction mapping remains recoverable after rollback")
-    assert.equal(recovered.seeding, undefined)
-    assert.equal(await env.jj("log", "--no-graph", "-r", "main", "-T", "commit_id"), env.base)
-  } finally {
-    await rm(env.directory, { recursive: true, force: true })
-  }
-})
+  )
+}
 
 for (const status of ["preparing", "prepared"] as const) {
   test(`Cloud runner failure preserves ${status} receipt bytes and another attempt's recovery intent`, async () => {
@@ -1431,18 +1563,23 @@ for (const status of ["preparing", "prepared"] as const) {
 }
 
 for (const corruptPending of [false, "owned", "extra", "hidden"] as const) {
-  test(`real jj explicit partial recovery ${corruptPending ? `refuses a retained candidate with ${corruptPending === "owned" ? "incorrect owned bytes" : corruptPending === "hidden" ? "a hidden rewritten predecessor" : "an unrelated changed path"}` : "qualifies the existing candidate after unrelated shared changes"}`, async () => {
+  test(`real jj explicit partial recovery ${corruptPending ? `refuses a retained candidate with ${corruptPending === "owned" ? "incorrect owned bytes" : corruptPending === "hidden" ? "a hidden rewritten predecessor" : "an unrelated changed path"}` : "qualifies the same candidate after newer main owned changes despite owned WIP and descendants"}`, async () => {
     const env = await fixture()
     try {
       const actualJj = (await exec("which", ["jj"])).stdout.trim()
       const shim = join(env.directory, "jj")
       const count = join(env.directory, "partial-split-count")
       const mutated = join(env.directory, "partial-unrelated-mutated")
+      const recovering = join(env.directory, "complete-recovery-started")
+      const recoverySnapshot = join(env.directory, "complete-recovery-snapshot-attempt")
       await writeFile(
         shim,
         `#!/usr/bin/env python3
 import os,pathlib,subprocess,sys
 os.environ['PATH']=os.environ['PATH'].split(':',1)[1]
+if 'st' in sys.argv[1:] and pathlib.Path(${JSON.stringify(recovering)}).exists():
+ pathlib.Path(${JSON.stringify(recoverySnapshot)}).write_text('snapshot attempted during complete qualification')
+ sys.exit(43)
 if 'split' in sys.argv[1:]:
  p=pathlib.Path(${JSON.stringify(count)});n=int(p.read_text())+1 if p.exists() else 1;p.write_text(str(n))
 if 'diffedit' in sys.argv[1:] and not pathlib.Path(${JSON.stringify(mutated)}).exists():
@@ -1492,10 +1629,16 @@ os.execv(${JSON.stringify(actualJj)},[${JSON.stringify(actualJj)},*sys.argv[1:]]
         `#!/bin/sh
 set -eu
 cd ${shellQuote(env.repoDirectory)}
+${
+          corruptPending === false
+            ? "printf upstream-owned > owned.txt\njj --config user.name=Fixture --config user.email=fixture@example.test commit owned.txt -m 'newer main owned bytes'\njj bookmark set main -r @-"
+            : ""
+        }
 jj --config user.name=Fixture --config user.email=fixture@example.test commit wip.txt -m 'later unrelated preparation'
 jj bookmark set later-prepared -r @-
 jj bookmark set protected-child -r @
 jj edit -r @-
+${corruptPending === false ? "printf 'another agent owned WIP' > owned.txt" : ""}
 printf later > untracked.txt
 jj st
 `
@@ -1515,6 +1658,8 @@ jj st
         working: await env.jj("log", "--no-graph", "-r", "@", "-T", "commit_id")
       })
       const before = await snapshot()
+      const currentMain = await env.jj("log", "--no-graph", "-r", "main", "-T", "commit_id")
+      if (corruptPending === false) await writeFile(recovering, "qualification must not snapshot shared WIP")
       const recoveryOptions = { ...options, recoverPartial: true }
       if (corruptPending === "hidden") {
         const candidateChange = await env.jj("log", "--no-graph", "-r", candidate, "-T", "change_id")
@@ -1582,15 +1727,26 @@ jj --ignore-working-copy --config-file ${shellQuote(config)} diffedit --from 'ro
         const recovered = await prepareCloudHandoff(value, recoveryOptions)
         assert.equal(recovered.commit, candidate)
         assert.deepEqual(recovered.commits, [{ source, local: candidate }])
+        assert.notEqual(currentMain, env.base)
+        assert.equal(await env.jj("file", "show", "-r", currentMain, "owned.txt"), "upstream-owned")
+        assert.equal(
+          await env.jj("log", "--no-graph", "-r", candidate, "-T", "parents.map(|p| p.commit_id()).join(\"\")"),
+          env.base
+        )
+        assert.equal(await env.jj("diff", "--from", env.base, "--to", candidate, "--name-only"), "owned.txt\n")
         assert.equal(JSON.parse(await readFile(receiptPath, "utf8")).status, "prepared")
         assert.deepEqual((await prepareCloudHandoff(value, recoveryOptions)).commits, recovered.commits)
+        await assert.rejects(readFile(recoverySnapshot), { code: "ENOENT" })
       }
       assert.deepEqual(await snapshot(), before)
       assert.equal(await readFile(count, "utf8"), "1")
-      assert.equal(await readFile(join(env.repoDirectory, "owned.txt"), "utf8"), "old")
+      assert.equal(
+        await readFile(join(env.repoDirectory, "owned.txt"), "utf8"),
+        corruptPending === false ? "another agent owned WIP" : "old"
+      )
       assert.equal(await readFile(join(env.repoDirectory, "wip.txt"), "utf8"), "concurrent unrelated WIP")
       assert.equal(await readFile(join(env.repoDirectory, "untracked.txt"), "utf8"), "later")
-      assert.equal(await env.jj("log", "--no-graph", "-r", "main", "-T", "commit_id"), env.base)
+      assert.equal(await env.jj("log", "--no-graph", "-r", "main", "-T", "commit_id"), currentMain)
     } finally {
       await rm(env.directory, { recursive: true, force: true })
     }

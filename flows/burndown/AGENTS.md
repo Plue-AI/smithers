@@ -24,8 +24,10 @@ or an explicitly configured compatible path. Reset recovery polls live usage.
 Retained Cloud handoff anchors reconstructed commits to the verified artifact
 base, independent of the shared checkout parent. Extract only artifact paths;
 leave shared work, protected bookmarks and prepared revisions intact. The queue
-owns subsequent rebasing. Refuse changed owned paths with retained recovery
-rather than overwriting current main or another agent's work.
+owns subsequent rebasing, including conflicts with newer main changes. Preserve
+current main bytes during historical extraction; refuse uncommitted owned edits
+and conflicting prepared local work. Complete retained mappings qualify against
+the artifact alone without touching shared paths.
 
 A pushed change is separate from issue completion. Final exact-revision Fable
 review assesses the entire current issue against executed evidence and emits one

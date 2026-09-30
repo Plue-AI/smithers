@@ -288,7 +288,6 @@ try:
         identity=hashlib.sha256(json.dumps(report,sort_keys=True).encode()).hexdigest()
         save_json(HERE/('recovery-from-'+identity+'.json'),report)
     restore_seed()
-    jj('st')
     main=revision('main')
     upstream=jj('--ignore-working-copy','log','--no-graph','-r','present(main@origin)','-T','commit_id').decode()
     anchor=upstream or main
@@ -304,9 +303,6 @@ try:
         for change in commit['changes']: initial.setdefault(change['path'],change['before'])
     for path,before in initial.items():
         if tree(ARTIFACT['base'],path)!=before: raise RuntimeError('exported base bytes mismatch: '+path)
-        if tree(anchor,path)!=before or tree(main,path)!=before: raise RuntimeError('main changed an owned path: '+path)
-        if tree(head,path)!=before: raise RuntimeError('prepared local commit changed an owned path: '+path)
-        if disk(REPO,path)!=before: raise RuntimeError('shared working-copy edits on owned path: '+path)
     completed=list(report.get('commits',[]))
     if RECOVER and (completed or report.get('pending')):
         if len(completed)>len(ARTIFACT['commits']): raise RuntimeError('invalid retained commit count')
@@ -329,8 +325,23 @@ try:
             completed.append({'source':pending['source'],'local':local})
         # Qualification changes only this receipt. Later unrelated WIP, parent
         # and descendants are preserved when no further extraction is needed.
-    if len(completed)<len(ARTIFACT['commits']) and jj('--ignore-working-copy','log','--no-graph','-r','descendants(@) ~ @','-T','commit_id').strip():
-        raise RuntimeError('shared working-copy has descendants; extraction refused')
+    workspace={}
+    if len(completed)<len(ARTIFACT['commits']):
+        if jj('--ignore-working-copy','log','--no-graph','-r','descendants(@) ~ @','-T','commit_id').strip():
+            raise RuntimeError('shared working-copy has descendants; extraction refused')
+        jj('st')
+        shared=revision('@')
+        head=revision('@-')
+        description=jj('--ignore-working-copy','log','--no-graph','-r','@','-T','description').decode()
+        # Historical commits belong to the exported base. Today's main may
+        # differ; preserve its checked bytes while extracting that exact history.
+        # Complete retained mappings need no shared-path access or mutation.
+        for path,before in initial.items():
+            current=tree(head,path)
+            if current not in (before,tree(main,path),tree(anchor,path)):
+                raise RuntimeError('prepared local commit changed an owned path: '+path)
+            if disk(REPO,path)!=current: raise RuntimeError('shared working-copy edits on owned path: '+path)
+            workspace[path]=current
     report={'status':'preparing','main':main,'base':ARTIFACT['base'],'shared_parent':head,'upstream':upstream,'commits':completed,'recovered':RECOVER};save()
     cumulative=dict(initial)
     parent=ARTIFACT['base']
@@ -339,13 +350,13 @@ try:
         if index<len(completed):
             parent=completed[index]['local'];continue
         committed=False
-        for path,before in initial.items():
+        for path,before in workspace.items():
             if disk(REPO,path)!=before: raise RuntimeError('working-copy changed before reconstruction: '+path)
-        selected=[{'path':path,'before':initial[path],'after':after} for path,after in cumulative.items()]
+        selected=[{'path':path,'before':workspace[path],'after':after} for path,after in cumulative.items()]
         exact=list(selected)
         if all(change['before']==change['after'] for change in selected):
             selected=[dict(change) for change in selected]
-            seed=next(change for change in commit['changes'] if change['before']!=initial[change['path']])
+            seed=commit['changes'][0]
             next(change for change in selected if change['path']==seed['path'])['after']=seed['before']
         selection=HERE/('selection-'+str(index)+'.json')
         selection.write_text(json.dumps(selected))
@@ -446,7 +457,7 @@ for change in changes:
         report['pending']['local']=local;save()
         verify_existing(local,index,parent,cumulative)
         for path in cumulative:
-            if disk(REPO,path)!=initial[path]: raise RuntimeError('shared working-copy changed after extraction: '+path)
+            if disk(REPO,path)!=workspace[path]: raise RuntimeError('shared working-copy changed after extraction: '+path)
         if revision('@-')!=head or revision('main')!=main or jj('--ignore-working-copy','log','--no-graph','-r','present(main@origin)','-T','commit_id').decode()!=upstream: raise RuntimeError('shared parent or main changed during preparation')
         if jj('--ignore-working-copy','diff','--from',shared,'--to','@','--name-only').strip():
             raise RuntimeError('shared working-copy tree changed during preparation')

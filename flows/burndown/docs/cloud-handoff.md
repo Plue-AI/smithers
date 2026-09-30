@@ -36,9 +36,11 @@ excluded from artifacts.
 
 All jj mutations run in one executable through the repository's VCS lock. The
 host verifies the exported base belongs to current main history and checks each
-owned path against its exported base, current main, shared parent and working
-copy. A stale or divergent shared parent is supported when those owned bytes
-match. Changed owned paths are refused with the artifact retained. Under the
+exported before-state against that base. Current main may have newer owned bytes;
+extraction preserves the shared parent's checked bytes when they match the artifact
+base or current main. Uncommitted owned edits or other prepared local changes
+are refused with the artifact retained. A stale or divergent shared parent is
+supported. Under the
 same lock, `jj split --onto` extracts only artifact paths onto the exported base,
 then onto the preceding reconstructed commit. A private diff editor restores
 exact artifact trees, including reversions. Full changed-path and parent checks
@@ -68,12 +70,14 @@ failure receipt for inspection; ordinary replay does not restart or discard chan
 Supported retained recovery can qualify already extracted commits under the lock:
 it requires visible, nondivergent commit IDs and verifies source order, exact parent,
 message and model attribution, the entire
-changed-path set, every cumulative byte and mode, and current owned before-states.
+changed-path set, and every cumulative byte and mode against the artifact base.
 It archives the prior receipt as `recovery-from-<hash>.json` and reuses verified
 IDs without splitting again. Each lock attempt has its own immutable executable
 so another caller cannot change its recovery mode while it waits. A wrong or ambiguous candidate
 is refused with its receipt retained. Later unrelated work, parent changes and
-descendants remain intact when recovery requires no additional extraction.
+descendants remain intact when recovery requires no additional extraction, even
+when main has changed an owned path or shared owned edits exist. Remaining
+extraction preserves newer main bytes and still refuses uncommitted owned edits.
 A pending extraction records its source, parent and candidate IDs before mapping
 completion. Replay refuses an incomplete mapping so a process or wrapper failure
 cannot duplicate a commit. Workspace cleanup can proceed only after the host has durably retained the
