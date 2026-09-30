@@ -155,7 +155,9 @@ describe("ScoreStore", () => {
       return yield* store.record(score())
     }))
     expect(failure.code).toBe("store")
-    expect(failure.message).toBe("Could not record score observation (database: unknown)")
+    expect(failure.message).toBe("Could not record score observation (database: schema)")
+    expect(failure.cause).toBeInstanceOf(DurableWriter.DatabaseError)
+    expect(failure.cause).toMatchObject({ code: "schema" })
   })
 
   describe("validation", () => {
