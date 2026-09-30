@@ -58,5 +58,6 @@
     "RPC cached report contract is Record<string,unknown>; full fixture includes nonempty clone evidence; UI behavior separately exercises retained complete ready report.",
     "No coverage threshold/config/assertion weakening; no declaration baseline or public production changes."
   ],
-  "review": "Orchestrator reviewed exact full/minimum inventories, malformed optional values, actual DOM/store activation through canonical typed link grammar and noncached controls. Existing all-group affordance gate remains exact; owning RPC format was fully repaired and requalified."
+  "review": "Orchestrator reviewed exact full/minimum inventories, malformed optional values, actual DOM/store activation through canonical typed link grammar and noncached controls. Existing all-group affordance gate remains exact; owning RPC format was fully repaired and requalified.",
+  "postRebaseReceipt": "checkpoint10-integration-receipt.json"
 }

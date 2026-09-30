@@ -90,5 +90,6 @@
   ],
   "manifestSha256": "3f5bf642ca25d901bd47ede54bfe98d51f7a3e31d13d339a5891244b396cf5a1",
   "archiveSha256": "83a6cec6a652bd8bd49720f52d39ea65d8fa125d747bce358a83555c970ca349",
-  "review": "Orchestrator reviewed trusted literal projection, mutation/shadow controls, retained module decoder, actual no-admission counts and refined schema refusal. Authored API/concept/guide docs updated; canonical generated projections follow rebase."
+  "review": "Orchestrator reviewed trusted literal projection, mutation/shadow controls, retained module decoder, actual no-admission counts and refined schema refusal. Authored API/concept/guide docs updated; canonical generated projections follow rebase.",
+  "postRebaseReceipt": "checkpoint10-integration-receipt.json"
 }

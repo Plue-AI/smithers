@@ -1,0 +1,122 @@
+{
+  "candidate": "d333ff13415ff8fcadf76f112842a540192b589e",
+  "upstreamBase": "886cd857b800cb424a116581fcd8b54272ffe08f",
+  "originalPublishedBase": "52284e40eab08981bf88c77a2c3256244cff1476",
+  "incomingCommits": 23,
+  "issues": [
+    2981,
+    3273,
+    3280
+  ],
+  "sources": {
+    "packages/smithers/agent/registry/src/Descriptor.ts": "aaa767cadc26d0011285f82711fddc9e894a520226c8b41a278abfac79499ad9",
+    "packages/smithers/agent/registry/src/Discovery.ts": "ef571ec9b2bafe0a3729a254448901d9f3acebda2e5cfea74ba2afb84a6a86d9",
+    "packages/smithers/agent/registry/src/internal/ModuleMetadata.ts": "f83bc88606d7097c6119d47edbb1031bcc4b093ca3b9012cc07510d6a7444850",
+    "packages/smithers/test/FileFlowInputCli.test.ts": "ee9c5bb01e36516439641ccaf1e355c1803aa507694dcc56aac29be056b4d3d2",
+    "packages/rpc/test/Cards.test.ts": "31b24a8c0adddf7fad41aaad69fa9e928ca9e29df98d4e291fe7cfe5f6540587",
+    "apps/app/src/mainview/cards/RegistrationCard.cached.test.tsx": "f663bcabb18c605fe8a7013b6b239196aa418ea2effcf49398a4fea0d0670351",
+    "apps/app/src/mainview/flows/parity.test.ts": "58efeb236a102f952b7ee4bbfce4670bb9e1ad0f6d3679bbb9c66a9884a5dd10",
+    "apps/app/src/mainview/flows/FlowArgs.ts": "2e7d4f98bec986ff0ddba6c45bdbea42843e08b304703b4139d78ee9439745ec",
+    "packages/smithers/src/internal/backend/Commands.ts": "241485cd383bdec89c8b43ac5e2e004eab9f111b9d48ce76e8c9d84d161defe7"
+  },
+  "checks": [
+    {
+      "scope": "registry full coverage",
+      "exit": 0,
+      "tests": 917,
+      "files": 33,
+      "coverage": {
+        "statements": [
+          2291,
+          2291
+        ],
+        "branches": [
+          1737,
+          1737
+        ],
+        "functions": [
+          404,
+          404
+        ],
+        "lines": [
+          2103,
+          2103
+        ]
+      }
+    },
+    {
+      "scope": "RPC full owning suite",
+      "exit": 0,
+      "tests": 1650,
+      "files": 49
+    },
+    {
+      "scope": "registration + parity actual DOM/store fixture",
+      "exit": 0,
+      "tests": 28,
+      "assertions": 1180,
+      "files": 5
+    },
+    {
+      "scope": "FileFlowInputCli + full OneCli",
+      "exit": 1,
+      "passed": 103,
+      "failed": 1,
+      "note": "File-flow CLI test and exhaustive egress summary audit pass. Sole pre-existing/incoming OneCli audit expects210 definitions, actual211 after workspace child command; tracked foreign-claimed #2742. No count changed here. Subsequent upstream fix and final full103 OneCli pass recorded below."
+    },
+    {
+      "scope": "registry and RPC strict compiler",
+      "exit": 0
+    },
+    {
+      "scope": "all CLI source + owned file-flow fixture strict compiler",
+      "exit": 2,
+      "note": "One upstream History.ts:369 NativeControl configuration mismatch, tracked #3283. No owned diagnostics."
+    },
+    {
+      "scope": "canonical package docs sync/check + full site sync/check",
+      "exit": 0,
+      "siteTests": 81,
+      "sitePages": 278
+    }
+  ],
+  "upstreamReconciliation": "Upstream c05 egress implementation already supplied canonical \"Manage repository egress policies\". Preserved that summary, workspace children and handlers; original red/green proof remains historical. Fresh exhaustive CLI summary audit and real canonical generator pass.",
+  "sourceInputsChanged": "Incoming FlowArgs adds Secrets scope/bind encoders only; retained registration encoder and complete28-test DOM/parity suite passes against actual new source.",
+  "logs": {
+    "smithers-burndown-20260930-checkpoint10-registry-coverage.log": "0f3ea7fc4734f6fd82dc01b935c29e05efe3393ca122e71fd8db0f5f30d6ed7d",
+    "smithers-burndown-20260930-checkpoint10-rpc.log": "5097eee5880cba410da86dae9e3a8bd19a71da9d07e333f6d57a6670a4494f64",
+    "smithers-burndown-20260930-checkpoint10-registration.log": "364a2e0b88c056348d712695fbf646d4caa8b32b0d766dbcfdeeb8ce202bf048",
+    "smithers-burndown-20260930-checkpoint10-cli.log": "dcdaa0e4d69c8f8f5cc6e6b802a9c014e73cf45734186d619f37a577604a8ae2",
+    "smithers-burndown-20260930-checkpoint10-registry-types.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "smithers-burndown-20260930-checkpoint10-rpc-types.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "smithers-burndown-20260930-checkpoint10-cli-types.log": "bc936dd3a4899bcfff3e3828fafc5a00127707e4fc8c0c4d80f7d00bec8d21d6",
+    "smithers-burndown-20260930-checkpoint10-docs-sync.log": "4e0e72a79bbf210d80d3b3c6ce737d916bc5db915558c125a76b2f75d0af2237",
+    "smithers-burndown-20260930-checkpoint10-site-sync.log": "a0e00dea970d352cdc813f4dd07bf531bad66897caa6f7591586699b2ffb444e",
+    "smithers-burndown-20260930-checkpoint10-docs-check.log": "ac3268684518a6eeb79c286a92d63d79c80a80e52147f52bae0f0dc24ff275ab",
+    "smithers-burndown-20260930-checkpoint10-site-check.log": "28a4cf67e961bacf1d79bb593cc97cd853488ae4e5df443b65ced960477f7948",
+    "smithers-burndown-20260930-checkpoint10-final-onecli.log": "3a02fb73155a4f2a7b763fb680b6d4685e1f38b15b9c176b5fbe62e01444ab74",
+    "smithers-burndown-20260930-checkpoint10-final-gen-cli-data.mjs.log": "e2ecc38689f0c857742ca45352970b54b5abb12045c441130194b82860f72c24",
+    "smithers-burndown-20260930-checkpoint10-final-sync-api-docs.mjs.log": "383395c429dde960b5e60175007f29a0399a0078763468c1f00258d770cabf62"
+  },
+  "archiveSha256": "c2ba8cf35d9385ec1e90adfbb2b63098fe271f8317f49bb29a8e6091c4b8c15a",
+  "limits": [
+    "Historical CLI suite failure fixed upstream and full103 OneCli now passes. Full CLI compiler remains blocked solely by upstream3283, exact diagnostic retained.",
+    "Existing native debug/release helpers reused; not a fresh release or deployment qualification.",
+    "No full application suite/deployed registration claimed."
+  ],
+  "finalUpstreamBase": "30179a74ff82c938d7a30d15c36ffab5fe5f79d2",
+  "finalCandidateBeforeReceiptAmend": "cf9ad8218fca39f792134f38f3a22b50685f7984",
+  "finalIncomingCommits": 27,
+  "finalChecks": [
+    {
+      "scope": "full OneCli suite on30179a74ff upstream",
+      "exit": 0,
+      "tests": 103,
+      "note": "Upstream repaired command count in existing #2742; all summary, dispatch and inventory checks pass."
+    },
+    {
+      "scope": "canonical CLI projection/API reference drift after final rebase",
+      "exit": 0
+    }
+  ]
+}

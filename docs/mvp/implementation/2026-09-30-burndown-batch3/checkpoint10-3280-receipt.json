@@ -1,0 +1,41 @@
+{
+  "issue": 3280,
+  "base": "d865941ab09d5b9530f0349612e719e79fbef23a",
+  "qualifiedFiles": {
+    "packages/smithers/src/internal/backend/Commands.ts": "241485cd383bdec89c8b43ac5e2e004eab9f111b9d48ce76e8c9d84d161defe7"
+  },
+  "authoredDocs": {},
+  "checks": [
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH pnpm exec vitest run test/OneCli.test.ts -t 'placeholder|summar' --coverage.enabled=false",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+      "exit": 1,
+      "result": "existing audit fails specifically egress missing summary",
+      "receipt": "3280-red.log"
+    },
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH pnpm exec vitest run test/OneCli.test.ts -t 'summarizes every command and group' --coverage.enabled=false",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+      "exit": 0,
+      "result": "existing exhaustive mounted command/group summary audit passes",
+      "receipt": "3280-green.log"
+    },
+    {
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH pnpm exec dprint check src/internal/backend/Commands.ts",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+      "exit": 0,
+      "receipt": "3280-format.log"
+    }
+  ],
+  "limits": [
+    "Canonical CLI/site generation and drift checks are parent-owned and must pass before issue closure; initial site generator red is retained exactly.",
+    "No unrelated CLI suite rerun or coverage claim; one existing summary string added."
+  ],
+  "manifestSha256": "87125492be3e1bb16b836c0049d880838299fb1d0e34c2332eb06a980d15cdf3",
+  "archiveSha256": "3077b314f537cbb854a1f2010a611c3e3332dea8dd11ed05def65320a9b1f529",
+  "review": "Upstream c05 egress implementation already supplied canonical \"Manage repository egress policies\". Preserved that summary, workspace children and handlers; original red/green proof remains historical. Fresh exhaustive CLI summary audit and real canonical generator pass.",
+  "postRebaseReceipt": "checkpoint10-integration-receipt.json",
+  "preRebaseQualifiedFiles": {
+    "packages/smithers/src/internal/backend/Commands.ts": "614a9af6fdc128d74e2879d0574e9730472ef9b0e579092b05396ba5dbd83250"
+  }
+}
