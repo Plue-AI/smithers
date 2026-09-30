@@ -99,6 +99,22 @@ describe("FailureCopy.describe", () => {
     expect(FailureCopy.describe({ ...unrouted, reason: "interrupted" }).line).toBe("Choosing a model was interrupted.")
   })
 
+  it("names the router when an unrouted reason carries no words the copy can show", () => {
+    const unrouted = { _tag: "@smthrs/agent/Seat/SeatUnrouted", seat: "auto" }
+    const fallback = "The model router could not pick a model."
+    // A judge reason without its message, and a reason this copy has never met, whatever it says.
+    expect(FailureCopy.describe(new Error("turn", { cause: { ...unrouted, reason: "timeout" } }))).toMatchObject({
+      headline: "Model could not be chosen",
+      line: fallback,
+      actions: ["switch-model", "resume", "details"]
+    })
+    expect(FailureCopy.describe({ ...unrouted, reason: "refused", message: "" }).line).toBe(fallback)
+    expect(FailureCopy.describe({ ...unrouted, reason: "refused", message: 429 }).line).toBe(fallback)
+    expect(FailureCopy.describe({ ...unrouted, reason: "retired", message: "private router diagnostic" }).line).toBe(
+      fallback
+    )
+  })
+
   it("shows native judge setup and quota reasons through wrapped worker failures", () => {
     const unconfigured = new Evaluator.EvaluatorError({
       code: "unconfigured",
