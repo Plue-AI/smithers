@@ -1392,6 +1392,28 @@ describe("bubblewrap launcher (#3140)", () => {
     expect(argv.join(" ")).not.toContain("/opt/tools")
   })
 
+  it("execs the corepack shim of a Node distribution by its real file, inside the granted node_modules", () => {
+    // `<prefix>/bin/pnpm` links into `<prefix>/lib/node_modules/corepack`, which the runtime grant already covers.
+    const shim = "/opt/node/bin/pnpm"
+    const target = "/opt/node/lib/node_modules/corepack/dist/pnpm.js"
+    const facts: ExecSandbox.Host = {
+      ...host("linux", { bwrap: "/usr/bin/bwrap", node: "/opt/node/bin/node", [shim]: shim }, [
+        "/opt/node/bin/node",
+        shim,
+        target
+      ], ["/opt/node/lib/node_modules", "/home/runner/.cache/node/corepack"]),
+      home: "/home/runner",
+      realpath: (path) => path === shim ? target : path
+    }
+    const argv = ExecSandbox.bubblewrap(planned(facts), ["pnpm", "exec", "vitest"], facts, "/opt/node/bin")
+    expect(tail(argv)).toEqual([target, "exec", "vitest"])
+    const text = argv.join(" ")
+    expect(text).toContain("--ro-bind /opt/node/lib/node_modules /opt/node/lib/node_modules")
+    expect(text).toContain("--ro-bind /opt/node/bin/node /opt/node/bin/node")
+    expect(text).toContain("--ro-bind /home/runner/.cache/node/corepack /home/runner/.cache/node/corepack")
+    expect(text).not.toContain("--ro-bind /opt/node /opt/node")
+  })
+
   it("never binds a program inside the workspace, which only the declaration may open", () => {
     const local = `${root}/node_modules/.bin/pnpm`
     const facts = runner({
