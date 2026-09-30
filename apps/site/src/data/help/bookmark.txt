@@ -1,4 +1,4 @@
-smthrs bookmark — bookmark
+smthrs bookmark — Manage local jj bookmarks
 
 Usage: smthrs bookmark <command>
 

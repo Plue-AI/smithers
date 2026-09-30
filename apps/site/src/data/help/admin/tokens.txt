@@ -1,9 +1,9 @@
-smthrs admin tokens — tokens
+smthrs admin tokens — List access tokens
 
 Usage: smthrs admin tokens <command>
 
 Commands:
-  list  tokens · list
+  list  List access tokens
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

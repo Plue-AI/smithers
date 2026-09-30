@@ -1,4 +1,4 @@
-smthrs admin deploys observe rollback — deploys · observe · rollback
+smthrs admin deploys observe rollback — Roll back an Observe deployment
 
 Usage: smthrs admin deploys observe rollback <id> [options]
 

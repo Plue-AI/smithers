@@ -1,12 +1,12 @@
-smthrs admin deploys observe — observe
+smthrs admin deploys observe — Operate Observe deployments
 
 Usage: smthrs admin deploys observe <command>
 
 Commands:
-  list      deploys · observe · list
-  redeploy  deploys · observe · redeploy
-  restart   deploys · observe · restart
-  rollback  deploys · observe · rollback
+  list      List Observe deployments
+  redeploy  Redeploy an Observe deployment
+  restart   Restart an Observe deployment
+  rollback  Roll back an Observe deployment
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

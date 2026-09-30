@@ -1,4 +1,4 @@
-smthrs admin alerts policies list — alerts · policies · list
+smthrs admin alerts policies list — List alert policies
 
 Usage: smthrs admin alerts policies list [options]
 

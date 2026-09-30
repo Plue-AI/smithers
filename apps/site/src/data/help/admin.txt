@@ -1,20 +1,20 @@
-smthrs admin — admin
+smthrs admin — Administer the Smithers installation
 
 Usage: smthrs admin <command>
 
 Commands:
-  alerts      alerts
-  analytics   analytics
-  audit       audit
-  deploys     deploys
+  alerts      Manage alert channels and policies
+  analytics   Summarize product usage
+  audit       Read the audit log
+  deploys     Operate Observe and platform deployments
   health      System health status
-  runs        runs
-  sessions    sessions
-  status      status
-  tokens      tokens
-  user        user
-  users       users
-  workspaces  workspaces
+  runs        List runs in any repository
+  sessions    List and cancel agent sessions
+  status      Show system status
+  tokens      List access tokens
+  user        Create, suspend, export and erase users
+  users       Mark users as synthetic
+  workspaces  List, stop and suspend workspaces
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

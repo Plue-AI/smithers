@@ -1,4 +1,4 @@
-smthrs org team repo — repo
+smthrs org team repo — Manage a team's repository access
 
 Usage: smthrs org team repo <command>
 

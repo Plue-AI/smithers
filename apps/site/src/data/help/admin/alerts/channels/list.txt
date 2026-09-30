@@ -1,4 +1,4 @@
-smthrs admin alerts channels list — alerts · channels · list
+smthrs admin alerts channels list — List alert channels
 
 Usage: smthrs admin alerts channels list [options]
 

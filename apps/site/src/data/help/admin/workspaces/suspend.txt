@@ -1,4 +1,4 @@
-smthrs admin workspaces suspend — workspaces · suspend
+smthrs admin workspaces suspend — Suspend a workspace
 
 Usage: smthrs admin workspaces suspend <id> [options]
 

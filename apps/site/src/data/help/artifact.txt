@@ -1,4 +1,4 @@
-smthrs artifact — artifact
+smthrs artifact — List and download files a run produced
 
 Usage: smthrs artifact <command>
 

@@ -1,4 +1,4 @@
-smthrs admin workspaces stop — workspaces · stop
+smthrs admin workspaces stop — Stop a workspace
 
 Usage: smthrs admin workspaces stop <id> [options]
 

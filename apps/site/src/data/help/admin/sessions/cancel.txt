@@ -1,4 +1,4 @@
-smthrs admin sessions cancel — sessions · cancel
+smthrs admin sessions cancel — Cancel an agent session
 
 Usage: smthrs admin sessions cancel <id> [options]
 

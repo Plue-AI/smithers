@@ -1,4 +1,4 @@
-smthrs variable — variable
+smthrs variable — Manage repository variables
 
 Usage: smthrs variable <command>
 

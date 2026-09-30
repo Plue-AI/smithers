@@ -1,4 +1,4 @@
-smthrs changeset — changeset
+smthrs changeset — Land one change per repository as a single transaction
 
 Usage: smthrs changeset <command>
 

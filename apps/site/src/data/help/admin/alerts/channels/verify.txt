@@ -1,4 +1,4 @@
-smthrs admin alerts channels verify — alerts · channels · verify
+smthrs admin alerts channels verify — Verify an alert channel with its code
 
 Usage: smthrs admin alerts channels verify <id> [options]
 

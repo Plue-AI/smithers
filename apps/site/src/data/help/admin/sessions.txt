@@ -1,10 +1,10 @@
-smthrs admin sessions — sessions
+smthrs admin sessions — List and cancel agent sessions
 
 Usage: smthrs admin sessions <command>
 
 Commands:
-  cancel  sessions · cancel
-  list    sessions · list
+  cancel  Cancel an agent session
+  list    List agent sessions
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

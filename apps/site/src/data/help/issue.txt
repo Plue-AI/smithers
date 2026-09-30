@@ -1,4 +1,4 @@
-smthrs issue — issue
+smthrs issue — Manage repository issues
 
 Usage: smthrs issue <command>
 

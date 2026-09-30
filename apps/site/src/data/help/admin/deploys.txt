@@ -1,10 +1,10 @@
-smthrs admin deploys — deploys
+smthrs admin deploys — Operate Observe and platform deployments
 
 Usage: smthrs admin deploys <command>
 
 Commands:
-  observe   observe
-  platform  platform
+  observe   Operate Observe deployments
+  platform  Operate platform component deployments
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

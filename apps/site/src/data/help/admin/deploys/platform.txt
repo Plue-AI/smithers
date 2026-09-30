@@ -1,11 +1,11 @@
-smthrs admin deploys platform — platform
+smthrs admin deploys platform — Operate platform component deployments
 
 Usage: smthrs admin deploys platform <command>
 
 Commands:
-  list      deploys · platform · list
-  rollback  deploys · platform · rollback
-  status    deploys · platform · status
+  list      List platform components
+  rollback  Roll a platform component back to a revision
+  status    Show a platform component's deployment status
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

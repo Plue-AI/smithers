@@ -208,6 +208,16 @@ Module flows are discovered and planned but return `pending` from this agent
 executor. A host must register their flow and action implementations and drive
 them separately; `AgentSession` executes markdown prompt flows.
 
+A prompt flow whose frontmatter selects a `sandbox:` runs its tools on a
+machine the host's `Options.sandbox` opens for it: one machine per run,
+acquired under the key `sandbox:<runId>` on its first drive, kept across its
+parks, and ended when the run settles or the executor closes. The machine's
+sources replace `Options.flows` for that run, and the host's workspace
+observer and checkpoint store are withheld from it. A selection the host
+cannot provide fails the launch with `LaunchFailed` whose cause is
+`SandboxRefused` (`unconfigured`, `options`, or `module`), before any body
+loads.
+
 ### AgentSession.Options
 
 `abandonedParkAfter?: Duration.Duration` sets how long a foreign host's resume
@@ -220,6 +230,7 @@ delegation must stand before adoption. The default is
 | `quotaPolicy`     | `Layer<QuotaPolicy.QuotaClassifier>`                                      | The required quota park/retry policy every model call in the run is decided under.                                                                  |
 | `budget`          | `(envelope: Envelope) => Layer<Budget.Budget, Budget.ConfigurationError>` | Builds the run-local spending policy from the plan that was approved. Provided inside each body invocation.                                         |
 | `flows`           | `ReadonlyArray<FlowBinding.Source>`                                       | Host executable-flow sources composed into every run's catalog. The durable wait and the control-wired approval are composed by the session itself. |
+| `sandbox`         | `(selection) => Effect<SandboxOpener, SandboxRefused> \| undefined`        | Opens the machine for a flow's `sandbox:` selection; `undefined` when no provider of that name is configured. Absent, every selection is refused.  |
 | `system`          | `ReadonlyArray<string>`                                                   | Stable system teaching placed ahead of the cell contract.                                                                                           |
 | `maxFrames`       | `number`                                                                  | The cell-loop bound.                                                                                                                                |
 | `readOnlyCap`     | `number`                                                                  | Consecutive read-only frames a task run may spend. Defaults to `CellTurn.defaultReadOnlyFrames`.                                                    |
@@ -506,6 +517,22 @@ runs one agent loop through `Agent` inside the current flow execution, and
 decodes the run's final answer with the declared output schema, spending
 `Options.corrections` corrections before it reports a typed
 `StructuredOutputFailure`.
+
+### AgentAction.implement
+
+```ts
+const implement: <Tag extends string, Payload, Output>(
+  declared: Action.Declared<Tag, Payload, Output, typeof AgentFailure>,
+  policy: Omit<Options<Payload, Output>, "payload" | "output">
+) => AgentAction<Tag, Payload, Output>["layer"]
+```
+
+Attaches the existing agent implementation to an already declared action.
+The action retains its tag, payload, output, and failure schemas. A canonical
+prompt flow passes `flow.action` and renders `flow.prompt` through this policy;
+its authored flow is never rebuilt. The host supplies the resolved seat and
+system teaching. The declaration must use `error: AgentAction.AgentFailure`;
+other error schemas throw `TypeError` before the layer is built.
 
 ### AgentAction.Options
 
@@ -2707,7 +2734,9 @@ is `dependency`, `facts_failed` and `read_failed` are `infra`, and
 `Memory.version`, the root and the digest of `options.thresholds`
 (`MemoryCalibration.initial` when absent), and journals a `decision-settled` row
 per Jev request. `source(services, options)` is the flows source a host passes:
-it binds with the repository's thresholds each time a run resolves its flows.
+it reads the repository's thresholds when the calling run holds `Memory.reads`,
+and otherwise pins `MemoryCalibration.initial` without reading the workspace.
+Authorized malformed thresholds still fail assembly.
 `plugin(services, options)` contributes the binding through
 `CellPlugin.fromBindings`; pass it in `Agent.Options.plugins`.
 

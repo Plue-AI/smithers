@@ -1,4 +1,4 @@
-smthrs admin audit list — audit · list
+smthrs admin audit list — List audit log entries
 
 Usage: smthrs admin audit list [options]
 

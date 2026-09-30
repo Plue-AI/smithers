@@ -1,4 +1,4 @@
-smthrs admin deploys platform list — deploys · platform · list
+smthrs admin deploys platform list — List platform components
 
 Usage: smthrs admin deploys platform list [options]
 

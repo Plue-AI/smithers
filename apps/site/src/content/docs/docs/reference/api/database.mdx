@@ -435,6 +435,18 @@ a 5 ms base delay capped at 250 ms. That ladder is not configurable: it bounds a
 driver-internal race during layer construction, before any service exists to
 configure.
 
+### postgresLocation
+
+```ts
+const postgresLocation: (filename: string) => { readonly url: string; readonly schema: string } | undefined
+```
+
+Where `layer` would open `filename` on PostgreSQL: the connection URL without
+its `schema` parameter, and the schema. It is `undefined` for a store SQLite
+keeps, and it raises the same `UnsupportedDatabase` refusals `layer` does.
+`postgres://…?schema=<schema>` opens that exact schema, so a caller that copies
+a store into another schema addresses the copy by URL.
+
 ### NodeDatabaseOptions
 
 ```ts

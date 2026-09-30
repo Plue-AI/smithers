@@ -1,4 +1,4 @@
-smthrs admin deploys platform rollback — deploys · platform · rollback
+smthrs admin deploys platform rollback — Roll a platform component back to a revision
 
 Usage: smthrs admin deploys platform rollback <component> [options]
 

@@ -1,4 +1,4 @@
-smthrs agent session — session
+smthrs agent session — Manage remote conversations
 
 Usage: smthrs agent session <command>
 

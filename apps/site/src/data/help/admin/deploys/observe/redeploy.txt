@@ -1,4 +1,4 @@
-smthrs admin deploys observe redeploy — deploys · observe · redeploy
+smthrs admin deploys observe redeploy — Redeploy an Observe deployment
 
 Usage: smthrs admin deploys observe redeploy <id> [options]
 

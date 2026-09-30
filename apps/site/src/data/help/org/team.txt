@@ -1,4 +1,4 @@
-smthrs org team — team
+smthrs org team — Manage organization teams
 
 Usage: smthrs org team <command>
 
@@ -7,8 +7,8 @@ Commands:
   delete  Delete a team
   edit    Update a team
   list    List teams in an organization
-  member  member
-  repo    repo
+  member  Manage team members
+  repo    Manage a team's repository access
   view    View team details
 
 Custom Global Options:

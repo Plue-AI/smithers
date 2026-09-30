@@ -1,11 +1,11 @@
-smthrs admin alerts policies — policies
+smthrs admin alerts policies — Turn alert policies on or off
 
 Usage: smthrs admin alerts policies <command>
 
 Commands:
-  disable  alerts · policies · disable
-  enable   alerts · policies · enable
-  list     alerts · policies · list
+  disable  Turn off an alert policy
+  enable   Turn on an alert policy
+  list     List alert policies
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

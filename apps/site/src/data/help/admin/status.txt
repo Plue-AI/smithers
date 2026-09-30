@@ -1,4 +1,4 @@
-smthrs admin status — status
+smthrs admin status — Show system status
 
 Usage: smthrs admin status [options]
 

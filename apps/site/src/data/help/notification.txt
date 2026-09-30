@@ -1,4 +1,4 @@
-smthrs notification — notification
+smthrs notification — Read your notifications
 
 Usage: smthrs notification <command>
 

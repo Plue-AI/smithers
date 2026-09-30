@@ -1,4 +1,4 @@
-smthrs admin sessions list — sessions · list
+smthrs admin sessions list — List agent sessions
 
 Usage: smthrs admin sessions list [options]
 

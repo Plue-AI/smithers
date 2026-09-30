@@ -1,4 +1,4 @@
-smthrs admin alerts policies enable — alerts · policies · enable
+smthrs admin alerts policies enable — Turn on an alert policy
 
 Usage: smthrs admin alerts policies enable <name> [options]
 

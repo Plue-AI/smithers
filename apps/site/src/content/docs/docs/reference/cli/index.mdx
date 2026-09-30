@@ -15,66 +15,65 @@ flow is a durable program built with `Flow.make`, and a run is a persisted flow 
 
 | Command | Purpose |
 | --- | --- |
-| [`admin`](/docs/reference/cli/admin/) | admin |
+| [`admin`](/docs/reference/cli/admin/) | Administer the Smithers installation |
 | [`affected`](/docs/reference/cli/affected/) | Execute targets affected by changed files, conservatively including ambient inputs |
-| [`agent`](/docs/reference/cli/agent/) | agent |
+| [`agent`](/docs/reference/cli/agent/) | Ask the Smithers helper and hold remote conversations |
 | [`api`](/docs/reference/cli/api/) | Make raw API calls to the Smithers server |
 | [`approvals`](/docs/reference/cli/approvals/) | Find and resolve pending approval requests |
-| [`artifact`](/docs/reference/cli/artifact/) | artifact |
-| [`auth`](/docs/reference/cli/auth/) | auth |
-| [`bookmark`](/docs/reference/cli/bookmark/) | bookmark |
+| [`artifact`](/docs/reference/cli/artifact/) | List and download files a run produced |
+| [`auth`](/docs/reference/cli/auth/) | Log in, log out and connect subscriptions |
+| [`bookmark`](/docs/reference/cli/bookmark/) | Manage local jj bookmarks |
 | [`bug`](/docs/reference/cli/bug/) | Submit a redacted bug report to the configured endpoint |
 | [`build`](/docs/reference/cli/build/) | Execute the build targets selected by a pattern |
 | [`cache`](/docs/reference/cli/cache/) | Inspect and maintain local action-result caches |
-| [`change`](/docs/reference/cli/change/) | change |
-| [`changeset`](/docs/reference/cli/changeset/) | changeset |
+| [`change`](/docs/reference/cli/change/) | Inspect local jj changes |
+| [`changeset`](/docs/reference/cli/changeset/) | Land one change per repository as a single transaction |
 | [`ci`](/docs/reference/cli/ci/) | Execute build, test, lint, and documentation targets; wildcards omit exclusive tiers unless --include-exclusive is set |
 | [`clean`](/docs/reference/cli/clean/) | Execute only declared Clean targets selected by the patterns |
 | [`completion`](/docs/reference/cli/completion/) | Generate shell completions |
-| [`config`](/docs/reference/cli/config/) | config |
+| [`config`](/docs/reference/cli/config/) | Read and set CLI configuration |
 | [`create-app`](/docs/reference/cli/create-app/) | Scaffold a Smithers app from a @smthrs/create-app template |
 | [`credentials`](/docs/reference/cli/credentials/) | Manage encrypted local credentials without printing secret values |
 | [`docs`](/docs/reference/cli/docs/) | Execute the documentation targets selected by a pattern: parity checks, freshness stamps, and Docs.Page writers |
 | [`doctor`](/docs/reference/cli/doctor/) | Check project discovery, providers, tools, and durable-state compatibility |
-| [`egress`](/docs/reference/cli/egress/) | egress |
+| [`egress`](/docs/reference/cli/egress/) | Manage repository egress policies |
 | [`environment`](/docs/reference/cli/environment/) | Run commands in saved local, SSH, or Cloud environments |
 | [`eval`](/docs/reference/cli/eval/) | Run fixed evaluation suites and compare committed score baselines |
 | [`explain`](/docs/reference/cli/explain/) | Explain a target's actual planned cache key and local cache state |
-| [`extension`](/docs/reference/cli/extension/) | extension |
 | [`flow`](/docs/reference/cli/flow/) | Discover, plan, and start durable flows |
 | [`gc`](/docs/reference/cli/gc/) | Collect old terminal runs and compact their journals; separate from target caches |
 | [`generate`](/docs/reference/cli/generate/) | Scaffold apps, flows, packages, and CI configuration |
 | [`git-hooks`](/docs/reference/cli/git-hooks/) | Check the WORKSPACE.ts gitHooks scripts against .git/hooks, or install them with --write |
 | [`graph`](/docs/reference/cli/graph/) | Print the target graph without executing it |
-| [`history`](/docs/reference/cli/history/) | history |
+| [`history`](/docs/reference/cli/history/) | Follow each issue's lane, checks and pull request |
 | [`index`](/docs/reference/cli/index-command/) | List every target a pattern selects as its declaration states it: rule, kinds, inputs, outputs, dependencies, and the declaring file |
 | [`info`](/docs/reference/cli/info/) | Report workspace and host configuration for diagnosis |
 | [`init`](/docs/reference/cli/init/) | Initialize workspace and target declarations plus a starter flow, preserving existing files |
 | [`install`](/docs/reference/cli/install/) | Plan and execute the install Flow under the toolchain the workspace declares |
 | [`integrations`](/docs/reference/cli/integrations/) | Inspect configured provider adapters |
-| [`issue`](/docs/reference/cli/issue/) | issue |
-| [`label`](/docs/reference/cli/label/) | label |
-| [`land`](/docs/reference/cli/land/) | land |
+| [`issue`](/docs/reference/cli/issue/) | Manage repository issues |
+| [`label`](/docs/reference/cli/label/) | Manage repository labels |
+| [`land`](/docs/reference/cli/land/) | Review and land landing requests |
 | [`lint`](/docs/reference/cli/lint/) | Execute the lint targets selected by a pattern |
 | [`login`](/docs/reference/cli/login/) | Log in to Smithers |
 | [`mcp`](/docs/reference/cli/mcp/) | Register the Smithers MCP server with an agent |
 | [`memory`](/docs/reference/cli/memory/) | Durable facts, notes, recall, and conversation history |
 | [`migrate`](/docs/reference/cli/migrate/) | Inventory, plan, or apply the 0.x-to-1.x source migration |
-| [`notification`](/docs/reference/cli/notification/) | notification |
+| [`notification`](/docs/reference/cli/notification/) | Read your notifications |
 | [`open`](/docs/reference/cli/open/) | Open this checkout's repository in the Smithers app; `smthrs .` is the same |
-| [`org`](/docs/reference/cli/org/) | org |
+| [`org`](/docs/reference/cli/org/) | Manage organizations |
 | [`owners`](/docs/reference/cli/owners/) | Resolve owners, reasons, and the agent policy for paths, or for the paths a diff touches |
 | [`query`](/docs/reference/cli/query/) | List labels or evaluate deps(label), rdeps(label), or owners(label) |
-| [`repo`](/docs/reference/cli/repo/) | repo |
+| [`repo`](/docs/reference/cli/repo/) | Manage repositories and their GitHub connection |
 | [`review`](/docs/reference/cli/review/) | Review committed source using policy from an approved commit |
 | [`run`](/docs/reference/cli/run/) | Execute run targets selected by a pattern |
 | [`runs`](/docs/reference/cli/runs/) | Inspect and control durable execution records |
-| [`search`](/docs/reference/cli/search/) | search |
-| [`secret`](/docs/reference/cli/secret/) | secret |
+| [`search`](/docs/reference/cli/search/) | Search repositories, issues, code and users |
+| [`secret`](/docs/reference/cli/secret/) | Manage repository secrets |
 | [`serve`](/docs/reference/cli/serve/) | Host the control gateway and durable trigger scheduler |
 | [`show`](/docs/reference/cli/show/) | Inspect targets and workspace configuration |
-| [`ssh-key`](/docs/reference/cli/ssh-key/) | ssh-key |
-| [`stack`](/docs/reference/cli/stack/) | stack |
+| [`ssh-key`](/docs/reference/cli/ssh-key/) | Manage your SSH keys |
+| [`stack`](/docs/reference/cli/stack/) | Submit, sync and land stacked GitHub pull requests |
 | [`suggest`](/docs/reference/cli/suggest/) | Discover ways Smithers can help; interactively choose one to implement |
 | [`target`](/docs/reference/cli/target/) | Execute PACKAGE.ts labels with their flavor-implied verbs (the bare-label form) |
 | [`targets`](/docs/reference/cli/targets/) | List available targets with their kinds and summaries |
@@ -83,11 +82,11 @@ flow is a durable program built with `Flow.make`, and a run is a persisted flow 
 | [`triggers`](/docs/reference/cli/triggers/) | Manage durable schedules and manually queued occurrences |
 | [`tui`](/docs/reference/cli/tui/) | Open the terminal coding agent |
 | [`update`](/docs/reference/cli/update/) | Check the registry for newer CLI versions; does not install them |
-| [`variable`](/docs/reference/cli/variable/) | variable |
+| [`variable`](/docs/reference/cli/variable/) | Manage repository variables |
 | [`watch`](/docs/reference/cli/watch/) | Replan and rerun a target graph when workspace files change |
-| [`webhook`](/docs/reference/cli/webhook/) | webhook |
-| [`wiki`](/docs/reference/cli/wiki/) | wiki |
-| [`workspace`](/docs/reference/cli/workspace/) | workspace |
+| [`webhook`](/docs/reference/cli/webhook/) | Manage repository webhooks |
+| [`wiki`](/docs/reference/cli/wiki/) | Read and edit wiki pages |
+| [`workspace`](/docs/reference/cli/workspace/) | Create, open and run commands in workspaces |
 
 {/* generated:cli-commands end */}
 

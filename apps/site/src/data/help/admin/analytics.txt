@@ -1,9 +1,9 @@
-smthrs admin analytics — analytics
+smthrs admin analytics — Summarize product usage
 
 Usage: smthrs admin analytics <command>
 
 Commands:
-  summary  analytics · summary
+  summary  Summarize product usage over a time range
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

@@ -1,4 +1,4 @@
-smthrs admin deploys observe restart — deploys · observe · restart
+smthrs admin deploys observe restart — Restart an Observe deployment
 
 Usage: smthrs admin deploys observe restart <id> [options]
 

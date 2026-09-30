@@ -1,4 +1,4 @@
-smthrs admin alerts policies disable — alerts · policies · disable
+smthrs admin alerts policies disable — Turn off an alert policy
 
 Usage: smthrs admin alerts policies disable <name> [options]
 

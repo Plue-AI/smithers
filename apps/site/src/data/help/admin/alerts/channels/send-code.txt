@@ -1,4 +1,4 @@
-smthrs admin alerts channels send-code — alerts · channels · send-code
+smthrs admin alerts channels send-code — Send a verification code to an alert channel
 
 Usage: smthrs admin alerts channels send-code <id> [options]
 

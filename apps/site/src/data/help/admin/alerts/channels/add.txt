@@ -1,4 +1,4 @@
-smthrs admin alerts channels add — alerts · channels · add
+smthrs admin alerts channels add — Add an alert channel
 
 Usage: smthrs admin alerts channels add [options]
 

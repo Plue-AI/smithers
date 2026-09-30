@@ -1,4 +1,4 @@
-smthrs admin deploys platform status — deploys · platform · status
+smthrs admin deploys platform status — Show a platform component's deployment status
 
 Usage: smthrs admin deploys platform status <component> [options]
 

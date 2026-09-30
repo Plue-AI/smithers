@@ -1,4 +1,4 @@
-smthrs ssh-key — ssh-key
+smthrs ssh-key — Manage your SSH keys
 
 Usage: smthrs ssh-key <command>
 

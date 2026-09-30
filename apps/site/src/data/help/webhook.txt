@@ -1,4 +1,4 @@
-smthrs webhook — webhook
+smthrs webhook — Manage repository webhooks
 
 Usage: smthrs webhook <command>
 

@@ -1,4 +1,4 @@
-smthrs admin alerts channels set-route — alerts · channels · set-route
+smthrs admin alerts channels set-route — Choose which alerts a channel receives
 
 Usage: smthrs admin alerts channels set-route <id> [options]
 

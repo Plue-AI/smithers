@@ -9577,7 +9577,9 @@ Current-state commands accept the connection options `--root` and `--remote`, an
 
 ## Verify against current code
 
-`runs verify <run>` reports what `runs resume` would do under the flow code now on disk, before anything runs. It resumes a copy of the project's stores with an engine that executes no action code, and lists the recorded steps that `replayed`, the first step that would execute again (`executes`), and the recorded steps nothing asked for (`notReplayed`). It exits `0` when every recorded step replays and `1` with `run_divergent` when a recorded step would be dropped or re-keyed. The project's own stores are only read. It needs the local SQLite stores.
+`runs verify <run>` reports what `runs resume` would do under the flow code now on disk, before anything runs. It resumes a copy of the project's stores with an engine that executes no action code, and lists the recorded steps that `replayed`, the first step that would execute again (`executes`), and the recorded steps nothing asked for (`notReplayed`). It exits `0` when every recorded step replays and `1` with `run_divergent` when a recorded step would be dropped or re-keyed. The project's own stores are only read: SQLite stores are copied with `VACUUM INTO`, PostgreSQL ones into scratch schemas that are dropped afterwards.
+
+Without a run, `runs verify` reports every run the store holds (settled runs are listed under `settled`) and exits `1` when any diverges. `--against <engine.db>` verifies the store at that path, with the `control.db` beside it, under the project's current flows.
 
 ## Fork or rewind
 
@@ -10319,7 +10321,7 @@ Every registered tag. The sweep tests read it.
 
 ## Flow
 
-`Flow` exports 46 symbols. Its models and schemas are listed in one table, and constructors, refinements, results, resource management, annotations, and errors get their own entries:
+`Flow` models and schemas are listed in one table, and constructors, refinements, results, resource management, annotations, and errors get their own entries:
 
 | Name                  | Kind                 | Summary                                                                                                                                                                                                                                                                                                                                                      |
 | --------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -10341,6 +10343,16 @@ Every registered tag. The sweep tests read it.
 | `Park`                | Interface and schema | A request to durably park the current round, carrying `reason`.                                                                                                                                                                                                                                                                                              |
 | `Outcome`             | Type and schema      | The union of `Done`, `To`, and `Park`.                                                                                                                                                                                                                                                                                                                       |
 | `CompleteSchema`      | Interface            | The schema constructor for `Complete` results under supplied success and error schemas.                                                                                                                                                                                                                                                                      |
+
+### `Flow.PromptFlow`
+
+A canonical flow with a typed `prompt(payload): string` renderer and an ordinary
+`action` named `<tag>/prompt`. Its requirement channel carries that action's
+implementation requirement. Annotation copies retain the prompt and action.
+
+`Flow.ModelSelection` is a seat string or an ordered nonempty tuple.
+`Flow.DeclarationMetadata` carries optional `model`, `effort`, `system`, `chat`,
+and `flows` fields, interpreted by the host.
 
 ### `Flow.Capabilities`
 
@@ -10429,12 +10441,15 @@ Declares the host's execution-id source as a layer. Callers that name an `execut
 
 ### `Flow.make`
 
-- **Signature:** `make(tag: Tag, options: { payload, declaredFrom?, description?, capabilities?, effects?, idempotencyKey?, success?, error?, suspendedRetryPolicy?, maxRounds?, deadline?, annotations?, body }): Flow<Tag, PayloadSchemaOf<Payload>, Success, Error, Requires>`
+- **Signature:** `make(tag: Tag, options: { payload, declaredFrom?, description?, capabilities?, effects?, idempotencyKey?, success?, error?, suspendedRetryPolicy?, maxRounds?, deadline?, annotations?, model?, effort?, flows?, system?, chat?, body | prompt }): Flow<Tag, PayloadSchemaOf<Payload>, Success, Error, Requires>`
 - **Default:** `success` is `Schema.Void`, `error` is `Schema.Never`, `annotations` is `Context.empty()`
-- **Required:** `payload` and `body`
+- **Required:** `payload` and exactly one of `body` or `prompt`
 - **Since:** `0.1.0`
 
-Creates a durable flow definition. The `body` is the flow's one behavior, evaluated at plan time only, and it must be pure: it may not read mutable module state, clocks, random values, services, or values captured outside `payload`. A flow with nothing to plan is an action instead. `Flow.make` throws a `RangeError` when `maxRounds` is not a positive safe integer or `deadline` is not a positive finite duration. `deadline` bounds one execution, counted from its journaled first start, so a resume after a restart honors the original deadline; on expiry the execution settles with `Flow.DeadlineExceeded` whether it was running or parked.
+Creates a durable flow definition. The `body` is the flow's one behavior, evaluated at plan time only, and it must be pure: it may not read mutable module state, clocks, random values, services, or values captured outside `payload`. A typed `prompt(payload)` lowers to one ordinary action named `<tag>/prompt`; its returned `PromptFlow` exposes the declaration as `action` and the renderer as `prompt`. The renderer runs only when the host implementation calls it. Optional `model`, `effort`, `flows`, `system`, and `chat` fields retain host metadata; annotation copies preserve them. `Flow.make` throws a `RangeError` when `maxRounds` is not a positive safe integer or `deadline` is not a positive finite duration. `deadline` bounds one execution, counted from its journaled first start, so a resume after a restart honors the original deadline; on expiry the execution settles with `Flow.DeadlineExceeded` whether it was running or parked.
+
+`Flow.make` throws `TypeError` for a missing or blank tag, or when the declaration
+does not supply exactly one function as `body` or `prompt`.
 
 `declaredFrom: original` retains a native declaration's diagnostic source location,
 including its absence, while constructing a fresh flow with the supplied body.
@@ -14247,6 +14262,16 @@ Module flows are discovered and planned but return `pending` from this agent
 executor. A host must register their flow and action implementations and drive
 them separately; `AgentSession` executes markdown prompt flows.
 
+A prompt flow whose frontmatter selects a `sandbox:` runs its tools on a
+machine the host's `Options.sandbox` opens for it: one machine per run,
+acquired under the key `sandbox:<runId>` on its first drive, kept across its
+parks, and ended when the run settles or the executor closes. The machine's
+sources replace `Options.flows` for that run, and the host's workspace
+observer and checkpoint store are withheld from it. A selection the host
+cannot provide fails the launch with `LaunchFailed` whose cause is
+`SandboxRefused` (`unconfigured`, `options`, or `module`), before any body
+loads.
+
 ### AgentSession.Options
 
 `abandonedParkAfter?: Duration.Duration` sets how long a foreign host's resume
@@ -14259,6 +14284,7 @@ delegation must stand before adoption. The default is
 | `quotaPolicy`     | `Layer<QuotaPolicy.QuotaClassifier>`                                      | The required quota park/retry policy every model call in the run is decided under.                                                                  |
 | `budget`          | `(envelope: Envelope) => Layer<Budget.Budget, Budget.ConfigurationError>` | Builds the run-local spending policy from the plan that was approved. Provided inside each body invocation.                                         |
 | `flows`           | `ReadonlyArray<FlowBinding.Source>`                                       | Host executable-flow sources composed into every run's catalog. The durable wait and the control-wired approval are composed by the session itself. |
+| `sandbox`         | `(selection) => Effect<SandboxOpener, SandboxRefused> \| undefined`        | Opens the machine for a flow's `sandbox:` selection; `undefined` when no provider of that name is configured. Absent, every selection is refused.  |
 | `system`          | `ReadonlyArray<string>`                                                   | Stable system teaching placed ahead of the cell contract.                                                                                           |
 | `maxFrames`       | `number`                                                                  | The cell-loop bound.                                                                                                                                |
 | `readOnlyCap`     | `number`                                                                  | Consecutive read-only frames a task run may spend. Defaults to `CellTurn.defaultReadOnlyFrames`.                                                    |
@@ -14545,6 +14571,22 @@ runs one agent loop through `Agent` inside the current flow execution, and
 decodes the run's final answer with the declared output schema, spending
 `Options.corrections` corrections before it reports a typed
 `StructuredOutputFailure`.
+
+### AgentAction.implement
+
+```ts
+const implement: <Tag extends string, Payload, Output>(
+  declared: Action.Declared<Tag, Payload, Output, typeof AgentFailure>,
+  policy: Omit<Options<Payload, Output>, "payload" | "output">
+) => AgentAction<Tag, Payload, Output>["layer"]
+```
+
+Attaches the existing agent implementation to an already declared action.
+The action retains its tag, payload, output, and failure schemas. A canonical
+prompt flow passes `flow.action` and renders `flow.prompt` through this policy;
+its authored flow is never rebuilt. The host supplies the resolved seat and
+system teaching. The declaration must use `error: AgentAction.AgentFailure`;
+other error schemas throw `TypeError` before the layer is built.
 
 ### AgentAction.Options
 
@@ -16746,7 +16788,9 @@ is `dependency`, `facts_failed` and `read_failed` are `infra`, and
 `Memory.version`, the root and the digest of `options.thresholds`
 (`MemoryCalibration.initial` when absent), and journals a `decision-settled` row
 per Jev request. `source(services, options)` is the flows source a host passes:
-it binds with the repository's thresholds each time a run resolves its flows.
+it reads the repository's thresholds when the calling run holds `Memory.reads`,
+and otherwise pins `MemoryCalibration.initial` without reading the workspace.
+Authorized malformed thresholds still fail assembly.
 `plugin(services, options)` contributes the binding through
 `CellPlugin.fromBindings`; pass it in `Agent.Options.plugins`.
 
@@ -20345,10 +20389,12 @@ The transport-neutral composition.
 
 | Export         | Signature                                                                                                    | Meaning                                                                                                                                                                                                                                                               |
 | -------------- | ------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Config`       | interface                                                                                                    | Connection and project settings (`remote`, `credential`, `mcpServers`, `root`, `migrationRoot`), plus trusted host options (`health`, `stateRoot`, `executionRoot`, `approvalAuthority`, `principal`). Host options are supplied in code, not decoded from CLI flags. |
+| `Config`       | interface                                                                                                    | Connection and project settings (`remote`, `credential`, `mcpServers`, `root`, `migrationRoot`), plus trusted host options (`health`, `stateRoot`, `executionRoot`, `approvalAuthority`, `principal`, `sandboxProviders`). Host options are supplied in code, not decoded from CLI flags. |
 | `Engine`       | interface                                                                                                    | `runtime` and `journal`: where a local composition's runs and events are recorded. The journal is required, not optional.                                                                                                                                             |
 | `engineMemory` | `Engine`                                                                                                     | A deterministic runtime over an in-memory SQLite journal. Nothing it records survives the process.                                                                                                                                                                    |
 | `layer`        | `(config, registry?, engine?, executor?) => Layer<Control, never, HttpClient \| RpcSerialization \| Socket>` | Local `Control` when `config.remote` is unset, the RPC client otherwise. Also supplies `ExecutorOwnership`.                                                                                                                                                           |
+| `SandboxHost`  | interface                                                                                                    | `spawner`: the host's contained spawner, handed to a sandbox provider it builds. |
+| `SandboxProviders` | `{ [provider]?: (selection, host: SandboxHost) => Sandbox.Provider }`                                        | The machine each `sandbox:` provider name runs on. Image and credentials are the host's; a factory that cannot honor the selection throws and the launch is refused. |
 
 `executor` must be passed here rather than provided from outside, because
 `ControlLive` resolves it with `Effect.serviceOption` while its own layer is
@@ -20412,7 +20458,7 @@ The Node composition for the command tree.
 | `rebuildableTransport`                                     | constructor                                                                                                                                                                                                                                   | The replaceable HTTP dispatcher a model captures and uses after seat resolution returns.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `environmentDispatcher`, `layerRebuildableRequestExecutor` | constructor, layer                                                                                                                                                                                                                            | The Undici connection pool an environment's proxy settings describe, and the model transport built over it. The executor throws the pool away after three consecutive transport failures and builds another, which is the only repair for a session the provider destroyed. Node hosts share this pool lifecycle. `RequestExecutor.layer` over a plain client cannot replace anything.                                                                                                                                                                                                     |
 | `ModuleRegistration`                                       | `Layer<Executable.Catalog, never, host registration services>`                                                                                                                                                                                | Optional trusted native module registrations; see [native module hosts](https://cli.smithers.sh/guides/native-module-host/) for authority and single-executor requirements.                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| `layerExecutor`                                            | `(registry, engine, root, options: { environment, mcpServers?, grants?, requestExecutor?, quotaPolicy?, executionRoot?, stateRoot?, modules? }) => Layer<ControlExecutor, never, ControlRuntime \| Journal \| NotificationQueue \| Registry>` | The production run executor. Pass the same `GrantStore` the filesystem gets. `executionRoot` selects the execution checkout; `stateRoot` selects the directory containing `.flows/engine.db`. Both default to `root`.                                                                                                                                                                                                                                                                                                                                                                      |
+| `layerExecutor`                                            | `(registry, engine, root, options: { environment, mcpServers?, grants?, requestExecutor?, quotaPolicy?, executionRoot?, stateRoot?, modules?, sandboxProviders? }) => Layer<ControlExecutor, never, ControlRuntime \| Journal \| NotificationQueue \| Registry>` | The production run executor. Pass the same `GrantStore` the filesystem gets. `executionRoot` selects the execution checkout; `stateRoot` selects the directory containing `.flows/engine.db`. Both default to `root`.                                                                                                                                                                                                                                                                                                                                                                      |
 | `layerControl`                                             | `(config, registry?, engine?, modules?) => Layer`                                                                                                                                                                                             | `Control` alone, over the registry and engine you supply.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `layerOutput`                                              | `Layer<Output>`                                                                                                                                                                                                                               | Deterministic rendering that also publishes its status as `process.exitCode`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `layer`                                                    | `(config, modules?) => Layer`                                                                                                                                                                                                                 | The complete command-handler environment. This is the production layer for `smthrs`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
@@ -22451,7 +22497,7 @@ filesystem.
 
 The root entry point re-exports `./app` and `./package` flat, rather than as
 namespaces, because it is an authoring API rather than a service API: an app
-writes `defineFlow`, not `App.defineFlow`.
+writes layers directly. File flows use `@smthrs/flow`.
 The explicit `@smthrs/create-app/index` subpath serves the same root module.
 
 ## @smthrs/create-app/package
@@ -22515,12 +22561,11 @@ The browser-safe half: types and plain data constructors only.
 
 ### Constructors
 
-| Export          | Signature                                                                                                         |
-| --------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `defineAgent`   | `(options: Omit<AgentSpec, "_tag">) => AgentSpec`                                                                 |
-| `defineSandbox` | `(options: Omit<SandboxSpec, "_tag">) => SandboxSpec`                                                             |
-| `defineTools`   | `(options: Omit<ToolsSpec, "_tag" \| "grant"> & { grant?: ReadonlyArray<ToolsGrant> }) => ToolsSpec`              |
-| `defineFlow`    | `<P extends Schema.Struct.Fields, O extends Schema.Top>(options: Omit<FlowSpec<P, O>, "_tag">) => FlowSpec<P, O>` |
+| Export          | Signature                                                                                            |
+| --------------- | ---------------------------------------------------------------------------------------------------- |
+| `defineAgent`   | `(options: Omit<AgentSpec, "_tag">) => AgentSpec`                                                    |
+| `defineSandbox` | `(options: Omit<SandboxSpec, "_tag">) => SandboxSpec`                                                |
+| `defineTools`   | `(options: Omit<ToolsSpec, "_tag" \| "grant"> & { grant?: ReadonlyArray<ToolsGrant> }) => ToolsSpec` |
 
 `defineTools` defaults `grant` to `[]`, the empty envelope: the harness refuses
 every call that declares a capability. `[{ action: "*", resource: "*" }]` grants
@@ -22530,18 +22575,16 @@ inheriting one silently.
 
 ### Specs
 
-| Type             | Fields                                                                                               |
-| ---------------- | ---------------------------------------------------------------------------------------------------- |
-| `AgentSpec`      | `seat: string`, `system: ReadonlyArray<string>`, `limits?: { calls?: number }`, `maxFrames?: number` |
-| `SandboxSpec`    | `limits: { heapBytes?: number; interruptChecks?: number; wallClockMs?: number }`                     |
-| `ToolsSpec`      | `sources: ReadonlyArray<FlowBinding.Source>`, `grant: ReadonlyArray<ToolsGrant>`                     |
-| `ToolsGrant`     | `action: Capability.PatternAction`, `resource: string`                                               |
-| `FlowSpec<P, O>` | `description`, `payload: P`, `output: O`, `prompt: (payload) => string`, `system?`, `chat?`          |
-| `AnyFlowSpec`    | `FlowSpec` with its payload type erased, which is what a route table holds                           |
+| Type          | Fields                                                                                               |
+| ------------- | ---------------------------------------------------------------------------------------------------- |
+| `AgentSpec`   | `seat: string`, `system: ReadonlyArray<string>`, `limits?: { calls?: number }`, `maxFrames?: number` |
+| `SandboxSpec` | `limits: { heapBytes?: number; interruptChecks?: number; wallClockMs?: number }`                     |
+| `ToolsSpec`   | `sources: ReadonlyArray<FlowBinding.Source>`, `grant: ReadonlyArray<ToolsGrant>`                     |
+| `ToolsGrant`  | `action: Capability.PatternAction`, `resource: string`                                               |
 
-`AnyFlowSpec.prompt` takes `never` rather than the erased payload: `prompt` is
-contravariant in its payload, so any other erasure would refuse every concrete
-flow.
+File flows default-export a tagged `Flow.make` from `@smthrs/flow`.
+Prompt flows declare `success`, `error: AgentAction.AgentFailure`, and `prompt`.
+Body flows export their implementations as an optional named `layer`.
 
 `chat` is routing metadata and nothing else. Nothing in
 `@smthrs/create-app/runtime` reads it.
@@ -22631,13 +22674,17 @@ the transcript's cards, `park` suspends the run for a human, and `done` or
 ### materializeFlow
 
 ```ts
-const materializeFlow: (id: string, spec: AnyFlowSpec, agent: AgentSpec) => MaterializedFlow
+const materializeFlow: (
+  id: string,
+  flow: Flow.AnyWithProps,
+  agent: AgentSpec,
+  implementations?: unknown
+) => MaterializedFlow
 ```
 
-Binds one flow declaration to the agent layer resolved for it. Returns `id`, an
-`action` named `app/<id>/agent`, and a `flow` named `app/<id>` whose body is one
-call to that action. The action's system teaching is the agent layer's lines
-followed by the flow's own, in that order.
+Returns the authored `flow` and its implementation `layer`. Prompt flows bind
+the action the canonical declaration owns to the resolved agent. Body flows
+use their module's optional named layer. Agent teaching precedes flow teaching.
 
 ### layerFor
 
@@ -22867,11 +22914,11 @@ class RouterError extends Data.TaggedError("create-app/RouterError") {
   readonly name: "RouterError"
   readonly code: RouterErrorCode
 }
-type RouterErrorCode = "missing_layer" | "duplicate_name" | "invalid_name"
+type RouterErrorCode = "missing_layer" | "invalid_name"
 ```
 
-`missing_layer` is a flow with no ancestor layer file of some kind,
-`duplicate_name` is two files claiming one route, and `invalid_name` is a pane,
+`missing_layer` is a flow with no ancestor layer file of some kind.
+`invalid_name` is a pane,
 page segment, or flow segment that is not lowercase kebab-case. Inside an
 `Effect`, catch it with `Effect.catchTag("create-app/RouterError")`.
 
@@ -22955,9 +23002,9 @@ The flow id is a string and only `payload` constrains `P`, so nothing infers
 read a field.
 
 ```ts
-import { Flow } from "../flows/chat/flow.ts"
+import Flow from "../flows/chat/flow.ts"
 
-cachedModelTest<{ message: string }, typeof Flow.output.Type>(
+cachedModelTest<{ message: string }, typeof Flow.successSchema.Type>(
   "chat answers a balance question",
   {
     fixture: new URL("./fixtures/balance.json", import.meta.url),
@@ -23852,6 +23899,18 @@ and a lock during construction is retried on a fixed ladder of 40 attempts with
 a 5 ms base delay capped at 250 ms. That ladder is not configurable: it bounds a
 driver-internal race during layer construction, before any service exists to
 configure.
+
+### postgresLocation
+
+```ts
+const postgresLocation: (filename: string) => { readonly url: string; readonly schema: string } | undefined
+```
+
+Where `layer` would open `filename` on PostgreSQL: the connection URL without
+its `schema` parameter, and the schema. It is `undefined` for a store SQLite
+keeps, and it raises the same `UnsupportedDatabase` refusals `layer` does.
+`postgres://…?schema=<schema>` opens that exact schema, so a caller that copies
+a store into another schema addresses the copy by URL.
 
 ### NodeDatabaseOptions
 
@@ -27877,8 +27936,8 @@ bearer credential authenticates both mounts.
 | `Projection.Snapshot`  | `{ selector }`                    | `ProjectionSnapshot`      | `GatewayError`                                                                                                                                                                  |
 | `Projection.Subscribe` | `{ selector, after? }`, streaming | `GatewayFrame`            | `GatewayError`                                                                                                                                                                  |
 | `Approval.Submit`      | `SubmitApprovalInput`             | `SubmitApprovalOutput`    | `PlanDigestMismatch`, `EnvelopeMismatch`, `AlreadyResolved`, `PlanNotFound`, `RunNotFound`, `InvalidInput`, `Unauthorized`, `PersistenceError`, `Unavailable`, `TransportError` |
-| `Run.Fork`             | `RunHistory.ForkInput`            | `RunHistory.ForkOutput`   | `HistoryRefused`, `Unavailable`                                                                                                                                                 |
-| `Run.Verify`           | `RunHistory.VerifyInput`          | `RunHistory.VerifyReport` | `HistoryRefused`, `Unavailable`                                                                                                                                                 |
+| `Run.Fork`             | `RunHistory.ForkInput`            | `RunHistory.ForkOutput`   | `HistoryRefused`, `Unauthorized`, `Unavailable`                                                                                                                                 |
+| `Run.Verify`           | `RunHistory.VerifyInput`          | `RunHistory.VerifyReport` | `HistoryRefused`, `Unauthorized`, `Unavailable`                                                                                                                                 |
 
 | Export                 | Shape                                                     |
 | ---------------------- | --------------------------------------------------------- |
@@ -27905,7 +27964,9 @@ current flow code would replay and what it would execute again. They answer
 exactly what `smthrs runs fork` and `smthrs runs verify` print, because
 `smthrs serve` implements the service over the same history library. A gateway
 composed without the service answers both `Unavailable`. Both procedures are
-in the `write:runs` token scope.
+in the `write:runs` token scope, and an anonymous loopback caller is
+`Unauthorized`: a fork writes a durable run and a verification drives the
+project's flow code.
 
 | Export           | Shape                                                                                                                    |
 | ---------------- | ------------------------------------------------------------------------------------------------------------------------ |
@@ -32074,6 +32135,7 @@ The decision service every decorator consults.
 
 ```ts
 interface Service {
+  readonly policy: Effect.Effect<Policy, GrantStoreError>
   readonly check: (
     capability: Capability,
     meta?: Record<string, unknown>
@@ -32107,6 +32169,27 @@ admission adopts the in-flight outcome. Admissions reserve rule and envelope
 signature capacity before writing, so distinct concurrent decisions cannot
 exceed either ceiling. Failed or interrupted writes release their reservations;
 successful writes convert them to active grants.
+
+### GrantStore.Policy, PolicyRule and emptyPolicy
+
+```ts
+interface PolicyRule {
+  readonly rule: Rule
+  readonly ceiling: Pick<CapabilitySet, "groups">
+}
+interface Policy {
+  readonly groups: ReadonlyArray<ReadonlyArray<PolicyRule>>
+  readonly ceiling: CapabilitySet
+}
+const emptyPolicy: Effect.Effect<Policy>
+```
+
+`policy` takes one immutable snapshot under the mutation permit. Groups retain
+configured, envelope, captured run and remembered rule ordering. Each run rule
+retains its captured ceiling; `ceiling` is the caller's current authority.
+Closed stores fail with `store_closed`. Pending and once approvals provide no
+persistent authority. Custom services with no provable authority can use
+`emptyPolicy`, which opens nothing.
 
 ### GrantStore.PendingRequest
 
@@ -32787,6 +32870,56 @@ command that cannot be snapshotted fails with an `InvalidData` `PlatformError`.
 A command with no `cwd`, or a relative one, runs in `Workspace.root`, never the
 process's own directory, and the check sees that resolved directory.
 
+## ProcessConfinement
+
+The host service required for guarded processes, imported from
+`@smthrs/kernel/ProcessConfinement`.
+After every process permission check succeeds, `ChildProcessSpawner.layer`
+derives one profile and wraps every pipeline stage before spawning anything.
+Absent this service, spawning fails with a `NotFound` `PlatformError` before
+any child starts. `layerNoop` explicitly opts out of OS confinement. Wrapper
+failures start no child.
+
+```ts
+interface Profile {
+  readonly workspaceRoot: string
+  readonly reads: ReadonlyArray<string>
+  readonly writes: ReadonlyArray<string>
+  readonly readOnly: ReadonlyArray<string>
+  readonly network: "none" | "open"
+}
+interface Service {
+  readonly confine: (
+    command: ChildProcess.StandardCommand,
+    profile: Profile
+  ) => Effect.Effect<ChildProcess.StandardCommand, PlatformError, Scope.Scope>
+}
+class ProcessConfinement extends Context.Service<ProcessConfinement, Service>()(
+  "@smthrs/kernel/ProcessConfinement"
+) {}
+const profile: (
+  grants: GrantStore.Service,
+  workspaceRoot: string,
+  path: Path.Path
+) => Effect.Effect<Profile, GrantStoreError>
+const makeNoop: Service
+const layerNoop: Layer.Layer<ProcessConfinement>
+```
+
+Paths are workspace-relative, with `.` naming the root. Projection proves a
+subset of effective authority using whole-tree coverage, configured deny
+precedence and captured/current ceilings. Literal filesystem permissions and
+complex globs open no tree unless a separate whole-tree grant covers it.
+Universal `*` and `**` resources cover the workspace. Writable trees also
+require read authority over the same tree and write authority for its directory
+entry. Native writable mounts expose existing data and directory metadata.
+Unrepresentable refusals conservatively close affected access; `readOnly` is
+currently empty. Narrow tree ceilings can produce a smaller allowed tree.
+Network opens only when unrestricted get, post and explicit private authority
+are all proved. Restricted egress remains closed. Host confinement may also
+provide system reads needed to launch programs and mask credential paths.
+`makeNoop` and `layerNoop` explicitly choose unconfined execution.
+
 ## ChildProcessEnvironment
 
 Least-authority construction for a child process's replacement environment.
@@ -33336,7 +33469,7 @@ unbounded hostile input.
 ## What the kernel does not do
 
 :::warning
-The kernel checks capabilities at adapter call sites. It does not sandbox the operating system and cannot observe host access that bypasses the decorated services. Hermetic execution additionally requires a `StepBoundary`.
+The kernel checks capabilities at adapter call sites. Child processes require a host `ProcessConfinement` to enforce filesystem and network grants in the operating system. An explicit unconfined layer leaves child access outside the kernel boundary. Hermetic build execution additionally requires a `StepBoundary`.
 :::
 
 See [Capabilities and the host kernel](/docs/concepts/kernel/) and the platform
@@ -35529,9 +35662,8 @@ operator override and keeps shell semantics. `Units.simpleCommand(line)` turns
 a repository-authored line into an argv when it is plain words and refuses
 anything a shell would interpret; a `repoCommands.test` it refuses is reported
 in the plan's notes with the command that ran instead. `Contract.commandLine`
-renders either form as the one line the prompt, the report, and the
-`proc:spawn` grant share, which for an argv is the kernel's own rendering of
-the command it spawns.
+renders either form as the one line the prompt and the report share.
+The orchestrator executes verification after the agent answers.
 
 ## Checks
 
@@ -35859,7 +35991,7 @@ The agent's half runs on kernel-guarded services pinned to the project root, wit
 
 The prompt treats everything it quotes from the project as data. `Contract.fenced` fences a source, a hint, a snippet, or a command's output with one more backtick than the longest run inside it, so the content cannot end the block; `Contract.inline` does the same for a path or a command; and the contract's last rule says that an instruction inside any of them is part of the project and changes nothing.
 
-The same rules grant `proc:spawn` one command line at a time, for this project's own install, format, typecheck, and test commands and nothing else. Those commands are what the manifests and the lockfile imply, as argv values the tool spawns with no shell, with the operator's `--verify-install`, `--verify-format`, `--verify-typecheck`, and `--verify-test` on top as the shell lines the operator typed; one derivation, `Layers.commandsFor`, serves the host and the units, because an agent shown one set of commands and granted another would be refused the very lines its brief lists, and the line a grant names is the kernel's own rendering of the argv it spawns. A spawned process writes at the OS level, where no `fs:write` rule can see it, so confining the spawn is the only place a shell can be stopped from reaching a database. What those commands then do is outside any rule, and the run-state digests are what catch it: the unit fails its checks and is restored.
+The migration agent receives no process authority or shell/verification bindings. It edits through guarded filesystem flows. The deterministic orchestrator runs the configured verification commands after each rewrite and returns failures for repair; run-state digests detect changes to protected state and restore the unit.
 
 ### What a unit is allowed to write
 
@@ -35937,7 +36069,7 @@ inside.
 | `limits`                    | `Sandbox.Limits`                                                                    | The sandbox budget it runs under.                                               |
 | `envelope`                  | `() => ReadonlyArray<string>`                                                       | The capability envelope the bound flows need.                                   |
 | `bindings`, `hostLayer`     | `(options) => ...`                                                                  | The flows the rewrite may call, and the judged host that binds them with `jev`. |
-| `mappingFlow`, `verifyFlow` | `CoreFlow.Flow`                                                                     | The two capabilities the rewrite reaches: mapping lookup and verification.      |
+| `mappingFlow`               | `CoreFlow.Flow`                                                                     | The mapping lookup the rewrite reaches.                                         |
 
 ### Repair
 
@@ -36058,21 +36190,21 @@ implementation.
 `@smthrs/migrate/flow/Layers`. The Node composition, its grant rules, and a
 scripted composition to test a migration against.
 
-| Export                                                              | Signature                                                        | What it is                                                                                                                                                                 |
-| ------------------------------------------------------------------- | ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `layerNode`                                                         | `(config: NodeConfig) => Layer`                                  | Everything a migration needs on Node.                                                                                                                                      |
-| `layerNodeScanned`                                                  | `(config: ScannedConfig) => Layer`                               | The same, deriving the grant rules and commands from a scan.                                                                                                               |
-| `layerScripted`                                                     | `(config) => Layer`                                              | The same composition with a scripted model, for tests.                                                                                                                     |
-| `layerSnapshotBoundary`                                             | `Layer<FlowEngine.SnapshotBoundary>`                             | The engine's snapshot boundary.                                                                                                                                            |
-| `rules`                                                             | `(options) => ...`                                               | The grant rules: `fs:*` denied on run state, the report directory, and every case spelling of `.git`, `.jj`, and `.env*`; `proc:spawn` granted one command line at a time. |
-| `commandsFor`                                                       | `(detection, overrides?, flowsDir?) => Contract.Commands`        | One derivation for the host, the prompt, and the grants.                                                                                                                   |
-| `verificationCommands`                                              | `(commands: Contract.Commands) => ReadonlyArray<string>`         | Those commands as the lines a grant names.                                                                                                                                 |
-| `seatResolver`                                                      | `(options) => SeatResolver.Service`                              | Maps the declared seat onto `provider:model` and reads that provider's key.                                                                                                |
-| `configuredProvider`                                                | `(environment) => string \| undefined`                           | The provider whose key is present, and nothing about which model.                                                                                                          |
-| `apiKeyVariable`                                                    | `{ anthropic, openai, openrouter }`                              | Which variable carries each provider's key.                                                                                                                                |
-| `migrationRoot`                                                     | `(root: string) => Effect<MigrationRoot, MigrateError>`          | The branded absolute root every service is pinned to.                                                                                                                      |
-| `scriptedModel`, `done`                                             | `(script: Script) => Model.Model`, `(output: unknown) => string` | The test model and the cell that answers with a value.                                                                                                                     |
-| `NodeConfig`, `ScannedConfig`, `Script`, `Runtime`, `MigrationRoot` | `interface` or `type`                                            | The composition's inputs and its runtime type.                                                                                                                             |
+| Export                                                              | Signature                                                        | What it is                                                                                                                                            |
+| ------------------------------------------------------------------- | ---------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `layerNode`                                                         | `(config: NodeConfig) => Layer`                                  | Everything a migration needs on Node.                                                                                                                 |
+| `layerNodeScanned`                                                  | `(config: ScannedConfig) => Layer`                               | The same, deriving the grant rules and commands from a scan.                                                                                          |
+| `layerScripted`                                                     | `(config) => Layer`                                              | The same composition with a scripted model, for tests.                                                                                                |
+| `layerSnapshotBoundary`                                             | `Layer<FlowEngine.SnapshotBoundary>`                             | The engine's snapshot boundary.                                                                                                                       |
+| `rules`                                                             | `(options) => ...`                                               | The grant rules: `fs:*` denied on run state, the report directory, and every case spelling of `.git`, `.jj`, and `.env*`; no agent process authority. |
+| `commandsFor`                                                       | `(detection, overrides?, flowsDir?) => Contract.Commands`        | One derivation for the host, the prompt, and the grants.                                                                                              |
+| `verificationCommands`                                              | `(commands: Contract.Commands) => ReadonlyArray<string>`         | Those commands as the lines a grant names.                                                                                                            |
+| `seatResolver`                                                      | `(options) => SeatResolver.Service`                              | Maps the declared seat onto `provider:model` and reads that provider's key.                                                                           |
+| `configuredProvider`                                                | `(environment) => string \| undefined`                           | The provider whose key is present, and nothing about which model.                                                                                     |
+| `apiKeyVariable`                                                    | `{ anthropic, openai, openrouter }`                              | Which variable carries each provider's key.                                                                                                           |
+| `migrationRoot`                                                     | `(root: string) => Effect<MigrationRoot, MigrateError>`          | The branded absolute root every service is pinned to.                                                                                                 |
+| `scriptedModel`, `done`                                             | `(script: Script) => Model.Model`, `(output: unknown) => string` | The test model and the cell that answers with a value.                                                                                                |
+| `NodeConfig`, `ScannedConfig`, `Script`, `Runtime`, `MigrationRoot` | `interface` or `type`                                            | The composition's inputs and its runtime type.                                                                                                        |
 
 `rules` grants process commands only when the capability pattern grammar can
 represent the complete line literally. Lines containing `*` or `?` receive no
@@ -40673,12 +40805,16 @@ its true length, so a root taken from input cannot flood a log line. Branch on
 
 ### Models
 
-| Export              | Type                                                            | Meaning                                             |
-| ------------------- | --------------------------------------------------------------- | --------------------------------------------------- |
-| `BunHost`           | `FileSystem \| Path \| ChildProcessSpawner \| Jj \| HttpClient` | The closed Host service union this bundle provides. |
-| `BunHostErrorCode`  | `"invalid_repository_root"`                                     | The stable codes a factory refuses with.            |
-| `ContainedOptions`  | `ProcessReaper.SpawnerOptions & ProcessReaper.Options`          | What a caller may configure about containment.      |
-| `implementationIds` | `Readonly<Record<HostServiceIds[number], string>>`              | The module behind each raw bundle Host slot.        |
+| Export              | Type                                                                                  | Meaning                                                        |
+| ------------------- | ------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| `BunHost`           | `FileSystem \| Path \| ChildProcessSpawner \| Jj \| HttpClient \| ProcessConfinement` | The Host services and native confinement this bundle provides. |
+| `BunHostErrorCode`  | `"invalid_repository_root"`                                                           | The stable codes a factory refuses with.                       |
+| `ContainedOptions`  | `ProcessReaper.SpawnerOptions & ProcessReaper.Options`                                | What a caller may configure about containment.                 |
+| `implementationIds` | `Readonly<Record<HostServiceIds[number], string>>`                                    | The module behind each raw bundle Host slot.                   |
+
+All four factories supply the shared native
+[`ProcessConfinement.layer()`](/docs/reference/api/platform-node/#processconfinement).
+Guarded commands use the same OS confinement on Node and Bun.
 
 `ContainedOptions` carries three fields:
 
@@ -40867,16 +41003,19 @@ adapter at it; see [Configure the filesystem helper](https://platform-node.smith
 
 ## Entry points
 
-| Import                                   | Source                                                                                                                                    | Platform   |
-| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
-| `@smthrs/platform-node`                  | [src/index.ts](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/platform-node/src/index.ts)                       | Node       |
-| `@smthrs/platform-node/NodeHost`         | [src/NodeHost.ts](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/platform-node/src/NodeHost.ts)                 | Node       |
-| `@smthrs/platform-node/AtomicFileSystem` | [src/AtomicFileSystem.ts](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/platform-node/src/AtomicFileSystem.ts) | Node       |
-| `@smthrs/platform-node/HostLiveness`     | [src/HostLiveness.ts](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/platform-node/src/HostLiveness.ts)         | Node       |
-| `@smthrs/platform-node/ProcessReaper`    | [src/ProcessReaper.ts](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/platform-node/src/ProcessReaper.ts)       | Node       |
-| `@smthrs/platform-node/ScopedProcess`    | [src/ScopedProcess.ts](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/platform-node/src/ScopedProcess.ts)       | Node / Bun |
+| Import                                     | Source                                                                                                                                        | Platform   |
+| ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| `@smthrs/platform-node`                    | [src/index.ts](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/platform-node/src/index.ts)                           | Node       |
+| `@smthrs/platform-node/NodeHost`           | [src/NodeHost.ts](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/platform-node/src/NodeHost.ts)                     | Node       |
+| `@smthrs/platform-node/AtomicFileSystem`   | [src/AtomicFileSystem.ts](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/platform-node/src/AtomicFileSystem.ts)     | Node       |
+| `@smthrs/platform-node/HostLiveness`       | [src/HostLiveness.ts](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/platform-node/src/HostLiveness.ts)             | Node       |
+| `@smthrs/platform-node/ProcessReaper`      | [src/ProcessReaper.ts](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/platform-node/src/ProcessReaper.ts)           | Node       |
+| `@smthrs/platform-node/ScopedProcess`      | [src/ScopedProcess.ts](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/platform-node/src/ScopedProcess.ts)           | Node / Bun |
+| `@smthrs/platform-node/ProcessConfinement` | [src/ProcessConfinement.ts](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/platform-node/src/ProcessConfinement.ts) | Node / Bun |
+| `@smthrs/platform-node/ProcessSandbox`     | [src/ProcessSandbox.ts](https://github.com/smithersai/smithers/blob/main/packages/smithers/flows/platform-node/src/ProcessSandbox.ts)         | Node / Bun |
 
-The barrel exports `NodeHost`, `HostLiveness`, `ProcessReaper`, and `ScopedProcess`.
+The barrel exports `NodeHost`, `EgressHttpClient`, `HostLiveness`, `ProcessReaper`,
+`ScopedProcess`, `ProcessConfinement`, and `ProcessSandbox`.
 `AtomicFileSystem` is reached as `NodeHost.AtomicFileSystem` or through its own
 subpath, never from the barrel.
 
@@ -41301,6 +41440,59 @@ fails with a `TransportError` whose `cause` is an `EgressAddressError` (`_tag`
 Pinned web requests support HTTP and HTTPS proxies only. Other proxy schemes
 fail closed. The transport sets Host from the URL and discards caller-supplied
 proxy authorization and connection framing headers.
+
+## ProcessConfinement
+
+`ProcessConfinement.layer(options?)` provides the kernel's process confinement.
+Compose it as an input to `@smthrs/kernel/ChildProcessSpawner.layer`, alongside
+the same `GrantStore` and `Workspace` used for filesystem authorization. The
+kernel checks approval, snapshots effective grants, and confines every pipeline
+stage before spawning any stage. All `NodeHost` bundles supply this service;
+a guarded spawner without it refuses execution.
+
+`make(options?)` returns the same service directly. Options are:
+
+| Option               | Default                | Behavior                                                                                |
+| -------------------- | ---------------------- | --------------------------------------------------------------------------------------- |
+| `unavailable`        | `"refuse"`             | Refuse a missing mechanism; `"unconfined"` explicitly permits execution with a warning. |
+| `temporaryDirectory` | OS temporary directory | Parent for private, scope-owned temporary storage.                                      |
+| `host`               | Real host probes       | Injectable mechanism selection and filesystem probes.                                   |
+
+Linux needs `bwrap`; macOS needs `/usr/bin/sandbox-exec`. An installed mechanism
+that fails to start never falls back to unconfined execution. A shell request
+runs inside the wrapper, including its redirections and subprocesses. Streams,
+exit codes, and cancellation retain Effect's process contract.
+
+The profile accepts writable directory trees without broadening file grants to
+their parents. A writable tree also needs read authority and write authority
+for its directory entry because a writable bind exposes existing data and
+metadata. Unsupported globs, partial ceilings, and ambiguous deny regions
+stay closed. Networking opens only for unrestricted grants across all network
+actions. Closed networking blocks socket creation. Native agent commands keep
+host Unix sockets closed when IP networking opens, except the fixed macOS
+system DNS resolver endpoint.
+The launcher receives a minimal environment; the command's environment is
+restored inside confinement without putting its values in launcher arguments.
+macOS also denies delegation through host IPC services. Runtime paths and
+private temporary storage are bootstrap permissions;
+known host credential locations stay masked. Workspace links do not grant
+reads of their external targets. This boundary does not isolate trusted host
+JavaScript or supply a remote sandbox provider.
+
+## ProcessSandbox
+
+The build graph and `ProcessConfinement` share this mechanism implementation.
+`select(request, host)`, `plan(request, location, host)`, and `wrap(plan, argv,
+environment, host?)` resolve a request into an enforced command.
+`seatbelt`, `bubblewrap`, and `docker` render each supported mechanism;
+`host`, `validateWrites`, `environment`, `diagnose`, `isUnenforceable`, and
+`unenforceable` expose its host probes, validation, environment, diagnostics,
+and refusals. Requests name `network`, `reads`, and writable directory `writes`,
+with optional `mechanism`, `writeFiles`, `readOnly`, `externalReads`, `strict`,
+and `unixSockets`. Native agent confinement uses a strict process and IPC
+policy and closes Unix sockets; build tools retain their declared policy. Build
+output files may open a parent directory; agent permission profiles never use
+that build-specific option.
 
 ---
 
@@ -41838,7 +42030,7 @@ https://smithers.sh/docs/reference/api/registry/
 
 > **Related APIs:** [`@smthrs/core`](/docs/reference/api/core/) · [`@smthrs/flow`](/docs/reference/api/flow/) · [`@smthrs/plan`](/docs/reference/api/plan/)
 
-`@smthrs/registry` exports eight modules from its root entry point, and each is
+`@smthrs/registry` exports nine modules from its root entry point, and each is
 also importable from `@smthrs/registry/<Module>`:
 
 ```ts
@@ -41866,6 +42058,7 @@ declaration values a discovered body carries, see the
 | [`Executable`](#executable)       | Turning a descriptor into a runnable `@smthrs/flow` value.                |
 | [`Pack`](#pack)                   | Manifests, content addresses, compatibility ranges, and merge precedence. |
 | [`RegistryError`](#registryerror) | The typed failures and their constructors.                                |
+| [`Prompt`](#prompt)               | Compiles typed MDX prompts to Markdown text components.                   |
 
 ## Example
 
@@ -41880,6 +42073,20 @@ const flows = Registry.Registry.use((catalog) => catalog.list())
 
 console.log(await Effect.runPromise(flows.pipe(Effect.provide(registry), Effect.orDie)))
 ```
+
+## Prompt
+
+`Prompt.compile(source)` compiles MDX into an ESM module whose default export
+renders Markdown text. Compilation parses code without evaluating expressions.
+The module is evaluated by the same verified loader as its importing flow.
+
+`Prompt.Component<Props>` types the props of one concrete prompt import.
+Declare it in a sibling `prompt.d.mdx.ts`; there is no untyped wildcard import.
+`Prompt.Content` is the content the text JSX runtime accepts.
+
+`@smthrs/registry/Prompt/jsx-runtime` exports `jsx`, `jsxs`, `Fragment`, and
+`render(content)`. Markdown elements render as Markdown text; expressions and
+imported components use ordinary MDX semantics. See [MDX prompts](https://registry.smithers.sh/guides/mdx-prompts/).
 
 ## Descriptor
 
@@ -45336,6 +45543,12 @@ Some of them export more than the common nine:
 | `UpdatePlan`   | `StepStatus`, `Plan`                                                                        |
 | `WebSearch`    | the `WebSearch` service, `make`, `makeNoop`, `layerNoop`                                    |
 
+A runner declared with `baseline: false` refuses `against: "base"` before
+running any process. The native CLI sets this flag until an isolated staging
+provider is available ([#3234](https://github.com/smithersai/smithers/issues/3234)). Workspace tests still use the confined runner. Library
+hosts that omit the flag keep baseline Git on their caller-provided spawner.
+The runner wrapper uses `bash -c` and does not execute host login profiles.
+
 ## Manifest
 
 The whole library keyed by registry name. Every registry is frozen.
@@ -45554,15 +45767,15 @@ reports no `mutated` at all.
 
 How the project under test runs its suite, declared once by the host.
 
-| Export        | Type                                    | Meaning                                                                     |
-| ------------- | --------------------------------------- | --------------------------------------------------------------------------- |
-| `captureBase` | `"refs/flows/capture-base"`             | The default ref naming the pristine tree.                                   |
-| `Runner`      | interface                               | `command`, `cwd?`, `root?`, `container?`, `env?`, `baseRef?`, `timeoutMs?`. |
-| `TestRunner`  | interface and `Context.Service` tag     | `{ declared: Effect<Runner, StdError> }`.                                   |
-| `make`        | `(runner: Runner) => TestRunner`        |                                                                             |
-| `makeNoop`    | `() => TestRunner`                      | Declares that this host knows of no runner.                                 |
-| `layer`       | `(runner: Runner) => Layer<TestRunner>` |                                                                             |
-| `layerNoop`   | `Layer<TestRunner>`                     |                                                                             |
+| Export        | Type                                    | Meaning                                                                                         |
+| ------------- | --------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `captureBase` | `"refs/flows/capture-base"`             | The default ref naming the pristine tree.                                                       |
+| `Runner`      | interface                               | `command`, `cwd?`, `root?`, `container?`, `env?`, `baseRef?`, `baseline?: false`, `timeoutMs?`. |
+| `TestRunner`  | interface and `Context.Service` tag     | `{ declared: Effect<Runner, StdError> }`.                                                       |
+| `make`        | `(runner: Runner) => TestRunner`        |                                                                                                 |
+| `makeNoop`    | `() => TestRunner`                      | Declares that this host knows of no runner.                                                     |
+| `layer`       | `(runner: Runner) => Layer<TestRunner>` |                                                                                                 |
+| `layerNoop`   | `Layer<TestRunner>`                     |                                                                                                 |
 
 ## Checkpoints
 
@@ -48711,6 +48924,7 @@ interface ForkOptions {
   readonly workspaceRoot?: string | undefined
   readonly retainWorkspace?: boolean | undefined
   readonly override?: StepOverride | undefined
+  readonly rebind?: ((childRunId: string) => Effect.Effect<Rebinding, TimeTravelError>) | undefined
   readonly pageSize?: number | undefined
   readonly maxHistoryEntries?: number | undefined
 }
@@ -48730,7 +48944,8 @@ through `Journal.maxEntriesLimit` (10,000). Any other value is refused with
 `Options.maxHistoryEntries` for one call. `workspaceRoot` defaults to `.flows/forks` and only moves which lane
 the derived workspace name lands in. `retainWorkspace` keeps the child lane
 registered after the service scope closes. `override` replaces one step's
-recorded result on the child; see [Fork a run](https://time-travel.smithers.sh/guides/fork-a-run/#edit-a-step-result).
+recorded result on the child; see [Fork a run](https://time-travel.smithers.sh/guides/fork-a-run/#edit-a-step-result). `rebind` replaces the child's recorded payload and carries named spawned
+children under new ids; see [Fork a run](https://time-travel.smithers.sh/guides/fork-a-run/#edit-the-input-and-carry-spawned-children).
 `detachedChildren` defaults to
 `"block"`. `wholeRepo` restores the jj operation the frame recorded instead of
 only its working-copy tree, so bookmark moves, rebases, `describe`, and
@@ -48922,6 +49137,8 @@ moment the code under test reaches a third.
 | `Snapshot`      | `{ runId, frame, changeId, planDigest? }`. The anchor at a frame. An absent digest means no plan was in force. |
 | `AttemptRef`    | `{ stepKeyDigest, attempt }`. An attempt row as `flows_attempts` addresses it.                                 |
 | `StepOverride`  | `{ stepKeyDigest, result }`. The step result a fork replays on its child in place of the parent's.             |
+| `CarriedChild`  | `{ from, to, payload? }`. A spawned child a fork carries under the id its forked parent opens it with.         |
+| `Rebinding`     | `{ payload?, children? }`. The payload a forked child starts from and the spawned children it carries.         |
 | `Descendants`   | `{ attached: LineageEdge[]; detached: LineageEdge[] }`.                                                        |
 | `Audit`         | `{ id, runId, frame, status, rateLimit?, detail? }` with `status` of `in_progress`, `completed`, or `failed`.  |
 | `AuditPatch`    | `{ status?, rateLimit?, detail? }`. The only keys an open audit row may be advanced through.                   |
@@ -48948,24 +49165,24 @@ from either.
 
 ### Service
 
-| Method                                                            | What it does                                                                                                                                                                                                                                                                                   |
-| ----------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `snapshotAt(runId, frame)`                                        | The anchor recorded at a frame, or `undefined`.                                                                                                                                                                                                                                                |
-| `recordSnapshot(snapshot)`                                        | Records one anchor. Written by the snapshot projector, never by a caller.                                                                                                                                                                                                                      |
-| `recordSnapshots(snapshots)`                                      | Records a batch of anchors in one write. The projector hands it one journal page's anchors at a time, so a page costs one transaction on the SQL store.                                                                                                                                        |
-| `latestSnapshots(runId)`                                          | The last anchor recorded on each lineage of a run, the projector's resume point. Empty for a run with no anchors.                                                                                                                                                                              |
-| `stateAt(runId, frame)`                                           | The run state **at** a frame as encoded JSON, derived by replaying the run-decision records, not read off the run row's latest state.                                                                                                                                                          |
-| `attemptsAt(runId, frame)`                                        | The attempts that had been admitted at a frame, derived the same way.                                                                                                                                                                                                                          |
-| `descendants(runId, frame)`                                       | The lineage edges hanging off this run at or after a frame, split into attached and detached.                                                                                                                                                                                                  |
-| `writeAudit(audit)`                                               | Opens the audit trail for a rewind, before anything is compensated or truncated.                                                                                                                                                                                                               |
-| `updateAudit(id, patch)`                                          | Advances an open audit row. Any key outside `AuditPatch` is refused `invalid`.                                                                                                                                                                                                                 |
-| `pendingAudits()`                                                 | Every audit row still `in_progress`. Recovery drains this on layer build.                                                                                                                                                                                                                      |
-| `archiveAndTruncate(runId, frame, receipts, owner, childOwners?)` | Refuses malformed frames with `invalid`. Truncates a run back to a frame, archiving rather than deleting, removing deferred completions and clock deadlines named by archived records, and persisting the receipts. Fenced on the caller's ownership and on every non-terminal attached child. |
-| `archivedAt(runId, seq)`                                          | Whether the archive holds a record at that coordinate. Recovery's commit-point evidence.                                                                                                                                                                                                       |
-| `nextForkId(parentRunId, frame)`                                  | Mints and durably reserves the run id the next fork off that frame will carry, without creating a run.                                                                                                                                                                                         |
-| `abandonForkIntents(staleBeforeMs)`                               | Every reservation older than `staleBeforeMs` whose fork never committed, handed back exactly once.                                                                                                                                                                                             |
-| `createFork(parentRunId, frame, childRunId?, override?)`          | Branches a new run off a frame, copying the journal prefix and the attempts that existed there, and recording the `fork` edge. `override` replaces one copied step result in the same transaction. The parent is untouched.                                                                    |
-| `recordReceipt(receipt)`                                          | Persists one compensation receipt against its audit row, before the journal range that effect belongs to is truncated.                                                                                                                                                                         |
+| Method                                                               | What it does                                                                                                                                                                                                                                                                                             |
+| -------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `snapshotAt(runId, frame)`                                           | The anchor recorded at a frame, or `undefined`.                                                                                                                                                                                                                                                          |
+| `recordSnapshot(snapshot)`                                           | Records one anchor. Written by the snapshot projector, never by a caller.                                                                                                                                                                                                                                |
+| `recordSnapshots(snapshots)`                                         | Records a batch of anchors in one write. The projector hands it one journal page's anchors at a time, so a page costs one transaction on the SQL store.                                                                                                                                                  |
+| `latestSnapshots(runId)`                                             | The last anchor recorded on each lineage of a run, the projector's resume point. Empty for a run with no anchors.                                                                                                                                                                                        |
+| `stateAt(runId, frame)`                                              | The run state **at** a frame as encoded JSON, derived by replaying the run-decision records, not read off the run row's latest state.                                                                                                                                                                    |
+| `attemptsAt(runId, frame)`                                           | The attempts that had been admitted at a frame, derived the same way.                                                                                                                                                                                                                                    |
+| `descendants(runId, frame)`                                          | The lineage edges hanging off this run at or after a frame, split into attached and detached.                                                                                                                                                                                                            |
+| `writeAudit(audit)`                                                  | Opens the audit trail for a rewind, before anything is compensated or truncated.                                                                                                                                                                                                                         |
+| `updateAudit(id, patch)`                                             | Advances an open audit row. Any key outside `AuditPatch` is refused `invalid`.                                                                                                                                                                                                                           |
+| `pendingAudits()`                                                    | Every audit row still `in_progress`. Recovery drains this on layer build.                                                                                                                                                                                                                                |
+| `archiveAndTruncate(runId, frame, receipts, owner, childOwners?)`    | Refuses malformed frames with `invalid`. Truncates a run back to a frame, archiving rather than deleting, removing deferred completions and clock deadlines named by archived records, and persisting the receipts. Fenced on the caller's ownership and on every non-terminal attached child.           |
+| `archivedAt(runId, seq)`                                             | Whether the archive holds a record at that coordinate. Recovery's commit-point evidence.                                                                                                                                                                                                                 |
+| `nextForkId(parentRunId, frame)`                                     | Mints and durably reserves the run id the next fork off that frame will carry, without creating a run.                                                                                                                                                                                                   |
+| `abandonForkIntents(staleBeforeMs)`                                  | Every reservation older than `staleBeforeMs` whose fork never committed, handed back exactly once.                                                                                                                                                                                                       |
+| `createFork(parentRunId, frame, childRunId?, override?, rebinding?)` | Branches a new run off a frame, copying the journal prefix and the attempts that existed there, and recording the `fork` edge. `override` replaces one copied step result in the same transaction; `rebinding` replaces the child's payload and carries named spawned children. The parent is untouched. |
+| `recordReceipt(receipt)`                                             | Persists one compensation receipt against its audit row, before the journal range that effect belongs to is truncated.                                                                                                                                                                                   |
 
 Every method fails as `TimeTravelError`.
 
@@ -50416,6 +50633,7 @@ Variables an operator exports to steer the CLI.
 | `SMITHERS_TEST_CONTAINER` | operator | The container the `test` flow runs in. | none |
 | `SMITHERS_TEST_CWD` | operator | The repository's path inside that container. | none |
 | `SMITHERS_TEST_TIMEOUT_MS` | operator | Wall-clock budget for one `test` invocation. | none |
+| `SMITHERS_SANDBOX_IMAGE` | operator | The image a flow's `sandbox: {provider: container}` runs in, through `docker`, with the flow's network and limits. Unset refuses such flows; they never run on the host. | none |
 | `SMITHERS_BASH_CONTAINER` | operator | The one container `bash` may reach. Any other `bash` call, including one naming no container, fails with `outside_container`, and the host filesystem flows are not offered. | none |
 
 ## HTTP proxies
@@ -51056,23 +51274,23 @@ Every command that touches durable state resolves the same project root, in this
 https://smithers.sh/docs/reference/cli/admin/
 
 ```text
-smthrs admin — admin
+smthrs admin — Administer the Smithers installation
 
 Usage: smthrs admin <command>
 
 Commands:
-  alerts      alerts
-  analytics   analytics
-  audit       audit
-  deploys     deploys
+  alerts      Manage alert channels and policies
+  analytics   Summarize product usage
+  audit       Read the audit log
+  deploys     Operate Observe and platform deployments
   health      System health status
-  runs        runs
-  sessions    sessions
-  status      status
-  tokens      tokens
-  user        user
-  users       users
-  workspaces  workspaces
+  runs        List runs in any repository
+  sessions    List and cancel agent sessions
+  status      Show system status
+  tokens      List access tokens
+  user        Create, suspend, export and erase users
+  users       Mark users as synthetic
+  workspaces  List, stop and suspend workspaces
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -51094,13 +51312,13 @@ Global Options:
 ## admin alerts
 
 ```text
-smthrs admin alerts — alerts
+smthrs admin alerts — Manage alert channels and policies
 
 Usage: smthrs admin alerts <command>
 
 Commands:
-  channels  channels
-  policies  policies
+  channels  Manage where alerts are delivered
+  policies  Turn alert policies on or off
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -51122,17 +51340,17 @@ Global Options:
 ## admin alerts channels
 
 ```text
-smthrs admin alerts channels — channels
+smthrs admin alerts channels — Manage where alerts are delivered
 
 Usage: smthrs admin alerts channels <command>
 
 Commands:
-  add        alerts · channels · add
-  list       alerts · channels · list
-  remove     alerts · channels · remove
-  send-code  alerts · channels · send-code
-  set-route  alerts · channels · set-route
-  verify     alerts · channels · verify
+  add        Add an alert channel
+  list       List alert channels
+  remove     Remove an alert channel
+  send-code  Send a verification code to an alert channel
+  set-route  Choose which alerts a channel receives
+  verify     Verify an alert channel with its code
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -51154,7 +51372,7 @@ Global Options:
 ## admin alerts channels add
 
 ```text
-smthrs admin alerts channels add — alerts · channels · add
+smthrs admin alerts channels add — Add an alert channel
 
 Usage: smthrs admin alerts channels add [options]
 
@@ -51185,7 +51403,7 @@ Global Options:
 ## admin alerts channels list
 
 ```text
-smthrs admin alerts channels list — alerts · channels · list
+smthrs admin alerts channels list — List alert channels
 
 Usage: smthrs admin alerts channels list [options]
 
@@ -51212,7 +51430,7 @@ Global Options:
 ## admin alerts channels remove
 
 ```text
-smthrs admin alerts channels remove — alerts · channels · remove
+smthrs admin alerts channels remove — Remove an alert channel
 
 Usage: smthrs admin alerts channels remove <id> [options]
 
@@ -51243,7 +51461,7 @@ Global Options:
 ## admin alerts channels send-code
 
 ```text
-smthrs admin alerts channels send-code — alerts · channels · send-code
+smthrs admin alerts channels send-code — Send a verification code to an alert channel
 
 Usage: smthrs admin alerts channels send-code <id> [options]
 
@@ -51273,7 +51491,7 @@ Global Options:
 ## admin alerts channels set-route
 
 ```text
-smthrs admin alerts channels set-route — alerts · channels · set-route
+smthrs admin alerts channels set-route — Choose which alerts a channel receives
 
 Usage: smthrs admin alerts channels set-route <id> [options]
 
@@ -51304,7 +51522,7 @@ Global Options:
 ## admin alerts channels verify
 
 ```text
-smthrs admin alerts channels verify — alerts · channels · verify
+smthrs admin alerts channels verify — Verify an alert channel with its code
 
 Usage: smthrs admin alerts channels verify <id> [options]
 
@@ -51335,14 +51553,14 @@ Global Options:
 ## admin alerts policies
 
 ```text
-smthrs admin alerts policies — policies
+smthrs admin alerts policies — Turn alert policies on or off
 
 Usage: smthrs admin alerts policies <command>
 
 Commands:
-  disable  alerts · policies · disable
-  enable   alerts · policies · enable
-  list     alerts · policies · list
+  disable  Turn off an alert policy
+  enable   Turn on an alert policy
+  list     List alert policies
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -51364,7 +51582,7 @@ Global Options:
 ## admin alerts policies disable
 
 ```text
-smthrs admin alerts policies disable — alerts · policies · disable
+smthrs admin alerts policies disable — Turn off an alert policy
 
 Usage: smthrs admin alerts policies disable <name> [options]
 
@@ -51394,7 +51612,7 @@ Global Options:
 ## admin alerts policies enable
 
 ```text
-smthrs admin alerts policies enable — alerts · policies · enable
+smthrs admin alerts policies enable — Turn on an alert policy
 
 Usage: smthrs admin alerts policies enable <name> [options]
 
@@ -51424,7 +51642,7 @@ Global Options:
 ## admin alerts policies list
 
 ```text
-smthrs admin alerts policies list — alerts · policies · list
+smthrs admin alerts policies list — List alert policies
 
 Usage: smthrs admin alerts policies list [options]
 
@@ -51451,12 +51669,12 @@ Global Options:
 ## admin analytics
 
 ```text
-smthrs admin analytics — analytics
+smthrs admin analytics — Summarize product usage
 
 Usage: smthrs admin analytics <command>
 
 Commands:
-  summary  analytics · summary
+  summary  Summarize product usage over a time range
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -51478,7 +51696,7 @@ Global Options:
 ## admin analytics summary
 
 ```text
-smthrs admin analytics summary — analytics · summary
+smthrs admin analytics summary — Summarize product usage over a time range
 
 Usage: smthrs admin analytics summary [options]
 
@@ -51507,12 +51725,12 @@ Global Options:
 ## admin audit
 
 ```text
-smthrs admin audit — audit
+smthrs admin audit — Read the audit log
 
 Usage: smthrs admin audit <command>
 
 Commands:
-  list  audit · list
+  list  List audit log entries
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -51534,7 +51752,7 @@ Global Options:
 ## admin audit list
 
 ```text
-smthrs admin audit list — audit · list
+smthrs admin audit list — List audit log entries
 
 Usage: smthrs admin audit list [options]
 
@@ -51562,13 +51780,13 @@ Global Options:
 ## admin deploys
 
 ```text
-smthrs admin deploys — deploys
+smthrs admin deploys — Operate Observe and platform deployments
 
 Usage: smthrs admin deploys <command>
 
 Commands:
-  observe   observe
-  platform  platform
+  observe   Operate Observe deployments
+  platform  Operate platform component deployments
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -51590,15 +51808,15 @@ Global Options:
 ## admin deploys observe
 
 ```text
-smthrs admin deploys observe — observe
+smthrs admin deploys observe — Operate Observe deployments
 
 Usage: smthrs admin deploys observe <command>
 
 Commands:
-  list      deploys · observe · list
-  redeploy  deploys · observe · redeploy
-  restart   deploys · observe · restart
-  rollback  deploys · observe · rollback
+  list      List Observe deployments
+  redeploy  Redeploy an Observe deployment
+  restart   Restart an Observe deployment
+  rollback  Roll back an Observe deployment
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -51620,7 +51838,7 @@ Global Options:
 ## admin deploys observe list
 
 ```text
-smthrs admin deploys observe list — deploys · observe · list
+smthrs admin deploys observe list — List Observe deployments
 
 Usage: smthrs admin deploys observe list [options]
 
@@ -51647,7 +51865,7 @@ Global Options:
 ## admin deploys observe redeploy
 
 ```text
-smthrs admin deploys observe redeploy — deploys · observe · redeploy
+smthrs admin deploys observe redeploy — Redeploy an Observe deployment
 
 Usage: smthrs admin deploys observe redeploy <id> [options]
 
@@ -51678,7 +51896,7 @@ Global Options:
 ## admin deploys observe restart
 
 ```text
-smthrs admin deploys observe restart — deploys · observe · restart
+smthrs admin deploys observe restart — Restart an Observe deployment
 
 Usage: smthrs admin deploys observe restart <id> [options]
 
@@ -51709,7 +51927,7 @@ Global Options:
 ## admin deploys observe rollback
 
 ```text
-smthrs admin deploys observe rollback — deploys · observe · rollback
+smthrs admin deploys observe rollback — Roll back an Observe deployment
 
 Usage: smthrs admin deploys observe rollback <id> [options]
 
@@ -51740,14 +51958,14 @@ Global Options:
 ## admin deploys platform
 
 ```text
-smthrs admin deploys platform — platform
+smthrs admin deploys platform — Operate platform component deployments
 
 Usage: smthrs admin deploys platform <command>
 
 Commands:
-  list      deploys · platform · list
-  rollback  deploys · platform · rollback
-  status    deploys · platform · status
+  list      List platform components
+  rollback  Roll a platform component back to a revision
+  status    Show a platform component's deployment status
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -51769,7 +51987,7 @@ Global Options:
 ## admin deploys platform list
 
 ```text
-smthrs admin deploys platform list — deploys · platform · list
+smthrs admin deploys platform list — List platform components
 
 Usage: smthrs admin deploys platform list [options]
 
@@ -51796,7 +52014,7 @@ Global Options:
 ## admin deploys platform rollback
 
 ```text
-smthrs admin deploys platform rollback — deploys · platform · rollback
+smthrs admin deploys platform rollback — Roll a platform component back to a revision
 
 Usage: smthrs admin deploys platform rollback <component> [options]
 
@@ -51828,7 +52046,7 @@ Global Options:
 ## admin deploys platform status
 
 ```text
-smthrs admin deploys platform status — deploys · platform · status
+smthrs admin deploys platform status — Show a platform component's deployment status
 
 Usage: smthrs admin deploys platform status <component> [options]
 
@@ -51885,7 +52103,7 @@ Global Options:
 ## admin runs
 
 ```text
-smthrs admin runs — runs
+smthrs admin runs — List runs in any repository
 
 Usage: smthrs admin runs <command>
 
@@ -51942,13 +52160,13 @@ Global Options:
 ## admin sessions
 
 ```text
-smthrs admin sessions — sessions
+smthrs admin sessions — List and cancel agent sessions
 
 Usage: smthrs admin sessions <command>
 
 Commands:
-  cancel  sessions · cancel
-  list    sessions · list
+  cancel  Cancel an agent session
+  list    List agent sessions
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -51970,7 +52188,7 @@ Global Options:
 ## admin sessions cancel
 
 ```text
-smthrs admin sessions cancel — sessions · cancel
+smthrs admin sessions cancel — Cancel an agent session
 
 Usage: smthrs admin sessions cancel <id> [options]
 
@@ -52002,7 +52220,7 @@ Global Options:
 ## admin sessions list
 
 ```text
-smthrs admin sessions list — sessions · list
+smthrs admin sessions list — List agent sessions
 
 Usage: smthrs admin sessions list [options]
 
@@ -52032,7 +52250,7 @@ Global Options:
 ## admin status
 
 ```text
-smthrs admin status — status
+smthrs admin status — Show system status
 
 Usage: smthrs admin status [options]
 
@@ -52059,12 +52277,12 @@ Global Options:
 ## admin tokens
 
 ```text
-smthrs admin tokens — tokens
+smthrs admin tokens — List access tokens
 
 Usage: smthrs admin tokens <command>
 
 Commands:
-  list  tokens · list
+  list  List access tokens
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -52086,7 +52304,7 @@ Global Options:
 ## admin tokens list
 
 ```text
-smthrs admin tokens list — tokens · list
+smthrs admin tokens list — List access tokens
 
 Usage: smthrs admin tokens list [options]
 
@@ -52117,7 +52335,7 @@ Global Options:
 ## admin user
 
 ```text
-smthrs admin user — user
+smthrs admin user — Create, suspend, export and erase users
 
 Usage: smthrs admin user <command>
 
@@ -52363,12 +52581,12 @@ Global Options:
 ## admin users
 
 ```text
-smthrs admin users — users
+smthrs admin users — Mark users as synthetic
 
 Usage: smthrs admin users <command>
 
 Commands:
-  set-synthetic  users · set-synthetic
+  set-synthetic  Mark a user as synthetic or not
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -52390,7 +52608,7 @@ Global Options:
 ## admin users set-synthetic
 
 ```text
-smthrs admin users set-synthetic — users · set-synthetic
+smthrs admin users set-synthetic — Mark a user as synthetic or not
 
 Usage: smthrs admin users set-synthetic <username> [options]
 
@@ -52421,14 +52639,14 @@ Global Options:
 ## admin workspaces
 
 ```text
-smthrs admin workspaces — workspaces
+smthrs admin workspaces — List, stop and suspend workspaces
 
 Usage: smthrs admin workspaces <command>
 
 Commands:
-  list     workspaces · list
-  stop     workspaces · stop
-  suspend  workspaces · suspend
+  list     List workspaces
+  stop     Stop a workspace
+  suspend  Suspend a workspace
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -52450,7 +52668,7 @@ Global Options:
 ## admin workspaces list
 
 ```text
-smthrs admin workspaces list — workspaces · list
+smthrs admin workspaces list — List workspaces
 
 Usage: smthrs admin workspaces list [options]
 
@@ -52482,7 +52700,7 @@ Global Options:
 ## admin workspaces stop
 
 ```text
-smthrs admin workspaces stop — workspaces · stop
+smthrs admin workspaces stop — Stop a workspace
 
 Usage: smthrs admin workspaces stop <id> [options]
 
@@ -52513,7 +52731,7 @@ Global Options:
 ## admin workspaces suspend
 
 ```text
-smthrs admin workspaces suspend — workspaces · suspend
+smthrs admin workspaces suspend — Suspend a workspace
 
 Usage: smthrs admin workspaces suspend <id> [options]
 
@@ -52592,7 +52810,7 @@ Global Options:
 https://smithers.sh/docs/reference/cli/agent/
 
 ```text
-smthrs agent — agent
+smthrs agent — Ask the Smithers helper and hold remote conversations
 
 Usage: smthrs agent <command>
 
@@ -52601,7 +52819,7 @@ Commands:
   chat     Send a message to an existing remote conversation
   list     List remote conversations
   run      Start a remote conversation and run a prompt
-  session  session
+  session  Manage remote conversations
   view     View a remote conversation
 
 Custom Global Options:
@@ -52753,7 +52971,7 @@ Global Options:
 ## agent session
 
 ```text
-smthrs agent session — session
+smthrs agent session — Manage remote conversations
 
 Usage: smthrs agent session <command>
 
@@ -52983,7 +53201,7 @@ Global Options:
 https://smithers.sh/docs/reference/cli/artifact/
 
 ```text
-smthrs artifact — artifact
+smthrs artifact — List and download files a run produced
 
 Usage: smthrs artifact <command>
 
@@ -53078,14 +53296,14 @@ Global Options:
 https://smithers.sh/docs/reference/cli/auth/
 
 ```text
-smthrs auth — auth
+smthrs auth — Log in, log out and connect subscriptions
 
 Usage: smthrs auth <command>
 
 Commands:
   connect      Connect an Anthropic API key (--api-key) for your own agent runs on a self-hosted server. Vendor subscriptions stay with their own CLIs; sign into Codex on the workspace with codex login --device-auth
   connections  List connected subscriptions
-  local        local
+  local        Set up and log in to an owner backend
   login        Log in to Smithers
   logout       Log out of Smithers
   revoke       Revoke a connected subscription
@@ -53172,7 +53390,7 @@ Global Options:
 ## auth local
 
 ```text
-smthrs auth local — local
+smthrs auth local — Set up and log in to an owner backend
 
 Usage: smthrs auth local <command>
 
@@ -53440,7 +53658,7 @@ Global Options:
 https://smithers.sh/docs/reference/cli/bookmark/
 
 ```text
-smthrs bookmark — bookmark
+smthrs bookmark — Manage local jj bookmarks
 
 Usage: smthrs bookmark <command>
 
@@ -53691,12 +53909,12 @@ Usage: smthrs cache <command>
 
 Commands:
   clear    Remove all local action results; durable runs and artifacts are preserved
-  cloud    cloud
+  cloud    Inspect and clear a repository's Cloud caches
   connect  Connect this workspace to the Smithers Cloud build cache: mint a public read token and declare it in the root PACKAGE.ts
   prune    Remove local action results older than the retention window
   status   Report cache size and configured remote without exposing credentials
   steps    Inspect and maintain durable flow step results
-  token    token
+  token    Manage public read tokens for the build cache
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -53749,7 +53967,7 @@ Global Options:
 ## cache cloud
 
 ```text
-smthrs cache cloud — cloud
+smthrs cache cloud — Inspect and clear a repository's Cloud caches
 
 Usage: smthrs cache cloud <command>
 
@@ -54109,7 +54327,7 @@ Global Options:
 ## cache token
 
 ```text
-smthrs cache token — token
+smthrs cache token — Manage public read tokens for the build cache
 
 Usage: smthrs cache token <command>
 
@@ -54227,7 +54445,7 @@ Global Options:
 https://smithers.sh/docs/reference/cli/change/
 
 ```text
-smthrs change — change
+smthrs change — Inspect local jj changes
 
 Usage: smthrs change <command>
 
@@ -54442,7 +54660,7 @@ Global Options:
 https://smithers.sh/docs/reference/cli/changeset/
 
 ```text
-smthrs changeset — changeset
+smthrs changeset — Land one change per repository as a single transaction
 
 Usage: smthrs changeset <command>
 
@@ -54708,7 +54926,7 @@ Global Options:
 https://smithers.sh/docs/reference/cli/config/
 
 ```text
-smthrs config — config
+smthrs config — Read and set CLI configuration
 
 Usage: smthrs config <command>
 
@@ -55181,7 +55399,7 @@ Global Options:
 https://smithers.sh/docs/reference/cli/egress/
 
 ```text
-smthrs egress — egress
+smthrs egress — Manage repository egress policies
 
 Usage: smthrs egress <command>
 
@@ -55756,189 +55974,6 @@ Global Options:
 
 ---
 
-# smthrs extension
-https://smithers.sh/docs/reference/cli/extension/
-
-```text
-smthrs extension — extension
-
-Usage: smthrs extension <command>
-
-Commands:
-  linear  linear
-
-Custom Global Options:
-  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
-  --silent                       Suppress progress; retain the result and actionable failures
-  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
-
-Global Options:
-  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
-  --format <toon|json|yaml|md|jsonl>  Output format
-  --full-output                       Show full output envelope
-  --help                              Show help
-  --llms, --llms-full                 Print LLM-readable manifest
-  --schema                            Show JSON Schema for command
-  --token-count                       Print token count of output (instead of output)
-  --token-limit <n>                   Limit output to n tokens
-  --token-offset <n>                  Skip first n tokens of output
-```
-
-## extension linear
-
-```text
-smthrs extension linear — linear
-
-Usage: smthrs extension linear <command>
-
-Commands:
-  install  Configure a Linear team for a Smithers repository
-  list     List Linear integrations
-  remove   Remove a Linear integration
-  sync     Trigger initial sync for a Linear integration
-
-Custom Global Options:
-  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
-  --silent                       Suppress progress; retain the result and actionable failures
-  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
-
-Global Options:
-  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
-  --format <toon|json|yaml|md|jsonl>  Output format
-  --full-output                       Show full output envelope
-  --help                              Show help
-  --llms, --llms-full                 Print LLM-readable manifest
-  --schema                            Show JSON Schema for command
-  --token-count                       Print token count of output (instead of output)
-  --token-limit <n>                   Limit output to n tokens
-  --token-offset <n>                  Skip first n tokens of output
-```
-
-## extension linear install
-
-```text
-smthrs extension linear install — Configure a Linear team for a Smithers repository
-
-Usage: smthrs extension linear install [options]
-
-Options:
-  --team-id <string>     Linear team ID
-  --repo-owner <string>  Smithers repo owner
-  --repo-name <string>   Smithers repo name
-  --repo-id <number>     Smithers repo ID
-  --actor-id <string>
-  --credentials-stdin
-  --expires-at <string>
-  --team-key <string>
-  --team-name <string>
-  --verbose              Show redacted diagnostic details
-
-Custom Global Options:
-  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
-  --silent                       Suppress progress; retain the result and actionable failures
-  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
-
-Global Options:
-  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
-  --format <toon|json|yaml|md|jsonl>  Output format
-  --full-output                       Show full output envelope
-  --help                              Show help
-  --llms, --llms-full                 Print LLM-readable manifest
-  --schema                            Show JSON Schema for command
-  --token-count                       Print token count of output (instead of output)
-  --token-limit <n>                   Limit output to n tokens
-  --token-offset <n>                  Skip first n tokens of output
-```
-
-## extension linear list
-
-```text
-smthrs extension linear list — List Linear integrations
-
-Usage: smthrs extension linear list [options]
-
-Options:
-  --verbose  Show redacted diagnostic details
-
-Custom Global Options:
-  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
-  --silent                       Suppress progress; retain the result and actionable failures
-  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
-
-Global Options:
-  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
-  --format <toon|json|yaml|md|jsonl>  Output format
-  --full-output                       Show full output envelope
-  --help                              Show help
-  --llms, --llms-full                 Print LLM-readable manifest
-  --schema                            Show JSON Schema for command
-  --token-count                       Print token count of output (instead of output)
-  --token-limit <n>                   Limit output to n tokens
-  --token-offset <n>                  Skip first n tokens of output
-```
-
-## extension linear remove
-
-```text
-smthrs extension linear remove — Remove a Linear integration
-
-Usage: smthrs extension linear remove <id> [options]
-
-Arguments:
-  id  Integration ID
-
-Options:
-  --verbose  Show redacted diagnostic details
-
-Custom Global Options:
-  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
-  --silent                       Suppress progress; retain the result and actionable failures
-  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
-
-Global Options:
-  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
-  --format <toon|json|yaml|md|jsonl>  Output format
-  --full-output                       Show full output envelope
-  --help                              Show help
-  --llms, --llms-full                 Print LLM-readable manifest
-  --schema                            Show JSON Schema for command
-  --token-count                       Print token count of output (instead of output)
-  --token-limit <n>                   Limit output to n tokens
-  --token-offset <n>                  Skip first n tokens of output
-```
-
-## extension linear sync
-
-```text
-smthrs extension linear sync — Trigger initial sync for a Linear integration
-
-Usage: smthrs extension linear sync <id> [options]
-
-Arguments:
-  id  Integration ID
-
-Options:
-  --verbose  Show redacted diagnostic details
-
-Custom Global Options:
-  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
-  --silent                       Suppress progress; retain the result and actionable failures
-  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
-
-Global Options:
-  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
-  --format <toon|json|yaml|md|jsonl>  Output format
-  --full-output                       Show full output envelope
-  --help                              Show help
-  --llms, --llms-full                 Print LLM-readable manifest
-  --schema                            Show JSON Schema for command
-  --token-count                       Print token count of output (instead of output)
-  --token-limit <n>                   Limit output to n tokens
-  --token-offset <n>                  Skip first n tokens of output
-```
-
----
-
 # smthrs gc
 https://smithers.sh/docs/reference/cli/gc/
 
@@ -56240,13 +56275,14 @@ Global Options:
 https://smithers.sh/docs/reference/cli/history/
 
 ```text
-smthrs history — history
+smthrs history — Follow each issue's lane, checks and pull request
 
 Usage: smthrs history <command>
 
 Commands:
   backfill   Admit every open issue to the history now
   bootstrap  Create the history from main's commits
+  land       Land a proposed TODO's pull request once its review approves and CI is green
   parallel   Set how many lanes work at once
   retry      Give a blocked, rejected or declined issue a fresh set of attempts
   show       Show the history: each issue's lane, checks and pull request
@@ -56304,6 +56340,37 @@ Global Options:
 smthrs history bootstrap — Create the history from main's commits
 
 Usage: smthrs history bootstrap [options]
+
+Options:
+  --repo, -R <string>
+  --verbose            Show redacted diagnostic details
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
+
+## history land
+
+```text
+smthrs history land — Land a proposed TODO's pull request once its review approves and CI is green
+
+Usage: smthrs history land <issue> [options]
+
+Arguments:
+  issue  Issue number (12 or #12) or item id
 
 Options:
   --repo, -R <string>
@@ -56759,7 +56826,7 @@ Global Options:
 https://smithers.sh/docs/reference/cli/issue/
 
 ```text
-smthrs issue — issue
+smthrs issue — Manage repository issues
 
 Usage: smthrs issue <command>
 
@@ -57052,7 +57119,7 @@ Global Options:
 https://smithers.sh/docs/reference/cli/label/
 
 ```text
-smthrs label — label
+smthrs label — Manage repository labels
 
 Usage: smthrs label <command>
 
@@ -57176,7 +57243,7 @@ Global Options:
 https://smithers.sh/docs/reference/cli/land/
 
 ```text
-smthrs land — land
+smthrs land — Review and land landing requests
 
 Usage: smthrs land <command>
 
@@ -57833,7 +57900,7 @@ Global Options:
 https://smithers.sh/docs/reference/cli/notification/
 
 ```text
-smthrs notification — notification
+smthrs notification — Read your notifications
 
 Usage: smthrs notification <command>
 
@@ -57959,7 +58026,7 @@ Global Options:
 https://smithers.sh/docs/reference/cli/org/
 
 ```text
-smthrs org — org
+smthrs org — Manage organizations
 
 Usage: smthrs org <command>
 
@@ -57967,8 +58034,8 @@ Commands:
   create  Create an organization
   edit    Update organization settings
   list    List organizations for the authenticated user
-  member  member
-  team    team
+  member  Manage organization members
+  team    Manage organization teams
   view    View organization details
 
 Custom Global Options:
@@ -58082,7 +58149,7 @@ Global Options:
 ## org member
 
 ```text
-smthrs org member — member
+smthrs org member — Manage organization members
 
 Usage: smthrs org member <command>
 
@@ -58203,7 +58270,7 @@ Global Options:
 ## org team
 
 ```text
-smthrs org team — team
+smthrs org team — Manage organization teams
 
 Usage: smthrs org team <command>
 
@@ -58212,8 +58279,8 @@ Commands:
   delete  Delete a team
   edit    Update a team
   list    List teams in an organization
-  member  member
-  repo    repo
+  member  Manage team members
+  repo    Manage a team's repository access
   view    View team details
 
 Custom Global Options:
@@ -58364,7 +58431,7 @@ Global Options:
 ## org team member
 
 ```text
-smthrs org team member — member
+smthrs org team member — Manage team members
 
 Usage: smthrs org team member <command>
 
@@ -58488,7 +58555,7 @@ Global Options:
 ## org team repo
 
 ```text
-smthrs org team repo — repo
+smthrs org team repo — Manage a team's repository access
 
 Usage: smthrs org team repo <command>
 
@@ -58747,7 +58814,7 @@ Global Options:
 https://smithers.sh/docs/reference/cli/repo/
 
 ```text
-smthrs repo — repo
+smthrs repo — Manage repositories and their GitHub connection
 
 Usage: smthrs repo <command>
 
@@ -59396,7 +59463,7 @@ Global Options:
 https://smithers.sh/docs/reference/cli/search/
 
 ```text
-smthrs search — search
+smthrs search — Search repositories, issues, code and users
 
 Usage: smthrs search <command>
 
@@ -59557,7 +59624,7 @@ Global Options:
 https://smithers.sh/docs/reference/cli/secret/
 
 ```text
-smthrs secret — secret
+smthrs secret — Manage repository secrets
 
 Usage: smthrs secret <command>
 
@@ -59953,7 +60020,7 @@ Global Options:
 https://smithers.sh/docs/reference/cli/ssh-key/
 
 ```text
-smthrs ssh-key — ssh-key
+smthrs ssh-key — Manage your SSH keys
 
 Usage: smthrs ssh-key <command>
 
@@ -60071,7 +60138,7 @@ Global Options:
 https://smithers.sh/docs/reference/cli/stack/
 
 ```text
-smthrs stack — stack
+smthrs stack — Submit, sync and land stacked GitHub pull requests
 
 Usage: smthrs stack <command>
 
@@ -60920,7 +60987,7 @@ Global Options:
 https://smithers.sh/docs/reference/cli/variable/
 
 ```text
-smthrs variable — variable
+smthrs variable — Manage repository variables
 
 Usage: smthrs variable <command>
 
@@ -61118,7 +61185,7 @@ Global Options:
 https://smithers.sh/docs/reference/cli/webhook/
 
 ```text
-smthrs webhook — webhook
+smthrs webhook — Manage repository webhooks
 
 Usage: smthrs webhook <command>
 
@@ -61342,7 +61409,7 @@ Global Options:
 https://smithers.sh/docs/reference/cli/wiki/
 
 ```text
-smthrs wiki — wiki
+smthrs wiki — Read and edit wiki pages
 
 Usage: smthrs wiki <command>
 
@@ -61675,11 +61742,12 @@ Global Options:
 https://smithers.sh/docs/reference/cli/workspace/
 
 ```text
-smthrs workspace — workspace
+smthrs workspace — Create, open and run commands in workspaces
 
 Usage: smthrs workspace <command>
 
 Commands:
+  children   Manage workspace children
   cp         Copy files or directories between the local machine and a workspace
   create     Create a workspace
   delete     Delete a workspace
@@ -61692,6 +61760,128 @@ Commands:
   ssh        SSH into a workspace (creates one if none exists for the repo)
   view       View workspace details (status, SSH info, persistence)
   watch      Watch a workspace for real-time status updates
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
+
+## workspace children
+
+```text
+smthrs workspace children — Manage workspace children
+
+Usage: smthrs workspace children <command>
+
+Commands:
+  list   List a workspace's children
+  spawn  Spawn children of a running workspace
+  stop   Stop a workspace's child
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
+
+## workspace children list
+
+```text
+smthrs workspace children list — List a workspace's children
+
+Usage: smthrs workspace children list [options]
+
+Options:
+  --repo, -R <string>
+  --workspace <string>
+  --verbose             Show redacted diagnostic details
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
+
+## workspace children spawn
+
+```text
+smthrs workspace children spawn — Spawn children of a running workspace
+
+Usage: smthrs workspace children spawn [options]
+
+Options:
+  --count <number>          (default: 1)
+  --profile <small|build>
+  --repo, -R <string>
+  --ttl <number>
+  --workspace <string>
+  --verbose                Show redacted diagnostic details
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
+
+## workspace children stop
+
+```text
+smthrs workspace children stop — Stop a workspace's child
+
+Usage: smthrs workspace children stop <child> [options]
+
+Arguments:
+  child  Child workspace ID
+
+Options:
+  --repo, -R <string>
+  --workspace <string>
+  --verbose             Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -62120,66 +62310,65 @@ flow is a durable program built with `Flow.make`, and a run is a persisted flow 
 
 | Command | Purpose |
 | --- | --- |
-| [`admin`](/docs/reference/cli/admin/) | admin |
+| [`admin`](/docs/reference/cli/admin/) | Administer the Smithers installation |
 | [`affected`](/docs/reference/cli/affected/) | Execute targets affected by changed files, conservatively including ambient inputs |
-| [`agent`](/docs/reference/cli/agent/) | agent |
+| [`agent`](/docs/reference/cli/agent/) | Ask the Smithers helper and hold remote conversations |
 | [`api`](/docs/reference/cli/api/) | Make raw API calls to the Smithers server |
 | [`approvals`](/docs/reference/cli/approvals/) | Find and resolve pending approval requests |
-| [`artifact`](/docs/reference/cli/artifact/) | artifact |
-| [`auth`](/docs/reference/cli/auth/) | auth |
-| [`bookmark`](/docs/reference/cli/bookmark/) | bookmark |
+| [`artifact`](/docs/reference/cli/artifact/) | List and download files a run produced |
+| [`auth`](/docs/reference/cli/auth/) | Log in, log out and connect subscriptions |
+| [`bookmark`](/docs/reference/cli/bookmark/) | Manage local jj bookmarks |
 | [`bug`](/docs/reference/cli/bug/) | Submit a redacted bug report to the configured endpoint |
 | [`build`](/docs/reference/cli/build/) | Execute the build targets selected by a pattern |
 | [`cache`](/docs/reference/cli/cache/) | Inspect and maintain local action-result caches |
-| [`change`](/docs/reference/cli/change/) | change |
-| [`changeset`](/docs/reference/cli/changeset/) | changeset |
+| [`change`](/docs/reference/cli/change/) | Inspect local jj changes |
+| [`changeset`](/docs/reference/cli/changeset/) | Land one change per repository as a single transaction |
 | [`ci`](/docs/reference/cli/ci/) | Execute build, test, lint, and documentation targets; wildcards omit exclusive tiers unless --include-exclusive is set |
 | [`clean`](/docs/reference/cli/clean/) | Execute only declared Clean targets selected by the patterns |
 | [`completion`](/docs/reference/cli/completion/) | Generate shell completions |
-| [`config`](/docs/reference/cli/config/) | config |
+| [`config`](/docs/reference/cli/config/) | Read and set CLI configuration |
 | [`create-app`](/docs/reference/cli/create-app/) | Scaffold a Smithers app from a @smthrs/create-app template |
 | [`credentials`](/docs/reference/cli/credentials/) | Manage encrypted local credentials without printing secret values |
 | [`docs`](/docs/reference/cli/docs/) | Execute the documentation targets selected by a pattern: parity checks, freshness stamps, and Docs.Page writers |
 | [`doctor`](/docs/reference/cli/doctor/) | Check project discovery, providers, tools, and durable-state compatibility |
-| [`egress`](/docs/reference/cli/egress/) | egress |
+| [`egress`](/docs/reference/cli/egress/) | Manage repository egress policies |
 | [`environment`](/docs/reference/cli/environment/) | Run commands in saved local, SSH, or Cloud environments |
 | [`eval`](/docs/reference/cli/eval/) | Run fixed evaluation suites and compare committed score baselines |
 | [`explain`](/docs/reference/cli/explain/) | Explain a target's actual planned cache key and local cache state |
-| [`extension`](/docs/reference/cli/extension/) | extension |
 | [`flow`](/docs/reference/cli/flow/) | Discover, plan, and start durable flows |
 | [`gc`](/docs/reference/cli/gc/) | Collect old terminal runs and compact their journals; separate from target caches |
 | [`generate`](/docs/reference/cli/generate/) | Scaffold apps, flows, packages, and CI configuration |
 | [`git-hooks`](/docs/reference/cli/git-hooks/) | Check the WORKSPACE.ts gitHooks scripts against .git/hooks, or install them with --write |
 | [`graph`](/docs/reference/cli/graph/) | Print the target graph without executing it |
-| [`history`](/docs/reference/cli/history/) | history |
+| [`history`](/docs/reference/cli/history/) | Follow each issue's lane, checks and pull request |
 | [`index`](/docs/reference/cli/index-command/) | List every target a pattern selects as its declaration states it: rule, kinds, inputs, outputs, dependencies, and the declaring file |
 | [`info`](/docs/reference/cli/info/) | Report workspace and host configuration for diagnosis |
 | [`init`](/docs/reference/cli/init/) | Initialize workspace and target declarations plus a starter flow, preserving existing files |
 | [`install`](/docs/reference/cli/install/) | Plan and execute the install Flow under the toolchain the workspace declares |
 | [`integrations`](/docs/reference/cli/integrations/) | Inspect configured provider adapters |
-| [`issue`](/docs/reference/cli/issue/) | issue |
-| [`label`](/docs/reference/cli/label/) | label |
-| [`land`](/docs/reference/cli/land/) | land |
+| [`issue`](/docs/reference/cli/issue/) | Manage repository issues |
+| [`label`](/docs/reference/cli/label/) | Manage repository labels |
+| [`land`](/docs/reference/cli/land/) | Review and land landing requests |
 | [`lint`](/docs/reference/cli/lint/) | Execute the lint targets selected by a pattern |
 | [`login`](/docs/reference/cli/login/) | Log in to Smithers |
 | [`mcp`](/docs/reference/cli/mcp/) | Register the Smithers MCP server with an agent |
 | [`memory`](/docs/reference/cli/memory/) | Durable facts, notes, recall, and conversation history |
 | [`migrate`](/docs/reference/cli/migrate/) | Inventory, plan, or apply the 0.x-to-1.x source migration |
-| [`notification`](/docs/reference/cli/notification/) | notification |
+| [`notification`](/docs/reference/cli/notification/) | Read your notifications |
 | [`open`](/docs/reference/cli/open/) | Open this checkout's repository in the Smithers app; `smthrs .` is the same |
-| [`org`](/docs/reference/cli/org/) | org |
+| [`org`](/docs/reference/cli/org/) | Manage organizations |
 | [`owners`](/docs/reference/cli/owners/) | Resolve owners, reasons, and the agent policy for paths, or for the paths a diff touches |
 | [`query`](/docs/reference/cli/query/) | List labels or evaluate deps(label), rdeps(label), or owners(label) |
-| [`repo`](/docs/reference/cli/repo/) | repo |
+| [`repo`](/docs/reference/cli/repo/) | Manage repositories and their GitHub connection |
 | [`review`](/docs/reference/cli/review/) | Review committed source using policy from an approved commit |
 | [`run`](/docs/reference/cli/run/) | Execute run targets selected by a pattern |
 | [`runs`](/docs/reference/cli/runs/) | Inspect and control durable execution records |
-| [`search`](/docs/reference/cli/search/) | search |
-| [`secret`](/docs/reference/cli/secret/) | secret |
+| [`search`](/docs/reference/cli/search/) | Search repositories, issues, code and users |
+| [`secret`](/docs/reference/cli/secret/) | Manage repository secrets |
 | [`serve`](/docs/reference/cli/serve/) | Host the control gateway and durable trigger scheduler |
 | [`show`](/docs/reference/cli/show/) | Inspect targets and workspace configuration |
-| [`ssh-key`](/docs/reference/cli/ssh-key/) | ssh-key |
-| [`stack`](/docs/reference/cli/stack/) | stack |
+| [`ssh-key`](/docs/reference/cli/ssh-key/) | Manage your SSH keys |
+| [`stack`](/docs/reference/cli/stack/) | Submit, sync and land stacked GitHub pull requests |
 | [`suggest`](/docs/reference/cli/suggest/) | Discover ways Smithers can help; interactively choose one to implement |
 | [`target`](/docs/reference/cli/target/) | Execute PACKAGE.ts labels with their flavor-implied verbs (the bare-label form) |
 | [`targets`](/docs/reference/cli/targets/) | List available targets with their kinds and summaries |
@@ -62188,11 +62377,11 @@ flow is a durable program built with `Flow.make`, and a run is a persisted flow 
 | [`triggers`](/docs/reference/cli/triggers/) | Manage durable schedules and manually queued occurrences |
 | [`tui`](/docs/reference/cli/tui/) | Open the terminal coding agent |
 | [`update`](/docs/reference/cli/update/) | Check the registry for newer CLI versions; does not install them |
-| [`variable`](/docs/reference/cli/variable/) | variable |
+| [`variable`](/docs/reference/cli/variable/) | Manage repository variables |
 | [`watch`](/docs/reference/cli/watch/) | Replan and rerun a target graph when workspace files change |
-| [`webhook`](/docs/reference/cli/webhook/) | webhook |
-| [`wiki`](/docs/reference/cli/wiki/) | wiki |
-| [`workspace`](/docs/reference/cli/workspace/) | workspace |
+| [`webhook`](/docs/reference/cli/webhook/) | Manage repository webhooks |
+| [`wiki`](/docs/reference/cli/wiki/) | Read and edit wiki pages |
+| [`workspace`](/docs/reference/cli/workspace/) | Create, open and run commands in workspaces |
 
 Target patterns include `//...`, `//package/...`, and `//package:target`.
 Use `--plan` to preview execution, `--jobs` to bound concurrency, and

@@ -1,4 +1,4 @@
-smthrs admin analytics summary — analytics · summary
+smthrs admin analytics summary — Summarize product usage over a time range
 
 Usage: smthrs admin analytics summary [options]
 

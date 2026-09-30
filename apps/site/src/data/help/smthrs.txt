@@ -3,66 +3,65 @@ smthrs@1.0.0-rc.1 — Build workspace targets and operate durable agent flows
 Usage: smthrs <command>
 
 Commands:
-  admin         admin
+  admin         Administer the Smithers installation
   affected      Execute targets affected by changed files, conservatively including ambient inputs
-  agent         agent
+  agent         Ask the Smithers helper and hold remote conversations
   api           Make raw API calls to the Smithers server
   approvals     Find and resolve pending approval requests
-  artifact      artifact
-  auth          auth
-  bookmark      bookmark
+  artifact      List and download files a run produced
+  auth          Log in, log out and connect subscriptions
+  bookmark      Manage local jj bookmarks
   bug           Submit a redacted bug report to the configured endpoint
   build         Execute the build targets selected by a pattern
   cache         Inspect and maintain local action-result caches
-  change        change
-  changeset     changeset
+  change        Inspect local jj changes
+  changeset     Land one change per repository as a single transaction
   ci            Execute build, test, lint, and documentation targets; wildcards omit exclusive tiers unless --include-exclusive is set
   clean         Execute only declared Clean targets selected by the patterns
   completion    Generate shell completions
-  config        config
+  config        Read and set CLI configuration
   create-app    Scaffold a Smithers app from a @smthrs/create-app template
   credentials   Manage encrypted local credentials without printing secret values
   docs          Execute the documentation targets selected by a pattern: parity checks, freshness stamps, and Docs.Page writers
   doctor        Check project discovery, providers, tools, and durable-state compatibility
-  egress        egress
+  egress        Manage repository egress policies
   environment   Run commands in saved local, SSH, or Cloud environments
   eval          Run fixed evaluation suites and compare committed score baselines
   explain       Explain a target's actual planned cache key and local cache state
-  extension     extension
   flow          Discover, plan, and start durable flows
   gc            Collect old terminal runs and compact their journals; separate from target caches
   generate      Scaffold apps, flows, packages, and CI configuration
   git-hooks     Check the WORKSPACE.ts gitHooks scripts against .git/hooks, or install them with --write
   graph         Print the target graph without executing it
-  history       history
+  history       Follow each issue's lane, checks and pull request
   index         List every target a pattern selects as its declaration states it: rule, kinds, inputs, outputs, dependencies, and the declaring file
   info          Report workspace and host configuration for diagnosis
   init          Initialize workspace and target declarations plus a starter flow, preserving existing files
   install       Plan and execute the install Flow under the toolchain the workspace declares
   integrations  Inspect configured provider adapters
-  issue         issue
-  label         label
-  land          land
+  issue         Manage repository issues
+  label         Manage repository labels
+  land          Review and land landing requests
   lint          Execute the lint targets selected by a pattern
   login         Log in to Smithers
   mcp           Register the Smithers MCP server with an agent
   memory        Durable facts, notes, recall, and conversation history
   migrate       Inventory, plan, or apply the 0.x-to-1.x source migration
-  notification  notification
+  notification  Read your notifications
   open          Open this checkout's repository in the Smithers app; `smthrs .` is the same
-  org           org
+  org           Manage organizations
   owners        Resolve owners, reasons, and the agent policy for paths, or for the paths a diff touches
   query         List labels or evaluate deps(label), rdeps(label), or owners(label)
-  repo          repo
+  repo          Manage repositories and their GitHub connection
   review        Review committed source using policy from an approved commit
   run           Execute run targets selected by a pattern
   runs          Inspect and control durable execution records
-  search        search
-  secret        secret
+  search        Search repositories, issues, code and users
+  secret        Manage repository secrets
   serve         Host the control gateway and durable trigger scheduler
   show          Inspect targets and workspace configuration
-  ssh-key       ssh-key
-  stack         stack
+  ssh-key       Manage your SSH keys
+  stack         Submit, sync and land stacked GitHub pull requests
   suggest       Discover ways Smithers can help; interactively choose one to implement
   target        Execute PACKAGE.ts labels with their flavor-implied verbs (the bare-label form)
   targets       List available targets with their kinds and summaries
@@ -71,11 +70,11 @@ Commands:
   triggers      Manage durable schedules and manually queued occurrences
   tui           Open the terminal coding agent
   update        Check the registry for newer CLI versions; does not install them
-  variable      variable
+  variable      Manage repository variables
   watch         Replan and rerun a target graph when workspace files change
-  webhook       webhook
-  wiki          wiki
-  workspace     workspace
+  webhook       Manage repository webhooks
+  wiki          Read and edit wiki pages
+  workspace     Create, open and run commands in workspaces
 
 Integrations:
   completions  Generate shell completion script

@@ -1,4 +1,4 @@
-smthrs egress — egress
+smthrs egress — Manage repository egress policies
 
 Usage: smthrs egress <command>
 

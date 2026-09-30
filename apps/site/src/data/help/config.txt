@@ -1,4 +1,4 @@
-smthrs config — config
+smthrs config — Read and set CLI configuration
 
 Usage: smthrs config <command>
 

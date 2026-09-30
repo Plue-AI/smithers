@@ -1,9 +1,9 @@
-smthrs admin users — users
+smthrs admin users — Mark users as synthetic
 
 Usage: smthrs admin users <command>
 
 Commands:
-  set-synthetic  users · set-synthetic
+  set-synthetic  Mark a user as synthetic or not
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

@@ -1,4 +1,4 @@
-smthrs land — land
+smthrs land — Review and land landing requests
 
 Usage: smthrs land <command>
 

@@ -188,63 +188,62 @@
 - [llms.txt](https://smithers.sh/docs/reference/llms-txt/): Agent-facing entry points: the curated llms.txt index and the full-prose llms-full.txt, regenerated from the docs tree.
 - [MCP tools](https://smithers.sh/docs/reference/mcp-tools/): Discover and call the Smithers command tree through its stdio MCP server.
 - [Project layout](https://smithers.sh/docs/reference/project-layout/): The files of a Smithers project: flows/ sources, .flows/ run state, and the root resolution rules.
-- [smthrs admin](https://smithers.sh/docs/reference/cli/admin/): admin
+- [smthrs admin](https://smithers.sh/docs/reference/cli/admin/): Administer the Smithers installation
 - [smthrs affected](https://smithers.sh/docs/reference/cli/affected/): Execute targets affected by changed files, conservatively including ambient inputs
-- [smthrs agent](https://smithers.sh/docs/reference/cli/agent/): agent
+- [smthrs agent](https://smithers.sh/docs/reference/cli/agent/): Ask the Smithers helper and hold remote conversations
 - [smthrs api](https://smithers.sh/docs/reference/cli/api/): Make raw API calls to the Smithers server
-- [smthrs artifact](https://smithers.sh/docs/reference/cli/artifact/): artifact
-- [smthrs auth](https://smithers.sh/docs/reference/cli/auth/): auth
-- [smthrs bookmark](https://smithers.sh/docs/reference/cli/bookmark/): bookmark
+- [smthrs artifact](https://smithers.sh/docs/reference/cli/artifact/): List and download files a run produced
+- [smthrs auth](https://smithers.sh/docs/reference/cli/auth/): Log in, log out and connect subscriptions
+- [smthrs bookmark](https://smithers.sh/docs/reference/cli/bookmark/): Manage local jj bookmarks
 - [smthrs bug](https://smithers.sh/docs/reference/cli/bug/): Report a bug with a run digest attached
 - [smthrs build](https://smithers.sh/docs/reference/cli/build/): Execute the build targets selected by a pattern
 - [smthrs cache](https://smithers.sh/docs/reference/cli/cache/): Inspect and maintain local action-result caches
-- [smthrs change](https://smithers.sh/docs/reference/cli/change/): change
-- [smthrs changeset](https://smithers.sh/docs/reference/cli/changeset/): changeset
+- [smthrs change](https://smithers.sh/docs/reference/cli/change/): Inspect local jj changes
+- [smthrs changeset](https://smithers.sh/docs/reference/cli/changeset/): Land one change per repository as a single transaction
 - [smthrs ci](https://smithers.sh/docs/reference/cli/ci/): Execute build, test, lint, and documentation targets; wildcards omit exclusive tiers unless --include-exclusive is set
 - [smthrs clean](https://smithers.sh/docs/reference/cli/clean/): Execute only declared Clean targets selected by the patterns
 - [smthrs completion](https://smithers.sh/docs/reference/cli/completion/): Generate shell completions
-- [smthrs config](https://smithers.sh/docs/reference/cli/config/): config
+- [smthrs config](https://smithers.sh/docs/reference/cli/config/): Read and set CLI configuration
 - [smthrs create-app](https://smithers.sh/docs/reference/cli/create-app/): Scaffold a Smithers app from a @smthrs/create-app template
 - [smthrs credentials](https://smithers.sh/docs/reference/cli/credentials/): Manage encrypted local credentials without printing secret values
 - [smthrs docs](https://smithers.sh/docs/reference/cli/docs/): Execute the documentation targets selected by a pattern: parity checks, freshness stamps, and Docs.Page writers
 - [smthrs doctor](https://smithers.sh/docs/reference/cli/doctor/): Report registry, database, runtime, and provider readiness
-- [smthrs egress](https://smithers.sh/docs/reference/cli/egress/): egress
+- [smthrs egress](https://smithers.sh/docs/reference/cli/egress/): Manage repository egress policies
 - [smthrs environment](https://smithers.sh/docs/reference/cli/environment/): Run commands in saved local, SSH, or Cloud environments
 - [smthrs eval](https://smithers.sh/docs/reference/cli/eval/): Run fixed evaluation suites and compare committed score baselines
 - [smthrs explain](https://smithers.sh/docs/reference/cli/explain/): Explain a target's actual planned cache key and local cache state
-- [smthrs extension](https://smithers.sh/docs/reference/cli/extension/): extension
 - [smthrs gc](https://smithers.sh/docs/reference/cli/gc/): Delete terminal runs older than a threshold, with the rows they own
 - [smthrs generate](https://smithers.sh/docs/reference/cli/generate/): Scaffold apps, flows, packages, and CI configuration
 - [smthrs git-hooks](https://smithers.sh/docs/reference/cli/git-hooks/): Check the WORKSPACE.ts gitHooks scripts against .git/hooks, or install them with --write
 - [smthrs graph](https://smithers.sh/docs/reference/cli/graph/): Print the target graph without executing it
-- [smthrs history](https://smithers.sh/docs/reference/cli/history/): history
+- [smthrs history](https://smithers.sh/docs/reference/cli/history/): Follow each issue's lane, checks and pull request
 - [smthrs index](https://smithers.sh/docs/reference/cli/index-command/): List every target a pattern selects as its declaration states it: rule, kinds, inputs, outputs, dependencies, and the declaring file
 - [smthrs info](https://smithers.sh/docs/reference/cli/info/): Report workspace and host configuration for diagnosis
 - [smthrs init](https://smithers.sh/docs/reference/cli/init/): Initialize target declarations and a starter durable flow while preserving existing files.
 - [smthrs install](https://smithers.sh/docs/reference/cli/install/): Plan and execute the install Flow under the toolchain the workspace declares
 - [smthrs integrations](https://smithers.sh/docs/reference/cli/integrations/): Inspect configured provider adapters
-- [smthrs issue](https://smithers.sh/docs/reference/cli/issue/): issue
-- [smthrs label](https://smithers.sh/docs/reference/cli/label/): label
-- [smthrs land](https://smithers.sh/docs/reference/cli/land/): land
+- [smthrs issue](https://smithers.sh/docs/reference/cli/issue/): Manage repository issues
+- [smthrs label](https://smithers.sh/docs/reference/cli/label/): Manage repository labels
+- [smthrs land](https://smithers.sh/docs/reference/cli/land/): Review and land landing requests
 - [smthrs lint](https://smithers.sh/docs/reference/cli/lint/): Execute the lint targets selected by a pattern
 - [smthrs login](https://smithers.sh/docs/reference/cli/login/): Log in to Smithers
 - [smthrs mcp](https://smithers.sh/docs/reference/cli/mcp/): Register the generated Smithers command surface with an MCP client.
 - [smthrs memory](https://smithers.sh/docs/reference/cli/memory/): Persistent facts, notes, recall, and conversation history in the control database.
 - [smthrs migrate](https://smithers.sh/docs/reference/cli/migrate/): Convert a Smithers 0.x project to the 1.0 authoring model
-- [smthrs notification](https://smithers.sh/docs/reference/cli/notification/): notification
+- [smthrs notification](https://smithers.sh/docs/reference/cli/notification/): Read your notifications
 - [smthrs open](https://smithers.sh/docs/reference/cli/open/): Open this checkout's repository in the Smithers app; `smthrs .` is the same
-- [smthrs org](https://smithers.sh/docs/reference/cli/org/): org
+- [smthrs org](https://smithers.sh/docs/reference/cli/org/): Manage organizations
 - [smthrs owners](https://smithers.sh/docs/reference/cli/owners/): Resolve owners, reasons, and the agent policy for paths, or for the paths a diff touches
 - [smthrs query](https://smithers.sh/docs/reference/cli/query/): List labels or evaluate deps(label), rdeps(label), or owners(label)
-- [smthrs repo](https://smithers.sh/docs/reference/cli/repo/): repo
+- [smthrs repo](https://smithers.sh/docs/reference/cli/repo/): Manage repositories and their GitHub connection
 - [smthrs review](https://smithers.sh/docs/reference/cli/review/): Review committed source using policy from an approved commit
 - [smthrs run](https://smithers.sh/docs/reference/cli/run/): Execute run targets selected by a pattern
-- [smthrs search](https://smithers.sh/docs/reference/cli/search/): search
-- [smthrs secret](https://smithers.sh/docs/reference/cli/secret/): secret
+- [smthrs search](https://smithers.sh/docs/reference/cli/search/): Search repositories, issues, code and users
+- [smthrs secret](https://smithers.sh/docs/reference/cli/secret/): Manage repository secrets
 - [smthrs serve](https://smithers.sh/docs/reference/cli/serve/): Host the control server and durable trigger scheduler for this project.
 - [smthrs show](https://smithers.sh/docs/reference/cli/show/): Inspect targets and workspace configuration
-- [smthrs ssh-key](https://smithers.sh/docs/reference/cli/ssh-key/): ssh-key
-- [smthrs stack](https://smithers.sh/docs/reference/cli/stack/): stack
+- [smthrs ssh-key](https://smithers.sh/docs/reference/cli/ssh-key/): Manage your SSH keys
+- [smthrs stack](https://smithers.sh/docs/reference/cli/stack/): Submit, sync and land stacked GitHub pull requests
 - [smthrs suggest](https://smithers.sh/docs/reference/cli/suggest/): Read the project, stream the ways Smithers can help, and implement the one you pick
 - [smthrs target](https://smithers.sh/docs/reference/cli/target/): Execute PACKAGE.ts labels with their flavor-implied verbs (the bare-label form)
 - [smthrs targets](https://smithers.sh/docs/reference/cli/targets/): List available targets with their kinds and summaries
@@ -253,11 +252,11 @@
 - [smthrs triggers](https://smithers.sh/docs/reference/cli/triggers/): Manage durable schedules and manually queued occurrences
 - [smthrs tui](https://smithers.sh/docs/reference/cli/tui/): Open the terminal coding agent
 - [smthrs update](https://smithers.sh/docs/reference/cli/update/): Check npm for a newer @smthrs/cli
-- [smthrs variable](https://smithers.sh/docs/reference/cli/variable/): variable
+- [smthrs variable](https://smithers.sh/docs/reference/cli/variable/): Manage repository variables
 - [smthrs watch](https://smithers.sh/docs/reference/cli/watch/): Replan and rerun a target graph when workspace files change
-- [smthrs webhook](https://smithers.sh/docs/reference/cli/webhook/): webhook
-- [smthrs wiki](https://smithers.sh/docs/reference/cli/wiki/): wiki
-- [smthrs workspace](https://smithers.sh/docs/reference/cli/workspace/): workspace
+- [smthrs webhook](https://smithers.sh/docs/reference/cli/webhook/): Manage repository webhooks
+- [smthrs wiki](https://smithers.sh/docs/reference/cli/wiki/): Read and edit wiki pages
+- [smthrs workspace](https://smithers.sh/docs/reference/cli/workspace/): Create, open and run commands in workspaces
 - [The smthrs command](https://smithers.sh/docs/reference/cli/): Target execution, durable flows, run control, and operator commands in one CLI.
 - [Triggers](https://smithers.sh/docs/reference/triggers/): The trigger declaration, its CLI verbs, scheduler behavior, and fire ledger.
 

@@ -1,4 +1,4 @@
-smthrs agent — agent
+smthrs agent — Ask the Smithers helper and hold remote conversations
 
 Usage: smthrs agent <command>
 
@@ -7,7 +7,7 @@ Commands:
   chat     Send a message to an existing remote conversation
   list     List remote conversations
   run      Start a remote conversation and run a prompt
-  session  session
+  session  Manage remote conversations
   view     View a remote conversation
 
 Custom Global Options:

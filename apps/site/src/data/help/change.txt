@@ -1,4 +1,4 @@
-smthrs change — change
+smthrs change — Inspect local jj changes
 
 Usage: smthrs change <command>
 

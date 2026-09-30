@@ -1,4 +1,4 @@
-smthrs history — history
+smthrs history — Follow each issue's lane, checks and pull request
 
 Usage: smthrs history <command>
 

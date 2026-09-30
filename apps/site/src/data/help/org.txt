@@ -1,4 +1,4 @@
-smthrs org — org
+smthrs org — Manage organizations
 
 Usage: smthrs org <command>
 
@@ -6,8 +6,8 @@ Commands:
   create  Create an organization
   edit    Update organization settings
   list    List organizations for the authenticated user
-  member  member
-  team    team
+  member  Manage organization members
+  team    Manage organization teams
   view    View organization details
 
 Custom Global Options:

@@ -5,6 +5,7 @@ Usage: smthrs workspace children list [options]
 Options:
   --repo, -R <string>
   --workspace <string>
+  --verbose             Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

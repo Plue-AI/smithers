@@ -1,4 +1,4 @@
-smthrs repo — repo
+smthrs repo — Manage repositories and their GitHub connection
 
 Usage: smthrs repo <command>
 

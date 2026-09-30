@@ -1,4 +1,4 @@
-smthrs label — label
+smthrs label — Manage repository labels
 
 Usage: smthrs label <command>
 

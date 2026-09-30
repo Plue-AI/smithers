@@ -1,4 +1,4 @@
-smthrs admin tokens list — tokens · list
+smthrs admin tokens list — List access tokens
 
 Usage: smthrs admin tokens list [options]
 

@@ -1,4 +1,4 @@
-smthrs cache token — token
+smthrs cache token — Manage public read tokens for the build cache
 
 Usage: smthrs cache token <command>
 

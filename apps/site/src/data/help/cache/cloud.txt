@@ -1,4 +1,4 @@
-smthrs cache cloud — cloud
+smthrs cache cloud — Inspect and clear a repository's Cloud caches
 
 Usage: smthrs cache cloud <command>
 

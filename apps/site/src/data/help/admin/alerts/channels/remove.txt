@@ -1,4 +1,4 @@
-smthrs admin alerts channels remove — alerts · channels · remove
+smthrs admin alerts channels remove — Remove an alert channel
 
 Usage: smthrs admin alerts channels remove <id> [options]
 

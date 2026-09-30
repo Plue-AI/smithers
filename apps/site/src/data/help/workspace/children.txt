@@ -1,4 +1,4 @@
-smthrs workspace children — children
+smthrs workspace children — Manage workspace children
 
 Usage: smthrs workspace children <command>
 

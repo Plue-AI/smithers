@@ -76,6 +76,7 @@ export const groups: Record<string, string> = {
   "change": "Inspect local jj changes",
   "changeset": "Land one change per repository as a single transaction",
   "config": "Read and set CLI configuration",
+  "egress": "Manage repository egress policies",
   "history": "Follow each issue's lane, checks and pull request",
   "issue": "Manage repository issues",
   "label": "Manage repository labels",
@@ -94,7 +95,8 @@ export const groups: Record<string, string> = {
   "variable": "Manage repository variables",
   "webhook": "Manage repository webhooks",
   "wiki": "Read and edit wiki pages",
-  "workspace": "Create, open and run commands in workspaces"
+  "workspace": "Create, open and run commands in workspaces",
+  "workspace children": "Manage workspace children"
 }
 // Options that choose which backend receives the saved login.
 const destinations = ["hostname", "host"] as const

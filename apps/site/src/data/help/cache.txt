@@ -4,12 +4,12 @@ Usage: smthrs cache <command>
 
 Commands:
   clear    Remove all local action results; durable runs and artifacts are preserved
-  cloud    cloud
+  cloud    Inspect and clear a repository's Cloud caches
   connect  Connect this workspace to the Smithers Cloud build cache: mint a public read token and declare it in the root PACKAGE.ts
   prune    Remove local action results older than the retention window
   status   Report cache size and configured remote without exposing credentials
   steps    Inspect and maintain durable flow step results
-  token    token
+  token    Manage public read tokens for the build cache
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

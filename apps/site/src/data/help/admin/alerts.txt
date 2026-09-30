@@ -1,10 +1,10 @@
-smthrs admin alerts — alerts
+smthrs admin alerts — Manage alert channels and policies
 
 Usage: smthrs admin alerts <command>
 
 Commands:
-  channels  channels
-  policies  policies
+  channels  Manage where alerts are delivered
+  policies  Turn alert policies on or off
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

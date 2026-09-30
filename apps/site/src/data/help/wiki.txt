@@ -1,4 +1,4 @@
-smthrs wiki — wiki
+smthrs wiki — Read and edit wiki pages
 
 Usage: smthrs wiki <command>
 

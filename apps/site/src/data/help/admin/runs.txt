@@ -1,4 +1,4 @@
-smthrs admin runs — runs
+smthrs admin runs — List runs in any repository
 
 Usage: smthrs admin runs <command>
 

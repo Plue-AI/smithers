@@ -1,4 +1,4 @@
-smthrs org team member — member
+smthrs org team member — Manage team members
 
 Usage: smthrs org team member <command>
 

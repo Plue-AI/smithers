@@ -1,4 +1,4 @@
-smthrs admin workspaces list — workspaces · list
+smthrs admin workspaces list — List workspaces
 
 Usage: smthrs admin workspaces list [options]
 

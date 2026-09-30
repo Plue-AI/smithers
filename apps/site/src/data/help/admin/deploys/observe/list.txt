@@ -1,4 +1,4 @@
-smthrs admin deploys observe list — deploys · observe · list
+smthrs admin deploys observe list — List Observe deployments
 
 Usage: smthrs admin deploys observe list [options]
 

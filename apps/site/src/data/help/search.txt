@@ -1,4 +1,4 @@
-smthrs search — search
+smthrs search — Search repositories, issues, code and users
 
 Usage: smthrs search <command>
 

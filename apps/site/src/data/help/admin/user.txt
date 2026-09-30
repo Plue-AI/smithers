@@ -1,4 +1,4 @@
-smthrs admin user — user
+smthrs admin user — Create, suspend, export and erase users
 
 Usage: smthrs admin user <command>
 

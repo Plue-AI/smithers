@@ -1,9 +1,9 @@
-smthrs workspace — workspace
+smthrs workspace — Create, open and run commands in workspaces
 
 Usage: smthrs workspace <command>
 
 Commands:
-  children   children
+  children   Manage workspace children
   cp         Copy files or directories between the local machine and a workspace
   create     Create a workspace
   delete     Delete a workspace

@@ -3,7 +3,7 @@
   "commands": [
     {
       "name": "admin alerts channels add",
-      "description": "alerts · channels · add",
+      "description": "Add an alert channel",
       "schema": {
         "args": {
           "type": "object",
@@ -58,7 +58,7 @@
     },
     {
       "name": "admin alerts channels list",
-      "description": "alerts · channels · list",
+      "description": "List alert channels",
       "schema": {
         "args": {
           "type": "object",
@@ -83,7 +83,7 @@
     },
     {
       "name": "admin alerts channels remove",
-      "description": "alerts · channels · remove",
+      "description": "Remove an alert channel",
       "schema": {
         "args": {
           "type": "object",
@@ -122,7 +122,7 @@
     },
     {
       "name": "admin alerts channels send-code",
-      "description": "alerts · channels · send-code",
+      "description": "Send a verification code to an alert channel",
       "schema": {
         "args": {
           "type": "object",
@@ -155,7 +155,7 @@
     },
     {
       "name": "admin alerts channels set-route",
-      "description": "alerts · channels · set-route",
+      "description": "Choose which alerts a channel receives",
       "schema": {
         "args": {
           "type": "object",
@@ -197,7 +197,7 @@
     },
     {
       "name": "admin alerts channels verify",
-      "description": "alerts · channels · verify",
+      "description": "Verify an alert channel with its code",
       "schema": {
         "args": {
           "type": "object",
@@ -235,7 +235,7 @@
     },
     {
       "name": "admin alerts policies disable",
-      "description": "alerts · policies · disable",
+      "description": "Turn off an alert policy",
       "schema": {
         "args": {
           "type": "object",
@@ -268,7 +268,7 @@
     },
     {
       "name": "admin alerts policies enable",
-      "description": "alerts · policies · enable",
+      "description": "Turn on an alert policy",
       "schema": {
         "args": {
           "type": "object",
@@ -301,7 +301,7 @@
     },
     {
       "name": "admin alerts policies list",
-      "description": "alerts · policies · list",
+      "description": "List alert policies",
       "schema": {
         "args": {
           "type": "object",
@@ -326,7 +326,7 @@
     },
     {
       "name": "admin analytics summary",
-      "description": "analytics · summary",
+      "description": "Summarize product usage over a time range",
       "schema": {
         "args": {
           "type": "object",
@@ -361,7 +361,7 @@
     },
     {
       "name": "admin audit list",
-      "description": "audit · list",
+      "description": "List audit log entries",
       "schema": {
         "args": {
           "type": "object",
@@ -391,7 +391,7 @@
     },
     {
       "name": "admin deploys observe list",
-      "description": "deploys · observe · list",
+      "description": "List Observe deployments",
       "schema": {
         "args": {
           "type": "object",
@@ -416,7 +416,7 @@
     },
     {
       "name": "admin deploys observe redeploy",
-      "description": "deploys · observe · redeploy",
+      "description": "Redeploy an Observe deployment",
       "schema": {
         "args": {
           "type": "object",
@@ -455,7 +455,7 @@
     },
     {
       "name": "admin deploys observe restart",
-      "description": "deploys · observe · restart",
+      "description": "Restart an Observe deployment",
       "schema": {
         "args": {
           "type": "object",
@@ -494,7 +494,7 @@
     },
     {
       "name": "admin deploys observe rollback",
-      "description": "deploys · observe · rollback",
+      "description": "Roll back an Observe deployment",
       "schema": {
         "args": {
           "type": "object",
@@ -533,7 +533,7 @@
     },
     {
       "name": "admin deploys platform list",
-      "description": "deploys · platform · list",
+      "description": "List platform components",
       "schema": {
         "args": {
           "type": "object",
@@ -558,7 +558,7 @@
     },
     {
       "name": "admin deploys platform rollback",
-      "description": "deploys · platform · rollback",
+      "description": "Roll a platform component back to a revision",
       "schema": {
         "args": {
           "type": "object",
@@ -602,7 +602,7 @@
     },
     {
       "name": "admin deploys platform status",
-      "description": "deploys · platform · status",
+      "description": "Show a platform component's deployment status",
       "schema": {
         "args": {
           "type": "object",
@@ -702,7 +702,7 @@
     },
     {
       "name": "admin sessions cancel",
-      "description": "sessions · cancel",
+      "description": "Cancel an agent session",
       "schema": {
         "args": {
           "type": "object",
@@ -745,7 +745,7 @@
     },
     {
       "name": "admin sessions list",
-      "description": "sessions · list",
+      "description": "List agent sessions",
       "schema": {
         "args": {
           "type": "object",
@@ -784,7 +784,7 @@
     },
     {
       "name": "admin status",
-      "description": "status",
+      "description": "Show system status",
       "schema": {
         "args": {
           "type": "object",
@@ -809,7 +809,7 @@
     },
     {
       "name": "admin tokens list",
-      "description": "tokens · list",
+      "description": "List access tokens",
       "schema": {
         "args": {
           "type": "object",
@@ -1116,7 +1116,7 @@
     },
     {
       "name": "admin users set-synthetic",
-      "description": "users · set-synthetic",
+      "description": "Mark a user as synthetic or not",
       "schema": {
         "args": {
           "type": "object",
@@ -1158,7 +1158,7 @@
     },
     {
       "name": "admin workspaces list",
-      "description": "workspaces · list",
+      "description": "List workspaces",
       "schema": {
         "args": {
           "type": "object",
@@ -1205,7 +1205,7 @@
     },
     {
       "name": "admin workspaces stop",
-      "description": "workspaces · stop",
+      "description": "Stop a workspace",
       "schema": {
         "args": {
           "type": "object",
@@ -1244,7 +1244,7 @@
     },
     {
       "name": "admin workspaces suspend",
-      "description": "workspaces · suspend",
+      "description": "Suspend a workspace",
       "schema": {
         "args": {
           "type": "object",
@@ -4925,164 +4925,6 @@
       }
     },
     {
-      "name": "extension linear install",
-      "description": "Configure a Linear team for a Smithers repository",
-      "schema": {
-        "args": {
-          "type": "object",
-          "properties": {},
-          "additionalProperties": false
-        },
-        "options": {
-          "type": "object",
-          "properties": {
-            "team-id": {
-              "type": "string",
-              "description": "Linear team ID"
-            },
-            "repo-owner": {
-              "type": "string",
-              "description": "Smithers repo owner"
-            },
-            "repo-name": {
-              "type": "string",
-              "description": "Smithers repo name"
-            },
-            "repo-id": {
-              "type": "number",
-              "description": "Smithers repo ID"
-            },
-            "actor-id": {
-              "type": "string",
-              "description": "Linear actor ID for loop guard"
-            },
-            "credentials-stdin": {
-              "default": false,
-              "type": "boolean",
-              "description": "Read Linear OAuth credentials from stdin as JSON"
-            },
-            "expires-at": {
-              "type": "string",
-              "description": "Token expiry (ISO-8601)"
-            },
-            "team-key": {
-              "type": "string",
-              "description": "Linear team key (e.g. JJH)"
-            },
-            "team-name": {
-              "type": "string",
-              "description": "Linear team display name"
-            },
-            "verbose": {
-              "default": false,
-              "description": "Show redacted diagnostic details",
-              "type": "boolean"
-            }
-          },
-          "required": [
-            "team-id",
-            "repo-owner",
-            "repo-name",
-            "repo-id",
-            "credentials-stdin",
-            "verbose"
-          ],
-          "additionalProperties": false
-        }
-      }
-    },
-    {
-      "name": "extension linear list",
-      "description": "List Linear integrations",
-      "schema": {
-        "args": {
-          "type": "object",
-          "properties": {},
-          "additionalProperties": false
-        },
-        "options": {
-          "type": "object",
-          "properties": {
-            "verbose": {
-              "default": false,
-              "description": "Show redacted diagnostic details",
-              "type": "boolean"
-            }
-          },
-          "required": [
-            "verbose"
-          ],
-          "additionalProperties": false
-        }
-      }
-    },
-    {
-      "name": "extension linear remove",
-      "description": "Remove a Linear integration",
-      "schema": {
-        "args": {
-          "type": "object",
-          "properties": {
-            "id": {
-              "type": "number",
-              "description": "Integration ID"
-            }
-          },
-          "required": [
-            "id"
-          ],
-          "additionalProperties": false
-        },
-        "options": {
-          "type": "object",
-          "properties": {
-            "verbose": {
-              "default": false,
-              "description": "Show redacted diagnostic details",
-              "type": "boolean"
-            }
-          },
-          "required": [
-            "verbose"
-          ],
-          "additionalProperties": false
-        }
-      }
-    },
-    {
-      "name": "extension linear sync",
-      "description": "Trigger initial sync for a Linear integration",
-      "schema": {
-        "args": {
-          "type": "object",
-          "properties": {
-            "id": {
-              "type": "number",
-              "description": "Integration ID"
-            }
-          },
-          "required": [
-            "id"
-          ],
-          "additionalProperties": false
-        },
-        "options": {
-          "type": "object",
-          "properties": {
-            "verbose": {
-              "default": false,
-              "description": "Show redacted diagnostic details",
-              "type": "boolean"
-            }
-          },
-          "required": [
-            "verbose"
-          ],
-          "additionalProperties": false
-        }
-      }
-    },
-    {
       "name": "flow dispatch",
       "description": "Trigger a workflow",
       "schema": {
@@ -5803,6 +5645,43 @@
         "args": {
           "type": "object",
           "properties": {},
+          "additionalProperties": false
+        },
+        "options": {
+          "type": "object",
+          "properties": {
+            "repo": {
+              "type": "string",
+              "description": "Repository (OWNER/REPO)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "verbose"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "name": "history land",
+      "description": "Land a proposed TODO's pull request once its review approves and CI is green",
+      "schema": {
+        "args": {
+          "type": "object",
+          "properties": {
+            "issue": {
+              "type": "string",
+              "description": "Issue number (12 or #12) or item id"
+            }
+          },
+          "required": [
+            "issue"
+          ],
           "additionalProperties": false
         },
         "options": {
@@ -11267,14 +11146,11 @@
           "type": "object",
           "properties": {
             "run": {
+              "description": "Durable run ID; omitted, every run the store holds",
               "type": "string",
-              "minLength": 1,
-              "description": "Durable run ID"
+              "minLength": 1
             }
           },
-          "required": [
-            "run"
-          ],
           "additionalProperties": false
         },
         "options": {
@@ -11296,6 +11172,11 @@
               "default": false,
               "description": "Suppress progress messages",
               "type": "boolean"
+            },
+            "against": {
+              "description": "Engine store to verify, with the control.db beside it; defaults to the project's .flows/engine.db",
+              "type": "string",
+              "minLength": 1
             },
             "verbose": {
               "default": false,
@@ -13950,6 +13831,131 @@
                 "private"
               ],
               "description": "Wiki space: public (default) or private"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "verbose"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "name": "workspace children list",
+      "description": "List a workspace's children",
+      "schema": {
+        "args": {
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        },
+        "options": {
+          "type": "object",
+          "properties": {
+            "repo": {
+              "type": "string",
+              "description": "Repository (OWNER/REPO)"
+            },
+            "workspace": {
+              "type": "string",
+              "description": "Parent workspace ID (this workspace when run inside one)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "verbose"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "name": "workspace children spawn",
+      "description": "Spawn children of a running workspace",
+      "schema": {
+        "args": {
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        },
+        "options": {
+          "type": "object",
+          "properties": {
+            "count": {
+              "default": 1,
+              "type": "number",
+              "description": "How many children"
+            },
+            "profile": {
+              "type": "string",
+              "enum": [
+                "small",
+                "build"
+              ],
+              "description": "small (1 vCPU, 2 GB) or build (2 vCPU, 8 GB)"
+            },
+            "repo": {
+              "type": "string",
+              "description": "Repository (OWNER/REPO)"
+            },
+            "ttl": {
+              "type": "number",
+              "description": "Seconds the children may live (plan default when omitted)"
+            },
+            "workspace": {
+              "type": "string",
+              "description": "Parent workspace ID (this workspace when run inside one)"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "count",
+            "verbose"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "name": "workspace children stop",
+      "description": "Stop a workspace's child",
+      "schema": {
+        "args": {
+          "type": "object",
+          "properties": {
+            "child": {
+              "type": "string",
+              "description": "Child workspace ID"
+            }
+          },
+          "required": [
+            "child"
+          ],
+          "additionalProperties": false
+        },
+        "options": {
+          "type": "object",
+          "properties": {
+            "repo": {
+              "type": "string",
+              "description": "Repository (OWNER/REPO)"
+            },
+            "workspace": {
+              "type": "string",
+              "description": "Parent workspace ID (this workspace when run inside one)"
             },
             "verbose": {
               "default": false,

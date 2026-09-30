@@ -1,4 +1,4 @@
-smthrs admin users set-synthetic — users · set-synthetic
+smthrs admin users set-synthetic — Mark a user as synthetic or not
 
 Usage: smthrs admin users set-synthetic <username> [options]
 

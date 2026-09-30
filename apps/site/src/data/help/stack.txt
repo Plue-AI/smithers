@@ -1,4 +1,4 @@
-smthrs stack — stack
+smthrs stack — Submit, sync and land stacked GitHub pull requests
 
 Usage: smthrs stack <command>
 

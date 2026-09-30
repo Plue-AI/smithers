@@ -1,4 +1,4 @@
-smthrs auth local — local
+smthrs auth local — Set up and log in to an owner backend
 
 Usage: smthrs auth local <command>
 

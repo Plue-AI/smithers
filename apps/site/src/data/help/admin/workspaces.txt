@@ -1,11 +1,11 @@
-smthrs admin workspaces — workspaces
+smthrs admin workspaces — List, stop and suspend workspaces
 
 Usage: smthrs admin workspaces <command>
 
 Commands:
-  list     workspaces · list
-  stop     workspaces · stop
-  suspend  workspaces · suspend
+  list     List workspaces
+  stop     Stop a workspace
+  suspend  Suspend a workspace
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

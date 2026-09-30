@@ -1,14 +1,14 @@
-smthrs admin alerts channels — channels
+smthrs admin alerts channels — Manage where alerts are delivered
 
 Usage: smthrs admin alerts channels <command>
 
 Commands:
-  add        alerts · channels · add
-  list       alerts · channels · list
-  remove     alerts · channels · remove
-  send-code  alerts · channels · send-code
-  set-route  alerts · channels · set-route
-  verify     alerts · channels · verify
+  add        Add an alert channel
+  list       List alert channels
+  remove     Remove an alert channel
+  send-code  Send a verification code to an alert channel
+  set-route  Choose which alerts a channel receives
+  verify     Verify an alert channel with its code
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
