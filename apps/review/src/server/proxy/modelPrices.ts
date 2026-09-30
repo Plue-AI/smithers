@@ -2,7 +2,7 @@
  * Metered proxy rates are generated from the backend modelprice table.
  * @since 1.0.0
  */
-import { modelPrices as PRICES } from "../../../../../packages/smithers/agent/model/src/internal/prices.generated.ts";
+import { table as PRICES } from "@smthrs/model/Pricing";
 
 export type ModelPrice = { input: number; output: number; cacheWrite: number; cacheRead: number };
 
