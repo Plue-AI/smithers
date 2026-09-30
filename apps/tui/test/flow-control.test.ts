@@ -41,7 +41,7 @@ it("lists a markdown flow as an agent with its seat and TUI manifest", async () 
     seat: "sol",
     effort: "high",
     capabilities: ["fs:read:**"],
-    tui: { keys: [{ key: "alt+r", label: "Review" }] }
+    tui: { keys: [{ key: "alt+z", label: "Review" }] }
   })
   expect((await port.discover()).find((flow) => flow.name === "echo")?.kind).toBe("module")
 }, 30_000)

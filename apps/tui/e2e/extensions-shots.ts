@@ -29,7 +29,7 @@ const reviewFlow = [
   "metadata:",
   "  tui:",
   "    keys:",
-  "      - key: alt+r",
+  "      - key: alt+z",
   "        label: Review",
   "        action: { kind: flow, flow: review }",
   "    status: true",
@@ -56,7 +56,7 @@ const tui = await Tui.start({
   }
 })
 try {
-  await tui.until((screen) => screen.includes("alt+r Review"), 30_000, "contributed key hint")
+  await tui.until((screen) => screen.includes("alt+z Review"), 30_000, "contributed key hint")
   await shoot(tui, "after-hints")
   await tui.type("?")
   await tui.until((screen) => screen.includes("review") && screen.includes("Keys"), 5_000, "key popup")
@@ -70,14 +70,14 @@ try {
     "card"
   )
   await shoot(tui, "after-card")
-  await tui.press("\x1br")
+  await tui.press("\x1bz")
   await tui.until((screen) => /◌ review · \d+m?s/.test(screen), 5_000, "run card")
   await shoot(tui, "after-key-run")
   await tui.type("finish")
   await tui.press(key.enter)
   await tui.until((screen) => screen.includes("→ Approved."), 5_000, "settled")
   await shoot(tui, "after-settled")
-  writeFileSync(mdx, readFileSync(mdx, "utf8").replace("key: alt+r", "key: ctrl+c"))
+  writeFileSync(mdx, readFileSync(mdx, "utf8").replace("key: alt+z", "key: ctrl+c"))
   await tui.until((screen) => screen.includes("✗ 1 extension"), 5_000, "problem")
   await shoot(tui, "after-problem")
   await tui.click("✗ 1 extension")

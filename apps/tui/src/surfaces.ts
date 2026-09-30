@@ -4,7 +4,7 @@
  * `tab:<worker>`, `flow:<run>` and `ui:<panel>`. The Summary shows the
  * worker tree.
  */
-import { useEffect, useRef, useState } from "react"
+import { useRef, useState } from "react"
 import type { Run } from "./flows.ts"
 import * as Panels from "./panels.ts"
 import type { Chip } from "./tabs-view.tsx"
@@ -110,22 +110,19 @@ export const ownerOf = (id: string, sources: {
   return slash < 0 ? "runtime:chat" : `runtime:${id.slice(3, slash)}`
 }
 
-/** The shown surface, whether its panel has the keys, the panel's row cursor, and the steered worker. */
+/** The shown surface, whether its panel has the keys, and the panel's row cursor. */
 export const useSurface = () => {
   const [surface, setSurface] = useState("chat")
   const [panelFocus, setPanelFocus] = useState(false)
   const [navigation, setNavigation] = useState(Panels.initial)
-  const [steerTarget, setSteerTarget] = useState<string | undefined>()
-  // Steering is for its worker's tab: showing any other surface ends it.
-  useEffect(() => setSteerTarget((target) => surface === `tab:${target}` ? target : undefined), [surface])
   // Keys in one input burst are handled before the next render: a second Ctrl+] must step from the first one's tab.
   const shown = useRef(surface)
   shown.current = surface
-  /** Shows `id`; any surface but the chat takes the keys. */
+  /** Agent tabs open in their composer; other views open in their rows. */
   const showTab = (id: string) => {
     shown.current = id
     setSurface(id)
-    setPanelFocus(id !== "chat")
+    setPanelFocus(id !== "chat" && !id.startsWith("tab:"))
     setNavigation(Panels.initial())
   }
   /** Shows the tab after (or before) the one the last key showed. */
@@ -137,8 +134,6 @@ export const useSurface = () => {
     setPanelFocus,
     navigation,
     setNavigation,
-    steerTarget,
-    setSteerTarget,
     showTab,
     stepTab
   }

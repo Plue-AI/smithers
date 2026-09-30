@@ -256,13 +256,13 @@ test("Ctrl+K lists an active monitor's stop with its key and stops only that mon
   await start()
   await key("k", { ctrl: true })
   await type("stop watcher")
-  expect(frame()).toMatch(/Stop\s+x\s+Review watcher/)
+  expect(frame()).toMatch(/Stop\s+alt\+x\s+Review watcher/)
   await key("RETURN")
   expect(monitors().list()).toMatchObject([{ id: "watch-review", status: "stopped" }])
   expect(turns[1]!.cancelled).toBe(0)
   await key("k", { ctrl: true })
   await type("stop watcher")
-  expect(frame()).not.toMatch(/Stop\s+x\s+Review watcher/)
+  expect(frame()).not.toMatch(/Stop\s+alt\+x\s+Review watcher/)
 }, 15000)
 
 test("routine monitor changes remain silent without calling the composer", async () => {

@@ -637,10 +637,7 @@ const panelActs = (calls: unknown[]): Parameters<typeof Dispatch.panelKey>[3] =>
   continueRun: (id) => calls.push(["continue", id]),
   cancelRun: (id) => calls.push(["cancel", id]),
   fillRun: (id) => calls.push(["fill", id]),
-  answerWorker: (id) => calls.push(["answer", id]),
-  undo: (row, tab) => calls.push(["undo", row?.id, tab]),
-  diff: (tab) => calls.push(["diff", tab]),
-  workerAction: (tab, action) => calls.push(["worker", tab.id, action]),
+  undo: (row) => calls.push(["undo", row?.id]),
   scroll: (step) => calls.push(["scroll", step]),
   navigate: () => calls.push("navigate"),
   send: (prompt) => calls.push(["send", prompt]),
@@ -982,24 +979,8 @@ test("u on the Summary undoes the selected row's turn", () => {
     worker: undefined,
     flow: { retry: false, continue: false, stop: false }
   }, panelActs(calls))
-  expect(calls).toEqual([["undo", "check", undefined]])
+  expect(calls).toEqual([["undo", "check"]])
 })
-
-test.each([["u", [["undo", undefined, "worker"]]], ["d", [["diff", "worker"]]], ["j", []], ["down", []]] as const)(
-  "%s in a worker tab acts on its whole run, never a row",
-  (name, expected) => {
-    const calls: unknown[] = []
-    const event = key(name)
-    Dispatch.panelKey(event, panel, {
-      surface: "tab:worker",
-      navigation: Panels.initial(),
-      worker: worker("done"),
-      flow: { retry: false, continue: false, stop: false }
-    }, panelActs(calls))
-    expect<ReadonlyArray<unknown>>(calls).toEqual(expected)
-    expect(event.defaultPrevented).toBe(true)
-  }
-)
 
 test.each(["d", "u"] as const)("%s on a flow or custom panel keeps its own meaning", (name) => {
   const calls: unknown[] = []
@@ -1265,16 +1246,21 @@ test.each(
   expect(event.defaultPrevented).toBe(false)
 })
 
-test("a in a worker tab opens the form for that worker's ask", () => {
-  const calls: unknown[] = []
-  Dispatch.panelKey(key("a"), panel, {
-    surface: "tab:worker",
-    navigation: Panels.initial(),
-    worker: worker("running"),
-    flow: { retry: false, continue: false, stop: false }
-  }, panelActs(calls))
-  expect(calls).toEqual([["answer", "worker"]])
-})
+test.each(["a", "x", "r", "s", "t", "m", "w", "u", "d", "j", "k", "i", "é", "😀"])(
+  "printable worker row key %s releases to the composer without acting or consuming text",
+  (name) => {
+    const calls: unknown[] = []
+    const event = key(name)
+    Dispatch.panelKey(event, panel, {
+      surface: "tab:worker",
+      navigation: Panels.initial(),
+      worker: worker("running"),
+      flow: { retry: false, continue: false, stop: false }
+    }, panelActs(calls))
+    expect(calls).toEqual(["release"])
+    expect(event.defaultPrevented).toBe(false)
+  }
+)
 
 /** An ask form; `extra` of `{ armedAt: later }` is one that opened a moment ago. */
 const askForm = (

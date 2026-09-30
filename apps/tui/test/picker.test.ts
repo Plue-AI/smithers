@@ -409,7 +409,7 @@ test("palette reads files only for the all-category query and propagates the cal
 
 test("palette retains contributed action ownership and exact file identity in serialized values", () => {
   const action: Extension.Action = { kind: "open", surface: "ui:worker:α:review" }
-  const sources = [{ key: "worker:α:review", label: "Review owned output", hint: "alt+r", action }]
+  const sources = [{ key: "worker:α:review", label: "Review owned output", hint: "alt+z", action }]
   const before = structuredClone(sources)
   let reads = 0
   const list = Picker.rows(
@@ -430,7 +430,7 @@ test("palette retains contributed action ownership and exact file identity in se
     {
       key: "worker:α:review",
       label: "Review owned output",
-      hint: "alt+r",
+      hint: "alt+z",
       value: "{\"kind\":\"action\",\"action\":{\"kind\":\"open\",\"surface\":\"ui:worker:α:review\"}}"
     },
     {

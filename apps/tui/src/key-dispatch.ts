@@ -96,7 +96,7 @@ export const context = (state: {
 }
 
 /** The terminal parser emits one Unicode code point per text key, not one UTF-16 unit. */
-const typing = (key: KeyEvent): string | undefined => {
+export const typing = (key: KeyEvent): string | undefined => {
   const typed = key.sequence
   return !key.ctrl && !key.meta && !key.option && Array.from(typed).length === 1 && typed >= " " && typed !== "\x7f"
     ? typed
@@ -481,7 +481,7 @@ export const dialogKey = (key: KeyEvent, open: { readonly kind: string; readonly
   if (key.name === "escape") return act.close()
   // Typing that arrives before the dialog's input mounts would reach the still-focused composer.
   const typed = typing(key)
-  if (state.composerFocused && typed !== undefined) {
+  if (state.composerFocused && open.kind !== "stop" && typed !== undefined) {
     key.preventDefault()
     return act.type(typed)
   }
@@ -529,7 +529,7 @@ export const menuKey = (key: KeyEvent, open: Complete.Completion, act: {
   return false
 }
 
-/** Keys while a panel has focus. Every unmodified key stops here. */
+/** Keys while a panel has focus. Worker letters are handled by the composer first. */
 export const panelKey = (key: KeyEvent, panel: Panels.Panel, state: {
   readonly surface: string
   readonly navigation: Panels.Navigation
@@ -546,13 +546,8 @@ export const panelKey = (key: KeyEvent, panel: Panels.Panel, state: {
   readonly continueRun: (id: string) => void
   readonly cancelRun: (id: string) => void
   readonly fillRun: (id: string) => void
-  /** Opens the form for a worker's ask the person holds. */
-  readonly answerWorker: (id: string) => void
-  /** Undo a worker's whole run when `tab` is set, else the chat turn of the selected Summary row. */
-  readonly undo: (row: Panels.Row | undefined, tab: string | undefined) => void
-  /** A worker's run diff, full height. */
-  readonly diff: (tab: string) => void
-  readonly workerAction: (tab: Tab, action: Tabs.ActionId) => void
+  /** Undo the chat turn of the selected Summary row. */
+  readonly undo: (row: Panels.Row | undefined) => void
   readonly scroll: (direction: number) => void
   readonly navigate: (update: (current: Panels.Navigation) => Panels.Navigation) => void
   /** An agent-written prompt, sent as text. */
@@ -560,6 +555,7 @@ export const panelKey = (key: KeyEvent, panel: Panels.Panel, state: {
   readonly perform: (action: Extension.Action) => void
 }) => {
   const { surface, navigation } = state
+  if (state.worker !== undefined && typing(key) !== undefined) return act.release()
   key.preventDefault()
   if (key.name === "escape") return act.close()
   if (key.name === "i") return act.release()
@@ -568,15 +564,9 @@ export const panelKey = (key: KeyEvent, panel: Panels.Panel, state: {
   if (key.name === "x" && surface.startsWith("flow:") && state.flow.stop) return act.cancelRun(surface.slice(5))
   if (key.name === "a" && surface.startsWith("flow:")) return act.fillRun(surface.slice(5))
   if (key.name === "u" && surface === "summary") {
-    return act.undo(panel.rows[Math.min(navigation.selected, panel.rows.length - 1)], undefined)
+    return act.undo(panel.rows[Math.min(navigation.selected, panel.rows.length - 1)])
   }
   if (state.worker !== undefined) {
-    if (key.name === "u") return act.undo(undefined, state.worker.id)
-    if (key.name === "d") return act.diff(state.worker.id)
-    if (key.name === "a") return act.answerWorker(state.worker.id)
-    const binding = Keys.bindingFor(key, "panel")
-    const action = binding === undefined ? undefined : Tabs.actionFor(binding.id, state.worker)
-    if (action !== undefined) return act.workerAction(state.worker, action.id)
     if (key.name === "pageup" || key.name === "pagedown") return act.scroll(key.name === "pageup" ? -1 : 1)
     return
   }

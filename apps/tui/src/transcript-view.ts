@@ -41,10 +41,11 @@ export const useTranscriptView = (options: {
   /** The shown surface's panel; the chat shows none. */
   readonly panel: Panels.Panel | undefined
   readonly setPanelFocus: (focus: boolean) => void
+  readonly panelFocus: boolean
   /** The chat column's width, which lays out its card grids. */
   readonly width: number
 }) => {
-  const { renderer, transcript, tabs, worker, filter, surface, setSurface, panel, setPanelFocus } = options
+  const { renderer, transcript, tabs, worker, filter, surface, setSurface, panel, setPanelFocus, panelFocus } = options
   /** The chat card `tab` focused, by its key; `enter` opens it. */
   const [cardFocus, setCardFocus] = useState<string | undefined>()
   const [earlierOpened, setEarlierOpened] = useState<ReadonlySet<string>>(() => new Set())
@@ -58,6 +59,40 @@ export const useTranscriptView = (options: {
     { source: string; seq: number; first: Activity.Activity["records"][number] } | undefined
   >()
   const scroll = useRef<ScrollBoxRenderable>(null)
+  const workerScroll = useRef<ScrollBoxRenderable | null>(null)
+  /** Inspection borrows navigation; closing gives back the exact view it borrowed. */
+  const origin = useRef<{ surface: string; panelFocus: boolean; scrollTop: number } | undefined>(undefined)
+  const restore = useRef<{ surface: string; scrollTop: number } | undefined>(undefined)
+  const viewport = () => surface.startsWith("tab:") ? workerScroll.current : scroll.current
+  const [liveEdge, setLiveEdge] = useState(0)
+  useLayoutEffect(() => {
+    const position = restore.current
+    if (position === undefined || position.surface !== surface) return
+    const box = viewport()
+    if (box === null) return
+    box.scrollTop = position.scrollTop
+    // Native layout settles after React has mounted a returned tab.
+    const timer = setTimeout(() => {
+      if (restore.current !== position) return
+      restore.current = undefined
+      const returned = viewport()
+      if (returned !== null) returned.scrollTop = position.scrollTop
+    }, 60)
+    return () => clearTimeout(timer)
+  }, [surface, inspection])
+  useLayoutEffect(() => {
+    if (liveEdge === 0) return
+    const follow = () => {
+      const box = viewport()
+      if (box !== null) box.scrollTop = box.scrollHeight
+    }
+    follow()
+    const timer = setTimeout(() => {
+      follow()
+      setLiveEdge(0)
+    }, 60)
+    return () => clearTimeout(timer)
+  }, [liveEdge, surface])
   const pendingReveal = useRef<
     {
       inspection: NonNullable<typeof inspection>
@@ -141,6 +176,7 @@ export const useTranscriptView = (options: {
   const inspectActivity = (seq: number, jumping = true) => {
     cancelReveal()
     if (monitored === undefined) return
+    origin.current ??= { surface, panelFocus, scrollTop: viewport()?.scrollTop ?? 0 }
     setPanelFocus(false)
     const nextInspection = { source: monitored.id, seq, first: monitored.activity.records[0]! }
     setInspection(nextInspection)
@@ -165,12 +201,26 @@ export const useTranscriptView = (options: {
   const followLive = () => {
     cancelReveal()
     setInspection(undefined)
-    const box = scroll.current
+    const prior = origin.current
+    origin.current = undefined
+    if (prior === undefined) return
+    restore.current = prior
+    setSurface(prior.surface)
+    setPanelFocus(prior.panelFocus)
+  }
+  const snapToLive = () => {
+    cancelReveal()
+    origin.current = undefined
+    restore.current = undefined
+    setInspection(undefined)
+    setLiveEdge((current) => current + 1)
+    const box = viewport()
     if (box !== null) box.scrollTop = box.scrollHeight
   }
   const dragScroll = useMemo(() => DragScroll.make(() => renderer.getSelection()?.isDragging === true), [renderer])
   return {
     scroll,
+    workerScroll,
     dragScroll,
     lane,
     rows,
@@ -200,10 +250,14 @@ export const useTranscriptView = (options: {
     workerJump: (id: string) => jump?.source === id ? jump.id : undefined,
     inspectActivity,
     followLive,
+    snapToLive,
     /** A new session starts at the live edge. */
     clearInspection: () => {
       cancelReveal()
       setInspection(undefined)
+      origin.current = undefined
+      restore.current = undefined
+      setLiveEdge(0)
     }
   }
 }

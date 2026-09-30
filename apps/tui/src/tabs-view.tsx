@@ -235,6 +235,7 @@ export function WorkerView(props: {
   /** The transcript item the run timeline's playhead is on. */
   readonly jump?: string | undefined
   readonly scrollRef?: RefObject<((direction: number) => void) | undefined>
+  readonly viewportRef?: RefObject<ScrollBoxRenderable | null>
   /** Titles from the chat down to this worker's parent. */
   readonly path: ReadonlyArray<string>
   readonly onBack: () => void
@@ -303,7 +304,10 @@ export function WorkerView(props: {
         </box>
       </box>
       <scrollbox
-        ref={scroll}
+        ref={(box) => {
+          scroll.current = box
+          if (props.viewportRef !== undefined) props.viewportRef.current = box
+        }}
         stickyScroll
         stickyStart="bottom"
         style={{ flexGrow: 1, flexShrink: 1, minHeight: 0, scrollbarOptions: { visible: false } }}

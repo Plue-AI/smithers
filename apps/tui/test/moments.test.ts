@@ -86,7 +86,7 @@ it("offers Raise cap on a worker stopped at its run cap, and nowhere else", () =
   // First, so it fits a narrow card before Resume and Switch model.
   expect(Tabs.actions(capped).map((action) => [action.id, action.keys[0], action.label])[0]).toEqual([
     "raise",
-    "a",
+    "alt+a",
     "Raise cap"
   ])
   expect(Tabs.actions(tab("r", "running")).map((action) => action.id)).not.toContain("raise")

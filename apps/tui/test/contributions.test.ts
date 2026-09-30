@@ -32,10 +32,10 @@ describe("contributions store", () => {
     let changes = 0
     contributions.subscribe(() => changes++)
     contributions.repo([
-      Extension.declared(agent("review", { keys: [{ key: "alt+r", label: "Review" }], status: true, card: true })),
+      Extension.declared(agent("review", { keys: [{ key: "alt+z", label: "Review" }], status: true, card: true })),
       Extension.declared(agent("release", { keys: [{ key: "alt+l", label: "Release" }] }))
     ])
-    expect(contributions.snapshot().keys.map((each) => each.key.key)).toEqual(["alt+r", "alt+l"])
+    expect(contributions.snapshot().keys.map((each) => each.key.key)).toEqual(["alt+z", "alt+l"])
     expect(contributions.snapshot().cards).toEqual(["review"])
     expect(contributions.snapshot().watched).toEqual(["review"])
     contributions.repo([Extension.declared(agent("release", { keys: [{ key: "alt+n", label: "Release" }] }))])
@@ -83,8 +83,8 @@ describe("contributions store", () => {
     // A panel key collides with the view's own keys, not with text typed in the composer.
     expect(refused(key("down", "j", "panel"))?.code).toBe("collision")
     expect(refused(key("go", "g", "panel"))).toBeUndefined()
-    contributions.repo([Extension.declared(agent("review", { keys: [{ key: "alt+r", label: "Review" }] }))])
-    expect(refused(key("mine", "alt+r"))).toEqual({ code: "collision", message: "alt+r is taken by repo:review" })
+    contributions.repo([Extension.declared(agent("review", { keys: [{ key: "alt+z", label: "Review" }] }))])
+    expect(refused(key("mine", "alt+z"))).toEqual({ code: "collision", message: "alt+z is taken by repo:review" })
     expect(contributions.snapshot().problems).toEqual([])
   })
 

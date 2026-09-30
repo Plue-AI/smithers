@@ -77,9 +77,9 @@ describe("breadcrumb and card click ownership", () => {
       80,
       4
     )
-    expect(mounted.captureCharFrame()).toContain("[x Stop] [s Steer]")
-    await clickText("[x Stop]")
-    await clickText("[s Steer]")
+    expect(mounted.captureCharFrame()).toContain("[alt+x Stop] [alt+s Steer]")
+    await clickText("[alt+x Stop]")
+    await clickText("[alt+s Steer]")
     expect(actions).toEqual([[worker, "stop"], [worker, "steer"]])
     expect(actions[0]![0]).toBe(worker)
     expect(opened).toEqual([])
@@ -144,10 +144,10 @@ describe("breadcrumb and card click ownership", () => {
       )
       const frame = mounted.captureCharFrame()
       expect(frame).toContain("42s · ")
-      if (width === 18) expect(frame).not.toContain("[x")
-      else expect(frame).toContain("[x Stop]")
-      if (width < 80) expect(frame).not.toContain("[s")
-      else expect(frame).toContain("[s Steer]")
+      if (width < 80) expect(frame).not.toContain("[alt+x")
+      else expect(frame).toContain("[alt+x Stop]")
+      if (width < 80) expect(frame).not.toContain("[alt+s")
+      else expect(frame).toContain("[alt+s Steer]")
       for (const line of frame.split("\n")) expect(stringWidth(line)).toBeLessThanOrEqual(width)
     })
   }

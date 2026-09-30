@@ -1687,7 +1687,7 @@ console.log("reverted");`,
     await tui.until((screen) => screen.includes("Fixer  1 file +1 −1") && screen.includes("a + b"), 5_000, "run diff")
     await tui.press(key.ctrlK)
     await tui.type("undo")
-    await tui.until((screen) => /Undo…\s+u/.test(screen), 5_000, "review undo action")
+    await tui.until((screen) => /Undo…\s+alt\+u/.test(screen), 5_000, "review undo action")
     await tui.press(key.enter)
     await tui.until(
       (screen) => screen.includes("Undo Fixer?") && screen.includes("[x] math.js"),
@@ -1702,7 +1702,7 @@ console.log("reverted");`,
     )
   }, 60_000)
 
-  it("u in a worker tab undoes the worker's edit and records it in the worker file", async () => {
+  it("Alt+U in a worker tab undoes the worker's edit and records it in the worker file", async () => {
     const cwd = repository()
     const sessions = mkdtempSync(join(tmpdir(), "tui-worker-undo-"))
     tui = await Tui.start({
@@ -1724,12 +1724,14 @@ console.log("reverted");`,
     await tui.until((screen) => screen.includes("Search") && /Fixer\s+done/.test(screen), 5_000, "tab row")
     await tui.press(key.enter)
     await tui.until(
-      (screen) => screen.includes("d Diff  u Undo  esc Chat") && screen.includes("Subagent · Fixer"),
+      (screen) => screen.includes("Continue Fixer") && screen.includes("Subagent · Fixer"),
       5_000,
       "worker tab"
     )
-    // u undoes the whole run, whatever row the view shows.
-    await tui.type("u")
+    await tui.press(key.tab)
+    await tui.until((screen) => screen.includes("alt+v Diff  alt+u Undo"), 5_000, "worker rows")
+    // Alt+U undoes the whole run, whatever row the view shows.
+    await tui.press("\x1bu")
     await tui.until((screen) => screen.includes("Undo Fixer?") && screen.includes("[x] math.js"), 5_000, "checklist")
     await tui.press(key.enter)
     await tui.until(
@@ -1743,8 +1745,8 @@ console.log("reverted");`,
     expect(chat.filter((record) => record.type === "undo")).toMatchObject([{ tab: "fixer", paths: ["math.js"] }])
     const worker = lines(join(folder, "workers", readdirSync(join(folder, "workers"))[0]!))
     expect(worker.filter((record) => record.type === "undo")).toMatchObject([{ paths: ["math.js"] }])
-    await tui.until((screen) => screen.includes("d Diff  esc Chat"), 5_000, "no undo left")
-    await tui.type("u")
+    await tui.until((screen) => screen.includes("alt+v Diff") && !screen.includes("alt+u Undo"), 5_000, "no undo left")
+    await tui.press("\x1bu")
     await tui.until((screen) => screen.includes("Nothing to undo"), 5_000, "nothing to undo")
   }, 60_000)
 
@@ -1983,7 +1985,9 @@ it(
       5_000,
       "inspect running worker"
     )
-    await tui.type("x")
+    await tui.press("\x1bx")
+    await tui.until((screen) => screen.includes("Stop Investigation?"), 5_000, "stop confirmation")
+    await tui.press(key.enter)
     await tui.until(
       (screen) => screen.includes("Investigation · Stopped") && screen.includes("r Resume"),
       5_000,
@@ -2033,7 +2037,6 @@ describe("worker tabs", () => {
 
   it("steers a running worker from its tab and goes back to the chat from its breadcrumb", async () => {
     const tui = await launch()
-    await tui.type("s")
     await tui.until((screen) => screen.includes("steer ↳ Investigation"), 5_000, "steer composer")
     await tui.type("also check the docs")
     await tui.press(key.enter)
@@ -2047,9 +2050,9 @@ describe("worker tabs", () => {
     await tui.until((screen) => !screen.includes("steer ↳"), 5_000, "steering ends on leaving")
     await tui.press("\x1b[1;5C")
     await tui.until(
-      (screen) => screen.includes("s Steer") && !screen.includes("steer ↳"),
+      (screen) => screen.includes("alt+s Steer") && screen.includes("steer ↳"),
       5_000,
-      "back without steering"
+      "back with the worker composer"
     )
     await tui.until((screen) => screen.includes("Subagent · Investigation"), 5_000, "breadcrumb")
     await tui.click("Back (ctrl+y)")
@@ -2069,7 +2072,7 @@ describe("worker tabs", () => {
       "ctrl+y to the chat"
     )
     await tui.press(key.tab)
-    await tui.until((screen) => screen.includes("[x Stop]") && screen.includes("enter Open"), 5_000, "focused card")
+    await tui.until((screen) => screen.includes("[alt+x Stop]") && screen.includes("enter Open"), 5_000, "focused card")
     await tui.press(key.enter)
     await tui.until((screen) => screen.includes("Subagent · Investigation"), 5_000, "enter opens the worker")
     await tui.press("\x19")
@@ -2080,7 +2083,7 @@ describe("worker tabs", () => {
       "overview"
     )
     await tui.press(key.tab)
-    await tui.until((screen) => screen.includes("[x Stop]"), 5_000, "the branch's focused card")
+    await tui.until((screen) => screen.includes("[alt+x Stop]"), 5_000, "the branch's focused card")
     await tui.press(key.escape)
     await tui.until((screen) => screen.includes("Requested the investigation."), 5_000, "esc closes")
   }, 60_000)
@@ -2102,16 +2105,16 @@ describe("worker tabs", () => {
     )
   }, 60_000)
 
-  for (const action of ["s"]) {
+  for (const action of ["alt+s"]) {
     it(`keeps typeahead after the worker's ${action} focus action`, async () => {
       const tui = await launch()
-      await tui.press(action + "keep-this-worker-draft")
+      await tui.press("\x1bskeep-this-worker-draft")
       await tui.until(
         (screen) => /┃\s+keep-this-worker-draft/.test(screen),
         5_000,
         "worker action keeps complete draft"
       )
-      expect(tui.screen().includes("steer ↳ Investigation")).toBe(action === "s")
+      expect(tui.screen().includes("steer ↳ Investigation")).toBe(true)
     }, 60_000)
   }
 })
@@ -2249,12 +2252,14 @@ describe("custom agents", () => {
     await tui.until((screen) => /review: look at math\.js replay/.test(screen), 20_000, "agent tab")
     await tui.type("still here")
     await tui.until((screen) => /┃\s+still here/.test(screen), 5_000, "composer usable while the agent runs")
-    // The toast follows the run until it really stops; x in the tab asks it to.
+    // The toast follows the run until it really stops; Alt+x in the tab opens confirmation.
     await tui.until((screen) => /review: look at math\.js · \d+s/.test(screen), 5_000, "running toast")
     await tui.press(key.ctrlBracket)
     await tui.press(key.ctrlBracket)
     await tui.until((screen) => screen.includes("x Stop"), 5_000, "agent tab")
-    await tui.type("x")
+    await tui.press("\x1bx")
+    await tui.until((screen) => /Stop review: look at math\.js\?/.test(screen), 5_000, "stop confirmation")
+    await tui.press(key.enter)
     await tui.until(
       (screen) => screen.includes("■ stopped") && screen.includes("r Resume") && !screen.includes("x Stop"),
       20_000,
@@ -2704,7 +2709,7 @@ describe("monitors", () => {
 })
 
 describe("extensions", () => {
-  const altR = "\x1br"
+  const altZ = "\x1bz"
   it("production terminal reloads canonical flow labels and a newly created subtree", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "tui-watch-production-"))
     const sessions = join(cwd, "sessions")
@@ -2770,7 +2775,7 @@ export default Flow.make("${tag}", {
     "metadata:",
     "  tui:",
     "    keys:",
-    "      - key: alt+r",
+    "      - key: alt+z",
     "        label: Review",
     "        action: { kind: flow, flow: review }",
     "    status: true",
@@ -2806,8 +2811,8 @@ export default Flow.make("${tag}", {
     "a metadata.tui key requests the flow; card, status and toast settle only with the run; chat stays usable",
     async () => {
       const { tui } = await open()
-      await tui.until((screen) => screen.includes("alt+r Review"), 10_000, "contributed key hint")
-      await tui.press(altR)
+      await tui.until((screen) => screen.includes("alt+z Review"), 10_000, "contributed key hint")
+      await tui.press(altZ)
       // One line in the chat, rewritten in place; the card says it, so no toast repeats it.
       await tui.until((screen) => /◌ review · \d+m?s/.test(screen), 5_000, "running card")
       await tui.until((screen) => /◌ review\s+↑/.test(screen), 5_000, "status item")
@@ -2911,10 +2916,10 @@ export default Flow.make("${tag}", {
 
   it("hot-reloads an edited flow.mdx and lists a colliding key as a problem", async () => {
     const { tui, mdx } = await open()
-    await tui.until((screen) => screen.includes("alt+r Review"), 10_000, "contributed key hint")
+    await tui.until((screen) => screen.includes("alt+z Review"), 10_000, "contributed key hint")
     writeFileSync(mdx, readFileSync(mdx, "utf8").replace("label: Review", "label: Recheck"))
-    await tui.until((screen) => screen.includes("alt+r Recheck"), 5_000, "reloaded label")
-    writeFileSync(mdx, readFileSync(mdx, "utf8").replace("key: alt+r", "key: ctrl+c"))
+    await tui.until((screen) => screen.includes("alt+z Recheck"), 5_000, "reloaded label")
+    writeFileSync(mdx, readFileSync(mdx, "utf8").replace("key: alt+z", "key: ctrl+c"))
     await tui.until((screen) => screen.includes("✗ 1 extension"), 5_000, "problem status item")
     expect(tui.screen()).not.toContain("Recheck")
     await tui.click("✗ 1 extension")

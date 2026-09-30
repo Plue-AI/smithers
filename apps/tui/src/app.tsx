@@ -148,6 +148,7 @@ export function App(props: AppProps) {
       ? { kind: "resume", query: "", selected: 0, sessions: Session.list(props.host.cwd) }
       : undefined
   )
+  const confirmedStops = useRef(new Set<string>())
   const [expanded, setExpanded] = useState(false)
   const { toast, setStatus, clearFailure } = Toasts.useToast()
   const [name, setName] = useState(restored.current?.name)
@@ -305,8 +306,6 @@ export function App(props: AppProps) {
     setPanelFocus,
     navigation,
     setNavigation,
-    steerTarget,
-    setSteerTarget,
     showTab,
     stepTab
   } = Surfaces.useSurface()
@@ -691,9 +690,9 @@ export function App(props: AppProps) {
     ? workerTab
     : undefined
   const selectedFlowActions = flowActions(surface.startsWith("flow:") ? runs.get(surface.slice(5)) : undefined)
-  /** The worker the composer steers: set by `s` in its tab, and only while that tab shows and runs. */
-  const steered = workerTab !== undefined && workerTab.id === steerTarget && workerTab.status === "running" &&
-      workerTab.driver === undefined
+  /** The composer addresses the agent whose tab is open. */
+  const steered = workerTab !== undefined && workerTab.status === "running" &&
+      workerTab.driver === undefined && workerTab.harness === undefined
     ? workerTab
     : undefined
   /** The worker the person drives from this tab (`t`): Enter runs its next frame. */
@@ -723,10 +722,22 @@ export function App(props: AppProps) {
       workspace.release(id)
     }
   }
+  const workerRun = (tab: Tab) => tab.continuationId ?? String(tab.launchedAt ?? tab.startedAt)
+  const stopKey = (id: string, run: string) => JSON.stringify([id, run])
   const workerAction = (tab: Tab, action: Tabs.ActionId) => {
     switch (action) {
       case "stop":
-        return workspace.cancel(tab.id)
+        if (confirmedStops.current.has(stopKey(tab.id, workerRun(tab)))) return
+        return flushSync(() =>
+          setPicker({
+            kind: "stop",
+            id: tab.id,
+            title: tab.title,
+            run: workerRun(tab),
+            query: "",
+            selected: 0
+          })
+        )
       case "retry":
         try {
           workspace.retry(tab.id)
@@ -746,7 +757,6 @@ export function App(props: AppProps) {
         // From a card or a toast, steering opens the worker's tab first.
         return flushSync(() => {
           if (surface !== `tab:${tab.id}`) showTab(`tab:${tab.id}`)
-          setSteerTarget(tab.id)
           setPanelFocus(false)
         })
       case "raise":
@@ -760,7 +770,6 @@ export function App(props: AppProps) {
         if (tab.harness !== undefined) return void handOver(tab.id)
         return flushSync(() => {
           if (surface !== `tab:${tab.id}`) showTab(`tab:${tab.id}`)
-          setSteerTarget(undefined)
           setPanelFocus(false)
         })
     }
@@ -775,7 +784,16 @@ export function App(props: AppProps) {
   const focusMain = basePanel?.placement === "main"
   const summaryAction = () =>
     Surfaces.summaryKey({ surface, main: focusMain, from: summaryFrom.current, strip: surfaces })
-  const merged = Keys.bindings(extensions.keys, summaryAction())
+  const merged = Keys.bindings(extensions.keys, summaryAction()).flatMap((binding): Array<Keys.Binding> => {
+    if (workerTab === undefined || binding.owner !== undefined) return [binding]
+    if (binding.id === "cards") return [{ ...binding, label: "Rows" }]
+    if (binding.context !== "panel") return [binding]
+    if (binding.id === "navigate") return [{ ...binding, keys: ["up", "down"], display: "↑↓" }]
+    if (binding.id === "close-panel") return [{ ...binding, context: panelFocus ? "panel" : "composer" }]
+    if (binding.id === "next-panel-tab") return [{ ...binding, label: "Composer" }]
+    const keys = binding.keys.filter((key) => key.startsWith("alt+"))
+    return keys.length === 0 ? [] : [{ ...binding, keys, context: panelFocus ? "panel" : "composer" }]
+  })
   /**
    * Approval keys the focused panel acts on: its `a` runs the selected row's action, opens a flow's form,
    * or answers the overview's or a worker tab's question, never an approval's "allow all".
@@ -815,7 +833,9 @@ export function App(props: AppProps) {
     workerJump,
     inspectActivity,
     followLive,
-    clearInspection
+    clearInspection,
+    workerScroll,
+    snapToLive
   } = TranscriptView.useTranscriptView({
     renderer,
     conversation: writer.current.file,
@@ -827,6 +847,7 @@ export function App(props: AppProps) {
     setSurface,
     panel,
     setPanelFocus,
+    panelFocus,
     width
   })
   const inboxRows = Inbox.flat(inbox, overview.failedOpen === true)
@@ -973,6 +994,7 @@ export function App(props: AppProps) {
     steered,
     driven,
     continued,
+    workerTab,
     width
   })
   live.current = {
@@ -988,6 +1010,7 @@ export function App(props: AppProps) {
     steered,
     driven,
     continued,
+    workerTab,
     width
   }
 
@@ -1699,10 +1722,10 @@ export function App(props: AppProps) {
       return
     }
     if (text === "") return
-    const steering = live.current.steered
     const continuing = live.current.continued
     // A driven worker reads plain text as its next message; `/` and `!` stay commands and shell.
-    const route = Composer.route(text, steering !== undefined || driving !== undefined || continuing !== undefined)
+    const target = live.current.workerTab
+    const route = Composer.route(text, target !== undefined)
     const verb = route._tag === "command" ? Editor.parseCommand(text)?.name : undefined
     if (
       verb !== undefined && (!Editor.known(verb) ||
@@ -1713,6 +1736,7 @@ export function App(props: AppProps) {
       return dismissMenu()
     }
     clearFailure()
+    snapToLive()
     const parked = parkedDraft.current
     parkedDraft.current = undefined
     history.current.add(text)
@@ -1731,8 +1755,9 @@ export function App(props: AppProps) {
       return
     }
     if (route._tag === "steer") {
-      if (!workspace.steer(steering!.id, text)) {
-        setStatus(workspace.unsteerable(steering!.id) ?? `${steering!.title} is not running`, "warning")
+      if (!workspace.steer(target!.id, text)) {
+        setText(text)
+        setStatus(workspace.unsteerable(target!.id) ?? `${target!.title} is not running`, "warning")
       }
       return
     }
@@ -1818,7 +1843,18 @@ export function App(props: AppProps) {
     if (open.kind === "flows" && runs.unloaded(value)) return
     setPicker(undefined)
     if (open.kind === "undo") return
-
+    if (open.kind === "stop") {
+      const tab = workspace.snapshot().tabs.find((each) => each.id === open.id)
+      if (
+        value === "stop" && tab !== undefined && workerRun(tab) === open.run &&
+        Tabs.actions(tab).some((action) => action.id === "stop") &&
+        !confirmedStops.current.has(stopKey(open.id, open.run))
+      ) {
+        confirmedStops.current.add(stopKey(open.id, open.run))
+        workspace.cancel(tab.id)
+      }
+      return
+    }
     if (open.kind === "model") return switchSeat(value)
     if (open.kind === "worker-model") return workspace.retry(open.id, value)
     if (open.kind === "flows") {
@@ -1988,18 +2024,23 @@ export function App(props: AppProps) {
     }
     if (key.ctrl && key.name === "t" && showActivity && monitored !== undefined && open === undefined) {
       key.preventDefault()
-      if (activeInspection !== undefined) followLive()
-      else inspectActivity(monitored.activity.records.at(-1)!.sequence!, false)
+      flushSync(() => {
+        if (activeInspection !== undefined) followLive()
+        else inspectActivity(monitored.activity.records.at(-1)!.sequence!, false)
+      })
       return
     }
     if (
       activeInspection !== undefined && monitored !== undefined && open === undefined &&
       Dispatch.scrubberKey(key, monitored.activity, activeInspection.seq, {
-        follow: followLive,
-        inspect: inspectActivity
+        follow: () => flushSync(followLive),
+        inspect: (seq) => flushSync(() => inspectActivity(seq))
       })
     ) return
-    if (focusedCard !== undefined && open === undefined && !key.ctrl && !key.meta && !key.option) {
+    if (
+      focusedCard !== undefined && open === undefined && !key.ctrl &&
+      (!(key.meta || key.option) || Keys.bindingFor(key, "panel") !== undefined)
+    ) {
       if (
         Dispatch.cardKey(key, {
           move: moveCard,
@@ -2076,6 +2117,46 @@ export function App(props: AppProps) {
         })
       }
       changeForm(undefined)
+    }
+    if (workerTab !== undefined && open === undefined && activeInspection === undefined && reviewTab === undefined) {
+      // A row selection never turns printable input into an agent command.
+      if (Dispatch.typing(key) !== undefined) {
+        flushSync(() => setPanelFocus(false))
+        return
+      }
+      if (key.name === "escape") {
+        key.preventDefault()
+        return flushSync(() => showTab("chat"))
+      }
+      if (key.name === "tab" && !key.shift && !key.ctrl && !key.meta && !key.option && completing === undefined) {
+        key.preventDefault()
+        return flushSync(() => setPanelFocus(!panelFocus))
+      }
+      if (key.meta || key.option) {
+        const binding = Keys.bindingFor(key, "panel")
+        if (binding?.id === "approve-form") {
+          key.preventDefault()
+          return flushSync(() => answerWorker(workerTab.id))
+        }
+        if (binding?.id === "undo") {
+          key.preventDefault()
+          return undoFrom(undefined, workerTab.id)
+        }
+        if (binding?.id === "diff") {
+          key.preventDefault()
+          if (canDiff(workerTab)) openReview(workerTab)
+          return
+        }
+        const action = binding === undefined ? undefined : Tabs.actionFor(binding.id, workerTab)
+        if (action !== undefined) {
+          key.preventDefault()
+          return workerAction(workerTab, action.id)
+        }
+      }
+      if (key.name === "pageup" || key.name === "pagedown") {
+        key.preventDefault()
+        return panelScroll.current?.(key.name === "pageup" ? -1 : 1)
+      }
     }
     if (key.ctrl && key.name === "k") {
       // Also keeps the composer's default Ctrl+K (delete to line end) from firing.
@@ -2205,7 +2286,10 @@ export function App(props: AppProps) {
       key.preventDefault()
       return flushSync(() => openAsk(soleAsk.from, "a"))
     }
-    if (overviewKeys && open === undefined && !key.ctrl && !key.meta && !key.option) {
+    if (
+      overviewKeys && open === undefined && !key.ctrl &&
+      (!(key.meta || key.option) || Keys.bindingFor(key, "panel") !== undefined)
+    ) {
       const ids = [SubagentView.chat, ...inboxKeys]
       const overviewWorker = overviewPane === "tree" ? overviewTab : overviewCard
       return Dispatch.overviewKey(key, {
@@ -2298,7 +2382,10 @@ export function App(props: AppProps) {
           }
       })
     }
-    if (panelFocus && panel !== undefined && open === undefined && !key.ctrl && !key.meta && !key.option) {
+    if (
+      panelFocus && panel !== undefined && open === undefined && !key.ctrl &&
+      (!(key.meta || key.option) || Keys.bindingFor(key, "panel") !== undefined)
+    ) {
       return Dispatch.panelKey(key, panel, { surface, navigation, worker: workerTab, flow: selectedFlowActions }, {
         close: () =>
           flushSync(() => {
@@ -2322,13 +2409,7 @@ export function App(props: AppProps) {
         },
         cancelRun: runs.cancel,
         fillRun: (id) => flushSync(() => openForm(id)),
-        answerWorker: (id) => flushSync(() => answerWorker(id)),
-        undo: undoFrom,
-        diff: (id) => {
-          const worker = snapshot.tabs.find((tab) => tab.id === id)
-          if (canDiff(worker)) openReview(worker)
-        },
-        workerAction,
+        undo: (row) => undoFrom(row, undefined),
         scroll: (direction) => panelScroll.current?.(direction),
         navigate: setNavigation,
         send: (prompt) => send(prompt),
@@ -2368,7 +2449,7 @@ export function App(props: AppProps) {
         type: (typed) =>
           flushSync(() =>
             setPicker((current) =>
-              current === undefined || current.kind === "undo"
+              current === undefined || current.kind === "undo" || current.kind === "stop"
                 ? current
                 : { ...current, query: current.query + typed, selected: 0 }
             )
@@ -2399,10 +2480,7 @@ export function App(props: AppProps) {
       history: history.current,
       scroll: scroll.current
     }, {
-      stopSteering: () => {
-        setSteerTarget(undefined)
-        setPanelFocus(true)
-      },
+      stopSteering: () => flushSync(() => showTab("chat")),
       setText: (next) => setText(next),
       quit,
       submit: (followUp) => submit(followUp),
@@ -2454,10 +2532,19 @@ export function App(props: AppProps) {
     ]
     : undefined
   // A worker's own actions are buttons in its view; the footer carries the rest.
-  const footerHints = driven !== undefined && !panelFocus
+  const footerHints =
+    driven !== undefined && !panelFocus && picker === undefined && form === undefined && activeInspection === undefined
     ? [
       ...cardHint("send"),
       ...cardHint("parent").map((binding) => ({ ...binding, label: "Release" }))
+    ]
+    : workerTab !== undefined && !panelFocus && picker === undefined && form === undefined &&
+        activeInspection === undefined && reviewTab === undefined
+    ? [
+      ...cardHint(steered === undefined ? "send" : "steer"),
+      ...cardHint("queue"),
+      ...cardHint("close-panel"),
+      ...cardHint("keys")
     ]
     : footerContext === "checklist" && checklistKeys !== undefined
     ? checklistKeys
@@ -2476,9 +2563,13 @@ export function App(props: AppProps) {
         : [])
     ]
     : footerContext === "panel" && workerTab !== undefined
-    ? Keys.panelHints({ diff: canDiff(workerTab), undo: canUndo(workerTab) }).filter((binding) =>
-      binding.id !== "expand-row" && binding.id !== "navigate"
-    )
+    ? [
+      ...(canDiff(workerTab) ? ["diff"] : []),
+      ...(canUndo(workerTab) ? ["undo"] : []),
+      "next-panel-tab",
+      "close-panel",
+      "keys"
+    ].flatMap((id) => merged.filter((binding) => binding.id === id))
     : footerContext === "panel" && panel !== undefined
     ? [
       ...(surface === "summary" ? Keys.panelHints({}).filter((binding) => binding.id === "close-panel") : []),
@@ -2697,6 +2788,7 @@ export function App(props: AppProps) {
                 onAction={(action) => workerAction(workerTab, action)}
                 jump={workerJump(workerTab.id)}
                 scrollRef={panelScroll}
+                viewportRef={workerScroll}
                 path={path(workerTab)}
                 onBack={() =>
                   clickTab(workerTab.parent === undefined ? "chat" : `tab:${workerTab.parent}`)}
@@ -2912,67 +3004,65 @@ export function App(props: AppProps) {
                 })}
             />
           )}
-          {form !== undefined ? null : (
+          <box
+            // Kept mounted under a form or a full-height diff, so a draft survives it.
+            visible={form === undefined && reviewTab === undefined}
+            style={{ border: ["left"], marginTop: short ? 0 : 1, flexShrink: 0 }}
+            borderColor={accent}
+            customBorderChars={View.bar}
+          >
             <box
-              // Kept mounted under a full-height diff, so a draft survives it.
-              visible={reviewTab === undefined}
-              style={{ border: ["left"], marginTop: short ? 0 : 1, flexShrink: 0 }}
-              borderColor={accent}
-              customBorderChars={View.bar}
+              style={{ paddingLeft: 2, paddingRight: 2, paddingTop: short ? 0 : 1 }}
+              backgroundColor={color.surface}
             >
-              <box
-                style={{ paddingLeft: 2, paddingRight: 2, paddingTop: short ? 0 : 1 }}
+              <textarea
+                ref={composer}
+                selectionOccupancy="boundary"
+                focused={picker === undefined && !panelFocus && form === undefined && reviewTab === undefined}
+                placeholder={workerTab !== undefined && driven === undefined
+                  ? `Continue ${tabTitle(workerTab)}`
+                  : driven !== undefined
+                  ? ""
+                  : working
+                  ? "Steer, or alt+enter to queue"
+                  : "Ask Smithers to change this repository"}
+                placeholderColor={color.faint}
+                textColor={color.text}
+                focusedTextColor={color.text}
                 backgroundColor={color.surface}
-              >
-                <textarea
-                  ref={composer}
-                  selectionOccupancy="boundary"
-                  focused={picker === undefined && !panelFocus && form === undefined && reviewTab === undefined}
-                  placeholder={continued !== undefined
-                    ? `Continue ${tabTitle(continued)}`
-                    : steered !== undefined || driven !== undefined
-                    ? ""
-                    : working
-                    ? "Steer, or alt+enter to queue"
-                    : "Ask Smithers to change this repository"}
-                  placeholderColor={color.faint}
-                  textColor={color.text}
-                  focusedTextColor={color.text}
-                  backgroundColor={color.surface}
-                  focusedBackgroundColor={color.surface}
-                  cursorColor={color.brand}
-                  keyBindings={Composer.keys}
-                  onSubmit={() => submit(false)}
-                  onContentChange={onContentChange}
-                  onCursorChange={onCursorChange}
-                  style={{
-                    minHeight: 1,
-                    maxHeight: short
-                      ? Math.max(1, Math.floor(chatHeight / 4))
-                      : Math.max(6, Math.floor(chatHeight / 3))
-                  }}
-                />
-                <text wrapMode="none" style={{ marginTop: short ? 0 : 1, marginBottom: short ? 0 : 1 }}>
-                  {driven !== undefined
-                    ? (
-                      <>
-                        <span fg={color.needs}>{`⇄ driving ${driven.title}`}</span>
-                        <span fg={color.faint}>{"  ·  "}</span>
-                      </>
-                    )
-                    : bashMode || steered !== undefined
-                    ? (
-                      <>
-                        <span fg={accent}>{bashMode ? "shell" : `steer ↳ ${steered!.title}`}</span>
-                        <span fg={color.faint}>{"  ·  "}</span>
-                      </>
-                    )
-                    : null}
-                  <AppView.ComposerModel seat={seat} models={props.models} worker={driven ?? steered} />
-                </text>
-              </box>
+                focusedBackgroundColor={color.surface}
+                cursorColor={color.brand}
+                keyBindings={Composer.keys}
+                onSubmit={() => submit(false)}
+                onContentChange={onContentChange}
+                onCursorChange={onCursorChange}
+                style={{
+                  minHeight: 1,
+                  maxHeight: short
+                    ? Math.max(1, Math.floor(chatHeight / 4))
+                    : Math.max(6, Math.floor(chatHeight / 3))
+                }}
+              />
+              <text wrapMode="none" style={{ marginTop: short ? 0 : 1, marginBottom: short ? 0 : 1 }}>
+                {driven !== undefined
+                  ? (
+                    <>
+                      <span fg={color.needs}>{`⇄ driving ${driven.title}`}</span>
+                      <span fg={color.faint}>{"  ·  "}</span>
+                    </>
+                  )
+                  : bashMode || steered !== undefined
+                  ? (
+                    <>
+                      <span fg={accent}>{bashMode ? "shell" : `steer ↳ ${steered!.title}`}</span>
+                      <span fg={color.faint}>{"  ·  "}</span>
+                    </>
+                  )
+                  : null}
+                <AppView.ComposerModel seat={seat} models={props.models} worker={driven ?? steered} />
+              </text>
             </box>
-          )}
+          </box>
           <StatusLine
             lead={working
               ? (
@@ -3022,12 +3112,15 @@ export function App(props: AppProps) {
       {picker === undefined ? null : (
         <PickerDialog
           title={Pickers.title(picker, parsedPalette?.mode === "text" && search?.truncated === true)}
-          query={picker.kind === "undo" ? undefined : picker.query}
+          query={picker.kind === "undo" || picker.kind === "stop" ? undefined : picker.query}
           onQuery={(query) =>
             flushSync(() =>
               setPicker((
                 current
-              ) => (current === undefined || current.kind === "undo" ? current : { ...current, query, selected: 0 }))
+              ) => (current === undefined || current.kind === "undo" || current.kind === "stop"
+                ? current
+                : { ...current, query, selected: 0 })
+              )
             )}
           rows={rows}
           selected={picker.selected}

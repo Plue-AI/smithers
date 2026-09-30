@@ -147,15 +147,15 @@ describe("mentions", () => {
 describe("contributed actions", () => {
   it("lists contributed keys and status items in the plain search and picks their action", () => {
     const actions = [{
-      key: "repo:review/alt+r",
+      key: "repo:review/alt+z",
       label: "Review",
-      hint: "alt+r",
+      hint: "alt+z",
       action: { kind: "flow" as const, flow: "review" }
     }]
     const found = rows("revi", { actions })
     expect(found[0]).toMatchObject({
       label: "Review",
-      hint: "alt+r",
+      hint: "alt+z",
       value: { kind: "action", action: { kind: "flow", flow: "review" } }
     })
     expect(rows("/revi", { actions }).some((row) => row.value.kind === "action")).toBe(false)
@@ -177,7 +177,7 @@ describe("built-in actions", () => {
 
   it("always offers undo and the wrapped workers, and the diff keys only on a view", () => {
     expect(acts().map((row) => [row.label, row.hint])).toEqual([
-      ["Undo…", "u"],
+      ["Undo…", "alt+u"],
       ["Run Claude Code…", undefined],
       ["Run Codex…", undefined]
     ])
@@ -204,11 +204,11 @@ describe("built-in actions", () => {
     const listed = acts({ tabs: [tab("w1", "Investigation", "running"), tab("w2", "Docs pass", "failed")] })
     const worker = listed.filter((row) => row.act.act === "worker")
     expect(worker.map((row) => [row.label, row.detail, row.hint])).toEqual([
-      ["Stop", "Investigation", "x"],
-      ["Steer", "Investigation", "s"],
-      ["Take over", "Investigation", "t"],
-      ["Resume", "Docs pass", "r"],
-      ["Switch model", "Docs pass", "m"]
+      ["Stop", "Investigation", "alt+x"],
+      ["Steer", "Investigation", "alt+s"],
+      ["Take over", "Investigation", "alt+t"],
+      ["Resume", "Docs pass", "alt+r"],
+      ["Switch model", "Docs pass", "alt+m"]
     ])
     expect(worker[0]!.act).toEqual({ act: "worker", id: "w1", action: "stop" })
     expect(worker.some((row) => row.detail === "Investigation" && row.label === "Resume")).toBe(false)
@@ -218,8 +218,8 @@ describe("built-in actions", () => {
     const listed = acts({ runs: [run("a", "running"), run("b", "cancelled"), run("c", "done")] })
       .filter((row) => row.act.act === "run")
     expect(listed.map((row) => [row.label, row.detail, row.hint, row.act])).toEqual([
-      ["Stop", "flow-a", "x", { act: "run", id: "a", action: "stop" }],
-      ["Resume", "flow-b", "r", { act: "run", id: "b", action: "retry" }]
+      ["Stop", "flow-a", "alt+x", { act: "run", id: "a", action: "stop" }],
+      ["Resume", "flow-b", "alt+r", { act: "run", id: "b", action: "retry" }]
     ])
   })
 
@@ -227,7 +227,7 @@ describe("built-in actions", () => {
     const listed = acts({ runs: [run("p", "parked")] }).filter((row) => row.act.act === "run")
     expect(listed.map((row) => [row.label, row.hint, row.act])).toEqual([
       ["Continue", "c", { act: "run", id: "p", action: "continue" }],
-      ["Stop", "x", { act: "run", id: "p", action: "stop" }]
+      ["Stop", "alt+x", { act: "run", id: "p", action: "stop" }]
     ])
   })
 
@@ -240,7 +240,7 @@ describe("built-in actions", () => {
       views: [{ id: "checks", title: "Addition checks" }]
     })
     expect(listed.filter((row) => row.act.act === "monitor").map((row) => [row.label, row.detail, row.hint]))
-      .toEqual([["Stop", "CI watcher", "x"]])
+      .toEqual([["Stop", "CI watcher", "alt+x"]])
     expect(listed.find((row) => row.act.act === "view")).toMatchObject({
       label: "Addition checks",
       act: { act: "view", id: "checks" }
@@ -251,7 +251,7 @@ describe("built-in actions", () => {
     const listed = acts({ tabs: [tab("w1", "Investigation", "running")] })
     expect(rows("undo", { acts: listed })[0]).toMatchObject({
       label: "Undo…",
-      hint: "u",
+      hint: "alt+u",
       value: { kind: "act", act: { act: "undo" } }
     })
     expect(rows("stop inv", { acts: listed }).map((row) => row.value)[0]).toEqual({

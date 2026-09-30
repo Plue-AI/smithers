@@ -213,7 +213,7 @@ test("Ctrl+K finds undo with its key and says so when there is nothing to undo",
   await key("k", { ctrl: true })
   await type("undo")
   const listed = await draw()
-  expect(listed).toMatch(/Undo…\s+u/)
+  expect(listed).toMatch(/Undo…\s+alt\+u/)
   expect(listed).toContain("enter Choose  esc Back")
   await enter()
   await waitFor(() => setup!.captureCharFrame().includes("Nothing to undo"))

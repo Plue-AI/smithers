@@ -385,7 +385,7 @@ describe("the card grid", () => {
     expect(lines[2]).toContain("├ Read auth/login.ts ✓")
     expect(lines[3]).toContain("└ Editing login.ts…")
     // The rows of the shorter card pad so both footers share a line.
-    expect(lines[4]).toMatch(/▌42s · GPT-6 Sol +\[x Stop\] \[s Steer\] ▌42s · GPT-6 Sol +waiting/)
+    expect(lines[4]).toMatch(/▌42s · GPT-6 Sol +\[alt+x Stop\] ▌42s · GPT-6 Sol +waiting/)
     expect(lines[5]?.trim()).toBe("")
     // A short last row stretches across the width.
     expect(lines[6]).toMatch(/^▌● docs/)
@@ -474,9 +474,9 @@ describe("the card grid", () => {
     }
     const card = await mount(<SubagentView.Grid tabs={[stopped]} width={60} cards={focusedCards} />, 60, 6)
     const lines = card.captureCharFrame().split("\n")
-    const at = lines.findIndex((line) => line.includes("[r Resume]"))
+    const at = lines.findIndex((line) => line.includes("[alt+r Resume]"))
     expect(at).toBeGreaterThanOrEqual(0)
-    await act(() => card.mockMouse.click(lines[at]!.indexOf("[r Resume]") + 1, at))
+    await act(() => card.mockMouse.click(lines[at]!.indexOf("[alt+r Resume]") + 1, at))
     expect(pressed).toEqual(["jsdoc:retry"])
   })
 })

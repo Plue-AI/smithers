@@ -1,3 +1,4 @@
+import { type Renderable, ScrollBoxRenderable, TextareaRenderable } from "@opentui/core"
 import { testRender } from "@opentui/react/test-utils"
 import * as AgentEvent from "@smthrs/harness/AgentEvent"
 import * as ModelRequest from "@smthrs/model/ModelRequest"
@@ -11,6 +12,8 @@ import { act } from "react"
 import { App } from "../src/app.tsx"
 import type * as Host from "../src/host.ts"
 import * as Session from "../src/session.ts"
+import * as Theme from "../src/theme.ts"
+import { seats } from "../src/workspace.ts"
 
 // App boundary units with native headless rendering and real session storage.
 // Only Host execution is controlled; no provider, shell or live agent runs.
@@ -19,6 +22,7 @@ let cwd = ""
 let previousRoot: string | undefined
 let setup: Awaited<ReturnType<typeof testRender>> | undefined
 let host: Host.Host
+let settleCancellation = true
 let turns: Array<{
   input: Host.TurnInput
   done: ReturnType<typeof Promise.withResolvers<Host.Outcome>>
@@ -37,7 +41,7 @@ const type = async (text: string) => {
   })
   await render()
 }
-const key = async (name: string, modifiers: { ctrl?: boolean } = {}) => {
+const key = async (name: string, modifiers: { ctrl?: boolean; meta?: boolean; shift?: boolean } = {}) => {
   await act(async () => {
     setup!.mockInput.pressKey(name, modifiers)
     await setImmediate()
@@ -98,6 +102,7 @@ beforeEach(async () => {
   previousRoot = process.env.SMITHERS_TUI_SESSION_DIR
   process.env.SMITHERS_TUI_SESSION_DIR = join(root, "sessions")
   turns = []
+  settleCancellation = true
   host = {
     cwd,
     judged: false,
@@ -114,7 +119,7 @@ beforeEach(async () => {
         done: turn.done.promise,
         cancel: () => {
           turn.cancelled++
-          turn.done.resolve({ _tag: "cancelled" })
+          if (settleCancellation) turn.done.resolve({ _tag: "cancelled" })
         }
       }
     }
@@ -206,8 +211,11 @@ test("Ctrl+K stop cancels only its named worker and resume reuses its prompt and
   await delegate(turns[0]!.input, { id: "other", title: "Other review", prompt: "Review src/two.ts only." })
   await key("k", { ctrl: true })
   await type("stop review one")
-  expect(frame()).toMatch(/Stop\s+x\s+Review one file/)
-  expect(frame()).not.toMatch(/Stop\s+x\s+Other review/)
+  expect(frame()).toMatch(/Stop\s+alt\+x\s+Review one file/)
+  expect(frame()).not.toMatch(/Stop\s+alt\+x\s+Other review/)
+  await key("RETURN")
+  expect(frame()).toContain("Stop Review one file?")
+  expect(turns.map((turn) => turn.cancelled)).toEqual([0, 0, 0])
   await key("RETURN")
   expect(turns.map((turn) => turn.cancelled)).toEqual([0, 1, 0])
   expect(tabs().filter((record) => record.tab.id === "review").at(-1)!.tab.status).toBe("cancelled")
@@ -295,17 +303,19 @@ test.each([
 test("Ctrl+K lists stop only while a worker runs and resume only once it stopped, so neither repeats", async () => {
   await delegate(turns[0]!.input)
   await palette("stop review")
+  expect(frame()).toContain("Stop Review one file?")
+  await key("RETURN")
   await key("k", { ctrl: true })
   await type("review one")
-  expect(frame()).not.toMatch(/Stop\s+x\s+Review one file/)
-  expect(frame()).toMatch(/Resume\s+r\s+Review one file/)
+  expect(frame()).not.toMatch(/Stop\s+alt\+x\s+Review one file/)
+  expect(frame()).toMatch(/Resume\s+alt\+r\s+Review one file/)
   await closePalette()
   expect(turns.map((turn) => turn.cancelled)).toEqual([0, 1])
   await palette("resume review")
   await key("k", { ctrl: true })
   await type("review one")
-  expect(frame()).not.toMatch(/Resume\s+r\s+Review one file/)
-  expect(frame()).toMatch(/Stop\s+x\s+Review one file/)
+  expect(frame()).not.toMatch(/Resume\s+alt\+r\s+Review one file/)
+  expect(frame()).toMatch(/Stop\s+alt\+x\s+Review one file/)
   await closePalette()
   expect(turns.map((turn) => turn.input.prompt)).toEqual([
     "Coordinate a review",
@@ -360,3 +370,340 @@ test("worker steering drains only from the selected worker and never from the co
   await finish(0, { _tag: "done", answer: "Coordinator done" })
   expect(turns).toHaveLength(2)
 })
+
+const descendant = <T extends Renderable>(node: Renderable, kind: new(...args: never[]) => T): T | undefined => {
+  if (node instanceof kind) return node
+  for (const child of node.getChildren()) {
+    const found = descendant(child, kind)
+    if (found !== undefined) return found
+  }
+  return undefined
+}
+const composer = () => descendant(setup!.renderer.root, TextareaRenderable)!
+const scroll = () => descendant(setup!.renderer.root, ScrollBoxRenderable)!
+const openWorker = async () => {
+  await key("ARROW_RIGHT", { ctrl: true })
+  await key("ARROW_RIGHT", { ctrl: true })
+  expect(frame()).toContain("Continue Review one file")
+}
+const opening = (input: Host.TurnInput) =>
+  input.onEvent(
+    new AgentEvent.TurnOpened({
+      eventType: "flows.harness.turn-opened.v1",
+      seat: input.seat,
+      modelParams: {},
+      activeToolNames: [],
+      contextDigest: "fixture"
+    })
+  )
+const stream = async (index: number, text: string) => {
+  await act(async () => {
+    opening(turns[index]!.input)
+    turns[index]!.input.onEvent(
+      new AgentEvent.ModelDelta({
+        eventType: "flows.harness.model-delta.v1",
+        delta: { type: "text-delta", id: `fixture-${index}`, text }
+      })
+    )
+    await setImmediate()
+  })
+  await render()
+}
+const drainDeferredScroll = async () => {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    await setImmediate()
+  })
+  await render()
+}
+
+test.each([false, true])(
+  "worker opens its native composer and printable action letters type, rows=%s",
+  async (rows) => {
+    await delegate(turns[0]!.input)
+    await key("ARROW_RIGHT", { ctrl: true })
+    // The focus key and later bytes arrive in one terminal write, before React's
+    // next render. The native editor must own all of the following characters.
+    await act(async () => {
+      setup!.mockInput.pressKey("ARROW_RIGHT", { ctrl: true })
+      if (rows) setup!.mockInput.pressKey("TAB")
+      await setup!.mockInput.pressKeys(Array.from("explain rxstmawudvjkhl 😀"))
+    })
+    await render()
+    expect(composer().focused).toBe(true)
+    expect(composer().plainText).toBe("explain rxstmawudvjkhl 😀")
+    expect(turns.map((turn) => turn.cancelled)).toEqual([0, 0])
+    expect(tabs().at(-1)!.tab.status).toBe("running")
+    expect(turns).toHaveLength(2)
+    await key("RETURN")
+    const inserts =
+      Effect.runSync(turns[1]!.input.steering!.drain({ boundary: "worker-cell", wouldIdle: false })).inserts
+    expect(
+      inserts.map((message) => message.content.flatMap((part) => part.type === "text" ? [part.text] : []).join(""))
+    )
+      .toEqual(["explain rxstmawudvjkhl 😀"])
+    expect(Effect.runSync(turns[0]!.input.steering!.drain({ boundary: "chat-cell", wouldIdle: false })).inserts)
+      .toEqual([])
+  }
+)
+
+test("printable retry letters in a finished worker tab remain an unsent draft", async () => {
+  await delegate(turns[0]!.input)
+  await finish(1, { _tag: "done", answer: "Review complete" })
+  await openWorker()
+  await type("rerun explanation")
+  expect(composer().plainText).toBe("rerun explanation")
+  expect(composer().focused).toBe(true)
+  expect(turns).toHaveLength(2)
+  expect(tabs().at(-1)!.tab.status).toBe("done")
+})
+
+test.each(["escape", "cancel", "confirm"] as const)(
+  "Stop %s confirms only the selected run and preserves its draft",
+  async (choice) => {
+    await delegate(turns[0]!.input)
+    await delegate(turns[0]!.input, { id: "other", title: "Other review", prompt: "Review another file." })
+    await openWorker()
+    await type("Keep this draft")
+    await key("x", { meta: true })
+    expect(frame()).toContain("Stop Review one file?")
+    expect(turns.map((turn) => turn.cancelled)).toEqual([0, 0, 0])
+    if (choice === "escape") {
+      await key("ESCAPE")
+      await drainDeferredScroll()
+    } else {
+      if (choice === "cancel") await key("ARROW_DOWN")
+      await key("RETURN")
+    }
+    expect(composer().plainText).toBe("Keep this draft")
+    expect(turns.map((turn) => turn.cancelled)).toEqual([0, choice === "confirm" ? 1 : 0, 0])
+    expect(frame()).not.toContain("Stop Review one file?")
+    if (choice === "confirm") {
+      await key("x", { meta: true })
+      expect(frame()).not.toContain("Stop Review one file?")
+      expect(turns[1]!.cancelled).toBe(1)
+      await key("r", { meta: true })
+      expect(turns).toHaveLength(4)
+      await key("x", { meta: true })
+      expect(frame()).toContain("Stop Review one file?")
+      expect(turns[3]!.cancelled).toBe(0)
+      await key("RETURN")
+      expect(turns[3]!.cancelled).toBe(1)
+    }
+  }
+)
+
+test("a run that completes while its Stop confirmation is open cannot be cancelled afterward", async () => {
+  await delegate(turns[0]!.input)
+  await openWorker()
+  await key("x", { meta: true })
+  await finish(1, { _tag: "done", answer: "Finished while confirming" })
+  await key("RETURN")
+  expect(turns[1]!.cancelled).toBe(0)
+  expect(tabs().at(-1)!.tab.status).toBe("done")
+  expect(frame()).not.toContain("Stop Review one file?")
+})
+
+test("an unresolved Stop is confirmed once across keyboard, palette and chip requests; a new run confirms anew", async () => {
+  settleCancellation = false
+  await delegate(turns[0]!.input)
+  await openWorker()
+  await key("x", { meta: true })
+  await key("RETURN")
+  expect(turns[1]!.cancelled).toBe(1)
+  expect(tabs().at(-1)!.tab.status).toBe("running")
+  await key("x", { meta: true })
+  expect(frame()).not.toContain("Stop Review one file?")
+  await palette("stop review")
+  expect(frame()).not.toContain("Stop Review one file?")
+  const lines = frame().split("\n")
+  const y = lines.findIndex((line) => line.includes("alt+x Stop"))
+  expect(y).toBeGreaterThanOrEqual(0)
+  await act(async () => {
+    await setup!.mockMouse.click(lines[y]!.indexOf("alt+x Stop") + 6, y)
+  })
+  await render()
+  expect(frame()).not.toContain("Stop Review one file?")
+  expect(turns[1]!.cancelled).toBe(1)
+  await finish(1, { _tag: "cancelled" })
+  await key("r", { meta: true })
+  expect(turns).toHaveLength(3)
+  await key("x", { meta: true })
+  expect(frame()).toContain("Stop Review one file?")
+  expect(turns[2]!.cancelled).toBe(0)
+  await key("RETURN")
+  expect(turns[2]!.cancelled).toBe(1)
+})
+
+test.each([false, true])("a contributed panel key keeps its owning worker and row context, rows=%s", async (rows) => {
+  await delegate(turns[0]!.input)
+  await delegate(turns[0]!.input, { id: "other", title: "Other review", prompt: "Review another file." })
+  await act(async () => {
+    turns[1]!.input.runtime!.publish({
+      kind: "key",
+      key: { id: "back", key: "alt+z", label: "Back", context: "panel", action: { kind: "open", surface: "chat" } }
+    })
+    await setImmediate()
+  })
+  await render()
+  await palette("tab:Other review")
+  if (rows) await key("TAB")
+  await key("z", { meta: true })
+  expect(frame()).toContain("Subagent · Other review")
+  expect(turns).toHaveLength(3)
+  await palette("tab:Review one file")
+  await key("z", { meta: true })
+  expect(frame()).toContain("Subagent · Review one file")
+  await key("TAB")
+  await key("z", { meta: true })
+  expect(frame()).not.toContain("Subagent · Review one file")
+  expect(frame()).toContain("Coordinate a review")
+  expect(frame()).not.toContain("steer ↳ Review one file")
+  expect(turns).toHaveLength(3)
+})
+
+test("Stop confirmation for a failed run cannot cancel its replacement", async () => {
+  await delegate(turns[0]!.input)
+  await openWorker()
+  await key("x", { meta: true })
+  await finish(1, { _tag: "failed", message: "Fixture failure", detail: "Failed while confirming" })
+  await act(async () => {
+    turns[0]!.input.runtime!.retry!("review")
+    await setImmediate()
+  })
+  await render()
+  expect(turns).toHaveLength(3)
+  await key("RETURN")
+  expect(turns.map((turn) => turn.cancelled)).toEqual([0, 0, 0])
+  expect(tabs().at(-1)!.tab.status).toBe("running")
+  expect(frame()).not.toContain("Stop Review one file?")
+})
+
+test("printable answer keys in a worker's form fill its answer without steering or stopping", async () => {
+  await delegate(turns[0]!.input)
+  await openWorker()
+  let answer: Promise<unknown> | undefined
+  await act(async () => {
+    answer = turns[1]!.input.runtime!.ask!({ question: "Which path?", to: "person" })
+    await setImmediate()
+  })
+  await render()
+  await key("a", { meta: true })
+  expect(frame()).toContain("Which path?")
+  await type("explain rxstmawudvjkhl")
+  await key("RETURN")
+  expect(await answer).toEqual({ answer: "explain rxstmawudvjkhl", approved: true })
+  expect(turns.map((turn) => turn.cancelled)).toEqual([0, 0])
+  expect(Effect.runSync(turns[1]!.input.steering!.drain({ boundary: "worker-cell", wouldIdle: false })).inserts)
+    .toEqual([])
+  expect(Effect.runSync(turns[0]!.input.steering!.drain({ boundary: "chat-cell", wouldIdle: false })).inserts).toEqual(
+    []
+  )
+})
+
+test("a queued worker retains its message and never reroutes it to Chat", async () => {
+  for (let index = 0; index < seats; index++) {
+    await delegate(turns[0]!.input, {
+      id: `active-${index}`,
+      title: `Active ${index}`,
+      prompt: `Review file ${index}.`
+    })
+  }
+  await delegate(turns[0]!.input, { id: "queued", title: "Queued review", prompt: "Review the queued file." })
+  await palette("tab:Queued review")
+  expect(tabs().findLast((record) => record.tab.id === "queued")!.tab.status).toBe("queued")
+  await type("Keep this with the queued review")
+  await key("RETURN")
+  expect(composer().plainText).toBe("Keep this with the queued review")
+  expect(frame()).toContain("Queued review is not running")
+  expect(turns).toHaveLength(seats + 1)
+  expect(Effect.runSync(turns[0]!.input.steering!.drain({ boundary: "chat-cell", wouldIdle: false })).inserts).toEqual(
+    []
+  )
+  expect(records().filter((record) => record.type === "user").map((record) => record.text))
+    .not.toContain("Keep this with the queued review")
+})
+
+test("Escape after Chat timeline inspection restores its scroll and sends to Chat, even when inspection opened a worker", async () => {
+  await stream(0, "Earlier chat line\n".repeat(50))
+  await delegate(turns[0]!.input)
+  await stream(1, "Worker line\n".repeat(35))
+  // A live step shows its prose only expanded.
+  await key("o", { ctrl: true })
+  await type("Chat draft")
+  await key("\u001b[5~")
+  const position = scroll().scrollTop
+  expect(position).toBeLessThan(scroll().scrollHeight - scroll().viewport.height)
+  await key("t", { ctrl: true })
+  await key("ARROW_LEFT")
+  await drainDeferredScroll()
+  expect(frame()).toContain("steer ↳ Review one file")
+  await key("ESCAPE")
+  await drainDeferredScroll()
+  expect(frame()).not.toContain("steer ↳ Review one file")
+  expect(scroll().scrollTop).toBe(position)
+  expect(composer().plainText).toBe("Chat draft")
+  expect(composer().focused).toBe(true)
+  await type(" restored")
+  await key("RETURN")
+  expect(Effect.runSync(turns[1]!.input.steering!.drain({ boundary: "worker-cell", wouldIdle: false })).inserts)
+    .toEqual([])
+  const inserts = Effect.runSync(turns[0]!.input.steering!.drain({ boundary: "chat-cell", wouldIdle: false })).inserts
+  expect(inserts.map((message) => message.content.flatMap((part) => part.type === "text" ? [part.text] : []).join("")))
+    .toEqual(["Chat draft restored"])
+})
+
+test("Escape after worker timeline inspection restores the worker's scroll, draft and composer target", async () => {
+  await delegate(turns[0]!.input)
+  await stream(1, "Worker line\n".repeat(50))
+  await key("o", { ctrl: true })
+  await openWorker()
+  await type("Worker draft")
+  await key("\u001b[5~")
+  const position = scroll().scrollTop
+  await key("t", { ctrl: true })
+  await key("ARROW_LEFT")
+  await drainDeferredScroll()
+  await key("ESCAPE")
+  await drainDeferredScroll()
+  expect(scroll().scrollTop).toBe(position)
+  expect(composer().plainText).toBe("Worker draft")
+  expect(composer().focused).toBe(true)
+  await type(" restored")
+  await key("RETURN")
+  const inserts = Effect.runSync(turns[1]!.input.steering!.drain({ boundary: "worker-cell", wouldIdle: false })).inserts
+  expect(inserts.map((message) => message.content.flatMap((part) => part.type === "text" ? [part.text] : []).join("")))
+    .toEqual(["Worker draft restored"])
+  expect(Effect.runSync(turns[0]!.input.steering!.drain({ boundary: "chat-cell", wouldIdle: false })).inserts).toEqual(
+    []
+  )
+})
+
+test.each(["chat", "worker"] as const)(
+  "Enter while %s is scrolled up reveals the person's new message",
+  async (target) => {
+    await stream(0, "Old chat content\n".repeat(50))
+    if (target === "worker") {
+      await delegate(turns[0]!.input)
+      await stream(1, "Old worker content\n".repeat(50))
+      await key("o", { ctrl: true })
+      await openWorker()
+    } else await finish(0, { _tag: "done", answer: "Old chat content\n".repeat(50) })
+    await key("\u001b[5~")
+    await key("\u001b[5~")
+    expect(scroll().scrollTop).toBeLessThan(scroll().scrollHeight - scroll().viewport.height)
+    await type("Reply with exactly: hello")
+    await key("RETURN")
+    await drainDeferredScroll()
+    expect(frame()).toContain("Reply with exactly: hello")
+    expect(scroll().scrollTop).toBe(scroll().scrollHeight - scroll().viewport.height)
+    if (target === "chat") {
+      await finish(1, { _tag: "done", answer: "hello" })
+      expect(frame()).toContain("hello")
+    } else {
+      expect(turns).toHaveLength(2)
+      expect(Effect.runSync(turns[1]!.input.steering!.drain({ boundary: "worker-cell", wouldIdle: false })).inserts)
+        .toHaveLength(1)
+    }
+  }
+)

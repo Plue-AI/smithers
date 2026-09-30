@@ -33,7 +33,7 @@ export const keyProblem = (key: string, context: "global" | "panel"): string | u
 
 const KeyFields = Schema.Struct({
   id: short,
-  /** The `keys.ts` token spelling: `alt+r`, `ctrl+shift+e`. */
+  /** The `keys.ts` token spelling: `alt+z`, `ctrl+shift+e`. */
   key: line(40),
   label: line(24),
   action: Action,

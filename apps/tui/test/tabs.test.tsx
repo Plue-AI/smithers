@@ -111,14 +111,14 @@ describe("worker actions", () => {
   const keys = (status: Tabs.Status, failure?: Tab["failure"]) =>
     Tabs.actions({ status, ...(failure === undefined ? {} : { failure }) }).map((action) => action.keys[0])
   it("offers stop, resume, model, wait, steer and take over only when they apply", () => {
-    expect(keys("running")).toEqual(["x", "s", "t"])
-    expect(keys("requested")).toEqual(["x"])
-    expect(keys("queued")).toEqual(["x"])
-    expect(keys("waiting")).toEqual(["x"])
-    expect(keys("parked")).toEqual(["x"])
-    expect(keys("failed")).toEqual(["r", "m"])
+    expect(keys("running")).toEqual(["alt+x", "alt+s", "alt+t"])
+    expect(keys("requested")).toEqual(["alt+x"])
+    expect(keys("queued")).toEqual(["alt+x"])
+    expect(keys("waiting")).toEqual(["alt+x"])
+    expect(keys("parked")).toEqual(["alt+x"])
+    expect(keys("failed")).toEqual(["alt+r", "alt+m"])
     expect(keys("failed", { headline: "Usage limit", fault: "wait", line: "", actions: ["resume", "wait"] } as never))
-      .toEqual(["r", "m", "w"])
+      .toEqual(["alt+r", "alt+m", "alt+w"])
     // No credit: another model first, and no wait for a reset that will not come.
     expect(
       keys("failed", {
@@ -128,7 +128,7 @@ describe("worker actions", () => {
         actions: ["switch-model", "resume", "details"]
       })
     )
-      .toEqual(["m", "r"])
+      .toEqual(["alt+m", "alt+r"])
     expect(
       keys("failed", {
         headline: "Model route unavailable",
@@ -137,8 +137,8 @@ describe("worker actions", () => {
         actions: ["switch-model", "resume", "details"]
       })
     )
-      .toEqual(["m", "r"])
-    expect(keys("cancelled")).toEqual(["r"])
+      .toEqual(["alt+m", "alt+r"])
+    expect(keys("cancelled")).toEqual(["alt+r"])
     expect(keys("done")).toEqual([])
     // While the person drives it, stop is the only button; ctrl+y releases.
     expect(Tabs.actions({ status: "running", driver: { by: "you", from: 0, messages: 0 } }).map((each) => each.id))
@@ -146,20 +146,20 @@ describe("worker actions", () => {
   })
   it("resolves a key to the action it runs, never one the status forbids", () => {
     const run = (name: string, status: Tabs.Status) =>
-      Tabs.actionFor(Keys.bindingFor({ name }, "panel")!.id, { status })?.id
-    expect(run("x", "running")).toBe("stop")
-    expect(run("r", "running")).toBeUndefined()
-    expect(run("r", "failed")).toBe("retry")
-    expect(run("s", "queued")).toBeUndefined()
-    expect(run("t", "running")).toBe("takeover")
-    expect(run("t", "waiting")).toBeUndefined()
+      Tabs.actionFor(Keys.bindingFor({ name: name.slice(4), meta: true }, "panel")!.id, { status })?.id
+    expect(run("alt+x", "running")).toBe("stop")
+    expect(run("alt+r", "running")).toBeUndefined()
+    expect(run("alt+r", "failed")).toBe("retry")
+    expect(run("alt+s", "queued")).toBeUndefined()
+    expect(run("alt+t", "running")).toBe("takeover")
+    expect(run("alt+t", "waiting")).toBeUndefined()
     // `c` continues a parked flow run; it runs no worker action.
     expect(Keys.bindingFor({ name: "c" }, "panel")?.id).toBe("continue")
-    expect(run("c", "parked")).toBeUndefined()
+    expect(Tabs.actionFor("continue", { status: "parked" })).toBeUndefined()
   })
   it("takes every action's keys and label from a panel binding in the registry", () => {
     for (const action of Tabs.bindings) {
-      const binding = Keys.bindingFor({ name: action.keys[0]! }, "panel")
+      const binding = Keys.bindingFor({ name: action.keys[0]!.slice(4), meta: true }, "panel")
       expect(binding?.context).toBe("panel")
       expect(binding?.keys).toEqual(action.keys)
       // Raise cap names what `a` does to a capped worker; every other button uses the key's own label.

@@ -61,6 +61,7 @@ const mount = async (options: Partial<Input> = {}) => {
         filter: Timeline.all,
         surface: "chat",
         panel: undefined,
+        panelFocus: false,
         width: 80,
         ...options
       }}
@@ -241,7 +242,7 @@ test("worker inspection opens its own tab and exposes only that worker's jump ta
   expect(current().workerJump("w1")).toBeUndefined()
 })
 
-test("reveal uses the mounted scroll box and follow-live clears inspection and reaches its bottom", async () => {
+test("reveal uses the mounted scroll box and ending inspection restores its original scroll", async () => {
   await mount({ transcript: running(100) })
   const box = current().scroll.current!
   expect(box.scrollTop).toBe(0)
@@ -254,6 +255,8 @@ test("reveal uses the mounted scroll box and follow-live clears inspection and r
   await action((view) => view.inspectActivity(1, false))
   await action((view) => view.followLive())
   expect(current().activeInspection).toBeUndefined()
+  expect(box.scrollTop).toBe(position)
+  await action((view) => view.snapToLive())
   expect(box.scrollTop).toBe(box.scrollHeight - box.viewport.height)
 })
 
@@ -308,16 +311,16 @@ const drainReveal = async () => {
   await setImmediate()
 }
 
-test("returning to live must invalidate an earlier delayed inspection reveal", async () => {
+test("ending inspection invalidates an earlier delayed reveal and restores the prior scroll", async () => {
   await mount({ transcript: longTranscript(100) })
+  const prior = current().scroll.current!.scrollTop
   await action((view) => view.inspectActivity(1))
   await action((view) => view.followLive())
   const box = current().scroll.current!
-  const liveEdge = box.scrollHeight - box.viewport.height
-  expect(box.scrollTop).toBe(liveEdge)
+  expect(box.scrollTop).toBe(prior)
   await drainReveal()
   expect(current().activeInspection).toBeUndefined()
-  expect(box.scrollTop).toBe(liveEdge)
+  expect(box.scrollTop).toBe(prior)
 })
 
 test("restoring a new session with reused row IDs must invalidate the old delayed reveal", async () => {
@@ -325,7 +328,7 @@ test("restoring a new session with reused row IDs must invalidate the old delaye
   await action((view) => view.inspectActivity(1))
   await action((view) => view.clearInspection())
   await change({ transcript: longTranscript(500) })
-  await action((view) => view.followLive())
+  await action((view) => view.snapToLive())
   const box = current().scroll.current!
   const liveEdge = box.scrollHeight - box.viewport.height
   expect(current().activeInspection).toBeUndefined()

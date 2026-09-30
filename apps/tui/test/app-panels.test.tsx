@@ -255,14 +255,14 @@ test("a contributed global key queues its prompt only when invoked and leaves th
     kind: "key",
     key: {
       id: "checks",
-      key: "alt+r",
+      key: "alt+z",
       label: "Run checks",
       action: { kind: "prompt", prompt: "Run contributed checks" }
     }
   })
   expect(records().filter((record) => record.type === "queued")).toEqual([])
   expect(turns).toHaveLength(1)
-  await key("r", { meta: true })
+  await key("z", { meta: true })
   expect(
     records().filter((record) => record.type === "queued").map((record) => ({
       text: record.prompt.text,

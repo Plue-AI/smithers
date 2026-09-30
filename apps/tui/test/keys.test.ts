@@ -170,18 +170,18 @@ describe("key registry", () => {
       Keys.panelHints(options).map((binding) => `${Keys.primaryKey(binding)} ${binding.label}`)
     expect(hints({})).toEqual(["esc Chat", "hjkl/arrows Navigate", "enter Expand row", "? Keys"])
     expect(hints({ retry: true, stop: true, diff: true, undo: true, action: "Approve" })).toEqual([
-      "r Resume",
-      "x Stop",
+      "alt+r Resume",
+      "alt+x Stop",
       "d Diff",
-      "u Undo",
-      "a Approve",
+      "alt+u Undo",
+      "alt+a Approve",
       "esc Chat",
       "hjkl/arrows Navigate",
       "enter Expand row",
       "? Keys"
     ])
     // A parked run offers Continue in place of Resume, beside Stop.
-    expect(hints({ continue: true, stop: true }).slice(0, 2)).toEqual(["c Continue", "x Stop"])
+    expect(hints({ continue: true, stop: true }).slice(0, 2)).toEqual(["c Continue", "alt+x Stop"])
     expect(read("panel-view.tsx")).not.toMatch(/esc chat|r retry|x stop|u undo/)
   })
 
@@ -248,8 +248,8 @@ describe("contributed keys", () => {
   const review = {
     owner: "repo:review",
     key: {
-      id: "repo:review/alt+r",
-      key: "alt+r",
+      id: "repo:review/alt+z",
+      key: "alt+z",
       label: "Review",
       context: "global" as const,
       action: { kind: "flow" as const, flow: "review" }
@@ -258,9 +258,9 @@ describe("contributed keys", () => {
   const merged = Keys.bindings([review])
 
   it("merges a contributed global key into the hints and the popup, grouped by owner", () => {
-    expect(Keys.hintsFor("composer", merged).map((binding) => binding.id)).toContain("repo:review/alt+r")
-    expect(Keys.hintsFor("global", merged).map((binding) => binding.id)).toContain("repo:review/alt+r")
-    const popup = Keys.bindingsFor("composer", merged).find((binding) => binding.id === "repo:review/alt+r")
+    expect(Keys.hintsFor("composer", merged).map((binding) => binding.id)).toContain("repo:review/alt+z")
+    expect(Keys.hintsFor("global", merged).map((binding) => binding.id)).toContain("repo:review/alt+z")
+    const popup = Keys.bindingsFor("composer", merged).find((binding) => binding.id === "repo:review/alt+z")
     expect(popup).toMatchObject({
       group: "review",
       label: "Review",
@@ -271,12 +271,12 @@ describe("contributed keys", () => {
   })
 
   it("dispatches the contributed binding from the merged list only", () => {
-    expect(Keys.bindingFor({ name: "r", meta: true }, "composer", merged)?.id).toBe("repo:review/alt+r")
-    expect(Keys.bindingFor({ name: "r", option: true }, "panel", merged)?.action).toEqual({
+    expect(Keys.bindingFor({ name: "z", meta: true }, "composer", merged)?.id).toBe("repo:review/alt+z")
+    expect(Keys.bindingFor({ name: "z", option: true }, "panel", merged)?.action).toEqual({
       kind: "flow",
       flow: "review"
     })
-    expect(Keys.bindingFor({ name: "r", meta: true }, "composer")).toBeUndefined()
+    expect(Keys.bindingFor({ name: "z", meta: true }, "composer")).toBeUndefined()
   })
 
   it("names the built-in binding a contributed key would shadow", () => {
@@ -284,7 +284,8 @@ describe("contributed keys", () => {
     // Spelling and modifier order do not hide a collision.
     expect(Keys.taken("shift+ctrl+p", "global")?.id).toBe("previous-model")
     expect(Keys.taken("j", "panel")?.id).toBe("navigate")
-    expect(Keys.taken("alt+r", "global")).toBeUndefined()
+    expect(Keys.taken("alt+z", "global")).toBeUndefined()
+    expect(Keys.taken("alt+r", "global")?.id).toBe("retry")
     expect(Keys.taken("g", "panel")).toBeUndefined()
   })
 

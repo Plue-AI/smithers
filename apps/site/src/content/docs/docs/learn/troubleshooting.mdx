@@ -36,8 +36,8 @@ Start with the error on the card, row, or output. It names what failed and what 
 | --- | --- |
 | OpenTUI fails to load with `Operation not permitted` | If `/tmp` is mounted `noexec`, [set a writable, executable `TMPDIR`](/docs/tui/cli/#startup-on-a-noexec-temporary-filesystem) and retry interactive startup. |
 | No model available | Set a provider key and restart. See [Configuration](/docs/tui/configuration/). |
-| Worker parked | Wait for its reset, or press `r` to retry now. A failed worker offers `m` to choose another model. |
-| Worker failed | Press `r` to retry. |
+| Worker parked | Wait for its reset, or press Alt+R to retry now. A failed agent offers Alt+M to choose another model. |
+| Worker failed | Press Alt+R to retry. |
 | `Stop running work first` | Stop or finish running work before switching conversations or undoing. |
 | Undo refused | The file changed since; review the newer edit. |
 | Flow runs old code | Restart the TUI after changing a `flow.ts`. |
