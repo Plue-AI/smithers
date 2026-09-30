@@ -35,7 +35,7 @@
  * @since 1.0.0
  */
 
-import { Duration, Effect, Option, Queue, Schema } from "effect"
+import { Clock, Duration, Effect, Option, Queue, Schema } from "effect"
 import type { ExternalEvent } from "../core/ExternalEvent.ts"
 import { IntegrationError } from "../core/IntegrationError.ts"
 import * as Environment from "../Environment.ts"
@@ -223,10 +223,16 @@ export const make = (
       )
       const acknowledge = (envelopeId: string) =>
         Effect.sync(() => socket.send(JSON.stringify({ envelope_id: envelopeId })))
+      // One deadline for the whole greeting: a frame that is not `hello` does
+      // not buy the connection more time.
+      const helloDeadlineMs = (yield* Clock.currentTimeMillis) + helloTimeoutMs
       let greeted = false
       while (true) {
         const inbound = greeted ? yield* Queue.take(inbox) : yield* Queue.take(inbox).pipe(
-          Effect.timeoutOrElse({ duration: Duration.millis(helloTimeoutMs), orElse: () => Effect.succeed(CLOSED) })
+          Effect.timeoutOrElse({
+            duration: Duration.millis(Math.max(0, helloDeadlineMs - (yield* Clock.currentTimeMillis))),
+            orElse: () => Effect.succeed(CLOSED)
+          })
         )
         if (inbound._tag === "Closed") return { greeted, immediate: false }
         const data = inbound.data

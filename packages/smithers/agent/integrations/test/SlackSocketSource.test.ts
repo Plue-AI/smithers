@@ -288,6 +288,64 @@ describe("SocketSource.run", () => {
     expect(opens()).toHaveLength(3)
   })
 
+  it("keeps one hello deadline however many other frames arrive before it", async () => {
+    await start()
+    const chatter: Array<ReturnType<typeof setInterval>> = []
+    const chatty = (peer: Peer) => {
+      let sent = 0
+      chatter.push(setInterval(() => {
+        sent += 1
+        if (sent % 2 === 0) peer.sendText("not json")
+        else peer.send({ type: "events_api", payload: callback(`Ev${sent}`) })
+      }, 10))
+    }
+    const startedAt = Date.now()
+    const run = running(
+      source({ helloTimeout: 100, reconnect: { initialDelay: 5, maxDelay: 20, maxAttempts: 2 } })
+    )
+    try {
+      const peers = [await (fixture as SlackFixture).nextPeer()]
+      chatty(peers[0] as Peer)
+      peers.push(await (fixture as SlackFixture).nextPeer())
+      chatty(peers[1] as Peer)
+      const error = failureOf(await run.result())
+      expect(error).toMatchObject({ reason: "poll-failed", details: { attempts: 2 } })
+      expect(Date.now() - startedAt).toBeLessThan(1_000)
+      await Promise.all(peers.map((peer) => peer.closed))
+      expect(opens()).toHaveLength(2)
+      expect(run.delivered).toEqual([])
+    } finally {
+      chatter.forEach(clearInterval)
+    }
+  })
+
+  it("stops counting the greeting once hello arrives inside the deadline, even after other frames", async () => {
+    await start()
+    const run = running(source({ helloTimeout: 150 }))
+    const peer = await (fixture as SlackFixture).nextPeer()
+    peer.sendText("not json")
+    peer.send({ type: "events_api", payload: callback("Ev0") })
+    await new Promise((resolve) => setTimeout(resolve, 60))
+    peer.send({ type: "hello", num_connections: 1 })
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    peer.send(envelope("late", callback("Ev1")))
+    expect(acked(await peer.next())).toBe("late")
+    expect(run.delivered.map((event) => event.dedupeKey)).toEqual(["slack:T1:Ev1"])
+    expect(opens()).toHaveLength(1)
+    await run.stop()
+  })
+
+  it("closes the connection when the host interrupts it while it waits for hello", async () => {
+    await start()
+    const run = running(source({ helloTimeout: 5_000 }))
+    const peer = await (fixture as SlackFixture).nextPeer()
+    peer.sendText("not json")
+    await run.stop()
+    await peer.closed
+    expect(opens()).toHaveLength(1)
+    expect(peer.received).toEqual([])
+  })
+
   it("counts a refused WebSocket upgrade as a failed attempt", async () => {
     let count = 0
     fixture = await startSlackFixture((_call, response) => {
