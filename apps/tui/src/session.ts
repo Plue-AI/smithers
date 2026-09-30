@@ -176,6 +176,27 @@ const said = <A extends { readonly answer?: string; readonly message?: string }>
   ...(value.message === undefined ? {} : { message: text(value.message) })
 })
 
+/** A view's shown text, redacted; its ids and each row's executable action keep their bytes. */
+const view = (panel: Panels.Panel): Panels.Panel => ({
+  ...panel,
+  title: text(panel.title),
+  summary: text(panel.summary),
+  rows: panel.rows.map((row) => ({
+    ...row,
+    label: text(row.label),
+    details: JSON.parse(strings(row.details)) as typeof row.details,
+    ...(row.action === undefined ? {} : { action: { ...row.action, label: text(row.action.label) } })
+  }))
+})
+
+/** A status item's or key's shown text, redacted; its id, binding and action keep their bytes. */
+const contributed = (
+  contribution: Extract<Record, { readonly type: "contribution" }>["contribution"]
+): Extract<Record, { readonly type: "contribution" }>["contribution"] =>
+  contribution.kind === "status"
+    ? { ...contribution, status: { ...contribution.status, text: text(contribution.status.text) } }
+    : { ...contribution, key: { ...contribution.key, label: text(contribution.key.label) } }
+
 /**
  * A record as a session file holds it: the journal's textual credential rules
  * applied to its text, so `!printenv` or an agent reading `~/.ssh` leaves
@@ -185,8 +206,9 @@ const said = <A extends { readonly answer?: string; readonly message?: string }>
  * What the TUI re-executes keeps its bytes: a placeholder in a `patch` is what
  * undo would write into the file, one in a flow run's input or a worker tab's
  * prompt is what retry would relaunch, one in a monitor's source is what its
- * next tick would run, and one in a view is what selecting its action would
- * send; a queued follow-up is the prompt its turn will send. `session` and `undo` hold ids and paths, which a rule could mistake for
+ * next tick would run, and one in a view's, a card's, a status item's or a
+ * key's action is what invoking it would send; a queued follow-up is the
+ * prompt its turn will send. `session` and `undo` hold ids and paths, which a rule could mistake for
  * a key (`~/sk-demo-project`).
  */
 const line = (record: Record): string => {
@@ -199,9 +221,13 @@ const line = (record: Record): string => {
     case "session":
     case "patch":
     case "undo":
-    case "panel":
     case "queued":
       return JSON.stringify(record) + "\n"
+    case "panel":
+    case "card":
+      return JSON.stringify({ ...record, panel: view(record.panel) }) + "\n"
+    case "contribution":
+      return JSON.stringify({ ...record, contribution: contributed(record.contribution) }) + "\n"
     case "tab":
       return JSON.stringify({ ...record, tab: said(record.tab) }) + "\n"
     case "flow":

@@ -376,6 +376,86 @@ describe("credentials in a saved session", () => {
       { ...monitor, monitor: { ...monitor.monitor, seen: "token=[REDACTED]" } }
     ])
   })
+
+  it("keeps every view's, card's, status item's and key's action and redacts only their shown text (#2645)", () => {
+    const operand = `docs/${key}/README.md`
+    const flow = { kind: "flow", flow: "open", input: { path: operand } } as const
+    const panel = {
+      id: `ui-${key}`,
+      title: `Title ${pat}`,
+      summary: `Summary ${pat}`,
+      bind: { tree: `tree-${key}` },
+      rows: [
+        {
+          id: `row-${key}`,
+          label: `Row ${pat}`,
+          details: [{ kind: "text" as const, text: `detail ${pat}` }],
+          action: { label: `Open ${pat}`, action: flow }
+        },
+        { id: "prompted", label: "Ask", details: [], action: { label: "Ask", prompt: `explain ${operand}` } },
+        { id: "control", label: "docs/plain/README.md", details: [] }
+      ]
+    }
+    const shownPanel = {
+      ...panel,
+      title: "Title [REDACTED]",
+      summary: "Summary [REDACTED]",
+      rows: [
+        {
+          ...panel.rows[0]!,
+          label: "Row [REDACTED]",
+          details: [{ kind: "text", text: "detail [REDACTED]" }],
+          action: { label: "Open [REDACTED]", action: flow }
+        },
+        panel.rows[1]!,
+        panel.rows[2]!
+      ]
+    }
+    type Contributed = Extract<Session.Record, { type: "contribution" }>
+    const status: Contributed = {
+      type: "contribution",
+      owner: `runtime:${key}`,
+      contribution: { kind: "status", status: { id: `ci-${key}`, text: `CI ${pat}`, action: flow } }
+    }
+    const keyed: Contributed & { readonly contribution: { readonly kind: "key" } } = {
+      type: "contribution",
+      owner: "runtime:chat",
+      contribution: {
+        kind: "key",
+        key: { id: "open", key: "alt+o", label: `Open ${pat}`, action: flow, context: "panel" }
+      }
+    }
+    const writer = Session.create(mkdtempSync(join(tmpdir(), "tui-cwd-")))
+    const records: ReadonlyArray<Session.Record> = [
+      { type: "panel", panel },
+      { type: "card", at: 1, panel: { ...panel, id: "card" } },
+      status,
+      keyed
+    ]
+    for (const record of records) writer.append(record)
+    const loaded = Session.load(writer.file).slice(1)
+    expect(loaded).toEqual([
+      { type: "panel", panel: shownPanel },
+      { type: "card", at: 1, panel: { ...shownPanel, id: "card" } },
+      { ...status, contribution: { kind: "status", status: { id: `ci-${key}`, text: "CI [REDACTED]", action: flow } } },
+      { ...keyed, contribution: { kind: "key", key: { ...keyed.contribution.key, label: "Open [REDACTED]" } } }
+    ])
+    const saved = readFileSync(writer.file, "utf8")
+    expect(saved).not.toContain(pat)
+    expect(saved).toContain(operand)
+
+    // Restored, each surface's action is the one published, byte for byte.
+    const restored = Session.restore(loaded)
+    expect(restored.workspace.panels.map((each) => each.rows[0]?.action)).toEqual([
+      { label: "Open [REDACTED]", action: flow },
+      { label: "Open [REDACTED]", action: flow }
+    ])
+    expect(restored.workspace.cards).toEqual(["card"])
+    expect(restored.contributions.map(({ owner, contribution }) => [owner, contribution])).toEqual([
+      [`runtime:${key}`, { kind: "status", status: { id: `ci-${key}`, text: "CI [REDACTED]", action: flow } }],
+      ["runtime:chat", { ...keyed.contribution, key: { ...keyed.contribution.key, label: "Open [REDACTED]" } }]
+    ])
+  })
 })
 
 const plan = { id: "release", title: "Release plan", summary: "Two steps left.", rows: [] }
