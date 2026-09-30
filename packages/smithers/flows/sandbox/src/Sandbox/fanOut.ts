@@ -32,14 +32,17 @@ export interface FanOutOptions {
 }
 
 /**
- * Forks `count` children from `parent`, keyed `<parent id>/child-<n>`.
+ * Forks `count` children from `parent`, keyed `<parent id>/<batch>/child-<n>`
+ * where the batch is new on every run.
  *
- * Every child starts from the parent's tree without its credentials and is
- * released when the acquiring scope closes, so a fan-out inside the parent's
- * scope never outlives the parent. A failed fork fails the whole fan-out;
- * children already forked are still released by the scope. A count outside
- * 1..{@link maxFanOut} throws a `RangeError`; a parent whose provider cannot
- * fork fails with `unavailable`.
+ * The batch first forks one base from the parent and forks every child from
+ * that base, so all children start from the same tree even while the parent
+ * keeps changing. Every child starts without the parent's credentials, and the
+ * base and children are released when the acquiring scope closes, so a
+ * fan-out inside the parent's scope never outlives the parent. A failed fork
+ * fails the whole fan-out; machines already forked are still released by the
+ * scope. A count outside 1..{@link maxFanOut} throws a `RangeError`; a machine
+ * that cannot fork fails with `unavailable`.
  *
  * @category constructors
  * @since 1.0.0
@@ -55,15 +58,21 @@ export const fanOut = (
   if (!Number.isSafeInteger(concurrency) || concurrency < 1) {
     throw new RangeError("fanOut: concurrency must be a positive integer")
   }
-  const fork = parent.fork
-  if (fork === undefined) {
-    return Effect.fail(
-      new ProviderError({ code: "unavailable", message: `the machine behind session ${parent.id} cannot fork` })
+  return Effect.gen(function*() {
+    const batch = `${parent.id}/${globalThis.crypto.randomUUID()}`
+    const base = yield* forkOf(parent)(`${batch}/base`)
+    const fork = forkOf(base)
+    return yield* Effect.forEach(
+      Array.from({ length: count }, (_, index) => `${batch}/child-${index}`),
+      (key) => fork(key),
+      { concurrency }
     )
-  }
-  return Effect.forEach(
-    Array.from({ length: count }, (_, index) => `${parent.id}/child-${index}`),
-    (key) => fork(key),
-    { concurrency }
-  )
+  })
 }
+
+const forkOf = (session: Session): (key: string) => Effect.Effect<Session, ProviderError, Scope> =>
+  session.fork ??
+    (() =>
+      Effect.fail(
+        new ProviderError({ code: "unavailable", message: `the machine behind session ${session.id} cannot fork` })
+      ))

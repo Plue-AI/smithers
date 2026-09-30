@@ -337,7 +337,7 @@ describe("DirectorySandbox", () => {
             return { copied, parentAfter, ran, child: child!, parent }
           })
         )
-        expect(outcome.child.id).toBe("fan/main/child-0")
+        expect(outcome.child.id).toMatch(/^fan\/main\/[0-9a-f-]{36}\/child-0$/)
         expect(outcome.child.workdir).not.toBe(outcome.parent.workdir)
         expect(outcome.copied).toBe("parent")
         expect(outcome.parentAfter).toBe("parent")
@@ -347,6 +347,38 @@ describe("DirectorySandbox", () => {
       }),
     budget
   )
+
+  it.effect("forks without vendor sign-ins, and keeps concurrent batches apart", () =>
+    Effect.gen(function*() {
+      const directory = yield* provider
+      const { fs } = yield* services
+      const encode = (text: string) => new TextEncoder().encode(text)
+      yield* Effect.scoped(
+        Effect.gen(function*() {
+          const parent = yield* directory.acquire("fan/home")
+          yield* parent.writeFile(`${parent.workdir}/.codex/auth.json`, encode("{}"))
+          yield* parent.writeFile(`${parent.workdir}/.claude.json`, encode("{}"))
+          yield* parent.writeFile(`${parent.workdir}/.config/anthropic/key`, encode("sk"))
+          yield* parent.writeFile(`${parent.workdir}/.codex/config.toml`, encode("kept"))
+          const first = yield* Effect.scoped(
+            Effect.gen(function*() {
+              const [child] = yield* Sandbox.fanOut(parent, { count: 1 })
+              const [other] = yield* Effect.scoped(Sandbox.fanOut(parent, { count: 1 }))
+              // The inner batch closed; the outer child is untouched.
+              expect(yield* fs.exists(other!.workdir)).toBe(false)
+              expect(yield* fs.exists(child!.workdir)).toBe(true)
+              for (const login of [".codex/auth.json", ".claude.json", ".config/anthropic/key"]) {
+                expect(yield* fs.exists(`${child!.workdir}/${login}`)).toBe(false)
+              }
+              expect(yield* fs.readFileString(`${child!.workdir}/.codex/config.toml`)).toBe("kept")
+              return child!
+            })
+          )
+          expect(yield* fs.exists(first.workdir)).toBe(false)
+          expect(yield* fs.exists(`${parent.workdir}/.codex/auth.json`)).toBe(true)
+        })
+      )
+    }), budget)
 
   it.effect("reports a fork whose source workspace is gone as unavailable", () =>
     Effect.gen(function*() {

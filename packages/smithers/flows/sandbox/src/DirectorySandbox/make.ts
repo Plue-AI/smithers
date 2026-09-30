@@ -54,6 +54,15 @@ export interface DirectorySandboxOptions {
 
 const failure = providerFailure
 
+/** Vendor sign-ins, relative to a home, that a fork never copies. */
+const vendorLogins = [
+  ".claude/.credentials.json",
+  ".claude.json",
+  ".claude.json.backup",
+  ".codex/auth.json",
+  ".config/anthropic"
+] as const
+
 /**
  * Builds a sandbox provider whose machines are directories on this host.
  *
@@ -66,7 +75,8 @@ const failure = providerFailure
  * contained handle, and closing the scope stops its owned process group before
  * removing the directory. Acquisition refuses a spawner without a platform
  * lifecycle before creating a directory or starting a command. `fork` copies
- * the session's directory into a new session's directory.
+ * the session's directory into a new session's directory, leaving vendor
+ * sign-ins behind.
  *
  * This is the trusted local backend — a workspace boundary, **not a security
  * boundary**. Nothing confines a spawned process to the directory; what the
@@ -107,6 +117,13 @@ export const make = (options: DirectorySandboxOptions): Provider => {
       if (seed !== undefined) {
         // The copy is the tree alone: host credentials live outside it.
         yield* options.fs.copy(seed, workdir, { overwrite: true }).pipe(
+          // A workdir used as a home can hold vendor sign-ins; a fork starts
+          // signed out of them.
+          Effect.andThen(Effect.forEach(
+            vendorLogins,
+            (login) => options.fs.remove(`${workdir}/${login}`, { recursive: true, force: true }),
+            { discard: true }
+          )),
           Effect.mapError(failure("unavailable", `the workspace ${seed} could not be forked`))
         )
       }
