@@ -56,7 +56,6 @@ for (
         const host: Host.Host = {
           cwd,
           judged: false,
-          compaction: async () => undefined,
           run: (input) => {
             prompts.push(input.prompt)
             return { done: Promise.resolve({ _tag: "cancelled" }), cancel: () => {} }
