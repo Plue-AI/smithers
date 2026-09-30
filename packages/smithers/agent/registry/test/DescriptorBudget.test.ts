@@ -68,3 +68,35 @@ describe("FlowBudget", () => {
     expect(budget).toEqual({ tokens: 7 })
   })
 })
+
+describe("deadlineMillis", () => {
+  it.each([
+    ["a duration", "30 minutes", 1_800_000],
+    ["a padded duration", "  2 hours ", 7_200_000],
+    ["a number of milliseconds", 900_000, 900_000],
+    ["a numeric string", "900000", 900_000],
+    ["a padded numeric string", " 45 ", 45]
+  ])("reads %s", (_label, value, milliseconds) => {
+    expect(Descriptor.deadlineMillis(value)).toBe(milliseconds)
+  })
+
+  it.each([
+    ["zero", 0],
+    ["a negative duration", "-5 minutes"],
+    ["a fraction of a millisecond", "1.5"],
+    ["an infinite duration", "Infinity"],
+    ["an unsafe integer", Number.MAX_SAFE_INTEGER + 1],
+    ["prose", "soon"],
+    ["an empty string", ""],
+    ["a list", [1]],
+    ["null", null]
+  ])("refuses %s", (_label, value) => {
+    expect(Descriptor.deadlineMillis(value)).toBeUndefined()
+  })
+
+  it("accepts a deadline beside the ceilings and refuses one that is not a positive safe integer", () => {
+    const decode = Schema.decodeUnknownSync(Descriptor.FlowBudget)
+    expect(decode({ tokens: 5, deadline: 60_000 })).toEqual({ tokens: 5, deadline: 60_000 })
+    for (const deadline of [0, -1, 1.5]) expect(() => decode({ deadline })).toThrow()
+  })
+})

@@ -1207,6 +1207,9 @@ export const layerMemory = (options: MemoryOptions = {}): Layer.Layer<ControlRun
             ...(options.engineVersion === undefined ? {} : { engineVersion: options.engineVersion }),
             ownerId: "memory-owner",
             ...(principal === undefined ? {} : { launchedBy: { id: principal.id, kind: principal.kind } }),
+            ...(plan.card.envelope.budget.deadline === undefined
+              ? {}
+              : { deadlineAt: timestamp + plan.card.envelope.budget.deadline }),
             createdAt: timestamp,
             updatedAt: timestamp
           }

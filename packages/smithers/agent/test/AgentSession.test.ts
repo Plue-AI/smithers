@@ -2109,6 +2109,94 @@ describe("AgentSession", () => {
     // measured there, admission took 7 s and reaching the park 26 s.
   }, 120_000)
 
+  /** Waits in real time, as a durable clock does, for a run to reach `status`. */
+  const awaitStatusFor = (runtime: ControlRuntime.Service, runId: string, status: ControlSchema.RunStatus) =>
+    Effect.gen(function*() {
+      for (let attempt = 0; attempt < 500; attempt++) {
+        if ((yield* runtime.getRun(runId)).status === status) return
+        yield* Effect.sleep("20 millis")
+      }
+      return yield* Effect.die(`run ${runId} never reached ${status} (still ${(yield* runtime.getRun(runId)).status})`)
+    })
+
+  /** Launches `flowId` under an approved deadline of `deadline` milliseconds. */
+  const launchWithDeadline = (flowId: string, input: unknown, deadline: number, key: string) =>
+    Effect.gen(function*() {
+      const control = yield* Control.Control
+      const card = yield* control.plan({ flowId, input, budget: { deadline } })
+      yield* control.approve(card.approval)
+      const receipt = yield* control.run({
+        _tag: "Plan",
+        planId: card.planId,
+        digest: card.digest,
+        envelope: card.envelope,
+        idempotencyKey: key
+      })
+      if (receipt._tag !== "Accepted" || receipt.runId === undefined) return yield* Effect.die("expected admission")
+      return receipt.runId
+    })
+
+  /** The cause the run's failure was journaled with. */
+  const failedCause = (runId: string) =>
+    Effect.gen(function*() {
+      const journal = yield* Journal.Journal
+      const page = yield* journal.entries({ runId: JournalEvent.RunId.make(runId), limit: 1_000 })
+      const failed = page.entries.find((entry) => entry.eventType === "control.run.failed")
+      return String((failed?.payload as { readonly cause?: unknown } | undefined)?.cause ?? "")
+    })
+
+  it("fails a running run at its approved deadline, counted from its acceptance", async () => {
+    const notes: Array<string> = []
+    const observed = await Effect.runPromise(
+      Effect.gen(function*() {
+        const gate = yield* Deferred.make<void>()
+        const toolStarted = yield* Deferred.make<void>()
+        return yield* Effect.gen(function*() {
+          const runtime = yield* ControlRuntime.ControlRuntime
+          const runId = yield* launchWithDeadline("agents/notes", {}, 400, "run:deadline-running")
+          // The first cell blocks in `note/save`, whose gate never opens.
+          yield* Deferred.await(toolStarted)
+          yield* awaitStatusFor(runtime, runId, "failed")
+          const run = yield* runtime.getRun(runId)
+          return { deadline: run.deadlineAt! - run.createdAt, cause: yield* failedCause(runId) }
+        }).pipe(Effect.provide(stack({ resolve: seat(capturing([])), notes, gate, toolStarted })))
+      }).pipe(Effect.scoped)
+    )
+
+    expect(observed.deadline).toBe(400)
+    expect(observed.cause).toContain("deadline")
+    expect(notes).toEqual([])
+  }, 60_000)
+
+  it("wakes a run parked on an unanswered ask at its deadline and fails it", async () => {
+    const { answers, catalog, registration } = unansweredAsk()
+    const observed = await Effect.runPromise(
+      Effect.gen(function*() {
+        const gate = yield* Deferred.make<void>()
+        return yield* Effect.gen(function*() {
+          const runtime = yield* ControlRuntime.ControlRuntime
+          const runId = yield* launchWithDeadline(
+            "agents/module",
+            { plan: { changes: ["native"] } },
+            1_500,
+            "run:deadline-parked"
+          )
+          yield* awaitStatusFor(runtime, runId, "parked")
+          yield* awaitStatusFor(runtime, runId, "failed")
+          return { cause: yield* failedCause(runId) }
+        }).pipe(Effect.provide(stack({
+          gate,
+          notes: [],
+          resolve: () => Effect.die("a module must not resolve a model seat"),
+          modules: { catalog, layer: registration }
+        })))
+      }).pipe(Effect.scoped)
+    )
+
+    expect(observed.cause).toContain("deadline")
+    expect(answers).toEqual([])
+  }, 60_000)
+
   /**
    * A parked run's drive fiber is still following the engine's trampoline when
    * the host shuts down. It must be released while `agent/run` is registered:

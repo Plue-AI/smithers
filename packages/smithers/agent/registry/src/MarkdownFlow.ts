@@ -14,6 +14,7 @@ import * as Schema from "effect/Schema"
 import {
   BodyRefMarkdown,
   BudgetOnExceeded,
+  deadlineMillis,
   type DiscoveryWarning,
   type EffectDeclaration,
   FlowBodyPrompt,
@@ -137,7 +138,9 @@ export const fromMarkdown = (options: FromMarkdownOptions): FromMarkdownResult =
   if (sandbox === "refused") return { descriptor: Option.none(), warnings }
   // Selecting a sandbox is placing the flow in one.
   const placement = sandbox === undefined ? declaredPlacement : Option.some<Placement>("sandbox")
-  const budget = deriveBudget(fields, options.path, warnings)
+  const declaredBudget = deriveBudget(fields, options.path, warnings)
+  const deadline = deriveDeadline(fields, options.path, warnings)
+  const budget = deadline === undefined ? declaredBudget : { ...declaredBudget, deadline }
   const selected: unknown = fields.model
   const validModels = Schema.is(ModelSelection)(selected) &&
     (typeof selected === "string" ? selected.trim() !== "" : selected.every((seat) => seat.trim() !== ""))
@@ -666,6 +669,35 @@ const deriveBudget = (
   }
 }
 
+/**
+ * Reads the frontmatter deadline: the wall-clock time one run may take,
+ * counted from its first start, as a duration (`30 minutes`, `2 hours`) or
+ * whole milliseconds.
+ *
+ * ```yaml
+ * deadline: 30 minutes
+ * ```
+ *
+ * Like a budget, an unreadable deadline is dropped with a warning rather than
+ * tightened: the run stays unbounded, exactly as an undeclared one does.
+ */
+const deriveDeadline = (
+  fields: Record<string, unknown>,
+  path: string,
+  warnings: Array<DiscoveryWarning>
+): number | undefined => {
+  const value = fields.deadline
+  if (value === undefined) return undefined
+  const milliseconds = deadlineMillis(value)
+  if (milliseconds !== undefined) return milliseconds
+  warnings.push({
+    code: "invalid_deadline",
+    path,
+    message: "Frontmatter deadline must be a positive duration such as 30 minutes, or whole milliseconds; ignoring it"
+  })
+  return undefined
+}
+
 const validateStandardFields = (
   fields: Record<string, unknown>,
   path: string,
@@ -737,6 +769,7 @@ const knownFields = new Set([
   "placement",
   "sandbox",
   "budget",
+  "deadline",
   "metadata",
   "disable-model-invocation",
   "input",

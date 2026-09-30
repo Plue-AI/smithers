@@ -115,6 +115,35 @@ export const contract = (name: string, harness: Harness): void => {
         })
       }))
 
+    test("records when a run's approved deadline passes, and nothing for a run approved without one", () =>
+      Effect.gen(function*() {
+        const control = yield* Control
+        const runtime = yield* ControlRuntime
+        const card = yield* control.plan({
+          flowId: "system/test",
+          input: { suite: "deadline" },
+          budget: { deadline: 1_800_000 }
+        })
+        expect(card.envelope.budget.deadline).toBe(1_800_000)
+        yield* control.approve(approval(card, `approve:${card.planId}`))
+        const receipt = yield* control.run({
+          _tag: "Plan",
+          planId: card.planId,
+          digest: card.digest,
+          envelope: card.envelope,
+          idempotencyKey: `run:${card.planId}`
+        })
+        if (receipt._tag !== "Accepted" || receipt.runId === undefined) {
+          return yield* Effect.die("expected an accepted run")
+        }
+        const run = yield* runtime.getRun(receipt.runId)
+        expect(run.deadlineAt).toBe(run.createdAt + 1_800_000)
+        const listed = yield* control.list({ _tag: "runs", filters: { runId: receipt.runId } })
+        expect(listed._tag === "runs" && listed.items[0]?.deadlineAt).toBe(run.createdAt + 1_800_000)
+        const { runId } = yield* start
+        expect((yield* runtime.getRun(runId)).deadlineAt).toBeUndefined()
+      }))
+
     test("carries the admitted input's declared trigger onto the accepted record, and no record when none was declared", () =>
       Effect.gen(function*() {
         const control = yield* Control

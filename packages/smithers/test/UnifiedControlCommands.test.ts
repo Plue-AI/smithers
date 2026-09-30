@@ -191,6 +191,7 @@ describe("unified control dispatch", () => {
       "--on-exceeded",
       "park"
     ]],
+    [["flow", "start", "demo/ship", "--deadline", "30 minutes"], ["up", "demo/ship", "--deadline", "30 minutes"]],
     [["flow", "execute", JSON.stringify(approval)], ["run", JSON.stringify(approval)]],
     [["runs", "output", "run-1"], ["output", "run-1"]],
     [["runs", "output", "run-1", "publish"], ["output", "run-1", "publish"]],

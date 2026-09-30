@@ -85,7 +85,8 @@ does not use. `budget` is absent for a flow that declares none; read it through
 one with `sandbox: { provider, network?, cpus?, memoryMib?, timeoutSecs? }`:
 `provider` is one of `SandboxProvider` (`aws`, `cloudflare`, `command`,
 `container`, `daytona`, `directory`, `just-bash`, `kubernetes`, `microsandbox`,
-`vercel`), `network` is `none` or `{ allow: [hosts] }` of host names, `cpus` is a positive
+`vercel`), `network` is `none`, `open`, or `{ allow: [hosts] }` of host names (absent,
+the provider's default applies; `microsandbox` then gives no network), `cpus` is a positive
 number, and the other limits are positive whole numbers. A selection places the
 flow in `sandbox`. An unknown provider or key, a malformed option, or a
 `placement` other than `sandbox` refuses the flow with `invalid_sandbox`.
@@ -358,17 +359,21 @@ const FlowBudget: Schema.Struct<{
   milliseconds: Schema.optional<typeof BudgetCeiling>
   usd: Schema.optional<typeof UsdCeiling>
   onExceeded: Schema.optional<typeof BudgetOnExceeded>
+  deadline: Schema.optional<typeof BudgetCeiling>
 }>
 
 const budgetUnbounded: FlowBudget
 const budgetOf: (descriptor: FlowDescriptor) => FlowBudget
+const deadlineMillis: (value: unknown) => number | undefined
 ```
 
 The tokens, milliseconds and dollars a flow declares that a control plane
 should approve for one of its runs. Tokens and milliseconds are positive safe
 integers, so the schema refuses zero, a negative, a fraction, `NaN`, and
 anything past `Number.MAX_SAFE_INTEGER`; `usd` is a positive finite amount, so
-`0.5` is fifty cents. Every field survives durable JSON unchanged.
+`0.5` is fifty cents. `deadline` is the milliseconds of wall-clock time one run
+may take from its first start, read from the frontmatter's top-level `deadline`.
+Every field survives durable JSON unchanged.
 
 `budgetUnbounded` is the budget of a flow that declares no ceiling. It is
 a named frozen value rather than a `{}` written at each host, for the same
@@ -378,6 +383,11 @@ spending enforcement is a decision a reader has to be able to see.
 `budgetOf` is how a host reads the field. It answers an absent `budget` with
 `budgetUnbounded` and returns a frozen copy otherwise, so one host cannot
 rewrite the ceiling every other undeclared descriptor reports.
+
+`deadlineMillis` reads a deadline the way frontmatter and `smthrs flow start
+--deadline` write one: a duration such as `30 minutes`, or whole milliseconds as
+a number or numeric string. Anything that is not a positive safe integer of
+milliseconds answers `undefined`.
 
 ### Descriptor.DiscoveryWarning and DiscoveryWarningCode
 
@@ -393,15 +403,15 @@ class DiscoveryWarning {
 
 A non-fatal source-discovery diagnostic. Anything a scan can survive is
 reported this way rather than raised, and read back through
-`registry.warnings()`. The 34 codes are grouped by what they say:
+`registry.warnings()`. The 35 codes are grouped by what they say:
 
-| Group                  | Codes                                                                                                                                                                                                                                                                                                        |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Naming and description | `missing_description`, `invalid_description`, `missing_name`, `invalid_name`, `directory_name_mismatch`, `name_field_ignored`, `duplicate_name`, `root_level_entry`                                                                                                                                          |
-| Declaration fields     | `unknown_frontmatter_key`, `invalid_allowed_tools`, `invalid_capabilities`, `invalid_budget`, `invalid_model`, `invalid_model_invocation`, `invalid_placement`, `invalid_sandbox`, `invalid_compatibility`, `invalid_license`, `invalid_metadata`, `unsupported_input_schema`, `unsupported_module_metadata` |
-| Authority              | `unprojectable_authority`, `invalid_effect_declaration`, `invalid_effect_tier`                                                                                                                                                                                                                               |
-| Source shape           | `multiple_entry_files`, `frontmatter_parse_error`, `non_serializable_frontmatter`, `symlink_cycle`, `outside_root`, `max_depth_exceeded`, `entry_too_large`, `unreadable`                                                                                                                                    |
-| Packs                  | `unknown_pack_key`, `shadowed`                                                                                                                                                                                                                                                                               |
+| Group                  | Codes                                                                                                                                                                                                                                                                                                                            |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Naming and description | `missing_description`, `invalid_description`, `missing_name`, `invalid_name`, `directory_name_mismatch`, `name_field_ignored`, `duplicate_name`, `root_level_entry`                                                                                                                                                              |
+| Declaration fields     | `unknown_frontmatter_key`, `invalid_allowed_tools`, `invalid_capabilities`, `invalid_budget`, `invalid_deadline`, `invalid_model`, `invalid_model_invocation`, `invalid_placement`, `invalid_sandbox`, `invalid_compatibility`, `invalid_license`, `invalid_metadata`, `unsupported_input_schema`, `unsupported_module_metadata` |
+| Authority              | `unprojectable_authority`, `invalid_effect_declaration`, `invalid_effect_tier`                                                                                                                                                                                                                                                   |
+| Source shape           | `multiple_entry_files`, `frontmatter_parse_error`, `non_serializable_frontmatter`, `symlink_cycle`, `outside_root`, `max_depth_exceeded`, `entry_too_large`, `unreadable`                                                                                                                                                        |
+| Packs                  | `unknown_pack_key`, `shadowed`                                                                                                                                                                                                                                                                                                   |
 
 `service` names a service missing during construction of a module's exported `layer`.
 The optional export is built once in a scoped host context; see

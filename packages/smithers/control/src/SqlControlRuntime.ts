@@ -1884,6 +1884,9 @@ const makeRuntime = (
           ...(plan.card.executionDigest === undefined ? {} : { executionDigest: plan.card.executionDigest }),
           ...(options.engineVersion === undefined ? {} : { engineVersion: options.engineVersion }),
           ownerId: JSON.stringify(claimant),
+          ...(plan.card.envelope.budget.deadline === undefined
+            ? {}
+            : { deadlineAt: timestamp + plan.card.envelope.budget.deadline }),
           createdAt: timestamp,
           updatedAt: timestamp
         }

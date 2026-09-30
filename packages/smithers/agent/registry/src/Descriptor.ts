@@ -12,7 +12,7 @@
  */
 
 import * as Digest from "@smthrs/core/Digest"
-import { Option, Schema } from "effect"
+import { Duration, Option, Schema } from "effect"
 
 /**
  * The reversibility tier declared by a flow.
@@ -450,6 +450,7 @@ export const DiscoveryWarningCode = Schema.Literals([
   "invalid_allowed_tools",
   "invalid_capabilities",
   "invalid_budget",
+  "invalid_deadline",
   "unprojectable_authority",
   "invalid_model_invocation",
   "invalid_model",
@@ -560,12 +561,18 @@ export type BudgetOnExceeded = typeof BudgetOnExceeded.Type
 
 /**
  * The tokens, milliseconds and dollars a flow declares that a control plane
- * should approve for one of its runs, and what exceeding them does.
+ * should approve for one of its runs, what exceeding them does, and the
+ * wall-clock deadline the run settles by.
  *
  * Tokens and milliseconds are positive safe integers; `usd` is a positive,
  * finite dollar amount. Every field is projected into a control-plane
  * `Envelope.budget` without reinterpretation, and `@smthrs/agent` enforces
  * them at the model boundary.
+ *
+ * `deadline` is milliseconds of wall-clock time counted from the run's first
+ * start, a positive safe integer read from the frontmatter's top-level
+ * `deadline`. Expiry fails the run with `Flow.DeadlineExceeded` whatever
+ * `onExceeded` says; `onExceeded` governs the ceilings only.
  *
  * An absent field is not a zero. It is the absence of that ceiling, which is
  * what {@link budgetUnbounded} spells out for a flow that declares none.
@@ -577,7 +584,8 @@ export const FlowBudget = Schema.Struct({
   tokens: Schema.optional(BudgetCeiling),
   milliseconds: Schema.optional(BudgetCeiling),
   usd: Schema.optional(UsdCeiling),
-  onExceeded: Schema.optional(BudgetOnExceeded)
+  onExceeded: Schema.optional(BudgetOnExceeded),
+  deadline: Schema.optional(BudgetCeiling)
 })
 
 /**
@@ -587,6 +595,29 @@ export const FlowBudget = Schema.Struct({
  * @since 1.0.0-rc.0
  */
 export type FlowBudget = typeof FlowBudget.Type
+
+/**
+ * Reads a run deadline as whole milliseconds: a duration such as
+ * `30 minutes`, or a count of milliseconds as a number or numeric string.
+ * Answers `undefined` for anything that is not a positive safe integer of
+ * milliseconds, so a caller decides how to report it.
+ *
+ * @category constructors
+ * @since 1.0.0
+ */
+export const deadlineMillis = (value: unknown): number | undefined => {
+  const milliseconds = typeof value === "number"
+    ? value
+    : typeof value === "string" && /^\s*\d+(\.\d+)?\s*$/.test(value)
+    ? Number(value)
+    : typeof value === "string"
+    ? Option.match(Duration.fromInput(value.trim() as Duration.Input), {
+      onNone: () => Number.NaN,
+      onSome: Duration.toMillis
+    })
+    : Number.NaN
+  return Number.isSafeInteger(milliseconds) && milliseconds > 0 ? milliseconds : undefined
+}
 
 /**
  * The budget of a flow that declares none: no token ceiling and no latency

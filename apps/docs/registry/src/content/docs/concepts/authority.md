@@ -132,6 +132,13 @@ An absent `budget` is not a zero. It is the absence of a ceiling, which
 have decided that rather than to have read an empty object. Every host builds
 its envelope through `budgetOf` rather than by reading the field.
 
+A top-level `deadline` joins the budget as `budget.deadline`, in whole
+milliseconds: the wall-clock time one run may take, counted from its first
+start, written as a duration (`deadline: 30 minutes`) or milliseconds. The
+control plane enforces it for the whole run, every trampoline round included,
+and expiry fails the run whatever `onExceeded` says. An unreadable deadline is
+dropped with an `invalid_deadline` warning, for the reason a malformed budget is.
+
 Module flows declare no budget. Discovery reads a `flow.ts` without evaluating
 it, so `budget` is absent for every descriptor a module produces and the flow
 runs unbounded unless its host supplies a budget of its own.

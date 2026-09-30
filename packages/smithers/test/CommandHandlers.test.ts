@@ -769,6 +769,31 @@ describe("up", () => {
     expect((error as CliError.UsageError).message).toBe("--budget-usd must be a positive dollar amount")
   })
 
+  it("lays --deadline over the flow's budget as whole milliseconds, from a duration or a count", async () => {
+    const cards: Array<ControlSchema.PlanCard> = []
+    const recording = Layer.effect(ControlService.Control)(
+      Effect.map(ControlService.Control, (control) => ({
+        ...control,
+        plan: (input: Parameters<typeof control.plan>[0]) =>
+          control.plan(input).pipe(Effect.tap((card) => Effect.sync(() => cards.push(card))))
+      }))
+    ).pipe(Layer.provide(testControl))
+    for (const deadline of ["30 minutes", "1800000"]) {
+      const receipt = await run(json(["--json", "up", "demo/ship", "--deadline", deadline]), recording)
+      expect(receipt).toMatchObject({ _tag: "Accepted" })
+    }
+    expect(cards.map((card) => card.envelope.budget)).toEqual([{ deadline: 1_800_000 }, { deadline: 1_800_000 }])
+  })
+
+  it.each(["0", "soon", "-5 minutes"])("refuses a --deadline of %s before planning", async (value) => {
+    const error = await run(Effect.flip(runCommand(["up", "demo/ship", `--deadline=${value}`])), testControl)
+
+    expect(error).toBeInstanceOf(CliError.UsageError)
+    expect((error as CliError.UsageError).message).toBe(
+      "--deadline must be a positive duration such as 30 minutes, or whole milliseconds"
+    )
+  })
+
   it("carries --data into the planned input", async () => {
     const card = await run(json(["--json", "plan", "demo/ship", "--data", "{\"topic\":\"flows\"}"]), testControl)
 

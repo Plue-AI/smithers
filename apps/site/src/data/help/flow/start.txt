@@ -20,6 +20,7 @@ Options:
   --budget-ms <number>                           Wall-clock ceiling in milliseconds for this run
   --budget-usd <number>                          Dollar ceiling for this run
   --on-exceeded <fail|warn|skip-remaining|park>  What the run does at a ceiling
+  --deadline <string>                            Wall-clock time the run may take from its first start, as a duration (30 minutes) or milliseconds
   --cloud                                        Use repository flows and runs on the backend
 
 Custom Global Options:

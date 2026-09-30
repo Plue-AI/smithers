@@ -264,7 +264,10 @@ export const createFlowCli = (runtime: Bridge.Runtime = {}) =>
         budgetTokens: z.number().int().positive().optional().describe("Token ceiling for this run"),
         budgetMs: z.number().int().positive().optional().describe("Wall-clock ceiling in milliseconds for this run"),
         budgetUsd: z.number().positive().optional().describe("Dollar ceiling for this run"),
-        onExceeded: z.enum(BudgetOnExceeded.literals).optional().describe("What the run does at a ceiling")
+        onExceeded: z.enum(BudgetOnExceeded.literals).optional().describe("What the run does at a ceiling"),
+        deadline: z.string().optional().describe(
+          "Wall-clock time the run may take from its first start, as a duration (30 minutes) or milliseconds"
+        )
       }),
       alias: { detached: "d" },
       run: (c) =>
@@ -288,7 +291,8 @@ export const createFlowCli = (runtime: Bridge.Runtime = {}) =>
               ...(c.options.budgetTokens === undefined ? [] : ["--budget-tokens", String(c.options.budgetTokens)]),
               ...(c.options.budgetMs === undefined ? [] : ["--budget-ms", String(c.options.budgetMs)]),
               ...(c.options.budgetUsd === undefined ? [] : ["--budget-usd", String(c.options.budgetUsd)]),
-              ...(c.options.onExceeded === undefined ? [] : ["--on-exceeded", c.options.onExceeded])
+              ...(c.options.onExceeded === undefined ? [] : ["--on-exceeded", c.options.onExceeded]),
+              ...(c.options.deadline === undefined ? [] : ["--deadline", c.options.deadline])
             ],
             c.options,
             runtime

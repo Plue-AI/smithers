@@ -13,7 +13,7 @@ import * as Canonical from "@smthrs/canonical/Canonical"
 import { Control as ControlService, ControlSchema } from "@smthrs/control"
 import * as Sha256 from "@smthrs/crypto/Sha256"
 import * as MigrateCommand from "@smthrs/migrate/flow/Command"
-import { BudgetOnExceeded } from "@smthrs/registry/Descriptor"
+import { BudgetOnExceeded, deadlineMillis } from "@smthrs/registry/Descriptor"
 import { Clock, Console, Effect, Option, Schema, SchemaIssue, Stream } from "effect"
 import { Argument, CliError as ParserError, Command, Flag, Prompt } from "effect/unstable/cli"
 import { randomUUID } from "node:crypto"
@@ -425,6 +425,13 @@ const upFlags = {
   onExceeded: Flag.Literals("on-exceeded", BudgetOnExceeded.literals).pipe(
     Flag.optional,
     Flag.withDescription("What the run does at a ceiling: fail, warn, skip-remaining, or park")
+  ),
+  deadline: Flag.String("deadline").pipe(
+    Flag.optional,
+    Flag.withDescription(
+      "Wall-clock time the run may take from its first start, as a duration (30 minutes) or milliseconds, " +
+        "replacing the flow's declared one"
+    )
   )
 }
 
@@ -434,6 +441,7 @@ const plannedBudget = (config: {
   readonly budgetMs: Option.Option<number>
   readonly budgetUsd: Option.Option<number>
   readonly onExceeded: Option.Option<BudgetOnExceeded>
+  readonly deadline: Option.Option<string>
 }): Effect.Effect<ControlSchema.Envelope["budget"] | undefined, CliError.UsageError> =>
   Effect.gen(function*() {
     const ceiling = (flag: string, value: Option.Option<number>) =>
@@ -447,14 +455,26 @@ const plannedBudget = (config: {
       return yield* Effect.fail(new CliError.UsageError({ message: "--budget-usd must be a positive dollar amount" }))
     }
     const onExceeded = Option.getOrUndefined(config.onExceeded)
-    if (tokens === undefined && milliseconds === undefined && usd === undefined && onExceeded === undefined) {
+    const deadline = Option.isNone(config.deadline) ? undefined : deadlineMillis(config.deadline.value)
+    if (Option.isSome(config.deadline) && deadline === undefined) {
+      return yield* Effect.fail(
+        new CliError.UsageError({
+          message: "--deadline must be a positive duration such as 30 minutes, or whole milliseconds"
+        })
+      )
+    }
+    if (
+      tokens === undefined && milliseconds === undefined && usd === undefined && onExceeded === undefined &&
+      deadline === undefined
+    ) {
       return undefined
     }
     return {
       ...(tokens === undefined ? {} : { tokens }),
       ...(milliseconds === undefined ? {} : { milliseconds }),
       ...(usd === undefined ? {} : { usd }),
-      ...(onExceeded === undefined ? {} : { onExceeded })
+      ...(onExceeded === undefined ? {} : { onExceeded }),
+      ...(deadline === undefined ? {} : { deadline })
     }
   })
 

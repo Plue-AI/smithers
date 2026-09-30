@@ -83,7 +83,9 @@ export type Principal = typeof Principal.Type
  * The capabilities, flows, budget, and placement approved for a plan.
  *
  * `budget` holds the run's approved ceilings: `tokens`, `milliseconds` of
- * active time, and `usd` in dollars. An absent ceiling is no ceiling.
+ * active time, and `usd` in dollars, and its `deadline`: milliseconds of
+ * wall-clock time counted from the run's first start, shared by every round
+ * of the run. An absent ceiling or deadline is none.
  *
  * @since 0.1.0
  * @category models
@@ -95,7 +97,8 @@ export const Envelope = Schema.Struct({
     tokens: Schema.optional(Schema.Number),
     milliseconds: Schema.optional(Schema.Number),
     usd: Schema.optional(Schema.Number),
-    onExceeded: Schema.optional(BudgetOnExceeded)
+    onExceeded: Schema.optional(BudgetOnExceeded),
+    deadline: Schema.optional(Schema.Int.check(Schema.isGreaterThan(0)))
   }),
   host: Schema.optional(Schema.String)
 })
@@ -636,6 +639,13 @@ export const RunSummary = Schema.Struct({
    * `waiting-approval`, which is what the existing inbox filters select on.
    */
   pendingWaits: Schema.optional(Schema.Array(PendingWait)),
+  /**
+   * When the run's approved deadline passes: its `createdAt` plus the
+   * envelope's `budget.deadline`, which is the instant the run is failed with
+   * `deadline_exceeded` if it has not settled. Absent on a run approved with
+   * no deadline.
+   */
+  deadlineAt: Schema.optional(Schema.Number),
   createdAt: Schema.Number,
   updatedAt: Schema.Number
 })

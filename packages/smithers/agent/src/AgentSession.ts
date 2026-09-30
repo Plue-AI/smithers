@@ -60,7 +60,7 @@ import * as Digest from "@smthrs/core/Digest"
 import { ExecutionFacts } from "@smthrs/engine-store"
 import * as DurableEngineState from "@smthrs/engine-store/DurableEngineState"
 import { AttemptEvidenceQuarantined } from "@smthrs/engine-store/Errors"
-import { Action, DurableDeferred, Fault, Flow, FlowRuntime, WaitFor } from "@smthrs/flow"
+import { Action, Deadline, DurableDeferred, Fault, Flow, FlowRuntime, WaitFor } from "@smthrs/flow"
 import type * as AgentEvent from "@smthrs/harness/AgentEvent"
 import * as Cell from "@smthrs/harness/Cell"
 import type * as CellCalls from "@smthrs/harness/CellCalls"
@@ -3803,6 +3803,19 @@ export const make = (
         // record and is not rewritten.
         const controlRun = yield* controlRunBeforeRound(payload.runId)
         if (controlRun !== undefined && ["completed", "failed", "cancelled"].includes(controlRun.status)) return []
+        // The approved deadline counts from the run's acceptance, which the
+        // control record holds durably, so every round and every process that
+        // drives the run reads the same bound. Its clock wakes a parked run at
+        // the deadline, and an expired run skips the park guard below so the
+        // body settles it as `deadline_exceeded` through the ordinary settlement.
+        const deadline = controlRun?.deadlineAt === undefined
+          ? undefined
+          : yield* Deadline.start({
+            flowName: agentFlow._tag,
+            deadline: controlRun.deadlineAt - controlRun.createdAt,
+            startedAtMs: controlRun.createdAt
+          })
+        const expired = deadline !== undefined && (yield* Deadline.remainingMs(deadline)) <= 0
         const reclaimControl = claimForResume(payload.runId).pipe(
           // Admission and the engine claim are separate transactions. A peer
           // can acquire the control fence between them; losing that race is
@@ -3829,7 +3842,9 @@ export const make = (
         // round therefore has nothing to drive, and driving it anyway made the
         // incarnation that consumed the operator's decision one that had read
         // the run's durable history before the operator touched it.
-        if (controlRun !== undefined && parks(controlRun.status)) {
+        if (controlRun !== undefined && parks(controlRun.status) && expired) {
+          yield* reclaimControl
+        } else if (controlRun !== undefined && parks(controlRun.status)) {
           const pending = (yield* runtime.pendingResumes).find((entry) => entry.runId === payload.runId)
           if (
             pending === undefined ||
@@ -3867,6 +3882,7 @@ export const make = (
         }
         const fiber = yield* Effect.forkChild(
           body(payload, instance).pipe(
+            Deadline.within(deadline, agentFlow._tag),
             Effect.withSpan("smithers.run", {
               parent: runTraceParent(payload.runId),
               attributes: { "smithers.run_id": payload.runId, "gen_ai.conversation.id": payload.runId }

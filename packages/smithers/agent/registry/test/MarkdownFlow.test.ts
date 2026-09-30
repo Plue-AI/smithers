@@ -745,6 +745,50 @@ body`)
     expect(Descriptor.budgetOf(descriptor)).toBe(Descriptor.budgetUnbounded)
   })
 
+  it("reads a top-level deadline as a duration or whole milliseconds into the budget", () => {
+    const flow = (...lines: Array<string>) =>
+      fromMarkdown(["---", "description: Review", ...lines, "---", "Review."].join("\n"))
+    for (
+      const [declaration, milliseconds] of [
+        ["deadline: 30 minutes", 1_800_000],
+        ["deadline: 2 hours", 7_200_000],
+        ["deadline: 900000", 900_000],
+        ["deadline: \" 45 seconds \"", 45_000]
+      ] as const
+    ) {
+      const result = flow(declaration)
+      expect(Option.getOrThrow(result.descriptor).budget).toEqual({ deadline: milliseconds })
+      expect(result.warnings).not.toContainEqual(expect.objectContaining({ code: "invalid_deadline" }))
+    }
+    // It joins a declared budget rather than replacing it, and is part of the declaration identity.
+    const both = Option.getOrThrow(flow("deadline: 1 hour", "budget:", "  tokens: 500").descriptor)
+    expect(Descriptor.budgetOf(both)).toEqual({ tokens: 500, deadline: 3_600_000 })
+    const tokensOnly = Option.getOrThrow(flow("budget:", "  tokens: 500").descriptor)
+    expect(Descriptor.declarationDigest(both)).not.toBe(Descriptor.declarationDigest(tokensOnly))
+  })
+
+  it("drops a deadline that is not a positive whole-millisecond duration, and says so", () => {
+    for (
+      const declaration of [
+        "deadline: soon",
+        "deadline: 0",
+        "deadline: -5 minutes",
+        "deadline: 1.5",
+        "deadline:\n  - 1"
+      ]
+    ) {
+      const result = fromMarkdown(["---", "description: Review", declaration, "---", "Review."].join("\n"))
+      expect(Option.getOrThrow(result.descriptor).budget).toBeUndefined()
+      expect(result.warnings).toContainEqual({
+        code: "invalid_deadline",
+        path: expect.any(String),
+        message:
+          "Frontmatter deadline must be a positive duration such as 30 minutes, or whole milliseconds; ignoring it"
+      })
+      expect(result.warnings).not.toContainEqual(expect.objectContaining({ code: "unknown_frontmatter_key" }))
+    }
+  })
+
   it("drops a budget that is not an object, and says so", () => {
     for (const declaration of ["budget:", "budget: soon", "budget:\n  - 1000"]) {
       const result = fromMarkdown(["---", "description: Review", declaration, "---", "Review."].join("\n"))
