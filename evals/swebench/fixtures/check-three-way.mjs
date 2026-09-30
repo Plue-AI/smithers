@@ -124,6 +124,25 @@ try {
     "the crashed attempt's dollars belong in the middle column"
   )
 
+  // The middle column uses the same attempt projection: an enriching grade is
+  // not a second bill, and an unknown cost stays unknown in every column that
+  // reads it rather than printing as $0.00.
+  const enrichedPath = ledger(join(temporary, "r91-enriched.jsonl"), [
+    { kind: "header", at: 0, runId: "rerun-r91" },
+    ...graded("a__recovered-1", "empty patch", cost(2)),
+    instance("b__stilllost-2", "ran", { wallSeconds: 10, cost: { usd: 2, frames: 1, spanMillis: 1000 } }),
+    instance("b__stilllost-2", "graded", { verdict: "unresolved", cost: { usd: 2 } }),
+    instance("c__newlylost-3", "ran", { cost: { usd: null, unknown: true } }),
+    instance("c__newlylost-3", "graded", { verdict: "resolved" }),
+    ...graded("d__gained-4", "unresolved", cost(2)),
+    ...graded("e__steady-5", "resolved", cost(2))
+  ])
+  const enriched = threeWay({ baselinePath, firstPath: enrichedPath, secondPath })
+  assert.equal(enriched.totals.first.usd, null, "an unknown attempt cost leaves the column's total unknown")
+  assert.equal(enriched.rows.find((row) => row.id === "b__stilllost-2").first.usd, 2, "one attempt, one bill")
+  assert.equal(enriched.rows.find((row) => row.id === "c__newlylost-3").first.usd, null)
+  assert.match(render(enriched), /\| total cost \| \$5\.00 \| unknown \| \$2\.50 \|/)
+
   // A partial second wave leaves its own rows blank and never borrows the
   // middle wave's verdict for them.
   const partialPath = ledger(join(temporary, "r92-partial.jsonl"), [

@@ -42,11 +42,8 @@
  */
 import { existsSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
-import { compare } from "./compare-runs.mjs"
+import { compare, money, signed } from "./compare-runs.mjs"
 import { isExcluded, renderExclusions } from "./lib/excluded.mjs"
-
-const money = (usd) => `$${usd.toFixed(2)}`
-const signed = (value) => `${value < 0 ? "-" : "+"}${Math.abs(value).toFixed(2)}`
 
 /** How one instance reads in a column, or an em dash where a wave has no row. */
 const cell = (facts) => (facts === undefined ? "—" : facts.resolved ? "resolved" : facts.verdict)

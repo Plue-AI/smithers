@@ -24,8 +24,11 @@
  *
  * **Money is every attempt, not the surviving one.** The fold keeps one row per
  * instance, but an attempt a crash replaced still burned tokens. Cost therefore
- * sums the ledger's rows and the fold answers everything else, which is the same
- * split `fullbench-report.mjs` makes and for the same reason.
+ * comes from `lib/fullbench-manifest.mjs`'s attempt projection — the one the
+ * budget gate and `fullbench-report.mjs` read — and the fold answers everything
+ * else. A grade that enriches its attempt is not a second bill, and an attempt
+ * with unknown cost keeps its instance's and every total's dollars unknown
+ * (`null`): unknown is never zero, and it never satisfies a dollar criterion.
  *
  * **Wall clock comes in two numbers, both labelled.** `wallSeconds` is the whole
  * instance — pull, extract, agent, capture — and `agentSeconds` is the journal's
@@ -51,7 +54,7 @@
 import { existsSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { denominatorLabel, denominators, isExcluded, renderExclusions } from "./lib/excluded.mjs"
-import { isDone, read } from "./lib/fullbench-manifest.mjs"
+import { attemptSpend, isDone, read } from "./lib/fullbench-manifest.mjs"
 
 const rigRoot = import.meta.dirname
 
@@ -64,11 +67,22 @@ export const CRITERIA = {
   instanceFrames: 20
 }
 
-const money = (usd) => `$${usd.toFixed(2)}`
+/**
+ * A dollar figure, or `unknown` where an attempt's cost was not recorded.
+ *
+ * @category rendering
+ * @since 1.0.0
+ */
+export const money = (usd) => (usd === null ? "unknown" : `$${usd.toFixed(2)}`)
 
-// A delta always carries its sign, including `+0.00`: a column where "0.00" and
-// "+0.00" both appear invites the first to be read as missing data.
-const signed = (value, digits = 2) => `${value < 0 ? "-" : "+"}${Math.abs(value).toFixed(digits)}`
+/**
+ * A dollar delta. It always carries its sign, including `+0.00`: a column where
+ * "0.00" and "+0.00" both appear invites the first to be read as missing data.
+ *
+ * @category rendering
+ * @since 1.0.0
+ */
+export const signed = (value) => (value === null ? "unknown" : `${value < 0 ? "-" : "+"}${Math.abs(value).toFixed(2)}`)
 
 const signedInt = (value) => `${value < 0 ? "-" : "+"}${Math.abs(value)}`
 
@@ -83,7 +97,6 @@ export const factsOf = (state) => {
   return {
     verdict: state.verdict ?? "unknown",
     resolved: state.verdict === "resolved",
-    usd: state.cost?.usd ?? 0,
     frames: state.cost?.frames ?? 0,
     wallSeconds: state.wallSeconds ?? 0,
     agentSeconds: Math.round((state.cost?.spanMillis ?? 0) / 1000),
@@ -93,27 +106,33 @@ export const factsOf = (state) => {
 
 /**
  * Every attempt's dollars in a ledger, keyed by instance — including the
- * attempts a crash replaced, which the fold drops and the invoice does not.
+ * attempts a crash replaced, which the fold drops and the invoice does not —
+ * or `null` for an instance with any attempt of unknown cost.
  *
  * @category conversions
  * @since 0.1.0
  */
-export const spendByInstance = (ledger) => {
-  const spend = new Map()
-  for (const row of ledger.rows) {
-    if (row.kind !== "instance" || typeof row.id !== "string") continue
-    if (typeof row.cost?.usd !== "number") continue
-    spend.set(row.id, (spend.get(row.id) ?? 0) + row.cost.usd)
-  }
-  return spend
-}
+export const spendByInstance = (ledger) =>
+  new Map(
+    [...attemptSpend(ledger)].map(([id, entry]) => [id, entry.unknownAttempts > 0 ? null : entry.usd])
+  )
 
-const zeroTotals = () => ({ instances: 0, resolved: 0, usd: 0, frames: 0, wallSeconds: 0, agentSeconds: 0 })
+const zeroTotals = () => ({
+  instances: 0,
+  resolved: 0,
+  usd: 0,
+  unknownCost: 0,
+  frames: 0,
+  wallSeconds: 0,
+  agentSeconds: 0
+})
 
+// One instance whose cost is unknown leaves the total unknown.
 const addTo = (totals, facts, usd) => {
   totals.instances += 1
   if (facts.resolved) totals.resolved += 1
-  totals.usd += usd
+  if (usd === null) totals.unknownCost += 1
+  totals.usd = usd === null || totals.usd === null ? null : totals.usd + usd
   totals.frames += facts.frames
   totals.wallSeconds += facts.wallSeconds
   totals.agentSeconds += facts.agentSeconds
@@ -149,15 +168,16 @@ export const compare = ({ baselinePath, rerunPath }) => {
   for (const id of population) {
     const before = factsOf(baseline.states.get(id))
     if (before === undefined) continue
-    addTo(wholeBaseline, before, baselineSpend.get(id) ?? 0)
+    // A finished instance always has an attempt; none at all is unknown cost.
+    const beforeUsd = baselineSpend.get(id) ?? null
+    addTo(wholeBaseline, before, beforeUsd)
     const after = factsOf(rerun.states.get(id))
     if (after === undefined) {
       pending += 1
-      instances.push({ id, before, after: undefined, pending: true })
+      instances.push({ id, before: { ...before, usd: beforeUsd }, after: undefined, pending: true })
       continue
     }
-    const beforeUsd = baselineSpend.get(id) ?? 0
-    const afterUsd = rerunSpend.get(id) ?? 0
+    const afterUsd = rerunSpend.get(id) ?? null
     addTo(compared.baseline, before, beforeUsd)
     addTo(compared.rerun, after, afterUsd)
     if (!isExcluded(id)) {
@@ -170,7 +190,7 @@ export const compare = ({ baselinePath, rerunPath }) => {
       after: { ...after, usd: afterUsd },
       pending: false,
       delta: {
-        usd: afterUsd - beforeUsd,
+        usd: afterUsd === null || beforeUsd === null ? null : afterUsd - beforeUsd,
         frames: after.frames - before.frames,
         wallSeconds: after.wallSeconds - before.wallSeconds,
         agentSeconds: after.agentSeconds - before.agentSeconds
@@ -189,7 +209,10 @@ export const compare = ({ baselinePath, rerunPath }) => {
   // re-run has run all of them. A partial re-run reports them as pending rather
   // than as met by a subset.
   const complete = pending === 0
-  const overBudgetUsd = counted.filter((row) => row.after.usd > CRITERIA.instanceUsd).map((row) => row.id)
+  const overBudgetUsd = counted.filter((row) => row.after.usd !== null && row.after.usd > CRITERIA.instanceUsd)
+    .map((row) => row.id)
+  const unknownUsd = counted.filter((row) => row.after.usd === null).map((row) => row.id)
+  const knownUsd = counted.reduce((sum, row) => sum + (row.after.usd ?? 0), 0)
   const overFrames = counted.filter((row) => row.after.frames > CRITERIA.instanceFrames).map((row) => row.id)
   // Every criterion is answered the same way, so no two of them can drift into
   // different readiness semantics. A counterexample cannot be taken back — a
@@ -200,6 +223,10 @@ export const compare = ({ baselinePath, rerunPath }) => {
   // then. `holds` is given separately only where a shortfall in a prefix is not
   // a counterexample at all: resolved counts can still climb.
   const answered = (witnessed, holds = !witnessed) => (witnessed ? false : complete ? holds : undefined)
+  // A dollar criterion over an unknown cost is `null`, unknown, for good: the
+  // attempt is over and its bill will not be recovered. Known dollars already
+  // over the line still settle it `false`, since unknown spend is never negative.
+  const priced = (witnessed) => (witnessed ? false : unknownUsd.length > 0 ? null : answered(false))
   // The criteria are answered over the scored set, and every one of them
   // carries the raw number beside it so the exclusion can never hide inside a
   // "met".
@@ -217,7 +244,8 @@ export const compare = ({ baselinePath, rerunPath }) => {
       target: CRITERIA.totalUsd,
       actual: scored.rerun.usd,
       raw: compared.rerun.usd,
-      met: answered(scored.rerun.usd > CRITERIA.totalUsd)
+      unknown: unknownUsd,
+      met: priced(knownUsd > CRITERIA.totalUsd)
     },
     wallMinutes: {
       target: CRITERIA.wallMinutes,
@@ -225,7 +253,12 @@ export const compare = ({ baselinePath, rerunPath }) => {
       raw: compared.rerun.wallSeconds / 60,
       met: answered(scored.rerun.wallSeconds / 60 > CRITERIA.wallMinutes)
     },
-    perInstanceUsd: { target: CRITERIA.instanceUsd, over: overBudgetUsd, met: answered(overBudgetUsd.length > 0) },
+    perInstanceUsd: {
+      target: CRITERIA.instanceUsd,
+      over: overBudgetUsd,
+      unknown: unknownUsd,
+      met: priced(overBudgetUsd.length > 0)
+    },
     perInstanceFrames: { target: CRITERIA.instanceFrames, over: overFrames, met: answered(overFrames.length > 0) },
     // The superset rule: the re-run must not lose an instance the baseline had.
     noRegression: { lost, met: answered(lost.length > 0) }
@@ -286,7 +319,11 @@ export const render = (summary) => {
   )
   lines.push(
     `| total cost | ${money(scored.baseline.usd)} | ${money(scored.rerun.usd)}`
-      + ` | ${signed(scored.rerun.usd - scored.baseline.usd)} |`
+      + ` | ${
+        signed(
+          scored.rerun.usd === null || scored.baseline.usd === null ? null : scored.rerun.usd - scored.baseline.usd
+        )
+      } |`
   )
   lines.push(
     `| instance wall | ${scored.baseline.wallSeconds} s | ${scored.rerun.wallSeconds} s`
@@ -327,7 +364,7 @@ export const render = (summary) => {
   lines.push("")
   lines.push("| criterion | target | actual | met |")
   lines.push("| --- | ---: | ---: | :---: |")
-  const mark = (met) => (met === undefined ? "pending" : met ? "yes" : "NO")
+  const mark = (met) => (met === undefined ? "pending" : met === null ? "unknown" : met ? "yes" : "NO")
   lines.push(
     `| resolved | >= ${summary.criteria.resolved.target}`
       + ` | ${summary.criteria.resolved.actual}/${summary.criteria.resolved.of}`
@@ -360,6 +397,10 @@ export const render = (summary) => {
   if (summary.criteria.perInstanceUsd.over.length > 0) {
     lines.push("")
     lines.push(`Over ${money(CRITERIA.instanceUsd)}: ${summary.criteria.perInstanceUsd.over.join(", ")}.`)
+  }
+  if (summary.criteria.perInstanceUsd.unknown.length > 0) {
+    lines.push("")
+    lines.push(`Unknown cost: ${summary.criteria.perInstanceUsd.unknown.join(", ")}.`)
   }
   if (summary.criteria.perInstanceFrames.over.length > 0) {
     lines.push("")

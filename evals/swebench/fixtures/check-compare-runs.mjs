@@ -31,7 +31,7 @@ import { spawnSync } from "node:child_process"
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
-import { compare, render, spendByInstance } from "../compare-runs.mjs"
+import { compare, CRITERIA, render, spendByInstance } from "../compare-runs.mjs"
 import { EXCLUDED } from "../lib/excluded.mjs"
 import { read } from "../lib/fullbench-manifest.mjs"
 
@@ -281,6 +281,104 @@ try {
   assert.match(once, /\| resolved \| 2\/3 \| 2\/3 \| \+0 \|/)
   assert.match(once, /a__a-1 \*\*-\*\*/)
   assert.match(once, /b__b-2 \*\*\+\*\*/)
+
+  // -----------------------------------------------------------------------
+  // Dollars are the budget gate's attempt projection: a grade that enriches its
+  // attempt is one bill, a replaced attempt stays billed, a grade-only legacy
+  // ledger still carries spend, and unknown cost is never zero.
+  // -----------------------------------------------------------------------
+  const one = "p__p-1"
+  const pricedBaseline = ledger(join(temporary, "priced-baseline.jsonl"), [
+    ...graded(one, "resolved", { usd: 0.25, frames: 2, wallSeconds: 60, agentSeconds: 50 })
+  ])
+  const costOf = (name, rows) => {
+    const path = ledger(join(temporary, `${name}.jsonl`), rows)
+    const cli = spawnSync(process.execPath, [
+      join(root, "compare-runs.mjs"),
+      "--baseline",
+      pricedBaseline,
+      "--rerun",
+      path,
+      "--json"
+    ], { encoding: "utf8" })
+    assert.equal(cli.status, 0, cli.stderr)
+    const summary = JSON.parse(cli.stdout)
+    assert.deepEqual(summary, JSON.parse(JSON.stringify(compare({ baselinePath: pricedBaseline, rerunPath: path }))))
+    return { summary, markdown: render(summary) }
+  }
+  const ran = (usd, extra = {}) => instance(one, "ran", { wallSeconds: 60, cost: { usd, frames: 2 }, ...extra })
+  const cases = [
+    ["priced", [ran(0.25), instance(one, "graded", { verdict: "resolved" })], 0.25],
+    ["enriched", [ran(0.25), instance(one, "graded", { verdict: "resolved", cost: { usd: 0.25 } })], 0.25],
+    [
+      "replaced",
+      [
+        ran(40),
+        instance(one, "pulled"),
+        ran(25),
+        instance(one, "graded", { verdict: "resolved", cost: { usd: 25 } })
+      ],
+      65
+    ],
+    ["grade-only", [instance(one, "graded", { verdict: "resolved", cost: { usd: 0.5 } })], 0.5],
+    ["unknown", [
+      instance(one, "ran", { cost: { usd: null, unknown: true, modelCalls: 5 } }),
+      instance(one, "graded", { verdict: "resolved" })
+    ], null],
+    ["missing", [instance(one, "ran", {}), instance(one, "graded", { verdict: "resolved" })], null],
+    ["zero-flagged-unknown", [
+      instance(one, "ran", { cost: { usd: 0, unknown: true } }),
+      instance(one, "graded", { verdict: "resolved" })
+    ], null]
+  ]
+  for (const [name, rows, usd] of cases) {
+    const { summary, markdown } = costOf(name, rows)
+    assert.equal(summary.instances[0].after.usd, usd, `${name}: instance dollars`)
+    assert.equal(summary.totals.scored.rerun.usd, usd, `${name}: scored total`)
+    assert.equal(summary.totals.compared.rerun.usd, usd, `${name}: raw total`)
+    assert.equal(summary.totals.scored.rerun.unknownCost, usd === null ? 1 : 0)
+    if (usd === null) {
+      assert.equal(summary.instances[0].delta.usd, null, `${name}: an unknown delta`)
+      assert.equal(summary.criteria.totalUsd.met, null, `${name}: unknown cost cannot meet the total`)
+      assert.equal(summary.criteria.perInstanceUsd.met, null, `${name}: unknown cost cannot meet the per-instance cap`)
+      assert.deepEqual(summary.criteria.perInstanceUsd.unknown, [one])
+      assert.match(markdown, /\| total cost \| <= \$15\.00 \| unknown \(raw unknown\) \| unknown \|/)
+      assert.match(markdown, /Unknown cost: p__p-1\./)
+    } else {
+      const withinTotal = usd <= CRITERIA.totalUsd
+      assert.equal(summary.criteria.totalUsd.met, withinTotal, `${name}: total criterion`)
+      assert.equal(summary.criteria.perInstanceUsd.met, usd <= 1, `${name}: per-instance criterion`)
+      assert.deepEqual(summary.criteria.perInstanceUsd.unknown, [])
+      assert.doesNotMatch(markdown, /unknown/)
+    }
+  }
+  // Known dollars already over the line settle a criterion even beside an
+  // unknown attempt: unknown spend is never negative.
+  const overAndUnknown = compare({
+    baselinePath,
+    rerunPath: ledger(join(temporary, "over-and-unknown.jsonl"), [
+      ...graded("a__a-1", "resolved", { usd: 16, frames: 2, wallSeconds: 60, agentSeconds: 50 }),
+      instance("b__b-2", "ran", { cost: { usd: null, unknown: true } }),
+      instance("b__b-2", "graded", { verdict: "resolved" }),
+      ...graded("c__c-3", "resolved", { usd: 0.25, frames: 2, wallSeconds: 60, agentSeconds: 50 })
+    ])
+  })
+  assert.equal(overAndUnknown.totals.scored.rerun.usd, null)
+  assert.equal(overAndUnknown.criteria.totalUsd.met, false)
+  assert.equal(overAndUnknown.criteria.perInstanceUsd.met, false)
+  assert.deepEqual(overAndUnknown.criteria.perInstanceUsd.over, ["a__a-1"])
+  assert.deepEqual(overAndUnknown.criteria.totalUsd.unknown, ["b__b-2"])
+  // A partial re-run with an unknown attempt is unknown, not pending: that bill
+  // is not coming back.
+  const partialUnknown = compare({
+    baselinePath,
+    rerunPath: ledger(join(temporary, "partial-unknown.jsonl"), [
+      instance("b__b-2", "ran", { cost: { usd: null, unknown: true } }),
+      instance("b__b-2", "graded", { verdict: "resolved" })
+    ])
+  })
+  assert.equal(partialUnknown.pending, 2)
+  assert.equal(partialUnknown.criteria.totalUsd.met, null)
 
   // A missing baseline is a refusal, not an empty report.
   const missing = spawnSync(process.execPath, [

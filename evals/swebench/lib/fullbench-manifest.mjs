@@ -138,3 +138,60 @@ export const read = (path) => {
  * @since 0.1.0
  */
 export const isDone = (state) => state !== undefined && DONE_STATES.has(state.state)
+
+/**
+ * Every billed attempt, in ledger order: the one attempt projection the budget
+ * gate, the report and the comparisons all read.
+ *
+ * A `ran` row opens an attempt, as does a `graded` row with no open attempt (an
+ * older grade-only ledger). A `graded` row after `ran` describes the same
+ * attempt and can supply its cost; it is never a second bill. `pulled` closes
+ * the open attempt, so a crashed attempt a retry replaced stays billed.
+ *
+ * @category conversions
+ * @since 1.0.0
+ */
+export const costAttempts = (rows) => {
+  const attempts = []
+  const current = new Map()
+  for (const row of rows) {
+    if (row.kind !== "instance") continue
+    if (row.state === "pulled") current.delete(row.id)
+    if (row.state !== "ran" && row.state !== "graded") continue
+    if (row.state === "ran" || !current.has(row.id)) {
+      const attempt = { ...row }
+      attempts.push(attempt)
+      current.set(row.id, attempt)
+    } else if (row.cost !== undefined) {
+      current.get(row.id).cost = row.cost
+    }
+  }
+  return attempts
+}
+
+/**
+ * True when an attempt's cost is not a known dollar figure. Unknown is never
+ * zero: missing, null, invalid or explicitly unknown accounting all count here.
+ *
+ * @category predicates
+ * @since 1.0.0
+ */
+export const isUnknownCost = (cost) => cost?.unknown === true || !Number.isFinite(cost?.usd) || cost.usd < 0
+
+/**
+ * Per instance, the dollars its priced attempts cost and how many of its
+ * attempts have unknown cost.
+ *
+ * @category conversions
+ * @since 1.0.0
+ */
+export const attemptSpend = (ledger) => {
+  const spend = new Map()
+  for (const { id, cost } of costAttempts(ledger.rows)) {
+    const entry = spend.get(id) ?? { usd: 0, unknownAttempts: 0 }
+    if (isUnknownCost(cost)) entry.unknownAttempts += 1
+    else entry.usd += cost.usd
+    spend.set(id, entry)
+  }
+  return spend
+}

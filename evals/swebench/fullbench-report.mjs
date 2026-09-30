@@ -48,30 +48,10 @@ import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs
 import { dirname, join } from "node:path"
 import { denominatorLabel, denominators, renderExclusions } from "./lib/excluded.mjs"
 import { formatMoney as money } from "./lib/format-money.mjs"
-import { read, readRows } from "./lib/fullbench-manifest.mjs"
+import { attemptSpend, costAttempts, read, readRows } from "./lib/fullbench-manifest.mjs"
 import { usd } from "./prices.ts"
 
 const rigRoot = import.meta.dirname
-
-// A grade can carry the cost when the ran row did not. It describes the same
-// attempt, while pulled and subsequent ran rows start new attempts.
-const costAttempts = (rows) => {
-  const attempts = []
-  const current = new Map()
-  for (const row of rows) {
-    if (row.kind !== "instance") continue
-    if (row.state === "pulled") current.delete(row.id)
-    if (row.state !== "ran" && row.state !== "graded") continue
-    if (row.state === "ran" || !current.has(row.id)) {
-      const attempt = { ...row }
-      attempts.push(attempt)
-      current.set(row.id, attempt)
-    } else if (row.cost !== undefined) {
-      current.get(row.id).cost = row.cost
-    }
-  }
-  return attempts
-}
 
 /**
  * All attempts' spend, retaining unknown costs instead of treating them as zero.
@@ -82,9 +62,9 @@ const costAttempts = (rows) => {
 export const spendByInstance = (ledger) => {
   let dollars = 0
   let unknownAttempts = 0
-  for (const { cost } of costAttempts(ledger.rows)) {
-    if (cost?.unknown === true || !Number.isFinite(cost?.usd) || cost.usd < 0) unknownAttempts += 1
-    else dollars += cost.usd
+  for (const entry of attemptSpend(ledger).values()) {
+    dollars += entry.usd
+    unknownAttempts += entry.unknownAttempts
   }
   // Round only after summing: many sub-cent attempts are still real spend.
   return { cents: Math.round(dollars * 100), unknownAttempts }
