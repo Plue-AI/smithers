@@ -12,7 +12,9 @@ import { Flow, type FlowRuntime } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"
 import { Effect, Schema } from "effect"
 import { IntegrationFailure } from "../core/ActionFailure.ts"
+import { CursorStore } from "../core/CursorStore.ts"
 import * as IssueSync from "../core/IssueSync.ts"
+import type { SyncAdapter } from "../core/Sync.ts"
 import * as Actions from "./Actions.ts"
 import * as Payload from "./Payload.ts"
 import type { Source } from "./SocketSource.ts"
@@ -87,6 +89,18 @@ export interface Options {
     ) => Promise<void>)
     | undefined
 }
+/** The conversations a host reads back before its socket opens.
+ * @category models
+ * @since 1.0.0
+ */
+export interface CatchUp {
+  /** The workspace the conversations belong to. */
+  readonly teamId: string
+  /** One `Sync.make` history feed per admitted conversation, starting from now on first use. */
+  readonly feeds: ReadonlyArray<SyncAdapter>
+}
+// History pages per conversation per catch-up; the stored cursor resumes the rest next start.
+const CATCH_UP_PAGES = 50
 // Slack truncates beyond MAX_TEXT_LENGTH and the action refuses it; cut on a code point and mark the cut.
 const fit = (body: string) => {
   if (body.length <= Actions.MAX_TEXT_LENGTH) return body
@@ -212,8 +226,43 @@ export const make = (options: Options) => {
       body: record.text
     }, Payload.toExternalEvent(raw, { policy }))
   }
+  // Socket Mode never replays an event sent while no socket was open. Before
+  // the socket opens, each conversation's history after the last completed
+  // pass goes through the same admission as a live event. Its identity is the
+  // message and version, so a message the socket also delivered, or a pass
+  // repeated after a crash, changes nothing on the issue. A pass's cursor is
+  // stored only after its page is ingested.
+  const catchUp = (input: CatchUp) =>
+    Effect.gen(function*() {
+      const store = yield* CursorStore
+      let applied = 0
+      for (const feed of input.feeds) {
+        const sourceId = `slack-history:${feed.connectionId}:${feed.stream}`
+        let cursor = yield* store.get(sourceId)
+        for (let pages = 0; pages < CATCH_UP_PAGES; pages++) {
+          const changes = yield* feed.changes(cursor)
+          for (const record of changes.records) {
+            // A history tombstone carries no message; a deletion arrives as a live event.
+            const message = record.payload
+            if (!isRecord(message)) continue
+            const event = {
+              type: "event_callback",
+              team_id: input.teamId,
+              event_id: `history:${feed.stream}:${String(message["ts"])}:${record.version}`,
+              event: { ...message, type: "message", channel: feed.stream }
+            }
+            if ((yield* Effect.tryPromise(() => ingest(event))) === "applied") applied++
+          }
+          cursor = changes.cursor
+          yield* store.set(sourceId, cursor)
+          if (changes.done) break
+        }
+      }
+      return applied
+    })
   return {
     ingest,
+    catchUp,
     drain: bridge.drain,
     run: (source: Source) =>
       source.run((events) =>

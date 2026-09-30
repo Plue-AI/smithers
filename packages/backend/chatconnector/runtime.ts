@@ -9,6 +9,7 @@ import * as Slack from "../../smithers/agent/integrations/src/slack/IssueSync.ts
 import * as SlackActions from "../../smithers/agent/integrations/src/slack/Actions.ts"
 import * as Connections from "../../smithers/agent/integrations/src/slack/Connections.ts"
 import * as SocketSource from "../../smithers/agent/integrations/src/slack/SocketSource.ts"
+import * as SlackSync from "../../smithers/agent/integrations/src/slack/Sync.ts"
 import * as Telegram from "../../smithers/agent/integrations/src/telegram/IssueSync.ts"
 import * as TelegramActions from "../../smithers/agent/integrations/src/telegram/Actions.ts"
 import * as TelegramClient from "../../smithers/agent/integrations/src/telegram/TelegramClient.ts"
@@ -69,7 +70,20 @@ export const openHost = async (options: {
     const bridges: Array<{ drain: () => Promise<number>; run: Effect.Effect<void, unknown, CursorStore.CursorStore> }> = []
     if (slack && slackPolicy) {
       const bridge = Slack.make({ ...common, connectionId: "slack", policy: slackPolicy })
-      bridges.push({ drain: bridge.drain, run: bridge.run(SocketSource.make({ client: slack.client, policy: slackPolicy })) })
+      // Messages sent while no socket was open are read back from history first.
+      // The narrowest type avoids a conversations.info scope; access scope is unused here.
+      const startAt = SlackSync.msToTs(Date.now())
+      const feeds = slackPolicy.allowedChannelIds.map(channel => SlackSync.make({
+        connectionId: "slack", channel, client: slack.client, initialOldest: startAt,
+        channelType: channel.startsWith("D") ? "im" : "private"
+      }))
+      const catchUp = slack.client.call("auth.test").pipe(
+        Effect.flatMap(auth => bridge.catchUp({ teamId: String(auth["team_id"]), feeds }))
+      )
+      bridges.push({
+        drain: bridge.drain,
+        run: Effect.andThen(catchUp, bridge.run(SocketSource.make({ client: slack.client, policy: slackPolicy })))
+      })
     }
     if (telegram && config.telegram) {
       const bridge = Telegram.make({ ...common, connectionId: "telegram", botId: config.telegram.botId, allowedChatIds: config.telegram.chatIds, allowedUserIds: config.telegram.userIds })

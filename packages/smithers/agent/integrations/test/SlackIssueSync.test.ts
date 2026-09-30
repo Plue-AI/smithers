@@ -1,8 +1,11 @@
 import type { FlowRuntime } from "@smthrs/flow"
 import { Effect, Schema } from "effect"
 import { describe, expect, it } from "vitest"
+import * as CursorStore from "../src/core/CursorStore.ts"
+import type { Changes, SyncAdapter } from "../src/core/Sync.ts"
 import * as Actions from "../src/slack/Actions.ts"
 import * as IssueSync from "../src/slack/IssueSync.ts"
+import * as SlackSync from "../src/slack/Sync.ts"
 
 /** Run on the host's registered Flow runtime, using executionId as the run identity.
  * @category models
@@ -608,6 +611,134 @@ it("leaves a reconciled row to the worker that already settled it", async () => 
         : new Response(null, { status: 409 })
   })
   expect(await sync.drain()).toBe(0)
+})
+
+describe("history catch-up", () => {
+  const context = { connectionId: "slack", channel: "C001", channelType: "private" as const, retrievedAtMs: 0 }
+  const human = (ts: string, extra: object = {}) =>
+    SlackSync.messageRecord({ type: "message", user: "U001", text: `human ${ts}`, ts, ...extra }, context)
+  const feed = (pages: ReadonlyArray<Changes>, seen: Array<string | null> = []): SyncAdapter => ({
+    provider: "slack",
+    connectionId: "slack",
+    stream: "C001",
+    changes: (cursor) => {
+      seen.push(cursor)
+      return Effect.succeed(pages[Math.min(seen.length - 1, pages.length - 1)]!)
+    }
+  })
+  const sourceId = "slack-history:slack:C001"
+
+  it("admits history like live events and stores each page's cursor after ingesting it", async () => {
+    const bodies: any[] = []
+    const request = async (_: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body))
+      bodies.push(body)
+      return Response.json(
+        body.message_id === "203.000001" ? { ignored: "sync conversation not mapped" } : { issue_id: 42 }
+      )
+    }
+    const sync = makeSync({ ...options, request, execute: executor() })
+    const seen: Array<string | null> = []
+    const pages: ReadonlyArray<Changes> = [
+      {
+        records: [
+          human("200.000001", { edited: { ts: "210.000001" } }),
+          SlackSync.messageRecord({ type: "message", bot_id: "B001", text: "echo", ts: "201.000001" }, context)
+        ],
+        cursor: "page-2",
+        reset: false,
+        done: false
+      },
+      {
+        records: [
+          SlackSync.tombstone("202.000001", "202.000001", context),
+          human("203.000001"),
+          human("204.000001", { thread_ts: "200.000001" })
+        ],
+        cursor: "watermark",
+        reset: false,
+        done: true
+      }
+    ]
+    const stored = await Effect.runPromise(
+      Effect.gen(function*() {
+        const applied = yield* sync.catchUp({ teamId: "T001", feeds: [feed(pages, seen)] })
+        return { applied, cursor: yield* Effect.flatMap(CursorStore.CursorStore, (store) => store.get(sourceId)) }
+      }).pipe(Effect.provide(CursorStore.layerMemory))
+    )
+    // The bot post and the tombstone never reach the backend; a refusal is not counted.
+    expect(stored).toEqual({ applied: 2, cursor: "watermark" })
+    expect(seen).toEqual([null, "page-2"])
+    expect(bodies.map((b) => [b.kind, b.message_id, b.version, b.thread_id, b.body, b.delivery_key])).toEqual([
+      [
+        "message",
+        "200.000001",
+        "210.000001",
+        undefined,
+        "human 200.000001",
+        "slack:T001:history:C001:200.000001:210.000001"
+      ],
+      [
+        "message",
+        "203.000001",
+        "203.000001",
+        undefined,
+        "human 203.000001",
+        "slack:T001:history:C001:203.000001:203.000001"
+      ],
+      [
+        "message",
+        "204.000001",
+        "204.000001",
+        "200.000001",
+        "human 204.000001",
+        "slack:T001:history:C001:204.000001:204.000001"
+      ]
+    ])
+  })
+
+  it("re-reads a page whose ingest failed with the same delivery identity", async () => {
+    const keys: string[] = []
+    let fail = true
+    const request = async (_: string, init?: RequestInit) => {
+      keys.push(JSON.parse(String(init?.body)).delivery_key)
+      if (fail) return new Response(null, { status: 503 })
+      return Response.json({ issue_id: 42 })
+    }
+    const sync = makeSync({ ...options, request, execute: executor() })
+    const seen: Array<string | null> = []
+    const pages = [{ records: [human("300.000001")], cursor: "watermark", reset: false, done: true }]
+    const cursors = await Effect.runPromise(
+      Effect.gen(function*() {
+        const store = yield* CursorStore.makeMemory
+        const once = sync.catchUp({ teamId: "T001", feeds: [feed(pages, seen)] }).pipe(
+          Effect.provideService(CursorStore.CursorStore, store)
+        )
+        const failed = yield* Effect.exit(once)
+        const afterFailure = yield* store.get(sourceId)
+        fail = false
+        const applied = yield* once
+        return { failed: failed._tag, afterFailure, applied, afterSuccess: yield* store.get(sourceId) }
+      })
+    )
+    expect(cursors).toEqual({ failed: "Failure", afterFailure: null, applied: 1, afterSuccess: "watermark" })
+    expect(seen).toEqual([null, null])
+    expect(keys).toEqual([keys[0], keys[0]])
+  })
+
+  it("stops after its page budget and resumes from the stored cursor", async () => {
+    const seen: Array<string | null> = []
+    const sync = makeSync({ ...options, request: async () => Response.json({ issue_id: 42 }), execute: executor() })
+    const endless = feed([{ records: [], cursor: "more", reset: false, done: false }], seen)
+    const cursor = await Effect.runPromise(
+      sync.catchUp({ teamId: "T001", feeds: [endless] }).pipe(
+        Effect.andThen(Effect.flatMap(CursorStore.CursorStore, (store) => store.get(sourceId))),
+        Effect.provide(CursorStore.layerMemory)
+      )
+    )
+    expect(cursor).toBe("more")
+    expect(seen).toHaveLength(50)
+  })
 })
 
 // Transport unit tests substitute the runtime, never a production host executor.

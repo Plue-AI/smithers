@@ -341,7 +341,11 @@ export interface Options {
   readonly channelType?: ChannelType | undefined
   /** Messages per history page. Defaults to 200; 1 to 999. */
   readonly pageSize?: number | undefined
-  /** The lower bound of the first pass, as a Slack timestamp. Omitted, the first pass reads everything. */
+  /**
+   * The lower bound of the first pass, as a Slack timestamp. Omitted, the first
+   * pass reads everything. A first pass that finds nothing newer keeps it as
+   * the watermark, so a feed that starts "from now" never reads older history.
+   */
   readonly initialOldest?: string | undefined
   /** Threads whose replies are followed. Defaults to 20; 0 to 200. */
   readonly maxTrackedThreads?: number | undefined
@@ -524,7 +528,7 @@ export const make = (options: Options): SyncAdapter => {
       followed.sort(([, left], [, right]) => compareTs(right, left))
       const next: CursorState = {
         v: 1,
-        watermark: newest ?? state.watermark,
+        watermark: newest ?? state.watermark ?? options.initialOldest ?? null,
         page: null,
         newest: null,
         threads: followed.slice(0, maxTrackedThreads)

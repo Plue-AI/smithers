@@ -492,6 +492,24 @@ describe("changes", () => {
     expect(calls(server, "conversations.history")[0]?.params["oldest"]).toBe(ts(1))
   })
 
+  it("keeps initialOldest as the watermark when the first pass finds nothing newer", async () => {
+    const server = await serve(initial({ history: [message(1)] }))
+    const first = await Effect.runPromise(adapterFor(server, { initialOldest: ts(1) }).changes(null))
+    expect(first.records).toEqual([])
+    expect(cursorOf(first.cursor).watermark).toBe(ts(1))
+    // A later process with a later initialOldest resumes from the stored watermark.
+    const second = await Effect.runPromise(adapterFor(server, { initialOldest: ts(9) }).changes(first.cursor))
+    expect(second.records).toEqual([])
+    expect(calls(server, "conversations.history")[1]?.params["oldest"]).toBe(ts(1))
+    // Without a lower bound, an empty first pass leaves the whole history to read.
+    const unbounded = await Effect.runPromise(adapterFor(server).changes(null))
+    expect(cursorOf(unbounded.cursor).watermark).toBe(ts(1))
+    await server.close()
+    fixture = undefined
+    const empty = await serve(initial({ history: [] }))
+    expect(cursorOf((await Effect.runPromise(adapterFor(empty).changes(null))).cursor).watermark).toBeNull()
+  })
+
   it("follows tracked threads' replies on the last page of every pass", async () => {
     const root = message(1, { reply_count: 2, thread_ts: ts(1) })
     const state = initial({

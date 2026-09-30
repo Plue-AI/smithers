@@ -40,7 +40,10 @@ through `PUT /api/repos/{owner}/{repo}/issues/sync/channels`, using the existing
 issue sync API (`connection_id` is `slack` or `telegram`). The host does not
 expand or overwrite admission settings on restart. Inbound events commit to
 the issue store before the source acknowledges them; the factory consumes the
-same issues. No model credential or separate agent loop enters this host.
+same issues. Before Socket Mode opens, Slack reads each configured
+conversation's history since the last completed pass, so a message sent while
+the host was down reaches its issue once. The first start reads from that
+moment. Deletions made while the host was down are not recovered. No model credential or separate agent loop enters this host.
 Telegram delivers reaction updates only to a bot that administers the chat.
 
 The backend supplies its loopback URL and persistent state path. It exchanges
