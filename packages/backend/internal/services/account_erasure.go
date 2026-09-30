@@ -196,23 +196,12 @@ func (s *AdminUserService) eraseUserRows(ctx context.Context, user db.User, resu
 		return pkgerrors.Conflict(fmt.Sprintf("user still owns %d repositories and %d workspaces; retry the erase", live.Repositories, live.Workspaces))
 	}
 
-	// The waitlist is keyed by email, which the tombstone clears.
-	var waitlist int64
-	if user.LowerEmail.Valid && user.LowerEmail.String != "" {
-		n, err := q.AdminDeleteUserWaitlistEntries(ctx, user.LowerEmail.String)
-		if err != nil {
-			return pkgerrors.Internal("failed to delete waitlist entries").WithCause(err)
-		}
-		waitlist = n
-	}
-
 	// Rename first: the owner-namespace trigger moves the namespace row to the
 	// tombstone, and the cascade sweep below then deletes it.
 	changed, err := q.AdminTombstoneUser(ctx, db.AdminTombstoneUserParams{UserID: userID, Tombstone: tombstone})
 	if err != nil {
 		return pkgerrors.Internal("failed to tombstone user").WithCause(err)
 	}
-	changed += waitlist
 
 	refs, err := q.AdminListUserCascadeReferences(ctx)
 	if err != nil {

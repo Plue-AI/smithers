@@ -89,18 +89,6 @@ func (q *Queries) AdminDeleteUserNotificationFacts(ctx context.Context, userID i
 	return result.RowsAffected(), nil
 }
 
-const adminDeleteUserWaitlistEntries = `-- name: AdminDeleteUserWaitlistEntries :execrows
-DELETE FROM alpha_waitlist_entries WHERE lower_email = $1::text
-`
-
-func (q *Queries) AdminDeleteUserWaitlistEntries(ctx context.Context, lowerEmail string) (int64, error) {
-	result, err := q.db.Exec(ctx, adminDeleteUserWaitlistEntries, lowerEmail)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
 const adminExportComments = `-- name: AdminExportComments :one
 SELECT COALESCE(jsonb_agg(to_jsonb(x) ORDER BY x.created_at, x.id), '[]'::jsonb)::jsonb AS items FROM (
   SELECT c.id, 'issue' AS parent, COALESCE(ou.username, o.name) || '/' || r.name AS repository, i.number,

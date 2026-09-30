@@ -191,10 +191,6 @@ WHERE owner_type = 'user' AND owner_id = sqlc.arg(user_id)::bigint
 AND (stripe_customer_email <> '' OR stripe_customer_name <> '');
 
 
--- name: AdminDeleteUserWaitlistEntries :execrows
-DELETE FROM alpha_waitlist_entries WHERE lower_email = sqlc.arg(lower_email)::text;
-
-
 -- name: AdminScrubUserPushEvents :execrows
 UPDATE repo_push_events SET pusher_login = sqlc.arg(tombstone)::text, updated_at = now()
 WHERE pusher_id = sqlc.arg(user_id)::bigint AND pusher_login <> sqlc.arg(tombstone)::text;

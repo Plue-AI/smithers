@@ -61,31 +61,6 @@ type AgentSession struct {
 	DeletedAt     pgtype.Timestamptz `json:"deleted_at"`
 }
 
-type AlphaWaitlistEntry struct {
-	ID              int64              `json:"id"`
-	Email           string             `json:"email"`
-	LowerEmail      string             `json:"lower_email"`
-	GithubUsername  string             `json:"github_username"`
-	GithubAvatarUrl string             `json:"github_avatar_url"`
-	Note            string             `json:"note"`
-	Status          string             `json:"status"`
-	Source          string             `json:"source"`
-	ApprovedBy      pgtype.Int8        `json:"approved_by"`
-	ApprovedAt      pgtype.Timestamptz `json:"approved_at"`
-	CreatedAt       time.Time          `json:"created_at"`
-	UpdatedAt       time.Time          `json:"updated_at"`
-}
-
-type AlphaWhitelistEntry struct {
-	ID                 int64       `json:"id"`
-	IdentityType       string      `json:"identity_type"`
-	IdentityValue      string      `json:"identity_value"`
-	LowerIdentityValue string      `json:"lower_identity_value"`
-	CreatedBy          pgtype.Int8 `json:"created_by"`
-	CreatedAt          time.Time   `json:"created_at"`
-	UpdatedAt          time.Time   `json:"updated_at"`
-}
-
 type AnalyzerRun struct {
 	ID            int64              `json:"id"`
 	RepositoryID  int64              `json:"repository_id"`

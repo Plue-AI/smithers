@@ -135,6 +135,7 @@ var migrationRegistry = []migrationSpec{
 	{97, "migrations/0097_repository_git_usage.sql"},
 	{98, "migrations/0098_workspace_resources.sql"},
 	{99, "migrations/0099_invoked_flow_launch_redaction.sql"},
+	{100, "migrations/0100_drop_alpha_access_tables.sql"},
 }
 
 type migration struct {

@@ -1,7 +1,5 @@
 table,target_owner,status
 users,product,product baseline
-alpha_whitelist_entries,product,product baseline
-alpha_waitlist_entries,product,product baseline
 organizations,product,product baseline
 owner_namespaces,product,product baseline
 auth_sessions,product,product baseline

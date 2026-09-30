@@ -75,7 +75,6 @@ func seedErasureFixture(t *testing.T, pool *pgxpool.Pool) erasureFixture {
 	exec(`INSERT INTO repository_job_approvals(repository_id,job,plan_digest,plan_id,flow_id,envelope,approved_by) VALUES ($1,'ci',repeat('a',64),'plan','flow','{}',$2)`, f.bRepo, f.a)
 	exec(`INSERT INTO repo_push_events(delivery_id,repository_id,owner,repo,ref_name,pusher_id,pusher_login) VALUES ($1,$2,$3,$4,'refs/heads/main',$5,$6)`,
 		fmt.Sprintf("delivery-%d", base), f.bRepo, f.bName, f.bRepoName, f.a, f.aName)
-	exec(`INSERT INTO alpha_waitlist_entries(email,lower_email,github_username) VALUES ($1,$1,$2)`, f.aEmail, f.aName)
 	// Audit rows naming A: the admin created A, and A acted from an address.
 	exec(`INSERT INTO audit_log(event_type,actor_id,actor_name,target_type,target_id,target_name,action,metadata,ip_address)
 	      VALUES ('admin.user.create',$1,'ops-admin','user',$2,$3,'create',$4::jsonb,'10.0.0.1')`, f.admin, f.a, f.aName, fmt.Sprintf(`{"username":%q,"email":%q}`, f.aName, f.aEmail))
@@ -218,7 +217,6 @@ func TestAdminEraseUserRemovesOwnedDataKeepsBilling(t *testing.T) {
 	require.Zero(t, counts(`SELECT count(*) FROM repositories WHERE id=$1`, f.aRepo))
 	require.Zero(t, counts(`SELECT count(*) FROM workspace_snapshots WHERE snapshot_id=$1`, f.aSnapshot))
 	require.Zero(t, counts(`SELECT count(*) FROM owner_namespaces WHERE lower_slug=$1`, f.aName), "the username is free for reuse")
-	require.Zero(t, counts(`SELECT count(*) FROM alpha_waitlist_entries WHERE lower_email=$1`, f.aEmail))
 	require.Equal(t, int64(1), counts(`SELECT count(*) FROM repo_push_events WHERE pusher_id=$1 AND pusher_login=$2`, f.a, first.Tombstone))
 	// Retained audit rows keep their ids and event types but lose A's
 	// username, email and address.
