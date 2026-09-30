@@ -8,6 +8,7 @@ import { Action, Flow } from "@smthrs/flow"
 import * as GuardedSpawner from "@smthrs/kernel/ChildProcessSpawner"
 import * as CommandLine from "@smthrs/kernel/CommandLine"
 import * as GrantStore from "@smthrs/kernel/GrantStore"
+import * as ProcessConfinement from "@smthrs/kernel/ProcessConfinement"
 import * as Workspace from "@smthrs/kernel/Workspace"
 import { Node } from "@smthrs/plan"
 import * as Executable from "@smthrs/registry/Executable"
@@ -48,6 +49,8 @@ describe("CloudSandbox guarded command transport", () => {
       }
     }
     const host = GuardedSpawner.layer.pipe(
+      // The trusted local SSH fixture exercises permission checks, not OS isolation.
+      Layer.provide(ProcessConfinement.layerNoop),
       Layer.provide(GrantStore.layer({
         attended: false,
         rules: [new Rule({ effect: "allow", pattern: new CapabilityPattern({ action: "proc:spawn", resource: "*" }) })]
