@@ -8,9 +8,12 @@
  * The returned check count verifies that the resumed run does not repeat the
  * recorded first attempt.
  */
+import * as DurableEngineState from "@smthrs/engine-store/DurableEngineState"
 import { Action, Interpreter, Poll, Sleep } from "@smthrs/flow"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
+import * as Option from "effect/Option"
+import * as Schedule from "effect/Schedule"
 import * as Schema from "effect/Schema"
 import { durableEngine } from "./durable-layer.ts"
 
@@ -59,10 +62,17 @@ export const main = (filename: string): Effect.Effect<Summary> =>
       )
 
     // Phase one: the first attempt runs and the round parks on its timer.
+    // `discard` returns once the run is admitted and scheduled, so the drive
+    // waits for the durable park before it drops the engine.
     yield* Effect.scoped(
-      Deployment.execute({ id: "web" }, { executionId: "deploy-1", discard: true }).pipe(
-        Effect.provide(engine("worker-a"))
-      )
+      Effect.gen(function*() {
+        yield* Deployment.execute({ id: "web" }, { executionId: "deploy-1", discard: true })
+        const state = yield* DurableEngineState.DurableEngineState
+        yield* state.waiting("deploy-1").pipe(
+          Effect.repeat({ until: Option.isSome, schedule: Schedule.spaced(10) }),
+          Effect.timeout(30_000)
+        )
+      }).pipe(Effect.provide(engine("worker-a")))
     )
 
     const checksBeforeRestart = [...checks]

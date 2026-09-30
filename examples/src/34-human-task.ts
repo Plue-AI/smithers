@@ -148,7 +148,7 @@ export const main = (filename: string): Effect.Effect<Summary> =>
     const refusals = yield* Effect.scoped(
       Effect.gen(function*() {
         yield* HumanTask.answer({ token: tokenFor(executionId, 1), value: "yes, ship it" })
-        yield* Release.execute({ build: "v1.4.0" }, { executionId, discard: true })
+        yield* Release.resume(executionId)
         parkedOn.push(yield* parkedAttempt(executionId, 3, 1))
         return yield* refusalsRecorded(executionId)
       }).pipe(Effect.provide(engine("worker-b")))
