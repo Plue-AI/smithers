@@ -1358,7 +1358,7 @@ async function realLandingFixture(t: test.TestContext, advancedMain = false) {
   }
   const remote = await mkdtemp(join(tmpdir(), "burndown-remote-"))
   t.after(() => rm(remote, { recursive: true, force: true }))
-  const git = spawnSync("git", ["init", "--bare", remote], {
+  const git = spawnSync("git", ["init", "--bare", "--initial-branch=main", remote], {
     env: { ...process.env, PATH: originalPath },
     encoding: "utf8"
   })
