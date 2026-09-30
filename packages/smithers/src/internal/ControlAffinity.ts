@@ -14,6 +14,11 @@ interface Options {
   readonly isAlive?: Ownership.LivenessCheck | undefined
 }
 
+const ParkedOwner = Schema.Struct({ parkedBy: Schema.String, updatedAt: Schema.Number })
+const decodeState = Schema.decodeUnknownEffect(Schema.fromJsonString(RunState))
+const decodePark = Schema.decodeUnknownEffect(Schema.fromJsonString(ParkedOwner))
+const decodeOwner = Schema.decodeUnknownEffect(Schema.fromJsonString(Ownership.OwnerId))
+
 /**
  * A released engine row does not release its separate control claim.
  * Read that claim before engine recovery; the control runtime still performs
@@ -21,27 +26,25 @@ interface Options {
  * @since 1.0.0
  * @private
  */
-const ParkedOwner = Schema.Struct({ parkedBy: Schema.String, updatedAt: Schema.Number })
-const decodeState = Schema.decodeUnknownEffect(Schema.fromJsonString(RunState))
-const decodePark = Schema.decodeUnknownEffect(Schema.fromJsonString(ParkedOwner))
-const decodeOwner = Schema.decodeUnknownEffect(Schema.fromJsonString(Ownership.OwnerId))
-
 export const make =
-  ({ runs, engineRuns, claimant, isAlive = Ownership.sameHostPidProbe }: Options) => (runId: string): Effect.Effect<boolean> =>
+  ({ runs, engineRuns, claimant, isAlive = Ownership.sameHostPidProbe }: Options) =>
+  (runId: string): Effect.Effect<boolean> =>
     Effect.gen(function*() {
-      const readControl = (id: string) => runs.get(id).pipe(
-        Effect.catch((error) => error.code === "not_found_row" ? Effect.succeed(undefined) : Effect.fail(error))
-      )
+      const readControl = (id: string) =>
+        runs.get(id).pipe(
+          Effect.catch((error) => error.code === "not_found_row" ? Effect.succeed(undefined) : Effect.fail(error))
+        )
       const sameProcess = (owner: Ownership.OwnerId) => owner.hostId === claimant.hostId && owner.pid === claimant.pid
       const nowMs = yield* Clock.currentTimeMillis
       const stale = (at: number | null) => at !== null && at < nowMs - Duration.toMillis(Ownership.heartbeatStaleAfter)
-      const admitsRunning = (row: RunStore.RunRow) => Effect.gen(function*() {
-        if (row.status !== "running") return true
-        if (row.owner === null) return false
-        if (sameProcess(row.owner)) return true
-        if (!stale(row.heartbeatAtMs)) return false
-        return !(yield* isAlive(row.owner, { claimant, heartbeatAtMs: row.heartbeatAtMs, nowMs }))
-      })
+      const admitsRunning = (row: RunStore.RunRow) =>
+        Effect.gen(function*() {
+          if (row.status !== "running") return true
+          if (row.owner === null) return false
+          if (sameProcess(row.owner)) return true
+          if (!stale(row.heartbeatAtMs)) return false
+          return !(yield* isAlive(row.owner, { claimant, heartbeatAtMs: row.heartbeatAtMs, nowMs }))
+        })
       const exact = yield* readControl(runId)
       // Root admission keeps the control session's existing resume policy.
       if (exact !== undefined) return yield* admitsRunning(exact)

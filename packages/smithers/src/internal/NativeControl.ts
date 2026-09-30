@@ -711,12 +711,15 @@ export const make = (
         budget: Descriptor.budgetOf(descriptor)
       },
       ...(executable?.input === undefined ? {} : {
-        decode: (input: unknown) => Schema.decodeUnknownEffect(executable.input!)(input).pipe(
-          Effect.provideContext(planningContext),
-          Effect.catchCause((cause) => Cause.hasInterruptsOnly(cause)
-            ? Effect.interrupt
-            : Effect.fail(new ControlError.InvalidInput({ issue: Cause.pretty(cause) })))
-        )
+        decode: (input: unknown) =>
+          Schema.decodeUnknownEffect(executable.input!)(input).pipe(
+            Effect.provideContext(planningContext),
+            Effect.catchCause((cause) =>
+              Cause.hasInterruptsOnly(cause)
+                ? Effect.interrupt
+                : Effect.fail(new ControlError.InvalidInput({ issue: Cause.pretty(cause) }))
+            )
+          )
       }),
       ...(executable === undefined ? {} : { plan: planExecutable(executable, root) })
     }

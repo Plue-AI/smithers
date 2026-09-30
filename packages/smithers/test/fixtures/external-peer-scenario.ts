@@ -106,7 +106,7 @@ if (["observe", "stall", "cancel", "recover"].includes(mode!)) {
     await new Promise((resolve) => setTimeout(resolve, 1_000))
     assert.equal(alive(first.pid), true, "Closing an observation host must not terminate the worker")
     assert.deepEqual(await workers(root), [first])
-    await poll(() => rows(root).some((row) => row.status === "suspended"), "real engine parent park")
+    await poll(() => rows(root).find((row) => row.run_id === runId)?.status === "suspended", "real engine root park")
     if (mode === "recover") {
       original.kill("SIGKILL")
       await exited
@@ -155,6 +155,8 @@ if (["observe", "stall", "cancel", "recover"].includes(mode!)) {
           yield* Effect.promise(() => poll(() => !alive(first.pid), "expired lease worker stopped"))
           assert.deepEqual(yield* Effect.promise(() => workers(root)), [first])
           assert.equal(rows(root).some((row) => row.status === "suspended" && row.waiting_reason === "released"), true)
+          const parked = yield* control.list({ _tag: "runs", filters: { runId } })
+          assert.equal(parked._tag === "runs" && parked.items[0]?.status, "parked")
           const resume = yield* control.resume({ runId, idempotencyKey: "explicit-retry-after-stall" })
           assert.equal(resume._tag, "Accepted")
           yield* Effect.promise(() =>
