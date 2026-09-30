@@ -235,14 +235,28 @@ export const make = <R = never>(options: MakeOptions<R>): SidecarFlow<R> => {
     // hand back the placeholder instead of the values the run produced.
     const measured = (scorer: Member<R>, both: unknown): Node.Node<unknown, unknown, R> =>
       Node.bindPlanned(
-        Node.map(
-          // The scorer sees the same pair `run` hands it: the primary's value
-          // and the shadow's, not the shadow's quarantine wrapper.
-          callMember(scorer, { primary: field(both, "primary"), shadow: field(field(both, "shadow"), "value") }),
-          Node.capture(
-            { scores: true },
-            (scores: unknown) => measuredDelta(field(scores, "primary") as number, field(scores, "shadow") as number)
-          )
+        Node.branch(
+          Node.map(
+            // The scorer sees the same pair `run` hands it: the primary's value
+            // and the shadow's, not the shadow's quarantine wrapper.
+            callMember(scorer, { primary: field(both, "primary"), shadow: field(field(both, "shadow"), "value") }),
+            Node.capture({ scores: true }, (scores: unknown) => {
+              const primary = field(scores, "primary") as number
+              const shadow = field(scores, "shadow") as number
+              const refusal = scoreRefusal(primary, shadow)
+              return refusal === undefined ? { delta: measuredDelta(primary, shadow) } : { refusal }
+            })
+          ),
+          // The scorer's output is data, so the declared form refuses the same
+          // scores `run` refuses, on the typed channel.
+          {
+            if: Node.capture(
+              { scores: true, refused: true },
+              (measure: { readonly refusal?: PatternError }) => measure.refusal !== undefined
+            ),
+            then: (measure: { readonly refusal?: PatternError }) => Node.fail(measure.refusal),
+            else: (measure: { readonly delta?: Delta }) => Node.succeed(measure.delta)
+          }
         ),
         Node.capture({ scores: true }, (delta) =>
           Node.succeed({

@@ -45,9 +45,10 @@ const result = await Effect.runPromise(
 )
 ```
 
-`run` returns the approved value, or
-`{ output, review, approved: false, exhausted: true }` when every round is
-spent. The same loop declared instead of executed, `ReviewLoop.make`, is a
+`run` returns a tagged outcome: `{ _tag: "Approved", output }`,
+`{ _tag: "Exhausted", output, review }` when every round is spent, or
+`{ _tag: "Stalled", output, review, stalled }` when a configured stall breaker
+parks the loop. Branch on `_tag`. The same loop declared instead of executed, `ReviewLoop.make`, is a
 graph of six calls you can count and cost before anything happens.
 
 The full API reference lives at

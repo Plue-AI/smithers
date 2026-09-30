@@ -527,11 +527,11 @@ const tryCatchFinally: Pattern<TryCase> = {
   )
 }
 
-const sidecarScript = (shadowFails: boolean) => ({
+const sidecarScript = (shadowFails: boolean, scores = { primary: 0.5, shadow: 0.75 }) => ({
   primary: ({ prompt }: { readonly prompt: string }) => `primary:${prompt}`,
   shadow: ({ prompt }: { readonly prompt: string }) =>
     shadowFails ? fail({ code: "shadow_down", message: "shadow down" }) : `shadow:${prompt}`,
-  score: () => ({ primary: 0.5, shadow: 0.75 })
+  score: () => scores
 })
 
 const sidecar: Pattern<{ readonly scores: boolean }> = {
@@ -546,6 +546,20 @@ const sidecar: Pattern<{ readonly scores: boolean }> = {
       options: { scores },
       script: sidecarScript(false)
     },
+    ...(scores
+      ? [{
+        name: "sidecar-scores-true-overflowing-difference",
+        input: { prompt: "x" },
+        options: { scores },
+        script: sidecarScript(false, { primary: 1e308, shadow: -1e308 }),
+        expected: {
+          failed: expect.objectContaining({
+            code: "invalid_input",
+            message: "Sidecar score difference must be a finite number, received Infinity"
+          })
+        }
+      }]
+      : []),
     {
       name: `sidecar-scores-${scores}-shadow-fails`,
       input: { prompt: "x" },

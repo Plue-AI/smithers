@@ -343,7 +343,17 @@ export const validate = (plan: unknown, envelope: Envelope): ReadonlyArray<Trell
       )
       return
     }
-    members.forEach((member, index) => visit(member, `${path}.${kind}[${index}]`, depth + 1))
+    // A hole is a missing member `forEach` would skip, so walk every index.
+    for (let index = 0; index < members.length; index++) {
+      const memberPath = `${path}.${kind}[${index}]`
+      if (index in members) {
+        visit(members[index], memberPath, depth + 1)
+      } else {
+        found.push(
+          new TrellisError({ code: "invalid_plan", path: memberPath, message: "A plan node must not be a missing member" })
+        )
+      }
+    }
   }
   visit(plan, "root", 1)
   if (found.length === 0 && leafCount > envelope.fuel) {

@@ -1,6 +1,7 @@
 import { describe, it } from "@effect/vitest"
 import { Flow, Graph } from "@smthrs/flow"
 import * as Node from "@smthrs/plan/Node"
+import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
 import * as Latch from "effect/Latch"
@@ -109,6 +110,37 @@ describe("Trellis", () => {
     expect(Schema.decodeUnknownResult(Trellis.Plan)({ sequence: [] })._tag).toBe("Failure")
     expect(Schema.decodeUnknownResult(Trellis.Plan)({ parallel: [] })._tag).toBe("Failure")
     expect(Schema.decodeUnknownResult(Trellis.Plan)(nested)._tag).toBe("Success")
+  })
+
+  it("refuses a container with a missing member and fails run on its typed channel", async () => {
+    const generous: Trellis.Envelope = { fuel: 4, depth: 3, fanout: 3 }
+    const dense = { agent: { goal: "g" } }
+    const holes: ReadonlyArray<readonly [unknown, string]> = [
+      [{ parallel: new Array(1) }, "root.parallel[0]"],
+      [{ sequence: new Array(1) }, "root.sequence[0]"],
+      [{ sequence: [dense, , dense] }, "root.sequence[1]"],
+      [{ parallel: [dense, , dense] }, "root.parallel[1]"],
+      [{ sequence: [{ parallel: [dense, ,] }] }, "root.sequence[0].parallel[1]"]
+    ]
+    for (const [plan, path] of holes) {
+      expect(Schema.is(Trellis.Plan)(plan)).toBe(false)
+      expect(reported(Trellis.validate(plan, generous))).toEqual([
+        ["invalid_plan", path, "A plan node must not be a missing member"]
+      ])
+      let leaves = 0
+      const exit = await Effect.runPromiseExit(Trellis.run("prompt", {
+        envelope: generous,
+        author: () => Effect.succeed(plan),
+        leaf: () => Effect.sync(() => ++leaves)
+      }))
+      expect(exit._tag).toBe("Failure")
+      const cause = (exit as { readonly cause: Cause.Cause<unknown> }).cause
+      expect(Cause.hasDies(cause)).toBe(false)
+      expect(Cause.hasFails(cause)).toBe(true)
+      expect(leaves).toBe(0)
+    }
+    const control = { parallel: [dense] }
+    expect(reported(Trellis.validate(control, generous))).toEqual([])
   })
 
   it("makes codec decoding and runtime validation agree on the closed grammar", () => {

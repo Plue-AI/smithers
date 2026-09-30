@@ -47,9 +47,8 @@ A dry run omits `apply` and reports `applied: undefined`. The optional approval
 callback retains its separate contract described in [Teams](./teams.md#intervene).
 
 `Kanban` columns receive `{ item, column, previous }`. Successful predecessors
-are the card values, unwrapped from the quarantine protocol. A declared later
-column still receives a `Quarantined` marker after a failure; `run` skips that
-card instead. Both completion callbacks receive `{ items, board }`, where
+are the card values, unwrapped from the quarantine protocol. A failed card
+makes no further column call, in the declared form and in `run` alike. Both completion callbacks receive `{ items, board }`, where
 `board` contains `board`, `completed`, `failed`, and `iterations`. The declared
 pass reports `iterations: 1`, retains each successful column value, and records
 each card's first failure. Runtime iterations report the final pass.
