@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -165,8 +166,9 @@ func (s *WorkspaceService) TouchSessionActivity(ctx context.Context, sessionID s
 }
 
 const (
-	workspaceGuestActivationWait = 60 * time.Second
-	workspaceGuestExecHeadroom   = 5 * time.Second
+	workspaceGuestActivationWait   = 60 * time.Second
+	workspaceGuestExecHeadroom     = 5 * time.Second
+	workspaceGuestResponseHeadroom = time.Second
 )
 
 type workspaceGuestExecutor interface {
@@ -185,20 +187,37 @@ func (s *WorkspaceService) waitForWorkspaceGuestActivation(ctx context.Context, 
 	if !ok {
 		return pkgerrors.Internal("sandbox provider cannot check workspace guest activation")
 	}
-	waitCtx, cancel := context.WithTimeout(ctx, workspaceGuestActivationWait+workspaceGuestExecHeadroom)
-	defer cancel()
+	if ctx.Err() != nil {
+		return pkgerrors.Internal("wait for workspace guest activation: " + ctx.Err().Error())
+	}
+
+	// The provider must finish the guest command before its RPC deadline,
+	// and the API needs time to return the retryable result to the caller.
+	waitDeadline := time.Now().Add(workspaceGuestActivationWait + workspaceGuestExecHeadroom)
 	timeoutMS := workspaceGuestActivationWait.Milliseconds()
+	if deadline, ok := ctx.Deadline(); ok {
+		deadline = deadline.Add(-workspaceGuestResponseHeadroom)
+		if deadline.Before(waitDeadline) {
+			waitDeadline = deadline
+			timeoutMS = (time.Until(deadline) - workspaceGuestExecHeadroom).Milliseconds()
+		}
+	}
+	if timeoutMS <= 0 {
+		return pkgerrors.GuestNotReady("workspace guest is still starting; retry shortly")
+	}
+	waitCtx, cancel := context.WithDeadline(ctx, waitDeadline)
+	defer cancel()
 	result, err := executor.Execute(waitCtx, workspace.VmID, sandbox.ExecRequest{
 		Command:   workspaceNixActivationWaitCommand,
 		TimeoutMS: &timeoutMS,
 	})
-	if err == nil && (result.StatusCode == nil || *result.StatusCode == 0) {
-		return nil
-	}
 	if ctx.Err() != nil {
 		return pkgerrors.Internal("wait for workspace guest activation: " + ctx.Err().Error())
 	}
-	if err != nil && waitCtx.Err() == nil {
+	if err == nil && (result.StatusCode == nil || *result.StatusCode == 0) {
+		return nil
+	}
+	if err != nil && waitCtx.Err() == nil && !errors.Is(err, context.DeadlineExceeded) {
 		return pkgerrors.Internal("wait for workspace guest activation: " + err.Error())
 	}
 	return pkgerrors.GuestNotReady("workspace guest is still starting; retry shortly")
