@@ -198,18 +198,19 @@ export const plan = async (
     const both = new Set([...group(a), ...group(b)])
     for (const path of both) groups.set(path, both)
   }
+  // Keyed by the file, not its spelling: a receipt from before paths were
+  // captured workspace-relative may name one file `./a.ts` and another `a.ts`.
   const refused = new Map<string, Refusal>()
+  const refuse = (path: string, why: Refusal) => refused.set(resolve(cwd, path), why)
   for (const { patch } of pending) {
     for (const path of Changes.ends(patch)) touch(path)
     const [first, second] = Changes.ends(patch)
     if (second !== undefined) link(first!, second)
-    if (Changes.structured(patch) === undefined) refused.set(patch.path, "unrendered")
+    if (Changes.structured(patch) === undefined) refuse(patch.path, "unrendered")
   }
   for (const path of order) {
-    if (outside(cwd, path)) refused.set(path, "outside")
+    if (outside(cwd, path)) refuse(path, "outside")
   }
-  // Keyed by the file, not its spelling: a receipt from before paths were
-  // captured workspace-relative may name one file `./a.ts` and another `a.ts`.
   const seeded = new Map<string, string | null | undefined>()
   const state = new Map<string, string | null | undefined>()
   const modes = new Map<string, number>()
@@ -224,7 +225,7 @@ export const plan = async (
   }
   const set = (path: string, value: string | null) => state.set(resolve(cwd, path), value)
   const blocked = (paths: ReadonlyArray<string>) =>
-    paths.some((path) => [...group(path)].some((each) => refused.has(each)))
+    paths.some((path) => [...group(path)].some((each) => refused.has(resolve(cwd, each))))
   // Newest first, each patch reversed over what the later ones left.
   for (const { patch } of pending.toReversed()) {
     if (blocked(Changes.ends(patch))) continue
@@ -239,14 +240,14 @@ export const plan = async (
       ? content ?? ""
       : applyPatch(content ?? "", reversePatch(parsed))
     if (restored === false || (before === undefined && restored !== "")) {
-      refused.set(path, "changed")
+      refuse(path, "changed")
       continue
     }
     if (after === undefined && parsed.oldMode !== undefined) modes.set(path, parseInt(parsed.oldMode, 8) & 0o777)
     if (before === undefined) set(path, null)
     else if (before !== path) {
       if ((await now(before)) !== null) {
-        refused.set(before, "changed")
+        refuse(before, "changed")
         continue
       }
       set(before, restored)
@@ -254,7 +255,7 @@ export const plan = async (
     } else set(path, restored)
   }
   const reason = (path: string): Refusal | undefined => {
-    const all = [...group(path)].flatMap((each) => refused.get(each) ?? [])
+    const all = [...group(path)].flatMap((each) => refused.get(resolve(cwd, each)) ?? [])
     return all.includes("outside") ? "outside" : all.includes("unrendered") ? "unrendered" : all[0]
   }
   const ready: Array<Entry> = []

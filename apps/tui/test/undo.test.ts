@@ -588,6 +588,19 @@ describe("undo", () => {
     expect(get(cwd, "a.ts")).toBe("one\n")
   })
 
+  it("undoes neither patch when a saved receipt spells one file two ways and the newer is refused", async () => {
+    const cwd = scratch()
+    put(cwd, "a.ts", "y\n".repeat(20_000))
+    const edit = { ...forged("edit", Changes.patch("./a.ts", "one\n", "two\n")!), identity: "edit" }
+    const shell = { ...forged("bash", Changes.patch("a.ts", "two\n", "y\n".repeat(20_000))!), identity: "shell" }
+    const plan = await Undo.plan(cwd, [cellOf(edit, shell)]) as Undo.Plan
+    expect(entries(plan)).toEqual([
+      { path: "./a.ts", refused: "unrendered" },
+      { path: "a.ts", refused: "unrendered" }
+    ])
+    expect(Undo.ready(plan).size).toBe(0)
+  })
+
   it("captures only a named file while another worker edits elsewhere", async () => {
     const cwd = scratch()
     put(cwd, "a.ts", "original A\n")
