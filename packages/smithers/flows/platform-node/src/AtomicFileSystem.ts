@@ -18,6 +18,9 @@ import {
 } from "./internal/AtomicFileSystemExecutable.ts"
 import * as Protocol from "./internal/AtomicFileSystemProtocol.ts"
 import * as Transport from "./internal/AtomicFileSystemTransport.ts"
+import { AtomicHelperError } from "./internal/AtomicHelperError.ts"
+
+export { AtomicHelperError, AtomicHelperErrorCode } from "./internal/AtomicHelperError.ts"
 
 /**
  * The legacy system installation path, used after package and checkout paths.
@@ -172,13 +175,17 @@ const resolveLimits = (overrides: Partial<Limits> | undefined): Limits => {
   }
   for (const [name, value] of Object.entries(limits)) {
     if (!Number.isSafeInteger(value) || value <= 0 || value > hardLimitBytes) {
-      throw new Error(
-        `atomic helper ${name} limit must be a positive integer no greater than ${hardLimitBytes}`
-      )
+      throw new AtomicHelperError({
+        code: "limit_invalid",
+        message: `atomic helper ${name} limit must be a positive integer no greater than ${hardLimitBytes}`
+      })
     }
   }
   if (limits.batchSize > KernelFileSystem.maxBatchSize) {
-    throw new Error(`atomic helper batchSize limit must be no greater than ${KernelFileSystem.maxBatchSize}`)
+    throw new AtomicHelperError({
+      code: "limit_invalid",
+      message: `atomic helper batchSize limit must be no greater than ${KernelFileSystem.maxBatchSize}`
+    })
   }
   return limits
 }
@@ -195,11 +202,17 @@ const resolveSettings = (options: Options): Settings | { readonly invalid: unkno
     const limits = resolveLimits(options.limits)
     const concurrency = options.concurrency ?? defaultConcurrency
     if (!Number.isSafeInteger(concurrency) || concurrency <= 0) {
-      throw new Error("atomic helper concurrency must be a positive integer")
+      throw new AtomicHelperError({
+        code: "concurrency_invalid",
+        message: "atomic helper concurrency must be a positive integer"
+      })
     }
     const timeoutMs = options.timeoutMs ?? defaultTimeoutMs
     if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > maxTimeoutMs) {
-      throw new Error("atomic helper timeoutMs must be a positive integer no greater than 2147483647")
+      throw new AtomicHelperError({
+        code: "timeout_invalid",
+        message: "atomic helper timeoutMs must be a positive integer no greater than 2147483647"
+      })
     }
     return { limits, timeoutMs, semaphore: Semaphore.makeUnsafe(concurrency) }
   } catch (invalid) {
@@ -250,7 +263,10 @@ const executeFramed = (options: Options, resolved: Settings | { readonly invalid
             : request
         )
         if (serialized === undefined) {
-          throw new Error("atomic request is not serializable")
+          throw new AtomicHelperError({
+            code: "request_not_serializable",
+            message: "atomic request is not serializable"
+          })
         }
         body = Buffer.from(serialized, "utf8")
       } catch (cause) {
@@ -292,7 +308,7 @@ const resolveExecutable = (options: Pick<Options, "executable">, boundaryRoot: s
 /**
  * The helper this process would start for an atomic operation, resolved exactly
  * as an operation resolves it: `SMITHERS_WORKSPACE_JJ_EXPORT_BINARY`, then the
- * packaged and checkout locations. Nothing is spawned. Throws an `Error` whose
+ * packaged and checkout locations. Nothing is spawned. Throws an {@link AtomicHelperError} whose
  * message names what was searched and how to install the helper when none is
  * usable, so a diagnostic can report it before any operation needs it.
  *

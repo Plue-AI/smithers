@@ -25,6 +25,7 @@ import { homedir, tmpdir } from "node:os"
 import { basename, dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { inside, usableExecutable } from "./AtomicFileSystemTransport.ts"
+import { AtomicHelperError } from "./AtomicHelperError.ts"
 
 /* v8 ignore next -- the packed CJS consumer uses its loader's __dirname; source tests use the ESM loader */
 const moduleDirectory = typeof __dirname === "string" ? __dirname : dirname(fileURLToPath(import.meta.url))
@@ -98,7 +99,10 @@ const privateDirectory = (directory: string): void => {
   }
   const info = lstatSync(directory)
   if (!info.isDirectory() || !ownedByThisUser(info)) {
-    throw new Error(`atomic helper staging directory is not a private directory: ${directory}`)
+    throw new AtomicHelperError({
+      code: "staging_directory_not_private",
+      message: `atomic helper staging directory is not a private directory: ${directory}`
+    })
   }
   chmodSync(directory, 0o700)
 }
@@ -236,7 +240,10 @@ export const outsideWorkspace = (
       if (index === bases.length - 1) throw cause
     }
   }
-  throw new Error("no staging location for smithers-jj-export")
+  throw new AtomicHelperError({
+    code: "staging_unavailable",
+    message: "no staging location for smithers-jj-export"
+  })
 }
 
 /** The helper an installed package ships for this platform. */
@@ -307,10 +314,11 @@ const workspaceSupplied = (candidate: string, source: string, boundaryRoot: stri
  */
 const pinned = (candidate: string, source: string, boundaryRoot: string | undefined): string => {
   if (boundaryRoot !== undefined && !trusted.has(source) && workspaceSupplied(candidate, source, boundaryRoot)) {
-    throw new Error(
-      `atomic helper executable must live outside the confined workspace: ${candidate} ` +
+    throw new AtomicHelperError({
+      code: "helper_inside_workspace",
+      message: `atomic helper executable must live outside the confined workspace: ${candidate} ` +
         "was not present when the host was built"
-    )
+    })
   }
   return outsideWorkspace(source, boundaryRoot)
 }
@@ -330,7 +338,12 @@ export const resolveDefaultExecutable = (
   for (const [index, candidate] of candidates.entries()) {
     if (!existsSync(candidate)) continue
     if (index === 0) {
-      if (!statSync(candidate).isFile()) throw new Error(`packaged atomic helper is not a regular file: ${candidate}`)
+      if (!statSync(candidate).isFile()) {
+        throw new AtomicHelperError({
+          code: "helper_not_regular_file",
+          message: `packaged atomic helper is not a regular file: ${candidate}`
+        })
+      }
       // npm/pnpm tarballs may store package files without executable bits.
       return pinned(candidate, candidate, boundaryRoot)
     }
@@ -339,7 +352,10 @@ export const resolveDefaultExecutable = (
       ? pinned(candidate, executable, boundaryRoot)
       : executable
   }
-  throw new Error(`smithers-jj-export is missing; ${installHint} (searched ${candidates.join(", ")})`)
+  throw new AtomicHelperError({
+    code: "helper_missing",
+    message: `smithers-jj-export is missing; ${installHint} (searched ${candidates.join(", ")})`
+  })
 }
 
 /**
@@ -354,8 +370,10 @@ export const resolveConfiguredExecutable = (configured: string, boundaryRoot: st
   } catch (cause) {
     // `usableExecutable` and the node:fs calls it makes throw only Error objects.
     const reason = (cause as Error).message
-    throw new Error(
-      `smithers-jj-export is unusable at SMITHERS_WORKSPACE_JJ_EXPORT_BINARY=${configured}: ${reason}; ${installHint}`
-    )
+    throw new AtomicHelperError({
+      code: "helper_unusable",
+      message:
+        `smithers-jj-export is unusable at SMITHERS_WORKSPACE_JJ_EXPORT_BINARY=${configured}: ${reason}; ${installHint}`
+    })
   }
 }

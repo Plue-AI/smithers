@@ -69,23 +69,13 @@ const reviewed: ReadonlyArray<readonly [file: string, count: number, why: string
   ["kernel/src/test/HostContract.ts", 1, testSupport],
   ["observability/src/Otlp.ts", 1, "rebuilds an exported error with its message redacted"],
   [
-    "platform-node/src/AtomicFileSystem.ts",
-    5,
-    "layer option bounds and request serialization, refused before any helper runs"
-  ],
-  [
     "platform-node/src/EgressHttpClient.ts",
     1,
     "a DNS lookup callback error; the HTTP client reports it as a tagged transport error"
   ],
   ["platform-node/src/ScopedProcess.ts", 1, wrappedCause],
-  [
-    "platform-node/src/internal/AtomicFileSystemExecutable.ts",
-    6,
-    "helper resolution and install hints; the transport reports them as a tagged PlatformError"
-  ],
   ["platform-node/src/internal/AtomicFileSystemProtocol.ts", 31, helperProtocol],
-  ["platform-node/src/internal/AtomicFileSystemTransport.ts", 10, helperProtocol],
+  ["platform-node/src/internal/AtomicFileSystemTransport.ts", 5, helperProtocol],
   ["platform-node/src/internal/PipedProcess.ts", 3, "the cause of a tagged PlatformError from PipedProcess.failure"],
   [
     "platform-node/src/internal/ProcessCleanup.ts",

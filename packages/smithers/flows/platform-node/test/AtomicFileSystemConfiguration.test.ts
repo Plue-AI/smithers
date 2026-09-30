@@ -120,16 +120,29 @@ describe("atomic helper configuration admission", () => {
     })
   })
 
-  it.each([
-    { limits: { content: 0 } },
-    { limits: { request: 256 * 1024 * 1024 + 1 } },
-    { concurrency: 0 },
-    { concurrency: 1.5 },
-    { timeoutMs: 0 },
-    { timeoutMs: 2_147_483_648 }
-  ])("rejects invalid settings before spawning: %j", async (options) => {
+  it.each(
+    [
+      [{ limits: { content: 0 } }, "limit_invalid", /content limit must be a positive integer/],
+      [{ limits: { request: 256 * 1024 * 1024 + 1 } }, "limit_invalid", /request limit must be a positive integer/],
+      [
+        { limits: { batchSize: KernelFileSystem.maxBatchSize + 1 } },
+        "limit_invalid",
+        /batchSize limit must be no greater/
+      ],
+      [{ concurrency: 0 }, "concurrency_invalid", /concurrency must be a positive integer/],
+      [{ concurrency: 1.5 }, "concurrency_invalid", /concurrency must be a positive integer/],
+      [{ timeoutMs: 0 }, "timeout_invalid", /timeoutMs must be a positive integer/],
+      [{ timeoutMs: 2_147_483_648 }, "timeout_invalid", /timeoutMs must be a positive integer/]
+    ] as const
+  )("rejects invalid settings before spawning: %j", async (options, code, message) => {
     const before = AtomicFileSystem.helperSpawns()
-    expect(await refused(options)).toMatchObject({ reason: { _tag: "BadArgument" } })
+    const error = await refused(options)
+    expect(error).toMatchObject({ reason: { _tag: "BadArgument" } })
+    // The typed configuration failure travels as the cause, with its stable code.
+    const cause = (error.reason as { cause: unknown }).cause
+    expect(cause).toBeInstanceOf(AtomicFileSystem.AtomicHelperError)
+    expect(cause).toMatchObject({ _tag: "@smthrs/platform-node/AtomicHelperError", code })
+    expect((cause as Error).message).toMatch(message)
     expect(AtomicFileSystem.helperSpawns()).toBe(before)
   })
 
@@ -153,6 +166,9 @@ describe("atomic helper configuration admission", () => {
         reason: { _tag: "BadArgument", description: "atomic request is not serializable" }
       })
     }
+    // A value JSON drops is refused with the tagged configuration error.
+    expect(((await refused({}, { ...request, toJSON: () => undefined } as never)).reason as { cause: unknown }).cause)
+      .toMatchObject({ _tag: "@smthrs/platform-node/AtomicHelperError", code: "request_not_serializable" })
     expect(await refused({ limits: { request: 1 } })).toMatchObject({ reason: { _tag: "BadArgument" } })
   })
 
@@ -218,14 +234,26 @@ describe("atomic helper configuration admission", () => {
     await symlink("helper", relative)
     expect(usableExecutable(absolute, undefined)).toBe(bin)
     expect(usableExecutable(relative, undefined)).toBe(bin)
+    const code = (run: () => unknown) => {
+      try {
+        run()
+      } catch (error) {
+        expect(error).toBeInstanceOf(AtomicFileSystem.AtomicHelperError)
+        return (error as AtomicFileSystem.AtomicHelperError).code
+      }
+      throw new Error("expected a throw")
+    }
+    expect(code(() => usableExecutable("helper", undefined))).toBe("helper_path_invalid")
+    expect(code(() => usableExecutable(root, undefined))).toBe("helper_not_regular_file")
+    expect(code(() => usableExecutable(bin, root))).toBe("helper_inside_workspace")
+    expect(code(() => usableExecutable(bin, bin))).toBe("helper_inside_workspace")
     expect(() => usableExecutable("helper", undefined)).toThrow("absolute path")
-    expect(() => usableExecutable(root, undefined)).toThrow("not a regular file")
-    expect(() => usableExecutable(bin, root)).toThrow("outside the confined workspace")
-    expect(() => usableExecutable(bin, bin)).toThrow("outside the confined workspace")
     await mkdir(join(root, "nested"))
     expect(usableExecutable(bin, join(root, "nested"))).toBe(bin)
     const loop = join(root, "loop")
     await symlink("loop", loop)
+    expect(code(() => usableExecutable(loop, undefined))).toBe("helper_path_invalid")
     expect(() => usableExecutable(loop, undefined)).toThrow("too many symbolic links")
+    expect(code(() => usableExecutable(`${root}/`, undefined))).toBe("helper_path_invalid")
   })
 })

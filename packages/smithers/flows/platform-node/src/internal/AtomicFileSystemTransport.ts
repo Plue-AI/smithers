@@ -13,6 +13,7 @@ import { accessSync, constants, lstatSync, readlinkSync, realpathSync, statSync 
 import { basename, dirname, isAbsolute, join, parse, relative, sep } from "node:path"
 import type { Limits } from "../AtomicFileSystem.ts"
 import { convert, decode, failure, frameHeaderBytes, type HelperResult } from "./AtomicFileSystemProtocol.ts"
+import { AtomicHelperError } from "./AtomicHelperError.ts"
 
 let startedHelpers = 0
 
@@ -42,7 +43,10 @@ const executablePath = (configured: string): string => {
   let current = configured
   for (let links = 0; links < 40; links++) {
     if (current.endsWith("/") || current.endsWith(sep)) {
-      throw new Error("atomic helper executable cannot end with a directory separator")
+      throw new AtomicHelperError({
+        code: "helper_path_invalid",
+        message: "atomic helper executable cannot end with a directory separator"
+      })
     }
     // Bun's macOS realpath can return another hard link to the final inode:
     // A hard-linked executable can change its entry name during guarded reads.
@@ -55,7 +59,10 @@ const executablePath = (configured: string): string => {
     // Do not normalize `link/..` lexically; realpath must traverse it first.
     current = isAbsolute(target) ? target : `${parent}/${target}`
   }
-  throw new Error("atomic helper executable has too many symbolic links")
+  throw new AtomicHelperError({
+    code: "helper_path_invalid",
+    message: "atomic helper executable has too many symbolic links"
+  })
 }
 
 /**
@@ -68,17 +75,26 @@ const executablePath = (configured: string): string => {
  */
 export const usableExecutable = (configured: string, boundaryRoot: string | undefined): string => {
   if (!isAbsolute(configured)) {
-    throw new Error(`atomic helper executable must be an absolute path, got ${JSON.stringify(configured)}`)
+    throw new AtomicHelperError({
+      code: "helper_path_invalid",
+      message: `atomic helper executable must be an absolute path, got ${JSON.stringify(configured)}`
+    })
   }
   // Resolved first: the checks below have to describe the file that will
   // actually run, not the name that leads to it.
   const resolved = executablePath(configured)
   if (!statSync(resolved).isFile()) {
-    throw new Error(`atomic helper executable is not a regular file: ${resolved}`)
+    throw new AtomicHelperError({
+      code: "helper_not_regular_file",
+      message: `atomic helper executable is not a regular file: ${resolved}`
+    })
   }
   accessSync(resolved, constants.X_OK)
   if (boundaryRoot !== undefined && inside(boundaryRoot, resolved)) {
-    throw new Error(`atomic helper executable must live outside the confined workspace: ${resolved}`)
+    throw new AtomicHelperError({
+      code: "helper_inside_workspace",
+      message: `atomic helper executable must live outside the confined workspace: ${resolved}`
+    })
   }
   return resolved
 }

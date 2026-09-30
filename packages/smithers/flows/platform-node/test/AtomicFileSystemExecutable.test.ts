@@ -27,6 +27,7 @@ import {
   resolvePackageRoot,
   stagePackaged
 } from "../src/internal/AtomicFileSystemExecutable.ts"
+import { AtomicHelperError } from "../src/internal/AtomicHelperError.ts"
 
 const roots: Array<string> = []
 const helperName = process.platform === "win32" ? "smithers-jj-export.exe" : "smithers-jj-export"
@@ -86,6 +87,19 @@ afterEach(async () => {
   vi.unstubAllEnvs()
   for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true })
 })
+
+/** Runs `run` and asserts it throws the tagged helper error with this stable code. */
+const expectHelperError = (run: () => unknown, code: AtomicHelperError["code"], message: RegExp) => {
+  let thrown: unknown
+  try {
+    run()
+  } catch (error) {
+    thrown = error
+  }
+  expect(thrown).toBeInstanceOf(AtomicHelperError)
+  expect(thrown).toMatchObject({ _tag: "@smthrs/platform-node/AtomicHelperError", name: "AtomicHelperError", code })
+  expect((thrown as AtomicHelperError).message).toMatch(message)
+}
 
 describe("default atomic helper resolution", () => {
   it("resolves the installed platform package from a relocated host bundle", async () => {
@@ -171,7 +185,11 @@ describe("default atomic helper resolution", () => {
     await mkdir(elsewhere)
     const digest = createHash("sha256").update(await readFile(source)).digest("hex")
     await symlink(elsewhere, join(base, `.smthrs-atomic-helper-${digest}`))
-    expect(() => outsideWorkspace(source, undefined, [base])).toThrow(/staging directory/)
+    expectHelperError(
+      () => outsideWorkspace(source, undefined, [base]),
+      "staging_directory_not_private",
+      /staging directory/
+    )
     expect(await readdir(elsewhere)).toEqual([])
   })
 
@@ -187,7 +205,12 @@ describe("default atomic helper resolution", () => {
     const getuid = process.getuid
     await asAnotherUser(
       directory,
-      () => expect(() => outsideWorkspace(source, undefined, [base])).toThrow(/not a private directory/)
+      () =>
+        expectHelperError(
+          () => outsideWorkspace(source, undefined, [base]),
+          "staging_directory_not_private",
+          /not a private directory/
+        )
     )
     expect(process.getuid).toBe(getuid)
     expect(await readdir(directory)).toEqual([])
@@ -385,8 +408,8 @@ describe("default atomic helper resolution", () => {
     const confined = join(root, "confined")
     await mkdir(confined)
     await helper(source)
-    expect(() => outsideWorkspace(source, root, [confined])).toThrow(/confined workspace/)
-    expect(() => outsideWorkspace(source, root, [])).toThrow(/no staging location/)
+    expectHelperError(() => outsideWorkspace(source, root, [confined]), "helper_inside_workspace", /confined workspace/)
+    expectHelperError(() => outsideWorkspace(source, root, []), "staging_unavailable", /no staging location/)
   })
 
   it("uses the helper shipped in the installed platform package", async () => {
@@ -444,7 +467,9 @@ describe("default atomic helper resolution", () => {
     const absent = join(root, "absent")
     // A Windows path's backslashes are regex escapes; match the path literally.
     const literal = absent.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&")
-    expect(() => resolveConfiguredExecutable(absent, undefined)).toThrow(
+    expectHelperError(
+      () => resolveConfiguredExecutable(absent, undefined),
+      "helper_unusable",
       new RegExp(
         `^smithers-jj-export is unusable at SMITHERS_WORKSPACE_JJ_EXPORT_BINARY=${literal}: .*ENOENT.*` +
           "cargo build --locked --release -p smithers-ffi --bin smithers-jj-export"
@@ -459,8 +484,11 @@ describe("default atomic helper resolution", () => {
     const { packageRoot, root } = await fixture()
     const binary = join(packageRoot, "bin", `${process.platform}-${process.arch}`, helperName)
     await mkdir(binary, { recursive: true })
-    expect(() => resolveDefaultExecutable(packageRoot, root, join(root, "absent")))
-      .toThrow(/not a regular file/)
+    expectHelperError(
+      () => resolveDefaultExecutable(packageRoot, root, join(root, "absent")),
+      "helper_not_regular_file",
+      /not a regular file/
+    )
   })
 
   it("pins an installed helper outside a confined project", async () => {
@@ -512,8 +540,11 @@ describe("default atomic helper resolution", () => {
       stagePackaged(packageRoot)
       // A flow confined to `root` plants a build before the first atomic call.
       await helper(join(root, directory, helperName))
-      expect(() => resolveDefaultExecutable(packageRoot, root, join(root, "absent")))
-        .toThrow(/outside the confined workspace.*not present when the host was built/)
+      expectHelperError(
+        () => resolveDefaultExecutable(packageRoot, root, join(root, "absent")),
+        "helper_inside_workspace",
+        /outside the confined workspace.*not present when the host was built/
+      )
     }
   )
 
@@ -521,8 +552,11 @@ describe("default atomic helper resolution", () => {
     const { packageRoot, root } = await fixture()
     stagePackaged(packageRoot)
     await helper(join(packageRoot, "bin", `${process.platform}-${process.arch}`, helperName))
-    expect(() => resolveDefaultExecutable(packageRoot, root, join(root, "absent")))
-      .toThrow(/not present when the host was built/)
+    expectHelperError(
+      () => resolveDefaultExecutable(packageRoot, root, join(root, "absent")),
+      "helper_inside_workspace",
+      /not present when the host was built/
+    )
   })
 
   it("stages once per process, so a helper planted before a later layer build stays refused", async () => {
@@ -532,8 +566,11 @@ describe("default atomic helper resolution", () => {
     // A flow plants one, then a second host layer is built in this process.
     await helper(join(packageRoot, "bin", `${process.platform}-${process.arch}`, helperName))
     stagePackaged(packageRoot)
-    expect(() => resolveDefaultExecutable(packageRoot, root, join(root, "absent")))
-      .toThrow(/not present when the host was built/)
+    expectHelperError(
+      () => resolveDefaultExecutable(packageRoot, root, join(root, "absent")),
+      "helper_inside_workspace",
+      /not present when the host was built/
+    )
   })
 
   it("stages a checkout build once per process the same way", async () => {
@@ -542,8 +579,11 @@ describe("default atomic helper resolution", () => {
     stagePackaged(packageRoot)
     await helper(join(root, "target/release", helperName))
     stagePackaged(packageRoot)
-    expect(() => resolveDefaultExecutable(packageRoot, root, join(root, "absent")))
-      .toThrow(/not present when the host was built/)
+    expectHelperError(
+      () => resolveDefaultExecutable(packageRoot, root, join(root, "absent")),
+      "helper_inside_workspace",
+      /not present when the host was built/
+    )
   })
 
   it.each(["packaged", "checkout"])(
@@ -561,21 +601,31 @@ describe("default atomic helper resolution", () => {
       stagePackaged(packageRoot)
       await mkdir(dirname(planted), { recursive: true })
       await symlink(hostBinary, planted)
-      expect(() => resolveDefaultExecutable(packageRoot, root, join(root, "absent")))
-        .toThrow(/not present when the host was built/)
+      expectHelperError(
+        () => resolveDefaultExecutable(packageRoot, root, join(root, "absent")),
+        "helper_inside_workspace",
+        /not present when the host was built/
+      )
     }
   )
 
   it("names the build and configuration fix when no helper exists", async () => {
     const { packageRoot, root } = await fixture()
-    expect(() => resolveDefaultExecutable(packageRoot, join(root, "workspace"), join(root, "absent")))
-      .toThrow(/cargo build --locked.*SMITHERS_WORKSPACE_JJ_EXPORT_BINARY/)
+    expectHelperError(
+      () => resolveDefaultExecutable(packageRoot, join(root, "workspace"), join(root, "absent")),
+      "helper_missing",
+      /cargo build --locked.*SMITHERS_WORKSPACE_JJ_EXPORT_BINARY/
+    )
   })
 
   it("rejects a fallback helper inside the confined project", async () => {
     const { packageRoot, root } = await fixture()
     const fallback = join(root, "fallback")
     await helper(fallback)
-    expect(() => resolveDefaultExecutable(packageRoot, root, fallback)).toThrow(/confined workspace/)
+    expectHelperError(
+      () => resolveDefaultExecutable(packageRoot, root, fallback),
+      "helper_inside_workspace",
+      /confined workspace/
+    )
   })
 })

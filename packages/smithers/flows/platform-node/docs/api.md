@@ -256,6 +256,28 @@ and replacement of the pinned root retain the same refusal checks.
 | `AtomicFileSystem.defaultLimits`      | 16 MiB content, 24 MiB request, 24 MiB response, 64 KiB helper stderr |
 | `AtomicFileSystem.defaultConcurrency` | `os.availableParallelism()`                                           |
 | `AtomicFileSystem.defaultTimeoutMs`   | 300000                                                                |
+| `AtomicFileSystem.AtomicHelperError`  | the tagged configuration failure, below                               |
+
+**Configuration errors.** An option outside its bounds, a request that cannot
+be serialized, and a helper that is missing, unusable, or untrusted fail with
+`AtomicHelperError` (`_tag` `@smthrs/platform-node/AtomicHelperError`), never a
+bare `Error`. Classify one by `code`. A rejected option or request reaches an
+operation as `BadArgument` whose `cause` is the `AtomicHelperError`;
+`AtomicFileSystem.resolveHelper()` throws it directly.
+
+| `code`                          | Raised when                                                                 |
+| ------------------------------- | --------------------------------------------------------------------------- |
+| `limit_invalid`                 | a `limits` byte ceiling is not a positive safe integer within its bound     |
+| `concurrency_invalid`           | `concurrency` is not a positive integer                                     |
+| `timeout_invalid`               | `timeoutMs` is not a positive integer no greater than 2147483647            |
+| `request_not_serializable`      | JSON has no form for the request                                            |
+| `helper_missing`                | no helper exists at any searched location; the message carries install hint |
+| `helper_unusable`               | `SMITHERS_WORKSPACE_JJ_EXPORT_BINARY` names a helper that cannot run        |
+| `helper_path_invalid`           | the helper path is relative, ends in a separator, or loops through links    |
+| `helper_not_regular_file`       | the helper path is not a regular file                                       |
+| `helper_inside_workspace`       | the helper lives in, or appeared in, the confined workspace                 |
+| `staging_directory_not_private` | the per-user staging directory is a link or has another owner               |
+| `staging_unavailable`           | no location can hold a staged copy of the helper                            |
 
 **Cost.** Every operation starts one helper process. Under the kernel's guarded
 layer, authorization adds two more, resolving the path before and after the
