@@ -1458,6 +1458,11 @@
       "description": "Weekday morning review of main"
     },
     {
+      "event": "schedule:0 2 * * *",
+      "flow": "security-audit",
+      "description": "Audit security nightly"
+    },
+    {
       "event": "nomination",
       "flow": "factory.bootstrap",
       "description": "Fork, claim, generate PACKAGE.ts from CI, bootstrap the mythical history"

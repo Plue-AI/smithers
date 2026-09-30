@@ -477,6 +477,26 @@ describe("the dispatcher table", () => {
    */
   const projection = JSON.parse(readFileSync(join(projectionRoot, "factory.json"), "utf8"));
 
+  it("declares one nightly security audit", () => {
+    const schedules = projection.on.filter((rule) =>
+      rule.event.startsWith("schedule:") && [rule.flow].flat().includes("security-audit")
+    );
+    assert.equal(schedules.length, 1, "security audits need one durable nightly registration");
+    assert.equal(schedules[0].event, "schedule:0 2 * * *");
+  });
+
+  it("gives the nightly audit a complete bounded execution envelope", () => {
+    const audits = projection.flows.filter((flow) => flow.id === "security-audit");
+    assert.equal(audits.length, 1);
+    const audit = audits[0];
+    assert.equal(audit.kind, "mdx", "factory reconciliation needs a declarative executable flow");
+    assert.deepEqual(audit.flows, ["coding/SecurityAudit"]);
+    assert.deepEqual(audit.capabilities, ["fs:read:**"]);
+    assert.ok(Number.isSafeInteger(audit.budget?.tokens) && audit.budget.tokens > 0);
+    assert.ok(Number.isSafeInteger(audit.budget?.milliseconds) && audit.budget.milliseconds > 0);
+    assert.ok(audit.budget.milliseconds <= 6 * 60 * 60 * 1000, "Cloud refuses automatic work over six hours");
+  });
+
   it("declares the day-one rows with a sentence each and the ours policy", () => {
     assert.ok(Array.isArray(projection.on) && projection.on.length > 0, "the factory declares rules");
     for (const rule of projection.on) {
