@@ -336,8 +336,11 @@ export const preview = (flow: string, input: unknown, path: string, cwd: string)
     }
     const { startLine, endLine } = value
     if (typeof startLine !== "number" || typeof endLine !== "number" || typeof before !== "string") return undefined
-    const lines = before.split("\n").slice(startLine - 1, endLine).join("\n")
-    return hunk(`${lines}\n`, replacing.endsWith("\n") ? replacing : `${replacing}\n`)
+    // As the edit splices it: the range's text, without its last line's newline, becomes `newString`.
+    const lines = before.split("\n")
+    if (startLine < 1 || endLine < startLine || endLine > lines.length) return undefined
+    const start = startLine === 1 ? 0 : lines.slice(0, startLine - 1).join("\n").length + 1
+    return hunk(before, before.slice(0, start) + replacing + before.slice(lines.slice(0, endLine).join("\n").length))
   }
   if (flow === "apply_patch" && typeof value.input === "string") {
     const section = sections(value.input).get(path)

@@ -336,6 +336,20 @@ describe("the lines a write changes", () => {
       .toEqual([{ added: 1, removed: 1, lines: ["-export const one = 1", "+export const one = 2"] }])
   })
 
+  it("shows a line-range edit as the edit splices it, keeping a trailing newline's blank line", () => {
+    const root = workspace()
+    expect(previewOf(root, "edit", { path: "math.js", startLine: 2, endLine: 2, newString: "export const one = 2\n" }))
+      .toEqual([{ added: 2, removed: 1, lines: ["-export const one = 1", "+export const one = 2", "+"] }])
+    expect(previewOf(root, "edit", { path: "math.js", startLine: 1, endLine: 2, newString: "x" }))
+      .toEqual([{
+        added: 1,
+        removed: 2,
+        lines: ["-export function add(a, b) { return a - b; }", "-export const one = 1", "+x"]
+      }])
+    expect(previewOf(root, "edit", { path: "math.js", startLine: 3, endLine: 2, newString: "x" })).toEqual([undefined])
+    expect(previewOf(root, "edit", { path: "math.js", startLine: 1, endLine: 9, newString: "x" })).toEqual([undefined])
+  })
+
   it("diffs a write against the file it replaces, or shows a new file whole", () => {
     const root = workspace()
     expect(previewOf(root, "write", {
