@@ -868,6 +868,7 @@ export const judgeCompletion = (
     // The sixth brake, and the only one that leaves this package to decide.
     // `claimCap` of zero disarms it: no request, no event, no failure, which
     // is what a host that does not want a model in this path asks for.
+    console.error('DBG2937 cap', state.claimCap)
     if (state.claimCap === 0) return stands
     // A host may put prior conversation before the current request. Keep
     // both ends of the task; clipping its head alone can leave only history.
@@ -900,6 +901,7 @@ export const judgeCompletion = (
       })),
       ...(check === undefined ? {} : { lastCheck: check })
     })
+    console.error('DBG2937 reading', JSON.stringify(reading), state.claimCap, room)
     if (reading === undefined) return stands
     const found = CompletionClaim.find(reading)
     // One bounce while the cap and a frame allow it; the verdict after that,
