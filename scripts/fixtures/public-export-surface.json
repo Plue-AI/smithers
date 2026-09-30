@@ -1469,6 +1469,15 @@
     },
     {
       "name": "@smthrs/gateway",
+      "subpath": "./RunHistory",
+      "development": "./src/RunHistory.ts",
+      "published": {
+        "import": {
+          "types": "./dist/esm/RunHistory.d.ts",
+          "default": "./dist/esm/RunHistory.js"
+        },
+    {
+      "name": "@smthrs/gateway",
       "subpath": "./RunDevTools",
       "development": "./src/RunDevTools.ts",
       "published": {
