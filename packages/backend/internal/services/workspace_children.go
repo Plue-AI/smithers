@@ -57,6 +57,9 @@ type SpawnWorkspaceChildrenInput struct {
 	Profile string
 	// TTL bounds the batch's life; zero takes the default, capped by the plan.
 	TTL time.Duration
+	// ViaWorkspaceCredential is set when the parent's own children credential
+	// asks: it is refused while another person may write into the parent.
+	ViaWorkspaceCredential bool
 }
 
 // WorkspaceChildBatch is the admission receipt for one fan-out.
@@ -86,8 +89,9 @@ type WorkspaceChild struct {
 
 // SpawnWorkspaceChildren admits a batch in one transaction and boots it in the
 // background. The admission fails closed: the parent must be the caller's own
-// running container workspace, not itself a child, and the user's live
-// children plus this batch must fit the plan and MaxWorkspaceChildren.
+// running container workspace, not itself a child, the owner must have
+// sandbox hours left today, and the user's live children plus this batch must
+// fit the plan and MaxWorkspaceChildren.
 func (s *WorkspaceService) SpawnWorkspaceChildren(ctx context.Context, input SpawnWorkspaceChildrenInput) (WorkspaceChildBatch, error) {
 	if s.transactions == nil || s.sandbox == nil || s.runtime != nil {
 		return WorkspaceChildBatch{}, pkgerrors.Conflict("child workspaces need the sandbox provider")
@@ -152,6 +156,15 @@ func (s *WorkspaceService) SpawnWorkspaceChildren(ctx context.Context, input Spa
 		}
 		if child {
 			return pkgerrors.BadRequest("a child workspace cannot spawn children")
+		}
+		if input.ViaWorkspaceCredential {
+			shared, err := q.HasWritableWorkspaceShares(ctx, parent.ID)
+			if err != nil {
+				return pkgerrors.Internal("check workspace shares").WithCause(err)
+			}
+			if shared {
+				return pkgerrors.Forbidden("a workspace others can write into cannot spawn children from inside")
+			}
 		}
 		live, err := q.CountLiveWorkspaceChildren(ctx, input.UserID)
 		if err != nil {
@@ -227,14 +240,79 @@ func (s *WorkspaceService) ListWorkspaceChildren(ctx context.Context, workspaceI
 	}
 	children := make([]WorkspaceChild, 0, len(receipts))
 	for _, r := range receipts {
-		children = append(children, WorkspaceChild{
-			WorkspaceID: r.WorkspaceID, BatchID: r.BatchID, Ordinal: r.Ordinal, Profile: r.Profile,
-			Status: r.Status, VMID: r.VmID, SnapshotID: r.SnapshotID, ExpiresAt: r.ExpiresAt,
-			StartedAt: timePtrFromTimestamptz(r.StartedAt), StoppedAt: timePtrFromTimestamptz(r.StoppedAt),
-			StopReason: r.StopReason.String, FailureMessage: r.FailureMessage.String,
-		})
+		children = append(children, workspaceChildFromReceipt(r))
 	}
 	return children, nil
+}
+
+func workspaceChildFromReceipt(r db.ListWorkspaceChildReceiptsRow) WorkspaceChild {
+	return WorkspaceChild{
+		WorkspaceID: r.WorkspaceID, BatchID: r.BatchID, Ordinal: r.Ordinal, Profile: r.Profile,
+		Status: r.Status, VMID: r.VmID, SnapshotID: r.SnapshotID, ExpiresAt: r.ExpiresAt,
+		StartedAt: timePtrFromTimestamptz(r.StartedAt), StoppedAt: timePtrFromTimestamptz(r.StoppedAt),
+		StopReason: r.StopReason.String, FailureMessage: r.FailureMessage.String,
+	}
+}
+
+// StopWorkspaceChild stops one child of the caller's workspace and deletes
+// its machine; the sweep retries a machine that will not delete. Stopping a
+// stopped child answers its receipt again.
+func (s *WorkspaceService) StopWorkspaceChild(ctx context.Context, parentWorkspaceID, childWorkspaceID string, repositoryID, userID int64) (WorkspaceChild, error) {
+	if s.transactions == nil || s.sandbox == nil {
+		return WorkspaceChild{}, pkgerrors.Conflict("child workspaces need the sandbox provider")
+	}
+	parent, err := s.loadOwnedWorkspace(ctx, parentWorkspaceID, repositoryID, userID)
+	if err != nil {
+		return WorkspaceChild{}, err
+	}
+	if parent.UserID != userID {
+		return WorkspaceChild{}, pkgerrors.NotFound("workspace not found")
+	}
+	child, err := s.workspaceChildReceipt(ctx, parent, childWorkspaceID)
+	if err != nil {
+		return WorkspaceChild{}, err
+	}
+	if child.StoppedAt == nil {
+		if err := s.stopWorkspaceChild(ctx, child.WorkspaceID, "requested", ""); err != nil {
+			return WorkspaceChild{}, pkgerrors.Internal("stop child workspace").WithCause(err)
+		}
+	}
+	if child.VMID != "" {
+		// Idempotent: a machine already released is gone.
+		if err := s.releaseWorkspaceChildVM(ctx, child.WorkspaceID, child.VMID); err != nil {
+			slog.Warn("child workspace machine not deleted; the sweep retries", "workspace_id", child.WorkspaceID, "vm_id", child.VMID, "error", err)
+		}
+	}
+	return s.workspaceChildReceipt(ctx, parent, child.WorkspaceID)
+}
+
+// workspaceChildReceipt is one child of parent, or not found.
+func (s *WorkspaceService) workspaceChildReceipt(ctx context.Context, parent db.Workspace, childWorkspaceID string) (WorkspaceChild, error) {
+	var receipts []db.ListWorkspaceChildReceiptsRow
+	err := s.inWorkspaceChildTx(ctx, func(q *db.Queries) (err error) {
+		receipts, err = q.ListWorkspaceChildReceipts(ctx, stringToUUID(parent.ID))
+		return err
+	})
+	if err != nil {
+		return WorkspaceChild{}, pkgerrors.Internal("load child workspace").WithCause(err)
+	}
+	for _, r := range receipts {
+		if strings.EqualFold(r.WorkspaceID, strings.TrimSpace(childWorkspaceID)) {
+			return workspaceChildFromReceipt(r), nil
+		}
+	}
+	return WorkspaceChild{}, pkgerrors.NotFound("child workspace not found")
+}
+
+// overQuotaWorkspaceChild reports whether the hours sweep must leave a
+// running workspace alone because it is a child: a child cannot resume, so it
+// is never suspended. Its parent is suspended in the same sweep, and the
+// cascade stops the child.
+func (s *WorkspaceService) overQuotaWorkspaceChild(ctx context.Context, workspace db.Workspace) (bool, error) {
+	if s.transactions == nil || !workspace.IsFork {
+		return false, nil
+	}
+	return s.isWorkspaceChild(ctx, workspace.ID)
 }
 
 // ReapWorkspaceChildren stops every live child that must stop and deletes the
@@ -274,11 +352,7 @@ func (s *WorkspaceService) runningWorkspaceChild(ctx context.Context, workspace 
 	if s.transactions == nil || s.sandbox == nil || !workspace.IsFork {
 		return false, nil
 	}
-	var child bool
-	err = s.inWorkspaceChildTx(ctx, func(q *db.Queries) (err error) {
-		child, err = q.IsWorkspaceChild(ctx, workspace.ID)
-		return err
-	})
+	child, err := s.isWorkspaceChild(ctx, workspace.ID)
 	if err != nil {
 		return true, pkgerrors.Internal("check child workspace").WithCause(err)
 	}
@@ -299,6 +373,15 @@ func (s *WorkspaceService) runningWorkspaceChild(ctx context.Context, workspace 
 	return true, nil
 }
 
+// isWorkspaceChild reports whether a workspace was spawned as a child.
+func (s *WorkspaceService) isWorkspaceChild(ctx context.Context, workspaceID string) (child bool, err error) {
+	err = s.inWorkspaceChildTx(ctx, func(q *db.Queries) (err error) {
+		child, err = q.IsWorkspaceChild(ctx, workspaceID)
+		return err
+	})
+	return child, err
+}
+
 func (s *WorkspaceService) workspaceChildLimits(ctx context.Context, userID int64) (limit int64, maxTTL time.Duration, err error) {
 	if s.billing == nil {
 		return MaxWorkspaceChildren, workspaceChildUnbilledMaxTTL, nil
@@ -306,6 +389,10 @@ func (s *WorkspaceService) workspaceChildLimits(ctx context.Context, userID int6
 	entitlement, err := sandboxEntitlementForUser(ctx, s.billing, userID)
 	if err != nil {
 		return 0, 0, err
+	}
+	// A child's awake time is sandbox time: none spawns once today's is spent.
+	if exhausted := sandboxDailyHoursError(entitlement); exhausted != nil {
+		return 0, 0, exhausted
 	}
 	limit = min(max(entitlement.ConcurrentChildren, 0), MaxWorkspaceChildren)
 	return limit, time.Duration(entitlement.ChildMaxTTLSecs) * time.Second, nil
@@ -410,12 +497,15 @@ func (s *WorkspaceService) bootWorkspaceChild(ctx context.Context, batch db.Work
 		}
 		return
 	}
+	// A child's awake time counts against its owner's sandbox hours.
+	meterSandboxUsage(ctx, s.q, row.UserID, "workspace", row.ID, true)
 	s.publishWorkspaceStatus(ctx, row.ID, "running")
 }
 
 // workspaceChildIdentityScrubCommand stops the parent's head reporter, whose
 // unit carries a token bound to the parent, and removes the parent's coding
-// and git bindings, so a child can never publish as its parent.
+// and git bindings and its children credential, so a child can never publish
+// as its parent or spawn beside it.
 func workspaceChildIdentityScrubCommand() string {
 	script := "set -u\n" +
 		"systemctl disable --now " + workspaceHeadReporterService + " >/dev/null 2>&1 || true\n" +
@@ -423,8 +513,9 @@ func workspaceChildIdentityScrubCommand() string {
 		"[ -z \"$unit\" ] || rm -f -- \"$unit\"\n" +
 		"systemctl daemon-reload >/dev/null 2>&1 || true\n" +
 		"rm -rf -- " + shellQuote(workspaceCodingConfigPath) + " " + shellQuote(workspaceGitCredentialEnvPath) + " " +
-		shellQuote(path.Dir(workspaceGitCredentialSocket)) + "\n" +
-		"for f in " + shellQuote(workspaceCodingConfigPath) + " " + shellQuote(workspaceGitCredentialEnvPath) + "; do\n" +
+		shellQuote(path.Dir(workspaceGitCredentialSocket)) + " " + shellQuote(workspaceChildrenTokenPath) + "\n" +
+		"for f in " + shellQuote(workspaceCodingConfigPath) + " " + shellQuote(workspaceGitCredentialEnvPath) + " " +
+		shellQuote(workspaceChildrenTokenPath) + "; do\n" +
 		"  if [ -e \"$f\" ]; then echo \"parent identity remains: $f\" >&2; exit 1; fi\n" +
 		"done\n"
 	return "/bin/sh -c " + shellQuote(script) + " smithers-child-identity-scrub"
@@ -519,6 +610,7 @@ func (s *WorkspaceService) stopWorkspaceChild(ctx context.Context, workspaceID, 
 	if err != nil {
 		return err
 	}
+	meterSandboxUsage(ctx, s.q, 0, "workspace", workspaceID, false)
 	s.publishWorkspaceStatus(ctx, workspaceID, "stopped")
 	return nil
 }

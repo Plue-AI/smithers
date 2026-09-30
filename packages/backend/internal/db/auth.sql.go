@@ -593,6 +593,24 @@ func (q *Queries) DeleteOAuthAccount(ctx context.Context, arg DeleteOAuthAccount
 	return err
 }
 
+const deleteSystemAccessTokensByName = `-- name: DeleteSystemAccessTokensByName :exec
+DELETE FROM access_tokens
+WHERE user_id = $1
+  AND name = $2
+  AND system_issued
+`
+
+type DeleteSystemAccessTokensByNameParams struct {
+	UserID int64  `json:"user_id"`
+	Name   string `json:"name"`
+}
+
+// Revokes every system-issued token a service minted under one name.
+func (q *Queries) DeleteSystemAccessTokensByName(ctx context.Context, arg DeleteSystemAccessTokensByNameParams) error {
+	_, err := q.db.Exec(ctx, deleteSystemAccessTokensByName, arg.UserID, arg.Name)
+	return err
+}
+
 const deleteUserSessions = `-- name: DeleteUserSessions :many
 DELETE FROM auth_sessions
 WHERE user_id = $1

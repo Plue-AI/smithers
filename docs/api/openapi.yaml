@@ -20267,6 +20267,295 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/InternalError'
+  /api/repos/{owner}/{repo}/workspaces/{id}/children:
+    get:
+      summary: List a workspace's children
+      description: Every child the workspace spawned, oldest batch first. The workspace's own children credential may call it.
+      operationId: get_api_repos_owner_repo_workspaces_id_children
+      tags:
+        - Repositories
+      parameters:
+        - name: owner
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: repo
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          description: The parent workspace.
+          schema:
+            type: string
+      security:
+        - tokenAuth: []
+        - bearerAuth: []
+        - sessionCookie: []
+      responses:
+        '200':
+          description: The children.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                    type: object
+                    required: [workspace_id, batch_id, ordinal, profile, status, expires_at]
+                    properties:
+                      workspace_id:
+                        type: string
+                      batch_id:
+                        type: string
+                      ordinal:
+                        type: integer
+                      profile:
+                        type: string
+                        enum: [small, build]
+                      status:
+                        type: string
+                      vm_id:
+                        type: string
+                      snapshot_id:
+                        type: string
+                      started_at:
+                        type: string
+                        format: date-time
+                      stopped_at:
+                        type: string
+                        format: date-time
+                      stop_reason:
+                        type: string
+                        enum: [requested, parent_stopped, expired, idle, failed, abandoned]
+                      failure_message:
+                        type: string
+                      expires_at:
+                        type: string
+                        format: date-time
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      summary: Spawn children of a workspace
+      description: Admits a batch of short-lived children that boot from one snapshot of the running workspace, then boots them in the background. Children start signed out, carry no repository secret, count against the plan's child limit and its sandbox hours, and stop with their parent. The workspace's own children credential may call it, unless another person can write into the workspace.
+      operationId: post_api_repos_owner_repo_workspaces_id_children
+      tags:
+        - Repositories
+      parameters:
+        - name: owner
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: repo
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          description: The parent workspace.
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [count]
+              properties:
+                count:
+                  type: integer
+                  minimum: 1
+                  maximum: 128
+                profile:
+                  type: string
+                  enum: [small, build]
+                  description: small (1 vCPU, 2 GB) by default; build is 2 vCPU, 8 GB.
+                ttl_secs:
+                  type: integer
+                  minimum: 0
+                  description: How long the batch may live; zero takes the default, capped by the plan.
+      security:
+        - tokenAuth: []
+        - bearerAuth: []
+        - sessionCookie: []
+      responses:
+        '202':
+          description: The admitted batch; each child is starting.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, parent_workspace_id, profile, expires_at, children]
+                properties:
+                  id:
+                    type: string
+                  parent_workspace_id:
+                    type: string
+                  profile:
+                    type: string
+                    enum: [small, build]
+                  expires_at:
+                    type: string
+                    format: date-time
+                  children:
+                    type: array
+                    items:
+                      type: object
+                      required: [workspace_id, batch_id, ordinal, profile, status, expires_at]
+                      properties:
+                        workspace_id:
+                          type: string
+                        batch_id:
+                          type: string
+                        ordinal:
+                          type: integer
+                        profile:
+                          type: string
+                          enum: [small, build]
+                        status:
+                          type: string
+                        vm_id:
+                          type: string
+                        snapshot_id:
+                          type: string
+                        started_at:
+                          type: string
+                          format: date-time
+                        stopped_at:
+                          type: string
+                          format: date-time
+                        stop_reason:
+                          type: string
+                          enum: [requested, parent_stopped, expired, idle, failed, abandoned]
+                        failure_message:
+                          type: string
+                        expires_at:
+                          type: string
+                          format: date-time
+        '402':
+          description: Today's sandbox hours are spent.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/repos/{owner}/{repo}/workspaces/{id}/children/{child_id}/stop:
+    post:
+      summary: Stop a workspace's child
+      description: Stops one child and deletes its machine. Stopping a stopped child answers its receipt again.
+      operationId: post_api_repos_owner_repo_workspaces_id_children_child_id_stop
+      tags:
+        - Repositories
+      parameters:
+        - name: owner
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: repo
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          description: The parent workspace.
+          schema:
+            type: string
+        - name: child_id
+          in: path
+          required: true
+          schema:
+            type: string
+      security:
+        - tokenAuth: []
+        - bearerAuth: []
+        - sessionCookie: []
+      responses:
+        '200':
+          description: The stopped child.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [workspace_id, batch_id, ordinal, profile, status, expires_at]
+                properties:
+                  workspace_id:
+                    type: string
+                  batch_id:
+                    type: string
+                  ordinal:
+                    type: integer
+                  profile:
+                    type: string
+                    enum: [small, build]
+                  status:
+                    type: string
+                  vm_id:
+                    type: string
+                  snapshot_id:
+                    type: string
+                  started_at:
+                    type: string
+                    format: date-time
+                  stopped_at:
+                    type: string
+                    format: date-time
+                  stop_reason:
+                    type: string
+                    enum: [requested, parent_stopped, expired, idle, failed, abandoned]
+                  failure_message:
+                    type: string
+                  expires_at:
+                    type: string
+                    format: date-time
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
   /api/repo-connection:
     delete:
       summary: DELETE /api/repo-connection

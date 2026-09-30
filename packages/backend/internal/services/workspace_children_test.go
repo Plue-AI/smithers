@@ -137,7 +137,7 @@ func requireChildAPIError(t *testing.T, err error, code pkgerrors.Code, contains
 }
 
 func TestWorkspaceChildrenBootFromOneSnapshotWithoutCredentials(t *testing.T) {
-	f := newChildFixture(t, &SandboxEntitlement{ConcurrentChildren: 16, ChildMaxTTLSecs: 3600})
+	f := newChildFixture(t, &SandboxEntitlement{HoursPerDay: -1, ConcurrentChildren: 16, ChildMaxTTLSecs: 3600})
 	batch, err := f.spawn(t, 3, "build")
 	require.NoError(t, err)
 	require.Equal(t, "build", batch.Profile)
@@ -201,7 +201,7 @@ func TestWorkspaceChildrenBootFromOneSnapshotWithoutCredentials(t *testing.T) {
 }
 
 func TestWorkspaceChildrenAdmissionFailsClosed(t *testing.T) {
-	f := newChildFixture(t, &SandboxEntitlement{ConcurrentChildren: 4, ChildMaxTTLSecs: 3600})
+	f := newChildFixture(t, &SandboxEntitlement{HoursPerDay: -1, ConcurrentChildren: 4, ChildMaxTTLSecs: 3600})
 	ctx := context.Background()
 	spawn := func(input SpawnWorkspaceChildrenInput) error {
 		if input.RepositoryID == 0 {
@@ -247,7 +247,7 @@ func TestWorkspaceChildrenAdmissionFailsClosed(t *testing.T) {
 
 func TestWorkspaceChildrenPlanLimits(t *testing.T) {
 	t.Run("a plan without children refuses", func(t *testing.T) {
-		f := newChildFixture(t, &SandboxEntitlement{})
+		f := newChildFixture(t, &SandboxEntitlement{HoursPerDay: -1})
 		_, err := f.spawn(t, 1, "")
 		requireChildAPIError(t, err, pkgerrors.CodeQuotaExceeded, "not included")
 	})
@@ -258,7 +258,7 @@ func TestWorkspaceChildrenPlanLimits(t *testing.T) {
 		require.ErrorContains(t, err, "ledger down")
 	})
 	t.Run("the hard cap wins over the plan", func(t *testing.T) {
-		f := newChildFixture(t, &SandboxEntitlement{ConcurrentChildren: 1000, ChildMaxTTLSecs: 3600})
+		f := newChildFixture(t, &SandboxEntitlement{HoursPerDay: -1, ConcurrentChildren: 1000, ChildMaxTTLSecs: 3600})
 		batch, err := f.spawn(t, MaxWorkspaceChildren, "")
 		require.NoError(t, err)
 		require.Len(t, batch.Children, MaxWorkspaceChildren)
@@ -401,7 +401,7 @@ func TestWorkspaceChildrenDropTheParentIdentity(t *testing.T) {
 		require.True(t, scrubs[child.VMID], "every child drops the parent's head reporter and bindings")
 	}
 	command := workspaceChildIdentityScrubCommand()
-	for _, want := range []string{workspaceHeadReporterService, workspaceCodingConfigPath, workspaceGitCredentialEnvPath} {
+	for _, want := range []string{workspaceHeadReporterService, workspaceCodingConfigPath, workspaceGitCredentialEnvPath, workspaceChildrenTokenPath} {
 		require.Contains(t, command, want)
 	}
 

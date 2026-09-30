@@ -401,3 +401,10 @@ SELECT token.* FROM token CROSS JOIN audit;
 
 -- name: GetAccessTokenForOAuthGrant :one
 SELECT * FROM access_tokens WHERE id = $1 FOR SHARE;
+
+-- name: DeleteSystemAccessTokensByName :exec
+-- Revokes every system-issued token a service minted under one name.
+DELETE FROM access_tokens
+WHERE user_id = sqlc.arg(user_id)
+  AND name = sqlc.arg(name)
+  AND system_issued;

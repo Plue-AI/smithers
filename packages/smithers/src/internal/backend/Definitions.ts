@@ -578,6 +578,11 @@ export const definitions = {
     args: z.object({ "lanes": z.coerce.number().describe("Lanes, 1 to 8") }),
     options: z.object({ "repo": z.string().describe("Repository (OWNER/REPO)").optional() })
   },
+  "history land": {
+    description: "Land a proposed TODO's pull request once its review approves and CI is green",
+    args: z.object({ "issue": z.string().describe("Issue number (12 or #12) or item id") }),
+    options: z.object({ "repo": z.string().describe("Repository (OWNER/REPO)").optional() })
+  },
   "history retry": {
     description: "Give a blocked, rejected or declined issue a fresh set of attempts",
     args: z.object({ "issue": z.string().describe("Issue number (12 or #12) or item id") }),
@@ -1357,6 +1362,33 @@ export const definitions = {
     description: "Watch a workflow run in real-time",
     args: z.object({ "id": z.coerce.number().describe("Run ID") }),
     options: z.object({ "repo": z.string().describe("Repository (OWNER/REPO)").optional() })
+  },
+  "workspace children list": {
+    description: "List a workspace's children",
+    args: z.object({}),
+    options: z.object({
+      "repo": z.string().describe("Repository (OWNER/REPO)").optional(),
+      "workspace": z.string().describe("Parent workspace ID (this workspace when run inside one)").optional()
+    })
+  },
+  "workspace children spawn": {
+    description: "Spawn children of a running workspace",
+    args: z.object({}),
+    options: z.object({
+      "count": z.coerce.number().describe("How many children").default(1),
+      "profile": z.enum(["small", "build"]).describe("small (1 vCPU, 2 GB) or build (2 vCPU, 8 GB)").optional(),
+      "repo": z.string().describe("Repository (OWNER/REPO)").optional(),
+      "ttl": z.coerce.number().describe("Seconds the children may live (plan default when omitted)").optional(),
+      "workspace": z.string().describe("Parent workspace ID (this workspace when run inside one)").optional()
+    })
+  },
+  "workspace children stop": {
+    description: "Stop a workspace's child",
+    args: z.object({ "child": z.string().describe("Child workspace ID") }),
+    options: z.object({
+      "repo": z.string().describe("Repository (OWNER/REPO)").optional(),
+      "workspace": z.string().describe("Parent workspace ID (this workspace when run inside one)").optional()
+    })
   },
   "workspace cp": {
     description: "Copy files or directories between the local machine and a workspace",

@@ -1,21 +1,13 @@
-smthrs workspace — workspace
+smthrs workspace children spawn — Spawn children of a running workspace
 
-Usage: smthrs workspace <command>
+Usage: smthrs workspace children spawn [options]
 
-Commands:
-  children   children
-  cp         Copy files or directories between the local machine and a workspace
-  create     Create a workspace
-  delete     Delete a workspace
-  exec       Run a workspace command with a durable receipt and bounded output
-  fork       Fork a workspace
-  issue      Spin up a workspace for an issue, run Claude Code, then create a landing request
-  list       List workspaces
-  shell      Open an interactive terminal in a workspace via the WebSocket terminal endpoint
-  snapshots  List workspace snapshots
-  ssh        SSH into a workspace (creates one if none exists for the repo)
-  view       View workspace details (status, SSH info, persistence)
-  watch      Watch a workspace for real-time status updates
+Options:
+  --count <number>          (default: 1)
+  --profile <small|build>
+  --repo, -R <string>
+  --ttl <number>
+  --workspace <string>
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

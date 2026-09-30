@@ -116,6 +116,9 @@ func (*UnlimitedBillingPolicy) SandboxEntitlement(context.Context, int64) (Sandb
 		// policies and repository overrides remain independent controls.
 		IdleTimeoutSecs: 0,
 		HoursPerDay:     -1,
+		// Children keep the per-user cap a custom plan has (#2802).
+		ConcurrentChildren: workspaceChildPlanLimits[BillingPlanCustom].concurrent,
+		ChildMaxTTLSecs:    workspaceChildPlanLimits[BillingPlanCustom].maxTTLSecs,
 	}, nil
 }
 

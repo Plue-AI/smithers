@@ -1532,6 +1532,24 @@ func buildRouter(
 					}
 					r.With(writeWorkspace...).Get("/workspaces/{id}/ssh", workspaceHandler.GetWorkspaceSSHConnectionInfo)
 					routes.RegisterWorkspaceRuntimeRoutes(r, workspaceHandler, readWorkspace, writeWorkspace)
+					// #2802: a workspace's children take the workspace scope, so its
+					// own children credential reaches them; children never count
+					// against the per-user sandbox cap (the plan's child limit does).
+					readChildren := []func(http.Handler) http.Handler{
+						middleware.RequireAuth,
+						middleware.RequireScope(middleware.ScopeReadWorkspace),
+					}
+					writeChildren := []func(http.Handler) http.Handler{
+						middleware.RequireAuth,
+						middleware.RequireScope(middleware.ScopeWriteWorkspace),
+					}
+					if queries != nil {
+						readChildren = append(readChildren, middleware.RequireRepoPermission(middleware.PermissionRead))
+						writeChildren = append(writeChildren, middleware.RequireRepoPermission(middleware.PermissionWrite))
+					}
+					readChildren = append(readChildren, repoAPIQuota, gateWorkspaces)
+					writeChildren = append(writeChildren, repoAPIQuota, gateWorkspaces, gateSandboxes)
+					routes.RegisterWorkspaceChildrenRoutes(r, workspaceHandler, readChildren, writeChildren)
 					if workspaceHandler.Desktop != nil {
 						// kind=desktop stream session mint: rotates the VNC password in
 						// the guest and returns the credentialed viewer URL once.

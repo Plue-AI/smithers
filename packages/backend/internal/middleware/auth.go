@@ -53,18 +53,38 @@ type AuthLoaderQuerier interface {
 // token may call: POST /api/repos/{owner}/{repo}/workspaces/{id}/head.
 var workspaceHeadReportPath = regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspaces/([^/]+)/head$`)
 
+// workspaceChildrenPath and workspaceChildStopPath are the routes a
+// workspace's children credential may call: list and spawn its children, and
+// stop one of them.
+var (
+	workspaceChildrenPath  = regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspaces/([^/]+)/children$`)
+	workspaceChildStopPath = regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspaces/([^/]+)/children/[^/]+/stop$`)
+)
+
 // allowWorkspaceRestrictedToken confines a workspace-bound token (RFD-004) to
-// its own head report route. Git smart HTTP lives outside /api and applies its
-// own ref policy. It writes the 403 itself and returns false when refused.
+// its own workspace: the head reporter's token to the head report route, and
+// the children credential to the children routes. Git smart HTTP lives
+// outside /api and applies its own ref policy. It writes the 403 itself and
+// returns false when refused.
 func allowWorkspaceRestrictedToken(w http.ResponseWriter, r *http.Request, info *AuthInfo) bool {
 	workspaceID := info.WorkspaceRestriction()
 	if workspaceID == "" || !strings.HasPrefix(r.URL.Path, "/api/") {
 		return true
 	}
-	if r.Method == http.MethodPost {
-		if m := workspaceHeadReportPath.FindStringSubmatch(r.URL.Path); m != nil && strings.EqualFold(m[1], workspaceID) {
+	own := func(pattern *regexp.Regexp) bool {
+		m := pattern.FindStringSubmatch(r.URL.Path)
+		return m != nil && strings.EqualFold(m[1], workspaceID)
+	}
+	if ParseTokenWorkspaceChildrenCredential(info.RawScopes) {
+		if ((r.Method == http.MethodGet || r.Method == http.MethodPost) && own(workspaceChildrenPath)) ||
+			(r.Method == http.MethodPost && own(workspaceChildStopPath)) {
 			return true
 		}
+		errors.WriteError(w, errors.Forbidden("workspace children credentials may only manage their own workspace's children"))
+		return false
+	}
+	if r.Method == http.MethodPost && own(workspaceHeadReportPath) {
+		return true
 	}
 	errors.WriteError(w, errors.Forbidden("workspace credentials may only report their own workspace head"))
 	return false

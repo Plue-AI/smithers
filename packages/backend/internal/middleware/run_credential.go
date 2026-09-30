@@ -40,6 +40,27 @@ const syncCredentialScope = "credential:sync"
 // system token as CredentialSync.
 func SyncCredentialScope() string { return syncCredentialScope }
 
+// workspaceChildrenCredentialScope marks a workspace-bound token as the one a
+// running workspace spawns its children with (#2802). It grants nothing on
+// its own: it moves the token's one reachable route family from the head
+// report to the workspace's children routes.
+const workspaceChildrenCredentialScope = "credential:workspace-children"
+
+// WorkspaceChildrenCredentialScope returns the scopes-list entry of a
+// workspace's children credential.
+func WorkspaceChildrenCredentialScope() string { return workspaceChildrenCredentialScope }
+
+// ParseTokenWorkspaceChildrenCredential reports whether raw carries the
+// children credential mark.
+func ParseTokenWorkspaceChildrenCredential(raw string) bool {
+	for _, part := range tokenScopeEntries(raw) {
+		if strings.EqualFold(strings.TrimSpace(part), workspaceChildrenCredentialScope) {
+			return true
+		}
+	}
+	return false
+}
+
 // TokenCredentialKind classifies an access token from its stored fields
 // and its user's account type. An agent account (a bot or service user) is
 // an agent whatever token it holds: its token is an agent run's.

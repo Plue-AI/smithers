@@ -22,6 +22,7 @@ import { repositories } from "./Repositories.ts"
 import { type Handler, resources } from "./Resources.ts"
 import { runs } from "./Runs.ts"
 import { stacks } from "./Stack.ts"
+import { workspaceChildren } from "./WorkspaceChildren.ts"
 import { workspaces } from "./Workspaces.ts"
 
 /** @private
@@ -36,6 +37,7 @@ export const handlers: Record<string, Handler> = {
   ...runs,
   ...misc,
   ...workspaces,
+  ...workspaceChildren,
   ...stacks,
   ...egress,
   ...history,

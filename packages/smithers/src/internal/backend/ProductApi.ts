@@ -5085,6 +5085,88 @@ export interface PatchApiReposOwnerRepoEgressPolicyInput {
 export const patchApiReposOwnerRepoEgressPolicy = (transport: Transport, input: PatchApiReposOwnerRepoEgressPolicyInput): Promise<PatchApiReposOwnerRepoEgressPolicyResponse> =>
   transport.request("PATCH", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/egress-policy`, input.body) as Promise<PatchApiReposOwnerRepoEgressPolicyResponse>
 
+export type GetApiReposOwnerRepoWorkspacesIdChildrenResponse = Array<{
+  workspace_id: string
+  batch_id: string
+  ordinal: number
+  profile: "small" | "build"
+  status: string
+  vm_id?: string
+  snapshot_id?: string
+  started_at?: string
+  stopped_at?: string
+  stop_reason?: "requested" | "parent_stopped" | "expired" | "idle" | "failed" | "abandoned"
+  failure_message?: string
+  expires_at: string
+}>
+
+export interface GetApiReposOwnerRepoWorkspacesIdChildrenInput {
+  readonly path: { readonly owner: string; readonly repo: string; readonly id: string }
+}
+
+/** GET /api/repos/{owner}/{repo}/workspaces/{id}/children: List a workspace's children */
+export const getApiReposOwnerRepoWorkspacesIdChildren = (transport: Transport, input: GetApiReposOwnerRepoWorkspacesIdChildrenInput): Promise<GetApiReposOwnerRepoWorkspacesIdChildrenResponse> =>
+  transport.request("GET", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/workspaces/${segment(input.path.id)}/children`) as Promise<GetApiReposOwnerRepoWorkspacesIdChildrenResponse>
+
+export type PostApiReposOwnerRepoWorkspacesIdChildrenBody = {
+  count: number
+  profile?: "small" | "build"
+  ttl_secs?: number
+}
+
+export type PostApiReposOwnerRepoWorkspacesIdChildrenResponse = {
+  id: string
+  parent_workspace_id: string
+  profile: "small" | "build"
+  expires_at: string
+  children: Array<{
+    workspace_id: string
+    batch_id: string
+    ordinal: number
+    profile: "small" | "build"
+    status: string
+    vm_id?: string
+    snapshot_id?: string
+    started_at?: string
+    stopped_at?: string
+    stop_reason?: "requested" | "parent_stopped" | "expired" | "idle" | "failed" | "abandoned"
+    failure_message?: string
+    expires_at: string
+  }>
+}
+
+export interface PostApiReposOwnerRepoWorkspacesIdChildrenInput {
+  readonly path: { readonly owner: string; readonly repo: string; readonly id: string }
+  readonly body: PostApiReposOwnerRepoWorkspacesIdChildrenBody
+}
+
+/** POST /api/repos/{owner}/{repo}/workspaces/{id}/children: Spawn children of a workspace */
+export const postApiReposOwnerRepoWorkspacesIdChildren = (transport: Transport, input: PostApiReposOwnerRepoWorkspacesIdChildrenInput): Promise<PostApiReposOwnerRepoWorkspacesIdChildrenResponse> =>
+  transport.request("POST", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/workspaces/${segment(input.path.id)}/children`, input.body) as Promise<PostApiReposOwnerRepoWorkspacesIdChildrenResponse>
+
+export type PostApiReposOwnerRepoWorkspacesIdChildrenChildIdStopResponse = {
+  workspace_id: string
+  batch_id: string
+  ordinal: number
+  profile: "small" | "build"
+  status: string
+  vm_id?: string
+  snapshot_id?: string
+  started_at?: string
+  stopped_at?: string
+  stop_reason?: "requested" | "parent_stopped" | "expired" | "idle" | "failed" | "abandoned"
+  failure_message?: string
+  expires_at: string
+}
+
+export interface PostApiReposOwnerRepoWorkspacesIdChildrenChildIdStopInput {
+  readonly path: { readonly owner: string; readonly repo: string; readonly id: string; readonly child_id: string }
+}
+
+/** POST /api/repos/{owner}/{repo}/workspaces/{id}/children/{child_id}/stop: Stop a workspace's child */
+export const postApiReposOwnerRepoWorkspacesIdChildrenChildIdStop = (transport: Transport, input: PostApiReposOwnerRepoWorkspacesIdChildrenChildIdStopInput): Promise<PostApiReposOwnerRepoWorkspacesIdChildrenChildIdStopResponse> =>
+  transport.request("POST", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/workspaces/${segment(input.path.id)}/children/${segment(input.path.child_id)}/stop`) as Promise<PostApiReposOwnerRepoWorkspacesIdChildrenChildIdStopResponse>
+
 export type GetApiRepoConnectionResponse = AnyJSON
 
 /** GET /api/repo-connection */

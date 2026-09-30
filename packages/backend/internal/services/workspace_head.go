@@ -245,9 +245,11 @@ func workspaceGitCredentialEnvironment() string {
 	}, "\n")
 }
 
-// revokeWorkspaceHeadToken revokes the reporter token recorded on the row
-// and clears the column. Best effort: a missing token is not an error.
+// revokeWorkspaceHeadToken revokes the reporter token recorded on the row,
+// clears the column, and revokes the children credential with it. Best
+// effort: a missing token is not an error.
 func (s *WorkspaceService) revokeWorkspaceHeadToken(ctx context.Context, workspace db.Workspace) {
+	s.revokeWorkspaceChildrenToken(ctx, workspace)
 	if s.q == nil || !workspace.HeadPushTokenID.Valid {
 		return
 	}
@@ -342,6 +344,10 @@ func (s *WorkspaceService) installWorkspaceHeadReporter(ctx context.Context, wor
 	}
 	if !result.Success {
 		return workspace, pkgerrors.Internal("start workspace head reporter: " + strings.TrimSpace(result.Message))
+	}
+	// Without it the workspace cannot spawn children from inside; it still works.
+	if err := s.installWorkspaceChildrenToken(ctx, workspace, vmID); err != nil {
+		slog.Warn("workspace children token install failed", "workspace_id", workspace.ID, "vm_id", vmID, "error", err)
 	}
 	return workspace, nil
 }
