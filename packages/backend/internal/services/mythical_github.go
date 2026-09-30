@@ -22,8 +22,8 @@ type mythicalGitHubRepo struct {
 	Owner, Name string
 	Token       string
 	GitURL      string
-	// userID and orgID own the repository; the stack's two API writes mint
-	// their own narrow installation tokens for it (Merge, RemoveLabel).
+	// userID and orgID own the repository; the stack's API writes mint
+	// their own narrow installation tokens for it (Merge, the issue writes).
 	userID, orgID int64
 }
 
@@ -81,8 +81,16 @@ type mythicalGitHub interface {
 	// it (Removed), as the issue's labels stand now: nil when none ever
 	// applied it. It errs while GitHub's history trails the labels.
 	LabelApplier(ctx context.Context, gh mythicalGitHubRepo, number int64, label string) (*mythicalLabelApplier, error)
-	// Comment posts one comment on an issue.
-	Comment(ctx context.Context, gh mythicalGitHubRepo, number int64, body string) error
+	// Comment posts body on an issue. With a key it says body once per key:
+	// the comment carrying key is edited when one exists, else one is
+	// posted, so a retry after a post that was not recorded never repeats
+	// it; without one, every call posts.
+	Comment(ctx context.Context, gh mythicalGitHubRepo, number int64, key, body string) error
+	// CloseIssue closes an issue as completed; a closed one stays closed.
+	CloseIssue(ctx context.Context, gh mythicalGitHubRepo, number int64) error
+	// OnMain reports whether commit is reachable from the bookmark on
+	// GitHub.
+	OnMain(ctx context.Context, gh mythicalGitHubRepo, bookmark, commit string) (bool, error)
 	// AddLabel puts label on an issue.
 	AddLabel(ctx context.Context, gh mythicalGitHubRepo, number int64, label string) error
 	// RemoveLabel takes label off an issue; an absent label is removed.
@@ -427,13 +435,70 @@ func (g *mythicalGitHubAPI) labelHistory(ctx context.Context, gh mythicalGitHubR
 	}
 }
 
-func (g *mythicalGitHubAPI) Comment(ctx context.Context, gh mythicalGitHubRepo, number int64, body string) error {
+// mythicalCommentMarker is the hidden mark a keyed comment carries, so a
+// retry finds it.
+func mythicalCommentMarker(key string) string {
+	return "<!-- smithers:" + strings.ReplaceAll(key, "--", "-") + " -->"
+}
+
+// findComment answers the id of the issue comment carrying marker, 0 when
+// none does; a thread too long to read whole is refused.
+func (g *mythicalGitHubAPI) findComment(ctx context.Context, gh mythicalGitHubRepo, number int64, marker string) (int64, error) {
+	for page := 1; ; page++ {
+		if page > 10 {
+			return 0, errors.New("the issue's comments are too many to read whole")
+		}
+		var comments []struct {
+			ID   int64  `json:"id"`
+			Body string `json:"body"`
+		}
+		path := landingGitHubRepoPath(gh.Owner, gh.Name) + "/issues/" + strconv.FormatInt(number, 10) + "/comments?per_page=100&page=" + strconv.Itoa(page)
+		status, err := g.api.request(ctx, gh.Token, http.MethodGet, path, nil, &comments)
+		if err != nil {
+			return 0, err
+		}
+		if status != http.StatusOK {
+			return 0, landingGitHubStatusError(status, gh.Owner, gh.Name, "read issue comments")
+		}
+		for _, comment := range comments {
+			if strings.Contains(comment.Body, marker) {
+				return comment.ID, nil
+			}
+		}
+		if len(comments) < 100 {
+			return 0, nil
+		}
+	}
+}
+
+func (g *mythicalGitHubAPI) Comment(ctx context.Context, gh mythicalGitHubRepo, number int64, key, body string) error {
+	var existing int64
+	payload := map[string]string{"body": body}
+	if key != "" {
+		marker := mythicalCommentMarker(key)
+		found, err := g.findComment(ctx, gh, number, marker)
+		if err != nil {
+			return err
+		}
+		existing, payload["body"] = found, body+"\n\n"+marker
+	}
 	token, err := g.installationToken(ctx, gh, map[string]string{"issues": "write"})
 	if err != nil {
 		return err
 	}
+	if existing != 0 {
+		path := landingGitHubRepoPath(gh.Owner, gh.Name) + "/issues/comments/" + strconv.FormatInt(existing, 10)
+		status, err := g.api.request(ctx, token, http.MethodPatch, path, payload, nil)
+		if err != nil {
+			return err
+		}
+		if status != http.StatusOK {
+			return landingGitHubStatusError(status, gh.Owner, gh.Name, "comment on issues")
+		}
+		return nil
+	}
 	path := landingGitHubRepoPath(gh.Owner, gh.Name) + "/issues/" + strconv.FormatInt(number, 10) + "/comments"
-	status, err := g.api.request(ctx, token, http.MethodPost, path, map[string]string{"body": body}, nil)
+	status, err := g.api.request(ctx, token, http.MethodPost, path, payload, nil)
 	if err != nil {
 		return err
 	}
@@ -441,6 +506,32 @@ func (g *mythicalGitHubAPI) Comment(ctx context.Context, gh mythicalGitHubRepo, 
 		return landingGitHubStatusError(status, gh.Owner, gh.Name, "comment on issues")
 	}
 	return nil
+}
+
+func (g *mythicalGitHubAPI) CloseIssue(ctx context.Context, gh mythicalGitHubRepo, number int64) error {
+	token, err := g.installationToken(ctx, gh, map[string]string{"issues": "write"})
+	if err != nil {
+		return err
+	}
+	path := landingGitHubRepoPath(gh.Owner, gh.Name) + "/issues/" + strconv.FormatInt(number, 10)
+	status, err := g.api.request(ctx, token, http.MethodPatch, path, map[string]string{"state": "closed", "state_reason": "completed"}, nil)
+	if err != nil {
+		return err
+	}
+	if status != http.StatusOK {
+		return landingGitHubStatusError(status, gh.Owner, gh.Name, "close issues")
+	}
+	return nil
+}
+
+// OnMain compares the bookmark with the commit: a commit the bookmark is
+// not behind at all is reachable from it.
+func (g *mythicalGitHubAPI) OnMain(ctx context.Context, gh mythicalGitHubRepo, bookmark, commit string) (bool, error) {
+	ahead, err := g.api.AheadBy(ctx, gh.Token, gh.Owner, gh.Name, bookmark, commit)
+	if err != nil {
+		return false, err
+	}
+	return ahead == 0, nil
 }
 
 func (g *mythicalGitHubAPI) AddLabel(ctx context.Context, gh mythicalGitHubRepo, number int64, label string) error {

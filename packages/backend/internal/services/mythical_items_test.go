@@ -57,16 +57,21 @@ type fakeMythicalGitHub struct {
 	// label event recorded it (o.labeled); it answers ahead of labelers.
 	labelEvents map[string]mythicalLabelApplier
 	labelSeq    int64
-	// comments are the issue comments Comment posted, as "#<issue> <body>";
-	// added the labels AddLabel put on, as "#<issue> <label>".
-	comments []string
-	added    []string
+	// comments are the issue comments Comment posted, as "#<issue> <body>",
+	// one per "#<issue> <key>" (commentKeys, in the same order); added the
+	// labels AddLabel put on, as "#<issue> <label>"; closed the issues
+	// CloseIssue closed, in order.
+	comments    []string
+	commentKeys []string
+	added       []string
+	closed      []int64
 	// ci is GitHub CI's verdict per commit; absent is green. commentErr
-	// fails every Comment.
+	// fails every Comment; closeErr every CloseIssue.
 	ci         map[string]string
 	commentErr error
 	// accounts are the GitHub accounts Account answers, by numeric id.
 	accounts map[int64]gitHubActor
+	closeErr error
 }
 
 // Merge squash-merges like GitHub: only while the pull request is open and
@@ -111,14 +116,48 @@ func (g *fakeMythicalGitHub) LabelApplier(_ context.Context, _ mythicalGitHubRep
 	return &mythicalLabelApplier{Actor: gitHubActor{Login: login}, ViaApp: g.viaApp[number]}, nil
 }
 
-func (g *fakeMythicalGitHub) Comment(_ context.Context, _ mythicalGitHubRepo, number int64, body string) error {
+// Comment posts once per key, as GitHub with the keyed comment does: a
+// second say of a key edits the comment it posted; without a key every call
+// posts.
+func (g *fakeMythicalGitHub) Comment(_ context.Context, _ mythicalGitHubRepo, number int64, key, body string) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if g.commentErr != nil {
 		return g.commentErr
 	}
+	keyed := fmt.Sprintf("#%d %s", number, key)
+	for i, seen := range g.commentKeys {
+		if key != "" && seen == keyed {
+			g.comments[i] = fmt.Sprintf("#%d %s", number, body)
+			return nil
+		}
+	}
+	g.commentKeys = append(g.commentKeys, keyed)
 	g.comments = append(g.comments, fmt.Sprintf("#%d %s", number, body))
 	return nil
+}
+
+func (g *fakeMythicalGitHub) CloseIssue(_ context.Context, _ mythicalGitHubRepo, number int64) error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.closeErr != nil {
+		return g.closeErr
+	}
+	g.closed = append(g.closed, number)
+	for i := range g.issues {
+		if g.issues[i].Number == number {
+			g.issues[i].State = "closed"
+		}
+	}
+	return nil
+}
+
+// OnMain reads the fake's own main: a commit it does not hold is not on it.
+func (g *fakeMythicalGitHub) OnMain(_ context.Context, _ mythicalGitHubRepo, bookmark, commit string) (bool, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	err := exec.Command("git", "--git-dir", g.dir, "merge-base", "--is-ancestor", commit, "refs/heads/"+bookmark).Run()
+	return err == nil, nil
 }
 
 // HeadChecks answers ci[sha], or green when the test set none.
@@ -253,7 +292,8 @@ func (g *fakeMythicalGitHub) CreatePull(_ context.Context, _ mythicalGitHubRepo,
 	if g.pulls == nil {
 		g.pulls = map[int64]*mythicalPull{}
 	}
-	pull := &mythicalPull{Number: int64(100 + len(g.pulls)), URL: "https://github.com/smithersai/smithers/pull/x", State: "open", HeadRef: head}
+	number := int64(100 + len(g.pulls))
+	pull := &mythicalPull{Number: number, URL: "https://github.com/smithersai/smithers/pull/" + strconv.FormatInt(number, 10), State: "open", HeadRef: head}
 	g.pulls[pull.Number] = pull
 	return *pull, nil
 }
@@ -612,7 +652,9 @@ func TestMythicalItemsFlowFromIssueToLandedAndAdopted(t *testing.T) {
 	branchHead := o.git(o.github.dir, "rev-parse", "refs/heads/smithers/issue-7")
 	assert.Equal(t, o.hostTree(candidate), o.git(o.github.dir, "rev-parse", branchHead+"^{tree}"))
 	assert.Equal(t, o.git(o.github.dir, "rev-parse", "refs/heads/main"), o.git(o.github.dir, "rev-parse", branchHead+"^"))
-	assert.Contains(t, o.git(o.github.dir, "log", "-1", "--format=%B", branchHead), "Closes #7")
+	message := o.git(o.github.dir, "log", "-1", "--format=%B", branchHead)
+	assert.Contains(t, message, "Refs #7")
+	assert.NotContains(t, message, "Closes #7", "the merge never closes the issue ahead of its completion evidence")
 
 	// change.opened: the review reads the pull request's diff on a fresh
 	// lane of the stack's own bookmark, never the box the coding agent wrote
@@ -663,6 +705,34 @@ func TestMythicalItemsFlowFromIssueToLandedAndAdopted(t *testing.T) {
 	assert.Equal(t, "📝 docs: add docs", changes[0].Title)
 	assert.EqualValues(t, 7, changes[0].IssueNumber.Int64)
 	assert.Equal(t, merged, changes[0].FoldedFrom)
+
+	// The issue hears of the landing only once GitHub main carries the merge
+	// commit: the fold alone is not evidence.
+	assert.Empty(t, o.github.comments, "no evidence before the commit is on GitHub main")
+	assert.Empty(t, o.github.closed, "no close before the commit is on GitHub main")
+	o.git(o.work, "push", "-q", o.github.dir, "main:refs/heads/main")
+	o.github.closeErr = errors.New("GitHub is down")
+	o.wake()
+	require.Equal(t, []string{"#7 Landed on main: https://github.com/smithersai/smithers/commit/" + merged +
+		"\nChecks: CI green on " + short(item.PRHead) + "; review approve\nRun: run-request"}, o.github.comments, "built on the tip, the item was never re-verified")
+	assert.Empty(t, o.github.closed, "the comment is on the issue before any close")
+	completion := mythicalChecksOf(o.item(7)).Completion
+	require.NotNil(t, completion)
+	assert.Equal(t, mythicalCompletion{Commit: merged, Since: completion.Since}, *completion, "open until GitHub closes the issue")
+	// The close is retried; the comment is not repeated.
+	o.github.closeErr = nil
+	o.wake()
+	assert.Len(t, o.github.comments, 1, "one completion comment across retries")
+	assert.Equal(t, []int64{7}, o.github.closed)
+	assert.Equal(t, mythicalCompletionClosed, mythicalChecksOf(o.item(7)).Completion.Outcome)
+	assert.Equal(t, "landed", o.item(7).State)
+	o.wake()
+	assert.Len(t, o.github.comments, 1)
+	assert.Equal(t, []int64{7}, o.github.closed, "closed once")
+	// GitHub's own report of the close changes nothing about the landed item.
+	closed := mythicalIssue{Number: 7, Title: "Add docs", Body: "approved text", State: "closed", TextByMaintainer: true, Labels: []string{"todo"}}
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, closed, gitHubLabelApplication{}))
+	assert.Equal(t, "landed", o.item(7).State)
 }
 
 func TestMythicalItemsRebaseVerifyRetryAndDecline(t *testing.T) {

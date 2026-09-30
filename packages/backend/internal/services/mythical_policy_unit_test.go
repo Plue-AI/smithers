@@ -112,3 +112,74 @@ func TestMythicalPolicy_RetryAndTransientDelayPreserveItem(t *testing.T) {
 		require.Equal(t, before, item)
 	}
 }
+
+func TestMythicalProposalDoesNotCloseIssueBeforeCompletionEvidence(t *testing.T) {
+	t.Parallel()
+	st := &mythicalItemStep{}
+	item := db.MythicalItem{IssueNumber: pgtype.Int8{Int64: 7, Valid: true}, IssueTitle: "Add docs", Summary: "📝 docs: add docs\n\nAdds the docs page."}
+	title, body := st.proposal(item)
+	require.Equal(t, "📝 docs: add docs", title)
+	require.NotContains(t, body, "Closes #7", "the merge alone never closes the issue")
+	require.NotContains(t, strings.ToLower(body), "fixes #")
+	require.NotContains(t, strings.ToLower(body), "resolves #")
+	require.Contains(t, body, "Adds the docs page.\n\nRefs #7")
+	_, chat := st.proposal(db.MythicalItem{Summary: "chat change"})
+	require.NotContains(t, chat, "#", "a chat item names no issue")
+}
+
+func TestMythicalCompletionBodyCarriesTheEvidence(t *testing.T) {
+	t.Parallel()
+	item := db.MythicalItem{PRNumber: pgtype.Int8{Int64: 12, Valid: true}, PRURL: "https://github.com/o/r/pull/12",
+		PRHead: "0123456789abcdef", PRMergeCommit: "fedcba9876543210", RequestRunID: "run-1", VibeRunID: "run-2", VerifyOutcome: "passed"}
+	checks := mythicalChecks{Review: &mythicalReview{Head: "0123456789abcdef", Verdict: "approve"}}
+	s := &MythicalService{}
+	require.Equal(t, "Landed on main: https://github.com/o/r/commit/fedcba9876543210\nChecks: CI green on 0123456789ab; review approve; verification passed\nRun: run-1",
+		s.completionBody(item, checks, "will", "r", mythicalCIGreen))
+	s.SetPublicURL("https://smithers.example/")
+	require.Equal(t, "Landed on main: https://github.com/o/r/commit/fedcba9876543210\nChecks: CI green on 0123456789ab; review approve; verification passed\nRun: https://smithers.example/will/r (run-1)",
+		s.completionBody(item, checks, "will", "r", mythicalCIGreen))
+	// A review of an older head and an unverified item are not claimed.
+	stale := mythicalChecks{Review: &mythicalReview{Head: "older", Verdict: "approve"}}
+	bare := db.MythicalItem{PRURL: "https://example.invalid/pull/12", PRHead: "abc", PRMergeCommit: "def"}
+	require.Equal(t, "Landed on main: def\nChecks: CI pending on abc\nRun: https://smithers.example/will/r",
+		s.completionBody(bare, stale, "will", "r", mythicalCIPending))
+	s.SetPublicURL("")
+	require.Equal(t, "Landed on main: def\nChecks: CI pending on abc", s.completionBody(bare, stale, "will", "r", mythicalCIPending))
+	require.Equal(t, "Run: run-2", strings.Split(s.completionBody(db.MythicalItem{VibeRunID: "run-2"}, mythicalChecks{}, "will", "r", mythicalCIGreen), "\n")[2])
+}
+
+func TestMythicalCompletionBodyCountsTheCandidatesReceipts(t *testing.T) {
+	t.Parallel()
+	duration := int64(1200)
+	item := db.MythicalItem{PRHead: "abc", PRMergeCommit: "def", CandidateHead: "cand"}
+	receipts := &mythicalReceipts{Run: "run-verify", Checks: []mythicalReceipt{
+		{Check: "lint", Tier: "fast", Status: "passed", Commit: "earlier"},
+		{Check: "test", Tier: "slow", Status: "passed", Commit: "cand", DurationMs: &duration},
+		{Check: "review", Tier: "slow", Status: "failed", Commit: "earlier"},
+		{Check: "review", Tier: "slow", Status: "failed", Fault: "infra", Commit: "cand"},
+		{Check: "bundle", Tier: "delivery", Status: "failed", Commit: "cand"},
+	}}
+	checks := mythicalChecks{Receipts: receipts}
+	require.Equal(t, "2 check receipts passed, 3 failed (review, bundle) in run run-verify", mythicalReceiptsSummary(item, checks))
+	s := &MythicalService{}
+	require.Equal(t, "Landed on main: def\nChecks: CI green on abc; 2 check receipts passed, 3 failed (review, bundle) in run run-verify",
+		s.completionBody(item, checks, "will", "r", mythicalCIGreen))
+	// Receipts that never measured the candidate that landed are not its evidence.
+	item.CandidateHead = "rebased"
+	require.Empty(t, mythicalReceiptsSummary(item, checks))
+	require.Equal(t, "Landed on main: def\nChecks: CI green on abc", s.completionBody(item, checks, "will", "r", mythicalCIGreen))
+	// No receipts, or no candidate, say nothing.
+	require.Empty(t, mythicalReceiptsSummary(db.MythicalItem{CandidateHead: "cand"}, mythicalChecks{}))
+	require.Empty(t, mythicalReceiptsSummary(db.MythicalItem{}, checks))
+	// Every receipt passed: no failure clause.
+	passing := mythicalChecks{Receipts: &mythicalReceipts{Run: "run-1", Checks: []mythicalReceipt{{Check: "lint", Status: "passed", Commit: "cand"}}}}
+	require.Equal(t, "1 check receipts passed in run run-1", mythicalReceiptsSummary(db.MythicalItem{CandidateHead: "cand"}, passing))
+}
+
+func TestMythicalOnlyTheCompletionNoticeIsKeyed(t *testing.T) {
+	t.Parallel()
+	require.Equal(t, "landed:fedcba", mythicalNoticeCommentKey("landed:fedcba"), "a retried completion edits its one comment")
+	for _, key := range []string{"", "hold:review:abc", "stop:3", "landed"} {
+		require.Empty(t, mythicalNoticeCommentKey(key), "%q posts anew", key)
+	}
+}
