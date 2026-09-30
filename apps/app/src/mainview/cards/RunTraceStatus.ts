@@ -294,7 +294,7 @@ export const traceGoals = (model: TraceModel, plan: Plan | undefined, cursor?: n
       for (const row of journal) {
         const p = record(row.payload), seq = row.sequence!
         if (seq < planSequence) continue
-        if (nativeChecks.some(entry => entry.opened === seq)) {
+        if (!certified && nativeChecks.some(entry => entry.opened === seq)) {
           state = "running"; resultSequence = seq
         }
         if (row.kind === "control.agent.mutation-observed" && p.basis === "observed" && p.mutated === true) invalidate(seq, strings(p.paths))
@@ -354,12 +354,14 @@ export const traceGoals = (model: TraceModel, plan: Plan | undefined, cursor?: n
             checkedTree !== undefined && checkedTree !== implemented.value.head.treeId) invalidate(seq, implemented.value.writes)
         }
         for (const { execution, implementation, opened } of nativeChecks) {
-          if (opened < resultSequence) continue
+          // Provisional activity cannot suppress the first matching receipt.
+          // Once certified, only an equally new or newer check can replace it.
+          if (certified && opened < resultSequence) continue
           if (execution.failure?.sequence === seq) { state = "failed"; resultSequence = opened; certified = true }
           if (execution.result?.sequence !== seq) continue
           const receipt = decodeReceipt(execution.result.value)
           if (Option.isNone(receipt) || !receiptMatches(implementation, check, receipt.value)) {
-            state = "pending"
+            if (!certified) state = "pending"
             continue
           }
           state = invalidated >= opened || receipt.value.status === "superseded" ? "stale" : receipt.value.status

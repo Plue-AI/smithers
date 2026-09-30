@@ -3,7 +3,8 @@ import { traceFromJournal, type JournalRecord } from "./RunTrace"
 import { traceStatus, traceGoals } from "./RunTraceStatus"
 import { CODING_PLAN } from "./fixtures/CodingPlan"
 import { codingDecision, preparedCodingJournal } from "./fixtures/CodingJournal"
-import { checkInputDigest } from "../../../../../flows/coding/schema"
+import { checkInputDigest, Receipt } from "../../../../../flows/coding/schema"
+import { Schema } from "effect"
 
 const event = (sequence: number, kind: string, payload: Record<string, unknown> = {}): JournalRecord =>
   ({ sequence, kind: `control.${kind}`, occurredAt: sequence * 100, payload })
@@ -156,6 +157,161 @@ describe("recorded goal progress", () => {
     expect(state([...certified, ...ran])).toBe("passed")
     // A change the check covers still invalidates the receipt.
     expect(state([...certified, ...ran, event(9, "agent.mutation-observed", { basis: "observed", mutated: true, paths: ["src/memory.ts"] })])).toBe("stale")
+  })
+  test.each([
+    { name: "a different input digest", changed: { inputDigest: "sha256:unrelated-input" }, validReceipt: true },
+    { name: "a different target", changed: { target: "//other:typecheck" }, validReceipt: true },
+    { name: "a different check id", changed: { checkId: "other-check" }, validReceipt: true },
+    { name: "a different tier", changed: { tier: "slow" }, validReceipt: true },
+    { name: "a different change id", changed: { change: "other-change" }, validReceipt: true },
+    { name: "a different commit id", changed: { commitId: "other-commit" }, validReceipt: true },
+    { name: "a different tree id", changed: { treeId: "other-tree" }, validReceipt: true },
+    { name: "a malformed receipt", changed: { status: "completed" }, validReceipt: false }
+  ])("a later unbound native answer with $name cannot replace an existing matching receipt", ({ changed, validReceipt }) => {
+    const change = CODING_PLAN.changes[0]!, check = change.checks[0]!
+    const implementation = { change: change.id, parent: CODING_PLAN.base, head: CODING_PLAN.base, atoms: [CODING_PLAN.base], reads: [], writes: ["src/memory.ts"] }
+    const receipt = { checkId: check.id, target: check.target, tier: check.tier, change: change.id, commitId: implementation.head.commitId,
+      treeId: implementation.head.treeId, inputDigest: checkInputDigest(implementation, check), status: "passed", evidence: "", findings: [] }
+    const certified = [...preparedCodingJournal(), codingDecision(6, "bound-check", "coding/CommandCheck", {
+      parent: "correct", status: "completed", input: { flow: check.flow, input: { implementation, check } }, value: receipt
+    })]
+    const later = { ...receipt, ...changed }
+    expect(Schema.is(Receipt)(later)).toBe(validReceipt)
+    const unbound = codingDecision(7, "unbound-check", "coding/CommandCheck", {
+      parent: "correct", status: "completed", input: { flow: check.flow, input: { implementation, check } }, value: later
+    })
+    const state = (records: ReadonlyArray<JournalRecord>) => traceGoals(model(records), CODING_PLAN)[0]!.checks[0]!.state
+    expect(state([...preparedCodingJournal(), unbound])).toBe("pending")
+    expect(state(certified)).toBe("passed")
+    expect(state([...certified, unbound])).toBe("passed")
+  })
+  test.each([
+    { name: "a failed receipt", status: "failed" as const, mutation: false, expected: "failed" },
+    { name: "a superseded receipt", status: "superseded" as const, mutation: false, expected: "stale" },
+    { name: "a passed receipt invalidated by a write", status: "passed" as const, mutation: true, expected: "stale" }
+  ])("an unbound native answer preserves $name", ({ status, mutation, expected }) => {
+    const change = CODING_PLAN.changes[0]!, check = change.checks[0]!
+    const implementation = { change: change.id, parent: CODING_PLAN.base, head: CODING_PLAN.base, atoms: [CODING_PLAN.base], reads: [], writes: ["src/memory.ts"] }
+    const receipt = { checkId: check.id, target: check.target, tier: check.tier, change: change.id, commitId: implementation.head.commitId,
+      treeId: implementation.head.treeId, inputDigest: checkInputDigest(implementation, check), status, evidence: "", findings: [] }
+    const certified = [...preparedCodingJournal(), codingDecision(6, "bound-check", "coding/CommandCheck", {
+      parent: "correct", status: "completed", input: { flow: check.flow, input: { implementation, check } }, value: receipt
+    }), ...(mutation ? [event(7, "agent.mutation-observed", { basis: "observed", mutated: true, paths: ["src/memory.ts"] })] : [])]
+    const state = (records: ReadonlyArray<JournalRecord>) => traceGoals(model(records), CODING_PLAN)[0]!.checks[0]!.state
+    expect(state(certified)).toBe(expected)
+    expect(state([...certified, codingDecision(8, "unbound-check", "coding/CommandCheck", {
+      parent: "correct", status: "completed", input: { flow: check.flow, input: { implementation, check } },
+      value: { ...receipt, inputDigest: "sha256:unrelated-input" }
+    })])).toBe(expected)
+  })
+  test.each([
+    { name: "passed", mutation: false, expected: "passed" },
+    { name: "stale after an observed write", mutation: true, expected: "stale" }
+  ])("a later unfinished native check retains the $name certificate", ({ mutation, expected }) => {
+    const change = CODING_PLAN.changes[0]!, check = change.checks[0]!
+    const implementation = { change: change.id, parent: CODING_PLAN.base, head: CODING_PLAN.base, atoms: [CODING_PLAN.base], reads: [], writes: ["src/memory.ts"] }
+    const receipt = { checkId: check.id, target: check.target, tier: check.tier, change: change.id, commitId: implementation.head.commitId,
+      treeId: implementation.head.treeId, inputDigest: checkInputDigest(implementation, check), status: "passed", evidence: "", findings: [] }
+    const certified = [...preparedCodingJournal(), codingDecision(6, "bound-check", "coding/CommandCheck", {
+      parent: "correct", status: "completed", input: { flow: check.flow, input: { implementation, check } }, value: receipt
+    }), ...(mutation ? [event(7, "agent.mutation-observed", { basis: "observed", mutated: true, paths: ["src/memory.ts"] })] : [])]
+    const state = (records: ReadonlyArray<JournalRecord>) => traceGoals(model(records), CODING_PLAN)[0]!.checks[0]!.state
+    expect(state(certified)).toBe(expected)
+    expect(state([...certified, codingDecision(8, "running-check", "coding/CommandCheck", {
+      parent: "correct", status: "running", input: { flow: check.flow, input: { implementation, check } }
+    })])).toBe(expected)
+  })
+  test.each([
+    { status: "passed" as const, expected: "passed" },
+    { status: "failed" as const, expected: "failed" },
+    { status: "superseded" as const, expected: "stale" }
+  ])("a newer matching $status receipt remains authoritative after a verified check", ({ status, expected }) => {
+    const change = CODING_PLAN.changes[0]!, check = change.checks[0]!
+    const implementation = { change: change.id, parent: CODING_PLAN.base, head: CODING_PLAN.base, atoms: [CODING_PLAN.base], reads: [], writes: ["src/memory.ts"] }
+    const receipt = { checkId: check.id, target: check.target, tier: check.tier, change: change.id, commitId: implementation.head.commitId,
+      treeId: implementation.head.treeId, inputDigest: checkInputDigest(implementation, check), status: "passed", evidence: "", findings: [] }
+    const certified = [...preparedCodingJournal(), codingDecision(6, "bound-check", "coding/CommandCheck", {
+      parent: "correct", status: "completed", input: { flow: check.flow, input: { implementation, check } }, value: receipt
+    })]
+    const state = (records: ReadonlyArray<JournalRecord>) => traceGoals(model(records), CODING_PLAN)[0]!.checks[0]!.state
+    expect(state(certified)).toBe("passed")
+    expect(state([...certified, codingDecision(7, "new-bound-check", "coding/CommandCheck", {
+      parent: "correct", status: "completed", input: { flow: check.flow, input: { implementation, check } },
+      value: { ...receipt, status }
+    })])).toBe(expected)
+  })
+  test("a new matching receipt certifies the changed tree after an observed write", () => {
+    const change = CODING_PLAN.changes[0]!, check = change.checks[0]!
+    const implementation = { change: change.id, parent: CODING_PLAN.base, head: CODING_PLAN.base, atoms: [CODING_PLAN.base], reads: [], writes: ["src/memory.ts"] }
+    const receipt = { checkId: check.id, target: check.target, tier: check.tier, change: change.id, commitId: implementation.head.commitId,
+      treeId: implementation.head.treeId, inputDigest: checkInputDigest(implementation, check), status: "passed", evidence: "", findings: [] }
+    const changed = { ...implementation, head: { ...implementation.head, treeId: "changed-tree" } }
+    const certified = [...preparedCodingJournal(), codingDecision(6, "bound-check", "coding/CommandCheck", {
+      parent: "correct", status: "completed", input: { flow: check.flow, input: { implementation, check } }, value: receipt
+    }), event(7, "agent.mutation-observed", { basis: "observed", mutated: true, paths: ["src/memory.ts"] })]
+    const state = (records: ReadonlyArray<JournalRecord>) => traceGoals(model(records), CODING_PLAN)[0]!.checks[0]!.state
+    expect(state(certified)).toBe("stale")
+    expect(state([...certified, codingDecision(8, "new-tree-check", "coding/CommandCheck", {
+      parent: "correct", status: "completed", input: { flow: check.flow, input: { implementation: changed, check } },
+      value: { ...receipt, treeId: "changed-tree", inputDigest: checkInputDigest(changed, check) }
+    })])).toBe("passed")
+  })
+  test("a newer check execution failure remains authoritative after a verified check", () => {
+    const change = CODING_PLAN.changes[0]!, check = change.checks[0]!
+    const implementation = { change: change.id, parent: CODING_PLAN.base, head: CODING_PLAN.base, atoms: [CODING_PLAN.base], reads: [], writes: ["src/memory.ts"] }
+    const receipt = { checkId: check.id, target: check.target, tier: check.tier, change: change.id, commitId: implementation.head.commitId,
+      treeId: implementation.head.treeId, inputDigest: checkInputDigest(implementation, check), status: "passed", evidence: "", findings: [] }
+    const certified = [...preparedCodingJournal(), codingDecision(6, "bound-check", "coding/CommandCheck", {
+      parent: "correct", status: "completed", input: { flow: check.flow, input: { implementation, check } }, value: receipt
+    })]
+    const state = (records: ReadonlyArray<JournalRecord>) => traceGoals(model(records), CODING_PLAN)[0]!.checks[0]!.state
+    expect(state(certified)).toBe("passed")
+    expect(state([...certified, codingDecision(7, "failed-check", "coding/CommandCheck", {
+      parent: "correct", status: "failed", input: { flow: check.flow, input: { implementation, check } }, value: "Command failed"
+    })])).toBe("failed")
+  })
+  test.each([
+    { name: "absent", prior: false, result: "passed" as const, expected: "passed" },
+    { name: "present", prior: true, result: "failed" as const, expected: "failed" }
+  ])("an unbound later answer cannot suppress an earlier-open matching receipt (prior certificate $name)", ({ prior, result, expected }) => {
+    const change = CODING_PLAN.changes[0]!, check = change.checks[0]!
+    const implementation = { change: change.id, parent: CODING_PLAN.base, head: CODING_PLAN.base, atoms: [CODING_PLAN.base], reads: [], writes: ["src/memory.ts"] }
+    const receipt = { checkId: check.id, target: check.target, tier: check.tier, change: change.id, commitId: implementation.head.commitId,
+      treeId: implementation.head.treeId, inputDigest: checkInputDigest(implementation, check), status: "passed", evidence: "", findings: [] }
+    const records = [...preparedCodingJournal(), ...(prior ? [codingDecision(6, "prior-check", "coding/CommandCheck", {
+      parent: "correct", status: "completed", input: { flow: check.flow, input: { implementation, check } }, value: receipt
+    })] : []), codingDecision(7, "earlier-open", "coding/CommandCheck", {
+      parent: "correct", status: "running", input: { flow: check.flow, input: { implementation, check } }
+    }), codingDecision(8, "later-unbound", "coding/CommandCheck", {
+      parent: "correct", status: "completed", input: { flow: check.flow, input: { implementation, check } },
+      value: { ...receipt, inputDigest: "sha256:unrelated-input" }
+    }), codingDecision(9, "earlier-open", "coding/CommandCheck", {
+      parent: "correct", status: "completed", input: { flow: check.flow, input: { implementation, check } }, value: { ...receipt, status: result }
+    })]
+    const state = (cursor?: number) => traceGoals(model(records), CODING_PLAN, cursor)[0]!.checks[0]!.state
+    expect(state(6)).toBe(prior ? "passed" : "pending")
+    expect(state(9)).toBe(expected)
+  })
+  test.each([
+    { latest: "passed" as const, older: "failed" as const, expected: "passed" },
+    { latest: "failed" as const, older: "passed" as const, expected: "failed" }
+  ])("a newer bound $latest answer outranks an older-open $older answer arriving afterward", ({ latest, older, expected }) => {
+    const change = CODING_PLAN.changes[0]!, check = change.checks[0]!
+    const implementation = { change: change.id, parent: CODING_PLAN.base, head: CODING_PLAN.base, atoms: [CODING_PLAN.base], reads: [], writes: ["src/memory.ts"] }
+    const receipt = { checkId: check.id, target: check.target, tier: check.tier, change: change.id, commitId: implementation.head.commitId,
+      treeId: implementation.head.treeId, inputDigest: checkInputDigest(implementation, check), evidence: "", findings: [] }
+    const records = [...preparedCodingJournal(), codingDecision(7, "earlier-open", "coding/CommandCheck", {
+      parent: "correct", status: "running", input: { flow: check.flow, input: { implementation, check } }
+    }), codingDecision(8, "later-bound", "coding/CommandCheck", {
+      parent: "correct", status: "completed", input: { flow: check.flow, input: { implementation, check } },
+      value: { ...receipt, status: latest }
+    }), codingDecision(9, "earlier-open", "coding/CommandCheck", {
+      parent: "correct", status: "completed", input: { flow: check.flow, input: { implementation, check } },
+      value: { ...receipt, status: older }
+    })]
+    const state = (cursor: number) => traceGoals(model(records), CODING_PLAN, cursor)[0]!.checks[0]!.state
+    expect(state(8)).toBe(expected)
+    expect(state(9)).toBe(expected)
   })
   test("a goal is verified only when every required check carries its own matching receipt", () => {
     const change = CODING_PLAN.changes[0]!
