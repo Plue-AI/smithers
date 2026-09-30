@@ -18,10 +18,18 @@ const DIFF_CONTEXT_LINES = 3;
  * Anything that is not a regular file (directory, fifo, socket, device)
  * contributes nothing.
  */
-function readUntrackedBody(fullPath: string): { isSymlink: boolean; text: string } | null {
+type UntrackedBody =
+  | { kind: "symlink"; text: string }
+  | { kind: "text"; text: string }
+  | { kind: "binary"; executable: boolean };
+
+/** Git's own test: a NUL byte in the first 8000 bytes makes a file binary. */
+const BINARY_SNIFF_BYTES = 8000;
+
+function readUntrackedBody(fullPath: string): UntrackedBody | null {
   const entry = lstatSync(fullPath, { throwIfNoEntry: false });
   if (entry === undefined) return null;
-  if (entry.isSymbolicLink()) return { isSymlink: true, text: readlinkSync(fullPath) };
+  if (entry.isSymbolicLink()) return { kind: "symlink", text: readlinkSync(fullPath) };
   if (!entry.isFile()) return null;
   // O_NOFOLLOW closes the window between lstat and open: a path swapped for a
   // symlink after the check fails to open instead of reading the link target.
@@ -32,8 +40,13 @@ function readUntrackedBody(fullPath: string): { isSymlink: boolean; text: string
     return null;
   }
   try {
-    if (!fstatSync(fd).isFile()) return null;
-    return { isSymlink: false, text: readFileSync(fd).toString("utf8") };
+    const stat = fstatSync(fd);
+    if (!stat.isFile()) return null;
+    const bytes = readFileSync(fd);
+    if (bytes.subarray(0, BINARY_SNIFF_BYTES).includes(0)) {
+      return { kind: "binary", executable: (stat.mode & 0o111) !== 0 };
+    }
+    return { kind: "text", text: bytes.toString("utf8") };
   } finally {
     closeSync(fd);
   }
@@ -84,13 +97,22 @@ async function workspaceDiffText(repoDir: string) {
   for (const relPath of untracked.split("\0").filter((path) => path !== "")) {
     const body = readUntrackedBody(join(repoDir, relPath));
     if (body === null) continue;
+    const newName = quoteGitPath(`b/${relPath}`);
+    const diffLines = [`diff --git ${quoteGitPath(`a/${relPath}`)} ${newName}`];
+    if (body.kind === "binary") {
+      // Same record git diff writes for a binary: no bytes ever reach a prompt.
+      diffLines.push(
+        `new file mode ${body.executable ? "100755" : "100644"}`,
+        `Binary files /dev/null and ${newName} differ`,
+      );
+      pieces.push(diffLines.join("\n"));
+      continue;
+    }
     const text = body.text;
     const lines = text.endsWith("\n") ? text.slice(0, -1).split("\n") : text.split("\n");
     const lineCount = text.length === 0 ? 0 : lines.length;
     const addedLines = text.length > 0 ? lines.map((line) => `+${line}`) : [];
-    const newName = quoteGitPath(`b/${relPath}`);
-    const diffLines = [`diff --git ${quoteGitPath(`a/${relPath}`)} ${newName}`];
-    if (body.isSymlink) diffLines.push("new file mode 120000");
+    if (body.kind === "symlink") diffLines.push("new file mode 120000");
     diffLines.push(
       "--- /dev/null",
       `+++ ${newName}${newName.includes(" ") && !newName.startsWith('"') ? "\t" : ""}`,

@@ -15,15 +15,12 @@ export function changesFromDiffs(diffs: Array<DiffRecord>, preview: PreviewOutpu
   const files = diffs.map((diff) => {
     const path = effectivePath(diff);
     const entry = previewByPath.get(path);
-    // Untracked binaries are inlined as synthetic +lines by the workspace
-    // diff; a NUL byte means this is not reviewable text.
-    const binary = diff.isBinary || diff.diff.includes("\u0000");
     return {
       path,
-      status: binary ? "binary" : diffStatus(diff),
+      status: diffStatus(diff),
       insertions: diff.insertions,
       deletions: diff.deletions,
-      diff: binary ? "" : diff.diff,
+      diff: diff.isBinary ? "" : diff.diff,
       reviewed: entry?.willReview ?? false,
       excludeReason: entry?.excludeReason ?? "",
     };
