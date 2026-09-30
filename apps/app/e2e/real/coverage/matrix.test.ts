@@ -29,16 +29,16 @@ import type { ProcessRole } from "./matrix"
 const roots: string[] = []
 const revision = "a".repeat(40)
 const deployed = "b".repeat(40)
-const receipt = (mode: "local-own" | "local-plue" | "native-own" | "native-plue" | "web-plue", startedRoles: readonly ProcessRole[], receiptRevision = revision) => ({
+const receipt = (mode: (typeof DEPLOYMENT_MODES)[number], startedRoles: readonly ProcessRole[], receiptRevision = revision) => ({
   mode,
   revision: receiptRevision,
   origin: "https://example.test", endpoint: "https://example.test",
   ready: true,
   startedRoles,
   freshLaunch: true,
-  restarted: mode.endsWith("-own"),
-  dataPreserved: mode.endsWith("-own"),
-  ...(mode.endsWith("-own") ? {
+  restarted: MODE_DESCRIPTORS[mode].requiresPersistentRestart,
+  dataPreserved: MODE_DESCRIPTORS[mode].requiresPersistentRestart,
+  ...(MODE_DESCRIPTORS[mode].requiresPersistentRestart ? {
     persistenceProof: {
       database: { before: "database-marker", after: "database-marker" },
       dataVolume: { before: "volume-marker", after: "volume-marker" }
@@ -254,20 +254,22 @@ describe("deployment mode matrix", () => {
     expect(await probeMode(config, revision, { PROFILE: "configured" }, fetcher)).toMatchObject({ status: "passed", bootstrapSHA256: canonicalBootstrapSHA256(cloudBootstrap(deployed)) })
   })
 
-  test("readiness rejects a bootstrap from the wrong provider or revision", async () => {
+  test.each(["web-plue", "local-plue", "native-plue"] as const)("%s rejects a local Bun API surface", async (mode) => {
     const root = mkdtempSync(join(tmpdir(), "smithers-mode-matrix-"))
     roots.push(root)
     const path = join(root, "receipt.json")
-    writeFileSync(path, JSON.stringify(receipt("local-plue", ["local-ui"])))
+    writeFileSync(path, JSON.stringify(receipt(mode, MODE_DESCRIPTORS[mode].requiredProcessRoles, mode === "web-plue" ? deployed : revision)))
     const config = parseMatrixConfig({ revision, modes: [{
-      mode: "local-plue", origin: "https://example.test", endpoint: "https://example.test", auth: { kind: "browser-profile", environment: "PROFILE" }, executionReceipt: path
+      mode, origin: "https://example.test", endpoint: "https://example.test",
+      auth: { kind: mode === "native-plue" ? "application-token" : "browser-profile", environment: "PROFILE" }, executionReceipt: path,
+      ...(mode === "native-plue" ? { surfaceDriver: { kind: "electrobun-cdp", environment: "NATIVE_DRIVER" } } : {})
     }] }).modes[0]!
-    const result = await probeMode(config, revision, { PROFILE: "configured" }, async () => Response.json({
+    const result = await probeMode(config, revision, { PROFILE: "configured", NATIVE_DRIVER: "configured" }, async () => Response.json({
       apiVersion: 1, host: "local", version: "test", buildSha: "b".repeat(40),
       capabilities: [], authFlow: "redirect", sandbox: null
     }))
     expect(result.status).toBe("failed")
-    expect(result.reasons).toContain("bootstrap host local does not match local-plue provider plue")
+    expect(result.reasons).toEqual([`bootstrap host local does not match ${mode} provider plue`])
   })
 
   test("an owner session cannot enter readiness without an owner-credentials bootstrap contract", async () => {
@@ -483,6 +485,40 @@ describe("deployment mode matrix", () => {
     const stale = await probeMode(config, revision, { OWNER: "configured" }, recordingOrigin(bootstrap(deployed), 503).fetcher)
     expect(stale.reasons).toContain("health returned HTTP 503")
     expect(stale.reasons).toContain(`bootstrap revision ${deployed} does not match ${revision}`)
+  })
+
+  test.each(["web-selfhost", "local-own", "native-own"] as const)("%s accepts the deployment-neutral Go bootstrap", async (mode) => {
+    const descriptor = MODE_DESCRIPTORS[mode]
+    const config = parseMatrixConfig({ revision, modes: [{
+      mode, origin: "https://example.test", endpoint: "https://example.test",
+      auth: { kind: "owner-session", environment: "OWNER" },
+      executionReceipt: writeReceipt(receipt(mode, descriptor.requiredProcessRoles)),
+      ...(mode === "native-own" ? { surfaceDriver: { kind: "electrobun-cdp", environment: "NATIVE_DRIVER" } } : {})
+    }] }).modes[0]!
+    // The shared Go backend's self-hosted response: cloud is the API surface, not its deployment provider.
+    const bootstrap = {
+      apiVersion: 1, host: "cloud", version: "test", buildSha: revision,
+      capabilities: ["identity", "cloud", "cloud.terminal"], authFlow: "credentials",
+      sandbox: { platform: "linux", mode: "trusted-only" }
+    }
+    const origin = recordingOrigin(bootstrap, 200)
+    const result = await probeMode(config, revision, { OWNER: "configured", NATIVE_DRIVER: "configured" }, origin.fetcher)
+    expect(result).toMatchObject({ status: "passed", tier: "local-infrastructure", buildSha: revision, reasons: [] })
+    expect(result.capabilities).toEqual(bootstrap.capabilities)
+    expect(result.bootstrapSHA256).toBe(canonicalBootstrapSHA256(bootstrap))
+    expect(origin.paths).toEqual(["/api/bootstrap", "/api/health"])
+
+    const stale = await probeMode(config, revision, { OWNER: "configured", NATIVE_DRIVER: "configured" },
+      recordingOrigin({ ...bootstrap, buildSha: deployed }, 503).fetcher)
+    expect(stale.status).toBe("failed")
+    expect(stale.reasons).toContain(`bootstrap revision ${deployed} does not match ${revision}`)
+    expect(stale.reasons).toContain("health returned HTTP 503")
+
+    writeFileSync(config.executionReceipt, JSON.stringify({ ...receipt(mode, []), endpoint: "https://another.test" }))
+    const wrongLaunch = await probeMode(config, revision, { OWNER: "configured", NATIVE_DRIVER: "configured" }, origin.fetcher)
+    expect(wrongLaunch.status).toBe("failed")
+    expect(wrongLaunch.reasons).toContain("launcher endpoint differs from selected backend")
+    for (const role of descriptor.requiredProcessRoles) expect(wrongLaunch.reasons).toContain(`launcher did not prove ${role} started`)
   })
 
   test("a Plue attempt against a different deployment fails its obligation", () => {

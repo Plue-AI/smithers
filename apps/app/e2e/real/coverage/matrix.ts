@@ -286,9 +286,9 @@ export const validateExecutionReceipt = (config: ModeConfig, revision: string, r
 
 /**
  * One readiness contract per provider. Bootstrap is the public contract every host serves. A selfhost
- * backend was built from this checkout, so it must also answer the Bun host's /api/health and report the
- * checkout revision. A Plue mode targets the deployed Worker, which serves no /api/health and ships on its
- * own deploy train: its build is recorded as evidence, and the web receipt must name that same build.
+ * backend was built from this checkout, so it must also answer /api/health and report the
+ * checkout revision. A Plue mode targets an independently deployed origin: its build is recorded as
+ * evidence, and the web receipt must name that same build. Its readiness requires only bootstrap.
  */
 export const probeMode = async (
   config: ModeConfig,
@@ -332,8 +332,9 @@ export const probeMode = async (
       else {
         bootstrapSHA256 = canonicalBootstrapSHA256(body)
         capabilities = parsed.data.capabilities
-        const bootstrapHost: RealHost = parsed.data.host === "cloud" ? "production" : "local"
-        if (bootstrapHost !== descriptor.legacyHost) {
+        // `cloud` names the shared web API, including self-hosted Go deployments.
+        // Provider identity comes from config and its bound launch receipt; Plue still cannot be a Bun host.
+        if (descriptor.provider === "plue" && parsed.data.host !== "cloud") {
           reasons.push(`bootstrap host ${parsed.data.host} does not match ${config.mode} provider ${descriptor.provider}`)
         }
         if (!exactRevision(parsed.data.buildSha)) reasons.push(`bootstrap buildSha ${parsed.data.buildSha} is not an exact revision`)

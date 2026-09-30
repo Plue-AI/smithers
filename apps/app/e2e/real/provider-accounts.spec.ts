@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto"
 import type { Request } from "@playwright/test"
+import { AppBootstrapSchema } from "@smthrs/rpc/AppBootstrap"
 import { authenticatedTest } from "./auth-permissions/profile"
 import { scenario } from "./coverage/types"
 import { closeComposer, command, expect, realApi, reloadApp } from "./support/test"
@@ -33,7 +34,8 @@ authenticatedTest("self-host coding accounts connect through a write-only form a
   }
   const bootstrap = await realApi(page, request, "GET", "/api/bootstrap")
   expect(bootstrap.status()).toBe(200)
-  expect((await bootstrap.json()).host).toBe("local")
+  const contract = AppBootstrapSchema.parse(await bootstrap.json())
+  expect(contract.capabilities).toEqual(expect.arrayContaining(["identity", "cloud"]))
   await read()
   let ownedLabel: string | undefined, ownedId: string | undefined, failure: unknown
   let posts = 0
