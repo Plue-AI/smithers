@@ -697,8 +697,28 @@ It does not change key material or execution identity.
 ### `flow.start` and `flow.ensure`
 
 ```ts
-const freshId = yield * flow.start(payload)
-const keyedId = yield * flow.ensure(payload, { key: "worker-1" })
+import { Action, Flow } from "@smthrs/flow"
+import * as Effect from "effect/Effect"
+import * as Schema from "effect/Schema"
+
+const Step = Action.make("worker/step", {
+  payload: { id: Schema.String },
+  success: Schema.String
+})
+
+const flow = Flow.make("worker/run", {
+  payload: { id: Schema.String },
+  success: Schema.String,
+  body: (payload) => Step.call(payload)
+})
+
+const payload = { id: "job-1" }
+
+export const program = Effect.gen(function*() {
+  const freshId = yield* flow.start(payload)
+  const keyedId = yield* flow.ensure(payload, { key: "worker-1" })
+  return { freshId, keyedId }
+})
 ```
 
 `start` admits a fresh execution, bypassing declared and ambient idempotency
