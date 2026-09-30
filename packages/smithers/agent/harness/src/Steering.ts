@@ -149,6 +149,15 @@ export interface Drain {
 export interface BoundaryInput {
   readonly boundary: string
   readonly wouldIdle: boolean
+  /**
+   * Set only at an honored park's boundary: why the run parked and what it
+   * asked. A source that can reach a person may show them the question and
+   * answer the drain with their reply; one that cannot ignores it.
+   */
+  readonly park?: {
+    readonly reason: "waiting-input" | "waiting-event" | "waiting-quota"
+    readonly message: string
+  } | undefined
 }
 
 const SeatChangeRecord = Schema.Struct({

@@ -2223,6 +2223,46 @@ describe("CellTurn recorded observations", () => {
     expect(messagesOf(replayed.model, 1)).toContain("use the release branch")
   })
 
+  it("hands an honored park's question to the drain, so a source with a person can answer it at once", async () => {
+    const seen: Array<Steering.BoundaryInput> = []
+    const answer = ModelRequest.Message.user("use the release branch")
+    const model = ScriptedModel.make([
+      emits(`ctx.park("waiting-input", "which branch?")`),
+      emits(`ctx.done("answered")`)
+    ])
+    const engine = ScriptedEngine.make(model.model, [])
+    const { events, failure } = await collect(
+      { state: state({ maxFrames: 3, approvalChannel: true }), flows: [lister] },
+      {
+        engine: engine.layer,
+        steering: Steering.layer({
+          read: () => Effect.succeed(Steering.empty()),
+          drain: (input) =>
+            Effect.sync(() => {
+              seen.push(input)
+              return {
+                inserts: input.park === undefined ? [] : [answer],
+                seatChanges: [],
+                remaining: Steering.empty(),
+                queued: false,
+                duplicate: false
+              }
+            })
+        })
+      }
+    )
+
+    expect(failure).toBeUndefined()
+    expect(of(events, "suspended")).toHaveLength(0)
+    // Only the park's boundary carries it; every other drain asks nothing.
+    expect(seen.map((input) => input.park).filter((park) => park !== undefined)).toEqual([
+      { reason: "waiting-input", message: "which branch?" }
+    ])
+    expect(seen[0]?.park).toBeDefined()
+    expect(resolvedText(events)).toBe("answered")
+    expect(messagesOf(model, 1)).toContain("use the release branch")
+  })
+
   it("retains steering at a park when it was the run's last frame", async () => {
     const queue = steeringQueue()
     queue.steer("finish up")

@@ -3716,7 +3716,10 @@ const frame = (
             // follow-up was admitted to wait for. The continue path passes
             // false because a continuing run is not idle; this is the boundary
             // that owes those messages their delivery.
-            wouldIdle: true
+            wouldIdle: true,
+            // What the park asks, so a source with a person on the other end
+            // can put the question to them and answer this drain.
+            park: { reason: transition.reason, message: transition.message }
           })
           const record = Steering.drainRecord(drained)
           if (carries(record) || !drained.duplicate) return record
