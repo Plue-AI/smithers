@@ -104,7 +104,8 @@ import {
   layerSeatResolver,
   sealedContainer,
   testFlows,
-  testRunner
+  testRunner,
+  toolServices
 } from "./NativeEquipment.ts"
 import * as NodeWorkspaceObservation from "./NodeWorkspaceObservation.ts"
 import * as RoleProfile from "./RoleProfile.ts"
@@ -1097,7 +1098,8 @@ export const make = (
         // Read immediately before loading the configured module catalog, inside
         // the native registration scope that owns this host's engine lifecycle.
         const revisionBefore = yield* SourceRevision.read(workspaceRoot)
-        const capturedFilesystem = yield* Effect.context<FileSystem.FileSystem | Path.Path>()
+        // Picked, never the whole registration context: see `toolServices`.
+        const { filesystem: capturedFilesystem, judge, shell: shellServices } = yield* toolServices
         const filesystemServices = native.filesystem === undefined ? capturedFilesystem : Context.add(
           capturedFilesystem,
           FileSystem.FileSystem,
@@ -1107,9 +1109,6 @@ export const make = (
             toolSpawner!
           )
         )
-        const shellServices = yield* Effect.context<
-          KernelChildProcessSpawner.ChildProcessSpawner | Path.Path
-        >()
         const memoryServices = yield* Effect.context<MemoryStore.MemoryStore | Recall.Recall>().pipe(
           Effect.map(Context.pick(MemoryStore.MemoryStore, Recall.Recall))
         )
@@ -1118,13 +1117,12 @@ export const make = (
         // and the facts store.
         const contextServices = Context.merge(
           Context.merge(Context.merge(filesystemServices, shellServices), memoryServices),
-          yield* Effect.context<Evaluator.Evaluator>()
+          judge
         )
         // `test` is offered exactly when this host can say how the repository
         // runs its tests. The declaration carries the container too, so the
         // runner reaches the same transport `bash` does, and the judge that
         // attributes a non-zero exit travels with them.
-        const judge = yield* Effect.context<Evaluator.Evaluator>()
         const runner = testRunner(environment, root, workspaceRoot)
         const container = Container.makeCommand()
         // A sealed host reaches one container and nothing of itself: `bash`

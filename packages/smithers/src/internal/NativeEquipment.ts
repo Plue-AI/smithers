@@ -9,7 +9,7 @@ import * as SeatRouter from "@smthrs/agent/SeatRouter"
 import * as StandardFlows from "@smthrs/agent/StandardFlows"
 import type * as FlowBinding from "@smthrs/harness/FlowBinding"
 import type * as Sandbox from "@smthrs/harness/Sandbox"
-import type * as KernelChildProcessSpawner from "@smthrs/kernel/ChildProcessSpawner"
+import * as KernelChildProcessSpawner from "@smthrs/kernel/ChildProcessSpawner"
 import * as Auth from "@smthrs/model/Auth"
 import * as Endpoint from "@smthrs/model/Endpoint"
 import * as Evaluator from "@smthrs/model/Evaluator"
@@ -22,8 +22,8 @@ import * as EgressHttpClient from "@smthrs/platform-node/EgressHttpClient"
 import type * as Checkpoints from "@smthrs/std/Checkpoints"
 import * as Container from "@smthrs/std/Container"
 import * as TestRunner from "@smthrs/std/TestRunner"
-import { Clock, Context, Effect, Layer, Redacted } from "effect"
-import type { Path, Result } from "effect"
+import { Clock, Context, Effect, FileSystem, Layer, Path, Redacted } from "effect"
+import type { Result } from "effect"
 import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient"
 import type * as HttpClient from "effect/unstable/http/HttpClient"
 import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
@@ -863,6 +863,29 @@ export const checkpointStore = (
   const cwd = Environment_.read(environment, "SMITHERS_TEST_CWD")?.trim()
   return { root, ...(cwd === undefined || cwd === "" ? {} : { cwd }) }
 }
+
+/**
+ * The host services the standard tool bindings close over, and no others.
+ *
+ * `FlowBinding.provide` lays a binding's context over the calling run's, so a
+ * whole ambient capture taken at registration would put the registration's
+ * journal, run store, notification queue, raw flow runtime, scope and loggers
+ * over the ones each tool call runs under. Each context is picked to exactly
+ * the services its bindings declare (#2930).
+ *
+ * @category constructors
+ * @since 1.0.0
+ */
+export const toolServices = Effect.gen(function*() {
+  const filesystem = yield* Effect.context<FileSystem.FileSystem | Path.Path>()
+  const shell = yield* Effect.context<KernelChildProcessSpawner.ChildProcessSpawner | Path.Path>()
+  const judge = yield* Effect.context<Evaluator.Evaluator>()
+  return {
+    filesystem: Context.pick(FileSystem.FileSystem, Path.Path)(filesystem),
+    shell: Context.pick(KernelChildProcessSpawner.ChildProcessSpawner, Path.Path)(shell),
+    judge: Context.pick(Evaluator.Evaluator)(judge)
+  }
+})
 
 /**
  * The `test` flow's binding source, or none when this host declares no runner.
