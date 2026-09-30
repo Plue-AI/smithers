@@ -155,13 +155,20 @@ const target = (value: unknown): string => {
   return String(Number(raw.replace("#", "")))
 }
 const named = (ref: string): string => UUID.test(ref) ? ref : `#${ref}`
-/** One item by id or issue number, however many the history holds; undefined while it holds none. */
+/**
+ * One item by id or issue number, however many the history holds; undefined
+ * while it holds none. The item route's 404 is checked against the snapshot,
+ * so a missing repository or access still fails instead of reading as a
+ * wait, and a server without the route still answers from the snapshot.
+ */
 const one = async (c: Client, o: Values, ref: string): Promise<Values | undefined> => {
   try {
     return object(await c.request("GET", stackPath(c, o, `/items/${esc(ref)}`)))
   } catch (error) {
-    if (error instanceof APIError && error.status === 404) return undefined
-    throw error
+    if (!(error instanceof APIError) || error.status !== 404) throw error
+    return list((await read(c, o)).items).map(object).find((item) =>
+      UUID.test(ref) ? str(item.id).toLowerCase() === ref : String(object(item.issue).number) === ref
+    )
   }
 }
 

@@ -210,8 +210,12 @@ const json = (res: ServerResponse, value: unknown, status = 200) => {
   res.end(JSON.stringify(value))
 }
 
-/** Answers the item route as the backend does: by id or issue number, else 404. */
+/** Answers the item route as the backend does (by id or issue number, else 404), and the snapshot from the same rows. */
 const items = (req: IncomingMessage, res: ServerResponse, rows: Array<ReturnType<typeof item>>): boolean => {
+  if (req.method === "GET" && req.url === "/api/repos/owner/repo/mythical") {
+    json(res, stack(rows))
+    return true
+  }
   const match = /^\/api\/repos\/owner\/repo\/mythical\/items\/([^/]+)$/.exec(req.url ?? "")
   if (req.method !== "GET" || match === null) return false
   const found = rows.find((row) => row.id === match[1] || String(row.issue?.number) === match[1])
@@ -242,7 +246,10 @@ describe("the factory from the terminal, over a local HTTP server", () => {
         events = res
         return
       }
-      if (items(req, res, moves[Math.min(read, moves.length - 1)]!)) {
+      const rows = moves[Math.min(read, moves.length - 1)]!
+      // The snapshot a 404 is checked against is the one the item read just saw.
+      if (req.url === "/api/repos/owner/repo/mythical") return json(res, stack(moves[Math.max(read - 1, 0)]!))
+      if (items(req, res, rows)) {
         read++
         // Each read is followed by the stack's next move and its hint.
         // Two hints in one write: the second waits as pending for the next wait.
@@ -285,6 +292,36 @@ describe("the factory from the terminal, over a local HTTP server", () => {
       const watched = await f.run(["history", "watch", "#12"])
       expect(watched.code).toBe(1)
       expect(watched.error).toContain("#12 Fix login · blocked · checks failed: ci/test · out of attempts")
+    } finally {
+      await f.close()
+    }
+  })
+
+  it("fails instead of waiting when the repository is not there", async () => {
+    const f = await serve((_req, res) => json(res, { message: "repository not found" }, 404))
+    try {
+      const started = Date.now()
+      for (const args of [["history", "watch", "12"], ["history", "retry", "12"]]) {
+        const result = await f.run(args)
+        expect(result.code, args.join(" ")).not.toBe(0)
+        expect(result.output + result.error).toContain("repository not found")
+        expect(result.output + result.error).not.toContain("not in the history")
+      }
+      expect(Date.now() - started).toBeLessThan(5_000)
+    } finally {
+      await f.close()
+    }
+  })
+
+  it("reads the item from the snapshot on a server without the item route", async () => {
+    const f = await serve((req, res) => {
+      if (req.url === "/api/repos/owner/repo/mythical") return json(res, stack([item("landed")]))
+      json(res, { message: "not found" }, 404)
+    })
+    try {
+      const watched = await f.run(["history", "watch", "12"])
+      expect(watched.code, watched.error).toBe(0)
+      expect(watched.error).toContain("#12 Fix login · landed")
     } finally {
       await f.close()
     }
@@ -363,7 +400,7 @@ describe("the factory from the terminal, over a local HTTP server", () => {
     })
     const f = await serve((req, res) => {
       if (req.method === "POST") return json(res, item("queued"), 202)
-      if (!items(req, res, [blocked, model])) json(res, stack([blocked, model]))
+      items(req, res, [blocked, model])
     })
     try {
       const shown = await f.run(["history", "show"])
