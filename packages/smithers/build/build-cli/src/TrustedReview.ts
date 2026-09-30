@@ -453,7 +453,7 @@ export const prepareSource = async (source: ReviewSource, options: Selection) =>
   if (options.required === true) {
     for (const policy of policies) policy.payload = { ...policy.payload, required: true }
   }
-  return { policyRevision, revision, policyChanges, policies, snapshot }
+  return { policyRevision, revision, changed: [...changed].sort(), policyChanges, policies, snapshot }
 }
 
 /**
@@ -462,6 +462,21 @@ export const prepareSource = async (source: ReviewSource, options: Selection) =>
  * @since 1.0.0
  */
 export type Prepared = Awaited<ReturnType<typeof prepareSource>>
+
+/**
+ * Only the prepared policies that have something to review: a proposed-policy
+ * review, or a policy whose include selects a changed file (any included file
+ * for `scope: "all"`). A required review of the others would fail as empty.
+ * @category execution
+ * @since 1.0.0
+ */
+export const governing = (prepared: Prepared): Prepared => ({
+  ...prepared,
+  policies: prepared.policies.filter(({ payload, snapshot }) =>
+    snapshot !== undefined ||
+    prepared.snapshot.some((file) => (payload.scope === "all" || file.changed) && matches(file.path, payload.include))
+  )
+})
 
 type Restrictable = {
   readonly findings: ReadonlyArray<LlmLint.Finding>

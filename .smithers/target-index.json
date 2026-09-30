@@ -30113,6 +30113,10 @@
       },
       {
         "kind": "file",
+        "path": "flows/test/coding-security-review-check.test.ts"
+      },
+      {
+        "kind": "file",
         "path": "flows/test/coding-wiki-memory.test.ts"
       },
       {

@@ -262,6 +262,7 @@ const codingRuntime = Smithers.NodeTest({
     Smithers.file("//flows/test/coding-pr-triage-host.test.ts"),
     Smithers.file("//flows/test/coding-jev-check.test.ts"),
     Smithers.file("//flows/test/coding-review-check.test.ts"),
+    Smithers.file("//flows/test/coding-security-review-check.test.ts"),
     Smithers.file("//flows/test/coding-wiki-memory.test.ts"),
     Smithers.file("//flows/test/coding-catalog-refresh.test.ts"),
     Smithers.file("//flows/test/coding-vibe-evidence.test.ts"),

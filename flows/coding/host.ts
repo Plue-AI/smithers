@@ -6,6 +6,7 @@ import { HumanTask } from "@smthrs/flow"
 import * as Executable from "@smthrs/registry/Executable"
 import * as Registry from "@smthrs/registry/Registry"
 import { Context, Effect, FileSystem, Layer } from "effect"
+import { join } from "node:path"
 import type * as Application from "../../packages/smithers/src/Application.ts"
 import * as NativeControl from "../../packages/smithers/src/internal/NativeControl.ts"
 import * as NativeEquipment from "../../packages/smithers/src/internal/NativeEquipment.ts"
@@ -58,6 +59,7 @@ import { prototypeRegistration } from "./prototype.ts"
 import { registration } from "./registration.ts"
 import { requestRegistration } from "./request.ts"
 import { reviewCheckDelegate, reviewCheckLayers, ReviewLens, reviewRole } from "./review-check.ts"
+import { securityReviewCheckDelegate, securityReviewCheckLayers } from "./security-review-check.ts"
 import * as Snapshots from "./snapshots.ts"
 import { sourceAdmission } from "./source-admission.ts"
 import { stackBaseLayer } from "./stack.ts"
@@ -558,7 +560,17 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
           // Review on a second provider: a check body's lenses read over the
           // same diff. Each lens answers about supplied evidence only.
           reviewCheckLayers,
-          evidenceOnly(ReviewLens.layer)
+          evidenceOnly(ReviewLens.layer),
+          // The required security review: trusted policy over the change's
+          // immutable trees, on the host's subscription seats. Findings stay in
+          // a private store beside the host state; receipts carry summaries.
+          securityReviewCheckLayers({
+            repositoryPath: options.repositoryPath,
+            fs,
+            exporterPath: options.exporterPath,
+            environment: options.checkEnvironment,
+            store: join(stateRoot, "security-review")
+          })
         )
           .pipe(
             // A local lander reads through the native helper, so it is provided first.
@@ -577,6 +589,7 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
             checkDelegate,
             jevCheckDelegate,
             reviewCheckDelegate,
+            securityReviewCheckDelegate,
             RunSetup,
             RunJob,
             RunTrigger,

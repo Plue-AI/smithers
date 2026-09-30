@@ -112,10 +112,30 @@ export const withImmutableSource = <A, E, R>(
   revision: Revision,
   use: (tree: typeof ExportedTree.Type, root: string) => Effect.Effect<A, E, R>
 ) =>
+  !/^[0-9a-f]{40}$/.test(revision.commitId) || !/^[0-9a-f]{40}$/.test(revision.treeId)
+    ? Effect.fail(invalid("Checks require full immutable native commit and tree IDs"))
+    : exportTree(options, revision, use)
+
+/**
+ * {@link withImmutableSource} for a commit known only by its full ID, such as
+ * the parent a candidate was rebased onto: the export must be that commit, and
+ * its tree and change IDs are the exporter's.
+ */
+export const withImmutableCommit = <A, E, R>(
+  options: ImmutableSourceOptions,
+  commitId: string,
+  use: (tree: typeof ExportedTree.Type, root: string) => Effect.Effect<A, E, R>
+) =>
+  !/^[0-9a-f]{40}$/.test(commitId)
+    ? Effect.fail(invalid("Checks require a full immutable native commit ID"))
+    : exportTree(options, { commitId }, use)
+
+const exportTree = <A, E, R>(
+  options: ImmutableSourceOptions,
+  revision: Pick<Revision, "commitId"> & Partial<Pick<Revision, "treeId" | "changeId">>,
+  use: (tree: typeof ExportedTree.Type, root: string) => Effect.Effect<A, E, R>
+) =>
   Effect.gen(function*() {
-    if (!/^[0-9a-f]{40}$/.test(revision.commitId) || !/^[0-9a-f]{40}$/.test(revision.treeId)) {
-      return yield* invalid("Checks require full immutable native commit and tree IDs")
-    }
     const fs = options.fs, path = yield* Path.Path
     // Keep dependency hardlinks on the workspace filesystem. Cloud /tmp is a
     // small tmpfs and copying the monorepo dependencies there exhausts it.
@@ -149,7 +169,10 @@ export const withImmutableSource = <A, E, R>(
       Effect.flatMap(Schema.decodeUnknownEffect(ExportedTree)),
       Effect.mapError(() => invalid("Native tree exporter returned no valid identity"))
     )
-    if (tree.commitId !== revision.commitId || tree.treeId !== revision.treeId || tree.changeId !== revision.changeId) {
+    if (
+      tree.commitId !== revision.commitId || (revision.treeId !== undefined && tree.treeId !== revision.treeId) ||
+      (revision.changeId !== undefined && tree.changeId !== revision.changeId)
+    ) {
       return yield* invalid("Native exported tree does not match the planned revision")
     }
     const root = yield* fs.realPath(tree.path)

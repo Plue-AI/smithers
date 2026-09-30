@@ -11,6 +11,7 @@ import { afterAll, describe, expect, it } from "vitest"
 import * as Label from "../src/Label.ts"
 import {
   defaultProposedBudget,
+  governing,
   prepare,
   prepareSource,
   reviewPrepared,
@@ -576,6 +577,8 @@ describe("TrustedReview on another host's immutable source", () => {
       ["//:security", "trusted rubric", "base"]
     ])
     expect(prepared.policyChanges).toEqual([])
+    expect(prepared.changed).toEqual(["docs/readme.md", "src/removed.ts", "src/service.ts"])
+    expect(governing(prepared).policies.map(({ label }) => label)).toEqual(["//:security"])
     expect(prepared.snapshot).toEqual([
       { path: "src/service.ts", contents: "export const value = 'candidate'\n", changed: true },
       { path: "src/removed.ts", contents: "export const guard = true\n", changed: true, deleted: true },
@@ -588,6 +591,24 @@ describe("TrustedReview on another host's immutable source", () => {
       "head:src/caller.ts",
       "head:src/service.ts"
     ])
+  })
+
+  it("keeps only the policies that govern a changed file", async () => {
+    const { source } = memorySource({
+      base: trustedFiles,
+      head: { ...trustedFiles, "docs/readme.md": "only documentation changed\n" }
+    })
+    const prepared = await prepareSource(source, { policyRevision: "base", revision: "head", patterns: all })
+    expect(prepared.changed).toEqual(["docs/readme.md"])
+    expect(prepared.policies.map(({ label }) => label)).toEqual(["//:security"])
+    expect(governing(prepared).policies).toEqual([])
+    const audit = await prepareSource(memorySource({ base: trustedFiles, head: trustedFiles }).source, {
+      policyRevision: "base",
+      revision: "head",
+      patterns: all
+    })
+    expect(audit.changed).toEqual([])
+    expect(governing(audit).policies).toEqual([])
   })
 
   it("marks every selected review required and refuses a selected non-regular entry", async () => {
