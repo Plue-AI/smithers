@@ -897,6 +897,42 @@ describe("brokered secret origins", () => {
   })
 })
 
+describe("secret environment names", () => {
+  const ownEnv = async (value: Exec.Payload) => {
+    const program = "process.stdout.write(JSON.stringify(Object.fromEntries(" +
+      "['__proto__', 'ORDINARY', 'EXEC_NAME_TOKEN'].filter((name) => Object.hasOwn(process.env, name))" +
+      ".map((name) => [name, process.env[name]]))))"
+    const exit = await run({ workspaceRoot: root }, { ...value, argv: [process.execPath, "-e", program] })
+    if (!Exit.isSuccess(exit)) throw new Error(`expected a success: ${JSON.stringify(exit.cause)}`)
+    return JSON.parse(exit.value.stdout) as Record<string, string>
+  }
+  const secret = (name: string) =>
+    Secret.HttpSecret(Secret.Secret(name, { fallback: "never-in-child" }), [
+      "http://127.0.0.1:9"
+    ])
+  const env = JSON.parse("{\"ORDINARY\":\"ordinary-env\",\"__proto__\":\"proto-env\"}") as Record<string, string>
+  const placeholder = /^smithers-build-secret-[0-9a-f]{64}$/
+
+  it("keeps an own __proto__ environment entry with or without a declared secret", async () => {
+    const plain = await ownEnv({ ...payload(["node"]), env })
+    expect(Object.keys(plain).sort()).toEqual(["ORDINARY", "__proto__"])
+    expect(plain["__proto__"]).toBe("proto-env")
+    const brokered = await ownEnv({ ...payload(["node"]), env, secrets: [secret("EXEC_NAME_TOKEN")] })
+    expect(Object.keys(brokered).sort()).toEqual(["EXEC_NAME_TOKEN", "ORDINARY", "__proto__"])
+    expect(brokered["ORDINARY"]).toBe("ordinary-env")
+    expect(brokered["__proto__"]).toBe("proto-env")
+    expect(brokered["EXEC_NAME_TOKEN"]).toMatch(placeholder)
+  })
+
+  it("mints a placeholder for a secret whose environment name is __proto__", async () => {
+    const minted = await ownEnv({ ...payload(["node"]), secrets: [secret("__proto__")] })
+    expect(Object.keys(minted)).toEqual(["__proto__"])
+    expect(minted["__proto__"]).toMatch(placeholder)
+    expect(Object.getPrototypeOf({})).toBe(Object.prototype)
+    expect(({} as Record<string, unknown>)["ORDINARY"]).toBeUndefined()
+  })
+})
+
 describe("windows executable resolution", () => {
   let bin: string
   const comspec = "C:\\WINDOWS\\system32\\cmd.exe"
