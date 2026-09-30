@@ -1237,8 +1237,8 @@ func (s *Server) commitDoc(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	filePath := strings.TrimPrefix(chi.URLParam(r, "*"), "/")
-	if err := validateFileSubpath(filePath); err != nil {
+	filePath, err := wildcardFilePath(r)
+	if err != nil {
 		return err
 	}
 
@@ -1304,8 +1304,8 @@ func (s *Server) getDocContent(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	filePath := strings.TrimPrefix(chi.URLParam(r, "*"), "/")
-	if err := validateFileSubpath(filePath); err != nil {
+	filePath, err := wildcardFilePath(r)
+	if err != nil {
 		return err
 	}
 	docsRepoPath := s.config.DocsRepoPath(owner, repo)
@@ -1377,8 +1377,8 @@ func (s *Server) listDocHistory(w http.ResponseWriter, r *http.Request) error {
 		limit = uint32(parsed)
 	}
 
-	filePath := strings.TrimPrefix(chi.URLParam(r, "*"), "/")
-	if err := validateFileSubpath(filePath); err != nil {
+	filePath, err := wildcardFilePath(r)
+	if err != nil {
 		return err
 	}
 
@@ -1445,8 +1445,8 @@ func (s *Server) deleteDoc(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	filePath := strings.TrimPrefix(chi.URLParam(r, "*"), "/")
-	if err := validateFileSubpath(filePath); err != nil {
+	filePath, err := wildcardFilePath(r)
+	if err != nil {
 		return err
 	}
 
@@ -1933,6 +1933,25 @@ func (s *Server) getChangeConflicts(w http.ResponseWriter, r *http.Request) erro
 	return writeJSON(w, http.StatusOK, result)
 }
 
+// wildcardFilePath returns the route's "*" file path decoded exactly once.
+// chi matches the escaped RawPath (and leaves the parameter escaped) when the
+// request carries escapes net/url cannot round-trip, such as %2C or %25, and
+// the already-decoded Path otherwise. The result is validated after decoding.
+func wildcardFilePath(r *http.Request) (string, error) {
+	filePath := chi.URLParam(r, "*")
+	if r.URL.RawPath != "" {
+		var err error
+		if filePath, err = url.PathUnescape(filePath); err != nil {
+			return "", badRequest("file path must be url-encoded")
+		}
+	}
+	filePath = strings.TrimPrefix(filePath, "/")
+	if err := validateFileSubpath(filePath); err != nil {
+		return "", err
+	}
+	return filePath, nil
+}
+
 func (s *Server) getFileAtChange(w http.ResponseWriter, r *http.Request) error {
 	done := s.metrics.StartOperation("GetFileAtChange")
 	defer done()
@@ -1942,15 +1961,8 @@ func (s *Server) getFileAtChange(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	filePath := chi.URLParam(r, "*")
-	// chi leaves route parameters escaped when matching RawPath.
-	if r.URL.RawPath != "" {
-		if filePath, err = url.PathUnescape(filePath); err != nil {
-			return badRequest("file path must be url-encoded")
-		}
-	}
-	filePath = strings.TrimPrefix(filePath, "/")
-	if err := validateFileSubpath(filePath); err != nil {
+	filePath, err := wildcardFilePath(r)
+	if err != nil {
 		return err
 	}
 
