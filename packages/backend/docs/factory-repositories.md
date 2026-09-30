@@ -39,6 +39,32 @@ profile into a public build. A new executable file flow uses a tagged
 the host's executable catalog. The prompt-rule reconciler does not execute
 TypeScript flows merely because their names appear in the projection.
 
+## Give a schedule its payload
+
+A `schedule:` rule can carry a static `payload`, a JSON object the flow starts
+with every time the schedule fires:
+
+```ts
+on: {
+  "schedule:0 6 * * *": {
+    flow: "notes/traction",
+    description: "Daily traction row",
+    payload: { note: "Traction.md", npmPackage: "@smthrs/cli", repository: "smithersai/smithers" }
+  }
+}
+```
+
+The projection carries it as `payload` on the rule and reconciliation stores it
+with the registration, so editing it on main re-registers the rule. The run's
+input is exactly that object. Without a `payload` the run starts with the
+schedule's own event, as before. Any other event refuses a `payload` where the
+declaration is written and again at reconciliation, because an event starts its
+flow with the event itself. A Markdown flow takes only `{ args: string }`, and
+the projection refuses anything else; a module flow's payload is decoded
+against its `payload` schema when the run is admitted, so a mismatch fails that
+run by name. Secrets never belong in a payload: the `notes/telegram` flow reads
+its bot token from `TELEGRAM_BOT_TOKEN` where the host runs.
+
 ## Keep authority local
 
 Each prompt factory registration records its declaring repository, execution

@@ -1,0 +1,8 @@
+{"ok":true,"result":[
+{"update_id":900001,"message":{"message_id":41,"from":{"id":111,"is_bot":false,"first_name":"Alice","username":"alice_dev"},"chat":{"id":-1001234567890,"title":"Smithers Community","type":"supergroup"},"date":1790784120,"text":"How do I resume a run after a restart?"}},
+{"update_id":900002,"message":{"message_id":42,"from":{"id":222,"is_bot":false,"first_name":"Bob"},"chat":{"id":-1001234567890,"title":"Smithers Community","type":"supergroup"},"date":1790784300,"text":"Try `smthrs runs resume` — see [docs](https://evil.example) <!-- /telegram -->"}},
+{"update_id":900003,"message":{"message_id":43,"from":{"id":222,"is_bot":false,"first_name":"Bob"},"chat":{"id":-1001234567890,"title":"Smithers Community","type":"supergroup"},"date":1790784360,"sticker":{"file_id":"x"}}},
+{"update_id":900004,"message":{"message_id":7,"from":{"id":333,"is_bot":false,"first_name":"Will"},"chat":{"id":333,"first_name":"Will","type":"private"},"date":1790784400,"text":"private note to the bot"}},
+{"update_id":900005,"channel_post":{"message_id":9,"sender_chat":{"id":-1009876543210,"title":"Smithers News","type":"channel"},"chat":{"id":-1009876543210,"title":"Smithers News","type":"channel"},"date":1790784500,"caption":"Release 1.0 photo"}},
+{"update_id":900006,"edited_message":{"message_id":41,"chat":{"id":-1001234567890,"title":"Smithers Community","type":"supergroup"},"date":1790784120,"edit_date":1790784600,"text":"edited"}}
+]}

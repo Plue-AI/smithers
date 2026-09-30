@@ -1218,6 +1218,22 @@
       "flows": []
     },
     {
+      "id": "notes/telegram",
+      "description": "Add the messages a Telegram bot has received to a note's Telegram section.",
+      "summary": null,
+      "featured": false,
+      "kind": "ts",
+      "path": "flows/notes/telegram/flow.ts",
+      "capabilities": [
+        "fs:read:**",
+        "fs:write:**",
+        "net:get:*"
+      ],
+      "model": null,
+      "modelInvocable": false,
+      "flows": []
+    },
+    {
       "id": "notes/traction",
       "description": "Record one daily row of npm downloads and GitHub stars and forks in a note.",
       "summary": null,

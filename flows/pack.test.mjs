@@ -578,7 +578,7 @@ describe("discovery over the project flows directory", () => {
     // round loop, the agent runner, the monitor's actions), so without one they
     // refuse to load: the documented host-only exception, as `checks/wiki` has.
     // The note flows export their layer too, and run on a schedule, never as a model's tool.
-    const hostModules = { "burndown": "body_unavailable", "burndown/monitor": "missing_service", "burndown/worker": "body_unavailable", "notes/calendar-events": "missing_service", "notes/traction": "missing_service" };
+    const hostModules = { "burndown": "body_unavailable", "burndown/monitor": "missing_service", "burndown/worker": "body_unavailable", "notes/calendar-events": "missing_service", "notes/telegram": "missing_service", "notes/traction": "missing_service" };
     // Registration and its setup child run only on the coding host, which implements their steps.
     const hiddenModules = ["memory/mine", "register-repository", "register-repository/setup", "rollout"];
     assert.deepEqual(

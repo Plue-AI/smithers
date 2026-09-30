@@ -23,6 +23,18 @@ space, and the kernel refuses everything a real body asks for. `pack.test.mjs`
 parses every declared literal through the real `Capability.parse` and asserts a
 real command line matches.
 
+## The note flows
+
+`notes/traction`, `notes/calendar-events` and `notes/telegram` each own one
+marked block in a workspace note. Their payloads name the note (a relative `.md`
+path inside the workspace) and what to read; a repeated input leaves the note
+byte-identical, and a failed source is written into the note and fails the run
+with its receipt. `notes/telegram` reads the messages a bot has received
+(`getUpdates`, the only update call it makes) and keeps its cursor in the note's
+block, so a run that dies before writing is redelivered without duplicates. It
+reads `TELEGRAM_BOT_TOKEN` from the host environment; the token is never in a
+payload, the note, a receipt or the repository.
+
 ## The 0.x fixture
 
 `migrate-smithers-v1/test/fixtures/smithers-0x-hello/` is the smallest complete

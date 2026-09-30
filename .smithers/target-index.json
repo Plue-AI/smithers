@@ -31714,6 +31714,10 @@
         "path": "flows/test/notes.test.ts"
       },
       {
+        "kind": "file",
+        "path": "flows/test/telegram.test.ts"
+      },
+      {
         "kind": "glob",
         "pattern": "flows/**/*.ts",
         "exclude": []
@@ -31725,6 +31729,14 @@
       {
         "kind": "file",
         "path": "flows/test/fixtures/notes-marketing.md"
+      },
+      {
+        "kind": "file",
+        "path": "flows/test/fixtures/telegram-getme.json"
+      },
+      {
+        "kind": "file",
+        "path": "flows/test/fixtures/telegram-updates.json"
       },
       {
         "kind": "glob",

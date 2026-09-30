@@ -37,12 +37,15 @@ const suite = Smithers.NodeTest({
     Smithers.file("//flows/test/workflows.test.ts"),
     Smithers.file("//flows/test/rollout.test.ts"),
     Smithers.file("//flows/test/worker-rollout.test.ts"),
-    Smithers.file("//flows/test/notes.test.ts")
+    Smithers.file("//flows/test/notes.test.ts"),
+    Smithers.file("//flows/test/telegram.test.ts")
   ]),
   srcs: [
     sources,
     Smithers.file("//flows/test/fixtures/notes-calendar.ics"),
     Smithers.file("//flows/test/fixtures/notes-marketing.md"),
+    Smithers.file("//flows/test/fixtures/telegram-getme.json"),
+    Smithers.file("//flows/test/fixtures/telegram-updates.json"),
     scripts,
     Smithers.file("//flows/review/flow.mdx"),
     Smithers.file("//pnpm-workspace.yaml"),
