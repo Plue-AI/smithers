@@ -4824,6 +4824,156 @@
       }
     },
     {
+      "name": "history backfill",
+      "description": "Admit every open issue to the history now",
+      "schema": {
+        "args": {
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        },
+        "options": {
+          "type": "object",
+          "properties": {
+            "repo": {
+              "type": "string",
+              "description": "Repository (OWNER/REPO)"
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "name": "history bootstrap",
+      "description": "Create the history from main's commits",
+      "schema": {
+        "args": {
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        },
+        "options": {
+          "type": "object",
+          "properties": {
+            "repo": {
+              "type": "string",
+              "description": "Repository (OWNER/REPO)"
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "name": "history parallel",
+      "description": "Set how many lanes work at once",
+      "schema": {
+        "args": {
+          "type": "object",
+          "properties": {
+            "lanes": {
+              "type": "number",
+              "description": "Lanes, 1 to 8"
+            }
+          },
+          "required": [
+            "lanes"
+          ],
+          "additionalProperties": false
+        },
+        "options": {
+          "type": "object",
+          "properties": {
+            "repo": {
+              "type": "string",
+              "description": "Repository (OWNER/REPO)"
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "name": "history retry",
+      "description": "Give a blocked, rejected or declined issue a fresh set of attempts",
+      "schema": {
+        "args": {
+          "type": "object",
+          "properties": {
+            "issue": {
+              "type": "string",
+              "description": "Issue number (12 or #12) or item id"
+            }
+          },
+          "required": [
+            "issue"
+          ],
+          "additionalProperties": false
+        },
+        "options": {
+          "type": "object",
+          "properties": {
+            "repo": {
+              "type": "string",
+              "description": "Repository (OWNER/REPO)"
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "name": "history show",
+      "description": "Show the history: each issue's lane, checks and pull request",
+      "schema": {
+        "args": {
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        },
+        "options": {
+          "type": "object",
+          "properties": {
+            "repo": {
+              "type": "string",
+              "description": "Repository (OWNER/REPO)"
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "name": "history watch",
+      "description": "Follow one issue until its pull request is open or it stops",
+      "schema": {
+        "args": {
+          "type": "object",
+          "properties": {
+            "issue": {
+              "type": "string",
+              "description": "Issue number (12 or #12) or item id"
+            }
+          },
+          "required": [
+            "issue"
+          ],
+          "additionalProperties": false
+        },
+        "options": {
+          "type": "object",
+          "properties": {
+            "repo": {
+              "type": "string",
+              "description": "Repository (OWNER/REPO)"
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    },
+    {
       "name": "index",
       "description": "List every target a pattern selects as its declaration states it: rule, kinds, inputs, outputs, dependencies, and the declaring file",
       "schema": {

@@ -34,6 +34,7 @@ Commands:
   generate      Scaffold apps, flows, packages, and CI configuration
   git-hooks     Check the WORKSPACE.ts gitHooks scripts against .git/hooks, or install them with --write
   graph         Print the target graph without executing it
+  history       history
   index         List every target a pattern selects as its declaration states it: rule, kinds, inputs, outputs, dependencies, and the declaring file
   info          Report workspace and host configuration for diagnosis
   init          Initialize workspace and target declarations plus a starter flow, preserving existing files

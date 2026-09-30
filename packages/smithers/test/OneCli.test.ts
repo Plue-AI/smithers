@@ -168,7 +168,7 @@ describe("one npm CLI backend contracts", () => {
 describe("migrated command dispatch", () => {
   it("accounts for every Go command without replacing target cache operations", async () => {
     expect(Object.keys(handlers).sort()).toEqual(Object.keys(definitions).sort())
-    expect(Object.keys(definitions)).toHaveLength(204)
+    expect(Object.keys(definitions)).toHaveLength(210)
     expect(Object.keys(definitions).filter((name) => !handlers[name])).toEqual([])
     expect(commandPath("status")).toBe("change status")
     expect(commandPath("run view")).toBe("runs show")

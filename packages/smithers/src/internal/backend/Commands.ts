@@ -13,6 +13,7 @@ import { auth } from "./Auth.ts"
 import { Client, list, object, type Values } from "./Client.ts"
 import { copy } from "./Copy.ts"
 import { definitions } from "./Definitions.ts"
+import { history, humans } from "./History.ts"
 import { local } from "./Local.ts"
 import { misc } from "./Misc.ts"
 import { repositories } from "./Repositories.ts"
@@ -34,6 +35,7 @@ export const handlers: Record<string, Handler> = {
   ...misc,
   ...workspaces,
   ...stacks,
+  ...history,
   "agent ask": ask,
   "workspace cp": copy,
   completion: async (_c, a) => Completions.register(a.shell as "bash" | "zsh" | "fish", "smithers")
@@ -57,6 +59,14 @@ export const commandPath = (name: string): string =>
     : /^cache (clear|list|stats)$/.test(name)
     ? name.replace("cache ", "cache cloud ")
     : name
+// The remote homepage's blocks, one `type  title` line each, in server order.
+const repoHome = (value: unknown): string | undefined =>
+  Array.isArray(object(value).blocks)
+    ? list(object(value).blocks).map((block) => {
+      const row = object(block)
+      return [row.type, row.title || row.name || ""].map(Presentation.clean).join("  ").trimEnd()
+    }).join("\n")
+    : undefined
 /** @private
  * @since 1.0.0
  */
@@ -92,6 +102,7 @@ export const mount = (cli: Cli.Cli<any, any, any, any>, runtime: Runtime) => {
     const interactive = name === "api" || name === "config set" || name === "completion" ||
       (name.startsWith("auth ") && !name.endsWith(" status") && name !== "auth token") ||
       ["workspace shell", "workspace ssh"].includes(name)
+    const human = name === "repo home" ? repoHome : humans[name]
     const command = {
       ...previous,
       mcp: interactive ? false as const : previous?.mcp ?? {
@@ -149,19 +160,7 @@ export const mount = (cli: Cli.Cli<any, any, any, any>, runtime: Runtime) => {
               client.flushOutput()
             }
           },
-          name === "repo home" ?
-            {
-              next: [],
-              render: (value) => ({
-                human: Array.isArray(object(value).blocks)
-                  ? list(object(value).blocks).map((block) => {
-                    const row = object(block)
-                    return [row.type, row.title || row.name || ""].map(Presentation.clean).join("  ").trimEnd()
-                  }).join("\n")
-                  : undefined
-              })
-            } :
-            {}
+          human === undefined ? {} : { next: [], render: (value) => ({ human: human(value) }) }
         )
       }
     }
