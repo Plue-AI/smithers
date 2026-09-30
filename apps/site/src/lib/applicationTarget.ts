@@ -1,4 +1,4 @@
-import type { ApplicationTargetDocument } from "../../../../packages/rpc/src/ApplicationTarget"
+import type { ApplicationTargetDocument } from "@smthrs/rpc/ApplicationTarget"
 
 /** The hosted site serves the common API through its stateless same-origin edge. */
 export const applicationTarget = {

@@ -923,6 +923,7 @@
         "@smthrs/plan": "workspace:*",
         "@smthrs/platform-node": "workspace:*",
         "@smthrs/registry": "workspace:*",
+        "@smthrs/rpc": "workspace:*",
         "@smthrs/run-store": "workspace:*",
         "@smthrs/sandbox": "workspace:*",
         "@smthrs/std": "workspace:*",

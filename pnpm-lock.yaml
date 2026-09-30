@@ -1659,6 +1659,9 @@ importers:
       '@smthrs/registry':
         specifier: workspace:*
         version: link:../../packages/smithers/agent/registry
+      '@smthrs/rpc':
+        specifier: workspace:*
+        version: link:../../packages/rpc
       '@smthrs/run-store':
         specifier: workspace:*
         version: link:../../packages/smithers/flows/run-store
