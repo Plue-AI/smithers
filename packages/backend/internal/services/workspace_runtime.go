@@ -273,6 +273,9 @@ func (s *WorkspaceService) ensureRuntimeWorkspaceRunningLocked(ctx context.Conte
 			return row, err
 		}
 		observed, err = s.runtime.StartWorkspace(startCtx, row.ID)
+		if isNoCapacityError(err) {
+			return s.refuseResumeForNoCapacity(ctx, row, err)
+		}
 		if err != nil {
 			return row, runtimeOperationError("start workspace runtime", err)
 		}
@@ -299,6 +302,7 @@ func (s *WorkspaceService) ensureRuntimeWorkspaceRunningLocked(ctx context.Conte
 		s.meterWorkspaceUsage(ctx, row, "running")
 		s.notifyWorkspace(ctx, row.ID, "running")
 	}
+	row = s.ensureRuntimeWorkspaceHeadReporter(ctx, row, requesterID, observed)
 	_ = s.q.TouchWorkspaceActivity(ctx, row.ID)
 	return row, nil
 }

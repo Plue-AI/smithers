@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -167,6 +168,33 @@ func TestEnsureExistingWorkspaceRunning_NoCapacityKeepsTheBox(t *testing.T) {
 	assert.Equal(t, 1, fixture.startAttempts)
 	assert.Equal(t, "vm-live", fixture.reg.state.VmID)
 	assert.Equal(t, "suspended", fixture.reg.state.Status)
+}
+
+// 2026-09-30, production: /api/workflow/provision for a suspended workspace on
+// the runtime path answered 500 fault=bug "start workspace runtime: microsandbox
+// api returned status 503 (no_capacity): ..." (#3079). The runtime start path
+// takes the same verdict as every other resume: a retryable 503 in product
+// words, with the row parked.
+func TestEnsureRuntimeWorkspaceRunning_NoCapacityKeepsTheBox(t *testing.T) {
+	t.Parallel()
+
+	for _, status := range []string{"suspended", "running"} {
+		t.Run(status, func(t *testing.T) {
+			t.Parallel()
+			fixture := newCapacityFixture(t, "ws-runtime-no-capacity-"+status, nil)
+			fixture.reg.state.Status = status
+			runtime := lostWorkerRuntime{startErr: fmt.Errorf("runtime: %w", noCapacityRefusal())}
+			svc := newWorkspaceServiceForTests(fixture.reg, WithWorkspaceRuntime(runtime), WithWorkspaceBillingPolicy(&countedResumePolicy{}))
+
+			_, err := svc.ensureRuntimeWorkspaceRunningLocked(context.Background(), fixture.reg.state, fixture.reg.state.UserID)
+
+			apiErr := assertNoCapacityAPIError(t, err)
+			assert.Equal(t, pkgerrors.FaultInfra, apiErr.Fault)
+			assertHumanRefusal(t, apiErr.Message)
+			assert.Equal(t, "vm-live", fixture.reg.state.VmID)
+			assert.Equal(t, "suspended", fixture.reg.state.Status)
+		})
+	}
 }
 
 // A hard 5xx (even one that reads like an unresumable snapshot) is retried
