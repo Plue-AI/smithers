@@ -39,15 +39,19 @@
  * path that misses that window (a bootstrap that touches tsx first, or a
  * nested require from an already-CommonJS module) falls back to tsx's own
  * classification and evaluates it through the CommonJS bridge. Registering
- * tsx's public CommonJS loader once also covers nested, non-namespaced
- * requires. tsx owns TypeScript and file-URL handling; this package does not
+ * tsx's public ESM loader once also covers nested, non-namespaced
+ * requires through Node's synchronous hooks. Its global CommonJS loader
+ * transpiles even built ESM dependencies during require(), creating a second
+ * Effect schema runtime beside native ESM imports. Namespaced CommonJS
+ * bridges remain registered for explicit declaration imports. tsx owns
+ * TypeScript and file-URL handling; this package does not
  * patch Node's private CommonJS resolver. CommonJS callers must install their
  * dependencies where ordinary Node resolution can find them.
  *
  * @since 0.1.0
  */
 import { randomUUID } from "node:crypto"
-import { createRequire, registerHooks } from "node:module"
+import { createRequire, isBuiltin, registerHooks } from "node:module"
 import * as NodePath from "node:path"
 import { fileURLToPath } from "node:url"
 import { register as registerCommonJs } from "tsx/cjs/api"
@@ -55,6 +59,7 @@ import { register as registerModule } from "tsx/esm/api"
 
 const installation = Symbol.for("smthrs/effect-resolution-installed")
 const registration = Symbol.for("smthrs/effect-resolution-registration")
+const ownership = Symbol.for("smthrs/effect-resolution-ownership")
 const buildModuleParameter = "smithers-build-module"
 
 /**
@@ -92,10 +97,15 @@ const cliParentUrl = (() => {
  * serialization. `@smthrs/core` and `@smthrs/flow` build and read those same
  * nodes, so they resolve from here for the same reason.
  */
-const isCliOwned = (specifier) =>
-  specifier === "effect" ||
-  specifier.startsWith("effect/") ||
-  cliOwnedPackages.some((name) => specifier === name || specifier.startsWith(`${name}/`))
+const ownerOf = (specifier) => {
+  if (specifier === "effect" || specifier.startsWith("effect/")) return cliParentUrl
+  for (const [name, owner] of globalThis[ownership] ?? []) {
+    if (specifier === name || specifier.startsWith(`${name}/`)) return owner
+  }
+  return cliOwnedPackages.some((name) => specifier === name || specifier.startsWith(`${name}/`))
+    ? cliParentUrl
+    : undefined
+}
 
 /** Workspace packages whose module-level state is compared by identity. */
 const cliOwnedPackages = ["@smthrs/targets", "@smthrs/plan", "@smthrs/core", "@smthrs/flow"]
@@ -159,19 +169,29 @@ const withoutNamespace = (url) => {
  *
  * Returns `undefined` for everything that is not a declaration module.
  */
-const buildModuleBase = (url) => {
+const fileModuleBase = (url) => {
   if (!url.startsWith("file:")) return undefined
   const parsed = new URL(url)
   const encoded = parsed.pathname.search(/%3F/i)
   const filePart = encoded === -1 ? parsed.pathname : parsed.pathname.slice(0, encoded)
-  const base = `file://${parsed.host}${filePart}`
+  return `file://${parsed.host}${filePart}`
+}
+
+const buildModuleBase = (url) => {
+  const base = fileModuleBase(url)
+  if (base === undefined) return undefined
+  const parsed = new URL(url)
   if (parsed.searchParams.get(buildModuleParameter) === "1") return base
-  const pathname = decodeURIComponent(filePart)
+  const pathname = decodeURIComponent(new URL(base).pathname)
+  // File flows and the registry's content-pinned load siblings are authored
+  // ES modules too, even when their repository declares type: commonjs.
   // PACKAGE.ts, WORKSPACE.ts, and the .smithers/*.ts siblings WORKSPACE.ts
   // imports are declaration modules.
   // All are authored as ES modules regardless of the host repository's
   // package.json `type`, so their format is pinned here.
-  const declaration = pathname.endsWith("/PACKAGE.ts") ||
+  const declaration = /\/\.smithers-[a-f0-9]{64}-[^/]+\.ts$/.test(pathname) ||
+    /\/flows\/[^/]+\/flow\.ts$/.test(pathname) ||
+    pathname.endsWith("/PACKAGE.ts") ||
     pathname.endsWith("/WORKSPACE.ts") ||
     (pathname.includes("/.smithers/") && pathname.endsWith(".ts"))
   return declaration ? base : undefined
@@ -206,8 +226,9 @@ const parentHooks = {
   resolve(specifier, context, nextResolve) {
     // CommonJS consumers must install their ordinary dependencies. Node 26
     // also sends require() through these synchronous hooks.
-    const resolved = !context.conditions.includes("require") && isCliOwned(specifier)
-      ? nextResolve(specifier, { ...context, parentURL: cliParentUrl })
+    const owner = ownerOf(specifier)
+    const resolved = !context.conditions.includes("require") && owner !== undefined
+      ? nextResolve(specifier, { ...context, parentURL: owner })
       : nextResolve(specifier, context)
     const url = withoutNamespace(resolved.url)
     return url === resolved.url ? resolved : { ...resolved, url }
@@ -218,10 +239,31 @@ const parentHooks = {
  * Pins a declaration module's format and identity. Runs after tsx's loader;
  * see the hook-order note above.
  */
+// Format admission only; no alternate declaration or execution graph.
+const declarationHelpers = new Set()
 const formatHooks = {
   resolve(specifier, context, nextResolve) {
     const resolved = nextResolve(specifier, context)
-    const base = buildModuleBase(resolved.url)
+    // Native require resolution can omit the format. Mark builtins before
+    // tsx's namespace hook, which otherwise stamps a query onto node: URLs
+    // and sends them through its file loader.
+    if (isBuiltin(resolved.url)) return { ...resolved, format: "builtin" }
+    let base = buildModuleBase(resolved.url)
+    // Relative typed helpers are part of the admitted declaration's ESM
+    // evaluation. A CommonJS package default must not move their imports into
+    // the ordinary require graph, which has no bootstrap package ownership.
+    const parent = context.parentURL === undefined ? undefined : fileModuleBase(context.parentURL)
+    const helper = fileModuleBase(resolved.url)
+    if (
+      base === undefined && parent !== undefined && helper !== undefined &&
+      (buildModuleBase(context.parentURL) !== undefined || declarationHelpers.has(parent)) &&
+      // tsx resolves directory indexes to file: URLs before this hook.
+      (specifier.startsWith("./") || specifier.startsWith("../") || specifier.startsWith("file:")) &&
+      /\.(?:ts|tsx|mts)$/.test(new URL(helper).pathname) && !new URL(helper).pathname.includes("/node_modules/")
+    ) {
+      declarationHelpers.add(helper)
+      base = helper
+    }
     return base === undefined ? resolved : asBuildModule(resolved, base)
   }
 }
@@ -275,13 +317,23 @@ export const importDeclarationModule = async (url, parentURL) => {
  * Installs the resolvers once per process.
  * @slop
  */
-export const installEffectResolution = () => {
+export const installEffectResolution = (packages = {}) => {
+  globalThis[ownership] ??= new Map()
+  for (const [name, owner] of Object.entries(packages)) {
+    const url = new URL(owner)
+    url.search = ""
+    url.hash = ""
+    globalThis[ownership].set(name, url.href)
+  }
   if (globalThis[installation] === true) return
   // Oldest first, so the format hook ends up behind tsx and the parent hook in
   // front of it. See the hook-order note above.
   registerHooks(formatHooks)
   globalThis[registration] = registerHooks(parentHooks)
-  registerCommonJs()
+  // The ESM loader supports ordinary typed CommonJS bridges through Node's
+  // public hooks without transpiling native Effect modules during require().
+  registerModule({ tsconfig: false })
+  reassert()
   Object.defineProperty(globalThis, installation, {
     configurable: false,
     enumerable: false,

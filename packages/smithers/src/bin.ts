@@ -12,6 +12,7 @@ import { agentArguments, formattedLogArguments, legacyArguments } from "./cli/Co
 import * as Failure from "./internal/Failure.ts"
 
 const start = async (): Promise<void> => {
+  installEffectResolution({ "@smthrs/agent": import.meta.url })
   const original = process.argv.slice(2)
   const parsed = Argv.parse(original)
   let agentAlias = formattedLogArguments(parsed)
@@ -23,7 +24,6 @@ const start = async (): Promise<void> => {
     process.argv.splice(2, process.argv.length - 2, ...legacy)
     await import("./cli/LegacyBin.ts")
   } else {
-    installEffectResolution()
     const { main } = await import("./cli/Entry.ts")
     await main({
       argv: agentAlias ?? original,

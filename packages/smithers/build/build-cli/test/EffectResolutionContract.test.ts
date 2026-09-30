@@ -62,6 +62,46 @@ describe("declaration dependency preflight", () => {
     expect(child.status, child.stderr).toBe(0)
   })
 
+  it("pins an explicitly CLI-owned agent package despite a conflicting project installation", async () => {
+    const directory = await fixture(false)
+    const agent = Path.join(directory, "node_modules", "@smthrs", "agent")
+    await Fs.mkdir(agent, { recursive: true })
+    await Fs.writeFile(
+      Path.join(agent, "package.json"),
+      JSON.stringify({ name: "@smthrs/agent", type: "module", exports: { "./AgentAction": "./AgentAction.js" } })
+    )
+    await Fs.writeFile(Path.join(agent, "AgentAction.js"), "throw new Error(\"conflicting project agent loaded\")")
+    const declaration = Path.join(directory, "flows/probe/flow.ts")
+    await Fs.mkdir(Path.dirname(declaration), { recursive: true })
+    await Fs.writeFile(
+      declaration,
+      "import * as AgentAction from \"@smthrs/agent/AgentAction\"; export default AgentAction.make"
+    )
+    const owner = new URL("../../../src/bin.ts", import.meta.url).href
+    const child = spawnSync(process.execPath, [
+      "--input-type=module",
+      "-e",
+      `
+      import assert from "node:assert/strict";
+      import { installEffectResolution, importDeclarationModule } from ${
+        JSON.stringify(new URL("../src/effect-resolution.js", import.meta.url).href)
+      };
+      installEffectResolution();
+      installEffectResolution({ "@smthrs/agent": ${JSON.stringify(owner)} });
+      const outer = await import("@smthrs/agent/AgentAction");
+      const first = await importDeclarationModule(${JSON.stringify(pathToFileURL(declaration).href)}, ${
+        JSON.stringify(owner)
+      });
+      const second = await importDeclarationModule(${JSON.stringify(pathToFileURL(declaration).href)}, ${
+        JSON.stringify(owner)
+      });
+      assert.equal(first.default, outer.make);
+      assert.equal(second.default, outer.make);
+    `
+    ], { encoding: "utf8", cwd: directory, env: { ...process.env, NODE_PATH: "" }, timeout: 30_000 })
+    expect(child.status, child.stdout + child.stderr).toBe(0)
+  })
+
   it("accepts ordinary shared packages, including repeated files in one directory", async () => {
     const directory = await fixture(true)
     expect(() =>

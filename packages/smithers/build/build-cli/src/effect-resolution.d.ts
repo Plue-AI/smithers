@@ -6,13 +6,14 @@
 
 /**
  * Installs the remaining ESM identity/bootstrap resolvers and tsx's supported
- * CommonJS loader once. CommonJS dependencies use ordinary Node resolution.
+ * ESM loader once. Explicit declaration imports register a namespaced
+ * CommonJS bridge; ordinary CommonJS dependencies use Node resolution.
  *
  * @category loading
  * @since 0.1.0
  * @slop
  */
-export declare const installEffectResolution: () => void
+export declare const installEffectResolution: (packages?: Readonly<Record<string, string>>) => void
 
 /**
  * Evaluates one declaration module through tsx with the CLI's resolver in
