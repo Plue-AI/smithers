@@ -9,6 +9,7 @@ import * as TestDatabase from "@smthrs/database/test/TestDatabase"
 import { Action, DurableDeferred, Flow, FlowRuntime, Interpreter } from "@smthrs/flow"
 import { Jj } from "@smthrs/kernel"
 import { RunStore } from "@smthrs/run-store"
+import * as Ownership from "@smthrs/run-store/Ownership"
 import * as Clock from "effect/Clock"
 import type * as Crypto from "effect/Crypto"
 import * as Effect from "effect/Effect"
@@ -16,6 +17,8 @@ import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
 import type * as Scope from "effect/Scope"
 import { TestClock } from "effect/testing"
+import * as SqlClient from "effect/unstable/sql/SqlClient"
+import { randomUUID } from "node:crypto"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -263,3 +266,117 @@ describe("Flow deadline across trampoline rounds", () => {
       }).pipe(Effect.scoped, Effect.provide(TestClock.layer()))
     ))
 })
+
+const TreeLeaf = Flow.make("RunDeadline/tree-leaf", { payload: {}, success: Schema.String, body: opaqueHandlerBody })
+const TreeChild = Flow.make("RunDeadline/tree-child", { payload: {}, success: Schema.String, body: opaqueHandlerBody })
+const TreeParent = Flow.make("RunDeadline/tree-parent", {
+  payload: {},
+  success: Schema.String,
+  deadline: "1 hour",
+  body: opaqueHandlerBody
+})
+const treeIncarnation = <A, E>(
+  filename: string,
+  hostId: string,
+  body: (engine: FlowRuntime.FlowRuntime["Service"]) => Effect.Effect<A, E, Services>
+) =>
+  Effect.scoped(
+    Effect.gen(function*() {
+      const engine = yield* EngineStore.make({
+        owner: { hostId },
+        journalSource: hostId,
+        isAlive: () => Effect.succeed(false)
+      })
+      yield* engine.register(TreeLeaf, () => DurableDeferred.await(gate))
+      yield* engine.register(TreeChild, () => TreeLeaf.execute({}, { executionId: "tree-leaf" }).pipe(Effect.orDie))
+      yield* engine.register(TreeParent, () => TreeChild.execute({}, { executionId: "tree-child" }).pipe(Effect.orDie))
+      return yield* body(engine)
+    }).pipe(
+      Effect.provideService(Jj.Jj, jj),
+      Effect.provide(StepBoundary.layerTest()),
+      Effect.provide(TestStores.layerAt(filename))
+    )
+  )
+it.effect("deadline expiry cancels the persisted attached tree after reopening its database", () =>
+  withCrypto(
+    Effect.gen(function*() {
+      const directory = mkdtempSync(join(tmpdir(), "run-deadline-tree-"))
+      yield* Effect.addFinalizer(() => Effect.sync(() => rmSync(directory, { recursive: true, force: true })))
+      const pgUrl = process.env.SMITHERS_TEST_PG_URL
+      const schema = `deadline_tree_${randomUUID().replaceAll("-", "")}`
+      const uri = pgUrl === undefined ? undefined : new URL(pgUrl)
+      uri?.searchParams.set("schema", schema)
+      const filename = uri?.toString() ?? join(directory, "engine.db")
+      if (uri !== undefined) {
+        yield* Effect.addFinalizer(() =>
+          Effect.scoped(
+            Effect.flatMap(SqlClient.SqlClient, (sql) => TestDatabase.dropSchema(sql, schema)).pipe(
+              Effect.provide(TestStores.databaseAt(filename)),
+              Effect.orDie
+            )
+          )
+        )
+      }
+      yield* treeIncarnation(filename, "tree-before", (engine) =>
+        Effect.gen(function*() {
+          yield* engine.execute(TreeParent, { executionId: "tree-parent", payload: {}, discard: true })
+          const runs = yield* RunStore.RunStore
+          yield* TestDatabase.until(
+            Effect.map(
+              Effect.option(runs.get("tree-leaf")),
+              (row) => row._tag === "Some" && row.value.status === "suspended"
+            )
+          )
+          yield* TestDatabase.until(Effect.gen(function*() {
+            const parent = yield* runs.get("tree-parent")
+            const child = yield* runs.get("tree-child")
+            return parent.status === "suspended" && child.status === "suspended"
+          }))
+          expect((yield* runs.get("tree-parent")).status).toBe("suspended")
+          expect((yield* runs.get("tree-child")).status).toBe("suspended")
+        }))
+      yield* TestClock.adjust("40 minutes")
+      yield* treeIncarnation(filename, "tree-after", () =>
+        Effect.gen(function*() {
+          const runs = yield* RunStore.RunStore
+          for (let minute = 0; minute < 25 && (yield* runs.get("tree-parent")).status !== "failed"; minute++) {
+            yield* TestClock.adjust("1 minute")
+            for (
+              let poll = 0;
+              poll < 100 && (yield* runs.get("tree-parent")).status !== "failed";
+              poll++
+            ) yield* Effect.promise(() => new Promise<void>((r) => setTimeout(r, 2)))
+          }
+          const parent = yield* runs.get("tree-parent")
+          expect(parent.status).toBe("failed")
+          expect(JSON.stringify(stateOf(parent).result)).toContain("@smthrs/flow/DeadlineExceeded")
+          expect(JSON.stringify(stateOf(parent).result)).toContain(
+            "counted from its start at 1970-01-01T00:00:00.000Z"
+          )
+          expect(yield* Clock.currentTimeMillis).toBeLessThanOrEqual(61 * 60_000)
+          // The parent and subtree requests commit atomically. A parked child
+          // is then delivered by the configured cancellation sweep, not a live
+          // body's cancel poll. Keep virtual time moving while observing it.
+          const childRequest = yield* runs.get("tree-child")
+          const leafRequest = yield* runs.get("tree-leaf")
+          expect(parent.cancelRequestedAtMs).toBeNull()
+          expect(childRequest.cancelRequestedAtMs).not.toBeNull()
+          expect(leafRequest.cancelRequestedAtMs).toBe(childRequest.cancelRequestedAtMs)
+          const stopped = () =>
+            Effect.gen(function*() {
+              return (yield* runs.get("tree-child")).status === "cancelled" &&
+                (yield* runs.get("tree-leaf")).status === "cancelled"
+            })
+          for (let pulse = 0; pulse < 2 && !(yield* stopped()); pulse++) {
+            yield* TestClock.adjust(Ownership.heartbeatInterval)
+            for (let poll = 0; poll < 100 && !(yield* stopped()); poll++) {
+              yield* Effect.promise(() => new Promise<void>((r) => setTimeout(r, 2)))
+            }
+          }
+          const states = [(yield* runs.get("tree-child")).status, (yield* runs.get("tree-leaf")).status]
+          expect(states).toEqual(["cancelled", "cancelled"])
+          expect((yield* runs.get("tree-parent")).status).toBe("failed")
+          expect((yield* runs.get("tree-parent")).stateJson).toEqual(parent.stateJson)
+        }))
+    }).pipe(Effect.scoped, Effect.provide(TestClock.layer()))
+  ))

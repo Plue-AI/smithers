@@ -6,6 +6,7 @@
 
 import * as CapabilitySet from "@smthrs/capability/CapabilitySet"
 import { Flow, FlowRuntime } from "@smthrs/flow"
+import * as Cause from "effect/Cause"
 import * as Deferred from "effect/Deferred"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
@@ -215,6 +216,12 @@ export const layerMemory: Layer.Layer<FlowRuntime.FlowRuntime> = Layer.effect(Fl
         return Effect.void
       })
 
+    const parentCancelled = (parent: FlowRuntime.FlowInstance["Service"]): boolean => {
+      const state = executions.get(parent.executionId)
+      return parent.interrupted || state?.instance.interrupted === true ||
+        (state !== undefined && cancelledLineages.has(state.rootExecutionId))
+    }
+
     // Publish all intent synchronously before sending an interrupt or re-drive.
     // A body that admits another child during cleanup inherits this intent.
     const requestCancellation = (executionId: string): ReadonlyArray<string> => {
@@ -401,6 +408,20 @@ export const layerMemory: Layer.Layer<FlowRuntime.FlowRuntime> = Layer.effect(Fl
         Effect.provideService(FlowRuntime.FlowInstance, instance),
         Effect.provideService(FlowRuntime.FlowRuntime, engine),
         Effect.tap((result) => {
+          if (
+            result._tag !== "Complete" || Exit.isSuccess(result.exit) ||
+            !(Cause.squash(result.exit.cause) instanceof Flow.DeadlineExceeded)
+          ) return Effect.void
+          // Expiry ends the attached lineage without turning the originator's
+          // deadline failure into an interrupt. Publish the same intent that
+          // late linked admissions observe before delivering subtree requests.
+          cancelledLineages.add(state.rootExecutionId)
+          const linked = new Set(
+            [...rounds.get(state.rootExecutionId)!].flatMap((round) => [...(children.get(round) ?? [])])
+          )
+          return Effect.forEach(linked, interruptExecution, { discard: true })
+        }),
+        Effect.tap((result) => {
           if (!state.parent || result._tag !== "Complete") {
             return Effect.void
           }
@@ -421,6 +442,36 @@ export const layerMemory: Layer.Layer<FlowRuntime.FlowRuntime> = Layer.effect(Fl
           Effect.suspend(() => state.fiber === previous ? resumeUnlocked(executionId, state) : Effect.void)
         )
       })
+
+    const interruptExecution = Effect.fnUntraced(function*(executionId: string) {
+      const targets = requestCancellation(executionId)
+      for (const target of targets) {
+        const state = executions.get(target)
+        if (state === undefined) continue
+        // `execute` installs the state and synchronously starts `resume`
+        // before it can return its execution id, so every publicly
+        // observable execution has a round fiber to inspect.
+        const exit = state.fiber!.pollUnsafe()
+        if (exit === undefined) {
+          // The round is LIVE. The interruption is delivered to the body
+          // fiber rather than the round fiber: the round fiber then converts
+          // it into the recorded cancellation — `Complete` with an interrupt
+          // cause, after the body's finalizers ran — where interrupting the
+          // round fiber itself would leave `poll` dying on a bare interrupt
+          // exit. Delivery is a send, not an await: the contract is a
+          // cancellation REQUEST, and a body pinned in an uninterruptible
+          // region settles on its own time with the request already
+          // recorded. A round fiber that has not started yet has no body
+          // fiber; its body observes the flag and self-interrupts on start.
+          if (state.bodyFiber !== undefined) {
+            const bodyFiber = state.bodyFiber
+            yield* Effect.withFiber((fiber) => Effect.sync(() => bodyFiber.interruptUnsafe(fiber.id)))
+          }
+          continue
+        }
+        yield* resume(target)
+      }
+    })
 
     const deferredResults = new Map<string, Exit.Exit<any, any>>()
 
@@ -502,8 +553,7 @@ export const layerMemory: Layer.Layer<FlowRuntime.FlowRuntime> = Layer.effect(Fl
             if (options.parent !== undefined) {
               yield* recordParent(options.executionId, options.parent.executionId)
               if (
-                state !== undefined && (options.parent.interrupted ||
-                  executions.get(options.parent.executionId)?.instance.interrupted === true)
+                state !== undefined && parentCancelled(options.parent)
               ) {
                 // Joining is also child admission. An existing independent run
                 // must not escape an already-cancelled parent's ownership edge.
@@ -518,8 +568,7 @@ export const layerMemory: Layer.Layer<FlowRuntime.FlowRuntime> = Layer.effect(Fl
               const instance = makeInstance(flow, options.executionId, options.lineageDeadline)
               const parent = options.parent
               instance.interrupted = cancelledLineages.has(rootExecutionId) ||
-                (parent !== undefined && (parent.interrupted ||
-                  executions.get(parent.executionId)?.instance.interrupted === true))
+                (parent !== undefined && parentCancelled(parent))
               if (instance.interrupted) cancelledLineages.add(rootExecutionId)
               state = {
                 // The stored value never crosses into user code. Every drive
@@ -551,35 +600,7 @@ export const layerMemory: Layer.Layer<FlowRuntime.FlowRuntime> = Layer.effect(Fl
         return (yield* settlement(flow, options.executionId, yield* Fiber.join(admitted.fiber!))) as any
       }),
       // Untraced because interruption is coordinated from recursive execution.
-      interrupt: Effect.fnUntraced(function*(_flow, executionId) {
-        const targets = requestCancellation(executionId)
-        for (const target of targets) {
-          const state = executions.get(target)
-          if (state === undefined) continue
-          // `execute` installs the state and synchronously starts `resume`
-          // before it can return its execution id, so every publicly
-          // observable execution has a round fiber to inspect.
-          const exit = state.fiber!.pollUnsafe()
-          if (exit === undefined) {
-            // The round is LIVE. The interruption is delivered to the body
-            // fiber rather than the round fiber: the round fiber then converts
-            // it into the recorded cancellation — `Complete` with an interrupt
-            // cause, after the body's finalizers ran — where interrupting the
-            // round fiber itself would leave `poll` dying on a bare interrupt
-            // exit. Delivery is a send, not an await: the contract is a
-            // cancellation REQUEST, and a body pinned in an uninterruptible
-            // region settles on its own time with the request already
-            // recorded. A round fiber that has not started yet has no body
-            // fiber; its body observes the flag and self-interrupts on start.
-            if (state.bodyFiber !== undefined) {
-              const bodyFiber = state.bodyFiber
-              yield* Effect.withFiber((fiber) => Effect.sync(() => bodyFiber.interruptUnsafe(fiber.id)))
-            }
-            continue
-          }
-          yield* resume(target)
-        }
-      }),
+      interrupt: (_flow, executionId) => interruptExecution(executionId),
       // Untraced because interruption is coordinated from recursive execution.
       interruptUnsafe: Effect.fnUntraced(function*(_flow, executionId) {
         const targets = requestCancellation(executionId)

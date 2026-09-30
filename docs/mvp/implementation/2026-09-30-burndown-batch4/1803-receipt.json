@@ -1,0 +1,132 @@
+{
+  "issue": 1803,
+  "candidateBase": "fbc96729acd623bfc35feecf2cdfeaf4ae72b10e",
+  "manifestSha256": "5ef27745505b9ae272d425a21e406b784b167a1f5e3574aad766f0e0a7d4c2e5",
+  "sourceSha256": {
+    "packages/smithers/flows/engine/src/FlowEngine/layerMemory.ts": "5626a5d1344e4bc9abf63ba822652bf4c7692eb0c3fe5c1cfc2b855b8b521146",
+    "packages/smithers/flows/engine/test/RunDeadline.test.ts": "964a26239b2842c50fe01534c7362bb2ed502654c35398d65e3221652faad529",
+    "packages/smithers/flows/engine-store/test/RunDeadline.test.ts": "65bc0e84911f3d6af0fd219ebf24bc702f61d9661163d070af2c1c2ba0a461b2"
+  },
+  "archiveSha256": "581596ae603ca51ce6fe4f0c412fec076f0db8c77057c9439e8bf0284e8457d5",
+  "rawReceipts": {
+    "1803-durable-existing.log": "977181647c901a33ffe1bc8f8fe39786006d6e333f40cc0f158ad30281071e8b",
+    "1803-durable-pg-final-2.log": "66529e8d3aa1a3c175e31c578725d06e2abbc7ce3735497cd9b4ee42baa4017a",
+    "1803-durable-pg-final-3.log": "9277907512b9c86a5f08ff0c92a7039c1290755019c33fd7abcae722c5eeceab",
+    "1803-durable-pg-final-4.log": "95bf40b48ebb8039cd84adeac8e748c76e3d29272b2bbab9f81e3f93ac94e3d3",
+    "1803-durable-pg-final-behavior.log": "96fb04b592135300c4588ab132ff7cb26ec580bee1d676d5ab8813d287f4e74e",
+    "1803-durable-pg-final.log": "3456529cdb3b1c29b0c231fda96c8d312fdd021eaecc412ffa2a459b5eb658c6",
+    "1803-durable-sqlite-final-2.log": "cd84d8df0edddecc62531f128c9971557cb1ab59227d4d51f4007ce685c15415",
+    "1803-durable-sqlite-final-behavior.log": "1b57ec289392e7ab2e1ca0b350d8b61ec88e87e100c5908e3a4e91d93c259a6a",
+    "1803-durable-sqlite-final.log": "8b14a7f9d23b5524033c1ac4b6965d3501d6fdd23d81707015bb1ffaca53f24a",
+    "1803-durable-tree-current.log": "8a0475f0e21fae505595723c9aa1270e2ce2eed76be53eb3cea8bccb00e77eca",
+    "1803-engine-format.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "1803-engine-full-coverage.log": "11617be13e1e858be6aaf1620abeb256d9729f7f5ab0bb9a8cc5584d1bf92e64",
+    "1803-engine-lint.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "1803-engine-source-types.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "1803-engine-test-types-final-2.log": "154e31565318b355b9cae29ccdda519607ee6c5c09e284ad886ac183cc8b8fd4",
+    "1803-engine-test-types-final-3.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "1803-engine-test-types-final.log": "154e31565318b355b9cae29ccdda519607ee6c5c09e284ad886ac183cc8b8fd4",
+    "1803-engine-test-types.log": "cf9ffac5925c7205e49c7f4b8625f9e957d7bdeafb3108df4525d39aa186d489",
+    "1803-files.json": "1cef72239402976b4cb575396932afe5721a493792266f315e526d27e5191991",
+    "1803-final.diff": "1da44d547f36f77875b82f3edd6f2aa1691e225a3d59e08f243f33908e71e94c",
+    "1803-issue.json": "7bcf72c3db76d75bb5444cc6dc7e7d34bee818be6d93644bc96097ac37da1722",
+    "1803-memory-controls-2.log": "cd64daa487d41c2be4f8112dddf72937ddd3dbd0a99eee1d304ba502cb3d93e4",
+    "1803-memory-controls-final.log": "a3ce5793681816222cf7e81737053b6d0c8f70fa4759204037265ea31ebe2801",
+    "1803-memory-controls.log": "a8f6850113b0764b426af4410b42041b11ee7f7983c85617b3a15c7b3da5eb58",
+    "1803-memory-coverage.json": "caf9748c4c94eb5db9264dae9ee4fa179d615515a618e17a91e041e2fae0e2c6",
+    "1803-memory-deadline-final.log": "2f420646b5d3ac8dd5f62b93a73b277099787c081241950485f162828298b1f5",
+    "1803-memory-existing.log": "587b12b4faa8d7a2fea850bd3a9df8dfc5308de51be5ae7543afc3aa1be39156",
+    "1803-memory-tree-green.log": "9871b5812b7eb35612b77eb124830fe7d9e5c3af15d9e51bcf4204b4fd78bafd",
+    "1803-memory-tree-red-final.log": "ac6fcc2e312415e27dec4195feca732030fbf52f656a61c53eac4d45c13b3b52",
+    "1803-memory-tree-red.log": "1f29817936e1b6d73c8f5a8b5de0b452685d21e486ca230ca5b9671a1095dfb2",
+    "1803-readiness.json": "5ef27745505b9ae272d425a21e406b784b167a1f5e3574aad766f0e0a7d4c2e5",
+    "1803-source.tar.gz": "1e130d6cd085937e23f481c012f585d4b9884bf18a7d196947d6a072dbfa831b",
+    "1803-store-format.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "1803-store-test-types-final-2.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "1803-store-test-types-final.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "1803-store-test-types.log": "4fdcac6cc2d0b501409f2d4795f19822f09269a723e8a7793ddff4bbc7961646",
+    "1803-tree-current-red.log": "4b4222c0943208b6018e3492fbda57e50f12e73058bb9bbd19e7a4a81b366f7b",
+    "1803-tree-current-red2.log": "08f85bf8ab7b4ac6d2def438e4eadadcf9c95b91668ac7859bfe89a13b0e2d13",
+    "1803-tree-current-red3.log": "97e0f90a26d0be93375e4b5d0cdc9bdd8dffe7a78058d3052ba889916af94448"
+  },
+  "behavior": "Memory engine only: retain root DeadlineExceeded and cancel every attached lineage through existing interrupt path, including earlier handoff rounds and late admissions. Durable engine already had transactional subtree cancellation; add actual reopened database qualification only.",
+  "validation": [
+    {
+      "gate": "complete configured memory engine coverage",
+      "log": "1803-engine-full-coverage.log",
+      "exit": 0,
+      "files": 60,
+      "tests": 504,
+      "coverage": {
+        "statements": "873/873",
+        "branches": "561/561",
+        "functions": "214/214",
+        "lines": "792/792"
+      }
+    },
+    {
+      "gate": "final memory deadline behaviors",
+      "log": "1803-memory-deadline-final.log",
+      "exit": 0,
+      "tests": 13
+    },
+    {
+      "gate": "focused deadline + child suspension + lineage cancellation",
+      "log": "1803-memory-controls-final.log",
+      "exit": 0,
+      "tests": 29
+    },
+    {
+      "gate": "final SQLite recovery behavior",
+      "log": "1803-durable-sqlite-final-behavior.log",
+      "exit": 0,
+      "tests": 5,
+      "coverage": false
+    },
+    {
+      "gate": "final real PostgreSQL recovery behavior",
+      "log": "1803-durable-pg-final-behavior.log",
+      "exit": 0,
+      "tests": 5,
+      "coverage": false,
+      "connection": "127.0.0.1:55491",
+      "schema": "unique named schema per new tree fixture, dropped after test"
+    }
+  ],
+  "checks": [
+    {
+      "log": "1803-engine-source-types.log",
+      "exit": 0
+    },
+    {
+      "log": "1803-engine-test-types-final-3.log",
+      "exit": 0
+    },
+    {
+      "log": "1803-engine-lint.log",
+      "exit": 0
+    },
+    {
+      "log": "1803-engine-format.log",
+      "exit": 0
+    },
+    {
+      "log": "1803-store-test-types-final-2.log",
+      "exit": 0
+    },
+    {
+      "log": "1803-store-format.log",
+      "exit": 0
+    }
+  ],
+  "limitations": [
+    "No full engine-store coverage matrix executed or claimed; engine-store production unchanged. Targeted behavioral commands explicitly disable coverage rather than weaken configured100% thresholds. First final single-file invocations correctly exit1 at ~30.5% aggregate coverage, retained in1803-durable-sqlite-final-2.log and1803-durable-pg-final-4.log; their five behavior tests pass.",
+    "PG initial async-admission and stationary-TestClock fixture failures retained; final test waits for durable suspension then asserts atomic descendant requests and delivery within two existing configured heartbeats. No timeout or threshold relaxation.",
+    "Final full504 coverage uses byte-identical production and precedes test-only orDie type corrections. Final13/29 memory behavior and final source/test types independently qualify final test edits.",
+    "Jj test service is existing inert fixture; these deadline flows never perform JJ operations. SQL migrations/run-store/journal/consensus and reopened stores are real.",
+    "No native process tree kill claim; this issue fixes/qualifies the attached flow run tree. Existing public host process cancellation architecture unchanged.",
+    "3244 closed upstream already supplies inherited originator handoff deadline; retained original handoff controls and earlier-round child cancellation regression."
+  ],
+  "foreignFailures": null,
+  "review": "Root reviewed existing cancellation path reuse, preserved originator deadline outcome, late-admission lineage intent and real database recovery qualification."
+}
