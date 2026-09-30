@@ -1484,7 +1484,7 @@ describe("GitHub public admission and recovery", () => {
   })
 })
 
-/* Backend GitMirrorSyncRunStatus requires refs[] (openapi.yaml18833-18870);
+/* Backend GitMirrorSyncRunStatus requires refs[] (schema GitMirrorSyncRunStatus in docs/api/openapi/_root.yaml);
  * its poll route accepts only positive IDs (git_mirror_sync.go215-222). */
 describe("GitHub mirror wire admission", () => {
   test.each([
