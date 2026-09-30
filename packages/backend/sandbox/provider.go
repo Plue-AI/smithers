@@ -100,22 +100,24 @@ type EgressRevoker interface {
 	RevokeEgress(ctx context.Context, sandboxID string, req EgressRevokeRequest) (EgressRevokeResult, error)
 }
 
-// EgressReloadRequest is the domain allowlist a running sandbox's egress
-// proxy switches to. An empty list resets it to the provider's deployment
-// list; it never denies everything. Hosts a bound secret names stay
-// reachable whatever the list says.
+// EgressReloadRequest replaces a running sandbox's
+// EgressProxyPolicy.ExtraAllowDomains. The base list (the policy's
+// AllowDomains, else the provider's deployment list) is kept, so an empty
+// list returns the proxy to exactly its base; it never denies everything.
+// Hosts a bound secret names stay reachable whatever the list says.
 type EgressReloadRequest struct {
-	AllowDomains []string `json:"allowDomains"`
+	ExtraAllowDomains []string `json:"extraAllowDomains"`
 }
 
-// EgressReloadResult reports the allowlist the proxy now enforces.
+// EgressReloadResult reports the whole allowlist the proxy now enforces: its
+// base, the extra hosts, and every credential-bound host.
 type EgressReloadResult struct {
 	SandboxID    string   `json:"sandboxId"`
 	AllowDomains []string `json:"allowDomains"`
 }
 
 // EgressReloader is implemented by providers that can replace a running
-// sandbox's egress allowlist on its live proxy without restarting the
+// sandbox's extra egress hosts on its live proxy without restarting the
 // sandbox. An unknown, stopped, or revoked sandbox is an error.
 type EgressReloader interface {
 	ReloadEgress(ctx context.Context, sandboxID string, req EgressReloadRequest) (EgressReloadResult, error)

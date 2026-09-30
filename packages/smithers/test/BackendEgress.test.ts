@@ -20,8 +20,9 @@ afterEach(async () => {
 
 /**
  * A real HTTP backend holding one repository's egress policy the way
- * `GET/PUT /api/repos/{owner}/{repo}/egress-policy` does: PUT stores the list
- * lower-cased and sorted and answers each running sandbox's reload.
+ * `GET/PATCH /api/repos/{owner}/{repo}/egress-policy` does: PATCH adds and
+ * removes hosts atomically, keeps the list lower-cased and sorted, and answers
+ * each running sandbox's reload.
  */
 const backend = async (options: { status?: number; sandboxes?: Array<string>; domains?: Array<string> } = {}) => {
   const seen: Array<Seen> = []
@@ -43,8 +44,10 @@ const backend = async (options: { status?: number; sandboxes?: Array<string>; do
         res.end(JSON.stringify({ message: "not found" }))
         return
       }
-      if (req.method === "PUT") {
-        domains = [...new Set((body.allow_domains as Array<string>).map((d) => d.toLowerCase()))].sort()
+      if (req.method === "PATCH") {
+        const remove = ((body.remove ?? []) as Array<string>).map((d) => d.toLowerCase())
+        domains = [...new Set([...domains, ...((body.add ?? []) as Array<string>).map((d) => d.toLowerCase())])]
+          .filter((d) => !remove.includes(d)).sort()
         res.end(JSON.stringify({
           allow_domains: domains,
           updated_at: "2026-09-30T12:00:00Z",
@@ -112,14 +115,11 @@ describe("smthrs egress", () => {
     expect(b.seen).toEqual([read])
   })
 
-  it("allows a host by writing the list with it added, and reports each sandbox's reload", async () => {
+  it("allows a host by adding only that host, and reports each sandbox's reload", async () => {
     const b = await backend({ domains: ["registry.npmjs.org"], sandboxes: ["sb-1", "sb-2"] })
     const result = await b.run(["egress", "allow", " API.Example.com. "])
     expect(result.code, result.output).toBe(0)
-    expect(b.seen).toEqual([
-      read,
-      { ...read, method: "PUT", body: { allow_domains: ["registry.npmjs.org", "api.example.com"] } }
-    ])
+    expect(b.seen).toEqual([{ ...read, method: "PATCH", body: { add: ["api.example.com"] } }])
     expect(JSON.parse(result.output)).toEqual({
       allow_domains: ["api.example.com", "registry.npmjs.org"],
       updated_at: "2026-09-30T12:00:00Z",
@@ -127,15 +127,15 @@ describe("smthrs egress", () => {
     })
   })
 
-  it("writes an already allowed host's list unchanged, so the running sandboxes reload it", async () => {
+  it("adds an already allowed host again, so the running sandboxes reload it", async () => {
     const b = await backend({ domains: ["*.example.com"], sandboxes: ["sb-1"] })
     const result = await b.run(["egress", "allow", "*.EXAMPLE.com"])
     expect(result.code, result.output).toBe(0)
-    expect(b.seen).toEqual([read, { ...read, method: "PUT", body: { allow_domains: ["*.example.com"] } }])
-    expect(JSON.parse(result.output).reloads).toEqual([{ sandbox_id: "sb-1", reloaded: true }])
+    expect(b.seen).toEqual([{ ...read, method: "PATCH", body: { add: ["*.example.com"] } }])
+    expect(JSON.parse(result.output)).toMatchObject({ allow_domains: ["*.example.com"], reloads: [{ sandbox_id: "sb-1", reloaded: true }] })
   })
 
-  it("denies an allowed host by writing the list without it; the last one empties the list", async () => {
+  it("denies an allowed host by removing only that host; the last one empties the list", async () => {
     const b = await backend({ domains: ["a.example.com", "b.example.com"] })
     expect((await b.run(["egress", "deny", "A.example.com"])).code).toBe(0)
     const last = await b.run(["egress", "deny", "b.example.com"])
@@ -143,10 +143,26 @@ describe("smthrs egress", () => {
     expect(JSON.parse(last.output).allow_domains).toEqual([])
     expect(b.seen).toEqual([
       read,
-      { ...read, method: "PUT", body: { allow_domains: ["b.example.com"] } },
+      { ...read, method: "PATCH", body: { remove: ["a.example.com"] } },
       read,
-      { ...read, method: "PUT", body: { allow_domains: [] } }
+      { ...read, method: "PATCH", body: { remove: ["b.example.com"] } }
     ])
+  })
+
+  it("keeps both changes when an allow and a deny overlap (#3263)", async () => {
+    const b = await backend({ domains: ["b.example.com"] })
+    const [allowed, denied] = await Promise.all([
+      b.run(["egress", "allow", "a.example.com"]),
+      b.run(["egress", "deny", "b.example.com"])
+    ])
+    expect(allowed.code, allowed.output).toBe(0)
+    expect(denied.code, denied.output).toBe(0)
+    const listed = await b.run(["egress", "list"])
+    expect(JSON.parse(listed.output).allow_domains).toEqual(["a.example.com"])
+    // Neither write carries a list it read.
+    expect(b.seen.filter((seen) => seen.method === "PATCH").map((seen) => seen.body)).toEqual(
+      expect.arrayContaining([{ add: ["a.example.com"] }, { remove: ["b.example.com"] }])
+    )
   })
 
   it("refuses to deny a host that is not allowed, without writing", async () => {
@@ -174,6 +190,6 @@ describe("smthrs egress", () => {
       expect(result.code).not.toBe(0)
       expect(result.output).toContain("repository owner access required")
     }
-    expect(b.seen).toEqual([read, read])
+    expect(b.seen).toEqual([read, { ...read, method: "PATCH", body: { add: ["api.example.com"] } }])
   })
 })

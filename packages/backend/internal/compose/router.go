@@ -1312,7 +1312,7 @@ func buildRouter(
 				// A repository's egress allowlist is its owner's alone (#2653).
 				if extras.EgressPolicy != nil {
 					r.With(ownerRepo...).Get("/egress-policy", extras.EgressPolicy.GetEgressPolicy)
-					r.With(ownerRepo...).Put("/egress-policy", extras.EgressPolicy.PutEgressPolicy)
+					r.With(ownerRepo...).Patch("/egress-policy", extras.EgressPolicy.PatchEgressPolicy)
 				}
 
 				// Deploy keys: per-repository SSH deploy keys.

@@ -20131,7 +20131,7 @@ paths:
   /api/repos/{owner}/{repo}/egress-policy:
     get:
       summary: GET /api/repos/{owner}/{repo}/egress-policy
-      description: The hosts every sandbox of this repository may call out to, in place of the deployment's list. An empty list leaves the deployment list in force. Hosts a secret is bound to stay reachable either way. Owner only.
+      description: The hosts every sandbox of this repository may call out to in addition to the deployment's list, which always stays reachable. An empty list leaves exactly the deployment list. Hosts a secret is bound to stay reachable either way. Owner only.
       operationId: get_api_repos_owner_repo_egress_policy
       tags:
         - Repositories
@@ -20181,10 +20181,10 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/InternalError'
-    put:
-      summary: PUT /api/repos/{owner}/{repo}/egress-policy
-      description: Replaces the repository's egress allowlist, then reloads it into every running workspace and agent session of the repository without restarting them. New and resumed sandboxes start with it. Refuses `*`, IP addresses and ranges, names that are not hosts, and more than 200 entries. A sandbox whose reload fails keeps running and reports its error; it gets the list when it next starts. Owner only.
-      operationId: put_api_repos_owner_repo_egress_policy
+    patch:
+      summary: PATCH /api/repos/{owner}/{repo}/egress-policy
+      description: Adds and removes hosts in one atomic write, then reloads the resulting list into every running workspace and agent session of the repository without restarting them. Overlapping writers each apply their own change; there is no whole-list write to overwrite another's. Adding a listed host or removing an unlisted one changes nothing and still reloads. New and resumed sandboxes start with the list. Refuses `*`, IP addresses and ranges, names that are not hosts, a host both added and removed, a body naming no host, and a result over 200 hosts. A sandbox whose reload fails keeps running and reports its error; it gets the list when it next starts. Owner only.
+      operationId: patch_api_repos_owner_repo_egress_policy
       tags:
         - Repositories
       parameters:
@@ -20205,12 +20205,15 @@ paths:
             schema:
               type: object
               additionalProperties: false
-              required:
-                - allow_domains
               properties:
-                allow_domains:
+                add:
                   type: array
-                  description: Host names and `*.domain` wildcards; case, duplicates and a trailing dot are normalised away, and at most 200 distinct hosts remain. An empty list returns to the deployment list.
+                  description: Hosts to allow. Host names and `*.domain` wildcards; case, duplicates and a trailing dot are normalised away.
+                  items:
+                    type: string
+                remove:
+                  type: array
+                  description: Hosts to stop allowing, normalised the same way. Removing the last host returns every sandbox to exactly the deployment list.
                   items:
                     type: string
       x-required-token-scope: write:repository

@@ -437,13 +437,20 @@ type EgressProxyPolicy struct {
 	// AllowDomains is the proxy-level domain allowlist. Empty leaves the list
 	// to the provider: the hosted Microsandbox worker uses its deployment
 	// allowlist, else a default-deny list of package registries and model
-	// APIs. A reload naming "*" is refused unless the deployment allowlist
-	// opts in with "*"; a list sent at creation is enforced as given. Hosts a
-	// secret is bound to are always added. Private, link-local, and metadata
+	// APIs. A list sent here is enforced as given (it narrows the deployment
+	// list); a live reload never changes it. Hosts a secret is bound to are
+	// always added. Private, link-local, and metadata
 	// ranges are always denied regardless of this list. (ironproxy.Render
 	// alone still renders an empty list with no AllowCIDRs as "*".)
-	AllowDomains []string            `json:"allowDomains,omitempty"`
-	Secrets      []EgressProxySecret `json:"secrets,omitempty"`
+	AllowDomains []string `json:"allowDomains,omitempty"`
+	// ExtraAllowDomains adds hosts to whichever base list applies (this
+	// policy's AllowDomains, else the provider's deployment list); it never
+	// narrows it. A repository's owner-set allowlist travels here, so its
+	// first host keeps the deployment's package registries and model APIs
+	// reachable. An EgressReloader replaces exactly this list on a running
+	// proxy.
+	ExtraAllowDomains []string            `json:"extraAllowDomains,omitempty"`
+	Secrets           []EgressProxySecret `json:"secrets,omitempty"`
 	// HostRules narrows hosts: a host a rule names is reachable only by the
 	// methods and paths its rules match, whatever the allowlist says.
 	HostRules []EgressHostRule `json:"hostRules,omitempty"`
@@ -530,6 +537,12 @@ func (p *EgressProxyPolicy) Validate() error {
 	for _, rule := range p.HostRules {
 		if err := rule.Validate(); err != nil {
 			return err
+		}
+	}
+	for _, host := range p.ExtraAllowDomains {
+		_, _, cidrErr := net.ParseCIDR(strings.TrimSpace(host))
+		if cidrErr == nil || !ValidEgressHost(host) {
+			return fmt.Errorf("egress proxy extra host %q is not a host name", host)
 		}
 	}
 	return nil

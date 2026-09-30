@@ -10,11 +10,11 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 )
 
-// RepositoryEgressPolicyRouteService reads and replaces a repository's
+// RepositoryEgressPolicyRouteService reads and changes a repository's
 // egress allowlist.
 type RepositoryEgressPolicyRouteService interface {
 	Get(ctx context.Context, repositoryID int64) (services.RepositoryEgressPolicy, error)
-	Put(ctx context.Context, actor *db.User, repositoryID int64, domains []string) (services.RepositoryEgressPolicyUpdate, error)
+	Patch(ctx context.Context, actor *db.User, repositoryID int64, add, remove []string) (services.RepositoryEgressPolicyUpdate, error)
 }
 
 // RepositoryEgressPolicyHandler serves /api/repos/{owner}/{repo}/egress-policy.
@@ -23,8 +23,9 @@ type RepositoryEgressPolicyHandler struct {
 	Service RepositoryEgressPolicyRouteService
 }
 
-type putRepositoryEgressPolicyRequest struct {
-	AllowDomains *[]string `json:"allow_domains"`
+type patchRepositoryEgressPolicyRequest struct {
+	Add    []string `json:"add"`
+	Remove []string `json:"remove"`
 }
 
 // GetEgressPolicy answers the repository's allowlist.
@@ -42,9 +43,11 @@ func (h *RepositoryEgressPolicyHandler) GetEgressPolicy(w http.ResponseWriter, r
 	errors.WriteJSON(w, http.StatusOK, policy)
 }
 
-// PutEgressPolicy replaces the allowlist and reloads it into every running
-// sandbox of the repository, answering each sandbox's outcome.
-func (h *RepositoryEgressPolicyHandler) PutEgressPolicy(w http.ResponseWriter, r *http.Request) {
+// PatchEgressPolicy adds and removes hosts atomically and reloads the result
+// into every running sandbox of the repository, answering each sandbox's
+// outcome. There is no whole-list write: a client never sends back a list it
+// read, so overlapping writers cannot undo each other.
+func (h *RepositoryEgressPolicyHandler) PatchEgressPolicy(w http.ResponseWriter, r *http.Request) {
 	actor, err := requireRouteUser(r)
 	if err != nil {
 		errors.WriteError(w, err.(*errors.APIError))
@@ -55,15 +58,11 @@ func (h *RepositoryEgressPolicyHandler) PutEgressPolicy(w http.ResponseWriter, r
 		errors.WriteError(w, errors.Internal("repository context not loaded"))
 		return
 	}
-	var input putRepositoryEgressPolicyRequest
+	var input patchRepositoryEgressPolicyRequest
 	if !decodeStrictJSONBody(w, r, &input) {
 		return
 	}
-	if input.AllowDomains == nil {
-		errors.WriteError(w, errors.BadRequest("allow_domains is required"))
-		return
-	}
-	update, err := h.Service.Put(r.Context(), actor, repository.ID, *input.AllowDomains)
+	update, err := h.Service.Patch(r.Context(), actor, repository.ID, input.Add, input.Remove)
 	if err != nil {
 		writeRouteError(w, r, err)
 		return

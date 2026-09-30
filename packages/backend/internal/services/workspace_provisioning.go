@@ -441,14 +441,14 @@ func (s *WorkspaceService) workspaceEgressProxy(ctx context.Context, repositoryI
 		policy.HostRules = sandbox.ConversationWithheldHostRules()
 	}
 	// The repository's durable allowlist is what a created or resumed proxy
-	// renders; a read that fails refuses the VM rather than widen or narrow
-	// its egress past what the owner set.
+	// adds to the deployment list; a read that fails refuses the VM rather
+	// than start it without the hosts the owner added.
 	if s.egressAllowDomains != nil && repositoryID > 0 {
 		domains, err := s.egressAllowDomains.AllowDomains(ctx, repositoryID)
 		if err != nil {
 			return nil, pkgerrors.Internal("read the repository egress policy").WithCause(err)
 		}
-		policy.AllowDomains = domains
+		policy.ExtraAllowDomains = domains
 	}
 	loader, ok := s.agentEnvironment.(workspaceProxyBoundSecretsLoader)
 	if !ok || repositoryID <= 0 {

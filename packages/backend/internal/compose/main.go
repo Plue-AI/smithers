@@ -656,7 +656,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	if reloader, ok := provider.(sandbox.EgressReloader); ok {
 		egressReloader = reloader
 	}
-	egressPolicyService := services.NewRepositoryEgressPolicyService(queries, egressReloader)
+	egressPolicyService := services.NewRepositoryEgressPolicyService(services.NewPostgresRepositoryEgressPolicyStore(pool), egressReloader)
 	// Backstop for micro-VMs whose owning workspace row was cascade-
 	// deleted with its repository: nothing else can see them, because every
 	// other sweep starts from the row that is gone.

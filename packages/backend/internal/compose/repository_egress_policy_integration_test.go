@@ -32,8 +32,8 @@ type egressReloadSpy struct {
 func (s *egressReloadSpy) ReloadEgress(_ context.Context, sandboxID string, req sandbox.EgressReloadRequest) (sandbox.EgressReloadResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.calls[sandboxID] = req.AllowDomains
-	return sandbox.EgressReloadResult{SandboxID: sandboxID, AllowDomains: req.AllowDomains}, nil
+	s.calls[sandboxID] = req.ExtraAllowDomains
+	return sandbox.EgressReloadResult{SandboxID: sandboxID, AllowDomains: req.ExtraAllowDomains}, nil
 }
 
 // The composed router admits only the repository's owner to its egress
@@ -69,7 +69,7 @@ func TestRepositoryEgressPolicyRouteIsOwnerOnlyAndReloadsRunningSandboxesPostgre
 	runToken := token(owner, "run", "c", true)
 
 	spy := &egressReloadSpy{calls: map[string][]string{}}
-	egress := services.NewRepositoryEgressPolicyService(q, spy)
+	egress := services.NewRepositoryEgressPolicyService(services.NewPostgresRepositoryEgressPolicyStore(pool), spy)
 	router := buildRouterCompat(testConfigAllFlagsOn(), q, pool,
 		&routes.RepoHandler{}, &routes.AuthHandler{}, &routes.UserHandler{}, &routes.SSHKeyHandler{}, &routes.LabelHandler{},
 		&routes.OrgHandler{}, &routes.LandingHandler{}, &routes.SearchHandler{Service: &mockRouterSearchService{}}, &routes.IssueHandler{},
@@ -86,13 +86,14 @@ func TestRepositoryEgressPolicyRouteIsOwnerOnlyAndReloadsRunningSandboxesPostgre
 		router.ServeHTTP(rec, req)
 		return rec
 	}
-	put := `{"allow_domains":["Registry.Example.com","*.pkg.dev","registry.example.com"]}`
+	patch := `{"add":["Registry.Example.com","*.pkg.dev","registry.example.com"]}`
 
 	require.Equal(t, http.StatusForbidden, call(http.MethodGet, adminToken, "").Code)
-	require.Equal(t, http.StatusForbidden, call(http.MethodPut, adminToken, put).Code)
+	require.Equal(t, http.StatusForbidden, call(http.MethodPatch, adminToken, patch).Code)
 	// The owner's own run credential is capped below owner.
 	require.Equal(t, http.StatusForbidden, call(http.MethodGet, runToken, "").Code)
-	require.Equal(t, http.StatusForbidden, call(http.MethodPut, runToken, put).Code)
+	require.Equal(t, http.StatusForbidden, call(http.MethodPatch, runToken, patch).Code)
+	require.Equal(t, http.StatusMethodNotAllowed, call(http.MethodPut, ownerToken, `{"allow_domains":["a.example"]}`).Code, "no whole-list write")
 	require.Contains(t, []int{http.StatusUnauthorized, http.StatusNotFound}, call(http.MethodGet, "", "").Code, "anonymous")
 	_, err = q.GetRepositoryEgressPolicy(ctx, repo.ID)
 	require.Error(t, err, "a refused write stored a policy")
@@ -102,7 +103,7 @@ func TestRepositoryEgressPolicyRouteIsOwnerOnlyAndReloadsRunningSandboxesPostgre
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	require.JSONEq(t, `{"allow_domains":[]}`, rec.Body.String())
 
-	rec = call(http.MethodPut, ownerToken, put)
+	rec = call(http.MethodPatch, ownerToken, patch)
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	var update services.RepositoryEgressPolicyUpdate
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &update))
@@ -119,16 +120,26 @@ func TestRepositoryEgressPolicyRouteIsOwnerOnlyAndReloadsRunningSandboxesPostgre
 	require.Contains(t, rec.Body.String(), `"allow_domains":["*.pkg.dev","registry.example.com"]`)
 
 	for body, status := range map[string]int{
-		`{}`:                                 http.StatusBadRequest,
-		`{"allow_domains":["*"]}`:            http.StatusBadRequest,
-		`{"allow_domains":["10.0.0.0/8"]}`:   http.StatusBadRequest,
-		`{"allow_domains":[],"extra":true}`:  http.StatusBadRequest,
-		`{"allow_domains":["a.example"]}{}`:  http.StatusBadRequest,
-		`{"allow_domains":["https://x.io"]}`: http.StatusBadRequest,
+		`{}`:                                  http.StatusBadRequest,
+		`{"add":[],"remove":[]}`:              http.StatusBadRequest,
+		`{"add":["*"]}`:                       http.StatusBadRequest,
+		`{"add":["10.0.0.0/8"]}`:              http.StatusBadRequest,
+		`{"add":["a.example"],"extra":true}`:  http.StatusBadRequest,
+		`{"allow_domains":["a.example"]}`:     http.StatusBadRequest,
+		`{"add":["a.example"]}{}`:             http.StatusBadRequest,
+		`{"add":["https://x.io"]}`:            http.StatusBadRequest,
+		`{"add":["x.io"],"remove":["X.io."]}`: http.StatusBadRequest,
 	} {
-		require.Equal(t, status, call(http.MethodPut, ownerToken, body).Code, body)
+		require.Equal(t, status, call(http.MethodPatch, ownerToken, body).Code, body)
 	}
 	stored, err = q.GetRepositoryEgressPolicy(ctx, repo.ID)
 	require.NoError(t, err)
 	require.Equal(t, []string{"*.pkg.dev", "registry.example.com"}, stored.AllowDomains, "a refused body changed the policy")
+
+	// Removing the last hosts leaves an empty list: running proxies reload []
+	// as their extra hosts and keep exactly the deployment list.
+	rec = call(http.MethodPatch, ownerToken, `{"remove":["*.pkg.dev","registry.example.com"]}`)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	require.Contains(t, rec.Body.String(), `"allow_domains":[]`)
+	require.Equal(t, map[string][]string{"vm-running": {}}, spy.calls)
 }

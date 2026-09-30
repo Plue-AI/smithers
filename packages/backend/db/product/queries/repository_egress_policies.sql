@@ -3,14 +3,34 @@ SELECT *
 FROM repository_egress_policies
 WHERE repository_id = $1;
 
--- name: UpsertRepositoryEgressPolicy :one
-INSERT INTO repository_egress_policies (repository_id, allow_domains, updated_by)
-VALUES (sqlc.arg(repository_id), sqlc.arg(allow_domains)::text[], sqlc.narg(updated_by))
+-- name: PatchRepositoryEgressPolicy :one
+-- Adds and removes hosts in one statement: the row lock of ON CONFLICT makes
+-- overlapping writers apply one after the other, so neither loses the
+-- other's change. The list stays deduplicated and sorted byte-wise. A result
+-- longer than max_domains writes nothing and returns no row.
+INSERT INTO repository_egress_policies AS p (repository_id, allow_domains, updated_by)
+SELECT sqlc.arg(repository_id), fresh.domains, sqlc.narg(updated_by)
+FROM (
+    SELECT ARRAY(
+        SELECT DISTINCT d FROM unnest(COALESCE(sqlc.arg(add_domains)::text[], '{}')) AS d
+        WHERE NOT d = ANY(COALESCE(sqlc.arg(remove_domains)::text[], '{}'))
+        ORDER BY d COLLATE "C"
+    )::text[] AS domains
+) fresh
+WHERE cardinality(fresh.domains) <= sqlc.arg(max_domains)::int
 ON CONFLICT (repository_id)
 DO UPDATE SET
-    allow_domains = EXCLUDED.allow_domains,
+    allow_domains = ARRAY(
+        SELECT DISTINCT d FROM unnest(p.allow_domains || EXCLUDED.allow_domains) AS d
+        WHERE NOT d = ANY(COALESCE(sqlc.arg(remove_domains)::text[], '{}'))
+        ORDER BY d COLLATE "C"
+    )::text[],
     updated_by = EXCLUDED.updated_by,
     updated_at = NOW()
+WHERE cardinality(ARRAY(
+    SELECT DISTINCT d FROM unnest(p.allow_domains || EXCLUDED.allow_domains) AS d
+    WHERE NOT d = ANY(COALESCE(sqlc.arg(remove_domains)::text[], '{}'))
+)) <= sqlc.arg(max_domains)::int
 RETURNING *;
 
 -- name: ListRepositoryLiveSandboxIDs :many

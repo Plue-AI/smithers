@@ -2,7 +2,11 @@ package services
 
 import (
 	"context"
+	"fmt"
+	"sort"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -10,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/sandbox"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 )
 
@@ -67,8 +72,8 @@ func TestRepositoryEgressPolicyReloadsOnlyTheRepositorysLiveSandboxesPostgres(t 
 	assert.Equal(t, []string{"vm-agent", "vm-agent-assigned", "vm-workspace"}, live)
 
 	reloader := &egressReloaderFake{calls: map[string][]string{}}
-	service := NewRepositoryEgressPolicyService(q, reloader)
-	update, err := service.Put(ctx, &owner, repo.ID, []string{"registry.example.com"})
+	service := NewRepositoryEgressPolicyService(NewPostgresRepositoryEgressPolicyStore(pool), reloader)
+	update, err := service.Patch(ctx, &owner, repo.ID, []string{"registry.example.com"}, nil)
 	require.NoError(t, err)
 	assert.Equal(t, []RepositoryEgressReload{
 		{SandboxID: "vm-agent", Reloaded: true},
@@ -85,8 +90,8 @@ func TestRepositoryEgressPolicyReloadsOnlyTheRepositorysLiveSandboxesPostgres(t 
 	require.NoError(t, err)
 	assert.Nil(t, domains)
 
-	// A second write replaces the list and its author.
-	update, err = service.Put(ctx, nil, repo.ID, []string{"b.example", "a.example"})
+	// A second write adds to the list, removes from it, and records its author.
+	update, err = service.Patch(ctx, nil, repo.ID, []string{"b.example", "a.example", "B.example"}, []string{"registry.example.com"})
 	require.NoError(t, err)
 	stored, err := q.GetRepositoryEgressPolicy(ctx, repo.ID)
 	require.NoError(t, err)
@@ -100,4 +105,133 @@ func TestRepositoryEgressPolicyReloadsOnlyTheRepositorysLiveSandboxesPostgres(t 
 	policy, err := service.Get(ctx, repo.ID)
 	require.NoError(t, err)
 	assert.Equal(t, []string{}, policy.AllowDomains)
+}
+
+// Overlapping writers never lose each other's change (#3263): an allow and a
+// deny that race both apply, many concurrent allows all land, and every
+// running sandbox's last reload carries the final stored list because the
+// write lock orders the reloads with the writes.
+func TestRepositoryEgressPolicyOverlappingWritersKeepEveryChangePostgres(t *testing.T) {
+	pool, _ := postgresfixture.NewProductDatabase(t)
+	ctx := context.Background()
+	q := db.New(pool)
+	owner, err := q.CreateUser(ctx, db.CreateUserParams{Username: "owner", LowerUsername: "owner", DisplayName: "Owner"})
+	require.NoError(t, err)
+	repo, err := q.CreateRepo(ctx, db.CreateRepoParams{UserID: pgtype.Int8{Int64: owner.ID, Valid: true}, Name: "app", LowerName: "app", DefaultBookmark: "main"})
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO workspaces (id, name, repository_id, user_id, status, vm_id) VALUES ($1, 'w', $2, $3, 'running', 'vm-live')`, uuid.NewString(), repo.ID, owner.ID)
+	require.NoError(t, err)
+	reloader := &egressReloadRecorder{}
+	service := NewRepositoryEgressPolicyService(NewPostgresRepositoryEgressPolicyStore(pool), reloader)
+	_, err = service.Patch(ctx, &owner, repo.ID, []string{"b.example"}, nil)
+	require.NoError(t, err)
+
+	// The allow reads-and-writes while the deny is mid-flight: with a
+	// read-modify-write client one of them would undo the other.
+	for round := 0; round < 20; round++ {
+		start := make(chan struct{})
+		var wg sync.WaitGroup
+		errs := make([]error, 2)
+		for index, patch := range [][2][]string{{{"a.example"}, nil}, {nil, {"b.example"}}} {
+			wg.Add(1)
+			go func(index int, add, remove []string) {
+				defer wg.Done()
+				<-start
+				_, errs[index] = service.Patch(ctx, &owner, repo.ID, add, remove)
+			}(index, patch[0], patch[1])
+		}
+		close(start)
+		wg.Wait()
+		require.NoError(t, errs[0])
+		require.NoError(t, errs[1])
+		stored, err := q.GetRepositoryEgressPolicy(ctx, repo.ID)
+		require.NoError(t, err)
+		require.Equal(t, []string{"a.example"}, stored.AllowDomains, "round %d lost a change", round)
+		require.Equal(t, stored.AllowDomains, reloader.last("vm-live"), "round %d left the running proxy on a stale list", round)
+		// Reset for the next round.
+		_, err = service.Patch(ctx, &owner, repo.ID, []string{"b.example"}, []string{"a.example"})
+		require.NoError(t, err)
+	}
+
+	// Many writers at once: every allow lands, every deny of its own host holds.
+	hosts := make([]string, 16)
+	var wg sync.WaitGroup
+	for i := range hosts {
+		hosts[i] = fmt.Sprintf("h%02d.example", i)
+		wg.Add(1)
+		go func(host string) {
+			defer wg.Done()
+			_, err := service.Patch(ctx, &owner, repo.ID, []string{host}, nil)
+			assert.NoError(t, err)
+		}(hosts[i])
+	}
+	wg.Wait()
+	for i := 0; i < len(hosts); i += 2 {
+		wg.Add(1)
+		go func(host string) {
+			defer wg.Done()
+			_, err := service.Patch(ctx, &owner, repo.ID, nil, []string{host})
+			assert.NoError(t, err)
+		}(hosts[i])
+	}
+	wg.Wait()
+	want := []string{"b.example"}
+	for i := 1; i < len(hosts); i += 2 {
+		want = append(want, hosts[i])
+	}
+	sort.Strings(want)
+	stored, err := q.GetRepositoryEgressPolicy(ctx, repo.ID)
+	require.NoError(t, err)
+	assert.Equal(t, want, stored.AllowDomains)
+	assert.Equal(t, want, reloader.last("vm-live"))
+
+	// A write that would pass the limit writes nothing.
+	fill := make([]string, 0, maxRepositoryEgressDomains-len(want))
+	for i := 0; len(want)+len(fill) < maxRepositoryEgressDomains; i++ {
+		fill = append(fill, fmt.Sprintf("fill%03d.example", i))
+	}
+	_, err = service.Patch(ctx, &owner, repo.ID, fill, nil)
+	require.NoError(t, err)
+	_, err = service.Patch(ctx, &owner, repo.ID, []string{"one-more.example"}, nil)
+	require.ErrorContains(t, err, "too many egress domains")
+	stored, err = q.GetRepositoryEgressPolicy(ctx, repo.ID)
+	require.NoError(t, err)
+	assert.Len(t, stored.AllowDomains, maxRepositoryEgressDomains)
+	assert.NotContains(t, stored.AllowDomains, "one-more.example")
+
+	// The lock is released after every write, including a refused one: a
+	// fresh connection can take it at once.
+	lockCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	var locked bool
+	require.NoError(t, pool.QueryRow(lockCtx, "SELECT pg_try_advisory_lock("+repositoryEgressWriteLockKey+")", repo.ID).Scan(&locked))
+	assert.True(t, locked)
+}
+
+// egressReloadRecorder records every reload in arrival order, holding each
+// one briefly so overlapping writers would interleave their reloads.
+type egressReloadRecorder struct {
+	mu    sync.Mutex
+	calls map[string][][]string
+}
+
+func (r *egressReloadRecorder) ReloadEgress(_ context.Context, sandboxID string, req sandbox.EgressReloadRequest) (sandbox.EgressReloadResult, error) {
+	time.Sleep(2 * time.Millisecond)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.calls == nil {
+		r.calls = map[string][][]string{}
+	}
+	r.calls[sandboxID] = append(r.calls[sandboxID], req.ExtraAllowDomains)
+	return sandbox.EgressReloadResult{SandboxID: sandboxID, AllowDomains: req.ExtraAllowDomains}, nil
+}
+
+func (r *egressReloadRecorder) last(sandboxID string) []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	calls := r.calls[sandboxID]
+	if len(calls) == 0 {
+		return nil
+	}
+	return calls[len(calls)-1]
 }

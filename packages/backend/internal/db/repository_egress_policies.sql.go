@@ -73,25 +73,53 @@ func (q *Queries) ListRepositoryLiveSandboxIDs(ctx context.Context, repositoryID
 	return items, nil
 }
 
-const upsertRepositoryEgressPolicy = `-- name: UpsertRepositoryEgressPolicy :one
-INSERT INTO repository_egress_policies (repository_id, allow_domains, updated_by)
-VALUES ($1, $2::text[], $3)
+const patchRepositoryEgressPolicy = `-- name: PatchRepositoryEgressPolicy :one
+INSERT INTO repository_egress_policies AS p (repository_id, allow_domains, updated_by)
+SELECT $1, fresh.domains, $2
+FROM (
+    SELECT ARRAY(
+        SELECT DISTINCT d FROM unnest(COALESCE($3::text[], '{}')) AS d
+        WHERE NOT d = ANY(COALESCE($4::text[], '{}'))
+        ORDER BY d COLLATE "C"
+    )::text[] AS domains
+) fresh
+WHERE cardinality(fresh.domains) <= $5::int
 ON CONFLICT (repository_id)
 DO UPDATE SET
-    allow_domains = EXCLUDED.allow_domains,
+    allow_domains = ARRAY(
+        SELECT DISTINCT d FROM unnest(p.allow_domains || EXCLUDED.allow_domains) AS d
+        WHERE NOT d = ANY(COALESCE($4::text[], '{}'))
+        ORDER BY d COLLATE "C"
+    )::text[],
     updated_by = EXCLUDED.updated_by,
     updated_at = NOW()
+WHERE cardinality(ARRAY(
+    SELECT DISTINCT d FROM unnest(p.allow_domains || EXCLUDED.allow_domains) AS d
+    WHERE NOT d = ANY(COALESCE($4::text[], '{}'))
+)) <= $5::int
 RETURNING repository_id, allow_domains, updated_by, created_at, updated_at
 `
 
-type UpsertRepositoryEgressPolicyParams struct {
-	RepositoryID int64       `json:"repository_id"`
-	AllowDomains []string    `json:"allow_domains"`
-	UpdatedBy    pgtype.Int8 `json:"updated_by"`
+type PatchRepositoryEgressPolicyParams struct {
+	RepositoryID  int64       `json:"repository_id"`
+	UpdatedBy     pgtype.Int8 `json:"updated_by"`
+	AddDomains    []string    `json:"add_domains"`
+	RemoveDomains []string    `json:"remove_domains"`
+	MaxDomains    int32       `json:"max_domains"`
 }
 
-func (q *Queries) UpsertRepositoryEgressPolicy(ctx context.Context, arg UpsertRepositoryEgressPolicyParams) (RepositoryEgressPolicy, error) {
-	row := q.db.QueryRow(ctx, upsertRepositoryEgressPolicy, arg.RepositoryID, arg.AllowDomains, arg.UpdatedBy)
+// Adds and removes hosts in one statement: the row lock of ON CONFLICT makes
+// overlapping writers apply one after the other, so neither loses the
+// other's change. The list stays deduplicated and sorted byte-wise. A result
+// longer than max_domains writes nothing and returns no row.
+func (q *Queries) PatchRepositoryEgressPolicy(ctx context.Context, arg PatchRepositoryEgressPolicyParams) (RepositoryEgressPolicy, error) {
+	row := q.db.QueryRow(ctx, patchRepositoryEgressPolicy,
+		arg.RepositoryID,
+		arg.UpdatedBy,
+		arg.AddDomains,
+		arg.RemoveDomains,
+		arg.MaxDomains,
+	)
 	var i RepositoryEgressPolicy
 	err := row.Scan(
 		&i.RepositoryID,

@@ -4,6 +4,8 @@ import (
 	"context"
 	stdErrors "errors"
 	"fmt"
+	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -18,13 +20,28 @@ import (
 	"github.com/smithersai/smithers/packages/backend/sandbox"
 )
 
-// egressPolicyStore is an in-memory RepositoryEgressPolicyQuerier.
+// egressPolicyStore is an in-memory RepositoryEgressPolicyStore with the
+// PATCH statement's semantics: union, difference, dedupe, sort, limit.
 type egressPolicyStore struct {
+	mu       sync.Mutex
 	rows     map[int64]db.RepositoryEgressPolicy
 	live     []string
 	getErr   error
 	writeErr error
 	listErr  error
+	lockErr  error
+	locked   bool
+}
+
+func (s *egressPolicyStore) WithRepositoryEgressWriteLock(_ context.Context, _ int64, work func(RepositoryEgressPolicyQuerier) error) error {
+	if s.lockErr != nil {
+		return s.lockErr
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.locked = true
+	defer func() { s.locked = false }()
+	return work(s)
 }
 
 func (s *egressPolicyStore) GetRepositoryEgressPolicy(_ context.Context, repositoryID int64) (db.RepositoryEgressPolicy, error) {
@@ -38,11 +55,24 @@ func (s *egressPolicyStore) GetRepositoryEgressPolicy(_ context.Context, reposit
 	return row, nil
 }
 
-func (s *egressPolicyStore) UpsertRepositoryEgressPolicy(_ context.Context, arg db.UpsertRepositoryEgressPolicyParams) (db.RepositoryEgressPolicy, error) {
+func (s *egressPolicyStore) PatchRepositoryEgressPolicy(_ context.Context, arg db.PatchRepositoryEgressPolicyParams) (db.RepositoryEgressPolicy, error) {
+	if !s.locked {
+		return db.RepositoryEgressPolicy{}, stdErrors.New("patch outside the write lock")
+	}
 	if s.writeErr != nil {
 		return db.RepositoryEgressPolicy{}, s.writeErr
 	}
-	row := db.RepositoryEgressPolicy{RepositoryID: arg.RepositoryID, AllowDomains: arg.AllowDomains, UpdatedBy: arg.UpdatedBy, UpdatedAt: time.Unix(1_800_000_000, 0).UTC()}
+	domains := []string{}
+	for _, domain := range append(append([]string{}, s.rows[arg.RepositoryID].AllowDomains...), arg.AddDomains...) {
+		if !slices.Contains(arg.RemoveDomains, domain) && !slices.Contains(domains, domain) {
+			domains = append(domains, domain)
+		}
+	}
+	if len(domains) > int(arg.MaxDomains) {
+		return db.RepositoryEgressPolicy{}, pgx.ErrNoRows
+	}
+	sort.Strings(domains)
+	row := db.RepositoryEgressPolicy{RepositoryID: arg.RepositoryID, AllowDomains: domains, UpdatedBy: arg.UpdatedBy, UpdatedAt: time.Unix(1_800_000_000, 0).UTC()}
 	s.rows[arg.RepositoryID] = row
 	return row, nil
 }
@@ -64,11 +94,11 @@ func (f *egressReloaderFake) ReloadEgress(ctx context.Context, sandboxID string,
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.calls[sandboxID] = req.AllowDomains
+	f.calls[sandboxID] = req.ExtraAllowDomains
 	if err := f.failures[sandboxID]; err != nil {
 		return sandbox.EgressReloadResult{}, err
 	}
-	return sandbox.EgressReloadResult{SandboxID: sandboxID, AllowDomains: req.AllowDomains}, nil
+	return sandbox.EgressReloadResult{SandboxID: sandboxID, AllowDomains: req.ExtraAllowDomains}, nil
 }
 
 func TestNormalizeEgressAllowDomains(t *testing.T) {
@@ -122,13 +152,13 @@ func TestRepositoryEgressPolicyServiceReadsAnUnsetPolicyAsEmpty(t *testing.T) {
 	assert.Nil(t, domains, "an unset policy leaves the provider's deployment list")
 }
 
-func TestRepositoryEgressPolicyServicePutReloadsEveryRunningSandbox(t *testing.T) {
+func TestRepositoryEgressPolicyServicePatchReloadsEveryRunningSandbox(t *testing.T) {
 	t.Parallel()
 	store := &egressPolicyStore{rows: map[int64]db.RepositoryEgressPolicy{}, live: []string{"vm-a", "vm-b", "vm-c"}}
 	reloader := &egressReloaderFake{calls: map[string][]string{}, failures: map[string]error{"vm-b": stdErrors.New("sandbox vm-b is stopped")}}
 	service := NewRepositoryEgressPolicyService(store, reloader)
 
-	update, err := service.Put(context.Background(), &db.User{ID: 3}, 7, []string{"B.example", "a.example"})
+	update, err := service.Patch(context.Background(), &db.User{ID: 3}, 7, []string{"B.example", "a.example"}, nil)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"a.example", "b.example"}, update.AllowDomains)
 	require.NotNil(t, update.UpdatedAt)
@@ -146,9 +176,20 @@ func TestRepositoryEgressPolicyServicePutReloadsEveryRunningSandbox(t *testing.T
 	require.NoError(t, err)
 	assert.Equal(t, []string{"a.example", "b.example"}, domains)
 
-	// Clearing the list resets running proxies to the deployment list: the
-	// reload carries [], and new sandboxes get no list at all.
-	update, err = service.Put(context.Background(), nil, 7, []string{})
+	// Adding a listed host and removing an unlisted one change nothing but
+	// still reload, so a retry after a failed reload reaches the sandboxes.
+	delete(reloader.calls, "vm-a")
+	update, err = service.Patch(context.Background(), nil, 7, []string{"a.example"}, []string{"gone.example"})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"a.example", "b.example"}, update.AllowDomains)
+	assert.Equal(t, []string{"a.example", "b.example"}, reloader.calls["vm-a"])
+
+	// Removing the last host reloads [] as the extra hosts, which leaves each
+	// running proxy on exactly the deployment list, and new sandboxes get no
+	// extra hosts at all.
+	_, err = service.Patch(context.Background(), &db.User{ID: 3}, 7, nil, []string{"b.example"})
+	require.NoError(t, err)
+	update, err = service.Patch(context.Background(), nil, 7, nil, []string{"A.example."})
 	require.NoError(t, err)
 	assert.Equal(t, []string{}, update.AllowDomains)
 	assert.Equal(t, []string{}, reloader.calls["vm-a"])
@@ -162,16 +203,57 @@ func TestRepositoryEgressPolicyServiceWithoutLiveReloadWritesAndSaysSo(t *testin
 	t.Parallel()
 	store := &egressPolicyStore{rows: map[int64]db.RepositoryEgressPolicy{}, live: []string{"vm-a"}}
 	service := NewRepositoryEgressPolicyService(store, nil)
-	update, err := service.Put(context.Background(), &db.User{ID: 3}, 7, []string{"a.example"})
+	update, err := service.Patch(context.Background(), &db.User{ID: 3}, 7, []string{"a.example"}, nil)
 	require.NoError(t, err)
 	assert.Equal(t, []RepositoryEgressReload{{SandboxID: "vm-a", Error: errEgressReloadUnsupported}}, update.Reloads)
 	assert.Equal(t, []string{"a.example"}, store.rows[7].AllowDomains)
 
 	update, err = NewRepositoryEgressPolicyService(&egressPolicyStore{rows: map[int64]db.RepositoryEgressPolicy{}}, nil).
-		Put(context.Background(), &db.User{ID: 3}, 7, []string{"a.example"})
+		Patch(context.Background(), &db.User{ID: 3}, 7, []string{"a.example"}, nil)
 	require.NoError(t, err)
 	assert.NotNil(t, update.Reloads, "no running sandbox is [], never null")
 	assert.Empty(t, update.Reloads)
+}
+
+func TestRepositoryEgressPolicyServiceRefusesAPatchBeforeWriting(t *testing.T) {
+	t.Parallel()
+	full := map[int64]db.RepositoryEgressPolicy{7: {RepositoryID: 7, AllowDomains: make([]string, 0, maxRepositoryEgressDomains)}}
+	for i := 0; i < maxRepositoryEgressDomains; i++ {
+		row := full[7]
+		row.AllowDomains = append(row.AllowDomains, fmt.Sprintf("h%03d.example", i))
+		full[7] = row
+	}
+	for name, tc := range map[string]struct {
+		add, remove []string
+		message     string
+	}{
+		"nothing named":     {message: "name a host to add or remove"},
+		"empty lists":       {add: []string{}, remove: []string{}, message: "name a host to add or remove"},
+		"added and removed": {add: []string{"a.example"}, remove: []string{"A.example."}, message: "both added and removed"},
+		"wildcard added":    {add: []string{"*"}, message: "every host"},
+		"address removed":   {remove: []string{"10.0.0.1"}, message: "IP address"},
+		"over the limit":    {add: []string{"one-more.example"}, message: "too many egress domains"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			rows := map[int64]db.RepositoryEgressPolicy{7: {RepositoryID: 7, AllowDomains: append([]string{}, full[7].AllowDomains...)}}
+			store := &egressPolicyStore{rows: rows, live: []string{"vm-a"}}
+			reloader := &egressReloaderFake{calls: map[string][]string{}}
+			_, err := NewRepositoryEgressPolicyService(store, reloader).Patch(context.Background(), nil, 7, tc.add, tc.remove)
+			var apiErr *pkgerrors.APIError
+			require.True(t, stdErrors.As(err, &apiErr), "%v", err)
+			assert.Equal(t, pkgerrors.CodeBadRequest, apiErr.Code)
+			assert.Contains(t, apiErr.Message, tc.message)
+			assert.Equal(t, full[7].AllowDomains, store.rows[7].AllowDomains, "a refused patch changed the list")
+			assert.Empty(t, reloader.calls, "a refused patch reached a sandbox")
+		})
+	}
+	// Removing one host from a full list while adding another fits.
+	store := &egressPolicyStore{rows: full, live: nil}
+	update, err := NewRepositoryEgressPolicyService(store, nil).Patch(context.Background(), nil, 7, []string{"one-more.example"}, []string{"h000.example"})
+	require.NoError(t, err)
+	assert.Len(t, update.AllowDomains, maxRepositoryEgressDomains)
+	assert.Contains(t, update.AllowDomains, "one-more.example")
+	assert.NotContains(t, update.AllowDomains, "h000.example")
 }
 
 func TestRepositoryEgressPolicyServiceFailures(t *testing.T) {
@@ -191,20 +273,21 @@ func TestRepositoryEgressPolicyServiceFailures(t *testing.T) {
 	_, err = NewRepositoryEgressPolicyService(&egressPolicyStore{getErr: boom}, nil).AllowDomains(ctx, 7)
 	require.ErrorIs(t, err, boom, "a sandbox is refused rather than created without its owner's list")
 
-	store := &egressPolicyStore{rows: map[int64]db.RepositoryEgressPolicy{}, writeErr: boom}
-	_, err = NewRepositoryEgressPolicyService(store, nil).Put(ctx, nil, 7, []string{"a.example"})
+	store := &egressPolicyStore{rows: map[int64]db.RepositoryEgressPolicy{}, lockErr: boom}
+	_, err = NewRepositoryEgressPolicyService(store, nil).Patch(ctx, nil, 7, []string{"a.example"}, nil)
+	internal(t, err, "lock the repository egress policy")
+	var apiErr *pkgerrors.APIError
+	require.ErrorAs(t, err, &apiErr)
+	require.ErrorIs(t, apiErr.Cause(), boom)
+	assert.Empty(t, store.rows)
+
+	store = &egressPolicyStore{rows: map[int64]db.RepositoryEgressPolicy{}, writeErr: boom}
+	_, err = NewRepositoryEgressPolicyService(store, nil).Patch(ctx, nil, 7, []string{"a.example"}, nil)
 	internal(t, err, "write the repository egress policy")
 
 	store = &egressPolicyStore{rows: map[int64]db.RepositoryEgressPolicy{}, listErr: boom}
-	_, err = NewRepositoryEgressPolicyService(store, nil).Put(ctx, nil, 7, []string{"a.example"})
+	_, err = NewRepositoryEgressPolicyService(store, nil).Patch(ctx, nil, 7, []string{"a.example"}, nil)
 	internal(t, err, "list the repository's running sandboxes")
-
-	reloader := &egressReloaderFake{calls: map[string][]string{}}
-	store = &egressPolicyStore{rows: map[int64]db.RepositoryEgressPolicy{}, live: []string{"vm-a"}}
-	_, err = NewRepositoryEgressPolicyService(store, reloader).Put(ctx, nil, 7, []string{"*"})
-	require.Error(t, err)
-	assert.Empty(t, store.rows, "a refused list is never stored")
-	assert.Empty(t, reloader.calls, "a refused list reaches no sandbox")
 }
 
 // workspaceEgressProxy renders the repository's list into every workspace
@@ -217,15 +300,16 @@ func TestWorkspaceEgressProxyCarriesTheRepositoryAllowlist(t *testing.T) {
 
 	policy, err := service.workspaceEgressProxy(ctx, 7, "")
 	require.NoError(t, err)
-	assert.Equal(t, []string{"a.example"}, policy.AllowDomains)
+	assert.Equal(t, []string{"a.example"}, policy.ExtraAllowDomains)
+	assert.Nil(t, policy.AllowDomains, "the repository list adds to the deployment list, never replaces it")
 
 	policy, err = service.workspaceEgressProxy(ctx, 8, "")
 	require.NoError(t, err)
-	assert.Nil(t, policy.AllowDomains, "a repository with no list leaves the provider default")
+	assert.Nil(t, policy.ExtraAllowDomains, "a repository with no list leaves the deployment list")
 
 	policy, err = service.workspaceEgressProxy(ctx, 0, "")
 	require.NoError(t, err)
-	assert.Nil(t, policy.AllowDomains, "the golden bake belongs to no repository")
+	assert.Nil(t, policy.ExtraAllowDomains, "the golden bake belongs to no repository")
 
 	store.getErr = stdErrors.New("database down")
 	_, err = service.workspaceEgressProxy(ctx, 7, "")
@@ -249,7 +333,8 @@ func TestAgentDispatchSendsTheRepositoryAllowlist(t *testing.T) {
 	require.NoError(t, dispatch.injectSecrets())
 	require.NoError(t, dispatch.createVM())
 	require.NotNil(t, created.EgressProxy)
-	assert.Equal(t, []string{"registry.example.com"}, created.EgressProxy.AllowDomains)
+	assert.Equal(t, []string{"registry.example.com"}, created.EgressProxy.ExtraAllowDomains)
+	assert.Nil(t, created.EgressProxy.AllowDomains, "the repository list adds to the deployment list, never replaces it")
 
 	created = sandbox.CreateRequest{}
 	store.getErr = stdErrors.New("database down")

@@ -1176,7 +1176,7 @@ func (d *agentDispatch) createVM() error {
 		if err != nil {
 			return d.markInfraFailed("repository egress policy: " + err.Error())
 		}
-		d.vmReq.EgressProxy.AllowDomains = domains
+		d.vmReq.EgressProxy.ExtraAllowDomains = domains
 	}
 	if err := d.vmReq.EgressProxy.Validate(); err != nil {
 		return d.markInfraFailed("egress proxy bindings: " + err.Error())

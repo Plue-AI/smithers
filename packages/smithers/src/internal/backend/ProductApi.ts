@@ -5061,11 +5061,12 @@ export interface GetApiReposOwnerRepoEgressPolicyInput {
 export const getApiReposOwnerRepoEgressPolicy = (transport: Transport, input: GetApiReposOwnerRepoEgressPolicyInput): Promise<GetApiReposOwnerRepoEgressPolicyResponse> =>
   transport.request("GET", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/egress-policy`) as Promise<GetApiReposOwnerRepoEgressPolicyResponse>
 
-export type PutApiReposOwnerRepoEgressPolicyBody = {
-  allow_domains: Array<string>
+export type PatchApiReposOwnerRepoEgressPolicyBody = {
+  add?: Array<string>
+  remove?: Array<string>
 }
 
-export type PutApiReposOwnerRepoEgressPolicyResponse = {
+export type PatchApiReposOwnerRepoEgressPolicyResponse = {
   allow_domains: Array<string>
   updated_at?: string
   reloads: Array<{
@@ -5075,14 +5076,14 @@ export type PutApiReposOwnerRepoEgressPolicyResponse = {
   }>
 }
 
-export interface PutApiReposOwnerRepoEgressPolicyInput {
+export interface PatchApiReposOwnerRepoEgressPolicyInput {
   readonly path: { readonly owner: string; readonly repo: string }
-  readonly body: PutApiReposOwnerRepoEgressPolicyBody
+  readonly body: PatchApiReposOwnerRepoEgressPolicyBody
 }
 
-/** PUT /api/repos/{owner}/{repo}/egress-policy */
-export const putApiReposOwnerRepoEgressPolicy = (transport: Transport, input: PutApiReposOwnerRepoEgressPolicyInput): Promise<PutApiReposOwnerRepoEgressPolicyResponse> =>
-  transport.request("PUT", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/egress-policy`, input.body) as Promise<PutApiReposOwnerRepoEgressPolicyResponse>
+/** PATCH /api/repos/{owner}/{repo}/egress-policy */
+export const patchApiReposOwnerRepoEgressPolicy = (transport: Transport, input: PatchApiReposOwnerRepoEgressPolicyInput): Promise<PatchApiReposOwnerRepoEgressPolicyResponse> =>
+  transport.request("PATCH", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/egress-policy`, input.body) as Promise<PatchApiReposOwnerRepoEgressPolicyResponse>
 
 export type GetApiRepoConnectionResponse = AnyJSON
 
