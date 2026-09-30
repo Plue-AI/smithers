@@ -19,7 +19,7 @@ import { Assignment, WorkerResult } from "./schema.ts"
  * re-running hours of agent work.
  */
 export const RunAgent = Action.make("burndown/run-agent", {
-  implementationVersion: "burndown/run-agent/v1",
+  implementationVersion: "burndown/run-agent/v2",
   payload: Assignment,
   success: WorkerResult,
   error: Schema.String,
@@ -76,6 +76,7 @@ export const agentArgv = (assignment: Assignment, workdir: string): ReadonlyArra
     ? [
       "codex",
       "exec",
+      "--json",
       "-m",
       assignment.model,
       "--dangerously-bypass-approvals-and-sandbox",
@@ -84,41 +85,99 @@ export const agentArgv = (assignment: Assignment, workdir: string): ReadonlyArra
       workdir,
       "-"
     ]
-    : ["claude", "-p", "--model", assignment.model, "--no-session-persistence", "--dangerously-skip-permissions"]
+    : ["claude", "-p", "--output-format", "json", "--model", assignment.model, "--no-session-persistence", "--dangerously-skip-permissions"]
 
 const limitPattern = /usage limit|rate limit|hit your limit|limit reached|429 Too Many Requests/i
 
-/** Reads the agent's report lines: `READY #<n> <commit>`, `CLOSED #<n>`, `BLOCKED #<n> <why>`. */
+/** Only the CLI's completed assistant channel can report queue results. */
+const finalReport = (tool: Assignment["tool"], output: string): string | undefined => {
+  const records: Array<Record<string, unknown>> = []
+  try {
+    const value = JSON.parse(output)
+    if (value && typeof value === "object" && !Array.isArray(value)) records.push(value)
+  } catch {
+    for (const line of output.split("\n")) {
+      try {
+        const value = JSON.parse(line)
+        if (value && typeof value === "object" && !Array.isArray(value)) records.push(value)
+      } catch { /* Plain diagnostic lines are never reports. */ }
+    }
+  }
+  if (tool === "claude") {
+    const result = records.filter((record) => record.type === "result").at(-1)
+    return result?.subtype === "success" && result.is_error === false && typeof result.result === "string"
+      ? result.result : undefined
+  }
+  let message: string | undefined
+  let completed = false
+  for (const record of records) {
+    if (record.type === "turn.started") { message = undefined; completed = false }
+    if (record.type === "item.completed") {
+      const item = record.item as Record<string, unknown> | undefined
+      if (item?.type === "agent_message") {
+        message = typeof item.text === "string" ? item.text : undefined
+        completed = false
+      }
+    }
+    if (record.type === "turn.completed") completed = true
+    if (record.type === "turn.failed" || record.type === "error") completed = false
+  }
+  return completed ? message : undefined
+}
+
+/** Validate final report mappings; worker text cannot prove host-side closure. */
 export const parseReport = (
   assignment: Assignment,
   exitCode: number,
-  tail: string,
-  agentHours: number
+  output: string,
+  agentHours: number,
+  diagnostics = ""
 ): WorkerResult => {
-  // `READY <commit>` lines arrive in bundle order: lead first, then each extra.
-  const order = [assignment.lead.n, ...assignment.extras.map((e) => e.n)]
-  const commits = [...tail.matchAll(/^READY\s+(?:#?(\d+)\s+)?([0-9a-f]{7,64})\s*$/gm)].map((m, i) => ({
-    issue: m[1] === undefined ? (order[i] ?? assignment.lead.n) : Number(m[1]),
-    commit: m[2]!
-  }))
-  const closed = /^CLOSED\s+#?\d+/m.test(tail)
-  const blocked = /^BLOCKED\s+#?\d+/m.test(tail)
-  const status = commits.length > 0
-    ? "ready"
-    : closed
-    ? "closed"
-    : blocked
-    ? "blocked"
-    : exitCode !== 0 && limitPattern.test(tail)
-    ? "limited"
-    : "failed"
-  return {
-    key: assignment.key,
-    status,
-    commits,
-    notes: tail.slice(-2000),
-    agentHours
+  const report = finalReport(assignment.tool, output)
+  const notes = `${exitCode !== 0 ? output : report ?? output}\n${diagnostics}`.slice(-2000)
+  const result = (status: WorkerResult["status"], commits: WorkerResult["commits"] = [], why = ""): WorkerResult => ({
+    key: assignment.key, status, commits, notes: `${notes}${why ? `\n${why}` : ""}`, agentHours
+  })
+  if (exitCode !== 0) return result(limitPattern.test(output + diagnostics) ? "limited" : "failed")
+  if (report === undefined) return result("failed", [], "No completed final assistant report")
+  const order = [assignment.lead.n, ...assignment.extras.map((issue) => issue.n)]
+  if (new Set(order).size !== order.length) return result("failed", [], "Duplicate assigned issues")
+  const byIssue = new Map<number, string>()
+  const byCommit = new Map<string, number>()
+  let fenced = false
+  let closed = false
+  let blocked = false
+  for (const line of report.split(/\r?\n/)) {
+    if (/^\s*(```|~~~)/.test(line)) { fenced = !fenced; continue }
+    if (fenced) continue
+    const ready = /^READY\s+(?:#?(\d+)\s+)?([0-9a-f]{40}|[0-9a-f]{64})\s*$/.exec(line)
+    if (ready) {
+      const commit = ready[2]!
+      const previous = byCommit.get(commit)
+      const issue = ready[1] === undefined
+        ? previous ?? order.find((n) => !byIssue.has(n))
+        : Number(ready[1])
+      if (issue === undefined || !order.includes(issue) ||
+        (byIssue.has(issue) && byIssue.get(issue) !== commit) ||
+        (previous !== undefined && previous !== issue)) {
+        return result("failed", [], "Invalid READY assignment mapping")
+      }
+      byIssue.set(issue, commit)
+      byCommit.set(commit, issue)
+      continue
+    }
+    const status = /^(CLOSED|BLOCKED)\s+#?(\d+)(?:\s+.*)?$/.exec(line)
+    if (status) {
+      if (!order.includes(Number(status[2]))) return result("failed", [], "Unassigned report issue")
+      closed ||= status[1] === "CLOSED"
+      blocked ||= status[1] === "BLOCKED"
+    } else if (/^(READY|CLOSED|BLOCKED)\b/.test(line)) {
+      return result("failed", [], "Malformed final report line")
+    }
   }
+  if (closed) return result("blocked", [], "CLOSED needs a verified host closure receipt")
+  const commits = order.flatMap((issue) => byIssue.has(issue) ? [{ issue, commit: byIssue.get(issue)! }] : [])
+  return commits.length > 0 ? result("ready", commits) : result(blocked ? "blocked" : "failed")
 }
 
 /** Implements `RunAgent` over whichever `Placement` the host provides. */
@@ -136,14 +195,16 @@ export const layerRunAgent = (brief: (assignment: Assignment, machine: Machine) 
         const started = Date.now()
         const briefPath = `${machine.stateDir}/brief.md`
         const logPath = `${machine.stateDir}/agent.log`
+        const reportPath = `${machine.stateDir}/agent.report.jsonl`
         const script = [
           `mkdir -p ${shellQuote(machine.stateDir)}`,
           `cd ${shellQuote(machine.workdir)}`,
-          `${agentArgv(assignment, machine.workdir).map(shellQuote).join(" ")} < ${shellQuote(briefPath)}${
-            machine.logFile === false ? "" : ` > ${shellQuote(logPath)} 2>&1`
-          }`,
+          `${agentArgv(assignment, machine.workdir).map(shellQuote).join(" ")} < ${shellQuote(briefPath)} > ${shellQuote(reportPath)} 2> ${shellQuote(logPath)}`,
           `code=$?`,
-          ...machine.logFile === false ? [] : [`tail -c 20000 ${shellQuote(logPath)}`],
+          `cat ${shellQuote(reportPath)}`,
+          `printf '\nBURNDOWN_DIAGNOSTICS='`,
+          `tail -c 20000 ${shellQuote(logPath)} | base64 | tr -d '\n'`,
+          `printf '\n'`,
           `echo "BURNDOWN_EXIT=$code"`
         ].join("\n")
         const originalBrief = brief(assignment, machine)
@@ -165,11 +226,13 @@ export const layerRunAgent = (brief: (assignment: Assignment, machine: Machine) 
             })
           )
           const exit = /BURNDOWN_EXIT=(\d+)\s*$/.exec(output)
+          const diagnostic = /\nBURNDOWN_DIAGNOSTICS=([A-Za-z0-9+/=]*)\nBURNDOWN_EXIT=\d+\s*$/.exec(output)
           const result = parseReport(
             assignment,
             exit === null ? 1 : Number(exit[1]),
-            output,
-            (Date.now() - started) / 3_600_000
+            diagnostic === null ? "" : output.slice(0, diagnostic.index),
+            (Date.now() - started) / 3_600_000,
+            diagnostic === null ? output : Buffer.from(diagnostic[1]!, "base64").toString("utf8")
           )
           const read: ReadCommand = (program, args, stdin) =>
             Effect.scoped(Effect.gen(function*() {
@@ -197,5 +260,5 @@ export const layerRunAgent = (brief: (assignment: Assignment, machine: Machine) 
           Effect.mapError((cause) => `agent ${assignment.key} could not run: ${String(cause)}`)
         )
       }),
-    { implementationVersion: "burndown/run-agent/v1" }
+    { implementationVersion: "burndown/run-agent/v2" }
   )

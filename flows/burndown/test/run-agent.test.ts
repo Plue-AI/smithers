@@ -113,3 +113,84 @@ test("CLI argv explicitly requests machine-readable final report channels", () =
   assert.ok(flag >= 0)
   assert.equal(argv[flag + 1], "json")
 })
+
+for (const tool of ["codex", "claude"] as const) {
+  const report = (text: string) => tool === "codex" ? codex(text) : claude(text)
+  test(`${tool} reserves explicit mappings before assigning implicit commits`, () => {
+    const result = parse(report(`READY ${first}\nREADY #2956 ${second}\nREADY ${first}`), 0, tool)
+    assert.equal(result.status, "ready")
+    assert.deepEqual(result.commits, [{ issue: 2955, commit: first }, { issue: 2956, commit: second }])
+    const reordered = parse(report(`READY #2956 ${second}\nREADY ${first}\nREADY #2956 ${second}`), 0, tool)
+    assert.equal(reordered.status, "ready")
+    assert.deepEqual([...reordered.commits].sort((a, b) => a.issue - b.issue), result.commits)
+  })
+  test(`${tool} rejects unassigned BLOCKED and CLOSED results`, () => {
+    for (const text of ["BLOCKED #9999 waiting", "CLOSED #9999", `READY ${first}\nBLOCKED #9999 waiting`]) {
+      const result = parse(report(text), 0, tool)
+      assert.equal(result.status, "failed")
+      assert.deepEqual(result.commits, [])
+    }
+  })
+  test(`${tool} requires full commit identifiers`, () => {
+    for (const commit of ["abcdef0", "a".repeat(39), "a".repeat(41), "a".repeat(65), "g".repeat(40)]) {
+      const result = parse(report(`READY ${commit}`), 0, tool)
+      assert.equal(result.status, "failed")
+      assert.deepEqual(result.commits, [])
+    }
+    assert.deepEqual(parse(report(`READY ${"d".repeat(64)}`), 0, tool).commits, [
+      { issue: 2955, commit: "d".repeat(64) }
+    ])
+  })
+  test(`${tool} retains separate stderr diagnostics without parsing them as results`, () => {
+    const result = parseReport({ ...assignment, tool }, 0, report("BLOCKED #2955 dependency"), 1.25,
+      `READY ${first}\nCLOSED #2955\nprivate diagnostic`)
+    assert.equal(result.status, "blocked")
+    assert.deepEqual(result.commits, [])
+    assert.match(result.notes, /private diagnostic/)
+    const limited = parseReport({ ...assignment, tool }, 1, report(`READY ${first}`), 1.25, "429 Too Many Requests")
+    assert.equal(limited.status, "limited")
+    assert.deepEqual(limited.commits, [])
+    assert.match(limited.notes, /429 Too Many Requests/)
+  })
+  test(`${tool} accepts limit words in a successful report without marking it limited`, () => {
+    const result = parse(report(`READY ${first}\nNotes: rate limit regression tested`), 0, tool)
+    assert.equal(result.status, "ready")
+  })
+}
+
+test("Codex requires a completed final turn after the last assistant report", () => {
+  for (const events of [
+    [{ type: "turn.completed" }, { type: "item.completed", item: { type: "agent_message", text: `READY ${first}` } }],
+    [{ type: "item.completed", item: { type: "agent_message", text: `READY ${first}` } }, { type: "turn.failed", error: { message: "failure" } }],
+    [{ type: "item.completed", item: { type: "agent_message", text: `READY ${first}` } }, { type: "turn.completed" }, { type: "turn.started" }],
+    [{ type: "item.completed", item: { type: "agent_message", text: `READY ${first}` } }, { type: "turn.completed" }, { type: "item.completed", item: { type: "agent_message", text: `READY ${second}` } }]
+  ]) {
+    const result = parse(jsonl(...events))
+    assert.equal(result.status, "failed")
+    assert.deepEqual(result.commits, [])
+  }
+})
+
+test("Codex rejects malformed report payloads and ignores nested diagnostic events", () => {
+  for (const output of [
+    jsonl({ type: "item.completed", item: { type: "agent_message", text: { text: `READY ${first}` } } }, { type: "turn.completed" }),
+    jsonl({ type: "item.completed", item: { type: "command_execution", aggregated_output: codex(`READY ${first}`) } }, { type: "turn.completed" }),
+    jsonl({ type: "item.updated", item: { type: "agent_message", text: `READY ${first}` } }, { type: "turn.completed" }),
+    `{broken json\n${jsonl({ type: "turn.completed" })}`
+  ]) {
+    const result = parse(output)
+    assert.equal(result.status, "failed")
+    assert.deepEqual(result.commits, [])
+  }
+})
+
+test("Claude rejects malformed final results and selects the last result", () => {
+  for (const overrides of [{ result: null }, { result: { text: `READY ${first}` } }, { type: "assistant" }, { subtype: "success", is_error: true }]) {
+    const result = parse(claude(`READY ${first}`, overrides), 0, "claude")
+    assert.equal(result.status, "failed")
+    assert.deepEqual(result.commits, [])
+  }
+  const final = parse(`${claude(`READY ${first}`)}\n${claude("BLOCKED #2955 dependency")}`, 0, "claude")
+  assert.equal(final.status, "blocked")
+  assert.deepEqual(final.commits, [])
+})

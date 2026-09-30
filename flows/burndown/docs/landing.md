@@ -1,7 +1,11 @@
-# Landing verification
+---
+title: "Landing verification"
+description: "Exact candidate checks and final review before queue landing."
+---
 
-The merge queue checks an archive of the final rebased candidate, leaving the
-shared checkout intact. Every changed path needs a verification route; empty
+The host checks an archive of the prepared candidate before rebase, then checks
+and reviews the final rebased candidate. A failed first check prevents rebase and
+push. Both stages leave the shared checkout intact. Every changed path needs a verification route; empty
 changes, empty affected selections, missing tools, and unknown ownership fail.
 
 Smithers uses the candidate's local affected graph for non-Go changes, including
@@ -20,5 +24,10 @@ kills the active process group and removes the archive. Failures retain the last
 A verified non-operator Claude subscription reviews the final rebased diff with
 Fable before push. The review receipt names the candidate SHA; the queue refuses
 any SHA change after checks or review. Cloud artifact review alone is insufficient.
-Review has a ten-minute deadline. Issue completion and release use the claim tool;
-receipt failures are retained and surfaced even after a successful push.
+Review runs in an empty directory with a ten-minute deadline. Landing has a
+45-minute overall deadline; cancellation stops the lock wrapper, shell, and
+detached descendants before quarantine. Issue completion and release use the
+fixed host claim tool. Every issue receipt is attempted; failures remain visible
+even after push. Retries recognize commits already on main and retry receipts
+without landing again. If the post-push fetch fails, the queue checks the remote
+main reference directly before reporting success.

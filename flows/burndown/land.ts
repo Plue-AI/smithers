@@ -9,8 +9,8 @@ import { execFile, execFileSync, spawn } from "node:child_process"
 import { chmod, mkdir, writeFile } from "node:fs/promises"
 import { homedir } from "node:os"
 import { join } from "node:path"
-import { promisify } from "node:util"
 import { fileURLToPath } from "node:url"
+import { promisify } from "node:util"
 import type { InFlight, LandReport, WorkerResult } from "./schema.ts"
 
 const run = promisify(execFile)
@@ -288,7 +288,9 @@ if [ "$already_landed" = true ]; then
   exit 0
 fi
 prechecks_log=${shellQuote(join(scriptDir, `${member.key}.prechecks.log`))}
-if BURNDOWN_CHECK_REVISION="$last" node --input-type=module -e ${shellQuote(checksProgram)} ${shellQuote(member.repo.split("/")[1]!)} $changes >"$prechecks_log" 2>&1; then
+if BURNDOWN_CHECK_REVISION="$last" node --input-type=module -e ${shellQuote(checksProgram)} ${
+    shellQuote(member.repo.split("/")[1]!)
+  } $changes >"$prechecks_log" 2>&1; then
   cat "$prechecks_log"
 else
   tail -c 4000 "$prechecks_log" >&2
@@ -373,78 +375,86 @@ export const runLandingProcess = (
   command: string,
   args: ReadonlyArray<string>,
   options: { cwd?: string; env?: NodeJS.ProcessEnv; timeout?: number; signal?: AbortSignal } = {}
-): Promise<{ stdout: string; stderr: string }> => new Promise((accept, reject) => {
-  let stdout = ""
-  let stderr = ""
-  let failure: Error | undefined
-  const child = spawn(command, [...args], {
-    ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
-    ...(options.env === undefined ? {} : { env: options.env }),
-    detached: true,
-    stdio: ["ignore", "pipe", "pipe"]
-  })
-  const send = (pid: number, signal: NodeJS.Signals) => {
-    try { process.kill(pid, signal) } catch (cause) {
-      if ((cause as NodeJS.ErrnoException).code !== "ESRCH") throw cause
-    }
-  }
-  const stop = (reason: string) => {
-    if (failure !== undefined) return
-    failure = new Error(reason)
-    if (child.pid !== undefined) {
-      // Freeze the landing group first: a shell cannot start a late push while
-      // we discover detached check/review children. Never rely on lock forwarding.
-      send(-child.pid, "SIGSTOP")
+): Promise<{ stdout: string; stderr: string }> =>
+  new Promise((accept, reject) => {
+    let stdout = ""
+    let stderr = ""
+    let failure: Error | undefined
+    const child = spawn(command, [...args], {
+      ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+      ...(options.env === undefined ? {} : { env: options.env }),
+      detached: true,
+      stdio: ["ignore", "pipe", "pipe"]
+    })
+    const send = (pid: number, signal: NodeJS.Signals) => {
       try {
-        const rows = execFileSync("ps", ["-eo", "pid=,ppid="], { encoding: "utf8", timeout: 5000 })
-          .trim().split("\n").map((line) => line.trim().split(/\s+/).map(Number))
-        const descendants = new Set([child.pid])
-        for (let size = -1; size !== descendants.size;) {
-          size = descendants.size
-          for (const [pid, parent] of rows) {
-            if (pid !== undefined && parent !== undefined && descendants.has(parent)) {
-              descendants.add(pid)
-              send(pid, "SIGSTOP")
-            }
-          }
-        }
-        for (const pid of [...descendants].reverse()) send(pid, "SIGKILL")
+        process.kill(pid, signal)
       } catch (cause) {
-        // A failed tree inspection still kills the landing group and is retained.
-        failure = new Error(`${reason}; process-tree cleanup: ${String(cause)}`)
-      } finally {
-        send(-child.pid, "SIGKILL")
+        if ((cause as NodeJS.ErrnoException).code !== "ESRCH") throw cause
       }
     }
-  }
-  const abort = () => stop("LANDING_CANCELLED")
-  const timer = setTimeout(() => stop("LANDING_TIMEOUT: overall 45-minute limit"), options.timeout ?? 2_700_000)
-  options.signal?.addEventListener("abort", abort, { once: true })
-  if (options.signal?.aborted) abort()
-  child.stdout.setEncoding("utf8")
-  child.stderr.setEncoding("utf8")
-  child.stdout.on("data", (chunk: string) => {
-    if (failure !== undefined) return
-    stdout += chunk
-    if (Buffer.byteLength(stdout) + Buffer.byteLength(stderr) > 16 << 20) stop("LANDING_OUTPUT_LIMIT")
+    const stop = (reason: string) => {
+      if (failure !== undefined) return
+      failure = new Error(reason)
+      if (child.pid !== undefined) {
+        // Freeze the landing group first: a shell cannot start a late push while
+        // we discover detached check/review children. Never rely on lock forwarding.
+        send(-child.pid, "SIGSTOP")
+        try {
+          const rows = execFileSync("ps", ["-eo", "pid=,ppid="], { encoding: "utf8", timeout: 5000 })
+            .trim().split("\n").map((line) => line.trim().split(/\s+/).map(Number))
+          const descendants = new Set([child.pid])
+          for (let size = -1; size !== descendants.size;) {
+            size = descendants.size
+            for (const [pid, parent] of rows) {
+              if (pid !== undefined && parent !== undefined && descendants.has(parent)) {
+                descendants.add(pid)
+                send(pid, "SIGSTOP")
+              }
+            }
+          }
+          for (const pid of [...descendants].reverse()) send(pid, "SIGKILL")
+        } catch (cause) {
+          // A failed tree inspection still kills the landing group and is retained.
+          failure = new Error(`${reason}; process-tree cleanup: ${String(cause)}`)
+        } finally {
+          send(-child.pid, "SIGKILL")
+        }
+      }
+    }
+    const abort = () => stop("LANDING_CANCELLED")
+    const timer = setTimeout(() => stop("LANDING_TIMEOUT: overall 45-minute limit"), options.timeout ?? 2_700_000)
+    options.signal?.addEventListener("abort", abort, { once: true })
+    if (options.signal?.aborted) abort()
+    child.stdout.setEncoding("utf8")
+    child.stderr.setEncoding("utf8")
+    child.stdout.on("data", (chunk: string) => {
+      if (failure !== undefined) return
+      stdout += chunk
+      if (Buffer.byteLength(stdout) + Buffer.byteLength(stderr) > 16 << 20) stop("LANDING_OUTPUT_LIMIT")
+    })
+    child.stderr.on("data", (chunk: string) => {
+      if (failure !== undefined) return
+      stderr += chunk
+      if (Buffer.byteLength(stdout) + Buffer.byteLength(stderr) > 16 << 20) stop("LANDING_OUTPUT_LIMIT")
+    })
+    const cleanup = () => {
+      clearTimeout(timer)
+      options.signal?.removeEventListener("abort", abort)
+    }
+    child.once("error", (cause) => {
+      cleanup()
+      reject(cause)
+    })
+    child.once("close", (code, signal) => {
+      cleanup()
+      if (failure !== undefined || code !== 0) {
+        reject(
+          Object.assign(failure ?? new Error(`LANDING_FAILED exit=${code} signal=${signal}`), { code, stdout, stderr })
+        )
+      } else accept({ stdout, stderr })
+    })
   })
-  child.stderr.on("data", (chunk: string) => {
-    if (failure !== undefined) return
-    stderr += chunk
-    if (Buffer.byteLength(stdout) + Buffer.byteLength(stderr) > 16 << 20) stop("LANDING_OUTPUT_LIMIT")
-  })
-  const cleanup = () => {
-    clearTimeout(timer)
-    options.signal?.removeEventListener("abort", abort)
-  }
-  child.once("error", (cause) => { cleanup(); reject(cause) })
-  child.once("close", (code, signal) => {
-    cleanup()
-    if (failure !== undefined || code !== 0) {
-      reject(Object.assign(failure ?? new Error(`LANDING_FAILED exit=${code} signal=${signal}`), { code, stdout, stderr }))
-    } else accept({ stdout, stderr })
-  })
-})
 
 /** Attempt every completion receipt and surface failures for safe replay. */
 export const completeLandingReceipts = async (
@@ -457,13 +467,23 @@ export const completeLandingReceipts = async (
   for (const { issue, sha } of landed) {
     try {
       await invoke("node", [
-        claimScript, "comment", `${member.repo}#${issue}`, "--by", `burndown-${member.key}`,
-        "--body", `Landed on main in ${sha} by the burndown merge queue (${member.key}).`,
-        "--release", "--close", "--note", `landed ${sha}`
+        claimScript,
+        "comment",
+        `${member.repo}#${issue}`,
+        "--by",
+        `burndown-${member.key}`,
+        "--body",
+        `Landed on main in ${sha} by the burndown merge queue (${member.key}).`,
+        "--release",
+        "--close",
+        "--note",
+        `landed ${sha}`
       ])
     } catch (cause) {
       const error = cause as { stdout?: string; stderr?: string; message?: string }
-      failures.push(`${member.repo}#${issue} ${sha}: ${error.stdout ?? ""} ${error.stderr ?? ""} ${error.message ?? String(cause)}`)
+      failures.push(
+        `${member.repo}#${issue} ${sha}: ${error.stdout ?? ""} ${error.stderr ?? ""} ${error.message ?? String(cause)}`
+      )
     }
   }
   if (failures.length > 0) throw new Error(`LANDING_RECEIPTS_FAILED (commits already pushed):\n${failures.join("\n")}`)

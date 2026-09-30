@@ -279,7 +279,10 @@ test("generated landing shell persists a red receipt and never bookmarks or push
   })
   assert.equal(result.status, 6, result.stderr)
   const commands = await f.commands()
-  assert.ok(!commands.some((args) => args[0] === "jj" && args[1] === "rebase"), "red pre-rebase checks must prevent rebase")
+  assert.ok(
+    !commands.some((args) => args[0] === "jj" && args[1] === "rebase"),
+    "red pre-rebase checks must prevent rebase"
+  )
   assert.ok(!commands.some((args) => args[0] === "jj" && (args.includes("bookmark") || args.includes("push"))))
   const log = await readFile(receipt)
   assert.equal(result.stderr, log.subarray(-4000).toString("utf8"))
@@ -548,7 +551,6 @@ test("review quota retries only the second allowed subscription", async (t) => {
   assert.ok(commands[3]!.includes(join(homedir(), ".smithers/accounts/claude-5")))
 })
 
-
 test("review runs from an empty directory outside the candidate checkout", async (t) => {
   const f = await reviewFixture(t)
   await f.put("CLAUDE.md", "Untrusted repository instructions")
@@ -559,7 +561,10 @@ test("review runs from an empty directory outside the candidate checkout", async
 
 test("a package selector that matches nothing cannot produce a green receipt", async (t) => {
   const f = await fixture(t, { "packages/a/package.json": pkg("@test/a") })
-  await f.put("bin/pnpm", `#!${process.execPath}\nconst args = process.argv.slice(2); if (args.includes('--fail-if-no-match')) { console.error('No projects matched'); process.exit(1); }\n`)
+  await f.put(
+    "bin/pnpm",
+    `#!${process.execPath}\nconst args = process.argv.slice(2); if (args.includes('--fail-if-no-match')) { console.error('No projects matched'); process.exit(1); }\n`
+  )
   const result = f.run(["packages/a/a.ts"])
   assert.notEqual(result.status, 0, result.stdout)
   assert.doesNotMatch(result.stdout, /CHECKS_PASSED/)
@@ -570,12 +575,23 @@ test("all landed issue receipt attempts run even when an earlier receipt fails",
   const { completeLandingReceipts } = await import("../land.ts")
   assert.equal(typeof completeLandingReceipts, "function")
   const attempted: Array<Array<string>> = []
-  const member = { key: "receipts", repo: "smithersai/smithers", commits: [{ issue: 1, commit: "a" }, { issue: 2, commit: "b" }] }
-  await assert.rejects(completeLandingReceipts(member, [{ issue: 1, sha: "a".repeat(40) }, { issue: 2, sha: "b".repeat(40) }], async (_command, args) => {
-    attempted.push([...args])
-    if (args.includes("smithersai/smithers#1")) throw new Error("first receipt rejected")
-    return { stdout: "", stderr: "" }
-  }), /first receipt rejected/)
+  const member = {
+    key: "receipts",
+    repo: "smithersai/smithers",
+    commits: [{ issue: 1, commit: "a" }, { issue: 2, commit: "b" }]
+  }
+  await assert.rejects(
+    completeLandingReceipts(
+      member,
+      [{ issue: 1, sha: "a".repeat(40) }, { issue: 2, sha: "b".repeat(40) }],
+      async (_command, args) => {
+        attempted.push([...args])
+        if (args.includes("smithersai/smithers#1")) throw new Error("first receipt rejected")
+        return { stdout: "", stderr: "" }
+      }
+    ),
+    /first receipt rejected/
+  )
   assert.equal(attempted.length, 2)
   assert.ok(attempted[1]!.includes("smithersai/smithers#2"))
 })
@@ -585,7 +601,9 @@ test("landing deadline kills a detached descendant before it can perform a late 
   assert.equal(typeof runLandingProcess, "function")
   const f = await fixture(t, {})
   const marker = join(f.root, "late-push")
-  const program = `const {spawn} = require('node:child_process'); spawn(process.execPath, ['-e', ${JSON.stringify(`setTimeout(() => require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'pushed'), 1200)`)}], {detached: true, stdio: 'ignore'}); setInterval(() => {}, 1000);`
+  const program = `const {spawn} = require('node:child_process'); spawn(process.execPath, ['-e', ${
+    JSON.stringify(`setTimeout(() => require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'pushed'), 1200)`)
+  }], {detached: true, stdio: 'ignore'}); setInterval(() => {}, 1000);`
   await assert.rejects(runLandingProcess(process.execPath, ["-e", program], { timeout: 500 }), /TIMEOUT|timeout/i)
   await new Promise((accept) => setTimeout(accept, 1500))
   await assert.rejects(readFile(marker), { code: "ENOENT" })
@@ -597,7 +615,9 @@ test("landing abort kills child processes and returns a cancellation failure", a
   const f = await fixture(t, {})
   const marker = join(f.root, "late-push")
   const controller = new AbortController()
-  const program = `const {spawn} = require('node:child_process'); spawn(process.execPath, ['-e', ${JSON.stringify(`setTimeout(() => require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'pushed'), 1200)`)}], {stdio: 'ignore'}); setInterval(() => {}, 1000);`
+  const program = `const {spawn} = require('node:child_process'); spawn(process.execPath, ['-e', ${
+    JSON.stringify(`setTimeout(() => require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'pushed'), 1200)`)
+  }], {stdio: 'ignore'}); setInterval(() => {}, 1000);`
   const running = runLandingProcess(process.execPath, ["-e", program], { timeout: 10_000, signal: controller.signal })
   setTimeout(() => controller.abort(), 500)
   await assert.rejects(running, /CANCEL|abort/i)
@@ -605,29 +625,56 @@ test("landing abort kills child processes and returns a cancellation failure", a
   await assert.rejects(readFile(marker), { code: "ENOENT" })
 })
 
-test("landing output limit safely kills the producer and refuses success", async () => {
+test("landing output limit safely kills the producer and refuses success", async (t) => {
   const { runLandingProcess } = await import("../land.ts")
   assert.equal(typeof runLandingProcess, "function")
-  await assert.rejects(runLandingProcess(process.execPath, ["-e", "setInterval(() => process.stdout.write('x'.repeat(1024 * 1024)), 1)"], { timeout: 10_000 }), /OUTPUT_LIMIT|buffer/i)
+  const f = await fixture(t, {})
+  const pidPath = join(f.root, "producer.pid")
+  const program = `require('node:fs').writeFileSync(${
+    JSON.stringify(pidPath)
+  }, String(process.pid)); setInterval(() => process.stdout.write('x'.repeat(1024 * 1024)), 1)`
+  await assert.rejects(
+    runLandingProcess(process.execPath, ["-e", program], { timeout: 10_000 }),
+    /OUTPUT_LIMIT|buffer/i
+  )
+  const pid = Number(await readFile(pidPath, "utf8"))
+  assert.throws(() => process.kill(pid, 0), { code: "ESRCH" })
 })
 
 async function completeLandingFixture(t: test.TestContext) {
   const f = await fixture(t, { "packages/a/package.json": pkg("@test/a") })
   await fakeSnapshot(f)
-  await f.put("bin/jj", `#!${process.execPath}\nconst fs = require('node:fs'); const args = process.argv.slice(2); fs.appendFileSync(process.env.COMMAND_LOG, JSON.stringify(['jj', ...args]) + '\\n'); const pushed = process.env.COMMAND_LOG + '.pushed'; if (args.includes('push')) { fs.writeFileSync(pushed, '1'); process.exit(0); } if (args.includes('fetch') && process.env.POST_PUSH_FETCH_FAIL && fs.existsSync(pushed)) process.exit(1); if (args.includes('root')) console.log(process.cwd()); else if (args.includes('diff')) console.log('packages/a/a.ts'); else if (args.includes('log') && !args.some(x => x.includes('conflicts()'))) { const rev = args[args.indexOf('-r') + 1]; if (rev.includes('::main@origin')) { if (fs.existsSync(pushed)) console.log(args.at(-1) === 'commit_id' ? 'a'.repeat(40) : 'change-one'); } else if (args.at(-1) === 'commit_id') { const counter = process.env.COMMAND_LOG + '.sha'; const n = Number(fs.existsSync(counter) ? fs.readFileSync(counter, 'utf8') : 0); fs.writeFileSync(counter, String(n + 1)); console.log((process.env.SHA_DRIFT_AT && n >= Number(process.env.SHA_DRIFT_AT) ? 'b' : 'a').repeat(40)); } else console.log('change-one'); }\n`)
-  await f.put("bin/claude", `#!${process.execPath}\nrequire('node:fs').appendFileSync(process.env.COMMAND_LOG, JSON.stringify(['claude', ...process.argv.slice(2)]) + '\\n'); if (process.argv[2] === 'auth') console.log(JSON.stringify({loggedIn:true,authMethod:'claude.ai',email:'reviewer@example.test'})); else console.log('VERDICT: PASS');\n`)
+  await f.put(
+    "bin/jj",
+    `#!${process.execPath}\nconst fs = require('node:fs'); const args = process.argv.slice(2); fs.appendFileSync(process.env.COMMAND_LOG, JSON.stringify(['jj', ...args]) + '\\n'); const pushed = process.env.COMMAND_LOG + '.pushed'; if (args.includes('push')) { fs.writeFileSync(pushed, '1'); process.exit(0); } if (args.includes('fetch') && process.env.POST_PUSH_FETCH_FAIL && fs.existsSync(pushed)) process.exit(1); if (args.includes('root')) console.log(process.cwd()); else if (args.includes('diff')) console.log('packages/a/a.ts'); else if (args.includes('log') && !args.some(x => x.includes('conflicts()'))) { const rev = args[args.indexOf('-r') + 1]; if (rev.includes('::main@origin')) { if (fs.existsSync(pushed)) console.log(args.at(-1) === 'commit_id' ? 'a'.repeat(40) : 'change-one'); } else if (args.at(-1) === 'commit_id') { const counter = process.env.COMMAND_LOG + '.sha'; const n = Number(fs.existsSync(counter) ? fs.readFileSync(counter, 'utf8') : 0); fs.writeFileSync(counter, String(n + 1)); console.log((process.env.SHA_DRIFT_AT && n >= Number(process.env.SHA_DRIFT_AT) ? 'b' : 'a').repeat(40)); } else console.log('change-one'); }\n`
+  )
+  await f.put(
+    "bin/claude",
+    `#!${process.execPath}\nrequire('node:fs').appendFileSync(process.env.COMMAND_LOG, JSON.stringify(['claude', ...process.argv.slice(2)]) + '\\n'); if (process.argv[2] === 'auth') console.log(JSON.stringify({loggedIn:true,authMethod:'claude.ai',email:'reviewer@example.test'})); else console.log('VERDICT: PASS');\n`
+  )
   await chmod(join(f.bin, "claude"), 0o755)
-  await f.put("bin/git", `#!${process.execPath}\nconst {spawnSync} = require('node:child_process'); const args = process.argv.slice(2); if (args.includes('ls-remote')) { console.log('a'.repeat(40) + '\\trefs/heads/main'); process.exit(0); } const r = spawnSync('tar', ['-cf', args[args.indexOf('--output') + 1], '-C', process.cwd(), 'packages']); process.exit(r.status);\n`)
+  await f.put(
+    "bin/git",
+    `#!${process.execPath}\nconst {spawnSync} = require('node:child_process'); const args = process.argv.slice(2); if (args.includes('ls-remote')) { console.log('a'.repeat(40) + '\\trefs/heads/main'); process.exit(0); } const r = spawnSync('tar', ['-cf', args[args.indexOf('--output') + 1], '-C', process.cwd(), 'packages']); process.exit(r.status);\n`
+  )
   const key = `test-complete-${process.pid}-${Date.now()}`
   const receiptRoot = join(homedir(), "Smithers-Ops/burndown/landings")
   await mkdir(receiptRoot, { recursive: true })
-  for (const suffix of ["prechecks", "checks", "review"]) t.after(() => rm(join(receiptRoot, `${key}.${suffix}.log`), { force: true }))
+  for (const suffix of ["prechecks", "checks", "review"]) {
+    t.after(() => rm(join(receiptRoot, `${key}.${suffix}.log`), { force: true }))
+  }
   return {
     ...f,
     key,
     runLanding(extra: Record<string, string> = {}) {
-      return spawnSync("sh", ["-c", landingScript({key, repo:"smithersai/smithers", commits:[{issue:1,commit:"abc"}]})], {
-        cwd:f.root, env:{...process.env, PATH:`${f.bin}:${process.env.PATH}`, COMMAND_LOG:f.commandLog, ...extra}, encoding:"utf8", timeout:20_000
+      return spawnSync("sh", [
+        "-c",
+        landingScript({ key, repo: "smithersai/smithers", commits: [{ issue: 1, commit: "abc" }] })
+      ], {
+        cwd: f.root,
+        env: { ...process.env, PATH: `${f.bin}:${process.env.PATH}`, COMMAND_LOG: f.commandLog, ...extra },
+        encoding: "utf8",
+        timeout: 20_000
       })
     }
   }
@@ -639,27 +686,28 @@ test("successful landing checks both exact candidates, reviews, pushes once, and
   assert.equal(result.status, 0, result.stderr)
   assert.match(result.stdout, /^LANDED 1 a{40}$/m)
   const commands = await f.commands()
-  const rebase = commands.findIndex(args => args.includes("rebase"))
-  const push = commands.findIndex(args => args.includes("push"))
-  const checks = commands.map((args, index) => args[0] === "pnpm" && args.at(-1) === "typecheck" ? index : -1).filter(index => index >= 0)
-  const review = commands.findIndex(args => args[0] === "claude" && args.includes("-p"))
+  const rebase = commands.findIndex((args) => args.includes("rebase"))
+  const push = commands.findIndex((args) => args.includes("push"))
+  const checks = commands.map((args, index) => args[0] === "pnpm" && args.at(-1) === "typecheck" ? index : -1).filter(
+    (index) => index >= 0
+  )
+  const review = commands.findIndex((args) => args[0] === "claude" && args.includes("-p"))
   assert.match(result.stdout, /REVIEW_REVISION a{40}/)
   assert.ok(review > checks[1]! && review < push)
   assert.equal(checks.length, 2)
   assert.ok(checks[0]! < rebase)
   assert.ok(checks[1]! > rebase && checks[1]! < push)
-  assert.equal(commands.filter(args => args.includes("push")).length, 1)
+  assert.equal(commands.filter((args) => args.includes("push")).length, 1)
 })
 
 test("post-push fetch failure reconciles the remote SHA without a duplicate push", async (t) => {
   const f = await completeLandingFixture(t)
-  const result = f.runLanding({POST_PUSH_FETCH_FAIL:"1"})
+  const result = f.runLanding({ POST_PUSH_FETCH_FAIL: "1" })
   assert.equal(result.status, 0, result.stderr)
   assert.match(result.stdout, /PUSH_RECONCILED/)
   assert.match(result.stdout, /^LANDED 1 a{40}$/m)
-  assert.equal((await f.commands()).filter(args => args.includes("push")).length, 1)
+  assert.equal((await f.commands()).filter((args) => args.includes("push")).length, 1)
 })
-
 
 test("rebased candidate drift after checks or review prevents bookmark and push", async (t) => {
   for (const [at, receipt] of [["3", "CHECK_REVISION_CHANGED"], ["4", "REVIEW_REVISION_CHANGED"]]) {
@@ -668,8 +716,8 @@ test("rebased candidate drift after checks or review prevents bookmark and push"
     assert.equal(result.status, 6, result.stderr)
     assert.match(result.stderr, new RegExp(receipt!))
     const commands = await f.commands()
-    assert.ok(commands.some(args => args.includes("rebase")), "the pre-rebase gate passed")
-    assert.ok(!commands.some(args => args.includes("bookmark") || args.includes("push")))
+    assert.ok(commands.some((args) => args.includes("rebase")), "the pre-rebase gate passed")
+    assert.ok(!commands.some((args) => args.includes("bookmark") || args.includes("push")))
   }
 })
 
@@ -682,5 +730,28 @@ test("replaying a reconciled landing returns its SHA without rebase, checks, or 
   assert.equal(retry.status, 0, retry.stderr)
   assert.match(retry.stdout, /^LANDED 1 a{40}$/m)
   const replay = (await f.commands()).slice(before)
-  assert.ok(!replay.some(args => args.includes("rebase") || args.includes("push") || args[0] === "pnpm"))
+  assert.ok(!replay.some((args) => args.includes("rebase") || args.includes("push") || args[0] === "pnpm"))
+})
+
+test("landing deadline kills grandchildren behind a lock wrapper that does not forward signals", async (t) => {
+  const { runLandingProcess } = await import("../land.ts")
+  const f = await fixture(t, {})
+  const marker = join(f.root, "late-push")
+  const started = join(f.root, "push-started")
+  const push = `require('node:fs').writeFileSync(${
+    JSON.stringify(started)
+  }, 'started'); setTimeout(() => require('node:fs').writeFileSync(${
+    JSON.stringify(marker)
+  }, 'pushed'), 1200); setInterval(() => {}, 1000)`
+  const shell = `const {spawn} = require('node:child_process'); spawn(process.execPath, ['-e', ${
+    JSON.stringify(push)
+  }], {detached: true, stdio: 'ignore'}); setInterval(() => {}, 1000)`
+  const wrapper =
+    `const {spawn} = require('node:child_process'); process.on('SIGTERM', () => {}); spawn(process.execPath, ['-e', ${
+      JSON.stringify(shell)
+    }], {stdio: 'ignore'}); setInterval(() => {}, 1000)`
+  await assert.rejects(runLandingProcess(process.execPath, ["-e", wrapper], { timeout: 500 }), /TIMEOUT|timeout/i)
+  assert.equal(await readFile(started, "utf8"), "started")
+  await new Promise((accept) => setTimeout(accept, 1500))
+  await assert.rejects(readFile(marker), { code: "ENOENT" })
 })
