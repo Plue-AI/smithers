@@ -44,7 +44,7 @@ test("refuses corrupt persisted data and paths outside the volume", () => {
   assert.equal(canonical({ b: 2, a: 1 }), canonical({ a: 1, b: 2 }))
 })
 test("serialized journal enforces UTF-8 bytes at each boundary and recovers after refusal", () => {
-  for (const symbol of ["a", "界", "😀"]) {
+  for (const symbol of ["a", "界", "😀", "e\u0301"]) {
     for (const offset of [-1, 0, 1]) {
       const storage = memory(), journal = new Journal(storage)
       const before = structuredClone(journal.state)
@@ -80,7 +80,7 @@ test("serialized journal enforces UTF-8 bytes at each boundary and recovers afte
 test("production file flow enforces UTF-8 bytes for creation and overwrite", async () => {
   const previous = globalThis.fetch
   try {
-    for (const symbol of ["a", "界", "😀"]) {
+    for (const symbol of ["a", "界", "😀", "e\u0301"]) {
       for (const offset of [-1, 0, 1]) {
         const target = 8192 + offset
         const width = Buffer.byteLength(symbol)
