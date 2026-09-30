@@ -102,8 +102,55 @@ test("a variable the package's own test program sets is not a pin", () => {
   } finally {
     rmSync(fixtureRoot, { recursive: true, force: true })
   }
-  assert.deepEqual([...suppliedEnv(join(repoRoot, "packages", "smithers"))], [])
+  const smithers = suppliedEnv(join(repoRoot, "packages", "smithers"))
+  assert.ok(smithers.has("SMITHERS_HISTORY_TEST_PG_URL"), "the smithers test target's env supplies the history URL")
+  assert.ok(!smithers.has("POSTGRES_PASSWORD"), "a service container's env supplies nothing to a test")
   assert.ok(suppliedEnv(join(repoRoot, "packages", "smithers", "flows", "database")).has("SMITHERS_TEST_PG_URL"))
+})
+
+test("a variable the package's own test target sets in its env is not a pin", () => {
+  const fixtureRoot = mkdtempSync(join(repoRoot, "scripts", ".check-test-pins-"))
+  const declare = (source) => {
+    writeFileSync(join(fixtureRoot, "PACKAGE.ts"), source)
+    return [...suppliedEnv(fixtureRoot)]
+  }
+  try {
+    const service = [
+      `const database = Smithers.Docker.Service({`,
+      `  image: "postgres",`,
+      `  // the container's own settings, never the test's`,
+      `  env: { POSTGRES_PASSWORD: "secret", POSTGRES_DB: "db" },`,
+      `  readiness: { exec: ["pg_isready", "-d", "db"] }`,
+      `})`
+    ].join("\n")
+    const target = [
+      `const test = Smithers.Shell.Test({`,
+      `  shell: "vitest run",`,
+      `  // it's the URL the suite reads; a quote in a comment pairs nothing`,
+      `  env: {`,
+      `    SUPPLIED_URL:`,
+      `      "postgres://postgres:secret@127.0.0.1:5432/db",`,
+      `    "QUOTED_NAME": "HOST: not a key",`,
+      `    lowercase: "ignored"`,
+      `  },`,
+      `  services: [database]`,
+      `})`
+    ].join("\n")
+    assert.deepEqual(declare(`${service}\n${target}\n`), ["SUPPLIED_URL", "QUOTED_NAME"])
+
+    const gated = `describe.skipIf(!process.env.SUPPLIED_URL)("real database", () => {})`
+    assert.deepEqual(findPins(gated, suppliedEnv(fixtureRoot)), [])
+    const serviceOnly = `describe.skipIf(!process.env.POSTGRES_PASSWORD)("service secret", () => {})`
+    assert.deepEqual(findPins(serviceOnly, suppliedEnv(fixtureRoot)).map((pin) => pin.title), ["service secret"])
+
+    // An unpaired service call hides every later env, so an unreadable
+    // declaration supplies less, never more.
+    assert.deepEqual(declare(`const database = Smithers.Docker.Service({ image: "postgres"\n${target}\n`), [])
+    // An unpaired env object supplies nothing.
+    assert.deepEqual(declare(`const test = Smithers.Shell.Test({ env: { OPEN_URL: "x"\n`), [])
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true })
+  }
 })
 
 /**

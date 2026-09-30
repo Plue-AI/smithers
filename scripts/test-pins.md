@@ -163,13 +163,16 @@ only.
 | `testing` | `registers a skipped layered Effect body` | `test.skip` |
 | `smithers` | `runs a prompt on the Codex subscription with no provider keys` | `it.skipIf(SMITHERS_LIVE_MODEL_TESTS !== "1")` |
 | `smithers` | `ClaudeCode against the installed Claude Code` | `describe.runIf(SMITHERS_CLAUDE_CODE_SMOKE === "1")` |
+| `smithers` | `CloudSandbox live workspace lifecycle` | `it.skipIf(SMITHERS_CLOUD_SANDBOX_SMOKE !== "1")` |
 
 **PostgreSQL storage.** The `smithers` history and database adapter tests
 run with declared PostgreSQL services in their Linux test targets. The
 database target sets `SMITHERS_TEST_PG_URL`, which moves every `TestDatabase`
-case onto PostgreSQL. The `smithers` target sets only
-`SMITHERS_HISTORY_TEST_PG_URL`, read by the history case alone, because the CLI
-announces `SMITHERS_TEST_PG_URL` as an ignored 0.x setting on stderr.
+case onto PostgreSQL. The `smithers` target's `env` sets only
+`SMITHERS_HISTORY_TEST_PG_URL`, read by the history and observe-mode
+PostgreSQL cases, because the CLI announces `SMITHERS_TEST_PG_URL` as an
+ignored 0.x setting on stderr. A suite gated on a variable its package's test
+target sets is a capability gate, so neither case is a pin.
 
 **`migrate`: apply against a real model.** The three cases in
 `packages/smithers/migrate/test/flow/MigrateFlow.live.e2e.test.ts` drive the migration
@@ -280,6 +283,20 @@ then `SMITHERS_CLAUDE_CODE_SMOKE=1 pnpm --filter @smthrs/cli test`
 (`SMITHERS_CLAUDE_CODE_SMOKE_MODEL` picks the model; the default is `sonnet`).
 Closing it for the default gate means spending subscription quota on every
 run, which the RC does not do.
+
+**`smithers`: the live Cloud workspace.** `CloudSandbox.test.ts` gates one
+case on `SMITHERS_CLOUD_SANDBOX_SMOKE=1`: it provisions a real Smithers Cloud
+workspace for `SMITHERS_CLOUD_SANDBOX_REPOSITORY`, runs a command over SSH,
+round-trips binary bytes, and releases the scope. Every other case in that file
+drives `CloudSandbox` against a local HTTP double, so they prove the request
+sequence and cancellation; only a live workspace proves the service still
+provisions, grants SSH and deletes the way that double encodes. It needs a
+Cloud login and a disposable repository, and each run starts a billable
+workspace, so it never runs by default. What breaks if it regresses: scoped
+sandboxes stop provisioning or leak workspaces for a user first. Run it as the
+[Cloud sandbox guide](../packages/smithers/docs/guides/cloud-sandbox.md)
+shows. Closing it for the default gate means a Cloud account and workspace
+spend on every run, which the RC does not do.
 
 **`build-cli`: the real codex session.** `AgentSession.test.ts` gates one case
 on `SMTHRS_CODEX_SMOKE=1`: it opens a session through the installed `codex`

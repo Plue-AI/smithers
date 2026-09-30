@@ -14,7 +14,9 @@
  * built artifact is a capability gate, not a pin: it runs on the supported
  * configuration. So is one on a variable the package's own `test` target
  * supplies: `flows/database` declares a `testProgram` that starts PostgreSQL
- * and sets `SMITHERS_TEST_PG_URL`, so its PostgreSQL suite runs in that target.
+ * and sets `SMITHERS_TEST_PG_URL`, so its PostgreSQL suite runs in that target,
+ * and the `smithers` test target's `env` sets `SMITHERS_HISTORY_TEST_PG_URL`
+ * beside its declared PostgreSQL service.
  *
  * Group membership comes from `smthrs.group`, the same authority the release
  * train uses, so a new package is covered without being listed here. The 1.0
@@ -110,18 +112,87 @@ const isOptIn = (condition, source, supplied) => {
 /**
  * The environment variables a package's `test` target sets for its tests.
  *
- * Only a package whose PACKAGE.ts declares a `testProgram` sets any; a name
- * counts when the program writes it as an object key. Destructuring patterns
- * are removed first, because `const { NAME: ignored, ...rest } = process.env`
- * is how such a program drops an inherited value, not how it supplies one.
+ * Two declarations in PACKAGE.ts supply one. A target's `env` object sets each
+ * key it names in the test process; a `Docker.Service` call's `env` configures
+ * the service container instead, so its keys supply nothing to a test. A
+ * `testProgram` supplies a name when the program writes it as an object key.
+ * Destructuring patterns are removed from the program first, because
+ * `const { NAME: ignored, ...rest } = process.env` is how such a program drops
+ * an inherited value, not how it supplies one.
  */
 export const suppliedEnv = (packageDirectory, root = repoRoot) => {
   const manifest = join(packageDirectory, "PACKAGE.ts")
   if (!existsSync(manifest)) return new Set()
-  const program = readFileSync(manifest, "utf8").match(/\btestProgram:\s*Smithers\.file\(\s*["']\/\/([^"']+)["']/)
-  if (program === null) return new Set()
+  const declaration = readFileSync(manifest, "utf8")
+  const supplied = new Set(targetEnvKeys(declaration))
+  const program = declaration.match(/\btestProgram:\s*Smithers\.file\(\s*["']\/\/([^"']+)["']/)
+  if (program === null) return supplied
   const text = readFileSync(join(root, program[1]), "utf8").replace(/\{[^{}]*\}\s*=(?![=>])/g, "")
-  return new Set(Array.from(text.matchAll(/\b([A-Z][A-Z0-9_]*)\s*:/g), (key) => key[1]))
+  for (const key of text.matchAll(/\b([A-Z][A-Z0-9_]*)\s*:/g)) supplied.add(key[1])
+  return supplied
+}
+
+/**
+ * Reads the bracket paired with the one at `openIndex` in declaration source.
+ *
+ * Quoted text and comments are skipped, so a URL value or an apostrophe in a
+ * comment cannot pair a bracket. An unpaired bracket reads as `undefined`.
+ */
+const readBracketed = (source, openIndex) => {
+  const open = source[openIndex]
+  const close = open === "(" ? ")" : "}"
+  let depth = 0
+  for (let index = openIndex; index < source.length; index++) {
+    const character = source[index]
+    if (character === '"' || character === "'" || character === "`") {
+      for (index++; index < source.length && source[index] !== character; index++) {
+        if (source[index] === "\\") index++
+      }
+      continue
+    }
+    if (source.startsWith("//", index)) {
+      index = source.indexOf("\n", index)
+      if (index === -1) return undefined
+      continue
+    }
+    if (source.startsWith("/*", index)) {
+      index = source.indexOf("*/", index + 2)
+      if (index === -1) return undefined
+      index++
+      continue
+    }
+    if (character === open) depth++
+    else if (character === close && --depth === 0) return source.slice(openIndex + 1, index)
+  }
+  return undefined
+}
+
+/**
+ * The keys of every `env` object a PACKAGE.ts target declares.
+ *
+ * A `Docker.Service` call's `env` is skipped, and so is everything after an
+ * unpaired service call, so a declaration this reader cannot pair supplies
+ * less rather than more. Only environment-variable names count as keys, bare
+ * or quoted; string values are consumed whole, so `postgres://` is not a key.
+ */
+const targetEnvKeys = (declaration) => {
+  const services = Array.from(declaration.matchAll(/\bDocker\.Service\s*\(/g), (call) => {
+    const open = call.index + call[0].length - 1
+    const body = readBracketed(declaration, open)
+    return [open, body === undefined ? declaration.length : open + body.length + 1]
+  })
+  const keys = []
+  for (const block of declaration.matchAll(/\benv\s*:\s*\{/g)) {
+    const open = block.index + block[0].length - 1
+    if (services.some(([start, end]) => start < open && open < end)) continue
+    const body = readBracketed(declaration, open)
+    if (body === undefined) continue
+    for (const token of body.matchAll(/(["'`])((?:\\.|(?!\1)[^\\])*)\1(\s*:)?|\b([A-Za-z_]\w*)(\s*:)?/g)) {
+      const key = token[3] === undefined ? token[5] === undefined ? undefined : token[4] : token[2]
+      if (key !== undefined && /^[A-Z][A-Z0-9_]*$/.test(key)) keys.push(key)
+    }
+  }
+  return keys
 }
 
 /** Directory names never worth walking for tests. */
