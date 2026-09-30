@@ -43,7 +43,7 @@ importable as `@smthrs/harness/<Module>`.
 | `UnmovedTree` | `Unmoved`, `find`, `demand` | The completion with nothing behind it. |
 | `UnresolvedFailure` | `exitStatusKey`, `failed`, `exitStatus`, `passed`, `Displaced`, `revisits`, `find`, `demand` | The failing check a completion stepped around. |
 | `FailedCall` | `cap`, `heading`, `stated`, `Failure`, `reason`, `inspects`, `find`, `demand`, `state` | The completion its own cell wrote before a call in it failed. |
-| `CompletionClaim` | `outputBytes`, `proseBytes`, `disprovenAt`, `overclaimedAt`, `unsupportedAt`, `inventedAt`, `leafBytes`, `resultBytes`, `receipt`, `Reported`, `Settled`, `record`, `checksRunLimit`, `Check`, `Ran`, `Evidence`, `classifier`, `sentenceLimit`, `sentences`, `sentenceMarker`, `sentenceOf`, `sentenceClassifier`, `Probabilities`, `Reading`, `find`, `unrecorded`, `newest`, `UnjudgedReason`, `unjudged`, `refusedBytes`, `refused`, `unproven`, `read`, `demand`, `quote`, `prose` | The completion nothing in the record contradicts. |
+| `CompletionClaim` | `outputBytes`, `proseBytes`, `disprovenAt`, `overclaimedAt`, `unsupportedAt`, `inventedAt`, `leafBytes`, `resultBytes`, `receipt`, `Reported`, `Settled`, `record`, `checksRunLimit`, `Check`, `Ran`, `Evidence`, `classifier`, `sentenceLimit`, `sentences`, `sentenceMarker`, `sentenceOf`, `sentenceClassifier`, `Probabilities`, `Reading`, `find`, `unrecorded`, `newest`, `UnjudgedReason`, `unjudged`, `refusedBytes`, `refused`, `refusedIn`, `unproven`, `read`, `demand`, `quote`, `prose` | The completion nothing in the record contradicts. |
 | `Sufficiency` | `retained`, `Failure`, `Ledger`, `remember`, `Sufficient`, `find`, `observation` | The evidence that is already complete. |
 | `VacuousVerification` | `retained`, `Pass`, `Ledger`, `remember`, `stored`, `find`, `observation` | The proof that was already true before anything changed. |
 | `VariablesPanel` | `bound`, `Binding`, `Stamp`, `Ledger`, `stamp`, `render` | The variables panel: what the realm holds, stated every frame. |
@@ -718,6 +718,7 @@ The completion nothing in the record contradicts.
 | `unjudged` | const | constructors | The failure an unjudged completion ends the turn with. |
 | `refusedBytes` | const | constants | The most of the refused completion the failure carries, in UTF-8 bytes. |
 | `refused` | const | conversions | The refused completion as the failure quotes it, bounded by `refusedBytes`. |
+| `refusedIn` | const | conversions | The completion a refusal's message quotes, as `refused` bounded it. |
 | `unproven` | const | constructors | The failure an unrecorded claim ends the run with. |
 | `read` | const | conversions | Asks Jev about one completion, or says nothing at all. |
 | `demand` | const | constructors | States what the record does not record, and names the two ways out. |

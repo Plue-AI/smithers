@@ -27,6 +27,7 @@ import * as NodeControl from "@smthrs/cli/NodeControl"
 import { FlowEngine } from "@smthrs/engine"
 import { Flow, FlowRuntime } from "@smthrs/flow"
 import type * as AgentEvent from "@smthrs/harness/AgentEvent"
+import * as CompletionClaim from "@smthrs/harness/CompletionClaim"
 import type * as FlowBinding from "@smthrs/harness/FlowBinding"
 import * as Sandbox from "@smthrs/harness/Sandbox"
 import * as Steering from "@smthrs/harness/Steering"
@@ -926,9 +927,6 @@ export const capNotice = (error: unknown, run: string): string | undefined => {
   return undefined
 }
 
-/** Where an unjudged completion's message quotes the answer it refused (`CompletionClaim.unjudged`). */
-const refusedClaim = "The completion this refused, word for word:\n\n"
-
 /**
  * The answer of a run whose completion no judge could check: the harness fails
  * it closed as `completion_unjudged`, quoting the answer. Undefined for any
@@ -943,8 +941,7 @@ export const uncheckedAnswer = (error: unknown): string | undefined => {
       record._tag === "/harness/HarnessError" && record.code === "completion_unjudged" &&
       typeof record.message === "string"
     ) {
-      const at = record.message.indexOf(refusedClaim)
-      return at < 0 ? undefined : record.message.slice(at + refusedClaim.length).trim()
+      return CompletionClaim.refusedIn(record.message)
     }
     current = (current as { readonly cause?: unknown }).cause
   }

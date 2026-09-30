@@ -799,6 +799,9 @@ export const newest = (text: string): string => {
  */
 export type UnjudgedReason = Exclude<Judgement.Unjudged["reason"], "interrupted">
 
+/** Where a refusal's message begins quoting the completion it refused: see {@link refusedIn}. */
+const refusedMarker = "\n\nThe completion this refused, word for word:\n\n"
+
 /**
  * The failure an unjudged completion ends the turn with.
  *
@@ -821,10 +824,7 @@ export const unjudged = (
 ): HarnessError =>
   new HarnessError({
     code: "completion_unjudged",
-    message:
-      `A completion no evaluator could judge (${reason}): ${detail}\n\nThe completion this refused, word for word:\n\n${
-        refused(claim)
-      }`,
+    message: `A completion no evaluator could judge (${reason}): ${detail}${refusedMarker}${refused(claim)}`,
     ...(cause === undefined ? {} : { cause })
   })
 
@@ -857,6 +857,19 @@ export const refusedBytes = 2048
  */
 export const refused = (claim: string): string =>
   elide.head(claim.trim(), refusedBytes, "the run record has the whole completion")
+
+/**
+ * The completion a refusal's message quotes, as {@link refused} bounded it;
+ * `undefined` for a message that quotes none. A host that still owes the
+ * person the answer reads it here rather than parsing the prose itself.
+ *
+ * @category conversions
+ * @since 1.0.0-rc.1
+ */
+export const refusedIn = (message: string): string | undefined => {
+  const at = message.indexOf(refusedMarker)
+  return at < 0 ? undefined : message.slice(at + refusedMarker.length).trim()
+}
 
 /**
  * The failure an unrecorded claim ends the run with.
@@ -893,7 +906,7 @@ export const unproven = (found: Probabilities, bounced: boolean, claim: string):
       bounced
         ? "The claim was handed back for a frame and came back still unrecorded."
         : "There was no frame left to hand it back to."
-    }\n\nThe completion this refused, word for word:\n\n${refused(claim)}`
+    }${refusedMarker}${refused(claim)}`
   })
 
 /**

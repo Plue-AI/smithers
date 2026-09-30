@@ -452,7 +452,22 @@ describe("the claim brake", () => {
 
       expect(error.message).toContain("The completion this refused, word for word:")
       expect(error.message).toContain("The answer is 42, written to answer.txt.")
+      expect(CompletionClaim.refusedIn(error.message)).toBe("The answer is 42, written to answer.txt.")
     }
+  })
+
+  it("reads back the completion a refusal quotes, bounded as it was quoted, and nothing from other messages", () => {
+    const found = { complete: 0.1, overclaims: 0.9, invented: 0.95 }
+    // Both refusals quote through one marker, so a host reads either the same way.
+    expect(CompletionClaim.refusedIn(CompletionClaim.unjudged("unconfigured", "no judge", "  done.\n").message))
+      .toBe("done.")
+    expect(CompletionClaim.refusedIn(CompletionClaim.unproven(found, true, "Ran the tests.").message))
+      .toBe("Ran the tests.")
+    const long = "x".repeat(CompletionClaim.refusedBytes + 100)
+    const clipped = CompletionClaim.refusedIn(CompletionClaim.unproven(found, false, long).message)!
+    expect(clipped).toBe(CompletionClaim.refused(long))
+    expect(CompletionClaim.refusedIn("A completion no evaluator could judge (unconfigured): no judge")).toBeUndefined()
+    expect(CompletionClaim.refusedIn("")).toBeUndefined()
   })
 
   it("serializes a safe typed judge cause with status and reset, never raw transport text", async () => {

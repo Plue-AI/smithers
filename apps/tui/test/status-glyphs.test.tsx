@@ -5,6 +5,7 @@
  */
 import { rgbToHex } from "@opentui/core"
 import { testRender } from "@opentui/react/test-utils"
+import * as CompletionClaim from "@smthrs/harness/CompletionClaim"
 import { EvaluatorError } from "@smthrs/model/Evaluator"
 import * as FailureCopy from "@smthrs/model/FailureCopy"
 import * as SubagentCard from "@smthrs/rpc/SubagentCard"
@@ -216,12 +217,8 @@ describe("one outcome word per run", () => {
 
 describe("a completion no judge could check", () => {
   const claim = "Fixed src/cart.js; npm test passes 3 of 3."
-  const unjudged = {
-    _tag: "/harness/HarnessError",
-    code: "completion_unjudged",
-    message:
-      `A completion no evaluator could judge (unconfigured): AI_GATEWAY_API_KEY is not set.\n\nThe completion this refused, word for word:\n\n${claim}\n`
-  }
+  // The harness's own refusal, so a change to its wording cannot pass here and fail live.
+  const unjudged = CompletionClaim.unjudged("unconfigured", "AI_GATEWAY_API_KEY is not set.", `${claim}\n`)
 
   it("keeps the answer the harness refused", () => {
     expect(uncheckedAnswer(unjudged)).toBe(claim)
@@ -229,8 +226,11 @@ describe("a completion no judge could check", () => {
   })
 
   it("leaves every other failure failed", () => {
-    expect(uncheckedAnswer({ ...unjudged, code: "claim_unproven" })).toBeUndefined()
-    expect(uncheckedAnswer({ ...unjudged, message: "no quoted completion" })).toBeUndefined()
+    const unproven = CompletionClaim.unproven({ complete: 0.1, overclaims: 0.9, invented: 0.95 }, true, claim)
+    expect(unproven.message).toContain(claim)
+    expect(uncheckedAnswer(unproven)).toBeUndefined()
+    expect(uncheckedAnswer({ _tag: unjudged._tag, code: unjudged.code, message: "no quoted completion" }))
+      .toBeUndefined()
     expect(uncheckedAnswer(new Error("boom"))).toBeUndefined()
     expect(uncheckedAnswer(undefined)).toBeUndefined()
     const cycle: { _tag: string; cause?: unknown } = { _tag: "Loop" }
