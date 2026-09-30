@@ -964,7 +964,7 @@ export const make: Effect.Effect<
           ).pipe(Effect.mapError(mapError))
         ))
       ),
-      createFork: Effect.fn("TimeTravelStore.createFork")((parentRunId, frame, childRunId) =>
+      createFork: Effect.fn("TimeTravelStore.createFork")((parentRunId, frame, childRunId, override) =>
         Effect.annotateCurrentSpan({ parentRunId, lineageId: frame.lineageId, seq: frame.seq }).pipe(Effect.andThen(
           writer.write(
             Effect.gen(function*() {
@@ -1108,6 +1108,25 @@ export const make: Effect.Effect<
               WHERE run_id = ${parentRunId}
                 AND (step_key_digest, attempt) IN (${attemptRefsSelect(attempts)})
             `
+              /**
+               * THE EDITED STEP. Replay serves a succeeded attempt from its
+               * row's `outcome_json`, so replacing the child's copy is the
+               * whole edit: the parent keeps its own row, and every step past
+               * the frame runs again on the child against the edited value.
+               */
+              if (override !== undefined) {
+                const edited = yield* sql<{ readonly attempt: number }>`
+                  UPDATE flows_attempts SET outcome_json = ${JSON.stringify(override.result)}
+                  WHERE run_id = ${runId} AND step_key_digest = ${override.stepKeyDigest} AND state = 'succeeded'
+                  RETURNING attempt
+                `
+                if (edited.length === 0) {
+                  return yield* Effect.fail(error(
+                    "not_found",
+                    `step ${override.stepKeyDigest} has no successful attempt finished at ${frame.lineageId}@${frame.seq}`
+                  ))
+                }
+              }
               /**
                * THE FRAME'S ANCHORS CROSS THE FORK WITH IT.
                *

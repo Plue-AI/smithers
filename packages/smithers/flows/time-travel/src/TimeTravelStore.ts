@@ -82,6 +82,28 @@ export const AttemptRef = Schema.Struct({
  */
 export type AttemptRef = typeof AttemptRef.Type
 /**
+ * A step result a fork replaces on its child: the attempt `stepKeyDigest`
+ * names replays `result` instead of the value the parent recorded.
+ *
+ * `result` is the step's encoded success value, the form an attempt row keeps;
+ * the child's replay decodes it under the step's declared success schema, so a
+ * value the schema refuses fails the child at that step rather than passing.
+ *
+ * @since 1.0.0
+ * @category models
+ */
+export const StepOverride = Schema.Struct({
+  stepKeyDigest: JournalEvent.Identifier,
+  result: Schema.Json
+})
+/**
+ * The value form of {@link StepOverride}.
+ *
+ * @since 1.0.0
+ * @category models
+ */
+export type StepOverride = typeof StepOverride.Type
+/**
  * A run's descendants at a frame, split by whether they still depend on the
  * history under that frame.
  *
@@ -439,11 +461,16 @@ export interface Service {
    * `childRunId` is the id {@link Service.nextForkId} minted for this fork.
    * Omitting it mints one inside the same transaction, which is what a caller
    * that provisions nothing beforehand wants.
+   *
+   * `override` replaces one copied step result in the same transaction. A step
+   * with no successful attempt finished at the frame refuses the whole fork
+   * with `not_found`, so nothing is committed.
    */
   readonly createFork: (
     parentRunId: string,
     frame: Frame,
-    childRunId?: string
+    childRunId?: string,
+    override?: StepOverride
   ) => Effect.Effect<Fork, TimeTravelError>
   /**
    * Persists one compensation receipt against its audit row, before the

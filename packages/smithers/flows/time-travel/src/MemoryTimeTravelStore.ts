@@ -471,10 +471,15 @@ export const make = (options: Options = {}): TimeTravelStore.Service & { readonl
         }))
       )
     ),
-    createFork: Effect.fn("TimeTravelStore.createFork")((parentRunId, frame, childRunId) =>
+    createFork: Effect.fn("TimeTravelStore.createFork")((parentRunId, frame, childRunId, override) =>
       Effect.annotateCurrentSpan({ parentRunId, lineageId: frame.lineageId, seq: frame.seq }).pipe(
         Effect.andThen(atomic(() => {
           fail("createFork:start")
+          // This store keeps journal records and no attempt rows, so it holds
+          // no step result a fork could replace.
+          if (override !== undefined) {
+            throw error("not_found", `step ${override.stepKeyDigest} has no recorded result in the memory store`)
+          }
           // Every parent of every ancestor, breadth first, with a visited set
           // so a cycle terminates. `find` used to follow the first edge only,
           // so a child recorded under two parents had one of them ignored.

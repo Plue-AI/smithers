@@ -128,6 +128,27 @@ A runnable version of this walkthrough is
 [`05-time-travel-fork.ts`](https://github.com/smithersai/smithers/blob/main/examples/src/05-time-travel-fork.ts)
 in the Smithers examples on GitHub.
 
+## Edit a step result
+
+Pass `override` to fork with one step's recorded result replaced. The child
+replays every step up to the frame, serves that step with the edited value,
+and runs everything after the frame again against it:
+
+```ts
+const fork = yield * timeTravel.fork(position, {
+  override: { stepKeyDigest, result: "edited draft" }
+})
+```
+
+`stepKeyDigest` is the key the step's attempts are recorded under; `smthrs
+runs verify` lists it for each recorded step. `result` is the step's encoded
+success value. The child decodes it under the step's declared success schema
+when it replays the step, so a value the schema refuses fails the child there.
+Pick a frame at or after the step's completion: a step with no successful
+attempt at the frame refuses `not_found` before anything is written. A step the
+shared step cache holds refuses `invalid`, because a cache hit is served ahead
+of the attempt row and would hide the edit.
+
 ## Bound what the fork reads
 
 `ForkOptions.maxHistoryEntries` caps the suffix the fork assesses for this one
@@ -140,8 +161,8 @@ call, overriding the service default. A suffix past the cap fails
 | ----------------- | --------------------------------------------------------------------------------------------------------- |
 | `already_crossed` | The frame lies inside an irreversible action after its boundary and before its completion receipt.        |
 | `live_parent`     | The parent run, or an ancestor of it, is running, claimed, or owned, so it has no settled prefix to copy. |
-| `not_found`       | The frame addresses no record of that run.                                                                |
-| `invalid`         | A malformed option, or a durable payload that does not decode.                                            |
+| `not_found`       | The frame addresses no record of that run, or `override` names a step with no success at the frame.       |
+| `invalid`         | A malformed option, a durable payload that does not decode, or an override the step cache would hide.     |
 | `limit_exceeded`  | The suffix the fork would assess is longer than the cap allows.                                           |
 | `unknown`         | The store, the journal, or Jujutsu failed. The cause is attached.                                         |
 

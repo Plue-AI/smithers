@@ -53,7 +53,7 @@ import * as Replay from "./internal/Replay.ts"
 import * as Rewind from "./internal/Rewind.ts"
 import * as SnapshotProjector from "./internal/SnapshotProjector.ts"
 import { error, type TimeTravelError } from "./TimeTravelError.ts"
-import { TimeTravelStore } from "./TimeTravelStore.ts"
+import { StepOverride, TimeTravelStore } from "./TimeTravelStore.ts"
 
 /**
  * Where in history an operation acts: a run, and a frame inside it.
@@ -150,6 +150,12 @@ export interface ForkOptions {
   readonly maxHistoryEntries?: number | undefined
   /** Keep the child workspace registered after this service scope closes. */
   readonly retainWorkspace?: boolean | undefined
+  /**
+   * Replace one step's recorded result on the child. The child replays every
+   * step up to the frame, that step with `result`, and runs everything after
+   * the frame again. The step must have succeeded at or before the frame.
+   */
+  readonly override?: StepOverride | undefined
 }
 
 /**
@@ -599,6 +605,15 @@ export const makeWith = (
             seq: decoded.frame.seq
           })
           yield* validatePageSize("fork", options?.pageSize)
+          // Decoded before anything durable, like the page size: an untyped
+          // caller's malformed override refuses rather than editing nothing.
+          const override = options?.override === undefined ? undefined : yield* Schema.decodeUnknownEffect(
+            StepOverride
+          )(options.override).pipe(
+            Effect.mapError((cause) =>
+              error("invalid", "fork override must name a step key digest and a JSON result", cause)
+            )
+          )
           const maxEntries = yield* HistoryLimit.resolve(options?.maxHistoryEntries, historyLimit)
           return yield* provided(
             // The anchors a fork restores from are a projection of the engine's
@@ -609,6 +624,7 @@ export const makeWith = (
               frame: decoded.frame,
               workspaceRoot: options?.workspaceRoot ?? workspaceRoot,
               retainWorkspace: options?.retainWorkspace,
+              override,
               pageSize: options?.pageSize,
               maxEntries,
               refreshAnchors: refreshAnchors(decoded.runId, decoded.frame.seq, maxEntries)

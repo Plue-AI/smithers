@@ -154,6 +154,7 @@ interface ReplayOptions {
 interface ForkOptions {
   readonly workspaceRoot?: string | undefined
   readonly retainWorkspace?: boolean | undefined
+  readonly override?: StepOverride | undefined
   readonly pageSize?: number | undefined
   readonly maxHistoryEntries?: number | undefined
 }
@@ -172,7 +173,9 @@ through `Journal.maxEntriesLimit` (10,000). Any other value is refused with
 `invalid` before reading the journal. `maxHistoryEntries` overrides
 `Options.maxHistoryEntries` for one call. `workspaceRoot` defaults to `.flows/forks` and only moves which lane
 the derived workspace name lands in. `retainWorkspace` keeps the child lane
-registered after the service scope closes. `detachedChildren` defaults to
+registered after the service scope closes. `override` replaces one step's
+recorded result on the child; see [Fork a run](./guides/fork-a-run.md#edit-a-step-result).
+`detachedChildren` defaults to
 `"block"`. `wholeRepo` restores the jj operation the frame recorded instead of
 only its working-copy tree, so bookmark moves, rebases, `describe`, and
 `abandon` after the frame are undone too, even when no compensable effect was
@@ -362,6 +365,7 @@ moment the code under test reaches a third.
 | --------------- | -------------------------------------------------------------------------------------------------------------- |
 | `Snapshot`      | `{ runId, frame, changeId, planDigest? }`. The anchor at a frame. An absent digest means no plan was in force. |
 | `AttemptRef`    | `{ stepKeyDigest, attempt }`. An attempt row as `flows_attempts` addresses it.                                 |
+| `StepOverride`  | `{ stepKeyDigest, result }`. The step result a fork replays on its child in place of the parent's.             |
 | `Descendants`   | `{ attached: LineageEdge[]; detached: LineageEdge[] }`.                                                        |
 | `Audit`         | `{ id, runId, frame, status, rateLimit?, detail? }` with `status` of `in_progress`, `completed`, or `failed`.  |
 | `AuditPatch`    | `{ status?, rateLimit?, detail? }`. The only keys an open audit row may be advanced through.                   |
@@ -404,7 +408,7 @@ from either.
 | `archivedAt(runId, seq)`                                          | Whether the archive holds a record at that coordinate. Recovery's commit-point evidence.                                                                                                                                                                                                       |
 | `nextForkId(parentRunId, frame)`                                  | Mints and durably reserves the run id the next fork off that frame will carry, without creating a run.                                                                                                                                                                                         |
 | `abandonForkIntents(staleBeforeMs)`                               | Every reservation older than `staleBeforeMs` whose fork never committed, handed back exactly once.                                                                                                                                                                                             |
-| `createFork(parentRunId, frame, childRunId?)`                     | Branches a new run off a frame, copying the journal prefix and the attempts that existed there, and recording the `fork` edge. The parent is untouched.                                                                                                                                        |
+| `createFork(parentRunId, frame, childRunId?, override?)`          | Branches a new run off a frame, copying the journal prefix and the attempts that existed there, and recording the `fork` edge. `override` replaces one copied step result in the same transaction. The parent is untouched.                                                                    |
 | `recordReceipt(receipt)`                                          | Persists one compensation receipt against its audit row, before the journal range that effect belongs to is truncated.                                                                                                                                                                         |
 
 Every method fails as `TimeTravelError`.

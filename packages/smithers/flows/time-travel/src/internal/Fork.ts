@@ -14,14 +14,14 @@ import { Jj } from "@smthrs/jj"
 import * as Journal from "@smthrs/journal/Journal"
 import type * as JournalEvent from "@smthrs/journal/JournalEvent"
 import * as RunStore from "@smthrs/run-store/RunStore"
-import type * as CacheStore from "@smthrs/step-cache/CacheStore"
+import * as CacheStore from "@smthrs/step-cache/CacheStore"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import type * as Scope from "effect/Scope"
 import * as EffectBoundary from "../EffectBoundary.ts"
 import type { Frame } from "../Frame.ts"
 import { error, type TimeTravelError } from "../TimeTravelError.ts"
-import { type Fork as ForkRecord, TimeTravelStore } from "../TimeTravelStore.ts"
+import { type Fork as ForkRecord, type StepOverride, TimeTravelStore } from "../TimeTravelStore.ts"
 import * as Compensation from "./Compensation.ts"
 import type { EffectHandlerRegistry } from "./EffectHandlerRegistry.ts"
 import * as HistoryLimit from "./HistoryLimit.ts"
@@ -52,6 +52,12 @@ export interface ForkOptions {
   readonly workspaceRoot: string
   /** A CLI-created branch outlives the process that created it. */
   readonly retainWorkspace?: boolean | undefined
+  /**
+   * One step result the child replays in place of the parent's. The step must
+   * have been admitted at the frame; anything else refuses before a child id
+   * is minted or a workspace provisioned.
+   */
+  readonly override?: StepOverride | undefined
   /** Journal page size for the suffix scan; defaults to the store's own. */
   readonly pageSize?: number | undefined
   /**
@@ -233,6 +239,40 @@ const normalize = (
   )
 
 /**
+ * Refuses a step override the child could not honor, before anything durable.
+ *
+ * The step must have been admitted at the frame, or the child has no attempt
+ * of it to edit. A step the shared step cache holds is refused too: a cache
+ * hit is served ahead of the attempt row, so the child would replay the cached
+ * value and silently ignore the edit.
+ */
+const admitOverride = (
+  store: TimeTravelStore["Service"],
+  parentRunId: string,
+  frame: Frame,
+  override: StepOverride
+): Effect.Effect<void, TimeTravelError, CacheStore.CacheStore> =>
+  Effect.gen(function*() {
+    const admitted = yield* store.attemptsAt(parentRunId, frame)
+    if (!admitted.some((attempt) => attempt.stepKeyDigest === override.stepKeyDigest)) {
+      return yield* Effect.fail(error(
+        "not_found",
+        `step ${override.stepKeyDigest} was not admitted at ${frame.lineageId}@${frame.seq}`
+      ))
+    }
+    const cache = yield* CacheStore.CacheStore
+    const cached = yield* cache.get(override.stepKeyDigest).pipe(
+      Effect.mapError((cause) => error("unknown", "could not read the step cache", cause))
+    )
+    if (cached._tag === "Some") {
+      return yield* Effect.fail(error(
+        "invalid",
+        `step ${override.stepKeyDigest} replays from the shared step cache, so a fork cannot edit its result`
+      ))
+    }
+  })
+
+/**
  * A fork's outcome: the child run, its lineage edge, and everything the
  * boundary assessment disclosed.
  *
@@ -334,6 +374,9 @@ export const fork = (
         options.pageSize ?? 100,
         options.maxEntries ?? HistoryLimit.defaultMaxHistoryEntries
       )
+      if (options.override !== undefined) {
+        yield* admitOverride(store, options.parentRunId, options.frame, options.override)
+      }
       const effects = yield* EffectBoundary.fromEntries(suffix)
       const plan = yield* Compensation.assess(effects, snapshot?.changeId)
       const warnings = normalize(plan.assessments)
@@ -384,7 +427,7 @@ export const fork = (
        */
       const result = yield* Effect.uninterruptibleMask((restore) =>
         restore(StepHook.run("fork", options.hooks?.beforeStep, "commit-fork")).pipe(
-          Effect.andThen(store.createFork(options.parentRunId, options.frame, childRunId)),
+          Effect.andThen(store.createFork(options.parentRunId, options.frame, childRunId, options.override)),
           Effect.onError(() => forgetLane(jj, workspaceName, "after a refused commit")),
           Effect.tap(() =>
             options.retainWorkspace === true
