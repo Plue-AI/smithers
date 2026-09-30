@@ -9,6 +9,7 @@ import * as Effect from "effect/Effect"
 import type * as PlatformError from "effect/PlatformError"
 import type * as ChildProcess from "effect/unstable/process/ChildProcess"
 import { constants } from "node:os"
+import { ProcessCleanupPolicyError } from "./ProcessCleanupPolicyError.ts"
 import * as Supervisor from "./ProcessSupervisor.ts"
 
 /**
@@ -70,13 +71,19 @@ export const policy = (
     try: () => {
       const killSignal = options.killSignal ?? defaults.killSignal ?? "SIGTERM"
       if (killSignal === "SIGSTOP" || constants.signals[killSignal] === undefined) {
-        throw new Error(`Unsupported process termination signal ${killSignal}`)
+        throw new ProcessCleanupPolicyError({
+          code: "kill_signal_unsupported",
+          message: `Unsupported process termination signal ${killSignal}`
+        })
       }
       const graceMs = Duration.toMillis(options.forceKillAfter ?? defaults.forceKillAfter ?? defaultGraceMs)
       // Node/Bun clamp an overflowing timeout to 1 ms. Refuse that policy rather
       // than silently replacing a caller's grace with immediate termination.
       if (!Number.isFinite(graceMs) || graceMs < 0 || graceMs > 2_147_483_647) {
-        throw new Error("Process cleanup grace must fit a finite nonnegative native timer")
+        throw new ProcessCleanupPolicyError({
+          code: "grace_out_of_range",
+          message: "Process cleanup grace must fit a finite nonnegative native timer"
+        })
       }
       return { killSignal, graceMs }
     },

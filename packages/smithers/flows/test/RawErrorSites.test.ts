@@ -71,11 +71,6 @@ const reviewed: ReadonlyArray<readonly [file: string, count: number, why: string
   ["platform-node/src/internal/AtomicFileSystemProtocol.ts", 31, helperProtocol],
   ["platform-node/src/internal/AtomicFileSystemTransport.ts", 5, helperProtocol],
   ["platform-node/src/internal/PipedProcess.ts", 3, "the cause of a tagged PlatformError from PipedProcess.failure"],
-  [
-    "platform-node/src/internal/ProcessCleanup.ts",
-    2,
-    "option bounds refused before a process starts; a programming error"
-  ],
   ["platform-node/src/internal/ProcessSupervisor.ts", 15, supervisor],
   [
     "platform-node/src/internal/SupervisorProgram.ts",

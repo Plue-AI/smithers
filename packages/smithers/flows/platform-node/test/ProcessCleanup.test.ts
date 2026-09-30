@@ -2,6 +2,7 @@ import { describe, expect, it } from "@effect/vitest"
 import { Cause, Effect, Exit } from "effect"
 import * as ChildProcess from "effect/unstable/process/ChildProcess"
 import * as Cleanup from "../src/internal/ProcessCleanup.ts"
+import { ProcessCleanupPolicyError } from "../src/internal/ProcessCleanupPolicyError.ts"
 import { bootstrapArguments, failure } from "../src/internal/ProcessSupervisor.ts"
 
 describe("prepared process policy", () => {
@@ -48,6 +49,23 @@ describe("prepared process policy", () => {
           expect(Cause.hasDies(result.cause)).toBe(false)
           expect(Cause.hasFails(result.cause)).toBe(true)
         }
+      }))
+  }
+
+  for (
+    const [options, code] of [
+      [{ killSignal: "SIGSTOP" }, "kill_signal_unsupported"],
+      [{ killSignal: "SIGINVALID" }, "kill_signal_unsupported"],
+      [{ forceKillAfter: Number.POSITIVE_INFINITY }, "grace_out_of_range"],
+      [{ forceKillAfter: -1 }, "grace_out_of_range"],
+      [{ forceKillAfter: 2_147_483_648 }, "grace_out_of_range"]
+    ] as const
+  ) {
+    it.effect(`reports ${code} as a tagged cause of the platform error: ${JSON.stringify(options)}`, () =>
+      Effect.gen(function*() {
+        const error = yield* Effect.flip(Cleanup.policy(options as ChildProcess.KillOptions))
+        expect(error.cause).toBeInstanceOf(ProcessCleanupPolicyError)
+        expect(error.cause).toMatchObject({ _tag: "@smthrs/platform-node/ProcessCleanupPolicyError", code })
       }))
   }
 
