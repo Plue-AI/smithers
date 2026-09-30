@@ -884,6 +884,13 @@ One execution's state: `executionId`, `lineageId`, `flow`, a `scope` closed only
 
 The result of atomically completing a deferred only while its run is parked.
 
+### `FlowRuntime.ResumeOptions`
+
+- **Type:** `interface ResumeOptions { readonly delegated?: boolean | undefined }`
+- **Since:** `1.0.0`
+
+How a caller asks `resume` to re-drive a suspended execution. Without options, `resume` is the operator's own request, which is consent to recover a quarantined execution. `delegated: true` marks a background resume a host takes up for someone else, such as an approval decision or a saved request. A durable engine refuses it for a quarantined execution in the same transaction that reads the park, so a peer that quarantines the run after the host checked it cannot turn the delegation into recovery consent.
+
 ### `FlowRuntime.FlowRuntime`
 
 - **Type:** `Context.Service` keyed `"@smthrs/flow/FlowRuntime"`

@@ -142,13 +142,20 @@ export const placeExecute = <Execute extends FlowRuntime.FlowRuntime["Service"][
 export const placeResume = (
   inner: FlowRuntime.FlowRuntime["Service"]["resume"]
 ): FlowRuntime.FlowRuntime["Service"]["resume"] =>
-(flow, executionId) =>
+(flow, executionId, options) =>
   Effect.flatMap(bindingOf(flow), (binding) =>
     binding._tag === "Here"
-      ? inner(flow, executionId)
+      ? inner(flow, executionId, options)
+      : options?.delegated === true
+      // The remote resume API is the operator's own request. Forwarding a
+      // delegated resume through it would promote it to recovery consent.
+      ? Effect.die(new Error(`A delegated resume of ${flow._tag} cannot cross a remote placement`))
       : remote(binding, flow, (client, operation) =>
-        Effect.flatMap(CapabilitySet.current, ({ groups: capabilityCeilings }) =>
-          Effect.orDie(client[operation.resume]!({ executionId, capabilityCeilings })))))
+        Effect.flatMap(
+          CapabilitySet.current,
+          ({ groups: capabilityCeilings }) =>
+            Effect.orDie(client[operation.resume]!({ executionId, capabilityCeilings }))
+        )))
 
 /**
  * `interrupt` for a placed flow: here, or the remote engine's interrupt.

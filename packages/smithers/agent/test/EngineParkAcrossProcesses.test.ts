@@ -228,12 +228,17 @@ const host = (
     limits: { memoryBytes: 64 * 1024 * 1024, steps: 5_000_000 },
     maxFrames: 4
   }).pipe(
-    Layer.provide(Layer.effect(FlowRuntime.FlowRuntime, Effect.map(FlowRuntime.FlowRuntime, (runtime) => ({
-      ...runtime,
-      resume: (...args: Parameters<typeof runtime.resume>) => runtime.resume(...args).pipe(
-        Effect.ensuring(options.resumed === undefined ? Effect.void : Deferred.succeed(options.resumed, void 0))
-      )
-    })))),
+    Layer.provide(Layer.effect(
+      FlowRuntime.FlowRuntime,
+      Effect.map(FlowRuntime.FlowRuntime, (runtime) => ({
+        ...runtime,
+        resume: (...args: Parameters<typeof runtime.resume>) =>
+          (options.beforeResume?.(args[1]) ?? Effect.void).pipe(
+            Effect.andThen(runtime.resume(...args)),
+            Effect.ensuring(options.resumed === undefined ? Effect.void : Deferred.succeed(options.resumed, void 0))
+          )
+      }))
+    )),
     Layer.provide(
       Layer.mergeAll(
         options.agent === undefined ? Agent.layer : Layer.succeed(Agent.Agent)(options.agent),
@@ -274,12 +279,7 @@ const host = (
     Layer.provideMerge(
       bindControl.pipe(Layer.provideMerge(
         Layer.mergeAll(
-          Layer.effect(ControlRuntime.ControlRuntime, Effect.map(ControlRuntime.ControlRuntime, (runtime) => ({
-            ...runtime,
-            resume: (runId: string) => (options.beforeResume?.(runId) ?? Effect.void).pipe(
-              Effect.andThen(runtime.resume(runId))
-            )
-          }))).pipe(Layer.provide(SqlControlRuntime.layer({ owner, flows: controlFlows }).pipe(Layer.orDie))),
+          SqlControlRuntime.layer({ owner, flows: controlFlows }).pipe(Layer.orDie),
           NotificationQueue.layer,
           registryLayer
         )
@@ -477,189 +477,227 @@ const settledEngineRow = async (root: string, runId: string): Promise<EngineRow 
 describe("an agent execution quarantined by the durable engine", () => {
   it("fences a delegated resume when a peer quarantines after its wait precheck", async () => {
     const root = makeRoot()
-    const runId = await Effect.runPromise(Effect.gen(function*() {
-      const id = yield* launch
-      const runtime = yield* ControlRuntime.ControlRuntime
-      yield* awaitStatus(runtime, id, "parked")
-      return id
-    }).pipe(Effect.provide(host(root, hostOwner)), Effect.scoped, Effect.orDie))
-    expect(readEngineRun(root, runId)?.waiting_reason).toBe("timer")
     const resumed = Deferred.makeUnsafe<void>()
+    // The peer's quarantine lands inside the window this case is about: after
+    // the executor read the park as a timer and claimed the control row, and
+    // before the engine is asked to re-drive the execution.
+    let quarantineOnResume = false
     let quarantines = 0
-    await Effect.runPromise(Effect.gen(function*() {
-      const executor = yield* ControlExecutor.ControlExecutor
-      expect(yield* executor.resumeRun({ runId })).toBe("resuming")
-      yield* Deferred.await(resumed)
-    }).pipe(Effect.provide(host(root, secondOwner, "quarantine-race", {
-      resumed,
-      beforeResume: (id) => Effect.sync(() => {
-        quarantines++
-        const database = new DatabaseSync(join(root, "engine.db"))
-        try {
-          database.prepare("UPDATE flows_runs SET waiting_reason = 'quarantine', waiting_token = 'peer-corruption' WHERE run_id = ?").run(id)
-        } finally {
-          database.close()
-        }
-      })
-    })), Effect.scoped, Effect.orDie))
-    expect(quarantines).toBe(1)
-    expect(readEngineRun(root, runId)?.status).toBe("suspended")
-    expect(readEngineRun(root, runId)?.waiting_reason).toBe("quarantine")
-    expect(readEngineRun(root, runId)?.waiting_token).toBe("peer-corruption")
-    expect(notes).toEqual([])
-    const database = new DatabaseSync(join(root, "engine.db"), { readOnly: true })
-    try {
-      const consent = database.prepare(`SELECT COUNT(*) AS count FROM flows_journal
-        WHERE run_id = ? AND event_type = 'flows.engine.run-decision'
-        AND json_extract(payload_json, '$.decision') = 'wake-scheduled'
-        AND json_extract(payload_json, '$.reason') = 'operator'`).get(runId)
-      expect(consent).toEqual({ count: 0 })
-    } finally {
-      database.close()
+    const operatorWakes = (runId: string): number => {
+      const database = new DatabaseSync(join(root, "engine.db"), { readOnly: true })
+      try {
+        const row = database.prepare(`SELECT COUNT(*) AS n FROM flows_journal_events
+          WHERE run_id = ? AND event_type = 'flows.engine.run-decision'
+          AND json_extract(payload_json, '$.decision') = 'wake-scheduled'
+          AND json_extract(payload_json, '$.reason') = 'operator'`).get(runId) as { readonly n: number }
+        return row.n
+      } finally {
+        database.close()
+      }
     }
-  }, 120_000)
-
-  it("replays a corrupted succeeded attempt, parks both records, then recovers its saved outcome", async () => {
-    const root = makeRoot()
-    let dispatches = 0
-    let corrupt = false
-    const sealed = Action.make({
-      name: "AgentSession/quarantine-sealed",
-      success: Schema.String,
-      tier: "sealed",
-      idempotencyKey: "quarantine-v1",
-      metadata: { readSet: [], writeSet: ["dist/manifest.json"], boundaryMode: "hard" },
-      execute: Effect.sync(() => {
-        dispatches++
-        return "saved outcome"
-      })
-    })
-    const boundary = Layer.succeed(
-      StepBoundary.StepBoundary,
-      StepBoundary.make({
-        prepare: (descriptor) => Effect.succeed({ descriptor, readSnapshot: StepBoundary.exactReads(descriptor) }),
-        settle: () =>
-          Effect.succeed({
-            declaredOutputs: { paths: ["dist/manifest.json"] },
-            diffIdentity: "quarantine-diff",
-            wholeTreeWritesVerified: true
-          }),
-        replayOutputs: () =>
-          corrupt
-            ? Effect.fail(
-              new StepBoundary.BoundaryCorruption({
-                code: "boundary_corruption",
-                path: "dist/manifest.json",
-                recordedDigest: "aa".repeat(32),
-                measuredDigest: "bb".repeat(32)
-              })
-            )
-            : Effect.void
-      })
-    )
-    const completed = Stream.make(
-      new AgentEvent.TransitionApplied({
-        eventType: "flows.harness.transition-applied.v1",
-        transition: new Cell.Complete({ output: "saved answer" })
-      })
-    )
-    const agent = Agent.makeNoop({
-      run: () =>
-        Stream.unwrap(Effect.gen(function*() {
-          const engine = yield* FlowRuntime.FlowRuntime
-          const result = yield* engine.actionExecute(sealed, 1).pipe(Effect.provide(NodeCrypto.layer))
-          return result._tag === "Complete" && Exit.isFailure(result.exit)
-            ? Stream.die(Cause.squash(result.exit.cause))
-            : completed
-        }))
-    })
-    const options = { agent, boundary, adoptsAtOnce: true }
-    const runId = await Effect.runPromise(
+    const outcome = await Effect.runPromise(
       Effect.gen(function*() {
         const id = yield* launch
         const runtime = yield* ControlRuntime.ControlRuntime
-        yield* awaitStatus(runtime, id, "completed")
-        return id
-      }).pipe(Effect.provide(host(root, hostOwner, "quarantine-first", options)), Effect.scoped, Effect.orDie)
+        yield* awaitStatus(runtime, id, "parked")
+        expect(readEngineRun(root, id)?.waiting_reason).toBe("timer")
+        const wakesBefore = operatorWakes(id)
+        quarantineOnResume = true
+        const executor = yield* ControlExecutor.ControlExecutor
+        const uptake = yield* executor.resumeRun({ runId: id })
+        yield* Deferred.await(resumed)
+        // The refused delegation hands its control claim back to the park.
+        yield* awaitStatus(runtime, id, "parked")
+        return { id, uptake, wakesBefore, parkedBy: (yield* runtime.getRun(id)).parkedBy }
+      }).pipe(
+        Effect.provide(host(root, hostOwner, "quarantine-race", {
+          resumed,
+          beforeResume: (id) =>
+            Effect.sync(() => {
+              if (!quarantineOnResume) return
+              quarantineOnResume = false
+              quarantines++
+              const database = new DatabaseSync(join(root, "engine.db"))
+              try {
+                database.exec("PRAGMA busy_timeout = 5000")
+                database.prepare(
+                  "UPDATE flows_runs SET waiting_reason = 'quarantine', waiting_token = 'peer-corruption' WHERE run_id = ?"
+                ).run(id)
+              } finally {
+                database.close()
+              }
+            })
+        })),
+        Effect.scoped,
+        Effect.orDie
+      )
     )
-    expect(dispatches).toBe(1)
-    const engineDb = new DatabaseSync(join(root, "engine.db"))
-    try {
-      engineDb.prepare(`UPDATE flows_runs SET status = 'suspended', waiting_reason = 'released',
+    const { id: runId } = outcome
+    expect(quarantines).toBe(1)
+    // The precheck saw a timer, so the executor claimed and handed the run on.
+    expect(outcome.uptake).toBe("resuming")
+    expect(outcome.parkedBy).toBeDefined()
+    const row = readEngineRun(root, runId)
+    expect(row?.status).toBe("suspended")
+    expect(row?.waiting_reason).toBe("quarantine")
+    expect(row?.waiting_token).toBe("peer-corruption")
+    expect(notes).toEqual([])
+    // No recovery consent was recorded for the background delegation.
+    expect(operatorWakes(runId)).toBe(outcome.wakesBefore)
+  }, 120_000)
+
+  // The first detection parks the run whichever resume drove it: the
+  // operator's own, or a delegation a host took up in the background.
+  for (const replay of ["operator", "delegation"] as const) {
+    it(
+      `replays a corrupted succeeded attempt on a resume by ${replay}, parks both records, then recovers its saved outcome`,
+      async () => {
+        const root = makeRoot()
+        let dispatches = 0
+        let corrupt = false
+        const sealed = Action.make({
+          name: "AgentSession/quarantine-sealed",
+          success: Schema.String,
+          tier: "sealed",
+          idempotencyKey: "quarantine-v1",
+          metadata: { readSet: [], writeSet: ["dist/manifest.json"], boundaryMode: "hard" },
+          execute: Effect.sync(() => {
+            dispatches++
+            return "saved outcome"
+          })
+        })
+        const boundary = Layer.succeed(
+          StepBoundary.StepBoundary,
+          StepBoundary.make({
+            prepare: (descriptor) => Effect.succeed({ descriptor, readSnapshot: StepBoundary.exactReads(descriptor) }),
+            settle: () =>
+              Effect.succeed({
+                declaredOutputs: { paths: ["dist/manifest.json"] },
+                diffIdentity: "quarantine-diff",
+                wholeTreeWritesVerified: true
+              }),
+            replayOutputs: () =>
+              corrupt
+                ? Effect.fail(
+                  new StepBoundary.BoundaryCorruption({
+                    code: "boundary_corruption",
+                    path: "dist/manifest.json",
+                    recordedDigest: "aa".repeat(32),
+                    measuredDigest: "bb".repeat(32)
+                  })
+                )
+                : Effect.void
+          })
+        )
+        const completed = Stream.make(
+          new AgentEvent.TransitionApplied({
+            eventType: "flows.harness.transition-applied.v1",
+            transition: new Cell.Complete({ output: "saved answer" })
+          })
+        )
+        const agent = Agent.makeNoop({
+          run: () =>
+            Stream.unwrap(Effect.gen(function*() {
+              const engine = yield* FlowRuntime.FlowRuntime
+              const result = yield* engine.actionExecute(sealed, 1).pipe(Effect.provide(NodeCrypto.layer))
+              return result._tag === "Complete" && Exit.isFailure(result.exit)
+                ? Stream.die(Cause.squash(result.exit.cause))
+                : completed
+            }))
+        })
+        const options = { agent, boundary, adoptsAtOnce: true }
+        const runId = await Effect.runPromise(
+          Effect.gen(function*() {
+            const id = yield* launch
+            const runtime = yield* ControlRuntime.ControlRuntime
+            yield* awaitStatus(runtime, id, "completed")
+            return id
+          }).pipe(Effect.provide(host(root, hostOwner, "quarantine-first", options)), Effect.scoped, Effect.orDie)
+        )
+        expect(dispatches).toBe(1)
+        const engineDb = new DatabaseSync(join(root, "engine.db"))
+        try {
+          engineDb.prepare(`UPDATE flows_runs SET status = 'suspended', waiting_reason = 'released',
         finished_at_ms = NULL, owner_host_id = NULL, owner_pid = NULL, owner_nonce = NULL,
         heartbeat_at_ms = NULL, claim_host_id = NULL, claim_pid = NULL, claim_nonce = NULL,
         claimed_at_ms = NULL, state_json = json_remove(state_json, '$.result') WHERE run_id = ?`).run(runId)
-      engineDb.prepare("DELETE FROM flows_step_cache").run()
-    } finally {
-      engineDb.close()
-    }
-    const controlDb = new DatabaseSync(join(root, "control.db"))
-    try {
-      controlDb.prepare(`UPDATE flows_runs SET status = 'suspended', waiting_reason = 'event',
+          engineDb.prepare("DELETE FROM flows_step_cache").run()
+        } finally {
+          engineDb.close()
+        }
+        const controlDb = new DatabaseSync(join(root, "control.db"))
+        try {
+          controlDb.prepare(`UPDATE flows_runs SET status = 'suspended', waiting_reason = 'event',
         finished_at_ms = NULL, owner_host_id = NULL, owner_pid = NULL, owner_nonce = NULL,
         heartbeat_at_ms = NULL, claim_host_id = NULL, claim_pid = NULL, claim_nonce = NULL,
         claimed_at_ms = NULL, state_json = json_set(state_json, '$.status', 'parked') WHERE run_id = ?`).run(runId)
-    } finally {
-      controlDb.close()
-    }
-    corrupt = true
-    await Effect.runPromise(
-      Effect.gen(function*() {
-        const control = yield* Control.Control
-        const runtime = yield* ControlRuntime.ControlRuntime
-        yield* control.resume({ runId, idempotencyKey: `replay:${runId}` })
-        yield* awaitStatus(runtime, runId, "parked")
-        yield* awaitQuarantine(root, runId)
-      }).pipe(
-        Effect.provide(host(root, secondOwner, "quarantine-replay", options)),
-        Effect.scoped,
-        Effect.orDie
-      )
-    )
-    expect(readEngineRun(root, runId)?.waiting_reason).toBe("quarantine")
-    expect(dispatches).toBe(1)
-
-    const background = await Effect.runPromise(
-      Effect.gen(function*() {
-        const runtime = yield* ControlRuntime.ControlRuntime
-        yield* runtime.requestResume(runId)
-        yield* Effect.sleep("1200 millis")
-        return {
-          status: (yield* runtime.getRun(runId)).status,
-          pending: (yield* runtime.pendingResumes).filter((entry) => entry.runId === runId)
+        } finally {
+          controlDb.close()
         }
-      }).pipe(
-        Effect.provide(host(root, secondOwner, "quarantine-background", { ...options, adoptsAtOnce: true })),
-        Effect.scoped,
-        Effect.orDie
-      )
-    )
-    expect(background.status).toBe("parked")
-    expect(background.pending).toHaveLength(1)
-    expect(readEngineRun(root, runId)?.waiting_reason).toBe("quarantine")
-    expect(dispatches).toBe(1)
+        corrupt = true
+        const replayed = Deferred.makeUnsafe<void>()
+        await Effect.runPromise(
+          Effect.gen(function*() {
+            const control = yield* Control.Control
+            const runtime = yield* ControlRuntime.ControlRuntime
+            if (replay === "operator") yield* control.resume({ runId, idempotencyKey: `replay:${runId}` })
+            else yield* runtime.requestResume(runId)
+            yield* awaitQuarantine(root, runId)
+            yield* Deferred.await(replayed)
+            yield* awaitStatus(runtime, runId, "parked")
+          }).pipe(
+            Effect.provide(host(root, secondOwner, "quarantine-replay", { ...options, resumed: replayed })),
+            Effect.scoped,
+            Effect.orDie
+          )
+        )
+        expect(readEngineRun(root, runId)?.waiting_reason).toBe("quarantine")
+        expect(dispatches).toBe(1)
 
-    const recovered = await Effect.runPromise(
-      Effect.gen(function*() {
-        const control = yield* Control.Control
-        const runtime = yield* ControlRuntime.ControlRuntime
-        const receipt = yield* control.resume({ runId, idempotencyKey: `recover:${runId}` })
-        yield* awaitStatus(runtime, runId, "completed")
-        const repeated = yield* control.resume({ runId, idempotencyKey: `recover:${runId}` })
-        return { receipt, repeated, status: (yield* runtime.getRun(runId)).status }
-      }).pipe(
-        Effect.provide(host(root, secondOwner, "quarantine-recover", options)),
-        Effect.scoped,
-        Effect.orDie
-      )
-    )
+        const background = await Effect.runPromise(
+          Effect.gen(function*() {
+            const runtime = yield* ControlRuntime.ControlRuntime
+            yield* runtime.requestResume(runId)
+            yield* Effect.sleep("1200 millis")
+            return {
+              status: (yield* runtime.getRun(runId)).status,
+              pending: (yield* runtime.pendingResumes).filter((entry) => entry.runId === runId)
+            }
+          }).pipe(
+            Effect.provide(host(root, secondOwner, "quarantine-background", { ...options, adoptsAtOnce: true })),
+            Effect.scoped,
+            Effect.orDie
+          )
+        )
+        expect(background.status).toBe("parked")
+        expect(background.pending).toHaveLength(1)
+        expect(readEngineRun(root, runId)?.waiting_reason).toBe("quarantine")
+        expect(dispatches).toBe(1)
 
-    expect(recovered.receipt._tag).toBe("Accepted")
-    expect(recovered.repeated).toEqual({ _tag: "Terminal", runId, status: "completed" })
-    expect(recovered.status).toBe("completed")
-    expect(readEngineRun(root, runId)?.status).toBe("completed")
-    expect(dispatches).toBe(1)
-  }, 120_000)
+        const recovered = await Effect.runPromise(
+          Effect.gen(function*() {
+            const control = yield* Control.Control
+            const runtime = yield* ControlRuntime.ControlRuntime
+            const receipt = yield* control.resume({ runId, idempotencyKey: `recover:${runId}` })
+            yield* awaitStatus(runtime, runId, "completed")
+            const repeated = yield* control.resume({ runId, idempotencyKey: `recover:${runId}` })
+            return { receipt, repeated, status: (yield* runtime.getRun(runId)).status }
+          }).pipe(
+            Effect.provide(host(root, secondOwner, "quarantine-recover", options)),
+            Effect.scoped,
+            Effect.orDie
+          )
+        )
+
+        expect(recovered.receipt._tag).toBe("Accepted")
+        expect(recovered.repeated).toEqual({ _tag: "Terminal", runId, status: "completed" })
+        expect(recovered.status).toBe("completed")
+        expect(readEngineRun(root, runId)?.status).toBe("completed")
+        expect(dispatches).toBe(1)
+      },
+      120_000
+    )
+  }
 
   it("cancels a quarantined agent run through Control", async () => {
     const root = makeRoot()

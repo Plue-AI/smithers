@@ -612,6 +612,7 @@ describe("RunDriver requestResume", () => {
         yield* driver.scheduleResume(EdgeFlow._tag, "parked", "clock")
         yield* driver.scheduleResume(EdgeFlow._tag, "parked", "parent")
         yield* driver.scheduleResume(EdgeFlow._tag, "parked", "operator")
+        yield* driver.scheduleResume(EdgeFlow._tag, "parked", "delegated")
         return { recorded, decisions: yield* decisionsFor("parked") }
       })))
 
@@ -620,10 +621,50 @@ describe("RunDriver requestResume", () => {
         ["parked", "clock"],
         ["parked", "parent"]
       ])
-      // The operator's wake still happened; it is the RECORD that is refused,
-      // because `Control.resume` claims the control row itself and a second
-      // request would buy the park a second re-drive.
-      expect(result.decisions).toEqual(["wake-scheduled", "wake-scheduled", "wake-scheduled", "wake-scheduled"])
+      // The operator's and the delegated wakes still happened; it is the
+      // RECORD that is refused, because the host claimed the control row
+      // itself and a second request would buy the park a second re-drive.
+      expect(result.decisions).toEqual([
+        "wake-scheduled",
+        "wake-scheduled",
+        "wake-scheduled",
+        "wake-scheduled",
+        "wake-scheduled"
+      ])
+    }))
+
+  it.effect("refuses a delegated wake of a quarantine park in the transaction that reads it", () =>
+    Effect.gen(function*() {
+      const result = yield* withCrypto(provideJournal(Effect.gen(function*() {
+        const engineState = yield* DurableEngineState.DurableEngineState
+        const store = yield* RunStore.RunStore
+        const recorded: Array<readonly [string, RunDriver.RequestedResumeReason]> = []
+        const driver = yield* recordingDriver(recorded)
+        yield* driver.register(EdgeFlow, () => Effect.succeed("done"))
+        yield* suspend("quarantined")
+        yield* engineState.park("quarantined", { reason: "quarantine", token: "corrupt" }, owner)
+        yield* driver.resume(EdgeFlow, "quarantined", { delegated: true })
+        const refused = {
+          waiting: Option.getOrUndefined(yield* engineState.waiting("quarantined")),
+          status: (yield* store.get("quarantined")).status,
+          decisions: yield* decisionsFor("quarantined")
+        }
+        // The operator's own resume is the recovery consent.
+        yield* driver.resume(EdgeFlow, "quarantined")
+        return {
+          recorded,
+          refused,
+          waiting: yield* engineState.waiting("quarantined"),
+          decisions: yield* decisionsFor("quarantined")
+        }
+      })))
+
+      expect(result.recorded).toEqual([])
+      expect(result.refused.waiting).toMatchObject({ reason: "quarantine", token: "corrupt" })
+      expect(result.refused.status).toBe("suspended")
+      expect(result.refused.decisions).toEqual([])
+      expect(Option.isNone(result.waiting)).toBe(true)
+      expect(result.decisions[0]).toBe("wake-scheduled")
     }))
 
   it.effect("reports nothing for a wake against a run that is not parked", () =>

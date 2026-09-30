@@ -176,12 +176,15 @@ export interface Encoded {
    * state of its own, so there is nothing to report to a caller that named a
    * run this engine does not hold.
    * `poll` marks an automatic follower retry, without operator authority to
-   * clear a quarantine park. Omitted, this is an explicit recovery request.
+   * clear a quarantine park. `delegated` marks a background control
+   * delegation: it schedules the wake without operator authority, and a
+   * quarantine park refuses it in the same transaction that reads the park.
+   * Omitted, this is an explicit recovery request.
    */
   readonly resume: (
     flow: Flow.Any,
     executionId: string,
-    options?: { readonly poll?: boolean | undefined } | undefined
+    options?: FlowRuntime.ResumeOptions & { readonly poll?: boolean | undefined } | undefined
   ) => Effect.Effect<void>
   readonly resumeSignal?:
     | ((

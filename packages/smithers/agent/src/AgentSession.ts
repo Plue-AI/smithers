@@ -3474,16 +3474,38 @@ export const make = (
      * claimed. A refusal is contained: one run that cannot restart must not
      * take the follower or the journal bridge down with it.
      */
-    const resumeExecution = (runId: string): Effect.Effect<void> =>
-      engine.resume(agentFlow, runId).pipe(
-        Effect.catchCause(
-          (cause) =>
-            Effect.annotateLogs(
-              Effect.logWarning("A parked agent run could not be resumed"),
-              { runId, cause: Cause.pretty(cause) }
-            )
+    const resumeExecution = (runId: string, uptake: Uptake): Effect.Effect<void> =>
+      (uptake._tag === "delegated"
+        ? engine.resume(agentFlow, runId, { delegated: true }).pipe(Effect.andThen(reparkRefusedDelegation(runId)))
+        : engine.resume(agentFlow, runId)).pipe(
+          Effect.catchCause(
+            (cause) =>
+              Effect.annotateLogs(
+                Effect.logWarning("A parked agent run could not be resumed"),
+                { runId, cause: Cause.pretty(cause) }
+              )
+          )
         )
-      )
+
+    /**
+     * Returns the control claim a delegated resume took when the engine
+     * refused to drive it.
+     *
+     * The park precheck in {@link takeUpResume} and the engine's resume are
+     * separate reads: a peer can quarantine the execution between them. The
+     * engine refuses a delegated resume of a quarantine park atomically, which
+     * leaves this executor holding a control claim that nothing is driving.
+     * The row goes back to `parked`, which is where a quarantined run waits
+     * for the operator. A drive that entered the body and quarantined there
+     * has already parked the row itself, and is left alone.
+     */
+    const reparkRefusedDelegation = (runId: string) =>
+      Effect.gen(function*() {
+        const waiting = yield* engineState.waiting(runId)
+        if (Option.isNone(waiting) || waiting.value.reason !== "quarantine") return
+        if (parks((yield* runtime.getRun(runId)).status)) return
+        yield* writeStatus(runId, "parked")
+      })
 
     /**
      * Closes a parked run whose cancellation this process has just recorded.
@@ -3515,7 +3537,7 @@ export const make = (
         // nothing, and one it is hosting is already parked by the time the
         // request is durable.
         parkedHere(runId, 0),
-        (parked) => parked ? resumeExecution(runId) : Effect.void
+        (parked) => parked ? resumeExecution(runId, { _tag: "claimed" }) : Effect.void
       )
 
     /**
@@ -3589,7 +3611,7 @@ export const make = (
      */
     const takeUpResume = (
       runId: string,
-      drive: (runId: string) => Effect.Effect<void>,
+      drive: (runId: string, uptake: Uptake) => Effect.Effect<void>,
       uptake: Uptake
     ): Effect.Effect<ControlExecutor.ResumeUptake, never> =>
       Effect.gen(function*() {
@@ -3598,7 +3620,10 @@ export const make = (
         if (!parked) return "unknown" as const
         // A saved clock, deferred, parent, or approval request is background
         // intent. It can predate a later corruption park, so it cannot stand
-        // in for the explicit recovery decision the engine requires.
+        // in for the explicit recovery decision the engine requires. This
+        // read only spares a claim: a peer can still quarantine the run after
+        // it, and the engine's refusal of a delegated resume is the fence
+        // ({@link reparkRefusedDelegation} hands the claim back).
         if (uptake._tag === "delegated") {
           const eligible = yield* engineState.waiting(runId).pipe(
             Effect.map((waiting) => Option.isNone(waiting) || waiting.value.reason !== "quarantine"),
@@ -3620,7 +3645,7 @@ export const make = (
           )
         )
         if (!claimed) return "unknown" as const
-        yield* drive(runId)
+        yield* drive(runId, uptake)
         return "resuming" as const
       })
 
@@ -3825,7 +3850,7 @@ export const make = (
     const takeUpPendingResume = (entry: PendingResume) =>
       takeUpResume(
         entry.runId,
-        (runId) => Effect.asVoid(Effect.forkIn(resumeExecution(runId), scope)),
+        (runId, uptake) => Effect.asVoid(Effect.forkIn(resumeExecution(runId, uptake), scope)),
         { _tag: "delegated", requestedAtMs: entry.requestedAtMs }
       ).pipe(
         Effect.flatMap((uptake) =>
@@ -3973,9 +3998,13 @@ export const make = (
         )
       ),
       resumeRun: Effect.fn("AgentSession.resumeRun")((input) =>
-        takeUpResume(input.runId, (runId) => Effect.asVoid(Effect.forkIn(resumeExecution(runId), scope)), {
-          _tag: "delegated"
-        })
+        takeUpResume(
+          input.runId,
+          (runId, uptake) => Effect.asVoid(Effect.forkIn(resumeExecution(runId, uptake), scope)),
+          {
+            _tag: "delegated"
+          }
+        )
       ),
       settleCancelledPark: Effect.fn("AgentSession.settleCancelledPark")((input) => settleCancelledPark(input.runId))
     })

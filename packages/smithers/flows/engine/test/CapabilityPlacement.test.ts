@@ -154,4 +154,22 @@ describe("remote placement capability ceiling", () => {
         expect(calls).toEqual([])
       }).pipe(Effect.scoped)
     ))
+
+  it.effect("refuses a delegated remote resume before connecting", () =>
+    withCrypto(
+      Effect.gen(function*() {
+        const calls: Array<string> = []
+        const runtime = yield* FlowRuntime.FlowRuntime.pipe(
+          Effect.provide(layer(parent("ceiling-placement/delegated-host"), calls))
+        )
+        // The remote resume API is operator recovery consent; a background
+        // delegation must not be promoted to it by crossing the placement.
+        const exit = yield* Effect.exit(
+          runtime.resume(Remote, "remote-run", { delegated: true })
+            .pipe(Effect.provide(Hosts.layer({ remote: proxy(calls) })))
+        )
+        expect(String(squashed(exit))).toContain("cannot cross a remote placement")
+        expect(calls).toEqual([])
+      }).pipe(Effect.scoped)
+    ))
 })

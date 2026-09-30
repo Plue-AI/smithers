@@ -49,6 +49,23 @@ import type * as NodeRecord from "./NodeRecord.ts"
 export type DeferredDoneIfWaitingOutcome = "Completed" | "Existing" | "NotWaiting"
 
 /**
+ * How a caller asks a suspended execution to resume.
+ *
+ * `delegated` marks a background resume a host takes up on someone else's
+ * behalf: an approval decision, a saved request, a peer's delegation. It is
+ * not recovery consent, so a durable engine refuses it for a quarantined
+ * execution in the same transaction that reads the park. A host that checks
+ * the park first and resumes after has a window in which a peer can
+ * quarantine the run; only the engine's own check closes it.
+ *
+ * @category models
+ * @since 1.0.0
+ */
+export interface ResumeOptions {
+  readonly delegated?: boolean | undefined
+}
+
+/**
  * Service that represents a flow runtime, responsible for registering and
  * executing flows and coordinating actions, durable deferreds,
  * interrupts, resumes, and clocks.
@@ -178,10 +195,14 @@ export class FlowRuntime extends Context.Service<
      * Re-drives a registered execution that returned `Suspended`, allowing it
      * to replay durable history and continue after an awaited condition becomes
      * ready. It does not undo `interrupt` and is not a general unpause operation.
+     *
+     * Without options this is the operator's own resume, which is authority
+     * to recover a quarantined execution. See {@link ResumeOptions}.
      */
     readonly resume: (
       flow: Flow.Any,
-      executionId: string
+      executionId: string,
+      options?: ResumeOptions | undefined
     ) => Effect.Effect<void>
 
     /**

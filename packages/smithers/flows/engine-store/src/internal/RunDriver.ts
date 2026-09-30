@@ -94,6 +94,18 @@ export type FlowCycleDetected = FlowRuntime.FlowCycleDetected
 export type RequestedResumeReason = "deferred" | "clock" | "parent"
 
 /**
+ * Why a wake is scheduled for an execution.
+ *
+ * Only `operator` is recovery consent for a quarantine park. `delegated` is a
+ * host taking up a control delegation it has already claimed, so, like
+ * `operator`, it is not recorded back to the host as a request.
+ *
+ * @since 1.0.0
+ * @category models
+ */
+export type ScheduledResumeReason = RequestedResumeReason | "operator" | "delegated"
+
+/**
  * Dependencies for the run driver.
  *
  * @since 0.1.0
@@ -194,7 +206,7 @@ export interface Service {
   readonly scheduleResume: (
     flowName: string,
     executionId: string,
-    reason: "deferred" | "clock" | "parent" | "operator",
+    reason: ScheduledResumeReason,
     sourceId?: string | undefined
   ) => Effect.Effect<void>
   readonly active: Effect.Effect<ReadonlySet<string>>
@@ -2832,10 +2844,12 @@ export const make = (
         Effect.flatMap((scheduled) =>
           scheduled === undefined
             ? Effect.void
-            : (reason === "operator" ? Effect.void : recordResume(executionId, scheduled.parked, reason)).pipe(
-              Effect.andThen(coordinator.wake(executionId)),
-              Effect.andThen(wakeBus.wake(executionId))
-            )
+            : (reason === "operator" || reason === "delegated"
+              ? Effect.void
+              : recordResume(executionId, scheduled.parked, reason)).pipe(
+                Effect.andThen(coordinator.wake(executionId)),
+                Effect.andThen(wakeBus.wake(executionId))
+              )
         )
       )
     )
@@ -2891,7 +2905,11 @@ export const make = (
       ),
       resume: Effect.fn("FlowEngine.resume")((flow, executionId, options) =>
         Effect.annotateCurrentSpan({ executionId, flow: flow._tag }).pipe(
-          Effect.andThen(options?.poll === true ? Effect.void : scheduleResume(flow._tag, executionId, "operator")),
+          Effect.andThen(
+            options?.poll === true
+              ? Effect.void
+              : scheduleResume(flow._tag, executionId, options?.delegated === true ? "delegated" : "operator")
+          ),
           Effect.andThen(coordinator.run(executionId))
         )
       ),
