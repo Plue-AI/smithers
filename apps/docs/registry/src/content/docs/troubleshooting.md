@@ -208,7 +208,9 @@ composition directly; the host supplies the action table.
 
 The exported module layer asks for a service that this host does not provide.
 The refusal's `service` field names its Effect key. Provide that dependency
-inside the exported layer or select a host that supplies it. A direct
+inside the exported layer or select a host that supplies it. A service asked
+for only inside an action handler is refused when that action first runs,
+rather than at load; the action dies with this refusal. A direct
 `Executable.fromDescriptor` call with an exported layer also requires a scoped
 host context with `FlowRuntime` already provided.
 

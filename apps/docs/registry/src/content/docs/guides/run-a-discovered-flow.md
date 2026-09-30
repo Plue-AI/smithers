@@ -143,9 +143,10 @@ produces `invalid_layer`; other construction failures produce `layer_failed`.
 They appear in `Catalog.refused` without taking down unrelated flows.
 
 Acquire handler dependencies during layer construction with `Layer.unwrap`
-or `Layer.effect` when they need load-time validation. Effect's erased types
-cannot expose services requested only inside a deferred handler without
-executing that handler. No action body runs during loading.
+or `Layer.effect` to have them validated at load. No action body runs during
+loading, so a service requested only inside a handler is refused when that
+action first runs: the action dies with the same `missing_service`
+`ExecutableError`, naming the flow, the service key and the action.
 
 ## Rebuild one entry while serving
 

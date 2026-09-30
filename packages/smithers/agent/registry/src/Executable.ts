@@ -953,12 +953,49 @@ const loadModule = (
     }
   })
 
+/** The service key a failed Effect lookup names, when that is the cause's defect. */
+const missingService = (cause: Cause.Cause<unknown>): string | undefined => {
+  const missing = cause.reasons.find((reason) =>
+    reason._tag === "Die" && reason.defect instanceof Error &&
+    reason.defect.message.startsWith("Service not found: ")
+  )
+  return missing?._tag === "Die"
+    ? (missing.defect as Error).message.slice("Service not found: ".length)
+    : undefined
+}
+
+/**
+ * A module action whose handler asks for a service this host does not supply
+ * dies with the same named `missing_service` refusal a construction-time lookup
+ * gets. Loading cannot see such a request: the module's types are erased and no
+ * handler runs at load, so its first call is where it is named.
+ */
+const namingMissing = (
+  descriptor: Descriptor.FlowDescriptor,
+  implementation: Action.Implementation
+): Action.Implementation => ({
+  ...implementation,
+  action: (payload) =>
+    implementation.action(payload).pipe(Effect.catchCause((cause) => {
+      const service = missingService(cause)
+      return service === undefined ? Effect.failCause(cause) : Effect.die(refuse({
+        code: "missing_service",
+        flow: descriptor.name,
+        path: descriptor.body.path,
+        service,
+        message: `flow "${descriptor.name}" requires host service "${service}" to run action "${implementation.name}"`,
+        cause
+      }))
+    }))
+})
+
 /**
  * Builds a module's implementation layer once in its host's scoped context.
  *
  * Dynamic module types erase Layer requirements. Construction is the runtime
- * check: missing Effect service lookups become a named refusal here. Deferred
- * handler requirements cannot be reflected without executing user actions.
+ * check: missing Effect service lookups become a named refusal here. A lookup
+ * only a handler makes cannot be reflected without executing user actions, so
+ * the module's table names it on the call instead; see `namingMissing`.
  * Each module owns one ordinary Action implementation table, so another module
  * or a refresh may use the same tags without replacing its handlers. Resources
  * remain acquired until its loading host closes or refresh retires the entry.
@@ -990,6 +1027,10 @@ const moduleServices = (
     )
     const local = yield* Layer.buildWithScope(Layer.fresh(Action.layerImplementations), scope)
     const table = Context.get(local, Action.Implementations)
+    const moduleTable = Action.Implementations.of({
+      add: table.add,
+      get: (name) => Effect.map(table.get(name), Option.map((found) => namingMissing(descriptor, found)))
+    })
     const fallback = (name: string) => Option.isSome(hostTable) ? hostTable.value.get(name) : Effect.succeedNone
     // Bind registration before constructing the exported layer: its private
     // interpreters belong to this module just as its default flow does.
@@ -1005,7 +1046,7 @@ const moduleServices = (
                   Option.isSome(instance) && instance.value.executionId !== executionId
                     ? fallback(name)
                     : Effect.flatMap(
-                      table.get(name),
+                      moduleTable.get(name),
                       (found) => Option.isSome(found) ? Effect.succeed(found) : fallback(name)
                     ))
             })
@@ -1021,13 +1062,7 @@ const moduleServices = (
       Effect.onError((cause) => Scope.close(scope, Exit.failCause(cause))),
       Effect.catchCause((cause) => {
         if (Cause.hasInterruptsOnly(cause)) return Effect.failCause(cause)
-        const missing = cause.reasons.find((reason) =>
-          reason._tag === "Die" && reason.defect instanceof Error &&
-          reason.defect.message.startsWith("Service not found: ")
-        )
-        const service = missing?._tag === "Die"
-          ? (missing.defect as Error).message.slice("Service not found: ".length)
-          : undefined
+        const service = missingService(cause)
         return Effect.fail(refuse({
           code: service === undefined ? "layer_failed" : "missing_service",
           flow: descriptor.name,
@@ -1062,7 +1097,11 @@ const moduleServices = (
         message: `flow "${descriptor.name}" requires host service "${FlowRuntime.key}" to register its layer`
       }))
     }
-    const services = Context.add(Context.merge(local, built), FlowRuntime, registrationRuntime.value)
+    const services = Context.add(
+      Context.add(Context.merge(local, built), Action.Implementations, moduleTable),
+      FlowRuntime,
+      registrationRuntime.value
+    )
     // Consumers register independently; only the loading host or a catalog
     // refresh that retires this entry releases the acquired module resources.
     return { layer: Layer.succeedContext(services), scope }

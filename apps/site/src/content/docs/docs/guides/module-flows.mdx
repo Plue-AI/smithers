@@ -112,7 +112,7 @@ smthrs flow start greeting --data '{"name":"Ada"}'
 
 The local CLI and TUI supply `FileSystem`, `Path`, `ChildProcessSpawner`, `HttpClient`, and the agent services required by `AgentAction.layer`, including the host's `SeatResolver`. Implementations use the host's guarded platform and existing engine. Supply other services inside the exported layer. A service required during layer construction that the host cannot supply is refused as `ExecutableError` with code `missing_service`, the flow name, and service key. An invalid export is `invalid_layer`; another construction failure is `layer_failed`.
 
-Acquire extra handler dependencies while constructing the layer, for example with `Layer.unwrap(Effect.map(MyService, service => Greet.toLayer(...)))`, so the loader can validate them. Effect erases the types of services requested only inside a deferred handler; those requests cannot be checked without executing the action. [Flow discovery](/docs/guides/flow-discovery/) describes the catalog rules.
+Acquire extra handler dependencies while constructing the layer, for example with `Layer.unwrap(Effect.map(MyService, service => Greet.toLayer(...)))`, so the loader can validate them. No action runs during loading, so a service requested only inside a handler is refused with the same `missing_service` error when that action first runs. [Flow discovery](/docs/guides/flow-discovery/) describes the catalog rules.
 
 ## Verify failures
 
