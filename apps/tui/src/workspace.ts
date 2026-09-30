@@ -1599,7 +1599,7 @@ const seatProvider = (seat: string): string =>
 /** The failure card's single progress and file-impact line. */
 export const failureLine = (tab: Tab, transcript: Transcript.Transcript): string => {
   const steps = transcript.items.filter((item) => item.kind === "cell" && item.status !== "writing").length
-  const changed = Undo.possible(Undo.run(transcript))
+  const changed = Undo.changes(Undo.run(transcript)).some((change) => !change.undone)
   const prefix = tab.failure?.line ?? "The worker stopped before finishing."
   return `${prefix} ${steps} of ~40 steps done. ${changed ? "Files changed." : "No files changed."}`
 }

@@ -190,6 +190,40 @@ describe("worker failure card", () => {
     expect(frame).toContain("Files changed")
   })
 
+  it("says files changed for a binary-only change undo cannot reverse, and not once it is undone", async () => {
+    const binary = (undone: boolean): Transcript.Transcript => ({
+      ...Transcript.empty,
+      items: [{
+        kind: "cell",
+        id: "1",
+        index: 1,
+        prose: "Wrote",
+        source: "write()",
+        status: "done",
+        printed: "done",
+        startedAt: 1,
+        endedAt: 2,
+        calls: [{
+          flow: "write",
+          subject: "logo.png",
+          status: "ok",
+          startedAt: 1,
+          patches: [{ path: "logo.png", patch: "Binary or large file: logo.png", ...(undone ? { undone: true } : {}) }]
+        }]
+      }]
+    })
+    for (const [undone, line] of [[false, "Files changed."], [true, "No files changed."]] as const) {
+      setup = await testRender(<FailureCard tab={tab} transcript={binary(undone)} details={false} />, {
+        width: 100,
+        height: 8
+      })
+      await setup.renderOnce()
+      expect(setup.captureCharFrame()).toContain(line)
+      setup.renderer.destroy()
+      setup = undefined
+    }
+  })
+
   it("renders a timeout with a human fault label", async () => {
     setup = await testRender(
       <FailureCard
