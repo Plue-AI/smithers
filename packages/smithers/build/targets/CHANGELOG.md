@@ -8,6 +8,9 @@ of it.
 
 ### Added
 
+- Added `issueViews` to `Smithers.Factory` and its projection: saved issue
+  views (`id`, `title`, optional `state` and `labels`) that the app, TUI, CLI
+  and API list and apply to a repository's issue list (#2269).
 - `GithubCiGen` accepts optional `concurrency: "ref" | "commit"`; `commit`
   groups drift checks by commit without cancelling earlier runs (#2484).
 

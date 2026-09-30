@@ -311,6 +311,52 @@ describe("Smithers.Factory", () => {
     expect(() => Factory.Factory({ summary: "S.", machine: "big" as never })).toThrow(/must be a plain object/)
   })
 
+  it("projects declared issue views in order and refuses duplicate ids", () => {
+    const issueViews = [
+      { id: "bugs", title: "Open bugs", state: "open" as const, labels: ["bug", "p1"] },
+      { id: "all-done", title: "Done", state: "verified" as const },
+      { id: "triage", title: "Triage", labels: ["needs-triage"] }
+    ]
+    const factory = Factory.Factory({ summary: "S.", on, github, issueViews })
+    expect(factory.issueViews).toEqual(issueViews)
+    expect(Object.isFrozen(factory.issueViews)).toBe(true)
+    const projected = Factory.parseProjection(Factory.renderProjection(factory, []))
+    expect(typeof projected === "string" ? projected : projected.issueViews).toEqual(issueViews)
+    expect(Factory.renderProjection(Factory.Factory({ summary: "S.", issueViews: [] }), [])).not.toContain("issueViews")
+    expect(Factory.renderProjection(Factory.Factory({ summary: "S." }), [])).not.toContain("issueViews")
+
+    const refuse = (views: unknown) => () => Factory.Factory({ summary: "S.", issueViews: views as never })
+    expect(refuse([{ id: "bugs", title: "A" }, { id: "bugs", title: "B" }])).toThrow(/view "bugs" twice/)
+    expect(refuse("bugs")).toThrow(/must be an array/)
+    expect(refuse([{ id: "Bugs", title: "A" }])).toThrow(/issueViews\[0\]/)
+    expect(refuse([{ id: "-x", title: "A" }])).toThrow(/issueViews\[0\]/)
+    expect(refuse([{ id: "x".repeat(65), title: "A" }])).toThrow(/issueViews\[0\]/)
+    expect(refuse([{ id: "x", title: "" }])).toThrow(/issueViews\[0\]/)
+    expect(refuse([{ id: "x", title: "<b>A</b>" }])).toThrow(/must not contain HTML/)
+    expect(refuse([{ id: "x", title: "A", state: "stale" }])).toThrow(/issueViews\[0\]/)
+    expect(refuse([{ id: "x", title: "A", kind: "chat" }])).toThrow(/unknown option "kind"/)
+    expect(refuse([{ id: "x", title: "A", labels: [" bug"] }])).toThrow(/not a label name/)
+    expect(refuse([{ id: "x", title: "A", labels: [""] }])).toThrow(/not a label name/)
+    expect(refuse([{ id: "x", title: "A", labels: ["l".repeat(256)] }])).toThrow(/not a label name/)
+    expect(refuse([{ id: "x", title: "A", labels: ["Bug", "bug"] }])).toThrow(/"bug" twice/)
+    expect(refuse([{ id: "x", title: "A", labels: Array.from({ length: 17 }, (_, i) => `l${i}`) }]))
+      .toThrow(/more than 16 labels/)
+    expect(refuse(Array.from({ length: Factory.maximumIssueViews + 1 }, (_, i) => ({ id: `v${i}`, title: "V" }))))
+      .toThrow(/more than 32 views/)
+    expect(Factory.Factory({
+      summary: "S.",
+      issueViews: Array.from({ length: Factory.maximumIssueViews }, (_, i) => ({ id: `v${i}`, title: "V" }))
+    }).issueViews).toHaveLength(32)
+    expect(refuse(["bugs"])).toThrow(/must be a plain object/)
+    expect(Factory.parseProjection(JSON.stringify({
+      summary: "S.",
+      flows: [],
+      on: [],
+      github: { mirror: "pull", issues: "read", changes: "send-upstream" },
+      issueViews: [{ id: "Bad", title: "B" }]
+    }))).toMatch(/does not have the .smithers\/factory.json shape/)
+  })
+
   it("projects declared protected paths", () => {
     const guarded = Factory.Policy({ mirror: "push", issues: "two-way", changes: "land", protectedPaths: ["infra"] })
     const projected = Factory.parseProjection(

@@ -417,6 +417,63 @@ const decodeMachine = (value: unknown): Machine => {
 }
 
 /**
+ * A saved issue view: a named filter over the repository's issue list, shown
+ * in the app, TUI, CLI and API. `state` narrows the list to one state (`all`
+ * or none keeps every state); `labels` keeps issues that carry every named
+ * label. The id is how a surface selects it (`issues?view=<id>`).
+ *
+ * @category schemas
+ * @since 1.0.0
+ */
+export const IssueView = Schema.Struct({
+  id: Schema.String.check(Schema.isPattern(/^[a-z0-9][a-z0-9-]{0,63}$/)),
+  title: Home.Title,
+  state: Schema.optionalKey(Schema.Literals(["open", "closed", "fixed", "verified", "all"])),
+  labels: Schema.optionalKey(Schema.Array(Schema.String))
+})
+
+/**
+ * A saved issue view.
+ *
+ * @category models
+ * @since 1.0.0
+ */
+export type IssueView = typeof IssueView.Type
+
+/** The most views a factory may declare. */
+export const maximumIssueViews = 32
+/** The most labels one view may require. */
+const maximumIssueViewLabels = 16
+
+const decodeIssueViews = (value: unknown): ReadonlyArray<IssueView> => {
+  if (!Array.isArray(value)) throw new TypeError("Factory issueViews must be an array of views")
+  if (value.length > maximumIssueViews) {
+    throw new TypeError(`Factory issueViews declares more than ${maximumIssueViews} views`)
+  }
+  const seen = new Set<string>()
+  return value.map((entry, index) => {
+    const name = `Factory issueViews[${index}]`
+    const plain = Home.plainOptions(name, entry, new Set(["id", "title", "state", "labels"]))
+    const view = Home.decode(name, IssueView, plain)
+    if (seen.has(view.id)) throw new TypeError(`Factory issueViews declares the view ${JSON.stringify(view.id)} twice`)
+    seen.add(view.id)
+    const labels = view.labels ?? []
+    if (labels.length > maximumIssueViewLabels) {
+      throw new TypeError(`${name}: labels names more than ${maximumIssueViewLabels} labels`)
+    }
+    labels.forEach((label, at) => {
+      if (label.trim() !== label || label === "" || label.length > 255) {
+        throw new TypeError(`${name}: labels entry ${JSON.stringify(label)} is not a label name`)
+      }
+      if (labels.findIndex((other) => other.toLowerCase() === label.toLowerCase()) !== at) {
+        throw new TypeError(`${name}: labels names ${JSON.stringify(label)} twice`)
+      }
+    })
+    return view
+  })
+}
+
+/**
  * The factory declaration `.smithers/FACTORY.ts` exports as `factory`.
  *
  * @category schemas
@@ -432,7 +489,9 @@ export const Declaration = Schema.TaggedStruct("FactoryDeclaration", {
   /** Who writes `main` and how Changes and issues move. */
   github: GithubPolicy,
   /** The machine the factory's TODO lanes need, when declared. */
-  machine: Schema.optionalKey(Machine)
+  machine: Schema.optionalKey(Machine),
+  /** The saved issue views, in declaration order, when declared. */
+  issueViews: Schema.optionalKey(Schema.Array(IssueView))
 })
 
 /**
@@ -476,6 +535,7 @@ export interface FactoryOptions {
   readonly on?: Readonly<Record<string, RuleOptions>> | undefined
   readonly github?: GithubPolicy | undefined
   readonly machine?: Machine | undefined
+  readonly issueViews?: ReadonlyArray<IssueView> | undefined
 }
 
 /**
@@ -483,8 +543,9 @@ export interface FactoryOptions {
  *
  * Every `flows` entry has to be a `Smithers.Flow` value, and no two may name
  * one flow; the `on` table's keys and values are validated against the event
- * and flow id shapes where they are written, and a `machine` against its
- * bounds. Whether a featured flow exists is decided when the projection is
+ * and flow id shapes where they are written, a `machine` against its
+ * bounds, and each `issueViews` entry against the view shape, with no id
+ * declared twice. Whether a featured flow exists is decided when the projection is
  * rendered, because only discovery knows.
  *
  * @example
@@ -498,7 +559,8 @@ export interface FactoryOptions {
  *   summary: "How this repository develops itself.",
  *   flows: [review],
  *   on: { "change.opened": "review", "manual": ["review"] },
- *   github: S.Github.Policy({ mirror: "push", issues: "two-way", changes: "land" })
+ *   github: S.Github.Policy({ mirror: "push", issues: "two-way", changes: "land" }),
+ *   issueViews: [{ id: "bugs", title: "Open bugs", state: "open", labels: ["bug"] }]
  * })
  *
  * export const home = S.Factory.Home({ blocks: [S.Home.Flows({ title: "Try first" })] })
@@ -508,7 +570,7 @@ export interface FactoryOptions {
  * @since 1.0.0
  */
 export const Factory = (options: FactoryOptions): Declaration => {
-  const plain = Home.plainOptions("Factory", options, new Set(["summary", "flows", "on", "github", "machine"]))
+  const plain = Home.plainOptions("Factory", options, new Set(["summary", "flows", "on", "github", "machine", "issueViews"]))
   const flows = plain["flows"] ?? []
   if (!Array.isArray(flows)) throw new TypeError("Factory flows must be an array of Smithers.Flow declarations")
   const seen = new Set<string>()
@@ -533,13 +595,15 @@ export const Factory = (options: FactoryOptions): Declaration => {
   const github = plain["github"] ?? Policy()
   if (!Schema.is(GithubPolicy)(github)) throw new TypeError("Factory github must be a Smithers.Github.Policy value")
   const machine = plain["machine"] === undefined ? undefined : decodeMachine(plain["machine"])
+  const issueViews = plain["issueViews"] === undefined ? undefined : decodeIssueViews(plain["issueViews"])
   return Home.freezeDeep(Home.decode("Factory", Declaration, {
     _tag: "FactoryDeclaration",
     summary: plain["summary"],
     flows,
     on,
     github,
-    ...(machine === undefined ? {} : { machine })
+    ...(machine === undefined ? {} : { machine }),
+    ...(issueViews === undefined ? {} : { issueViews })
   }))
 }
 
@@ -604,7 +668,8 @@ export const GithubProjection = Schema.Struct({
 /**
  * The document `.smithers/factory.json` holds: the summary, the flow catalog
  * rows (featured first, see {@link FlowCatalog.rows}), the Dispatcher rows,
- * the GitHub policy, and the machine when one is declared.
+ * the GitHub policy, the machine when one is declared, and the saved issue
+ * views when any are.
  *
  * @category schemas
  * @since 1.0.0
@@ -614,7 +679,8 @@ export const Projection = Schema.Struct({
   flows: Schema.Array(FlowCatalog.Row),
   on: Schema.Array(Rule),
   github: GithubProjection,
-  machine: Schema.optionalKey(Machine)
+  machine: Schema.optionalKey(Machine),
+  issueViews: Schema.optionalKey(Schema.Array(IssueView))
 })
 
 /**
@@ -658,7 +724,10 @@ export const renderProjection = (declaration: Declaration, catalog: ReadonlyArra
           ...(declaration.github.todoSince === undefined ? {} : { todoSince: declaration.github.todoSince }),
           ...(declaration.github.dailyTokens === undefined ? {} : { dailyTokens: declaration.github.dailyTokens })
         },
-        ...(declaration.machine === undefined ? {} : { machine: declaration.machine })
+        ...(declaration.machine === undefined ? {} : { machine: declaration.machine }),
+        ...(declaration.issueViews === undefined || declaration.issueViews.length === 0 ?
+          {}
+          : { issueViews: declaration.issueViews })
       }),
       null,
       2
