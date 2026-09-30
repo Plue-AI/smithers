@@ -293,8 +293,10 @@ describe("authorized destination connections", () => {
         const result = await pinnedReach({}, origin.url, destination)
         expect(result._tag).toBe("Failure")
         if (result._tag === "Failure") {
-          expect(result.failure.reason._tag).toBe("TransportError")
-          expect(result.failure.reason.description).toBe("Invalid pinned HTTP destination")
+          expect(result.failure).toMatchObject({
+            _tag: "HttpClientError",
+            reason: { _tag: "TransportError", description: "Invalid pinned HTTP destination" }
+          })
         }
       }
       expect(origin.seen).toEqual([])
@@ -318,8 +320,10 @@ describe("authorized destination connections", () => {
         })
         expect(result._tag).toBe("Failure")
         if (result._tag === "Failure") {
-          expect(result.failure.reason._tag).toBe("TransportError")
-          expect(result.failure.reason.description).toBe("Pinned HTTP requests require HTTP or HTTPS proxies")
+          expect(result.failure).toMatchObject({
+            _tag: "HttpClientError",
+            reason: { _tag: "TransportError", description: "Pinned HTTP requests require HTTP or HTTPS proxies" }
+          })
         }
       }
       expect(origin.seen).toEqual([])
