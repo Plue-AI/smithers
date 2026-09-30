@@ -28,26 +28,28 @@ Every host, including a descriptor-relative executor, resolves existing
 components to their on-disk spelling before and after a grant decision.
 On a case-insensitive volume, `.ENV` therefore names `.env` for permission
 checks, and `REPORTDIR/new.txt` names `ReportDir/new.txt` when `ReportDir`
-already exists. Missing components retain their requested spelling. Hosts
-must implement `realPath` with canonical on-disk spelling; the Node host uses
-native promise-based `realpath`. The capability matcher remains case-sensitive
-so distinct files on case-sensitive volumes keep distinct permissions.
+already exists. Missing components retain their requested spelling. A
+path-based host must implement `realPath` with canonical on-disk spelling. The
+capability matcher remains case-sensitive so distinct files on case-sensitive
+volumes keep distinct permissions.
 
 Native guarded operations on outside-pointing symlinks fail with
 `PermissionDenied`, including `readLink`, `stat`, `exists`, and `remove`.
-Authorization for a descriptor-relative executor reads link text instead of
-following links, so a stable planted symlink or drive-letter junction is never
-opened. This matters on
-Windows, where `realpath` opens its argument through links: one call on a link
-to `\\.\pipe\name` or `\\host\share` connects to that pipe or share. A
-component that is not a link is passed to `realPath` for its on-disk spelling,
-and a component `readLink` cannot inspect, or whose canonical parent is not
-the directory already resolved, is refused. Two cases can still traverse an
-outside target before authorization denies the request: a reparse point that
-`readLink` cannot translate, such as a volume mount point, which `realPath`
-follows before the parent check refuses it; and a component swapped for a link
-between checks. Closing both needs descriptor-relative canonicalization in the
-native executor, tracked in #2882.
+Authorization for a descriptor-relative executor never resolves a pathname on
+the host. This matters on Windows, where `realpath` opens its argument through
+links: one call on a link to `\\.\pipe\name` or `\\host\share` connects to
+that pipe or share. Instead the executor answers one `resolve` request from the
+pinned root. It walks without following any link, junction, or mount point,
+and answers the on-disk spelling of existing components, or the first link on
+the way with its text. Link text is resolved lexically and asked again, so a
+component swapped for a link between two checks is seen as that link. A
+reparse point the executor cannot translate, such as a volume mount point, is
+refused without being traversed.
+
+Each guarded operation asks the executor to resolve its path before and after
+the grant decision, and then runs the operation itself. A guarded batch asks
+once for all of its members before the grants, once after them, and then runs
+the batch.
 
 Capability resources are native paths, and patterns match them as text. On
 Windows, write filesystem patterns with the native separator, such as

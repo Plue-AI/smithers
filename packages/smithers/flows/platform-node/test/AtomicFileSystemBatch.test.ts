@@ -52,6 +52,12 @@ const batch = (
   )
 
 describe("confined read batches", () => {
+  /**
+   * Authorization resolves every member through the helper, never by host
+   * pathname (#2882): one batched `resolve` before the grants, one after them,
+   * then the measured batch itself.
+   */
+  const helpersPerBatch = 3
   it("passes the shared host batch contract against the real confined helper", async () => {
     const root = await temporary()
     await writeFile(join(root, "source.txt"), "host-contract")
@@ -61,7 +67,7 @@ describe("confined read batches", () => {
       }).pipe(Effect.provide(AtomicFileSystem.layer), Effect.provide(NodePath.layer))
     )
   })
-  it.each([15, 150, 257])("starts one helper per 128-member batch over %i paths", async (count) => {
+  it.each([15, 150, 257])("starts three helpers per 128-member batch over %i paths", async (count) => {
     const root = await temporary()
     const paths = Array.from({ length: count }, (_, index) => String(index).padStart(5, "0"))
     for (let offset = 0; offset < paths.length; offset += 16) {
@@ -84,7 +90,7 @@ describe("confined read batches", () => {
           }
         }
         expect(measured).toBe(count)
-        expect(AtomicFileSystem.helperSpawns() - before).toBe(Math.ceil(count / 128))
+        expect(AtomicFileSystem.helperSpawns() - before).toBe(helpersPerBatch * Math.ceil(count / 128))
       }).pipe(Effect.provide(guarded(root)))
     )
   })
@@ -96,7 +102,7 @@ describe("confined read batches", () => {
     const response = await batch(root, names.map((path) => ({ operation: "digest", path })))
     expect(response.entries.map((entry) => entry.index)).toEqual([1, 0])
   })
-  it("returns deterministic indexed stat, directory, glob, digest and missing results in one process", async () => {
+  it("returns deterministic indexed stat, directory, glob, digest and missing results in one batch", async () => {
     const root = await temporary()
     await mkdir(join(root, "nested"))
     const bytes = Buffer.from([0, 255, 127, 1])
@@ -111,7 +117,7 @@ describe("confined read batches", () => {
       { operation: "digest", path: "absent" },
       { operation: "digest", path: "a.txt" }
     ])
-    expect(spawns.count - before).toBe(1)
+    expect(spawns.count - before).toBe(helpersPerBatch)
     expect(answer.entries.map((entry) => entry.path)).toEqual(answer.entries.map((entry) => entry.path).sort())
     const results = [...answer.entries].sort((a, b) => a.index - b.index).map((entry) => entry.result)
     expect(Result.getOrThrow(results[0]!)).toEqual({
@@ -145,7 +151,7 @@ describe("confined read batches", () => {
     const result = batch(root, Array.from({ length: count }, () => ({ operation: "digest" as const, path: "value" })))
     if (count <= 128) {
       expect((await result).entries).toHaveLength(count)
-      expect(spawns.count - before).toBe(1)
+      expect(spawns.count - before).toBe(helpersPerBatch)
     } else {
       await expect(result).rejects.toMatchObject({ reason: { _tag: "BadArgument" } })
       expect(spawns.count - before).toBe(0)

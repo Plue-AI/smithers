@@ -627,7 +627,7 @@ The sentinel an implicit temporary directory is named with. An implicit
 is outside the workspace root by construction, so granting an ordinary
 workspace write does not grant system temporary-directory access.
 
-### FileSystem.AtomicFileSystemTypeId, AtomicRoot, AtomicRequest, AtomicResults, AtomicResult, AtomicHandlers, AtomicFileSystem, AtomicHostFileSystem
+### FileSystem.AtomicFileSystemTypeId, AtomicRoot, AtomicRequest, Resolution, AtomicBatchRequest, AtomicBatchValue, AtomicBatchResponse, AtomicResults, AtomicResult, AtomicHandlers, AtomicFileSystem, AtomicHostFileSystem
 
 ```ts
 const AtomicFileSystemTypeId: unique symbol
@@ -647,9 +647,19 @@ type AtomicRequest =
     readonly options?: { readonly exclude?: ReadonlyArray<string> | undefined } | undefined
   })
   | (AtomicRoot & { readonly operation: "rename"; readonly from: string; readonly to: string })
-  | (AtomicRoot & { readonly operation: "batch"; readonly requests: ReadonlyArray<BatchRequest> })
+  | (AtomicRoot & { readonly operation: "resolve"; readonly path: string })
+  | (AtomicRoot & { readonly operation: "batch"; readonly requests: ReadonlyArray<AtomicBatchRequest> })
 // ...one member per operation: makeDirectory, readDirectory, readFile,
 // readFileString, readLink, realPath, remove, stat, writeFile, writeFileString
+
+interface Resolution {
+  readonly path: string
+  readonly target: string | null
+}
+
+type AtomicBatchRequest = BatchRequest | { readonly operation: "resolve"; readonly path: string }
+type AtomicBatchValue = BatchValue | { readonly operation: "resolve"; readonly resolution: Resolution }
+// AtomicBatchResponse: BatchResponse whose entries carry AtomicBatchValue
 
 interface AtomicResults {
   readonly exists: boolean
@@ -657,7 +667,8 @@ interface AtomicResults {
   readonly readFile: Uint8Array
   readonly stat: FileSystem.File.Info
   readonly rename: void
-  readonly batch: BatchResponse
+  readonly resolve: Resolution
+  readonly batch: AtomicBatchResponse
   // ...one entry per operation
 }
 
@@ -670,6 +681,7 @@ type AtomicHandlers = {
 }
 
 interface AtomicFileSystem {
+  readonly noFollowAuthorization?: true | undefined
   readonly execute: <R extends AtomicRequest>(request: R) => Effect.Effect<AtomicResult<R>, PlatformError>
   readonly isolated?: FileSystem.FileSystem | undefined
 }
@@ -691,6 +703,13 @@ than a type its caller picked. The wire shape is unchanged: every member is the
 same flat JSON object, so a journaled or serialized request still decodes. An
 executor that dispatches in process can be written as an `AtomicHandlers`
 record, which does not compile while an operation is unimplemented.
+
+An executor that sets `noFollowAuthorization` answers `resolve`, alone and as
+a batch member, and the guarded layer authorizes through it instead of host
+pathnames. `resolve` walks from the pinned root without following any link. When
+`target` is `null`, `path` is the whole request in on-disk spelling, with a
+missing component and its descendants as requested. Otherwise `path` is the
+first link on the way and `target` is its text.
 
 ### FileSystem.withAtomicFileSystem
 

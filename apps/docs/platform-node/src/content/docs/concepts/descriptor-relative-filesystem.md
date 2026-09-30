@@ -120,6 +120,11 @@ stat, list directories, expand host globs, or collect SHA-256 digests, optionall
 with file bytes. The helper exits after that request. There is no persistent
 process.
 
+Through the kernel's guarded filesystem, authorization resolves each path
+through the helper too, never through a host pathname: once before the grant
+decision and once after. A guarded operation therefore starts three helpers,
+and so does a guarded batch, whose members are resolved together.
+
 - Prefer one recursive `readDirectory` (one helper for the whole tree) to a read
   per entry.
 - Use bounded batches for a wide fan-out. Without a ceiling, an

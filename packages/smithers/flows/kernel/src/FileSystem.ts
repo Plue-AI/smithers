@@ -119,6 +119,7 @@ export type AtomicRequest =
   })
   | (AtomicRoot & { readonly operation: "readLink"; readonly path: string })
   | (AtomicRoot & { readonly operation: "realPath"; readonly path: string })
+  | (AtomicRoot & { readonly operation: "resolve"; readonly path: string })
   | (AtomicRoot & {
     readonly operation: "remove"
     readonly path: string
@@ -143,7 +144,52 @@ export type AtomicRequest =
       | { readonly flag?: EffectFileSystem.OpenFlag | undefined; readonly mode?: number | undefined }
       | undefined
   })
-  | (AtomicRoot & { readonly operation: "batch"; readonly requests: ReadonlyArray<Batch.BatchRequest> })
+  | (AtomicRoot & { readonly operation: "batch"; readonly requests: ReadonlyArray<AtomicBatchRequest> })
+
+/** Where a no-follow executor's `resolve` walk stopped.
+ *
+ * `path` is the canonical path the walk reached below the pinned root, in
+ * on-disk spelling for every existing component. When `target` is `null`,
+ * `path` is the whole request, with a missing component and its descendants
+ * kept as requested. Otherwise `path` names the first link or reparse point
+ * on the way and `target` is its text, which the executor read without
+ * opening what it names.
+ *
+ * @since 1.0.0-rc.1
+ * @category security
+ */
+export interface Resolution {
+  readonly path: string
+  readonly target: string | null
+}
+
+/** One member of an executor batch: a public read, or authorization's `resolve`.
+ *
+ * @since 1.0.0-rc.1
+ * @category security
+ */
+export type AtomicBatchRequest = Batch.BatchRequest | { readonly operation: "resolve"; readonly path: string }
+
+/** One member's value in an executor batch.
+ *
+ * @since 1.0.0-rc.1
+ * @category security
+ */
+export type AtomicBatchValue = Batch.BatchValue | { readonly operation: "resolve"; readonly resolution: Resolution }
+
+/** An executor batch's answer: {@link Batch.BatchResponse} over {@link AtomicBatchValue}.
+ *
+ * @since 1.0.0-rc.1
+ * @category security
+ */
+export interface AtomicBatchResponse {
+  readonly rootIdentity: string
+  readonly entries: ReadonlyArray<{
+    readonly index: number
+    readonly path: string
+    readonly result: Result.Result<AtomicBatchValue, PlatformError.PlatformError>
+  }>
+}
 
 /** The value each atomic operation resolves to.
  *
@@ -165,12 +211,13 @@ export interface AtomicResults {
   readonly readFileString: string
   readonly readLink: string
   readonly realPath: string
+  readonly resolve: Resolution
   readonly remove: void
   readonly rename: void
   readonly stat: EffectFileSystem.File.Info
   readonly writeFile: void
   readonly writeFileString: void
-  readonly batch: Batch.BatchResponse
+  readonly batch: AtomicBatchResponse
 }
 
 /** The result of one request, read from the operation it names.
@@ -292,6 +339,9 @@ export const withIsolatedFileSystem = (
       readFileString: (request) => fileSystem.readFileString(request.path, request.encoding),
       readLink: (request) => fileSystem.readLink(request.path),
       realPath: (request) => fileSystem.realPath(request.path),
+      // Authorization asks `resolve` only of an executor that claims
+      // `noFollowAuthorization`, which an attested volume never does.
+      resolve: (request) => unsupportedIsolated(request.operation),
       remove: (request) => fileSystem.remove(request.path, request.options),
       rename: (request) => fileSystem.rename(request.from, request.to),
       stat: (request) => fileSystem.stat(request.path),
@@ -646,96 +696,117 @@ export const canonicalResource = (
   )
 }
 
-/**
- * The errno a host attached to a filesystem failure, when it kept one.
- */
-const errnoOf = (error: PlatformError.PlatformError): string | undefined => {
-  const cause: unknown = error.reason.cause
-  return typeof cause === "object" && cause !== null && "code" in cause && typeof cause.code === "string"
-    ? cause.code
+type PinnedRun = <R extends AtomicRequest>(
+  request: R
+) => Effect.Effect<AtomicResult<R>, PlatformError.PlatformError>
+
+const uninspectable = "path component could not be inspected without following it"
+
+/** `value` spelled below the pinned boundary root, or `undefined` outside both roots. */
+const pinnedPath = (
+  path: EffectPath.Path,
+  root: Pick<PinnedRoot, "boundaryRoot" | "logicalRoot">,
+  value: string
+): string | undefined => {
+  const base = isInside(path, root.logicalRoot, value)
+    ? root.logicalRoot
+    : isInside(path, root.boundaryRoot, value)
+    ? root.boundaryRoot
     : undefined
+  return base === undefined ? undefined : path.join(root.boundaryRoot, path.relative(base, value))
 }
 
+const segmentsBelow = (path: EffectPath.Path, root: string, value: string): Array<string> =>
+  path.relative(root, value).split(path.sep).filter((segment) => segment !== "")
+
 /**
- * Resolves the resource a no-follow executor addresses by reading link text
- * instead of following links. Windows `realpath` opens its argument through
- * every link, so asking it about a planted link to `\\.\pipe\name` or
- * `\\host\share\x` connects to that pipe or share during authorization.
+ * Resolves the resource a no-follow executor addresses without resolving any
+ * pathname on the host. Windows `realpath` opens its argument through every
+ * link, so asking the host about a planted link to `\\.\pipe\name` or
+ * `\\host\share\x` connects to that pipe or share during authorization,
+ * and a component swapped for a link between two host checks is followed
+ * even when each check alone was safe (#2882).
  *
- * Each component inside the workspace is read with `readLink` first. Link text
- * is resolved lexically, and a result outside both roots is returned untouched
- * for the caller to deny. Only a confirmed non-link (`EINVAL`) is passed to
- * `realPath`, for its on-disk spelling, and its canonical parent must be the
- * parent the walk already resolved; anything else, such as a Windows volume
- * mount point that `readLink` cannot read, is refused after `realPath` has
- * traversed it (#2882). A missing component
- * (`ENOENT`, `ENOTDIR`) keeps the requested spelling for itself and every
- * descendant. Every other inspection failure is refused.
+ * The executor answers one descriptor-relative `resolve` request from the
+ * pinned root instead ({@link Resolution}): existing components in their
+ * on-disk spelling, a missing component and its descendants as requested, or
+ * the first link on the way with its text. Link text is resolved lexically
+ * and asked again, and a result outside both roots is returned untouched for
+ * the caller to deny. Any failure is refused.
  */
 const confinedResource = <E>(
-  fileSystem: EffectFileSystem.FileSystem,
+  run: PinnedRun,
   path: EffectPath.Path,
   root: Pick<PinnedRoot, "boundaryRoot" | "logicalRoot">,
   value: string,
   refuse: (resource: string, reason: string) => Effect.Effect<never, E>,
   symlinkDepth = 0
 ): Effect.Effect<string, E> => {
-  const base = isInside(path, root.logicalRoot, value)
-    ? root.logicalRoot
-    : isInside(path, root.boundaryRoot, value)
-    ? root.boundaryRoot
-    : undefined
-  if (base === undefined) {
+  const requested = pinnedPath(path, root, value)
+  if (requested === undefined) {
     return Effect.succeed(value)
   }
-  const segments = path.relative(base, value).split(path.sep).filter((segment) => segment !== "")
-  const logical = (canonical: string) =>
-    path.normalize(path.join(root.logicalRoot, path.relative(root.boundaryRoot, canonical)))
-  const walk = (index: number, parent: string): Effect.Effect<string, E> => {
-    const segment = segments[index]
-    if (segment === undefined) {
-      return Effect.succeed(logical(parent))
-    }
-    const candidate = path.join(parent, segment)
-    const rest = segments.slice(index + 1)
-    return fileSystem.readLink(candidate).pipe(
-      Effect.matchEffect({
-        onSuccess: (target) =>
-          symlinkDepth >= 40
-            ? refuse(logical(candidate), "too many levels of symbolic links")
-            : confinedResource(
-              fileSystem,
-              path,
-              root,
-              path.resolve(parent, target, ...rest),
-              refuse,
-              symlinkDepth + 1
-            ),
-        onFailure: (error) => {
-          const code = errnoOf(error)
-          if (error.reason._tag === "NotFound" || code === "ENOENT" || code === "ENOTDIR") {
-            return Effect.succeed(logical(path.join(candidate, ...rest)))
-          }
-          if (code !== "EINVAL") {
-            return refuse(logical(candidate), "path component could not be inspected without following it")
-          }
-          // Residual gap (#2882): an untranslatable reparse point, or a component
-          // swapped to a link after readLink, is traversed here, then refused.
-          return fileSystem.realPath(candidate).pipe(
-            Effect.matchEffect({
-              onFailure: () => refuse(logical(candidate), "path component could not be inspected without following it"),
-              onSuccess: (canonical) =>
-                path.dirname(canonical) === parent
-                  ? walk(index + 1, canonical)
-                  : refuse(logical(candidate), "path component resolves outside its parent directory")
-            })
-          )
-        }
-      })
-    )
-  }
-  return walk(0, root.boundaryRoot)
+  return run({ operation: "resolve", path: requested }).pipe(
+    Effect.matchEffect({
+      onFailure: () => refuse(logicalPath(path, root, requested), uninspectable),
+      onSuccess: (resolution) => followResolution(run, path, root, requested, resolution, refuse, symlinkDepth)
+    })
+  )
 }
+
+const logicalPath = (
+  path: EffectPath.Path,
+  root: Pick<PinnedRoot, "boundaryRoot" | "logicalRoot">,
+  canonical: string
+): string => path.normalize(path.join(root.logicalRoot, path.relative(root.boundaryRoot, canonical)))
+
+/** Turns one executor {@link Resolution} of `requested` into the resource it names. */
+const followResolution = <E>(
+  run: PinnedRun,
+  path: EffectPath.Path,
+  root: Pick<PinnedRoot, "boundaryRoot" | "logicalRoot">,
+  requested: string,
+  resolution: Resolution,
+  refuse: (resource: string, reason: string) => Effect.Effect<never, E>,
+  symlinkDepth: number
+): Effect.Effect<string, E> => {
+  const resolved = path.normalize(resolution.path)
+  if (!isInside(path, root.boundaryRoot, resolved)) {
+    return refuse(logicalPath(path, root, requested), "path resolves outside the pinned root")
+  }
+  if (resolution.target === null) {
+    return Effect.succeed(logicalPath(path, root, resolved))
+  }
+  if (symlinkDepth >= 40) {
+    return refuse(logicalPath(path, root, resolved), "too many levels of symbolic links")
+  }
+  const rest = segmentsBelow(path, root.boundaryRoot, requested).slice(
+    segmentsBelow(path, root.boundaryRoot, resolved).length
+  )
+  return confinedResource(
+    run,
+    path,
+    root,
+    path.resolve(path.dirname(resolved), resolution.target, ...rest),
+    refuse,
+    symlinkDepth + 1
+  )
+}
+
+/** A public read's batch value; a `resolve` answer to a read is a host defect and fails closed. */
+const publicValue = (
+  resource: string,
+  result: Result.Result<AtomicBatchValue, PlatformError.PlatformError>
+): Result.Result<Batch.BatchValue, PlatformError.PlatformError> =>
+  Result.isFailure(result) || result.success.operation !== "resolve"
+    ? result as Result.Result<Batch.BatchValue, PlatformError.PlatformError>
+    : Result.fail(PlatformError.systemError({
+      _tag: "PermissionDenied",
+      module: "FileSystem",
+      method: "batch",
+      pathOrDescriptor: resource,
+      description: "executor answered a batch read with a resolution"
+    }))
 
 /**
  * Decorates Effect's filesystem service in place with workspace-normalized
@@ -790,11 +861,15 @@ export const layer: Layer.Layer<
         Effect.flatMap((capability) => Effect.fail(permissionDenied(capability, reason))),
         Effect.mapError(refuse(method, resource))
       )
+    const insideWorkspace = (action: "fs:read" | "fs:write", method: string) => (resource: string) =>
+      isInside(path, logicalRoot, resource)
+        ? Effect.succeed(resource)
+        : deny(action, method, resource, "path is outside the workspace")
     /**
      * Resolves the on-disk resource spelling even for no-follow executors:
      * a differently cased name can address the same file. No-follow executors
-     * resolve through {@link confinedResource}, which reads link text instead
-     * of following links. `guard` runs it twice — once
+     * resolve through {@link confinedResource}, one executor request that
+     * reads link text instead of following links. `guard` runs it twice — once
      * before the grant decision and once after — so the resolution must be a
      * pure question about the current filesystem state.
      */
@@ -806,18 +881,12 @@ export const layer: Layer.Layer<
       const normalized = normalize(value)
       if (atomic?.noFollowAuthorization === true) {
         return confinedResource(
-          fileSystem,
+          pinned(atomic, root),
           path,
           root,
           normalized,
           (resource, reason) => deny(action, method, resource, reason)
-        ).pipe(
-          Effect.flatMap((resource) =>
-            isInside(path, logicalRoot, resource)
-              ? Effect.succeed(resource)
-              : deny(action, method, resource, "path is outside the workspace")
-          )
-        )
+        ).pipe(Effect.flatMap(insideWorkspace(action, method)))
       }
       return canonicalResource(fileSystem, path, logicalRoot, normalized).pipe(
         Effect.flatMap((resource) =>
@@ -834,6 +903,50 @@ export const layer: Layer.Layer<
           )
         )
       )
+    }
+    /**
+     * Resolves every read of one batch. A no-follow executor that batches
+     * answers all of them in one `resolve` batch, so authorizing a batch
+     * costs one executor request rather than one per member; only a member
+     * that meets a link asks again, for its target. Other hosts resolve each
+     * member with bounded concurrency.
+     */
+    const resolvedResources = (
+      values: ReadonlyArray<string>
+    ): Effect.Effect<Array<Result.Result<string, PlatformError.PlatformError>>, PlatformError.PlatformError> => {
+      const refuseRead = (resource: string, reason: string) => deny("fs:read", "read", resource, reason)
+      if (atomic?.noFollowAuthorization !== true || atomic.batchLimits === undefined) {
+        return Effect.forEach(values, (value) => Effect.result(resolvedResource("fs:read", "read", value)), {
+          concurrency: Batch.fallbackConcurrency
+        })
+      }
+      const run = pinned(atomic, root)
+      const requested = values.map((value) => pinnedPath(path, root, normalize(value)))
+      const members: Array<{ readonly operation: "resolve"; readonly path: string }> = []
+      const memberOf = requested.map((value) =>
+        value === undefined ? undefined : members.push({ operation: "resolve", path: value }) - 1
+      )
+      const answered = members.length === 0
+        ? Effect.succeed<AtomicBatchResponse["entries"]>([])
+        : Effect.map(run({ operation: "batch", requests: members }), (response) => response.entries)
+      return Effect.flatMap(answered, (entries) => {
+        const results = new Map(entries.map((entry) => [entry.index, entry.result] as const))
+        return Effect.forEach(values, (value, index) => {
+          const member = memberOf[index]
+          const resource = member === undefined
+            ? Effect.succeed(normalize(value))
+            : Effect.suspend(() => {
+              const pinnedValue = members[member]!.path
+              const result = results.get(member)
+              // The executor's batch framing already requires one entry per
+              // member; an answer of another shape is refused, not guessed.
+              return result === undefined || Result.isFailure(result) || result.success.operation !== "resolve"
+                ? refuseRead(logicalPath(path, root, pinnedValue), uninspectable)
+                : followResolution(run, path, root, pinnedValue, result.success.resolution, refuseRead, 0)
+            })
+          return Effect.result(Effect.flatMap(resource, insideWorkspace("fs:read", "read")))
+        }, { concurrency: Batch.fallbackConcurrency })
+      })
     }
     const guard = (
       action: "fs:read" | "fs:write",
@@ -1356,10 +1469,7 @@ export const layer: Layer.Layer<
         // Resolve in bounded groups while retaining request-order grant
         // decisions. Quota/once grants therefore retain their ordering, and
         // native metadata latency need not serialize every member twice.
-        const resources = yield* Effect.forEach(captured, (request) =>
-          Effect.result(
-            resolvedResource("fs:read", "read", request.path)
-          ), { concurrency: Batch.fallbackConcurrency })
+        const resources = yield* resolvedResources(captured.map((request) => request.path))
         const admitted: Array<Batch.BatchRequest> = []
         const indexes: Array<number> = []
         const entries: Array<Batch.BatchEntry> = []
@@ -1378,19 +1488,19 @@ export const layer: Layer.Layer<
             entries.push({ index, path: request.path, result: Result.fail(checked.failure) })
           } else granted.push({ request, index, resource: Result.getOrThrow(resource) })
         }
-        const settled = yield* Effect.forEach(
-          granted,
-          ({ request, resource }) =>
-            resolvedResource("fs:read", "read", request.path).pipe(
-              Effect.flatMap((current) =>
-                current === resource ?
-                  Effect.void :
-                  deny("fs:read", "read", resource, "path no longer names the resource that was authorized")
-              ),
-              Effect.result
-            ),
-          { concurrency: Batch.fallbackConcurrency }
-        )
+        const current = granted.length === 0
+          ? []
+          : yield* resolvedResources(granted.map(({ request }) => request.path))
+        const settled = yield* Effect.forEach(granted, ({ resource }, position) => {
+          const now = current[position]!
+          return Effect.result(
+            Result.isFailure(now)
+              ? Effect.fail(now.failure)
+              : now.success === resource
+              ? Effect.void
+              : deny("fs:read", "read", resource, "path no longer names the resource that was authorized")
+          )
+        })
         for (const [position, member] of granted.entries()) {
           const checked = settled[position]!
           if (Result.isFailure(checked)) {
@@ -1409,7 +1519,13 @@ export const layer: Layer.Layer<
             rootIdentity: rootIdentity.value,
             requests: admitted
           })
-          for (const entry of measured.entries) entries.push({ ...entry, index: indexes[entry.index]! })
+          for (const entry of measured.entries) {
+            entries.push({
+              index: indexes[entry.index]!,
+              path: entry.path,
+              result: publicValue(entry.path, entry.result)
+            })
+          }
         }
         entries.sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : a.index - b.index)
         return { rootIdentity: rootIdentity.value, entries }

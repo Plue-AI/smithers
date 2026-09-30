@@ -654,6 +654,7 @@ describe("the atomic request protocol", () => {
     readFileString: { operation: "readFileString", path: "/workspace/a" },
     readLink: { operation: "readLink", path: "/workspace/a" },
     realPath: { operation: "realPath", path: "/workspace/a" },
+    resolve: { operation: "resolve", path: "/workspace/a" },
     remove: { operation: "remove", path: "/workspace/a" },
     rename: { operation: "rename", from: "/workspace/a", to: "/workspace/b" },
     stat: { operation: "stat", path: "/workspace/a" },
@@ -690,7 +691,7 @@ describe("the atomic request protocol", () => {
       const executor = FileSystem.withIsolatedFileSystem(makeHostFileSystem(calls))[
         FileSystem.AtomicFileSystemTypeId
       ]
-      const { batch, ...direct } = samples
+      const { batch, resolve, ...direct } = samples
 
       const exits = yield* Effect.forEach(
         Object.values(direct),
@@ -715,9 +716,12 @@ describe("the atomic request protocol", () => {
         "writeFile",
         "writeFileString"
       ])
-      // An attested volume advertises no batch limits, so the guarded layer
-      // never frames a batch for it and the executor refuses one.
+      // An attested volume advertises no batch limits and no no-follow
+      // authorization, so the guarded layer never frames a batch or a
+      // `resolve` for it and the executor refuses both.
       const refused = yield* Effect.exit(executor.execute(batch))
       expect(refused._tag).toBe("Failure")
+      const unresolved = yield* Effect.exit(executor.execute(resolve))
+      expect(unresolved._tag).toBe("Failure")
     }))
 })

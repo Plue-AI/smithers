@@ -80,7 +80,7 @@ const reasons: Record<string, PlatformError.SystemErrorTag | undefined> = {
  * @private
  * @since 1.0.0
  */
-export type FramedRequest = KernelFileSystem.AtomicRequest | KernelFileSystem.BatchRequest
+export type FramedRequest = KernelFileSystem.AtomicRequest | KernelFileSystem.AtomicBatchRequest
 
 /** The operand a framed request names, for a failure's `pathOrDescriptor`. */
 const operand = (request: FramedRequest): string | undefined =>
@@ -395,7 +395,7 @@ export const convert = <A>(
         }
         return Effect.succeed({
           ...identity,
-          result: Result.succeed<KernelFileSystem.BatchValue>({
+          result: Result.succeed<KernelFileSystem.AtomicBatchValue>({
             operation: "digest",
             digest: measured.digest,
             sizeBytes,
@@ -405,9 +405,11 @@ export const convert = <A>(
       }
       return Effect.map(convert(member, envelope.value, limits), (converted) => ({
         ...identity,
-        result: Result.succeed<KernelFileSystem.BatchValue>(
+        result: Result.succeed<KernelFileSystem.AtomicBatchValue>(
           member.operation === "stat"
             ? { operation: "stat", info: converted as FileSystem.File.Info }
+            : member.operation === "resolve"
+            ? { operation: "resolve", resolution: converted as KernelFileSystem.Resolution }
             : { operation: member.operation, paths: (converted as Array<string>).sort() }
         )
       }))
@@ -445,6 +447,12 @@ export const convert = <A>(
   }
   if (request.operation === "readLink" || request.operation === "realPath") {
     return Effect.succeed(toStringResult(value, `${request.operation} result`) as A)
+  }
+  if (request.operation === "resolve") {
+    const resolution = record(value, "resolve result")
+    const target = resolution.target === null ? null : toStringResult(resolution.target, "resolve target")
+    const answer: KernelFileSystem.Resolution = { path: toStringResult(resolution.path, "resolve path"), target }
+    return Effect.succeed(answer as A)
   }
   if (request.operation === "readDirectory" || request.operation === "glob") {
     return Effect.succeed(toStringArray(value, `${request.operation} result`) as A)

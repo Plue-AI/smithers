@@ -101,9 +101,22 @@ const frame = (value: unknown) => {
   const body = JSON.stringify(value)
   return `flows-atomic/1 ${Buffer.byteLength(body)}\n${body}`
 }
+/**
+ * A helper that answers authorization's batched `resolve` faithfully, so the
+ * scripted `value` reaches the measured batch it stands in for (#2882).
+ */
 const writing = async (value: unknown) =>
   executable(
-    `process.stdin.resume(); process.stdin.on('end',()=>process.stdout.write(${JSON.stringify(frame(value))}));`
+    `const input=[];process.stdin.on('data',(chunk)=>input.push(chunk));process.stdin.on('end',()=>{
+      const raw=Buffer.concat(input);const request=JSON.parse(raw.subarray(raw.indexOf(10)+1).toString());
+      if(request.requests.every((member)=>member.operation==='resolve')){
+        const entries=request.requests.map((member,index)=>({index,path:member.path,
+          result:{ok:true,value:{path:member.path,target:null}}}))
+          .sort((a,b)=>a.path<b.path?-1:a.path>b.path?1:a.index-b.index);
+        const body=JSON.stringify({ok:true,value:{rootIdentity:request.rootIdentity,entries}});
+        process.stdout.write('flows-atomic/1 '+Buffer.byteLength(body)+'\\n'+body);
+      } else process.stdout.write(${JSON.stringify(frame(value))});
+    });`
   )
 const rootIdentity = async (root: string) => {
   const info = await lstat(root, { bigint: true })
@@ -139,7 +152,20 @@ describe("batch resource ceilings", () => {
         entries: [{ index: 0, path: join(root, "a"), result: { ok: true, value: valueFor("abc") } }]
       }
     }
-    const n = Buffer.byteLength(JSON.stringify(response))
+    // Authorization's batched `resolve` answer passes through the same
+    // ceiling (#2882), so N is the larger of the two responses.
+    const resolved = {
+      ok: true,
+      value: {
+        rootIdentity: await rootIdentity(root),
+        entries: [{
+          index: 0,
+          path: join(root, "a"),
+          result: { ok: true, value: { path: join(root, "a"), target: null } }
+        }]
+      }
+    }
+    const n = Math.max(Buffer.byteLength(JSON.stringify(response)), Buffer.byteLength(JSON.stringify(resolved)))
     const result = run(root, [{ operation: "digest", path: "a" }], { limits: { response: n + delta } })
     if (delta < 0) await expect(result).rejects.toMatchObject({ reason: { _tag: "BadResource" } })
     else expect(Result.getOrThrow((await result).entries[0]!.result)).toMatchObject({ digest: sha("abc") })
@@ -393,11 +419,15 @@ describe("batch confinement and concurrent mutation", () => {
         const atomic = (fs as KernelFileSystem.AtomicHostFileSystem)[KernelFileSystem.AtomicFileSystemTypeId]
         return KernelFileSystem.withAtomicFileSystem(fs, {
           ...atomic,
+          // Authorization's resolutions see the original tree; the swap
+          // lands after them, just before the measured batch starts.
           execute: (request) =>
-            Effect.promise(async () => {
-              await rename(join(root, "dir"), join(root, "moved"))
-              await symlink(outside, join(root, "dir"))
-            }).pipe(Effect.andThen(atomic.execute(request)))
+            request.operation === "batch" && request.requests.every((member) => member.operation !== "resolve")
+              ? Effect.promise(async () => {
+                await rename(join(root, "dir"), join(root, "moved"))
+                await symlink(outside, join(root, "dir"))
+              }).pipe(Effect.andThen(atomic.execute(request)))
+              : atomic.execute(request)
         })
       })
     ).pipe(Layer.provide(AtomicFileSystem.layer))

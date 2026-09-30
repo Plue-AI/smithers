@@ -258,8 +258,9 @@ and replacement of the pinned root retain the same refusal checks.
 | `AtomicFileSystem.defaultConcurrency` | `os.availableParallelism()`                                           |
 | `AtomicFileSystem.defaultTimeoutMs`   | 300000                                                                |
 
-**Cost.** Every operation starts one helper process.
-That is the price of descriptor-relative confinement on a runtime with no
+**Cost.** Every operation starts one helper process. Under the kernel's guarded
+layer, authorization adds two more, resolving the path before and after the
+grant decision. That is the price of descriptor-relative confinement on a runtime with no
 `openat`, and it is why the adapter carries a process ceiling: without one, an
 `Effect.forEach(files, read, { concurrency: "unbounded" })` over fifty entries
 would start fifty helpers at once. Batch a wide fan-out, or raise

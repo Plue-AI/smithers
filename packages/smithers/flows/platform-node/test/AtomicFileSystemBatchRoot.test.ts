@@ -55,7 +55,9 @@ it.each(["before grant", "during grant"])("refuses a logical workspace retargete
         const result = yield* Effect.result(KernelFileSystem.batch(fs)!.execute([{ operation: "digest", path: "a" }]))
         expect(result).toMatchObject({ _tag: "Failure", failure: { reason: { _tag: "Busy" } } })
         expect(grants).toEqual(phase === "before grant" ? [] : [join(logical, "a")])
-        expect(AtomicFileSystem.helperSpawns()).toBe(before)
+        // The measured batch never starts. Retargeted during the grant, the
+        // two authorization resolutions already ran against the pinned root.
+        expect(AtomicFileSystem.helperSpawns() - before).toBe(phase === "before grant" ? 0 : 2)
       }).pipe(Effect.provide(host))
     )
   } finally {

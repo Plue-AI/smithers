@@ -1,3 +1,4 @@
+import type * as KernelFileSystem from "@smthrs/kernel/FileSystem"
 import { Effect, Option } from "effect"
 import { describe, expect, it } from "vitest"
 import { defaultLimits } from "../src/AtomicFileSystem.ts"
@@ -84,10 +85,37 @@ describe("atomic helper response validation", () => {
     ).toThrow("over the 2 byte read limit")
   })
 
+  it.each([null, "../link-text"])("decodes a resolution whose target is %s", async (target) => {
+    expect(await Effect.runPromise(convert("resolve", { path: "/a/b", target }))).toEqual({ path: "/a/b", target })
+  })
+
+  it("decodes a batched resolution beside a batched read", async () => {
+    const request: Protocol.FramedRequest = {
+      operation: "batch",
+      rootIdentity: "1:2",
+      requests: [{ operation: "resolve", path: "/a" }, { operation: "stat", path: "/b" }]
+    }
+    const response = await Effect.runPromise(Protocol.convert<KernelFileSystem.AtomicBatchResponse>(request, {
+      rootIdentity: "1:2",
+      entries: [
+        { index: 0, path: "/a", result: { ok: true, value: { path: "/a", target: "x" } } },
+        { index: 1, path: "/b", result: { ok: true, value: info } }
+      ]
+    }, defaultLimits))
+    expect(response.entries.map((entry) => entry.result)).toMatchObject([
+      { _tag: "Success", success: { operation: "resolve", resolution: { path: "/a", target: "x" } } },
+      { _tag: "Success", success: { operation: "stat" } }
+    ])
+  })
+
   it.each(
     [
       ["realPath", "bad\0path", "invalid realPath"],
       ["readLink", 42, "invalid readLink"],
+      ["resolve", "/a", "non-object resolve result"],
+      ["resolve", { path: "/a" }, "invalid resolve target"],
+      ["resolve", { path: 7, target: null }, "invalid resolve path"],
+      ["resolve", { path: "/a", target: "bad\0target" }, "invalid resolve target"],
       ["readDirectory", {}, "invalid readDirectory"],
       ["glob", ["a", "a"], "duplicate glob"],
       ["exists", "true", "non-boolean exists"],

@@ -112,7 +112,9 @@ byte ceilings.
 | `concurrency` | `os.availableParallelism()` | how many helpers may run at once                |
 | `timeoutMs`   | 300000                      | how long one helper may run before it is killed |
 
-Each ordinary call or bounded batch starts one helper. Without a process ceiling,
+Each ordinary call or bounded batch starts one helper, and three under the
+kernel's guarded filesystem, which resolves the path before and after its grant
+decision. Without a process ceiling,
 an `Effect.forEach(files, read, { concurrency: "unbounded" })` over fifty paths
 would start fifty helpers at once. The same permit covers request JSON
 serialization and framing, so queued calls retain their input rather than an
