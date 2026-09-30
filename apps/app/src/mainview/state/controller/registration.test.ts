@@ -14,26 +14,30 @@ type Phase = "starting" | "running" | "done" | "failed"
 const fixture = async (options: {
   wrapStore?: (store: AppStore) => AppStore
   importRepository?: (repo: string) => Promise<unknown>
-  startRegistration?: (cloudRepo: string, link: string) => Promise<{ value: string } | string>
+  startRegistration?: (cloudRepo: string, link: string, box: string | null) => Promise<{ value: string } | string>
 } = {}) => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "owner", provider: "github", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
   const ctx = createControllerContext(options.wrapStore?.(store) ?? store, unavailableAgent, { toastDebounceMs: 1, workflowPollMs: 5, fetchImpl: async () => new Response(null, { status: 500 }) })
   Object.assign(ctx, createFailureController(ctx))
   const imports: Array<string> = []
-  const launches: Array<{ cloudRepo: string; link: string }> = []
+  const launches: Array<{ cloudRepo: string; link: string; box?: string | null }> = []
   /** The launch never answers unless a test settles it. */
   const pending = Promise.withResolvers<{ value: string } | string>()
-  const importCard = (repo: string, phase: Phase, error?: string) =>
+  const importCard = (repo: string, phase: Phase, error?: string, workspaceId?: string) =>
     store.dispatch({ type: "card.upsert", actor: "system", card: {
       id: `repo-import-${repo}`, kind: "repo-import", title: `Import · ${repo}`, status: "active", createdAt: Date.now(), ordinal: store.nextOrdinal(),
-      payload: { repo, jobId: "job-1", phase, detail: null, error: error ?? null, repository: { owner: repo.split("/")[0]!, name: repo.split("/")[1]! } }
+      payload: { repo, jobId: "job-1", phase, detail: null, error: error ?? null, repository: { owner: repo.split("/")[0]!, name: repo.split("/")[1]! },
+        ...(workspaceId === undefined ? {} : { workspaceId }) }
     } }).isPersisted.promise
   const actors = createActorBindings(ctx.onDispose)
   const registration = actors.pair(ctx, context => createRegistrationController(context, {
     guard: () => undefined,
     importRepository: async (repo) => { imports.push(repo); await importCard(repo, "running"); await options.importRepository?.(repo) },
-    startRegistration: (cloudRepo, link) => { launches.push({ cloudRepo, link }); return options.startRegistration?.(cloudRepo, link) ?? pending.promise }
+    startRegistration: (cloudRepo, link, box) => {
+      launches.push({ cloudRepo, link, ...(box === null ? {} : { box }) })
+      return options.startRegistration?.(cloudRepo, link, box) ?? pending.promise
+    }
   }))
   const card = (repo: string) => {
     const row = store.collections.cards.get(registrationId(repo))
@@ -66,6 +70,36 @@ test("the command answers at once while the import and launch are unresolved; ch
     t.pending.resolve({ value: "run-requested" })
     await waitFor(() => t.card("acme/widgets")?.payload.phase === "launched")
   } finally { await t.dispose() }
+})
+
+test("the launch runs on the box the import names, also after a reload; without one it falls back to the default box", async () => {
+  const t = await fixture()
+  try {
+    await t.registration.registerRepository("acme/widgets")
+    await t.importCard("acme/widgets", "done", undefined, "0b6f3c1e-5d2a-4f8e-9c47-2a1d6e8b3f90")
+    await waitFor(() => t.launches.length === 1)
+    expect(t.launches[0]).toEqual({ cloudRepo: "acme/widgets", link: "acme/widgets", box: "0b6f3c1e-5d2a-4f8e-9c47-2a1d6e8b3f90" })
+  } finally { await t.dispose() }
+  const bare = await fixture()
+  try {
+    await bare.registration.registerRepository("acme/widgets")
+    await bare.importCard("acme/widgets", "done")
+    await waitFor(() => bare.launches.length === 1)
+    expect(bare.launches[0]).toEqual({ cloudRepo: "acme/widgets", link: "acme/widgets" })
+  } finally { await bare.dispose() }
+  // After a reload mid-launch, the resumed launch reads the same box from the import card.
+  const reloaded = await fixture()
+  try {
+    await reloaded.importCard("acme/widgets", "done", undefined, "0b6f3c1e-5d2a-4f8e-9c47-2a1d6e8b3f90")
+    await reloaded.store.dispatch({ type: "card.upsert", actor: "system", card: {
+      id: registrationId("acme/widgets"), kind: "registration", title: "Register a repository", status: "active", createdAt: Date.now(), ordinal: reloaded.store.nextOrdinal(),
+      payload: { link: "acme/widgets", repo: "acme/widgets", phase: "launching", startedAt: Date.now(), error: null, cloudRepo: "acme/widgets", replay: 0, accountOwner: "owner" }
+    } }).isPersisted.promise
+    reloaded.registration.resumeRegistrations()
+    await waitFor(() => reloaded.launches.length === 1)
+    expect(reloaded.imports).toEqual([])
+    expect(reloaded.launches[0]).toEqual({ cloudRepo: "acme/widgets", link: "acme/widgets", box: "0b6f3c1e-5d2a-4f8e-9c47-2a1d6e8b3f90" })
+  } finally { await reloaded.dispose() }
 })
 
 test("repeated starts reuse one request; a second repository waits for the first", async () => {

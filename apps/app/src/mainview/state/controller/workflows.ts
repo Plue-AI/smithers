@@ -60,6 +60,8 @@ export interface WorkflowController {
   readonly requireBox: (repo: string, act: { readonly flow: string; readonly args?: string }, title: string) => string | { readonly value: string } | undefined
   readonly requireJobBox: (repo: string, act: { readonly flow: string; readonly args?: string }, title: string) => string | { readonly value: string } | undefined
   readonly runWorkflow: (name: string, repo?: string, input?: Record<string, unknown>, sourceCard?: string, humanDoor?: boolean) => Promise<string | void | { readonly value: string }>
+  /** A flow on one named box: a first import's box runs before the box list has caught up with it. */
+  readonly runWorkflowOnBox: (name: string, repo: string, workspaceId: string, input: Record<string, unknown>) => Promise<string | { readonly value: string }>
   /** `change.request`: coding/request on the prompt, continuing into coding/vibe once it validates. */
   readonly requestChange: (prompt: string, repo?: string, from?: string, humanDoor?: boolean) => Promise<string | void | { readonly value: string }>
   /** What a flow WOULD run: the plan card, filled in the background. */
@@ -962,6 +964,12 @@ export const createWorkflowController = (
     return requests.start({ repo, binding, workflow: name, input, actor: ctx.commandActor })
   }
 
+  const runWorkflowOnBox: WorkflowController["runWorkflowOnBox"] = async (name, repo, workspaceId, input) => {
+    const guard = workflowIdentityGuard()
+    if (guard !== undefined) return guard
+    return requests.start({ repo, binding: { workspaceId }, workflow: name, input, actor: ctx.commandActor })
+  }
+
   /*
    * A change typed in chat is a coding/request whose validated result lands
    * through coding/vibe. The request is durable before this returns; the
@@ -1301,6 +1309,7 @@ export const createWorkflowController = (
     requireBox,
     requireJobBox,
     runWorkflow,
+    runWorkflowOnBox,
     requestChange,
     planFlow,
     chooseWorkflowRepo,

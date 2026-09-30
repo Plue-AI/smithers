@@ -1478,8 +1478,10 @@ export const createAppController = (
     return createRegistrationController(context, {
       guard: () => workflows.workflowIdentityGuard(),
       importRepository: (repo) => select(repoImportSeam).importRepository(repo, { registration: true }),
-      startRegistration: async (cloudRepo, link) => {
-        const started = await workflows.runWorkflow("register-repository", cloudRepo, { link })
+      startRegistration: async (cloudRepo, link, box) => {
+        const started = box === null
+          ? await workflows.runWorkflow("register-repository", cloudRepo, { link })
+          : await workflows.runWorkflowOnBox("register-repository", cloudRepo, box, { link })
         return started === undefined ? { value: "run-requested" } : started
       }
     })

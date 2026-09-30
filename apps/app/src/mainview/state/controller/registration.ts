@@ -27,10 +27,11 @@ export interface RegistrationDependencies {
   /** The existing GitHub import (repos.import): acknowledges at once, progress on its card. */
   readonly importRepository: (repo: string) => Promise<unknown>
   /**
-   * Start `register-repository` for the link on the imported repository's workspace. The launch
-   * path dedupes by its request identity, so asking again adopts the request already made.
+   * Start `register-repository` for the link on the box the import named, else on the
+   * repository's default box. The launch path dedupes by its request identity, so asking
+   * again adopts the request already made.
    */
-  readonly startRegistration: (cloudRepo: string, link: string) => Promise<string | void | { readonly value: string }>
+  readonly startRegistration: (cloudRepo: string, link: string, box: string | null) => Promise<string | void | { readonly value: string }>
 }
 
 export const registrationId = (repo: string) => `registration-${repo}`
@@ -63,12 +64,18 @@ export const createRegistrationController = (ctx: ControllerContext, deps: Regis
   const status = (card: RegistrationCard) => statusOf(card, registrationRun(cards(), card.payload.repo, runs()))
   const busy = (card: RegistrationCard) => card.payload.phase !== "failed" && (inFlight.get(card.id)?.epoch === ctx.accountEpoch || unfinished(status(card)))
 
+  /** The repository's import card; its finished job names the Cloud repository and the box it created. */
+  const importOf = (repo: string) => {
+    const card = cards().find((entry) => entry.kind === "repo-import" && entry.payload.repo.toLowerCase() === repo)
+    return card?.kind === "repo-import" ? card : undefined
+  }
+
   /** Waits on the import card until the job is done or failed. */
   const imported = async (repo: string, current: () => boolean): Promise<{ cloudRepo: string } | string> => {
     const started = Date.now()
     while (current() && Date.now() - started < IMPORT_BUDGET_MS) {
-      const card = cards().find((entry) => entry.kind === "repo-import" && entry.payload.repo.toLowerCase() === repo)
-      if (card?.kind === "repo-import") {
+      const card = importOf(repo)
+      if (card !== undefined) {
         if (card.payload.phase === "failed") return card.payload.error ?? card.payload.detail ?? "The import failed."
         if (card.payload.phase === "done") {
           const named = card.payload.repository
@@ -103,7 +110,8 @@ export const createRegistrationController = (ctx: ControllerContext, deps: Regis
         await patch(id, { phase: "launching", cloudRepo })
       }
       if (!current()) return
-      const started = await deps.startRegistration(cloudRepo, repo)
+      // A first import's box is not in the box list yet; the import card names it.
+      const started = await deps.startRegistration(cloudRepo, repo, importOf(repo)?.payload.workspaceId ?? null)
       if (!current()) return
       if (typeof started === "string") return patch(id, { phase: "failed", error: started })
       return patch(id, { phase: "launched", error: null })

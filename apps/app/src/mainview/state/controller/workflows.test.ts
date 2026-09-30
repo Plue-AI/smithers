@@ -4,6 +4,7 @@ import { GATEWAY_REFUSED } from "./GatewayFailureCopy"
 import { scopedControllers } from "../ControllerTestScope"
 import { createAppStore } from "../AppStore"
 import { json, loadBox, memoryStorage, scriptedToolAgent, settle, waitFor } from "../TestFixtures"
+import { repoImportPolling } from "../seams/RepoImportSeam"
 
 const createAppController = scopedControllers()
 const repo = "owner/launch-test"
@@ -13,7 +14,7 @@ const deferred = <T>() => {
   return { promise, resolve }
 }
 
-async function fixture(options: { workflowPreparationTimeoutMs?: number } = {}) {
+async function fixture(options: { workflowPreparationTimeoutMs?: number; answer?: (path: string, method: string) => Response | undefined } = {}) {
   const disk = memoryStorage()
   let failNextWrite = false
   const storage = { ...disk, setItem: (key: string, value: string) => {
@@ -40,6 +41,8 @@ async function fixture(options: { workflowPreparationTimeoutMs?: number } = {}) 
     const path = String(url)
     if (path.endsWith("/api/user")) return session()
     if (path.endsWith("/api/workflow/provision")) { provisions += 1; return provision() }
+    const answered = options.answer?.(new URL(path, "http://app.test").pathname, init?.method ?? "GET")
+    if (answered !== undefined) return answered
     if (!path.endsWith("/api/workflow/rpc")) return json(404, {})
     const body = JSON.parse(String(init?.body))
     calls.push(body)
@@ -439,4 +442,29 @@ test("a persisted request launches its admitted input even if the caller later c
   gate.resolve(json(200, { status: "ready" }))
   await waitFor(() => t.cards()[0]?.payload.runId === "run-1")
   expect(t.calls.find(call => call.procedure === "Plan")?.payload.input).toEqual({ args: "inspect", nested: { count: 1 }, _workflowLaunch: "flow-owned value" })
+})
+
+test("registering a never-imported repository runs on the box its import created, before the box list knows it", async () => {
+  const fresh = "owner/fresh", box = "0b6f3c1e-5d2a-4f8e-9c47-2a1d6e8b3f90"
+  const delay = repoImportPolling.delayMs
+  repoImportPolling.delayMs = 1
+  const t = await fixture({ answer: (path, method) => {
+    if (path === "/api/github/import" && method === "POST") return json(202, { importJobId: "job-new", status: "cloning" })
+    if (path === "/api/github/import/job-new") return json(200, { importJobId: "job-new", status: "ready", repository: { owner: "owner", name: "fresh" }, workspace_id: box })
+    return undefined
+  } })
+  try {
+    expect([...t.store.collections.cloudWorkspaces.values()].some(row => row.repoId === fresh)).toBe(false)
+    expect(await t.controller.registerRepository(`https://github.com/${fresh}`)).toEqual({ value: `registration-requested repo=${fresh}` })
+    const registration = () => {
+      const card = t.store.collections.cards.get(`registration-${fresh}`)
+      return card?.kind === "registration" ? card.payload : undefined
+    }
+    await waitFor(() => registration()?.phase === "launched" || registration()?.phase === "failed")
+    expect(registration()).toMatchObject({ phase: "launched", cloudRepo: fresh, error: null })
+    await waitFor(() => t.cards()[0]?.payload.runId === "run-1")
+    const launched = t.calls.filter(call => call.procedure === "Plan" || call.procedure === "Run")
+    expect(launched.map(call => [call.procedure, call.repo, call.workspaceId])).toEqual([["Plan", fresh, box], ["Run", fresh, box]])
+    expect(launched[0]?.payload).toMatchObject({ flowId: "register-repository", input: { link: fresh } })
+  } finally { repoImportPolling.delayMs = delay; await t.controller.dispose(); await t.store.dispose?.() }
 })
