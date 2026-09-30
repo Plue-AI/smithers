@@ -45,11 +45,27 @@ const write = (root, path, contents) => {
 }
 
 /**
+ * Each versioned source's fixture text at 0.1.0: the exact declaration
+ * `set-release-version.mjs` rewrites, among lines it must leave alone. Keyed by
+ * path, not by position in `versionedSources`, so a new row cannot shift another
+ * row's text under the wrong file.
+ */
+const seededSources = {
+  "distribution/README.md": "```sh\nexport SMITHERS_IMAGE=ghcr.io/smithersai/smithers:0.1.0\numask 077\n```\n",
+  "distribution/version.env": "SMITHERS_DISTRIBUTION_VERSION=0.1.0\nSMITHERS_SCHEMA_VERSION=3\nSMITHERS_POSTGRES_MAJOR=18\n",
+  "distribution/Dockerfile": "ARG SMITHERS_DISTRIBUTION_VERSION=0.1.0\nRUN test -n \"$SMITHERS_DISTRIBUTION_VERSION\"\n",
+  "packages/smithers/flows/observability/src/Otlp.ts": "export const defaultServiceVersion = \"0.1.0\"\n",
+  "packages/smithers/migrate/src/flow/Cli.ts": "export const version = \"0.1.0\"\n",
+  "packages/smithers/migrate/src/Report.ts":
+    "export const tool = { name: \"@smthrs/migrate\", version: \"0.1.0\" } as const\n",
+  "packages/smithers/mcp/src/McpClient.ts": "export const clientInfo = { name: \"smithers\", version: \"0.1.0\" }\n"
+}
+
+/**
  * A repository a cut can run in, at version 0.1.0 with two commits past its tag.
  *
- * The versioned sources are written with the exact declarations
- * `set-release-version.mjs` rewrites, so the cut's `--check` pass proves the
- * whole write, not just the manifests.
+ * Every versioned source is written from {@link seededSources}, so the cut's
+ * `--check` pass proves the whole write, not just the manifests.
  */
 const seed = () => {
   const root = mkdtempSync(join(tmpdir(), "smthrs-cut-release-"))
@@ -85,14 +101,7 @@ const seed = () => {
       dependencies: { "@smthrs/kernel": "0.1.0", effect: "4.0.0-rc.115" },
       devDependencies: { "@smthrs/cli": "workspace:*" } }))
   }
-  write(root, versionedSources[0].path, "export const defaultServiceVersion = \"0.1.0\"\n")
-  write(root, versionedSources[1].path, "export const version = \"0.1.0\"\n")
-  write(
-    root,
-    versionedSources[2].path,
-    "export const tool = { name: \"@smthrs/migrate\", version: \"0.1.0\" } as const\n"
-  )
-  write(root, versionedSources[3].path, 'export const clientInfo = { name: "smithers", version: "0.1.0" }\n')
+  for (const [path, text] of Object.entries(seededSources)) write(root, path, text)
   write(root, "CHANGELOG.md", "# smthrs\n\nPreamble.\n\n## 0.1.0 (2020-01-01)\n\nThe first release.\n")
   execFileSync("pnpm", ["install", "--lockfile-only", "--ignore-scripts"], { cwd: root, stdio: "ignore" })
   execFileSync("bun", ["install", "--lockfile-only", "--ignore-scripts"], { cwd: root, stdio: "ignore" })
@@ -125,6 +134,13 @@ const cut = (root, args) =>
   execFileSync(process.execPath, ["scripts/cut-release.mjs", ...args], { cwd: root, encoding: "utf8" })
 
 const manifest = (root, path) => JSON.parse(readFileSync(join(root, path), "utf8"))
+
+test("the fixture seeds every versioned source, and only those, at the version its pattern reads", () => {
+  assert.deepEqual(Object.keys(seededSources).sort(), [...new Set(versionedSources.map(({ path }) => path))].sort())
+  for (const { declaration, path, pattern } of versionedSources) {
+    assert.equal(pattern.exec(seededSources[path])?.[2], "0.1.0", `${path} seeds ${declaration}`)
+  }
+})
 
 test("parseArguments takes one version and refuses a tag", () => {
   assert.deepEqual(parseArguments(["1.0.0"]), { version: "1.0.0", commit: false, allowBranch: false })
@@ -179,7 +195,9 @@ test("a cut bumps every manifest, retargets internal ranges, and writes the sect
         dependencies: { "@smthrs/kernel": "0.2.0", effect: "4.0.0-rc.115" },
         devDependencies: { "@smthrs/cli": "0.2.0" } })
     }
-    assert.match(readFileSync(join(root, versionedSources[0].path), "utf8"), /"0\.2\.0"/)
+    for (const [path, text] of Object.entries(seededSources)) {
+      assert.equal(readFileSync(join(root, path), "utf8"), text.replace("0.1.0", "0.2.0"), `${path} changes only its version`)
+    }
 
     const changelog = readFileSync(join(root, "CHANGELOG.md"), "utf8")
     assert.match(changelog, /^## 0\.2\.0 \(2026-02-03\)$/m)
