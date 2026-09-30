@@ -44,9 +44,12 @@ func WithAccountErasure(e AccountErasure) AdminUserServiceOption {
 }
 
 // EraseUserRequest carries the date the account holder asked for deletion,
-// which starts the 30-day clock the privacy policy promises.
+// which starts the 30-day clock the privacy policy promises, and optionally
+// the id of the account that asked. The id binds the erase to one account,
+// so a retry never reaches a later holder of the same username.
 type EraseUserRequest struct {
 	RequestedAt time.Time `json:"requested_at"`
+	UserID      int64     `json:"user_id,omitempty"`
 }
 
 // EraseUserResult reports what an erase changed.
@@ -91,10 +94,7 @@ func erasedUserPrefixFor(lowerUsername string) string {
 // writes an admin.user.erase audit event; an erase that destroys anything
 // first writes an admin.user.erase_started receipt.
 //
-// The request date also resolves the username: an account created after the
-// deletion request cannot be the requester, so a retry after the freed name
-// was re-registered resolves the original tombstone and never touches the new
-// account.
+// The request resolves to one account: see resolveErasureTarget.
 func (s *AdminUserService) EraseUser(ctx context.Context, username string, req EraseUserRequest) (EraseUserResult, error) {
 	if s.erasure == nil {
 		return EraseUserResult{}, pkgerrors.Internal("account erasure not configured")
@@ -107,22 +107,9 @@ func (s *AdminUserService) EraseUser(ctx context.Context, username string, req E
 		return EraseUserResult{}, pkgerrors.BadRequest("request date is required")
 	}
 	q := db.New(s.erasure.Pool)
-
-	// Accounts created by the end of the request day could have asked.
-	createdBefore := req.RequestedAt.UTC().Truncate(24 * time.Hour).Add(24 * time.Hour)
-	user, err := q.AdminGetUserForErasure(ctx, lower)
-	live := err == nil
-	if err == nil && !user.CreatedAt.Before(createdBefore) || stdErrors.Is(err, pgx.ErrNoRows) {
-		user, err = q.AdminFindErasedUser(ctx, db.AdminFindErasedUserParams{TombstonePrefix: erasedUserPrefixFor(lower), CreatedBefore: createdBefore})
-		if stdErrors.Is(err, pgx.ErrNoRows) {
-			if live {
-				return EraseUserResult{}, pkgerrors.Conflict("user " + lower + " was created after the deletion request date")
-			}
-			return EraseUserResult{}, pkgerrors.NotFound("user not found")
-		}
-	}
+	user, err := resolveErasureTarget(ctx, q, lower, req)
 	if err != nil {
-		return EraseUserResult{}, pkgerrors.Internal("failed to look up user").WithCause(err)
+		return EraseUserResult{}, err
 	}
 	if isErasedUser(user) {
 		result := EraseUserResult{UserID: user.ID, Tombstone: user.Username, AlreadyErased: true}
@@ -279,6 +266,59 @@ func (s *AdminUserService) eraseUserRows(ctx context.Context, user db.User, resu
 		return pkgerrors.Internal("failed to commit erase").WithCause(err)
 	}
 	return nil
+}
+
+// resolveErasureTarget binds the request to one account. An account created
+// after the end of the request day cannot be the requester. With a user id the
+// request targets exactly that account, live or already erased, and only when
+// it holds or held the username. Without one, the username resolves to its
+// live holder or its erased tombstone; when both could have made the request,
+// the name was reused after an earlier erase and the id is required, so a
+// retry never erases the later holder.
+func resolveErasureTarget(ctx context.Context, q *db.Queries, lower string, req EraseUserRequest) (db.User, error) {
+	createdBefore := req.RequestedAt.UTC().Truncate(24 * time.Hour).Add(24 * time.Hour)
+	prefix := erasedUserPrefixFor(lower)
+	if req.UserID != 0 {
+		user, err := q.GetUserByID(ctx, req.UserID)
+		if stdErrors.Is(err, pgx.ErrNoRows) {
+			return db.User{}, pkgerrors.NotFound("user not found")
+		}
+		if err != nil {
+			return db.User{}, pkgerrors.Internal("failed to look up user").WithCause(err)
+		}
+		erased := isErasedUser(user)
+		if erased && !strings.HasPrefix(user.LowerUsername, prefix) || !erased && user.LowerUsername != lower {
+			return db.User{}, pkgerrors.Conflict(fmt.Sprintf("user %d is not %s", req.UserID, lower))
+		}
+		if !user.CreatedAt.Before(createdBefore) {
+			return db.User{}, pkgerrors.Conflict("user " + lower + " was created after the deletion request date")
+		}
+		return user, nil
+	}
+
+	live, err := q.AdminGetUserForErasure(ctx, lower)
+	hasLive := err == nil
+	if err != nil && !stdErrors.Is(err, pgx.ErrNoRows) {
+		return db.User{}, pkgerrors.Internal("failed to look up user").WithCause(err)
+	}
+	tombstone, err := q.AdminFindErasedUser(ctx, db.AdminFindErasedUserParams{TombstonePrefix: prefix, CreatedBefore: createdBefore})
+	hasTombstone := err == nil
+	if err != nil && !stdErrors.Is(err, pgx.ErrNoRows) {
+		return db.User{}, pkgerrors.Internal("failed to look up user").WithCause(err)
+	}
+	liveEligible := hasLive && live.CreatedAt.Before(createdBefore)
+	switch {
+	case liveEligible && hasTombstone:
+		return db.User{}, pkgerrors.Conflict(fmt.Sprintf("username %s was reused after erasing user %d; pass the user id", lower, tombstone.ID))
+	case liveEligible:
+		return live, nil
+	case hasTombstone:
+		return tombstone, nil
+	case hasLive:
+		return db.User{}, pkgerrors.Conflict("user " + lower + " was created after the deletion request date")
+	default:
+		return db.User{}, pkgerrors.NotFound("user not found")
+	}
 }
 
 // insertEraseAudit writes the audit event synchronously: an erase without

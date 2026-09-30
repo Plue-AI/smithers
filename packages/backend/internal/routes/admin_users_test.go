@@ -613,12 +613,28 @@ func TestAdminUserHandler_EraseUser(t *testing.T) {
 		}}, `{"request_date":"2026-09-01"}`)
 		require.Equal(t, http.StatusOK, rec.Code)
 		assert.Equal(t, "target", gotUser)
-		assert.Equal(t, time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC), gotReq.RequestedAt)
+		assert.Equal(t, services.EraseUserRequest{RequestedAt: time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)}, gotReq, "no user id means none is bound")
 		assert.JSONEq(t, `{"user_id":7,"tombstone":"erased-ab-7","already_erased":false,"rows_changed":12,"repositories":0,"workspaces":0}`, rec.Body.String())
 	})
 
-	for name, body := range map[string]string{"missing": `{}`, "malformed": `{"request_date":"09/01/2026"}`} {
-		t.Run("rejects a "+name+" request date", func(t *testing.T) {
+	t.Run("binds the erase to the user id", func(t *testing.T) {
+		t.Parallel()
+		var gotReq services.EraseUserRequest
+		rec := erase(t, &mockAdminUserService{eraseUserFn: func(_ context.Context, _ string, req services.EraseUserRequest) (services.EraseUserResult, error) {
+			gotReq = req
+			return services.EraseUserResult{UserID: 7, AlreadyErased: true}, nil
+		}}, `{"request_date":"2026-09-01","user_id":7}`)
+		require.Equal(t, http.StatusOK, rec.Code)
+		assert.Equal(t, services.EraseUserRequest{RequestedAt: time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC), UserID: 7}, gotReq)
+	})
+
+	for name, body := range map[string]string{
+		"missing request date":   `{}`,
+		"malformed request date": `{"request_date":"09/01/2026"}`,
+		"negative user id":       `{"request_date":"2026-09-01","user_id":-7}`,
+		"non-numeric user id":    `{"request_date":"2026-09-01","user_id":"7"}`,
+	} {
+		t.Run("rejects a "+name, func(t *testing.T) {
 			t.Parallel()
 			called := false
 			rec := erase(t, &mockAdminUserService{eraseUserFn: func(context.Context, string, services.EraseUserRequest) (services.EraseUserResult, error) {
@@ -636,6 +652,15 @@ func TestAdminUserHandler_EraseUser(t *testing.T) {
 			return services.EraseUserResult{}, pkgerrors.NotFound("user not found")
 		}}, `{"request_date":"2026-09-01"}`)
 		assert.Equal(t, http.StatusNotFound, rec.Code)
+	})
+
+	t.Run("maps a reused username to 409", func(t *testing.T) {
+		t.Parallel()
+		rec := erase(t, &mockAdminUserService{eraseUserFn: func(context.Context, string, services.EraseUserRequest) (services.EraseUserResult, error) {
+			return services.EraseUserResult{}, pkgerrors.Conflict("username target was reused after erasing user 7; pass the user id")
+		}}, `{"request_date":"2026-09-01"}`)
+		assert.Equal(t, http.StatusConflict, rec.Code)
+		assert.Contains(t, rec.Body.String(), "pass the user id")
 	})
 }
 

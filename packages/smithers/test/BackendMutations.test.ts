@@ -417,6 +417,8 @@ describe("remaining read and update contracts", () => {
     expect(await admin["admin user erase"]!(c, { username: "a b" }, { "request-date": "2026-09-01", yes: true }))
       .toEqual({ user_id: 7, tombstone: "erased-ab-7", already_erased: false })
     expect(request).toHaveBeenLastCalledWith("POST", "/api/admin/users/a%20b/erase", { request_date: "2026-09-01" })
+    await admin["admin user erase"]!(c, { username: "a" }, { "request-date": "2026-09-01", "user-id": 7, yes: true })
+    expect(request).toHaveBeenLastCalledWith("POST", "/api/admin/users/a/erase", { request_date: "2026-09-01", user_id: 7 })
     expect(await admin["admin user delete"]!(c, { username: "a" }, { yes: true })).toEqual({
       status: "suspended",
       username: "a"

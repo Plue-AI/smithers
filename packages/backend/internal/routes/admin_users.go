@@ -112,6 +112,9 @@ func (h *AdminUserHandler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 type adminEraseUserRequest struct {
 	// RequestDate is the YYYY-MM-DD date the account holder asked for deletion.
 	RequestDate string `json:"request_date"`
+	// UserID binds the erase to the account that asked; a retry passes the
+	// user_id the first erase returned.
+	UserID int64 `json:"user_id"`
 }
 
 func (h *AdminUserHandler) EraseUser(w http.ResponseWriter, r *http.Request) {
@@ -129,7 +132,11 @@ func (h *AdminUserHandler) EraseUser(w http.ResponseWriter, r *http.Request) {
 		pkgerrors.WriteError(w, pkgerrors.BadRequest("request_date must be YYYY-MM-DD"))
 		return
 	}
-	result, err := h.Service.EraseUser(adminUserAuditContext(r), username, services.EraseUserRequest{RequestedAt: requestedAt})
+	if req.UserID < 0 {
+		pkgerrors.WriteError(w, pkgerrors.BadRequest("user_id must be positive"))
+		return
+	}
+	result, err := h.Service.EraseUser(adminUserAuditContext(r), username, services.EraseUserRequest{RequestedAt: requestedAt, UserID: req.UserID})
 	if err != nil {
 		writeRouteError(w, r, err)
 		return

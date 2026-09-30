@@ -7,6 +7,7 @@ Arguments:
 
 Options:
   --request-date <string>  Date the user asked for deletion (YYYY-MM-DD)
+  --user-id <number>       Account id the first erase returned; required once the username is reused
   --yes
 
 Custom Global Options:

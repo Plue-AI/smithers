@@ -14244,7 +14244,7 @@ paths:
   /api/admin/users/{username}/erase:
     post:
       summary: POST /api/admin/users/{username}/erase
-      description: Erases the user's owned data, including stored workspace snapshots, and replaces the account with a tombstone identity. Keeps billing, credit-ledger and tax records with the name and email removed. Repeating the erase changes nothing and succeeds; a username registered after the request date resolves to the earlier tombstone, and a live account created after it is refused with 409. An admin.user.erase_started event is written before any teardown and an admin.user.erase event with the result.
+      description: Erases the user's owned data, including stored workspace snapshots, and replaces the account with a tombstone identity. Keeps billing, credit-ledger and tax records with the name and email removed. Repeating the erase changes nothing and succeeds. With user_id the erase targets exactly that account, which must hold or have held the username. Without it, a username registered after the request date resolves to the earlier tombstone; a live account created after the request date, or a name reused after an earlier erase when both accounts predate the request, is refused with 409. An admin.user.erase_started event is written before any teardown and an admin.user.erase event with the result.
       operationId: post_api_admin_users_username_erase
       tags:
         - Admin
@@ -14267,6 +14267,11 @@ paths:
                   type: string
                   format: date
                   description: Date the user asked for deletion (YYYY-MM-DD).
+                user_id:
+                  type: integer
+                  format: int64
+                  minimum: 1
+                  description: Account that asked; a retry passes the user_id the first erase returned.
       security:
         - tokenAuth: []
         - bearerAuth: []

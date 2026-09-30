@@ -130,6 +130,25 @@ describe("one npm CLI backend contracts", () => {
     expect(result.code).not.toBe(0)
     expect(requests).toBe(0)
   })
+  it("binds an erase retry to the user id and rejects an invalid one", async () => {
+    const bodies: unknown[] = []
+    const f = await fixture((req, res, body) => {
+      expect(req.method).toBe("POST")
+      expect(req.url).toBe("/api/admin/users/alice/erase")
+      bodies.push(body)
+      res.end(JSON.stringify({ user_id: 7, already_erased: true }))
+    })
+    const erase = ["admin", "user", "erase", "alice", "--request-date", "2026-09-28", "--yes"]
+    for (const extra of [[], ["--user-id", "7"]]) {
+      const result = await f.run([...erase, ...extra])
+      expect(result.code, result.output).toBe(0)
+    }
+    for (const bad of ["0", "-3", "seven"]) {
+      const result = await f.run([...erase, "--user-id", bad])
+      expect(result.code, bad).not.toBe(0)
+    }
+    expect(bodies).toEqual([{ request_date: "2026-09-28" }, { request_date: "2026-09-28", user_id: 7 }])
+  })
   it("does not reuse another origin's saved login", async () => {
     let requests = 0
     const f = await fixture((_req, res) => {

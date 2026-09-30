@@ -163,6 +163,9 @@ export const definitions = {
       "request-date": z.string().regex(/^\d{4}-\d{2}-\d{2}$/u).describe(
         "Date the user asked for deletion (YYYY-MM-DD)"
       ),
+      "user-id": z.coerce.number().int().positive().optional().describe(
+        "Account id the first erase returned; required once the username is reused"
+      ),
       "yes": z.boolean().describe("Confirm erasing the user").default(false)
     })
   },

@@ -29,6 +29,6 @@ An operator deletes the account with:
 smthrs admin user erase <username> --request-date <YYYY-MM-DD> --yes
 ```
 
-The erase deletes the repositories you own, your workspaces, their sandboxes and saved snapshots, sessions, tokens, SSH keys, provider connections and chat history. It keeps billing, credit and tax records we must keep by law, with your name and email removed. Your comments, issues and releases in other people's repositories stay, attributed to a deleted user. Running it again changes nothing, even after someone else takes your username, and every run is recorded in the audit log with the request date.
+The erase deletes the repositories you own, your workspaces, their sandboxes and saved snapshots, sessions, tokens, SSH keys, provider connections and chat history. It keeps billing, credit and tax records we must keep by law, with your name and email removed. Your comments, issues and releases in other people's repositories stay, attributed to a deleted user. Running it again with `--user-id <id>` from the first result changes nothing, even after someone else takes your username; without the id, an erase of a reused username is refused. Every run is recorded in the audit log with the request date.
 
 Policies: [Terms](https://smithers.sh/terms/) · [Privacy](https://smithers.sh/privacy/) · [Refunds](https://smithers.sh/refunds/)

@@ -11,7 +11,8 @@
   as backup only when Jev is unreachable, times out, or answers 5xx or 429;
   it no longer judges through the first subscription seat.
 - Diagnosis rendering accepts optional code-drift details; resume supports
-  `--allow-code-drift`. Admin commands add user export and erase (#1807, #2476).
+  `--allow-code-drift`. Admin commands add user export and erase (#1807, #2476);
+  `admin user erase --user-id` binds a retry to the original account (#2476).
 - `run` accepts `--budget-tokens`, `--budget-ms` and `--on-exceeded` (#1843).
 - `admin user delete` suspends the user and marks them deleted while retaining
   their data; use `admin user erase` for erasure (#2476).

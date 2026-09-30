@@ -306,7 +306,10 @@ admin["admin user delete"] = async (c, a, o) => {
 }
 admin["admin user erase"] = async (c, a, o) => {
   await c.confirm(o.yes, `erase user ${str(a.username)} and all of its data`)
-  return c.request("POST", `/api/admin/users/${esc(a.username)}/erase`, { request_date: o["request-date"] })
+  return c.request("POST", `/api/admin/users/${esc(a.username)}/erase`, {
+    request_date: o["request-date"],
+    ...(o["user-id"] === undefined ? {} : { user_id: o["user-id"] })
+  })
 }
 admin["admin user export"] = async (c, a) => {
   const path = resolve(str(a.out)), partial = `${path}.partial`

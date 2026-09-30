@@ -370,10 +370,134 @@ func TestAdminEraseUserRecordsReceiptBeforeTeardown(t *testing.T) {
 
 	// The retry completes and audits the completion.
 	svc, seen := newErasureService(pool)
-	result, err := svc.EraseUser(ctx, f.aName, EraseUserRequest{RequestedAt: requested})
+	result, err := svc.EraseUser(ctx, f.aName, EraseUserRequest{RequestedAt: requested, UserID: f.a})
 	require.NoError(t, err)
+	require.Equal(t, f.a, result.UserID)
 	require.False(t, result.AlreadyErased)
 	require.Equal(t, []string{f.aSnapshot}, seen.snapshots)
 	require.Equal(t, int64(2), counts(`SELECT count(*) FROM audit_log WHERE event_type='admin.user.erase_started' AND target_id=$1`, f.a))
 	require.Equal(t, int64(1), counts(`SELECT count(*) FROM audit_log WHERE event_type='admin.user.erase' AND target_id=$1`, f.a))
+}
+
+// TestAdminEraseUserBindsRetriesToTheOriginalAccount reuses an erased
+// username on the request day: a retry by name alone is refused, a retry bound
+// to the original user id is a no-op, and the new holder's own deletion
+// request needs its own id.
+func TestAdminEraseUserBindsRetriesToTheOriginalAccount(t *testing.T) {
+	pool := setupTestPool(t)
+	f := seedErasureFixture(t, pool)
+	ctx := ContextWithAdminAuditActor(context.Background(), AdminAuditActor{UserID: f.admin, Username: "ops-admin"})
+	svc, seen := newErasureService(pool)
+	counts := func(sql string, args ...any) int64 {
+		t.Helper()
+		var n int64
+		require.NoError(t, pool.QueryRow(ctx, sql, args...).Scan(&n))
+		return n
+	}
+	row := func(id int64) string {
+		t.Helper()
+		var s string
+		require.NoError(t, pool.QueryRow(ctx, `SELECT u::text FROM users u WHERE id=$1`, id).Scan(&s))
+		return s
+	}
+	conflict := func(err error) {
+		t.Helper()
+		var apiErr *pkgerrors.APIError
+		require.ErrorAs(t, err, &apiErr)
+		require.Equal(t, pkgerrors.CodeConflict, apiErr.Code, "got %v", err)
+	}
+	var now time.Time
+	require.NoError(t, pool.QueryRow(ctx, `SELECT now()`).Scan(&now))
+	today := now.UTC().Truncate(24 * time.Hour)
+	day := 24 * time.Hour
+
+	first, err := svc.EraseUser(ctx, f.aName, EraseUserRequest{RequestedAt: today})
+	require.NoError(t, err)
+	require.Equal(t, f.a, first.UserID)
+	require.False(t, first.AlreadyErased)
+	aTombstone := row(f.a)
+
+	// C takes the freed name the same day, with its own profile and token.
+	c := f.admin + 20
+	_, err = pool.Exec(ctx, `INSERT INTO users(id,username,lower_username,email,lower_email,display_name) VALUES ($1,$2,$2,$3,$3,'Carol')`, c, f.aName, "c-"+f.aEmail)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO access_tokens(user_id,token_hash,name) VALUES ($1,$2,'cli')`, c, fmt.Sprintf("hash-c-%d", c))
+	require.NoError(t, err)
+	cBefore := row(c)
+	cUntouched := func() {
+		t.Helper()
+		require.Equal(t, cBefore, row(c), "the new holder of the name is untouched")
+		require.Equal(t, int64(1), counts(`SELECT count(*) FROM access_tokens WHERE user_id=$1`, c))
+		require.Equal(t, aTombstone, row(f.a))
+	}
+
+	// By name alone, the same-day and next-day retries are ambiguous.
+	for _, requested := range []time.Time{today, today.Add(day)} {
+		_, err = svc.EraseUser(ctx, f.aName, EraseUserRequest{RequestedAt: requested})
+		conflict(err)
+		require.Contains(t, err.Error(), fmt.Sprint(f.a))
+		cUntouched()
+	}
+	// Bound to A's id, both retries find A's tombstone and change nothing.
+	for _, requested := range []time.Time{today, today.Add(day)} {
+		retry, err := svc.EraseUser(ctx, strings.ToUpper(f.aName), EraseUserRequest{RequestedAt: requested, UserID: f.a})
+		require.NoError(t, err)
+		require.Equal(t, EraseUserResult{UserID: f.a, Tombstone: first.Tombstone, AlreadyErased: true}, retry)
+		cUntouched()
+	}
+	// A request dated before C existed can only mean A.
+	earlier, err := svc.EraseUser(ctx, f.aName, EraseUserRequest{RequestedAt: today.Add(-day)})
+	require.NoError(t, err)
+	require.Equal(t, f.a, earlier.UserID)
+	require.True(t, earlier.AlreadyErased)
+	cUntouched()
+
+	// An id that never held the name, an unknown id, and an account created
+	// after the request date are refused.
+	_, err = svc.EraseUser(ctx, f.aName, EraseUserRequest{RequestedAt: today, UserID: f.b})
+	conflict(err)
+	_, err = svc.EraseUser(ctx, f.bName, EraseUserRequest{RequestedAt: today, UserID: f.a})
+	conflict(err)
+	_, err = svc.EraseUser(ctx, f.aName, EraseUserRequest{RequestedAt: today, UserID: f.admin + 99})
+	require.True(t, isNotFound(err), "an unknown user id is not found, got %v", err)
+	_, err = svc.EraseUser(ctx, f.aName, EraseUserRequest{RequestedAt: today.Add(-day), UserID: c})
+	conflict(err)
+	cUntouched()
+	require.Equal(t, int64(1), counts(`SELECT count(*) FROM users WHERE id=$1 AND is_active AND NOT prohibit_login`, f.b))
+
+	// C's own deletion request, bound to C's id, erases C and leaves A's
+	// tombstone alone; its retries by id or by name are no-ops.
+	cErase, err := svc.EraseUser(ctx, f.aName, EraseUserRequest{RequestedAt: today, UserID: c})
+	require.NoError(t, err)
+	require.Equal(t, c, cErase.UserID)
+	require.False(t, cErase.AlreadyErased)
+	require.NotEqual(t, first.Tombstone, cErase.Tombstone)
+	require.Zero(t, counts(`SELECT count(*) FROM access_tokens WHERE user_id=$1`, c))
+	require.Equal(t, aTombstone, row(f.a))
+	cTombstone := row(c)
+	for _, req := range []EraseUserRequest{{RequestedAt: today, UserID: c}, {RequestedAt: today}} {
+		again, err := svc.EraseUser(ctx, f.aName, req)
+		require.NoError(t, err)
+		require.Equal(t, EraseUserResult{UserID: c, Tombstone: cErase.Tombstone, AlreadyErased: true}, again)
+	}
+	again, err := svc.EraseUser(ctx, f.aName, EraseUserRequest{RequestedAt: today, UserID: f.a})
+	require.NoError(t, err)
+	require.Equal(t, EraseUserResult{UserID: f.a, Tombstone: first.Tombstone, AlreadyErased: true}, again)
+	require.Equal(t, aTombstone, row(f.a))
+	require.Equal(t, cTombstone, row(c))
+	require.Len(t, seen.repos, 1, "only A's repository was torn down")
+
+	rows, err := pool.Query(ctx, `SELECT target_id, (metadata->>'already_erased')::bool FROM audit_log
+		WHERE event_type='admin.user.erase' AND target_id IN ($1,$2) ORDER BY id`, f.a, c)
+	require.NoError(t, err)
+	defer rows.Close()
+	var audited []string
+	for rows.Next() {
+		var target int64
+		var was bool
+		require.NoError(t, rows.Scan(&target, &was))
+		audited = append(audited, fmt.Sprint(target == f.a, was))
+	}
+	require.NoError(t, rows.Err())
+	require.Equal(t, []string{"true false", "true true", "true true", "true true", "false false", "false true", "false true", "true true"}, audited)
 }

@@ -807,6 +807,12 @@
               "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
               "description": "Date the user asked for deletion (YYYY-MM-DD)"
             },
+            "user-id": {
+              "description": "Account id the first erase returned; required once the username is reused",
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
             "yes": {
               "default": false,
               "type": "boolean",
