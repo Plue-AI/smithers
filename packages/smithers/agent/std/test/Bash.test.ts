@@ -9,6 +9,7 @@ import * as Bash from "../src/Bash.ts"
 import * as Container from "../src/Container.ts"
 import * as Exec from "../src/internal/Exec.ts"
 import { MAX_SHELL_OUTPUT_BYTES } from "../src/internal/Text.ts"
+import * as LanguageServer from "../src/LanguageServer.ts"
 import * as TreeFingerprint from "../src/TreeFingerprint.ts"
 import { layer } from "./TestLayers.ts"
 
@@ -104,6 +105,32 @@ describe("Bash", () => {
       cwd: undefined
     }])
     expect(spawns.every((spawn) => spawn.file === "docker" && spawn.args.includes("task-1"))).toBe(true)
+  })
+
+  it("refreshes a bound language server after a host command, and not after a container one", async () => {
+    let refreshed = 0
+    const server = Layer.succeed(LanguageServer.LanguageServer)(LanguageServer.make({
+      ...LanguageServer.makeNoop(),
+      refresh: Effect.sync(() => void refreshed++)
+    }))
+    const failing = Layer.succeed(LanguageServer.LanguageServer)(LanguageServer.makeNoop())
+    const spawns: Array<Spawned> = []
+    const host = await execute(Effect.provide(
+      Bash.run({ mode: "unhermetic", command: "rm a.ts" }),
+      Layer.mergeAll(recorder(spawns), server)
+    ))
+    expect(refreshed).toBe(1)
+    await execute(Effect.provide(
+      Bash.run({ mode: "unhermetic", container: "task-1", command: "rm a.ts" }),
+      Layer.mergeAll(recorder(spawns), server, Layer.succeed(Container.Container)(Container.makeCommand()))
+    ))
+    expect(refreshed).toBe(1)
+    // A server whose refresh fails never fails the command that already ran.
+    const unaffected = await execute(Effect.provide(
+      Bash.run({ mode: "unhermetic", command: "rm a.ts" }),
+      Layer.mergeAll(recorder(spawns), failing)
+    ))
+    expect(unaffected).toEqual(host)
   })
 
   it("returns non-zero exit codes as successful results", async () => {

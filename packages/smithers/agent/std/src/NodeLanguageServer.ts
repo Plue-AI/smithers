@@ -11,11 +11,12 @@
 
 import * as ChildProcessEnvironment from "@smthrs/kernel/ChildProcessEnvironment"
 import * as ChildProcessSpawner from "@smthrs/kernel/ChildProcessSpawner"
-import { Deferred, Effect, Fiber, Layer, Option, Queue, type Scope, Semaphore, Stream } from "effect"
+import { Clock, Deferred, Effect, Fiber, Layer, Option, Queue, type Scope, Semaphore, Stream } from "effect"
 import * as ChildProcess from "effect/unstable/process/ChildProcess"
+import { createHash } from "node:crypto"
 import * as NodeFs from "node:fs"
 import * as NodePath from "node:path"
-import { pathToFileURL } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
 import * as LanguageServer from "./LanguageServer.ts"
 import * as StdError from "./StdError.ts"
 
@@ -44,6 +45,15 @@ export const MAX_QUEUED_FRAMES = 256
 export const MAX_PENDING_REQUESTS = 512
 
 const DEFAULT_SETTLE_MS = 5_000
+const DEFAULT_QUIET_MS = 300
+
+/**
+ * A request every server must refuse at once: the specification has a server
+ * answer an unknown `$/` request with MethodNotFound.
+ */
+const BARRIER_METHOD = "$/smithers/barrier"
+/** A server that has not answered the barrier in this long is not asked again. */
+const BARRIER_TIMEOUT_MS = 1_000
 
 /**
  * One host language-server process.
@@ -75,9 +85,18 @@ export interface Config {
   readonly timeoutMs?: number | undefined
   /**
    * How long `diagnostics` waits for a server without pull diagnostics to
-   * publish for the latest synced text. Defaults to 5 seconds.
+   * publish for the latest synced text, then fails with `timeout`. Defaults to
+   * 5 seconds. typescript-language-server publishes nothing for a change that
+   * leaves a file with no problems, so such a change always waits this long.
    */
   readonly settleMs?: number | undefined
+  /**
+   * After a publish, how long `diagnostics` waits for a later one before
+   * answering, within `settleMs`. A server may publish syntax errors before
+   * semantic ones: typescript-language-server does on the first open of a
+   * file. Defaults to 300 milliseconds.
+   */
+  readonly quietMs?: number | undefined
 }
 
 interface JsonRpcMessage {
@@ -484,7 +503,11 @@ interface OpenDocument {
   readonly version: number
   /** The publish sequence number when this version was sent. */
   readonly sentAt: number
+  /** The SHA-256 of the text last sent, so `refresh` resends only changed files. */
+  readonly digest: string
 }
+
+const digestOf = (text: string): string => createHash("sha256").update(text).digest("hex")
 
 const makeClient = (
   config: Config
@@ -497,6 +520,7 @@ const makeClient = (
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
     const timeoutMs = config.timeoutMs ?? 30_000
     const settleMs = config.settleMs ?? DEFAULT_SETTLE_MS
+    const quietMs = config.quietMs ?? DEFAULT_QUIET_MS
     const env = ChildProcessEnvironment.make(process.env, config.environment)
     const refused = yield* Effect.sync(() => workspaceProgram(config, env.PATH))
     if (refused !== undefined) return yield* Effect.fail(refused)
@@ -579,6 +603,9 @@ const makeClient = (
     const listeners = new Map<string, Set<Deferred.Deferred<void>>>()
     let publishSequence = 0
     let pullUnsupported = false
+    let pullSupported = false
+    let versionedPublishes = false
+    let barrierAnswered = true
 
     const publish = (params: unknown): Effect.Effect<void> => {
       const notification = asMessage(params) as {
@@ -589,6 +616,7 @@ const makeClient = (
       if (typeof notification?.uri !== "string" || !Array.isArray(notification.diagnostics)) return Effect.void
       const uri = notification.uri
       const version = typeof notification.version === "number" ? notification.version : undefined
+      if (version !== undefined) versionedPublishes = true
       const previous = published.get(uri)?.version
       // A late publish for an older version never replaces a newer one.
       if (version !== undefined && previous !== undefined && version < previous) return Effect.void
@@ -746,10 +774,31 @@ const makeClient = (
       position: { line: position.line, character: position.character }
     })
 
+    // A publish without a version is read by arrival: it counts for the text
+    // sent before it. Before each sync, a request the server answers at once
+    // drains what it wrote earlier, such as the empty report
+    // typescript-language-server publishes when a file closes, so that report
+    // never passes for the reopened text. Unneeded once the server has pulled
+    // or versioned a publish, and dropped if the server does not answer it.
+    const barrier: Effect.Effect<void> = Effect.suspend(() =>
+      pullSupported || versionedPublishes || !barrierAnswered
+        ? Effect.void
+        : request(BARRIER_METHOD, null).pipe(
+          Effect.timeoutOption(Math.min(BARRIER_TIMEOUT_MS, timeoutMs)),
+          Effect.flatMap((answer) =>
+            Effect.sync(() => {
+              if (Option.isNone(answer)) barrierAnswered = false
+            })
+          ),
+          // The answer is MethodNotFound; any answer drains what came before it.
+          Effect.ignore
+        )
+    )
+
     // One sync at a time, so versions reach the server in the order they are numbered.
     const syncLock = yield* Semaphore.make(1)
     const sync = (path: string, text: string): Effect.Effect<void, StdError.StdError> =>
-      syncLock.withPermit(Effect.suspend(() => {
+      syncLock.withPermit(Effect.andThen(barrier, () => {
         const uri = uriOf(path)
         const open = documents.get(uri)
         const version = (versions.get(uri) ?? 0) + 1
@@ -763,20 +812,38 @@ const makeClient = (
           Effect.tap(() =>
             Effect.sync(() => {
               versions.set(uri, version)
-              documents.set(uri, { version, sentAt })
+              documents.set(uri, { version, sentAt, digest: digestOf(text) })
             })
           )
         )
       }))
 
-    const close = (path: string): Effect.Effect<void, StdError.StdError> =>
-      syncLock.withPermit(Effect.suspend(() => {
-        const uri = uriOf(path)
+    const closeUri = (uri: string): Effect.Effect<void, StdError.StdError> =>
+      Effect.suspend(() => {
         if (!documents.has(uri)) return Effect.void
         documents.delete(uri)
         published.delete(uri)
         return notify("textDocument/didClose", { textDocument: { uri } })
-      }))
+      })
+
+    const close = (path: string): Effect.Effect<void, StdError.StdError> => syncLock.withPermit(closeUri(uriOf(path)))
+
+    // Re-reads every open document: a file changed on disk is resent, and a
+    // file that is gone is closed. What changed it (a shell command, say) is
+    // not something the server can see.
+    const refresh: Effect.Effect<void, StdError.StdError> = Effect.suspend(() =>
+      Effect.forEach([...documents], ([uri, open]) => {
+        const path = fileURLToPath(uri)
+        let text: string | undefined
+        try {
+          text = NodeFs.readFileSync(path, "utf8")
+        } catch {
+          text = undefined
+        }
+        if (text === undefined) return syncLock.withPermit(closeUri(uri))
+        return digestOf(text) === open.digest ? Effect.void : sync(path, text)
+      }, { discard: true })
+    )
 
     /** What the server published for the document's latest synced text, if it has. */
     const current = (uri: string): PublishedDiagnostics | undefined => {
@@ -787,10 +854,11 @@ const makeClient = (
       return fresh ? entry : undefined
     }
 
-    const awaitPublished = (uri: string): Effect.Effect<PublishedDiagnostics> =>
+    /** The first publish for the latest synced text whose sequence is past `after`. */
+    const awaitPublished = (uri: string, after = 0): Effect.Effect<PublishedDiagnostics> =>
       Effect.suspend(() => {
         const entry = current(uri)
-        if (entry !== undefined) return Effect.succeed(entry)
+        if (entry !== undefined && entry.sequence > after) return Effect.succeed(entry)
         return Effect.flatMap(Deferred.make<void>(), (listener) => {
           const waiting = listeners.get(uri) ?? new Set()
           waiting.add(listener)
@@ -799,7 +867,7 @@ const makeClient = (
             Effect.ensuring(Effect.sync(() => {
               listeners.get(uri)?.delete(listener)
             })),
-            Effect.flatMap(() => awaitPublished(uri))
+            Effect.flatMap(() => awaitPublished(uri, after))
           )
         })
       })
@@ -815,6 +883,7 @@ const makeClient = (
           })
           yield* sync(path, text)
         }
+        const started = yield* Clock.currentTimeMillis
         const entry = yield* awaitPublished(uri).pipe(Effect.timeoutOption(settleMs))
         if (Option.isNone(entry)) {
           return yield* Effect.fail(
@@ -826,13 +895,29 @@ const makeClient = (
             })
           )
         }
-        return { kind: "full", items: entry.value.diagnostics }
+        // A later publish within the quiet window supersedes this one.
+        let latest = entry.value
+        for (;;) {
+          const remaining = settleMs - ((yield* Clock.currentTimeMillis) - started)
+          if (remaining <= 0) break
+          const next = yield* awaitPublished(uri, latest.sequence).pipe(
+            Effect.timeoutOption(Math.min(quietMs, remaining))
+          )
+          if (Option.isNone(next)) break
+          latest = next.value
+        }
+        return { kind: "full", items: latest.diagnostics }
       })
 
     const diagnostics = (path: string): Effect.Effect<unknown, StdError.StdError> =>
       pullUnsupported
         ? pushedDiagnostics(path)
         : request("textDocument/diagnostic", { textDocument: { uri: uriOf(path) } }).pipe(
+          Effect.tap(() =>
+            Effect.sync(() => {
+              pullSupported = true
+            })
+          ),
           Effect.catchIf(
             (error) => error.rpcError?.code === METHOD_NOT_FOUND,
             () => {
@@ -871,12 +956,93 @@ const makeClient = (
       callHierarchyOutgoing: (position) => callHierarchy("callHierarchy/outgoingCalls", position),
       diagnostics,
       sync,
-      close
+      close,
+      refresh
     })
   })
 
 const normalizeExtension = (extension: string): string =>
   (extension.startsWith(".") ? extension : `.${extension}`).toLowerCase()
+
+/**
+ * Routes each request to the client for its file's extension. `client`
+ * starts, or returns, the client at an index; `started` is that client only
+ * if it already runs, so `refresh` never starts a server.
+ */
+const routed = (
+  configs: ReadonlyArray<Config>,
+  client: (index: number) => Effect.Effect<LanguageServer.LanguageServer, StdError.StdError>,
+  started: (index: number) => LanguageServer.LanguageServer | undefined
+): LanguageServer.LanguageServer => {
+  const claims = configs.map((entry) => entry.extensions?.map(normalizeExtension))
+  const fallback = claims.findIndex((claimed) => claimed === undefined)
+  const indexOf = (path: string): Effect.Effect<number, StdError.StdError> => {
+    const extension = extensionOf(path)
+    const claimed = claims.findIndex((entry) => entry?.includes(extension) === true)
+    const index = claimed >= 0 ? claimed : fallback
+    return index >= 0
+      ? Effect.succeed(index)
+      : Effect.fail(
+        new StdError.StdError({
+          code: "unsupported",
+          message: `No language server is configured for ${extension || "extensionless"} files`,
+          path
+        })
+      )
+  }
+  const route = (path: string): Effect.Effect<LanguageServer.LanguageServer, StdError.StdError> =>
+    Effect.flatMap(indexOf(path), client)
+  const byPosition = (
+    method:
+      | "hover"
+      | "definition"
+      | "references"
+      | "implementation"
+      | "prepareCallHierarchy"
+      | "callHierarchyIncoming"
+      | "callHierarchyOutgoing"
+  ) =>
+  (position: LanguageServer.Position) => Effect.flatMap(route(position.path), (server) => server[method](position))
+  const indices = configs.map((_, index) => index)
+  return LanguageServer.make({
+    hover: byPosition("hover"),
+    definition: byPosition("definition"),
+    references: byPosition("references"),
+    implementation: byPosition("implementation"),
+    prepareCallHierarchy: byPosition("prepareCallHierarchy"),
+    callHierarchyIncoming: byPosition("callHierarchyIncoming"),
+    callHierarchyOutgoing: byPosition("callHierarchyOutgoing"),
+    documentSymbols: (path) => Effect.flatMap(route(path), (server) => server.documentSymbols(path)),
+    diagnostics: (path) => Effect.flatMap(route(path), (server) => server.diagnostics(path)),
+    sync: (path, text) => Effect.flatMap(route(path), (server) => server.sync(path, text)),
+    // A server that never started holds no open file.
+    close: (path) => Effect.flatMap(indexOf(path), (index) => started(index)?.close(path) ?? Effect.void),
+    refresh: Effect.suspend(() =>
+      Effect.forEach(indices, (index) => started(index)?.refresh ?? Effect.void, { discard: true })
+    ),
+    workspaceSymbols: (query) =>
+      configs.length === 1 ?
+        Effect.flatMap(client(0), (server) => server.workspaceSymbols(query)) :
+        Effect.forEach(
+          indices,
+          (index) => Effect.flatMap(client(index), (server) => server.workspaceSymbols(query)),
+          { concurrency: "unbounded" }
+        ).pipe(
+          Effect.map((answers) =>
+            answers.flatMap((answer) => Array.isArray(answer) ? answer : answer == null ? [] : [answer])
+          )
+        )
+  })
+}
+
+const configList = (
+  config: Config | ReadonlyArray<Config>
+): Effect.Effect<ReadonlyArray<Config>, StdError.StdError> => {
+  const configs: ReadonlyArray<Config> = Array.isArray(config) ? config : [config as Config]
+  return configs.length === 0
+    ? Effect.fail(failure("invalid_input", "At least one language server must be configured"))
+    : Effect.succeed(configs)
+}
 
 /**
  * Constructs scoped host language-server clients, one process per config, and
@@ -905,59 +1071,55 @@ export const make = (
   ChildProcessSpawner.ChildProcessSpawner | Scope.Scope
 > =>
   Effect.gen(function*() {
-    const configs: ReadonlyArray<Config> = Array.isArray(config) ? config : [config as Config]
-    if (configs.length === 0) {
-      return yield* Effect.fail(failure("invalid_input", "At least one language server must be configured"))
-    }
+    const configs = yield* configList(config)
     const clients = yield* Effect.forEach(configs, makeClient)
-    const claims = configs.map((entry) => entry.extensions?.map(normalizeExtension))
-    const fallback = claims.findIndex((claimed) => claimed === undefined)
-    const route = (path: string): Effect.Effect<LanguageServer.LanguageServer, StdError.StdError> => {
-      const extension = extensionOf(path)
-      const claimed = claims.findIndex((entry) => entry?.includes(extension) === true)
-      const index = claimed >= 0 ? claimed : fallback
-      return index >= 0
-        ? Effect.succeed(clients[index]!)
-        : Effect.fail(
-          new StdError.StdError({
-            code: "unsupported",
-            message: `No language server is configured for ${extension || "extensionless"} files`,
-            path
-          })
-        )
+    return routed(configs, (index) => Effect.succeed(clients[index]!), (index) => clients[index])
+  })
+
+/**
+ * {@link make}, starting each server when the first request for one of its
+ * files arrives rather than up front, so a host can bind servers it may never
+ * need. A server starts with the services and authority of the fiber that
+ * built this service, not those of the request that first needs it. A server
+ * that fails to start fails that request and every later one for its files.
+ * `refresh` and `close` never start a server.
+ *
+ * The workspace-program refusals of {@link make} still apply up front.
+ *
+ * @category constructors
+ * @since 1.0.0
+ */
+export const makeLazy = (
+  config: Config | ReadonlyArray<Config>
+): Effect.Effect<
+  LanguageServer.LanguageServer,
+  StdError.StdError,
+  ChildProcessSpawner.ChildProcessSpawner | Scope.Scope
+> =>
+  Effect.gen(function*() {
+    const configs = yield* configList(config)
+    for (const entry of configs) {
+      const refused = workspaceProgram(entry, ChildProcessEnvironment.make(process.env, entry.environment).PATH)
+      if (refused !== undefined) return yield* Effect.fail(refused)
     }
-    const byPosition = (
-      method:
-        | "hover"
-        | "definition"
-        | "references"
-        | "implementation"
-        | "prepareCallHierarchy"
-        | "callHierarchyIncoming"
-        | "callHierarchyOutgoing"
-    ) =>
-    (position: LanguageServer.Position) => Effect.flatMap(route(position.path), (client) => client[method](position))
-    return LanguageServer.make({
-      hover: byPosition("hover"),
-      definition: byPosition("definition"),
-      references: byPosition("references"),
-      implementation: byPosition("implementation"),
-      prepareCallHierarchy: byPosition("prepareCallHierarchy"),
-      callHierarchyIncoming: byPosition("callHierarchyIncoming"),
-      callHierarchyOutgoing: byPosition("callHierarchyOutgoing"),
-      documentSymbols: (path) => Effect.flatMap(route(path), (client) => client.documentSymbols(path)),
-      diagnostics: (path) => Effect.flatMap(route(path), (client) => client.diagnostics(path)),
-      sync: (path, text) => Effect.flatMap(route(path), (client) => client.sync(path, text)),
-      close: (path) => Effect.flatMap(route(path), (client) => client.close(path)),
-      workspaceSymbols: (query) =>
-        clients.length === 1 ?
-          clients[0]!.workspaceSymbols(query) :
-          Effect.forEach(clients, (client) => client.workspaceSymbols(query), { concurrency: "unbounded" }).pipe(
-            Effect.map((answers) =>
-              answers.flatMap((answer) => Array.isArray(answer) ? answer : answer == null ? [] : [answer])
-            )
-          )
-    })
+    const clients: Array<LanguageServer.LanguageServer | undefined> = configs.map(() => undefined)
+    // Each server starts in a fiber forked here, so it starts with the
+    // services and authority of whoever built this service, never those of
+    // the request that first needs it, and lives as long as this scope.
+    const starts = yield* Effect.forEach(configs, (entry, index) =>
+      Effect.gen(function*() {
+        const wanted = yield* Deferred.make<void>()
+        const ready = yield* Deferred.make<LanguageServer.LanguageServer, StdError.StdError>()
+        yield* Deferred.await(wanted).pipe(
+          Effect.andThen(makeClient(entry)),
+          Effect.tap((client) => Effect.sync(() => void (clients[index] = client))),
+          Effect.exit,
+          Effect.flatMap((exit) => Deferred.done(ready, exit)),
+          Effect.forkScoped({ startImmediately: true })
+        )
+        return Deferred.succeed(wanted, undefined).pipe(Effect.andThen(Deferred.await(ready)))
+      }))
+    return routed(configs, (index) => starts[index]!, (index) => clients[index])
   })
 
 /**
@@ -970,3 +1132,14 @@ export const layer = (
   config: Config | ReadonlyArray<Config>
 ): Layer.Layer<LanguageServer.LanguageServer, StdError.StdError, ChildProcessSpawner.ChildProcessSpawner> =>
   Layer.effect(LanguageServer.LanguageServer, make(config))
+
+/**
+ * Provides {@link makeLazy}.
+ *
+ * @category layers
+ * @since 1.0.0
+ */
+export const layerLazy = (
+  config: Config | ReadonlyArray<Config>
+): Layer.Layer<LanguageServer.LanguageServer, StdError.StdError, ChildProcessSpawner.ChildProcessSpawner> =>
+  Layer.effect(LanguageServer.LanguageServer, makeLazy(config))

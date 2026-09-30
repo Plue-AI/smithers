@@ -1,3 +1,5 @@
+import * as Capability from "@smthrs/capability/Capability"
+import * as CapabilitySet from "@smthrs/capability/CapabilitySet"
 import * as ChildProcessSpawner from "@smthrs/kernel/ChildProcessSpawner"
 import { Cause, Effect, Exit, Layer, Queue, type Scope, Sink, Stream } from "effect"
 import type * as ChildProcess from "effect/unstable/process/ChildProcess"
@@ -34,9 +36,18 @@ const encodeFrame = (value: unknown): Uint8Array => {
 
 type Responder = (message: Message, reply: (value: unknown) => Effect.Effect<void>) => Effect.Effect<void>
 
-/** A spawner whose processes are scripted per command, recording every frame each receives. */
-const fakeServers = (servers: Readonly<Record<string, Responder>>) => {
+/**
+ * A spawner whose processes are scripted per command, recording every frame
+ * each receives. The client's `$/` barrier requests are answered with
+ * MethodNotFound, as the specification requires, and counted apart, unless
+ * `barrier` is `"ignore"`.
+ */
+const fakeServers = (
+  servers: Readonly<Record<string, Responder>>,
+  options?: { readonly barrier?: "answer" | "ignore" }
+) => {
   const received: Array<{ readonly command: string; readonly message: Message }> = []
+  const barriers: Array<string> = []
   const spawner = ChildProcessSpawner.makeNoop({
     spawn: (command) =>
       Effect.gen(function*() {
@@ -48,6 +59,10 @@ const fakeServers = (servers: Readonly<Record<string, Responder>>) => {
         yield* stdin.pipe(
           Stream.runForEach((bytes) => {
             const message = decodeFrame(bytes)
+            if (message.method === "$/smithers/barrier") {
+              barriers.push(standard.command)
+              return options?.barrier === "ignore" ? Effect.void : reply(methodNotFound(message))
+            }
             received.push({ command: standard.command, message })
             return message.method === "initialize"
               ? reply({ jsonrpc: "2.0", id: message.id, result: { capabilities: {} } })
@@ -70,7 +85,7 @@ const fakeServers = (servers: Readonly<Record<string, Responder>>) => {
         })
       })
   })
-  return { spawner, received }
+  return { spawner, received, barriers }
 }
 
 /** One error per line of `text` that contains `ERROR`. */
@@ -514,6 +529,7 @@ const recording = (
   const synced: Array<readonly [string, string]> = []
   const closed: Array<string> = []
   let asked = 0
+  let refreshed = 0
   const server = LanguageServer.make({
     ...LanguageServer.makeNoop(),
     sync: (path, text) =>
@@ -521,9 +537,16 @@ const recording = (
         ? Effect.fail(new StdError.StdError({ code: "request_failed", message: "gone" }))
         : Effect.sync(() => void synced.push([path, text])),
     close: (path) => Effect.sync(() => void closed.push(path)),
+    refresh: Effect.sync(() => void refreshed++),
     diagnostics: (path) => Effect.suspend(() => (asked++, diagnostics(path)))
   })
-  return { synced, closed, asked: () => asked, layer: Layer.succeed(LanguageServer.LanguageServer, server) }
+  return {
+    synced,
+    closed,
+    asked: () => asked,
+    refreshed: () => refreshed,
+    layer: Layer.succeed(LanguageServer.LanguageServer, server)
+  }
 }
 
 describe("mutation flows keep the language server in step", () => {
@@ -620,6 +643,338 @@ describe("mutation flows keep the language server in step", () => {
       ["/moved.ts", "changed\n"]
     ])
     expect(recorder.closed).toEqual(["/old.ts", "/gone.ts"])
+  })
+})
+
+/** Publishes `diagnostics` for `message`'s document, unversioned, the way typescript-language-server does. */
+const publishFor = (
+  message: Message,
+  reply: (value: unknown) => Effect.Effect<void>,
+  diagnostics: ReadonlyArray<unknown>
+) =>
+  reply({
+    jsonrpc: "2.0",
+    method: "textDocument/publishDiagnostics",
+    params: { uri: message.params.textDocument.uri, diagnostics }
+  })
+
+const textOf = (message: Message): string | undefined =>
+  message.method === "textDocument/didOpen"
+    ? message.params.textDocument.text as string
+    : message.method === "textDocument/didChange"
+    ? message.params.contentChanges[0].text as string
+    : undefined
+
+describe("NodeLanguageServer push settle", () => {
+  it("answers with the semantic publish that follows a syntax-only one", async () => {
+    // typescript-language-server's first open: syntax errors (none) first, the
+    // type errors in a later publish.
+    const server = (message: Message, reply: (value: unknown) => Effect.Effect<void>) => {
+      if (message.method === "textDocument/diagnostic") return reply(methodNotFound(message))
+      const text = textOf(message)
+      if (text === undefined) return Effect.void
+      return publishFor(message, reply, []).pipe(
+        Effect.andThen(
+          Effect.forkDetach(Effect.sleep(100).pipe(Effect.andThen(publishFor(message, reply, errorsIn(text)))))
+        )
+      )
+    }
+    const answer = (quietMs: number | undefined) => {
+      const { spawner } = fakeServers({ ts: server })
+      return run(
+        Effect.gen(function*() {
+          const client = yield* NodeLanguageServer.make({ command: "ts", cwd: "/workspace", quietMs })
+          yield* client.sync("/workspace/a.ts", "ERROR")
+          return yield* client.diagnostics("/workspace/a.ts")
+        }),
+        spawner
+      )
+    }
+    expect(await answer(undefined)).toEqual({ kind: "full", items: errorsIn("ERROR") })
+    // A quiet window shorter than the gap answers with the syntax-only report.
+    expect(await answer(20)).toEqual({ kind: "full", items: [] })
+  })
+
+  it("times out on a change the server publishes nothing for", async () => {
+    // typescript-language-server skips the publish when a file with no
+    // problems still has none; the client does not guess that it stayed clean.
+    let last: ReadonlyArray<unknown> | undefined
+    const { spawner } = fakeServers({
+      ts: (message, reply) => {
+        if (message.method === "textDocument/diagnostic") return reply(methodNotFound(message))
+        const text = textOf(message)
+        if (text === undefined) return Effect.void
+        const diagnostics = errorsIn(text)
+        const skip = last !== undefined && last.length === 0 && diagnostics.length === 0
+        last = diagnostics
+        return skip ? Effect.void : publishFor(message, reply, diagnostics)
+      }
+    })
+    const results = await run(
+      Effect.gen(function*() {
+        const client = yield* NodeLanguageServer.make({ command: "ts", cwd: "/workspace", settleMs: 50, quietMs: 10 })
+        const answer = (text: string) =>
+          client.sync("/workspace/a.ts", text).pipe(
+            Effect.andThen(Effect.exit(client.diagnostics("/workspace/a.ts")))
+          )
+        return [yield* answer("clean"), yield* answer("still clean"), yield* answer("ERROR")]
+      }),
+      spawner
+    )
+    expect(results[0]).toEqual(Exit.succeed({ kind: "full", items: [] }))
+    expect(failureOf(results[1]!)).toMatchObject({ code: "timeout" })
+    expect(results[2]).toEqual(Exit.succeed({ kind: "full", items: errorsIn("ERROR") }))
+  })
+
+  it("never reads the report a server publishes on close as the reopened file's", async () => {
+    // typescript-language-server publishes an empty report for a file as it
+    // closes, which reaches the client after the reopen was sent.
+    const { spawner, barriers } = fakeServers({
+      ts: (message, reply) => {
+        if (message.method === "textDocument/diagnostic") return reply(methodNotFound(message))
+        if (message.method === "textDocument/didClose") {
+          return Effect.sleep(30).pipe(Effect.andThen(publishFor(message, reply, [])))
+        }
+        const text = textOf(message)
+        if (text === undefined) return Effect.void
+        return Effect.forkDetach(Effect.sleep(50).pipe(Effect.andThen(publishFor(message, reply, errorsIn(text)))))
+          .pipe(
+            Effect.asVoid
+          )
+      }
+    })
+    const report = await run(
+      Effect.gen(function*() {
+        const client = yield* NodeLanguageServer.make({ command: "ts", cwd: "/workspace", quietMs: 20 })
+        yield* client.sync("/workspace/a.ts", "ERROR")
+        yield* client.diagnostics("/workspace/a.ts")
+        yield* client.close("/workspace/a.ts")
+        yield* client.sync("/workspace/a.ts", "ERROR\nERROR")
+        return yield* client.diagnostics("/workspace/a.ts")
+      }),
+      spawner
+    )
+    expect(report).toEqual({ kind: "full", items: errorsIn("ERROR\nERROR") })
+    expect(barriers).toEqual(["ts", "ts"])
+  })
+
+  it("stops asking a server that does not answer the barrier", async () => {
+    const { spawner, barriers } = fakeServers({ ts: pushOnly({ versioned: false }) }, { barrier: "ignore" })
+    const timings = await run(
+      Effect.gen(function*() {
+        const client = yield* NodeLanguageServer.make({ command: "ts", cwd: "/workspace" })
+        const timed = (text: string) =>
+          Effect.gen(function*() {
+            const started = performance.now()
+            yield* client.sync("/workspace/a.ts", text)
+            const report = yield* client.diagnostics("/workspace/a.ts")
+            return { ms: performance.now() - started, report }
+          })
+        return [yield* timed("ERROR"), yield* timed("clean")]
+      }),
+      spawner
+    )
+    expect(timings[0]!.ms).toBeGreaterThanOrEqual(990)
+    expect(timings[1]!.ms).toBeLessThan(900)
+    expect(timings.map(({ report }) => report)).toEqual([
+      { kind: "full", items: errorsIn("ERROR") },
+      { kind: "full", items: [] }
+    ])
+    expect(barriers).toEqual(["ts"])
+  })
+
+  it("needs no barrier once a server versions its publishes or answers a pull", async () => {
+    const versioned = fakeServers({ ts: pushOnly() })
+    const pulled = fakeServers({
+      ts: (message, reply) =>
+        message.method === "textDocument/diagnostic"
+          ? reply({ jsonrpc: "2.0", id: message.id, result: { kind: "full", items: [] } })
+          : Effect.void
+    })
+    for (const { spawner } of [versioned, pulled]) {
+      await run(
+        Effect.gen(function*() {
+          const client = yield* NodeLanguageServer.make({ command: "ts", cwd: "/workspace" })
+          for (const text of ["one", "two", "three"]) {
+            yield* client.sync("/workspace/a.ts", text)
+            yield* client.diagnostics("/workspace/a.ts")
+          }
+        }),
+        spawner
+      )
+    }
+    expect(versioned.barriers).toEqual(["ts"])
+    expect(pulled.barriers).toEqual(["ts"])
+  })
+
+  it("answers within settleMs from a server that keeps publishing", async () => {
+    const { spawner } = fakeServers({
+      ts: (message, reply) => {
+        if (message.method === "textDocument/diagnostic") return reply(methodNotFound(message))
+        if (message.method !== "textDocument/didOpen") return Effect.void
+        let count = 0
+        return Effect.forkDetach(
+          Effect.forever(
+            Effect.suspend(() => publishFor(message, reply, [++count])).pipe(Effect.andThen(Effect.sleep(10)))
+          )
+        ).pipe(Effect.asVoid)
+      }
+    })
+    const started = performance.now()
+    const report = await run(
+      Effect.gen(function*() {
+        const client = yield* NodeLanguageServer.make({ command: "ts", cwd: "/workspace", settleMs: 150, quietMs: 50 })
+        yield* client.sync("/workspace/a.ts", "x")
+        return yield* client.diagnostics("/workspace/a.ts")
+      }),
+      spawner
+    ) as { readonly items: ReadonlyArray<number> }
+    const elapsed = performance.now() - started
+    expect(elapsed).toBeGreaterThanOrEqual(140)
+    expect(elapsed).toBeLessThan(1_000)
+    expect(report.items[0]).toBeGreaterThan(5)
+  })
+})
+
+describe("NodeLanguageServer.makeLazy", () => {
+  const initialized = (received: ReadonlyArray<{ readonly command: string; readonly message: Message }>) =>
+    received.filter(({ message }) => message.method === "initialize").map(({ command }) => command)
+
+  it("starts each server once, on the first request for one of its files", async () => {
+    const { spawner, received } = fakeServers({ ts: pushOnly(), py: pushOnly() })
+    const steps: Array<ReadonlyArray<string>> = []
+    const results = await run(
+      Effect.gen(function*() {
+        const client = yield* NodeLanguageServer.makeLazy([
+          { command: "ts", cwd: "/workspace", extensions: [".ts"] },
+          { command: "py", cwd: "/workspace", extensions: [".py"] }
+        ])
+        const unclaimed = yield* Effect.exit(client.sync("/workspace/notes.md", "x"))
+        yield* client.refresh
+        yield* client.close("/workspace/a.ts")
+        steps.push(initialized(received))
+        yield* client.sync("/workspace/a.ts", "ERROR")
+        yield* client.sync("/workspace/a.ts", "ERROR again")
+        const report = yield* client.diagnostics("/workspace/a.ts")
+        yield* client.refresh
+        steps.push(initialized(received))
+        return { unclaimed, report }
+      }),
+      spawner
+    )
+    expect(failureOf(results.unclaimed)).toMatchObject({ code: "unsupported", path: "/workspace/notes.md" })
+    expect(steps).toEqual([[], ["ts"]])
+    expect(results.report).toEqual({ kind: "full", items: errorsIn("ERROR again") })
+  })
+
+  it("starts a server with the builder's authority, not the first request's", async () => {
+    const { spawner } = fakeServers({ ts: pushOnly() })
+    const seen: Array<boolean> = []
+    const recording = ChildProcessSpawner.makeNoop({
+      spawn: (command) =>
+        CapabilitySet.current.pipe(
+          Effect.tap((ceiling) =>
+            Effect.sync(() => seen.push(CapabilitySet.allows(ceiling, Capability.make("proc:spawn", "ts"))))
+          ),
+          Effect.andThen(spawner.spawn(command))
+        )
+    })
+    await run(
+      Effect.gen(function*() {
+        const client = yield* NodeLanguageServer.makeLazy({ command: "ts", cwd: "/workspace", extensions: [".ts"] })
+        yield* CapabilitySet.attenuate([])(client.sync("/workspace/a.ts", "x"))
+      }),
+      recording
+    )
+    expect(seen).toEqual([true])
+  })
+
+  it("fails every request for a server that could not start, without retrying it", async () => {
+    let spawns = 0
+    const spawner = ChildProcessSpawner.makeNoop({
+      spawn: () => Effect.suspend(() => (spawns++, Effect.fail(new Error("no such binary") as never)))
+    })
+    const exits = await run(
+      Effect.gen(function*() {
+        const client = yield* NodeLanguageServer.makeLazy({ command: "ts", cwd: "/workspace", extensions: [".ts"] })
+        return [
+          yield* Effect.exit(client.sync("/workspace/a.ts", "x")),
+          yield* Effect.exit(client.workspaceSymbols("x"))
+        ]
+      }),
+      spawner
+    )
+    for (const exit of exits) expect(failureOf(exit)).toMatchObject({ code: "provider_unavailable" })
+    expect(spawns).toBe(1)
+  })
+
+  it("refuses an empty server list", async () => {
+    const { spawner } = fakeServers({})
+    const exit = await run(Effect.exit(NodeLanguageServer.makeLazy([])), spawner)
+    expect(failureOf(exit)).toMatchObject({ code: "invalid_input" })
+  })
+})
+
+describe("NodeLanguageServer refresh", () => {
+  it("resends files changed on disk, closes deleted ones, and leaves unchanged ones alone", async () => {
+    const directory = NodeFs.mkdtempSync(NodePath.join(NodeOs.tmpdir(), "lsp-refresh-"))
+    const at = (name: string) => NodePath.join(directory, name)
+    for (const name of ["changed.ts", "deleted.ts", "same.ts", "other.py"]) NodeFs.writeFileSync(at(name), name)
+    const { spawner, received } = fakeServers({ ts: pushOnly(), py: pushOnly() })
+    await run(
+      Effect.gen(function*() {
+        const client = yield* NodeLanguageServer.make([
+          { command: "ts", cwd: directory, extensions: [".ts"] },
+          { command: "py", cwd: directory, extensions: [".py"] }
+        ])
+        for (const name of ["changed.ts", "deleted.ts", "same.ts", "other.py"]) yield* client.sync(at(name), name)
+        NodeFs.writeFileSync(at("changed.ts"), "rewritten")
+        NodeFs.rmSync(at("deleted.ts"))
+        NodeFs.writeFileSync(at("other.py"), "rewritten py")
+        // Frames reach the fake server asynchronously; let the syncs land first.
+        yield* Effect.sleep(50)
+        received.length = 0
+        yield* client.refresh
+        // Nothing changed since: a second refresh sends nothing.
+        yield* client.refresh
+        yield* Effect.sleep(50)
+      }),
+      spawner
+    )
+    expect(received.map(({ command, message }) => [command, message.method, message.params.textDocument.uri])).toEqual([
+      ["ts", "textDocument/didChange", uri(at("changed.ts"))],
+      ["ts", "textDocument/didClose", uri(at("deleted.ts"))],
+      ["py", "textDocument/didChange", uri(at("other.py"))]
+    ])
+    expect(received[0]!.message.params).toMatchObject({
+      textDocument: { version: 2 },
+      contentChanges: [{ text: "rewritten" }]
+    })
+    NodeFs.rmSync(directory, { recursive: true, force: true })
+  })
+
+  it("answers diagnostics for the refreshed text", async () => {
+    const directory = NodeFs.mkdtempSync(NodePath.join(NodeOs.tmpdir(), "lsp-refresh-"))
+    const file = NodePath.join(directory, "a.ts")
+    NodeFs.writeFileSync(file, "clean")
+    const { spawner } = fakeServers({ ts: pushOnly() })
+    const report = await run(
+      Effect.gen(function*() {
+        const client = yield* NodeLanguageServer.make({ command: "ts", cwd: directory })
+        yield* client.sync(file, "clean")
+        NodeFs.writeFileSync(file, "ERROR")
+        yield* client.refresh
+        return yield* client.diagnostics(file)
+      }),
+      spawner
+    )
+    expect(report).toEqual({ kind: "full", items: errorsIn("ERROR") })
+    NodeFs.rmSync(directory, { recursive: true, force: true })
+  })
+
+  it("is unsupported without a server", async () => {
+    const exit = await Effect.runPromise(Effect.exit(LanguageServer.makeNoop().refresh))
+    expect(failureOf(exit)).toMatchObject({ code: "unsupported" })
   })
 })
 

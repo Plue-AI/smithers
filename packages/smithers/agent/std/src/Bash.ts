@@ -25,6 +25,7 @@ import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import * as Container from "./Container.ts"
 import { capability, envelope } from "./internal/Declaration.ts"
+import * as Diagnostics from "./internal/Diagnostics.ts"
 import { outsideEnvelope } from "./internal/EnvelopePrecheck.ts"
 import * as Exec from "./internal/Exec.ts"
 import { MAX_SHELL_OUTPUT_BYTES, truncateBytes } from "./internal/Text.ts"
@@ -497,6 +498,9 @@ export const run = Effect.fn("Bash.run")(function*(
     ...(spawned.stdin === undefined ? {} : { stdin: spawned.stdin })
   }).pipe(Effect.mapError((error) => Exec.toStdError(spawned.quoted, error)))
   const mutated = TreeFingerprint.moved(before, yield* fingerprint(input, transport))
+  // A command on this host may have changed files a language server holds
+  // open; a container's files are not the ones it was sent.
+  if (!contained) yield* Diagnostics.refresh
   const stdout = truncateBytes(result.stdout, MAX_SHELL_OUTPUT_BYTES, { keep: "tail" })
   const stderr = truncateBytes(result.stderr, MAX_SHELL_OUTPUT_BYTES, { keep: "tail" })
   // Exit codes alone cannot establish whether the shell refused to launch a

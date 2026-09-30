@@ -38,10 +38,13 @@ afterEach(() => {
   NodeFs.rmSync(root, { recursive: true, force: true })
 })
 
-const start = (config: NodeLanguageServer.Config) =>
+const start = (config: NodeLanguageServer.Config, construct = NodeLanguageServer.make) =>
   Effect.runPromise(Effect.exit(Effect.scoped(
-    NodeLanguageServer.make({ timeoutMs: 2_000, ...config }).pipe(Effect.provide(NodeServices.layer))
+    construct({ timeoutMs: 2_000, ...config }).pipe(Effect.provide(NodeServices.layer))
   )))
+
+/** Both constructors refuse up front: the lazy one before it would ever start the server. */
+const constructors = [NodeLanguageServer.make, NodeLanguageServer.makeLazy]
 
 const failure = (exit: Exit.Exit<unknown, unknown>) => {
   if (!Exit.isFailure(exit)) return undefined
@@ -78,8 +81,10 @@ describe("NodeLanguageServer refuses a program the workspace supplies", () => {
       })
     ]
   ])("refuses %s before spawning it", async (_name, config) => {
-    const exit = await start(config())
-    expect(failure(exit)).toBe("permission_denied")
+    for (const construct of constructors) {
+      const exit = await start(config(), construct)
+      expect(failure(exit)).toBe("permission_denied")
+    }
     expect(NodeFs.existsSync(marker)).toBe(false)
   })
 
@@ -105,8 +110,10 @@ describe("NodeLanguageServer refuses a program the workspace supplies", () => {
       () => ({ command: "node", args: ["--import=./planted.js", "/opt/lsp/server.js"], cwd: workspace })
     ]
   ])("refuses the launcher %s, whose arguments choose what runs", async (_name, config) => {
-    const exit = await start(config())
-    expect(failure(exit)).toBe("permission_denied")
+    for (const construct of constructors) {
+      const exit = await start(config(), construct)
+      expect(failure(exit)).toBe("permission_denied")
+    }
     expect(NodeFs.existsSync(marker)).toBe(false)
   })
 

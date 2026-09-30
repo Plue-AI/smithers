@@ -104,6 +104,20 @@ export const close = (path: string): Effect.Effect<void> =>
   )
 
 /**
+ * Tells the bound server, if any, to re-read every file it has open, after
+ * something other than the mutation flows may have changed them.
+ *
+ * @category internal
+ * @since 1.0.0
+ */
+export const refresh: Effect.Effect<void> = Effect.serviceOption(LanguageServer.LanguageServer).pipe(
+  Effect.flatMap(Option.match({
+    onNone: () => Effect.void,
+    onSome: (server) => server.refresh.pipe(Effect.ignore)
+  }))
+)
+
+/**
  * The errors `server` reports for `path`, or `undefined` when it could not
  * answer.
  *

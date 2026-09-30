@@ -381,27 +381,32 @@ The code-intelligence seam.
 | Export           | Type                                          | Meaning                                                             |
 | ---------------- | --------------------------------------------- | ------------------------------------------------------------------- |
 | `Position`       | interface                                     | `path`, `line`, `character`, in the protocol's 0-based coordinates. |
-| `LanguageServer` | interface and `Context.Service` tag           | Ten methods, each returning `Effect<unknown, StdError>`.            |
+| `LanguageServer` | interface and `Context.Service` tag           | Ten queries, `sync`, `close`, and `refresh`.                        |
 | `make`           | `(service: LanguageServer) => LanguageServer` |                                                                     |
 | `makeNoop`       | `() => LanguageServer`                        | Answers `unsupported` for every request.                            |
 | `layerNoop`      | `Layer<LanguageServer>`                       |                                                                     |
 
-The methods are `hover`, `definition`, `references`, `implementation`,
+The queries are `hover`, `definition`, `references`, `implementation`,
 `documentSymbols`, `workspaceSymbols`, `prepareCallHierarchy`,
-`callHierarchyIncoming`, `callHierarchyOutgoing`, and `diagnostics`.
+`callHierarchyIncoming`, `callHierarchyOutgoing`, and `diagnostics`, each
+returning `Effect<unknown, StdError>`. `sync(path, text)` sends a file's new
+text, `close(path)` says it is gone, and `refresh` re-reads every synced file
+from disk, resending changed ones and closing deleted ones.
 
 ## NodeLanguageServer
 
 A host LSP client over the permission-checked process spawner, speaking framed
 JSON-RPC on ordinary stdio pipes.
 
-| Export                 | Type                                                                                 | Meaning                                                                            |
-| ---------------------- | ------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------- |
-| `Config`               | interface                                                                            | `command`, `args?`, `cwd`, `environment?`, `initializationOptions?`, `timeoutMs?`. |
-| `MAX_QUEUED_FRAMES`    | `256`                                                                                | Frames buffered for the server's standard input.                                   |
-| `MAX_PENDING_REQUESTS` | `512`                                                                                | Concurrent in-flight requests.                                                     |
-| `make`                 | `(config: Config) => Effect<LanguageServer, StdError, ChildProcessSpawner \| Scope>` |                                                                                    |
-| `layer`                | `(config: Config) => Layer<LanguageServer, StdError, ChildProcessSpawner>`           |                                                                                    |
+| Export                 | Type                                                                                 | Meaning                                                                                                                    |
+| ---------------------- | ------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------- |
+| `Config`               | interface                                                                            | `command`, `args?`, `cwd`, `extensions?`, `environment?`, `initializationOptions?`, `timeoutMs?`, `settleMs?`, `quietMs?`. |
+| `MAX_QUEUED_FRAMES`    | `256`                                                                                | Frames buffered for the server's standard input.                                                                           |
+| `MAX_PENDING_REQUESTS` | `512`                                                                                | Concurrent in-flight requests.                                                                                             |
+| `make`                 | `(config: Config) => Effect<LanguageServer, StdError, ChildProcessSpawner \| Scope>` |                                                                                                                            |
+| `makeLazy`             | `(config: Config) => Effect<LanguageServer, StdError, ChildProcessSpawner \| Scope>` | Starts each server on the first request for one of its files.                                                              |
+| `layer`                | `(config: Config) => Layer<LanguageServer, StdError, ChildProcessSpawner>`           |                                                                                                                            |
+| `layerLazy`            | `(config: Config) => Layer<LanguageServer, StdError, ChildProcessSpawner>`           | Provides `makeLazy`.                                                                                                       |
 
 `make` sends `initialize` with `cwd` as the root URI and then `initialized`, so
 the service is ready when it resolves. `timeoutMs` defaults to 30,000 and bounds

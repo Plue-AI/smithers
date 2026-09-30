@@ -32,7 +32,8 @@ const server = LanguageServer.make({
   callHierarchyOutgoing: (position) => Effect.succeed(position),
   diagnostics: (path) => Effect.succeed([path]),
   sync: () => Effect.void,
-  close: () => Effect.void
+  close: () => Effect.void,
+  refresh: Effect.void
 })
 
 const dispatchServer = LanguageServer.make({
@@ -47,7 +48,8 @@ const dispatchServer = LanguageServer.make({
   callHierarchyOutgoing: (position) => Effect.succeed({ operation: "callHierarchyOutgoing", position }),
   diagnostics: (path) => Effect.succeed([{ operation: "diagnostics", path }]),
   sync: () => Effect.void,
-  close: () => Effect.void
+  close: () => Effect.void,
+  refresh: Effect.void
 })
 
 describe("Lsp", () => {

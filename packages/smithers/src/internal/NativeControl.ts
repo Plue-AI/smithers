@@ -92,6 +92,7 @@ import * as EngineJournalSupervisor from "./EngineJournalSupervisor.ts"
 import * as ExecutionDatabasePath from "./ExecutionDatabasePath.ts"
 import * as Failure from "./Failure.ts"
 import * as HealthHost from "./HealthHost.ts"
+import * as HostLanguageServers from "./HostLanguageServers.ts"
 import * as LocalControl from "./LocalControl.ts"
 import * as ModuleAdmission from "./ModuleAdmission.ts"
 import * as ModuleAuthority from "./ModuleAuthority.ts"
@@ -1161,14 +1162,22 @@ export const make = (
         // A sealed host reaches one container and nothing of itself: `bash`
         // refuses every other target and the host filesystem flows are absent.
         const sealedTo = sealedContainer(environment)
+        // With a host language server, `edit` returns the errors it leaves and
+        // `bash` keeps the files the server holds open current. Servers start
+        // on the first file they serve, through the same guarded spawner.
+        const languageServer = sealedTo === undefined
+          ? yield* HostLanguageServers.make(workspaceRoot, environment).pipe(Effect.provideContext(shellServices))
+          : undefined
         // Each configured server is a startup-time connection the operator
         // opted into by naming it, the same way `memory` below is: a server
         // that fails to spawn dies the executor loudly (`Effect.orDie`) rather
         // than running silently short of the tools it was configured to have.
         const mcp = yield* Effect.forEach(mcpServers, (server) => Effect.orDie(McpFlows.connected(server)))
         const sources = [
-          ...(sealedTo === undefined ? [StandardFlows.filesystem(filesystemServices, nativeSearch)] : []),
-          StandardFlows.shell(shellServices, container, { sealedTo }),
+          ...(sealedTo === undefined
+            ? [StandardFlows.filesystem(HostLanguageServers.bind(filesystemServices, languageServer), nativeSearch)]
+            : []),
+          StandardFlows.shell(HostLanguageServers.bind(shellServices, languageServer), container, { sealedTo }),
           // Host-wide on purpose: these sources are built once per executor,
           // before any run, and the operator owns this memory database. A
           // host that runs a flow declaring `WithMemory.Policy` composes a

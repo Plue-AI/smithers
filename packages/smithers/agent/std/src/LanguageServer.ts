@@ -53,6 +53,12 @@ export interface LanguageServer {
   readonly sync: (path: string, text: string) => Effect.Effect<void, StdError.StdError>
   /** Tells the server a synced file is gone; a file never synced is a no-op. */
   readonly close: (path: string) => Effect.Effect<void, StdError.StdError>
+  /**
+   * Re-reads every synced file from disk: sends the text of each that changed
+   * and closes each that is gone, so a file something else changed is not
+   * left stale on the server.
+   */
+  readonly refresh: Effect.Effect<void, StdError.StdError>
 }
 /**
  * The {@link LanguageServer} service tag.
@@ -92,7 +98,8 @@ export const makeNoop = (): LanguageServer =>
     callHierarchyOutgoing: unsupported,
     diagnostics: unsupported,
     sync: unsupported,
-    close: unsupported
+    close: unsupported,
+    refresh: unsupported()
   })
 /**
  * Provides {@link makeNoop}.

@@ -80,6 +80,14 @@ include its extension. A config without `extensions` takes every file no other
 server claims; a file nobody claims fails with `unsupported`.
 `workspaceSymbols` asks every server and concatenates the answers.
 
+`NodeLanguageServer.layerLazy` takes the same configs but starts each server on
+the first request for one of its files, so a host can bind servers a run may
+never need. The workspace checks above still run when the layer is built. A
+server starts with the services and permissions of the code that built the
+layer, not those of the request that first needs it. A server that fails to
+start fails that request and every later one for its files. `refresh` and
+`close` never start a server.
+
 ```ts
 const servers = NodeLanguageServer.layer([
   { command: "typescript-language-server", args: ["--stdio"], cwd: "/workspace", extensions: [".ts", ".tsx"] },
@@ -97,12 +105,38 @@ error-severity diagnostics in the file after the edit (at most 20, 1-based
 positions). `errors` is absent when no server is bound or it did not answer;
 the edit itself never fails because of the server.
 
+`bash` does not know which files a command changed, so after a command on the
+host it calls `refresh`: the client re-reads every file it has open, sends the
+text of each that changed, and closes each that is gone. A command run in a
+container leaves the host's files alone and refreshes nothing.
+
 `diagnostics` pulls `textDocument/diagnostic`. A server that answers
 `MethodNotFound` is read from its `textDocument/publishDiagnostics`
 notifications instead: the client opens the file if it is not open yet and waits
 up to `settleMs` (5 seconds by default) for a publish for the latest synced
-text, then fails with `timeout`. Either way the answer is a report,
+text, then fails with `timeout`. After a publish it keeps waiting while later
+ones arrive less than `quietMs` (300 ms by default) apart, within `settleMs`, and
+answers with the last. Either way the answer is a report,
 `{ kind: "full", items }`.
+
+A publish that carries no version counts for the text synced before it arrived.
+Before each sync the client sends a `$/` request, which the specification has
+every server refuse at once, so a report the server wrote earlier (such as the
+empty one typescript-language-server publishes when a file closes) reaches the
+client first and never counts for the new text. A server that does not answer
+within a second is not asked again.
+
+### typescript-language-server
+
+typescript-language-server 6 has no pull diagnostics, publishes without
+versions, and publishes nothing for a change that leaves a file with no
+problems, so such a change always waits the full `settleMs` and fails with
+`timeout`. On the first open of a file it publishes syntax errors before
+semantic ones. Pick `settleMs` and `quietMs` from a measurement on your host:
+
+```sh
+node scripts/lsp-settle-bench.ts <typescript-language-server> <tsserver.js> <workspace> <iterations> <settleMs> <quietMs> <file>...
+```
 
 ## Run a query
 
