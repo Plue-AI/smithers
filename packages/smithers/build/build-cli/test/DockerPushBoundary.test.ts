@@ -166,3 +166,22 @@ esac
     })
   }
 })
+
+describe("Docker push image archive", () => {
+  it("names the archive a build writes into its output directory", () => {
+    expect(DockerExec.imageArchive("images/docker-image")).toBe("images/docker-image/image.tar")
+  })
+  for (
+    const [output, expected] of [
+      ["Loaded image ID: sha256:abc123\n", "sha256:abc123"],
+      ["Loaded image: registry.invalid/unit:one\n", "registry.invalid/unit:one"],
+      ["Loaded image: a:1\r\nLoaded image ID: sha256:def\r\n", "sha256:def"],
+      ["", undefined],
+      ["Loading layer 1/2\n", undefined]
+    ] as const
+  ) {
+    it(`reads the loaded image from ${JSON.stringify(output)}`, () => {
+      expect(DockerExec.loadedImage(output)).toBe(expected)
+    })
+  }
+})

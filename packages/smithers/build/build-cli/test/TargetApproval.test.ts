@@ -89,6 +89,8 @@ buildx)
     done
   fi
   echo 'fixture engine';;
+load) echo 'Loaded image ID: sha256:built';;
+tag) ;;
 push)
   case "$2" in
   ${failing}
@@ -180,6 +182,18 @@ describe("approval: \"required\" through the public CLI", { timeout: 60_000 }, (
     expect(pushes(await workspace.calls())).toEqual([
       "push 127.0.0.1:5999/fixture:one",
       "push 127.0.0.1:5999/fixture:two",
+      "push 127.0.0.1:5999/fixture:three"
+    ])
+    // The push publishes the image the build produced: load its archive, then
+    // tag that loaded image before each push.
+    const calls = await workspace.calls()
+    expect(calls, calls.join("\n")).toContainEqual(expect.stringMatching(/^load --input /))
+    expect(calls.filter((line) => line.startsWith("tag ") || line.startsWith("push "))).toEqual([
+      "tag sha256:built 127.0.0.1:5999/fixture:one",
+      "push 127.0.0.1:5999/fixture:one",
+      "tag sha256:built 127.0.0.1:5999/fixture:two",
+      "push 127.0.0.1:5999/fixture:two",
+      "tag sha256:built 127.0.0.1:5999/fixture:three",
       "push 127.0.0.1:5999/fixture:three"
     ])
   })

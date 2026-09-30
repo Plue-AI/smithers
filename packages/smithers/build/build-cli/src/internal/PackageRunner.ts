@@ -465,7 +465,8 @@ export const executeEffect = (
      */
     const resolveSpawn = (
       node: PackageNode,
-      override?: ReadonlyArray<string>
+      override?: ReadonlyArray<string>,
+      archive = false
     ): Effect.Effect<
       {
         readonly argv: [string, ...Array<string>]
@@ -484,7 +485,7 @@ export const executeEffect = (
           entry.includes(workspaceRootToken) ? entry.split(workspaceRootToken).join(root) : entry
         )
         let argv = yield* joined(() => StampExec.resolveArgv(root, rooted))
-        if (node.rule === "Docker.Push") {
+        if (node.rule === "Docker.Push" && !archive) {
           const attrs = Target.metadata(node.declaration).attrs as (typeof Docker.PushAttrs)["Type"]
           const prefix = `${attrs.registry}/${attrs.name}:`
           const reference = argv.at(-1)
@@ -518,10 +519,11 @@ export const executeEffect = (
       node: PackageNode,
       workspaceRoot: string,
       override?: ReadonlyArray<string>,
-      candidateReads: ReadonlyArray<string> = []
+      candidateReads: ReadonlyArray<string> = [],
+      archive = false
     ): Effect.Effect<ExecOutcome, unknown> =>
       Effect.gen(function*() {
-        const resolved = yield* resolveSpawn(node, override)
+        const resolved = yield* resolveSpawn(node, override, archive)
         if ("error" in resolved) return { ok: false, error: resolved.error }
         const payload: Exec.Payload = {
           cwd: node.cwd,
@@ -2546,7 +2548,25 @@ export const executeEffect = (
             }
             case "Docker.Push": {
               if (node.lane?.kind !== "docker-push") return fail("docker push planned no commands")
+              // The build only writes an OCI archive; load that archive and tag
+              // exactly the loaded image so the push publishes what the image
+              // dependency built, never a same-named image already in the daemon.
+              const build = node.dependencies.map((label) => planned.nodes.get(label)).find((dependency) =>
+                dependency?.rule === "Docker.Build" || dependency?.rule === "Docker.Bake"
+              )
+              const outDir = build?.outDirs[0]
+              if (outDir === undefined) return fail("Docker.Push image is not a planned Docker.Build or Docker.Bake")
+              // Every command is `<docker> push <reference>`.
+              const docker = node.lane.commands[0]?.slice(0, -2)
+              if (docker === undefined) return fail("docker push planned no commands")
+              const archive = NodePath.join(root, ...DockerExec.imageArchive(outDir).split("/"))
+              const loaded = yield* spawnNode(node, root, [...docker, "load", "--input", archive], [], true)
+              if (!loaded.ok) return fail(loaded.error ?? "docker load failed")
+              const image = DockerExec.loadedImage(loaded.result?.stdout ?? "")
+              if (image === undefined) return fail(`docker load reported no image for ${outDir}/image.tar`)
               for (const command of node.lane.commands) {
+                const tagged = yield* spawnNode(node, root, [...docker, "tag", image, command.at(-1)!])
+                if (!tagged.ok) return fail(tagged.error ?? "docker tag failed")
                 const spawned = yield* spawnNode(node, root, command)
                 if (!spawned.ok) return fail(spawned.error ?? "docker push failed")
               }

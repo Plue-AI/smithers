@@ -20,8 +20,11 @@ stamps are checked after resolution, before their push starts. Tags follow the
 letter, digit or underscore.
 
 The plan contains one `docker push <reference>` command per tag, in declaration
-order. The executor stops after the first failed command and reports success
-only after every command succeeds.
+order. Before them the executor loads the `image` dependency's OCI archive with
+`docker load` and runs `docker tag` from that loaded image to each reference, so
+a push publishes the image the build produced, never a same-named image already
+in the daemon. The executor stops after the first failed command and reports
+success only after every command succeeds.
 
 The CLI currently refuses `approval: "required"` because its build executor
 has no durable approval store. `Docker.Push` requires that declaration, so

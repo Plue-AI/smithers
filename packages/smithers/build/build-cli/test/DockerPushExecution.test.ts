@@ -24,6 +24,8 @@ const bounded = async (waiting: Promise<void>): Promise<void> => {
     clearTimeout(timer)
   }
 }
+const pushResult = (summary: { readonly results: ReadonlyArray<{ readonly label: string; readonly error?: string | undefined }> }) =>
+  summary.results.find((result) => result.label === "//:push")
 afterAll(async () => {
   await Promise.all(directories.map((directory) => Fs.rm(directory, { recursive: true, force: true })))
 })
@@ -31,7 +33,12 @@ afterAll(async () => {
 // Executor UNIT fixture only: this synthetic ready plan exercises ordered
 // dispatch, not public approval. CLI approval integration remains refused;
 // no approval guard or real Docker daemon is involved in this fixture.
-const fixture = async (mode: "failure" | "hold", tags = ["one", "two", "three"], prefix = "registry.invalid/unit:") => {
+const fixture = async (
+  mode: "failure" | "hold",
+  tags = ["one", "two", "three"],
+  prefix = "registry.invalid/unit:",
+  imageRule: "Docker.Build" | "Shell.Run" = "Docker.Build"
+) => {
   const root = await Fs.realpath(await Fs.mkdtemp(Path.join(Os.tmpdir(), "smthrs-push-unit-")))
   directories.push(root)
   const control = await Fs.mkdtemp(Path.join(Os.tmpdir(), "smthrs-push-control-"))
@@ -48,11 +55,19 @@ export const Package = S.Package({ targets: {
   const calls = Path.join(control, "calls.jsonl")
   const release = Path.join(control, "release")
   const script = Path.join(control, "docker.mjs")
+  const loads = Path.join(control, "loads.jsonl")
   const pids = Path.join(control, "pids.jsonl")
   const exits = Path.join(control, "exits.jsonl")
   await Fs.writeFile(
     script,
     `import { appendFileSync, existsSync } from "node:fs";
+const verb = process.argv[2];
+if (verb === "build") process.exit(0);
+if (verb === "load" || verb === "tag") {
+  appendFileSync(${JSON.stringify(loads)}, JSON.stringify(process.argv.slice(2)) + "\\n");
+  if (verb === "load") console.log("Loaded image ID: sha256:built");
+  process.exit(0);
+}
 const image = process.argv[3];
 appendFileSync(${JSON.stringify(pids)}, JSON.stringify(process.pid) + "\\n");
 process.on("exit", () => appendFileSync(${JSON.stringify(exits)}, JSON.stringify(process.pid) + "\\n"));
@@ -82,6 +97,15 @@ if (image.endsWith(":two")) {
   const commands = tags.map((
     tag
   ) => [process.execPath, script, "push", `${prefix}${tag}`])
+  const build: PackageExec.PackageNode = {
+    ...base,
+    label: "//:image",
+    rule: imageRule,
+    outDirs: ["docker-image"],
+    dependencies: [],
+    argv: [process.execPath, script, "build"],
+    cacheable: false
+  } as PackageExec.PackageNode
   const node: PackageExec.PackageNode = {
     ...base,
     family: "container",
@@ -94,6 +118,7 @@ if (image.endsWith(":two")) {
       approval: "required",
       sandbox: "none"
     }),
+    dependencies: [build.label],
     lane: { kind: "docker-push", commands },
     argv: commands[0],
     env: {},
@@ -103,8 +128,8 @@ if (image.endsWith(":two")) {
   }
   const planned: PackageExec.PackagePlan = {
     roots: [node.label],
-    workList: [node],
-    nodes: new Map([[node.label, node]]),
+    workList: [build, node],
+    nodes: new Map([[build.label, build], [node.label, node]]),
     closures: new Map()
   }
   const readLines = async (file: string): Promise<Array<unknown>> => {
@@ -123,6 +148,8 @@ if (image.endsWith(":two")) {
     planned,
     options,
     observed,
+    loads: () => readLines(loads),
+    root,
     release,
     waiting,
     childPids: () => readLines(pids),
@@ -138,7 +165,7 @@ describe("Docker push executor unit boundary", () => {
     const host = await fixture("failure", ["one"], "other.invalid/unit:")
     const summary = await PackageExec.execute(host.planned, { ...host.options, log: () => {} })
     expect(summary.ok).toBe(false)
-    expect(summary.results[0]?.error).toContain("declared registry and name")
+    expect(pushResult(summary)?.error).toContain("declared registry and name")
     expect(await host.childPids()).toEqual([])
   })
   for (
@@ -159,8 +186,8 @@ describe("Docker push executor unit boundary", () => {
       const host = await fixture("failure", [StampExec.token(value === "" ? "versionMeta" : "docker-tag", value)])
       const summary = await PackageExec.execute(host.planned, { ...host.options, log: () => {} })
       expect.soft(summary.ok).toBe(false)
-      expect.soft(summary.results).toMatchObject([{ status: "failed" }])
-      expect.soft(summary.results[0]?.error).toContain("Docker.Push")
+      expect.soft(pushResult(summary)).toMatchObject({ status: "failed" })
+      expect.soft(pushResult(summary)?.error).toContain("Docker.Push")
       expect.soft(await host.observed()).toEqual([])
       expect(await host.childPids()).toEqual([])
     })
@@ -170,6 +197,27 @@ describe("Docker push executor unit boundary", () => {
     const summary = await PackageExec.execute(host.planned, { ...host.options, log: () => {} })
     expect(summary.ok).toBe(true)
     expect(await host.observed()).toEqual([["push", "registry.invalid/unit:release_1.0-rc"]])
+  })
+  it("loads the build's archive and pushes that exact image under each tag", async () => {
+    const host = await fixture("failure", ["one", "three"])
+    const summary = await PackageExec.execute(host.planned, { ...host.options, log: () => {} })
+    expect(summary.ok).toBe(true)
+    expect(await host.loads()).toEqual([
+      ["load", "--input", Path.join(host.root, "docker-image", "image.tar")],
+      ["tag", "sha256:built", "registry.invalid/unit:one"],
+      ["tag", "sha256:built", "registry.invalid/unit:three"]
+    ])
+    expect(await host.observed()).toEqual([
+      ["push", "registry.invalid/unit:one"],
+      ["push", "registry.invalid/unit:three"]
+    ])
+  })
+  it("refuses a push whose image dependency is not a build", async () => {
+    const host = await fixture("failure", ["one"], undefined, "Shell.Run")
+    const summary = await PackageExec.execute(host.planned, { ...host.options, log: () => {} })
+    expect(summary.ok).toBe(false)
+    expect(pushResult(summary)?.error).toContain("not a planned Docker.Build or Docker.Bake")
+    expect(await host.observed()).toEqual([])
   })
   it("reports success only after every ordered push finishes", async () => {
     const host = await fixture("hold")
@@ -195,8 +243,8 @@ describe("Docker push executor unit boundary", () => {
       await Fs.writeFile(host.release, "release")
       const summary = await running
       expect(summary.ok).toBe(true)
-      expect(summary.counts).toEqual({ hit: 0, ran: 1, failed: 0, skipped: 0 })
-      expect(summary.results).toMatchObject([{ label: "//:push", status: "ran" }])
+      expect(summary.counts).toEqual({ hit: 0, ran: 2, failed: 0, skipped: 0 })
+      expect(pushResult(summary)).toMatchObject({ label: "//:push", status: "ran" })
       expect(await host.observed()).toEqual([
         ["push", "registry.invalid/unit:one"],
         ["push", "registry.invalid/unit:two"],
@@ -212,9 +260,9 @@ describe("Docker push executor unit boundary", () => {
     const host = await fixture("failure")
     const summary = await PackageExec.execute(host.planned, { ...host.options, log: () => {} })
     expect(summary.ok).toBe(false)
-    expect(summary.counts).toEqual({ hit: 0, ran: 0, failed: 1, skipped: 0 })
-    expect(summary.results).toMatchObject([{ label: "//:push", status: "failed" }])
-    expect(summary.results[0]?.error).toContain("23")
+    expect(summary.counts).toEqual({ hit: 0, ran: 1, failed: 1, skipped: 0 })
+    expect(pushResult(summary)).toMatchObject({ label: "//:push", status: "failed" })
+    expect(pushResult(summary)?.error).toContain("23")
     expect(await host.observed()).toEqual([
       ["push", "registry.invalid/unit:one"],
       ["push", "registry.invalid/unit:two"]

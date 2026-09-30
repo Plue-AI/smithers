@@ -122,6 +122,32 @@ export const pushTagRefusal = (tag: string): string | undefined =>
     : "Docker.Push tags must contain 1 to 128 ASCII letters, digits, underscores, dots or hyphens and start with a letter, digit or underscore"
 
 /**
+ * The archive a `Docker.Build` or `Docker.Bake` writes for its output directory.
+ *
+ * @category planning
+ * @since 1.0.0
+ */
+export const imageArchive = (outDir: string): string => `${outDir}/image.tar`
+
+/**
+ * Reads the image reference `docker load` reports for an archive: the
+ * `Loaded image ID:` or `Loaded image:` line, last one wins. A push tags this
+ * exact image, so it publishes what the build produced and never whatever
+ * else the daemon holds under the destination reference.
+ *
+ * @category execution
+ * @since 1.0.0
+ */
+export const loadedImage = (stdout: string): string | undefined => {
+  let loaded: string | undefined
+  for (const line of stdout.split(/\r?\n/)) {
+    const match = /^Loaded image(?: ID)?: (\S+)\s*$/.exec(line)
+    if (match !== null) loaded = match[1]
+  }
+  return loaded
+}
+
+/**
  * Reduced plan fields for a Docker build/bake/push.
  *
  * @category models
@@ -181,7 +207,7 @@ export const plan = async (options: {
     }
   }
   const outDir = outputDir(options.rule, options.packagePath, options.attrs)
-  const destination = `${outDir}/image.tar`
+  const destination = imageArchive(outDir)
   if (options.rule === "Docker.Build") {
     const attrs = options.attrs as (typeof Docker.BuildAttrs)["Type"]
     const args: Array<string> = [
