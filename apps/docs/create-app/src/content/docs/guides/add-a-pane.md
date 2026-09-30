@@ -154,4 +154,8 @@ A host that streams turns decodes against those, which is
 [Run a routed flow from your own host](/guides/host-a-turn/).
 
 Reach for `ui/html` only when no pane fits. A pane is decoded, typed, and
-styled by the app; model-authored HTML is none of those.
+styled by the app; model-authored HTML is none of those. The default page shows
+an HTML card in a scriptless sandboxed frame with no network access, so scripts,
+forms, navigation, and every subresource in the fragment are blocked. A card
+kind the page does not render is dropped, so a page you replace must render
+`html` cards itself or remove the `ui/html` binding.
