@@ -16,6 +16,9 @@ import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
 import type * as Scope from "effect/Scope"
 import { TestClock } from "effect/testing"
+import { mkdtempSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import * as DurableEngineState from "../src/DurableEngineState.ts"
 import * as EngineStore from "../src/EngineStore.ts"
 import * as StepBoundary from "../src/StepBoundary.ts"
@@ -176,62 +179,87 @@ const Opening = Flow.make("RunDeadline/Opening", {
 })
 const gatedRound = sha256(JSON.stringify(["flow-round/v2", "opening", 1]))
 
-/** One engine incarnation serving the lineage; `body` runs while it is up. */
-const lineageIncarnation = <A, E>(hostId: string, body: Effect.Effect<A, E, Services | FlowRuntime.FlowRuntime>) =>
-  Effect.scoped(Effect.gen(function*() {
-    const engine = (yield* EngineStore.make({
-      owner: { hostId },
-      journalSource: hostId,
-      isAlive: () => Effect.succeed(false)
-    })) as FlowRuntime.FlowRuntime["Service"]
-    yield* engine.register(Gated, () => DurableDeferred.await(gate))
-    const wiring = yield* Layer.build(
-      Interpreter.layer(Opening).pipe(
-        Layer.provideMerge(Action.layerImplementations),
-        Layer.provideMerge(Layer.succeed(FlowRuntimeService, engine))
+/**
+ * One engine incarnation serving the lineage over the SQLite file `filename`,
+ * opened afresh: its stores and its engine state are read from the file alone,
+ * as a process that died and came back reads them. `body` runs while it is up.
+ */
+const lineageIncarnation = <A, E>(
+  filename: string,
+  hostId: string,
+  body: Effect.Effect<A, E, RunStore.RunStore | FlowRuntime.FlowRuntime | Crypto.Crypto>
+) =>
+  Effect.scoped(
+    Effect.gen(function*() {
+      const engine = (yield* EngineStore.make({
+        owner: { hostId },
+        journalSource: hostId,
+        isAlive: () => Effect.succeed(false)
+      })) as FlowRuntime.FlowRuntime["Service"]
+      yield* engine.register(Gated, () => DurableDeferred.await(gate))
+      const wiring = yield* Layer.build(
+        Interpreter.layer(Opening).pipe(
+          Layer.provideMerge(Action.layerImplementations),
+          Layer.provideMerge(Layer.succeed(FlowRuntimeService, engine))
+        )
       )
+      return yield* Effect.provideContext(body, wiring)
+    }).pipe(
+      Effect.provideService(Jj.Jj, jj),
+      Effect.provide(StepBoundary.layerTest()),
+      Effect.provide(TestStores.layerAt(filename))
     )
-    return yield* Effect.provideContext(body, wiring)
-  }))
+  )
 
 const stateOf = (row: RunStore.RunRow) =>
   JSON.parse(row.stateJson) as { readonly deadline?: unknown; readonly result?: unknown }
 
+const gatedRow = Effect.flatMap(RunStore.RunStore, (runs) => runs.get(gatedRound))
+
 describe("Flow deadline across trampoline rounds", () => {
   it.effect("the round a handoff opens expires at the originator's deadline, across a restart", () =>
-    run(Effect.gen(function*() {
-      const runs = yield* RunStore.RunStore
-      yield* lineageIncarnation(
-        "run-deadline-first",
-        Effect.gen(function*() {
-          const engine = yield* FlowRuntimeService
-          yield* engine.execute(Opening, { executionId: "opening", payload: {}, discard: true })
-          yield* TestDatabase.until(Effect.map(
-            Effect.option(runs.get(gatedRound)),
-            (row) => row._tag === "Some" && row.value.status === "suspended"
-          ))
-        })
-      )
-      // The parked round carries the originator's start and bound.
-      expect(stateOf(yield* runs.get(gatedRound)).deadline).toEqual({ startedAtMs: 0, deadlineMs: 3_600_000 })
-      yield* TestClock.adjust("40 minutes")
-      const settled = yield* lineageIncarnation(
-        "run-deadline-second",
-        Effect.gen(function*() {
-          for (let minute = 0; minute < 25 && (yield* runs.get(gatedRound)).status === "suspended"; minute++) {
-            yield* TestClock.adjust("1 minute")
-            for (let poll = 0; poll < 100 && (yield* runs.get(gatedRound)).status === "suspended"; poll++) {
-              yield* Effect.promise(() => new Promise<void>((resolve) => setTimeout(resolve, 2)))
+    withCrypto(
+      Effect.gen(function*() {
+        const directory = mkdtempSync(join(tmpdir(), "run-deadline-lineage-"))
+        yield* Effect.addFinalizer(() => Effect.sync(() => rmSync(directory, { recursive: true, force: true })))
+        const filename = join(directory, "engine.db")
+        const parked = yield* lineageIncarnation(
+          filename,
+          "run-deadline-first",
+          Effect.gen(function*() {
+            const engine = yield* FlowRuntimeService
+            yield* engine.execute(Opening, { executionId: "opening", payload: {}, discard: true })
+            yield* TestDatabase.until(Effect.map(
+              Effect.option(gatedRow),
+              (row) => row._tag === "Some" && row.value.status === "suspended"
+            ))
+            return yield* gatedRow
+          })
+        )
+        // The parked round carries the originator's start and bound.
+        expect(stateOf(parked).deadline).toEqual({ startedAtMs: 0, deadlineMs: 3_600_000 })
+        // Forty minutes pass with no engine up.
+        yield* TestClock.adjust("40 minutes")
+        const settled = yield* lineageIncarnation(
+          filename,
+          "run-deadline-second",
+          Effect.gen(function*() {
+            for (let minute = 0; minute < 25 && (yield* gatedRow).status === "suspended"; minute++) {
+              yield* TestClock.adjust("1 minute")
+              for (let poll = 0; poll < 100 && (yield* gatedRow).status === "suspended"; poll++) {
+                yield* Effect.promise(() => new Promise<void>((resolve) => setTimeout(resolve, 2)))
+              }
             }
-          }
-          return yield* runs.get(gatedRound)
-        })
-      )
-      expect(settled.status).toBe("failed")
-      const result = JSON.stringify(stateOf(settled).result)
-      expect(result).toContain("@smthrs/flow/DeadlineExceeded")
-      expect(result).toContain("RunDeadline/Gated")
-      expect(result).toContain("counted from its start at 1970-01-01T00:00:00.000Z")
-      expect(yield* Clock.currentTimeMillis).toBeLessThanOrEqual(61 * 60_000)
-    })))
+            return yield* gatedRow
+          })
+        )
+        expect(settled.status).toBe("failed")
+        const result = JSON.stringify(stateOf(settled).result)
+        expect(result).toContain("@smthrs/flow/DeadlineExceeded")
+        expect(result).toContain("RunDeadline/Gated")
+        expect(result).toContain("counted from its start at 1970-01-01T00:00:00.000Z")
+        // It settled at the originator's hour, not an hour after the round opened.
+        expect(yield* Clock.currentTimeMillis).toBeLessThanOrEqual(61 * 60_000)
+      }).pipe(Effect.scoped, Effect.provide(TestClock.layer()))
+    ))
 })

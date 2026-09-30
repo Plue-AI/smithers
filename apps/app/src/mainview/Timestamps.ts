@@ -24,7 +24,8 @@ const dayGap = (at: Date, now: Date): number => {
 export const timeLabel = (createdAt: number, now: number = Date.now()): string => {
   const at = new Date(createdAt)
   const gap = dayGap(at, new Date(now))
-  if (gap <= 0) return clock(at)
+  // A stamp later today reads as a clock too; a later day (a deadline) names its date.
+  if (gap === 0) return clock(at)
   if (gap === 1) return `Yesterday ${clock(at)}`
   return `${at.toLocaleDateString([], { month: "short", day: "numeric" })} ${clock(at)}`
 }

@@ -57,6 +57,13 @@ describe("run deadline on the run card", () => {
     }
   })
 
+  test("a deadline on a later day than today names its date", () => {
+    const tomorrow = Date.now() + 36 * 3_600_000
+    const label = deadlineNote(render(runCard({ phase: "running", deadlineAt: tomorrow })))?.textContent ?? ""
+    expect(label).toBe(`Deadline ${timeLabel(tomorrow)}`)
+    expect(label).toContain(new Date(tomorrow).toLocaleDateString([], { month: "short", day: "numeric" }))
+  })
+
   test("a settled run, or one approved without a deadline, shows none", () => {
     for (const phase of ["completed", "failed", "cancelled"] as const) {
       expect(deadlineNote(render(runCard({ phase, deadlineAt: DEADLINE })))).toBeNull()

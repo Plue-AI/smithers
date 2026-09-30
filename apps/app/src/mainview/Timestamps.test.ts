@@ -22,6 +22,14 @@ describe("a transcript stamp says which day it belongs to", () => {
     expect(timeLabel(at("2026-08-18T23:51:00"), now)).toStartWith("Yesterday ")
   })
 
+  test("a stamp later today is the time alone, and one on a later day carries its date", () => {
+    expect(timeLabel(at("2026-08-19T23:30:00"), now)).toMatch(/^\d{1,2}:30/)
+    const tomorrow = timeLabel(at("2026-08-20T00:30:00"), now)
+    expect(tomorrow).not.toContain("Yesterday")
+    expect(tomorrow).toContain("20")
+    expect(tomorrow).toMatch(/12:30|00:30/)
+  })
+
   test("an older stamp carries its date", () => {
     const label = timeLabel(at("2026-08-12T23:51:00"), now)
     expect(label).not.toContain("Yesterday")
