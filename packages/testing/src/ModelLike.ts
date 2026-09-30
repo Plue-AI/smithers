@@ -156,6 +156,7 @@ export type ModelEventLike =
     readonly cachedInputTokens?: number | undefined
     readonly cacheWriteTokens?: number | undefined
     readonly totalTokens?: number | undefined
+    readonly costUsd?: number | undefined
   }
   | { readonly type: "retry"; readonly attempt: number; readonly code: string; readonly delayMillis: number }
   | {

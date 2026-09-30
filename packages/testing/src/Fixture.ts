@@ -93,7 +93,8 @@ const eventSchema = Schema.Union([
     reasoningTokens: Schema.optional(Schema.Number),
     cachedInputTokens: Schema.optional(Schema.Number),
     cacheWriteTokens: Schema.optional(Schema.Number),
-    totalTokens: Schema.optional(Schema.Number)
+    totalTokens: Schema.optional(Schema.Number),
+    costUsd: Schema.optional(Schema.Number)
   }),
   Schema.Struct({
     type: Schema.Literal("retry"),

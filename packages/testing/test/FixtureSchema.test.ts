@@ -9,7 +9,7 @@
 import { describe, expect, it } from "@effect/vitest"
 import { Effect, type Schema } from "effect"
 import { decode, Fixture, type RecordedCall } from "../src/Fixture.ts"
-import type { ModelRequestLike, RecordedRequestLike } from "../src/ModelLike.ts"
+import type { ModelEventLike, ModelRequestLike, RecordedRequestLike } from "../src/ModelLike.ts"
 
 type Decoded = Schema.Schema.Type<typeof Fixture>
 type DecodedCall = Decoded["calls"][number]
@@ -172,6 +172,26 @@ describe("the Fixture interface and the Fixture schema are one contract", () => 
       // would leave a fixture that replays a refusal the recorder captured more
       // of than the replay hands back.
       expect(failure).toStrictEqual(completeFailure)
+    }))
+
+  it.effect("decodes a usage event with every optional field populated, costUsd included", () =>
+    Effect.gen(function*() {
+      const usage: Complete<Omit<Member<ModelEventLike, "type", "usage">, "type">> = {
+        inputTokens: 24,
+        outputTokens: 9,
+        reasoningTokens: 3,
+        cachedInputTokens: 8,
+        cacheWriteTokens: 2,
+        totalTokens: 33,
+        costUsd: 0.0125
+      }
+      const call = {
+        request: request("openai:gpt-5-mini"),
+        model: "openai:gpt-5-mini",
+        events: [{ type: "usage", ...usage }]
+      }
+      const decoded = yield* decode({ calls: [call] })
+      expect(decoded.calls[0]?.events).toStrictEqual([{ type: "usage", ...usage }])
     }))
 
   it.effect("rejects a call whose model disagrees with its own request.modelId", () =>
