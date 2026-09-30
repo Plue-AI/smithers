@@ -47,6 +47,14 @@ const codexBinary = () => {
   )
   return directory
 }
+// A pooled deployment serving both subscription routes: a pinned seat names one
+// local login, so it must never be handed to the pool or the model proxy.
+const ambientPool = {
+  SMITHERS_ACCOUNT_POOL_URL: "https://ambient-pool.invalid",
+  SMITHERS_ACCOUNT_POOL_KEY: "ambient-pool-key",
+  SMITHERS_ACCOUNT_POOL_PROVIDERS: "anthropic,chatgpt",
+  SMITHERS_MODEL_PROXY_URL: "https://ambient-proxy.invalid"
+}
 const resolve = (environment: Readonly<Record<string, string | undefined>>, declared: string) =>
   Effect.scoped(NodeControl.seatResolver({ PATH: codexBinary(), ...environment }, executor).resolve(declared))
 const prepared = (seat: Seat.Seat) =>
@@ -74,8 +82,7 @@ describe("native account-pinned seat resolution", () => {
         CODEX_HOME: fixture(),
         OPENAI_API_KEY: "ambient-api-key",
         SMITHERS_OPENAI_AUTH: "api-key",
-        SMITHERS_ACCOUNT_POOL_URL: "https://ambient-pool.invalid",
-        SMITHERS_MODEL_PROXY_URL: "https://ambient-proxy.invalid"
+        ...ambientPool
       }
       const resolved = await Effect.runPromise(resolve(environment, declared))
       expect(resolved.id).toBe(declared)
@@ -127,7 +134,7 @@ describe("native account-pinned seat resolution", () => {
   })
 
   it.each(["opus@claude-2", "claude-code:opus@claude-2"])(
-    "selects the Claude login directory for %s despite ambient credentials",
+    "selects the Claude login directory for %s despite ambient credentials and an account pool",
     async (declared) => {
       const accounts = fixture()
       const directory = join(accounts, "claude-2")
@@ -151,7 +158,8 @@ describe("native account-pinned seat resolution", () => {
         CLAUDE_CODE_USE_BEDROCK: "1",
         CLAUDE_CODE_USE_VERTEX: "1",
         CLAUDE_CODE_USE_FOUNDRY: "1",
-        ANTHROPIC_FOUNDRY_BASE_URL: "https://ambient-foundry.invalid"
+        ANTHROPIC_FOUNDRY_BASE_URL: "https://ambient-foundry.invalid",
+        ...ambientPool
       }, declared))
       expect(resolved.id).toBe(declared)
       expect(resolved.modelId).toBe("claude-opus-5-5")
