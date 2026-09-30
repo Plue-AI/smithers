@@ -29,11 +29,11 @@ interface MonitorInput {
 }
 
 /** Bump when the loop topology or a captured callback changes meaning. */
-const version = "burndown/monitor/v3"
+const version = "burndown/monitor/v6"
 
 /** Reads the run, its workers, the status line and account notices. */
 export const Inspect = Action.make("burndown/monitor/inspect", {
-  implementationVersion: "burndown/monitor/inspect/v3",
+  implementationVersion: "burndown/monitor/inspect/v6",
   payload: { hostRoot: Schema.String, reportRoot: Schema.String, runId: Schema.String },
   success: Snapshot,
   error: Schema.String,
@@ -46,7 +46,9 @@ export const Diagnose = AgentAction.make("burndown/monitor/diagnose", {
   seat: ({ seat }) => seat,
   system: [
     "You monitor a long-running issue burndown run of coding agents.",
-    "Healthy means: the run is not failed or cancelled; rounds advance on schedule; workers finish with ready or closed more often than failed; landings succeed; no account is rate limited mid-task; no two dispatchers run at once.",
+    "Use the selected root durable executions, actions and queue receipts. Distinguish running long checks, timer/event waits, failed or quarantined checks, confirmed terminal outcomes and unknown evidence. A queued READY result is not a landing or export success.",
+    "Flow wrappers do not execute agent turns: zero diagnosis counters or immutable wrapper updatedAt never prove a stall. A running action can outlast round cadence; a timer wait is expected until wakeAt. Compare actual flow observation/progress timestamps and round ordinal with cadence, and flag stale or absent evidence as unknown, not stalled.",
+    "Status notes are supplemental and may be stale. Do not infer unrelated standalone worker results from missing fleet records. No cancellation, relaunch, lock removal or resume advice is authorized by absent counters, missing evidence or a normal timer/event wait; recommend read-only inspection instead.",
     "Missing, failed or unknown inspection evidence is unhealthy. Never infer liveness from absent evidence.",
     "Report concrete findings with the evidence line that shows each, and the one action that fixes each. Say healthy only when nothing needs a person or an agent."
   ],
@@ -56,7 +58,7 @@ export const Diagnose = AgentAction.make("burndown/monitor/diagnose", {
 
 /** Appends the verdict to the monitor log and raises a notification when unhealthy. */
 export const Report = Action.make("burndown/monitor/report", {
-  implementationVersion: "burndown/monitor/report/v3",
+  implementationVersion: "burndown/monitor/report/v6",
   payload: {
     hostRoot: Schema.String,
     reportRoot: Schema.String,
@@ -105,8 +107,14 @@ export const Loop: MonitorFlow = Flow.make("burndown/monitor/loop", {
   error: MonitorError,
   body: Node.capture(
     { version },
-    ({ everyMinutes, runId, seat, hostRoot, reportRoot }: MonitorInput) =>
-      Inspect.call({ runId, hostRoot, reportRoot }).pipe(
+    ({ everyMinutes, runId, seat, hostRoot, reportRoot }: MonitorInput) => {
+      if (!runId || runId.startsWith("-") || /[\s\p{Cc}]/u.test(runId)) {
+        return Node.fail("Invalid run identity")
+      }
+      if (!Number.isFinite(everyMinutes) || everyMinutes <= 0 || everyMinutes * 60_000 > Number.MAX_SAFE_INTEGER) {
+        return Node.fail("Invalid monitor interval")
+      }
+      return Inspect.call({ runId, hostRoot, reportRoot }).pipe(
         Node.catch({
           onFailure: Node.capture(
             { version },
@@ -138,6 +146,9 @@ export const Loop: MonitorFlow = Flow.make("burndown/monitor/loop", {
                         reportRoot,
                         inspectedHealthy: Planned.make<Snapshot>(snapshotNode).healthy
                       }).pipe(
+                        Node.catch({
+                          onFailure: Node.capture({ version }, () => Node.succeed(true))
+                        }),
                         Node.branch({
                           if: Node.capture({ version }, (running: boolean) => running),
                           then: Node.capture(
@@ -157,5 +168,6 @@ export const Loop: MonitorFlow = Flow.make("burndown/monitor/loop", {
           )
         )
       )
+    }
   )
 })

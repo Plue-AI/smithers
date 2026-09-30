@@ -23,15 +23,22 @@ export default Flow.make("burndown/monitor", {
   success: Schema.String,
   error: MonitorError,
   body: Node.capture(
-    { version: "burndown/monitor/v3", currentHost },
-    ({ everyMinutes, runId, seat, hostRoot, reportRoot }) =>
-      Loop.to({
+    { version: "burndown/monitor/v6", currentHost },
+    ({ everyMinutes = 10, runId, seat, hostRoot, reportRoot }) => {
+      if (!runId || runId.startsWith("-") || /[\s\p{Cc}]/u.test(runId)) {
+        return Node.fail("Invalid run identity")
+      }
+      if (!Number.isFinite(everyMinutes) || everyMinutes <= 0 || everyMinutes * 60_000 > Number.MAX_SAFE_INTEGER) {
+        return Node.fail("Invalid monitor interval")
+      }
+      return Loop.to({
         runId,
         hostRoot: resolve(currentHost, hostRoot ?? "."),
         reportRoot: resolve(currentHost, reportRoot ?? join(hostRoot ?? currentHost, ".smithers", "burndown")),
         seat: seat ?? "claude-code:sonnet",
-        everyMinutes: everyMinutes ?? 10
+        everyMinutes
       })
+    }
   )
 })
 
