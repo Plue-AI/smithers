@@ -341,7 +341,7 @@ describe("cloud sign-in", () => {
     const [label, probe] of [
       ["the workspaces feature flag is off", () => cloudRefusal("forbidden", "feature not available")],
       ["a repository-bound token", () => cloudRefusal("forbidden", "repository-bound token cannot access resources outside its repository")],
-      ["a code from another registry row", () => cloudRefusal("access_not_granted", "insufficient token scope")],
+      ["a code from another registry row", () => cloudRefusal("org_membership_required", "insufficient token scope")],
       ["a bare sentence with no verdict", () => new Response(`{"message":"insufficient token scope"}`, { status: 403 })],
       ["another party's envelope", () => new Response(`{"error":{"message":"insufficient token scope"}}`, { status: 403 })],
       ["an edge HTML page", () => new Response(`<!DOCTYPE html><title>403 Forbidden</title><p>insufficient token scope</p>`, { status: 403 })],

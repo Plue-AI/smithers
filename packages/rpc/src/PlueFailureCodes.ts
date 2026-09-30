@@ -35,7 +35,7 @@ export const PLUE_FAILURE_SCHEMA_VERSION = 1
  * @since 1.0.0
  * @category constants
  */
-export const PLUE_FAILURE_DIGEST = "sha256:ab27e1e1113c4b6aa0efcc5ae6c4e4ea6b9437f9e8b00e22bc955d9183376b4e"
+export const PLUE_FAILURE_DIGEST = "sha256:12cd056b2e4d1c433e988c2d30d7a98b483709933381e40d745d54667a033e7e"
 
 /**
  * Whose problem a failure is — the registry's verdict, and the only question the app
@@ -70,9 +70,7 @@ export type PlueFault = (typeof PLUE_FAULTS)[number]
  */
 export const PLUE_FAILURE_CODES = [
   "FORBIDDEN_ACTION",
-  "NOT_ON_WAITLIST",
   "access_denied",
-  "access_not_granted",
   "agent_loop_retired",
   "append_not_requested",
   "append_prepare_invalid",
@@ -135,6 +133,7 @@ export const PLUE_FAILURE_CODES = [
   "invalid_placement",
   "invalid_request",
   "invalid_resource_link",
+  "invalid_token",
   "invalid_worker",
   "landing_blocked",
   "landing_create_unavailable",
@@ -236,12 +235,8 @@ export interface PlueFailureEntry {
 export const PLUE_FAILURES = {
   /** The GitHub proxy refuses this action for the caller's grant. Legacy SCREAMING_CASE spelling kept for the clients that already branch on it. */
   "FORBIDDEN_ACTION": { fault: "user", status: 403, retryAfter: 0 },
-  /** The signed-in account is not on the alpha waitlist yet. Legacy SCREAMING_CASE spelling; the OAuth callback matches it to redirect to the waitlist page. */
-  "NOT_ON_WAITLIST": { fault: "user", status: 403, retryAfter: 0 },
   /** The access grant presented to the controller does not cover this sandbox. */
   "access_denied": { fault: "user", status: 403, retryAfter: 0 },
-  /** The OAuth2 authorization was not granted to this client. */
-  "access_not_granted": { fault: "user", status: 403, retryAfter: 0 },
   /** plue's own 0.x agent loop was retired and the Smithers 1.0 replacement has no entrypoint for a single dispatched task yet. Nothing the caller did. */
   "agent_loop_retired": { fault: "bug", status: 501, retryAfter: 0 },
   /** The landing's existing task is not a native append request. */
@@ -366,6 +361,8 @@ export const PLUE_FAILURES = {
   "invalid_request": { fault: "user", status: 400, retryAfter: 0 },
   /** The resource link on the request does not name a resource this controller owns. */
   "invalid_resource_link": { fault: "user", status: 400, retryAfter: 0 },
+  /** The presented token has an unrecognized format or is no longer valid. */
+  "invalid_token": { fault: "user", status: 401, retryAfter: 0 },
   /** The worker identity on the request is not one the controller knows. */
   "invalid_worker": { fault: "user", status: 400, retryAfter: 0 },
   /** The landing request cannot proceed as asked; details name what is blocking it. */
@@ -394,7 +391,7 @@ export const PLUE_FAILURES = {
   "out_of_credit": { fault: "user", status: 402, retryAfter: 0 },
   /** The calling peer's mTLS identity is not one this worker accepts. */
   "peer_identity_denied": { fault: "user", status: 403, retryAfter: 0 },
-  /** The user has exhausted a sandbox limit included in their plan. */
+  /** The user has exhausted a limit included in their plan. */
   "plan_limit_exceeded": { fault: "user", status: 402, retryAfter: 0 },
   /** The preview gateway could not reach the port the box is serving. */
   "preview_unavailable": { fault: "infra", status: 503, retryAfter: 0 },

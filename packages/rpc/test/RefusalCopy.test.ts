@@ -408,6 +408,7 @@ describe("doors", () => {
   test("a stopped box offers resume, a dead session offers sign-in, a wait offers retry", async () => {
     expect(refusalDoors(forCode("desktop_not_running"))).toContain("resume")
     expect(refusalDoors(forCode("unauthorized"))).toContain("sign-in")
+    expect(refusalDoors(forCode("invalid_token"))).toEqual(["sign-in"])
     expect(refusalDoors(forCode("desktop_not_ready"))).toContain("retry")
   })
 

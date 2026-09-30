@@ -83,11 +83,11 @@ func TestEveryCodeConstantIsRegistered(t *testing.T) {
 }
 
 func TestRegistryEntriesAreComplete(t *testing.T) {
-	// Codes are snake_case. Two legacy SCREAMING_CASE spellings predate the
-	// rule and are matched verbatim by clients (the OAuth callback branches on
-	// NOT_ON_WAITLIST), so renaming them is a breaking change, not a cleanup.
+	// Codes are snake_case. One legacy SCREAMING_CASE spelling predates the
+	// rule and is matched verbatim by clients, so renaming it is a breaking
+	// change, not a cleanup.
 	shape := regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
-	legacy := map[Code]bool{CodeNotOnWaitlist: true, CodeGitHubForbiddenAction: true}
+	legacy := map[Code]bool{CodeGitHubForbiddenAction: true}
 
 	for code, entry := range registry {
 		if !legacy[code] {

@@ -94,9 +94,6 @@ describe("the vendored plue failure registry", () => {
     expect(PLUE_FAILURES.coding_host_upgrade_required).toEqual({ fault: "infra", status: 409, retryAfter: 0 })
     expect(PLUE_FAILURES.repository_workspace_pending).toEqual({ fault: "wait", status: 409, retryAfter: 2 })
     expect(PLUE_FAILURES.repository_ci_run_unverified).toEqual({ fault: "user", status: 403, retryAfter: 0 })
-    // The eligibility refusal gateway.ts pairs with NOT_ON_WAITLIST: still the
-    // caller's to clear, so a refresh may not turn the closed alpha into infra.
-    expect(PLUE_FAILURES.access_not_granted).toEqual({ fault: "user", status: 403, retryAfter: 0 })
   })
 
   test("control-plane contention is plue's own infra refusal, and its pacing licenses no retry loop", () => {

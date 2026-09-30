@@ -201,14 +201,14 @@ func TestWriteError_IncludesCodeWhenPresent(t *testing.T) {
 	w := httptest.NewRecorder()
 	WriteError(w, &APIError{
 		Status:  http.StatusForbidden,
-		Code:    "NOT_ON_WAITLIST",
-		Message: "Your account is not yet approved",
+		Code:    "FORBIDDEN_ACTION",
+		Message: "This action is not allowed",
 	})
 
 	var body map[string]any
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
-	assert.Equal(t, "NOT_ON_WAITLIST", body["code"])
-	assert.Equal(t, "Your account is not yet approved", body["message"])
+	assert.Equal(t, "FORBIDDEN_ACTION", body["code"])
+	assert.Equal(t, "This action is not allowed", body["message"])
 }
 
 func TestWriteError_IncludesStructuredGitHubRateLimit(t *testing.T) {

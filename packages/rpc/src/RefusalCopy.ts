@@ -524,8 +524,8 @@ const BY_CODE: Partial<Record<PlueFailureCode, Partial<RefusalCopyRow>>> = {
   desktop_not_running: { lead: "That box isn't running.", doors: ["resume", "retry"] },
   retained_runtime_not_running: { lead: "That box isn't running.", doors: ["resume", "retry"] },
   unauthorized: { lead: "Smithers Cloud doesn't recognise this session.", doors: ["sign-in"] },
-  github_reconnect_required: { lead: "GitHub needs reconnecting before this can run.", doors: ["sign-in"] },
-  NOT_ON_WAITLIST: { lead: "This account isn't off the alpha waitlist yet.", doors: [] }
+  invalid_token: { lead: "Smithers Cloud doesn't recognise this session.", doors: ["sign-in"] },
+  github_reconnect_required: { lead: "GitHub needs reconnecting before this can run.", doors: ["sign-in"] }
 }
 
 /**

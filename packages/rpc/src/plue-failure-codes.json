@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "digest": "sha256:ab27e1e1113c4b6aa0efcc5ae6c4e4ea6b9437f9e8b00e22bc955d9183376b4e",
+  "digest": "sha256:12cd056b2e4d1c433e988c2d30d7a98b483709933381e40d745d54667a033e7e",
   "faults": [
     "user",
     "wait",
@@ -19,25 +19,11 @@
       "doc": "The GitHub proxy refuses this action for the caller's grant. Legacy SCREAMING_CASE spelling kept for the clients that already branch on it."
     },
     {
-      "code": "NOT_ON_WAITLIST",
-      "fault": "user",
-      "status": 403,
-      "retry_after": 0,
-      "doc": "The signed-in account is not on the alpha waitlist yet. Legacy SCREAMING_CASE spelling; the OAuth callback matches it to redirect to the waitlist page."
-    },
-    {
       "code": "access_denied",
       "fault": "user",
       "status": 403,
       "retry_after": 0,
       "doc": "The access grant presented to the controller does not cover this sandbox."
-    },
-    {
-      "code": "access_not_granted",
-      "fault": "user",
-      "status": 403,
-      "retry_after": 0,
-      "doc": "The OAuth2 authorization was not granted to this client."
     },
     {
       "code": "agent_loop_retired",
@@ -474,6 +460,13 @@
       "doc": "The resource link on the request does not name a resource this controller owns."
     },
     {
+      "code": "invalid_token",
+      "fault": "user",
+      "status": 401,
+      "retry_after": 0,
+      "doc": "The presented token has an unrecognized format or is no longer valid."
+    },
+    {
       "code": "invalid_worker",
       "fault": "user",
       "status": 400,
@@ -576,7 +569,7 @@
       "fault": "user",
       "status": 402,
       "retry_after": 0,
-      "doc": "The user has exhausted a sandbox limit included in their plan."
+      "doc": "The user has exhausted a limit included in their plan."
     },
     {
       "code": "preview_unavailable",

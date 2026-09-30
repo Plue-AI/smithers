@@ -118,8 +118,6 @@ const (
 // Identity and authorization of the human or the client.
 const (
 	CodeGitHubReconnectRequired Code = "github_reconnect_required"
-	CodeAccessNotGranted        Code = "access_not_granted"
-	CodeNotOnWaitlist           Code = "NOT_ON_WAITLIST"
 	CodeGitHubForbiddenAction   Code = "FORBIDDEN_ACTION"
 )
 
@@ -366,12 +364,6 @@ var registry = map[Code]Entry{
 	// The GitHub grant is dead in a way no server-side refresh can repair;
 	// the person has to re-authorize the GitHub App.
 	CodeGitHubReconnectRequired: {Status: http.StatusUnauthorized, Fault: FaultUser, RetryAfter: 0, Doc: "The GitHub grant is dead in a way no server-side refresh can repair; the person has to re-authorize the GitHub App."},
-	// The OAuth2 authorization was not granted to this client.
-	CodeAccessNotGranted: {Status: http.StatusForbidden, Fault: FaultUser, RetryAfter: 0, Doc: "The OAuth2 authorization was not granted to this client."},
-	// The signed-in account is not on the alpha waitlist yet. Legacy
-	// SCREAMING_CASE spelling; the OAuth callback matches it to redirect to
-	// the waitlist page.
-	CodeNotOnWaitlist: {Status: http.StatusForbidden, Fault: FaultUser, RetryAfter: 0, Doc: "The signed-in account is not on the alpha waitlist yet. Legacy SCREAMING_CASE spelling; the OAuth callback matches it to redirect to the waitlist page."},
 	// The GitHub proxy refuses this action for the caller's grant. Legacy
 	// SCREAMING_CASE spelling kept for the clients that already branch on
 	// it.

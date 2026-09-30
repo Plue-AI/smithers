@@ -22,13 +22,12 @@ describe("isCloudScopeRefusal", () => {
 
   test("the other refusals plue answers this route with are not a scope shortage", () => {
     // Three gates share the `forbidden` code, so the verdict alone cannot
-    // separate them; two other codes carry the scope sentence in a body that
+    // separate them; another code carries the scope sentence in a body that
     // is not the scope gate's.
     for (
       const body of [
         envelope("forbidden", "user", "feature not available"),
         envelope("forbidden", "user", "repository-bound token cannot access resources outside its repository"),
-        envelope("access_not_granted", "user", SCOPE_SENTENCE),
         envelope("org_membership_required", "user", SCOPE_SENTENCE)
       ]
     ) {
