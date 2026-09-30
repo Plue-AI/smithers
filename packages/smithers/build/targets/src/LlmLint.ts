@@ -549,48 +549,77 @@ export interface CredentialDiscovery {
   readonly name: string
 }
 
+/** Known credential formats, with the capture group that holds the value when it is not the whole match. */
+const credentialPatterns: ReadonlyArray<readonly [string, RegExp]> = [
+  ["github-token", /\b(?:gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,})\b/g],
+  ["aws-access-key", /\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/g],
+  ["openai-key", /\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}\b/g],
+  ["stripe-key", /\b[rs]k_(?:live|test)_[A-Za-z0-9]{16,}\b/g],
+  ["slack-token", /\bxox[abprs]-[A-Za-z0-9-]{10,}\b/g],
+  ["google-api-key", /\bAIza[0-9A-Za-z_-]{35}\b/g],
+  ["npm-token", /\bnpm_[A-Za-z0-9]{36}\b/g],
+  ["url-password", /\b[A-Za-z][A-Za-z0-9+.-]{1,20}:\/\/[^\s:/@'"`]{1,256}:([^\s@/'"`]{1,256})@/g],
+  [
+    "private-key",
+    /-----BEGIN [A-Z0-9 ]{0,40}PRIVATE KEY(?: BLOCK)?-----[\s\S]{0,16384}?-----END [A-Z0-9 ]{0,40}PRIVATE KEY(?: BLOCK)?-----/g
+  ]
+]
+
+const credentialName = String
+  .raw`[A-Za-z0-9_-]{0,64}?(?:token|secret|passw(?:or)?d|api[_-]?key|private[_-]?key|credential)[A-Za-z0-9_-]{0,64}`
+
+const credentialValue = (quote: string): string => String.raw`${quote}((?:[^${quote}\\\r\n]|\\.){1,4096})${quote}`
+
+/**
+ * A `name: value` or `name = value` pair whose name is credential-like. It is a
+ * zero-width match at every position, so an assignment whose value swallows a
+ * nested pair never hides that pair. Names and values are bounded so a crafted
+ * line cannot make the scan quadratic in the file size.
+ */
+const namedCredential = new RegExp(
+  String.raw`(?=((?:["'${"`"}](${credentialName})["'${"`"}]|\b(?=[A-Za-z_])(${credentialName}))\s*[:=]\s*(?:` +
+    [
+      credentialValue("\""),
+      credentialValue("'"),
+      credentialValue("`"),
+      String.raw`((?![{[("'${"`"}])[^\s,;#}&]{1,4096})`
+    ].join("|") +
+    ")))",
+  "gi"
+)
+
+/** Source files where an unquoted value is an expression, never a literal credential. */
+const codeFile = /\.(?:[cm]?[jt]sx?|py|go|rs|java|kt|rb|swift)$/
+
 /** A local scan keeps values in memory and emits only typed locations. */
 class CredentialMask {
   readonly values = new Map<string, string>()
   readonly locations: Array<{ file: string; line: number; name: string; placeholder: string }> = []
   /** Masks credential values in `contents`; `file` records their locations, `undefined` only masks them. */
   scan(file: string | undefined, contents: string): string {
-    const patterns: ReadonlyArray<readonly [string, RegExp]> = [
-      ["github-token", /\b(?:gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,})\b/g],
-      ["aws-access-key", /\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/g],
-      ["openai-key", /\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}\b/g],
-      [
-        "private-key",
-        /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----[\s\S]*?-----END (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/g
-      ]
-    ]
     const found: Array<{ value: string; name: string; offset: number; report: boolean }> = []
-    // A zero-width match at every position, so an assignment whose value swallows
-    // a nested `name: value` pair never hides that pair from the scan.
-    const named =
-      /(?=((?:["'`]([A-Za-z_][A-Za-z0-9_-]*)["'`]|\b([A-Za-z_][A-Za-z0-9_]*))\s*[:=]\s*(?:"([^"\r\n]+)"|'([^'\r\n]+)'|`([^`\r\n]+)`|((?![{[("'`])[^\s,;#}]+))))/g
-    for (const match of contents.matchAll(named)) {
+    for (const match of contents.matchAll(namedCredential)) {
       const name = (match[2] ?? match[3])!
-      if (
-        !/(?:token|secret|password|api[_-]?key|private[_-]?key|credential)/i.test(name) ||
-        /(?:url|uri|header|path|env|name|pattern)$/i.test(name)
-      ) continue
+      if (/(?:url|uri|header|path|env|name|pattern)$/i.test(name)) continue
       const value = (match[4] ?? match[5] ?? match[6] ?? match[7])!
-      // Template references such as `{smthrs:bun}` or `${TOKEN}` and code expressions hold no value.
       if (
-        /^[{$]/.test(value) ||
-        (match[7] !== undefined && file?.endsWith(".ts") === true &&
-          /^(?:process\.|[A-Za-z_$][\w$]*[.(]|true$|false$|null$|undefined$)/.test(value))
+        // Short and small numeric values would mask unrelated text, such as `tokens = 0`.
+        value.length < 4 ||
+        /^[-+]?\d{1,7}(?:\.\d+)?$/.test(value) ||
+        // References such as `{smthrs:bun}`, `${TOKEN}`, `{{ secrets.TOKEN }}` or `$TOKEN` hold no value.
+        /^(?:\$?\{[^{}]*\}|\{\{[^{}]*\}\}|\$[A-Z_][A-Z0-9_]*)$/.test(value) ||
+        (match[7] !== undefined && file !== undefined && codeFile.test(file) &&
+          /^[A-Za-z_$][\w$]*(?:[.([]|$)/.test(value))
       ) continue
-      // Sample-like values are still masked but not reported; short ones would mask unrelated text.
+      // Sample-like values are masked but not reported.
       const sample = /^(?:example|placeholder|replace|dummy|test|your)[-_ ]/i.test(value) ||
         /^(?:\/|https?:\/\/)/.test(value)
-      if (sample && value.length < 8) continue
       found.push({ value, name, offset: match.index + match[1]!.indexOf(value), report: !sample })
     }
-    for (const [name, pattern] of patterns) {
+    for (const [name, pattern] of credentialPatterns) {
       for (const match of contents.matchAll(pattern)) {
-        found.push({ value: match[0], name, offset: match.index, report: true })
+        const value = match[1] ?? match[0]
+        found.push({ value, name, offset: match.index + match[0].indexOf(value), report: true })
       }
     }
     for (const item of found) {
@@ -611,6 +640,7 @@ class CredentialMask {
     }
     return this.sanitize(contents)
   }
+  /** Replaces every known value in text sent to a provider, raw or JSON escaped. */
   sanitize(text: string): string {
     let safe = text
     for (const [value, placeholder] of [...this.values].sort((left, right) => right[0].length - left[0].length)) {
@@ -618,6 +648,24 @@ class CredentialMask {
       safe = safe.replaceAll(value, placeholder)
     }
     return safe
+  }
+  /**
+   * Sanitizes a model answer or diagnostic. It first decodes the `\uXXXX` and
+   * `\/` escapes that JSON parsing would decode, so an escaped spelling cannot
+   * carry a value past the replacement.
+   */
+  sanitizeAnswer(text: string): string {
+    return this.sanitize(
+      text.replace(/\\(\\|\/|u([0-9a-fA-F]{4}))/g, (escape, body: string, hex: string | undefined) => {
+        if (body === "/") return "/"
+        if (hex === undefined) return escape
+        const code = Number.parseInt(hex, 16)
+        return code >= 0x20 && code !== 0x22 && code !== 0x5c && (code < 0xd800 || code > 0xdfff) &&
+            code !== 0x2028 && code !== 0x2029
+          ? String.fromCharCode(code)
+          : escape
+      })
+    )
   }
 }
 
@@ -1363,14 +1411,14 @@ const reviewBatch = (
           Effect.mapError((error) => new LlmReviewError({ phase: "review", message: error.message }))
         )
   ).pipe(
-    Effect.map((answer) => mask.sanitize(answer)),
+    Effect.map((answer) => mask.sanitizeAnswer(answer)),
     Effect.mapError((error) =>
       error instanceof LlmReviewError
-        ? new LlmReviewError({ phase: error.phase, message: mask.sanitize(error.message) })
+        ? new LlmReviewError({ phase: error.phase, message: mask.sanitizeAnswer(error.message) })
         : new ModelCliMissing({
           engine: error.engine,
           executable: mask.sanitize(error.executable),
-          message: mask.sanitize(error.message)
+          message: mask.sanitizeAnswer(error.message)
         })
     ),
     Effect.flatMap((text) =>

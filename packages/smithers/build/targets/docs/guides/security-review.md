@@ -69,7 +69,9 @@ Declared deployment assumptions are outside the source review scope; they
 are not missing context or proof of hosted enforcement. Missing evidence for
 the declared source path must still make the review incomplete.
 The existing file, context and prompt size limits still apply; declare focused
-paths rather than whole package trees.
+paths rather than whole package trees. List each file that makes a declared
+enforcement decision, one call from the route composition; deeper
+dependencies belong to their owning package's review.
 
 The server declaration starts at the deployed edge entry and its HTTP transport,
 then traces backend authentication, repository authorization, workflow admission

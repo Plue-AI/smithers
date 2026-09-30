@@ -120,6 +120,64 @@ it("does not classify source placeholders and environment names as credentials",
   expect(await Fs.readFile(record, "utf8")).toContain(JSON.stringify({ contents: source }))
 })
 
+it("does not classify counters and code expressions as credentials", async () => {
+  const source = "let tokens = 0\nexport const maxTokens = 4096\nexport const secretCount = count\n"
+  await Fs.writeFile(Path.join(root, "src/a.ts"), source)
+  const executable = Path.join(root, "counter-reviewer.mjs")
+  const record = Path.join(root, "counter-prompt.txt")
+  await Fs.writeFile(
+    executable,
+    `#!/usr/bin/env node\nimport { writeFileSync } from "node:fs"\nlet prompt = ""\nfor await (const chunk of process.stdin) prompt += chunk\nwriteFileSync(${
+      JSON.stringify(record)
+    }, prompt)\nprocess.stdout.write(JSON.stringify({result:"[]"}))\n`
+  )
+  await Fs.chmod(executable, 0o755)
+  const report = await Effect.runPromise(LlmLint.review({ workspaceRoot: root, executable }, {
+    base: "HEAD",
+    include: [Input.glob("src/**/*.ts")],
+    context: [],
+    prompt: "Review",
+    rubric: "Credentials",
+    engine: "claude",
+    model: "test",
+    batchSize: 1,
+    failOn: "error"
+  }))
+  expect(report.findings).toEqual([])
+  expect(await Fs.readFile(record, "utf8")).toContain(source)
+})
+
+it("masks a detected value that a model answer spells with JSON escapes", async () => {
+  const credential = "liveSecret42"
+  await Fs.writeFile(Path.join(root, "src/a.ts"), `export const DB_PASSWORD = "${credential}"\n`)
+  const executable = Path.join(root, "escaped-reviewer.mjs")
+  const answer =
+    "[{\"file\":\"src/a.ts\",\"line\":1,\"severity\":\"warning\",\"message\":\"\\u006civeSecret42 \\/liveSecret42\"}]"
+  await Fs.writeFile(
+    executable,
+    `#!/usr/bin/env node\nlet p='';for await(const c of process.stdin)p+=c;process.stdout.write(JSON.stringify({result:${
+      JSON.stringify(answer)
+    }}))`
+  )
+  await Fs.chmod(executable, 0o755)
+  const failure = await Effect.runPromise(Effect.flip(LlmLint.review({ workspaceRoot: root, executable }, {
+    base: "HEAD",
+    include: [Input.glob("src/**/*.ts")],
+    context: [],
+    prompt: "Review",
+    rubric: "Credentials",
+    engine: "claude",
+    model: "test",
+    batchSize: 1,
+    failOn: "error"
+  })))
+  expect(failure).toBeInstanceOf(LlmLint.FindingsError)
+  expect((failure as LlmLint.FindingsError).findings).toEqual(expect.arrayContaining([
+    expect.objectContaining({ severity: "warning", message: expect.stringContaining("<credential:db-password:1>") })
+  ]))
+  expect(JSON.stringify(failure)).not.toContain(credential)
+})
+
 it("masks a mixed-case password without a provider prefix", async () => {
   const credential = "Xk9fQ2mTz81LpR7vWc"
   await Fs.writeFile(Path.join(root, "src/a.ts"), `export const DB_PASSWORD = "${credential}"\n`)
@@ -183,6 +241,16 @@ it.each([
   ["quoted JSON API key", "export const headers = {\"api_key\": \"tiny42\"}\n", "tiny42"],
   ["object literal token", "export const config = {token: \"objtok42\"}\n", "objtok42"],
   ["nested call argument", "export const config = makeConfig({api_key: \"liveSecret42\"})\n", "liveSecret42"],
+  ["hyphenated unquoted name", "api-key: live-Secret-9876\n", "live-Secret-9876"],
+  ["dollar-prefixed literal", "export const DB_PASSWORD = \"$uperS3cretValue\"\n", "$uperS3cretValue"],
+  ["escaped quote", "export const password = \"pa\\\"ss12345678\"\n", "ss12345678"],
+  ["URL password", "export const DATABASE_URL = \"postgres://admin:hunter2Secret@db/prod\"\n", "hunter2Secret"],
+  [
+    "encrypted private key",
+    "export const pem = `-----BEGIN ENCRYPTED PRIVATE KEY-----\nMIIsecretBody42\n-----END ENCRYPTED PRIVATE KEY-----`\n",
+    "MIIsecretBody42"
+  ],
+  ["Stripe key", "stripe(\"sk_live_51Habcdefghijklmnopqrst\")\n", "sk_live_51Habcdefghijklmnopqrst"],
   ["uppercase password", "export const DB_PASSWORD = \"UPPERCASE42\"\n", "UPPERCASE42"],
   ["short password", "export const DB_PASSWORD = \"p4ss\"\n", "p4ss"],
   ["dotenv key", "API_KEY=short-secret\n", "short-secret"]
@@ -216,6 +284,7 @@ it.each([
 it.each([
   ["a sample-prefixed value", "export const API_KEY = \"test-live-secret42\"\n", "Review", "test-live-secret42"],
   ["a path-like value", "export const DB_PASSWORD = \"/liveSecret42\"\n", "Review", "/liveSecret42"],
+  ["a short sample-prefixed value", "export const DB_PASSWORD = \"test-42\"\n", "Review", "test-42"],
   [
     "review instructions",
     "export const a = 2\n",

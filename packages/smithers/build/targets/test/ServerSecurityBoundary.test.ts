@@ -22,6 +22,7 @@ describe("deployed server security boundaries", () => {
       expect(section).toContain("packages/backend/internal/compose/router.go")
       expect(section).toContain("packages/backend/internal/middleware/auth.go")
       expect(section).toContain("packages/backend/internal/middleware/csrf.go")
+      expect(section).toContain("packages/backend/internal/services/repo_permissions.go")
       expect(section).not.toContain("apps/server/src/index.ts")
       expect(section).not.toContain("apps/server/src/cloudToken.ts")
       expect(section).not.toContain("apps/server/src/identity.ts")
@@ -34,7 +35,9 @@ describe("deployed server security boundaries", () => {
     for (
       const gate of [
         "packages/backend/internal/middleware/scope.go",
+        "packages/backend/internal/middleware/run_credential.go",
         "packages/backend/internal/services/repo.go",
+        "packages/backend/internal/services/repo_permissions.go",
         "packages/backend/internal/db/workspace.sql.go"
       ]
     ) {
