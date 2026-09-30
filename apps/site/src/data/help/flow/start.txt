@@ -18,6 +18,7 @@ Options:
   --wait                                         Wait for the run's status before exiting
   --budget-tokens <number>                       Token ceiling for this run
   --budget-ms <number>                           Wall-clock ceiling in milliseconds for this run
+  --budget-usd <number>                          Dollar ceiling for this run
   --on-exceeded <fail|warn|skip-remaining|park>  What the run does at a ceiling
   --cloud                                        Use repository flows and runs on the backend
 
