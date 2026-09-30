@@ -135,6 +135,8 @@ describe("a run's ending in its transcript", () => {
     const stopped = cellOf(Transcript.stopped(open, 5))
     expect(stopped.status).toBe("stopped")
     expect(stopped.calls.map((each) => each.status)).toEqual(["stopped"])
+    // Its clock stops with the turn.
+    expect(stopped.calls.map((each) => each.endedAt)).toEqual([5])
     // A failure still fails what it interrupted.
     const failed = cellOf(Transcript.failure(open, "Model call failed", 5))
     expect(failed.status).toBe("failed")
@@ -146,7 +148,7 @@ describe("a run's ending in its transcript", () => {
     })
     await setup.renderOnce()
     const row = lines(setup.captureCharFrame()).find((each) => each.includes("src/auth.ts"))!
-    expect(row).toMatch(/^■ \S+ src\/auth\.ts/)
+    expect(row).toMatch(/^■ \S+ src\/auth\.ts +4ms$/)
     const spans = setup.captureSpans().lines.flatMap((line) => line.spans)
     expect(spans.filter((span) => span.text.includes("■")).map((span) => rgbToHex(span.fg))).toEqual([color.faint])
     for (const span of spans) expect(rgbToHex(span.fg)).not.toBe(color.danger)

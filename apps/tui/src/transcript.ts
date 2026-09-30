@@ -305,7 +305,9 @@ const settleOpen = (transcript: Transcript, at: number, status: "failed" | "done
         status,
         endedAt: at,
         calls: cell.calls.map((call) =>
-          call.status === "running" ? { ...call, status: status === "stopped" ? "stopped" : "failed" } : call
+          call.status === "running"
+            ? { ...call, status: status === "stopped" ? "stopped" : "failed", endedAt: at }
+            : call
         )
       }
       : cell)
