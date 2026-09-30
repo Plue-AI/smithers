@@ -175,23 +175,6 @@ func (q *Queries) DeleteWikiPage(ctx context.Context, arg DeleteWikiPageParams) 
 	return result.RowsAffected(), nil
 }
 
-const getWikiSpaceHead = `-- name: GetWikiSpaceHead :one
-SELECT coalesce(max(head), 0)::bigint AS head FROM wiki_spaces WHERE repository_id = $1 AND visibility = $2
-`
-
-type GetWikiSpaceHeadParams struct {
-	RepositoryID int64  `json:"repository_id"`
-	Visibility   string `json:"visibility"`
-}
-
-// The last committed event sequence of one wiki, 0 before its first event.
-func (q *Queries) GetWikiSpaceHead(ctx context.Context, arg GetWikiSpaceHeadParams) (int64, error) {
-	row := q.db.QueryRow(ctx, getWikiSpaceHead, arg.RepositoryID, arg.Visibility)
-	var head int64
-	err := row.Scan(&head)
-	return head, err
-}
-
 const getWikiLatestRevision = `-- name: GetWikiLatestRevision :one
 SELECT id, repository_id, page_id, revision, slug, title, body, author_id, author_username, update_id, update_bytes, deleted, history_commit_id, created_at, visibility, path, content_digest, attachment, sequence, crdt_state, crdt_vector, title_source FROM wiki_page_revisions WHERE repository_id=$1 AND visibility=$2 AND page_id=$3 ORDER BY revision DESC LIMIT 1
 `
@@ -341,6 +324,23 @@ func (q *Queries) GetWikiRevisionByNumber(ctx context.Context, arg GetWikiRevisi
 		&i.TitleSource,
 	)
 	return i, err
+}
+
+const getWikiSpaceHead = `-- name: GetWikiSpaceHead :one
+SELECT coalesce(max(head), 0)::bigint AS head FROM wiki_spaces WHERE repository_id = $1 AND visibility = $2
+`
+
+type GetWikiSpaceHeadParams struct {
+	RepositoryID int64  `json:"repository_id"`
+	Visibility   string `json:"visibility"`
+}
+
+// The last committed event sequence of one wiki, 0 before its first event.
+func (q *Queries) GetWikiSpaceHead(ctx context.Context, arg GetWikiSpaceHeadParams) (int64, error) {
+	row := q.db.QueryRow(ctx, getWikiSpaceHead, arg.RepositoryID, arg.Visibility)
+	var head int64
+	err := row.Scan(&head)
+	return head, err
 }
 
 const listWikiEvents = `-- name: ListWikiEvents :many
