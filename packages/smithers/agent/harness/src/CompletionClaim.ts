@@ -887,6 +887,25 @@ export const unproven = (found: Probabilities, bounced: boolean, claim: string):
   })
 
 /**
+ * What two readings of one claim paid together. Either may come back
+ * unmetered; the claim costs what was metered. Both ask the same judge, so the
+ * sum keeps its model id, and drops it only when a fallback answered one.
+ */
+const paidTogether = (
+  first: Evaluator.Usage | undefined,
+  second: Evaluator.Usage | undefined
+): Evaluator.Usage | undefined => {
+  if (first === undefined) return second
+  if (second === undefined) return first
+  const modelId = first.modelId === second.modelId ? first.modelId : undefined
+  return {
+    inputTokens: first.inputTokens + second.inputTokens,
+    outputTokens: first.outputTokens + second.outputTokens,
+    ...(modelId === undefined ? {} : { modelId })
+  }
+}
+
+/**
  * Asks Jev about one completion, and fails the turn when it cannot.
  *
  * `undefined` means one thing only: there was no claim and no task to judge,
@@ -914,8 +933,12 @@ export const read = (
     // a journal reads is the transport's own. An unreachable transport's own
     // message can name hosts and URLs, so the message is the public one and
     // the cause keeps only the structured facts.
-    const failed = (error: Classifier.ClassifierError) =>
-      unjudged(
+    // The cause also carries what the failed reading paid, with what an
+    // earlier reading of the same claim paid, so the run's budget charges it
+    // (#3010).
+    const failed = (earlier: Evaluator.Usage | undefined) => (error: Classifier.ClassifierError) => {
+      const usage = paidTogether(earlier, error.usage)
+      return unjudged(
         error.code,
         Evaluator.publicMessage(error),
         evidence.claim,
@@ -923,12 +946,14 @@ export const read = (
           code: error.code,
           message: Evaluator.publicMessage(error),
           ...(error.resetAtEpochMillis === undefined ? {} : { resetAtEpochMillis: error.resetAtEpochMillis }),
-          ...(error.status === undefined ? {} : { status: error.status })
+          ...(error.status === undefined ? {} : { status: error.status }),
+          ...(usage === undefined ? {} : { usage })
         })
       )
+    }
     const { answers, asked } = yield* Judgement.measured(classifier, evidence).pipe(
       Effect.provideService(Evaluator.Evaluator, bound.value),
-      Effect.mapError(failed)
+      Effect.mapError(failed(undefined))
     )
     const whole = {
       complete: answers.complete.probability,
@@ -946,18 +971,10 @@ export const read = (
     const bySentence = sentenceClassifier(parts)
     const read = yield* Judgement.measured(bySentence, evidence).pipe(
       Effect.provideService(Evaluator.Evaluator, bound.value),
-      Effect.mapError(failed)
+      Effect.mapError(failed(whole.usage))
     )
     const scores = Object.values(read.answers).map((answer) => (answer as { readonly probability: number }).probability)
-    // Either reading may come back unmetered; the claim costs what was metered.
-    const usage = whole.usage === undefined
-      ? read.asked.usage
-      : read.asked.usage === undefined
-      ? whole.usage
-      : {
-        inputTokens: whole.usage.inputTokens + read.asked.usage.inputTokens,
-        outputTokens: whole.usage.outputTokens + read.asked.usage.outputTokens
-      }
+    const usage = paidTogether(whole.usage, read.asked.usage)
     return {
       ...whole,
       invented: Math.max(...scores),

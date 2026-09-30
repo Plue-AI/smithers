@@ -39,6 +39,16 @@ const failure = <A, E>(effect: Effect.Effect<A, E>): Promise<E> =>
   })
 
 describe("read", () => {
+  it("names what a reading that failed after it was metered paid (#3010)", async () => {
+    const usage = { inputTokens: 30, outputTokens: 4, modelId: "judge" }
+    const jev = scripted(() => Effect.fail(new Evaluator.EvaluatorError({ code: "timeout", message: "late", usage })))
+    expect(await failure(Judgement.read(one, { n: 1 }).pipe(Effect.provide(jev.layer)))).toEqual({
+      reason: "timeout",
+      detail: "late",
+      usage: [usage]
+    })
+  })
+
   it("fails unconfigured on a host with no evaluator, and asks nothing", async () => {
     expect(await failure(Judgement.read(one, { n: 1 }))).toEqual({
       reason: "unconfigured",
@@ -177,6 +187,43 @@ describe("perItem", () => {
     expect(unjudged).toEqual({ reason: "timeout", detail: "late" })
   })
 
+  it("names what every settled request and the failed one paid when the reading fails (#3010)", async () => {
+    const perItem = declare({ maxStateBytes: small, concurrency: 1 })
+    const layer = Layer.succeed(Evaluator.Evaluator)(Evaluator.Evaluator.of({
+      evaluate: (request) => {
+        const { items: batch } = request.state as { readonly items: ReadonlyArray<string> }
+        if (batch[0] === "it02") {
+          return Effect.fail(
+            new Evaluator.EvaluatorError({
+              code: "invalid_answer",
+              message: "bad",
+              usage: { inputTokens: 5, outputTokens: 1, modelId: "judge" }
+            })
+          )
+        }
+        return Effect.succeed({
+          answers: Object.fromEntries(
+            batch.flatMap((_, index) => [
+              [`remove_${index}`, { type: "boolean" as const, probability: 0.1 }],
+              [`keep_${index}`, { type: "boolean" as const, probability: 0.9 }]
+            ])
+          ),
+          latencyMs: 0,
+          usage: { inputTokens: 20, outputTokens: 2, modelId: "judge" }
+        })
+      }
+    }))
+    const unjudged = await failure(perItem.read("c", items).pipe(Effect.provide(layer)))
+    expect(unjudged).toEqual({
+      reason: "invalid_answer",
+      detail: "bad",
+      usage: [
+        { inputTokens: 20, outputTokens: 2, modelId: "judge" },
+        { inputTokens: 5, outputTokens: 1, modelId: "judge" }
+      ]
+    })
+  })
+
   it("asks nothing about no items", async () => {
     const jev = byItem()
     const reading = await Effect.runPromise(declare().read("c", []).pipe(Effect.provide(jev.layer)))
@@ -233,6 +280,18 @@ describe("events", () => {
     expect(row).not.toHaveProperty("usage")
     const usage = { inputTokens: 3, outputTokens: 1 }
     expect(Judgement.decision({ ...asked, usage }, { scope: "s", frame: 2, acted: false }).usage).toEqual(usage)
+  })
+
+  it("builds decision-unjudged rows carrying what a failed reading paid (#3010)", () => {
+    const usage = [{ inputTokens: 7, outputTokens: 1, modelId: "judge" }]
+    expect(
+      Judgement.unjudgedEvent({ reason: "timeout", detail: "late", usage }, {
+        scope: "s",
+        frame: 1,
+        classifier: "test/one",
+        items: 1
+      }).usage
+    ).toEqual(usage)
   })
 
   it("builds decision-unjudged rows", () => {
@@ -348,6 +407,51 @@ describe("recorded", () => {
     await Effect.runPromise(Judgement.recorded(engine, boundary, execute).pipe(Effect.provide(answered().layer)))
     await Effect.runPromise(Judgement.recorded(engine, boundary, execute))
     expect(paid).toEqual([[{ usage: { inputTokens: 80, outputTokens: 4 } }], undefined, undefined])
+  })
+
+  it("names what a failed reading paid, priced by model, and keeps it on replay (#3010)", async () => {
+    const { engine } = recording()
+    const paid: Array<unknown> = []
+    const charging = EngineLike.makeNoop({
+      record: <A>(boundary: EngineLike.RecordBoundary<A>) =>
+        Effect.tap(engine.record(boundary), (value) => Effect.sync(() => void paid.push(boundary.usage?.(value))))
+    })
+    const failing = scripted(() =>
+      Effect.fail(
+        new Evaluator.EvaluatorError({
+          code: "invalid_answer",
+          message: "bad",
+          usage: { inputTokens: 30, outputTokens: 4, modelId: "judge" }
+        })
+      )
+    )
+    const first = await Effect.runPromise(
+      Judgement.recorded(charging, boundary, execute).pipe(Effect.provide(failing.layer))
+    )
+    const replayed = await Effect.runPromise(
+      Judgement.recorded(charging, boundary, execute).pipe(Effect.provide(failing.layer))
+    )
+    expect(failing.asked).toHaveLength(1)
+    expect(first.value).toBeNull()
+    expect(first.unjudged?.usage).toEqual([{ inputTokens: 30, outputTokens: 4, modelId: "judge" }])
+    expect(replayed).toEqual(first)
+    const share = [{ usage: { inputTokens: 30, outputTokens: 4 }, modelId: "judge" }]
+    expect(paid).toEqual([share, share])
+  })
+
+  it("keeps each settled request's model id through the record (#3010)", async () => {
+    const { engine } = recording()
+    const metered = Layer.succeed(Evaluator.Evaluator)(Evaluator.Evaluator.of({
+      evaluate: () =>
+        Effect.succeed({
+          answers: { yes: { type: "boolean", probability: 0.8 }, pick: { type: "choice", choice: "a" } },
+          latencyMs: 0,
+          usage: { inputTokens: 40, outputTokens: 2, modelId: "judge" }
+        })
+    }))
+    await Effect.runPromise(Judgement.recorded(engine, boundary, execute).pipe(Effect.provide(metered)))
+    const replayed = await Effect.runPromise(Judgement.recorded(engine, boundary, execute))
+    expect(replayed.decisions[0]?.usage).toEqual({ inputTokens: 40, outputTokens: 2, modelId: "judge" })
   })
 })
 

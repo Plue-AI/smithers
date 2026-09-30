@@ -348,8 +348,11 @@ export const open = (input: {
           usage: (record) =>
             paidUsage([
               record.settled?.usage,
+              ...(record.unjudged?.usage ?? []),
               ...record.memoryDecisions.map((settled) => settled.usage),
-              ...record.marksDecisions.map((settled) => settled.usage)
+              ...(record.memoryUnjudged?.usage ?? []),
+              ...record.marksDecisions.map((settled) => settled.usage),
+              ...(record.marksUnjudged?.usage ?? [])
             ]),
           execute: Effect.gen(function*() {
             // The task does not change between frames, so the store ranks the
@@ -432,7 +435,8 @@ export const open = (input: {
                   eventType: eventType.supervisorUnjudged,
                   ...at,
                   reason: result.failure.reason,
-                  detail: result.failure.detail
+                  detail: result.failure.detail,
+                  ...(result.failure.usage === undefined ? {} : { usage: result.failure.usage })
                 }),
                 ...memoryRecord,
                 ...marksRecord,

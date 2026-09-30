@@ -441,6 +441,31 @@ describe("Classifier.evaluate", () => {
     expect(error).toBeInstanceOf(Classifier.ClassifierError)
     expect(error.code).toBe("invalid_answer")
     expect(error.message).toContain(message)
+    expect(error.usage).toBeUndefined()
+  })
+
+  const paid = { inputTokens: 40, outputTokens: 3, modelId: "judge" }
+
+  it("keeps what a transport failure paid (#3010)", async () => {
+    const error = failure(
+      await run(
+        Relevance.evaluate(state),
+        Evaluator.layerScripted(() =>
+          Effect.fail(new Evaluator.EvaluatorError({ code: "timeout", message: "late", usage: paid }))
+        )
+      )
+    )
+    expect(error).toMatchObject({ code: "timeout", message: "late", usage: paid })
+  })
+
+  it("keeps what an answer it cannot decode paid (#3010)", async () => {
+    const layer = Layer.succeed(Evaluator.Evaluator)(Evaluator.Evaluator.of({
+      evaluate: () =>
+        Effect.succeed({ answers: { relevant: { type: "boolean", probability: 2 } }, latencyMs: 0, usage: paid })
+    }))
+    const error = failure(await run(Relevance.evaluate(state), layer))
+    expect(error).toMatchObject({ code: "invalid_answer", usage: paid })
+    expect(error.message).toContain("probability is 2")
   })
 })
 

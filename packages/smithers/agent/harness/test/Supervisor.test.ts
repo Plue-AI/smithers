@@ -701,6 +701,26 @@ describe("Supervisor", () => {
     expect(of(events, "steering-drained").flatMap((event) => event.messages)).toEqual([])
   })
 
+  it("charges what a failed supervisor reading paid, and journals it on the unjudged row (#3010)", async () => {
+    const read = untilRead()
+    const usage = { inputTokens: 60, outputTokens: 3, modelId: "judge" }
+    const { layer } = scripted(() =>
+      Effect.fail(new Evaluator.EvaluatorError({ code: "invalid_answer", message: "bad", usage }))
+    )
+    const { engine, failure } = await run({
+      state: state(3),
+      script: threeFrames,
+      evaluator: layer,
+      ...read,
+      judged: true
+    })
+    expect(failure).toBeUndefined()
+    const unjudged = of(read.seen, "supervisor-unjudged")
+    expect(unjudged[0]).toMatchObject({ frame: 0, reason: "invalid_answer", usage: [usage] })
+    const paid = engine.recorder.paid.filter((entry) => entry.name === "supervisor").map((entry) => entry.usage)
+    expect(paid[0]).toEqual([{ usage: { inputTokens: 60, outputTokens: 3 }, modelId: "judge" }])
+  })
+
   it("names the missing host when no evaluator is bound at all", async () => {
     const read = untilRead()
     const { events } = await run({

@@ -164,6 +164,17 @@ A step the ledger has already counted proceeds whatever the ceiling says: its
 replay costs nothing, and a run killed after its last model call must not come
 back dead on arrival.
 
+Evaluator readings the harness takes in a run (the completion judge, run-start
+relevance, compaction marks, the supervisor) are charged too, one share per
+model priced under that model's id, including a reading that failed after the
+provider metered it. A reading is admitted with `admitReading(stepKey)`, not a
+forecast: it is far smaller than the primary call a forecast projects, so it
+proceeds while any allowance is left and is refused only once the ceiling is
+already spent, under the same `onExceeded` policy. A completion whose primary
+call spent the whole ceiling is therefore not judged: it fails, parks, or is
+skipped. The supervisor's reading runs beside the frame and is charged but not
+admitted; the frame's next primary call applies the budget.
+
 Usage reported before a capacity refusal or stream interruption is also spend.
 The model boundary flushes that last reported usage on exit under a distinct
 unsealed-invocation receipt, not the sealed step key. A later provider retry

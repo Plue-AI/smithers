@@ -76,8 +76,11 @@ const primary = (calls: { primary: number }): Model.Model =>
     }
   })
 
-/** The judge reads every claim as done, and reports `tokens` of usage. */
-const judge = (calls: { judge: number }, tokens: number): Model.Model =>
+/**
+ * The judge reads every claim as done, and reports `tokens` of usage; a
+ * `garbled` judge is metered the same and then answers nothing it can decode.
+ */
+const judge = (calls: { judge: number }, tokens: number, garbled = false): Model.Model =>
   Model.make({
     stream: () => {
       calls.judge++
@@ -86,7 +89,7 @@ const judge = (calls: { judge: number }, tokens: number): Model.Model =>
         ModelEvent.ModelEvent.TextDelta({
           type: "text-delta",
           id: "judge",
-          text: JSON.stringify({
+          text: garbled ? "not a judgment" : JSON.stringify({
             answers: {
               complete: { type: "boolean", probability: 0.99 },
               overclaims: { type: "boolean", probability: 0.01 },
@@ -105,7 +108,7 @@ const judge = (calls: { judge: number }, tokens: number): Model.Model =>
     }
   })
 
-const drive = async (judgeTokens: number, maxTokens: number) => {
+const drive = async (judgeTokens: number, maxTokens: number, garbled = false) => {
   const calls = { primary: 0, judge: 0 }
   const seats = SeatResolver.layer({
     resolve: (id) =>
@@ -145,7 +148,7 @@ const drive = async (judgeTokens: number, maxTokens: number) => {
       return { exit, ledger, calls: { ...calls } }
     }).pipe(
       Effect.provide(layer),
-      Effect.provide(Evaluator.layerFromSeat({ modelId: "judge-model", model: judge(calls, judgeTokens) })),
+      Effect.provide(Evaluator.layerFromSeat({ modelId: "judge-model", model: judge(calls, judgeTokens, garbled) })),
       Effect.orDie
     )
   )
@@ -177,6 +180,17 @@ describe("a seat-backed completion judge under a run budget", () => {
     expect(ledger.tokens).toBe(5)
     expect(Exit.isFailure(exit)).toBe(true)
     expect(String(Exit.isFailure(exit) ? exit.cause : "")).toContain("BudgetExceeded")
+  })
+
+  it("charges a judge that was metered and then answered nothing it could decode (#3010)", async () => {
+    const { calls, exit, ledger } = await drive(100, 1_000, true)
+    // The completion goes unjudged and ends the run, but its reading was paid.
+    expect(calls).toEqual({ primary: 1, judge: 1 })
+    expect(Exit.isFailure(exit)).toBe(true)
+    expect(String(Exit.isFailure(exit) ? exit.cause : "")).toContain(
+      "A completion no evaluator could judge (invalid_answer)"
+    )
+    expect(ledger.tokens).toBe(105)
   })
 
   it("charges every judge once when the ceiling allows the whole run", async () => {

@@ -968,7 +968,9 @@ Jev's other readings write these:
   `decidedBy` is `jev`; rows written before the routing graph may say `only`
   and carry `confidence`.
 - `DecisionUnjudged`: a reading nobody could judge, with `UnjudgedReason`
-  (shared with `SupervisorUnjudged`) and the `items` it covered.
+  (shared with `SupervisorUnjudged`), the `items` it covered, and, on both,
+  the `usage` each request paid when the provider metered it before the
+  reading failed. Every evaluator `usage` names its `modelId` when known.
 
 Fields later writers add to existing events are optional, so older journals
 decode unchanged: `DecisionSettled.usage`; `CompactionSettled.kept`, `marks`

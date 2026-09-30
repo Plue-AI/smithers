@@ -108,8 +108,15 @@ export const Suppression = Schema.Literals(["streak", "cooldown", "limit", "slot
  */
 export const UnjudgedReason = Schema.Literals(["interrupted", ...Evaluator.EvaluatorErrorCode.literals])
 
-/** Token usage an evaluator reported for one reading. */
-const Usage = Schema.Struct({ inputTokens: Schema.Number, outputTokens: Schema.Number })
+/**
+ * Token usage an evaluator reported for one reading, and the model that read
+ * it when the transport named it: what prices the reading (#3010).
+ */
+const Usage = Schema.Struct({
+  inputTokens: Schema.Number,
+  outputTokens: Schema.Number,
+  modelId: Schema.optional(Schema.String)
+})
 
 /**
  * The loop discipline a run was armed with, journaled once when it starts.
@@ -876,7 +883,7 @@ export class ClaimDemanded extends Schema.TaggedClass<ClaimDemanded>(
   /** Wall-clock milliseconds the evaluation took. */
   latencyMs: Schema.Int,
   /** Token usage reported by the evaluator, absent from older journal entries. */
-  usage: Schema.optional(Schema.Struct({ inputTokens: Schema.Number, outputTokens: Schema.Number })),
+  usage: Schema.optional(Usage),
   /** Whether this reading handed the completion back. */
   demanded: Schema.Boolean,
   /**
@@ -1147,7 +1154,9 @@ export class SupervisorUnjudged extends Schema.TaggedClass<SupervisorUnjudged>(
   /** `unconfigured`, `interrupted`, or the transport's own error code. */
   reason: UnjudgedReason,
   /** What went wrong, safe to journal: see `Evaluator.publicMessage`. */
-  detail: Schema.String
+  detail: Schema.String,
+  /** What each request of the failed reading paid; absent when none was metered. */
+  usage: Schema.optional(Schema.Array(Usage))
 }) {}
 
 /**
@@ -1176,7 +1185,9 @@ export class DecisionUnjudged extends Schema.TaggedClass<DecisionUnjudged>(
   /** What went wrong, safe to journal: see `Evaluator.publicMessage`. */
   detail: Schema.String,
   /** Items the failed reading covered. */
-  items: NonNegativeSafeInt
+  items: NonNegativeSafeInt,
+  /** What each request of the failed reading paid; absent when none was metered. */
+  usage: Schema.optional(Schema.Array(Usage))
 }) {}
 
 const RelevanceItem = Schema.Struct({

@@ -472,11 +472,13 @@ describe("an evaluator reading's admission (#3010)", () => {
     expect(verdict).toMatchObject({ _tag: "refuse", exceeded: { scope: "tokens", used: 0, max: 0 } })
   })
 
-  it.each([
-    ["warn", "warn"],
-    ["skip-remaining", "refuse"],
-    ["park", "refuse"]
-  ] as const)("applies the %s policy to a reading past a spent ceiling", async (onExceeded, tag) => {
+  it.each(
+    [
+      ["warn", "warn"],
+      ["skip-remaining", "refuse"],
+      ["park", "refuse"]
+    ] as const
+  )("applies the %s policy to a reading past a spent ceiling", async (onExceeded, tag) => {
     const verdicts = await Effect.runPromise(
       Effect.gen(function*() {
         const budget = yield* Budget.make({ tokens: { max: 100, onExceeded } })

@@ -62,6 +62,7 @@ import * as HarnessError from "@smthrs/harness/HarnessError"
 import type * as Plan from "@smthrs/harness/Plan"
 import { CallFact } from "@smthrs/journal"
 import * as CanonicalJson from "@smthrs/model/CanonicalJson"
+import * as Evaluator from "@smthrs/model/Evaluator"
 import type * as Model from "@smthrs/model/Model"
 import * as ModelError from "@smthrs/model/ModelError"
 import * as ModelEvent from "@smthrs/model/ModelEvent"
@@ -1203,7 +1204,22 @@ export const make = (
             })
           }),
           execute: boundary.execute
-        })
+        }).pipe(
+          // A paid boundary that failed with a typed evaluator failure, such
+          // as an unjudged completion, charges what that reading paid before
+          // it failed. It is read off the recorded failure, so a replay
+          // charges it once under the same key (#3010).
+          Effect.tapError((error) => {
+            const paid = boundary.usage !== undefined && error.cause instanceof Evaluator.EvaluatorError
+              ? error.cause.usage
+              : undefined
+            return paid === undefined ? Effect.void : budget.record(
+              charged,
+              { inputTokens: paid.inputTokens, outputTokens: paid.outputTokens },
+              paid.modelId
+            ).pipe(Effect.mapError(accountingFailed))
+          })
+        )
         // What a boundary paid a model for, such as a completion judge's
         // reading, is the run's spend like any sealed step's (#2681). It is
         // read off the recorded value and accounted under the boundary's own

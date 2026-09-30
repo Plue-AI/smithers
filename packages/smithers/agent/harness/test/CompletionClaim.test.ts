@@ -406,6 +406,19 @@ describe("the claim brake", () => {
     expect(judged.unproven).toBeUndefined()
   })
 
+  it("carries what a failed reading paid on its typed cause, through the journal (#3010)", async () => {
+    const usage = { inputTokens: 80, outputTokens: 5, modelId: "judge" }
+    const error = await unjudged({
+      layer: refusing(new Evaluator.EvaluatorError({ code: "invalid_answer", message: "bad", usage })).layer
+    })
+    expect(error.cause).toMatchObject({ code: "invalid_answer", usage })
+    const persisted = Schema.decodeUnknownSync(HarnessError)(
+      JSON.parse(JSON.stringify(Schema.encodeSync(HarnessError)(error)))
+    )
+    expect(persisted.cause).toBeInstanceOf(Evaluator.EvaluatorError)
+    expect((persisted.cause as Evaluator.EvaluatorError).usage).toEqual(usage)
+  })
+
   it("fails the turn when the evaluator refuses, times out, or is unreachable, naming which", async () => {
     for (const code of ["refused", "timeout", "unreachable", "empty", "invalid_answer"] as const) {
       const jev = refusing(new Evaluator.EvaluatorError({ code, message: `scripted ${code}` }))
@@ -989,6 +1002,42 @@ describe("a long claim, read one sentence at a time", () => {
     const failure = await unjudged({ layer, calls: [probe], claim: truthful })
 
     expect(failure.code).toBe("completion_unjudged")
+  })
+
+  it("names what both readings paid when the sentence reading fails after the whole one (#3010)", async () => {
+    const failing = (whole: Evaluator.Usage | undefined, sentences: Evaluator.Usage | undefined) =>
+      Layer.succeed(Evaluator.Evaluator)(Evaluator.Evaluator.of({
+        evaluate: (request) =>
+          "invented" in request.questions
+            ? Effect.succeed({
+              answers: {
+                complete: { type: "boolean", probability: 0.1 },
+                overclaims: { type: "boolean", probability: 0.9 },
+                invented: { type: "boolean", probability: 0.91 }
+              },
+              latencyMs: 1,
+              ...(whole === undefined ? {} : { usage: whole })
+            })
+            : Effect.fail(
+              new Evaluator.EvaluatorError({
+                code: "timeout",
+                message: "deadline",
+                ...(sentences === undefined ? {} : { usage: sentences })
+              })
+            )
+      }))
+    const paidBy = async (whole: Evaluator.Usage | undefined, sentences: Evaluator.Usage | undefined) =>
+      ((await unjudged({ layer: failing(whole, sentences), calls: [probe], claim: truthful })).cause as
+        Evaluator.EvaluatorError).usage
+
+    const judge = { inputTokens: 300, outputTokens: 10, modelId: "judge" }
+    const again = { inputTokens: 200, outputTokens: 4, modelId: "judge" }
+    expect(await paidBy(judge, again)).toEqual({ inputTokens: 500, outputTokens: 14, modelId: "judge" })
+    // A fallback that answered one of the two leaves the sum without a model.
+    expect(await paidBy(judge, { ...again, modelId: "backup" })).toEqual({ inputTokens: 500, outputTokens: 14 })
+    expect(await paidBy(judge, undefined)).toEqual(judge)
+    expect(await paidBy(undefined, again)).toEqual(again)
+    expect(await paidBy(undefined, undefined)).toBeUndefined()
   })
 
   it("meters both questions, and keeps whichever usage was reported when one reading reports none", async () => {

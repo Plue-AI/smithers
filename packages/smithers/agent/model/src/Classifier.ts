@@ -37,7 +37,9 @@ export class ClassifierError extends Schema.TaggedError<ClassifierError>()("flow
   code: Evaluator.EvaluatorErrorCode,
   status: Schema.optional(Schema.Number),
   resetAtEpochMillis: Schema.optional(Schema.Number),
-  message: Schema.String
+  message: Schema.String,
+  /** What the reading paid before it failed; see `Evaluator.EvaluatorError.usage`. */
+  usage: Evaluator.EvaluatorError.fields.usage
 }) {}
 Fault.register("flows/model/ClassifierError", Evaluator.faults)
 
@@ -459,7 +461,8 @@ export const fromEvaluatorError = (error: Evaluator.EvaluatorError): ClassifierE
     code: error.code,
     ...(error.status === undefined ? {} : { status: error.status }),
     ...(error.resetAtEpochMillis === undefined ? {} : { resetAtEpochMillis: error.resetAtEpochMillis }),
-    message: error.message
+    message: error.message,
+    ...(error.usage === undefined ? {} : { usage: error.usage })
   })
 
 /**
@@ -489,7 +492,14 @@ export const make = <const Id extends string, State extends Schema.Codec<any, an
       const response = yield* evaluator.evaluate({ state: encoded, questions }).pipe(
         Effect.mapError(fromEvaluatorError)
       )
-      return yield* decodeAnswers(questions, response.answers)
+      // An answer this classifier cannot decode was still paid for.
+      return yield* decodeAnswers(questions, response.answers).pipe(
+        Effect.mapError((error) =>
+          response.usage === undefined
+            ? error
+            : new ClassifierError({ code: error.code, message: error.message, usage: response.usage })
+        )
+      )
     })
   )
 

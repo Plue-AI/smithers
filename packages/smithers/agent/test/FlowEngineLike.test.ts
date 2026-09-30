@@ -17,6 +17,7 @@ import { HarnessError } from "@smthrs/harness/HarnessError"
 import * as Plan from "@smthrs/harness/Plan"
 import { CallFact } from "@smthrs/journal"
 import * as TestJournal from "@smthrs/journal/test/TestJournal"
+import * as Evaluator from "@smthrs/model/Evaluator"
 import * as Model from "@smthrs/model/Model"
 import { ModelError } from "@smthrs/model/ModelError"
 import * as ModelEvent from "@smthrs/model/ModelEvent"
@@ -1396,10 +1397,12 @@ describe("FlowEngineLike.record", () => {
     expect(completed(outcome)).toMatchObject({ tokens: 90 })
   })
 
-  it.each([
-    ["fail", Budget.BudgetExceeded],
-    ["skip-remaining", Budget.Skipped]
-  ] as const)(
+  it.each(
+    [
+      ["fail", Budget.BudgetExceeded],
+      ["skip-remaining", Budget.Skipped]
+    ] as const
+  )(
     "refuses a paid reading under %s once the ceiling is spent, without taking it (#3010)",
     async (onExceeded, refusal) => {
       const readings: Array<string> = []
@@ -1431,6 +1434,61 @@ describe("FlowEngineLike.record", () => {
       expect(usage.tokens).toBe(100)
     }
   )
+
+  it("charges what a paid boundary's typed evaluator failure paid, once across its replay (#3010)", async () => {
+    const readings: Array<string> = []
+    const entries: Array<Budget.LedgerEntry> = []
+    const ledger = Budget.memoryLedger()
+    let park = true
+    const outcome = await drive(
+      Effect.gen(function*() {
+        const port = yield* FlowEngineLike.make({ model: countingModel([]), route: staticRoute() })
+        const unjudged = (boundary: string, usage: Evaluator.EvaluatorError["usage"], paid: boolean) =>
+          port.record({
+            name: "completion-judgement",
+            identity: { session: "session-1", frame: 0, boundary },
+            success: Schema.Null,
+            ...(paid ? { usage: () => undefined } : {}),
+            execute: Effect.suspend(() => {
+              readings.push(boundary)
+              return Effect.fail(
+                new HarnessError({
+                  code: "completion_unjudged",
+                  message: "unjudged",
+                  cause: new Evaluator.EvaluatorError({
+                    code: "invalid_answer",
+                    message: "bad",
+                    ...(usage === undefined ? {} : { usage })
+                  })
+                })
+              )
+            })
+          }).pipe(Effect.flip)
+        yield* unjudged("metered", { inputTokens: 40, outputTokens: 2, modelId: "judge-a" }, true)
+        yield* unjudged("unmetered", undefined, true)
+        // A boundary that declares no usage pays for nothing, whatever it failed with.
+        yield* unjudged("unpaid", { inputTokens: 1_000, outputTokens: 0 }, false)
+        if (park) {
+          park = false
+          yield* port.suspend(new EngineLike.SuspendReason({ code: "engine", message: "killed" }))
+        }
+        return yield* (yield* Budget.Budget).usage
+      }).pipe(Effect.provide(Budget.layer(
+        { tokens: { max: 10_000 }, prices: { "judge-a": { input: 1, cacheRead: 0, cacheWrite: 0, output: 1 } } },
+        {
+          ledger: {
+            ...ledger,
+            record: (entry) => Effect.andThen(Effect.sync(() => void entries.push(entry)), ledger.record(entry))
+          }
+        }
+      ))),
+      { resume: true }
+    )
+    expect(readings).toEqual(["metered", "unmetered", "unpaid"])
+    expect(completed(outcome)).toMatchObject({ tokens: 42, calls: 1 })
+    expect(entries).toHaveLength(1)
+    expect(entries[0]).toMatchObject({ spent: 42, costSource: "estimated" })
+  })
 
   it("charges an advisory reading past a spent ceiling without admitting it (#3010)", async () => {
     const readings: Array<string> = []

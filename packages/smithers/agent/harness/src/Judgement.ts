@@ -50,6 +50,11 @@ import { paidUsage } from "./internal/paidUsage.ts"
 export interface Unjudged {
   readonly reason: typeof AgentEvent.UnjudgedReason.Type
   readonly detail: string
+  /**
+   * What each request of the failed reading paid, when the provider metered
+   * it before the reading failed: a failed reading is still spend (#3010).
+   */
+  readonly usage?: ReadonlyArray<Evaluator.Usage> | undefined
 }
 
 /**
@@ -160,7 +165,11 @@ export const read = <Id extends string, S extends Schema.Codec<any, any>, Qs ext
     return yield* measured(classifier, state).pipe(
       Effect.provideService(Evaluator.Evaluator, bound.value),
       // An unreachable transport's own message can name hosts and URLs.
-      Effect.mapError((error): Unjudged => ({ reason: error.code, detail: Evaluator.publicMessage(error) }))
+      Effect.mapError((error): Unjudged => ({
+        reason: error.code,
+        detail: Evaluator.publicMessage(error),
+        ...(error.usage === undefined ? {} : { usage: [error.usage] })
+      }))
     )
   })
 
@@ -327,10 +336,25 @@ export const perItem = <Ctx, Item, const Qs extends ItemQuestions>(
     Effect.gen(function*() {
       if (items.length === 0) return { answers: [], asked: [] }
       const chunks = yield* chunk(context, items)
+      // The first request that fails fails the reading, but every request
+      // that settled before it was paid for, and so was the failure itself.
+      const paid: Array<Evaluator.Usage> = []
       const reads = yield* Effect.forEach(
         chunks,
-        (slice) => read(classifierFor(slice.length), { context, items: slice }),
+        (slice) =>
+          read(classifierFor(slice.length), { context, items: slice }).pipe(
+            Effect.tap((reading) =>
+              Effect.sync(() => {
+                if (reading.asked.usage !== undefined) paid.push(reading.asked.usage)
+              })
+            )
+          ),
         { concurrency: options.concurrency ?? Classifier.defaultConcurrency }
+      ).pipe(
+        Effect.mapError((unjudged): Unjudged => {
+          const usage = [...paid, ...(unjudged.usage ?? [])]
+          return usage.length === 0 ? unjudged : { ...unjudged, usage }
+        })
       )
       const answers = reads.flatMap((reading, at) =>
         chunks[at]!.map((_, index) =>
@@ -388,7 +412,8 @@ export const unjudgedEvent = (
     classifier: at.classifier,
     reason: unjudged.reason,
     detail: unjudged.detail,
-    items: at.items
+    items: at.items,
+    ...(unjudged.usage === undefined ? {} : { usage: unjudged.usage })
   })
 
 /**
@@ -448,8 +473,10 @@ export const recorded = <A>(
     name: boundary.name,
     identity: boundary.identity,
     success: Recorded(boundary.value),
-    // Each settled request is one metered reading; see `EngineLike.RecordBoundary.usage`.
-    usage: (record) => paidUsage(record.decisions.map((settled) => settled.usage)),
+    // Each settled request is one metered reading, and so is each request of
+    // a reading that failed after it was metered; see `EngineLike.RecordBoundary.usage`.
+    usage: (record) =>
+      paidUsage([...record.decisions.map((settled) => settled.usage), ...(record.unjudged?.usage ?? [])]),
     execute: Effect.match(execute, {
       onFailure: (unjudged): Recorded<A> => ({
         value: null,
