@@ -18,6 +18,7 @@ const fixture = (kind: "container" | "pod", refused: boolean) => {
   const resource = join(directory, "resource")
   const calls = join(directory, "calls")
   const program = join(directory, "cli")
+  const pids = join(directory, "pids")
   writeFileSync(
     program,
     `#!${process.execPath}
@@ -29,7 +30,10 @@ const verb = args[0];
 if (verb === "create" || verb === "run") fs.writeFileSync(${JSON.stringify(resource)}, "owned");
 if (verb === "exec") {
   const shell = args.indexOf("/bin/sh");
-  const result = cp.spawnSync("/bin/sh", args.slice(shell + 1), { stdio: "inherit" });
+  // The guest's fixed pid directory lives under this fixture, never the host's
+  // shared one: acquisition wipes it, which would end live local sessions.
+  const guest = args.slice(shell + 1).map((arg) => arg.replaceAll("/tmp/.smthrs-sbx", ${JSON.stringify(pids)}));
+  const result = cp.spawnSync("/bin/sh", guest, { stdio: "inherit" });
   process.exit(result.status ?? 1);
 }
 if (verb === "rm" || verb === "delete") {
