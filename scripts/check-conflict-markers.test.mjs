@@ -126,13 +126,37 @@ test("ignores binary and untracked files", (t) => {
   assert.deepEqual(findConflictMarkers(root), [])
 })
 
-test("fails loudly outside a git repository rather than reporting it clean", (t) => {
-  const root = mkdtempSync(join(tmpdir(), "conflict-markers-bare-"))
+test("searches a directory with no .git, such as smthrs's scratch copy, honoring every .gitignore", (t) => {
+  const root = mkdtempSync(join(tmpdir(), "conflict-markers-copy-"))
   t.after(() => rmSync(root, { recursive: true, force: true }))
-  assert.throws(() => findConflictMarkers(root), /git grep failed with status/)
-  const cli = run(root)
+  const files = {
+    ".gitignore": "dist/\n*.log\n",
+    "src/.gitignore": "generated.ts\n",
+    "src/x.ts": jjConflict,
+    "src/generated.ts": gitConflict,
+    "dist/out.js": gitConflict,
+    "build.log": gitConflict,
+    "clean.md": "Title\n=====\n"
+  }
+  for (const [path, contents] of Object.entries(files)) {
+    mkdirSync(join(root, path, ".."), { recursive: true })
+    writeFileSync(join(root, path), contents)
+  }
+  assert.deepEqual(findConflictMarkers(root).map(({ path, line }) => `${path}:${line}`), [
+    "src/x.ts:2",
+    "src/x.ts:3",
+    "src/x.ts:4",
+    "src/x.ts:8",
+    "src/x.ts:9"
+  ])
+})
+
+test("fails loudly when the search cannot run rather than reporting it clean", () => {
+  const missing = join(tmpdir(), `conflict-markers-missing-${process.pid}-${Date.now()}`)
+  assert.throws(() => findConflictMarkers(missing), /git grep could not run: /)
+  const cli = run(missing)
   assert.equal(cli.status, 2)
-  assert.match(cli.stderr, /^conflict markers: git grep failed with status \d+: /)
+  assert.match(cli.stderr, /^conflict markers: git grep could not run: /)
 })
 
 test("the command exits 1 naming every marker, and 0 on a clean tree", (t) => {

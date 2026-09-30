@@ -23,6 +23,7 @@ const gateCommands = [
   "pnpm exec smthrs lint '//:openapiBundle' --known-red '.github/ci-known-red.json' --verbose",
   "pnpm exec smthrs lint '//scripts:docsDrift' --known-red '.github/ci-known-red.json' --verbose",
   "pnpm exec smthrs build '//scripts:apiBaseline' --known-red '.github/ci-known-red.json' --verbose",
+  "pnpm exec smthrs lint '//scripts:conflictMarkers' --known-red '.github/ci-known-red.json' --verbose",
   "pnpm exec smthrs lint '//:driftCi' --known-red '.github/ci-known-red.json' --verbose",
 ]
 

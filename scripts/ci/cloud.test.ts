@@ -125,7 +125,7 @@ describe("Smithers Cloud CI", () => {
     }
     const expected = runs(drift)
     expect(expected.length).toBeGreaterThan(0)
-    for (const pattern of ["//...:fmt", "//scripts:docsDrift", "//scripts:apiBaseline"]) {
+    for (const pattern of ["//...:fmt", "//scripts:docsDrift", "//scripts:apiBaseline", "//scripts:conflictMarkers"]) {
       expect(expected.some((command) => command.includes(`'${pattern}'`))).toBe(true)
     }
     expect(task!.gates!.flatMap(commandOf)).toEqual(expected)

@@ -10,7 +10,7 @@ import { Workflow, Task, Parallel, on } from "@smithers-ai/workflow";
 // task per gate cost 39 x ~12 minutes over 5 runners, so 1.5-2 hours per push:
 // run 11697 (2026-09-15) still had 35 gates queued after 20 minutes.
 //
-// So the gates (52 as of 2026-09-29) are batched into 7 tasks that each bootstrap once and then
+// So the gates (53 as of 2026-09-30) are batched into 7 tasks that each bootstrap once and then
 // run their gates in order (`cloud.sh group ...` prints `::gate <name>
 // start|ok|fail` per gate, runs them all even when one fails, and exits
 // non-zero if any did). Groups share a toolchain so the extra installs are
@@ -35,7 +35,7 @@ import { Workflow, Task, Parallel, on } from "@smithers-ai/workflow";
 export default () => (
   <Workflow name="CI" triggers={[on.push({ branches: ["main"] }), on.manualDispatch({})]}>
     <Parallel>
-      <Task id="drift" secrets={[]}>{`SMITHERS_CLOUD_CI=1 bash scripts/ci/cloud.sh group fmt target-index openapi-bundle docs-drift api-baseline drift-ci`}</Task>
+      <Task id="drift" secrets={[]}>{`SMITHERS_CLOUD_CI=1 bash scripts/ci/cloud.sh group fmt target-index openapi-bundle docs-drift api-baseline conflict-markers drift-ci`}</Task>
       <Task id="packages" secrets={[]}>{`SMITHERS_CLOUD_CI=1 bash scripts/ci/cloud.sh group workspace packages faults`}</Task>
       <Task id="rust" secrets={[]}>{`SMITHERS_CLOUD_CI=1 bash scripts/ci/cloud.sh group rust-lint wasm-build-script third-party-notices rust-test native-ffi tui backend-go scripts`}</Task>
       <Task id="ui" secrets={[]}>{`SMITHERS_CLOUD_CI=1 bash scripts/ci/cloud.sh group ui-check ui-tests ui-conformance examples factory-harness ui-browser`}</Task>

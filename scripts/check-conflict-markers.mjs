@@ -12,7 +12,10 @@
  * carries `<<<<<<<` and `>>>>>>>` too.
  *
  * `git grep -I` searches the tracked files as they stand in the working tree
- * and skips binary files.
+ * and skips binary files. `smthrs lint` runs this in a scratch copy of the
+ * workspace that has no `.git`; there it searches the directory with
+ * `--no-index --exclude-standard`, which honors every `.gitignore`, so it
+ * reads the same files.
  *
  * Usage: node scripts/check-conflict-markers.mjs [repository root]
  * Exits 0 when clean, 1 on a marker, and 2 when the search itself failed.
@@ -33,7 +36,9 @@ export const isMarkerLine = (line) => markerLine.test(line)
  * `{ path, line, text }`, in git's order.
  */
 export const findConflictMarkers = (root) => {
-  const result = spawnSync("git", ["grep", "-z", "-n", "-I", "-E", "-e", markerPattern, "--"], {
+  const repository = spawnSync("git", ["rev-parse", "--is-inside-work-tree"], { cwd: root, encoding: "utf8" })
+  const scope = repository.status === 0 && repository.stdout.trim() === "true" ? [] : ["--no-index", "--exclude-standard"]
+  const result = spawnSync("git", ["grep", ...scope, "-z", "-n", "-I", "-E", "-e", markerPattern, "--"], {
     cwd: root,
     encoding: "utf8",
     maxBuffer: 64 * 1024 * 1024

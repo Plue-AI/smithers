@@ -270,6 +270,34 @@ const docsDrift = Smithers.Shell.Diff({
   timeout: "5m"
 })
 
+/**
+ * Fails on a git or jj conflict marker committed into a tracked text file
+ * (#3151). A per-commit drift gate: `git grep` over the tree takes a second.
+ * Check mode runs it in a scratch copy with no `.git`, where it searches every
+ * file no `.gitignore` excludes.
+ *
+ * @since 1.0.0
+ * @category lint
+ */
+const conflictMarkers = Smithers.Shell.Diff({
+  shell: "node scripts/check-conflict-markers.mjs",
+  changes: [],
+  timeout: "2m"
+})
+
+/**
+ * The conflict-marker check's own contract: every git and jj marker form, the
+ * look-alikes it leaves, binary and untracked files, and a failed search.
+ *
+ * @since 1.0.0
+ * @category test
+ */
+const conflictMarkersUnit = Smithers.NodeTest({
+  runner: Smithers.testRunner([Smithers.file("//scripts/check-conflict-markers.test.mjs")]),
+  srcs: sources,
+  deps: []
+})
+
 // The per-tag OpenAPI bundler: ordering, refusals, merge-freedom across tags,
 // and that the committed bundle matches its sources.
 const openapiBundle = Smithers.NodeTest({
@@ -854,6 +882,8 @@ const securityReview = Smithers.SecurityReview({
 export const Package = Smithers.Package({
   targets: {
     apiBaseline,
+    conflictMarkers,
+    conflictMarkersUnit,
     docsDrift,
     driftJob,
     openapiBundle,

@@ -53805,6 +53805,59 @@
     }
   },
   {
+    "label": "//scripts:conflictMarkers",
+    "package": "scripts",
+    "name": "conflictMarkers",
+    "rule": "Shell.Diff",
+    "kinds": [
+      "run",
+      "lint"
+    ],
+    "cacheable": false,
+    "inputs": [],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:conflictMarkersUnit",
+    "package": "scripts",
+    "name": "conflictMarkersUnit",
+    "rule": "NodeTest",
+    "kinds": [
+      "test"
+    ],
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "scripts/check-conflict-markers.test.mjs"
+      },
+      {
+        "kind": "glob",
+        "pattern": "scripts/**/*.mjs",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "scripts/**/*.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "scripts/fixtures/**/*.json",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
     "label": "//scripts:conformanceCheck",
     "package": "scripts",
     "name": "conformanceCheck",
