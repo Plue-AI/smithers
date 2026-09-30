@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -122,6 +123,12 @@ func (q *rolloutRecoveryQuerier) FindUnregisteredWorkspaceSandbox(context.Contex
 }
 
 func TestStaleProvisioningReconcilesInsteadOfFailingAfterRestart(t *testing.T) {
+	// CI exports SMITHERS_WORKSPACE_JJ_EXPORT_BINARY, a ~50 MB debug build;
+	// staging it outlasts the one-second resume bound. Recovery is under test.
+	dir := t.TempDir()
+	t.Setenv(workspaceCLIPackageEnv, filepath.Join(dir, "missing-cli"))
+	t.Setenv(workspaceCodingHostBinaryEnv, filepath.Join(dir, "missing-host"))
+	t.Setenv(workspaceJJExportBinaryEnv, filepath.Join(dir, "missing-helper"))
 	ws := sampleDBWorkspace("survivor")
 	ws.Status = "starting"
 	ws.VmID = ""
