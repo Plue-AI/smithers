@@ -476,10 +476,9 @@ describe("coverage conformance", () => {
       // assertion remains beside serialization to fail closed if either
       // invariant changes.
       "smithers/flows/artifacts/src/RemoteArtifacts.ts": 1,
-      // Doctor's SQLite adapter throws Error values, and Gc's closed retention
-      // failure contract does the same; their fallbacks
-      // keep diagnostics total if those dependencies widen in the future.
-      "smithers/src/Doctor.ts": 1,
+      // Gc's closed retention failure contract throws Error values; its
+      // fallbacks keep diagnostics total if that dependency widens in the
+      // future.
       "smithers/src/Gc.ts": 2,
       // Control's three arms sit behind the mutation boundary: every caller
       // hands `principalOf` a mutation the boundary already decoded into a
