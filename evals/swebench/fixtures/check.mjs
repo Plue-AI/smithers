@@ -211,8 +211,13 @@ const wave = () => {
     check(`${expected.id} baseline verdict`, row.baseline?.verdict, codex.verdict)
     check(`${expected.id} bucket`, row.callout, bucket(expected.graded, codex.verdict))
 
-    // Cost is the price table applied to the reported tokens, recomputed here.
-    const expectedUsd = Math.round((expected.inTok * 5 + expected.outTok * 30) / 100) / 10_000
+    // Cost is the committed rate card applied to the reported tokens, recomputed
+    // here so a rate refresh moves the expectation with it.
+    const expectedUsd = usd("openai:gpt-5.6-sol", {
+      inputTokens: expected.inTok,
+      cachedInputTokens: 0,
+      outputTokens: expected.outTok
+    }).usd
     check(`${expected.id} usd`, row.cost.usd, expectedUsd)
 
     // Jev is priced apart from the seat: the fixture journal carries one
@@ -225,7 +230,7 @@ const wave = () => {
     check(`${expected.id} jev unjudged`, row.cost.jevUnjudged, 1)
     check(`${expected.id} jev input tokens`, row.cost.jevInputTokens, 1500)
     check(`${expected.id} jev output tokens`, row.cost.jevOutputTokens, 0)
-    const expectedJevUsd = Math.round(1500 * 0.042 / 100) / 10_000
+    const expectedJevUsd = usd(jevModel, { inputTokens: 1500, cachedInputTokens: 0, outputTokens: 0 }).usd
     check(`${expected.id} jev usd`, row.cost.jevUsd, expectedJevUsd)
     check(`${expected.id} total usd`, row.cost.totalUsd, Math.round((expectedUsd + expectedJevUsd) * 10_000) / 10_000)
     // The supervisor's faults are counted, and apart from the metered calls:
