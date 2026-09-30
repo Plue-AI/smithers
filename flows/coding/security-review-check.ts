@@ -2,20 +2,24 @@
  * (the `LlmLint` rows of the target index) is read from the commit the change
  * applies to, the source from the change's immutable head, both through the
  * native tree export, so no Git directory is needed. Every model request runs
- * on the host's subscription seats (`claude-code:<model>`, `codex:<model>`),
- * never an API key. Findings stay in the host's private finding store; the
+ * on a tool-free subscription seat (Claude Code, or Codex without the Smithers
+ * MCP server), never an API key. Findings stay in the host's private finding store; the
  * receipt carries only their public summaries. `coding/SecurityAudit` runs the
  * scheduled audits the same way over one whole commit. */
 import * as SeatResolver from "@smthrs/agent/SeatResolver"
 import { Action, Flow, Interpreter } from "@smthrs/flow"
+import type * as Model from "@smthrs/model/Model"
 import * as Executable from "@smthrs/registry/Executable"
-import type * as LlmLint from "@smthrs/targets/LlmLint"
+import * as LlmLint from "@smthrs/targets/LlmLint"
 import { Effect, Layer, Schema } from "effect"
 import { createHash } from "node:crypto"
+import { createReadStream } from "node:fs"
 import * as NodeFs from "node:fs/promises"
 import * as NodePath from "node:path"
 import * as Label from "../../packages/smithers/build/build-cli/src/Label.ts"
 import * as TrustedReview from "../../packages/smithers/build/build-cli/src/TrustedReview.ts"
+import * as CodexCode from "../../packages/smithers/src/internal/CodexCode.ts"
+import * as Providers from "../../packages/smithers/src/Providers.ts"
 import { privatePath } from "../repository/check-context.ts"
 import { type ImmutableSourceOptions, withImmutableCommit, withImmutableSource } from "./immutable-source.ts"
 import { NativeCoding } from "./native.ts"
@@ -29,13 +33,41 @@ export const Body = Schema.Struct({
   )
 })
 
-/** The subscription seat one review seat runs on: Claude Code for Claude models, Codex for OpenAI models. */
-export const subscriptionSeat = (seat: LlmLint.ReviewSeat): string =>
-  seat.engine === "claude" ? `claude-code:${seat.model}` : `codex:${seat.model}`
+/** A Codex review seat: the model it runs, or why it cannot. */
+export type CodexSeat = (
+  model: string
+) => Effect.Effect<{ readonly model: Model.Model; readonly modelId: string }, Error>
 
-/** The review transport over the host's seat resolver. */
-export const seatTransport = (resolver: SeatResolver.Service): LlmLint.ReviewTransport => (seat) =>
-  resolver.resolve(subscriptionSeat(seat)).pipe(
+/**
+ * The Codex subscription seat without its Smithers MCP server. Reviewed source
+ * is untrusted, so the reviewer gets no tools: the ordinary `codex:` seat
+ * loads Smithers MCP for agent cells, so this builds the same seat model with
+ * `mcp: false` over the machine's own `codex login`.
+ */
+export const toolFreeCodex = (environment: Readonly<Record<string, string | undefined>>): CodexSeat => (model) =>
+  Effect.promise(() => Providers.codexLogin(environment)).pipe(
+    Effect.flatMap((login) =>
+      login?.loggedIn === true
+        ? Effect.succeed({
+          model: CodexCode.make({
+            model: Providers.codexModel(model),
+            executable: login.executable,
+            environment,
+            mcp: false
+          }),
+          modelId: Providers.codexModel(model)
+        })
+        : Effect.fail(new Error("Codex is not signed in with ChatGPT; run `codex login --device-auth`"))
+    )
+  )
+
+/**
+ * The review transport: Claude models on the host's Claude Code seat
+ * (`claude-code:<model>`, which runs no tools or MCP servers), OpenAI models
+ * on the tool-free Codex seat.
+ */
+export const seatTransport = (resolver: SeatResolver.Service, codex: CodexSeat): LlmLint.ReviewTransport => (seat) =>
+  seat.engine === "codex" ? codex(seat.model) : resolver.resolve(`claude-code:${seat.model}`).pipe(
     Effect.map((resolved) => ({ model: resolved.model, modelId: resolved.modelId })),
     Effect.mapError((error) => new Error(error.message))
   )
@@ -57,6 +89,8 @@ export interface SecurityReviewEvidence {
 const Input = Schema.Struct({ implementation: Implementation, check: Check })
 /** Why a change with nothing to review fails. */
 export const emptyChange = "The change has no reviewable path; a required security review cannot pass"
+/** Why a change no selected review governs fails: it would otherwise pass unreviewed. */
+export const ungoverned = "No selected security review governs the change; it cannot pass unreviewed"
 const invalid = (message: string) => new CodingError({ code: "invalid_receipt", message })
 
 /** Reviews one implementation; the whole review is one durable action whose finding store resumes it. */
@@ -75,14 +109,22 @@ export const securityReviewCheckDelegate = Flow.make("coding/SecurityReviewCheck
   body: (invocation) => ReviewSecurity.call(invocation)
 })
 
-const sha256 = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex")
+/** A file's SHA-256, streamed so a large committed artifact is never held in memory. */
+const sha256 = async (path: string, signal: AbortSignal | undefined) => {
+  const hash = createHash("sha256")
+  for await (const chunk of createReadStream(path, signal === undefined ? {} : { signal })) hash.update(chunk as Buffer)
+  return hash.digest("hex")
+}
 
 /**
  * One exported tree as a {@link TrustedReview.ReviewSource} revision: every
  * entry by its repository path, its identity its kind, executable bit and
  * content digest. A private repository-job path never enters a review.
  */
-const listTree = async (root: string): Promise<Map<string, TrustedReview.SourceEntry>> => {
+const listTree = async (
+  root: string,
+  signal: AbortSignal | undefined
+): Promise<Map<string, TrustedReview.SourceEntry>> => {
   const entries = new Map<string, TrustedReview.SourceEntry>()
   const found = await NodeFs.readdir(root, { withFileTypes: true, recursive: true })
   for (
@@ -92,6 +134,7 @@ const listTree = async (root: string): Promise<Map<string, TrustedReview.SourceE
         : (left.parentPath < right.parentPath ? -1 : 1)
     )
   ) {
+    signal?.throwIfAborted()
     if (dirent.isDirectory()) continue
     const absolute = NodePath.join(dirent.parentPath, dirent.name)
     const path = NodePath.relative(root, absolute).split(NodePath.sep).join("/")
@@ -99,7 +142,7 @@ const listTree = async (root: string): Promise<Map<string, TrustedReview.SourceE
     if (dirent.isFile()) {
       const executable = ((await NodeFs.stat(absolute)).mode & 0o111) !== 0
       entries.set(path, {
-        id: `file:${executable ? 755 : 644}:${sha256(await NodeFs.readFile(absolute))}`,
+        id: `file:${executable ? 755 : 644}:${await sha256(absolute, signal)}`,
         regular: true
       })
     } else {
@@ -112,17 +155,21 @@ const listTree = async (root: string): Promise<Map<string, TrustedReview.SourceE
   return entries
 }
 
-/** Reads the trees exported at `roots` (revision → export directory) as a review source. */
-export const exportedSource = (roots: Readonly<Record<string, string>>): TrustedReview.ReviewSource => {
+/** Reads the trees exported at `roots` (revision → export directory) as a review source; `signal` stops it. */
+export const exportedSource = (
+  roots: Readonly<Record<string, string>>,
+  signal?: AbortSignal
+): TrustedReview.ReviewSource => {
   const trees = new Map<string, Promise<Map<string, TrustedReview.SourceEntry>>>()
   const tree = (revision: string) => {
     const root = roots[revision]
     if (root === undefined) return Promise.reject(new Error("The review read a revision it did not export"))
     let listed = trees.get(revision)
-    if (listed === undefined) trees.set(revision, listed = listTree(root))
+    if (listed === undefined) trees.set(revision, listed = listTree(root, signal))
     return listed
   }
   const bytes = async (revision: string, path: string, limit: number) => {
+    signal?.throwIfAborted()
     const absolute = NodePath.join(roots[revision]!, ...path.split("/"))
     if ((await NodeFs.stat(absolute)).size > limit) throw new Error("A review file exceeds its size limit")
     return NodeFs.readFile(absolute)
@@ -136,7 +183,9 @@ export const exportedSource = (roots: Readonly<Record<string, string>>): Trusted
       const matched: Array<string> = []
       for (const [path, entry] of await tree(revision)) {
         if (!entry.regular || !candidate(path)) continue
-        const contents = await bytes(revision, path, Number.MAX_SAFE_INTEGER)
+        // A file past the review limit cannot be a reviewed caller.
+        const contents = await bytes(revision, path, LlmLint.maximumReviewFileBytes).catch(() => undefined)
+        if (contents === undefined) continue
         // Binary files never match, as `git grep -I` skips them.
         if (contents.includes(0)) continue
         const text = new TextDecoder().decode(contents)
@@ -162,6 +211,25 @@ export const reviewBase = (implementation: Implementation): string | undefined =
 type Reviewed = Awaited<ReturnType<typeof TrustedReview.reviewPrepared>>
 
 /**
+ * Why a review did not finish, in fixed public words: a diagnostic can name
+ * reviewed files or host paths, so only its kind leaves the host.
+ */
+export const unfinished = (message: string): string =>
+  message.startsWith("Review seat unavailable") ?
+    "a review seat is unavailable" :
+    message.startsWith("Review budget exhausted") ?
+    "its budget is exhausted" :
+    message.startsWith("Review incomplete") ?
+    "batches remain; the next run resumes them" :
+    message.startsWith("Required review selected no files") ?
+    "it selected no file" :
+    message === "Review provider refused the request" ?
+    "the model refused it" :
+    message === "The review response could not be used; see the private run record" ?
+    "a model answer could not be used" :
+    "it failed; see the private run record"
+
+/**
  * The public outcome of a set of reviews: one message per public finding
  * summary or unfinished review, and whether a finding (not an outage) failed it.
  */
@@ -175,7 +243,7 @@ export const summarize = (
     const error = review.error
     return "findings" in error
       ? { label: review.label, status: review.status, findings: error.findings }
-      : { label: review.label, status: review.status, findings: [], error: error.message.slice(0, 1_000) }
+      : { label: review.label, status: review.status, findings: [], error: unfinished(error.message) }
   })
   const messages = refused !== undefined ?
     [refused] :
@@ -244,7 +312,14 @@ const bodyPatterns = (invocation: typeof Executable.Invocation.Type) =>
 export type SecurityReviewOptions = ImmutableSourceOptions & {
   /** Absolute private directory for runs and findings, outside the repository. */
   readonly store: string
+  /** The Codex seat; defaults to {@link toolFreeCodex} over the host's environment. */
+  readonly codex?: CodexSeat | undefined
 }
+
+/** A failure's message with host paths and credentials removed, for an error that may be shown. */
+const hostSafe = (cause: unknown): string =>
+  LlmLint.redactCredentials(cause instanceof Error ? cause.message : String(cause))
+    .replace(/(?:[A-Za-z]:)?(?:\/[^\s/"'`:]+){2,}\/?/g, "<path>").slice(0, 1_024)
 
 /** Reads the change, runs every governing trusted review on the host's seats, and returns the public receipt. */
 export const reviewSecurity = (options: SecurityReviewOptions, invocation: typeof Executable.Invocation.Type) =>
@@ -263,7 +338,7 @@ export const reviewSecurity = (options: SecurityReviewOptions, invocation: typeo
         withImmutableCommit(options, base, (_base, baseRoot) =>
           Effect.tryPromise({
             try: async (signal) => {
-              const source = exportedSource({ [base]: baseRoot, [implementation.head.commitId]: headRoot })
+              const source = exportedSource({ [base]: baseRoot, [implementation.head.commitId]: headRoot }, signal)
               const prepared = TrustedReview.governing(
                 await TrustedReview.prepareSource(source, {
                   policyRevision: base,
@@ -276,10 +351,11 @@ export const reviewSecurity = (options: SecurityReviewOptions, invocation: typeo
               if (prepared.changed.length === 0) {
                 return receipt(implementation, check, prepared, undefined, emptyChange)
               }
+              if (prepared.policies.length === 0) return receipt(implementation, check, prepared, undefined, ungoverned)
               const reviewed = await TrustedReview.reviewPrepared(prepared, {
                 root: headRoot,
                 findingsStore: options.store,
-                transport: seatTransport(resolver),
+                transport: seatTransport(resolver, options.codex ?? toolFreeCodex(process.env)),
                 signal
               })
               return receipt(implementation, check, prepared, reviewed)
@@ -287,9 +363,7 @@ export const reviewSecurity = (options: SecurityReviewOptions, invocation: typeo
             catch: (cause) =>
               new CodingError({
                 code: "execution",
-                message: `The security review could not read its policy or source: ${
-                  (cause instanceof Error ? cause.message : String(cause)).slice(0, 1_024)
-                }`
+                message: `The security review could not read its policy or source: ${hostSafe(cause)}`
               })
           }))
     )
@@ -298,7 +372,7 @@ export const reviewSecurity = (options: SecurityReviewOptions, invocation: typeo
       error instanceof CodingError ? error : new CodingError({
         code: "execution",
         message: "The security review could not export its source" +
-          (error instanceof Error ? `: ${error.message.slice(0, 1_024)}` : "")
+          (error instanceof Error ? `: ${hostSafe(error)}` : "")
       })
     )
   )
@@ -348,7 +422,7 @@ export const auditSecurity = (options: SecurityReviewOptions, invocation: typeof
       Effect.tryPromise({
         try: async (signal): Promise<AuditResult> => {
           const prepared = TrustedReview.governing(
-            await TrustedReview.prepareSource(exportedSource({ [commitId]: root }), {
+            await TrustedReview.prepareSource(exportedSource({ [commitId]: root }, signal), {
               policyRevision: commitId,
               revision: commitId,
               patterns,
@@ -358,7 +432,7 @@ export const auditSecurity = (options: SecurityReviewOptions, invocation: typeof
           const reviewed = prepared.policies.length === 0 ? undefined : await TrustedReview.reviewPrepared(prepared, {
             root,
             findingsStore: options.store,
-            transport: seatTransport(resolver),
+            transport: seatTransport(resolver, options.codex ?? toolFreeCodex(process.env)),
             signal
           })
           const { evidence, messages } = summarize(prepared, reviewed, reviewed === undefined ? emptyAudit : undefined)
@@ -372,9 +446,7 @@ export const auditSecurity = (options: SecurityReviewOptions, invocation: typeof
         catch: (cause) =>
           new CodingError({
             code: "execution",
-            message: `The security audit could not read its policy or source: ${
-              (cause instanceof Error ? cause.message : String(cause)).slice(0, 1_024)
-            }`
+            message: `The security audit could not read its policy or source: ${hostSafe(cause)}`
           })
       }))
   }).pipe(
@@ -382,7 +454,7 @@ export const auditSecurity = (options: SecurityReviewOptions, invocation: typeof
       error instanceof CodingError ? error : new CodingError({
         code: "execution",
         message: "The security audit could not export its source" +
-          (error instanceof Error ? `: ${error.message.slice(0, 1_024)}` : "")
+          (error instanceof Error ? `: ${hostSafe(error)}` : "")
       })
     )
   )

@@ -3,12 +3,13 @@ import * as Seat from "@smthrs/agent/Seat"
 import * as SeatResolver from "@smthrs/agent/SeatResolver"
 import * as Model from "@smthrs/model/Model"
 import * as ModelEvent from "@smthrs/model/ModelEvent"
+import * as ModelRequest from "@smthrs/model/ModelRequest"
 import * as Input from "@smthrs/targets/Input"
 import * as LlmLint from "@smthrs/targets/LlmLint"
 import * as Target from "@smthrs/targets/Target"
 import { Effect, FileSystem, Layer, Stream } from "effect"
 import assert from "node:assert/strict"
-import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
+import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { after, test } from "node:test"
@@ -16,16 +17,20 @@ import { NativeCoding } from "../coding/native.ts"
 import type { Check, Implementation, Receipt, Revision } from "../coding/schema.ts"
 import {
   auditSecurity,
+  type CodexSeat,
   emptyAudit,
   emptyChange,
   reviewBase,
   ReviewSecurity,
   reviewSecurity,
+  seatTransport,
   securityAuditDelegate,
   securityReviewCheckDelegate,
   securityReviewCheckLayers,
   type SecurityReviewEvidence,
-  subscriptionSeat
+  toolFreeCodex,
+  unfinished,
+  ungoverned
 } from "../coding/security-review-check.ts"
 
 const temporary = await mkdtemp(join(tmpdir(), "security-review-check-"))
@@ -152,27 +157,40 @@ const completion = (findings: ReadonlyArray<unknown> = []) =>
     findings
   })
 
+/** A scripted model that answers every review request with `answer`. */
+const answering = (answer: string) =>
+  Model.make({
+    stream: () =>
+      Stream.fromIterable([
+        ModelEvent.ModelEvent.TextDelta({ type: "text-delta", id: "t", text: answer }),
+        ModelEvent.ModelEvent.Settle({ type: "settle", stopReason: "stop" })
+      ])
+  })
+
 /** Host seats that answer every review request with `answer`, recording each seat they resolve. */
 const seats = (answer: string | undefined, resolved: Array<string>) =>
   SeatResolver.layer({
     resolve: (id) => {
       resolved.push(id)
       return answer === undefined
-        ? Effect.fail(new Seat.SeatUnresolved({ seat: id, message: "Claude Code is signed out" }))
+        ? Effect.fail(new Seat.SeatUnresolved({ seat: id, message: "Claude Code is signed out at /Users/x/.claude" }))
         : Effect.succeed(Seat.make({
           id,
           modelId: Seat.modelIdOf(id),
           contextWindowTokens: 200_000,
           route: undefined as never,
-          model: Model.make({
-            stream: () =>
-              Stream.fromIterable([
-                ModelEvent.ModelEvent.TextDelta({ type: "text-delta", id: "t", text: answer }),
-                ModelEvent.ModelEvent.Settle({ type: "settle", stopReason: "stop" })
-              ])
-          })
+          model: answering(answer)
         }))
     }
+  })
+
+/** The tool-free Codex seat, scripted the same way. */
+const codexSeat = (answer: string | undefined, resolved: Array<string>): CodexSeat => (model) =>
+  Effect.suspend(() => {
+    resolved.push(`codex:${model}`)
+    return answer === undefined
+      ? Effect.fail(new Error("Codex is not signed in"))
+      : Effect.succeed({ model: answering(answer), modelId: model })
   })
 
 const run = (
@@ -183,10 +201,11 @@ const run = (
   body?: unknown
 ) =>
   Effect.runPromise(
-    Effect.result(reviewSecurity(options, invocation(implementation, body))).pipe(
-      Effect.provide(seats(answer, resolved)),
-      Effect.provide(NodeServices.layer)
-    )
+    Effect.result(reviewSecurity({ ...options, codex: codexSeat(answer, resolved) }, invocation(implementation, body)))
+      .pipe(
+        Effect.provide(seats(answer, resolved)),
+        Effect.provide(NodeServices.layer)
+      )
   )
 
 const success = (result: Awaited<ReturnType<typeof run>>): Receipt => {
@@ -237,11 +256,13 @@ test("a change to private repository-job paths only is not reviewable and fails 
   assert.equal(evidence(receipt).changed, 0)
 })
 
-test("a change no trusted policy governs passes with no review", async () => {
+test("a change no selected review governs fails instead of passing unreviewed", async () => {
   const { revisions, options } = await fixture({ b: baseFiles, d: { ...baseFiles, "docs/readme.md": "New notes.\n" } })
   const resolved: Array<string> = []
   const receipt = success(await run(options, candidate(revisions.d!, revisions.b!), completion(), resolved))
-  assert.equal(receipt.status, "passed")
+  assert.equal(receipt.status, "failed")
+  assert.equal(receipt.fault, "factory")
+  assert.deepEqual(receipt.findings.map((finding) => finding.message), [ungoverned])
   assert.deepEqual(evidence(receipt).reviews, [])
   assert.equal(evidence(receipt).changed, 1)
   assert.deepEqual(resolved, [])
@@ -303,7 +324,7 @@ test("an unavailable seat fails the review as an outage, never a pass", async ()
   assert.equal(receipt.fault, "infra")
   assert.match(
     receipt.findings[0]!.message,
-    /^\/\/:security: the security review did not complete: Review seat unavailable: Claude Code is signed out/
+    /^\/\/:security: the security review did not complete: a review seat is unavailable$/
   )
 })
 
@@ -369,9 +390,76 @@ test("the delegate is the registered coding/SecurityReviewCheck over one durable
   assert.ok(Layer.isLayer(securityReviewCheckLayers(options)))
 })
 
-test("review seats map to the subscription CLIs", () => {
-  assert.equal(subscriptionSeat({ engine: "claude", model: "claude-opus-5-5" }), "claude-code:claude-opus-5-5")
-  assert.equal(subscriptionSeat({ engine: "codex", model: "gpt-6-sol" }), "codex:gpt-6-sol")
+test("unfinished reviews are reported in fixed public words", () => {
+  assert.equal(unfinished("Review budget exhausted: 10 model calls"), "its budget is exhausted")
+  assert.equal(unfinished("Review incomplete: 3 of 70 batches remain"), "batches remain; the next run resumes them")
+  assert.equal(unfinished("Required review selected no files to review"), "it selected no file")
+  assert.equal(unfinished("Review provider refused the request"), "the model refused it")
+  assert.equal(
+    unfinished("The review response could not be used; see the private run record"),
+    "a model answer could not be used"
+  )
+  assert.equal(
+    unfinished("LLM review request needs about 9 tokens for \"src/secret-plan.ts\""),
+    "it failed; see the private run record"
+  )
+})
+
+test("the Codex review seat is the vendor CLI without the Smithers MCP server", async () => {
+  const bin = join(temporary, "codex-bin")
+  await mkdir(bin, { recursive: true })
+  const argv = join(temporary, "codex-argv.json")
+  await writeFile(
+    join(bin, "codex"),
+    `#!/usr/bin/env node
+const fs = require("node:fs")
+if (process.argv[2] === "login") { console.log("Logged in using ChatGPT"); process.exit(0) }
+fs.writeFileSync(${JSON.stringify(argv)}, JSON.stringify(process.argv.slice(2)))
+fs.readFileSync(0)
+const events = [
+  { type: "thread.started", thread_id: "thread-1" },
+  { type: "item.completed", item: { id: "m", type: "agent_message", text: "[]" } },
+  { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }
+]
+process.stdout.write(events.map((event) => JSON.stringify(event)).join("\\n") + "\\n")
+`
+  )
+  await chmod(join(bin, "codex"), 0o755)
+  const environment = { PATH: `${bin}:${process.env.PATH}`, HOME: temporary }
+  const seat = await Effect.runPromise(toolFreeCodex(environment)("gpt-6-sol"))
+  assert.equal(seat.modelId, "gpt-6-sol")
+  const events = await Effect.runPromise(Stream.runCollect(seat.model.stream(ModelRequest.ModelRequest.make({
+    modelId: "gpt-6-sol",
+    system: [],
+    messages: [ModelRequest.Message.user("review")],
+    tools: [],
+    toolChoice: "none",
+    params: ModelRequest.GenerationParams.make({})
+  }))))
+  assert.ok(events.some((event) => event.type === "text-delta" && event.text === "[]"))
+  const args = JSON.parse(await readFile(argv, "utf8")) as Array<string>
+  assert.ok(!args.some((arg) => arg.startsWith("mcp_servers.")), "no Smithers MCP server")
+  assert.ok(args.includes("features.shell_tool=false"))
+  const signedOut = await Effect.runPromise(
+    Effect.flip(toolFreeCodex({ PATH: temporary, HOME: temporary })("gpt-6-sol"))
+  )
+  assert.match(signedOut.message, /codex login --device-auth/)
+})
+
+test("the transport sends Claude models to Claude Code and OpenAI models to the Codex seat", async () => {
+  const resolved: Array<string> = []
+  const transport = seatTransport(
+    SeatResolver.makeNoop({
+      resolve: (id) =>
+        Effect.sync(() => resolved.push(id)).pipe(
+          Effect.andThen(Effect.fail(new Seat.SeatUnresolved({ seat: id, message: "no" })))
+        )
+    }),
+    codexSeat("[]", resolved)
+  )
+  await Effect.runPromise(Effect.flip(transport({ engine: "claude", model: "claude-opus-5-5" })))
+  await Effect.runPromise(transport({ engine: "codex", model: "gpt-6-sol" }))
+  assert.deepEqual(resolved, ["claude-code:claude-opus-5-5", "codex:gpt-6-sol"])
 })
 
 /** The host's working copy: an empty change on `parents`. */
@@ -401,7 +489,12 @@ const audit = (
   resolved: Array<string> = []
 ) =>
   Effect.runPromise(
-    Effect.result(auditSecurity(options, { ...invocation(undefined as never, { patterns }), input: {} as never })).pipe(
+    Effect.result(
+      auditSecurity({ ...options, codex: codexSeat(answer, resolved) }, {
+        ...invocation(undefined as never, { patterns }),
+        input: {} as never
+      })
+    ).pipe(
       Effect.provideService(NativeCoding, workspace(parents)),
       Effect.provide(seats(answer, resolved)),
       Effect.provide(NodeServices.layer)

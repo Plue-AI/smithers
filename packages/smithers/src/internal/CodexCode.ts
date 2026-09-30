@@ -26,6 +26,12 @@ export interface Options {
   readonly cwd?: string | undefined
   readonly timeoutMs?: number | undefined
   readonly maxBytes?: number | undefined
+  /**
+   * Whether the vendor loads the Smithers MCP server, the seat's only tools.
+   * Defaults to true; false makes a tool-free seat for untrusted input, such
+   * as a security review of source.
+   */
+  readonly mcp?: boolean | undefined
 }
 
 /**
@@ -89,8 +95,7 @@ export const command = (options: Options, request: ModelRequest.ModelRequest): R
   "-c",
   "approval_policy=\"never\"",
   // Use the same public MCP entry on local and Cloud installations. No credential is in argv.
-  "-c",
-  "mcp_servers.smithers={command=\"smthrs\",args=[\"--mcp\"],required=true}",
+  ...(options.mcp === false ? [] : ["-c", "mcp_servers.smithers={command=\"smthrs\",args=[\"--mcp\"],required=true}"]),
   ...(request.params.reasoningEffort === undefined
     ? []
     : ["-c", `model_reasoning_effort=${codexConfigString(request.params.reasoningEffort)}`]),

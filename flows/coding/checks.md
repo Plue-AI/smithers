@@ -173,14 +173,17 @@ commit's `.smithers/target-index.json`, and runs every review whose include
 selects a changed file, plus the proposed-policy reviews a changed
 `PACKAGE.ts`, `WORKSPACE.ts`, `security.ts` or index adds, through the same
 `TrustedReview` code `smthrs review` uses. Each review is required. Every
-model request goes to the host's subscription seats, `claude-code:<model>` for
-Claude models and `codex:<model>` for OpenAI models, never an API key.
+model request goes to a tool-free subscription seat, never an API key: Claude
+models to the host's `claude-code:<model>` seat, OpenAI models to the Codex
+CLI on the machine's `codex login` without the Smithers MCP server that the
+ordinary `codex:` seat loads, because reviewed source is untrusted.
 Findings persist in `<state dir>/security-review`, so an interrupted review
 resumes from its completed batches. The receipt carries only each finding's
 public summary (`restricted-finding:<fingerprint>`, severity, check and
-impact). A change with no reviewable path fails; a change no policy governs
-passes with no review; a review that cannot finish (an unavailable seat, an
-exhausted budget) fails as an outage.
+impact), and an unfinished review only a fixed reason, since a diagnostic can
+name reviewed files. A change with no reviewable path fails, and so does a
+change no selected review governs; a review that cannot finish (an
+unavailable seat, an exhausted budget) fails as an outage.
 
 `coding/SecurityAudit` runs the audit reviews its body names
 (`flows/security-audit/flow.mdx`: `//...:securityAudit`) the same way over every

@@ -79,6 +79,17 @@ describe("Codex vendor model", () => {
     expect(args).toContain("developer_instructions=\"say \\\"hello\\\"\\n\\u007f🦄\"")
   })
 
+  it("loads the Smithers MCP server unless the seat is tool-free", () => {
+    const mcp = "mcp_servers.smithers={command=\"smthrs\",args=[\"--mcp\"],required=true}"
+    const options = { model: "gpt-6-sol", executable: "codex", environment: {} }
+    expect(CodexCode.command(options, request())).toContain(mcp)
+    const toolFree = CodexCode.command({ ...options, mcp: false }, request())
+    expect(toolFree.some((arg) => arg.startsWith("mcp_servers."))).toBe(false)
+    expect(toolFree).toContain("features.shell_tool=false")
+    expect(toolFree).toContain("web_search=\"disabled\"")
+    expect(toolFree).toContain("--ignore-user-config")
+  })
+
   it.each(["\ud800", "\udfff"])(
     "refuses malformed Unicode %j in system and history before vendor launch",
     async (text) => {
