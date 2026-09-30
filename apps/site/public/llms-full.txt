@@ -2421,6 +2421,32 @@ smithers secret scope DEPLOY_TOKEN all
 
 **Available now**, admin only. `"main_only": true` in `POST /api/repos/{owner}/{repo}/secrets`, or `PATCH /api/repos/{owner}/{repo}/secrets/{name}` with `{"main_only": true}`. The list shows `main_only`.
 
+## Send a secret to CI
+
+A CI job receives a repository or organization secret only through its box's egress proxy. Bind the secret to the hosts it may be sent to and the request headers it goes in: the job sees the secret's name as a placeholder, and the proxy puts the value in those headers on requests to those hosts. A job with an unbound secret does not start. A bound secret never reaches an agent's environment. Replacing its value keeps the binding.
+
+**GUI**
+
+**Available now.** `/secrets.bind NPM_TOKEN` opens the form: hosts and headers, comma-separated. Leave both empty to unbind.
+
+**TUI**
+
+Use the CLI or the API.
+
+**CLI**
+
+**Available now**, admin only:
+
+```sh
+printf %s "$TOKEN" | smithers secret set NPM_TOKEN --body-stdin --host registry.npmjs.org --header authorization
+smithers secret bind NPM_TOKEN --host registry.npmjs.org --header authorization
+smithers secret bind NPM_TOKEN
+```
+
+**API**
+
+**Available now**, admin only. `hosts` and `match_headers` in `POST /api/repos/{owner}/{repo}/secrets` or `POST /api/orgs/{org}/secrets`, both or neither, or `PATCH /api/repos/{owner}/{repo}/secrets/{name}` with `{"hosts": ["registry.npmjs.org"], "match_headers": ["authorization"]}`; empty lists unbind. The lists show `hosts` and `match_headers`.
+
 ## Next
 
 - [Work in a box](/docs/learn/boxes/): where that work runs.
@@ -58489,10 +58515,43 @@ smthrs secret — secret
 Usage: smthrs secret <command>
 
 Commands:
+  bind    Set the hosts and headers a secret may be sent to; none unbinds it
   delete  Delete a secret
   list    List secrets
   scope   Limit a secret to trusted runs on the default bookmark, or give it to every run
   set     Set a secret
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
+
+## secret bind
+
+```text
+smthrs secret bind — Set the hosts and headers a secret may be sent to; none unbinds it
+
+Usage: smthrs secret bind <name> [options]
+
+Arguments:
+  name  Secret name
+
+Options:
+  --header <array>
+  --host <array>
+  --repo, -R <string>
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -58611,6 +58670,8 @@ Arguments:
 
 Options:
   --body-stdin
+  --header <array>
+  --host <array>
   --main-only
   --repo, -R <string>
 

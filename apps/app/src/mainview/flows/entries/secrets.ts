@@ -68,6 +68,28 @@ export const secretsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> 
     handler: ({ name, scope, repo }) => actions.scopeSecret(name, scope, repo)
   }),
   flow({
+    name: "secrets.bind",
+    summary: "Set the hosts and headers a repository secret may be sent to",
+    runtime: ["cloud"],
+    args: "<NAME> [owner/repo]",
+    requires: ["signed-in"],
+    input: Schema.Struct({
+      name: Schema.String, hosts: Schema.optional(Schema.String), headers: Schema.optional(Schema.String), repo: Schema.optional(Schema.String)
+    }),
+    form: {
+      submitLabel: "Save",
+      fields: {
+        name: { label: "Name", placeholder: "NPM_TOKEN", kind: "text" },
+        hosts: { label: "Hosts", placeholder: "registry.npmjs.org", kind: "text" },
+        headers: { label: "Headers", placeholder: "authorization", kind: "text" },
+        repo: { label: "Repository", optionsFrom: "cloud-repos", kind: "text" }
+      }
+    },
+    /* A binding chooses where a secret's value may be sent, so the agent may only ask. */
+    confirm: payload => `bind secret ${String(payload["name"])} in ${scopeRepo(actions, payload) ?? "the selected repository"}`,
+    handler: ({ name, hosts, headers, repo }) => actions.bindSecret({ name, hosts, headers, repo })
+  }),
+  flow({
     name: "secrets.set",
     summary: "Add a repository secret or replace its value",
     runtime: ["cloud"],

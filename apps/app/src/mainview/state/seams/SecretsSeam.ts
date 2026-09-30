@@ -84,6 +84,8 @@ export interface SecretsSeam {
   readonly listSecrets: ViewAction<[repo?: string]>
   /** Mark a repository secret main-only (D-24), or give it to every run again. */
   readonly scopeSecret: (name: string, scope: "main-only" | "all", repo?: string) => Promise<{ readonly value: string } | string>
+  /** Set or clear the hosts and headers a repository secret may be sent to (#3175); CI receives only bound secrets. */
+  readonly bindSecret: (input: SecretInput) => Promise<{ readonly value: string } | string>
   readonly connectCodingProvider: (gesture?: CommandGesture) => Promise<{ readonly value: string } | string>
   readonly connectCodex: () => Promise<{ readonly value: string } | string>
   readonly listCodingProviders: () => Promise<{ readonly value: string } | string>
@@ -759,8 +761,36 @@ export const createSecretsSeam = (ctx: SeamContext, withToast: FailureController
     return { value: `${name}: ${stored?.main_only === true ? "main only" : "every run"}` }
   }
 
+  /*
+   * A repository secret's egress binding, without its value. Both lists empty
+   * unbind it. The reply names the stored binding.
+   */
+  const bindSecret: SecretsSeam["bindSecret"] = async (input) => {
+    const target = resolveTargetRepo(ctx.store, input.repo)
+    if ("error" in target) return target.error
+    const name = input.name.trim()
+    if (!SECRET_NAME.test(name)) return "Use letters, digits and _ for the name."
+    const hosts = listOf(input.hosts)
+    const headers = listOf(input.headers)
+    if ((hosts.length === 0) !== (headers.length === 0)) return "Give both hosts and headers, or neither."
+    const [owner = "", repoName = ""] = target.repo.split("/")
+    let response: Response
+    try {
+      response = await ctx.http(
+        `${ctx.baseUrl}/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repoName)}/secrets/${encodeURIComponent(name)}`,
+        { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ hosts, match_headers: headers }) }
+      )
+    } catch {
+      return `${name} couldn't be changed in ${target.repo} — the platform didn't answer.`
+    }
+    if (!response.ok) return readErrorMessage(response, `${name} couldn't be changed in ${target.repo} (HTTP ${response.status}).`)
+    const stored = await response.json().catch(() => undefined) as { hosts?: unknown } | undefined
+    const bound = Array.isArray(stored?.hosts) ? stored.hosts.filter((host): host is string => typeof host === "string") : []
+    return { value: bound.length === 0 ? `${name}: unbound` : `${name}: ${bound.join(", ")}` }
+  }
+
   return {
-    listSecrets, scopeSecret, connectCodingProvider, connectCodex, listCodingProviders, revokeCodingProvider, moveCodingProvider, resumeCodingProviders,
+    listSecrets, scopeSecret, bindSecret, connectCodingProvider, connectCodex, listCodingProviders, revokeCodingProvider, moveCodingProvider, resumeCodingProviders,
     setSecret, deleteSecret, resumeSecretRequests
   }
 }
