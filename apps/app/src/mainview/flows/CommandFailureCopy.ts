@@ -30,7 +30,9 @@ const harnessCopy = (name: string, failure: HarnessError): UserFailureCopy =>
     : {
       fault: failure.code === "model_failed" || failure.code === "completion_unjudged" ? "dependency"
         : failure.code === "engine_failed" ? "infra"
-        : failure.code === "read_only_cap" || failure.code === "claim_unproven" ? "factory"
+        : failure.code === "read_only_cap" || failure.code === "completion_incomplete" ||
+            failure.code === "claim_unproven"
+        ? "factory"
         : "bug",
       sentence: runCause(`/harness/HarnessError/${failure.code}`) ?? `/${name} failed. Not your fault.`,
       actions: ["retry"]

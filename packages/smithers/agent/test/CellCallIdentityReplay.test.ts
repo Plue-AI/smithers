@@ -142,8 +142,9 @@ it("resumes a prior wire declaration from reopened SQLite under the same Effect 
         // `claim_unproven`, and moved when CallFailureCode gained
         // flow_withheld (#1929) and when `HarnessError.cause` gained
         // the typed `EvaluatorError` member (#2807), and when that member
-        // carried what a failed reading paid (#3010).
-        step_key_digest: "c48c8a34844e84ee02f084606b89d575585089340fd5c22892db504d9433ffb2",
+        // carried what a failed reading paid (#3010), and when
+        // `HarnessErrorCode` gained `completion_incomplete` (#3009).
+        step_key_digest: "324184457f5da0916c2970fdd8d1894ee48713c8042adada8f7620dbfe543a12",
         state: "succeeded"
       }])
     } finally {

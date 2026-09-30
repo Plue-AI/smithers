@@ -10,6 +10,14 @@
 
 ### Fixed
 
+- A completion that reports its own work unfinished no longer settles the run
+  as completed (#3009). Where the claim brake reads a completion as not done
+  and has no bounce left, it asks one more question, `completion/unfinished`:
+  a completion that says it could not finish ends the run as the typed
+  failure `completion_incomplete`, quoting the report. Answers, delivered
+  edits and notes that something went unverified still complete, and
+  invented claims are still `claim_unproven`.
+
 - A sealed reading of the live tree keys on the digest of the workspace the
   frame opened on (`Cell.TreeEpoch.tree`), or on the run's session and frame when no
   whole-tree measurement exists. Each frame remeasures after the model wait,

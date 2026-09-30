@@ -33,6 +33,8 @@ import * as VariablesPanel from "../VariablesPanel.ts"
 import * as bytes from "./bytes.ts"
 import * as DemandText from "./demandText.ts"
 import * as elide from "./elide.ts"
+import { paidTogether } from "./paidUsage.ts"
+import * as UnfinishedWork from "./unfinishedWork.ts"
 import * as UnobservedCall from "./unobservedCall.ts"
 
 /** The one journal-event-type table; see `AgentEvent.eventType`. */
@@ -561,6 +563,11 @@ export interface CompletionJudgement {
   readonly decision: AgentEvent.DecisionSettled | undefined
   /** The per-sentence decision, when the brake asked for one. */
   readonly sentenceDecision?: AgentEvent.DecisionSettled | undefined
+  /**
+   * Whether the completion reported its own work unfinished, when the verdict
+   * asked. See `UnfinishedWork`.
+   */
+  readonly unfinishedDecision?: AgentEvent.DecisionSettled | undefined
 }
 
 /** Nothing to say about this completion: it stands. */
@@ -815,6 +822,13 @@ const measuredDemand = (
  * live CI dispatch whose planted bug was fixed. `CompletionClaim`'s header
  * carries the eighteen-state corpus that measured it.
  *
+ * A thin completion that stands is still not a success when it says so
+ * itself. Where the verdict is reached on a completion read as not done, one
+ * more question asks whether the completion reports its own work unfinished,
+ * and one that does ends the run as `completion_incomplete` quoting that
+ * report, so a host never settles "I could not finish" as a completed run.
+ * See `UnfinishedWork`.
+ *
  * At most one is named, in that order, because they are in descending order of
  * how fundamental the missing thing is: there is nothing to check, then the
  * check said no, then the check said less than it looks like it said, then
@@ -885,7 +899,7 @@ export const judgeCompletion = (
       digest: workspaceDigest,
       elsewhere: facts.remoteMutations
     })
-    const reading = yield* read({
+    const evidence: CompletionClaim.Evidence = {
       task,
       claim: CompletionClaim.prose(claim),
       // The `UnmovedTree` fact, read the other way round. An unmeasured tree
@@ -899,7 +913,8 @@ export const judgeCompletion = (
         resultSummary: entry.digest
       })),
       ...(check === undefined ? {} : { lastCheck: check })
-    })
+    }
+    const reading = yield* read(evidence)
     if (reading === undefined) return stands
     const found = CompletionClaim.find(reading)
     // One bounce while the cap and a frame allow it; the verdict after that,
@@ -920,13 +935,23 @@ export const judgeCompletion = (
     // tell it from a reading that stood wrote no card for it. See
     // `AgentEvent.ClaimDemanded.refused`.
     const refused = found !== undefined && !bounced && unmoved === undefined && CompletionClaim.unrecorded(found)
+    // A completion read as not done, with no bounce left and nothing to
+    // refuse, used to stand here whatever it said, so a run reporting its own
+    // work unfinished settled as a completed one (#3009). Whether it said so
+    // is one more question, asked only here; see `UnfinishedWork`.
+    const unfinished = found !== undefined && !bounced && unmoved === undefined && !refused &&
+        reading.complete <= CompletionClaim.disprovenAt
+      ? yield* UnfinishedWork.read(evidence, reading.usage)
+      : undefined
+    const incomplete = unfinished !== undefined && unfinished.unfinished >= UnfinishedWork.reportedAt
+    const usage = paidTogether(reading.usage, unfinished?.usage)
     const event = new AgentEvent.ClaimDemanded({
       eventType: eventType.claimDemanded,
       complete: reading.complete,
       overclaims: reading.overclaims,
       invented: reading.invented,
-      latencyMs: reading.latencyMs,
-      ...(reading.usage === undefined ? {} : { usage: reading.usage }),
+      latencyMs: reading.latencyMs + (unfinished?.latencyMs ?? 0),
+      ...(usage === undefined ? {} : { usage }),
       demanded: bounced && unmoved === undefined,
       refused,
       currentDigest: workspaceDigest,
@@ -945,7 +970,20 @@ export const judgeCompletion = (
       questions: CompletionClaim.classifier.questions,
       answers: reading.asked.answers,
       latencyMs: reading.latencyMs,
-      acted: bounced || refused || unmoved !== undefined,
+      acted: bounced || refused || unmoved !== undefined || incomplete,
+      decidedBy: "jev"
+    })
+    const unfinishedDecision = unfinished === undefined ? undefined : new AgentEvent.DecisionSettled({
+      eventType: eventType.decisionSettled,
+      scope: state.session,
+      frame: state.frame,
+      classifier: unfinished.asked.classifier,
+      digest: unfinished.asked.digest,
+      state: unfinished.asked.state,
+      questions: unfinished.asked.questions,
+      answers: unfinished.asked.answers,
+      latencyMs: unfinished.latencyMs,
+      acted: incomplete,
       decidedBy: "jev"
     })
     // The per-sentence reading, journaled as its own decision because it is
@@ -999,7 +1037,8 @@ export const judgeCompletion = (
     }
     // Out of bounces. A claim the brake only found thin stands here: it was
     // handed back once, the run answered, and refusing the answer as well is
-    // the price that destroyed honest runs. Only an unrecorded claim is refused.
+    // the price that destroyed honest runs. Only an unrecorded claim is
+    // refused, and only a completion reporting its own work unfinished fails.
     return {
       observed: event,
       demand: undefined,
@@ -1007,9 +1046,12 @@ export const judgeCompletion = (
       // own cap in the claim brake's place.
       unproven: refused
         ? CompletionClaim.unproven(found, state.claimDemands + state.unmovedDemands > 0, claim)
+        : incomplete
+        ? UnfinishedWork.incomplete(reading.complete, unfinished.unfinished, claim)
         : undefined,
       decision,
-      sentenceDecision
+      sentenceDecision,
+      ...(unfinishedDecision === undefined ? {} : { unfinishedDecision })
     }
   })
 

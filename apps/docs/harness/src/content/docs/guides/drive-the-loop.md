@@ -224,7 +224,11 @@ either because `claimCap` is used up or because no frame remains to hand the
 completion back to. A claim the brake merely finds thin is still handed back,
 and then stands, which is the 2026-09-19 change: refusing those as well killed
 about one honest run in four, and the corpus that measured it is in
-`CompletionClaim`'s header. The cap is the number of frames the run is given
+`CompletionClaim`'s header. One thin completion does not stand: where the brake
+read it as not done with no bounce left, it asks whether the completion itself
+reports its work unfinished, failed or blocked, and one that does fails the run
+as `completion_incomplete` quoting that report, so a host never settles "I
+could not finish" as a completed run. The cap is the number of frames the run is given
 to answer, not the number of completions that are read: it used to end the
 brake, and the second claim stood unread, which on a real seat let a run
 re-claim "the tests pass" after a bounce and finish `stop` on it over a

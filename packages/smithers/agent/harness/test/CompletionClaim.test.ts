@@ -131,11 +131,13 @@ const unjudged = async (options: Parameters<typeof judge>[0] = {}): Promise<Harn
 }
 
 /** A scripted evaluator that also records what it was asked. */
-const scripted = (answers: Readonly<Record<string, Evaluator.ScriptedAnswer>>) => {
+const scripted = (
+  answers: (request: Evaluator.Request) => Readonly<Record<string, Evaluator.ScriptedAnswer>>
+) => {
   const asked: Array<Evaluator.Request> = []
   const layer = Evaluator.layerScripted((request) => {
     asked.push(request)
-    return answers
+    return answers(request)
   })
   return { asked, layer }
 }
@@ -143,14 +145,17 @@ const scripted = (answers: Readonly<Record<string, Evaluator.ScriptedAnswer>>) =
 /**
  * A scripted Jev named by the probabilities it answers with. Anything a case
  * does not name reads as a claim nothing objects to, so each case below states
- * only the number it is about.
+ * only the number it is about. A completion the verdict asks about reads as
+ * one that does not report its own work unfinished; see `UnfinishedWork`.
  */
 const reading = (probabilities: Partial<CompletionClaim.Probabilities>) =>
-  scripted({
-    complete: { probability: probabilities.complete ?? 0.9 },
-    overclaims: { probability: probabilities.overclaims ?? 0.1 },
-    invented: { probability: probabilities.invented ?? 0.05 }
-  })
+  scripted((request) =>
+    "unfinished" in request.questions ? { unfinished: { probability: 0.05 } } : {
+      complete: { probability: probabilities.complete ?? 0.9 },
+      overclaims: { probability: probabilities.overclaims ?? 0.1 },
+      invented: { probability: probabilities.invented ?? 0.05 }
+    }
+  )
 
 const refusing = (error: Evaluator.EvaluatorError) => {
   const asked: Array<Evaluator.Request> = []
@@ -961,8 +966,11 @@ describe("a long claim, read one sentence at a time", () => {
       changes: { claimCap: 1, claimDemands: 1 }
     })
 
-    expect(judge.asked).toHaveLength(2)
+    // The third request is the verdict asking whether a completion read as
+    // not done reports its own work unfinished; this one reads 0.2 on it.
+    expect(judge.asked).toHaveLength(3)
     expect(Object.keys(judge.asked[1]!.questions)).toEqual(["sentence1", "sentence2"])
+    expect(Object.keys(judge.asked[2]!.questions)).toEqual(["unfinished"])
     expect(judged.unproven).toBeUndefined()
     expect(judged.observed).toMatchObject({ invented: 0.2, refused: false })
     expect(judged.decision?.classifier).toBe("completion/claim")

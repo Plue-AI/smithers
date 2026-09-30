@@ -233,6 +233,7 @@ describe("FailureCopy.describe", () => {
         "model_failed",
         "read_only_cap",
         "completion_unjudged",
+        "completion_incomplete",
         "claim_unproven",
         "suspended"
       ]

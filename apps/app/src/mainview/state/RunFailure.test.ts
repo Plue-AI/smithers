@@ -339,6 +339,7 @@ const stampedCauses = [
   { tag: HARNESS("engine_failed"), fault: "infra", message: "The engine underneath this run failed before a turn could finish, so the run stopped. Not your fault, and the turns it finished stand; it's worth starting it again." },
   { tag: HARNESS("read_only_cap"), fault: "policy", message: "This run read for turn after turn without changing anything, so Smithers stopped it. Not your fault — it's worth asking again." },
   { tag: HARNESS("completion_unjudged"), fault: "infra", message: "The run finished, but nothing was able to check its answer, so Smithers didn't pass it on. Not your fault — it's worth asking again." },
+  { tag: HARNESS("completion_incomplete"), fault: "factory", message: "The run reported its work unfinished, so Smithers didn't mark it done. Not your fault — ask again to finish it." },
   { tag: HARNESS("claim_unproven"), fault: "infra", message: "The run claimed work its own record doesn't show it doing, so Smithers refused the answer rather than pass it on. Not your fault — ask again and it has to show the work." },
   { tag: HARNESS("suspended"), fault: "infra", message: "The run stopped to wait for something that never came. Not your fault — it's worth starting it again." },
   { tag: "flows/model/ModelError/context_overflow", fault: "user", message: "The conversation outgrew the model's context window. Not your fault — start a fresh run." },

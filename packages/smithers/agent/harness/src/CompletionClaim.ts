@@ -167,6 +167,7 @@ import { HarnessError } from "./HarnessError.ts"
 import * as bytes from "./internal/bytes.ts"
 import * as DemandText from "./internal/demandText.ts"
 import * as elide from "./internal/elide.ts"
+import { failedReading, paidTogether } from "./internal/paidUsage.ts"
 import * as Judgement from "./Judgement.ts"
 import * as NarrowedCheck from "./NarrowedCheck.ts"
 import * as UnresolvedFailure from "./UnresolvedFailure.ts"
@@ -887,25 +888,6 @@ export const unproven = (found: Probabilities, bounced: boolean, claim: string):
   })
 
 /**
- * What two readings of one claim paid together. Either may come back
- * unmetered; the claim costs what was metered. Both ask the same judge, so the
- * sum keeps its model id, and drops it only when a fallback answered one.
- */
-const paidTogether = (
-  first: Evaluator.Usage | undefined,
-  second: Evaluator.Usage | undefined
-): Evaluator.Usage | undefined => {
-  if (first === undefined) return second
-  if (second === undefined) return first
-  const modelId = first.modelId === second.modelId ? first.modelId : undefined
-  return {
-    inputTokens: first.inputTokens + second.inputTokens,
-    outputTokens: first.outputTokens + second.outputTokens,
-    ...(modelId === undefined ? {} : { modelId })
-  }
-}
-
-/**
  * Asks Jev about one completion, and fails the turn when it cannot.
  *
  * `undefined` means one thing only: there was no claim and no task to judge,
@@ -936,21 +918,8 @@ export const read = (
     // The cause also carries what the failed reading paid, with what an
     // earlier reading of the same claim paid, so the run's budget charges it
     // (#3010).
-    const failed = (earlier: Evaluator.Usage | undefined) => (error: Classifier.ClassifierError) => {
-      const usage = paidTogether(earlier, error.usage)
-      return unjudged(
-        error.code,
-        Evaluator.publicMessage(error),
-        evidence.claim,
-        new Evaluator.EvaluatorError({
-          code: error.code,
-          message: Evaluator.publicMessage(error),
-          ...(error.resetAtEpochMillis === undefined ? {} : { resetAtEpochMillis: error.resetAtEpochMillis }),
-          ...(error.status === undefined ? {} : { status: error.status }),
-          ...(usage === undefined ? {} : { usage })
-        })
-      )
-    }
+    const failed = (earlier: Evaluator.Usage | undefined) => (error: Classifier.ClassifierError) =>
+      unjudged(error.code, Evaluator.publicMessage(error), evidence.claim, failedReading(error, earlier))
     const { answers, asked } = yield* Judgement.measured(classifier, evidence).pipe(
       Effect.provideService(Evaluator.Evaluator, bound.value),
       Effect.mapError(failed(undefined))

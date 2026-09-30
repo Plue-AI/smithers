@@ -135,6 +135,7 @@ const harness: Record<string, readonly [string, string]> = {
   engine_failed: ["Worker engine stopped", "The worker engine failed."],
   read_only_cap: ["Worker stopped at its read limit", "Resume after narrowing the task."],
   completion_unjudged: ["Worker result could not be checked", "The result was not verified."],
+  completion_incomplete: ["Worker left work unfinished", "Resume to finish it."],
   claim_unproven: ["Worker claim was unproven", "The worker could not verify its claim."],
   suspended: ["Worker paused", "Resume when ready."]
 }

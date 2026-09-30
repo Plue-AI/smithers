@@ -7,7 +7,7 @@ import { runCause } from "../state/RunCause"
 const RAW = "stack at Cell.run (Cell.ts:412)"
 const HARNESS_CODES: ReadonlyArray<HarnessErrorCode> = [
   "assembly_failed", "incompatible_journal", "render_failed", "model_failed", "engine_failed",
-  "read_only_cap", "completion_unjudged", "claim_unproven", "suspended"
+  "read_only_cap", "completion_unjudged", "completion_incomplete", "claim_unproven", "suspended"
 ]
 
 describe("a command that failed before its flow answered", () => {

@@ -5052,16 +5052,58 @@ describe("CellTurn unsupported claim", () => {
     const { asked, events, failure } = await claiming(
       [editing, finishing("check src/a.py", thin), finishing("check src/a.py", thin)],
       [edited, green, green],
-      { complete: { probability: 0.08 }, overclaims: { probability: 0.9 }, invented: { probability: 0.6 } }
+      (request) =>
+        "unfinished" in request.questions
+          ? { unfinished: { probability: 0.1 } }
+          : { complete: { probability: 0.08 }, overclaims: { probability: 0.9 }, invented: { probability: 0.6 } }
     )
 
-    expect(asked).toHaveLength(2)
+    // The verdict asks one more question of a completion read as not done:
+    // whether it reports its own work unfinished. This one does not.
+    expect(asked).toHaveLength(3)
+    expect(Object.keys(asked[2]!.questions)).toEqual(["unfinished"])
     expect(of(events, "claim-demanded")).toEqual([
       expect.objectContaining({ demanded: true, nextFrame: 2, invented: 0.6 }),
       expect.objectContaining({ demanded: false, nextFrame: 3, invented: 0.6 })
     ])
     expect(failure).toBeUndefined()
     expect(of(events, "resolved")[0]?.message.content).toEqual([expect.objectContaining({ text: thin })])
+  })
+
+  it("fails a run that reports its own work unfinished instead of settling it as completed (#3009)", async () => {
+    const report = "I could not finish the fix: the migration needs database credentials this run does not have."
+    const { asked, events, failure } = await claiming(
+      [editing, finishing("check src/a.py", report), finishing("check src/a.py", report)],
+      [edited, green, green],
+      (request) =>
+        "unfinished" in request.questions
+          ? { unfinished: { probability: 0.97 } }
+          : { complete: { probability: 0.04 }, overclaims: { probability: 0.1 }, invented: { probability: 0.05 } }
+    )
+
+    // Bounced once while a frame was left, like any completion read as not
+    // done; the same report with no bounce left is the run's outcome, and it
+    // is a failure that keeps the report, not a completion.
+    expect(asked.map((request) => Object.keys(request.questions))).toEqual([
+      ["complete", "overclaims", "invented"],
+      ["complete", "overclaims", "invented"],
+      ["unfinished"]
+    ])
+    expect(of(events, "claim-demanded")).toEqual([
+      expect.objectContaining({ demanded: true, nextFrame: 2 }),
+      expect.objectContaining({ demanded: false, refused: false, nextFrame: 3 })
+    ])
+    expect(of(events, "decision-settled").map((event) => [event.classifier, event.acted])).toEqual([
+      ["completion/claim", true],
+      ["completion/claim", true],
+      ["completion/unfinished", true]
+    ])
+    expect(failure).toMatchObject({
+      _tag: "/harness/HarnessError",
+      code: "completion_incomplete",
+      message: expect.stringContaining(report)
+    })
+    expect(of(events, "resolved")).toHaveLength(0)
   })
 
   it("restores a thin bounced claim on the budget notice, because it would have let it stand", async () => {

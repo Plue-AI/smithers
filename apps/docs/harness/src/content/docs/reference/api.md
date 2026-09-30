@@ -1051,7 +1051,7 @@ export class HarnessError extends Schema.TaggedError<HarnessError>()("/harness/H
 
 `HarnessErrorCode` is `assembly_failed`, `incompatible_journal`,
 `render_failed`, `model_failed`, `engine_failed`, `read_only_cap`,
-`completion_unjudged`, `claim_unproven`, or `suspended`. The set is closed to codes this package and `@smthrs/agent`
+`completion_unjudged`, `completion_incomplete`, `claim_unproven`, or `suspended`. The set is closed to codes this package and `@smthrs/agent`
 actually raise, and `test/Contracts.test.ts` pins every member to a
 construction site; a foreign CLI adapter declares its own family beside the
 adapter rather than borrowing this one. Interrupting a run raises no

@@ -1932,7 +1932,8 @@ const RecordedCompletion = Schema.Struct({
   // existed has no such member, and it must replay as a judgement with no
   // decision to report rather than fail to decode.
   decision: Schema.optionalKey(Schema.NullOr(AgentEvent.DecisionSettled)),
-  sentenceDecision: Schema.optionalKey(Schema.NullOr(AgentEvent.DecisionSettled))
+  sentenceDecision: Schema.optionalKey(Schema.NullOr(AgentEvent.DecisionSettled)),
+  unfinishedDecision: Schema.optionalKey(Schema.NullOr(AgentEvent.DecisionSettled))
 })
 
 /**
@@ -3918,7 +3919,8 @@ const frame = (
             demand: judgement.demand ?? null,
             unproven: judgement.unproven ?? null,
             decision: judgement.decision ?? null,
-            sentenceDecision: judgement.sentenceDecision ?? null
+            sentenceDecision: judgement.sentenceDecision ?? null,
+            unfinishedDecision: judgement.unfinishedDecision ?? null
           }))
         )
       }).pipe(Effect.map((judgement) => ({
@@ -3926,7 +3928,8 @@ const frame = (
         demand: judgement.demand ?? undefined,
         unproven: judgement.unproven ?? undefined,
         decision: judgement.decision ?? undefined,
-        sentenceDecision: judgement.sentenceDecision ?? undefined
+        sentenceDecision: judgement.sentenceDecision ?? undefined,
+        unfinishedDecision: judgement.unfinishedDecision ?? undefined
       })))
       // The claim brake's reading when it issued no demand. It is the one
       // demand whose non-demanding readings are journaled, because it is the
@@ -3940,9 +3943,12 @@ const frame = (
       // event is the demand's own and is emitted below.
       if (judged.decision !== undefined) yield* emit(judged.decision)
       if (judged.sentenceDecision !== undefined) yield* emit(judged.sentenceDecision)
-      // An unproven claim with no bounce left to spend. The run ends here the
-      // way `read_only_cap` ends one, rather than returning a sentence its
-      // own record contradicts; see `CompletionClaim.unproven`.
+      if (judged.unfinishedDecision !== undefined) yield* emit(judged.unfinishedDecision)
+      // An unproven claim with no bounce left to spend, or a completion that
+      // reports its own work unfinished. The run ends here the way
+      // `read_only_cap` ends one, rather than returning a sentence its own
+      // record contradicts or settling unfinished work as completed; see
+      // `CompletionClaim.unproven` and `UnfinishedWork`.
       if (judged.unproven !== undefined) return yield* Effect.fail(judged.unproven)
       const demanded = judged.demand
       if (demanded !== undefined) {

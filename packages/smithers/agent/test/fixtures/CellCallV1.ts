@@ -40,8 +40,9 @@ export const key = "key1_8ab2962732794ee8d8b3bf550657b41d475fd082ec9c8c7073b1d24
 // finish under the declaration they started on; a new run is keyed under this
 // one. Moved when CallFailureCode gained flow_withheld (#1929), and when
 // `HarnessError.cause` gained the typed `EvaluatorError` member (#2807), and
-// when that member carried what a failed reading paid (#3010).
-export const effect115Key = "key1_a839b582877e4aed09963b2cc3aa15af094379d286e83018dd67dd3efb06d4c8"
+// when that member carried what a failed reading paid (#3010), and when
+// `HarnessErrorCode` gained `completion_incomplete` (#3009).
+export const effect115Key = "key1_425bb2aeef11571a366804d4700e45def8ac0aceac7c7c585b3e1f9461259283"
 
 // Independent JSON oracle. This fixture contains only JSON values, no schema
 // classes, undefined, non-finite numbers or other normalization cases.

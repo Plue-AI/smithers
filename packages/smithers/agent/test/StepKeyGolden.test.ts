@@ -231,7 +231,11 @@ describe("the sealed model step key", () => {
     // Moved a ninth time when that failure carried what a failed reading
     // paid (#3010).
     expect(observed.host).not.toBe("key1_0f7a7d81883e298518a57713e6cb7218a527b713388fe7e7b1cf5310e61350a9")
-    expect(observed.host).toBe("key1_4fd148a67a94aaa4ec702d424fa156e78b71935a61c926d4fca4753683a812af")
+    // Moved a tenth time when `HarnessErrorCode` gained
+    // `completion_incomplete` for a completion reporting its own work
+    // unfinished (#3009).
+    expect(observed.host).not.toBe("key1_4fd148a67a94aaa4ec702d424fa156e78b71935a61c926d4fca4753683a812af")
+    expect(observed.host).toBe("key1_91d1fb4dc2465b267ef74cda2fad8d7d42e3986e293fcd0f642ec2e33b0a80fa")
     // Sealed means content-addressed: the same declaration through a second
     // port of the same composition is one recorded answer, not two calls.
     expect(observed.again).toBe(observed.host)
@@ -262,7 +266,9 @@ describe("the sealed cell-call key", () => {
     // Moved when that `EvaluatorError` carried what a failed reading paid
     // (#3010).
     expect(observed.host).not.toBe("key1_88223cc71e3c3ad27cb1dffea61a732b14dcfd48282f61d2253173adbd4d8d7b")
-    expect(observed.host).toBe("key1_a839b582877e4aed09963b2cc3aa15af094379d286e83018dd67dd3efb06d4c8")
+    // Moved when `HarnessErrorCode` gained `completion_incomplete` (#3009).
+    expect(observed.host).not.toBe("key1_a839b582877e4aed09963b2cc3aa15af094379d286e83018dd67dd3efb06d4c8")
+    expect(observed.host).toBe("key1_425bb2aeef11571a366804d4700e45def8ac0aceac7c7c585b3e1f9461259283")
     // The composition really is in the key: the same call resolved under a
     // different layer set is a different boundary, not a cache hit.
     expect(observed.other).not.toBe(observed.host)

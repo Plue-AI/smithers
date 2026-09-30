@@ -22,6 +22,7 @@ const HARNESS_COPY = {
   engine_failed: "The engine underneath this run failed before a turn could finish, so the run stopped. Not your fault, and the turns it finished stand; it's worth starting it again.",
   read_only_cap: "This run read for turn after turn without changing anything, so Smithers stopped it. Not your fault — it's worth asking again.",
   completion_unjudged: "The run finished, but nothing was able to check its answer, so Smithers didn't pass it on. Not your fault — it's worth asking again.",
+  completion_incomplete: "The run reported its work unfinished, so Smithers didn't mark it done. Not your fault — ask again to finish it.",
   claim_unproven: "The run claimed work its own record doesn't show it doing, so Smithers refused the answer rather than pass it on. Not your fault — ask again and it has to show the work.",
   suspended: "The run stopped to wait for something that never came. Not your fault — it's worth starting it again."
 } as const satisfies Record<HarnessErrorCode, string>

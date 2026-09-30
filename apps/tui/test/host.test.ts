@@ -527,6 +527,52 @@ describe("Host.run completion over a failed request", () => {
   })
 })
 
+describe("Host.run completion reporting unfinished work (#3009)", () => {
+  test("fails the turn with the run's own report instead of finishing it as done", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "smithers-tui-unfinished-"))
+    roots.push(cwd)
+    const report = "I could not finish the migration: it needs database credentials this run does not have."
+    const asked: Array<string> = []
+    const judge = Evaluator.layerScripted((request) => {
+      const ids = Object.keys(request.questions)
+      asked.push(ids.join(","))
+      if (ids.includes("unfinished")) return { unfinished: { probability: 0.97 } }
+      if (ids.includes("invented")) {
+        return { complete: { probability: 0.04 }, overclaims: { probability: 0.1 }, invented: { probability: 0.05 } }
+      }
+      return Object.fromEntries(ids.map((id) => [id, { probability: 0.05 }]))
+    })
+    const host = Host.make({ cwd, environment: {}, judge })
+    const events: Array<AgentEvent.AgentEvent> = []
+    try {
+      const outcome = await host.run({
+        prompt: "migrate the orders table",
+        role: "worker",
+        seat: `replay:${doneReplay(cwd, `ctx.done(${JSON.stringify(report)})`)}`,
+        history: [],
+        onEvent: (event) => events.push(event)
+      }).done
+
+      // Handed back while bounces last; the same report with none left is
+      // the outcome, and it is a failure that keeps the report.
+      expect(outcome._tag).toBe("failed")
+      if (outcome._tag !== "failed") return
+      expect(outcome.error).toMatchObject({ _tag: "/harness/HarnessError", code: "completion_incomplete" })
+      expect(String((outcome.error as { message: string }).message)).toContain(report)
+      expect(asked.at(-1)).toBe("unfinished")
+      expect(events.some((event) => event._tag === "resolved")).toBe(false)
+      // The card names it and offers the retry.
+      expect(FailureCopy.describe(outcome.error)).toMatchObject({
+        headline: "Worker left work unfinished",
+        fault: "factory",
+        actions: expect.arrayContaining(["resume"])
+      })
+    } finally {
+      await host.dispose()
+    }
+  })
+})
+
 describe("Host.run frame budget", () => {
   test("a coordinator that spends its frames polling a refused delegation says it was not delegated", async () => {
     const { answer, delegations, resolved } = await pollingTurn(() => {
