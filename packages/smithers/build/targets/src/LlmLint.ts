@@ -293,8 +293,9 @@ export const Report = Schema.Struct({
   attempts: Schema.optional(Schema.Array(ReviewAttempt)),
   /** What a budgeted review spent: model calls and estimated prompt tokens. */
   usage: Schema.optional(Schema.Struct({ modelCalls: Schema.Int, promptTokens: Schema.Int })),
-  /** With a finding store: the persisted run and each finding's stable fingerprint, in finding order. */
+  /** With a finding store: the persisted run, its provenance, and each finding's stable fingerprint. */
   run: Schema.optional(Schema.String),
+  manifest: Schema.optional(Schema.suspend((): Schema.Codec<ReviewManifest> => ReviewManifest)),
   fingerprints: Schema.optional(Schema.Array(Schema.String))
 })
 
@@ -355,9 +356,57 @@ export class FindingsError extends Schema.TaggedError<FindingsError>()(
     attempts: Schema.optional(Schema.Array(ReviewAttempt)),
     findings: Schema.Array(Finding),
     run: Schema.optional(Schema.String),
+    manifest: Schema.optional(Schema.suspend((): Schema.Codec<ReviewManifest> => ReviewManifest)),
     fingerprints: Schema.optional(Schema.Array(Schema.String))
   }
 ) {}
+
+/**
+ * Provenance of one review: every byte each request carried, the policy, the
+ * immutable revisions, the inference engine and model configuration, and the
+ * batch layout. Its SHA-256 digest is the review's run id.
+ *
+ * @category schemas
+ * @since 1.0.0
+ */
+export const ReviewManifest = Schema.Struct({
+  version: Schema.Literal(1),
+  revisions: Schema.optional(Schema.Struct({ base: Schema.String, head: Schema.String })),
+  policy: Schema.Struct({
+    digest: Schema.String,
+    prompt: Schema.String,
+    rubric: Schema.String,
+    securityChecks: Schema.optional(Schema.Array(Schema.String)),
+    failOn: Severity,
+    scope: Schema.Literals(["changed", "all"]),
+    batchSize: Schema.Int,
+    contextTokens: Schema.Int
+  }),
+  engine: Schema.Struct({
+    transport: Schema.Literals(["tool-free", "cli"]),
+    seats: Schema.Array(Schema.Struct({ engine: Engine, model: Schema.String })),
+    executable: Schema.optional(Schema.Struct({ path: Schema.String, sha256: Schema.String }))
+  }),
+  context: Schema.Array(Schema.Struct({ path: Schema.String, sha256: Schema.String, bytes: Schema.Int })),
+  batches: Schema.Array(Schema.Struct({
+    changed: Schema.Array(Schema.Struct({
+      path: Schema.String,
+      firstLine: Schema.Int,
+      lastLine: Schema.Int,
+      sha256: Schema.String
+    })),
+    related: Schema.Array(Schema.Struct({ path: Schema.String, sha256: Schema.String })),
+    omittedRelated: Schema.Array(Schema.String)
+  }))
+})
+
+/**
+ * Provenance of one review.
+ *
+ * @category models
+ * @since 1.0.0
+ */
+export type ReviewManifest = typeof ReviewManifest.Type
 
 /**
  * Where a review persists its run and findings, and who owns them.
@@ -414,6 +463,7 @@ export type FindingRecord = typeof FindingRecord.Type
  */
 export const RunRecord = Schema.Struct({
   run: Schema.String,
+  manifest: ReviewManifest,
   owner: Schema.optional(Schema.String),
   status: Schema.Literals(["running", "incomplete", "failed", "completed"]),
   total: Schema.Int,
@@ -2030,6 +2080,66 @@ const mergeRepeated = (
   return output
 }
 
+/**
+ * The commits a workspace review compared: the resolved base and HEAD.
+ * Uncommitted bytes are in the manifest. The base was validated as a
+ * revision, never an option, before any git call.
+ */
+const workspaceRevisions = (
+  runtime: RuntimeOptions,
+  payload: Payload
+): Effect.Effect<{ readonly base: string; readonly head: string }, LlmReviewError> =>
+  spawnText(
+    runtime.workspaceRoot,
+    "git",
+    ["-c", "core.fsmonitor=false", "rev-parse", `${payload.base}^{commit}`, "HEAD^{commit}"],
+    { stdoutBytes: 4096, timeoutMs: Math.min(runtime.timeoutMs, 30_000), sensitiveEnv: runtime.sensitiveEnv, git: true }
+  ).pipe(
+    Effect.mapError((error) => new LlmReviewError({ phase: "diff", message: failureMessage(error) })),
+    Effect.flatMap((output) => {
+      const [base, head] = output.stdout.trim().split("\n")
+      return output.exitCode === 0 && base !== undefined && head !== undefined
+        ? Effect.succeed({ base, head })
+        : Effect.fail(
+          new LlmReviewError({
+            phase: "diff",
+            message: `git rev-parse exited ${output.exitCode}: ${stderrTail(output.stderr)}`
+          })
+        )
+    })
+  )
+
+/**
+ * The resolved path and SHA-256 of an explicit review executable, or nothing
+ * when it is absent: the invocation then reports the missing executable.
+ */
+const executableIdentity = (
+  executable: string
+): Effect.Effect<{ readonly executable?: { readonly path: string; readonly sha256: string } }, LlmReviewError> =>
+  Effect.tryPromise({
+    try: async () => {
+      const path = (executable.includes("/") ? [NodePath.resolve(executable)] : (process.env["PATH"] ?? "")
+        .split(NodePath.delimiter).filter(Boolean).map((directory) => NodePath.join(directory, executable)))
+        .find((candidate) => NodeFs.statSync(candidate, { throwIfNoEntry: false })?.isFile() === true)
+      if (path === undefined) return {}
+      const hash = createHash("sha256")
+      for await (const chunk of NodeFs.createReadStream(path)) hash.update(chunk as Buffer)
+      return { executable: { path: NodeFs.realpathSync(path), sha256: hash.digest("hex") } }
+    },
+    catch: (cause) =>
+      new LlmReviewError({ phase: "review", message: `Review executable identity: ${failureMessage(cause)}` })
+  })
+
+/** The engine and model of each independent security pass: selected, other family, selected. */
+const securitySeats = (payload: Payload): ReadonlyArray<{ readonly engine: Engine; readonly model: string }> => {
+  const alternate = payload.engine === "claude" ? "codex" : "claude"
+  return [
+    { engine: payload.engine, model: payload.model },
+    { engine: alternate, model: alternate === "claude" ? "claude-opus-5-5" : "gpt-6-sol" },
+    { engine: payload.engine, model: payload.model }
+  ]
+}
+
 /** Three independent passes and a separate examination of every union candidate. */
 const securityBatch = (
   runtime: RuntimeOptions,
@@ -2043,12 +2153,7 @@ const securityBatch = (
   spend: Spend
 ): Effect.Effect<ReadonlyArray<Finding>, LlmReviewError> =>
   Effect.gen(function*() {
-    const alternate = payload.engine === "claude" ? "codex" : "claude"
-    const seats = [
-      { engine: payload.engine, model: payload.model },
-      { engine: alternate, model: alternate === "claude" ? "claude-opus-5-5" : "gpt-6-sol" },
-      { engine: payload.engine, model: payload.model }
-    ] as const
+    const seats = securitySeats(payload)
     const run = (
       pass: number,
       purpose: "review" | "verify",
@@ -2192,6 +2297,7 @@ export const review = (
     readonly timeoutMs?: number | undefined
     readonly sensitiveEnv?: ReadonlyArray<string> | undefined
     readonly store?: FindingStore | undefined
+    readonly revisions?: { readonly base: string; readonly head: string } | undefined
   },
   untrustedPayload: Payload
 ): Effect.Effect<Report, ModelCliMissing | LlmReviewError | FindingsError> =>
@@ -2345,19 +2451,45 @@ export const review = (
       )
     }
     const digest = (text: string) => createHash("sha256").update(text).digest("hex")
-    // The run key covers the policy and every byte a request carries, never budget or gating options.
-    const runKey = digest(JSON.stringify({
-      policy: { ...payload, budget: undefined, required: undefined },
-      context: context.map((file) => [file.path, digest(file.contents)]),
-      batches: loadedBatches.map((batch) => ({
-        changed: batch.changed.map((
-          segment
-        ) => [segment.path, segment.firstLine, segment.lastLine, digest(segment.contents)]),
-        related: batch.related.map((file) => [file.path, digest(file.contents)]),
-        omitted: batch.omittedRelated
-      }))
-    }))
     const policy = digest(JSON.stringify([payload.prompt, payload.rubric, payload.securityChecks ?? null]))
+    // Provenance covers every byte a request carries and everything that shaped it, never budget or gating.
+    const manifest: ReviewManifest = {
+      version: 1,
+      ...(store === undefined ? {} : { revisions: options.revisions ?? (yield* workspaceRevisions(runtime, payload)) }),
+      policy: {
+        digest: policy,
+        prompt: digest(payload.prompt),
+        rubric: digest(payload.rubric),
+        ...(payload.securityChecks === undefined ? {} : { securityChecks: payload.securityChecks }),
+        failOn: payload.failOn,
+        scope: payload.scope ?? "changed",
+        batchSize: payload.batchSize,
+        contextTokens: payload.contextTokens ?? defaultContextTokens
+      },
+      engine: {
+        transport: runtime.cliOverride ? "cli" : "tool-free",
+        seats: payload.securityChecks === undefined
+          ? [{ engine: payload.engine, model: payload.model }]
+          : securitySeats(payload),
+        ...(runtime.cliOverride && store !== undefined ? yield* executableIdentity(runtime.executable) : {})
+      },
+      context: context.map((file) => ({
+        path: file.path,
+        sha256: digest(file.contents),
+        bytes: Buffer.byteLength(file.contents, "utf8")
+      })),
+      batches: loadedBatches.map((batch) => ({
+        changed: batch.changed.map((segment) => ({
+          path: segment.path,
+          firstLine: segment.firstLine,
+          lastLine: segment.lastLine,
+          sha256: digest(segment.contents)
+        })),
+        related: batch.related.map((file) => ({ path: file.path, sha256: digest(file.contents) })),
+        omittedRelated: batch.omittedRelated
+      }))
+    }
+    const runKey = digest(JSON.stringify(manifest))
     const storeRoot = store === undefined
       ? undefined
       : yield* Effect.try({ try: () => PrivateStore.ensure(store.directory), catch: storeError })
@@ -2373,6 +2505,7 @@ export const review = (
     // Only an unfinished run resumes; a completed run is never reused as a current verdict.
     let run: RunRecord = {
       run: runKey,
+      manifest,
       ...(store?.owner === undefined ? {} : { owner: store.owner }),
       status: "running",
       total: loadedBatches.length,
@@ -2542,7 +2675,7 @@ export const review = (
           })
         })
       }
-      const stored = storeRoot === undefined ? {} : { run: runKey, fingerprints: findings.map(fingerprintOf) }
+      const stored = storeRoot === undefined ? {} : { run: runKey, manifest, fingerprints: findings.map(fingerprintOf) }
       if (storeRoot !== undefined) {
         yield* record(findings)
         // A finding the latest review of its file no longer reports awaits a reproduced retest.
@@ -2620,6 +2753,7 @@ export const LlmReviewLive = (options: {
   readonly timeoutMs?: number | undefined
   readonly sensitiveEnv?: ReadonlyArray<string> | undefined
   readonly store?: FindingStore | undefined
+  readonly revisions?: { readonly base: string; readonly head: string } | undefined
 }): Layer.Layer<Action.Requirement<"smithers-build/llm-review">, never, FlowRuntime.FlowRuntime> =>
   LlmReview.toLayer((payload) => review(options, payload))
 

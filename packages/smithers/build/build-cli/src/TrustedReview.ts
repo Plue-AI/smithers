@@ -149,21 +149,24 @@ export const prepare = async (options: Options) => {
   )
   const policies: Array<{ label: string; payload: LlmLint.Payload; snapshot?: ReadonlyArray<LlmLint.SnapshotFile> }> =
     []
-  for (const row of rows) {
-    if (row.rule !== "LlmLint") continue
-    const selected = patterns.some((pattern) =>
+  const selects = (row: TargetIndex.Row) =>
+    patterns.some((pattern) =>
       (pattern._tag === "Exact" ?
         row.package === pattern.packagePath :
         pattern.packagePath === "" || row.package === pattern.packagePath ||
         row.package.startsWith(`${pattern.packagePath}/`)) &&
       (pattern.target === undefined || row.name === pattern.target)
     )
-    if (!selected) continue
+  const named = (row: TargetIndex.Row, attrs: LlmLint.Attrs) =>
+    !attrs.manual || patterns.some((pattern) => pattern.target === row.name)
+  for (const row of rows) {
+    if (row.rule !== "LlmLint") continue
+    if (!selects(row)) continue
     if (row.reviewPolicy === undefined) {
       throw new Error("Trusted revision has no review policy; regenerate and approve its target index")
     }
     const attrs = Schema.decodeUnknownSync(LlmLint.Attrs)(JSON.parse(row.reviewPolicy))
-    if (attrs.manual && !patterns.some((pattern) => pattern.target === row.name)) continue
+    if (!named(row, attrs)) continue
     policies.push({ label: row.label, payload: payloadOf(attrs, policyRevision) })
   }
   if (policies.length === 0) throw new Error("No trusted review policies match the requested labels")
@@ -234,6 +237,26 @@ export const prepare = async (options: Options) => {
           scope: "all"
         },
         snapshot: [{ path: TargetIndex.indexPath, contents, changed: true }]
+      })
+    }
+    // A changed check selects every file it governs: its proposed checks review the whole
+    // included set, on the trusted engine and model, alongside the unchanged trusted policy.
+    for (const row of proposed) {
+      if (row.rule !== "LlmLint" || row.reviewPolicy === undefined || !selects(row)) continue
+      if (before.get(row.label) === row.reviewPolicy) continue
+      const attrs = Schema.decodeUnknownSync(LlmLint.Attrs)(JSON.parse(row.reviewPolicy))
+      if (!named(row, attrs)) continue
+      const trusted = policies.find(({ label }) => label === row.label)?.payload
+      const { contextTokens: _proposedWindow, ...checks } = payloadOf(attrs, policyRevision)
+      policies.push({
+        label: `${row.label}#proposed-checks`,
+        payload: {
+          ...checks,
+          engine: trusted?.engine ?? "claude",
+          model: trusted?.model ?? SecurityReview.defaultClaudeModel,
+          ...(trusted?.contextTokens === undefined ? {} : { contextTokens: trusted.contextTokens }),
+          scope: "all"
+        }
       })
     }
   }
@@ -390,6 +413,7 @@ export const run = async (options: Options) => {
       LlmLint.review({
         workspaceRoot: prepared.root,
         store: { directory: findingsStore, owner: label },
+        revisions: { base: prepared.policyRevision, head: prepared.revision },
         snapshot: snapshot ??
           prepared.snapshot.filter(({ path }) => matches(path, payload.include) || matches(path, payload.context))
       }, payload)

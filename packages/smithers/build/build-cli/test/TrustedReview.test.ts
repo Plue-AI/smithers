@@ -105,7 +105,8 @@ describe("TrustedReview Git boundary", () => {
     expect(prepared.policies.map(({ label }) => label)).toEqual([
       "//:security",
       "//:proposed-security-policy",
-      "//:proposed-review-index"
+      "//:proposed-review-index",
+      "//:security#proposed-checks"
     ])
     expect(prepared.policies[1]?.payload.include.map(({ pattern }) => pattern)).toEqual(["//**/*"])
     expect(prepared.policies[1]?.snapshot?.map(({ path }) => path).sort()).toEqual(["PACKAGE.ts", "security.ts"])
@@ -126,7 +127,7 @@ describe("TrustedReview Git boundary", () => {
       policyRevision: trusted,
       revision: candidate,
       planned: true,
-      labels: ["//:security", "//:proposed-security-policy", "//:proposed-review-index"]
+      labels: ["//:security", "//:proposed-security-policy", "//:proposed-review-index", "//:security#proposed-checks"]
     })
     expect(plan.files).toContain("src/service.ts")
     expect(await Fs.stat(marker).then(() => true, () => false)).toBe(false)
@@ -213,6 +214,46 @@ describe("TrustedReview Git boundary", () => {
       ["src/service.ts", true]
     ])
     expect(prepared.snapshot.find(({ path }) => path === "src/guard.ts")?.contents).toBe("export const guard = true\n")
+  })
+
+  it("reviews every file a changed check governs with the proposed checks on the trusted engine", async () => {
+    const { root, trusted } = await fixture()
+    await write(root, ".smithers/target-index.json", index(policy("stricter rubric")))
+    git(root, "add", ".")
+    git(root, "commit", "-qm", "policy-only change")
+    const candidate = git(root, "rev-parse", "HEAD")
+    const prepared = await prepare(options(root, trusted, candidate))
+    const proposed = prepared.policies.find(({ label }) => label === "//:security#proposed-checks")!
+    const active = prepared.policies.find(({ label }) => label === "//:security")!
+    expect(proposed.payload).toMatchObject({
+      rubric: "stricter rubric",
+      scope: "all",
+      engine: active.payload.engine,
+      model: active.payload.model
+    })
+    expect(active.payload.rubric).toBe("trusted rubric")
+    // No source changed, yet the governed source is selected for the changed check.
+    expect(prepared.snapshot.find(({ path }) => path === "src/service.ts")).toMatchObject({ changed: false })
+
+    const added = await fixture()
+    await write(
+      added.root,
+      ".smithers/target-index.json",
+      JSON.stringify([
+        row("//:security", policy("trusted rubric")),
+        row("//:audit", policy("new audit rubric")),
+        row("//:manual", policy("manual rubric", true))
+      ])
+    )
+    git(added.root, "add", ".")
+    git(added.root, "commit", "-qm", "new review targets")
+    const next = await prepare(options(added.root, added.trusted, git(added.root, "rev-parse", "HEAD")))
+    expect(next.policies.find(({ label }) => label === "//:audit#proposed-checks")?.payload).toMatchObject({
+      rubric: "new audit rubric",
+      engine: "claude",
+      model: "claude-opus-5-5"
+    })
+    expect(next.policies.map(({ label }) => label)).not.toContain("//:manual#proposed-checks")
   })
 
   it("fails closed when the trusted index omits review policy data", async () => {

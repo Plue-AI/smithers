@@ -1,5 +1,6 @@
 import * as Effect from "effect/Effect"
 import { execFileSync } from "node:child_process"
+import { createHash } from "node:crypto"
 import * as Fs from "node:fs/promises"
 import * as Os from "node:os"
 import * as Path from "node:path"
@@ -263,5 +264,82 @@ describe("LlmLint.review finding store", () => {
     await Fs.writeFile(store, "not a directory")
     const blocked = await Effect.runPromise(Effect.flip(review(cli.executable)))
     expect(blocked).toMatchObject({ phase: "store" })
+  })
+})
+
+describe("LlmLint.review provenance manifest", () => {
+  const sha = (text: string | Buffer) => createHash("sha256").update(text).digest("hex")
+
+  it("binds the run to the policy, revisions, engine identity, batch layout and reviewed bytes", async () => {
+    await write("docs/context.md", "context\n")
+    const cli = await engine({ findings: { "src/a.ts": [danger] } })
+    const head = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim()
+    const report = await Effect.runPromise(review(cli.executable, { context: [Input.glob("//docs/context.md")] }))
+    const manifest = report.manifest!
+    expect(report.run).toBe(sha(JSON.stringify(manifest)))
+    expect(manifest).toEqual({
+      version: 1,
+      revisions: { base: head, head },
+      policy: {
+        digest: sha(JSON.stringify(["Review", "Rubric", null])),
+        prompt: sha("Review"),
+        rubric: sha("Rubric"),
+        failOn: "error",
+        scope: "changed",
+        batchSize: 1,
+        contextTokens: LlmLint.defaultContextTokens
+      },
+      engine: {
+        transport: "cli",
+        seats: [{ engine: "claude", model: "test" }],
+        executable: { path: cli.executable, sha256: sha(await Fs.readFile(cli.executable)) }
+      },
+      context: [{ path: "docs/context.md", sha256: sha("context\n"), bytes: 8 }],
+      batches: [
+        {
+          changed: [{ path: "src/a.ts", firstLine: 1, lastLine: 3, sha256: sha("export const a = 2\ndanger()\n") }],
+          related: [],
+          omittedRelated: []
+        },
+        {
+          changed: [{ path: "src/b.ts", firstLine: 1, lastLine: 2, sha256: sha("export const b = 2\n") }],
+          related: [],
+          omittedRelated: []
+        }
+      ]
+    })
+    const [run] = await runs()
+    expect(run!.manifest).toEqual(manifest)
+
+    // One reviewed byte, or a host-pinned revision, makes a different run.
+    const pinned = await Effect.runPromise(LlmLint.review({
+      workspaceRoot: root,
+      executable: cli.executable,
+      store: { directory: store },
+      revisions: { base: "a".repeat(40), head: "b".repeat(40) }
+    }, payload({ context: [Input.glob("//docs/context.md")] })))
+    expect(pinned.manifest!.revisions).toEqual({ base: "a".repeat(40), head: "b".repeat(40) })
+    expect(pinned.run).not.toBe(report.run)
+    await write("src/b.ts", "export const b = 3\n")
+    const edited = await Effect.runPromise(review(cli.executable, { context: [Input.glob("//docs/context.md")] }))
+    expect(edited.run).not.toBe(report.run)
+  })
+
+  it("names every security seat and fails closed on an unreadable executable or base", async () => {
+    const cli = await engine({})
+    await Fs.chmod(cli.executable, 0o111)
+    const unreadable = await Effect.runPromise(Effect.flip(review(cli.executable)))
+    expect(unreadable.message).toContain("Review executable identity")
+    const missing = await Effect.runPromise(Effect.flip(review(Path.join(root, "absent-engine"))))
+    expect(missing).toBeInstanceOf(LlmLint.ModelCliMissing)
+    const onPath = await Effect.runPromise(Effect.flip(review("smithers-absent-engine")))
+    expect(onPath).toBeInstanceOf(LlmLint.ModelCliMissing)
+    const base = await Effect.runPromise(Effect.flip(LlmLint.review({
+      workspaceRoot: root,
+      executable: cli.executable,
+      store: { directory: store },
+      snapshot: [{ path: "src/a.ts", contents: "export const a = 1\n", changed: true }]
+    }, payload({ base: "c".repeat(40) }))))
+    expect(base).toMatchObject({ phase: "diff", message: expect.stringContaining("git rev-parse exited") })
   })
 })

@@ -195,6 +195,22 @@ time, each call's timeout shrinking to what remains. A call that would exceed a
 bound is not sent, is never retried, and fails the review. A budgeted report
 includes its `usage`. Interrupting a review stops its model calls.
 
+## Provenance
+
+With a finding store, every report carries a `manifest`: the SHA-256 and size
+of every context file, the SHA-256 and line range of every changed slice and
+related file in each batch, the policy digests, the base and head commits,
+the transport and each security pass's engine and model, and an explicit
+executable's resolved path and SHA-256. The run id is the manifest's SHA-256,
+so a verdict names exactly the bytes, policy and engine that produced it.
+`smithers-build review` pins the policy and source revisions it read.
+Reviews are never cached: a rerun is a new inference.
+
+A change to a review's policy in the target index also runs
+`<label>#proposed-checks`: the proposed prompt, rubric and checks over every
+file they include, on the trusted engine and model. The active trusted policy
+still gates the change; the proposed checks cannot replace it.
+
 ## Cost and CI
 
 The aggregate `ci` verb never plans a review. The `review` verb plans
