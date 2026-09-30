@@ -244,17 +244,18 @@ func (m *LSPSessionManager) open(ctx context.Context, sessionID string, info ser
 	}
 
 	sess := &lspSession{
-		id:        sessionID,
-		language:  launch.Language,
-		client:    client,
-		sshSess:   sshSess,
-		stdin:     stdin,
-		br:        bufio.NewReaderSize(stdout, 64*1024),
-		stderr:    newTailBuffer(lspStderrTailBytes),
-		idleAfter: m.idleTimeout,
-		exitWait:  m.exitWait,
-		exited:    make(chan struct{}),
-		done:      make(chan struct{}),
+		id:            sessionID,
+		language:      launch.Language,
+		client:        client,
+		sshSess:       sshSess,
+		stdin:         stdin,
+		br:            bufio.NewReaderSize(stdout, 64*1024),
+		stderr:        newTailBuffer(lspStderrTailBytes),
+		idleAfter:     m.idleTimeout,
+		exitWait:      m.exitWait,
+		exited:        make(chan struct{}),
+		done:          make(chan struct{}),
+		closeFinished: make(chan struct{}),
 	}
 	// Identity-checked removal, like the terminal manager: a replaced
 	// relay's teardown must not evict the newer one under the same id.
@@ -417,7 +418,11 @@ type lspSession struct {
 	exited  chan struct{}
 	exitErr error
 	done    chan struct{}
-	once    sync.Once
+	// closeFinished closes after the bounded WebSocket close handshake.
+	// done signals teardown immediately; the socket's owner waits separately
+	// before invoking CloseNow, which could otherwise win against Close.
+	closeFinished chan struct{}
+	once          sync.Once
 
 	lastActivity atomic.Int64
 
@@ -543,8 +548,10 @@ func (s *lspSession) drainStderr(r io.Reader) {
 }
 
 // run relays until the socket or the server ends. It returns after the
-// relay is destroyed; the caller owns the WebSocket's final CloseNow.
+// relay is destroyed and its bounded close handshake finishes; the caller
+// owns the WebSocket's final CloseNow.
 func (s *lspSession) run(ctx context.Context) {
+	defer func() { <-s.closeFinished }()
 	s.mu.Lock()
 	ws := s.ws
 	s.mu.Unlock()
@@ -725,10 +732,15 @@ func (s *lspSession) destroy(code websocket.StatusCode, reason string) {
 		s.closeReason = reason
 		ws := s.ws
 		s.mu.Unlock()
-		if ws != nil {
-			go func() { _ = ws.Close(code, reason) }()
-		}
 		close(s.done)
+		if ws != nil {
+			go func() {
+				defer close(s.closeFinished)
+				_ = ws.Close(code, reason)
+			}()
+		} else {
+			close(s.closeFinished)
+		}
 		go func() {
 			s.kill()
 			if s.onDone != nil {
