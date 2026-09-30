@@ -10,7 +10,7 @@ const PIN_ROWS = 3
 // Nearby anchors may share a disclosure. This is not a text-width estimate;
 // layoutPins measures the rendered labels before assigning their actual rows.
 const PIN_APART = 8
-const TONE_RANK: Readonly<Record<Milestone["tone"], number>> = { brand: 0, good: 1, warn: 2, bad: 3 }
+const TONE_RANK: Readonly<Record<Milestone["tone"], number>> = { muted: 0, brand: 1, good: 2, warn: 3, bad: 4 }
 const clamp = (value: number, low: number, high: number) => Math.min(Math.max(value, low), high)
 
 export interface PhasePin {

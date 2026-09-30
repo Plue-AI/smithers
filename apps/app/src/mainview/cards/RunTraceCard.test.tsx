@@ -963,6 +963,23 @@ describe("the timeline reads as phases, then what each frame did", () => {
     expect(timeline(PHASED).host.querySelector("[data-testid='run-outcome-run-1']")?.textContent).toBe(outcome.textContent)
   })
 
+  test("a person's stop pins `stopped` in the muted tone, the quietest a cluster can wear", () => {
+    const tones = (events: Array<ReturnType<typeof stamp>>) =>
+      [...timeline(events, { phase: "cancelled" }).host.querySelectorAll("[data-pin-row]")]
+        .map((pin) => pin.getAttribute("data-tone"))
+    expect(tones([stamp(1, "control.agent.turn-opened", {}, 1000), stamp(2, "control.run.cancelled", {}, 9000)]))
+      .toEqual(["muted"])
+    // Three writes take the three rows; the fourth and the stop fold into one
+    // count, which wears the write's tone rather than the stop's.
+    const writes = [0, 1, 2, 3].flatMap((round) => [
+      stamp(1 + round * 3, "control.agent.turn-opened", {}, 1000 + round * 50),
+      stamp(2 + round * 3, "control.agent.cell-call-started", { flowName: "edit", input: { path: `src/a${round}.ts` } }, 1010 + round * 50),
+      stamp(3 + round * 3, "control.agent.cell-call-settled", { flowName: "edit", outcome: "success", value: "+1" }, 1020 + round * 50)
+    ])
+    expect(tones([...writes, stamp(13, "control.run.cancelled", {}, 1210), stamp(14, "control.agent.turn-opened", {}, 20000)]))
+      .toEqual(["brand", "brand", "brand"])
+  })
+
   test("a dense cluster discloses each member with its own sequence and the loudest tone", () => {
     const model = fold(CLUSTERED)
     // The cluster is real: six moments, five writes and the demand, inside one second of twenty.

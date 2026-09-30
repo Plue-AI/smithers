@@ -2137,6 +2137,7 @@
 .run-phase-pin[data-tone="bad"] .run-phase-pin-tick { background: var(--danger); }
 .run-phase-pin[data-tone="good"] .run-phase-pin-tick { background: var(--success); }
 .run-phase-pin[data-tone="brand"] .run-phase-pin-tick { background: var(--brand); }
+.run-phase-pin[data-tone="muted"] .run-phase-pin-tick { background: var(--text-faint); }
 .run-phase-track {
 	position: relative;
 	touch-action: none;

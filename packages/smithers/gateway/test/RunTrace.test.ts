@@ -724,7 +724,7 @@ describe("what the frame was doing", () => {
       at(1, "control.agent.turn-opened", {}, 1),
       at(2, "control.run.cancelled", {}, 2)
     ])
-    expect(stopped.milestones.map((milestone) => milestone.label)).toEqual(["stopped"])
+    expect(stopped.milestones).toEqual([{ seq: 2, at: 2, label: "stopped", tone: "muted", spanId: "frame-1" }])
     expect(refused.lines).toEqual([
       {
         spanId: "frame-1",

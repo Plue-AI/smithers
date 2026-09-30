@@ -1,9 +1,11 @@
+import { rgbToHex } from "@opentui/core"
 import { testRender } from "@opentui/react/test-utils"
 import { afterEach, describe, expect, test } from "bun:test"
 import { ActivityView } from "../src/activity-view.tsx"
 import * as Activity from "../src/activity.ts"
 import * as Scrubber from "../src/scrubber.ts"
 import * as Session from "../src/session.ts"
+import { color } from "../src/theme.ts"
 import * as View from "../src/view.tsx"
 
 const fixture = new URL("./fixtures/timeline-worker.jsonl", import.meta.url).pathname
@@ -19,13 +21,13 @@ afterEach(() => {
 /** The dock keeps one blank row above itself. */
 const top = 1
 
-const draw = async (width: number, cursor?: number) => {
+const draw = async (width: number, cursor?: number, drawn: Activity.Activity = activity) => {
   const selected: Array<number> = []
   const paused: Array<boolean> = []
   setup = await testRender(
     <box style={{ width, flexDirection: "column" }}>
       <ActivityView
-        activity={activity}
+        activity={drawn}
         width={width}
         now={Date.now()}
         title="Worker"
@@ -51,6 +53,28 @@ describe("the scrubber on screen", () => {
     expect(frame).toContain("Done")
     expect(frame).toMatch(/\d+:\d{2}/)
     expect(frame).toContain("●")
+  })
+
+  test("a person's stop pins `stopped` in the faint color, never the failure red", async () => {
+    const running = {
+      records: activity.records.filter((record) => record.kind?.startsWith("control.run.") !== true),
+      status: "running" as const
+    }
+    const end = activity.records.at(-1)!.occurredAt!
+    const stopped = Activity.finish(running, "cancelled", end, "Stopped")
+    const failed = Activity.finish(running, "failed", end, "boom")
+    const tone = async (drawn: Activity.Activity, label: string) => {
+      await draw(120, undefined, drawn)
+      const spans = setup!.captureSpans().lines.flatMap((line) => line.spans).filter((span) =>
+        span.text.includes(label)
+      )
+      setup!.renderer.destroy()
+      setup = undefined
+      expect(spans.length).toBeGreaterThan(0)
+      return spans.map((span) => rgbToHex(span.fg))
+    }
+    for (const fg of await tone(stopped, "stopped")) expect(fg).toBe(color.faint)
+    for (const fg of await tone(failed, "failed")) expect(fg).toBe(color.danger)
   })
 
   test("never draws wider than the terminal", async () => {

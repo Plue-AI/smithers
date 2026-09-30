@@ -170,7 +170,8 @@ export interface Milestone {
   readonly seq: number
   readonly at: number
   readonly label: string
-  readonly tone: "warn" | "bad" | "good" | "brand"
+  /** `muted` is a person's stop: neither a success nor a failure. */
+  readonly tone: "warn" | "bad" | "good" | "brand" | "muted"
   /**
    * The frame this moment was recorded under, carried through the scoped
    * merge. Two steps run at once in one journal, so the frame a milestone
@@ -1061,8 +1062,10 @@ const disciplineStep = (state: DisciplineState, record: JournalRecord): void => 
       case "control.run.failed":
       case "control.run.cancelled": {
         const verdict = kind.slice("control.run.".length)
-        // A person's stop reads as the product word every surface uses.
-        pin(seq, at, verdict === "cancelled" ? "stopped" : verdict, verdict === "completed" ? "good" : "bad")
+        // A person's stop reads as the product word every surface uses, and
+        // is never drawn as a failure.
+        if (verdict === "cancelled") pin(seq, at, "stopped", "muted")
+        else pin(seq, at, verdict, verdict === "completed" ? "good" : "bad")
         break
       }
       default:

@@ -20,7 +20,15 @@ const tones: Record<PhaseId, keyof typeof color> = {
   unrecorded: "element"
 }
 const tickTone = (tone: Milestone["tone"]): string =>
-  tone === "bad" ? color.danger : tone === "good" ? color.success : tone === "warn" ? color.warning : color.brand
+  tone === "bad"
+    ? color.danger
+    : tone === "good"
+    ? color.success
+    : tone === "warn"
+    ? color.warning
+    : tone === "muted"
+    ? color.faint
+    : color.brand
 
 const fill = (phase: PhaseId, reached: boolean): string =>
   phase === "unrecorded"

@@ -1,3 +1,4 @@
+import { rgbToHex } from "@opentui/core"
 import { testRender } from "@opentui/react/test-utils"
 import * as SubagentCard from "@smthrs/rpc/SubagentCard"
 import { afterEach, describe, expect, it } from "bun:test"
@@ -474,7 +475,7 @@ describe("WorkerView", () => {
       span.text.includes("unchecked")
     )
     expect(unchecked.length).toBeGreaterThan(0)
-    for (const span of unchecked) expect(span.fg.toString()).not.toBe(color.danger)
+    for (const span of unchecked) expect(rgbToHex(span.fg)).not.toBe(color.danger)
   })
 
   it("shows a stopped run as stopped, never as a failure", async () => {
