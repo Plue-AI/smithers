@@ -9,10 +9,13 @@
  * engine restart after a durable suspension; it does not kill a process
  * mid-write.
  */
+import * as DurableEngineState from "@smthrs/engine-store/DurableEngineState"
 import { Action, DurableDeferred, Flow, FlowRuntime, Interpreter } from "@smthrs/flow"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Layer from "effect/Layer"
+import * as Option from "effect/Option"
+import * as Schedule from "effect/Schedule"
 import * as Schema from "effect/Schema"
 import { durableEngine } from "./durable-layer.ts"
 
@@ -68,10 +71,17 @@ export const main = (filename: string): Effect.Effect<Summary> =>
       )
 
     // Phase one: the run suspends at the deferred and releases its claim.
+    // `discard` returns once the run is admitted and scheduled, so the drive
+    // waits for the durable park before it drops the engine.
     yield* Effect.scoped(
-      Review.execute({ document: "rfc" }, { executionId: "review-1", discard: true }).pipe(
-        Effect.provide(engine("worker-a"))
-      )
+      Effect.gen(function*() {
+        yield* Review.execute({ document: "rfc" }, { executionId: "review-1", discard: true })
+        const state = yield* DurableEngineState.DurableEngineState
+        yield* state.waiting("review-1").pipe(
+          Effect.repeat({ until: Option.isSome, schedule: Schedule.spaced(10) }),
+          Effect.timeout(30_000)
+        )
+      }).pipe(Effect.provide(engine("worker-a")))
     )
 
     // Phase two: a fresh engine completes the deferred and finishes the run.
