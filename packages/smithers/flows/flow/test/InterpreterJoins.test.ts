@@ -317,6 +317,96 @@ describe("a losing child execution", () => {
     }))
 })
 
+describe("a losing child execution after a crash (#2892)", () => {
+  const Slow = Flow.make("joins/crash-slow-child", {
+    payload: {},
+    success: Schema.Number,
+    body: () => Block.call({ name: "child" })
+  })
+  const Host = Flow.make("joins/host", { payload: {}, body: () => Node.succeed(undefined) })
+  const racing = Node.race({ child: Slow.child({}), hold: Hold.call({}) })
+
+  /** One process whose runtime reports every cancellation it is asked for. */
+  const drive = <A, E>(
+    effect: Effect.Effect<A, E, Needs>,
+    layer: Layer.Layer<never, never, FlowRuntime.FlowRuntime | Action.Implementations>,
+    state: MemoryState,
+    interrupts: Array<string>
+  ) => {
+    const reporting = Layer.effect(FlowRuntime.FlowRuntime)(Effect.gen(function*() {
+      const runtime = yield* FlowRuntime.FlowRuntime
+      return {
+        ...runtime,
+        interrupt: (flow: Flow.Any, executionId: string) =>
+          Effect.sync(() => interrupts.push(executionId)).pipe(Effect.andThen(runtime.interrupt(flow, executionId)))
+      }
+    }))
+    return withCrypto(
+      effect.pipe(
+        Effect.provideService(FlowRuntime.FlowInstance, makeInstance(Host, "joins")),
+        Effect.provide(
+          reporting.pipe(Layer.provideMerge(layerWired(Layer.mergeAll(layer, Interpreter.layer(Slow)), state)))
+        )
+      )
+    )
+  }
+
+  it.effect("journals the child a loser opened and cancels it again on replay without reopening it", () =>
+    Effect.gen(function*() {
+      const state = makeMemoryState()
+      const first = tracing()
+      const live: Array<string> = []
+      const settled = yield* drive(Interpreter.interpret(racing), first.layer, state, live)
+      expect(settled.value).toBe(9)
+      expect(first.trace.started.sort()).toEqual(["child", "hold"])
+      expect(live).toHaveLength(1)
+      const opened = live[0]!
+      expect(state.deferredResults.get("joins/join/root")).toEqual(
+        Exit.succeed({ members: ["hold"], children: [{ node: "root.race.child", executionId: opened }] })
+      )
+
+      // A process that died after the journal write never asked the runtime
+      // to cancel: the resumed walk asks from the record, and never demands
+      // the loser, so its body does not start again.
+      const second = tracing()
+      const replayed: Array<string> = []
+      const resumed = yield* drive(Interpreter.interpret(racing), second.layer, restarted(state), replayed)
+      expect(resumed.value).toBe(9)
+      expect(replayed).toEqual([opened])
+      expect(second.trace.started).toEqual([])
+      expect(resumed.skipped).toContain("root.race.child")
+    }))
+
+  it.effect("replays a member list recorded before losing children were journaled", () =>
+    Effect.gen(function*() {
+      const state = makeMemoryState()
+      const { layer } = tracing()
+      const race = Node.race({ fast: Node.succeed(1), child: Slow.child({}) })
+      yield* drive(Interpreter.interpret(race), layer, state, [])
+      state.deferredResults.set("joins/join/root", Exit.succeed(["fast"]))
+      const interrupts: Array<string> = []
+      const resumed = yield* drive(Interpreter.interpret(race), layer, restarted(state), interrupts)
+      expect(resumed.value).toBe(1)
+      expect(interrupts).toEqual([])
+    }))
+
+  it.effect("refuses a journaled losing child the plan no longer holds", () =>
+    Effect.gen(function*() {
+      const state = makeMemoryState()
+      const { layer } = tracing()
+      const race = Node.race({ fast: Node.succeed(1) })
+      yield* drive(Interpreter.interpret(race), layer, state, [])
+      state.deferredResults.set(
+        "joins/join/root",
+        Exit.succeed({ members: ["fast"], children: [{ node: "root.race.gone", executionId: "orphan" }] })
+      )
+      const interrupts: Array<string> = []
+      const exit = yield* drive(Effect.exit(Interpreter.interpret(race)), layer, restarted(state), interrupts)
+      expect(failureOf(exit)).toMatchObject({ error: { code: "join_mismatch", node: "root" } })
+      expect(interrupts).toEqual([])
+    }))
+})
+
 describe("Node.quorum", () => {
   it.effect("succeeds with exactly the first two of three successes", () =>
     Effect.gen(function*() {

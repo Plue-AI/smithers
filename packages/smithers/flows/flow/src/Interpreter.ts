@@ -746,11 +746,11 @@ const interpretWithPolicy = (
      */
     const executions = new Map<string, Fiber.Fiber<unknown, unknown>>()
     /**
-     * The child execution each `.child()` node opened. Interrupting the node's
-     * fiber only stops its join: a losing child is cancelled through the
-     * runtime, the same request a caller's cancellation makes.
+     * The child execution id each `.child()` node opened. Interrupting the
+     * node's fiber only stops its join: a losing child is cancelled through
+     * the runtime, the same request a caller's cancellation makes.
      */
-    const childExecutions = new Map<string, { readonly declaration: AnyWithProps; readonly executionId: string }>()
+    const childExecutions = new Map<string, string>()
 
     /**
      * The nodes this walk has already settled a record for.
@@ -877,7 +877,8 @@ const interpretWithPolicy = (
     }
 
     /**
-     * Interrupts the work of the members a join no longer waits for.
+     * The work of the members a join no longer waits for: their running node
+     * fibers and the child executions those nodes opened.
      *
      * A member's structural subtree is its own, so its running executions are
      * interrupted; nothing else demands them again. A node something outside that
@@ -885,51 +886,50 @@ const interpretWithPolicy = (
      * ownership an `All` failure respects — and keeps running, together with
      * everything inside the subtree it depends on.
      */
-    const cancel = (joinId: string, roots: ReadonlyArray<string>): Effect.Effect<void, never, Services> =>
-      Effect.suspend(() => {
-        const subtree = new Set<string>()
-        const pending = [...roots]
-        while (pending.length > 0) {
-          const id = pending.pop()!
-          if (subtree.has(id)) continue
-          subtree.add(id)
-          pending.push(...sources.get(id) ?? [])
-        }
-        const kept = new Set<string>()
-        const shared = [...subtree].filter((id) =>
-          (readers.get(id) ?? []).some((reader) => reader !== joinId && !subtree.has(reader))
-        )
-        while (shared.length > 0) {
-          const id = shared.pop()!
-          if (kept.has(id) || !subtree.has(id)) continue
-          kept.add(id)
-          shared.push(...sources.get(id) ?? [], ...KeyMaterial.dependencies(byId.get(id)!.draft.material))
-        }
-        const fibers: Array<Fiber.Fiber<unknown, unknown>> = []
-        const childRuns: Array<{ readonly declaration: AnyWithProps; readonly executionId: string }> = []
-        for (const id of subtree) {
-          if (kept.has(id)) continue
-          const fiber = executions.get(id)
-          if (fiber === undefined) continue
-          fibers.push(fiber)
-          const child = childExecutions.get(id)
-          if (child !== undefined) childRuns.push(child)
-        }
-        // The interruption is requested, not awaited: a loser's finalizers may
-        // wait on work that only settles after the join returns, and the node
-        // scope awaits every fiber when the walk ends anyway.
-        return Effect.withFiber((current) =>
-          Effect.sync(() => {
-            for (const fiber of fibers) fiber.interruptUnsafe(current.id)
-          })
-        ).pipe(
-          Effect.andThen(Effect.forEach(
-            childRuns,
-            ({ declaration, executionId }) => Effect.orDie(runtime.interrupt(declaration as AnyFlow, executionId)),
-            { discard: true }
-          ))
-        )
-      })
+    const losingWork = (joinId: string, roots: ReadonlyArray<string>) => {
+      const subtree = new Set<string>()
+      const pending = [...roots]
+      while (pending.length > 0) {
+        const id = pending.pop()!
+        if (subtree.has(id)) continue
+        subtree.add(id)
+        pending.push(...sources.get(id) ?? [])
+      }
+      const kept = new Set<string>()
+      const shared = [...subtree].filter((id) =>
+        (readers.get(id) ?? []).some((reader) => reader !== joinId && !subtree.has(reader))
+      )
+      while (shared.length > 0) {
+        const id = shared.pop()!
+        if (kept.has(id) || !subtree.has(id)) continue
+        kept.add(id)
+        shared.push(...sources.get(id) ?? [], ...KeyMaterial.dependencies(byId.get(id)!.draft.material))
+      }
+      const fibers: Array<Fiber.Fiber<unknown, unknown>> = []
+      const childRuns: Array<JoinChild> = []
+      for (const id of subtree) {
+        if (kept.has(id)) continue
+        const fiber = executions.get(id)
+        if (fiber === undefined) continue
+        fibers.push(fiber)
+        const executionId = childExecutions.get(id)
+        if (executionId !== undefined) childRuns.push({ node: id, executionId })
+      }
+      return { fibers, childRuns }
+    }
+
+    /**
+     * Cancels the child executions a join's losers opened, through the
+     * runtime: interrupting a node's fiber only stops its join, so a losing
+     * child is cancelled with the same request a caller's cancellation makes.
+     */
+    const cancelChildren = (childRuns: ReadonlyArray<JoinChild>): Effect.Effect<void, never, Services> =>
+      Effect.forEach(
+        childRuns,
+        ({ executionId, node }) =>
+          Effect.orDie(runtime.interrupt(childDeclarations.get(node)! as AnyFlow, executionId)),
+        { discard: true }
+      )
 
     /**
      * Settles a `Race` node: `race`, `any`, or `quorum`.
@@ -941,6 +941,12 @@ const interpretWithPolicy = (
      * never demands the others, so it reaches the same verdict without
      * running a loser again. A defect or an interpreter refusal in a member is
      * not a decision: it propagates unjournaled, as it would from an `All`.
+     *
+     * The same record names the child executions the losers had opened, so a
+     * process that dies between the journal write and their cancellation does
+     * not orphan them: the resumed walk never demands a loser, and it cancels
+     * those children from the record instead (#2892). Cancellation is a
+     * first-writer-wins request, so repeating it on every replay is harmless.
      */
     const join = (
       node: Graph.GraphNode,
@@ -957,7 +963,9 @@ const interpretWithPolicy = (
         const recorded = yield* runtime.deferredResult(journal)
         instance.waiting = waiting
         if (Option.isSome(recorded) && Exit.isSuccess(recorded.value)) {
-          const decided = recorded.value.value
+          const record = recorded.value.value
+          const decided = "members" in record ? record.members : record
+          const opened = "members" in record ? record.children : []
           const indices = decided.map((member) => members.indexOf(member))
           if (indices.some((index) => index < 0) || new Set(indices).size !== indices.length) {
             return yield* refuse(
@@ -966,6 +974,15 @@ const interpretWithPolicy = (
               `Join at "${node.id}" journaled members ${JSON.stringify(decided)}, which it no longer holds.`
             )
           }
+          const lost = opened.find((child) => !childDeclarations.has(child.node))
+          if (lost !== undefined) {
+            return yield* refuse(
+              "join_mismatch",
+              node.id,
+              `Join at "${node.id}" journaled a losing child at "${lost.node}", which the plan no longer holds.`
+            )
+          }
+          yield* cancelChildren(opened)
           // The losers are never demanded, so nothing of theirs starts again.
           const exits = yield* Effect.forEach(indices, (index) => Effect.exit(settleNode(children[index]!)), {
             concurrency: "unbounded"
@@ -1023,15 +1040,27 @@ const interpretWithPolicy = (
         const decidedMembers = outcomes.map((outcome) => outcome.member)
         yield* Effect.uninterruptible(
           Effect.gen(function*() {
+            const { childRuns, fibers } = losingWork(
+              node.id,
+              children.filter((_, index) => !decidedMembers.includes(members[index]!))
+            )
             if (journaled) {
               yield* runtime.deferredDone(journal, {
                 flowName: instance.flow._tag,
                 executionId: instance.executionId,
                 deferredName: journal.name,
-                exit: Exit.succeed(decidedMembers)
+                exit: Exit.succeed({ members: decidedMembers, children: childRuns })
               })
             }
-            yield* cancel(node.id, children.filter((_, index) => !decidedMembers.includes(members[index]!)))
+            // The interruption is requested, not awaited: a loser's finalizers
+            // may wait on work that only settles after the join returns, and
+            // the node scope awaits every fiber when the walk ends anyway.
+            yield* Effect.withFiber((current) =>
+              Effect.sync(() => {
+                for (const fiber of fibers) fiber.interruptUnsafe(current.id)
+              })
+            )
+            yield* cancelChildren(childRuns)
           })
         )
         return yield* verdict
@@ -1208,7 +1237,7 @@ const interpretWithPolicy = (
                 declaration._tag,
                 childPayload
               ) as unknown as Effect.Effect<string, never, Services>)
-              childExecutions.set(node.id, { declaration, executionId })
+              childExecutions.set(node.id, executionId)
               return yield* (declaration.execute(childPayload, {
                 executionId
               }) as Effect.Effect<unknown, unknown, Services>).pipe(attenuateCapabilities(node.capabilityCeilings))
@@ -1277,8 +1306,21 @@ const interpretWithPolicy = (
     }
   })
 
-/** The members a join decided on, in the order they decided. @private */
-const JoinDecision = Schema.Array(Schema.String)
+/** A child execution a losing join member opened. @private */
+const JoinChild = Schema.Struct({ node: Schema.String, executionId: Schema.String })
+type JoinChild = typeof JoinChild.Type
+
+/**
+ * The members a join decided on, in the order they decided, and the child
+ * executions its losers had opened. A bare member list is the record written
+ * before losing children were journaled; it names none, and still replays.
+ *
+ * @private
+ */
+const JoinDecision = Schema.Union([
+  Schema.Struct({ members: Schema.Array(Schema.String), children: Schema.Array(JoinChild) }),
+  Schema.Array(Schema.String)
+])
 
 /** One member's decisive settlement. @private */
 interface Decision {
