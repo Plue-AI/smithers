@@ -27,6 +27,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -219,7 +220,8 @@ func serveBackend(t *testing.T, factory *services.TerminalFactory) *httptest.Ser
 func signIn(t *testing.T, factory *services.TerminalFactory, origin string) (string, string) {
 	t.Helper()
 	ctx := context.Background()
-	raw := "smithers_terminal_walkthrough_token_0123456789"
+	// A user token is smithers_ and 40 lowercase hex digits (63d9c50bba).
+	raw := "smithers_" + strings.Repeat("0123456789abcdef", 3)[:40]
 	sum := sha256.Sum256([]byte(raw))
 	hash := hex.EncodeToString(sum[:])
 	_, err := factory.Pool().Exec(ctx, `INSERT INTO access_tokens (user_id, name, token_hash, token_last_eight, scopes)
@@ -227,7 +229,10 @@ func signIn(t *testing.T, factory *services.TerminalFactory, origin string) (str
 	require.NoError(t, err)
 	home := t.TempDir()
 	auth := filepath.Join(home, "auth.json")
-	encoded, err := json.Marshal(map[string]string{"api_url": origin, "host": strings.TrimPrefix(origin, "http://"), "token": raw})
+	// The CLI records the bare hostname, without the port (Session.save).
+	parsed, err := url.Parse(origin)
+	require.NoError(t, err)
+	encoded, err := json.Marshal(map[string]string{"api_url": origin, "host": parsed.Hostname(), "token": raw})
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(auth, encoded, 0o600))
 	return raw, home
