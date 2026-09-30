@@ -2317,6 +2317,70 @@ describe("Projections approvals inbox over nested human waits", () => {
         { runId: "run-1", requestId: "gate-2" }
       ])
     }))
+
+  /**
+   * The same tree as the SQL listing really returns it: newest first, so the
+   * execution holding the wait comes before its ancestors. Every row shares a
+   * creation millisecond, so only the explicit parent links can name the
+   * outermost owner.
+   */
+  const linked: ReadonlyArray<RunSummary> = tree.map((item, index) => ({
+    ...item,
+    createdAt: 0,
+    ...(index === 0 ? {} : { parentRunId: tree[index - 1]!.runId })
+  })).reverse()
+  const followed = (runs: ReadonlyArray<RunSummary>, live: ReadonlyArray<ControlEvent>) =>
+    control({
+      list: (request) =>
+        Effect.succeed(
+          {
+            _tag: "runs",
+            items: request._tag === "runs" && request.filters?.runId !== undefined
+              ? runs.filter((item) => item.runId === request.filters?.runId)
+              : [...runs]
+          } satisfies ListResponse
+        ),
+      watch: (filter) => filter.follow === true ? Stream.fromIterable(live) : Stream.empty
+    })
+  const touched = (runId: string) => ({ ...event(5, "control.agent.turn-opened", { seat: "review" }), runId })
+
+  it.effect("gives the question to the outermost run of a newest-first listing", () =>
+    Effect.gen(function*() {
+      const rows = (yield* make(followed(linked, [])).snapshot({ _tag: "approvals" })).rows
+      expect(rows).toMatchObject([{ runId: "run-3", waitRunId: "prepare-plan", requestId: "coding-clarification#1" }])
+    }))
+
+  it.effect("lists a nested question once in a live delta, as a fresh snapshot does", () =>
+    Effect.gen(function*() {
+      for (const runs of [linked, tree]) {
+        for (const changed of ["prepare-plan", "request", "run-3"]) {
+          const projections = make(followed(runs, [touched(changed)]), { heartbeatMillis: 60_000 })
+          const frames = yield* Stream.runCollect(projections.subscribe({ _tag: "approvals" }))
+          const snapshot = frames.flatMap((frame) => frame._tag === "row" ? [frame.row] : [])
+          const deltas = frames.flatMap((frame) => frame._tag === "delta" ? [frame.delta] : [])
+          const fresh = (yield* projections.snapshot({ _tag: "approvals" })).rows
+          expect(deltas).toHaveLength(1)
+          expect(fresh).toMatchObject([{ runId: "run-3", requestId: "coding-clarification#1" }])
+          expect(snapshot).toEqual(fresh)
+          expect(deltas[0]).toEqual(fresh)
+        }
+      }
+    }))
+
+  it.effect("keeps separate questions of one tree apart, and survives a parent cycle", () =>
+    Effect.gen(function*() {
+      const second = { ...wait, runId: "request", token: "second-token", name: "second-question" }
+      const cyclic: ReadonlyArray<RunSummary> = [
+        { ...linked[0]!, parentRunId: "run-3" },
+        { ...linked[1]!, pendingWaits: [wait, second] },
+        { ...linked[2]!, parentRunId: "prepare-plan", pendingWaits: [wait, second] }
+      ]
+      const projections = make(followed(cyclic, [touched("request")]), { heartbeatMillis: 60_000 })
+      const frames = yield* Stream.runCollect(projections.subscribe({ _tag: "approvals" }))
+      const fresh = (yield* projections.snapshot({ _tag: "approvals" })).rows
+      expect(fresh.map((row) => row.requestId).sort()).toEqual(["coding-clarification#1", "second-question#1"])
+      expect(frames.flatMap((frame) => frame._tag === "delta" ? [frame.delta] : [])).toEqual([fresh])
+    }))
 })
 
 /**

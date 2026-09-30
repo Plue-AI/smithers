@@ -606,23 +606,87 @@ const eligibleForWorkspace = (selector: GatewaySchema.ProjectionSelector, source
  *
  * A nested wait is rolled onto the root AND onto every execution between, so
  * one question reaches a workspace listing once per ancestor. The inbox is a
- * list of questions, not of the runs that contain them, so it keeps the first
- * row for each wait point. First is the outermost: the control plane lists
- * runs in creation order and an ancestor exists before the execution it
- * spawned.
+ * list of questions, not of the runs that contain them, so it keeps one row
+ * for each wait point: the one its outermost owner projects. See
+ * {@link ownerRank}.
  */
 const waitIdentity = (row: GatewayProjection.ApprovalRow): string | undefined =>
   row.waitRunId === undefined ? undefined : `${row.waitRunId}:${row.requestId}`
 
 /**
+ * How far out each listed run sits, as a comparable key: fewer listed
+ * ancestors first, then the earlier created, then the run id.
+ *
+ * Ancestry is the explicit `parentRunId` chain among the runs listed, because
+ * the listing order is the control plane's to choose (the SQL listing is
+ * newest first) and two runs of one tree can share a creation millisecond.
+ * Creation order breaks the ties ancestry leaves: an ancestor exists before
+ * the execution it spawned.
+ */
+const ownerRank = (
+  runs: ReadonlyArray<ControlSchema.RunSummary>
+): (left: ControlSchema.RunSummary, right: ControlSchema.RunSummary) => number => {
+  const listed = new Map(runs.map((run) => [run.runId, run]))
+  const depths = new Map<string, number>()
+  const depthOf = (run: ControlSchema.RunSummary): number => {
+    const known = depths.get(run.runId)
+    if (known !== undefined) return known
+    // Marked before the walk so a cyclic parent chain ends instead of looping.
+    depths.set(run.runId, 0)
+    const parent = run.parentRunId === undefined ? undefined : listed.get(run.parentRunId)
+    const depth = parent === undefined ? 0 : depthOf(parent) + 1
+    depths.set(run.runId, depth)
+    return depth
+  }
+  return (left, right) => depthOf(left) - depthOf(right) || (createdAfter(left, right) ? 1 : -1)
+}
+
+/**
+ * The workspace approvals inbox over each run's own pending rows.
+ *
+ * Every read of the inbox, snapshot and delta alike, folds through here, so a
+ * nested question is one row owned by its outermost run whichever read
+ * produced it. Rows keep the order of the runs given.
+ */
+const approvalInbox = (
+  perRun: ReadonlyArray<{ readonly run: ControlSchema.RunSummary; readonly rows: ReadonlyArray<unknown> }>
+): ReadonlyArray<GatewayProjection.ApprovalRow> => {
+  const owners = new Map<string, string>()
+  const rank = ownerRank(perRun.map(({ run }) => run))
+  for (const { run, rows } of [...perRun].sort((left, right) => rank(left.run, right.run))) {
+    for (const row of rows as ReadonlyArray<GatewayProjection.ApprovalRow>) {
+      const identity = waitIdentity(row)
+      if (identity !== undefined && !owners.has(identity)) owners.set(identity, run.runId)
+    }
+  }
+  const inbox: Array<GatewayProjection.ApprovalRow> = []
+  for (const { run, rows } of perRun) {
+    for (const row of rows as ReadonlyArray<GatewayProjection.ApprovalRow>) {
+      const identity = waitIdentity(row)
+      if (identity !== undefined) {
+        if (owners.get(identity) !== run.runId) continue
+        // Taken once: a question listed twice by its owner is still one row.
+        owners.delete(identity)
+      }
+      inbox.push(row)
+    }
+  }
+  return inbox
+}
+
+/** One run's rows that are still owed an answer: its share of the inbox. */
+const pendingApprovals = (source: RunSource): ReadonlyArray<GatewayProjection.ApprovalRow> =>
+  GatewayProjection.approvals(source.events, source.run).filter((row) => row.status === "pending")
+
+/**
  * The rows a workspace selector projects across every run it read.
  *
  * Most of them are one run's rows, concatenated. Two are not. The approvals
- * inbox wants only what a human still owes an answer to, where a run card
- * wants that run's decided gates too. And `flow-durations` is a cross-run
- * fold: every run contributes the executions it measured and the percentiles
- * are ranked over all of them at once, so a run contributes a sample rather
- * than a row.
+ * inbox wants only what a human still owes an answer to, once per question
+ * (see {@link approvalInbox}), where a run card wants that run's decided gates
+ * too. And `flow-durations` is a cross-run fold: every run contributes the
+ * executions it measured and the percentiles are ranked over all of them at
+ * once, so a run contributes a sample rather than a row.
  */
 const rowsOfWorkspace = (
   selector: GatewaySchema.ProjectionSelector,
@@ -636,20 +700,7 @@ const rowsOfWorkspace = (
     )
   }
   if (selector._tag !== "approvals") return runs.flatMap((source) => rowsOfRun(selector, source, now))
-  const seen = new Set<string>()
-  const rows: Array<GatewayProjection.ApprovalRow> = []
-  for (const source of runs) {
-    for (const row of GatewayProjection.approvals(source.events, source.run)) {
-      if (row.status !== "pending") continue
-      const identity = waitIdentity(row)
-      if (identity !== undefined) {
-        if (seen.has(identity)) continue
-        seen.add(identity)
-      }
-      rows.push(row)
-    }
-  }
-  return rows
+  return approvalInbox(runs.map((source) => ({ run: source.run, rows: pendingApprovals(source) })))
 }
 
 /** The rows a selector projects from the facts one read produced. */
@@ -1226,7 +1277,8 @@ const makeService = (control: ControlService, heartbeatMillis: number, now: () =
         readonly lastPosition: CursorPosition | undefined
         observed: CursorPosition
       }
-      const rowsOfSource = (source: RunSource): ReadonlyArray<unknown> => rowsOfWorkspace(selector, [source], now())
+      const rowsOfSource = (source: RunSource): ReadonlyArray<unknown> =>
+        selector._tag === "approvals" ? pendingApprovals(source) : rowsOfRun(selector, source, now())
       const sources = new Map<string, FollowedSource>(runs.map((source) => [
         source.run.runId,
         { source, observed: undefined, rows: rowsOfSource(source) }
@@ -1256,7 +1308,14 @@ const makeService = (control: ControlService, heartbeatMillis: number, now: () =
       const noFrames: ReadonlyArray<GatewaySchema.GatewayFrame> = []
       const delta = (): Effect.Effect<ReadonlyArray<GatewaySchema.GatewayFrame>, GatewayError> =>
         Effect.flatMap(
-          boundedRows(selector, [...sources.values()].flatMap(({ rows }) => rows)),
+          boundedRows(
+            selector,
+            selector._tag === "approvals"
+              // Each run's pending rows are cached apart; the inbox is folded
+              // across all of them, exactly as a snapshot folds it.
+              ? approvalInbox([...sources.values()].map(({ rows, source }) => ({ run: source.run, rows })))
+              : [...sources.values()].flatMap(({ rows }) => rows)
+          ),
           (rows) =>
             Effect.map(
               frameOf({
