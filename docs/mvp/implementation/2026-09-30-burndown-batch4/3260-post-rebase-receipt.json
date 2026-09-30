@@ -1,0 +1,86 @@
+{
+  "issue": 3260,
+  "head": "6a97d099a531d0090e3ff7d242ded4d3b06137fc",
+  "sourceFiles": [
+    {
+      "path": "packages/smithers/agent/registry/src/Executable.ts",
+      "sha256": "35aa7c142b94a105e4cb089e1467a88e10322aa374e8a0380a612ec5b7c0c281",
+      "priorSha256": "35aa7c142b94a105e4cb089e1467a88e10322aa374e8a0380a612ec5b7c0c281",
+      "unchanged": true
+    },
+    {
+      "path": "packages/smithers/agent/registry/test/Executable.test.ts",
+      "sha256": "7737bb735302205ed0a4aa35ac9defebb372ac936bd83b75295695a3f71c1b75",
+      "priorSha256": "7737bb735302205ed0a4aa35ac9defebb372ac936bd83b75295695a3f71c1b75",
+      "unchanged": true
+    },
+    {
+      "path": "packages/smithers/agent/registry/docs/api.md",
+      "sha256": "ecf2dd3e95e1381697db1d650e87f8fb656de2d816c9da386bb9487ee93451c6",
+      "priorSha256": "ecf2dd3e95e1381697db1d650e87f8fb656de2d816c9da386bb9487ee93451c6",
+      "unchanged": true
+    },
+    {
+      "path": "packages/smithers/control/src/ControlLive.ts",
+      "sha256": "5cbd787a2c2d1f6ca293b06142aec9263f0d5a989ea223d3783d961014ea060c",
+      "priorSha256": "5cbd787a2c2d1f6ca293b06142aec9263f0d5a989ea223d3783d961014ea060c",
+      "unchanged": true
+    },
+    {
+      "path": "packages/smithers/control/test/ControlLive.test.ts",
+      "sha256": "09274601808e78887071158c33c92a1d79591d5a3cef31c161d132326992ed92",
+      "priorSha256": "09274601808e78887071158c33c92a1d79591d5a3cef31c161d132326992ed92",
+      "unchanged": true
+    },
+    {
+      "path": "packages/smithers/src/NodeControl.ts",
+      "sha256": "1b26de33ae2f17236cbb2af51dfc1193b66b2e7532985e960bfba07a32a2f7cd",
+      "priorSha256": "1b26de33ae2f17236cbb2af51dfc1193b66b2e7532985e960bfba07a32a2f7cd",
+      "unchanged": true
+    },
+    {
+      "path": "packages/smithers/src/cli/ControlBridge.ts",
+      "sha256": "f7eb96bde8b3cca070b483e3762a5ad8ce5f2f2bd5afdc71a90dfb7e6b3f9b32",
+      "priorSha256": "f7eb96bde8b3cca070b483e3762a5ad8ce5f2f2bd5afdc71a90dfb7e6b3f9b32",
+      "unchanged": true
+    },
+    {
+      "path": "packages/smithers/src/internal/NativeControl.ts",
+      "sha256": "a887ed1fcdd07d909e8baeb9df412906f136df046e5c7cce181da2480fa18695",
+      "priorSha256": "a887ed1fcdd07d909e8baeb9df412906f136df046e5c7cce181da2480fa18695",
+      "unchanged": true
+    },
+    {
+      "path": "packages/smithers/src/internal/RegistryWorkspace.ts",
+      "sha256": "011aa5be94ebb267dacf998996e4c0866a3fc0346f98fb1b81bca6776f0aa8fa",
+      "priorSha256": "011aa5be94ebb267dacf998996e4c0866a3fc0346f98fb1b81bca6776f0aa8fa",
+      "unchanged": true
+    },
+    {
+      "path": "packages/smithers/test/ControlBridge.test.ts",
+      "sha256": "9ac296ef31ad456e426867129c7b77e61211736a4cba335c86cf8a9da14e28d0",
+      "priorSha256": "9ac296ef31ad456e426867129c7b77e61211736a4cba335c86cf8a9da14e28d0",
+      "unchanged": true
+    },
+    {
+      "path": "packages/smithers/test/RegistryWorkspace.test.ts",
+      "sha256": "acfa79b418b0d7311e65c79e7eae0450e8d94a17774751a41a6e4254a4762b98",
+      "priorSha256": "acfa79b418b0d7311e65c79e7eae0450e8d94a17774751a41a6e4254a4762b98",
+      "unchanged": true
+    },
+    {
+      "path": "packages/smithers/test/HistoryForkResumeCli.test.ts",
+      "sha256": "c470e7bede1e107416b6fb52d63418d43f296c7198a8b865b3bece973cb31103",
+      "priorSha256": "c470e7bede1e107416b6fb52d63418d43f296c7198a8b865b3bece973cb31103",
+      "unchanged": true
+    }
+  ],
+  "check": {
+    "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp SMITHERS_WORKSPACE_JJ_EXPORT_BINARY=/Users/williamcory/smithers/target/debug/smithers-jj-export pnpm exec vitest run --coverage.enabled=false test/HistoryForkResumeCli.test.ts",
+    "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+    "exitCode": 0,
+    "result": "1 actual native CLI fork/resume/replay/settle test passed after incoming Harness CompletionClaim/gateway RunTrace/RPC changes",
+    "log": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3260-checkpoint19-native-cli.log",
+    "sha256": "204cc53fbcad6ae66865be3819b42a3b57ffa190e794a694cd0bff684ac1d0e1"
+  }
+}
