@@ -23,7 +23,10 @@
  * Arbitration itself — who holds the claim, who holds the lease, whether the
  * fence still stands — is delegated to `@smthrs/journal`'s injected
  * `Consensus` strategy. The run row mirrors the strategy's answer in the same
- * write transaction; heartbeats renew the lease and never enter the journal.
+ * write transaction, and every ownership transition the strategy grants is
+ * appended to the run's `run-store` companion journal stream in that
+ * transaction (see {@link OwnershipTransition}); heartbeats renew the lease
+ * and never enter the journal.
  *
  * @since 0.1.0
  */
@@ -38,6 +41,8 @@ import {
   matchesEvidence,
   sameOwner
 } from "@smthrs/journal/Consensus"
+import type { JournalError } from "@smthrs/journal/Journal"
+import { isCompanionRunId } from "@smthrs/journal/JournalEvent"
 import { OwnerId } from "@smthrs/journal/OwnerId"
 import * as SqlConsensus from "@smthrs/journal/SqlConsensus"
 import * as ObservabilityMetric from "@smthrs/observability/Metric"
@@ -46,6 +51,7 @@ import * as SqlClient from "effect/unstable/sql/SqlClient"
 import type * as SqlError from "effect/unstable/sql/SqlError"
 import { heartbeatSkewAllowance, heartbeatStaleAfter } from "./Heartbeat.ts"
 import * as Boundary from "./internal/Boundary.ts"
+import * as Companion from "./internal/Companion.ts"
 import { observeExit, observeOutcome } from "./internal/SpanOutcome.ts"
 import * as RunStoreMetrics from "./RunStoreMetrics.ts"
 
@@ -404,6 +410,54 @@ export type TransitionOutcome =
   | { readonly _tag: "GuardFailed" }
 
 /**
+ * An ownership transition the consensus strategy granted on a run.
+ *
+ * `claimed` and `stolen` reserve the run for a claimant, `activated` promotes
+ * a claim to ownership, `released` gives a claim or ownership back, and
+ * `expired` clears a dead claimant's stale claim. Each is appended as a
+ * `flows.consensus.<transition>` fact, with payload `{ runId, owner,
+ * grantedAtMs }`, to the run's companion stream
+ * `JournalEvent.companionRunId("run-store", runId)` in the transaction that
+ * made it; a rolled-back transition leaves no fact. Heartbeats are not
+ * transitions and never enter the journal.
+ *
+ * The facts live beside the run's own stream rather than in it, so a consumer
+ * that reads the run's stream by position never sees one, and a rewind or
+ * compaction of that stream never truncates one. They are recorded when the
+ * caller runs with a `Journal` in its context.
+ *
+ * @since 1.0.0
+ * @category models
+ */
+export const OwnershipTransition = Schema.Literals(["claimed", "activated", "released", "stolen", "expired"])
+
+/**
+ * The type of {@link OwnershipTransition}.
+ *
+ * @since 1.0.0
+ * @category models
+ */
+export type OwnershipTransition = typeof OwnershipTransition.Type
+
+/**
+ * The name of the run store's journal companion stream: every fact the store
+ * records about a run goes to `JournalEvent.companionRunId(companionStream,
+ * runId)`.
+ *
+ * @since 1.0.0
+ * @category constants
+ */
+export const companionStream: string = Companion.stream
+
+/**
+ * The journal event type an ownership transition is appended under.
+ *
+ * @since 1.0.0
+ * @category constants
+ */
+export const ownershipEventType = (transition: OwnershipTransition): string => `flows.consensus.${transition}`
+
+/**
  * Fenced persistence operations for durable runs.
  *
  * @since 0.1.0
@@ -627,7 +681,7 @@ const databaseFailure = (cause: unknown): DatabaseError | undefined => {
 
 const persistenceError = (
   method: string,
-  cause: RunStoreError | DatabaseError | ConsensusError
+  cause: RunStoreError | DatabaseError | ConsensusError | JournalError
 ): RunStoreError => {
   if (Schema.is(RunStoreError)(cause)) return cause
   const database = cause instanceof DatabaseError ? cause : databaseFailure(cause.cause)
@@ -1144,9 +1198,21 @@ export const make: Effect.Effect<Service, never, Consensus | DurableWriter | Sql
 
     const write = <A, R>(
       method: string,
-      effect: Effect.Effect<A, SqlError.SqlError | RunStoreError | ConsensusError, R>
+      effect: Effect.Effect<A, SqlError.SqlError | RunStoreError | ConsensusError | JournalError, R>
     ): Effect.Effect<A, RunStoreError, R> =>
       writer.write(effect).pipe(Effect.mapError((cause) => persistenceError(method, cause)))
+
+    /** Appends an ownership transition to the run's companion stream (see {@link OwnershipTransition}). */
+    const recordTransition = (
+      runId: string,
+      transition: OwnershipTransition,
+      owner: OwnerId,
+      grantedAtMs: number | null
+    ): Effect.Effect<void, JournalError> =>
+      Companion.append(runId, ownershipEventType(transition), {
+        owner: { hostId: owner.hostId, pid: owner.pid, nonce: owner.nonce },
+        grantedAtMs
+      })
 
     // A bare SELECT needs no write transaction and no replay; only the error
     // vocabulary stays shared with `write`.
@@ -1164,6 +1230,9 @@ export const make: Effect.Effect<Service, never, Consensus | DurableWriter | Sql
       ): Effect.Effect<void, RunStoreError> =>
         Effect.gen(function*() {
           const runId = yield* snapshotRunId("create", runIdInput)
+          if (isCompanionRunId(runId)) {
+            return yield* Effect.fail(invalidRunError("create", "runId", "names a reserved journal companion stream"))
+          }
           const { lineageId, parentRunId, roundOrdinal } = yield* snapshotCreateOptions(optionsInput)
           // This cause is published to logs, spans, and telemetry. Executable
           // state may carry credentials, so include its shape but never its text.
@@ -1375,6 +1444,7 @@ export const make: Effect.Effect<Service, never, Consensus | DurableWriter | Sql
             claimed_at_ms = ${grant.grantedAtMs}
           WHERE run_id = ${runId}
         `
+            yield* recordTransition(runId, "claimed", claimant, grant.grantedAtMs)
             return claimed(grant.grantedAtMs)
           })
         )
@@ -1439,17 +1509,20 @@ export const make: Effect.Effect<Service, never, Consensus | DurableWriter | Sql
               if (!admissible) return classifyClaimLoss(row, nowMs)
               const expectedOwner = expected.owner
               let grant: LeaseClaimOutcome
+              let transition: OwnershipTransition = "claimed"
               if (expectedOwner === null) {
                 grant = yield* consensus.claim(runId, owner, nowMs)
               } else if (sameOwner(expectedOwner, owner)) {
                 // Re-owning one's own stale run: the stale lease is released
                 // and re-granted under a fresh generation (R4).
                 yield* consensus.release(runId, owner)
+                yield* recordTransition(runId, "released", owner, null)
                 grant = yield* consensus.claim(runId, owner, nowMs)
               } else {
                 // Admission above proved the evidence matches, so the steal is
                 // the strategy's evidence-gated claim.
                 grant = yield* consensus.steal(runId, owner, nowMs, evidence!)
+                transition = "stolen"
               }
               if (grant._tag === "Rejected") return classifyClaimLoss(row, nowMs)
               const activation = yield* consensus.activate(runId, owner, grant.grantedAtMs, nowMs)
@@ -1460,6 +1533,8 @@ export const make: Effect.Effect<Service, never, Consensus | DurableWriter | Sql
                 yield* consensus.release(runId, owner)
                 return classifyClaimLoss(row, nowMs)
               }
+              yield* recordTransition(runId, transition, owner, grant.grantedAtMs)
+              yield* recordTransition(runId, "activated", owner, grant.grantedAtMs)
               yield* sql`
           UPDATE flows_runs
           SET
@@ -1523,6 +1598,7 @@ export const make: Effect.Effect<Service, never, Consensus | DurableWriter | Sql
               // the claim, exactly as the compare-and-swap always did, and
               // release the strategy's matching claim so the two stay aligned.
               yield* consensus.release(runId, claimant)
+              yield* recordTransition(runId, "released", claimant, claimedAtMs)
               yield* clearClaim
               return snapshotChanged
             }
@@ -1550,6 +1626,7 @@ export const make: Effect.Effect<Service, never, Consensus | DurableWriter | Sql
                 claimed_at_ms = NULL
               WHERE run_id = ${runId}
             `
+            yield* recordTransition(runId, "activated", claimant, claimedAtMs)
             return activated
           })
         )
@@ -1588,6 +1665,7 @@ export const make: Effect.Effect<Service, never, Consensus | DurableWriter | Sql
         `
             if (rows.length === 0) return claimLost
             yield* consensus.release(runId, claimant)
+            yield* recordTransition(runId, "released", claimant, claimedAtMs)
             return abandoned
           })
         )
@@ -1643,6 +1721,7 @@ export const make: Effect.Effect<Service, never, Consensus | DurableWriter | Sql
             claimed_at_ms = NULL
           WHERE run_id = ${runId}
         `
+              yield* recordTransition(runId, "expired", staleClaimant, claimedAtMs)
               return recovered
             })
           )
@@ -1778,6 +1857,7 @@ export const make: Effect.Effect<Service, never, Consensus | DurableWriter | Sql
                 WHERE run_id = ${runId}
               `
             yield* consensus.release(runId, owner)
+            yield* recordTransition(runId, "released", owner, null)
             if (terminalStatuses.has(toStatus)) {
               yield* afterCommit(Metric.update(ObservabilityMetric.runThroughput, 1), sql)
             }
@@ -1841,6 +1921,7 @@ export const make: Effect.Effect<Service, never, Consensus | DurableWriter | Sql
             claimed_at_ms = ${grant.grantedAtMs}
           WHERE run_id = ${runId}
         `
+              yield* recordTransition(runId, "stolen", claimant, grant.grantedAtMs)
               return claimed(grant.grantedAtMs)
             })
           )

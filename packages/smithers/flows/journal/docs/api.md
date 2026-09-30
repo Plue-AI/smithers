@@ -147,6 +147,9 @@ purpose: the durable core never closes them into an interpreter-specific union.
 | `Entry`               | `Schema.Class`                           | `{ runId, seq, eventId, sourceId, sourceSeq, emittedAtMs, eventType, payload, meta }`                    |
 | `makeEventId`         | `(runId, sourceId, sourceSeq) => string` | the deterministic durable id, length-prefixed so a separator in an identifier cannot forge another tuple |
 | `maxIdentifierLength` | `1024`                                   | the identifier ceiling                                                                                   |
+| `companionRunId`      | `(stream, runId) => RunId`               | the id of the run's companion stream named `stream`                                                      |
+| `companionPrefix`     | `"flows.companion/"`                     | the reserved prefix of every companion stream id                                                         |
+| `isCompanionRunId`    | `(runId) => boolean`                     | whether a run id names a companion stream                                                                |
 
 `RunId`, `SourceId`, and both an `Input`'s and a committed `Entry`'s
 `eventType` are non-empty, at most `maxIdentifierLength` UTF-16 code units,
@@ -161,6 +164,15 @@ ordinary text and round-trips exactly.
 
 `Seq` and `SourceSeq` stop below `Number.MAX_SAFE_INTEGER`, so the journal can
 always allocate the next sequence.
+
+A companion stream carries one store's facts about a run beside the run's own
+stream: an ordinary stream with its own sequence clock, named
+`flows.companion/<stream>/<sha-256 of the run id>` so the id fits the
+identifier ceiling for every run id. A consumer that reads the run's stream by
+position never sees a companion fact, and a rewind or compaction of the run's
+stream never truncates one. Each fact names its run in its payload.
+`@smthrs/run-store` records ownership transitions on the `run-store` companion
+stream, and refuses to create a run whose id begins with `companionPrefix`.
 
 `entries`, `stream`, `checkpoint`, `latestCheckpoint`, and `compact` decode the
 same schemas, so an identifier the writer refuses is refused on every read with

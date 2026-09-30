@@ -70,7 +70,12 @@ it back, and `recover` clears a dead claimant's stale claim — and
 [`@smthrs/run-store`](/api/run-store) drives it for a durable run, mirroring
 the outcome on the run row in the same transaction.
 
-Heartbeats renew the lease and never enter the journal.
+The run store appends every transition the strategy grants — `claimed`,
+`activated`, `released`, `stolen`, `expired` — as a `flows.consensus.*` fact on
+the run's `run-store` companion stream (`JournalEvent.companionRunId`), in the
+transaction that made it. The facts live beside the run's own stream, so a
+consumer reading that stream by position never sees one. Heartbeats renew the
+lease and never enter the journal.
 
 ## A bad token is not a lost fence
 
