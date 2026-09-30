@@ -12,7 +12,7 @@ vi.mock("../src/internal/Frontmatter.ts", async (importOriginal) => {
         name: "review",
         description: "Reviews a change",
         capabilities: Object.freeze([]),
-        budget: Object.freeze({ tokens: 120_000, milliseconds: 900_000 })
+        budget: Object.freeze({ tokens: 120_000, milliseconds: 900_000, usd: 1.25 })
       }),
       warnings: []
     })
@@ -33,7 +33,8 @@ describe("MarkdownFlow JSON budget", () => {
 
     expect(Option.getOrThrow(result.descriptor).budget).toEqual({
       tokens: 120_000,
-      milliseconds: 900_000
+      milliseconds: 900_000,
+      usd: 1.25
     })
     expect(result.warnings).not.toContainEqual(expect.objectContaining({ code: "invalid_budget" }))
   })

@@ -744,6 +744,31 @@ describe("up", () => {
     expect((error as CliError.UsageError).message).toBe("--budget-tokens must be a positive integer")
   })
 
+  it("lays --budget-usd over the flow's budget, fractions included", async () => {
+    const cards: Array<ControlSchema.PlanCard> = []
+    const recording = Layer.effect(ControlService.Control)(
+      Effect.map(ControlService.Control, (control) => ({
+        ...control,
+        plan: (input: Parameters<typeof control.plan>[0]) =>
+          control.plan(input).pipe(Effect.tap((card) => Effect.sync(() => cards.push(card))))
+      }))
+    ).pipe(Layer.provide(testControl))
+    const receipt = await run(
+      json(["--json", "up", "demo/ship", "--budget-usd", "2.5", "--on-exceeded", "park"]),
+      recording
+    )
+
+    expect(receipt).toMatchObject({ _tag: "Accepted" })
+    expect(cards.map((card) => card.envelope.budget)).toEqual([{ usd: 2.5, onExceeded: "park" }])
+  })
+
+  it.each(["0", "-1"])("refuses a --budget-usd of %s before planning", async (value) => {
+    const error = await run(Effect.flip(runCommand(["up", "demo/ship", `--budget-usd=${value}`])), testControl)
+
+    expect(error).toBeInstanceOf(CliError.UsageError)
+    expect((error as CliError.UsageError).message).toBe("--budget-usd must be a positive dollar amount")
+  })
+
   it("carries --data into the planned input", async () => {
     const card = await run(json(["--json", "plan", "demo/ship", "--data", "{\"topic\":\"flows\"}"]), testControl)
 

@@ -520,6 +520,25 @@ export const BudgetCeiling = Schema.Int.check(
 export type BudgetCeiling = typeof BudgetCeiling.Type
 
 /**
+ * A positive, finite control-plane dollar ceiling.
+ *
+ * Dollars are divisible, so unlike {@link BudgetCeiling} a fraction is a
+ * ceiling: `0.5` is fifty cents.
+ *
+ * @category schemas
+ * @since 1.0.0
+ */
+export const UsdCeiling = Schema.Finite.check(Schema.isGreaterThan(0))
+
+/**
+ * A positive, finite control-plane dollar ceiling.
+ *
+ * @category models
+ * @since 1.0.0
+ */
+export type UsdCeiling = typeof UsdCeiling.Type
+
+/**
  * What a run does when a model call would exceed one of its ceilings.
  *
  * `fail` fails the call, `warn` journals a warning and makes it,
@@ -540,15 +559,16 @@ export const BudgetOnExceeded = Schema.Literals(["fail", "warn", "skip-remaining
 export type BudgetOnExceeded = typeof BudgetOnExceeded.Type
 
 /**
- * The tokens and milliseconds a flow declares that a control plane should
- * approve for one of its runs, and what exceeding them does.
+ * The tokens, milliseconds and dollars a flow declares that a control plane
+ * should approve for one of its runs, and what exceeding them does.
  *
- * Both ceilings are positive safe integers. The two fields are projected into
- * a control-plane `Envelope.budget` without reinterpretation, and
- * `@smthrs/agent` enforces them at the model boundary.
+ * Tokens and milliseconds are positive safe integers; `usd` is a positive,
+ * finite dollar amount. Every field is projected into a control-plane
+ * `Envelope.budget` without reinterpretation, and `@smthrs/agent` enforces
+ * them at the model boundary.
  *
  * An absent field is not a zero. It is the absence of that ceiling, which is
- * what {@link budgetUnbounded} spells out for a flow that declares neither.
+ * what {@link budgetUnbounded} spells out for a flow that declares none.
  *
  * @category models
  * @since 1.0.0-rc.0
@@ -556,11 +576,12 @@ export type BudgetOnExceeded = typeof BudgetOnExceeded.Type
 export const FlowBudget = Schema.Struct({
   tokens: Schema.optional(BudgetCeiling),
   milliseconds: Schema.optional(BudgetCeiling),
+  usd: Schema.optional(UsdCeiling),
   onExceeded: Schema.optional(BudgetOnExceeded)
 })
 
 /**
- * The tokens and milliseconds a flow declares.
+ * The tokens, milliseconds and dollars a flow declares.
  *
  * @category models
  * @since 1.0.0-rc.0

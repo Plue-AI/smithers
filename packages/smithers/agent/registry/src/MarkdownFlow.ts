@@ -558,13 +558,15 @@ const deriveSandbox = (
 }
 
 /**
- * Reads the frontmatter budget: the tokens and milliseconds this flow asks a
- * control plane to approve for one of its runs, and what exceeding them does.
+ * Reads the frontmatter budget: the tokens, milliseconds and dollars this flow
+ * asks a control plane to approve for one of its runs, and what exceeding them
+ * does.
  *
  * ```yaml
  * budget:
  *   tokens: 120000
  *   milliseconds: 900000
+ *   usd: 2.5
  *   onExceeded: park
  * ```
  *
@@ -587,7 +589,7 @@ const deriveBudget = (
     warnings.push({
       code: "invalid_budget",
       path,
-      message: "Frontmatter budget must be an object of tokens and milliseconds; ignoring it"
+      message: "Frontmatter budget must be an object of tokens, milliseconds and usd; ignoring it"
     })
     return undefined
   }
@@ -615,6 +617,22 @@ const deriveBudget = (
 
   const tokens = ceiling("tokens")
   const milliseconds = ceiling("milliseconds")
+  const usd = ((): number | undefined => {
+    const candidate = declared.usd
+    if (candidate === undefined) return undefined
+    const parsed = typeof candidate === "number"
+      ? candidate
+      : typeof candidate === "string" && candidate.trim() !== ""
+      ? Number(candidate)
+      : Number.NaN
+    if (Number.isFinite(parsed) && parsed > 0) return parsed
+    warnings.push({
+      code: "invalid_budget",
+      path,
+      message: "Frontmatter budget.usd must be a positive dollar amount; ignoring it"
+    })
+    return undefined
+  })()
   // An unreadable choice falls back to the budget's default, `fail`, which is
   // what an undeclared one means: the ceilings still bind.
   const choice = (): BudgetOnExceeded | undefined => {
@@ -632,17 +650,18 @@ const deriveBudget = (
   // as no declaration at all, and an unbounded run is the last thing an author
   // who wrote a budget expects to get back in silence.
   for (const key of Object.keys(declared)) {
-    if (key === "tokens" || key === "milliseconds" || key === "onExceeded") continue
+    if (key === "tokens" || key === "milliseconds" || key === "usd" || key === "onExceeded") continue
     warnings.push({
       code: "invalid_budget",
       path,
       message: `Unknown frontmatter budget key: ${key}`
     })
   }
-  if (tokens === undefined && milliseconds === undefined) return undefined
+  if (tokens === undefined && milliseconds === undefined && usd === undefined) return undefined
   return {
     ...(tokens === undefined ? {} : { tokens }),
     ...(milliseconds === undefined ? {} : { milliseconds }),
+    ...(usd === undefined ? {} : { usd }),
     ...(onExceeded === undefined ? {} : { onExceeded })
   }
 }

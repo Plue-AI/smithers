@@ -418,6 +418,10 @@ const upFlags = {
     Flag.optional,
     Flag.withDescription("Wall-clock ceiling in milliseconds for this run, replacing the flow's declared one")
   ),
+  budgetUsd: Flag.Finite("budget-usd").pipe(
+    Flag.optional,
+    Flag.withDescription("Dollar ceiling for this run, replacing the flow's declared one")
+  ),
   onExceeded: Flag.Literals("on-exceeded", BudgetOnExceeded.literals).pipe(
     Flag.optional,
     Flag.withDescription("What the run does at a ceiling: fail, warn, skip-remaining, or park")
@@ -428,6 +432,7 @@ const upFlags = {
 const plannedBudget = (config: {
   readonly budgetTokens: Option.Option<number>
   readonly budgetMs: Option.Option<number>
+  readonly budgetUsd: Option.Option<number>
   readonly onExceeded: Option.Option<BudgetOnExceeded>
 }): Effect.Effect<ControlSchema.Envelope["budget"] | undefined, CliError.UsageError> =>
   Effect.gen(function*() {
@@ -437,11 +442,18 @@ const plannedBudget = (config: {
         : Effect.succeed(Option.getOrUndefined(value))
     const tokens = yield* ceiling("budget-tokens", config.budgetTokens)
     const milliseconds = yield* ceiling("budget-ms", config.budgetMs)
+    const usd = Option.getOrUndefined(config.budgetUsd)
+    if (usd !== undefined && !(Number.isFinite(usd) && usd > 0)) {
+      return yield* Effect.fail(new CliError.UsageError({ message: "--budget-usd must be a positive dollar amount" }))
+    }
     const onExceeded = Option.getOrUndefined(config.onExceeded)
-    if (tokens === undefined && milliseconds === undefined && onExceeded === undefined) return undefined
+    if (tokens === undefined && milliseconds === undefined && usd === undefined && onExceeded === undefined) {
+      return undefined
+    }
     return {
       ...(tokens === undefined ? {} : { tokens }),
       ...(milliseconds === undefined ? {} : { milliseconds }),
+      ...(usd === undefined ? {} : { usd }),
       ...(onExceeded === undefined ? {} : { onExceeded })
     }
   })

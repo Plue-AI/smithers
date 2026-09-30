@@ -25,6 +25,23 @@ describe("FlowBudget", () => {
     expect(Schema.encodeUnknownSync(Descriptor.FlowBudget)(budget)).toEqual(budget)
   })
 
+  it.each([
+    ["zero", 0],
+    ["a negative amount", -0.01],
+    ["NaN", Number.NaN],
+    ["infinity", Number.POSITIVE_INFINITY]
+  ])("rejects a USD ceiling of %s while decoding and encoding", (_label, usd) => {
+    expect(() => Schema.decodeUnknownSync(Descriptor.FlowBudget)({ usd })).toThrow()
+    expect(() => Schema.encodeUnknownSync(Descriptor.FlowBudget)({ usd })).toThrow()
+  })
+
+  it("accepts a fractional USD ceiling beside the integer ones", () => {
+    const budget = { tokens: 1, usd: 0.5, onExceeded: "park" as const }
+
+    expect(Schema.decodeUnknownSync(Descriptor.FlowBudget)(budget)).toEqual(budget)
+    expect(Schema.encodeUnknownSync(Descriptor.FlowBudget)(budget)).toEqual(budget)
+  })
+
   it("keeps the shared unbounded budget immutable across descriptors", () => {
     const undeclared = {} as Descriptor.FlowDescriptor
     let mutationSucceeded = false

@@ -707,6 +707,33 @@ body`)
     expect(latencyOnly.budget).toEqual({ milliseconds: 500 })
   })
 
+  it("reads a dollar ceiling on its own or beside the others, and parks on it", () => {
+    const result = fromMarkdown(
+      ["---", "description: Review", "budget:", "  usd: 2.5", "  onExceeded: park", "---", "Review."].join("\n")
+    )
+    const descriptor = Option.getOrThrow(result.descriptor)
+
+    expect(descriptor.budget).toEqual({ usd: 2.5, onExceeded: "park" })
+    expect(Descriptor.budgetOf(descriptor)).toEqual({ usd: 2.5, onExceeded: "park" })
+    expect(result.warnings.filter((warning) => warning.code === "invalid_budget")).toEqual([])
+    const all = fromMarkdown(
+      ["---", "description: Review", "budget:", "  tokens: 500", "  usd: 0.25", "---", "Review."].join("\n")
+    )
+    expect(Option.getOrThrow(all.descriptor).budget).toEqual({ tokens: 500, usd: 0.25 })
+  })
+
+  it.each(["0", "-1", "free", "''", "Infinity"])("drops a dollar ceiling of %s and says so", (value) => {
+    const result = fromMarkdown(
+      ["---", "description: Review", "budget:", "  tokens: 500", `  usd: ${value}`, "---", "Review."].join("\n")
+    )
+
+    expect(Option.getOrThrow(result.descriptor).budget).toEqual({ tokens: 500 })
+    expect(result.warnings).toContainEqual(expect.objectContaining({
+      code: "invalid_budget",
+      message: "Frontmatter budget.usd must be a positive dollar amount; ignoring it"
+    }))
+  })
+
   it("leaves an undeclared budget absent, which reads back as unbounded", () => {
     const descriptor = Option.getOrThrow(
       fromMarkdown("---\ndescription: Review a pull request\n---\nReview.").descriptor
