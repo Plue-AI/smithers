@@ -443,6 +443,9 @@ export const createWorkflowPumpController = (
           // Another local observer can commit while this read is in flight.
           // Retry that race from its applied cursor, not as an upstream conflict.
           if (committed?.revision !== normalized?.revision) {
+            // The read still saw the run move (a cancel landing, say); the
+            // lost write race must not let the quiet bound call it stalled.
+            if (previous === undefined || row.status !== previous.status) lastProgressAt = Date.now()
             observeOnce = true
             await pokeableWait(cardId, RUN_POLL_MS)
             continue
