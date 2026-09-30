@@ -82,12 +82,6 @@ operating systems, or every possible terminal configuration. Report skips and
 failures with the result. The audit is tracked in
 [#2074](https://github.com/smithersai/smithers/issues/2074).
 
-The current roster has 79 sources. A focused collection of
-`test/harness-cli.test.ts`, `test/harness.test.ts`, and
-`test/harness-codex.test.ts` passes 10 tests and exercises every statement,
-function, and branch arm in `src/harness-cli.ts`. This selection retains the
-whole roster as its denominator and does not qualify whole-TUI coverage.
-
 ## Parked worker retry controls
 
 ```bash
