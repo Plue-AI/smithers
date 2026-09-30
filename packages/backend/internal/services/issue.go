@@ -232,6 +232,7 @@ type IssueQuerier interface {
 
 type IssueService struct {
 	queries        IssueQuerier
+	factory        repositoryPolicyHost
 	dispatcher     webhooks.Dispatcher
 	mentionSvc     *MentionService
 	notifSvc       *NotificationService
@@ -301,7 +302,12 @@ func (s *IssueService) ListIssues(ctx context.Context, viewer *db.User, owner, r
 	if err := s.requireReadAccess(ctx, repository, viewer); err != nil {
 		return nil, "", 0, err
 	}
+	return s.listIssues(ctx, viewer, repository, afterNumber, limit, state, nil)
+}
 
+// listIssues is one page of a readable repository's issues in state carrying
+// every label in labels (lowercase, distinct; none keeps all).
+func (s *IssueService) listIssues(ctx context.Context, viewer *db.User, repository db.Repository, afterNumber int64, limit int, state string, labels []string) ([]IssueResponse, string, int64, error) {
 	normalizedState, err := normalizeIssueFilterState(state)
 	if err != nil {
 		return nil, "", 0, err
@@ -321,6 +327,7 @@ func (s *IssueService) ListIssues(ctx context.Context, viewer *db.User, owner, r
 	total, err := s.queries.CountIssuesByRepoFiltered(ctx, db.CountIssuesByRepoFilteredParams{ViewerID: viewerID,
 		RepositoryID: repository.ID,
 		State:        normalizedState,
+		Labels:       labels,
 	})
 	if err != nil {
 		return nil, "", 0, pkgerrors.Internal("failed to count issues").WithCause(err)
@@ -329,6 +336,7 @@ func (s *IssueService) ListIssues(ctx context.Context, viewer *db.User, owner, r
 	rows, err := s.queries.ListIssuesByRepoFilteredKeyset(ctx, db.ListIssuesByRepoFilteredKeysetParams{ViewerID: viewerID,
 		RepositoryID: repository.ID,
 		State:        normalizedState,
+		Labels:       labels,
 		AfterNumber:  afterNumber,
 		PageSize:     int32(limit),
 	})

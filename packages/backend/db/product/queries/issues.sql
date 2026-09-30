@@ -25,11 +25,18 @@ LIMIT sqlc.arg(page_size)
 OFFSET sqlc.arg(page_offset);
 
 -- name: CountIssuesByRepoFiltered :one
+-- labels (lowercase, distinct) keeps issues carrying every named label, and
+-- an empty list keeps all.
 SELECT COUNT(*)
 FROM issues
-WHERE repository_id = sqlc.arg(repository_id)
-  AND (kind <> 'chat' OR author_id = sqlc.arg(viewer_id)::bigint)
-  AND (sqlc.arg(state)::text = '' OR state = sqlc.arg(state)::text);
+WHERE issues.repository_id = sqlc.arg(repository_id)
+  AND (issues.kind <> 'chat' OR issues.author_id = sqlc.arg(viewer_id)::bigint)
+  AND (sqlc.arg(state)::text = '' OR issues.state = sqlc.arg(state)::text)
+  AND (COALESCE(cardinality(sqlc.arg(labels)::text[]), 0) = 0 OR (
+    SELECT count(DISTINCT lower(l.name))
+    FROM issue_labels il JOIN labels l ON l.id = il.label_id
+    WHERE il.issue_id = issues.id AND lower(l.name) = ANY(sqlc.arg(labels)::text[])
+  ) = cardinality(sqlc.arg(labels)::text[]));
 
 -- name: UpdateIssue :one
 WITH repository_lock AS MATERIALIZED (
@@ -297,13 +304,18 @@ WHERE ic.id = $1;
 -- name: ListIssuesByRepoFilteredKeyset :many
 -- Stable cursor pagination: returns issues with number < after_number (DESC),
 -- or all issues when after_number = 0 (first page).
-SELECT *
+SELECT issues.*
 FROM issues
-WHERE repository_id = sqlc.arg(repository_id)
-  AND (kind <> 'chat' OR author_id = sqlc.arg(viewer_id)::bigint)
-  AND (sqlc.arg(state)::text = '' OR state = sqlc.arg(state)::text)
-  AND (sqlc.arg(after_number)::bigint = 0 OR number < sqlc.arg(after_number)::bigint)
-ORDER BY number DESC
+WHERE issues.repository_id = sqlc.arg(repository_id)
+  AND (issues.kind <> 'chat' OR issues.author_id = sqlc.arg(viewer_id)::bigint)
+  AND (sqlc.arg(state)::text = '' OR issues.state = sqlc.arg(state)::text)
+  AND (COALESCE(cardinality(sqlc.arg(labels)::text[]), 0) = 0 OR (
+    SELECT count(DISTINCT lower(l.name))
+    FROM issue_labels il JOIN labels l ON l.id = il.label_id
+    WHERE il.issue_id = issues.id AND lower(l.name) = ANY(sqlc.arg(labels)::text[])
+  ) = cardinality(sqlc.arg(labels)::text[]))
+  AND (sqlc.arg(after_number)::bigint = 0 OR issues.number < sqlc.arg(after_number)::bigint)
+ORDER BY issues.number DESC
 LIMIT sqlc.arg(page_size);
 
 -- name: ListIssueCommentsByIssueKeyset :many

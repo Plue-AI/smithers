@@ -24,6 +24,14 @@ type IssueRouteService interface {
 	DeleteIssueComment(ctx context.Context, actor *db.User, owner, repo string, commentID int64) error
 }
 
+// IssueViewRouteService lists a repository's saved issue views (its
+// factory's issueViews) and lists issues through one. IssueHandler serves
+// views when its Service implements it.
+type IssueViewRouteService interface {
+	ListIssueViews(ctx context.Context, viewer *db.User, owner, repo string) ([]services.IssueView, error)
+	ListIssuesInView(ctx context.Context, viewer *db.User, owner, repo, view string, afterNumber int64, limit int) ([]services.IssueResponse, string, int64, error)
+}
+
 type IssueHandler struct {
 	Service    IssueRouteService
 	LinearLink LinearIssueLinkRouteService
@@ -103,13 +111,58 @@ func (h *IssueHandler) ListIssues(w http.ResponseWriter, r *http.Request) {
 		errors.WriteError(w, err.(*errors.APIError))
 		return
 	}
-	items, nextCursor, total, err := h.Service.ListIssues(r.Context(), middleware.UserFromContext(r.Context()), owner, repo, afterNumber, limit, strings.TrimSpace(r.URL.Query().Get("state")))
+	query := r.URL.Query()
+	state := strings.TrimSpace(query.Get("state"))
+	var items []services.IssueResponse
+	var nextCursor string
+	var total int64
+	if query.Has("view") {
+		// A saved view carries its own state; a second one would silently lose.
+		view := strings.TrimSpace(query.Get("view"))
+		if view == "" || query.Has("state") {
+			field := "view"
+			if view != "" {
+				field = "state"
+			}
+			errors.WriteError(w, errors.ValidationFailed(errors.FieldError{Resource: "Issue", Field: field, Code: "invalid"}))
+			return
+		}
+		views, ok := h.Service.(IssueViewRouteService)
+		if !ok {
+			errors.WriteError(w, errors.NotFound("issue view \""+view+"\" not found"))
+			return
+		}
+		items, nextCursor, total, err = views.ListIssuesInView(r.Context(), middleware.UserFromContext(r.Context()), owner, repo, view, afterNumber, limit)
+	} else {
+		items, nextCursor, total, err = h.Service.ListIssues(r.Context(), middleware.UserFromContext(r.Context()), owner, repo, afterNumber, limit, state)
+	}
 	if err != nil {
 		writeRouteError(w, r, err)
 		return
 	}
 
 	setFullCursorPaginationHeaders(w, r, limit, total, nextCursor)
+	errors.WriteJSON(w, http.StatusOK, items)
+}
+
+// ListIssueViews answers the saved issue views the repository's factory
+// declares on its default bookmark, in declaration order.
+func (h *IssueHandler) ListIssueViews(w http.ResponseWriter, r *http.Request) {
+	owner, repo, err := repoOwnerAndName(r)
+	if err != nil {
+		errors.WriteError(w, err.(*errors.APIError))
+		return
+	}
+	views, ok := h.Service.(IssueViewRouteService)
+	if !ok {
+		errors.WriteJSON(w, http.StatusOK, []services.IssueView{})
+		return
+	}
+	items, err := views.ListIssueViews(r.Context(), middleware.UserFromContext(r.Context()), owner, repo)
+	if err != nil {
+		writeRouteError(w, r, err)
+		return
+	}
 	errors.WriteJSON(w, http.StatusOK, items)
 }
 

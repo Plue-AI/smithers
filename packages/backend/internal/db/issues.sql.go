@@ -59,19 +59,32 @@ func (q *Queries) CountIssueCommentsByIssue(ctx context.Context, issueID int64) 
 const countIssuesByRepoFiltered = `-- name: CountIssuesByRepoFiltered :one
 SELECT COUNT(*)
 FROM issues
-WHERE repository_id = $1
-  AND (kind <> 'chat' OR author_id = $2::bigint)
-  AND ($3::text = '' OR state = $3::text)
+WHERE issues.repository_id = $1
+  AND (issues.kind <> 'chat' OR issues.author_id = $2::bigint)
+  AND ($3::text = '' OR issues.state = $3::text)
+  AND (COALESCE(cardinality($4::text[]), 0) = 0 OR (
+    SELECT count(DISTINCT lower(l.name))
+    FROM issue_labels il JOIN labels l ON l.id = il.label_id
+    WHERE il.issue_id = issues.id AND lower(l.name) = ANY($4::text[])
+  ) = cardinality($4::text[]))
 `
 
 type CountIssuesByRepoFilteredParams struct {
-	RepositoryID int64  `json:"repository_id"`
-	ViewerID     int64  `json:"viewer_id"`
-	State        string `json:"state"`
+	RepositoryID int64    `json:"repository_id"`
+	ViewerID     int64    `json:"viewer_id"`
+	State        string   `json:"state"`
+	Labels       []string `json:"labels"`
 }
 
+// labels (lowercase, distinct) keeps issues carrying every named label, and
+// an empty list keeps all.
 func (q *Queries) CountIssuesByRepoFiltered(ctx context.Context, arg CountIssuesByRepoFilteredParams) (int64, error) {
-	row := q.db.QueryRow(ctx, countIssuesByRepoFiltered, arg.RepositoryID, arg.ViewerID, arg.State)
+	row := q.db.QueryRow(ctx, countIssuesByRepoFiltered,
+		arg.RepositoryID,
+		arg.ViewerID,
+		arg.State,
+		arg.Labels,
+	)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -828,22 +841,28 @@ func (q *Queries) ListIssuesByRepoFiltered(ctx context.Context, arg ListIssuesBy
 
 const listIssuesByRepoFilteredKeyset = `-- name: ListIssuesByRepoFilteredKeyset :many
 
-SELECT id, repository_id, number, title, body, search_vector, state, author_id, milestone_id, comment_count, closed_at, fixed_by_id, fixed_by_agent_session_id, fixed_at, verified_by_id, verified_by_agent_session_id, verified_at, created_at, updated_at, kind, idempotency_key, title_editor_id, body_editor_id, filed_by, text_source, owner_id, due_on, priority, parent_id
+SELECT issues.id, issues.repository_id, issues.number, issues.title, issues.body, issues.search_vector, issues.state, issues.author_id, issues.milestone_id, issues.comment_count, issues.closed_at, issues.fixed_by_id, issues.fixed_by_agent_session_id, issues.fixed_at, issues.verified_by_id, issues.verified_by_agent_session_id, issues.verified_at, issues.created_at, issues.updated_at, issues.kind, issues.idempotency_key, issues.title_editor_id, issues.body_editor_id, issues.filed_by, issues.text_source, issues.owner_id, issues.due_on, issues.priority, issues.parent_id
 FROM issues
-WHERE repository_id = $1
-  AND (kind <> 'chat' OR author_id = $2::bigint)
-  AND ($3::text = '' OR state = $3::text)
-  AND ($4::bigint = 0 OR number < $4::bigint)
-ORDER BY number DESC
-LIMIT $5
+WHERE issues.repository_id = $1
+  AND (issues.kind <> 'chat' OR issues.author_id = $2::bigint)
+  AND ($3::text = '' OR issues.state = $3::text)
+  AND (COALESCE(cardinality($4::text[]), 0) = 0 OR (
+    SELECT count(DISTINCT lower(l.name))
+    FROM issue_labels il JOIN labels l ON l.id = il.label_id
+    WHERE il.issue_id = issues.id AND lower(l.name) = ANY($4::text[])
+  ) = cardinality($4::text[]))
+  AND ($5::bigint = 0 OR issues.number < $5::bigint)
+ORDER BY issues.number DESC
+LIMIT $6
 `
 
 type ListIssuesByRepoFilteredKeysetParams struct {
-	RepositoryID int64  `json:"repository_id"`
-	ViewerID     int64  `json:"viewer_id"`
-	State        string `json:"state"`
-	AfterNumber  int64  `json:"after_number"`
-	PageSize     int32  `json:"page_size"`
+	RepositoryID int64    `json:"repository_id"`
+	ViewerID     int64    `json:"viewer_id"`
+	State        string   `json:"state"`
+	Labels       []string `json:"labels"`
+	AfterNumber  int64    `json:"after_number"`
+	PageSize     int32    `json:"page_size"`
 }
 
 // issues.comment_count and repositories.num_issues / num_closed_issues are
@@ -857,6 +876,7 @@ func (q *Queries) ListIssuesByRepoFilteredKeyset(ctx context.Context, arg ListIs
 		arg.RepositoryID,
 		arg.ViewerID,
 		arg.State,
+		arg.Labels,
 		arg.AfterNumber,
 		arg.PageSize,
 	)
