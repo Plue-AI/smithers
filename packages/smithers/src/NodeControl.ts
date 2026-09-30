@@ -51,6 +51,7 @@ import * as Failure from "./internal/Failure.ts"
 
 import { Session } from "./internal/backend/Session.ts"
 import * as NodeWebSocket from "./internal/NodeWebSocket.ts"
+import * as RegistryWorkspace from "./internal/RegistryWorkspace.ts"
 import * as SupervisorMemory from "./internal/SupervisorMemory.ts"
 import * as Output from "./Output.ts"
 import * as Project from "./Project.ts"
@@ -538,7 +539,11 @@ export const layerControl = (
     }
   }
   const root = applicationConfig.root ?? process.cwd()
-  const registry = suppliedRegistry ?? layerRegistry(root)
+  const registry = suppliedRegistry ?? RegistryWorkspace.layer(
+    layerRegistry(applicationConfig.executionRoot ?? root),
+    root,
+    applicationConfig.executionRoot ?? root
+  )
   const engine = suppliedEngine ?? engineDurable(root, registry, applicationConfig)
   if (applicationConfig.remote !== undefined) {
     return layerControlFromEngine(applicationConfig, registry, engine, modules)
@@ -612,7 +617,11 @@ export const layer = (applicationConfig: Application.Config, modules?: ModuleReg
     }
   }
   const root = applicationConfig.root ?? process.cwd()
-  const registry = layerRegistry(root)
+  const registry = RegistryWorkspace.layer(
+    layerRegistry(applicationConfig.executionRoot ?? root),
+    root,
+    applicationConfig.executionRoot ?? root
+  )
   const durable = engineDurable(root, registry, applicationConfig)
   // Sampled here, before anything opens the control database. `Project.layer`
   // reads the 0.x markers eagerly when it is called, and opening the control

@@ -890,6 +890,7 @@ that entry imports from beside itself.
 
 ```ts
 interface Options {
+  readonly sourceRoot?: { readonly identity: string; readonly workspace: string } | undefined
   readonly delegates: ReadonlyArray<Delegate>
   readonly agent?: string | undefined
   readonly loadTimeoutMs?: number | undefined
@@ -931,6 +932,13 @@ Those loads cannot guarantee fresh measured bytes through the host module
 cache, and deferred calls can outlive sibling cleanup. Installed packages
 without project mappings and Node/Bun builtins retain host trust and use the
 normal host loader.
+
+`sourceRoot` is a host-owned retained checkout of the same project. Approved
+locators and executable digests stay under `identity`; entry bytes, schema
+exports, imported helpers and markdown resources load under `workspace`.
+Locators outside `identity`, changed entry bytes, and a changed or unmeasured
+closure are refused. The host still verifies committed workspace routing and
+run approval before recovery; relocation grants no execution authority.
 
 `loadTimeoutMs` bounds each `catalog` entry, including custom loaders, and
 defaults to 30,000 milliseconds. Supply a positive finite number. Expiry becomes

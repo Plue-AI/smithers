@@ -214,7 +214,7 @@ export const invoke = async (
     // to the same worktree whichever entry it arrived through.
     const runId = ExecutionTarget.executionRunId(args)
     if (runId !== undefined) {
-      config = { ...config, ...HistoryWorkspace.prepare(Project.root(config.root, process.cwd()), runId) }
+      config = { ...config, ...await HistoryWorkspace.prepare(Project.root(config.root, process.cwd()), runId) }
     }
   }
   const values: Array<unknown> = []

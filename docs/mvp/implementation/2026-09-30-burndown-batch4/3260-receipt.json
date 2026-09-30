@@ -1,0 +1,235 @@
+{
+  "issue": 3260,
+  "candidateBase": "db13442fe4addc0139859400ee3ef71d6fe68fc8",
+  "manifestSha256": "d314531ee8fc6b0dd3ccf48e9afe32ef09d5dac9d3c376e4e1d5bcbe9e4c93a2",
+  "sourceSha256": {
+    "packages/smithers/agent/registry/src/Executable.ts": "35aa7c142b94a105e4cb089e1467a88e10322aa374e8a0380a612ec5b7c0c281",
+    "packages/smithers/agent/registry/test/Executable.test.ts": "7737bb735302205ed0a4aa35ac9defebb372ac936bd83b75295695a3f71c1b75",
+    "packages/smithers/agent/registry/docs/api.md": "ecf2dd3e95e1381697db1d650e87f8fb656de2d816c9da386bb9487ee93451c6",
+    "packages/smithers/control/src/ControlLive.ts": "5cbd787a2c2d1f6ca293b06142aec9263f0d5a989ea223d3783d961014ea060c",
+    "packages/smithers/control/test/ControlLive.test.ts": "09274601808e78887071158c33c92a1d79591d5a3cef31c161d132326992ed92",
+    "packages/smithers/src/NodeControl.ts": "1b26de33ae2f17236cbb2af51dfc1193b66b2e7532985e960bfba07a32a2f7cd",
+    "packages/smithers/src/cli/ControlBridge.ts": "f7eb96bde8b3cca070b483e3762a5ad8ce5f2f2bd5afdc71a90dfb7e6b3f9b32",
+    "packages/smithers/src/internal/NativeControl.ts": "a887ed1fcdd07d909e8baeb9df412906f136df046e5c7cce181da2480fa18695",
+    "packages/smithers/src/internal/RegistryWorkspace.ts": "011aa5be94ebb267dacf998996e4c0866a3fc0346f98fb1b81bca6776f0aa8fa",
+    "packages/smithers/test/ControlBridge.test.ts": "9ac296ef31ad456e426867129c7b77e61211736a4cba335c86cf8a9da14e28d0",
+    "packages/smithers/test/RegistryWorkspace.test.ts": "acfa79b418b0d7311e65c79e7eae0450e8d94a17774751a41a6e4254a4762b98",
+    "packages/smithers/test/HistoryForkResumeCli.test.ts": "c470e7bede1e107416b6fb52d63418d43f296c7198a8b865b3bece973cb31103"
+  },
+  "generatedSha256": {
+    "apps/docs/registry/src/content/docs/reference/api.md": "94da4fda05e38ead7acd59f7163cb34f73d1dc2079acc58cb59be6b096990d47",
+    "apps/site/src/content/docs/docs/reference/api/registry.mdx": "11a0199c991ee81a113a5b97116aae38e33d85620039225d6bd41625a38d3984",
+    "apps/site/public/llms-full.txt": "2d3ef860a69ea350c881190bb0dd7eb1abc1436892c4a4944893d6fa910993c9"
+  },
+  "archiveSha256": "7886091416eca2d332b50643c425735cfa96642032b228e2db3ec890318bd538",
+  "rawReceipts": {
+    "smithers-burndown-20260930-checkpoint16-docs-check.log": "ac3268684518a6eeb79c286a92d63d79c80a80e52147f52bae0f0dc24ff275ab",
+    "smithers-burndown-20260930-checkpoint16-docs-sync.log": "4e0e72a79bbf210d80d3b3c6ce737d916bc5db915558c125a76b2f75d0af2237",
+    "smithers-burndown-20260930-checkpoint16-site-check.log": "60d75ff673f1f6be294e80636720087e6147b48aa38f1d49c8179bb27d7a2bd6",
+    "smithers-burndown-20260930-checkpoint16-site-sync.log": "2767080d8e6e57d0d3d32a3b4a2c4c2cc0078166d1d9dfe893d811427df5aa31",
+    "smithers-burndown-20260930-checkpoint16-target-index.log": "e10e47438e1dc2f00c3a99a28c3a0fca2b3d98db85fe2abbd93e0afab710199d",
+    "3260-bridge-actual-red.log": "63c4d20ad9d7482a6ec15b96e3465d97e62fc9c1a2eedeb3bdc09ba300be4cc7",
+    "3260-bridge-focused-green.log": "12fb8cf568da5af26afb8a0b9b6308ed9badff24db0be26e3ecb433ee3f41b34",
+    "3260-bridge-green.log": "b5620677e5e16ed9f9f7007f0ecff412c824696fd8109c4c8009bc6f861a6a7d",
+    "3260-bridge-predecessor-source.ts": "fbb4c33c5577a38a10009c82ba9f1445bac53dacfafc1c5bccdea1ee2b0ab6e7",
+    "3260-bridge-red.log": "b5908c6b65d302bf67c5f62ad34505251133114f773dacd57a9bd01a71588667",
+    "3260-cli-final.log": "264fb638080acdcc4366deb2f4a160616e22ad378e7206db7848608c998e1008",
+    "3260-cli-format.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3260-cli-lint-final.log": "2b1b1574901dac24ae7e1453f71895384d4dfb7eb420f46aa2bf9732bfbb9a1a",
+    "3260-cli-lint-final2.log": "263a74b883b930df661e00a72bcf7d85865d7a3e4559cbc94154dfde10e09361",
+    "3260-cli-lint-green.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3260-cli-lint.log": "2b1b1574901dac24ae7e1453f71895384d4dfb7eb420f46aa2bf9732bfbb9a1a",
+    "3260-control-final.log": "e71472d59ebd5cd8de1bfa40ed58165619c5fd5dccfb3dd94bbf30a90757a8c6",
+    "3260-control-format.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3260-control-full.log": "dbae8f8751cfbf50b4baf7184f9f78f6580f6fac9a69ba326ba06973f6f68095",
+    "3260-control-independent.log": "95dc63e6c1c604918e9713b2685c4022bf7124f7b1ece9f121f4cedebabaf15f",
+    "3260-control-lint.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3260-control-own-types.json": "51cdca95b8726851da9303a11642383ce395a5f6c329dcd8e71ed4c13edc2a81",
+    "3260-control-own-types.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3260-control-scoped-final.log": "8cd2aac6252321070e49b69bba27b87683011f914c7ab78621e03bfe131e8518",
+    "3260-control-types.log": "c205888d1cab6a1951f8749fd6f72eb07fee2ddae42c46dbd81c7769730bd5a5",
+    "3260-format-fix-final.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3260-format-fix.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3260-native-cli-eighth.log": "43b28fb5a4755e51580647303d331bb718cdf129ee9a499fb0f8ddd4059b53e7",
+    "3260-native-cli-fifth.log": "db2dd87060208dd36a06aec115f46aebeea0396d706771b7a9c625dc6f1a1045",
+    "3260-native-cli-first.log": "8ad296a3673199a93a14555819ac10a8d3c5fd78ff48e8dd99a0a8efe34bfb47",
+    "3260-native-cli-fourth.log": "47fc7c9e33a08f979de8d727b38d03de9ab3a65f9663a8e9b1b9364d3bb7af83",
+    "3260-native-cli-ninth.log": "dd000b8d5ca960ccc5cd04f94e88b8b8e498168f6219b80231aa857d634ae4be",
+    "3260-native-cli-second.log": "c7b0dee8da10383ab25a57b9c757cb8b55da426b6ecbdb16e3436f739171bc71",
+    "3260-native-cli-seventh.log": "75179b236f6aaeeaecc7834eebc59f88fc650aa7471fe01ea768dce23259feac",
+    "3260-native-cli-sixth.log": "1f040fc309ce818b171a9e09e6f5d028c3ac6add9ae2c2e16fbd39c3c4f210fe",
+    "3260-native-cli-third.log": "4de25f9c80a6800ef9de0d7e3a611ba22b07b60d363fc0239d8767a8f01e3e4a",
+    "3260-own-types-green.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3260-owned-types-final.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3260-owned-types-first.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3260-private-coverage.log": "f93a42d27a6b265ba7fc775237847d20a27c27884c687f9e808a873db9622c4f",
+    "3260-private-unit-first.log": "405833663fdb33ab3d2889b8df9893d68eaf10d0cd606d5285c054955343ca6e",
+    "3260-probe-v5.log": "7c8d587972afadd260140e0fda8a21249bdaed611be6274dda44a0c62e725536",
+    "3260-probe-v5.mjs": "2336308826393a1fa0595f5b531a5bb41a235f01419008f162cda42ad74dfe0f",
+    "3260-ready-diff.patch": "02f33c33ae6b7a4fb62c39bde26bb624458c0d7133efba92b2c57abd7dd3c7d2",
+    "3260-ready-evidence.json": "d314531ee8fc6b0dd3ccf48e9afe32ef09d5dac9d3c376e4e1d5bcbe9e4c93a2",
+    "3260-red-probe-v2.log": "2f0f0976b88614e80890a60ae45fd48889de1b27f1827efb5259497bf963caa6",
+    "3260-red-probe-v2.mjs": "371cf20b5ff009f214e98d64e5e41ac55cf6e314c160e184af54d3d45d153751",
+    "3260-red-probe-v3.log": "2b63ff35410a5907f640de73a546d6eab78b4fb7e14b43dca4534aac4fa976d8",
+    "3260-red-probe-v3.mjs": "098176d73f4c649ab3d58561ceb626a2f07b16c77e65ea93289ad5049cf9ba4c",
+    "3260-red-probe-v4.log": "45e450464119d9763e42db9e8414a378ba7fa236f7e750735c5b4cc034ab8fd7",
+    "3260-red-probe-v4.mjs": "226e6406798e6a2d2955d479127d8949897f34bd842002a57d68f2b4c9f2f4b3",
+    "3260-red-probe.log": "6bc58f1137723ab0e23e6bb3778b8c0fedc9bf9218833baae5f98b1e9ba8617f",
+    "3260-red-probe.mjs": "1adeda15c70d98a59ae3bc60460b4fc75de998c1f68ffa4211a864eb722750fc",
+    "3260-registry-complete-coverage.log": "64d3d4eaceca2169e5a4129c43fe7e8cf8737a7a2f79b9f103d262e2ad7481eb",
+    "3260-registry-executable-first.log": "21f68127f38397c29b63ff6ca8fb5eb47c54a1aeaae8e2a58c1e5ae72c5c3e3e",
+    "3260-registry-final.log": "e367e1fef3023ccb95b84582cd1d66ce16f5f10670830372760bb0d52e5e4b3f",
+    "3260-registry-format.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3260-registry-full-coverage-final.log": "aa93b437c67d797d0faac91837afbff176c3fab63ef2409db1f50106178a53a9",
+    "3260-registry-full-coverage-first.log": "af81138796f14006196b9aa8914c8084cbda22f751f9ed8ca4088b03f0cbacac",
+    "3260-registry-lint.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3260-registry-types-green.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3260-registry-types.log": "b60d66a67a430ff6cd372260d1d02b597a73d66cb8241cee4cd837e4b9489d0d",
+    "3260-types-initial.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3260-types.json": "516d704558b04c00667494218052a78f92cc76286db784767f4833f3374d1a8d"
+  },
+  "checks": [
+    {
+      "log": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3260-cli-final.log",
+      "sha256": "264fb638080acdcc4366deb2f4a160616e22ad378e7206db7848608c998e1008",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp SMITHERS_WORKSPACE_JJ_EXPORT_BINARY=/Users/williamcory/smithers/target/debug/smithers-jj-export pnpm exec vitest run --coverage.enabled=false test/HistoryForkResumeCli.test.ts test/HistoryForkChild.test.ts test/RegistryWorkspace.test.ts test/ControlBridge.test.ts test/ModuleAdmission.test.ts",
+      "exitCode": 0,
+      "result": "70 tests in 5 files; actual CLI fork/resume/show/replay and native JJ/SQLite settle only retained fork"
+    },
+    {
+      "log": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3260-registry-final.log",
+      "sha256": "e367e1fef3023ccb95b84582cd1d66ce16f5f10670830372760bb0d52e5e4b3f",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers/agent/registry",
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp pnpm exec vitest run",
+      "exitCode": 0,
+      "result": "920 tests; 100% statements, branches, functions and lines; configured gate unchanged"
+    },
+    {
+      "log": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3260-control-scoped-final.log",
+      "sha256": "8cd2aac6252321070e49b69bba27b87683011f914c7ab78621e03bfe131e8518",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers/control",
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp pnpm exec vitest run --coverage.enabled=false test/ControlLive.test.ts test/TerminalControl.test.ts test/EngineResumeScope.test.ts",
+      "exitCode": 0,
+      "result": "90 tests; pending overlay resumes, stored accepted/running peer ownership remains refused; native continuation preserved"
+    },
+    {
+      "log": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3260-private-coverage.log",
+      "sha256": "f93a42d27a6b265ba7fc775237847d20a27c27884c687f9e808a873db9622c4f",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp pnpm exec vitest run test/RegistryWorkspace.test.ts --coverage.include=src/internal/RegistryWorkspace.ts --coverage.thresholds.lines=100 --coverage.thresholds.statements=100 --coverage.thresholds.functions=100 --coverage.thresholds.branches=100",
+      "exitCode": 0,
+      "result": "6 private helper tests; targeted new-file coverage with raised 100% thresholds"
+    },
+    {
+      "log": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3260-own-types-green.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "cwd": "/private/tmp/smithers-burndown-20260930",
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH pnpm exec tsc --noEmit --project /tmp/smithers-burndown-20260930-receipts/api-batch3/3260-types.json",
+      "exitCode": 0,
+      "result": "strict all CLI source and four owning test files"
+    },
+    {
+      "log": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3260-registry-types-green.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers/agent/registry",
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH pnpm exec tsc --noEmit --project tsconfig.test.json",
+      "exitCode": 0,
+      "result": "full owning registry source/test types"
+    },
+    {
+      "log": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3260-control-own-types.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "cwd": "/private/tmp/smithers-burndown-20260930",
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH pnpm exec tsc --noEmit --project /tmp/smithers-burndown-20260930-receipts/api-batch3/3260-control-own-types.json",
+      "exitCode": 0,
+      "result": "strict all Control source + three selected owning tests"
+    },
+    {
+      "log": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3260-control-full.log",
+      "sha256": "dbae8f8751cfbf50b4baf7184f9f78f6580f6fac9a69ba326ba06973f6f68095",
+      "cwd": "/private/tmp/smithers-burndown-20260930",
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp pnpm --filter @smthrs/control test",
+      "exitCode": 1,
+      "result": "all 1112 tests pass; full configured 100% coverage fails on untouched lines"
+    },
+    {
+      "log": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3260-control-types.log",
+      "sha256": "c205888d1cab6a1951f8749fd6f72eb07fee2ddae42c46dbd81c7769730bd5a5",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers/control",
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH pnpm exec tsc --project tsconfig.test.json --noEmit",
+      "exitCode": 2,
+      "result": "foreign RunVisibility.test.ts:205 operation error union omits NoMatchingWait"
+    },
+    {
+      "log": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3260-cli-lint-green.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH pnpm exec eslint src/NodeControl.ts src/cli/ControlBridge.ts src/internal/NativeControl.ts src/internal/RegistryWorkspace.ts --max-warnings=0",
+      "exitCode": 0,
+      "result": "changed production lint"
+    },
+    {
+      "log": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3260-registry-lint.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers/agent/registry",
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH pnpm exec eslint src/Executable.ts --max-warnings=0",
+      "exitCode": 0,
+      "result": "changed production lint"
+    },
+    {
+      "log": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3260-control-lint.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers/control",
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH pnpm exec eslint src/ControlLive.ts --max-warnings=0",
+      "exitCode": 0,
+      "result": "changed production lint"
+    },
+    {
+      "log": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3260-cli-format.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH pnpm exec dprint check src/NodeControl.ts src/cli/ControlBridge.ts src/internal/NativeControl.ts src/internal/RegistryWorkspace.ts test/ControlBridge.test.ts test/RegistryWorkspace.test.ts test/HistoryForkResumeCli.test.ts",
+      "exitCode": 0,
+      "result": "changed source/tests/docs format"
+    },
+    {
+      "log": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3260-registry-format.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers/agent/registry",
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH pnpm exec dprint check src/Executable.ts test/Executable.test.ts docs/api.md",
+      "exitCode": 0,
+      "result": "changed source/tests/docs format"
+    },
+    {
+      "log": "/tmp/smithers-burndown-20260930-receipts/api-batch3/3260-control-format.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers/control",
+      "command": "PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH pnpm exec dprint check src/ControlLive.ts test/ControlLive.test.ts",
+      "exitCode": 0,
+      "result": "changed source/tests/docs format"
+    }
+  ],
+  "parentChecks": {
+    "pnpm run docs:check": 0,
+    "pnpm --filter @smithers/site run check:docs": 0,
+    "pnpm run target-index": "exit1; tracked #3276 flow test registration gate; index not hand edited"
+  },
+  "behavior": [
+    "Await direct History.prepare before constructing host; no resources open on failure.",
+    "Discover retained workspace source; project approved identity locators without changing executionDigest; default measured executable loader relocates only beneath identity root and refuses changed entry/closure/external locators.",
+    "Resume journals an unowned pending native fork whose stored control state is parked; stored live accepted/running ownership still refuses; native continuation is never overwritten.",
+    "Actual authored JJ tree, actual module export/layer/action handler, real SQLite and native helper, actual CLI fork/resume/show/replay settle only fork, preserve recorded First and approved digest while original checkout entry throws.",
+    "Independent actual filesystem loader checks retained schema helper through Schema.is plus valid/invalid input; actual native integration executes payload {name:string}."
+  ],
+  "limitations": [
+    "No fresh full CLI suite/configured whole CLI coverage or packed-release qualification claimed.",
+    "Full Control configured coverage: 99.64 statements,99.46 branches,99.45 functions,99.78 lines; untouched ControlLive.ts1117-1120/1557,ControlRpcs.ts82,ScopedToken.ts135/176/221.",
+    "Full Control test types have sole unrelated RunVisibility.test.ts:205 signal NoMatchingWait union diagnostic; all owning source/test types pass.",
+    "The actual fork fixture retains an authored JJ tree via existing lane-default fallback when the selected module root frame lacks a JJ pointer; it does not claim historical frame-pointer fidelity.",
+    "Explicit ScriptedJudge evaluator is offline required-model fixture equipment; native engines, module loaders, filesystems, JJ and actual CLI child processes are real.",
+    "No Fable gate per explicit user override.",
+    "Parent owns canonical generated docs/site synchronization and landing."
+  ],
+  "review": "Root reviewed preserved descriptor/path/closure authority, original checkout exclusion, native pending overlay versus live owner fencing and awaited history preparation. Retained schema decoder and mutated entry/helper controls substantiate the source boundary."
+}

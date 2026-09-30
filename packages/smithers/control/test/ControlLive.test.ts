@@ -2,13 +2,14 @@
  * The in-memory `ControlRuntime` against the shared `ControlLive` contract,
  * plus the checks that are specific to this repo's ownership of the modules.
  */
-import { Journal, JournalEvent } from "@smthrs/journal"
+import { ExecutionFact, Journal, JournalEvent } from "@smthrs/journal"
 import * as TestJournal from "@smthrs/journal/test/TestJournal"
-import { Effect, Layer, Stream } from "effect"
+import { Effect, Layer, Schema, Stream } from "effect"
 import { readFileSync } from "fs"
 import { describe, expect, it } from "vitest"
 import { Control } from "../src/Control.ts"
 import { ClaimLost, InvalidInput, PersistenceError } from "../src/ControlError.ts"
+import * as ControlExecutor from "../src/ControlExecutor.ts"
 import { ControlRuntime } from "../src/ControlRuntime.ts"
 import type { WatchFilter } from "../src/ControlSchema.ts"
 import * as TestControl from "../src/test/TestControl.ts"
@@ -93,6 +94,64 @@ describe("ControlLive", () => {
     expect(error).toBeInstanceOf(InvalidInput)
     expect((error as InvalidInput).issue).toContain("afterCursor")
   })
+
+  it.each(
+    [
+      { stored: "parked", native: "pending", accepted: true },
+      { stored: "accepted", native: "pending", accepted: false },
+      { stored: "running", native: "pending", accepted: false },
+      { stored: "parked", native: "running", accepted: false },
+      { stored: "parked", native: "absent", accepted: false }
+    ] as const
+  )(
+    "respects stored ownership when native reads overlay accepted ($stored/$native)",
+    async ({ stored, native, accepted }) => {
+      const runId = "retained-fork"
+      const runtime = Layer.effect(
+        ControlRuntime,
+        Effect.map(ControlRuntime, (base) => ({
+          ...base,
+          getRun: () => Effect.succeed({ runId, flowId: "steps", status: stored, createdAt: 0, updatedAt: 0 }),
+          codeDrift: () => Effect.succeed(undefined),
+          resume: () => Effect.fail(new ClaimLost({ runId }))
+        }))
+      ).pipe(Layer.provide(memoryRuntime()))
+      const observation = Schema.decodeSync(ExecutionFact.Observation)({
+        executionId: runId,
+        flowName: "agent/run",
+        status: native === "absent" ? "pending" : native,
+        createdAtMs: 0,
+        startedAtMs: null,
+        finishedAtMs: null,
+        parentRunId: null,
+        lineageId: runId,
+        roundOrdinal: 0,
+        cancelRequestedAtMs: null,
+        waiting: null
+      })
+      const executor = ControlExecutor.makeNoop({
+        readExecution: () =>
+          Effect.succeed({
+            _tag: "Observed",
+            status: "accepted",
+            ...(native === "absent" ? {} : { executionView: { root: observation, current: observation } })
+          })
+      })
+      await Effect.runPromise(
+        Effect.gen(function*() {
+          const control = yield* Control
+          const journal = yield* Journal.Journal
+          const input = { runId, idempotencyKey: `resume:${stored}:${native}` }
+          if (accepted) expect(yield* control.resume(input)).toMatchObject({ _tag: "Accepted", runId })
+          else expect(yield* Effect.flip(control.resume(input))).toBeInstanceOf(ClaimLost)
+          yield* journal.flush
+          const events = yield* journal.entries({ runId: JournalEvent.RunId.make(runId), limit: 100 })
+          expect(events.entries.some((entry) => entry.eventType === "control.run.resume")).toBe(accepted)
+          expect((yield* (yield* ControlRuntime).getRun(runId)).status).toBe(stored)
+        }).pipe(Effect.provide(live({ runtime, executor })), Effect.scoped, Effect.orDie)
+      )
+    }
+  )
 
   it("answers a terminal outcome observed after losing the cancellation claim", async () => {
     const runtime = Layer.effect(

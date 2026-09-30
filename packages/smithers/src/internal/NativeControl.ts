@@ -125,6 +125,7 @@ import {
   toolServices
 } from "./NativeEquipment.ts"
 import * as NodeWorkspaceObservation from "./NodeWorkspaceObservation.ts"
+import * as RegistryWorkspace from "./RegistryWorkspace.ts"
 import * as ReleasedChildResume from "./ReleasedChildResume.ts"
 import * as RoleProfile from "./RoleProfile.ts"
 import * as SourceRevision from "./SourceRevision.ts"
@@ -1066,7 +1067,12 @@ export const make = (
     // host registers file modules after its engine and agent services exist.
     const modules = suppliedModules ?? (options.startsRuns === false && options.plansFlows !== true
       ? undefined
-      : Executable.layer({ delegates: [] }).pipe(Layer.orDie))
+      : Executable.layer({
+        delegates: [],
+        ...(options.executionRoot === undefined || resolve(options.executionRoot) === resolve(root)
+          ? {}
+          : { sourceRoot: { identity: resolve(root), workspace: resolve(options.executionRoot) } })
+      }).pipe(Layer.orDie))
     // Same separation `engineDurable` makes for `control.db`: `engine.db` and
     // its WAL follow the state root, never the served checkout.
     const stateRoot = resolve(options.stateRoot ?? root)
@@ -1696,7 +1702,11 @@ export const make = (
   ) => {
     config = { ...config, evaluator: evaluatorFor(process.env, config.evaluator, config.startsRuns) }
     const root = config.root ?? process.cwd()
-    const registry = suppliedRegistry ?? layerRegistry(root)
+    const registry = suppliedRegistry ?? RegistryWorkspace.layer(
+      layerRegistry(config.executionRoot ?? root),
+      root,
+      config.executionRoot ?? root
+    )
     const engine = suppliedEngine ?? engineDurable(root, registry, config)
     return Layer.unwrap(
       Effect.map(materializeEngine(engine), (captured) => layerControlFromEngine(config, registry, captured, modules))
@@ -1765,7 +1775,11 @@ export const make = (
   ) => {
     config = { ...config, evaluator: evaluatorFor(process.env, config.evaluator, config.startsRuns) }
     const root = config.root ?? process.cwd()
-    const registry = suppliedRegistry ?? layerRegistry(root)
+    const registry = suppliedRegistry ?? RegistryWorkspace.layer(
+      layerRegistry(config.executionRoot ?? root),
+      root,
+      config.executionRoot ?? root
+    )
     return Layer.unwrap(Effect.map(materializeEngine(engineDurable(root, registry, config)), (engine) => {
       const control = layerControlFromEngine(config, registry, engine, modules)
       return Layer.mergeAll(control, layerGatewayHost(engine, control), layerMemory(root, engine), native.host)

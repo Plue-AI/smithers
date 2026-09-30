@@ -46,7 +46,10 @@ vi.mock("../src/NodeControl.ts", async (load) => {
     layerOutput: Layer.effectDiscard(Effect.sync(() => ports.readOnly("output")))
   }
 })
-vi.mock("../src/history/History.ts", () => ({ prepare: ports.prepare }))
+vi.mock("../src/history/History.ts", async (load) => ({
+  ...await load<typeof import("../src/history/History.ts")>(),
+  prepare: ports.prepare
+}))
 vi.mock("../src/Project.ts", async (load) => ({
   ...await load<typeof import("../src/Project.ts")>(),
   layer: ports.project
@@ -102,7 +105,7 @@ beforeEach(async () => {
   ports.observe.mockImplementation(control)
   ports.project.mockImplementation(() => Layer.effectDiscard(Effect.sync(() => ports.readOnly("project"))))
   ports.registry.mockImplementation(() => Layer.effectDiscard(Effect.sync(() => ports.readOnly("registry"))))
-  ports.prepare.mockReturnValue({ executionRoot: "/bridge-snapshot", migrationRoot: "/bridge-legacy" })
+  ports.prepare.mockResolvedValue({ executionRoot: "/bridge-snapshot", migrationRoot: "/bridge-legacy" })
   ports.scheduler.mockImplementation(() =>
     Layer.effectDiscard(Effect.gen(function*() {
       const control = yield* Control.Control
@@ -251,6 +254,25 @@ describe("control bridge configuration and routing", () => {
     })
     vi.stubEnv("SMITHERS_REMOTE", "https://ambient.invalid")
     expect(Bridge.configuration(local, {}).remote).toBe("https://ambient.invalid")
+  })
+
+  it("awaits committed workspace resolution before constructing a direct local execution host", async () => {
+    const ready = Promise.withResolvers<{ executionRoot: string }>()
+    ports.prepare.mockReturnValue(ready.promise)
+    const invocation = Bridge.invoke(["resume", "run-7"], local, runtime)
+    expect(ports.prepare).toHaveBeenCalledExactlyOnceWith(local.root, "run-7")
+    expect(ports.control).not.toHaveBeenCalled()
+    expect(ports.runWith).not.toHaveBeenCalled()
+    ready.resolve({ executionRoot: "/committed-fork" })
+    await invocation
+    expect(ports.control.mock.calls[0]![0].executionRoot).toBe("/committed-fork")
+  })
+
+  it("propagates failed workspace resolution without opening a direct execution host", async () => {
+    ports.prepare.mockRejectedValue(new Error("fork workspace unavailable"))
+    await expect(Bridge.invoke(["resume", "run-7"], local, runtime)).rejects.toThrow("fork workspace unavailable")
+    expect(ports.control).not.toHaveBeenCalled()
+    expect(ports.runWith).not.toHaveBeenCalled()
   })
 
   it.each(["resume", "cancel", "signal", "steer"])("prepares the recorded workspace for local %s", async (verb) => {

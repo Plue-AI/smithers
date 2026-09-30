@@ -405,6 +405,12 @@ export type ClosureModule = ModuleClosure.Module
  * @since 1.0.0-rc.0
  */
 export interface Options {
+  /**
+   * A host-owned retained checkout for the same project locator identity.
+   * Only locators beneath identity are accepted; measured bytes and closure
+   * checks remain mandatory. The descriptor and approved digest never change.
+   */
+  readonly sourceRoot?: { readonly identity: string; readonly workspace: string } | undefined
   /** The registered runtime flows a descriptor may delegate to. */
   readonly delegates: ReadonlyArray<Delegate>
   /** The delegate a model-backed descriptor runs on. Defaults to `agent`. */
@@ -1327,9 +1333,42 @@ export const fromDescriptor = (
         available: options.delegates.map((candidate) => candidate._tag).sort(),
         message: `flow "${descriptor.name}" delegates to "${name}", which no registered flow provides`
       })
-      const load = descriptor.body._tag === "Markdown"
-        ? loadMarkdown(descriptor, descriptor.body.path, descriptor.body.baseDirectory)
-        : loadModule(descriptor, descriptor.body.path, descriptor.body.imports ?? [], options)
+      const sourceRoot = options.sourceRoot
+      const loading = sourceRoot === undefined ? descriptor : yield* Effect.gen(function*() {
+        const path = yield* Path.Path
+        const locate = (value: string) =>
+          Effect.gen(function*() {
+            const physical = value.startsWith("file:")
+              ? yield* Effect.flatMap(Effect.try(() => new URL(value)), (url) => path.fromFileUrl(url))
+              : path.resolve(value)
+            const suffix = path.relative(path.resolve(sourceRoot.identity), physical)
+            if (suffix === ".." || suffix.startsWith(`..${path.sep}`) || path.isAbsolute(suffix)) {
+              return yield* Effect.fail(new Error("Source locator is outside the approved project identity root"))
+            }
+            return path.resolve(sourceRoot.workspace, suffix)
+          })
+        return new Descriptor.FlowDescriptor({
+          ...descriptor,
+          body: descriptor.body._tag === "Markdown"
+            ? new Descriptor.BodyRefMarkdown({
+              ...descriptor.body,
+              path: yield* locate(descriptor.body.path),
+              baseDirectory: yield* locate(descriptor.body.baseDirectory)
+            })
+            : new Descriptor.BodyRefModule({ ...descriptor.body, path: yield* locate(descriptor.body.path) })
+        })
+      }).pipe(Effect.mapError((cause) =>
+        refuse({
+          code: "body_unavailable",
+          flow: descriptor.name,
+          path: descriptor.body.path,
+          message: "The retained source locator could not be resolved",
+          cause
+        })
+      ))
+      const load = loading.body._tag === "Markdown"
+        ? loadMarkdown(loading, loading.body.path, loading.body.baseDirectory)
+        : loadModule(loading, loading.body.path, loading.body.imports ?? [], options)
       // Which refusal a failed load reports when no delegate is registered.
       //
       // A descriptor that NAMES a delegate is asking this host for a flow it does
@@ -1344,7 +1383,9 @@ export const fromDescriptor = (
       // load failure is its own.
       const masksLoadFailure = registered === undefined &&
         !(descriptor.body._tag === "Module" && descriptor.flows.length === 0)
-      const body = yield* (masksLoadFailure ? Effect.catch(load, () => Effect.fail(missing)) : load)
+      const body = yield* (masksLoadFailure
+        ? Effect.catch(load, () => Effect.fail(missing))
+        : load)
       if (body.flow === undefined && registered === undefined) return yield* Effect.fail(missing)
       const delegate = body.flow === undefined ? registered! : selfDelegate(body.flow)
       const lowered = lower(descriptor, body.annotations)

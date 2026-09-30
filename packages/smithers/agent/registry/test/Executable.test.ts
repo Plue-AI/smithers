@@ -689,6 +689,103 @@ describe("the modules a flow's entry imports", () => {
       return yield* registry.get(name)
     }).pipe(Effect.provide(Registry.layerProject({ root })))
 
+  it.effect("loads a retained module and its schema closure without changing approved locators", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const files = {
+        "flows/pinned/flow.ts": `import { Flow } from "@smthrs/flow"
+import { Node } from "@smthrs/plan"
+import { Schema } from "effect"
+import { payload, value } from "./helper.ts"
+export default Flow.make("pinned", { description:"Retained", payload, success:Schema.String, body:()=>Node.succeed(value) })`,
+        "flows/pinned/helper.ts":
+          `import { Schema } from "effect";export const payload={name:Schema.String};export const value="retained"`
+      }
+      const identity = yield* project(files)
+      const workspace = yield* project(files)
+      const descriptor = yield* descriptorIn(identity, "pinned")
+      const digest = Descriptor.executionDigest(descriptor)
+      // Importing either original file now throws. Both code and the actual
+      // payload decoder must instead come from verified retained bytes.
+      yield* fs.writeFileString(`${identity}/flows/pinned/flow.ts`, `throw new Error("original entry loaded")`)
+      yield* fs.writeFileString(`${identity}/flows/pinned/helper.ts`, `throw new Error("original schema loaded")`)
+      for (const fileUrl of [false, true]) {
+        const approved = fileUrl ?
+          new Descriptor.FlowDescriptor({
+            ...descriptor,
+            body: { ...descriptor.body, path: pathToFileURL(descriptor.body.path).href }
+          }) :
+          descriptor
+        const executable = yield* Executable.fromDescriptor(approved, options({ sourceRoot: { identity, workspace } }))
+        expect(executable.descriptor).toBe(approved)
+        expect(Descriptor.executionDigest(executable.descriptor)).toBe(
+          fileUrl ? Descriptor.executionDigest(approved) : digest
+        )
+        expect(Schema.is(executable.input!)({ name: "valid" })).toBe(true)
+        expect(Schema.is(executable.input!)({ name: 1 })).toBe(false)
+      }
+      yield* fs.writeFileString(
+        `${workspace}/flows/pinned/helper.ts`,
+        `export const payload={};export const value="changed"`
+      )
+      const changed = yield* Effect.flip(
+        Executable.fromDescriptor(descriptor, options({ sourceRoot: { identity, workspace } }))
+      )
+      expect(changed.code).toBe("body_unavailable")
+      expect(changed.message).toContain("changed")
+    }).pipe(Effect.scoped, Effect.provide(platform)))
+
+  it.effect("renders retained markdown with its retained base directory", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const measured = yield* descriptorNamed("changelog")
+      const text = yield* fs.readFileString(measured.body.path)
+      const files = { "flows/changelog/SKILL.md": text }
+      const identity = yield* project(files)
+      const workspace = yield* project(files)
+      const descriptor = yield* descriptorIn(identity, "changelog")
+      yield* fs.writeFileString(`${identity}/flows/changelog/SKILL.md`, "CURRENT CHECKOUT")
+      const executable = yield* Executable.fromDescriptor(descriptor, options({ sourceRoot: { identity, workspace } }))
+      expect(executable.invocation({ args: "retained" }).prompt).toContain("Summarize")
+      expect(executable.invocation({ args: "retained" }).prompt).toContain(`${workspace}/flows/changelog`)
+      expect(executable.invocation({ args: "retained" }).prompt).not.toContain("CURRENT CHECKOUT")
+      expect(executable.descriptor).toBe(descriptor)
+    }).pipe(Effect.scoped, Effect.provide(platform)))
+
+  it.effect("refuses retained entry, closure-path and outside-root locator mismatches", () =>
+    Effect.gen(function*() {
+      const files = {
+        "flows/pinned/flow.ts": selfFlow(`Node.succeed(value0)`, ["./helper.ts"]),
+        "flows/pinned/helper.ts": `export const value0="retained"`
+      }
+      const identity = yield* project(files)
+      const workspace = yield* project(files)
+      const descriptor = yield* descriptorIn(identity, "pinned")
+      const sourceRoot = { identity, workspace }
+      const fs = yield* FileSystem.FileSystem
+      if (descriptor.body._tag !== "Module") return yield* Effect.die("expected module")
+      const wrongPath = new Descriptor.FlowDescriptor({
+        ...descriptor,
+        body: {
+          ...descriptor.body,
+          imports: [new Descriptor.ModuleImport({ path: "./elsewhere.ts", contentDigest: "0".repeat(64) })]
+        }
+      })
+      expect((yield* Effect.flip(Executable.fromDescriptor(wrongPath, options({ sourceRoot })))).code).toBe(
+        "body_unavailable"
+      )
+      expect(
+        (yield* Effect.flip(
+          Executable.fromDescriptor(descriptor, options({ sourceRoot: { identity: workspace, workspace: identity } }))
+        )).code
+      )
+        .toBe("body_unavailable")
+      yield* fs.writeFileString(`${workspace}/flows/pinned/flow.ts`, `throw new Error("changed entry")`)
+      expect((yield* Effect.flip(Executable.fromDescriptor(descriptor, options({ sourceRoot })))).code).toBe(
+        "body_unavailable"
+      )
+    }).pipe(Effect.scoped, Effect.provide(platform)))
+
   it.effect("records every reached module and moves the executable identity when one changes", () =>
     Effect.gen(function*() {
       const fs = yield* FileSystem.FileSystem
