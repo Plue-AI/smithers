@@ -135,7 +135,7 @@ func TestRelayInterceptsTLSToInjectAndMask(t *testing.T) {
 	roots := x509.NewCertPool()
 	roots.AddCert(upstream.Certificate())
 	relay := newRelay(t, Config{Local: []string{upstream.Listener.Addr().String()}, RootCAs: roots})
-	grant, err := relay.Bind("ws-tls", []sandbox.EgressProxySecret{boundSecret("127.0.0.0/8")})
+	grant, err := relay.Bind("ws-tls", []sandbox.EgressProxySecret{boundSecret("127.0.0.1")})
 	require.NoError(t, err)
 
 	client := proxiedClient(t, grant)
@@ -268,6 +268,16 @@ func TestBindRejectsUnenforceableSecrets(t *testing.T) {
 		_, err := relay.Bind(workspace, secrets)
 		assert.Error(t, err, name)
 	}
+	// A wildcard or address range would let the relay swap a value into
+	// requests to every host it covers; only exact host names bind (#3212).
+	for _, host := range []string{"*.example.com", "*.ngrok-free.app", "127.0.0.0/8", "127.0.0.1/32", "0.0.0.0/0", "::/0"} {
+		_, err := relay.Bind("ws", []sandbox.EgressProxySecret{boundSecret("api.example.com"),
+			{Name: "B", Value: "v", Hosts: []string{"api.example.com", host}, MatchQuery: true}})
+		assert.ErrorIs(t, err, sandbox.ErrEgressSecretHostNotExact, host)
+	}
+	relay.mu.Lock()
+	assert.Empty(t, relay.byWorkspace, "a refused set binds nothing")
+	relay.mu.Unlock()
 	_, err := New(Config{})
 	assert.Error(t, err, "a relay needs a listener")
 	public, err := net.Listen("tcp", "0.0.0.0:0")
@@ -346,7 +356,7 @@ func TestRelayTunnelRefusalsAndUpstreamFailures(t *testing.T) {
 	require.NoError(t, closed.Close())
 	relay := newRelay(t, Config{Local: []string{upstream.Listener.Addr().String(), closedAddress}})
 	assert.Equal(t, relay.CACertPEM(), mustGrant(t, relay, "ws-ca", "127.0.0.1").CACertPEM)
-	grant := mustGrant(t, relay, "ws", "127.0.0.0/8")
+	grant := mustGrant(t, relay, "ws", "127.0.0.1")
 
 	connect := func(target string) int {
 		t.Helper()
@@ -480,4 +490,24 @@ func TestRevokeGrantSparesANewerBinding(t *testing.T) {
 	relay.RevokeGrant(" ws ", newer)
 	assert.Nil(t, relay.authenticate("Basic "+basic(newer)))
 	relay.RevokeGrant("ws", Grant{})
+}
+
+func TestSecretBindsOnlyItsExactHost(t *testing.T) {
+	secret := boundSecret("api.example.com", "127.0.0.1")
+	for host, want := range map[string]bool{
+		"api.example.com":      true,
+		"API.Example.com":      true,
+		"127.0.0.1":            true,
+		"x.api.example.com":    false,
+		"api.example.com.evil": false,
+		"evilapi.example.com":  false,
+		"example.com":          false,
+		"api.example.com.":     false,
+		"127.0.0.2":            false,
+		"*.api.example.com":    false,
+		"api.example.com:443":  false,
+		"":                     false,
+	} {
+		assert.Equal(t, want, secretBindsHost(secret, host), host)
+	}
 }

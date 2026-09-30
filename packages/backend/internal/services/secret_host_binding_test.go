@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -67,6 +68,24 @@ func TestWorkflowSecretHostBindingsPostgres(t *testing.T) {
 		_, err = service.SetSecret(ctx, owner, orgName, repoName, "PLAIN", "plain-value", nil, &bad)
 		assert.Equal(t, http.StatusBadRequest, apiStatus(t, err), "%+v", bad)
 	}
+	// A wildcard or address range would let the proxy swap the value into
+	// requests to any host it covers; only exact host names bind (#3212).
+	for _, host := range []string{"*.ngrok-free.app", " *.Example.COM ", "127.0.0.0/8", "10.0.0.1/32", "0.0.0.0/0", "::/0"} {
+		broad := SecretBinding{Hosts: []string{"api.example.com", host}, MatchHeaders: []string{"authorization"}}
+		mentions := strings.ToLower(strings.TrimSpace(host))
+		_, err := service.SetSecretBinding(ctx, owner, orgName, repoName, "PLAIN", broad)
+		assertSecretHostNotExact(t, err, mentions)
+		_, err = service.SetSecret(ctx, owner, orgName, repoName, "BROAD", "broad-value", nil, &broad)
+		assertSecretHostNotExact(t, err, mentions)
+		_, err = service.SetOrgSecret(ctx, owner, orgName, "BROAD", "broad-value", &broad)
+		assertSecretHostNotExact(t, err, mentions)
+	}
+	var broadRows int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT
+		(SELECT count(*) FROM repository_secrets WHERE repository_id = $1 AND (name = 'BROAD' OR cardinality(hosts) > 1))
+		+ (SELECT count(*) FROM organization_secrets WHERE organization_id = $2 AND name = 'BROAD')`, repositoryID, orgID).Scan(&broadRows))
+	assert.Zero(t, broadRows, "a refused binding stores nothing")
+
 	_, err = service.SetSecretBinding(ctx, owner, orgName, repoName, "MISSING", SecretBinding{Hosts: []string{"api.example.com"}, MatchHeaders: []string{"authorization"}})
 	assert.Equal(t, http.StatusNotFound, apiStatus(t, err))
 	stranger := createSecretIntegrationUser(t, "bindstranger")
@@ -74,16 +93,16 @@ func TestWorkflowSecretHostBindingsPostgres(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, apiStatus(t, err))
 
 	orgSecret, err := service.SetOrgSecret(ctx, owner, orgName, "ORG_DEPLOY_KEY", "org-deploy",
-		&SecretBinding{Hosts: []string{"*.deploy.example.com"}, MatchHeaders: []string{"x-api-key"}})
+		&SecretBinding{Hosts: []string{"api.deploy.example.com"}, MatchHeaders: []string{"x-api-key"}})
 	require.NoError(t, err)
-	assert.Equal(t, []string{"*.deploy.example.com"}, orgSecret.Hosts)
+	assert.Equal(t, []string{"api.deploy.example.com"}, orgSecret.Hosts)
 	orgSecret, err = service.SetOrgSecret(ctx, owner, orgName, "ORG_DEPLOY_KEY", "org-deploy-2", nil)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"x-api-key"}, orgSecret.MatchHeaders, "an org rotation keeps the binding")
 	orgListed, err := service.ListOrgSecrets(ctx, owner, orgName)
 	require.NoError(t, err)
 	require.Len(t, orgListed, 1)
-	assert.Equal(t, []string{"*.deploy.example.com"}, orgListed[0].Hosts)
+	assert.Equal(t, []string{"api.deploy.example.com"}, orgListed[0].Hosts)
 
 	injector := NewSecretInjector(db.New(pool), codec)
 	snapshot, err := injector.RepositorySecrets(ctx, repositoryID, false)
@@ -92,7 +111,7 @@ func TestWorkflowSecretHostBindingsPostgres(t *testing.T) {
 	assert.Equal(t, map[string]string{"PLAIN": "plain-value"}, snapshot.Secrets)
 	assert.Equal(t, []sandbox.EgressProxySecret{
 		{Name: "NPM_TOKEN", Value: "npm-2", Hosts: []string{"registry.npmjs.org"}, MatchHeaders: []string{"authorization"}},
-		{Name: "ORG_DEPLOY_KEY", Value: "org-deploy-2", Hosts: []string{"*.deploy.example.com"}, MatchHeaders: []string{"x-api-key"}},
+		{Name: "ORG_DEPLOY_KEY", Value: "org-deploy-2", Hosts: []string{"api.deploy.example.com"}, MatchHeaders: []string{"x-api-key"}},
 	}, snapshot.Bound)
 	env, err := injector.InjectRepositoryEnvironment(ctx, repositoryID, map[string]string{})
 	require.NoError(t, err)
@@ -112,4 +131,16 @@ func TestWorkflowSecretHostBindingsPostgres(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, snapshot.Bound)
 	assert.Equal(t, map[string]string{"NPM_TOKEN": "npm-2", "ORG_DEPLOY_KEY": "repo-deploy", "PLAIN": "plain-value"}, snapshot.Secrets)
+
+	// A row stored with a wildcard before exact hosts were required fails
+	// closed: nothing is injected, bound or plain.
+	_, err = service.SetSecretBinding(ctx, owner, orgName, repoName, "NPM_TOKEN", *npm)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE repository_secrets SET hosts = '{*.npmjs.org}' WHERE repository_id = $1 AND name = 'NPM_TOKEN'`, repositoryID)
+	require.NoError(t, err)
+	_, err = injector.RepositorySecrets(ctx, repositoryID, false)
+	require.ErrorIs(t, err, sandbox.ErrEgressSecretHostNotExact)
+	assert.NotContains(t, err.Error(), "npm-2")
+	_, err = injector.InjectRepositoryEnvironment(ctx, repositoryID, map[string]string{})
+	require.ErrorIs(t, err, sandbox.ErrEgressSecretHostNotExact)
 }

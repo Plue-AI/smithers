@@ -6,6 +6,7 @@ import { Refused, UsageError } from "../src/CliError.ts"
 import { ask } from "../src/internal/backend/AgentDocs.ts"
 import { APIError, Client, object } from "../src/internal/backend/Client.ts"
 import { run } from "../src/internal/backend/Process.ts"
+import { resources } from "../src/internal/backend/Resources.ts"
 import { workspaces } from "../src/internal/backend/Workspaces.ts"
 import * as Failure from "../src/internal/Failure.ts"
 
@@ -220,5 +221,32 @@ describe("agent ask context fields", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("upstream trace", { status: 503 })))
     const value = object(await ask(c, { prompt: "anything" }, {}))
     expect(object(value.docs_status).warning).toBe("Docs refresh failed: the docs server answered HTTP 503")
+  })
+})
+
+describe("secret host binding refusals (#3212)", () => {
+  it("states the backend's typed refusal of a wildcard or CIDR host as the user's to fix", async () => {
+    for (const host of ["*.ngrok-free.app", "127.0.0.0/8"]) {
+      const { c } = await fixture()
+      const message = `secret binding host "${host}" must be an exact host name; wildcards and address ranges are refused`
+      const fetch = vi.fn().mockResolvedValue(Response.json({
+        code: "validation_failed",
+        fault: "user",
+        message,
+        errors: [{ resource: "Secret", field: "hosts", code: "invalid" }]
+      }, { status: 422 }))
+      vi.stubGlobal("fetch", fetch)
+      const error = await resources["secret bind"]!(c, { name: "DEPLOY_KEY" }, {
+        repo: "owner/repo",
+        host: ["api.example.com", host],
+        header: ["authorization"]
+      }).then(() => undefined, (cause: unknown) => cause)
+      const [url, init] = fetch.mock.calls[0]!
+      expect(String(url)).toBe("https://api.example.test/api/repos/owner/repo/secrets/DEPLOY_KEY")
+      expect(JSON.parse(String(init.body))).toEqual({ hosts: ["api.example.com", host], match_headers: ["authorization"] })
+      const failure = c.failure(error)
+      expect(failure).toBeInstanceOf(Refused)
+      expect(failure).toMatchObject({ fault: "user", message })
+    }
   })
 })

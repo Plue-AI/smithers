@@ -187,9 +187,10 @@ type SecretReplace struct {
 	Require      bool     `yaml:"require"`
 }
 
+// SecretRule names the one exact host a secret is swapped for; iron-proxy's
+// cidr form is never rendered (#3212).
 type SecretRule struct {
-	Host string `yaml:"host,omitempty"`
-	CIDR string `yaml:"cidr,omitempty"`
+	Host string `yaml:"host"`
 }
 
 type LogConfig struct {
@@ -315,11 +316,12 @@ func renderSecrets(bindings []SecretBinding) ([]SecretEntry, error) {
 		}
 		rules := make([]SecretRule, 0, len(hosts))
 		for _, host := range hosts {
-			if _, _, err := net.ParseCIDR(host); err == nil {
-				rules = append(rules, SecretRule{CIDR: host})
-				continue
+			// A wildcard or CIDR would let iron-proxy swap the value into
+			// requests to every host it covers.
+			if !sandbox.ValidExactEgressHost(host) {
+				return nil, fmt.Errorf("%w: secret %s host %q is not one exact host name", ErrInvalidSpec, envVar, host)
 			}
-			rules = append(rules, SecretRule{Host: host})
+			rules = append(rules, SecretRule{Host: sandbox.CanonicalExactEgressHost(host)})
 		}
 		entries = append(entries, SecretEntry{
 			Source: SecretSource{Type: "env", Var: envVar},

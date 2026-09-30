@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	stdErrors "errors"
+	"fmt"
 	"regexp"
 	"sort"
 	"strings"
@@ -394,6 +395,10 @@ func (s *AgentEnvironmentService) LoadProxyBoundSecrets(ctx context.Context, rep
 			Hosts: append([]string(nil), row.Hosts...), MatchHeaders: append([]string(nil), row.MatchHeaders...),
 		}
 		if err := secret.Validate(); err != nil {
+			if stdErrors.Is(err, sandbox.ErrEgressSecretHostNotExact) {
+				// Stored before exact hosts were required: refused until rebound.
+				return nil, secretHostNotExact(fmt.Sprintf("secret %s is bound to a wildcard or address range; bind it to exact host names", row.Name))
+			}
 			return nil, pkgerrors.Internal("invalid agent environment secret binding").WithCause(err)
 		}
 		bound = append(bound, secret)
@@ -621,12 +626,15 @@ var secretBindingHeaderPattern = regexp.MustCompile(`^[A-Za-z0-9-]{1,128}$`)
 
 // validateSecretBinding normalises an egress-proxy binding, for
 // agent-environment and workflow secrets alike.
-// Empty on both sides means the legacy environment path. Hosts must be DNS
-// names, "*.suffix" wildcards, or CIDRs; headers must be plain header names.
+// Empty on both sides means the legacy environment path. Hosts must be exact
+// DNS names or address literals (stored in canonical form): a "*.suffix"
+// wildcard or CIDR would let the proxy swap the value
+// into requests to any host it covers, so it is refused with a typed
+// validation error on the hosts field. Headers must be plain header names.
 // A one-sided binding is rejected: the proxy needs both a host and a
 // location to scope a swap.
 func validateSecretBinding(hosts, matchHeaders []string) ([]string, []string, error) {
-	hosts = normaliseBindingList(hosts, strings.ToLower)
+	hosts = normaliseBindingList(hosts, sandbox.CanonicalExactEgressHost)
 	matchHeaders = normaliseBindingList(matchHeaders, strings.ToLower)
 	if len(hosts) == 0 && len(matchHeaders) == 0 {
 		return []string{}, []string{}, nil
@@ -638,7 +646,11 @@ func validateSecretBinding(hosts, matchHeaders []string) ([]string, []string, er
 		return nil, nil, pkgerrors.BadRequest("secret binding has too many entries")
 	}
 	for _, host := range hosts {
-		if !sandbox.ValidEgressHost(host) {
+		switch {
+		case sandbox.ValidExactEgressHost(host):
+		case sandbox.ValidEgressHost(host):
+			return nil, nil, secretHostNotExact(fmt.Sprintf("secret binding host %q must be an exact host name; wildcards and address ranges are refused", host))
+		default:
 			return nil, nil, pkgerrors.BadRequest("invalid secret binding host")
 		}
 	}
@@ -648,6 +660,14 @@ func validateSecretBinding(hosts, matchHeaders []string) ([]string, []string, er
 		}
 	}
 	return hosts, matchHeaders, nil
+}
+
+// secretHostNotExact is the typed refusal of a wildcard or CIDR secret host:
+// validation_failed naming the hosts field, with message as its sentence.
+func secretHostNotExact(message string) *pkgerrors.APIError {
+	err := pkgerrors.ValidationFailed(pkgerrors.FieldError{Resource: "Secret", Field: "hosts", Code: "invalid"})
+	err.Message = message
+	return err
 }
 
 func normaliseBindingList(values []string, transform func(string) string) []string {

@@ -94,7 +94,10 @@ func TestRenderFailsClosedOnUnenforceableBindings(t *testing.T) {
 			SecretBinding{EnvVar: "A", ProxyValue: "same", Hosts: []string{"a.example"}, MatchHeaders: []string{"h"}},
 			SecretBinding{EnvVar: "B", ProxyValue: "same", Hosts: []string{"b.example"}, MatchHeaders: []string{"h"}},
 		), `placeholder "same" bound to both A and B`},
-		"bad deny cidr": {Spec{ListenAddr: "127.0.0.1:1", HTTPListen: "127.0.0.1:2", HTTPSListen: "127.0.0.1:3", MetricsListen: "127.0.0.1:4", CACertPath: "/c", CAKeyPath: "/k", UpstreamDenyCIDRs: []string{"10.0.0.1"}}, `upstream deny cidr "10.0.0.1"`},
+		"wildcard secret host": {withSecrets(base, SecretBinding{EnvVar: "K", Hosts: []string{"a.example", "*.ngrok-free.app"}, MatchHeaders: []string{"h"}}), `secret K host "*.ngrok-free.app" is not one exact host name`},
+		"cidr secret host":     {withSecrets(base, SecretBinding{EnvVar: "K", Hosts: []string{"127.0.0.0/8"}, MatchHeaders: []string{"h"}}), `secret K host "127.0.0.0/8" is not one exact host name`},
+		"single-address cidr":  {withSecrets(base, SecretBinding{EnvVar: "K", Hosts: []string{"10.0.0.1/32"}, MatchHeaders: []string{"h"}}), `secret K host "10.0.0.1/32" is not one exact host name`},
+		"bad deny cidr":        {Spec{ListenAddr: "127.0.0.1:1", HTTPListen: "127.0.0.1:2", HTTPSListen: "127.0.0.1:3", MetricsListen: "127.0.0.1:4", CACertPath: "/c", CAKeyPath: "/k", UpstreamDenyCIDRs: []string{"10.0.0.1"}}, `upstream deny cidr "10.0.0.1"`},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -110,14 +113,14 @@ func withSecrets(spec Spec, bindings ...SecretBinding) Spec {
 	return spec
 }
 
-func TestRenderSupportsCIDRHostsAndCustomAllowlist(t *testing.T) {
+func TestRenderSupportsCIDRAllowlistAndExactSecretHosts(t *testing.T) {
 	t.Parallel()
 	config, err := Render(Spec{
 		ListenAddr: "127.0.0.1:1", HTTPListen: "127.0.0.1:2", HTTPSListen: "127.0.0.1:3", MetricsListen: "127.0.0.1:4", CACertPath: "/c", CAKeyPath: "/k",
 		AllowDomains:      []string{"api.openai.com", " api.openai.com ", "*.anthropic.com"},
 		AllowCIDRs:        []string{"127.0.0.0/8"},
 		UpstreamDenyCIDRs: []string{},
-		Secrets:           []SecretBinding{{EnvVar: "TOKEN", Hosts: []string{"127.0.0.0/8", "example.test"}, MatchQuery: true}},
+		Secrets:           []SecretBinding{{EnvVar: "TOKEN", Hosts: []string{"127.0.0.1", "Example.test", "0:0::1"}, MatchQuery: true}},
 	})
 	require.NoError(t, err)
 	allowlist := config.Transforms[0].Config.(AllowlistConfig)
@@ -125,7 +128,7 @@ func TestRenderSupportsCIDRHostsAndCustomAllowlist(t *testing.T) {
 	assert.Equal(t, []string{"127.0.0.0/8"}, allowlist.CIDRs)
 	assert.Empty(t, config.Proxy.UpstreamDenyCIDRs, "an explicit empty override is honored for tests")
 	entry := config.Transforms[1].Config.(SecretsConfig).Secrets[0]
-	assert.Equal(t, []SecretRule{{CIDR: "127.0.0.0/8"}, {Host: "example.test"}}, entry.Rules)
+	assert.Equal(t, []SecretRule{{Host: "::1"}, {Host: "127.0.0.1"}, {Host: "example.test"}}, entry.Rules, "one exact host each, address literals canonical")
 	assert.Equal(t, []string{}, entry.Replace.MatchHeaders, "query-only bindings emit an explicit empty header list")
 	assert.True(t, entry.Replace.MatchQuery)
 }

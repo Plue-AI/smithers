@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net"
 	"regexp"
@@ -333,8 +334,9 @@ type EgressProxySecret struct {
 }
 
 // Validate rejects a binding the proxy could not enforce: a secret with no
-// host would substitute anywhere, and one with no location would scan every
-// header. Both fail closed.
+// host would substitute anywhere, one bound to a wildcard or CIDR would
+// substitute on every host it covers, and one with no location would scan
+// every header. All fail closed.
 func (s EgressProxySecret) Validate() error {
 	name := strings.TrimSpace(s.Name)
 	if name == "" || !egressSecretNamePattern.MatchString(name) {
@@ -347,9 +349,13 @@ func (s EgressProxySecret) Validate() error {
 		return fmt.Errorf("egress proxy secret %s is not bound to any host", name)
 	}
 	for _, host := range s.Hosts {
-		if !ValidEgressHost(host) {
-			return fmt.Errorf("egress proxy secret %s host %q is invalid", name, host)
+		if ValidExactEgressHost(host) {
+			continue
 		}
+		if ValidEgressHost(host) {
+			return fmt.Errorf("%w: egress proxy secret %s host %q", ErrEgressSecretHostNotExact, name, host)
+		}
+		return fmt.Errorf("egress proxy secret %s host %q is invalid", name, host)
 	}
 	if len(s.MatchHeaders) == 0 && !s.MatchQuery && !s.MatchPath {
 		return fmt.Errorf("egress proxy secret %s has no match location", name)
@@ -362,6 +368,38 @@ var (
 	egressMethodPattern     = regexp.MustCompile(`^[A-Za-z]+$`)
 	egressHostPattern       = regexp.MustCompile(`^(\*\.)?[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$`)
 )
+
+// ErrEgressSecretHostNotExact refuses a secret bound to a "*.suffix" wildcard
+// or a CIDR: the proxy would swap the value into requests to every host the
+// pattern covers, including ones an outsider controls.
+var ErrEgressSecretHostNotExact = errors.New("a secret binding host must be one exact host name")
+
+// ValidExactEgressHost accepts one host: a DNS name that is neither a
+// "*.suffix" wildcard nor a CIDR, or one IPv4 or IPv6 address literal (no
+// brackets, port or zone). Secret bindings and host rules name exactly the
+// host a value or rule applies to.
+func ValidExactEgressHost(host string) bool {
+	host = strings.ToLower(strings.TrimSpace(host))
+	if net.ParseIP(host) != nil {
+		return true
+	}
+	if strings.HasPrefix(host, "*.") || !ValidEgressHost(host) {
+		return false
+	}
+	_, _, err := net.ParseCIDR(host)
+	return err != nil
+}
+
+// CanonicalExactEgressHost is host's comparable spelling: lower case, and an
+// address literal in net.IP's canonical form, so "0:0::1" and "::1" or
+// "::ffff:10.0.0.1" and "10.0.0.1" name the same host.
+func CanonicalExactEgressHost(host string) string {
+	host = strings.ToLower(strings.TrimSpace(host))
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.String()
+	}
+	return host
+}
 
 // ValidEgressHost accepts a DNS name, a "*.suffix" wildcard, or a CIDR. A
 // scheme, port, path, or userinfo is rejected: the binding names a host, and
@@ -424,10 +462,7 @@ type EgressHostRule struct {
 // CIDR host, or a rule with no path.
 func (r EgressHostRule) Validate() error {
 	host := strings.ToLower(strings.TrimSpace(r.Host))
-	if strings.HasPrefix(host, "*.") || !ValidEgressHost(host) {
-		return fmt.Errorf("egress host rule host %q is not an exact host name", r.Host)
-	}
-	if _, _, err := net.ParseCIDR(host); err == nil {
+	if !ValidExactEgressHost(host) {
 		return fmt.Errorf("egress host rule host %q is not an exact host name", r.Host)
 	}
 	if len(r.Paths) == 0 {
