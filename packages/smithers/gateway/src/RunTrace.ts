@@ -1647,7 +1647,10 @@ interface FoldTop extends TraceFold {
   engineTrace: ReadonlyArray<Builder> | undefined
   firstAt: number
   terminal: JournalRecord | undefined
-  /** The records array {@link traceFoldSync} last matched. */
+  /**
+   * The records {@link traceFoldSync} last consumed, copied so a caller that
+   * grows or rewrites its own array in place is still compared to what was read.
+   */
   source: ReadonlyArray<JournalRecord> | undefined
   memo: { readonly status: string; readonly model: TraceModel } | undefined
 }
@@ -1757,8 +1760,10 @@ export const traceFoldStep = (fold: TraceFold, record: JournalRecord): TraceFold
  * Brings `fold` up to `records`, stepping only what it has not read.
  *
  * `records` extends the array the fold last read when every earlier element is
- * the same object; anything else, or a different run, starts a new fold. A
- * reader that re-renders one growing journal therefore pays per new record.
+ * the same object; anything else, or a different run, starts a new fold. The
+ * comparison is against the records the fold consumed, not the caller's array,
+ * so growing or rewriting that same array in place is seen. A reader that
+ * re-renders one growing journal therefore pays per new record.
  *
  * @param fold the fold the reader holds, if any; consumed
  * @param run the run the journal belongs to
@@ -1779,7 +1784,7 @@ export const traceFoldSync = (
     source.every((record, index) => records[index] === record)
   const next = extends_ ? held : traceFold(run) as FoldTop
   for (let index = extends_ ? source.length : 0; index < records.length; index++) traceFoldStep(next, records[index]!)
-  next.source = records
+  next.source = records.slice()
   return next
 }
 

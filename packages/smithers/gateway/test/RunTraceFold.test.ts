@@ -296,4 +296,55 @@ describe("traceFoldSync", () => {
       { numRuns: 100, seed: 1791 }
     )
   })
+
+  const opened = (seat: string): JournalRecord => ({
+    sequence: 1,
+    kind: "control.agent.turn-opened",
+    payload: { seat }
+  })
+  const started: JournalRecord = {
+    sequence: 2,
+    kind: "control.agent.cell-call-started",
+    payload: { callId: "review-call", flowName: "write", input: { path: "example.ts" } }
+  }
+  const batch = (records: ReadonlyArray<JournalRecord>) => traceFromJournal({ ...run, status: "running" }, records)
+
+  it("steps records appended to the same array it last read", () => {
+    const records: Array<JournalRecord> = [opened("review")]
+    const held = traceFoldSync(undefined, run, records)
+    const before = traceFoldModel(held, "running")
+    records.push(started)
+    const grown = traceFoldSync(held, run, records)
+    expect(grown).toBe(held)
+    const after = traceFoldModel(grown, "running")
+    expect(after.journal).toHaveLength(2)
+    expect(after.rows.filter((row) => row.kind === "call")).toHaveLength(1)
+    expect(after).toEqual(batch(records))
+    // The model read before the append is not mutated by it.
+    expect(before.journal).toHaveLength(1)
+  })
+
+  it("refolds when a slot of the same array is rewritten in place", () => {
+    const records: Array<JournalRecord> = [opened("review"), started]
+    const held = traceFoldSync(undefined, run, records)
+    expect(JSON.stringify(traceFoldModel(held, "running"))).toContain("review")
+    records[0] = opened("revised")
+    const rewritten = traceFoldSync(held, run, records)
+    expect(rewritten).not.toBe(held)
+    const model = traceFoldModel(rewritten, "running")
+    expect(model).toEqual(batch(records))
+    expect(JSON.stringify(model)).toContain("revised")
+  })
+
+  it("extends from a copied array and reuses the fold for an unchanged repeat", () => {
+    const head = [opened("review")]
+    const held = traceFoldSync(undefined, run, head)
+    const copied = traceFoldSync(held, run, [...head, started])
+    expect(copied).toBe(held)
+    const model = traceFoldModel(copied, "running")
+    expect(model).toEqual(batch([...head, started]))
+    const repeat = traceFoldSync(copied, run, [...head, started])
+    expect(repeat).toBe(copied)
+    expect(traceFoldModel(repeat, "running")).toBe(model)
+  })
 })
