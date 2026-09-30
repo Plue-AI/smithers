@@ -22,6 +22,7 @@ import {
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { test } from "node:test"
+import * as MemorySource from "../../packages/smithers/agent/memory/src/Source.ts"
 import Wrapped, {
   grants,
   layer,
@@ -1014,4 +1015,75 @@ test("wrapped Codex probe and exec share credential filtering without reading de
     assert.ok(!inherited.includes("cache-secret"))
     assert.ok(inherited.includes(`WRAPPED_LOG=${fake.log}`))
   }
+})
+
+// #2779: a coding run hands its project memory to a wrapped Claude Code or
+// Codex launch, which opens with the same block a native step renders.
+const supplied = [
+  { origin: "recall" as const, bank: "flow:coding", key: "lesson", text: "Reject empty names" },
+  { origin: "recall" as const, bank: "commits", key: "change-a", text: "Tag the release on Fridays" },
+  { origin: "recall" as const, bank: "wiki", key: "arch", text: "Page arch (source s)\nOne backend" }
+]
+const unneededRelease = Evaluator.layerScripted((request) => {
+  const state = request.state as { readonly items?: ReadonlyArray<{ readonly text: string }> }
+  return Object.fromEntries(
+    Object.keys(request.questions).map((id) => {
+      const index = Number(id.slice(id.lastIndexOf("_") + 1))
+      return [id, { probability: state.items?.[index]?.text.includes("release") ? 0.97 : 0.05 }]
+    })
+  )
+})
+
+for (const harness of ["claude-code", "codex"] as const) {
+  test(`a ${harness} launch opens with the caller's memory block, gated like a native step's`, async () => {
+    const fake = harness === "codex" ? fakeCodex() : fakeClaude()
+    const repo = join(fake.dir, "repo")
+    mkdirSync(repo)
+    writeFileSync(join(repo, "README.md"), "# Fixture\n")
+    const { memories, succeeded } = flowHarnessAt(fake, repo)
+    const task = "Reject empty names in src/a.ts"
+    const first = await succeeded({ harness, task, cwd: repo, memory: supplied }, `${harness}-supplied`, {
+      evaluator: unneededRelease
+    })
+    const memory = memories[0]!
+    // The same fenced rows a native step's opening memory renders, minus the withheld one.
+    assert.equal(memory.context, MemorySource.render([supplied[0]!, supplied[2]!]))
+    assert.deepEqual(memory.kept.map((item) => [item.kind, item.id, item.decided]), [
+      ["fact", "flow:coding/lesson", "jev"],
+      ["page", "wiki/arch", "jev"]
+    ])
+    assert.deepEqual(memory.omitted.map((item) => [item.kind, item.id]), [["commit", "commits/change-a"]])
+    assert.equal(memory.cost.candidates, 3)
+    assert.ok(memory.cost.jevRequests > 0)
+    assert.equal(memory.unjudged, undefined)
+    const bytes = readFileSync(first.extra.path, "utf8")
+    assert.ok(bytes.endsWith(`\n\n${memory.context}\n`))
+    assert.ok(!bytes.includes("Tag the release"))
+    const argv = fake.call(0).argv
+    assert.ok(
+      harness === "codex" ? argv.includes(`developer_instructions=${JSON.stringify(bytes)}`) : argv.at(-1) === bytes
+    )
+    assert.equal(fake.call(0).stdin, task)
+    assert.deepEqual(first.memory, { digest: memory.digest, kept: 2, cost: memory.cost })
+  })
+}
+
+test("a supplied block Jev cannot read is kept whole and marked unjudged", async () => {
+  const fake = fakeClaude()
+  const repo = join(fake.dir, "repo")
+  mkdirSync(repo)
+  const { memories, succeeded } = flowHarnessAt(fake, repo)
+  const first = await succeeded(
+    { harness: "claude-code", task: "anything", cwd: repo, memory: supplied },
+    "supplied-unjudged",
+    { evaluator: Evaluator.layerUnavailable() }
+  )
+  assert.equal(memories[0]!.context, MemorySource.render(supplied))
+  assert.deepEqual(memories[0]!.kept.map((item) => item.decided), ["unjudged", "unjudged", "unjudged"])
+  assert.equal(first.memory.unjudged?.reason, "unreachable")
+  // An empty supplied block asks nothing and appends nothing.
+  const empty = await succeeded({ harness: "claude-code", task: "anything", cwd: repo, memory: [] }, "supplied-empty")
+  assert.equal(memories[1]!.context, "")
+  assert.equal(empty.memory.cost.jevRequests, 0)
+  assert.ok(readFileSync(empty.extra.path, "utf8").endsWith(`${rules("acceptEdits")}\n`))
 })

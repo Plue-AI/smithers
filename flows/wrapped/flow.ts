@@ -13,6 +13,7 @@
  */
 import * as Memory from "@smthrs/agent/Memory"
 import { codexConfigString } from "@smthrs/cli/Agents"
+import * as Digest from "@smthrs/core/Digest"
 import { Action, Flow } from "@smthrs/flow"
 import { Capability } from "@smthrs/flows"
 import * as Evaluator from "@smthrs/model/Evaluator"
@@ -21,6 +22,9 @@ import { Effect, Layer, Schema } from "effect"
 import { randomUUID } from "node:crypto"
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
+import * as Relevance from "../../packages/smithers/agent/harness/src/Relevance.ts"
+import * as MemorySnapshot from "../../packages/smithers/agent/memory/src/SnapshotRecorder.ts"
+import * as MemorySource from "../../packages/smithers/agent/memory/src/Source.ts"
 import { launch, type LaunchOptions, WrappedFailed } from "./launch.ts"
 import { defaultPermission, extraPrompt, Harness, maxExtraBytes, Permission, promptPath, sha256 } from "./prompt.ts"
 
@@ -55,12 +59,19 @@ const payload = {
   cwd: Schema.String,
   session: Schema.optional(Schema.String),
   /** A new launch's permission mode, `acceptEdits` by default. A resume keeps the recorded one. */
-  permission: Schema.optional(Permission)
+  permission: Schema.optional(Permission),
+  /**
+   * Opening memory rows the caller already holds (a coding run's project
+   * memory). A launch that passes them opens with that block, gated by the
+   * same relevance reading a native step's opening memory takes, in place of
+   * its own selection.
+   */
+  memory: Schema.optional(Schema.Array(MemorySnapshot.Row).check(Schema.isMaxLength(64)))
 }
 export type Payload = Schema.Struct<typeof payload>["Type"]
 
 export const SelectMemory = Action.make("wrapped/memory", {
-  payload: { task: Schema.String, cwd: Schema.String },
+  payload: { task: Schema.String, cwd: Schema.String, memory: payload.memory },
   success: Memory.Output,
   error: Memory.MemoryFailed,
   nondeterministic: true
@@ -84,9 +95,9 @@ export const Launch = Action.make("wrapped/launch", {
 })
 
 /** A launch selects memory and writes the prompt; a resume replays the recorded prompt. */
-const prepare = ({ cwd, harness, permission, session, task }: Payload) =>
+const prepare = ({ cwd, harness, memory, permission, session, task }: Payload) =>
   session === undefined
-    ? SelectMemory.call({ task, cwd }).pipe(
+    ? SelectMemory.call({ task, cwd, ...(memory === undefined ? {} : { memory }) }).pipe(
       Node.bindPlanned((memory) =>
         WritePrompt.call({ task, cwd, harness, permission: permission ?? defaultPermission, memory })
       )
@@ -144,6 +155,51 @@ export const selectMemory = (task: string, cwd: string) =>
     Effect.service(Evaluator.Evaluator),
     Effect.map(Memory.select({ task, maxBytes }, { root: cwd }), (selection) => selection.output)
   )
+
+const itemKind = (bank: string): typeof Memory.Item.Type["kind"] =>
+  bank === "wiki" ? "page" : bank === "commits" ? "commit" : "fact"
+
+/**
+ * Supplied rows as a memory output: the relevance reading a native step's
+ * opening memory takes withholds the rows Jev is confident `task` does not
+ * need, and the rest render as the same fenced block a native run opens with.
+ * A reading Jev does not answer keeps every row and sets `unjudged`: keeping
+ * is the rule, withholding needs a confident reading.
+ */
+export const suppliedMemory = (task: string, rows: ReadonlyArray<MemorySnapshot.Row>) =>
+  Effect.gen(function*() {
+    const items = rows.map((row) => ({ kind: "memory" as const, id: row.key, text: row.text }))
+    const reading = rows.length === 0
+      ? undefined
+      : yield* Effect.result(Relevance.judge({ task }, items))
+    const verdicts = reading?._tag === "Success" ? reading.success.verdicts : undefined
+    const item = (row: MemorySnapshot.Row, index: number): typeof Memory.Item.Type => ({
+      kind: itemKind(row.bank),
+      id: `${row.bank}/${row.key}`,
+      digest: Digest.digest(row.text),
+      bytes: new TextEncoder().encode(row.text).length,
+      p: verdicts === undefined ? 1 : 1 - verdicts[index]!.p,
+      decided: verdicts === undefined ? "unjudged" : "jev"
+    })
+    const withheld = (index: number) => verdicts?.[index]!.withheld === true
+    const kept = rows.filter((_, index) => !withheld(index))
+    const context = MemorySource.render(kept)
+    const output: Memory.Output = {
+      context,
+      digest: Digest.digest(context),
+      kept: rows.flatMap((row, index) => withheld(index) ? [] : [item(row, index)]),
+      omitted: rows.flatMap((row, index) => withheld(index) ? [item(row, index)] : []),
+      cost: {
+        jevRequests: reading?._tag === "Success" ? reading.success.asked.length : 0,
+        jevMs: reading?._tag === "Success" ? reading.success.latencyMs : 0,
+        candidates: rows.length
+      },
+      ...(reading?._tag === "Failure" ?
+        { unjudged: { reason: reading.failure.reason, detail: reading.failure.detail } } :
+        {})
+    }
+    return output
+  })
 
 /** The summary a launch reports and records for `output`. */
 export const summarize = (output: Memory.Output): MemorySummary => ({
@@ -324,8 +380,10 @@ export const layer = (
   options: LaunchOptions & { readonly onMemory?: ((output: Memory.Output) => void) | undefined } = {}
 ) =>
   Layer.mergeAll(
-    SelectMemory.toLayer(({ cwd, task }) =>
-      selectMemory(task, cwd).pipe(Effect.tap((output) => Effect.sync(() => options.onMemory?.(output))))
+    SelectMemory.toLayer(({ cwd, memory, task }) =>
+      (memory === undefined ? selectMemory(task, cwd) : suppliedMemory(task, memory)).pipe(
+        Effect.tap((output) => Effect.sync(() => options.onMemory?.(output)))
+      )
     ),
     WritePrompt.toLayer(({ task, harness, ...input }) =>
       Effect.tap(writePrompt({ ...input, harness }), (prepared) => recordSession(input.cwd, task, prepared, harness))
