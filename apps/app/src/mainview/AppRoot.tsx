@@ -2,7 +2,9 @@ import { StartupErrorPanel } from "./StartupError"
 import { subscribeStorageFailure, storageFailure } from "./state/StorageFailure"
 import { ViewSkeleton } from "./ViewSkeleton"
 import { lazy, StrictMode, Suspense, useSyncExternalStore } from "react"
+import type { ComponentType, ReactNode } from "react"
 import { prepareControllerBoot, ControllerProvider } from "./ControllerProvider"
+import { useController } from "./ControllerContext"
 import { SessionNavigation, SessionNavigationFallback } from "./SessionNavigation"
 import { SessionShell } from "./SessionShell"
 import { MountedSignal, StartupErrorBoundary } from "./StartupBoundary"
@@ -29,6 +31,27 @@ void appModule.catch(() => {})
 
 const RepoApp = lazy(() => appModule.then(({ default: App }) => ({ default: App })))
 
+export function AppContent({ children }: { readonly children: ReactNode }) {
+  const controller = useController()
+  if (controller.store.savedStoreUnavailable) return <main style={{ maxWidth: "36rem", margin: "3rem auto", padding: "1.5rem" }}>
+    <div role="alert"><h1>Storage unavailable</h1></div>
+    <button type="button" onClick={() => window.location.reload()}>Reload</button>
+  </main>
+  return children
+}
+
+/** The recovered-store gate wraps the entire interactive shell. */
+export function AppReady({ View, onMounted }: { readonly View: ComponentType; readonly onMounted: () => void }) {
+  return <>
+    <MountedSignal onMounted={onMounted} />
+    <AppContent>
+      <SessionShell navigation={<SessionNavigation />}>
+        <Suspense fallback={<ViewSkeleton />}><View /></Suspense>
+      </SessionShell>
+    </AppContent>
+  </>
+}
+
 export function AppRoot({
   watchdog
 }: {
@@ -41,14 +64,11 @@ export function AppRoot({
   return (
     <StrictMode>
       <StartupErrorBoundary onError={watchdog.handleRenderFailure}>
-        <SessionShell navigation={<Suspense fallback={<SessionNavigationFallback />}><ControllerProvider boot={boot}><SessionNavigation /></ControllerProvider></Suspense>}>
-          <Suspense fallback={<ViewSkeleton />}>
-            <ControllerProvider boot={boot}>
-              <MountedSignal onMounted={watchdog.markMounted} />
-              <View />
-            </ControllerProvider>
-          </Suspense>
-        </SessionShell>
+        <Suspense fallback={<SessionShell navigation={<SessionNavigationFallback />}><ViewSkeleton /></SessionShell>}>
+          <ControllerProvider boot={boot}>
+            <AppReady View={View} onMounted={watchdog.markMounted} />
+          </ControllerProvider>
+        </Suspense>
       </StartupErrorBoundary>
     </StrictMode>
   )

@@ -119,6 +119,7 @@ import { ENTITY_RECOVERY_STORAGE_KEY,clearEntityRecovery,readEntityRecoveries,wr
 import { canonicalStoredJsonValue } from "./EventValue"
 import { HttpTurnLegSchema,HttpTurnSchema, type HttpTurn } from "./HttpTurn"
 import { freezeProjectionValue } from "./ImmutableProjection"
+import { OpfsOpenTimeout, storageOpenDiagnostic, storageOpenFault } from "./StorageOpenDiagnostics"
 import { admitsPendingRecovery,pendingRecoveryScope,sameRecoveryScope,type PendingRecoveryAuthority,type PendingRecoveryBoundary } from "./PendingRecovery"
 import { RepositoryContextSchema } from "./RepositoryContext"
 import { NotificationReadReceiptSchema,RepositoryNotificationSchema } from "./RepositoryNotifications"
@@ -228,6 +229,8 @@ export interface ResolvedPersistence {
   readonly mode: PersistenceMode
   /** True when the store holding the user's data could not be opened. */
   readonly degraded: boolean
+  /** A recorded OPFS store exists but this launch could not open it. */
+  readonly savedStoreUnavailable?: boolean
   /** Record adoption only after the selected legacy store validates and initializes. */
   readonly recordSuccessfulOpen?: () => void
   /** Production always supplies this; isolated legacy injected hosts own their own storage contract. */
@@ -366,7 +369,7 @@ const openOpfsDatabaseWithinBudget = async (attempts: number) => {
       open,
       new Promise<never>((_resolve, reject) => {
         timer = setTimeout(
-          () => reject(new Error(`OPFS did not open within ${OPFS_OPEN_BUDGET_MS}ms`)),
+          () => reject(new OpfsOpenTimeout(OPFS_OPEN_BUDGET_MS)),
           OPFS_OPEN_BUDGET_MS
         )
       })
@@ -581,7 +584,9 @@ export const resolvePersistence = async (host: BrowserPersistenceHost = {
    */
   const opfsHoldsData = recorded === "opfs" ||
     (recorded === null && await host.databaseExists?.().catch((error: unknown) => {
-      console.warn("Smithers: could not check for an existing OPFS SQLite store; treating it as present.", error)
+      console.warn("Smithers: could not check for an existing OPFS SQLite store; treating it as present.", {
+        code: "opfs_presence_probe_failed", fault: storageOpenFault(error)
+      })
       return true
     }) === true)
   let database: SqliteRowDatabase
@@ -591,10 +596,10 @@ export const resolvePersistence = async (host: BrowserPersistenceHost = {
     if (opfsHoldsData) {
       if (retirement?.phase === "pending") throw new PrivacyStorageUnavailable()
       console.error(
-        "Smithers: this app's data lives in OPFS SQLite and that store could not be opened, so this session starts empty and saves nothing. The conversation is still on disk and comes back once the store opens again.",
-        error
+        "Smithers: OPFS SQLite could not be opened. Saved data, if present, was not overwritten; reload to retry.",
+        storageOpenDiagnostic(error, OPFS_OPEN_ATTEMPTS, OPFS_OPEN_BUDGET_MS)
       )
-      return { backend: { kind: "localStorage", storage: memoryStorage() }, mode: "memory", degraded: true, privacy }
+      return { backend: { kind: "localStorage", storage: memoryStorage() }, mode: "memory", degraded: true, savedStoreUnavailable: true, privacy }
     }
     if (record === undefined) {
       console.error(
@@ -805,6 +810,7 @@ export interface AppStore {
    * conversation must say this rather than render the empty one as current.
    */
   readonly persistenceDegraded: boolean
+  readonly savedStoreUnavailable: boolean
   readonly session: () => Session
   /** The transcript ordinal after every message and card: where the next row lands. */
   readonly nextOrdinal: () => number
@@ -1935,7 +1941,7 @@ const initializeAppStore = async (
    *
    * Raised after the stale-toast sweep above so it is not swept with them.
    */
-  if (resolved.degraded) {
+  if (resolved.degraded && !resolved.savedStoreUnavailable) {
     await dispatch({
       type: "toast.shown",
       actor: "system",
@@ -2056,6 +2062,7 @@ const initializeAppStore = async (
     persistenceMode: resolved.mode,
     persistedLoad: loadReport,
     persistenceDegraded: resolved.degraded,
+    savedStoreUnavailable: resolved.savedStoreUnavailable === true,
     session,
     stagePendingCardInput,
     stagePendingSignupInput,

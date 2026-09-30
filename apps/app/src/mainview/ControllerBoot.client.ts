@@ -52,7 +52,7 @@ const bootProgram = (options: ControllerBootOptions = {}) =>
     const bootstrapRead = warmBootstrap(http)
     const { bootstrap, store } = yield* promiseEffect("prepare runtime and persisted state", () =>
       loadControllerBootInputs(() => bootstrapRead, () => createAppStore(undefined, { eraseTurn: createTurnEraser(http) })))
-    const repositoryEntryId = yield* Effect.sync(() => beginRepositoryEntry(store, requested))
+    const repositoryEntryId = yield* Effect.sync(() => store.savedStoreUnavailable ? undefined : beginRepositoryEntry(store, requested))
     const runtime = yield* Effect.sync(() => createRuntime({
       bootstrap,
       http,
@@ -75,7 +75,7 @@ const bootProgram = (options: ControllerBootOptions = {}) =>
           applicationIdentity: client.identity,
           authorizeSocket: client.authorizeWebSocket,
           bootstrap: runtime.bootstrap,
-          repositoryApp: requested ?? undefined,
+          repositoryApp: store.savedStoreUnavailable ? undefined : requested ?? undefined,
           frameHistory: createBrowserFrameHistory(window, { keepUrl: options.keepUrl === true }),
           // The next-step recommender (state/Recommend.ts) is opt-in here, the one real composition root.
           recommender: { enabled: hasCapability(bootstrap, "recommend") },
@@ -109,6 +109,10 @@ const bootProgram = (options: ControllerBootOptions = {}) =>
         }, 0)
       }, { once: true })
     })
+
+    // The recorded store is still on disk. A temporary empty store must not
+    // route URLs, resume deferred commands through identity, or start new work.
+    if (store.savedStoreUnavailable) return controller
 
     if (!hasCapability(bootstrap, "identity")) {
       yield* promiseEffect("record unavailable identity", () => controller.adoptSession({

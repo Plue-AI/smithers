@@ -1,6 +1,6 @@
 import type { StorageApi } from "@tanstack/db"
 import { Database } from "bun:sqlite"
-import { describe, expect, test } from "bun:test"
+import { describe, expect, spyOn, test } from "bun:test"
 import { APP_SCHEMA_VERSION, PERSISTENCE_BACKEND_STORAGE_KEY } from "../chain/SchemaVersion"
 import { METADATA_TABLE_NAME, openSqliteRowStorage, ROW_TABLE_NAME } from "../chain/SqliteRowStorage"
 import type { SqliteRowDatabase } from "../chain/SqliteRowStorage"
@@ -132,6 +132,7 @@ describe("the browser's persistence resolver", () => {
       expect(attempts).toBe(recorded === "opfs" ? 5 : 1)
       expect(resolved.mode).toBe(recorded === "opfs" ? "memory" : "localStorage")
       expect(resolved.degraded).toBe(recorded === "opfs")
+      expect(resolved.savedStoreUnavailable === true).toBe(recorded === "opfs")
       expect(record.getItem(PERSISTENCE_BACKEND_STORAGE_KEY)).toBe(recorded ?? "localStorage")
       if (recorded === "opfs") {
         expect(resolved.backend.storage).not.toBe(record)
@@ -156,26 +157,38 @@ describe("the browser's persistence resolver", () => {
     expect(attempts).toBe(5)
     expect(resolved.mode).toBe("memory")
     expect(resolved.degraded).toBe(true)
+    expect(resolved.savedStoreUnavailable).toBe(true)
     expect(record.getItem(PERSISTENCE_BACKEND_STORAGE_KEY)).toBeNull()
   })
 
   test("an unstamped boot whose OPFS existence probe fails treats the database as present", async () => {
     const record = memory()
     let attempts = 0
-    const resolved = await resolvePersistence({
-      bootRecord: () => record,
-      databaseExists: async () => {
-        throw new DOMException("storage access denied", "SecurityError")
-      },
-      openDatabase: async (count) => {
-        attempts = count
-        throw new Error("NoModificationAllowedError: access handles still held")
-      }
-    })
-    expect(attempts).toBe(5)
-    expect(resolved.mode).toBe("memory")
-    expect(resolved.degraded).toBe(true)
-    expect(record.getItem(PERSISTENCE_BACKEND_STORAGE_KEY)).toBeNull()
+    const warning = spyOn(console, "warn").mockImplementation(() => {})
+    try {
+      const resolved = await resolvePersistence({
+        bootRecord: () => record,
+        databaseExists: async () => {
+          throw new DOMException("private row or path", "SecurityError")
+        },
+        openDatabase: async (count) => {
+          attempts = count
+          throw new Error("NoModificationAllowedError: access handles still held")
+        }
+      })
+      expect(attempts).toBe(5)
+      expect(resolved.mode).toBe("memory")
+      expect(resolved.degraded).toBe(true)
+      expect(resolved.savedStoreUnavailable).toBe(true)
+      expect(record.getItem(PERSISTENCE_BACKEND_STORAGE_KEY)).toBeNull()
+      expect(warning.mock.calls).toEqual([[
+        expect.any(String),
+        { code: "opfs_presence_probe_failed", fault: "permission" }
+      ]])
+      expect(JSON.stringify(warning.mock.calls)).not.toContain("private row or path")
+    } finally {
+      warning.mockRestore()
+    }
   })
 
   test("no browser stores creates an isolated degraded memory session", async () => {
@@ -187,15 +200,14 @@ describe("the browser's persistence resolver", () => {
     })
     expect(resolved.mode).toBe("memory")
     expect(resolved.degraded).toBe(true)
+    expect(resolved.savedStoreUnavailable).not.toBe(true)
     resolved.backend.storage!.setItem("key", "memory only")
     expect(resolved.backend.storage!.getItem("key")).toBe("memory only")
   })
 
-  test("a degraded boot keeps its failure notice through the boot sweep and calls an archive temporary", async () => {
-    const record = memory()
-    record.setItem(PERSISTENCE_BACKEND_STORAGE_KEY, "opfs")
+  test("a no-storage memory boot keeps its failure notice through the boot sweep and calls an archive temporary", async () => {
     const resolved = await resolvePersistence({
-      bootRecord: () => record,
+      bootRecord: () => undefined,
       openDatabase: async () => {
         throw new Error("access handles still held")
       }
@@ -203,6 +215,7 @@ describe("the browser's persistence resolver", () => {
     const store = await createAppStore(resolved)
     expect(store.persistenceMode).toBe("memory")
     expect(store.persistenceDegraded).toBe(true)
+    expect(store.savedStoreUnavailable).toBe(false)
     expect(store.collections.toasts.get("toast-store.degraded")).toMatchObject({
       status: "failed",
       title: "This session will not be saved"
@@ -211,8 +224,38 @@ describe("the browser's persistence resolver", () => {
       .isPersisted.promise
     const notice = [...store.collections.messages.values()].find((message) => message.id.endsWith("-cleared"))
     expect(notice?.text).toContain("This archive is only available until this session closes")
-    expect([...record.bytes]).toEqual([[PERSISTENCE_BACKEND_STORAGE_KEY, "opfs"]])
     await store.dispose?.()
+  })
+
+  test("a recorded saved store that fails to reopen keeps its bytes and shows no temporary-session toast", async () => {
+    const record = memory()
+    record.setItem(PERSISTENCE_BACKEND_STORAGE_KEY, "opfs")
+    record.setItem("outside-app.private-original", "preserve")
+    const errorLog = spyOn(console, "error").mockImplementation(() => {})
+    try {
+      const resolved = await resolvePersistence({
+        bootRecord: () => record,
+        openDatabase: async () => { throw new Error("private SQL row contents") }
+      })
+      const store = await createAppStore(resolved)
+      try {
+        expect(store.savedStoreUnavailable).toBe(true)
+        expect(store.collections.toasts.get("toast-store.degraded")).toBeUndefined()
+        expect([...record.bytes]).toEqual([
+          [PERSISTENCE_BACKEND_STORAGE_KEY, "opfs"],
+          ["outside-app.private-original", "preserve"]
+        ])
+        expect(errorLog.mock.calls).toEqual([[
+          expect.any(String),
+          { code: "opfs_open_failed", fault: "other", attempts: 5, budgetMs: 4000 }
+        ]])
+        expect(JSON.stringify(errorLog.mock.calls)).not.toContain("private SQL row contents")
+      } finally {
+        await store.dispose?.()
+      }
+    } finally {
+      errorLog.mockRestore()
+    }
   })
 
   for (const cleanupFails of [false, true]) {

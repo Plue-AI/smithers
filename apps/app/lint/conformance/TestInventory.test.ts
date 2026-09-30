@@ -108,6 +108,7 @@ const playwrightOwns = (path: string, config: PlaywrightTestConfig): boolean =>
 // process isolation; the child results are asserted by the unit wrappers.
 const isolatedWrappers: Readonly<Record<string, string>> = {
   "e2e/fixtures/unit-entrypoints/AppIsland.child.test.tsx": "src/mainview/AppEntrypoints.test.ts",
+  "e2e/fixtures/unit-entrypoints/AppIslandFallback.child.test.tsx": "src/mainview/AppEntrypoints.test.ts",
   "e2e/fixtures/unit-entrypoints/Main.child.test.tsx": "src/mainview/AppEntrypoints.test.ts",
   "e2e/fixtures/unit-entrypoints/Serve.child.test.ts": "src/bun/ServeEntrypoint.test.ts",
   "e2e/fixtures/unit-entrypoints/NativeProduction.child.test.ts": "src/bun/NativeProductionEntrypoint.test.ts",
