@@ -2,9 +2,11 @@ import { describe, expect, it } from "@effect/vitest"
 import * as Capability from "@smthrs/capability/Capability"
 import * as Permission from "@smthrs/capability/Permission"
 import {
+  Cause,
   Deferred,
   Effect,
   Encoding,
+  Exit,
   Fiber,
   FileSystem as EffectFileSystem,
   Option,
@@ -561,10 +563,31 @@ describe("FileSystem", () => {
     const decorated = FileSystem.withAtomicFileSystem(fileSystem, original)
 
     expect(() => FileSystem.withIsolatedFileSystem(decorated)).toThrowError(
-      "filesystem already carries a descriptor-relative executor; attesting whole-filesystem isolation would replace it"
+      expect.objectContaining({
+        _tag: "@smthrs/kernel/FileSystemFault",
+        code: "executor_already_present",
+        message:
+          "filesystem already carries a descriptor-relative executor; attesting whole-filesystem isolation would replace it"
+      })
     )
     expect(decorated[FileSystem.AtomicFileSystemTypeId]).toBe(original)
   })
+
+  itEffect(
+    "dies with a tagged fault when an attested volume is asked for an unadvertised operation",
+    () =>
+      Effect.gen(function*() {
+        const attested = FileSystem.withIsolatedFileSystem(EffectFileSystem.makeNoop({}))[
+          FileSystem.AtomicFileSystemTypeId
+        ]
+        const exit = yield* Effect.exit(attested.execute({ operation: "batch" } as never))
+        expect(Exit.isFailure(exit) && Cause.squash(exit.cause)).toMatchObject({
+          _tag: "@smthrs/kernel/FileSystemFault",
+          code: "isolated_operation_unsupported",
+          message: "unsupported isolated filesystem operation: batch"
+        })
+      })
+  )
 
   itEffect("classifies reads and mutations and normalizes workspace-relative paths", () => {
     const checks: Array<Capability.Capability> = []

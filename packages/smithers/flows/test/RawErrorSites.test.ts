@@ -50,11 +50,6 @@ const reviewed: ReadonlyArray<readonly [file: string, count: number, why: string
   ["journal/src/RedactedLogger.ts", 1, "an empty Error clone that receives redacted fields; never thrown"],
   ["journal/src/Redaction.ts", 1, "a depth refusal the redaction boundary catches and replaces with its marker"],
   ["journal/src/SqlJournal.ts", 1, "auto-compaction capture timeout; the compactor logs and damps every failure"],
-  [
-    "kernel/src/FileSystem.ts",
-    3,
-    "one wrapped cause; an unsupported-operation defect; a double-wrap programming error"
-  ],
   ["kernel/src/HttpClient.ts", 1, wrappedCause],
   ["kernel/src/test/HostContract.ts", 1, testSupport],
   ["observability/src/Otlp.ts", 1, "rebuilds an exported error with its message redacted"],

@@ -27,6 +27,7 @@ import {
   Path as EffectPath,
   PlatformError,
   Result,
+  Schema,
   Sink,
   Stream
 } from "effect"
@@ -303,6 +304,44 @@ export const withAtomicFileSystem = (
 ): AtomicHostFileSystem => Object.assign(fileSystem, { [AtomicFileSystemTypeId]: atomic })
 
 /**
+ * Why a filesystem composition or guarded batch refused.
+ *
+ * @since 1.0.0-rc.0
+ * @category models
+ */
+export const FileSystemFaultCode = Schema.Literals([
+  "executor_already_present",
+  "isolated_operation_unsupported",
+  "workspace_identity_changed"
+])
+
+/**
+ * The stable code of a {@link FileSystemFault}.
+ *
+ * @since 1.0.0-rc.0
+ * @category models
+ */
+export type FileSystemFaultCode = typeof FileSystemFaultCode.Type
+
+/**
+ * A broken filesystem composition or a workspace whose descriptor identity
+ * changed. `withIsolatedFileSystem` throws `executor_already_present`; an
+ * attested volume reaching an operation it never advertises dies with
+ * `isolated_operation_unsupported` (a bug); a batch whose root no longer names
+ * the authorized descriptor is the `cause` of a `Busy` `PlatformError` with
+ * `workspace_identity_changed`.
+ *
+ * @since 1.0.0-rc.0
+ * @category errors
+ */
+export class FileSystemFault extends Schema.TaggedError<FileSystemFault>()("@smthrs/kernel/FileSystemFault", {
+  code: FileSystemFaultCode,
+  message: Schema.String
+}) {
+  override readonly name = "FileSystemFault"
+}
+
+/**
  * Attests that a host filesystem is already isolated as a whole. Intended for
  * browser/test volumes whose implementation cannot address the host
  * filesystem at all; native path-based adapters must not use this shortcut.
@@ -322,9 +361,11 @@ export const withIsolatedFileSystem = (
   fileSystem: EffectFileSystem.FileSystem
 ): AtomicHostFileSystem => {
   if (AtomicFileSystemTypeId in fileSystem) {
-    throw new Error(
-      "filesystem already carries a descriptor-relative executor; attesting whole-filesystem isolation would replace it"
-    )
+    throw new FileSystemFault({
+      code: "executor_already_present",
+      message:
+        "filesystem already carries a descriptor-relative executor; attesting whole-filesystem isolation would replace it"
+    })
   }
   return withAtomicFileSystem(fileSystem, {
     isolated: fileSystem,
@@ -360,7 +401,12 @@ export const withIsolatedFileSystem = (
 }
 
 const unsupportedIsolated = (operation: string): Effect.Effect<never> =>
-  Effect.die(`unsupported isolated filesystem operation: ${operation}`)
+  Effect.die(
+    new FileSystemFault({
+      code: "isolated_operation_unsupported",
+      message: `unsupported isolated filesystem operation: ${operation}`
+    })
+  )
 
 /**
  * Turns a typed handler record into the executor the host extension declares.
@@ -1524,7 +1570,12 @@ export const layer: Layer.Layer<
             Effect.flatMap((current) =>
               Option.isSome(current) && current.value === expectedRoot
                 ? Effect.void
-                : Effect.fail(rootChanged(new Error("workspace descriptor identity changed")))
+                : Effect.fail(rootChanged(
+                  new FileSystemFault({
+                    code: "workspace_identity_changed",
+                    message: "workspace descriptor identity changed"
+                  })
+                ))
             )
           )
         yield* verifyRoot()

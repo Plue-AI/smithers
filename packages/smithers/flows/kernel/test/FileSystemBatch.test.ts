@@ -177,6 +177,12 @@ describe("guarded filesystem batches", () => {
             const refused = yield* Effect.flip(Batch.batch(fs)!.execute([{ operation: "digest", path: "a" }]))
             expect(refused).toMatchObject({ reason: { _tag: "Busy" } })
             if (fault === "missing") expect((refused.reason as { cause: unknown }).cause).toBe(missing)
+            if (fault === "replaced") {
+              expect((refused.reason as { cause: unknown }).cause).toMatchObject({
+                _tag: "@smthrs/kernel/FileSystemFault",
+                code: "workspace_identity_changed"
+              })
+            }
             expect(host.requests).toEqual([])
           }),
           host.fs
