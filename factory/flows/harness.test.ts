@@ -4,15 +4,122 @@ import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Option from "effect/Option"
 import { execFileSync } from "node:child_process"
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
-import { tmpdir } from "node:os"
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
+import { createServer } from "node:net"
+import { homedir, tmpdir } from "node:os"
 import { join } from "node:path"
+import { Flow } from "@smthrs/flow"
 import { libraryPackages } from "../../scripts/workspace-packages.mjs"
-import { agentPermissionRules, agentSpawnSpec, listWorkspacePackages, makeConfinementValidator, REPO_ROOT, runProcess, selectPackages } from "./harness.ts"
+import {
+  agentPermissionRules,
+  agentSpawnSpec,
+  listWorkspacePackages,
+  makeConfinementValidator,
+  REPO_ROOT,
+  runFlow,
+  runProcess,
+  runShellTask,
+  selectPackages,
+  ShellTask,
+  TaskResult
+} from "./harness.ts"
 
 const temporaryRoots: string[] = []
 afterEach(() => {
   while (temporaryRoots.length > 0) rmSync(temporaryRoots.pop()!, { recursive: true, force: true })
+})
+
+describe("ShellTask sandbox", () => {
+  // The probe is the agent-authored test from #2765: it tries to exfiltrate a
+  // nonce under the operator's real HOME into the workspace.
+  const probe = `
+const fs = require("node:fs")
+const net = require("node:net")
+const os = require("node:os")
+const [secret, socket] = process.argv.slice(2)
+const attempt = (label, run) => { try { run(); console.log(label + ":ok") } catch (error) { console.log(label + ":" + error.code) } }
+attempt("home-read", () => fs.writeFileSync("stolen", fs.readFileSync(secret)))
+attempt("symlink-read", () => fs.writeFileSync("stolen-link", fs.readFileSync("escape")))
+attempt("workspace-write", () => fs.writeFileSync("output", "workspace"))
+attempt("hook-write", () => fs.writeFileSync(".git/hooks-probe", "x"))
+console.log("home=" + os.homedir())
+const client = net.connect(socket)
+client.on("connect", () => { console.log("socket:ok"); client.end() })
+client.on("error", (error) => console.log("socket:" + error.code))
+`
+  const fixture = () => {
+    const root = mkdtempSync(join(tmpdir(), "factory-sandbox-"))
+    const secretRoot = mkdtempSync(join(homedir(), ".factory-sandbox-secret-"))
+    temporaryRoots.push(root, secretRoot)
+    const secret = join(secretRoot, "nonce")
+    writeFileSync(secret, `nonce-${process.pid}-${Date.now()}`)
+    mkdirSync(join(root, ".git"))
+    symlinkSync(secret, join(root, "escape"))
+    writeFileSync(join(root, "probe.test.js"), probe)
+    return { root, secret, nonce: readFileSync(secret, "utf8") }
+  }
+  const listen = async (socket: string) => {
+    const server = createServer((connection) => connection.end())
+    await new Promise<void>((resolve) => server.listen(socket, resolve))
+    return server
+  }
+
+  test.skipIf(process.platform !== "darwin")("agent-authored code cannot read the operator's HOME, sockets or repository metadata", async () => {
+    const { root, secret, nonce } = fixture()
+    const socket = join(root, "agent.sock")
+    const server = await listen(socket)
+    try {
+      const args = ["probe.test.js", secret, socket]
+      const Probe = Flow.make("factory/SandboxProbe", {
+        payload: {},
+        success: TaskResult,
+        body: () => ShellTask.call({ id: "probe", command: "bun", args, cwd: root, timeoutMs: 10_000, logDir: join(root, "logs") })
+      })
+      const result = (await runFlow(Probe, {}, `sandbox-probe-${process.pid}`)) as TaskResult
+      expect(result.exitCode).toBe(0)
+      for (const line of ["home-read:EPERM", "symlink-read:EPERM", "workspace-write:ok", "hook-write:EPERM", "socket:"]) {
+        expect(result.tail).toContain(line)
+      }
+      expect(result.tail).not.toContain("socket:ok")
+      expect(result.tail).not.toContain(`home=${homedir()}\n`)
+      expect(result.tail).not.toContain(nonce)
+      expect(readFileSync(result.logPath, "utf8")).not.toContain(nonce)
+      expect(readFileSync(join(root, "output"), "utf8")).toBe("workspace")
+      expect(existsSync(join(root, "stolen"))).toBe(false)
+      expect(existsSync(join(root, "stolen-link"))).toBe(false)
+      expect(existsSync(join(root, ".git/hooks-probe"))).toBe(false)
+      expect(readdirSync(join(root, "logs")).filter((entry) => entry.startsWith(".home-"))).toEqual([])
+
+      // Control: the same probe unconfined steals the nonce and reaches the
+      // socket, so every refusal above is the sandbox's.
+      const unconfined = await Effect.runPromise(
+        runProcess({ id: "unconfined", command: "bun", args, cwd: root, timeoutMs: 10_000, logDir: join(root, "control") })
+      )
+      for (const line of ["home-read:ok", "symlink-read:ok", "hook-write:ok", "socket:ok"]) {
+        expect(unconfined.tail).toContain(line)
+      }
+      expect(readFileSync(join(root, "stolen"), "utf8")).toBe(nonce)
+    } finally {
+      server.close()
+    }
+  }, 30_000)
+
+  test.skipIf(process.platform !== "darwin")("a workspace that contains the operator's HOME is refused", async () => {
+    const exit = await Effect.runPromise(
+      runShellTask({ id: "home", command: "true", args: [], cwd: homedir(), timeoutMs: 1_000, logDir: join(tmpdir(), "unused") }).pipe(Effect.exit)
+    )
+    expect(Exit.isFailure(exit) && Cause.pretty(exit.cause)).toContain("exposes the operator's home")
+  })
+
+  test("platforms without sandbox-exec refuse instead of running unconfined", async () => {
+    const root = mkdtempSync(join(tmpdir(), "factory-unconfined-"))
+    temporaryRoots.push(root)
+    const exit = await Effect.runPromise(
+      runShellTask({ id: "linux", command: "true", args: [], cwd: root, timeoutMs: 1_000, logDir: join(root, "logs") }, "linux").pipe(Effect.exit)
+    )
+    expect(Exit.isFailure(exit) && Cause.pretty(exit.cause)).toContain("refusing to run unconfined")
+    expect(existsSync(join(root, "logs"))).toBe(false)
+  })
 })
 
 describe("factory harness guards", () => {
@@ -125,7 +232,7 @@ describe("factory harness guards", () => {
     expect(rules.filter((rule) => !rule.includes("("))).toEqual([])
   })
 
-  test("the launched claude argv overrides the operator's permission mode and denies credential reads", async () => {
+  test("the launched claude argv runs no code, overrides the operator's settings and denies credential reads", async () => {
     const root = mkdtempSync(join(tmpdir(), "factory-agent-argv-"))
     temporaryRoots.push(root)
     const bin = join(root, "bin")
@@ -162,6 +269,9 @@ describe("factory harness guards", () => {
     const mode = argv.indexOf("--permission-mode")
     expect(mode).toBeGreaterThan(-1)
     expect(argv[mode + 1]).toBe("default")
+    expect(argv).toContain("--restricted")
+    expect(argv).toContain("--strict-mcp-config")
+    expect(argv[argv.indexOf("--tools") + 1]).toBe("Read,Edit")
     const denied = argv.indexOf("--disallowedTools")
     const allowed = argv.indexOf("--allowedTools")
     expect(denied).toBeGreaterThan(mode)

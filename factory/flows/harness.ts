@@ -277,20 +277,17 @@ export const agentPermissionRules = (
 }
 
 /**
- * Home directories that hold credentials. Deny rules win over any allow rule,
- * including one in the operator's own ~/.claude/settings.json.
- *
- * This list covers only the Read tool, not every route to a credential. Agent-authored
- * code still runs with the operator's HOME: through an operator Bash allow
- * rule such as `Bash(bun test *)`, and through every ShellTask test step.
- * https://github.com/smithersai/smithers/issues/2765 tracks sandboxing that.
+ * Home entries that hold credentials. The agent's Read tool is denied them,
+ * and a ShellTask cannot read them even inside a readable toolchain root.
  */
-const CREDENTIAL_DIRECTORIES = [".ssh", ".claude", ".aws", ".config", ".gnupg", ".docker", ".kube", ".netrc"]
+const CREDENTIAL_DIRECTORIES = [".ssh", ".smithers", ".claude", ".aws", ".config", ".gnupg", ".docker", ".kube", ".netrc"]
 
 /**
- * The exact `claude` process an AgentTask launches. `--permission-mode default`
- * overrides an operator `defaultMode` such as `auto` or `bypassPermissions`,
- * which would otherwise approve reads outside the scoped allow rules.
+ * The exact `claude` process an AgentTask launches. `--restricted` removes
+ * every tool that runs code and ignores user, project and local settings, so
+ * an operator allow rule such as `Bash(bun test *)` cannot authorize the
+ * agent to run repository code. `--permission-mode default` overrides an
+ * operator `defaultMode` such as `auto` or `bypassPermissions`.
  */
 export const agentSpawnSpec = (
   payload: {
@@ -314,6 +311,10 @@ export const agentSpawnSpec = (
     payload.model,
     "--permission-mode",
     "default",
+    "--restricted",
+    "--tools",
+    "Read,Edit",
+    "--strict-mcp-config",
     "--disallowedTools",
     ...CREDENTIAL_DIRECTORIES.flatMap((name) => {
       const absolute = path.join(path.resolve(home), name)
@@ -351,16 +352,127 @@ export const ShellTask = Action.make("factory/ShellTask", {
   success: TaskResult
 })
 
-export const shellTaskLayer = ShellTask.toLayer((payload) =>
-  runProcess({
-    id: payload.id,
-    command: payload.command,
-    args: payload.args,
-    cwd: payload.cwd,
-    timeoutMs: payload.timeoutMs,
-    logDir: payload.logDir
+const within = (candidate: string, base: string): boolean =>
+  candidate === base || candidate.startsWith(`${base}${path.sep}`)
+
+/** Resolves a command the way `execvp` would and returns its real path. */
+const findExecutable = (command: string, searchPath: string, cwd: string): string | undefined => {
+  const candidates = command.includes(path.sep)
+    ? [path.resolve(cwd, command)]
+    : searchPath.split(path.delimiter).filter(Boolean).map((dir) => path.resolve(cwd, dir, command))
+  for (const candidate of candidates) {
+    try {
+      fs.accessSync(candidate, fs.constants.X_OK)
+      if (fs.statSync(candidate).isFile()) return fs.realpathSync(candidate)
+    } catch {
+      // Not executable here; keep searching.
+    }
+  }
+  return undefined
+}
+
+/** Runtimes a command may start through `#!/usr/bin/env`, such as pnpm starting node. */
+const SHELL_RUNTIMES = ["node", "bun"]
+
+/**
+ * Runs agent-authored code, such as a test the agent edited, without the
+ * operator's authority. The process gets a scratch HOME and a minimal
+ * environment, and macOS `sandbox-exec` makes the operator's home unreadable
+ * except the working tree, the log directory and the install prefixes of the
+ * command and its runtimes. Credential directories stay closed even inside
+ * those roots, unix sockets (SSH agent, Docker) and the keychain services are
+ * unreachable, and the repository's `.git` and `.jj` are read-only so no hook
+ * or config runs later with the operator's authority. Changing HOME alone
+ * would not protect an absolute path, so other platforms refuse instead of
+ * running unconfined.
+ */
+export const runShellTask = (
+  payload: Omit<SpawnSpec, "environment">,
+  platform: NodeJS.Platform = process.platform
+): Effect.Effect<TaskResult> =>
+  Effect.suspend(() => {
+    if (platform !== "darwin" || !fs.existsSync("/usr/bin/sandbox-exec")) {
+      return Effect.die(new Error("ShellTask requires macOS sandbox-exec; refusing to run unconfined"))
+    }
+    const home = fs.realpathSync(os.homedir())
+    const credentials = CREDENTIAL_DIRECTORIES.map((name) => path.join(home, name))
+    const exposesCredentials = (root: string) =>
+      credentials.some((credential) => within(root, credential) || within(credential, root))
+    const cwd = fs.realpathSync(payload.cwd)
+    fs.mkdirSync(payload.logDir, { recursive: true })
+    const logDir = fs.realpathSync(payload.logDir)
+    for (const root of [cwd, logDir]) {
+      if (within(home, root) || exposesCredentials(root)) {
+        return Effect.die(new Error(`ShellTask root ${root} exposes the operator's home`))
+      }
+    }
+    const operatorPath = process.env.PATH ?? "/usr/bin:/bin"
+    const binary = findExecutable(payload.command, operatorPath, cwd)
+    if (binary === undefined) return Effect.die(new Error(`ShellTask executable not found: ${payload.command}`))
+    if (exposesCredentials(binary)) return Effect.die(new Error(`ShellTask executable ${binary} is a credential`))
+    // A binary under HOME exposes its install prefix (`<prefix>/bin/<tool>`)
+    // so its libraries load; a prefix that is HOME itself exposes only the file.
+    const readable = (real: string) => {
+      const prefix = path.dirname(path.dirname(real))
+      return within(prefix, home) && prefix !== home && !exposesCredentials(prefix) ? prefix : real
+    }
+    const runtimes = SHELL_RUNTIMES.flatMap((name) => findExecutable(name, operatorPath, cwd) ?? [])
+      .filter((real) => !exposesCredentials(real))
+    const readOnly = [binary, ...runtimes].filter((real) => within(real, home)).map(readable)
+    return Effect.acquireUseRelease(
+      Effect.sync(() => fs.mkdtempSync(path.join(logDir, ".home-"))),
+      (scratchHome) => {
+        const readWrite = [cwd, logDir, scratchHome]
+        const underHome = [...readWrite, ...readOnly].filter((root) => within(root, home))
+        const ancestors = new Set(underHome.flatMap((root) => {
+          const chain: Array<string> = []
+          for (let dir = path.dirname(root); within(dir, home); dir = path.dirname(dir)) chain.push(dir)
+          return chain
+        }))
+        const repositoryMetadata: Array<string> = []
+        for (let dir = cwd; ; dir = path.dirname(dir)) {
+          repositoryMetadata.push(path.join(dir, ".git"), path.join(dir, ".jj"))
+          if (dir === path.dirname(dir)) break
+        }
+        const subpaths = (roots: ReadonlyArray<string>) => roots.map((root) => `(subpath ${JSON.stringify(root)})`).join(" ")
+        const literals = (roots: Iterable<string>) => [...roots].map((root) => `(literal ${JSON.stringify(root)})`).join(" ")
+        // Later rules win: HOME closes, declared roots reopen, credentials close again.
+        const profile = [
+          "(version 1)",
+          "(allow default)",
+          `(deny file-read* file-write* (subpath ${JSON.stringify(home)}))`,
+          `(allow file-read* file-write* ${subpaths(readWrite)})`,
+          readOnly.length > 0 ? `(allow file-read* ${subpaths(readOnly)})` : "",
+          ancestors.size > 0 ? `(allow file-read-metadata ${literals(ancestors)})` : "",
+          `(deny file-read* file-write* ${subpaths(credentials)})`,
+          `(deny file-write* ${subpaths(repositoryMetadata)})`,
+          `(deny mach-lookup (global-name "com.apple.SecurityServer") (global-name "com.apple.securityd.xpc"))`,
+          "(deny network-outbound (remote unix-socket))",
+          `(allow network-outbound (remote unix-socket (path-literal "/private/var/run/mDNSResponder")))`,
+          "(deny process-info* (target others))"
+        ].filter(Boolean).join("\n")
+        const searchPath = operatorPath.split(path.delimiter).filter((dir) =>
+          dir !== "" && (!within(path.resolve(dir), home) || [...readWrite, ...readOnly].some((root) => within(path.resolve(dir), root)))
+        ).join(path.delimiter)
+        const environment: Record<string, string> = { PATH: searchPath, HOME: scratchHome, TMPDIR: scratchHome }
+        for (const key of ["LANG", "LC_ALL", "TERM"]) {
+          const value = process.env[key]
+          if (value !== undefined) environment[key] = value
+        }
+        return runProcess({
+          ...payload,
+          command: "/usr/bin/sandbox-exec",
+          args: ["-p", profile, binary, ...payload.args],
+          cwd,
+          logDir,
+          environment
+        })
+      },
+      (scratchHome) => Effect.sync(() => fs.rmSync(scratchHome, { recursive: true, force: true }))
+    )
   })
-)
+
+export const shellTaskLayer = ShellTask.toLayer((payload) => runShellTask(payload))
 
 /**
  * Executes one flow on the in-memory engine with both task implementations
