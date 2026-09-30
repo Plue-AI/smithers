@@ -5,7 +5,7 @@
  * the allowlisted procedures fails here, not in a browser.
  */
 import { describe, expect, test } from "bun:test"
-import { createGatewaySeam, INVALID_PLAN_CODE, INVALID_PROJECTION_CODE } from "./gateway"
+import { createGatewaySeam, INVALID_HISTORY_CODE, INVALID_PLAN_CODE, INVALID_PROJECTION_CODE } from "./gateway"
 import { GATEWAY_REFUSED, gatewayRefusalSentence } from "./GatewayFailureCopy"
 
 interface RecordedCall {
@@ -665,4 +665,53 @@ test("registration inbox pages retain the registrant's workspace and canonical a
   expect(await seam.registrationInboxes("will/repo", { workspaceId: "admin-box" })).toMatchObject({ status: "ok", value: [{ repo: "someone/repo", workspaceId: "registrant-box", rows: [row] }] })
   await seam.submitApproval("someone/repo", row.payload as never, "approve", { workspaceId: "registrant-box" }, "Decline")
   expect(calls[1]).toMatchObject({ procedure: "Approval.Submit", workspaceId: "registrant-box", payload: { ...row.payload, decision: "approve", answer: "Decline" } })
+})
+
+describe("run history", () => {
+  const report = {
+    runId: "run-1",
+    verdict: "divergent",
+    replayed: [{ stepKeyDigest: "a", action: "verify/first" }],
+    executes: { stepKeyDigest: "c" },
+    notReplayed: [{ stepKeyDigest: "b" }]
+  }
+
+  test("Run.Verify answers the decoded report, divergent or not", async () => {
+    const { seam, calls } = relay({ "Run.Verify": { ok: true, payload: report } })
+    expect(await seam.verify("o/r", "run-1")).toEqual({ status: "ok", value: report })
+    expect(calls).toEqual([{ repo: "o/r", procedure: "Run.Verify", payload: { runId: "run-1" }, workspaceId: "box-1" }])
+  })
+
+  test("Run.Fork sends the frame and the one edited step and answers the parked child", async () => {
+    const child = { runId: "run-1-fork", parentRunId: "run-1", status: "parked" }
+    const { seam, calls } = relay({ "Run.Fork": { ok: true, payload: child } })
+    expect(await seam.fork("o/r", "run-1", 4)).toEqual({ status: "ok", value: child })
+    const step = { stepKeyDigest: "b", result: { text: "edited" } }
+    await seam.fork("o/r", "run-1", 0, step)
+    expect(calls.map((call) => call.payload)).toEqual([{ runId: "run-1", at: 4 }, { runId: "run-1", at: 0, step }])
+  })
+
+  test("an unreadable answer is this seam's own refusal, never a report", async () => {
+    const { seam } = relay({
+      "Run.Verify": { ok: true, payload: { runId: "run-1", verdict: "maybe" } },
+      "Run.Fork": { ok: true, payload: { runId: "x", parentRunId: "someone-else", status: "parked" } }
+    })
+    expect(await seam.verify("o/r", "run-1")).toMatchObject({ status: "error", code: INVALID_HISTORY_CODE })
+    expect(await seam.fork("o/r", "run-1", 1)).toMatchObject({ status: "error", code: INVALID_HISTORY_CODE })
+  })
+
+  test("the history host's refusal reads as its own sentence, with its code", async () => {
+    const refused = { _tag: "@smthrs/gateway/HistoryRefused", code: "history_missing", message: "No execution history" }
+    const refusal = { ok: false, error: { message: "No execution history", detail: [{ _tag: "Fail", error: refused }] } }
+    const { seam } = relay({ "Run.Verify": refusal, "Run.Fork": refusal })
+    for (const answer of [await seam.verify("o/r", "run-1"), await seam.fork("o/r", "run-1", 0)]) {
+      expect(answer).toEqual({ status: "error", code: "history_missing", message: "No execution history", detail: "No execution history" })
+    }
+  })
+
+  test("a control refusal keeps the registry sentence", async () => {
+    const refused = { _tag: "/control/Unavailable", code: "unavailable", feature: "run history", ticket: "smithers#3242" }
+    const { seam } = relay({ "Run.Verify": { ok: false, error: { message: "raw", detail: [{ _tag: "Fail", error: refused }] } } })
+    expect(await seam.verify("o/r", "run-1")).toMatchObject({ status: "error", code: "unavailable", message: gatewayRefusalSentence("unavailable") })
+  })
 })

@@ -224,6 +224,31 @@ test("T1: approval counts settle with receipts and decided questions survive rel
   } finally { release(false) }
 })
 
+test("T1: a guard's park lists as its incident, and Stop denies the guard's own request", async ({ page }) => {
+  const requestId = `budget/${RUN_ID}/tokens`
+  const payload = { target: { _tag: "Node", runId: RUN_ID, requestId, digest: "sha256:test",
+    envelope: { capabilities: [], flows: [], budget: { tokens: 40, onExceeded: "park" } } }, scope: "run", idempotencyKey: `approve:${requestId}` }
+  const { rpc } = await serve(page, [], {
+    approvals: [{ runId: RUN_ID, requestId, title: "Raise the tokens budget from 10 to 40 tokens?", requestedAt: Date.now(), status: "pending",
+      request: { question: "Raise the tokens budget from 10 to 40 tokens?",
+        incident: { classification: "Runaway", source: "tokens", message: "The run would spend 25 of its 10 tokens", used: 15, max: 10, next: 10, allowance: 40 } },
+      payload }]
+  })
+  await page.goto(`/${REPO}`)
+  await finishGuide(page)
+  await send(page, `/approvals.list ${REPO}`)
+  const row = page.locator('[data-kind="approvals-inbox"] [data-slot="confirmation"]')
+    .filter({ hasText: "Runaway · Raise the tokens budget from 10 to 40 tokens?" })
+  await expect(row.getByRole("button", { name: "Continue", exact: true })).toBeVisible()
+  await row.getByRole("button", { name: "Stop", exact: true }).focus()
+  await page.keyboard.press("Enter")
+  await expect.poll(() => rpc.filter(call => call.procedure === "Approval.Submit").length).toBe(1)
+  expect(rpc.find(call => call.procedure === "Approval.Submit")?.payload).toMatchObject({ ...payload, decision: "deny" })
+  expect(rpc.some(call => call.procedure === "Cancel")).toBe(false)
+  await expect(row).toContainText("Stopped")
+  await expect(row.getByRole("button", { name: "Continue", exact: true })).toHaveCount(0)
+})
+
 test("T1: launch a fixture flow, steer it, stop it, and see it in the run inbox", async ({ page }) => {
   const { rpc } = await serve(page)
   await page.goto("/")

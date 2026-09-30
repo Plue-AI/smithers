@@ -17,11 +17,12 @@ import { ControlEvent, PlanCard, type PlanEdge, type PlanGraphNode, type PlanNod
 import { ApprovalRow, FlowDurationRow, NodeOutputRow, RunSummaryRow, TranscriptRow } from "@smthrs/gateway/GatewayProjection"
 import { ProjectionCursor } from "@smthrs/gateway/GatewaySchema"
 import { SubmitApprovalOutput } from "@smthrs/gateway/GatewayRpcs"
+import { ForkOutput, type StepEdit, VerifyReport } from "@smthrs/gateway/RunHistory"
 import { WORKFLOW_RPC_PATH } from "@smthrs/rpc/AgentApiRoutes"
 import { Option, Schema } from "effect"
 import { cloudFailure } from "../seams/CloudClient"
 import { flowPageRequest, TOO_MANY_FLOWS, walkFlowPages } from "../FlowPages"
-import { errorCodeOf, gatewayRefusalSentence, workspaceAnswerSentence } from "./GatewayFailureCopy"
+import { errorCodeOf, GATEWAY_REFUSED, gatewayRefusalSentence, workspaceAnswerSentence } from "./GatewayFailureCopy"
 
 /**
  * What one relayed call answered. A refusal carries the sentence the relay
@@ -51,6 +52,17 @@ export const isFlowNotFound = (code: string | undefined): boolean =>
 
 /** This seam's own refusal: a projection snapshot it could not read as the rows it asked for. */
 export const INVALID_PROJECTION_CODE = "invalid_projection"
+
+/** This seam's own refusal: a `Run.Verify` or `Run.Fork` answer it could not read. */
+export const INVALID_HISTORY_CODE = "invalid_history"
+
+/**
+ * A history host's refusal (`HistoryRefused`) is the sentence `smthrs runs
+ * fork` and `smthrs runs verify` print, redacted by the host, so it is what a
+ * person reads; a control-plane refusal keeps its registry sentence.
+ */
+const historyRefusal = <A>(result: Extract<GatewayResult<A>, { status: "error" }>): GatewayResult<A> =>
+  result.message === GATEWAY_REFUSED && result.detail !== undefined ? { ...result, message: result.detail } : result
 
 /** This seam's own refusal: a `Plan` answer it could not read as a plan card. */
 export const INVALID_PLAN_CODE = "invalid_plan"
@@ -493,6 +505,41 @@ export const createGatewaySeam = (transport: GatewayTransport) => {
         idempotencyKey: `resume:${runId}:${crypto.randomUUID()}`,
         ...(reason === undefined ? {} : { reason })
       }, binding),
+
+    /**
+     * What resuming a run under the workspace's current flow code would do:
+     * the recorded steps it replays and the first it would execute again
+     * (`Run.Verify`, the report `smthrs runs verify` prints). A divergent
+     * report is an answer, not a refusal.
+     */
+    verify: async (repo: string, runId: string, binding?: GatewayWorkspaceBinding): Promise<GatewayResult<VerifyReport>> => {
+      const result = await call(repo, "Run.Verify", { runId }, binding)
+      if (result.status !== "ok") return historyRefusal(result)
+      const decoded = Schema.decodeUnknownOption(VerifyReport)(result.value)
+      return Option.isNone(decoded)
+        ? { status: "error", code: INVALID_HISTORY_CODE, message: "The workspace returned an unreadable verification report." }
+        : { status: "ok", value: decoded.value }
+    },
+
+    /**
+     * Branch a run at the journal sequence `at` into a parked child, with one
+     * recorded step's result edited when `step` is given (`Run.Fork`, as
+     * `smthrs runs fork`). Answers the child to resume.
+     */
+    fork: async (
+      repo: string,
+      runId: string,
+      at: number,
+      step?: StepEdit,
+      binding?: GatewayWorkspaceBinding
+    ): Promise<GatewayResult<ForkOutput>> => {
+      const result = await call(repo, "Run.Fork", { runId, at, ...(step === undefined ? {} : { step }) }, binding)
+      if (result.status !== "ok") return historyRefusal(result)
+      const decoded = Schema.decodeUnknownOption(ForkOutput)(result.value)
+      return Option.isNone(decoded) || decoded.value.parentRunId !== runId
+        ? { status: "error", code: INVALID_HISTORY_CODE, message: "The workspace returned an unreadable fork." }
+        : { status: "ok", value: decoded.value }
+    },
 
     /** Deliver a named signal to a run parked on a wait. */
     signal: (repo: string, runId: string, name: string, payload: unknown, binding?: GatewayWorkspaceBinding): Promise<GatewayResult<unknown>> =>

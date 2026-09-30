@@ -120,9 +120,10 @@ const submitErrors = Schema.Union([
 
 /**
  * The failures `Run.Fork` and `Run.Verify` answer with: the history host's own
- * refusal, or `Unavailable` from a gateway composed without one.
+ * refusal, `Unauthorized` for an anonymous loopback caller, or `Unavailable`
+ * from a gateway composed without a history host.
  */
-const historyErrors = Schema.Union([RunHistory.HistoryRefused, ControlError.Unavailable])
+const historyErrors = Schema.Union([RunHistory.HistoryRefused, ControlError.Unauthorized, ControlError.Unavailable])
 
 /**
  * The gateway read path, the composite approval mutation, and the run

@@ -23,6 +23,14 @@ const options = Bridge.connectionOptions.extend({
 const mutationOptions = options.extend({
   at: z.number().int().nonnegative().describe("Exact journal sequence to branch or rewind to")
 })
+const verifyArgs = z.object({
+  run: z.string().min(1).optional().describe("Durable run ID; omitted, every run the store holds")
+})
+const verifyOptions = Bridge.connectionOptions.extend({
+  against: z.string().min(1).optional().describe(
+    "Engine store to verify, with the control.db beside it; defaults to the project's .flows/engine.db"
+  )
+})
 const parameters = (parsed: z.output<typeof options>): History.Options => ({ ...parsed, sequence: parsed.at })
 
 const forkOptions = mutationOptions.extend({
@@ -95,16 +103,18 @@ export const appendHistoryCommands = (cli: Cli.Cli, runtime: Bridge.Runtime = {}
     .command("verify", {
       description: "Report which recorded steps the current flow code would replay and which it would execute again",
       mcp: { annotations: { readOnlyHint: true } },
-      args,
-      options: Bridge.connectionOptions,
+      args: verifyArgs,
+      options: verifyOptions,
       run(c) {
         return Presentation.guard(c, async () => {
-          const report = await Verify.verify(
-            Project.localRoot(c.options, runtime.environment ?? process.env),
-            c.args.run,
-            {},
-            runtime.signal
-          )
+          const root = Project.localRoot(c.options, runtime.environment ?? process.env)
+          const against = c.options.against === undefined ? {} : { against: c.options.against }
+          if (c.args.run === undefined) {
+            const summary = await Verify.verifyAll(root, against, runtime.signal)
+            if (summary.verdict === "divergent") throw Verify.storeDivergence(summary)
+            return summary
+          }
+          const report = await Verify.verify(root, c.args.run, against, runtime.signal)
           if (report.verdict === "divergent") throw Verify.divergence(report)
           return report
         })

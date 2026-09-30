@@ -4,6 +4,8 @@
  */
 
 import { NodeCrypto, NodeServices } from "@effect/platform-node"
+import * as AgentSession from "@smthrs/agent/AgentSession"
+import { Control, ControlRuntime } from "@smthrs/control"
 import * as Dialect from "@smthrs/database/Dialect"
 import * as DurableWriter from "@smthrs/database/DurableWriter"
 import * as NodeDatabase from "@smthrs/database/node/NodeDatabase"
@@ -11,19 +13,21 @@ import * as NodeRuntime from "@smthrs/flows/NodeRuntime"
 import * as NodeJj from "@smthrs/jj/node/NodeJj"
 import { Journal, SqlJournal } from "@smthrs/journal"
 import type { Entry, RunId, Seq } from "@smthrs/journal/JournalEvent"
+import * as Evaluator from "@smthrs/model/Evaluator"
 import { Ownership, RunStore } from "@smthrs/run-store"
 import { CacheStore } from "@smthrs/step-cache"
 import { EffectBoundary, ReadOnlyTimeTravel, SqlTimeTravelStore, TimeTravel } from "@smthrs/time-travel"
 import { forkWorkspaceName, type Position } from "@smthrs/time-travel/TimeTravel"
-import type { StepOverride } from "@smthrs/time-travel/TimeTravelStore"
+import type { CarriedChild, StepOverride } from "@smthrs/time-travel/TimeTravelStore"
 import { TimeTravelStore } from "@smthrs/time-travel/TimeTravelStore"
-import { Cause, Context, Effect, Exit, Layer } from "effect"
+import { Cause, Context, Effect, Exit, Layer, type Schema } from "effect"
 import { SqlClient } from "effect/unstable/sql/SqlClient"
 import { existsSync, mkdirSync } from "node:fs"
 import { join } from "node:path"
 import * as CliError from "../CliError.ts"
 import * as ControlDatabaseMigrations from "../internal/ControlDatabaseMigrations.ts"
 import * as DatabaseLocation from "../internal/DatabaseLocation.ts"
+import type * as NativeControl from "../internal/NativeControl.ts"
 import * as NodeControl from "../NodeControl.ts"
 import * as Project from "../Project.ts"
 import * as Projection from "./Projection.ts"
@@ -44,6 +48,14 @@ export interface Options {
   readonly wholeRepo?: boolean | undefined
   /** Fork only: the step result the child replays in place of the parent's. */
   readonly override?: StepOverride | undefined
+  /**
+   * Fork only: the root input the child runs with in place of the parent's.
+   * It is planned and approved as a plan of its own, which the child is bound
+   * to; every recorded step whose key it leaves unchanged still replays.
+   */
+  readonly input?: Schema.Json | undefined
+  /** The flow modules a host would load, for planning an edited input; tests supply them. */
+  readonly modules?: NativeControl.ModuleRegistration | undefined
 }
 
 /**
@@ -302,6 +314,83 @@ const parkControl = (sql: SqlClient, runId: string, summary: Record<string, unkn
     if (yield* hasTable(sql, "control_run_resumes")) yield* sql`DELETE FROM control_run_resumes WHERE run_id=${runId}`
   })
 
+/** The identity a run bound to an approved plan records: its card's digest and execution digest. */
+const approvedBinding = (control: SqlClient, planId: string) =>
+  Effect.gen(function*() {
+    const [plan] = yield* control<
+      { card_json: string; decision: string }
+    >`SELECT card_json,decision FROM control_plans WHERE plan_id=${planId}`
+    if (plan?.decision !== "approved") {
+      throw refused("policy", "plan_not_approved", `Plan ${planId} is not approved`)
+    }
+    const card = JSON.parse(plan.card_json) as { digest: string; executionDigest?: string }
+    return {
+      planId,
+      planDigest: card.digest,
+      ...(card.executionDigest === undefined ? {} : { executionDigest: card.executionDigest })
+    }
+  })
+
+/**
+ * The engine child a module run executes its flow in, and the execution digest
+ * its id was derived from, when the run spawned one (`AgentSession.moduleExecutionId`).
+ */
+const moduleChild = (engine: SqlClient, control: SqlClient, runId: string, summary: Record<string, unknown>) =>
+  Effect.gen(function*() {
+    const [plan] = yield* control<{ card_json: string }>`SELECT card_json FROM control_plans WHERE plan_id=${summary
+      .planId as string}`
+    const digests = [
+      plan === undefined ? undefined : (JSON.parse(plan.card_json) as { executionDigest?: unknown }).executionDigest,
+      summary.executionDigest
+    ].filter((digest): digest is string => typeof digest === "string")
+    for (const executionDigest of digests) {
+      const runIdOfChild = AgentSession.moduleExecutionId(runId, executionDigest)
+      if ((yield* engine`SELECT 1 FROM flows_runs WHERE run_id=${runIdOfChild}`).length > 0) {
+        return { runId: runIdOfChild, executionDigest }
+      }
+    }
+    return undefined
+  })
+
+/**
+ * Plans and approves `input` as a new plan of the run's flow, the way `flow
+ * start` does, under the budget the run was approved with.
+ */
+const planInput = (root: string, runId: string, input: Schema.Json, modules: Options["modules"]) =>
+  Effect.gen(function*() {
+    const { control } = yield* readClients(root)
+    const summary = yield* controlSummary(control, runId)
+    const [plan] = yield* control<{ card_json: string }>`SELECT card_json FROM control_plans WHERE plan_id=${summary
+      .planId as string}`
+    const budget = (JSON.parse(plan!.card_json) as { envelope: { budget: Control.PlanInput["budget"] } })
+      .envelope.budget
+    const config = { root, startsRuns: false, plansFlows: true, evaluator: Evaluator.layerUnavailable() }
+    const registry = NodeControl.layerRegistry(root)
+    const engine = NodeControl.engineDurable(root, registry, config)
+    return yield* Effect.gen(function*() {
+      const service = yield* Control.Control
+      const card = yield* service.plan({ flowId: summary.flowId as string, input, budget })
+      if (card.envelope.capabilities.includes("*")) {
+        throw refused(
+          "policy",
+          "plan_not_approved",
+          `The edited input's plan grants every capability ("*"); review it with \`smthrs flow plan\` and approve it`
+        )
+      }
+      yield* service.approve({ ...card.approval, scope: "run" })
+      // The input as the plan stores it, after its schema's defaults: what
+      // the run reads back and what its module child is invoked with.
+      const stored = yield* (yield* ControlRuntime.ControlRuntime).getPlan(card.planId)
+      return {
+        planId: card.planId,
+        executionDigest: card.executionDigest,
+        input: stored.decodedInput as Schema.Json
+      }
+    }).pipe(
+      Effect.provide(Layer.merge(NodeControl.layerControl(config, registry, engine, modules), engine.runtime))
+    )
+  }).pipe(Effect.scoped)
+
 const linkFork = (engine: SqlClient, control: SqlClient, root: string, childId: string, parentId: string) =>
   Effect.gen(function*() {
     const summary = yield* controlSummary(control, parentId, true)
@@ -317,7 +406,7 @@ const linkFork = (engine: SqlClient, control: SqlClient, root: string, childId: 
       if (row === undefined || row.status === "running") {
         throw refused("user", "fork_unavailable", `Fork ${childId} is absent or already active`)
       }
-      const state = JSON.parse(row.state_json) as { flowName?: unknown } | null
+      const state = JSON.parse(row.state_json) as { flowName?: unknown; payload?: { planId?: unknown } } | null
       if (state?.flowName !== "agent/run") {
         throw refused(
           "user",
@@ -325,8 +414,16 @@ const linkFork = (engine: SqlClient, control: SqlClient, root: string, childId: 
           `Fork ${childId} is not a public agent flow and cannot be resumed by this CLI`
         )
       }
+      // A fork with an edited input runs under the plan that input was
+      // approved as, and its own engine payload names it. Reading it from
+      // there rather than from the caller keeps a crash between the engine
+      // commit and this link on the same plan.
+      const planId = state.payload?.planId
+      const bound = typeof planId === "string" && planId !== summary.planId
+        ? { ...summary, ...(yield* approvedBinding(control, planId)) }
+        : summary
       yield* control`INSERT INTO flows_runs(run_id,status,created_at_ms,parent_run_id,state_json) VALUES(${childId},'suspended',${Date.now()},${parentId},${
-        JSON.stringify(parkedSummary(summary, childId, parentId))
+        JSON.stringify(parkedSummary(bound, childId, parentId))
       })`
     }
     yield* engine.withTransaction(Effect.gen(function*() {
@@ -334,6 +431,14 @@ const linkFork = (engine: SqlClient, control: SqlClient, root: string, childId: 
       yield* engine`INSERT INTO smthrs_history_workspaces(run_id,workspace) VALUES(${childId},${workspace}) ON CONFLICT(run_id) DO NOTHING`
     }))
     return workspace
+  })
+
+/** The payload the run's engine execution was started with. */
+const enginePayload = (engine: SqlClient, runId: string) =>
+  Effect.gen(function*() {
+    const [row] = yield* engine<{ state_json: string }>`SELECT state_json FROM flows_runs WHERE run_id=${runId}`
+    const payload = (JSON.parse(row!.state_json) as { payload?: unknown }).payload
+    return typeof payload === "object" && payload !== null ? payload as Record<string, unknown> : {}
   })
 
 const readOnly = (filename: string) => NodeDatabase.layer({ filename, readOnly: true })
@@ -443,12 +548,17 @@ export const mutate = async (
   if (workspace === undefined) {
     throw refused("user", "fork_unavailable", `Fork ${runId} needs history reconciliation before it can be used`)
   }
+  const edited = operation === "fork" && options.input !== undefined
+    ? await runEffect(planInput(root, runId, options.input, options.modules), signal)
+    : undefined
   return runEffect(
     Effect.scoped(Effect.gen(function*() {
       const { engine, control } = yield* clients(root)
       return yield* control.withTransaction(Effect.gen(function*() {
         const summary = yield* controlSummary(control, runId)
         if (operation === "fork") mkdirSync(join(Project.stateDirectory(root), "forks"), { recursive: true })
+        const payload = operation === "fork" ? yield* enginePayload(engine, runId) : undefined
+        const child = operation === "fork" ? yield* moduleChild(engine, control, runId, summary) : undefined
         const result = yield* Effect.gen(function*() {
           const service = yield* TimeTravel
           return operation === "fork" ?
@@ -458,7 +568,28 @@ export const mutate = async (
                 workspaceRoot: join(Project.stateDirectory(root), "forks"),
                 retainWorkspace: true,
                 maxHistoryEntries: options.limit ?? 10_000,
-                ...(options.override === undefined ? {} : { override: options.override })
+                ...(options.override === undefined ? {} : { override: options.override }),
+                // The child is a run of its own: its payload names it, so its
+                // module execution is its own child rather than the parent's,
+                // and carries the steps the parent's recorded.
+                rebind: (childRunId) =>
+                  Effect.succeed({
+                    payload: {
+                      ...payload,
+                      runId: childRunId,
+                      ...(edited === undefined ? {} : { planId: edited.planId })
+                    },
+                    children: child === undefined ? [] : [
+                      {
+                        from: child.runId,
+                        to: AgentSession.moduleExecutionId(
+                          childRunId,
+                          edited?.executionDigest ?? child.executionDigest
+                        ),
+                        ...(edited === undefined ? {} : { payload: { input: edited.input } })
+                      } satisfies CarriedChild
+                    ]
+                  })
               })
             } :
             {

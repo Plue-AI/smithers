@@ -56,7 +56,9 @@ describe("minting and verifying", () => {
       "Steer",
       "Signal",
       "Cancel",
-      "Resume"
+      "Resume",
+      "Run.Fork",
+      "Run.Verify"
     ])
     expect(ScopedToken.scopeNames).toEqual(["read:runs", "write:runs", "approve:runs"])
   })

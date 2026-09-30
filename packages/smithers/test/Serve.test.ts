@@ -7,6 +7,7 @@
  */
 import * as ScriptedJudge from "@smthrs/agent/ScriptedJudge"
 import { ApprovalAuthority, Control, ControlRpcs } from "@smthrs/control"
+import * as ScopedToken from "@smthrs/control/ScopedToken"
 import * as NodeGateway from "@smthrs/gateway/node/NodeGateway"
 import { Cause, Effect, Exit, Layer } from "effect"
 import { spawn } from "node:child_process"
@@ -259,6 +260,55 @@ describe("the serve command", () => {
           )
         )
       }
+    } finally {
+      abort.abort()
+      await running
+    }
+  }, 60_000)
+
+  it("serves Run.Fork and Run.Verify over the project's history on /projections", async () => {
+    const root = mkdtempSync(join(tmpdir(), "smithers-serve-history-"))
+    staged.push(root)
+    const port = await freePort()
+    const credential = "serve-history-test-credential"
+    const abort = new AbortController()
+    const running = Bridge.host(bind({ port, credential }), { root, quiet: true }, {
+      environment: {},
+      evaluator: ScriptedJudge.layer,
+      signal: abort.signal
+    }).catch((cause: unknown) => {
+      if (!abort.signal.aborted) throw cause
+    })
+    // The frame the product relay writes (`runtimebridge.Client.CallRPC`).
+    const call = async (tag: string, payload: unknown, token = credential) => {
+      const response = await fetch(`http://127.0.0.1:${port}/projections`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+        body: `${JSON.stringify({ _tag: "Request", id: 1, tag, payload, headers: [] })}\n`
+      })
+      const [line] = (await response.text()).trim().split("\n")
+      return JSON.parse(line!) as { readonly exit: { readonly _tag: string; readonly cause?: unknown } }
+    }
+    try {
+      await waitForHealth(port)
+      const verified = await call("Run.Verify", { runId: "run-unknown" })
+      // The refusal the CLI prints for the same run, with its own stable code.
+      expect(verified.exit).toMatchObject({
+        _tag: "Failure",
+        cause: [{ _tag: "Fail", error: { _tag: "@smthrs/gateway/HistoryRefused", code: "run_not_found" } }]
+      })
+      const forked = await call("Run.Fork", { runId: "run-unknown", at: 0 })
+      expect(forked.exit).toMatchObject({
+        _tag: "Failure",
+        cause: [{ _tag: "Fail", error: { _tag: "@smthrs/gateway/HistoryRefused", code: "not_found_row" } }]
+      })
+      // A read-only token cannot fork.
+      const readOnly = await Effect.runPromise(ScopedToken.mint({ key: credential, scopes: ["read:runs"], ttlMillis: 60_000 }))
+      expect(JSON.stringify((await call("Run.Fork", { runId: "run-unknown", at: 0 }, readOnly.token)).exit))
+        .toContain("Unauthorized")
+      // The address is decoded before the host sees it.
+      expect(JSON.stringify((await call("Run.Fork", { runId: "run-unknown", at: -1 })).exit))
+        .not.toContain("HistoryRefused")
     } finally {
       abort.abort()
       await running

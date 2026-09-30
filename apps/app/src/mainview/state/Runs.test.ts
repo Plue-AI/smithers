@@ -636,9 +636,16 @@ describe("runs.open / resume / signal / steer — the run's acts", () => {
       expect(double.state.resumed).toEqual([])
     })
 
+    test("denies again a guard request whose Stop was already recorded, and cancels nothing", async () => {
+      const double = await stopCard({ approvals: [{ ...guardGate, status: "denied" }] })
+      await waitFor(() => double.state.submitted.length === 1)
+      expect(double.state.submitted).toEqual([{ approval: guardGate.payload, decision: "deny" }])
+      expect(double.state.cancelled).toEqual([])
+    })
+
     test.each([
       ["an ordinary approval", { approvals: [approvalRow("run-2", "push", "Push?")] }],
-      ["a guard request already decided", { approvals: [{ ...guardGate, status: "denied" }] }],
+      ["a guard request already continued", { approvals: [{ ...guardGate, status: "approved" }] }],
       ["unreadable approvals", { approvals: [guardGate], projectionRefusals: { approvals: { message: "Approvals unavailable", code: "unavailable" } } }]
     ])("cancels a run held by %s, and decides nothing", async (_name, options) => {
       const double = await stopCard(options as Parameters<typeof relay>[0])
@@ -1238,6 +1245,29 @@ describe("the approvals inbox — list, open, and the row decision", () => {
     const card = inboxCard(store)
     expect(card?.payload.approvals[0]?.decision).toBe("approved")
     expect(card?.payload.approvals[0]?.decisionError).toBeUndefined()
+  })
+
+  test("a guard's park lists as its incident, and Stop denies the guard's own envelope", async () => {
+    const store = await webStore()
+    const incident = { classification: "Stuck", source: "tool-call", message: "bash ran past its 300 ms limit.", max: 300, allowance: 300, subject: "bash#1" }
+    const guard = { ...approvalRow("run-a", "timeout/run-a/1", "Run bash again?"), request: { question: "Run bash again?", incident } }
+    const double = relay({ approvals: [approvalRow("run-b", "req-2", "Push the branch?"), guard, { ...approvalRow("run-c", "q", "Odd?"), request: { incident: { ...incident, classification: "Other" } } }] })
+    const controller = createAppController(store, silentAgent, double.services)
+    await signIn(store)
+    await listInbox(controller, store)
+
+    // Only the class and the words reach the card; malformed facts are an ordinary gate.
+    expect(inboxCard(store)?.payload.approvals.map((row) => row.incident)).toEqual([
+      undefined,
+      { classification: "Stuck", message: "bash ran past its 300 ms limit." },
+      undefined
+    ])
+    const stopped = await controller.commands.run("approval.deny", `approvals-inbox-${REPO}-${TEST_BOX}:timeout/run-a/1`)
+    await settle(4)
+    expect(stopped.status).not.toBe("failed")
+    expect(double.state.submitted).toEqual([{ approval: guard.payload, decision: "deny" }])
+    expect(double.state.cancelled).toEqual([])
+    expect(inboxCard(store)?.payload.approvals[1]?.decision).toBe("denied")
   })
 
   /**

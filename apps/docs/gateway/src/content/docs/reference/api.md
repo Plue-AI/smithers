@@ -340,8 +340,8 @@ bearer credential authenticates both mounts.
 | `Projection.Snapshot`  | `{ selector }`                    | `ProjectionSnapshot`      | `GatewayError`                                                                                                                                                                  |
 | `Projection.Subscribe` | `{ selector, after? }`, streaming | `GatewayFrame`            | `GatewayError`                                                                                                                                                                  |
 | `Approval.Submit`      | `SubmitApprovalInput`             | `SubmitApprovalOutput`    | `PlanDigestMismatch`, `EnvelopeMismatch`, `AlreadyResolved`, `PlanNotFound`, `RunNotFound`, `InvalidInput`, `Unauthorized`, `PersistenceError`, `Unavailable`, `TransportError` |
-| `Run.Fork`             | `RunHistory.ForkInput`            | `RunHistory.ForkOutput`   | `HistoryRefused`, `Unavailable`                                                                                                                                                 |
-| `Run.Verify`           | `RunHistory.VerifyInput`          | `RunHistory.VerifyReport` | `HistoryRefused`, `Unavailable`                                                                                                                                                 |
+| `Run.Fork`             | `RunHistory.ForkInput`            | `RunHistory.ForkOutput`   | `HistoryRefused`, `Unauthorized`, `Unavailable`                                                                                                                                 |
+| `Run.Verify`           | `RunHistory.VerifyInput`          | `RunHistory.VerifyReport` | `HistoryRefused`, `Unauthorized`, `Unavailable`                                                                                                                                 |
 
 | Export                 | Shape                                                     |
 | ---------------------- | --------------------------------------------------------- |
@@ -368,7 +368,9 @@ current flow code would replay and what it would execute again. They answer
 exactly what `smthrs runs fork` and `smthrs runs verify` print, because
 `smthrs serve` implements the service over the same history library. A gateway
 composed without the service answers both `Unavailable`. Both procedures are
-in the `write:runs` token scope.
+in the `write:runs` token scope, and an anonymous loopback caller is
+`Unauthorized`: a fork writes a durable run and a verification drives the
+project's flow code.
 
 | Export           | Shape                                                                                                                    |
 | ---------------- | ------------------------------------------------------------------------------------------------------------------------ |

@@ -17,7 +17,7 @@
  * dropping the filter.
  */
 import { Data } from "effect"
-import { questionOf } from "../../cards/ApprovalQuestion"
+import { guardIncidentOf, questionOf } from "../../cards/ApprovalQuestion"
 import { codingPlanOf } from "../../cards/CodingPlan"
 import { drawableExecution } from "../../cards/RunForest"
 import { runHandoff } from "../../cards/RunHandoff"
@@ -1062,6 +1062,7 @@ export const createRunsController = (
           // A row's recorded decision survives a refresh: the freeze is the
           // server's answer, not something a re-list may thaw.
           const before = prior.find((entry) => sameApproval(entry, row))
+          const incident = guardIncidentOf(row)
           return {
             runId: row.runId,
             requestId: row.requestId,
@@ -1069,6 +1070,7 @@ export const createRunsController = (
             approval: row.payload as Record<string, unknown>,
             requestedAt: row.requestedAt,
             ...(questionOf(row) === undefined ? {} : { question: questionOf(row)! }),
+            ...(incident === undefined ? {} : { incident: { classification: incident.classification, message: incident.message } }),
             ...(before?.decision === undefined ? {} : { decision: before.decision }),
             ...(before?.decidedAt === undefined ? {} : { decidedAt: before.decidedAt }),
             ...(before?.decisionError === undefined ? {} : { decisionError: before.decisionError })

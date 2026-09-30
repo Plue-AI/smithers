@@ -284,6 +284,28 @@ describe("the approvals inbox card", () => {
     expect(decisions[0]).toEqual({ id: approvalActionId(`approvals-inbox-${REPO}`, { runId: "run-a", requestId: "req-1" }), decision: "approved" })
   })
 
+  test("a guard's park reads as its incident and is decided as Continue or Stop", () => {
+    const incident = { classification: "Runaway" as const, message: "The run would spend past its $1.00 budget" }
+    const parked = { ...gate, requestId: "budget/run-a/usd", title: "Raise the USD budget from $1.00 to $2.20?", incident }
+    const decisions: Array<{ id: string; decision: string }> = []
+    const host = render(<ApprovalsInboxCardBody card={inboxCard([parked])} onDecideApproval={(id, decision) => decisions.push({ id, decision })} />)
+    const prompt = host.querySelector(".sui-approval-question")
+    expect(prompt?.textContent).toBe("Runaway · Raise the USD budget from $1.00 to $2.20?")
+    expect(prompt?.getAttribute("title")).toBe(incident.message)
+    const buttons = [...host.querySelectorAll("button")].filter((button) => button.getAttribute("data-slot") === "confirmation-action")
+    expect(buttons.map((button) => button.textContent)).toEqual(["Continue", "Stop"])
+    click(buttons[0]!)
+    click(buttons[1]!)
+    const id = approvalActionId(`approvals-inbox-${REPO}`, { runId: "run-a", requestId: "budget/run-a/usd" })
+    expect(decisions).toEqual([{ id, decision: "approved" }, { id, decision: "denied" }])
+    // Decided, the row says what the person chose in the incident's words.
+    const at = Date.UTC(2026, 8, 30, 12, 0)
+    const stopped = render(<ApprovalsInboxCardBody card={inboxCard([{ ...parked, decision: "denied", decidedAt: at }])} onDecideApproval={() => {}} />)
+    expect(stopped.textContent).toContain("Stopped — ")
+    const continued = render(<ApprovalsInboxCardBody card={inboxCard([{ ...parked, decision: "approved", decidedAt: at }])} onDecideApproval={() => {}} />)
+    expect(continued.textContent).toContain("Continued — ")
+  })
+
   test("grants and questions count apart", () => {
     const host = render(<ApprovalsInboxCardBody card={inboxCard([
       gate,

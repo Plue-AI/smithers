@@ -32,7 +32,7 @@ export const RunTraceSummary = ({ card, model, facts, onRunCommand: send, admin 
   const current = traceStatus(model)
   const verdict = terminal.has(phase) ? phase : current.verdict
   const action = verdict !== undefined ? undefined : current.action ??
-    (phase === "waiting-approval" || waiting === "approval" ? "approval" : waiting === undefined ? undefined : "resume")
+    (phase === "waiting-approval" || waiting === "approval" ? "approval" : waiting === undefined || waiting === "budget" ? undefined : "resume")
   // A guard's park is its own status: the class as the word, Continue and Stop as the acts.
   const incident = verdict === undefined ? current.incident : undefined
   const condition = verdict !== undefined || incident !== undefined ? undefined : action === "approval" ? "Approval needed"

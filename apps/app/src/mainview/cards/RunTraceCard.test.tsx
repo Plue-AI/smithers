@@ -1240,6 +1240,9 @@ describe("a runaway guard's park", () => {
     expect(condition?.textContent).toBe("Runaway")
     expect(condition?.getAttribute("data-condition")).toBe("runaway")
     expect(header(host).querySelector("[data-flow='runs.resume']")).toBeNull()
+    // The card's recorded wait says the same: a budget wait offers no Resume.
+    const waiting = renderTrace({ waiting: "budget", events: JOURNAL, traceView: undefined } as never).host
+    expect(header(waiting).querySelector("[data-flow='runs.resume']")).toBeNull()
   })
   test("parked: the class is the status, Continue approves its request and Stop denies it", () => {
     const { host, dispatched } = renderTrace({ events: [...JOURNAL, requested], traceView: undefined })

@@ -93,6 +93,14 @@ export const layerHandlers = GatewayRpcs.toLayer(
       onNone: () => Effect.fail(new ControlError.Unavailable({ feature: "run history", ticket: "smithers#3242" })),
       onSome: Effect.succeed
     })
+    // Forking writes a durable run and verifying drives the project's flow
+    // code, so neither is an anonymous loopback read.
+    const operator = Effect.gen(function*() {
+      const principal = yield* ControlPrincipal
+      if (principal.id === "loopback" && principal.kind === "anonymous") {
+        return yield* new ControlError.Unauthorized({ message: "An operator credential is required" })
+      }
+    })
     return GatewayRpcs.of({
       "Projection.Snapshot": Effect.fn("Gateway.snapshot")(
         ({ selector, after }) => projections.snapshot(selector, after),
@@ -164,11 +172,11 @@ export const layerHandlers = GatewayRpcs.toLayer(
           return { decision }
         }), Effect.tapCause(ControlServer.logDefect)),
       "Run.Fork": Effect.fn("Gateway.fork")(
-        (input) => Effect.flatMap(historyHost, (host) => host.fork(input)),
+        (input) => Effect.andThen(operator, Effect.flatMap(historyHost, (host) => host.fork(input))),
         Effect.tapCause(ControlServer.logDefect)
       ),
       "Run.Verify": Effect.fn("Gateway.verify")(
-        (input) => Effect.flatMap(historyHost, (host) => host.verify(input)),
+        (input) => Effect.andThen(operator, Effect.flatMap(historyHost, (host) => host.verify(input))),
         Effect.tapCause(ControlServer.logDefect)
       )
     })

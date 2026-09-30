@@ -202,6 +202,10 @@ export const RunListCardBody = ({
 }
 
 /** The run that asked: its door when the card dispatches, else its id. */
+/** A decision's word: a guard's park is continued or stopped, any other gate approved or denied. */
+const decisionWords = (denied: boolean, incident: boolean): string =>
+  incident ? denied ? "Stopped" : "Continued" : denied ? "Denied" : "Approved"
+
 const RunRef = ({ runId, onRunCommand }: { readonly runId: string; readonly onRunCommand?: RunCommand | undefined }) => (
   <span className="inbox-refs">
     <span>run {onRunCommand === undefined ? <code>{runId}</code> : (
@@ -249,13 +253,15 @@ export const ApprovalsInboxCardBody = ({
         // raised; a row that has no decision time says only what it decided.
         const stamp = approval.decidedAt === undefined
           ? undefined
-          : `${approval.decision === "denied" ? "Denied" : "Approved"} — ${clockLabel(approval.decidedAt)}`
+          : `${decisionWords(approval.decision === "denied", approval.incident !== undefined)} — ${clockLabel(approval.decidedAt)}`
         // The answer form carries its prompt while editable; every other
         // state retains that prompt or the grant title beside its receipt.
         return (
           <Confirmation key={approvalRowKey(approval)} state={state}>
             {approval.question === undefined || approval.decision !== undefined || approval.pending === true ?
-              <div className="sui-approval-question">{approval.question?.prompt ?? approval.title}</div> : null}
+              <div className="sui-approval-question" title={approval.incident?.message}>
+                {approval.incident === undefined ? approval.question?.prompt ?? approval.title : `${approval.incident.classification} · ${approval.title}`}
+              </div> : null}
             {/* A build target's approval is a plan, not a run: its title names it. */}
             {approval.runId.startsWith("plan:") ? null : (
               <ConfirmationRequest>
@@ -283,14 +289,15 @@ export const ApprovalsInboxCardBody = ({
               ) :
               (
                 <ConfirmationActions>
+                  {/* A guard's park is decided as Continue and Stop. */}
                   <ConfirmationAction
                     decision="approve"
                     onDecide={() => onDecideApproval(rowId, "approved")}
-                  />
+                  >{approval.incident === undefined ? undefined : "Continue"}</ConfirmationAction>
                   <ConfirmationAction
                     decision="deny"
                     onDecide={() => onDecideApproval(rowId, "denied")}
-                  />
+                  >{approval.incident === undefined ? undefined : "Stop"}</ConfirmationAction>
                 </ConfirmationActions>
               )}
             {approval.decisionError !== undefined ?

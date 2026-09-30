@@ -24,9 +24,11 @@ const handlers = Layer.merge(GatewayServer.layerHandlers, layerNoopAuth(principa
 
 const client = (history?: RunHistory.Service) =>
   RpcTest.makeClient(GatewayRpcs).pipe(
-    Effect.provide(history === undefined ? handlers : handlers.pipe(
-      Layer.provide(Layer.succeed(RunHistory.RunHistory)(history))
-    ))
+    Effect.provide(
+      history === undefined ? handlers : handlers.pipe(
+        Layer.provide(Layer.succeed(RunHistory.RunHistory)(history))
+      )
+    )
   )
 
 const test = <E>(title: string, body: () => Effect.Effect<void, E, Scope.Scope>) =>
@@ -78,13 +80,45 @@ describe("Run.Fork and Run.Verify", () => {
     Effect.gen(function*() {
       const refused = new RunHistory.HistoryRefused({ code: "history_missing", message: "No execution history" })
       const rpc = yield* client({ fork: () => Effect.fail(refused), verify: () => Effect.fail(refused) })
-      for (const failure of [
-        yield* Effect.flip(rpc["Run.Fork"]({ runId: "run-1", at: 0 })),
-        yield* Effect.flip(rpc["Run.Verify"]({ runId: "run-1" }))
-      ]) {
+      for (
+        const failure of [
+          yield* Effect.flip(rpc["Run.Fork"]({ runId: "run-1", at: 0 })),
+          yield* Effect.flip(rpc["Run.Verify"]({ runId: "run-1" }))
+        ]
+      ) {
         expect(failure).toBeInstanceOf(RunHistory.HistoryRefused)
         expect(failure).toMatchObject({ code: "history_missing", message: "No execution history" })
       }
+    }))
+
+  test("refuse an anonymous loopback caller before the host sees the call", () =>
+    Effect.gen(function*() {
+      let called = 0
+      const count = () =>
+        Effect.sync(() => {
+          called++
+          return undefined as never
+        })
+      const anonymous = Layer.merge(
+        GatewayServer.layerHandlers,
+        layerNoopAuth({ id: "loopback", kind: "anonymous", stampedAt: 0 })
+      ).pipe(
+        Layer.provideMerge(Layer.mergeAll(
+          Layer.succeed(Control)({} as ControlService),
+          Layer.succeed(Projections)({} as ProjectionsService),
+          Layer.succeed(RunHistory.RunHistory)({ fork: count, verify: count })
+        ))
+      )
+      const rpc = yield* RpcTest.makeClient(GatewayRpcs).pipe(Effect.provide(anonymous))
+      for (
+        const failure of [
+          yield* Effect.flip(rpc["Run.Fork"]({ runId: "run-1", at: 0 })),
+          yield* Effect.flip(rpc["Run.Verify"]({ runId: "run-1" }))
+        ]
+      ) {
+        expect(failure).toMatchObject({ _tag: "/control/Unauthorized", message: "An operator credential is required" })
+      }
+      expect(called).toBe(0)
     }))
 
   it("refuses a malformed address before any host sees it", () => {

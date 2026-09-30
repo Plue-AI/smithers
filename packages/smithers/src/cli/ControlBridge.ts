@@ -20,6 +20,7 @@ import { format } from "node:util"
 import * as CliError from "../CliError.ts"
 import { cli as legacyCli } from "../Command.ts"
 import * as ExecutionTarget from "../history/ExecutionTarget.ts"
+import * as GatewayHistory from "../history/GatewayHistory.ts"
 import * as HistoryWorkspace from "../history/History.ts"
 import * as CommandStatus from "../internal/CommandStatus.ts"
 import * as DatabaseLocation from "../internal/DatabaseLocation.ts"
@@ -430,6 +431,8 @@ export const host = async (bind: Serve.Bind, options: ConnectionOptions, runtime
   const result = await Effect.runPromiseExit(
     Serve.host(servedBind, root).pipe(
       Effect.provide(host),
+      // The gateway's Run.Fork and Run.Verify, over this project's stores.
+      Effect.provide(GatewayHistory.layer(root)),
       Effect.provide(RedactedLogger.layer()),
       Effect.provide(Telemetry.layer(runtime.environment ?? process.env)),
       Effect.provideService(Logger.LogToStderr, true)

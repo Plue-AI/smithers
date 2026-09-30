@@ -39,7 +39,8 @@ export const prefix = "smt1"
  *
  * `read:runs` covers every read the control plane and the gateway serve.
  * `write:runs` covers the mutations that start, steer, signal, cancel, and
- * resume a run. `approve:runs` covers the approval decisions on both mounts.
+ * resume a run, and the gateway's `Run.Fork` and `Run.Verify`, which branch a
+ * run or drive the project's flow code over a copy of it. `approve:runs` covers the approval decisions on both mounts.
  * A token holding `approve:runs` still needs the host's `ApprovalAuthority`
  * to delegate to its principal, exactly as the bearer does.
  *
@@ -48,7 +49,7 @@ export const prefix = "smt1"
  */
 export const scopes = {
   "read:runs": ["List", "Watch", "Projection.Snapshot", "Projection.Subscribe"],
-  "write:runs": ["Plan", "Run", "Steer", "Signal", "Cancel", "Resume"],
+  "write:runs": ["Plan", "Run", "Steer", "Signal", "Cancel", "Resume", "Run.Fork", "Run.Verify"],
   "approve:runs": ["Approve", "Deny", "Approval.Submit"]
 } as const satisfies Record<string, ReadonlyArray<string>>
 
