@@ -74,6 +74,102 @@ it("lets the driver's message answer a park while the person drives the worker",
   expect(asked).toEqual([])
 })
 
+for (const action of ["drive", "release"] as const) {
+  it(`does not treat older steering as a park answer after a blank ${action}`, async () => {
+    const asked: Array<string> = []
+    const queue = Steering.make({
+      ask: async (question) => {
+        asked.push(question)
+        return "sum"
+      }
+    })
+    queue.steer("check formatting")
+    queue.hijack()
+    const drained = Effect.runPromise(queue.source.drain({ boundary: "1:park:0", wouldIdle: true, park }))
+    await tick()
+    if (action === "drive") queue.drive("")
+    else queue.release()
+    expect(texts(await drained)).toEqual(["check formatting", "sum"])
+    expect(asked).toEqual([park.message])
+  })
+
+  it(`still asks after a ${action} supplies no answer to a taken-over park`, async () => {
+    const asked: Array<string> = []
+    let reply: (answer: string) => void = () => {}
+    const queue = Steering.make({
+      ask: (question) => {
+        asked.push(question)
+        return new Promise((resolve) => (reply = resolve))
+      }
+    })
+    queue.hijack()
+    let settled = false
+    const drained = Effect.runPromise(queue.source.drain({ boundary: "1:park:0", wouldIdle: true, park }))
+      .then((value) => {
+        settled = true
+        return value
+      })
+    await tick()
+    expect(queue.holding()).toBe(true)
+    if (action === "drive") expect(queue.drive("  ")).toBe(true)
+    else queue.release()
+    await tick()
+    expect(asked).toEqual([park.message])
+    expect(settled).toBe(false)
+    reply("sum")
+    expect(texts(await drained)).toEqual(["sum"])
+    expect(texts(await Effect.runPromise(queue.source.drain({ boundary: "1:park:0", wouldIdle: true, park }))))
+      .toEqual(["sum"])
+    expect(asked).toEqual([park.message])
+  })
+
+  it(`fails after a ${action} leaves a taken-over park without an answer channel`, async () => {
+    const queue = Steering.make()
+    queue.hijack()
+    const drained = Effect.runPromiseExit(queue.source.drain({ boundary: "1:park:0", wouldIdle: true, park }))
+    await tick()
+    if (action === "drive") queue.drive("")
+    else queue.release()
+    const outcome = await drained
+    expect(Exit.isFailure(outcome)).toBe(true)
+    expect(JSON.stringify(outcome)).toContain(`No one answered: ${park.message}`)
+  })
+}
+
+it("lets a nonblank drive queued before the park answer it once", async () => {
+  const asked: Array<string> = []
+  const queue = Steering.make({
+    ask: async (question) => {
+      asked.push(question)
+      return "should not be used"
+    }
+  })
+  queue.hijack()
+  queue.drive("plus")
+  expect(texts(await Effect.runPromise(queue.source.drain({ boundary: "1:park:0", wouldIdle: true, park }))))
+    .toEqual(["plus"])
+  expect(asked).toEqual([])
+})
+
+it("asks on a later park after earlier queued drives have already been delivered", async () => {
+  const asked: Array<string> = []
+  const queue = Steering.make({
+    ask: async (question) => {
+      asked.push(question)
+      return "sum"
+    }
+  })
+  queue.hijack()
+  queue.drive("first instruction")
+  queue.drive("second instruction")
+  expect(texts(await Effect.runPromise(queue.source.drain({ boundary: "0", wouldIdle: false }))))
+    .toEqual(["first instruction", "second instruction"])
+  queue.steer("unrelated steer")
+  expect(texts(await Effect.runPromise(queue.source.drain({ boundary: "1:park:0", wouldIdle: true, park }))))
+    .toEqual(["unrelated steer", "sum"])
+  expect(asked).toEqual([park.message])
+})
+
 it("puts a worker's park to the person as an ask under their name, frees its seat, and shows the answer", async () => {
   const inputs = new Map<string, Host.TurnInput>()
   const host: Host.Host = {

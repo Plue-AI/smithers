@@ -58,13 +58,14 @@ export const make = (hooks: Hooks = {}): Queue => {
   const drained = new Map<string, Steering.Drain>()
   let hijacked = false
   /** The boundary parked for the person, woken by a drive or a release. One at a time: the harness drains in order. */
-  let waiter: (() => void) | undefined
+  let waiter: ((answered: boolean) => void) | undefined
   /** Messages sent while the run worked: each lets one boundary through. */
   let ready = 0
-  const wake = () => {
+  let driven = false
+  const wake = (answered = false) => {
     const resume = waiter
     waiter = undefined
-    resume?.()
+    resume?.(answered)
   }
   const steer = (text: string) => {
     queue = Steering.enqueue(queue, {
@@ -77,21 +78,22 @@ export const make = (hooks: Hooks = {}): Queue => {
   /** Parks here unless the person already sent a message or released; decided where it parks, so none is lost. */
   const hold = Effect.suspend(() => {
     let parked = false
-    return Effect.andThen(
-      Effect.callback<void>((resume) => {
-        if (!hijacked) return resume(Effect.void)
+    return Effect.tap(
+      Effect.callback<boolean>((resume) => {
+        if (!hijacked) return resume(Effect.succeed(false))
         if (ready > 0) {
           ready--
-          return resume(Effect.void)
+          return resume(Effect.succeed(driven))
         }
         parked = true
-        waiter = () => resume(Effect.void)
+        waiter = (answered) => resume(Effect.succeed(answered))
         hooks.parked?.()
         return Effect.sync(() => {
           waiter = undefined
         })
       }),
-      Effect.suspend(() => (parked && hooks.unparked !== undefined ? Effect.promise(hooks.unparked) : Effect.void))
+      () =>
+        Effect.suspend(() => (parked && hooks.unparked !== undefined ? Effect.promise(hooks.unparked) : Effect.void))
     )
   })
   /** Puts a park's question to the person and queues the reply, or fails when no one answers. */
@@ -106,6 +108,7 @@ export const make = (hooks: Hooks = {}): Queue => {
     take: () => {
       const texts = queue.items.map(text).filter((entry) => entry !== "")
       queue = Steering.empty()
+      driven = false
       return texts
     },
     hijack: () => {
@@ -121,9 +124,12 @@ export const make = (hooks: Hooks = {}): Queue => {
       const blank = text.trim() === ""
       // A blank Enter only moves a run that waits for it.
       if (blank && waiter === undefined) return false
-      if (!blank) steer(text)
+      if (!blank) {
+        steer(text)
+        driven = true
+      }
       if (waiter === undefined) ready++
-      else wake()
+      else wake(!blank)
       return true
     },
     holding: () => waiter !== undefined,
@@ -133,12 +139,19 @@ export const make = (hooks: Hooks = {}): Queue => {
         Effect.suspend(() => {
           if (drained.has(input.boundary)) return Effect.succeed({ ...drained.get(input.boundary)!, duplicate: true })
           return Effect.andThen(
-            hijacked ? hold : input.park === undefined ? Effect.void : answer(input.park.message),
+            Effect.flatMap(
+              hijacked ? hold : Effect.succeed(false),
+              (answered) =>
+                input.park !== undefined && !answered
+                  ? answer(input.park.message)
+                  : Effect.void
+            ),
             Effect.sync(() => {
               const seen = drained.get(input.boundary)
               if (seen !== undefined) return { ...seen, duplicate: true }
               const drain = { ...Steering.drainAtClose(queue, Date.now()), duplicate: false }
               queue = drain.remaining
+              driven = false
               drained.set(input.boundary, drain)
               return drain
             })
