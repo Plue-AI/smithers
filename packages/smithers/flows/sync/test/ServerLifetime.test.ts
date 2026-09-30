@@ -330,13 +330,26 @@ describe("workspace tail catalog reconciliation", () => {
   /** A catalog whose run set the test moves under a live subscription. */
   const mutable = (initial: ReadonlyArray<JournalEvent.RunId>) => {
     const listed = new Set(initial)
+    const lists = { count: 0 }
     return {
+      /** Resolves once the subscription has listed the catalog `rounds` more times. */
+      untilRounds: (rounds: number) => {
+        const target = lists.count + rounds
+        return Effect.whileLoop({
+          while: () => lists.count < target,
+          body: () => Effect.sleep("2 millis"),
+          step: () => undefined
+        })
+      },
       catalog: RunCatalog.RunCatalog.of({
         // `changes` is deliberately empty: the reconciliation must not depend
         // on a notification arriving, because both shipped catalogs publish
         // through a SLIDING feed that drops the oldest under load.
         changes: Stream.empty,
-        list: Effect.sync(() => Array.from(listed))
+        list: Effect.sync(() => {
+          lists.count++
+          return Array.from(listed)
+        })
       }),
       listed
     }
@@ -391,7 +404,7 @@ describe("workspace tail catalog reconciliation", () => {
       // so it enters the round's excluded set. Retention must drop it from
       // there too, or the set grows for the life of the subscription.
       const closed = BranchProtocol.branchRunId("reconcile-branch" as BranchProtocol.BranchId)
-      const { catalog, listed } = mutable([kept!, collected!, closed])
+      const { catalog, listed, untilRounds } = mutable([kept!, collected!, closed])
       const reads: Array<JournalEvent.RunId> = []
       const outcome = yield* (
         Effect.gen(function*() {
@@ -402,15 +415,19 @@ describe("workspace tail catalog reconciliation", () => {
             ),
             { startImmediately: true }
           )
-          yield* Effect.sleep("100 millis")
+          // The first round excludes the closed run and the second finds it
+          // still listed: two listings are two finished reconciliations,
+          // whatever the machine's load does to the clock.
+          yield* untilRounds(2)
           // Retention collecting a run is exactly "the read stops naming it".
           listed.delete(collected!)
           listed.delete(closed)
-          // Let any round already in flight finish before the window opens,
-          // so this observes steady state rather than the removal's own tick.
-          yield* Effect.sleep("100 millis")
+          // A listing taken before the removal may still be reconciling; the
+          // second listing after it has seen the removal, and the round that
+          // listing began has finished, so the window opens on steady state.
+          yield* untilRounds(3)
           reads.length = 0
-          yield* Effect.sleep("200 millis")
+          yield* untilRounds(3)
           yield* Fiber.interrupt(following)
           return [...reads]
         }).pipe(
