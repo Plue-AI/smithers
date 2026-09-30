@@ -1,10 +1,9 @@
 /**
  * `S.Docker.Push` through the real `smthrs` executable against a local
- * registry container: refused until `smthrs approvals grant`, then every
- * declared tag pushed in order, and a failed tag stops the rest.
- *
- * `Docker.Build` writes an OCI archive and does not load it into the daemon,
- * so the pushed references are tagged here first (#3153).
+ * registry container: refused until `smthrs approvals grant`, then the image
+ * `Docker.Build` produced is pushed under every declared tag, and an edited
+ * input needs a new grant. Ordering and stop-on-failure are covered with a
+ * recording Docker in build-cli's `TargetApproval.test.ts`.
  */
 import { execFile, spawnSync } from "node:child_process"
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs"
@@ -15,7 +14,6 @@ import { fileURLToPath } from "node:url"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
 const executable = fileURLToPath(new URL("../src/bin.ts", import.meta.url))
-const base = "alpine:3"
 const registryImage = "registry:2"
 
 const docker = (args: ReadonlyArray<string>, timeout = 600_000) =>
@@ -25,10 +23,8 @@ const docker = (args: ReadonlyArray<string>, timeout = 600_000) =>
 const unavailable = ((): string | undefined => {
   const info = docker(["info", "--format", "{{.ServerVersion}}"], 60_000)
   if (info.error !== undefined || info.status !== 0) return "Docker daemon unavailable"
-  for (const image of [base, registryImage]) {
-    if (docker(["image", "inspect", image]).status === 0) continue
-    if (docker(["pull", "-q", image], 300_000).status !== 0) return `cannot pull ${image}`
-  }
+  if (docker(["image", "inspect", registryImage]).status === 0) return undefined
+  if (docker(["pull", "-q", registryImage], 300_000).status !== 0) return `cannot pull ${registryImage}`
   return undefined
 })()
 
@@ -86,12 +82,6 @@ export const Package = S.Package({ targets: { image, push } })
 `
   )
 
-const tagLocally = (tag: string) => {
-  const reference = `${registry}/${name}:${tag}`
-  expect(docker(["tag", base, reference]).status).toBe(0)
-  pushed.add(reference)
-}
-
 beforeAll(async () => {
   if (unavailable !== undefined) return
   root = realpathSync(mkdtempSync(join(tmpdir(), "smithers-docker-push-")))
@@ -135,13 +125,13 @@ afterAll(() => {
 
 describe("Docker.Push through the public CLI", () => {
   it.skipIf(unavailable !== undefined)(
-    `waits for approval, then pushes every tag in order and stops at a failed one${
+    `waits for approval, then pushes the built image under every tag${
       unavailable === undefined ? "" : ` [skipped: ${unavailable}]`
     }`,
     { timeout: 1_800_000 },
     async () => {
       declare(["one", "two", "three"])
-      for (const tag of ["one", "two", "three"]) tagLocally(tag)
+      for (const tag of ["one", "two", "three"]) pushed.add(`${registry}/${name}:${tag}`)
 
       const refused = await smthrs(root, ["target", "//:push"])
       expect(refused.status).toBe(1)
@@ -156,15 +146,11 @@ describe("Docker.Push through the public CLI", () => {
       expect(ran.status, ran.output).toBe(0)
       expect([...await tags()].sort()).toEqual(["one", "three", "two"])
 
-      // `five` is never tagged locally, so its push fails and `six` never starts.
-      declare(["four", "five", "six"])
-      tagLocally("four")
-      tagLocally("six")
-      expect((await smthrs(root, ["target", "//:push"])).status).toBe(1)
-      expect((await smthrs(root, ["approvals", "grant", "//:push"])).status).toBe(0)
-      const failed = await smthrs(root, ["target", "//:push"])
-      expect(failed.status).toBe(1)
-      expect([...await tags()].sort()).toEqual(["four", "one", "three", "two"])
+      // A new image is a new revision: the earlier grant does not cover it.
+      writeFileSync(join(root, "hello.txt"), "edited\n")
+      const stale = await smthrs(root, ["target", "//:push"])
+      expect(stale.status).toBe(1)
+      expect(stale.output).toContain("is not approved")
     }
   )
 })
