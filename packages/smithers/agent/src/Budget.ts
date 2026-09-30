@@ -5,7 +5,7 @@
  * Two ceilings already existed and neither is this one. `Sandbox.Limits` bounds
  * one cell's own execution, and `Agent.Options.maxFrames` bounds one loop's
  * turns. Both are per call. Nothing accumulated what a run had spent across its
- * steps, so `Envelope.budget` — the tokens and milliseconds a control plane
+ * steps, so `Envelope.budget` — the tokens, dollars and milliseconds a control plane
  * APPROVED for a plan — bound nothing at all: a plan could be admitted for a
  * thousand tokens and spend a million.
  *
@@ -154,8 +154,8 @@ export interface LatencyBudget {
  * over the rate card; a forecast is the largest call so far, as for
  * {@link TokenBudget}. A recorded call with no price makes the run's spend
  * unknown, and admission then fails with {@link AccountingUnavailable}; price
- * such a model with a {@link Policy.prices} row. It cannot `park`: an approval
- * envelope carries no USD ceiling to raise.
+ * such a model with a {@link Policy.prices} row. `park` asks for a raised
+ * `Envelope.budget.usd`, as a token ceiling asks for raised `tokens`.
  *
  * @category models
  * @since 1.0.0-rc.1
@@ -163,7 +163,7 @@ export interface LatencyBudget {
 export interface UsdBudget {
   /** Finite, non-negative dollars. */
   readonly max: number
-  readonly onExceeded?: Exclude<OnExceeded, "park"> | undefined
+  readonly onExceeded?: OnExceeded | undefined
 }
 
 /**
@@ -1231,7 +1231,7 @@ const Configuration = Schema.Struct({
     })),
     usd: Schema.optional(Schema.Struct({
       max: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)),
-      onExceeded: Schema.optional(Schema.Literals(["fail", "warn", "skip-remaining"]))
+      onExceeded: Schema.optional(OnExceeded)
     })),
     latency: Schema.optional(Schema.Struct({
       maxMillis: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)),
@@ -1946,6 +1946,9 @@ export const policyFromEnvelope = (
     ...(envelope.budget.tokens === undefined
       ? {}
       : { tokens: { max: envelope.budget.tokens, onExceeded } }),
+    ...(envelope.budget.usd === undefined
+      ? {}
+      : { usd: { max: envelope.budget.usd, onExceeded } }),
     ...(envelope.budget.milliseconds === undefined
       ? {}
       : { latency: { maxMillis: envelope.budget.milliseconds, onExceeded } })
@@ -1963,10 +1966,19 @@ export const layerFromEnvelope = (
   options: { readonly onExceeded?: OnExceeded | undefined; readonly weights?: Weights | undefined } = {}
 ): Layer.Layer<Budget, ConfigurationError> => layer(policyFromEnvelope(envelope, options))
 
+/** The envelope field that holds one parkable scope's ceiling. */
+const ceilingKey = (scope: BudgetExceeded["scope"]): "tokens" | "usd" | "milliseconds" =>
+  scope === "tokens" || scope === "usd" ? scope : "milliseconds"
+
+/** Whole tokens and milliseconds; dollars rounded up to the cent. */
+const roundedUp = (scope: BudgetExceeded["scope"], value: number): number =>
+  scope === "usd" ? Math.ceil(Number((value * 100).toFixed(6))) / 100 : Math.ceil(value)
+
 /**
  * The budget a parked run asks an operator to approve: the exceeded ceiling
  * raised to cover what the run has spent and holds, the refused call, and one
- * more of its original allowance.
+ * more of its original allowance. Tokens and milliseconds round up to whole
+ * units and dollars to the cent.
  *
  * The ceiling is proposed rather than chosen at approval because an approval
  * must match the envelope it was requested with; approving this budget is the
@@ -1980,7 +1992,8 @@ export const raise = (
   exceeded: BudgetExceeded
 ): ControlSchema.Envelope["budget"] => ({
   ...budget,
-  [exceeded.scope === "tokens" ? "tokens" : "milliseconds"]: Math.ceil(
+  [ceilingKey(exceeded.scope)]: roundedUp(
+    exceeded.scope,
     exceeded.used + (exceeded.reserved ?? 0) + exceeded.next + exceeded.max
   )
 })
@@ -1996,19 +2009,21 @@ export const raisedBy = (
   envelope: ControlSchema.Envelope,
   raises: ReadonlyArray<ControlSchema.Envelope["budget"]>
 ): ControlSchema.Envelope => {
-  const largest = (key: "tokens" | "milliseconds"): number | undefined =>
+  const largest = (key: "tokens" | "usd" | "milliseconds"): number | undefined =>
     raises.reduce<number | undefined>(
       (ceiling, raised) =>
         ceiling === undefined || raised[key] === undefined ? ceiling : Math.max(ceiling, raised[key]),
       envelope.budget[key]
     )
   const tokens = largest("tokens")
+  const usd = largest("usd")
   const milliseconds = largest("milliseconds")
   return {
     ...envelope,
     budget: {
       ...envelope.budget,
       ...(tokens === undefined ? {} : { tokens }),
+      ...(usd === undefined ? {} : { usd }),
       ...(milliseconds === undefined ? {} : { milliseconds })
     }
   }

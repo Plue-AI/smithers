@@ -121,18 +121,19 @@ const controlFlows: ReadonlyArray<ControlRuntime.MemoryFlow> = [
   }
 ]
 
-const cellEvents = (source: string, id: string): ReadonlyArray<ModelEvent.ModelEvent> => [
+const cellEvents = (source: string, id: string, costUsd?: number): ReadonlyArray<ModelEvent.ModelEvent> => [
   ModelEvent.ModelEvent.TextStart({ type: "text-start", id }),
   ModelEvent.ModelEvent.TextDelta({ type: "text-delta", id, text: "```cell\n" + source + "\n```" }),
   ModelEvent.ModelEvent.TextEnd({ type: "text-end", id }),
+  ...(costUsd === undefined ? [] : [ModelEvent.ModelEvent.Usage({ inputTokens: 10, outputTokens: 5, costUsd })]),
   ModelEvent.ModelEvent.Settle({ type: "settle", stopReason: "stop" })
 ]
 
 /** Every provider call made by either composition, in order. */
 const modelCalls: Array<string> = []
 
-/** What provider call `n` (from zero, across both compositions) answers, and how long it takes. */
-type Script = (n: number) => { readonly source: string; readonly delayMillis: number }
+/** What provider call `n` (from zero, across both compositions) answers, how long it takes, and its charge. */
+type Script = (n: number) => { readonly source: string; readonly delayMillis: number; readonly costUsd?: number }
 
 /** The first call is slow and does not finish; every later call finishes at once. */
 const slowFirstCall: Script = (n) =>
@@ -148,10 +149,10 @@ const scripted = (host: string): Model.Model =>
       Stream.unwrap(
         Effect.gen(function*() {
           const n = modelCalls.length
-          const { delayMillis, source } = script(n)
+          const { costUsd, delayMillis, source } = script(n)
           modelCalls.push(host)
           if (delayMillis > 0) yield* Effect.sleep(`${delayMillis} millis`)
-          return Stream.fromIterable(cellEvents(source, `cell-${n}`))
+          return Stream.fromIterable(cellEvents(source, `cell-${n}`, costUsd))
         })
       )
   })
@@ -511,6 +512,39 @@ describe("a run parked on its task-time budget", () => {
   }, 180_000)
 })
 
+describe("a run parked on its USD budget", () => {
+  it("parks in dollars, keeps its spend across restart, and resumes under the raised ceiling", async () => {
+    // Every call costs 60 cents; the fourth one finishes the run.
+    script = (n) => ({ source: n < 3 ? `console.log("working")` : `ctx.done("settled")`, delayMillis: 0, costUsd: 0.6 })
+    const root = makeRoot()
+    const parked = await parkInFirstProcess(root, { usd: 1, onExceeded: "park" })
+
+    expect(parked.kind).toBe("control.approval.requested")
+    if (parked.approval === undefined) return
+    // $0.60 spent and a $0.60 forecast is past $1: the second call parks.
+    expect(modelCalls).toEqual(["runaway-first"])
+    expect(parked.approval.target.envelope.budget).toEqual({ usd: 2.2, onExceeded: "park" })
+    expect(readEngineRun(root, parked.runId)).toMatchObject({ status: "suspended", waiting_reason: "budget" })
+    const [request] = readRequestFacts(root, parked.runId)
+    expect(request).toMatchObject({
+      question: "Raise the USD budget from $1.00 to $2.20?",
+      incident: { classification: "Runaway", source: "usd", max: 1, next: 0.6, allowance: 2.2 }
+    })
+    expect(request!.incident!.used).toBeCloseTo(0.6, 12)
+
+    const settled = await answerInSecondProcess(root, parked, "continue")
+
+    // The second host counts the first host's $0.60: two more calls reach
+    // $1.80, and the next one's forecast would pass $2.20, so it asks again.
+    expect(settled.kind).toBe("control.approval.requested")
+    expect(modelCalls).toEqual(["runaway-first", "runaway-second", "runaway-second"])
+    expect(settled.approval?.target.envelope.budget).toEqual({ usd: 4.6, onExceeded: "park" })
+    const again = readRequestFacts(root, parked.runId).at(-1)
+    expect(again?.question).toBe("Raise the USD budget from $2.20 to $4.60?")
+    expect(again?.incident?.used).toBeCloseTo(1.8, 12)
+  }, 180_000)
+})
+
 /** A park the run's operator has not answered yet. */
 type Parked = Awaited<ReturnType<typeof parkInFirstProcess>>
 
@@ -793,6 +827,24 @@ describe("the incident a tripped guard parks on", () => {
     })
     expect(facts).not.toHaveProperty("reserved")
     expect(facts).not.toHaveProperty("allowance")
+  })
+
+  it("freezes a USD park in dollars under its own source", () => {
+    const facts = RunawayGuard.incident(
+      exceeded({ scope: "usd", used: 0.7, reserved: 0.1, max: 1, next: 0.4, message: "usd" }),
+      2.2
+    )
+    expect(facts).toEqual({
+      classification: "Runaway",
+      source: "usd",
+      message: "usd",
+      used: 0.7,
+      reserved: 0.1,
+      max: 1,
+      next: 0.4,
+      allowance: 2.2
+    })
+    expect(Schema.is(ControlFacts.GuardIncident)(facts)).toBe(true)
   })
 
   it("reads a folded-in daily cap as a token incident, since the incident schema has no daily source", () => {

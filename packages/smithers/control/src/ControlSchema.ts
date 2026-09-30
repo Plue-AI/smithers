@@ -82,6 +82,9 @@ export type Principal = typeof Principal.Type
 /**
  * The capabilities, flows, budget, and placement approved for a plan.
  *
+ * `budget` holds the run's approved ceilings: `tokens`, `milliseconds` of
+ * active time, and `usd` in dollars. An absent ceiling is no ceiling.
+ *
  * @since 0.1.0
  * @category models
  */
@@ -91,6 +94,7 @@ export const Envelope = Schema.Struct({
   budget: Schema.Struct({
     tokens: Schema.optional(Schema.Number),
     milliseconds: Schema.optional(Schema.Number),
+    usd: Schema.optional(Schema.Number),
     onExceeded: Schema.optional(BudgetOnExceeded)
   }),
   host: Schema.optional(Schema.String)

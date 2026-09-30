@@ -189,6 +189,74 @@ describe("a budget park", () => {
     })
   })
 
+  it("asks a USD park in dollars and freezes the raise it proposes", async () => {
+    const dollars: ControlSchema.Envelope = {
+      capabilities: [],
+      flows: [],
+      budget: { usd: 1, tokens: 50_000, onExceeded: "park" }
+    }
+    const exceeded = new Budget.BudgetExceeded({
+      scope: "usd",
+      onExceeded: "park",
+      used: 0.7,
+      reserved: 0,
+      max: 1,
+      next: 0.4,
+      message: "The run has spent $0.7 of its $1 approved"
+    })
+    const observed = await inWorld((world) =>
+      Effect.gen(function*() {
+        const parked = yield* AgentSession.budgetParking(world.journal, world.runtime)(world.runId, dollars)
+          .park(exceeded)
+        const [request] = yield* requests(world.journal, world.runId)
+        yield* decide(world, request!, "approved")
+        return {
+          parked,
+          request: request!,
+          approved: yield* AgentSession.approvedEnvelope(world.journal, world.runId, dollars)
+        }
+      })
+    )
+
+    const question = "Raise the USD budget from $1.00 to $2.10?"
+    expect(observed.request).toMatchObject({
+      question,
+      incident: {
+        classification: "Runaway",
+        source: "usd",
+        used: 0.7,
+        reserved: 0,
+        max: 1,
+        next: 0.4,
+        allowance: 2.1
+      },
+      payload: { target: { envelope: { budget: { usd: 2.1, tokens: 50_000, onExceeded: "park" } } } }
+    })
+    expect(observed.parked.waiting).toMatchObject({ reason: "budget", request: JSON.stringify({ question }) })
+    // The operator's approval is the raised dollar ceiling the resumed run spends against.
+    expect(observed.approved.budget).toEqual({ usd: 2.1, tokens: 50_000, onExceeded: "park" })
+  })
+
+  it("words a sub-cent USD ceiling to the micro-dollar", async () => {
+    const tiny: ControlSchema.Envelope = { capabilities: [], flows: [], budget: { usd: 0.0005, onExceeded: "park" } }
+    const [request] = await inWorld((world) =>
+      Effect.gen(function*() {
+        yield* AgentSession.budgetParking(world.journal, world.runtime)(world.runId, tiny).park(
+          new Budget.BudgetExceeded({
+            scope: "usd",
+            onExceeded: "park",
+            used: 0.0004,
+            max: 0.0005,
+            next: 0.0004,
+            message: "over"
+          })
+        )
+        return yield* requests(world.journal, world.runId)
+      })
+    )
+    expect(request?.question).toBe("Raise the USD budget from $0.0005 to $0.01?")
+  })
+
   it("parks a re-driven attempt on the recorded question, not on its own elapsed time", async () => {
     const observed = await inWorld((world) =>
       Effect.gen(function*() {

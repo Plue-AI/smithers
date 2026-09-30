@@ -16,14 +16,14 @@ describe("USD budget configuration", () => {
     ["a negative ceiling", { max: -1 }],
     ["a non-finite ceiling", { max: Number.POSITIVE_INFINITY }],
     ["a NaN ceiling", { max: Number.NaN }],
-    ["a park policy", { max: 1, onExceeded: "park" }]
+    ["an unknown onExceeded", { max: 1, onExceeded: "pause" }]
   ])("rejects %s", async (_label, usd) => {
     const exit = await Effect.runPromiseExit(Budget.make({ usd } as Budget.Policy))
     expect(exit).toMatchObject({ _tag: "Failure" })
     expect(JSON.stringify(exit)).toContain("ConfigurationError")
   })
 
-  it.each(["fail", "warn", "skip-remaining"] as const)(
+  it.each(["fail", "warn", "skip-remaining", "park"] as const)(
     "refuses the first reservation under a zero %s ceiling",
     async (onExceeded) => {
       await Effect.runPromise(Effect.gen(function*() {
@@ -209,5 +209,69 @@ describe("USD budget recovery", () => {
         expect(failure).toBeInstanceOf(Budget.AccountingUnavailable)
       }).pipe(Effect.provide(TestJournal.layer()), Effect.scoped)
     )
+  })
+})
+
+describe("a USD park", () => {
+  it("refuses without latching, and a raised ceiling from the envelope admits the call", async () => {
+    await Effect.runPromise(
+      Effect.gen(function*() {
+        const envelope = { capabilities: [], flows: [], budget: { usd: 1, onExceeded: "park" as const } }
+        expect(Budget.policyFromEnvelope(envelope)).toEqual({ usd: { max: 1, onExceeded: "park" } })
+        const tight = yield* Budget.make(Budget.policyFromEnvelope(envelope))
+        yield* inRun("run-park", tight.record("a", charged(0.6), "any-model"))
+        const parked = yield* inRun("run-park", tight.check("b"))
+        expect(parked).toMatchObject({
+          _tag: "refuse",
+          exceeded: { scope: "usd", onExceeded: "park", max: 1, next: 0.6 }
+        })
+        if (parked._tag !== "refuse") throw new Error("expected a refusal")
+        // A park is lifted by a raise, so the refusal is not a Skipped latch.
+        expect(parked.failure).toBeInstanceOf(Budget.BudgetExceeded)
+        expect(yield* inRun("run-park", tight.check("b"))).toMatchObject({ _tag: "refuse" })
+
+        const proposed = Budget.raise(envelope.budget, parked.exceeded)
+        expect(proposed).toEqual({ usd: 2.2, onExceeded: "park" })
+        const raised = Budget.raisedBy(envelope, [proposed])
+        // A restarted host recovers the 0.6 already spent from the journal.
+        const resumed = yield* Budget.make(Budget.policyFromEnvelope(raised))
+        expect((yield* inRun("run-park", resumed.check("b")))._tag).toBe("proceed")
+        yield* inRun("run-park", resumed.record("b", charged(0.6), "any-model"))
+        expect((yield* inRun("run-park", resumed.check("c")))._tag).toBe("proceed")
+        yield* inRun("run-park", resumed.record("c", charged(0.6), "any-model"))
+        // 1.8 spent across both hosts and a 0.6 forecast is past 2.2.
+        const again = yield* inRun("run-park", resumed.check("d"))
+        expect(again).toMatchObject({ _tag: "refuse", exceeded: { scope: "usd", max: 2.2, next: 0.6 } })
+        if (again._tag !== "refuse") throw new Error("expected a refusal")
+        expect(again.exceeded.used).toBeCloseTo(1.8, 12)
+      }).pipe(Effect.provide(TestJournal.layer()), Effect.scoped)
+    )
+  })
+
+  it("proposes dollars rounded up to the cent", () => {
+    const exceeded = (used: number, reserved: number, next: number, max: number) =>
+      new Budget.BudgetExceeded({ scope: "usd", onExceeded: "park", used, reserved, max, next, message: "over" })
+    expect(Budget.raise({ usd: 1, tokens: 10 }, exceeded(0.7, 0, 0.4, 1))).toEqual({ usd: 2.1, tokens: 10 })
+    expect(Budget.raise({ usd: 0.5 }, exceeded(0.251, 0.1, 0.0001, 0.5))).toEqual({ usd: 0.86 })
+    expect(Budget.raise({ usd: 0 }, exceeded(0, 0, 0, 0))).toEqual({ usd: 0 })
+  })
+
+  it("applies the largest approved USD raise and never lowers one", () => {
+    const envelope = { capabilities: [], flows: [], budget: { usd: 1, tokens: 100 } }
+    expect(Budget.raisedBy(envelope, [{ usd: 2.2 }, { usd: 1.5 }, { tokens: 50 }]).budget).toEqual({
+      usd: 2.2,
+      tokens: 100
+    })
+    expect(Budget.raisedBy(envelope, [{ usd: 0.5 }]).budget.usd).toBe(1)
+    expect(Budget.raisedBy({ ...envelope, budget: {} }, [{ usd: 3 }]).budget).toEqual({})
+  })
+
+  it("takes the envelope's onExceeded over the composition default for every ceiling", () => {
+    expect(
+      Budget.policyFromEnvelope(
+        { capabilities: [], flows: [], budget: { usd: 0.25, tokens: 10, onExceeded: "park" } },
+        { onExceeded: "fail" }
+      )
+    ).toEqual({ tokens: { max: 10, onExceeded: "park" }, usd: { max: 0.25, onExceeded: "park" } })
   })
 })

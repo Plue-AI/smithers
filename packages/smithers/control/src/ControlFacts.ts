@@ -40,11 +40,12 @@ export const runFact = (
 
 /** The exact facts of the guard that parked a run, frozen when it tripped.
  *
- * `Runaway` is a run spending past an approved ceiling (`tokens`, `latency`).
- * `Stuck` is one operation that ran past its time limit (`model-call`,
- * `tool-call`, `cell`). Every number is in the source's unit, tokens or
- * milliseconds: `used`, `reserved`, `max`, and `next` are a budget's spend,
- * held forecast, ceiling, and refused call; `max` is a timeout's limit.
+ * `Runaway` is a run spending past an approved ceiling (`tokens`, `usd`,
+ * `latency`). `Stuck` is one operation that ran past its time limit
+ * (`model-call`, `tool-call`, `cell`). Every number is in the source's unit,
+ * tokens, dollars, or milliseconds: `used`, `reserved`, `max`, and `next` are
+ * a budget's spend, held forecast, ceiling, and refused call; `max` is a
+ * timeout's limit.
  * `allowance` is what Continue authorizes: the raised ceiling for a budget,
  * one more run of `max` for a timeout. `subject` names the operation a
  * timeout interrupted.
@@ -53,7 +54,7 @@ export const runFact = (
  */
 export const GuardIncident = Schema.Struct({
   classification: Schema.Literals(["Runaway", "Stuck"]),
-  source: Schema.Literals(["tokens", "latency", "model-call", "tool-call", "cell"]),
+  source: Schema.Literals(["tokens", "usd", "latency", "model-call", "tool-call", "cell"]),
   message: Schema.String,
   used: Schema.optional(Schema.Number),
   reserved: Schema.optional(Schema.Number),

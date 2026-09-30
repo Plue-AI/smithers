@@ -3,7 +3,7 @@
  *
  * Two kinds of guard park a run for an operator's Continue or Stop. A
  * {@link module:Budget.BudgetExceeded} is a `Runaway` run: it would spend past
- * an approved token or latency ceiling. A {@link Timeout} is a `Stuck` run:
+ * an approved token, USD, or latency ceiling. A {@link Timeout} is a `Stuck` run:
  * one model call, tool call, or cell ran past its time limit. Both park
  * through {@link module:Budget.Parking}, on one control approval request whose
  * {@link incident} facts are frozen when the guard trips, so a restarted host
@@ -80,8 +80,8 @@ export const incident = (tripped: Budget.BudgetExceeded | Timeout, raised?: numb
     }
     : {
       classification: "Runaway",
-      // A daily cap and a USD ceiling never park; if one is folded in, it reads as tokens.
-      source: tripped.scope === "latency" ? "latency" : "tokens",
+      // A daily cap never parks; if one is folded in, it reads as tokens.
+      source: tripped.scope === "daily" ? "tokens" : tripped.scope,
       message: tripped.message,
       used: tripped.used,
       ...(tripped.reserved === undefined ? {} : { reserved: tripped.reserved }),

@@ -1442,6 +1442,12 @@ const askIdentity = (
   return { digest, requestId: `ask/${runId}/${digest}` }
 }
 
+/** Dollars as a person reads them: cents when whole cents, else to the micro-dollar. */
+const usdText = (value: number): string => {
+  const cents = Math.round(value * 100)
+  return Math.abs(value * 100 - cents) < 1e-6 ? `$${(cents / 100).toFixed(2)}` : `$${Number(value.toFixed(6))}`
+}
+
 /** The prefix of every approval request a parked budget registers. */
 const budgetRequestPrefix = "budget/"
 
@@ -1673,9 +1679,14 @@ export const budgetParking = (
             cause
           })
         ))
+        const raisedCeiling = (budget: Envelope["budget"]) =>
+          exceeded.scope === "tokens" ? budget.tokens : exceeded.scope === "usd" ? budget.usd : budget.milliseconds
         const question = (budget: Envelope["budget"]) => {
+          const raised = raisedCeiling(budget)
+          if (exceeded.scope === "usd") {
+            return `Raise the USD budget from ${usdText(exceeded.max)} to ${usdText(raised ?? 0)}?`
+          }
           const unit = exceeded.scope === "tokens" ? "tokens" : "ms"
-          const raised = exceeded.scope === "tokens" ? budget.tokens : budget.milliseconds
           return `Raise the ${exceeded.scope} budget from ${exceeded.max} to ${raised} ${unit}?`
         }
         const proposed = (budget: Envelope["budget"]) => ({
@@ -1688,10 +1699,7 @@ export const budgetParking = (
             digest: identity.digest,
             envelope: { ...envelope, budget }
           },
-          incident: RunawayGuard.incident(
-            exceeded,
-            exceeded.scope === "tokens" ? budget.tokens : budget.milliseconds
-          )
+          incident: RunawayGuard.incident(exceeded, raisedCeiling(budget))
         })
         const { question: asked, token } = yield* commit(
           recorded === undefined
