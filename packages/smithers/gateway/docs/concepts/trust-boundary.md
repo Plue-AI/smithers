@@ -119,6 +119,29 @@ resource the server holds open, the RPC middleware can only refuse frames on a
 socket that already exists, and a refused handshake has no RPC channel to
 answer a typed error on. Its refusal is a transport fact either way.
 
+## Browsers open sockets with a single-use ticket
+
+A browser `WebSocket` cannot set an `Authorization` header, and a bearer in a
+query string would land in logs and history. A credentialed gateway therefore
+serves `POST /auth/ticket`: a request carrying an accepted bearer receives
+`{ "ticket": "<64 hex>", "expiresInMs": 30000 }`. The client then opens
+`/rpc/ws`, `/projections/ws`, or `/sync/ws` as `<mount>?ticket=<ticket>`.
+
+- The ticket request passes the same Host and Origin checks as every other
+  request, so a page from another origin cannot mint one.
+- The first upgrade that presents a ticket consumes it, whether or not the
+  upgrade completes. A replay, an unknown ticket, or one presented after 30
+  seconds is refused with 401 `unauthorized`.
+- The socket runs under the bearer the ticket was issued for, so every RPC
+  frame authenticates exactly as it would with the header.
+- A ticket opens only those three sockets. It never unlocks a request/response
+  mount.
+- Tickets live in the gateway's memory; a restart invalidates every
+  outstanding one. At most 1,024 are outstanding; the oldest is dropped first.
+
+A gateway with no bearer credential needs no ticket and does not serve
+`/auth/ticket`.
+
 ## A path is classified the way the router will resolve it
 
 The guard runs before the router, so it has to reach the router's verdict. An

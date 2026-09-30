@@ -80,11 +80,9 @@ await Effect.runPromise(Effect.scoped(
       assert.equal(result.status, 200)
       assert.match(await result.text(), /"Success"/)
     })
-    const frame = yield* Effect.promise(() =>
+    const exchange = (target: string, headers: Record<string, string>) =>
       new Promise<string>((resolve, reject) => {
-        const socket = new NodeWS.WebSocket(url.replace("http:", "ws:") + "/rpc/ws", {
-          headers: { authorization: "Bearer test-bun-token" }
-        })
+        const socket = new NodeWS.WebSocket(url.replace("http:", "ws:") + target, { headers })
         const timer = setTimeout(() => {
           socket.terminate()
           reject(new Error("WebSocket RPC timeout"))
@@ -102,13 +100,27 @@ await Effect.runPromise(Effect.scoped(
           resolve(text)
         })
       })
-    )
+    const frame = yield* Effect.promise(() => exchange("/rpc/ws", { authorization: "Bearer test-bun-token" }))
     assert.match(frame, /"Success"/)
+    // A browser cannot set the header: it trades the bearer for a single-use ticket.
+    yield* Effect.promise(async () => {
+      assert.equal((await fetch(`${url}/auth/ticket`, { method: "POST" })).status, 401)
+      const issued = await fetch(`${url}/auth/ticket`, {
+        method: "POST",
+        headers: { authorization: "Bearer test-bun-token" }
+      })
+      assert.equal(issued.status, 200)
+      const { ticket } = await issued.json() as { ticket: string }
+      assert.match(await exchange(`/rpc/ws?ticket=${ticket}`, {}), /"Success"/)
+      // Ingress answers before any upgrade, so a plain GET shows the replay refusal.
+      assert.equal((await fetch(`${url}/rpc/ws?ticket=${ticket}`)).status, 401)
+    })
     process.stdout.write(
       JSON.stringify({
         runtime: "bun",
         passed: true,
-        checks: "SQLite, HTTP RPC, authenticated WebSocket RPC, bind conflict, bearer, Host and Origin"
+        checks:
+          "SQLite, HTTP RPC, authenticated WebSocket RPC, WebSocket ticket, bind conflict, bearer, Host and Origin"
       }) + "\n"
     )
     // The bind-conflict probe logs the operating-system cause at error level; stdout is the one JSON result the test parses, so the log goes to stderr.

@@ -13,6 +13,7 @@
  * | `POST /sync` | RPC over HTTP | `@smthrs/sync` `SyncRpcs` |
  * | `/sync/ws` | RPC over WebSocket | `SyncRpcs` |
  * | `GET /health` | JSON | `GatewaySchema.GatewayHealth` plus the package version |
+ * | `POST /auth/ticket` | JSON | A single-use {@link Ticket} that opens one protected socket |
  *
  * `/health` is deliberately unauthenticated: a supervisor decides whether to
  * keep or replace a gateway process by asking which workspace it belongs to,
@@ -34,7 +35,7 @@ import { SyncRpcs } from "@smthrs/sync/SyncRpcs"
 import * as SyncServer from "@smthrs/sync/SyncServer"
 import { Effect, Layer, Schema, Stream, type Types } from "effect"
 import * as ByteSize from "effect/ByteSize"
-import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
+import { Headers, HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { RpcSerialization, RpcServer } from "effect/unstable/rpc"
 import { GatewayError, settingRefusal } from "./GatewayError.ts"
 import { GatewayRpcs } from "./GatewayRpcs.ts"
@@ -453,6 +454,73 @@ export const routedPath = (url: string): string => {
 }
 
 /**
+ * The mount that exchanges a bearer credential for a WebSocket {@link Ticket}.
+ *
+ * @since 1.0.0
+ * @category constants
+ */
+export const ticketPath = "/auth/ticket"
+
+/**
+ * The protected socket mounts a {@link Ticket} opens.
+ *
+ * @since 1.0.0
+ * @category constants
+ */
+export const ticketPaths: ReadonlyArray<string> = ["/rpc/ws", "/projections/ws", "/sync/ws"]
+
+/**
+ * How long an unredeemed {@link Ticket} stays valid (thirty seconds).
+ *
+ * @since 1.0.0
+ * @category constants
+ */
+export const defaultTicketMillis = 30_000
+
+/** Outstanding tickets kept at once; the oldest is dropped past this. */
+const maxOutstandingTickets = 1024
+
+/**
+ * What `POST /auth/ticket` answers.
+ *
+ * A browser `WebSocket` cannot set an `Authorization` header, so a browser
+ * client first posts its bearer to `/auth/ticket`, then opens a protected
+ * socket as `<mount>?ticket=<ticket>` within `expiresInMs`. The first upgrade
+ * that presents the ticket consumes it, whether or not the upgrade completes;
+ * a replay or a late one is refused 401. The socket then runs under the
+ * bearer the ticket was issued for, so every frame authenticates as it would
+ * with the header.
+ *
+ * @since 1.0.0
+ * @category models
+ */
+export const Ticket = Schema.Struct({
+  ticket: Schema.String,
+  expiresInMs: Schema.Number
+})
+
+/**
+ * What `POST /auth/ticket` answers.
+ *
+ * @since 1.0.0
+ * @category models
+ */
+export type Ticket = typeof Ticket.Type
+
+const encodeTicket = Schema.encodeUnknownSync(Ticket)
+
+/** 256 random bits, hex-encoded so a query string carries them unescaped. */
+const newTicket = (): string =>
+  Array.from(crypto.getRandomValues(new Uint8Array(32)), (byte) => byte.toString(16).padStart(2, "0")).join("")
+
+/** The `ticket` query parameter of a request target, when it has one. */
+const presentedTicket = (url: string): string | undefined => {
+  const parsed = URL.parse(url, "http://gateway.invalid")
+  const ticket = parsed?.searchParams.get("ticket")
+  return ticket === null || ticket === undefined || ticket === "" ? undefined : ticket
+}
+
+/**
  * Default maximum request body accepted by an RPC mount (one MiB).
  *
  * @category constants
@@ -472,9 +540,15 @@ export interface IngressOptions {
   readonly maxRequestBodyBytes?: number | undefined
   /** Confine requests to loopback Host values and browser origins. */
   readonly loopbackOnly?: boolean | undefined
+  /**
+   * Edge authentication for {@link protectedPaths}. When set, `POST
+   * /auth/ticket` exchanges a credential it accepts for a {@link Ticket}.
+   */
   readonly authorize?: (
     headers: Readonly<Record<string, string>>
   ) => Effect.Effect<boolean>
+  /** How long an unredeemed ticket stays valid. Default {@link defaultTicketMillis}. */
+  readonly ticketMillis?: number | undefined
 }
 
 const encodeGatewayError = Schema.encodeUnknownSync(GatewayError)
@@ -672,23 +746,66 @@ export const carriesRpcRequest = (
  * @category layers
  */
 export const layerIngress = (options: IngressOptions = {}) => {
-  const refusal = settingRefusal("The gateway request body limit", options.maxRequestBodyBytes)
+  const refusal = settingRefusal("The gateway request body limit", options.maxRequestBodyBytes) ??
+    settingRefusal("The gateway ticket lifetime", options.ticketMillis)
   if (refusal !== undefined) return Layer.effectDiscard(Effect.fail(refusal))
   const maxBytes = options.maxRequestBodyBytes ?? defaultMaxRequestBodyBytes
   const allowedHosts = options.allowedHosts ?? loopbackHostHeaderNames
+  const ticketMillis = options.ticketMillis ?? defaultTicketMillis
   return HttpRouter.middleware(
     Effect.gen(function*() {
       const serialization = yield* RpcSerialization.RpcSerialization
       const binary = !serialization.contentType.includes("json")
+      /** Outstanding tickets: the Authorization header each was issued under, and when it lapses. */
+      const tickets = new Map<string, { readonly authorization: string; readonly expiresAt: number }>()
+      const issue = (authorization: string, now: number): Ticket => {
+        for (const [ticket, entry] of tickets) {
+          if (entry.expiresAt <= now) tickets.delete(ticket)
+        }
+        if (tickets.size >= maxOutstandingTickets) tickets.delete(tickets.keys().next().value!)
+        const ticket = newTicket()
+        tickets.set(ticket, { authorization, expiresAt: now + ticketMillis })
+        return { ticket, expiresInMs: ticketMillis }
+      }
+      // Lookup and delete run without yielding, so of two upgrades presenting
+      // one ticket exactly one gets its header.
+      const redeem = (url: string, now: number): string | undefined => {
+        const ticket = presentedTicket(url)
+        const entry = ticket === undefined ? undefined : tickets.get(ticket)
+        if (entry === undefined) return undefined
+        tickets.delete(ticket!)
+        return entry.expiresAt > now ? entry.authorization : undefined
+      }
       return (httpEffect: Effect.Effect<HttpServerResponse.HttpServerResponse, Types.unhandled>) =>
         Effect.gen(function*() {
           const request = yield* HttpServerRequest.HttpServerRequest
           const browserRefusal = browserRequestRefusal(request.headers, allowedHosts, options.loopbackOnly === true)
           if (browserRefusal !== undefined) return refuse(browserRefusal.error, browserRefusal.status)
           const path = routedPath(request.url)
+          if (path === ticketPath && request.method === "POST" && options.authorize !== undefined) {
+            const authorization = request.headers.authorization
+            if (authorization === undefined || !(yield* options.authorize(request.headers))) {
+              return refuse(unauthorizedRequest(), 401)
+            }
+            const now = yield* Effect.clockWith((clock) => clock.currentTimeMillis)
+            return HttpServerResponse.jsonUnsafe(encodeTicket(issue(authorization, now)), {
+              headers: { "cache-control": "no-store" }
+            })
+          }
           if (protectedPaths.includes(path) && options.authorize !== undefined) {
             const authorized = yield* options.authorize(request.headers)
-            if (!authorized) return refuse(unauthorizedRequest(), 401)
+            if (!authorized) {
+              const now = yield* Effect.clockWith((clock) => clock.currentTimeMillis)
+              const authorization = ticketPaths.includes(path) ? redeem(request.url, now) : undefined
+              if (authorization === undefined) return refuse(unauthorizedRequest(), 401)
+              // The socket protocol stamps the upgrade's headers on every
+              // frame, so the redeemed bearer authenticates each one.
+              return yield* Effect.provideService(
+                httpEffect,
+                HttpServerRequest.HttpServerRequest,
+                request.modify({ headers: Headers.set(request.headers, "authorization", authorization) })
+              )
+            }
           }
           if (request.method !== "POST" || !boundedPostPaths.includes(path)) return yield* httpEffect
           // A declared length is a hint that saves reading a body already

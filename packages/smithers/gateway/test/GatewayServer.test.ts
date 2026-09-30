@@ -2267,3 +2267,151 @@ describe("gateway startup", () => {
       )
     ))
 })
+
+describe("single-use WebSocket tickets for browser clients", () => {
+  const upgrade = (url: string, target: string) =>
+    Effect.promise(() =>
+      raw(`${url}${target}`, [
+        `GET ${target} HTTP/1.1`,
+        "Connection: Upgrade",
+        "Upgrade: websocket",
+        "Sec-WebSocket-Version: 13",
+        "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ=="
+      ])
+    )
+  const issue = (url: string, credential?: string) =>
+    Effect.promise(() =>
+      fetch(`${url}/auth/ticket`, {
+        method: "POST",
+        headers: credential === undefined ? {} : { authorization: `Bearer ${credential}` }
+      })
+    )
+  const ticketOf = (url: string) =>
+    Effect.gen(function*() {
+      const response = yield* issue(url, "edge-secret")
+      expect(response.status).toBe(200)
+      const body = (yield* Effect.promise(() => response.json())) as { ticket: string; expiresInMs: number }
+      expect(body.ticket).toMatch(/^[0-9a-f]{64}$/)
+      return body
+    })
+  const list = `${JSON.stringify({ _tag: "Request", id: 1, tag: "List", payload: { _tag: "runs" }, headers: [] })}\n`
+  const credentialed = served({ host: "127.0.0.1", port: 0, credential: "edge-secret" })
+
+  test("exchanges a bearer for a short-lived ticket and refuses anyone else", () =>
+    Effect.gen(function*() {
+      const url = yield* baseUrl
+      const { expiresInMs } = yield* ticketOf(url)
+      expect(expiresInMs).toBe(GatewayServer.defaultTicketMillis)
+      expect((yield* issue(url, "edge-secret")).headers.get("cache-control")).toBe("no-store")
+      for (const credential of [undefined, "wrong-secret"]) {
+        const refused = yield* issue(url, credential)
+        expect(refused.status).toBe(401)
+        expect(yield* Effect.promise(() => refused.json() as Promise<unknown>)).toMatchObject({
+          code: "unauthorized"
+        })
+      }
+      // A browser page from another origin cannot mint one either.
+      const crossOrigin = yield* Effect.promise(() =>
+        fetch(`${url}/auth/ticket`, {
+          method: "POST",
+          headers: { authorization: "Bearer edge-secret", origin: "https://attacker.example" }
+        })
+      )
+      expect(crossOrigin.status).toBe(403)
+    }).pipe(Effect.provide(credentialed)))
+
+  test("opens a protected socket once without a header, then refuses the replay", () =>
+    Effect.gen(function*() {
+      const url = yield* baseUrl
+      const ws = url.replace("http://", "ws://")
+      for (const path of ["/rpc/ws", "/projections/ws", "/sync/ws"]) {
+        const { ticket } = yield* ticketOf(url)
+        expect([path, (yield* upgrade(url, `${path}?ticket=${ticket}`)).status]).toEqual([path, 101])
+        expect([path, (yield* upgrade(url, `${path}?ticket=${ticket}`)).status]).toEqual([path, 401])
+      }
+      // The redeemed socket carries the bearer's identity on every frame, so a
+      // control call answers Success rather than `/control/Unauthorized`.
+      const { ticket } = yield* ticketOf(url)
+      const frames = yield* Effect.promise(() => socketExchange(`${ws}/rpc/ws?ticket=${ticket}`, undefined, list))
+      const exit = frames.flatMap((frame) => frame.split("\n")).find((line) => line.includes("\"Exit\""))
+      expect(exit).toContain("\"Success\"")
+      expect(exit).not.toContain("Unauthorized")
+    }).pipe(Effect.provide(credentialed)))
+
+  test("refuses an unknown ticket and never unlocks a request/response mount", () =>
+    Effect.gen(function*() {
+      const url = yield* baseUrl
+      expect((yield* upgrade(url, `/rpc/ws?ticket=${"0".repeat(64)}`)).status).toBe(401)
+      expect((yield* upgrade(url, "/rpc/ws?ticket=")).status).toBe(401)
+      const { ticket } = yield* ticketOf(url)
+      const post = yield* Effect.promise(() =>
+        fetch(`${url}/projections?ticket=${ticket}`, { method: "POST", body: list })
+      )
+      expect(post.status).toBe(401)
+      // A router-equivalent spelling of a socket mount redeems like the mount.
+      const alias = yield* ticketOf(url)
+      expect((yield* upgrade(url, `/RPC/WS/?ticket=${alias.ticket}`)).status).toBe(101)
+    }).pipe(Effect.provide(credentialed)))
+
+  test("admits exactly one of two concurrent upgrades presenting one ticket", () =>
+    Effect.gen(function*() {
+      const url = yield* baseUrl
+      const { ticket } = yield* ticketOf(url)
+      const statuses = yield* Effect.all(
+        [upgrade(url, `/rpc/ws?ticket=${ticket}`), upgrade(url, `/rpc/ws?ticket=${ticket}`)],
+        { concurrency: "unbounded" }
+      )
+      expect(statuses.map((response) => response.status).sort()).toEqual([101, 401])
+    }).pipe(Effect.provide(credentialed)))
+
+  test("is not offered by a gateway with no bearer credential", () =>
+    Effect.gen(function*() {
+      const url = yield* baseUrl
+      expect((yield* issue(url)).status).toBe(404)
+    }).pipe(Effect.provide(served())))
+
+  describe("at the ingress seam", () => {
+    /** A socket mount that answers the Authorization header it was handed. */
+    const echo = Effect.map(
+      HttpServerRequest.HttpServerRequest,
+      (request) => HttpServerResponse.text(request.headers.authorization ?? "none")
+    )
+    const bound = (ticketMillis: number) =>
+      HttpRouter.serve(
+        Layer.mergeAll(
+          HttpRouter.add("GET", "/rpc/ws", echo),
+          GatewayServer.layerIngress({
+            ticketMillis,
+            authorize: (headers) => Effect.succeed(headers.authorization === "Bearer edge-secret")
+          })
+        ).pipe(Layer.provide(RpcSerialization.layerNdjson)),
+        { disableListenLog: true, disableLogger: true }
+      ).pipe(Layer.provideMerge(NodeHttpServer.layer(createServer, { host: "127.0.0.1", port: 0 })))
+
+    test("hands the socket mount the bearer the ticket was issued under", () =>
+      Effect.gen(function*() {
+        const url = yield* baseUrl
+        const { ticket } = yield* ticketOf(url)
+        const response = yield* Effect.promise(() => fetch(`${url}/rpc/ws?ticket=${ticket}`))
+        expect(response.status).toBe(200)
+        expect(yield* Effect.promise(() => response.text())).toBe("Bearer edge-secret")
+      }).pipe(Effect.provide(bound(30_000))))
+
+    test("refuses a ticket presented after its lifetime", () =>
+      Effect.gen(function*() {
+        const url = yield* baseUrl
+        const { expiresInMs, ticket } = yield* ticketOf(url)
+        expect(expiresInMs).toBe(20)
+        yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 60)))
+        const response = yield* Effect.promise(() => fetch(`${url}/rpc/ws?ticket=${ticket}`))
+        expect(response.status).toBe(401)
+      }).pipe(Effect.provide(bound(20))))
+
+    it("refuses a ticket lifetime that is not a positive safe integer", () =>
+      Effect.runPromise(
+        Effect.flip(Layer.build(bound(0)).pipe(Effect.scoped)).pipe(
+          Effect.map((error) => expect(error).toMatchObject({ code: "bind_failed" }))
+        )
+      ))
+  })
+})
