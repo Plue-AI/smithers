@@ -212,7 +212,6 @@ describe("the removed surface", () => {
       "alerts",
       "herdr",
       "openapi",
-      "token",
       "cron",
       "make-workflow",
       "starters",

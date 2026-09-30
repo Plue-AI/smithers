@@ -113,6 +113,31 @@ supply a restricted policy such as the one above. See
 Read the [control-plane guide](/docs/guides/control-plane/)
 before opting into a non-loopback bind.
 
+## Hand out less than the token
+
+`smthrs token mint` signs a narrower grant under `SMITHERS_TOKEN`, so a script
+or a browser can hold something that reads runs and nothing else, and stops
+working on its own:
+
+```bash
+export SMITHERS_TOKEN="<the gateway credential>"
+smthrs token mint --scope read:runs --ttl 1h
+smthrs token mint --scope read:runs --scope write:runs --run run-42 --ttl 15m
+```
+
+`--scope` repeats over `read:runs`, `write:runs`, and `approve:runs`; `--run`
+or `--flow` confines every call to that run or flow; `--ttl` takes `30s`,
+`15m`, `1h`, or `2d`. The command prints the token; `--json` adds when it
+expires and the exact procedures it names. The gateway verifies it with
+`SMITHERS_TOKEN` and stores nothing, so rotating the credential revokes every
+token minted under it. An `approve:runs` token stamps `gateway/scoped` and
+decides only where the host delegates to that identity.
+
+A browser cannot put either token on a WebSocket upgrade, so it posts to
+`/auth/ticket` with the token in `Authorization` and opens the socket with the
+single-use `?ticket=` it receives. See
+[the trust boundary](/pkg/gateway/concepts/trust-boundary/#browsers-open-sockets-with-a-single-use-ticket).
+
 ## Identifying a gateway
 
 `GET /health` is the one unauthenticated route. It answers the workspace this

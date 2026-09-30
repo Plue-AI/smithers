@@ -45,6 +45,7 @@ signature, is on the [API reference](https://control.smithers.sh/reference/api/)
 | `ControlExecutor`                                   | The execution port: launch, cancel, signal, resume, and the park settlement a cancel needs.            |
 | `DispatchReader`                                    | The trigger read port: registered triggers and the fire ledger `list` pages; `layerNone` refuses.      |
 | `ControlRpcs`, `ControlServer`, `ControlClient`     | The RPC contract, the HTTP and WebSocket mount, and the client projected back into `Control`.          |
+| `ScopedToken`                                       | Scoped, expiring tokens minted under a bearer credential and verified with it.                         |
 | `Lineage`, `Cancellation`, `Steering`               | Pure projections: how a run came to exist, who cancelled it, and when a steer was delivered.           |
 | `Monitor`                                           | Run health as a pure classification, and the beat loop that acts on it.                                |
 | `Health`                                            | Configurable Effect checks, bounded observation policies, provenance, and the shared status rollup.    |

@@ -1,0 +1,25 @@
+smthrs token mint — Mint a token limited to the named scopes, an optional run or flow, and a lifetime
+
+Usage: smthrs token mint [options]
+
+Options:
+  --scope <array>  Repeatable: read:runs, write:runs, or approve:runs
+  --ttl <string>   Lifetime such as 30s, 15m, 1h, or 2d (default: 1h)
+  --run <string>   Confine every call to this run id
+  --flow <string>  Confine every call to this flow id
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output

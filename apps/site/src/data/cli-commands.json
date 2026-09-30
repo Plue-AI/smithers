@@ -10183,6 +10183,48 @@
       }
     },
     {
+      "name": "token mint",
+      "description": "Mint a token limited to the named scopes, an optional run or flow, and a lifetime",
+      "schema": {
+        "options": {
+          "type": "object",
+          "properties": {
+            "scope": {
+              "minItems": 1,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "read:runs",
+                  "write:runs",
+                  "approve:runs"
+                ]
+              },
+              "description": "Repeatable: read:runs, write:runs, or approve:runs"
+            },
+            "ttl": {
+              "default": "1h",
+              "description": "Lifetime such as 30s, 15m, 1h, or 2d",
+              "type": "string"
+            },
+            "run": {
+              "description": "Confine every call to this run id",
+              "type": "string"
+            },
+            "flow": {
+              "description": "Confine every call to this flow id",
+              "type": "string"
+            }
+          },
+          "required": [
+            "scope",
+            "ttl"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
       "name": "triggers disable",
       "description": "Disable future occurrences without cancelling an active run",
       "schema": {

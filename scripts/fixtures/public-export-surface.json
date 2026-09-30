@@ -1361,6 +1361,28 @@
     },
     {
       "name": "@smthrs/cli",
+      "subpath": "./cli/TokenCommands",
+      "development": "./src/cli/TokenCommands.ts",
+      "published": {
+        "types": "./dist/esm/cli/TokenCommands.d.ts",
+        "import": "./dist/esm/cli/TokenCommands.js",
+        "require": "./dist/cjs/cli/TokenCommands.js"
+      },
+      "reason": "`smthrs token mint` (#1791): mints a scoped, expiring gateway token under SMITHERS_TOKEN; never offered over MCP."
+    },
+    {
+      "name": "@smthrs/control",
+      "subpath": "./ScopedToken",
+      "development": "./src/ScopedToken.ts",
+      "published": {
+        "types": "./dist/esm/ScopedToken.d.ts",
+        "import": "./dist/esm/ScopedToken.js",
+        "require": "./dist/cjs/ScopedToken.js"
+      },
+      "reason": "Scoped, expiring gateway tokens (#1791): HMAC-signed under the bearer credential, verified in ControlAuth per procedure, run and flow; the gateway admits them only toward the in-band-authenticated mounts."
+    },
+    {
+      "name": "@smthrs/cli",
       "subpath": "./CloudSandbox",
       "development": "./src/CloudSandbox.ts",
       "published": {

@@ -18,7 +18,7 @@
  * @since 1.0.0
  */
 
-import { ControlRpcs } from "@smthrs/control"
+import { ControlRpcs, ScopedToken } from "@smthrs/control"
 import { Effect, Layer } from "effect"
 import { HttpRouter } from "effect/unstable/http"
 import type { HttpServer } from "effect/unstable/http/HttpServer"
@@ -146,8 +146,11 @@ export const listenOptions = (options: ServerOptions): Effect.Effect<ListenOptio
  * The authentication both RPC mounts run under.
  *
  * A configured credential authenticates every request that presents it and
- * stamps the same server-owned principal. With no credential the composition
- * is loopback-only (see {@link listenOptions}) and every request runs as the
+ * stamps the same server-owned principal. A scoped token minted under that
+ * credential (`@smthrs/control` `ScopedToken`) authenticates only the
+ * procedures, run, or flow it names, until it expires, and stamps
+ * {@link scopedPrincipal}. With no credential the composition is
+ * loopback-only (see {@link listenOptions}) and every request runs as the
  * anonymous read principal. A session operator token alone stamps the local
  * operator for approval decisions; without it approvals are unauthorized.
  *
@@ -174,10 +177,20 @@ export const layerAuth = (options: ServerOptions): Layer.Layer<ControlRpcs.Contr
         )
       }
     })
-    : ControlRpcs.layerBearerAuth({
-      token: options.credential,
-      principal: bearerPrincipal
-    })
+    : ControlRpcs.layerAuth(credentialAuthenticator(options.credential))
+
+/**
+ * The bearer credential itself, or a scoped token minted under it.
+ *
+ * The runtime bridge deliberately does not use this: it accepts the bearer
+ * alone, because a scoped token names control procedures and the bridge's
+ * versioned commands are not those.
+ */
+const credentialAuthenticator = (credential: string): ControlRpcs.Authenticator =>
+  ControlRpcs.anyAuthenticator([
+    ControlRpcs.bearerAuthenticator({ token: credential, principal: bearerPrincipal }),
+    ScopedToken.authenticator({ key: credential, principal: scopedPrincipal })
+  ])
 
 /**
  * The identity stamped only after this gateway verifies its configured token.
@@ -186,6 +199,26 @@ export const layerAuth = (options: ServerOptions): Layer.Layer<ControlRpcs.Contr
  * @since 1.0.0
  */
 export const bearerPrincipal = Object.freeze({ id: "gateway", kind: "bearer" })
+
+/**
+ * The protected mounts a scoped token may reach: those guarded in band by
+ * `ControlAuth`, which checks each frame's procedure against the token, and
+ * the ticket exchange that opens their sockets.
+ * @category constants
+ * @since 1.0.0
+ */
+export const scopedTokenPaths: ReadonlyArray<string> = ["/rpc", "/rpc/ws", "/projections", "/projections/ws", "/auth/ticket"]
+
+/**
+ * The identity stamped after this gateway verifies a scoped token minted
+ * under its configured credential. It is its own kind so that delegating
+ * approval to {@link bearerPrincipal} does not delegate it to every token
+ * minted from the bearer; a host that wants a scoped `approve:runs` token to
+ * decide delegates to this identity explicitly.
+ * @category constants
+ * @since 1.0.0
+ */
+export const scopedPrincipal = Object.freeze({ id: "gateway", kind: "scoped" })
 
 /**
  * The ingress policy a requested bind runs behind.
@@ -216,15 +249,16 @@ export const ingressOptions = (options: ServerOptions): GatewayServer.IngressOpt
       allowedHosts
     }
   }
-  const authenticator = ControlRpcs.bearerAuthenticator({
-    token: options.credential,
-    principal: bearerPrincipal
-  })
+  // The edge knows no call, so a scoped token passes here on its signature
+  // and expiry, and only toward the mounts whose every frame `ControlAuth`
+  // judges in band; journal sync and the runtime bridge take the bearer alone.
+  const bearer = ControlRpcs.bearerAuthenticator({ token: options.credential, principal: bearerPrincipal })
+  const scoped = credentialAuthenticator(options.credential)
   return {
     allowedHosts,
     ...(maxRequestBodyBytes === undefined ? {} : { maxRequestBodyBytes }),
-    authorize: (headers) =>
-      authenticator.authenticate(headers).pipe(
+    authorize: (headers, path) =>
+      (scopedTokenPaths.includes(path) ? scoped : bearer).authenticate(headers).pipe(
         Effect.match({ onFailure: () => false, onSuccess: () => true })
       )
   }

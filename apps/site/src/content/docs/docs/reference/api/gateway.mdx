@@ -63,6 +63,18 @@ JSON routes.
 | `POST /runtime/v1/command` | JSON               | Versioned launch and Control mutations (optional)    |
 | `POST /runtime/v1/observe` | JSON               | Bounded journal replay and run projection (optional) |
 
+### Scoped tokens
+
+A credentialed gateway also accepts a token minted under its credential with
+`@smthrs/control` `ScopedToken` (`smthrs token mint`). The edge admits it on
+its signature and expiry alone, and only toward `NodeGateway.scopedTokenPaths`
+(`/rpc`, `/projections`, their sockets, and `/auth/ticket`); every RPC frame is
+then judged in band against the procedures, run, or flow it names, and it
+stamps `NodeGateway.scopedPrincipal` (`gateway/scoped`), which no delegation to
+`gateway/bearer` covers. Journal sync and the runtime bridge accept the bearer
+alone, and a ticket issued against a scoped token opens only what the token
+could open.
+
 ### Runtime observation cursors
 
 `POST /runtime/v1/observe` returns `nextCursor`; pass it back unchanged as
@@ -78,18 +90,22 @@ retryability without exposing backend message text.
 
 ### Types and constants
 
-| Export                       | Signature                                                                                            | Meaning                                                                                                         |
-| ---------------------------- | ---------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `Health`                     | `Schema.Struct` and its type                                                                         | What `GET /health` answers: gateway identity, package version, and optional non-secret runtime bridge identity. |
-| `LayerOptions`               | `{ heartbeatMillis?; ingress?; runtimeBridge? }`                                                     | How an assembled gateway is configured. `runtimeBridge` opts into the versioned Go adapter.                     |
-| `IngressOptions`             | `{ maxRequestBodyBytes?: number; loopbackOnly?: boolean; authorize?: (headers) => Effect<boolean> }` | The ingress policy the RPC mounts run behind.                                                                   |
-| `rpcPaths`                   | `ReadonlyArray<string>`                                                                              | `["/rpc", "/projections", "/sync"]`: the `POST` mounts that carry RPC request messages.                         |
-| `boundedPostPaths`           | `ReadonlyArray<string>`                                                                              | RPC mounts plus both runtime bridge routes; every body is bounded before a handler reads it.                    |
-| `protectedPaths`             | `ReadonlyArray<string>`                                                                              | Projection, sync, WebSocket, and runtime bridge paths that pass edge authentication.                            |
-| `defaultMaxRequestBodyBytes` | `number`                                                                                             | 1,048,576. The default maximum request body accepted by an RPC mount.                                           |
-| `loopbackHostNames`          | `ReadonlyArray<string>`                                                                              | `["127.0.0.1", "localhost", "::1"]`: the names that mean this machine only, as a bind address is spelled.       |
-| `loopbackHostHeaderNames`    | `ReadonlyArray<string>`                                                                              | `["127.0.0.1", "localhost", "[::1]"]`: the same names as a Host header spells them; the default `allowedHosts`. |
-| `watchHeartbeatKind`         | `"control.gateway.heartbeat"`                                                                        | The `ControlEvent` kind a `Watch` keepalive carries.                                                            |
+| Export                       | Signature                                                                                                                         | Meaning                                                                                                         |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `Health`                     | `Schema.Struct` and its type                                                                                                      | What `GET /health` answers: gateway identity, package version, and optional non-secret runtime bridge identity. |
+| `LayerOptions`               | `{ heartbeatMillis?; ingress?; runtimeBridge? }`                                                                                  | How an assembled gateway is configured. `runtimeBridge` opts into the versioned Go adapter.                     |
+| `IngressOptions`             | `{ maxRequestBodyBytes?: number; loopbackOnly?: boolean; authorize?: (headers, path) => Effect<boolean>; ticketMillis?: number }` | The ingress policy the RPC mounts run behind.                                                                   |
+| `Ticket`                     | `Schema.Struct` and its type                                                                                                      | What `POST /auth/ticket` answers: `{ ticket, expiresInMs }`, a single-use key that opens one protected socket.  |
+| `ticketPath`                 | `"/auth/ticket"`                                                                                                                  | Exchanges an accepted bearer for a `Ticket`. Served only when `authorize` is set.                               |
+| `ticketPaths`                | `ReadonlyArray<string>`                                                                                                           | `["/rpc/ws", "/projections/ws", "/sync/ws"]`: the sockets a ticket opens as `<mount>?ticket=<ticket>`.          |
+| `defaultTicketMillis`        | `number`                                                                                                                          | 30,000. How long an unredeemed ticket stays valid.                                                              |
+| `rpcPaths`                   | `ReadonlyArray<string>`                                                                                                           | `["/rpc", "/projections", "/sync"]`: the `POST` mounts that carry RPC request messages.                         |
+| `boundedPostPaths`           | `ReadonlyArray<string>`                                                                                                           | RPC mounts plus both runtime bridge routes; every body is bounded before a handler reads it.                    |
+| `protectedPaths`             | `ReadonlyArray<string>`                                                                                                           | Projection, sync, WebSocket, and runtime bridge paths that pass edge authentication.                            |
+| `defaultMaxRequestBodyBytes` | `number`                                                                                                                          | 1,048,576. The default maximum request body accepted by an RPC mount.                                           |
+| `loopbackHostNames`          | `ReadonlyArray<string>`                                                                                                           | `["127.0.0.1", "localhost", "::1"]`: the names that mean this machine only, as a bind address is spelled.       |
+| `loopbackHostHeaderNames`    | `ReadonlyArray<string>`                                                                                                           | `["127.0.0.1", "localhost", "[::1]"]`: the same names as a Host header spells them; the default `allowedHosts`. |
+| `watchHeartbeatKind`         | `"control.gateway.heartbeat"`                                                                                                     | The `ControlEvent` kind a `Watch` keepalive carries.                                                            |
 
 `POST /rpc` is deliberately not in `protectedPaths`, and `GET /health` is
 deliberately unauthenticated. Both decisions, and the alias handling behind
@@ -135,8 +151,10 @@ The Node host: bind policy, credential policy, and the socket.
 | `bindRefusal`          | `(options: ServerOptions) => GatewayError \| undefined`                                                                                               | The typed `bind_failed` refusal a requested bind earns, or `undefined` when it is allowed.                                |
 | `listenOptions`        | `(options: ServerOptions) => Effect<ListenOptions, GatewayError>`                                                                                     | The admitted `node:net` options, with this module's own fields removed, or that refusal in the error channel.             |
 | `ingressOptions`       | `(options: ServerOptions) => GatewayServer.IngressOptions`                                                                                            | The Host policy for a bind: the loopback names, `allowedHosts`, and the concrete bind host; a wildcard bind adds nothing. |
-| `layerAuth`            | `(options: ServerOptions) => Layer<ControlRpcs.ControlAuth>`                                                                                          | Bearer authentication when a credential is configured, and the loopback-only local operator when none is.                 |
+| `layerAuth`            | `(options: ServerOptions) => Layer<ControlRpcs.ControlAuth>`                                                                                          | The bearer or a scoped token minted under it when a credential is configured; the loopback-only local operator otherwise. |
 | `bearerPrincipal`      | `Readonly<{ id: string; kind: string }>`                                                                                                              | The frozen `{ id: "gateway", kind: "bearer" }` identity stamped by shared-bearer authentication.                          |
+| `scopedPrincipal`      | `Readonly<{ id: string; kind: string }>`                                                                                                              | The frozen `{ id: "gateway", kind: "scoped" }` identity a verified scoped token stamps.                                   |
+| `scopedTokenPaths`     | `ReadonlyArray<string>`                                                                                                                               | The protected mounts a scoped token may reach at the edge: `/rpc`, `/projections`, their sockets, and `/auth/ticket`.     |
 | `layer`                | `(health: GatewayServer.Health, options?: ServerOptions) => Layer<..., GatewayError, Control \| SyncAuth \| SyncServer \| Projections>`               | The assembled gateway on a Node HTTP server.                                                                              |
 
 `layer` supplies the bind policy, the shared-credential authentication both RPC

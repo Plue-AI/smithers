@@ -57,6 +57,7 @@
     "./Lineage": "./src/Lineage.ts",
     "./Migrations": "./src/Migrations.ts",
     "./Monitor": "./src/Monitor.ts",
+    "./ScopedToken": "./src/ScopedToken.ts",
     "./SqlControlRuntime": "./src/SqlControlRuntime.ts",
     "./SqlCredentialStore": "./src/SqlCredentialStore.ts",
     "./Steering": "./src/Steering.ts",
@@ -285,6 +286,16 @@
         "require": {
           "types": "./dist/cjs/Monitor.d.ts",
           "default": "./dist/cjs/Monitor.js"
+        }
+      },
+      "./ScopedToken": {
+        "import": {
+          "types": "./dist/esm/ScopedToken.d.ts",
+          "default": "./dist/esm/ScopedToken.js"
+        },
+        "require": {
+          "types": "./dist/cjs/ScopedToken.d.ts",
+          "default": "./dist/cjs/ScopedToken.js"
         }
       },
       "./SqlControlRuntime": {

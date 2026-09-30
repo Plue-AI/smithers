@@ -2,6 +2,7 @@ import * as BunCrypto from "@effect/platform-bun/BunCrypto"
 import { NodeWS } from "@effect/platform-node/NodeSocket"
 import * as ControlExecutor from "@smthrs/control/ControlExecutor"
 import * as ControlLive from "@smthrs/control/ControlLive"
+import * as ScopedToken from "@smthrs/control/ScopedToken"
 import * as SqlControlRuntime from "@smthrs/control/SqlControlRuntime"
 import * as Database from "@smthrs/database/bun/BunDatabase"
 import * as DurableWriter from "@smthrs/database/DurableWriter"
@@ -80,7 +81,7 @@ await Effect.runPromise(Effect.scoped(
       assert.equal(result.status, 200)
       assert.match(await result.text(), /"Success"/)
     })
-    const exchange = (target: string, headers: Record<string, string>) =>
+    const exchange = (target: string, headers: Record<string, string>, payload = request) =>
       new Promise<string>((resolve, reject) => {
         const socket = new NodeWS.WebSocket(url.replace("http:", "ws:") + target, { headers })
         const timer = setTimeout(() => {
@@ -91,7 +92,7 @@ await Effect.runPromise(Effect.scoped(
           clearTimeout(timer)
           reject(error)
         })
-        socket.on("open", () => socket.send(request))
+        socket.on("open", () => socket.send(payload))
         socket.on("message", (data) => {
           const text = String(data)
           if (!text.includes("\"Exit\"")) return
@@ -102,6 +103,13 @@ await Effect.runPromise(Effect.scoped(
       })
     const frame = yield* Effect.promise(() => exchange("/rpc/ws", { authorization: "Bearer test-bun-token" }))
     assert.match(frame, /"Success"/)
+    // A scoped token minted under the bearer reads, and is refused a mutation in band.
+    const scoped = yield* ScopedToken.mint({ key: "test-bun-token", scopes: ["read:runs"], ttlMillis: 60_000 })
+    const plan = JSON.stringify({ _tag: "Request", id: 1, tag: "Plan", payload: { flowId: "system/test", input: {} }, headers: [] }) + "\n"
+    yield* Effect.promise(async () => {
+      assert.match(await exchange("/rpc/ws", { authorization: `Bearer ${scoped.token}` }), /"Success"/)
+      assert.match(await exchange("/rpc/ws", { authorization: `Bearer ${scoped.token}` }, plan), /does not authorize Plan/)
+    })
     // A browser cannot set the header: it trades the bearer for a single-use ticket.
     yield* Effect.promise(async () => {
       assert.equal((await fetch(`${url}/auth/ticket`, { method: "POST" })).status, 401)
@@ -120,7 +128,7 @@ await Effect.runPromise(Effect.scoped(
         runtime: "bun",
         passed: true,
         checks:
-          "SQLite, HTTP RPC, authenticated WebSocket RPC, WebSocket ticket, bind conflict, bearer, Host and Origin"
+          "SQLite, HTTP RPC, authenticated WebSocket RPC, scoped token, WebSocket ticket, bind conflict, bearer, Host and Origin"
       }) + "\n"
     )
     // The bind-conflict probe logs the operating-system cause at error level; stdout is the one JSON result the test parses, so the log goes to stderr.

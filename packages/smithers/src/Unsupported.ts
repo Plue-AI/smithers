@@ -123,7 +123,6 @@ export const removedVerbs: ReadonlyArray<RemovedVerb> = [
   ]),
   removedGroup("Accounts and providers", plugins, "herdr", ["status", "attach", "open", "clean"]),
   removedGroup("Accounts and providers", plugins, "openapi", ["list", "generate"]),
-  removedGroup("Accounts and providers", plugins, "token", ["issue", "exec", "revoke"]),
   removedGroup("Accounts and providers", "use `smthrs triggers register|list|show|enable|disable|fire|serve`", "cron", [
     "start",
     "add",

@@ -23,6 +23,7 @@ import { createGenerateCli, initialize } from "./cli/Generate.ts"
 import { appendHistoryCommands } from "./cli/HistoryCommands.ts"
 import * as Presentation from "./cli/Presentation.ts"
 import { createStepCacheCli } from "./cli/StepCacheCommands.ts"
+import { createTokenCli } from "./cli/TokenCommands.ts"
 import * as CliError from "./CliError.ts"
 import * as BugCmd from "./commands/Bug.ts"
 import * as DoctorCmd from "./commands/Doctor.ts"
@@ -127,6 +128,7 @@ export const makeCli = (config: Bridge.Runtime = {}): ReturnType<typeof makeBuil
     .command(createMemoryCli())
     .command(mcp)
     .command(createCredentialsCli())
+    .command(createTokenCli(config))
     .command(createTriggersCli(config))
     .command(createIntegrationsCli())
     .command(createEnvironmentCli(config))

@@ -88,10 +88,30 @@ curl -s https://gateway.example.com/projections \
 '
 ```
 
-A WebSocket client sends the same header on the upgrade request. Node's global
-`WebSocket` cannot set headers on an upgrade, so a browser reaches a
-credentialed gateway through a relay that holds the credential rather than
-holding it itself.
+A WebSocket client sends the same header on the upgrade request. A browser's
+`WebSocket` cannot set headers on an upgrade, so it exchanges the credential for
+a single-use ticket first and presents that on the upgrade instead:
+
+```js
+const { ticket } = await (await fetch("https://gateway.example.com/auth/ticket", {
+  method: "POST",
+  headers: { authorization: `Bearer ${token}` }
+})).json()
+const socket = new WebSocket(`wss://gateway.example.com/rpc/ws?ticket=${ticket}`)
+```
+
+The ticket opens one socket within thirty seconds and is refused on replay.
+The socket runs as the credential the ticket was issued against.
+
+## Hand out less than the credential
+
+`smthrs token mint --scope read:runs --ttl 1h` mints a token under
+`SMITHERS_TOKEN` that this gateway accepts for the procedures the scope names
+and nothing else, until it expires. `--run <id>` or `--flow <id>` confines it
+further. The scopes are `read:runs`, `write:runs`, and `approve:runs`; a token
+stamps `gateway/scoped`, so an `approve:runs` token decides only where the host
+delegates to that identity. Rotating `SMITHERS_TOKEN` revokes every token
+minted under it. See [the trust boundary](/concepts/trust-boundary/#scoped-expiring-tokens).
 
 `/health` stays unauthenticated even here. It answers identity and nothing
 else: no token, no run, no path.

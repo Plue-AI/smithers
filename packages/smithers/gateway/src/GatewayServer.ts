@@ -541,11 +541,14 @@ export interface IngressOptions {
   /** Confine requests to loopback Host values and browser origins. */
   readonly loopbackOnly?: boolean | undefined
   /**
-   * Edge authentication for {@link protectedPaths}. When set, `POST
-   * /auth/ticket` exchanges a credential it accepts for a {@link Ticket}.
+   * Edge authentication for {@link protectedPaths}, told which mount the
+   * request reaches. When set, `POST /auth/ticket` exchanges a credential it
+   * accepts for a {@link Ticket}, and a redeemed ticket's credential is judged
+   * again for the mount its upgrade reaches.
    */
   readonly authorize?: (
-    headers: Readonly<Record<string, string>>
+    headers: Readonly<Record<string, string>>,
+    path: string
   ) => Effect.Effect<boolean>
   /** How long an unredeemed ticket stays valid. Default {@link defaultTicketMillis}. */
   readonly ticketMillis?: number | undefined
@@ -784,7 +787,7 @@ export const layerIngress = (options: IngressOptions = {}) => {
           const path = routedPath(request.url)
           if (path === ticketPath && request.method === "POST" && options.authorize !== undefined) {
             const authorization = request.headers.authorization
-            if (authorization === undefined || !(yield* options.authorize(request.headers))) {
+            if (authorization === undefined || !(yield* options.authorize(request.headers, path))) {
               return refuse(unauthorizedRequest(), 401)
             }
             const now = yield* Effect.clockWith((clock) => clock.currentTimeMillis)
@@ -793,17 +796,21 @@ export const layerIngress = (options: IngressOptions = {}) => {
             })
           }
           if (protectedPaths.includes(path) && options.authorize !== undefined) {
-            const authorized = yield* options.authorize(request.headers)
+            const authorized = yield* options.authorize(request.headers, path)
             if (!authorized) {
               const now = yield* Effect.clockWith((clock) => clock.currentTimeMillis)
               const authorization = ticketPaths.includes(path) ? redeem(request.url, now) : undefined
               if (authorization === undefined) return refuse(unauthorizedRequest(), 401)
+              // A ticket stands for the credential it was issued under, which
+              // may not reach every mount a ticket can open.
+              const headers = Headers.set(request.headers, "authorization", authorization)
+              if (!(yield* options.authorize(headers, path))) return refuse(unauthorizedRequest(), 401)
               // The socket protocol stamps the upgrade's headers on every
               // frame, so the redeemed bearer authenticates each one.
               return yield* Effect.provideService(
                 httpEffect,
                 HttpServerRequest.HttpServerRequest,
-                request.modify({ headers: Headers.set(request.headers, "authorization", authorization) })
+                request.modify({ headers })
               )
             }
           }

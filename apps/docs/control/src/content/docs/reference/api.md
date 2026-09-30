@@ -569,9 +569,12 @@ The schema-backed RPC projection of the service.
 | `ControlRpcs`         | group     | Ten procedures: `Plan`, `Run`, `Approve`, `Deny`, `Steer`, `Signal`, `Cancel`, `Resume`, `List`, and the streaming `Watch`. Carries the `ControlAuth` middleware. |
 | `ControlPrincipal`    | class     | The authenticated principal, provided to every handler. Key `/control/ControlPrincipal`.                                                                          |
 | `ControlAuth`         | class     | The middleware boundary. Key `/control/ControlAuth`, error `Unauthorized`.                                                                                        |
-| `Authenticator`       | interface | `{ authenticate: (headers: Record<string, string>) => Effect<Principal, Unauthorized> }`                                                                          |
+| `Call`                | interface | `{ rpc: string; payload: unknown }`: the frame a boundary is authenticating, absent at a transport edge.                                                          |
+| `Authenticator`       | interface | `{ authenticate: (headers: Record<string, string>, call?: Call) => Effect<Principal, Unauthorized> }`                                                             |
 | `BearerAuthOptions`   | interface | `{ token: string; principal: Omit<Principal, "stampedAt">; now?: () => number }`                                                                                  |
+| `bearerCredential`    | function  | `(headers) => string \| undefined`. The bearer a request carries, or nothing.                                                                                     |
 | `bearerAuthenticator` | function  | `(options: BearerAuthOptions) => Authenticator`. Constant-time comparison; missing, malformed, empty, and incorrect credentials all fail closed identically.      |
+| `anyAuthenticator`    | function  | `(authenticators: ReadonlyArray<Authenticator>) => Authenticator`. The first to accept answers; none accepting fails with the last refusal.                       |
 | `layerAuth`           | layer     | `(authenticator: Authenticator) => Layer<ControlAuth>`                                                                                                            |
 | `layerBearerAuth`     | layer     | `(options: BearerAuthOptions) => Layer<ControlAuth>`                                                                                                              |
 | `layerNoopAuth`       | layer     | `(principal?: Principal) => Layer<ControlAuth>`. Authenticates nothing.                                                                                           |
@@ -588,6 +591,26 @@ the server logs them through `ControlServer.logDefect`. A string defect passes
 unchanged, so a payload that fails to decode still answers with the request
 decoder's own sentence. The encoded shape is the one `Schema.Defect()` decodes,
 so older clients and servers read each other's defects.
+
+## ScopedToken
+
+Scoped, expiring tokens minted under a gateway's bearer credential: an
+HMAC-SHA256 grant of named procedures, optionally confined to one run or flow,
+that the gateway verifies with the credential it already holds. The wire form
+is `smt1.<claims>.<signature>`. `smthrs token mint` is the command over it.
+
+| Export            | Kind     | Meaning                                                                                                                                      |
+| ----------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `scopes`, `Scope` | constant | `read:runs`, `write:runs`, and `approve:runs`, each naming the procedures it grants across `ControlRpcs` and the gateway's `GatewayRpcs`.    |
+| `scopeNames`      | constant | The scope names in declaration order.                                                                                                        |
+| `Claims`          | schema   | `{ v: 1; id; procedures; runId?; flowId?; iat; exp }`, milliseconds since the epoch.                                                         |
+| `mint`            | function | `(options: MintOptions) => Effect<Minted>`. Dies on an empty key, no scopes, or a non-positive lifetime.                                     |
+| `verify`          | function | `(key, token, now) => Effect<Claims, Unauthorized>`. Signature and expiry; every malformation is the same refusal.                           |
+| `authorizes`      | function | `(claims, call) => boolean`. The procedure must be named; a confined token authorizes only calls naming its run or flow.                     |
+| `authenticator`   | function | `(options: AuthenticatorOptions) => Authenticator`. Signature and expiry always; procedure and confinement when the boundary knows the call. |
+| `isScopedToken`   | function | `(credential) => boolean`.                                                                                                                   |
+| `procedures`      | function | `(scopes) => ReadonlyArray<string>`, each once.                                                                                              |
+| `prefix`          | constant | `"smt1"`.                                                                                                                                    |
 
 ## ControlServer
 

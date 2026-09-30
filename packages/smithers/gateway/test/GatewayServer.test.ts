@@ -31,6 +31,7 @@ import * as ControlClient from "@smthrs/control/ControlClient"
 import { Unavailable } from "@smthrs/control/ControlError"
 import { ControlRuntime } from "@smthrs/control/ControlRuntime"
 import { type ApprovalPayload, type PlanCard, RunStatus } from "@smthrs/control/ControlSchema"
+import * as ScopedToken from "@smthrs/control/ScopedToken"
 import { SyncAuth as SyncAuthTag } from "@smthrs/sync/SyncRpcs"
 import * as SyncServer from "@smthrs/sync/SyncServer"
 import { Deferred, Effect, Fiber, Layer, Logger, Schema, type Scope, Stream } from "effect"
@@ -2414,4 +2415,199 @@ describe("single-use WebSocket tickets for browser clients", () => {
         )
       ))
   })
+})
+
+describe("scoped tokens over the served gateway", () => {
+  const key = "edge-secret"
+  const frame = (tag: string, payload: unknown) =>
+    `${JSON.stringify({ _tag: "Request", id: 1, tag, payload, headers: [] })}\n`
+  const listRuns = frame("List", { _tag: "runs" })
+  const workspaceRuns = frame("Projection.Snapshot", { selector: { _tag: "workspace-runs" } })
+  const post = (url: string, mount: string, credential: string | undefined, body: string) =>
+    Effect.promise(async () => {
+      const response = await fetch(`${url}/${mount}`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...(credential === undefined ? {} : { authorization: `Bearer ${credential}` })
+        },
+        body
+      })
+      return { status: response.status, body: await response.text() }
+    })
+  const upgrade = (url: string, mount: string, credential: string) =>
+    Effect.promise(() =>
+      raw(`${url}/${mount}/ws`, [
+        `GET /${mount}/ws HTTP/1.1`,
+        "Connection: Upgrade",
+        "Upgrade: websocket",
+        "Sec-WebSocket-Version: 13",
+        "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==",
+        `Authorization: Bearer ${credential}`
+      ])
+    )
+
+  test("a read:runs token reads on every mount, cannot mutate, and expires everywhere", () =>
+    Effect.gen(function*() {
+      const url = yield* baseUrl
+      const control = yield* Control
+      const { token } = yield* ScopedToken.mint({ key, scopes: ["read:runs"], ttlMillis: 60_000 })
+      const card = yield* control.plan({ flowId: "system/test", input: {} })
+      const approve = frame("Approve", { ...card.approval, idempotencyKey: "approve" })
+      const submit = frame("Approval.Submit", { ...card.approval, decision: "approve", idempotencyKey: "submit" })
+
+      // Reads, over HTTP and over the socket, on both RPC mounts.
+      const read = yield* post(url, "rpc", token, listRuns)
+      expect([read.status, read.body.includes("\"Success\"")]).toEqual([200, true])
+      const snapshot = yield* post(url, "projections", token, workspaceRuns)
+      expect([snapshot.status, snapshot.body.includes("\"Success\"")]).toEqual([200, true])
+      const socketRead = yield* Effect.promise(() => socketExchange(`${url}/rpc/ws`, token, listRuns))
+      expect(socketRead.join("\n")).toContain("\"Success\"")
+      const socketSnapshot = yield* Effect.promise(() => socketExchange(`${url}/projections/ws`, token, workspaceRuns))
+      expect(socketSnapshot.join("\n")).toContain("\"Success\"")
+
+      // A mutation is refused in band, on both mounts and both transports, and
+      // the plan is untouched.
+      const refusedApprove = yield* post(url, "rpc", token, approve)
+      expect([refusedApprove.status, refusedApprove.body.includes("/control/Unauthorized")]).toEqual([200, true])
+      expect(refusedApprove.body).toContain("does not authorize Approve")
+      const refusedSubmit = yield* post(url, "projections", token, submit)
+      expect(refusedSubmit.body).toContain("does not authorize Approval.Submit")
+      const refusedPlan = yield* post(url, "rpc", token, frame("Plan", { flowId: "system/test", input: {} }))
+      expect(refusedPlan.body).toContain("does not authorize Plan")
+      const socketApprove = yield* Effect.promise(() => socketExchange(`${url}/rpc/ws`, token, approve))
+      expect(socketApprove.join("\n")).toContain("does not authorize Approve")
+      const runtime = yield* ControlRuntime
+      expect((yield* runtime.getPlan(card.planId)).decision).toBe("pending")
+
+      // Expired: the edge refuses a socket and the projections mount, and the
+      // control mount refuses in band with the control plane's own error.
+      const { token: expired } = yield* ScopedToken.mint({
+        key,
+        scopes: ["read:runs"],
+        ttlMillis: 1_000,
+        now: () => Date.now() - 5_000
+      })
+      const expiredRead = yield* post(url, "rpc", expired, listRuns)
+      expect([expiredRead.status, expiredRead.body.includes("The scoped token has expired")]).toEqual([200, true])
+      const expiredSnapshot = yield* post(url, "projections", expired, workspaceRuns)
+      expect([expiredSnapshot.status, JSON.parse(expiredSnapshot.body).code]).toEqual([401, "unauthorized"])
+      for (const mount of ["rpc", "projections", "sync"]) {
+        expect([mount, (yield* upgrade(url, mount, expired)).status]).toEqual([mount, 401])
+      }
+
+      // Forged under another key: refused exactly like a wrong bearer.
+      const { token: forged } = yield* ScopedToken.mint({ key: "not-the-key", scopes: ["read:runs"], ttlMillis: 60_000 })
+      expect((yield* post(url, "projections", forged, workspaceRuns)).status).toBe(401)
+      expect((yield* post(url, "rpc", forged, listRuns)).body).toContain("/control/Unauthorized")
+      expect((yield* upgrade(url, "rpc", forged)).status).toBe(401)
+    }).pipe(Effect.provide(served({ host: "127.0.0.1", port: 0, credential: key }))))
+
+  test("a run-confined token acts on that run and on nothing else", () =>
+    Effect.gen(function*() {
+      const url = yield* baseUrl
+      const runId = yield* launched
+      const { token } = yield* ScopedToken.mint({ key, scopes: ["read:runs", "write:runs"], ttlMillis: 60_000, runId })
+
+      const summary = yield* post(url, "projections", token, frame("Projection.Snapshot", {
+        selector: { _tag: "run-summary", runId }
+      }))
+      expect(summary.body).toContain("\"Success\"")
+      const filtered = yield* post(url, "rpc", token, frame("List", { _tag: "runs", filters: { runId } }))
+      expect(filtered.body).toContain("\"Success\"")
+      // Naming another run, or no run, is refused rather than widened.
+      const other = yield* post(url, "projections", token, frame("Projection.Snapshot", {
+        selector: { _tag: "run-summary", runId: "some-other-run" }
+      }))
+      expect(other.body).toContain("does not authorize Projection.Snapshot")
+      expect((yield* post(url, "projections", token, workspaceRuns)).body).toContain("does not authorize")
+      expect((yield* post(url, "rpc", token, listRuns)).body).toContain("does not authorize List")
+      const cancelOther = yield* post(url, "rpc", token, frame("Cancel", {
+        runId: "some-other-run",
+        idempotencyKey: "cancel-other"
+      }))
+      expect(cancelOther.body).toContain("does not authorize Cancel")
+      const cancelled = yield* post(url, "rpc", token, frame("Cancel", { runId, idempotencyKey: "cancel-this" }))
+      expect(cancelled.body).toContain("\"Success\"")
+    }).pipe(Effect.provide(served({ host: "127.0.0.1", port: 0, credential: key }))))
+
+  for (const delegated of [false, true]) {
+    test(`an approve:runs token stamps gateway/scoped, which is ${delegated ? "" : "not "}delegated here`, () =>
+      Effect.gen(function*() {
+        const url = yield* baseUrl
+        const control = yield* Control
+        const runtime = yield* ControlRuntime
+        const card = yield* control.plan({ flowId: "system/test", input: {} })
+        const { token } = yield* ScopedToken.mint({ key, scopes: ["approve:runs"], ttlMillis: 60_000 })
+        const approved = yield* post(url, "rpc", token, frame("Approve", { ...card.approval, idempotencyKey: "a" }))
+        expect(approved.status).toBe(200)
+        expect(approved.body.includes("\"Success\""), approved.body).toBe(delegated)
+        if (!delegated) expect(approved.body).toContain("/control/Unauthorized")
+        expect((yield* runtime.getPlan(card.planId)).decision).toBe(delegated ? "approved" : "pending")
+      }).pipe(Effect.provide(served(
+        { host: "127.0.0.1", port: 0, credential: key },
+        delegated
+          ? Effect.runSync(ApprovalAuthority.make([
+            { principal: NodeGateway.scopedPrincipal, scopes: ["once", "run", "remembered"], targets: ["Plan"] }
+          ]))
+          // Delegating to the bearer does not delegate to every token minted from it.
+          : delegatedBearer
+      ))))
+  }
+
+  test("the runtime bridge accepts the bearer alone", () =>
+    Effect.gen(function*() {
+      const url = yield* baseUrl
+      const { token } = yield* ScopedToken.mint({ key, scopes: ["read:runs", "write:runs"], ttlMillis: 60_000 })
+      const observe = (credential: string) =>
+        Effect.promise(() =>
+          fetch(`${url}/runtime/v1/observe`, {
+            method: "POST",
+            headers: { "content-type": "application/json", authorization: `Bearer ${credential}` },
+            body: JSON.stringify({ protocol: 1, runId: "run-1" })
+          })
+        )
+      expect((yield* observe(token)).status).toBe(401)
+      expect((yield* observe(key)).status).not.toBe(401)
+    }).pipe(Effect.provide(served({
+      host: "127.0.0.1",
+      port: 0,
+      credential: key,
+      runtimeBridge: { runtimeArtifactDigest: "digest", sourceRevision: "revision", ownerGeneration: 1 }
+    }))))
+
+  test("a scoped token reaches no journal sync mount, directly or through a ticket", () =>
+    Effect.gen(function*() {
+      const url = yield* baseUrl
+      const { token } = yield* ScopedToken.mint({ key, scopes: ["read:runs", "write:runs", "approve:runs"], ttlMillis: 60_000 })
+      const sync = (credential: string) =>
+        Effect.promise(() =>
+          fetch(`${url}/sync`, {
+            method: "POST",
+            headers: { "content-type": "application/json", authorization: `Bearer ${credential}` },
+            body: "{}"
+          })
+        )
+      expect((yield* sync(token)).status).toBe(401)
+      expect((yield* sync(key)).status).not.toBe(401)
+      // The token still mints a ticket, and the ticket opens its control socket
+      // but not the sync socket: the redeemed credential is judged per mount.
+      const ticketFor = Effect.promise(async () => {
+        const response = await fetch(`${url}/auth/ticket`, { method: "POST", headers: { authorization: `Bearer ${token}` } })
+        expect(response.status).toBe(200)
+        return ((await response.json()) as { readonly ticket: string }).ticket
+      })
+      const opened = (target: string) =>
+        Effect.promise(() =>
+          raw(`${url}${target}`, [
+            `GET ${target} HTTP/1.1`,
+            "Connection: Upgrade",
+            "Upgrade: websocket",
+            "Sec-WebSocket-Version: 13",
+            "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ=="
+          ])
+        )
+      expect((yield* opened(`/sync/ws?ticket=${yield* ticketFor}`)).status).toBe(401)
+      expect((yield* opened(`/rpc/ws?ticket=${yield* ticketFor}`)).status).toBe(101)
+    }).pipe(Effect.provide(served({ host: "127.0.0.1", port: 0, credential: key }))))
 })

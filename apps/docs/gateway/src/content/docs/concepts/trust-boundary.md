@@ -39,8 +39,31 @@ not distinguish a human from a local agent that can make its own HTTP requests.
 Use authenticated, independently authorized access and restrict that local
 endpoint when human approval must be independent of the agent.
 
-This release has no scoped-token model. A bearer credential is one
-credential, and it grants everything the gateway serves.
+## Scoped, expiring tokens
+
+The bearer credential is one credential, and it grants everything the gateway
+serves for as long as it is configured. `smthrs token mint --scope read:runs
+--ttl 1h` mints a narrower grant under it: an HMAC-SHA256 token carrying the
+procedures the scopes name, an optional run or flow, and an expiry. The gateway
+verifies it with the credential it already holds and stores nothing, so
+rotating the credential revokes every token minted under it, and nothing else
+does.
+
+The edge admits a scoped token on its signature and expiry alone, because an
+upgrade names no procedure, and only toward `/rpc`, `/projections`, their
+sockets, and `/auth/ticket`; journal sync and the runtime bridge take the
+bearer alone, and a ticket issued against a scoped token opens only the
+sockets the token could open itself. Every RPC frame is then judged in band: a procedure
+the token does not name, a run or flow it does not name, or a call that names
+none when the token is confined, is refused with the same typed `Unauthorized`
+a wrong credential earns. A `Watch` or `Projection.Subscribe` opened before the
+expiry keeps streaming after it, since the check runs when the stream opens;
+end the socket to end the grant.
+
+A scoped token stamps `{ id: "gateway", kind: "scoped" }`. Delegating approval
+to `gateway/bearer` does not delegate it to every token minted from the bearer;
+a host that wants an `approve:runs` token to decide delegates to
+`gateway/scoped` explicitly. The runtime bridge accepts the bearer alone.
 
 ## Two rules gate a bind, and both fail closed
 

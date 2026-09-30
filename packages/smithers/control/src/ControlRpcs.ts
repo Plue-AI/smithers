@@ -242,14 +242,32 @@ export const ControlRpcs = RpcGroup.make(
 ).middleware(ControlAuth)
 
 /**
+ * The call a boundary is authenticating, when it knows one: the procedure's
+ * tag and the payload it was sent. An edge authenticating a socket upgrade
+ * knows no call and passes none.
+ *
+ * @category models
+ * @since 1.0.0
+ */
+export interface Call {
+  readonly rpc: string
+  readonly payload: unknown
+}
+
+/**
  * Header authenticator used by the control RPC boundary.
+ *
+ * `call` is present for an in-band RPC frame and absent at a transport edge.
+ * An authenticator that grants everything ignores it; one that grants a
+ * scope reads it, and admits an edge on the credential alone.
  *
  * @category models
  * @since 0.1.0
  */
 export interface Authenticator {
   readonly authenticate: (
-    headers: Readonly<Record<string, string>>
+    headers: Readonly<Record<string, string>>,
+    call?: Call | undefined
   ) => Effect.Effect<typeof Principal.Type, Unauthorized>
 }
 
@@ -276,7 +294,14 @@ const authorizationHeader = (headers: Readonly<Record<string, string>>): string 
   return undefined
 }
 
-const bearerToken = (headers: Readonly<Record<string, string>>): string | undefined => {
+/**
+ * The bearer credential a request carries, or `undefined` when its
+ * `Authorization` header is absent or is not a well-formed bearer scheme.
+ *
+ * @category getters
+ * @since 1.0.0
+ */
+export const bearerCredential = (headers: Readonly<Record<string, string>>): string | undefined => {
   const authorization = authorizationHeader(headers)
   if (authorization === undefined) return undefined
   const match = /^Bearer[\t ]+([^\t ]+)$/i.exec(authorization)
@@ -312,7 +337,7 @@ const constantTimeTokenEqual = (expected: string, actual: string): boolean => {
  */
 export const bearerAuthenticator = (options: BearerAuthOptions): Authenticator => ({
   authenticate: (headers) => {
-    const credential = bearerToken(headers)
+    const credential = bearerCredential(headers)
     return options.token.length > 0 && credential !== undefined && constantTimeTokenEqual(options.token, credential)
       ? Effect.succeed({
         ...options.principal,
@@ -323,7 +348,25 @@ export const bearerAuthenticator = (options: BearerAuthOptions): Authenticator =
 })
 
 /**
- * Provides `ControlAuth` from a transport-header authenticator.
+ * The first authenticator to accept a request answers for all of them. Each
+ * is asked in order, and a request none accepts fails with the last refusal,
+ * or with the plain `Unauthorized` when there is nothing to ask.
+ *
+ * @category constructors
+ * @since 1.0.0
+ */
+export const anyAuthenticator = (authenticators: ReadonlyArray<Authenticator>): Authenticator => ({
+  authenticate: (headers, call) =>
+    authenticators.reduce<Effect.Effect<typeof Principal.Type, Unauthorized>>(
+      (attempt, authenticator) =>
+        Effect.catchTag(attempt, "/control/Unauthorized", () => authenticator.authenticate(headers, call)),
+      Effect.fail(new Unauthorized({ message: "A valid bearer credential is required" }))
+    )
+})
+
+/**
+ * Provides `ControlAuth` from a transport-header authenticator, telling it
+ * which procedure and payload each frame carries.
  *
  * @category layers
  * @since 0.1.0
@@ -333,7 +376,7 @@ export const layerAuth = (authenticator: Authenticator) =>
     ControlAuth,
     (effect, options) =>
       Effect.flatMap(
-        authenticator.authenticate(options.headers),
+        authenticator.authenticate(options.headers, { rpc: options.rpc._tag, payload: options.payload }),
         (principal) => Effect.provideService(effect, ControlPrincipal, principal)
       )
   )

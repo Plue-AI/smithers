@@ -31,6 +31,7 @@ run-kind targets; `flow start` starts durable flows.
 | `memory`, `credentials`, `triggers`, `integrations`, `eval` | Operate the persistent agent features described below. |
 | `open [dir]`, `.` | Open the checkout's `owner/repo` in the Smithers app (`smithers://open/<owner>/<repo>`), the dev build inside a smithers checkout whose remote is on github.com or smithers.sh, or print its smithers.sh page. |
 | `serve`, `doctor`, `suggest`, `migrate`, `update`, `bug` | Host, diagnose, discover uses, migrate source, check versions, or submit a report. |
+| `token mint` | Mint a scoped, expiring gateway token under `SMITHERS_TOKEN`. |
 
 Target patterns include `//...`, `//package/...`, and `//package:target`.
 Execution supports `--plan`, `--jobs`, and `--no-cache`. `affected` compares

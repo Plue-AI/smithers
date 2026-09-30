@@ -142,6 +142,7 @@ The root entry point exports these namespaces, and each is also importable from
 | `ControlExecutor`                       | The execution port: launch, cancel, signal, resume, and the park settlement a cancel needs.                                               |
 | `DispatchReader`                        | The trigger read port: the registered triggers and the fire ledger `list` pages, plus `layerNone` for a host without a store.             |
 | `ControlRpcs`                           | The ten remote procedures, the authentication middleware, and a bearer authenticator.                                                     |
+| `ScopedToken`                           | Scoped, expiring tokens minted under a bearer credential: named procedures, an optional run or flow, and an expiry.                       |
 | `ControlServer`                         | The RPC handlers and the HTTP plus WebSocket mount.                                                                                       |
 | `ControlClient`                         | The RPC client projected back into the `Control` interface.                                                                               |
 | `Lineage`                               | How a run came to exist: `child`, `fork`, or `continuation`, derived from run rows and journal entries.                                   |

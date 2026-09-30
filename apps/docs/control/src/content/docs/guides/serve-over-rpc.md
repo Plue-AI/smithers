@@ -122,6 +122,22 @@ incorrect credential all fail closed with the same `Unauthorized` response.
 This is an intentionally small trust boundary, not a per-user authorization
 system.
 
+An authenticator also receives the call it is guarding, `{ rpc, payload }`,
+on every in-band frame and nothing at a transport edge; `anyAuthenticator`
+asks several in turn. `ScopedToken.authenticator` uses the call to confine a
+minted token to the procedures, run, or flow it names, and composes with the
+bearer:
+
+```ts
+import * as ControlRpcs from "@smthrs/control/ControlRpcs"
+import * as ScopedToken from "@smthrs/control/ScopedToken"
+
+const auth = ControlRpcs.layerAuth(ControlRpcs.anyAuthenticator([
+  ControlRpcs.bearerAuthenticator({ token, principal: { id: "gateway", kind: "bearer" } }),
+  ScopedToken.authenticator({ key: token, principal: { id: "gateway", kind: "scoped" } })
+]))
+```
+
 A custom authenticator is an object with one method:
 
 ```ts

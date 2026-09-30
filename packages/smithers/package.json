@@ -96,6 +96,7 @@
     "./cli/LegacyBin": "./src/cli/LegacyBin.ts",
     "./cli/Presentation": "./src/cli/Presentation.ts",
     "./cli/RunProgress": "./src/cli/RunProgress.ts",
+    "./cli/TokenCommands": "./src/cli/TokenCommands.ts",
     "./evaluation/EvalCli": "./src/evaluation/EvalCli.ts",
     "./evaluation/Evaluation": "./src/evaluation/Evaluation.ts",
     "./history/History": "./src/history/History.ts",
@@ -561,6 +562,16 @@
         "require": {
           "types": "./dist/cjs/cli/RunProgress.d.ts",
           "default": "./dist/cjs/cli/RunProgress.js"
+        }
+      },
+      "./cli/TokenCommands": {
+        "import": {
+          "types": "./dist/esm/cli/TokenCommands.d.ts",
+          "default": "./dist/esm/cli/TokenCommands.js"
+        },
+        "require": {
+          "types": "./dist/cjs/cli/TokenCommands.d.ts",
+          "default": "./dist/cjs/cli/TokenCommands.js"
         }
       },
       "./evaluation/EvalCli": {

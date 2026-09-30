@@ -13,7 +13,9 @@ export {
   ingressOptions,
   isLoopbackHost,
   layerAuth,
-  listenOptions
+  listenOptions,
+  scopedPrincipal,
+  scopedTokenPaths
 } from "../internal/NativeGateway.ts"
 /** Node socket and shared gateway policy options.
  * @since 1.0.0

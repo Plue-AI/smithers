@@ -445,23 +445,6 @@
     },
     {
       "kind": "verb",
-      "anchor": "token",
-      "name": "token",
-      "group": "Accounts and providers",
-      "reason": "moved to the plugins repository or deferred",
-      "subcommands": [
-        "issue",
-        "exec",
-        "revoke"
-      ],
-      "spellings": [
-        "smthrs token issue",
-        "smthrs token exec",
-        "smthrs token revoke"
-      ]
-    },
-    {
-      "kind": "verb",
       "anchor": "cron",
       "name": "cron",
       "group": "Accounts and providers",
@@ -988,7 +971,6 @@
     "tail",
     "timeline",
     "timetravel",
-    "token",
     "top",
     "tree",
     "ui",
@@ -1037,7 +1019,6 @@
     "alerts",
     "herdr",
     "openapi",
-    "token",
     "cron",
     "make-workflow",
     "starters",

@@ -10,7 +10,7 @@ import { GatewayError } from "../GatewayError.ts"
 import type * as GatewayServer from "../GatewayServer.ts"
 import * as NativeGateway from "../internal/NativeGateway.ts"
 
-export { bearerPrincipal } from "../internal/NativeGateway.ts"
+export { bearerPrincipal, scopedPrincipal } from "../internal/NativeGateway.ts"
 
 /** TCP bind and existing gateway policy options supported by the Bun host.
  * @since 1.0.0
