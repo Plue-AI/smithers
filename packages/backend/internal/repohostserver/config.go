@@ -35,7 +35,7 @@ type Config struct {
 	UserRefLimit        int
 	UserRefMaxPushBytes int64
 	UserRefTTL          time.Duration
-	// MaxGitRequestBytes caps a push's pack and a gzip request body; zero, or
+	// MaxGitRequestBytes caps a push's pack and fetch negotiation (plain or gzip); zero, or
 	// a value past it, takes maxDecompressedGitRequestSize.
 	MaxGitRequestBytes int64
 	// ReceivePackMaxDuration caps one push while it holds the repository's
@@ -44,6 +44,11 @@ type Config struct {
 	// MaxConcurrentUploadPacks caps the fetches and clones whose pack git
 	// builds at once; zero takes defaultMaxConcurrentUploadPacks.
 	MaxConcurrentUploadPacks int
+	// Extra admitted requests beyond the process-slot budget; zero takes sixteen.
+	MaxQueuedUploadPacks int
+	// Negotiation, reference-export lock, process, and read-lock waiting deadline;
+	// zero takes thirty seconds.
+	UploadPackQueueTimeout time.Duration
 }
 
 func (c Config) receivePackMaxDuration() time.Duration {
@@ -75,6 +80,10 @@ func LoadConfig() (Config, error) {
 		PushHookCallbackURL:   strings.TrimSpace(os.Getenv("SMITHERS_PUSH_HOOK_CALLBACK_URL")),
 		PushHookCallbackToken: strings.TrimSpace(os.Getenv("SMITHERS_PUSH_HOOK_CALLBACK_TOKEN")),
 		FFILibraryPath:        strings.TrimSpace(os.Getenv("SMITHERS_FFI_LIBRARY_PATH")),
+	}
+
+	if err := uploadPackBoundsFromEnv(&cfg); err != nil {
+		return Config{}, err
 	}
 
 	if err := userRefBoundsFromEnv(&cfg); err != nil {

@@ -435,10 +435,14 @@ func (s *GitHTTPProxyService) authorize(ctx context.Context, userID int64, owner
 	return errors.Internal("failed to authorize repository access")
 }
 
-// gitProxyFailure logs the repo-host error behind a failed git proxy call and
-// returns the sanitized 500 the client sees. Without the log the only trace of
-// a failed clone, fetch or push is a result=error metric with no cause.
+// gitProxyFailure preserves explicit admission and push refusals. Other errors
+// are logged with their cause and returned as a sanitized 500.
 func gitProxyFailure(ctx context.Context, operation, owner, repo string, err error) error {
+	if operation == "upload-pack" {
+		if admission := uploadPackAdmissionError(err); admission != nil {
+			return admission
+		}
+	}
 	if status, ok := repohost.IsStatusError(err); ok && status.Code == repohost.PushTooSlowCode {
 		return errors.New(errors.CodePushTooSlow, status.Message)
 	}

@@ -66,7 +66,8 @@ type Server struct {
 	// (orphaned_maintenance.go).
 	stopHolds context.CancelFunc
 	// uploadPacks admits Config.MaxConcurrentUploadPacks upload-packs at once.
-	uploadPacks *semaphore.Weighted
+	uploadPacks     *semaphore.Weighted
+	uploadPackQueue *uploadPackAdmission
 }
 
 type loadableFFIClient interface {
@@ -176,6 +177,7 @@ func NewWithFFI(cfg Config, ffi FFIClient) (*Server, error) {
 		httpClient:  pushHookClient(),
 		uploadPacks: semaphore.NewWeighted(int64(cfg.maxConcurrentUploadPacks())),
 	}
+	server.uploadPackQueue = newUploadPackAdmission(cfg, metrics)
 	server.pushOutbox = newPushHookOutbox(server)
 	server.reapOrphanedMaintenance()
 	return server, nil
@@ -1086,41 +1088,22 @@ func (s *Server) uploadPack(w http.ResponseWriter, r *http.Request) error {
 	repoPath := s.config.RepoPath(owner, repo)
 	gitDir := s.config.GitBackendPath(owner, repo)
 
-	if err := s.syncGitRefs(r.Context(), repoPath, gitDir); err != nil {
-		return err
-	}
-
-	// git holds hundreds of megabytes while it builds a large repository's
-	// pack, so only a bounded number build at once. The slot comes before the
-	// repository lock: a waiting clone never holds off the repository's writers.
-	if err := s.uploadPacks.Acquire(r.Context(), 1); err != nil {
-		return &appError{StatusCode: http.StatusGatewayTimeout, Message: "request ended while waiting to build a pack", Cause: err}
-	}
-	defer s.uploadPacks.Release(1)
-
-	unlockRead, err := s.locks.RLock(r.Context(), repoPath)
+	requestBody, release, err := s.acquireUploadPack(w, r, repoPath, gitDir)
 	if err != nil {
 		return err
 	}
-	defer unlockRead()
+	defer release()
 
 	if _, err := os.Stat(gitDir); err != nil {
 		return notFound("repository not found")
 	}
 
-	requestBody, err := gitRequestBody(r, s.config.maxGitRequestBytes())
-	if err != nil {
-		return err
-	}
-
-	// Arm idle read/write deadlines while the RPC streams: a caller that
-	// stalls sending the negotiation or stops draining the packfile must not
-	// hold the repository read lock and a git subprocess indefinitely. Both
-	// deadlines are cleared afterwards so they cannot leak into connection
-	// reuse.
+	// Each response write arms an idle deadline, so a caller that stops
+	// draining the pack cannot hold the read lock or git subprocess forever.
+	// The negotiation is already buffered; it must not arm a socket read
+	// deadline that would cancel a long, progressing response.
 	rc := http.NewResponseController(w)
 	defer func() {
-		_ = rc.SetReadDeadline(time.Time{})
 		_ = rc.SetWriteDeadline(time.Time{})
 	}()
 
@@ -1130,7 +1113,7 @@ func (s *Server) uploadPack(w http.ResponseWriter, r *http.Request) error {
 	// server-side only — the broken stream will cause the git client to fail.
 	w.Header().Set("Content-Type", "application/x-git-upload-pack-result")
 	w.WriteHeader(http.StatusOK)
-	if err := streamGitRPCCapped(r.Context(), gitDir, "upload-pack", &idleDeadlineBody{rc: rc, r: requestBody}, &idleDeadlineWriter{rc: rc, w: w}, maxDecompressedGitRequestSize, refViewer(r)); err != nil {
+	if err := streamGitRPCCapped(r.Context(), gitDir, "upload-pack", requestBody, &idleDeadlineWriter{rc: rc, w: w}, maxDecompressedGitRequestSize, refViewer(r)); err != nil {
 		if s.logger != nil {
 			s.logger.Error("upload-pack stream failed after headers committed",
 				"owner", owner, "repo", repo, "error", err)
