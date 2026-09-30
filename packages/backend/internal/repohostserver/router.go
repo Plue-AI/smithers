@@ -234,6 +234,7 @@ func (s *Server) Handler() http.Handler {
 			r.Method(http.MethodGet, "/repos/{id}/bookmarks/{name}", s.withAppError(s.getBookmark))
 			r.Method(http.MethodDelete, "/repos/{id}/bookmarks/{name}", s.withAppError(s.deleteBookmark))
 			r.Method(http.MethodGet, "/repos/{id}/changes", s.withAppError(s.listChanges))
+			r.Method(http.MethodGet, "/repos/{id}/changes/count", s.withAppError(s.countChanges))
 			r.Method(http.MethodGet, "/repos/{id}/changes/{change_id}", s.withAppError(s.getChange))
 			r.Method(http.MethodPost, "/repos/{id}/changes/{change_id}/backout", s.withAppError(s.backoutChange))
 			r.Method(http.MethodPost, "/repos/{id}/changes/{change_id}/split", s.withAppError(s.splitChange))
@@ -1718,6 +1719,40 @@ func (s *Server) listChanges(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	return writeJSON(w, http.StatusOK, result)
+}
+
+// countChanges handles GET /repos/{id}/changes/count?rev=<commit>&since=<RFC3339>:
+// the commits reachable from rev made at or after since. Unlike paging the
+// change feed, the answer is complete at any history length, which the public
+// activity read needs once a repository outgrows the feed walk (#3000).
+func (s *Server) countChanges(w http.ResponseWriter, r *http.Request) error {
+	done := s.metrics.StartOperation("CountChanges")
+	defer done()
+
+	repoPath, err := s.repoPathFromID(chi.URLParam(r, "id"))
+	if err != nil {
+		return err
+	}
+	rev := strings.TrimSpace(r.URL.Query().Get("rev"))
+	if !validGitObjectID(rev) {
+		return badRequest("rev must be a full commit id")
+	}
+	since, err := time.Parse(time.RFC3339, strings.TrimSpace(r.URL.Query().Get("since")))
+	if err != nil {
+		return badRequest("since must be an RFC 3339 timestamp")
+	}
+
+	unlock, err := s.locks.RLock(r.Context(), repoPath)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
+	count, err := countCommitsSince(r.Context(), repoGitDir(repoPath), rev, since)
+	if err != nil {
+		return err
+	}
+	return writeJSON(w, http.StatusOK, repohost.ChangeCount{Count: count})
 }
 
 func (s *Server) getChange(w http.ResponseWriter, r *http.Request) error {

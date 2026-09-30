@@ -1786,6 +1786,7 @@ func buildRouter(
 			// jj VCS read routes: bookmarks, changes, operations.
 			r.With(readRepo...).Get("/repos/{owner}/{repo}/bookmarks", jjVCSHandler.ListBookmarks)
 			r.With(readRepo...).Get("/repos/{owner}/{repo}/changes", jjVCSHandler.ListChanges)
+			r.With(readRepo...).Get("/repos/{owner}/{repo}/changes/count", jjVCSHandler.CountChanges)
 			r.With(readRepo...).Get("/repos/{owner}/{repo}/changes/{change_id}/walkthrough", jjVCSHandler.GetChangeWalkthrough)
 			r.With(readRepo...).Get("/repos/{owner}/{repo}/changes/{change_id}", jjVCSHandler.GetChange)
 			r.With(readRepo...).Get("/repos/{owner}/{repo}/changes/{change_id}/findings", jjVCSHandler.GetChangeFindings)

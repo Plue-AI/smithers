@@ -17,43 +17,23 @@ const DAY = 24 * 60 * 60 * 1000
 
 const at = (daysAgo: number): string => new Date(NOW - daysAgo * DAY).toISOString()
 
-interface FakeChange {
-  readonly change_id: string
-  readonly commit_id: string
-  readonly timestamp: string
-  readonly parent_change_ids: ReadonlyArray<string>
-}
-
-/** A linear chain, newest first; `head` is the newest change id. */
-const chain = (prefix: string, days: ReadonlyArray<number>, tail: string | null): Array<FakeChange> =>
-  days.map((daysAgo, index) => ({
-    change_id: `${prefix}${index}`,
-    commit_id: `sha-${prefix}${index}`,
-    timestamp: at(daysAgo),
-    parent_change_ids: index + 1 < days.length ? [`${prefix}${index + 1}`] : tail === null ? [] : [tail]
-  }))
-
 /**
- * A mirror for one week: 12 commits on main inside the window over an older
- * base, a side bookmark with 2 commits inside the window that main does not
- * reach, 3 landing requests and 5 issues opened inside the window and one of
- * each opened before it.
+ * A mirror for one week: 12 commits on main inside the window, 3 landing
+ * requests and 5 issues opened inside the window and one of each opened
+ * before it. The commit count is the mirror's own ancestry count, so no
+ * change feed takes part.
  */
 const mirror = () => {
-  const main = chain("m", [0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5, 5.5, 6.5, 9, 30], null)
-  const side = chain("s", [1, 2], "m3")
-  const changes = [...side, ...main]
   const landings = [{ number: 4, created_at: at(1) }, { number: 3, created_at: at(3) }, { number: 2, created_at: at(6) }, { number: 1, created_at: at(20) }]
   const issues = [5, 4, 3, 2, 1].map((number) => ({ number, created_at: at(number) })).concat([{ number: 0, created_at: at(8) }])
   return {
-    changes,
     documents: {
       "": { default_bookmark: "main", full_name: "smithers-canary/smithers" },
       "/git/refs": [
         { ref: "refs/heads/side", object: { sha: "sha-s0", type: "commit" } },
         { ref: "refs/heads/main", object: { sha: "sha-m0", type: "commit" } }
       ],
-      "/changes": { items: changes },
+      "/changes/count": { count: 12 },
       "/landings": landings,
       "/issues": issues
     } as Record<string, unknown>
@@ -183,7 +163,7 @@ describe("GET /api/public/repos/<owner>/<name>/activity", () => {
       expect(upstream.headers.has("cookie")).toBe(false)
     }
     expect(requests.map((upstream) => new URL(upstream.url).pathname.slice(new URL(MIRROR).pathname.length)).sort())
-      .toEqual(["", "/changes", "/git/refs", "/issues", "/landings"])
+      .toEqual(["", "/changes/count", "/git/refs", "/issues", "/landings"])
   })
 
   test("a feed the mirror cannot answer yields the honest partial sentence and a short cache", async () => {
@@ -197,8 +177,13 @@ describe("GET /api/public/repos/<owner>/<name>/activity", () => {
   })
 
   test("a malformed feed is unavailable, never a zero", async () => {
-    for (const bad of [() => new Response("not json"), () => Response.json({ items: [{ change_id: "x" }] }), () => { throw new Error("offline") }]) {
-      const { request } = harness((path) => path === "/changes" ? bad() : undefined)
+    for (const bad of [
+      () => new Response("not json"),
+      () => Response.json({ count: "12" }),
+      () => Response.json({ count: -1 }),
+      () => { throw new Error("offline") }
+    ]) {
+      const { request } = harness((path) => path === "/changes/count" ? bad() : undefined)
       const body = await (await request()).json() as PublicRepoActivity
       expect(body.counts).toEqual({ commits: null, pullRequests: 3, issues: 5 })
       expect(body.sentence).toBe("In the last 7 days, 3 pull requests were opened and 5 issues were filed. Commit activity is not available.")
@@ -218,82 +203,47 @@ describe("GET /api/public/repos/<owner>/<name>/activity", () => {
     expect(requests.every((upstream) => upstream.url.startsWith(MIRROR))).toBe(true)
   })
 
-  test("follows the mirror's next link until the bookmark's ancestry is loaded, and stops at the bound", async () => {
-    const { changes, documents } = mirror()
-    const pageOf = (items: ReadonlyArray<unknown>, cursor: number | undefined) =>
-      Response.json({ items }, cursor === undefined ? {} : { headers: { link: `</api/repos/smithers-canary/smithers/changes?limit=100>; rel="first", </api/repos/smithers-canary/smithers/changes?cursor=${cursor}&limit=100>; rel="next"` } })
-    // 100 inside-window changes on a side bookmark push main's chain onto the second page.
-    const filler = Array.from({ length: 100 }, (_, index) => ({
-      change_id: `f${index}`, commit_id: `sha-f${index}`, timestamp: at(0.25), parent_change_ids: index === 99 ? [] : [`f${index + 1}`]
-    }))
-    const { request, requests } = harness((path, url) => {
-      if (path !== "/changes") return undefined
-      const cursor = url.searchParams.get("cursor")
-      if (cursor === null) return pageOf(filler, 100)
-      if (cursor === "100") return pageOf(changes, undefined)
-      return Response.json({ message: "no such page" }, { status: 404 })
-    }, documents)
+  test("the commit count query carries the default bookmark's head and the window start", async () => {
+    const { request, requests } = harness()
     const body = await (await request()).json() as PublicRepoActivity
     expect(body.counts.commits).toBe(12)
-    expect(requests.filter((upstream) => new URL(upstream.url).pathname.endsWith("/changes")).map((upstream) => new URL(upstream.url).search))
-      .toEqual(["?limit=100", "?limit=100&cursor=100"])
-
-    // A window the bound cannot close is unavailable rather than undercounted.
-    const endless = harness((path, url) => path === "/changes" ? pageOf(filler, Number(url.searchParams.get("cursor") ?? "0") + 100) : undefined, documents)
-    const partial = await (await endless.request()).json() as PublicRepoActivity
-    expect(partial.counts.commits).toBeNull()
-    expect(endless.requests.filter((upstream) => new URL(upstream.url).pathname.endsWith("/changes"))).toHaveLength(20)
+    const counts = requests.filter((upstream) => new URL(upstream.url).pathname.endsWith("/changes/count"))
+    expect(counts).toHaveLength(1)
+    const query = new URL(counts[0]!.url).searchParams
+    expect(query.get("rev")).toBe("sha-m0")
+    expect(query.get("since")).toBe(new Date(NOW - ACTIVITY_WINDOW_MS).toISOString())
   })
 
-  test("an old page never proves the ancestry is old: a recent ancestor after old descendants is counted", async () => {
-    const pageOf = (items: ReadonlyArray<unknown>, cursor: number | undefined) =>
-      Response.json({ items }, cursor === undefined ? {} : { headers: { link: `</api/repos/smithers-canary/smithers/changes?cursor=${cursor}&limit=100>; rel="next"` } })
-    // jj index order is children first; 100 descendants carry fourteen-day-old author times over one recent root.
-    const old = Array.from({ length: 100 }, (_, index) => ({
-      change_id: `o${index}`, commit_id: `sha-o${index}`, timestamp: at(14), parent_change_ids: [index === 99 ? "r0" : `o${index + 1}`]
-    }))
-    const recentRoot = [{ change_id: "r0", commit_id: "sha-r0", timestamp: at(1), parent_change_ids: [] }]
-    const documents = {
-      ...mirror().documents,
-      "/git/refs": [{ ref: "refs/heads/main", object: { sha: "sha-o0", type: "commit" } }]
-    }
-    const changePages = (requests: ReadonlyArray<Request>) =>
-      requests.filter((upstream) => new URL(upstream.url).pathname.endsWith("/changes")).map((upstream) => new URL(upstream.url).search)
-
-    const skewed = harness((path, url) => {
-      if (path !== "/changes") return undefined
-      return url.searchParams.get("cursor") === null ? pageOf(old, 100) : pageOf(recentRoot, undefined)
-    }, documents)
-    const response = await skewed.request()
+  // Regression for #3000: a repository whose ancestry outruns the old
+  // twenty-page change-feed walk (smithersai/smithers has ~14k commits) still
+  // reports commits, because the mirror counts the window itself.
+  test("a history larger than the old page bound still reports commits, without reading the change feed", async () => {
+    const { request, requests } = harness((path) =>
+      path === "/changes/count"
+        ? Response.json({ count: 13452 })
+        : path === "/changes" || path.startsWith("/changes/")
+        ? Response.json({ message: "the feed cannot answer this history" }, { status: 404 })
+        : undefined)
+    const response = await request()
     expect(response.headers.get("cache-control")).toBe("public, max-age=300")
     const body = await response.json() as PublicRepoActivity
-    expect(body.counts.commits).toBe(1)
-    expect(body.sentence.startsWith("In the last 7 days, 1 commit landed on main,")).toBe(true)
-    expect(changePages(skewed.requests)).toEqual(["?limit=100", "?limit=100&cursor=100"])
-
-    // The same ancestry that the bound cannot finish loading is unavailable, never a cached zero.
-    const cut = harness((path, url) => path === "/changes"
-      ? pageOf(url.searchParams.get("cursor") === null ? old : [], Number(url.searchParams.get("cursor") ?? "0") + 100)
-      : undefined, documents)
-    const cutResponse = await cut.request()
-    expect(cutResponse.headers.get("cache-control")).toBe("public, max-age=30")
-    expect(((await cutResponse.json()) as PublicRepoActivity).counts.commits).toBeNull()
-    expect(changePages(cut.requests)).toHaveLength(20)
-
-    // A fully loaded ancestry stops the walk even when the feed has more pages.
-    const whole = harness((path, url) => {
-      if (path !== "/changes") return undefined
-      return url.searchParams.get("cursor") === null ? pageOf([...old, ...recentRoot], 100) : Response.json({ message: "unexpected" }, { status: 500 })
-    }, documents)
-    expect(((await (await whole.request()).json()) as PublicRepoActivity).counts.commits).toBe(1)
-    expect(changePages(whole.requests)).toEqual(["?limit=100"])
+    expect(body.counts).toEqual({ commits: 13452, pullRequests: 3, issues: 5 })
+    expect(body.sentence).toBe("In the last 7 days, 13452 commits landed on main, 3 pull requests were opened, and 5 issues were filed.")
+    // The paged change feed is never touched: it is what could not scale.
+    expect(requests.filter((upstream) => new URL(upstream.url).pathname.endsWith("/changes"))).toHaveLength(0)
   })
 
-  test("a head the whole feed never lists is unavailable, never a zero", async () => {
-    const documents = { ...mirror().documents, "/git/refs": [{ ref: "refs/heads/main", object: { sha: "sha-unknown", type: "commit" } }] }
-    const { request } = harness(undefined, documents)
-    const body = await (await request()).json() as PublicRepoActivity
-    expect(body.counts).toEqual({ commits: null, pullRequests: 3, issues: 5 })
+  test("a count the mirror cannot answer is unavailable, never a zero", async () => {
+    for (const answer of [
+      () => Response.json({ message: "unknown revision" }, { status: 400 }),
+      () => Response.json({ message: "not found" }, { status: 404 }),
+      () => Response.json({ count: 1.5 })
+    ]) {
+      const { request } = harness((path) => path === "/changes/count" ? answer() : undefined)
+      const body = await (await request()).json() as PublicRepoActivity
+      expect(body.counts).toEqual({ commits: null, pullRequests: 3, issues: 5 })
+      expect(body.sentence).toBe("In the last 7 days, 3 pull requests were opened and 5 issues were filed. Commit activity is not available.")
+    }
   })
 
   test("a repository outside the catalog is 404 and reaches no upstream", async () => {

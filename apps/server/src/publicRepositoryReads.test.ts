@@ -19,7 +19,7 @@ const reader = (answer: (request: Request) => Response | Promise<Response>) => {
 
 describe("anonymous repository reads", () => {
   test("admits public document reads and excludes writes, account data, and workspace credentials", () => {
-    for (const suffix of ["", "/home", "/contents/src/index.ts", "/topics", "/bookmarks", "/issues", "/issues/1/comments", "/changes/abc/diff"]) {
+    for (const suffix of ["", "/home", "/contents/src/index.ts", "/topics", "/bookmarks", "/issues", "/issues/1/comments", "/changes", "/changes/count", "/changes/abc/diff"]) {
       expect(isPublicRepositoryRead("GET", `/api/repos/smithersai/smithers${suffix}`)).toBe(true)
     }
     for (const path of ["/api/repos/a/b/stargazers", "/api/user/repos", "/api/billing/balance", "/api/admin/errors", "/api/repos/a/b/workspaces", "/api/repos/a/b/workspaces/1/ssh", "/api/repos/a/b/gateway", "/api/repos/a/b/secrets", "/api/repos/a/../issues"]) {

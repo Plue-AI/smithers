@@ -169,6 +169,12 @@ type Change struct {
 	ParentChangeIDs []string `json:"parent_change_ids"`
 }
 
+// ChangeCount is the answer to a changes count query: the commits reachable
+// from a revision whose committer date is at or after a timestamp.
+type ChangeCount struct {
+	Count int64 `json:"count"`
+}
+
 // BackoutChangeRequest creates a new change by applying the inverse of an
 // exact landed revision on top of the current target bookmark.
 type BackoutChangeRequest struct {
@@ -1469,6 +1475,28 @@ func (c *Client) ListChanges(ctx context.Context, owner, repo string, cursor str
 	}
 
 	return doJSONPaginated[Change](ctx, c, http.MethodGet, repoByIDEndpoint(baseURL, owner, repo)+"/changes", cursor, limit, http.StatusOK)
+}
+
+// CountChanges counts the commits reachable from rev whose committer date is
+// at or after since, counted by repo-host's git with rev-list --count
+// --since-as-filter semantics: complete at any history length (#3000).
+func (c *Client) CountChanges(ctx context.Context, owner, repo, rev string, since time.Time) (int64, error) {
+	defer c.observeOperationDuration("CountChanges", time.Now())
+
+	baseURL, err := c.resolver.ResolveURL(ctx, owner, repo)
+	if err != nil {
+		return 0, fmt.Errorf("resolve storage set url: %w", err)
+	}
+
+	query := url.Values{}
+	query.Set("rev", rev)
+	query.Set("since", since.UTC().Format(time.RFC3339))
+	var out ChangeCount
+	endpoint := repoByIDEndpoint(baseURL, owner, repo) + "/changes/count?" + query.Encode()
+	if err := c.doJSON(ctx, http.MethodGet, endpoint, nil, http.StatusOK, &out); err != nil {
+		return 0, err
+	}
+	return out.Count, nil
 }
 
 // GetChange retrieves a single change by stable change ID.

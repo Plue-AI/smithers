@@ -408,6 +408,30 @@ func gitDefaultBookmark(ctx context.Context, gitDir string) (string, error) {
 	return name, nil
 }
 
+// countCommitsSince counts the commits reachable from rev whose committer
+// date is at or after since. --since-as-filter, unlike --since, keeps walking
+// past an old commit instead of cutting the traversal, so a history whose
+// commit dates do not follow ancestry is still counted completely: the window
+// boundary is exact at any history length (#3000).
+func countCommitsSince(ctx context.Context, gitDir, rev string, since time.Time) (int64, error) {
+	output, err := exec.CommandContext(ctx, "git", "--git-dir", gitDir,
+		"rev-list", "--count", "--since-as-filter="+since.UTC().Format(time.RFC3339), rev).CombinedOutput()
+	if err != nil {
+		detail := strings.TrimSpace(string(output))
+		// A well-formed rev the repository does not hold is the caller's
+		// error; anything else (a missing git, a corrupt store) is ours.
+		if strings.Contains(detail, "bad object") || strings.Contains(detail, "unknown revision") {
+			return 0, badRequest("unknown revision " + rev)
+		}
+		return 0, internalError("failed to count commits", fmt.Errorf("git rev-list: %w: %s", err, detail))
+	}
+	count, err := strconv.ParseInt(strings.TrimSpace(string(output)), 10, 64)
+	if err != nil {
+		return 0, internalError("failed to count commits", fmt.Errorf("parse rev-list count: %w", err))
+	}
+	return count, nil
+}
+
 // refuseAgentRunDefaultBookmark refuses a push the API attributed to an agent
 // run when it writes the default bookmark. It fails closed: a default that
 // cannot be read refuses the push.

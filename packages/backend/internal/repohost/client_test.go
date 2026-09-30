@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strconv"
 	"strings"
 	"testing"
@@ -506,6 +507,49 @@ func TestClient_ListChanges_ForwardsPaginationAndParsesTotalCount(t *testing.T) 
 	assert.Equal(t, "chg-abc123", changes[0].ChangeID)
 	assert.Equal(t, "parent-commit-sha", changes[0].ParentCommitID)
 	assert.Empty(t, nextCursor)
+}
+
+func TestClient_CountChanges_ForwardsRevAndSince(t *testing.T) {
+	t.Parallel()
+
+	var gotPath string
+	var gotQuery url.Values
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.EscapedPath()
+		gotQuery = r.URL.Query()
+		require.Equal(t, http.MethodGet, r.Method)
+		_ = json.NewEncoder(w).Encode(map[string]any{"count": int64(501)})
+	}))
+	t.Cleanup(server.Close)
+
+	client := NewClient(&StaticStorageSetResolver{URL: server.URL}, "test-token")
+	since := time.Date(2026, 9, 22, 12, 30, 0, 0, time.FixedZone("UTC+2", 2*60*60))
+	rev := strings.Repeat("a", 40)
+	count, err := client.CountChanges(context.Background(), "alice", "demo", rev, since)
+	require.NoError(t, err)
+
+	assert.Equal(t, int64(501), count)
+	assert.Equal(t, "/repos/alice:demo/changes/count", gotPath)
+	assert.Equal(t, rev, gotQuery.Get("rev"))
+	// The timestamp crosses the wire in canonical UTC RFC 3339.
+	assert.Equal(t, "2026-09-22T10:30:00Z", gotQuery.Get("since"))
+}
+
+func TestClient_CountChanges_StatusError(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"message":"unknown revision"}`))
+	}))
+	t.Cleanup(server.Close)
+
+	client := NewClient(&StaticStorageSetResolver{URL: server.URL}, "test-token")
+	_, err := client.CountChanges(context.Background(), "alice", "demo", strings.Repeat("f", 40), time.Now())
+	require.Error(t, err)
+	se, ok := IsStatusError(err)
+	require.True(t, ok)
+	assert.Equal(t, http.StatusBadRequest, se.StatusCode)
 }
 
 func TestClient_ListOperations_ForwardsPaginationAndParsesTotalCount(t *testing.T) {

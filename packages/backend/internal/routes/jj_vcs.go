@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
@@ -451,6 +452,37 @@ func (h *JJVCSHandler) ListChanges(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(cursorResponse{Items: resp, NextCursor: nextCursor})
+}
+
+// CountChanges handles
+// GET /api/repos/{owner}/{repo}/changes/count?rev=<commit>&since=<RFC3339>:
+// the commits reachable from rev made at or after since. The mirror answers
+// it from git's ancestry walk, complete at any history length, where paging
+// the change feed runs out of pages (#3000).
+func (h *JJVCSHandler) CountChanges(w http.ResponseWriter, r *http.Request) {
+	owner, repoName, err := repoOwnerAndName(r)
+	if err != nil {
+		writeRouteError(w, r, err)
+		return
+	}
+
+	rev := strings.TrimSpace(r.URL.Query().Get("rev"))
+	if rev == "" {
+		writeRouteError(w, r, errors.BadRequest("rev is required"))
+		return
+	}
+	since, err := time.Parse(time.RFC3339, strings.TrimSpace(r.URL.Query().Get("since")))
+	if err != nil {
+		writeRouteError(w, r, errors.BadRequest("since must be an RFC 3339 timestamp"))
+		return
+	}
+
+	count, err := h.RepoHost.CountChanges(r.Context(), owner, repoName, rev, since)
+	if err != nil {
+		writeRouteError(w, r, repohostErrToAPIErr(r.Context(), err, "failed to count changes"))
+		return
+	}
+	errors.WriteJSON(w, http.StatusOK, repohost.ChangeCount{Count: count})
 }
 
 // GetChange handles GET /api/repos/{owner}/{repo}/changes/{change_id}.

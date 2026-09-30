@@ -782,6 +782,81 @@ func TestJJVCSHandler_ListChanges_PaginationHeadersAndParamForwarding(t *testing
 	assert.NotContains(t, link, `rel="last"`)
 }
 
+// --- CountChanges ---
+
+func TestJJVCSHandler_CountChanges_Success(t *testing.T) {
+	t.Parallel()
+
+	var gotRev, gotSince string
+	fakeServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodGet, r.Method)
+		assert.Equal(t, "/repos/alice:demo/changes/count", r.URL.EscapedPath())
+		gotRev = r.URL.Query().Get("rev")
+		gotSince = r.URL.Query().Get("since")
+		_ = json.NewEncoder(w).Encode(map[string]any{"count": int64(13452)})
+	}))
+	t.Cleanup(fakeServer.Close)
+
+	h := newJJVCSHandler(fakeServer)
+	rev := strings.Repeat("a", 40)
+	req := httptest.NewRequest(http.MethodGet, "/api/repos/alice/demo/changes/count?rev="+rev+"&since=2026-09-22T12%3A00%3A00Z", nil)
+	req = withJJRouteParams(req, map[string]string{"owner": "alice", "repo": "demo"})
+	rec := httptest.NewRecorder()
+
+	h.CountChanges(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.JSONEq(t, `{"count":13452}`, rec.Body.String())
+	assert.Equal(t, rev, gotRev)
+	assert.Equal(t, "2026-09-22T12:00:00Z", gotSince)
+}
+
+func TestJJVCSHandler_CountChanges_RejectsBadInput(t *testing.T) {
+	t.Parallel()
+
+	fakeServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("should not call repohost for invalid query input")
+	}))
+	t.Cleanup(fakeServer.Close)
+
+	h := newJJVCSHandler(fakeServer)
+	for name, target := range map[string]string{
+		"missing_rev":   "/api/repos/alice/demo/changes/count?since=2026-09-22T12%3A00%3A00Z",
+		"missing_since": "/api/repos/alice/demo/changes/count?rev=" + strings.Repeat("a", 40),
+		"bad_since":     "/api/repos/alice/demo/changes/count?rev=" + strings.Repeat("a", 40) + "&since=last+week",
+	} {
+		t.Run(name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, target, nil)
+			req = withJJRouteParams(req, map[string]string{"owner": "alice", "repo": "demo"})
+			rec := httptest.NewRecorder()
+
+			h.CountChanges(rec, req)
+
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+		})
+	}
+}
+
+func TestJJVCSHandler_CountChanges_RepohostError(t *testing.T) {
+	t.Parallel()
+
+	fakeServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"message":"unknown revision"}`))
+	}))
+	t.Cleanup(fakeServer.Close)
+
+	h := newJJVCSHandler(fakeServer)
+	req := httptest.NewRequest(http.MethodGet, "/api/repos/alice/demo/changes/count?rev="+strings.Repeat("f", 40)+"&since=2026-09-22T12%3A00%3A00Z", nil)
+	req = withJJRouteParams(req, map[string]string{"owner": "alice", "repo": "demo"})
+	rec := httptest.NewRecorder()
+
+	h.CountChanges(rec, req)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "unknown revision")
+}
+
 // --- GetChange ---
 
 func TestJJVCSHandler_GetChange_Success(t *testing.T) {
