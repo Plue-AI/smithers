@@ -53,7 +53,7 @@ if (!process.execArgv.includes("--experimental-test-module-mocks")) {
           pollResult !== undefined ?
           Effect.succeed(pollResult) :
           pollFailure
-          ? Effect.fail({ _tag: "FlowExecutionNotFound", executionId: "missing-worker" })
+          ? Effect.fail(new FlowRuntime.FlowExecutionNotFound({ executionId: "missing-worker" }))
           : Effect.succeed({ _tag: "None" })
     }
   })
@@ -75,6 +75,7 @@ if (!process.execArgv.includes("--experimental-test-module-mocks")) {
   })
   mock.module("../burndown/issues.ts", {
     namedExports: {
+      repository: (repo: string) => repo.includes("/") ? repo : `smithersai/${repo}`,
       issueKey: (repo: string, n: number) => `${repo}#${n}`,
       selectCandidates: () => Effect.succeed({ candidates: [], openIssues: 0, pending: false })
     }
