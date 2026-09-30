@@ -1,3 +1,4 @@
+import { MythicalStackSchema } from "@smthrs/rpc/Mythical"
 import { expect, it } from "bun:test"
 import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs"
 import { tmpdir } from "node:os"
@@ -90,6 +91,40 @@ it("redacts quoted multi-word, inspect-split and any-scheme header credentials i
     for (const record of records) expect(record.detail).toContain("[REDACTED")
     expect(saved.includes(secret)).toBe(false)
     expect(saved.includes("horse")).toBe(false)
+  } finally {
+    if (previous === undefined) delete process.env.SMITHERS_TUI_SESSION_DIR
+    else process.env.SMITHERS_TUI_SESSION_DIR = previous
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+it("keeps an error's message when its stack omits it, as a parser error's does", () => {
+  const previous = process.env.SMITHERS_TUI_SESSION_DIR
+  const root = mkdtempSync(join(tmpdir(), "tui-log-message-"))
+  process.env.SMITHERS_TUI_SESSION_DIR = root
+  try {
+    let parser: unknown
+    try {
+      MythicalStackSchema.parse({})
+    } catch (error) {
+      parser = error
+    }
+    const bare = new Error(`token ghp_${"y".repeat(36)} rejected`)
+    bare.stack = "Error\n    at read (cloud.ts:1:1)"
+    const wrapped = new Error("stack unreadable", { cause: bare })
+    const ordinary = new Error("disk full")
+    Log.write("factory.load", parser)
+    Log.write("factory.todo", wrapped)
+    Log.write("factory.retry", ordinary)
+    const saved = readFileSync(Log.path(), "utf8")
+    const [parsed, nested, plain] = saved.trim().split("\n").map((line) => JSON.parse(line).detail as string)
+    expect(parsed).toStartWith("ZodError: ")
+    expect(parsed).toContain("invalid_type")
+    expect(nested).toContain("Caused by: Error: token [REDACTED")
+    expect(nested).toContain("at read (cloud.ts:1:1)")
+    expect(saved.includes("y".repeat(36))).toBe(false)
+    // A stack that already names the message is written once, as it was.
+    expect(plain).toBe(ordinary.stack!)
   } finally {
     if (previous === undefined) delete process.env.SMITHERS_TUI_SESSION_DIR
     else process.env.SMITHERS_TUI_SESSION_DIR = previous

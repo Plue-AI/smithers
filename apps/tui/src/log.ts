@@ -30,13 +30,21 @@ const fields = (value: object): string => {
     return String(value)
   }
 }
-/** Error.stack omits Error.cause; retain its chain without looping on cycles. */
+/**
+ * Error.stack omits Error.cause, and some errors' stacks omit their message (a
+ * ZodError's is `ZodError`): retain both, the chain without looping on cycles.
+ */
 const describe = (error: unknown, seen = new Set<unknown>()): string => {
   if (seen.has(error)) return "[circular cause]"
   if (seen.size >= 16) return "[cause chain truncated]"
   seen.add(error)
   if (!(error instanceof Error)) return typeof error === "object" && error !== null ? fields(error) : String(error)
-  const own = error.stack ?? error.message
+  const stack = error.stack
+  const own = stack === undefined
+    ? `${error.name}: ${error.message}`
+    : stack.includes(error.message)
+    ? stack
+    : [`${error.name}: ${error.message}`, ...stack.split("\n").slice(1)].join("\n")
   return error.cause === undefined ? own : `${own}\nCaused by: ${describe(error.cause, seen)}`
 }
 /** Record the full cause, redacting credential-shaped text before writing. */
