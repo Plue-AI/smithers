@@ -1,5 +1,5 @@
 import { Permission } from "@smthrs/kernel"
-import { Model, type ModelEvent } from "@smthrs/model"
+import { Model } from "@smthrs/model"
 import { Effect, Layer, Option, Schema, Stream } from "effect"
 import * as Cell from "../../src/Cell.ts"
 import * as EngineLike from "../../src/EngineLike.ts"
@@ -43,7 +43,7 @@ export interface Recorder {
   readonly calls: Array<Cell.Call>
   readonly records: Array<EngineLike.RecordBoundary<unknown>>
   /** What each executed boundary's recorded value says it paid a model for. */
-  readonly paid: Array<{ readonly name: string; readonly usage: ModelEvent.Usage | undefined }>
+  readonly paid: Array<{ readonly name: string; readonly usage: ReadonlyArray<EngineLike.Paid> | undefined }>
   /** Every checkpoint the run asked this host to pin, with the tree it held. */
   readonly captures: Array<{ readonly id: string; readonly tree: string | undefined }>
   readonly suspend: Array<EngineLike.SuspendReason>

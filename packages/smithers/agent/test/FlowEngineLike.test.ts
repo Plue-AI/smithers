@@ -1306,7 +1306,7 @@ describe("FlowEngineLike.record", () => {
             name: "completion-judgement",
             identity: { session: "session-1", frame: 0, boundary },
             success: judged,
-            usage: (value) => value.usage ?? undefined,
+            usage: (value) => value.usage === null ? undefined : [{ usage: value.usage }],
             execute: Effect.sync(() => {
               readings.push(boundary)
               return { usage }
@@ -1328,6 +1328,201 @@ describe("FlowEngineLike.record", () => {
     // nothing more for it.
     expect(readings).toEqual(["metered", "unmetered"])
     expect((completed(outcome) as Budget.Usage).tokens).toBe(100)
+  })
+
+  /** A paid boundary whose record says it paid `shares`, and which logs each live reading. */
+  const payingBoundary = (
+    port: EngineLike.EngineLike,
+    readings: Array<string>,
+    boundary: string,
+    shares: ReadonlyArray<EngineLike.Paid>
+  ) =>
+    port.record({
+      name: "completion-judgement",
+      identity: { session: "session-1", frame: 0, boundary },
+      success: Schema.Struct({ paid: Schema.Number }),
+      usage: () => shares,
+      execute: Effect.sync(() => {
+        readings.push(boundary)
+        return { paid: shares.length }
+      })
+    })
+
+  it("prices each model's share of a boundary under its own id (#3010)", async () => {
+    const entries: Array<Budget.LedgerEntry> = []
+    const ledger = Budget.memoryLedger()
+    const outcome = await drive(
+      Effect.gen(function*() {
+        const port = yield* FlowEngineLike.make({ model: countingModel([]), route: staticRoute() })
+        yield* payingBoundary(port, [], "two-judges", [
+          { usage: { inputTokens: 900_000, outputTokens: 100_000 }, modelId: "judge-a" },
+          { usage: { inputTokens: 5, outputTokens: 1 } }
+        ])
+        return yield* (yield* Budget.Budget).usage
+      }).pipe(Effect.provide(Budget.layer(
+        { tokens: { max: 10_000_000 }, prices: { "judge-a": { input: 2, cacheRead: 0, cacheWrite: 0, output: 10 } } },
+        {
+          ledger: {
+            ...ledger,
+            record: (entry) => Effect.andThen(Effect.sync(() => void entries.push(entry)), ledger.record(entry))
+          }
+        }
+      )))
+    )
+    expect(completed(outcome)).toMatchObject({ tokens: 1_000_006, calls: 2 })
+    expect(entries).toHaveLength(2)
+    const [priced, unpriced] = entries
+    // $2 per million input tokens and $10 per million output tokens.
+    expect(priced).toMatchObject({ spent: 1_000_000, costSource: "estimated" })
+    expect(priced!.costUsd).toBeCloseTo(2.8)
+    expect(unpriced).toMatchObject({ spent: 6, stepKey: `${priced!.stepKey}#1` })
+    expect(unpriced!.costUsd).toBeUndefined()
+  })
+
+  it("takes a paid reading while any allowance is left, though a primary call would be refused (#3010)", async () => {
+    const readings: Array<string> = []
+    const outcome = await drive(
+      Effect.gen(function*() {
+        const port = yield* FlowEngineLike.make({ model: countingModel([]), route: staticRoute() })
+        const budget = yield* Budget.Budget
+        yield* payingBoundary(port, readings, "first", [{ usage: { inputTokens: 60, outputTokens: 0 } }])
+        // A primary call is projected at the largest call so far: 60 + 60 > 100.
+        expect((yield* budget.check(undefined))._tag).toBe("refuse")
+        yield* payingBoundary(port, readings, "second", [{ usage: { inputTokens: 30, outputTokens: 0 } }])
+        return yield* budget.usage
+      }).pipe(Effect.provide(Budget.layer({ tokens: { max: 100 } })))
+    )
+    expect(readings).toEqual(["first", "second"])
+    expect(completed(outcome)).toMatchObject({ tokens: 90 })
+  })
+
+  it.each([
+    ["fail", Budget.BudgetExceeded],
+    ["skip-remaining", Budget.Skipped]
+  ] as const)(
+    "refuses a paid reading under %s once the ceiling is spent, without taking it (#3010)",
+    async (onExceeded, refusal) => {
+      const readings: Array<string> = []
+      const outcome = await drive(
+        Effect.gen(function*() {
+          const port = yield* FlowEngineLike.make({ model: countingModel([]), route: staticRoute() })
+          yield* payingBoundary(port, readings, "spends-it", [{ usage: { inputTokens: 100, outputTokens: 0 } }])
+          // A boundary that declares no usage pays for nothing and is never gated.
+          yield* port.record({
+            name: "steering-drain",
+            identity: { session: "session-1", frame: 0, boundary: "free" },
+            success: Schema.Null,
+            execute: Effect.sync(() => {
+              readings.push("free")
+              return null
+            })
+          })
+          const refused = yield* Effect.flip(
+            payingBoundary(port, readings, "over", [{ usage: { inputTokens: 1, outputTokens: 0 } }])
+          )
+          return { refused, usage: yield* (yield* Budget.Budget).usage }
+        }).pipe(Effect.provide(Budget.layer({ tokens: { max: 100, onExceeded } })))
+      )
+      const { refused, usage } = completed(outcome) as { refused: HarnessError; usage: Budget.Usage }
+      expect(readings).toEqual(["spends-it", "free"])
+      expect(refused).toBeInstanceOf(HarnessError)
+      expect(refused.code).toBe("model_failed")
+      expect(refused.cause).toBeInstanceOf(refusal)
+      expect(usage.tokens).toBe(100)
+    }
+  )
+
+  it("charges an advisory reading past a spent ceiling without admitting it (#3010)", async () => {
+    const readings: Array<string> = []
+    const outcome = await drive(
+      Effect.gen(function*() {
+        const port = yield* FlowEngineLike.make({ model: countingModel([]), route: staticRoute() })
+        yield* payingBoundary(port, readings, "spends-it", [{ usage: { inputTokens: 100, outputTokens: 0 } }])
+        yield* port.record({
+          name: "supervisor",
+          identity: { session: "session-1", frame: 0, boundary: "background" },
+          success: Schema.Null,
+          advisory: true,
+          usage: () => [{ usage: { inputTokens: 7, outputTokens: 0 } }],
+          execute: Effect.sync(() => {
+            readings.push("background")
+            return null
+          })
+        })
+        return yield* (yield* Budget.Budget).usage
+      }).pipe(Effect.provide(Budget.layer({ tokens: { max: 100, onExceeded: "park" } })))
+    )
+    expect(readings).toEqual(["spends-it", "background"])
+    expect(completed(outcome)).toMatchObject({ tokens: 107 })
+  })
+
+  it("parks a paid reading refused by a spent park budget, and declares the wait on suspend (#3010)", async () => {
+    const readings: Array<string> = []
+    const exceeded: Array<Budget.BudgetExceeded> = []
+    const parkedOn: Budget.Parked = {
+      waiting: { reason: "budget", token: "budget/run-1/tokens" },
+      failure: new HarnessError({ code: "engine_failed", message: "Budget approval required" })
+    }
+    let declared: FlowRuntime.WaitingAnnotation | undefined
+    const outcome = await drive(
+      Effect.gen(function*() {
+        const instance = yield* FlowRuntime.FlowInstance
+        const port = yield* FlowEngineLike.make({ model: countingModel([]), route: staticRoute() })
+        yield* payingBoundary(port, readings, "spends-it", [{ usage: { inputTokens: 100, outputTokens: 0 } }])
+        const refused = yield* Effect.flip(
+          payingBoundary(port, readings, "over", [{ usage: { inputTokens: 1, outputTokens: 0 } }])
+        )
+        expect(refused).toBe(parkedOn.failure)
+        return yield* port.suspend(new EngineLike.SuspendReason({ code: "engine", message: "parked" })).pipe(
+          Effect.ensuring(Effect.sync(() => {
+            declared = instance.waiting
+          }))
+        )
+      }).pipe(
+        Effect.provide(Budget.layer({ tokens: { max: 100, onExceeded: "park" } })),
+        Effect.provideService(Budget.Parking, {
+          guardsTimeouts: false,
+          park: (failure) =>
+            Effect.sync(() => {
+              exceeded.push(failure)
+              return parkedOn
+            }),
+          trip: () => Effect.die("no timeout trips here"),
+          admit: () => Effect.succeed({ _tag: "proceed" as const, continued: 0 })
+        })
+      )
+    )
+    expect(outcome._tag).toBe("suspended")
+    expect(readings).toEqual(["spends-it"])
+    expect(exceeded).toMatchObject([{ scope: "tokens", used: 100, max: 100, next: 0 }])
+    expect(declared).toEqual(parkedOn.waiting)
+  })
+
+  it("replays a reading the ledger already charged past a spent ceiling (#3010)", async () => {
+    const readings: Array<string> = []
+    // The resumed attempt builds a fresh budget, which recovers the spend.
+    const ledger = Budget.memoryLedger()
+    let park = true
+    const outcome = await drive(
+      Effect.gen(function*() {
+        const port = yield* FlowEngineLike.make({ model: countingModel([]), route: staticRoute() })
+        yield* payingBoundary(port, readings, "spends-it", [{ usage: { inputTokens: 100, outputTokens: 0 } }])
+        if (park) {
+          park = false
+          yield* port.suspend(new EngineLike.SuspendReason({ code: "engine", message: "killed" }))
+        }
+        const refused = yield* Effect.flip(
+          payingBoundary(port, readings, "over", [{ usage: { inputTokens: 1, outputTokens: 0 } }])
+        )
+        return { refused, usage: yield* (yield* Budget.Budget).usage }
+      }).pipe(Effect.provide(Budget.layer({ tokens: { max: 100 } }, { ledger }))),
+      { resume: true }
+    )
+    const { refused, usage } = completed(outcome) as { refused: HarnessError; usage: Budget.Usage }
+    // The charged reading replayed without asking again; the next one was refused.
+    expect(readings).toEqual(["spends-it"])
+    expect(refused.cause).toBeInstanceOf(Budget.BudgetExceeded)
+    expect(usage).toMatchObject({ tokens: 100, calls: 1 })
   })
 
   it("reports a boundary whose identity has no canonical form as a typed harness failure", async () => {

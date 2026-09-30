@@ -1217,7 +1217,12 @@ sets it for one run with `--on-exceeded`, beside `--budget-tokens` and
 interface Service {
   readonly check: (stepKey: string | undefined) => Effect.Effect<Verdict, AccountingUnavailable>
   readonly reserve: (stepKey: string) => Effect.Effect<Verdict, AccountingUnavailable, Scope.Scope>
-  readonly record: (stepKey: string, usage: ModelEvent.Usage) => Effect.Effect<void, AccountingUnavailable>
+  readonly admitReading: (stepKey: string) => Effect.Effect<Verdict, AccountingUnavailable>
+  readonly record: (
+    stepKey: string,
+    usage: ModelEvent.Usage,
+    modelId?: string
+  ) => Effect.Effect<void, AccountingUnavailable>
   readonly usage: Effect.Effect<Usage, AccountingUnavailable>
   readonly usageOf: (runId: string) => Effect.Effect<Usage, AccountingUnavailable>
   readonly suspend: Effect.Effect<void, AccountingUnavailable>
@@ -1235,8 +1240,12 @@ class Budget extends Context.Service<Budget, Service>()("@smthrs/agent/Budget")
   exit. Dispatch through this method, not a separate check-then-call sequence.
   All concurrent calls of a run must share one budget instance. Token
   forecasts are soft, not hard provider billing limits.
+- `admitReading` admits a paid evaluator reading without a forecast: it
+  refuses only once the ceiling is already spent (tokens at or past the
+  maximum, latency or the UTC day exhausted, or a latch), under the same
+  `onExceeded` policy, and reserves nothing. A counted key proceeds.
 - `record` accounts finite non-negative usage, idempotently in its step key,
-  and replaces its reservation's estimate. Failed/uncommitted writes remain
+  priced under `modelId` when given, and replaces its reservation's estimate. Failed/uncommitted writes remain
   retryable and block uncounted steps; retries must supply the same cost.
 - `usage` is what the current run has spent.
 - `usageOf` reads one named run's spend, from its live accumulator when this

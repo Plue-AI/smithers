@@ -425,6 +425,115 @@ describe("a token budget", () => {
   })
 })
 
+describe("an evaluator reading's admission (#3010)", () => {
+  it("takes a reading while any allowance is left, and refuses it only once the ceiling is spent", async () => {
+    const verdicts = await Effect.runPromise(
+      Effect.gen(function*() {
+        const budget = yield* Budget.make({ tokens: { max: 1_000 } })
+        yield* budget.record("step-a", { totalTokens: 600 })
+        // A primary call is projected at the largest call so far and refused.
+        const primary = yield* budget.check("step-b")
+        const underCeiling = yield* budget.admitReading("reading-a")
+        yield* budget.record("reading-a", { totalTokens: 399 })
+        const oneLeft = yield* budget.admitReading("reading-b")
+        yield* budget.record("reading-b", { totalTokens: 1 })
+        const atCeiling = yield* budget.admitReading("reading-c")
+        // A reading the ledger already charged is its own replay.
+        const replayed = yield* budget.admitReading("reading-b")
+        return { primary, underCeiling, oneLeft, atCeiling, replayed }
+      })
+    )
+    expect(verdicts.primary._tag).toBe("refuse")
+    expect(verdicts.underCeiling._tag).toBe("proceed")
+    expect(verdicts.oneLeft._tag).toBe("proceed")
+    expect(verdicts.atCeiling).toMatchObject({
+      _tag: "refuse",
+      exceeded: { scope: "tokens", onExceeded: "fail", used: 1_000, max: 1_000, next: 0, reserved: 0 }
+    })
+    expect(verdicts.replayed._tag).toBe("proceed")
+  })
+
+  it("does not count in-flight primary reservations against a reading", async () => {
+    const verdict = await Effect.runPromise(
+      Effect.scoped(Effect.gen(function*() {
+        const budget = yield* Budget.make({ tokens: { max: 1_000 } })
+        // Before any cost is known a reservation holds the whole allowance.
+        expect((yield* budget.reserve("primary"))._tag).toBe("proceed")
+        return yield* budget.admitReading("reading")
+      }))
+    )
+    expect(verdict._tag).toBe("proceed")
+  })
+
+  it("refuses every reading under a zero ceiling", async () => {
+    const verdict = await Effect.runPromise(
+      Effect.flatMap(Budget.make({ tokens: { max: 0 } }), (budget) => budget.admitReading("reading"))
+    )
+    expect(verdict).toMatchObject({ _tag: "refuse", exceeded: { scope: "tokens", used: 0, max: 0 } })
+  })
+
+  it.each([
+    ["warn", "warn"],
+    ["skip-remaining", "refuse"],
+    ["park", "refuse"]
+  ] as const)("applies the %s policy to a reading past a spent ceiling", async (onExceeded, tag) => {
+    const verdicts = await Effect.runPromise(
+      Effect.gen(function*() {
+        const budget = yield* Budget.make({ tokens: { max: 100, onExceeded } })
+        yield* budget.record("step-a", { totalTokens: 100 })
+        const reading = yield* budget.admitReading("reading")
+        // Only skip-remaining latches: every later call is refused.
+        const later = yield* budget.check("step-b")
+        return { reading, later }
+      })
+    )
+    expect(verdicts.reading._tag).toBe(tag)
+    if (onExceeded === "skip-remaining") {
+      expect(verdicts.reading).toMatchObject({ failure: { _tag: Budget.skippedTag } })
+    }
+    expect(verdicts.later._tag).toBe(onExceeded === "warn" ? "warn" : "refuse")
+  })
+
+  it("refuses a reading once the run's latency allowance is spent", async () => {
+    const verdicts = await Effect.runPromise(
+      Effect.gen(function*() {
+        const budget = yield* Budget.make({ latency: { maxMillis: 5_000 } })
+        const early = yield* budget.admitReading("reading-a")
+        yield* TestClock.adjust("6 seconds")
+        const late = yield* budget.admitReading("reading-b")
+        return { early, late }
+      }).pipe(Effect.provide(TestClock.layer()))
+    )
+    expect(verdicts.early._tag).toBe("proceed")
+    expect(verdicts.late).toMatchObject({ _tag: "refuse", exceeded: { scope: "latency", max: 5_000 } })
+  })
+
+  it("refuses a reading once the UTC day's spend reaches the cap, not before", async () => {
+    const ledger = Budget.memoryLedger()
+    const verdicts = await Effect.runPromise(
+      Effect.gen(function*() {
+        const budget = yield* Budget.make({ daily: { max: 1_000 } }, { ledger })
+        yield* budget.record("a1", { totalTokens: 600 })
+        const primary = yield* budget.check("a2")
+        const underCap = yield* budget.admitReading("reading-a")
+        yield* budget.record("reading-a", { totalTokens: 400 })
+        const atCap = yield* budget.admitReading("reading-b")
+        return { primary, underCap, atCap }
+      })
+    )
+    expect(verdicts.primary._tag).toBe("refuse")
+    expect(verdicts.underCap._tag).toBe("proceed")
+    expect(verdicts.atCap).toMatchObject({
+      _tag: "refuse",
+      exceeded: { scope: "daily", used: 1_000, max: 1_000, next: 0 }
+    })
+  })
+
+  it("admits every reading on an unbounded budget", async () => {
+    expect((await Effect.runPromise(Budget.makeUnbounded().admitReading("reading")))._tag).toBe("proceed")
+  })
+})
+
 describe("a latency budget", () => {
   it("refuses a call that starts after the run's wall-clock ceiling", async () => {
     const verdicts = await Effect.runPromise(
@@ -573,8 +682,11 @@ describe("a budget on the durable engine", () => {
 
     expect(observed.value).toEqual({ approved: true })
     expect(calls).toHaveLength(2)
-    expect(observed.records).toHaveLength(1)
+    expect(observed.records).toHaveLength(2)
     expect(observed.records[0]).toMatchObject({ scope: "tokens", used: 600, max: 1_000, next: 600 })
+    // The completion judge's reading, let through past the spent ceiling, is
+    // warned about too, at no projected cost (#3010).
+    expect(observed.records[1]).toMatchObject({ scope: "tokens", used: 1_200, max: 1_000, next: 0 })
   }, 60_000)
 
   it("reports a skipped step as the typed skip, through the action's own encoder", async () => {

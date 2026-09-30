@@ -6,7 +6,8 @@
  * recorded on the completion-judgement boundary with the usage the provider
  * reported, and the run's engine accounts that usage under the boundary's
  * key. So the next primary call is admitted against the judge's spend, and a
- * replayed judgement is charged once.
+ * replayed judgement is charged once. The judge is itself admitted: once the
+ * ceiling is spent it is refused under the run's policy (#3010).
  */
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
 import { FlowEngine } from "@smthrs/engine"
@@ -166,6 +167,16 @@ describe("a seat-backed completion judge under a run budget", () => {
     expect(Exit.isSuccess(exit)).toBe(true)
     expect(calls).toEqual({ primary: 2, judge: 2 })
     expect(ledger.tokens).toBe(10)
+  })
+
+  it("does not judge a completion whose primary call spent the whole ceiling (#3010)", async () => {
+    const { calls, exit, ledger } = await drive(100, 4)
+    // The first primary call is admitted before any cost is known and spends
+    // 5 of 4 tokens; its judge is refused before it is asked, under `fail`.
+    expect(calls).toEqual({ primary: 1, judge: 0 })
+    expect(ledger.tokens).toBe(5)
+    expect(Exit.isFailure(exit)).toBe(true)
+    expect(String(Exit.isFailure(exit) ? exit.cause : "")).toContain("BudgetExceeded")
   })
 
   it("charges every judge once when the ceiling allows the whole run", async () => {

@@ -916,6 +916,31 @@ export const make = (
         parkedOn = parked.waiting
         return Effect.fail(parked.failure)
       })
+    /**
+     * Applies a budget's verdict on paid work: a refusal fails, or parks the
+     * run for an operator's raise, and anything else lets the work proceed.
+     * `warn` journals inside the budget itself and falls through here.
+     */
+    const applyVerdict = (verdict: Budget.Verdict): Effect.Effect<void, HarnessError.HarnessError> =>
+      Effect.gen(function*() {
+        if (verdict._tag !== "refuse") return
+        if (verdict.failure instanceof Budget.BudgetExceeded && verdict.failure.onExceeded === "park") {
+          // `park` suspends the run for an operator's raise when the host
+          // can take approvals; without one it is a refusal like `fail`.
+          const parking = yield* Effect.serviceOption(Budget.Parking)
+          if (Option.isSome(parking)) return yield* parkOn(yield* parking.value.park(verdict.failure))
+        }
+        return yield* Effect.fail(
+          new HarnessError.HarnessError({
+            code: "model_failed",
+            message: verdict.failure.message,
+            // The verdict decides which failure this is: the step that
+            // broke the budget reports `BudgetExceeded`, and every call
+            // after a `skip-remaining` latch reports `Budget.Skipped`.
+            cause: verdict.failure
+          })
+        )
+      })
     const sealStep = (
       step: EngineLike.SealedModelStep,
       onLive?: (event: ModelEvent.ModelEvent) => Effect.Effect<void>
@@ -946,8 +971,7 @@ export const make = (
           }
           // The composition's spending ceiling, applied where every model call
           // in the run passes: a step that assembles its own loop cannot evade
-          // a budget declared for the whole run. `warn` journals inside the
-          // budget itself and falls through here.
+          // a budget declared for the whole run.
           //
           // The sealed key goes with the question, and it has to: the check
           // runs BEFORE the activity below replays, so on a resumed run it is
@@ -956,31 +980,7 @@ export const make = (
           // plus an estimate for a call the ledger already holds, and a run
           // killed after its last model call resumes straight into
           // `BudgetExceeded` for a call that costs zero.
-          const verdict = yield* budget.reserve(key).pipe(Effect.mapError(accountingFailed))
-          if (verdict._tag === "refuse" && verdict.failure instanceof Budget.BudgetExceeded) {
-            // `park` suspends the run for an operator's raise when the host
-            // can take approvals; without one it is a refusal like `fail`.
-            const parking = verdict.failure.onExceeded === "park"
-              ? yield* Effect.serviceOption(Budget.Parking)
-              : Option.none()
-            if (Option.isSome(parking)) {
-              const parked = yield* parking.value.park(verdict.failure)
-              parkedOn = parked.waiting
-              return yield* Effect.fail(parked.failure)
-            }
-          }
-          if (verdict._tag === "refuse") {
-            return yield* Effect.fail(
-              new HarnessError.HarnessError({
-                code: "model_failed",
-                message: verdict.failure.message,
-                // The verdict decides which failure this is: the step that
-                // broke the budget reports `BudgetExceeded`, and every call
-                // after a `skip-remaining` latch reports `Budget.Skipped`.
-                cause: verdict.failure
-              })
-            )
-          }
+          yield* applyVerdict(yield* budget.reserve(key).pipe(Effect.mapError(accountingFailed)))
           // Read OUTSIDE the activity, from the caller's context: the ladder
           // rung is the caller's fact about this call, and it has to be on the
           // record the activity writes rather than discovered by whatever
@@ -1176,6 +1176,16 @@ export const make = (
       Effect.gen(function*() {
         yield* accountedResume
         const key = yield* boundaryKey(boundary.name, boundary.identity, scope)
+        const charged = `${boundaryUsagePrefix}${key}`
+        // A boundary that pays for evaluator readings is admitted under the
+        // same policy as a primary call, but only refused once the run's
+        // ceiling is already spent: a reading costs a fraction of the primary
+        // call a forecast projects (#3010). It is asked before the record, so
+        // a refusal is never journaled as the boundary's outcome, and a
+        // replayed reading the ledger already charged proceeds.
+        if (boundary.usage !== undefined && boundary.advisory !== true) {
+          yield* applyVerdict(yield* budget.admitReading(charged).pipe(Effect.mapError(accountingFailed)))
+        }
         // `irreversible` is the honest tier: the read is not
         // content-addressable and cannot be undone, only recorded — so the
         // boundary is journaled under its run-scoped key and a replayed frame
@@ -1198,11 +1208,17 @@ export const make = (
         // reading, is the run's spend like any sealed step's (#2681). It is
         // read off the recorded value and accounted under the boundary's own
         // key after the record settles, live or replayed, so the ledger holds
-        // it exactly once and the next paid call is admitted against it.
-        const paid = boundary.usage?.(value)
-        if (paid !== undefined) {
-          yield* budget.record(`${boundaryUsagePrefix}${key}`, paid).pipe(Effect.mapError(accountingFailed))
-        }
+        // it exactly once and the next paid call is admitted against it. Each
+        // model's share is priced under its own id (#3010); a second model's
+        // share takes a key of its own.
+        yield* Effect.forEach(
+          boundary.usage?.(value) ?? [],
+          (paid, index) =>
+            budget.record(index === 0 ? charged : `${charged}#${index}`, paid.usage, paid.modelId).pipe(
+              Effect.mapError(accountingFailed)
+            ),
+          { discard: true }
+        )
         return value
       }).pipe(Effect.provide(context))
 

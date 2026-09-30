@@ -340,6 +340,9 @@ export const open = (input: {
           name: "supervisor",
           identity: { session, frame: offer.frame, boundary: `supervisor:${offer.digest}` },
           success: Recorded,
+          // This fiber drops a failed record, so a spent budget is applied by
+          // the frame's next primary call rather than parked here (#3010).
+          advisory: true,
           // The monitors' reading, then each relevance and marks request: every
           // reading the boundary took is one the run paid for.
           usage: (record) =>

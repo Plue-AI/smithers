@@ -47,6 +47,10 @@
  *   Zero refuses new calls unless `warn` explicitly permits them. Scope exit
  *   releases reservations; recorded usage replaces the estimate. `check` only
  *   previews admission and must not be used as a concurrency guard.
+ * - **An evaluator reading is refused only by a spent ceiling.** A judge or
+ *   monitor reading is small next to the primary call a forecast projects, so
+ *   `admitReading` projects nothing: it refuses only once the run's ceiling is
+ *   already spent (or latched), under the same `onExceeded` policy (#3010).
  *
  * A forecast is not a provider billing cap: admitted calls may cost more than
  * estimated, including the first call. One shared Budget instance coordinates
@@ -472,6 +476,19 @@ export interface Service {
    * One Budget instance must serve all concurrent calls of a run.
    */
   readonly reserve: (stepKey: string) => Effect.Effect<Verdict, AccountingUnavailable, Scope.Scope>
+  /**
+   * Decides whether a paid evaluator reading, accounted later under
+   * `stepKey`, may be taken.
+   *
+   * A reading is not projected at the size of the run's largest call, which
+   * is a primary call's: it proceeds while any allowance is left, and is
+   * refused only once the ceiling is already spent (tokens at or past their
+   * maximum, the latency allowance or the UTC day's spend exhausted, or a
+   * `skip-remaining` latch), under the same `onExceeded` policy a primary call
+   * gets. A key the ledger already holds proceeds, as a replay does. It
+   * reserves nothing: `record` accounts what the reading paid.
+   */
+  readonly admitReading: (stepKey: string) => Effect.Effect<Verdict, AccountingUnavailable>
   /**
    * Accounts finite, non-negative usage, idempotently in its step key. A
    * failed/uncommitted write remains pending and retryable; new uncounted
@@ -1484,7 +1501,8 @@ export const make = (
       run: RunAccount,
       runId: string,
       stepKey: string | undefined,
-      reserving: boolean
+      // `reading` projects nothing: it refuses only a ceiling already spent.
+      mode: "check" | "reserve" | "reading"
     ): Effect.Effect<Verdict, AccountingUnavailable> =>
       Effect.gen(function*() {
         const current = yield* Ref.get(run.state)
@@ -1543,7 +1561,7 @@ export const make = (
           const used = yield* spendLedger.total(utcDay(now)).pipe(
             Effect.mapError((cause) => unavailable("recover", runId, String(cause), cause))
           )
-          const projected = current.largestCall
+          const projected = mode === "reading" ? 0 : current.largestCall
           if (used + projected > daily.max || used >= daily.max) {
             return yield* settle(run, runId, exceeded("daily", "fail", used, daily.max, projected))
           }
@@ -1552,11 +1570,21 @@ export const make = (
         // for one call. A zero-cost forecast must not admit unbounded fanout.
         const forecast = current.largestCall || tokens?.max || 0
         let reserved = 0
-        for (const key of run.reservations.keys()) {
-          if (!current.counted.has(key)) reserved += forecast
+        if (mode !== "reading") {
+          for (const key of run.reservations.keys()) {
+            if (!current.counted.has(key)) reserved += forecast
+          }
         }
-        const next = reserving || run.reservations.size > 0 ? forecast : current.largestCall
-        if (tokens !== undefined && (tokens.max === 0 || current.tokens + reserved + next > tokens.max)) {
+        const next = mode === "reading"
+          ? 0
+          : mode === "reserve" || run.reservations.size > 0
+          ? forecast
+          : current.largestCall
+        if (
+          tokens !== undefined &&
+          (tokens.max === 0 ||
+            (mode === "reading" ? current.tokens >= tokens.max : current.tokens + reserved + next > tokens.max))
+        ) {
           return yield* settle(
             run,
             runId,
@@ -1574,13 +1602,13 @@ export const make = (
       })
 
     const check = (stepKey: string | undefined): Effect.Effect<Verdict, AccountingUnavailable> =>
-      withRecovered((run, runId) => run.admission.withPermits(1)(checkAccount(run, runId, stepKey, false)))
+      withRecovered((run, runId) => run.admission.withPermits(1)(checkAccount(run, runId, stepKey, "check")))
 
     const reserve = (stepKey: string): Effect.Effect<Verdict, AccountingUnavailable, Scope.Scope> =>
       withRecovered((run, runId) =>
         run.admission.withPermits(1)(Effect.uninterruptibleMask((restore) =>
           Effect.gen(function*() {
-            const verdict = yield* restore(checkAccount(run, runId, stepKey, true))
+            const verdict = yield* restore(checkAccount(run, runId, stepKey, "reserve"))
             if (verdict._tag === "refuse") return verdict
             const current = yield* Ref.get(run.state)
             if (current.counted.has(stepKey)) return verdict
@@ -1613,6 +1641,8 @@ export const make = (
     return Budget.of({
       check,
       reserve,
+      admitReading: (stepKey) =>
+        withRecovered((run, runId) => run.admission.withPermits(1)(checkAccount(run, runId, stepKey, "reading"))),
       record: (stepKey, usage, modelId) =>
         withRecovered((run, runId) =>
           Effect.gen(function*() {
@@ -1741,6 +1771,7 @@ export const makeUnbounded = (): Service =>
   Budget.of({
     check: () => Effect.succeed<Verdict>({ _tag: "proceed" }),
     reserve: () => Effect.succeed<Verdict>({ _tag: "proceed" }),
+    admitReading: () => Effect.succeed<Verdict>({ _tag: "proceed" }),
     record: () => Effect.void,
     usage: Effect.succeed({ tokens: 0, calls: 0, largestCall: 0 }),
     usageOf: () => Effect.succeed({ tokens: 0, calls: 0, largestCall: 0 }),

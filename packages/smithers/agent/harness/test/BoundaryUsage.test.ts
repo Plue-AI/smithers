@@ -24,9 +24,22 @@ describe("paidUsage", () => {
   })
 
   it("sums every metered reading and skips the unmetered ones", () => {
-    expect(paidUsage([{ inputTokens: 90, outputTokens: 10 }])).toEqual({ inputTokens: 90, outputTokens: 10 })
+    expect(paidUsage([{ inputTokens: 90, outputTokens: 10 }])).toEqual([{ usage: { inputTokens: 90, outputTokens: 10 } }])
     expect(paidUsage([undefined, { inputTokens: 90, outputTokens: 10 }, { inputTokens: 5, outputTokens: 1 }]))
-      .toEqual({ inputTokens: 95, outputTokens: 11 })
+      .toEqual([{ usage: { inputTokens: 95, outputTokens: 11 } }])
+  })
+
+  it("keeps one share per model, in the order each model first read, so each is priced as its own (#3010)", () => {
+    expect(paidUsage([
+      { inputTokens: 90, outputTokens: 10, modelId: "judge-a" },
+      { inputTokens: 7, outputTokens: 3 },
+      { inputTokens: 5, outputTokens: 1, modelId: "judge-b" },
+      { inputTokens: 10, outputTokens: 0, modelId: "judge-a" }
+    ])).toEqual([
+      { usage: { inputTokens: 100, outputTokens: 10 }, modelId: "judge-a" },
+      { usage: { inputTokens: 7, outputTokens: 3 } },
+      { usage: { inputTokens: 5, outputTokens: 1 }, modelId: "judge-b" }
+    ])
   })
 })
 
@@ -87,13 +100,13 @@ describe("the completion judgement boundary", () => {
     const script = [emits(`ctx.done("done")`)]
     const first = await run({ script, state: state(2), evaluator: judge.layer, records })
     expect(first.failure).toBeUndefined()
-    expect(paidFor(first.engine.recorder.paid)).toEqual([{ inputTokens: 90, outputTokens: 10 }])
+    expect(paidFor(first.engine.recorder.paid)).toEqual([[{ usage: { inputTokens: 90, outputTokens: 10 } }]])
     expect(judge.asked.count).toBe(1)
 
     // The replay is served the recorded judgement, pays the judge nothing, and
     // still names the spend the original attempt paid.
     const replayed = await run({ script, state: state(2), evaluator: judge.layer, records })
-    expect(paidFor(replayed.engine.recorder.paid)).toEqual([{ inputTokens: 90, outputTokens: 10 }])
+    expect(paidFor(replayed.engine.recorder.paid)).toEqual([[{ usage: { inputTokens: 90, outputTokens: 10 } }]])
     expect(judge.asked.count).toBe(1)
   })
 
@@ -108,8 +121,8 @@ describe("the completion judgement boundary", () => {
     // or ends the run, and either way it was paid for.
     expect(judge.asked.count).toBe(2)
     expect(paidFor(result.engine.recorder.paid)).toEqual([
-      { inputTokens: 90, outputTokens: 10 },
-      { inputTokens: 90, outputTokens: 10 }
+      [{ usage: { inputTokens: 90, outputTokens: 10 } }],
+      [{ usage: { inputTokens: 90, outputTokens: 10 } }]
     ])
   })
 

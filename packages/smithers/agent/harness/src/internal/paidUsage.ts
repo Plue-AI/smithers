@@ -5,31 +5,37 @@
  * @private
  */
 
-import type * as ModelEvent from "@smthrs/model/ModelEvent"
+import type * as EngineLike from "../EngineLike.ts"
 
 /**
- * One reading's metered usage; absent when the transport reported none.
+ * One reading's metered usage and the model that read it; absent when the
+ * transport reported none.
  *
  * @since 1.0.0-rc.1
  * @private
  */
-export type Metered = { readonly inputTokens: number; readonly outputTokens: number } | undefined
+export type Metered =
+  | { readonly inputTokens: number; readonly outputTokens: number; readonly modelId?: string | undefined }
+  | undefined
 
 /**
- * Sums the readings that were metered. `undefined` when none was: a reading
- * the transport did not meter is not a reading that cost zero.
+ * Sums the readings that were metered, one share per model in the order each
+ * model first read. `undefined` when none was: a reading the transport did not
+ * meter is not a reading that cost zero.
  *
  * @since 1.0.0-rc.1
  * @private
  */
-export const paidUsage = (readings: ReadonlyArray<Metered>): ModelEvent.Usage | undefined => {
-  let paid: { inputTokens: number; outputTokens: number } | undefined
+export const paidUsage = (readings: ReadonlyArray<Metered>): ReadonlyArray<EngineLike.Paid> | undefined => {
+  const shares = new Map<string | undefined, { inputTokens: number; outputTokens: number }>()
   for (const reading of readings) {
     if (reading === undefined) continue
-    paid = {
-      inputTokens: (paid?.inputTokens ?? 0) + reading.inputTokens,
-      outputTokens: (paid?.outputTokens ?? 0) + reading.outputTokens
-    }
+    const share = shares.get(reading.modelId)
+    shares.set(reading.modelId, {
+      inputTokens: (share?.inputTokens ?? 0) + reading.inputTokens,
+      outputTokens: (share?.outputTokens ?? 0) + reading.outputTokens
+    })
   }
-  return paid
+  if (shares.size === 0) return undefined
+  return [...shares].map(([modelId, usage]) => modelId === undefined ? { usage } : { usage, modelId })
 }

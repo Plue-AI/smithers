@@ -347,7 +347,7 @@ describe("recorded", () => {
     // Unmetered, and a reading that never happened, name no spend at all.
     await Effect.runPromise(Judgement.recorded(engine, boundary, execute).pipe(Effect.provide(answered().layer)))
     await Effect.runPromise(Judgement.recorded(engine, boundary, execute))
-    expect(paid).toEqual([{ inputTokens: 80, outputTokens: 4 }, undefined, undefined])
+    expect(paid).toEqual([[{ usage: { inputTokens: 80, outputTokens: 4 } }], undefined, undefined])
   })
 })
 

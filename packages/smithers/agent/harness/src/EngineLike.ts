@@ -145,16 +145,40 @@ export interface RecordBoundary<A> {
   readonly call?: Cell.Call | undefined
   /**
    * The model usage the recorded value says this boundary paid for, such as
-   * an evaluator reading taken inside `execute`.
+   * an evaluator reading taken inside `execute`, one share per model.
    *
    * Read off the recorded value, never off the live call, so a replayed frame
    * reports the same spend the original attempt paid. An implementation that
    * keeps a run budget accounts it once under this boundary's key, on the
-   * live pass and on replay alike, so the next paid call is admitted against
-   * it. Absent, or `undefined` from it, is a boundary that paid for nothing.
+   * live pass and on replay alike, pricing each share under its model id, so
+   * the next paid call is admitted against it. Declaring it declares the
+   * boundary paid: unless it is {@link advisory}, such an implementation
+   * admits it before `execute` under the budget's evaluator-reading policy,
+   * and a refusal fails or parks the run as a primary call's would.
+   * `undefined` or an empty list from it is a boundary that paid for nothing
+   * this time.
    */
   // A method, so a boundary over a narrower value is still a `RecordBoundary<unknown>`.
-  usage?(value: A): ModelEvent.Usage | undefined
+  usage?(value: A): ReadonlyArray<Paid> | undefined
+  /**
+   * A paid boundary whose caller drops its failure, such as the supervisor's
+   * reading in its own fiber: it is charged but never admitted, because a
+   * refusal there would register a park that no frame honours. The frame's
+   * next primary call applies the budget instead.
+   */
+  readonly advisory?: boolean | undefined
+}
+
+/**
+ * One model's share of what a recorded boundary paid.
+ *
+ * @category models
+ * @since 1.0.0-rc.1
+ */
+export interface Paid {
+  readonly usage: ModelEvent.Usage
+  /** The model that was paid, when the reading named it: what prices the share. */
+  readonly modelId?: string | undefined
 }
 
 /**
