@@ -155,6 +155,10 @@ const codingFiles = [
   sources,
   Smithers.glob("//flows/**/*.mjs"),
   Smithers.glob("//flows/coding/**/*.md"),
+  Smithers.glob("//flows/create-flow/**/flow.mdx"),
+  Smithers.file("//flows/issue/repro/flow.mdx"),
+  Smithers.file("//flows/issue/poc/flow.mdx"),
+  Smithers.file("//flows/pr-triage/flow.mdx"),
   Smithers.file("//flows/tsconfig.json")
 ]
 const codingSources = [
@@ -173,9 +177,7 @@ const codingProjectSources = [
 ].map((path) => Smithers.file(`//${path}`))
 const codingProjectInputs = [
   ...codingProjectSources,
-  Smithers.glob("//flows/checks/**/flow.mdx"),
-  // The built-in authoring bodies the host installs on every workspace.
-  Smithers.glob("//flows/create-flow/**/flow.mdx")
+  Smithers.glob("//flows/checks/**/flow.mdx")
 ]
 const node = Smithers.Runtime.Node({ version: ">=26.4.0" })
 const bun = Smithers.Runtime.Bun({ version: ">=1.4.0" })
@@ -249,6 +251,7 @@ const codingRuntime = Smithers.NodeTest({
     Smithers.file("//flows/test/coding-host-modules.test.ts"),
     Smithers.file("//flows/test/coding-wiki-registry.test.ts"),
     Smithers.file("//flows/test/coding-create-flow-registry.test.ts"),
+    Smithers.file("//flows/test/coding-pr-triage-host.test.ts"),
     Smithers.file("//flows/test/coding-jev-check.test.ts"),
     Smithers.file("//flows/test/coding-wiki-memory.test.ts"),
     Smithers.file("//flows/test/coding-catalog-refresh.test.ts"),

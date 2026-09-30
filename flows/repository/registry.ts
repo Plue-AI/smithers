@@ -40,7 +40,7 @@ declare const __SMITHERS_CODING_ARTIFACT_DIGEST__: string | undefined
 declare const __SMITHERS_CREATE_FLOW_PACK__: Readonly<Record<string, string>> | undefined
 /** Where each pack body lives, relative to this module, in source and in the bundler. */
 const authoringSource = (name: string) => `../${name}/flow.mdx`
-const issueFlows = ["issue/repro", "issue/poc"] as const
+const firstPartyPrompts = ["issue/repro", "issue/poc", "pr-triage"] as const
 const policySources = [
   "../coding/host.ts",
   "../coding/native.ts",
@@ -75,7 +75,7 @@ const policySources = [
   // A prompt a workspace runs is policy: editing one changes what every
   // built-in body tells a model to do.
   ...FLOW_AUTHORING_PACK.map(authoringSource),
-  ...issueFlows.map(authoringSource)
+  ...firstPartyPrompts.map(authoringSource)
 ]
 export const runningRepositoryPolicy = Effect.gen(function*() {
   if (typeof __SMITHERS_CODING_ARTIFACT_DIGEST__ !== "undefined") {
@@ -111,7 +111,7 @@ export const authoringBodies: Effect.Effect<ReadonlyMap<string, string>, Error, 
     const compiled = typeof __SMITHERS_CREATE_FLOW_PACK__ === "undefined" ? undefined : __SMITHERS_CREATE_FLOW_PACK__
     const fs = yield* FileSystem.FileSystem
     const bodies = new Map<string, string>()
-    for (const name of [...FLOW_AUTHORING_PACK, ...issueFlows]) {
+    for (const name of [...FLOW_AUTHORING_PACK, ...firstPartyPrompts]) {
       const text = compiled === undefined
         ? yield* fs.readFileString(fileURLToPath(new URL(authoringSource(name), import.meta.url))).pipe(
           Effect.mapError((cause) => new Error(`The built-in flow ${name} could not be read: ${cause.message}`))

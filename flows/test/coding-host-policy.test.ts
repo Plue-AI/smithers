@@ -96,6 +96,7 @@ test("deployment embeds its compiled identity and the review policy it was built
   const deployed = await readFile(output, "utf8")
   assert.ok(deployed.includes("issue/repro") && deployed.includes("Research and reproduce an issue"))
   assert.ok(deployed.includes("issue/poc") && deployed.includes("Build a small proof of concept"))
+  assert.ok(deployed.includes("pr-triage") && deployed.includes("Never execute code from the PR"))
   const first = await verify()
   // The deployed host answers the same review identity as source mode.
   assert.equal(execFileSync(process.execPath, [output], { encoding: "utf8", timeout: 60_000 }).trim(), sourcePolicy)
@@ -109,4 +110,41 @@ test("deployment embeds its compiled identity and the review policy it was built
     execFileSync(process.execPath, [output], { encoding: "utf8", timeout: 60_000 }).split("\n")[0],
     sourcePolicy
   )
+})
+
+test("the packaged host exposes PR triage in a repository with no project flows", { timeout: 120_000 }, async (t) => {
+  const temporary = await mkdtemp(join(tmpdir(), "coding-pr-triage-bundle-"))
+  t.after(() => rm(temporary, { recursive: true, force: true }))
+  await mkdir(join(temporary, "repository", "flows"), { recursive: true })
+  const output = join(temporary, "host.mjs")
+  await bundle(fileURLToPath(new URL("./fixtures/coding-pr-triage-bundle-entry.ts", import.meta.url)), output)
+  const found = JSON.parse(execFileSync(process.execPath, [output, temporary], {
+    encoding: "utf8", timeout: 60_000
+  })) as {
+    readonly name: string
+    readonly source: string
+    readonly capabilities: Array<string>
+    readonly bodyKind: string
+    readonly model: { readonly _tag: string; readonly value?: string }
+    readonly prompt: string
+  }
+  assert.equal(found.name, "pr-triage")
+  assert.equal(found.source, "repository-host")
+  assert.equal(found.bodyKind, "Prompt")
+  assert.equal(found.model._tag, "Some")
+  assert.equal(found.model.value, "luna")
+  assert.deepEqual(found.capabilities, ["fs:read:**", "fs:write:.triage/report.json", "proc:spawn:rg *"])
+  assert.match(found.prompt, /Never execute code from the PR/)
+  assert.match(found.prompt, /"number":17/)
+  assert.match(found.prompt, /\+return 17/)
+  // Run the same scripted model acceptance from the packaged host too. The
+  // deployment bundler substitutes the measured prompt pack into this entry.
+  await bundle(fileURLToPath(new URL("./coding-pr-triage-host.test.ts", import.meta.url)), output)
+  const environment = { ...process.env }
+  delete environment.NODE_TEST_CONTEXT
+  const execution = execFileSync(process.execPath, ["--test", output], {
+    encoding: "utf8", timeout: 60_000, env: environment
+  })
+  assert.match(execution, /pass 1/)
+  assert.match(execution, /fail 0/)
 })

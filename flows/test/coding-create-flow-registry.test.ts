@@ -112,27 +112,34 @@ test("a freshly imported repository can run the flow the app's create door launc
   assert.equal(resolved.listed.some((entry) => entry.name === "create-workflow"), false)
 })
 
-test("a freshly imported repository carries the issue flows offered by the Cloud issue card", async (t) => {
+test("a freshly imported repository carries the first-party issue and PR review prompts", async (t) => {
   const { repositoryPath, stateRoot } = await workspace(t)
+  const names = ["issue/repro", "issue/poc", "pr-triage"]
   const installed = await run(
     composedRegistry(repositoryPath, stateRoot).pipe(
       Effect.flatMap((registry) =>
         Effect.forEach(
-          ["issue/repro", "issue/poc"],
+          names,
           (name) => Effect.all({ descriptor: registry.get(name), body: registry.loadBody(name) })
         )
       ),
       Effect.provide(platform)
     )
   )
-  for (const [index, name] of ["issue/repro", "issue/poc"].entries()) {
+  for (const [index, name] of names.entries()) {
     const flow = installed[index]!
     assert.equal(flow.descriptor.name, name)
     assert.equal(flow.body._tag, "Prompt")
     assert.ok(flow.body.text.trim().length > 0)
     assert.equal(flow.descriptor.model._tag, "Some")
     if (flow.descriptor.model._tag === "Some") {
-      assert.equal(flow.descriptor.model.value, name === "issue/repro" ? "repository/research" : "coding/poc")
+      assert.equal(flow.descriptor.model.value, name === "issue/repro" ? "repository/research" : name === "issue/poc" ? "coding/poc" : "luna")
+    }
+    if (name === "pr-triage") {
+      assert.deepEqual(flow.descriptor.capabilities, ["fs:read:**", "fs:write:.triage/report.json", "proc:spawn:rg *"])
+      assert.match(flow.body.text, /Never execute code from the PR/)
+      assert.match(flow.body.text, /Never\s+approve, merge, close, or assign the PR/)
+      assert.equal(flow.descriptor.provenance.source, "repository-host")
     }
   }
 })
@@ -169,12 +176,26 @@ test("a repository that writes its own create-flow keeps it", async (t) => {
   assert.ok(body.text.includes("Use our house rules."), "the project's own body must win over the built-in")
 })
 
+test("a repository's own PR triage prompt overrides the bundled default", async (t) => {
+  const own = "---\ndescription: This repository's PR intake.\nmodel: luna\ncapabilities: [\"fs:read:**\"]\n---\n\nApply our review checklist.\n"
+  const { repositoryPath, stateRoot } = await workspace(t, { ownFlows: { "pr-triage": own } })
+  const resolved = await run(composedRegistry(repositoryPath, stateRoot).pipe(
+    Effect.flatMap((registry) => Effect.all({ descriptor: registry.get("pr-triage"), body: registry.loadBody("pr-triage") })),
+    Effect.provide(platform)
+  ))
+  assert.equal(resolved.descriptor.provenance.source, "project")
+  assert.deepEqual(resolved.descriptor.capabilities, ["fs:read:**"])
+  assert.equal(resolved.body._tag, "Prompt")
+  assert.match(resolved.body.text, /Apply our review checklist/)
+  assert.doesNotMatch(resolved.body.text, /Never execute code from the PR/)
+})
+
 test("the bodies the host installs are the bodies in this repository", async () => {
   const bodies = await run(authoringBodies.pipe(Effect.provide(platform)))
-  assert.deepEqual([...bodies.keys()].sort(), [...FLOW_AUTHORING_PACK, "issue/repro", "issue/poc"].sort())
+  assert.deepEqual([...bodies.keys()].sort(), [...FLOW_AUTHORING_PACK, "issue/repro", "issue/poc", "pr-triage"].sort())
   for (const [name, text] of bodies) {
     assert.ok(text.startsWith("---\n"), `${name} must carry frontmatter`)
-    const seat = name === "issue/repro" ? "repository/research" : name === "issue/poc" ? "coding/poc" : "flow/author"
+    const seat = name === "issue/repro" ? "repository/research" : name === "issue/poc" ? "coding/poc" : name === "pr-triage" ? "luna" : "flow/author"
     assert.ok(text.includes(`model: ${seat}`), `${name} must declare the configured seat`)
   }
 })
