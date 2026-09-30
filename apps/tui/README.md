@@ -446,8 +446,9 @@ shutdown limit.
 Every chat turn, worker tab and flow run gets a time and token estimate when it
 is requested, and is scored when it settles. A flow or a turn is estimated from
 its own past runs; a delegated request asks GPT-6 Luna with the most similar past
-runs and the model's own past errors in the prompt, or takes the median run
-without a model. A model failure is logged with its reason and toasts once.
+runs and the model's own past errors in the prompt when an OpenAI route (key or
+codex login) is detected, or takes the median run otherwise; no other provider
+stands in. A model failure is logged with its reason and toasts once.
 Scores calibrate the next estimate. A running tab and a working turn show
 `~7m·250k` (time left, tokens) or `late`; the coordinator's `tab.eta` flow
 answers ETA questions, queued tabs included. The eval log is

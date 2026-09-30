@@ -2,16 +2,39 @@
 import { createCliRenderer } from "@opentui/core"
 import { createRoot } from "@opentui/react"
 import { Schema } from "effect"
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs"
+import { appendFileSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { App } from "../src/app.tsx"
 import * as Changes from "../src/changes.ts"
 import type * as Flows from "../src/flows.ts"
 import type * as Host from "../src/host.ts"
+import type * as Models from "../src/models.ts"
+
+/**
+ * `SMITHERS_FIXTURE_MODELS` names the detected providers (`openai`, `anthropic`);
+ * `SMITHERS_FIXTURE_COMPLETE`, when set, is a one-shot model that appends each
+ * seat it is asked for to that file and answers, or throws when the seat's
+ * provider was not detected.
+ */
+const detected: Record<string, ReadonlyArray<Models.Model>> = {
+  openai: [{ seat: "openai:gpt-6-sol", label: "GPT-6 Sol", provider: "OpenAI" }],
+  anthropic: [{ seat: "anthropic:claude-opus-5-5", label: "Claude Opus 5.5", provider: "Anthropic" }]
+}
+const models = (process.env.SMITHERS_FIXTURE_MODELS ?? "").split(",").flatMap((name) => detected[name] ?? [])
+const calls = process.env.SMITHERS_FIXTURE_COMPLETE
+const complete: Host.Host["complete"] = calls === undefined ? undefined : async ({ seat }) => {
+  appendFileSync(calls, `${seat}\n`)
+  if (!models.some((model) => model.seat.split(":")[0] === seat.split(":")[0])) {
+    throw new Error(`Set OPENAI_API_KEY to use ${seat}`)
+  }
+  if (process.env.SMITHERS_FIXTURE_COMPLETE_FAILS === "1") throw new Error("Estimate provider outage")
+  return JSON.stringify({ minutes: 90, tokens: 1000 })
+}
 const host: Host.Host = {
   cwd: process.cwd(),
   judged: false,
+  ...(complete === undefined ? {} : { complete }),
   dispose: async () => {
     await real?.dispose()
   },
@@ -127,5 +150,12 @@ const flows: Flows.Port = {
 }
 const renderer = await createCliRenderer({ exitOnCtrlC: false, targetFps: 30 })
 createRoot(renderer).render(
-  <App host={host} seat="test:chat" workerSeat="test:worker" models={[]} contextWindow={() => 128_000} flows={flows} />
+  <App
+    host={host}
+    seat="test:chat"
+    workerSeat="test:worker"
+    models={models}
+    contextWindow={() => 128_000}
+    flows={flows}
+  />
 )

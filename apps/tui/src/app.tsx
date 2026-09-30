@@ -260,17 +260,17 @@ export function App(props: AppProps) {
   // One ledger per directory: every session's work calibrates the next estimate.
   // Its failures toast once each, through a ref the render sets.
   const estimateProblem = useRef((_: string) => {})
-  const [estimator] = useState(() =>
-    new Estimate.Estimator({
+  const [estimator] = useState(() => {
+    const complete = props.host.complete
+    const seat = Models.estimateSeat(props.models)
+    return new Estimate.Estimator({
       ledger: new Improve.Ledger(Estimate.ledgerFile(props.host.cwd), {
         onWriteError: (error) => estimateProblem.current(Failures.line("estimates", error))
       }),
-      model: props.host.complete === undefined
-        ? undefined
-        : (request) => props.host.complete!({ ...request, seat: Models.delegateModels.luna }),
+      model: complete === undefined || seat === undefined ? undefined : (request) => complete({ ...request, seat }),
       onFailure: (failure) => estimateProblem.current(Failures.line("estimate", failure))
     })
-  )
+  })
   runsRef.current = runs
   workspaceRef.current = workspace
   const files = useRef(Files.lister(props.host.cwd, Date.now, () => setRevision((value) => value + 1)))

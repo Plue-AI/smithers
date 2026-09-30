@@ -143,6 +143,16 @@ export const workerFallbackSeats = (
   return SeatRouter.backupsOf(alias, "other").filter((backup) => here.includes(backup))
 }
 
+/**
+ * The seat that estimates novel work: Luna, only where a detected model runs
+ * on its provider (an OpenAI key or a codex login). Elsewhere estimates stay
+ * on history; no other paid provider stands in.
+ */
+export const estimateSeat = (available: ReadonlyArray<Model>): string | undefined => {
+  const provider = providerOf(delegateModels.luna)
+  return available.some((model) => providerOf(model.seat) === provider) ? delegateModels.luna : undefined
+}
+
 /** The short names an agent file's `model:` may use instead of `provider:modelId`. */
 export const aliases: Readonly<Record<string, string>> = Providers.seatAliases
 

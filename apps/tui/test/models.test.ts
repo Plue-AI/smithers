@@ -2,7 +2,7 @@ import * as NodeControl from "@smthrs/cli/NodeControl"
 import type * as RequestExecutor from "@smthrs/model/RequestExecutor"
 import { describe, expect, test } from "bun:test"
 import { Effect } from "effect"
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import * as Models from "../src/models.ts"
@@ -199,5 +199,46 @@ describe("Claude Code seats", () => {
     } finally {
       rmSync(directory, { recursive: true, force: true })
     }
+  })
+})
+
+describe("estimateSeat", () => {
+  const model = (seat: string): Models.Model => ({ seat, label: seat, provider: seat })
+  test.each(
+    [
+      ["no provider", [], undefined],
+      ["Anthropic only", [model("anthropic:claude-opus-5-5")], undefined],
+      ["Claude Code only", [model("claude-code:opus")], undefined],
+      ["OpenRouter only", [model("openrouter:openai/gpt-6-sol")], undefined],
+      ["Cerebras only", [model(Models.delegateModels.cerebras)], undefined],
+      ["an OpenAI route", [model("openai:gpt-6-sol")], Models.delegateModels.luna],
+      [
+        "Anthropic and OpenAI",
+        [model("anthropic:claude-opus-5-5"), model("openai:gpt-6-astra")],
+        Models.delegateModels.luna
+      ]
+    ] as const
+  )("with %s", (_, available, expected) => {
+    expect(Models.estimateSeat(available)).toBe(expected)
+  })
+
+  test("follows detection: a codex login or an OpenAI key routes Luna, an Anthropic key does not", () => {
+    const home = mkdtempSync(join(tmpdir(), "tui-estimate-seat-"))
+    const detect = (environment: NodeJS.ProcessEnv) =>
+      Models.estimateSeat(
+        Models.detectWithoutClaude({ HOME: home, CODEX_HOME: join(home, "codex"), ...environment }).models
+      )
+    expect(detect({})).toBeUndefined()
+    expect(detect({ ANTHROPIC_API_KEY: "sk-ant" })).toBeUndefined()
+    expect(detect({ OPENAI_API_KEY: "sk-openai" })).toBe(Models.delegateModels.luna)
+    // A codex login alone: no OpenAI key, the ChatGPT session serves Luna.
+    mkdirSync(join(home, "codex"))
+    writeFileSync(
+      join(home, "codex", "auth.json"),
+      JSON.stringify({ tokens: { access_token: "access", refresh_token: "refresh" } })
+    )
+    expect(detect({ SMITHERS_OPENAI_AUTH: "chatgpt" })).toBe(Models.delegateModels.luna)
+    expect(detect({ SMITHERS_OPENAI_AUTH: "chatgpt", ANTHROPIC_API_KEY: "sk-ant" })).toBe(Models.delegateModels.luna)
+    rmSync(home, { recursive: true, force: true })
   })
 })
