@@ -81,12 +81,31 @@ func TestContentUnitRefusesUnboundedExternalInputs(t *testing.T) {
 		{"1-hour cache lifetime off Anthropic", `"input":[{"cache_control":{"ttl":"1h"}}]`, "cache lifetime 1h is not offered on platform keys"},
 		{"unpriced cache lifetime", `"input":[{"cache_control":{"ttl":"24h"}}]`, "cache lifetime 24h is not offered on platform keys"},
 		{"deeply nested audio", `"input":[{"content":[{"type":"audio"}]}]`, "content of type audio is not offered on platform keys"},
+		{"stored item reference", `"input":[{"type":"item_reference","id":"msg_1"}]`, "stored items are not offered on platform keys"},
+		{"untyped stored item reference", `"input":[{"id":"msg_1"}]`, "stored items are not offered on platform keys"},
+		{"stored reasoning", `"input":[{"type":"reasoning","id":"rs_1","summary":[]}]`, "stored items are not offered on platform keys"},
+		{"stored reasoning with null content", `"input":[{"type":"reasoning","id":"rs_1","summary":[],"encrypted_content":null}]`, "stored items are not offered on platform keys"},
+		{"untyped reference with null content", `"input":[{"id":"msg_1","content":null}]`, "stored items are not offered on platform keys"},
 	} {
 		t.Run(item.name, func(t *testing.T) {
 			parsed, err := requestContent(item.fields)
 			require.EqualError(t, err, item.message)
 			require.Nil(t, parsed.maximum)
 		})
+	}
+}
+
+func TestContentUnitAcceptsInlineResponsesItemsThatCarryAnID(t *testing.T) {
+	for _, fields := range []string{
+		`"input":"hello"`,
+		`"input":[{"role":"assistant","content":[{"type":"output_text","text":"hi"}],"id":"msg_1"}]`,
+		`"input":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hi"}],"id":"msg_1"}]`,
+		`"input":[{"type":"reasoning","id":"rs_1","summary":[],"encrypted_content":"opaque"}]`,
+		`"store":false,"input":[{"type":"reasoning","id":"rs_1","summary":[]}]`,
+	} {
+		parsed, err := requestContent(fields)
+		require.NoError(t, err, fields)
+		require.NotNil(t, parsed.maximum)
 	}
 }
 

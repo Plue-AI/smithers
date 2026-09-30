@@ -132,6 +132,11 @@ func parseRequest(provider, path string, header http.Header, body []byte) (parse
 	if err := checkTools(fields["tools"]); err != nil {
 		return parsedCall{}, err
 	}
+	if path == "v1/responses" {
+		if err := checkStoredItems(fields); err != nil {
+			return parsedCall{}, err
+		}
+	}
 	honored := honoredOutputCaps(provider, path)
 	output, present, err := outputCap(fields, honored)
 	if err != nil {
@@ -285,6 +290,30 @@ func checkTools(raw json.RawMessage) error {
 			if strings.HasPrefix(kind, prefix) {
 				return refuse("tool " + kind + " is not offered on platform keys")
 			}
+		}
+	}
+	return nil
+}
+
+// checkStoredItems refuses Responses input items whose content the provider
+// loads by ID, which the request size does not bound: item references, and
+// reasoning without its encrypted content unless the request opts out of
+// storage.
+func checkStoredItems(fields map[string]json.RawMessage) error {
+	var items []map[string]json.RawMessage
+	if raw := fields["input"]; isEmptyJSON(raw) || json.Unmarshal(raw, &items) != nil {
+		return nil
+	}
+	stored := string(fields["store"]) != "false"
+	for _, item := range items {
+		var kind string
+		if raw, ok := item["type"]; ok {
+			_ = json.Unmarshal(raw, &kind)
+		}
+		id, role := !isEmptyJSON(item["id"]), !isEmptyJSON(item["role"])
+		content, encrypted := !isEmptyJSON(item["content"]), !isEmptyJSON(item["encrypted_content"])
+		if kind == "item_reference" || (kind == "" && id && !role && !content) || (kind == "reasoning" && id && !encrypted && stored) {
+			return refuse("stored items are not offered on platform keys")
 		}
 	}
 	return nil
