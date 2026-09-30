@@ -1,4 +1,6 @@
 import { digest } from "@smthrs/core/Digest"
+import { ControlFacts } from "@smthrs/control"
+import { Schema } from "effect"
 import { canonicalEventValue } from "../state/EventValue"
 /*
  * A gate that asks a QUESTION rather than for a grant.
@@ -78,4 +80,18 @@ export const approvalQuestionKey = (row: ApprovalRow): string | undefined => {
     request: row.request,
     question
   }))
+}
+
+const isGuardIncident = Schema.is(ControlFacts.GuardIncident)
+
+/**
+ * The facts a budget or time guard froze on the request it parked a run on.
+ * Such a gate is decided as Continue (approve, under the allowance it
+ * recorded) or Stop (deny); any other gate carries none.
+ */
+export const guardIncidentOf = (row: Pick<ApprovalRow, "request">): typeof ControlFacts.GuardIncident.Type | undefined => {
+  const incident = typeof row.request === "object" && row.request !== null && !Array.isArray(row.request)
+    ? (row.request as { readonly incident?: unknown }).incident
+    : undefined
+  return isGuardIncident(incident) ? incident : undefined
 }

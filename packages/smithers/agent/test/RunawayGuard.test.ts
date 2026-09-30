@@ -213,6 +213,8 @@ interface Guarded {
   readonly modelCallMs?: number
   readonly limits?: { readonly callMs?: number; readonly totalMs?: number }
   readonly flows?: (host: string) => ReadonlyArray<FlowBinding.Source>
+  /** The budget a drive spends against; the approved envelope's by default. */
+  readonly budget?: (approved: ControlSchema.Envelope) => ReturnType<typeof Budget.layerFromEnvelope>
 }
 
 /** One process's control plane and production executor over one pair of SQLite files. */
@@ -220,7 +222,7 @@ const host = (root: string, owner: Ownership.OwnerId, engineHost: string, guarde
   const registration = AgentSession.layer({
     quotaPolicy: Safety.quotaPolicy,
     // The approved envelope, raised by every approved `budget/` request.
-    budget: (approved) => Budget.layerFromEnvelope(approved),
+    budget: guarded.budget ?? ((approved) => Budget.layerFromEnvelope(approved)),
     flows: guarded.flows?.(engineHost) ?? [],
     limits: { memoryBytes: 64 * 1024 * 1024, steps: 5_000_000, ...guarded.limits },
     ...(guarded.modelCallMs === undefined ? {} : { modelCallMs: guarded.modelCallMs }),
@@ -411,7 +413,13 @@ const answerInSecondProcess = (
           (next.payload as { readonly payload: unknown }).payload
         )
         : undefined
-      return { kind: next.kind, sequence: next.sequence, approval: payload, run: yield* runtime.getRun(parked.runId) }
+      return {
+        kind: next.kind,
+        sequence: next.sequence,
+        payload: next.payload,
+        approval: payload,
+        run: yield* runtime.getRun(parked.runId)
+      }
     }).pipe(Effect.provide(host(root, secondOwner, "runaway-second", guarded)), Effect.scoped, Effect.orDie)
   )
 
@@ -473,6 +481,22 @@ describe("a run parked on its task-time budget", () => {
     expect(settled.kind).toBe("control.run.completed")
     expect(settled.run.status).toBe("completed")
     expect(modelCalls).toEqual(["runaway-first", "runaway-second"])
+  }, 180_000)
+
+  it("Stop holds on a drive whose spend no longer exceeds, as when reservations were released", async () => {
+    const root = makeRoot()
+    const parked = await parkInFirstProcess(root)
+    expect(parked.kind).toBe("control.approval.requested")
+    if (parked.approval === undefined) return
+
+    // The deciding host's drive would admit every call: nothing but the Stop holds it.
+    const settled = await answerInSecondProcess(root, parked, "stop", {
+      budget: (approved) => Budget.layerFromEnvelope({ ...approved, budget: {} })
+    })
+
+    expect(settled.kind).toBe("control.run.failed")
+    expect(JSON.stringify(settled.payload)).toContain(RunawayGuard.stoppedTag)
+    expect(modelCalls).toEqual(["runaway-first"])
   }, 180_000)
 
   it("Stop fails the parked run without another provider call", async () => {

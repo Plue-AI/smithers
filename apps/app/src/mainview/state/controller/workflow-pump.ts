@@ -3,9 +3,7 @@ import type { ProjectionCursor } from "@smthrs/gateway/GatewaySchema"
 import type { Card } from "../AppState"
 import type { ControllerContext } from "./context"
 import type { ApprovalRow, RunStatus, RunSummaryRow } from "./gateway"
-import { Schema } from "effect"
-import { ControlFacts } from "@smthrs/control"
-import { questionOf } from "../../cards/ApprovalQuestion"
+import { guardIncidentOf, questionOf } from "../../cards/ApprovalQuestion"
 import { engineProjectionPending } from "../../cards/EngineTrace"
 import { reconcileRunApprovals } from "./approval-reconciliation"
 import { runFailureOf, stampOf } from "../RunFailure"
@@ -38,7 +36,6 @@ const PHASE_OF_STATUS: Readonly<Record<RunStatus, Extract<Card, { kind: "run-tra
 }
 
 const TERMINAL_PHASES: ReadonlySet<string> = new Set(["completed", "failed", "cancelled"])
-const isGuardIncident = Schema.is(ControlFacts.GuardIncident)
 
 /**
  * How many journal pages one pump cycle reads.
@@ -576,9 +573,12 @@ export const createWorkflowPumpController = (
    */
   const guardGate = async (repo: string, runId: string, binding: { readonly workspaceId: string }): Promise<ApprovalRow | undefined> => {
     const gates = await gateway.approvals(repo, runId, binding)
-    return gates.status === "ok"
-      ? [...gates.value].reverse().find(row => row.status === "pending" && isGuardIncident((row.request as { readonly incident?: unknown } | null)?.incident))
-      : undefined
+    if (gates.status !== "ok") return undefined
+    // The latest guard request decides. An undecided one is denied; one already
+    // denied (a Stop whose answer was lost) is denied again, which the
+    // workspace answers from its record; a continued one leaves the cancel.
+    const latest = [...gates.value].reverse().find(row => guardIncidentOf(row) !== undefined)
+    return latest?.status === "approved" ? undefined : latest
   }
 
   /**
@@ -601,7 +601,10 @@ export const createWorkflowPumpController = (
       return binding.error
     }
     const { repo, runId } = card.payload
+    const epoch = ctx.accountEpoch
     void guardGate(repo, runId, binding).then(async (gate) => {
+      // A read that outlived its account starts no mutation for the next one.
+      if (ctx.disposed || ctx.accountEpoch !== epoch) return
       // A run a budget or time limit parked stops by denying the guard's own
       // request: the decision is durable and the run settles from it as
       // stopped. Any other run is cancelled.

@@ -296,6 +296,39 @@ describe("a budget park", () => {
     expect(observed.stopped.message).toBe(`Stopped by the operator: ${observed.request.incident!.message}`)
   })
 
+  it("stops on the facts a concurrent park froze when it recorded and denied the request after this scan", async () => {
+    const observed = await inWorld((world) =>
+      Effect.gen(function*() {
+        let armed = true
+        let request: RequestFact | undefined
+        const racing = Journal.make({
+          ...world.journal,
+          entries: (query) =>
+            world.journal.entries(query).pipe(
+              Effect.tap(() => {
+                if (!armed) return Effect.void
+                armed = false
+                // A peer parks first, on its own measurement, and the operator stops it.
+                return Effect.orDie(Effect.gen(function*() {
+                  yield* AgentSession.budgetParking(world.journal, world.runtime)(world.runId, latencyEnvelope)
+                    .park(latency(150))
+                  request = (yield* requests(world.journal, world.runId))[0]
+                  yield* decide(world, request!, "denied")
+                }))
+              })
+            )
+        })
+        const stopped = yield* Effect.flip(
+          AgentSession.budgetParking(racing, world.runtime)(world.runId, latencyEnvelope).park(latency(400))
+        )
+        return { request: request!, stopped }
+      })
+    )
+
+    expect(observed.request.incident).toMatchObject({ used: 150 })
+    expect(stoppedFacts(observed.stopped)).toEqual(observed.request.incident)
+  })
+
   it("fails an approved park this attempt did not apply as the budget it exceeded", async () => {
     const observed = await inWorld((world) =>
       Effect.gen(function*() {

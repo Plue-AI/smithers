@@ -1500,6 +1500,41 @@ const approvedRaises = (
     return target === undefined ? [] : [target.envelope.budget]
   })
 
+/**
+ * Folds one run's journal pages into the budget park an operator stopped.
+ *
+ * A denied `budget/` request is Stop, and it stops the run on its next drive
+ * before any work is admitted: spend that reads lower once reservations are
+ * released must not reopen what Stop closed. A request recorded without
+ * incident facts is stopped where its guard trips again.
+ */
+const budgetStops = () => {
+  const incidents = new Map<string, RunawayGuard.Incident>()
+  const denied: Array<string> = []
+  return {
+    visit: (entries: ReadonlyArray<JournalEvent.Entry>): void => {
+      for (const entry of entries) {
+        if (entry.eventType === "control.approval.requested") {
+          const fact = Schema.decodeUnknownOption(ControlFacts.ApprovalRequestFact)(entry.payload)
+          if (Option.isSome(fact) && fact.value.incident !== undefined && fact.value.requestId.startsWith(budgetRequestPrefix)) {
+            incidents.set(fact.value.requestId, fact.value.incident)
+          }
+        } else if (entry.eventType === "control.approval.denied") {
+          const target = budgetDecision(entry)
+          if (target !== undefined) denied.push(target.requestId)
+        }
+      }
+    },
+    stopped: (): RunawayGuard.Incident | undefined => {
+      for (const requestId of denied) {
+        const incident = incidents.get(requestId)
+        if (incident !== undefined) return incident
+      }
+      return undefined
+    }
+  }
+}
+
 /** Visits every page of one run's control journal, in order. */
 const scanRun = (
   journal: Journal.Service,
@@ -1665,13 +1700,16 @@ export const budgetParking = (
     park: (exceeded) =>
       Effect.gen(function*() {
         const identity = budgetIdentity(runId, exceeded.scope, envelope.budget)
-        let recorded: typeof ControlFacts.ApprovalRequestFact.Type | undefined
-        yield* scanRun(journal, runId, (entries) => {
-          for (const entry of entries) {
-            if (recorded !== undefined || entry.eventType !== "control.approval.requested") continue
-            const fact = Schema.decodeUnknownOption(ControlFacts.ApprovalRequestFact)(entry.payload)
-            if (Option.isSome(fact) && fact.value.requestId === identity.requestId) recorded = fact.value
-          }
+        const findRecorded = Effect.gen(function*() {
+          let found: typeof ControlFacts.ApprovalRequestFact.Type | undefined
+          yield* scanRun(journal, runId, (entries) => {
+            for (const entry of entries) {
+              if (found !== undefined || entry.eventType !== "control.approval.requested") continue
+              const fact = Schema.decodeUnknownOption(ControlFacts.ApprovalRequestFact)(entry.payload)
+              if (Option.isSome(fact) && fact.value.requestId === identity.requestId) found = fact.value
+            }
+          })
+          return found
         }).pipe(Effect.mapError((cause) =>
           new HarnessError.HarnessError({
             code: "engine_failed",
@@ -1679,6 +1717,7 @@ export const budgetParking = (
             cause
           })
         ))
+        const recorded = yield* findRecorded
         const raisedCeiling = (budget: Envelope["budget"]) =>
           exceeded.scope === "tokens" ? budget.tokens : exceeded.scope === "usd" ? budget.usd : budget.milliseconds
         const question = (budget: Envelope["budget"]) => {
@@ -1729,7 +1768,10 @@ export const budgetParking = (
         // A decided request no longer parks. A denial is Stop: the run fails
         // as the operator's stop, on the facts the guard froze when it asked.
         if (token._tag === "Denied") {
-          return yield* RunawayGuard.stopped(recorded?.incident ?? RunawayGuard.incident(exceeded))
+          // A concurrent park may have recorded the request this scan missed:
+          // the operator stopped the facts it froze, so read them back.
+          const frozen = recorded?.incident ?? (yield* findRecorded)?.incident
+          return yield* RunawayGuard.stopped(frozen ?? RunawayGuard.incident(exceeded))
         }
         // An approval this attempt did not apply is the refusal it asked to lift.
         if (token._tag !== "Pending") {
@@ -3053,6 +3095,7 @@ export const make = (
         // would turn old settlements into misses and repeat their side effects.
         let after: JournalEvent.Seq | undefined
         const raises: Array<Envelope["budget"]> = []
+        const stops = budgetStops()
         for (;;) {
           const page = yield* journal.entries({
             runId: JournalEvent.RunId.make(payload.runId),
@@ -3061,9 +3104,12 @@ export const make = (
           })
           yield* Effect.fromResult(Transcript.validateJournal(page.entries))
           raises.push(...approvedRaises(page.entries))
+          stops.visit(page.entries)
           if (!page.hasMore) break
           after = page.entries.at(-1)!.seq
         }
+        const stopped = stops.stopped()
+        if (stopped !== undefined) return yield* RunawayGuard.stopped(stopped)
         const plan = yield* runtime.getPlan(payload.planId)
         const card = plan.card
         yield* Effect.annotateCurrentSpan("smithers.flow", card.flowId)
