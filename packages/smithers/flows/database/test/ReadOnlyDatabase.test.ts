@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@effect/vitest"
-import { Context, Effect, Exit, Layer } from "effect"
+import { Context, Duration, Effect, Exit, Layer } from "effect"
 import { SqlClient } from "effect/unstable/sql/SqlClient"
 import { randomUUID } from "node:crypto"
 import { existsSync, mkdtempSync, rmSync } from "node:fs"
@@ -32,6 +32,59 @@ const withClient = <A, E>(options: NodeDatabase.NodeDatabaseOptions, body: (sql:
   })))
 
 describe("read-only SQLite", () => {
+  it.each([
+    { busyTimeout: undefined, sqlite: undefined, expected: 1_000 },
+    { busyTimeout: Duration.millis(7), sqlite: undefined, expected: 7 },
+    { busyTimeout: undefined, sqlite: { busyTimeout: 11 }, expected: 11 },
+    { busyTimeout: 0, sqlite: { busyTimeout: 11 }, expected: 0 }
+  ])("sets a bounded read-only wait of $expected ms", async ({ busyTimeout, sqlite, expected }) => {
+    const { filename, root } = store()
+    try {
+      expect(await withClient({ filename, readOnly: true, busyTimeout, sqlite }, (sql) => sql`PRAGMA busy_timeout`))
+        .toEqual(Exit.succeed([{ timeout: expected }]))
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it("uses the same bounded default for the native read-only client option", async () => {
+    const { filename, root } = store()
+    try {
+      expect(
+        await withClient({ filename, sqlite: { readonly: true, disableWAL: true } }, (sql) => sql`PRAGMA busy_timeout`)
+      )
+        .toEqual(Exit.succeed([{ timeout: 1_000 }]))
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it("waits for its configured bound and fails when an exclusive peer stays locked", async () => {
+    const { filename, root } = store()
+    const peer = new DatabaseSync(filename)
+    try {
+      peer.exec("PRAGMA journal_mode = DELETE")
+      const result = await withClient({ filename, readOnly: true, busyTimeout: 40 }, (sql) =>
+        Effect.gen(function*() {
+          peer.exec("BEGIN EXCLUSIVE")
+          const started = performance.now()
+          const read = yield* Effect.exit(sql`SELECT value FROM counter`)
+          return { failed: Exit.isFailure(read), elapsed: performance.now() - started }
+        }))
+      expect(Exit.isSuccess(result)).toBe(true)
+      if (Exit.isSuccess(result)) {
+        expect(result.value.failed).toBe(true)
+        expect(result.value.elapsed).toBeGreaterThanOrEqual(30)
+        expect(result.value.elapsed).toBeLessThan(2_000)
+      }
+      peer.exec("ROLLBACK")
+      expect(peer.prepare("SELECT value FROM counter").all()).toEqual([{ value: 1 }])
+    } finally {
+      peer.close()
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   it("reads one snapshot while a peer holds the writer, and refuses writes", async () => {
     const { filename, root } = store()
     const peer = new DatabaseSync(filename)

@@ -21,7 +21,7 @@ export interface NodeDatabaseOptions {
   readonly filename: string
   /** Creation mode for new plain-path files, subject to umask. Defaults to 0o600. */
   readonly mode?: number | undefined
-  /** Synchronous lock wait. Defaults to zero; overrides sqlite.busyTimeout when supplied. */
+  /** Synchronous lock wait. Defaults to one second for read-only opens, zero otherwise; overrides sqlite.busyTimeout when supplied. */
   readonly busyTimeout?: Duration.Input | undefined
   readonly sqlite?: Omit<SqliteClient.SqliteClientConfig, "filename"> | undefined
   /**
@@ -59,7 +59,8 @@ const client = (options: NodeDatabaseOptions): Layer.Layer<SqlClient.SqlClient> 
     SqliteOpen.createDatabaseFile(options.filename, !options.sqlite?.readonly, options.mode)
     return SqliteClient.layer({
       ...options.sqlite,
-      busyTimeout: options.busyTimeout ?? options.sqlite?.busyTimeout ?? 0,
+      busyTimeout: options.busyTimeout ?? options.sqlite?.busyTimeout ??
+        (options.readOnly || options.sqlite?.readonly ? 1_000 : 0),
       filename: options.filename
     })
   }))

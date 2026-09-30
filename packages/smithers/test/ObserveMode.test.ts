@@ -184,6 +184,27 @@ const verbs = [
   ["approvals", "list"]
 ] as const
 
+describe("concurrent observing verbs over quiescent SQLite stores", { timeout: 240_000 }, () => {
+  it("all succeed without changing either store after every writer has closed", async () => {
+    const root = await fixture()
+    const before = snapshot(root)
+    for (let round = 0; round < 3; round++) {
+      // Every snapshot closes its connection; no peer keeps the WAL index alive.
+      expect((await readdir(join(root, ".flows"))).filter((name) => /-(wal|shm)$/.test(name))).toEqual([])
+      const results = await Promise.all(verbs.map((verb) => run(root, verb)))
+      results.forEach((result, index) => {
+        expect(result.code, `${verbs[index]!.join(" ")}: ${result.stdout}${result.stderr}`).toBe(0)
+        expect(() => JSON.parse(result.stdout)).not.toThrow()
+      })
+      expect(JSON.parse(results[0]!.stdout)).toMatchObject({ items: [{ runId: "run-1", status: "parked" }] })
+      expect(JSON.parse(results[2]!.stdout)).toMatchObject({ runId: "run-1", status: "parked" })
+      expect(JSON.parse(results[4]!.stdout).map((event: { sequence: number }) => event.sequence)).toEqual([1, 2])
+      expect(JSON.parse(results[5]!.stdout)).toEqual([])
+      expect(snapshot(root)).toEqual(before)
+    }
+  })
+})
+
 /** The refusal an observing verb answers over a store it cannot read. */
 const refusesOlderStore = (
   result: { code: number | null; stdout: string; stderr: string },
@@ -215,13 +236,33 @@ describe("observing verbs over an older store", { timeout: 240_000 }, () => {
     const root = await fixture()
     edit(root, kind, (db) => db.exec(statement))
     const before = snapshot(root)
-    // One at a time: concurrent read-only opens of a quiescent WAL store race (#3170).
-    for (const verb of verbs) {
-      const result = await run(root, verb)
+    const results = await Promise.all(verbs.map((verb) => run(root, verb)))
+    verbs.forEach((verb, index) => {
+      const result = results[index]!
       if ((answering as ReadonlyArray<string>).includes(verb[1])) {
         expect(result.code, `${verb.join(" ")}: ${result.stdout}${result.stderr}`).toBe(0)
+        expect(JSON.parse(result.stdout).map((event: { sequence: number }) => event.sequence)).toEqual([1, 2])
       } else refusesOlderStore(result, verb, root)
-    }
+    })
+    expect(snapshot(root)).toEqual(before)
+  })
+
+  it("reads an older engine schema that still has everything the verbs read", async () => {
+    const root = await fixture()
+    // A table no observing verb reads, as an older engine.db would lack it.
+    edit(root, "engine", (db) => db.exec("CREATE TABLE unrelated_before (id INTEGER)"))
+    const tables = (db: DatabaseSync) =>
+      (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").all() as Array<
+        { name: string }
+      >).map((row) => row.name)
+    edit(root, "engine", (db) => {
+      const reads = new Set(["flows_runs", "flows_run_parents", "flows_migrations", "unrelated_before"])
+      for (const table of tables(db)) if (!reads.has(table)) db.exec(`DROP TABLE "${table}"`)
+    })
+    const before = snapshot(root)
+    const shown = await run(root, ["runs", "show", "run-1"])
+    expect(shown.code, shown.stdout + shown.stderr).toBe(0)
+    expect(JSON.parse(shown.stdout)).toMatchObject({ runId: "run-1", status: "parked" })
     expect(snapshot(root)).toEqual(before)
   })
 })

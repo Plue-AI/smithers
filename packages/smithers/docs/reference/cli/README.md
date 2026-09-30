@@ -222,6 +222,7 @@ nothing, start no recovery, and answer while another process is writing. `runs f
 eligible parked/terminal agent run, its approved plan, and `jj`, and retains
 an isolated workspace under `.flows/forks/`. Resume the returned child run
 with `runs resume`.
+SQLite read-only statements wait at most one second for a peer lock before failing; observing opens do not migrate or acquire a writer lock.
 
 A run records the execution digest of the flow that started it and the engine
 version, both shown by `runs show`. A round or fork without its own record

@@ -514,3 +514,5 @@ inherited I/O and returns its exit status. A `Profile` supplies `name`, `transpo
 `directory`, optional `destination`, and optional `home`. `Options` selects a
 terminal, cancellation signal, or loopback port forwarding for an SSH profile. Tool credentials remain
 managed by tools on the execution machine.
+
+Read-only Node SQLite connections use a one-second busy timeout by default. `NodeDatabase.layer({ readOnly: true, busyTimeout })` can set a different bounded lock wait; writable connections retain a zero default.
