@@ -213,6 +213,7 @@ const (
 	CodeWikiUnavailable           Code = "wiki_unavailable"
 	CodeWikiSpaceUnreadable       Code = "wiki_space_unreadable"
 	CodeSSEUnavailable            Code = "sse_unavailable"
+	CodeProfileUnavailable        Code = "profile_unavailable"
 	CodeRepositoryHeld            Code = "repository_held"
 	CodePushTooSlow               Code = "push_too_slow"
 	CodePushTooLarge              Code = "push_too_large"
@@ -528,6 +529,9 @@ var registry = map[Code]Entry{
 	// it failed, or the broker refused the subscription. The stream was never
 	// established, so a client loses nothing by reconnecting.
 	CodeSSEUnavailable: {Status: http.StatusServiceUnavailable, Fault: FaultInfra, RetryAfter: 1, Doc: "plue's event-stream tier could not open the stream: the LISTEN backing it failed, or the broker refused the subscription. The stream was never established."},
+	// The signup profile store failed; the client keeps the typed input and
+	// retries the same write.
+	CodeProfileUnavailable: {Status: http.StatusServiceUnavailable, Fault: FaultInfra, RetryAfter: 1, Doc: "The signup profile store could not read or save the caller's account claim and poll answers. Nothing was changed."},
 	// The build cache is at its own concurrency ceiling. Not
 	// rate_limit_exceeded, which is a user fault: this bound is one process's,
 	// shared across every caller, so a client well inside its own budget is

@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/cgi"
 	"net/http/httptest"
@@ -12,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -584,6 +586,199 @@ func TestWorkspaceCommandJobsTimeoutTerminationProof(t *testing.T) {
 			}
 			_, err = store.ClaimForOperations(ctx, "no-retry", time.Second, []string{workspaceCommandOperation})
 			require.ErrorIs(t, err, jobs.ErrNoWork)
+		})
+	}
+}
+
+func TestWorkspaceCommandJobsNotReady(t *testing.T) {
+	pool := newProductTestPool(t)
+	ctx := context.Background()
+	userID, repositoryID := setupTestUserAndRepo(t, pool)
+	workspaceID := uuid.NewString()
+	_, err := pool.Exec(ctx, `INSERT INTO workspaces(id,repository_id,user_id,name,kind,status) VALUES($1,$2,$3,'not-ready','container','running')`, workspaceID, repositoryID, userID)
+	require.NoError(t, err)
+	runtime, err := processruntime.New(processruntime.Config{Root: t.TempDir()})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, runtime.Close()) })
+	store, err := jobs.NewStore(pool)
+	require.NoError(t, err)
+	gitServer := workspaceCommandGitServer(t, db.New(pool), repositoryID)
+	service := NewWorkspaceService(db.New(pool), WithWorkspaceRuntime(runtime), WithWorkspaceCommandJobs(store, workspaceCommandTestCodec(t)), WithWorkspaceGitBaseURL(gitServer.URL+"/api"))
+	input := WorkspaceCommandInput{OperationID: uuid.NewString(), Args: []string{"/usr/bin/true"}}
+	receipt, err := service.AdmitWorkspaceCommand(ctx, workspaceID, repositoryID, userID, input)
+	require.NoError(t, err)
+	for _, status := range []string{"pending", "starting", "failed"} {
+		t.Run(status, func(t *testing.T) {
+			_, err := pool.Exec(ctx, `UPDATE workspaces SET status=$2 WHERE id=$1`, workspaceID, status)
+			require.NoError(t, err)
+			newInput := WorkspaceCommandInput{OperationID: uuid.NewString(), Args: input.Args}
+			_, err = service.AdmitWorkspaceCommand(ctx, workspaceID, repositoryID, userID, newInput)
+			var apiErr *pkgerrors.APIError
+			require.ErrorAs(t, err, &apiErr)
+			require.Equal(t, http.StatusConflict, apiErr.Status)
+			_, err = store.GetByRequest(ctx, repositoryJobFlowScope(repositoryID, userID), workspaceCommandOperation, workspaceID+":"+newInput.OperationID)
+			require.ErrorIs(t, err, jobs.ErrNotFound)
+			replayed, err := service.AdmitWorkspaceCommand(ctx, workspaceID, repositoryID, userID, input)
+			require.NoError(t, err)
+			require.True(t, replayed.Joined)
+			require.Equal(t, receipt.OperationID, replayed.OperationID)
+			changed := input
+			changed.Args = []string{"/bin/false"}
+			_, err = service.AdmitWorkspaceCommand(ctx, workspaceID, repositoryID, userID, changed)
+			require.ErrorAs(t, err, &apiErr)
+			require.Equal(t, http.StatusConflict, apiErr.Status)
+		})
+	}
+	queued := map[string]jobs.RequestReceipt{workspaceID: receipt}
+	for _, status := range []string{"pending", "starting"} {
+		id := uuid.NewString()
+		_, err := pool.Exec(ctx, `INSERT INTO workspaces(id,repository_id,user_id,name,kind,status) VALUES($1,$2,$3,$4,'container','running')`, id, repositoryID, userID, id)
+		require.NoError(t, err)
+		admitted, err := service.AdmitWorkspaceCommand(ctx, id, repositoryID, userID, WorkspaceCommandInput{OperationID: uuid.NewString(), Args: input.Args})
+		require.NoError(t, err)
+		queued[id] = admitted
+		_, err = pool.Exec(ctx, `UPDATE workspaces SET status=$2 WHERE id=$1`, id, status)
+		require.NoError(t, err)
+	}
+	workerCtx, cancel := context.WithCancel(ctx)
+	workerDone := make(chan error, 1)
+	go func() {
+		workerDone <- service.RunWorkspaceCommandWorker(workerCtx, jobs.WorkerConfig{WorkerID: "not-ready", Capacity: 1, Lease: 2 * time.Second, PollInterval: 10 * time.Millisecond, RetryDelay: 10 * time.Millisecond})
+	}()
+	t.Cleanup(func() { cancel(); require.NoError(t, <-workerDone) })
+	var run WorkspaceCommandRun
+	for id, admitted := range queued {
+		require.Eventually(t, func() bool {
+			var err error
+			run, err = service.GetWorkspaceCommandRun(ctx, id, repositoryID, userID, admitted.OperationID)
+			return err == nil && run.State.Terminal()
+		}, 5*time.Second, 10*time.Millisecond)
+		require.Equal(t, jobs.StateFailed, run.State)
+		if id == workspaceID {
+			// The subtests left this workspace failed; it settles workspace_failed.
+			require.Equal(t, "workspace failed to provision; create a new workspace", run.Error)
+		} else {
+			require.Equal(t, "workspace is not ready", run.Error)
+		}
+		operation, err := store.Get(ctx, repositoryJobFlowScope(repositoryID, userID), admitted.OperationID)
+		require.NoError(t, err)
+		require.Empty(t, operation.ExternalReceipt)
+		var neverStarted bool
+		require.NoError(t, pool.QueryRow(ctx, `SELECT external_started_at IS NULL FROM product_job_dispatches WHERE operation_id=$1`, admitted.OperationID).Scan(&neverStarted))
+		require.True(t, neverStarted)
+	}
+
+	// A stale running row whose provider resource disappeared must fail
+	// without entering the unsafe user-command fence.
+	for _, brokenCheckout := range []bool{false, true} {
+		t.Run(fmt.Sprintf("runtime-preflight-%v", brokenCheckout), func(t *testing.T) {
+			id := uuid.NewString()
+			_, err := pool.Exec(ctx, `INSERT INTO workspaces(id,repository_id,user_id,name,kind,status) VALUES($1,$2,$3,$4,'container','running')`, id, repositoryID, userID, id)
+			require.NoError(t, err)
+			if brokenCheckout {
+				_, err = runtime.CreateWorkspace(ctx, workspaceapi.WorkspaceSpec{ID: id})
+				require.NoError(t, err)
+				_, err = runtime.StartWorkspace(ctx, id)
+				require.NoError(t, err)
+				require.NoError(t, runtime.WriteFile(ctx, id, "user-work.txt", []byte("preserve"), 0o644))
+			}
+			admitted, err := service.AdmitWorkspaceCommand(ctx, id, repositoryID, userID, WorkspaceCommandInput{OperationID: uuid.NewString(), Args: []string{"/usr/bin/true"}})
+			require.NoError(t, err)
+			require.Eventually(t, func() bool {
+				var err error
+				run, err = service.GetWorkspaceCommandRun(ctx, id, repositoryID, userID, admitted.OperationID)
+				return err == nil && run.State.Terminal()
+			}, 5*time.Second, 10*time.Millisecond)
+			require.Equal(t, jobs.StateFailed, run.State)
+			require.Equal(t, "workspace is not ready", run.Error)
+			operation, err := store.Get(ctx, repositoryJobFlowScope(repositoryID, userID), admitted.OperationID)
+			require.NoError(t, err)
+			require.Empty(t, operation.ExternalReceipt)
+			var neverStarted bool
+			require.NoError(t, pool.QueryRow(ctx, `SELECT external_started_at IS NULL FROM product_job_dispatches WHERE operation_id=$1`, admitted.OperationID).Scan(&neverStarted))
+			require.True(t, neverStarted)
+			if brokenCheckout {
+				contents, err := runtime.ReadFile(ctx, id, "user-work.txt")
+				require.NoError(t, err)
+				require.Equal(t, "preserve", string(contents))
+			}
+		})
+	}
+}
+
+// Missing guest tooling and an incomplete declared runtime contract are fault
+// inputs at the provider boundary; PostgreSQL, Git HTTP and child processes
+// remain real. The missing-tool case executes env with an empty PATH.
+type setupRefusalRuntime struct {
+	workspaceapi.WorkspaceRuntime
+	missingJJ bool
+	jjCalls   atomic.Int32
+}
+
+func (r *setupRefusalRuntime) Capabilities() workspaceapi.WorkspaceCapabilities {
+	capabilities := r.WorkspaceRuntime.Capabilities()
+	if !r.missingJJ {
+		capabilities.FileOperations = false
+	}
+	return capabilities
+}
+
+func (r *setupRefusalRuntime) ExecuteCommand(ctx context.Context, id string, command workspaceapi.Command) (workspaceapi.CommandResult, error) {
+	if r.missingJJ && len(command.Args) > 0 && command.Args[0] == "jj" {
+		r.jjCalls.Add(1)
+		command.Args = append([]string{"/usr/bin/env", "PATH=/smithers-test-no-tools"}, command.Args...)
+	}
+	return r.WorkspaceRuntime.ExecuteCommand(ctx, id, command)
+}
+
+func TestWorkspaceCommandJobsSetupRefusalBeforeExternalStart(t *testing.T) {
+	pool := newProductTestPool(t)
+	ctx := context.Background()
+	for _, missingJJ := range []bool{true, false} {
+		t.Run(fmt.Sprintf("missing-jj-%v", missingJJ), func(t *testing.T) {
+			userID, repositoryID := setupTestUserAndRepo(t, pool)
+			id := uuid.NewString()
+			_, err := pool.Exec(ctx, `INSERT INTO workspaces(id,repository_id,user_id,name,kind,status) VALUES($1,$2,$3,$4,'container','running')`, id, repositoryID, userID, id)
+			require.NoError(t, err)
+			runtime, err := processruntime.New(processruntime.Config{Root: t.TempDir()})
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, runtime.Close()) })
+			_, err = runtime.CreateWorkspace(ctx, workspaceapi.WorkspaceSpec{ID: id})
+			require.NoError(t, err)
+			_, err = runtime.StartWorkspace(ctx, id)
+			require.NoError(t, err)
+			store, err := jobs.NewStore(pool)
+			require.NoError(t, err)
+			gitServer := workspaceCommandGitServer(t, db.New(pool), repositoryID)
+			provider := &setupRefusalRuntime{WorkspaceRuntime: runtime, missingJJ: missingJJ}
+			service := NewWorkspaceService(db.New(pool), WithWorkspaceRuntime(provider), WithWorkspaceCommandJobs(store, workspaceCommandTestCodec(t)), WithWorkspaceGitBaseURL(gitServer.URL+"/api"))
+			receipt, err := service.AdmitWorkspaceCommand(ctx, id, repositoryID, userID, WorkspaceCommandInput{OperationID: uuid.NewString(), Args: []string{"/usr/bin/touch", "must-not-run"}})
+			require.NoError(t, err)
+			workerCtx, cancel := context.WithCancel(ctx)
+			done := make(chan error, 1)
+			go func() {
+				done <- service.RunWorkspaceCommandWorker(workerCtx, jobs.WorkerConfig{WorkerID: "setup-refusal", Capacity: 1, Lease: 2 * time.Second, PollInterval: 10 * time.Millisecond, RetryDelay: 10 * time.Millisecond})
+			}()
+			t.Cleanup(func() { cancel(); require.NoError(t, <-done) })
+			var run WorkspaceCommandRun
+			require.Eventually(t, func() bool {
+				var err error
+				run, err = service.GetWorkspaceCommandRun(ctx, id, repositoryID, userID, receipt.OperationID)
+				return err == nil && run.State.Terminal()
+			}, 10*time.Second, 10*time.Millisecond)
+			require.Equal(t, jobs.StateFailed, run.State)
+			require.Equal(t, "workspace is not ready", run.Error)
+			var neverStarted bool
+			require.NoError(t, pool.QueryRow(ctx, `SELECT external_started_at IS NULL FROM product_job_dispatches WHERE operation_id=$1`, receipt.OperationID).Scan(&neverStarted))
+			require.True(t, neverStarted)
+			operation, err := store.Get(ctx, repositoryJobFlowScope(repositoryID, userID), receipt.OperationID)
+			require.NoError(t, err)
+			require.Empty(t, operation.ExternalReceipt)
+			_, err = runtime.ReadFile(ctx, id, "must-not-run")
+			require.Error(t, err)
+			if missingJJ {
+				require.Equal(t, int32(1), provider.jjCalls.Load())
+			}
 		})
 	}
 }

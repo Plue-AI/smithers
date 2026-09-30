@@ -256,6 +256,42 @@ func TestWorkspaceHTTPProvisionsEmptyRepository(t *testing.T) {
 	require.NotNil(t, second.Result)
 	require.Equal(t, 0, second.Result.ExitCode, second.Result.Stderr)
 	require.Equal(t, "first", strings.TrimSpace(second.Result.Stdout))
+
+	reused := h.runCommand(t, workspaceID, `{"operation_id":"inspect-receipt","args":["/bin/sh","-c","test \"$(cat hello.txt)\" = hello && cat .git/smithers-workspace-initialization.json"]}`)
+	require.Equal(t, jobs.StateCompleted, reused.State, reused.Error)
+	require.NotNil(t, reused.Result)
+	require.Equal(t, 0, reused.Result.ExitCode, reused.Result.Stderr)
+	require.Contains(t, reused.Result.Stdout, `"source_revision":"0000000000000000000000000000000000000000"`)
+}
+
+// A pending, starting or failed workspace refuses a new command before any
+// durable work exists, while an operation admitted earlier still replays.
+func TestWorkspaceHTTPRefusesCommandsUntilWorkspaceReady(t *testing.T) {
+	h := newCheckoutHarness(t, true, true)
+	h.seed(t)
+	h.startWorker(t)
+
+	workspaceID := h.createWorkspace(t, `{"name":"readiness"}`)
+	h.waitRunning(t, workspaceID)
+	admittedBody := `{"operation_id":"admitted-while-running","args":["/usr/bin/true"]}`
+	admitted := h.runCommand(t, workspaceID, admittedBody)
+	require.Equal(t, jobs.StateCompleted, admitted.State, admitted.Error)
+
+	for status, code := range map[string]string{"pending": `"conflict"`, "starting": `"conflict"`, "failed": `"workspace_failed"`} {
+		_, err := h.pool.Exec(context.Background(), `UPDATE workspaces SET status=$2 WHERE id=$1`, workspaceID, status)
+		require.NoError(t, err)
+		response := h.postCommand(t, workspaceID, fmt.Sprintf(`{"operation_id":"reject-%s","args":["/usr/bin/true"]}`, status))
+		body := string(routesIntegrationReadBodyOnFailure(t, response))
+		require.Equal(t, http.StatusConflict, response.StatusCode, body)
+		require.Contains(t, body, code)
+		require.Equal(t, 1, h.commandJobCount(t, workspaceID), status)
+
+		replay := h.postCommand(t, workspaceID, admittedBody)
+		require.Equal(t, http.StatusAccepted, replay.StatusCode, string(routesIntegrationReadBodyOnFailure(t, replay)))
+		var replayed jobs.RequestReceipt
+		processWorkspaceDecodeJSON(t, replay, &replayed)
+		require.Equal(t, admitted.OperationID, replayed.OperationID)
+	}
 }
 
 // #3008: a workspace whose provisioning failed refuses new commands with a

@@ -17,6 +17,18 @@ import (
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 )
 
+var errWorkspaceRepositoryPreparationRefused = errors.New("workspace repository preparation refused")
+
+// A completed setup command or immutable runtime contract can prove that the
+// user command did not start. Transport, database and lease errors stay plain.
+type workspaceRepositoryPreparationFailure struct{ err error }
+
+func (e *workspaceRepositoryPreparationFailure) Error() string { return e.err.Error() }
+func (e *workspaceRepositoryPreparationFailure) Unwrap() error { return e.err }
+func (e *workspaceRepositoryPreparationFailure) Is(target error) bool {
+	return target == errWorkspaceRepositoryPreparationRefused
+}
+
 const (
 	workspaceRepositoryReceiptVersion = 1
 	workspaceRepositoryReceiptPath    = ".git/smithers-workspace-initialization.json"
@@ -58,7 +70,7 @@ func (s *WorkspaceService) adoptRuntimeWorkspaceRepository(ctx context.Context, 
 func (s *WorkspaceService) ensureRuntimeWorkspaceRepositoryWithReceipt(ctx context.Context, row db.Workspace, requesterID int64, allowReceiptRebind bool) error {
 	capabilities := s.runtime.Capabilities()
 	if !capabilities.PersistentFiles || !capabilities.Execution || !capabilities.FileOperations {
-		return pkgerrors.Internal("workspace runtime cannot initialize persistent repositories")
+		return &workspaceRepositoryPreparationFailure{err: pkgerrors.Internal("workspace runtime cannot initialize persistent repositories")}
 	}
 	if err := s.ensureRuntimeWorkspaceArtifacts(ctx, row, requesterID); err != nil {
 		return err
@@ -158,7 +170,8 @@ func (s *WorkspaceService) ensureRuntimeWorkspaceRepositoryWithReceipt(ctx conte
 
 	// A repository with no refs at all (created, never pushed) has no bookmark
 	// to clone. Only the authenticated advertisement can tell it apart from an
-	// interrupted clone of a populated repository, whose local state looks the same.
+	// interrupted clone of a populated repository, whose local state looks the
+	// same; an authentication or transport failure is never a fallback.
 	empty, err := s.runtimeRepositorySourceEmpty(ctx, row, requesterID, cloneURL, authEnvironment)
 	if err != nil {
 		return err
@@ -174,13 +187,16 @@ func (s *WorkspaceService) ensureRuntimeWorkspaceRepositoryWithReceipt(ctx conte
 		}
 		args = append(args, "--", cloneURL, ".")
 		if err := s.runRuntimeRepositoryCommand(ctx, row, requesterID, "clone", workspaceapi.Command{Args: args, Environment: authEnvironment}); err != nil {
-			if empty {
+			if empty || lostWorker(err) {
 				return err
 			}
 			// git writes origin metadata before transferring objects. Continue the
 			// same working copy once so an interrupted clone is repaired without
 			// deleting or recloning it.
 			if continuationErr := s.continueRuntimeRepositoryCheckout(ctx, row, requesterID, cloneURL, bookmark, authEnvironment); continuationErr != nil {
+				if lostWorker(continuationErr) {
+					return continuationErr
+				}
 				return errors.Join(err, continuationErr)
 			}
 		}
@@ -215,6 +231,12 @@ func (s *WorkspaceService) ensureRuntimeWorkspaceRepositoryWithReceipt(ctx conte
 			}
 			hasJJ = true
 			break
+		}
+	}
+	if empty {
+		// Refuse any unreceipted local history rather than resetting user work.
+		if err := s.verifyRuntimeEmptyGitRepository(ctx, row, requesterID, hasJJ); err != nil {
+			return err
 		}
 	}
 	if !hasJJ && empty {
@@ -260,6 +282,98 @@ func (s *WorkspaceService) ensureRuntimeWorkspaceRepositoryWithReceipt(ctx conte
 		InitializedAt: time.Now().UTC(),
 	}
 	return s.writeRuntimeRepositoryReceipt(ctx, row, requesterID, receipt)
+}
+
+func (s *WorkspaceService) verifyRuntimeEmptyGitRepository(ctx context.Context, row db.Workspace, requesterID int64, hasJJ bool) error {
+	allowedObjects := map[string]string{}
+	workingCommit := ""
+	if hasJJ {
+		// An interrupted JJ init leaves its single empty working commit and
+		// internal keep ref before the receipt. Recognize exactly that state;
+		// never snapshot files, reset history, or accept arbitrary local objects.
+		checks := []struct{ step, revision, template, expected string }{
+			{"empty-jj-parent", "@-", "commit_id", emptyWorkspaceSourceRevision},
+			{"empty-jj-history", "all() ~ root() ~ @", "commit_id", ""},
+			{"empty-jj-description", "@", "description", ""},
+		}
+		for _, check := range checks {
+			value, err := s.runtimeRepositoryCommandOutput(ctx, row, requesterID, check.step, workspaceapi.Command{
+				Args: []string{"jj", "log", "--ignore-working-copy", "--no-graph", "-r", check.revision, "-T", check.template},
+			})
+			if err != nil {
+				return err
+			}
+			if value != check.expected {
+				return pkgerrors.Conflict("workspace repository has unreceipted Jujutsu history")
+			}
+		}
+		changes, err := s.runtimeRepositoryCommandOutput(ctx, row, requesterID, "empty-jj-changes", workspaceapi.Command{
+			Args: []string{"jj", "diff", "--ignore-working-copy", "--from", "root()", "--to", "@", "--summary"},
+		})
+		if err != nil {
+			return err
+		}
+		if changes != "" {
+			return pkgerrors.Conflict("workspace repository has unreceipted Jujutsu work")
+		}
+		workingCommit, err = s.runtimeRepositoryCommandOutput(ctx, row, requesterID, "empty-jj-working-commit", workspaceapi.Command{
+			Args: []string{"jj", "log", "--ignore-working-copy", "--no-graph", "-r", "@", "-T", "commit_id"},
+		})
+		if err != nil {
+			return err
+		}
+		if !isLowerHexRevision(workingCommit) || workingCommit == emptyWorkspaceSourceRevision {
+			return pkgerrors.Conflict("workspace empty repository working commit is invalid")
+		}
+		tree, err := s.runtimeRepositoryCommandOutput(ctx, row, requesterID, "empty-jj-tree", workspaceapi.Command{
+			Args: []string{"git", "rev-parse", "--verify", workingCommit + "^{tree}"},
+		})
+		if err != nil {
+			return err
+		}
+		if !isLowerHexRevision(tree) {
+			return pkgerrors.Conflict("workspace empty repository working tree is invalid")
+		}
+		allowedObjects[workingCommit], allowedObjects[tree] = "commit", "tree"
+	}
+	refs, err := s.runtimeRepositoryCommandOutput(ctx, row, requesterID, "empty-local-refs", workspaceapi.Command{
+		Args: []string{"git", "for-each-ref", "--format=%(refname) %(objectname)"},
+	})
+	if err != nil {
+		return err
+	}
+	for _, line := range strings.Split(refs, "\n") {
+		if line == "" {
+			continue
+		}
+		fields := strings.Fields(line)
+		if !hasJJ || len(fields) != 2 || fields[0] != "refs/jj/keep/"+workingCommit || fields[1] != workingCommit {
+			return pkgerrors.Conflict("workspace repository gained refs or has unreceipted local history")
+		}
+	}
+	objects, err := s.runtimeRepositoryCommandOutput(ctx, row, requesterID, "empty-local-objects", workspaceapi.Command{
+		Args: []string{"git", "cat-file", "--batch-all-objects", "--batch-check=%(objectname) %(objecttype)"},
+	})
+	if err != nil {
+		return err
+	}
+	seen := make(map[string]bool)
+	for _, line := range strings.Split(objects, "\n") {
+		if line == "" {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) != 2 || allowedObjects[fields[0]] != fields[1] {
+			return pkgerrors.Conflict("workspace repository has unreceipted local objects")
+		}
+		seen[fields[0]] = true
+	}
+	for object := range allowedObjects {
+		if !seen[object] {
+			return pkgerrors.Conflict("workspace empty repository object is unavailable")
+		}
+	}
+	return nil
 }
 
 func (s *WorkspaceService) writeRuntimeRepositoryReceipt(ctx context.Context, row db.Workspace, requesterID int64, receipt workspaceRepositoryReceipt) error {
@@ -329,7 +443,7 @@ func (s *WorkspaceService) runRuntimeRepositoryCommand(ctx context.Context, row 
 	if result.OutputTruncated {
 		detail = strings.TrimSpace(detail + "\ncommand output was truncated")
 	}
-	return pkgerrors.Internal(fmt.Sprintf("initialize workspace repository (%s) failed with status %d: %s", step, result.ExitCode, detail))
+	return &workspaceRepositoryPreparationFailure{err: pkgerrors.Internal(fmt.Sprintf("initialize workspace repository (%s) failed with status %d: %s", step, result.ExitCode, detail))}
 }
 
 func (s *WorkspaceService) runtimeRepositoryCommandOutput(ctx context.Context, row db.Workspace, requesterID int64, step string, command workspaceapi.Command) (string, error) {
@@ -494,7 +608,8 @@ func isLowerHexRevision(value string) bool {
 
 func validateWorkspaceRepositoryReceiptSource(receipt workspaceRepositoryReceipt, row db.Workspace, cloneURL, bookmark string) error {
 	if receipt.Version != workspaceRepositoryReceiptVersion || receipt.RepositoryID != row.RepositoryID || receipt.SourceBookmark != bookmark ||
-		!sameWorkspaceRepositoryURL(receipt.CloneURL, cloneURL) || !isLowerHexRevision(receipt.SourceRevision) || receipt.InitializedAt.IsZero() {
+		!sameWorkspaceRepositoryURL(receipt.CloneURL, cloneURL) || !isLowerHexRevision(receipt.SourceRevision) ||
+		receipt.InitializedAt.IsZero() {
 		return pkgerrors.Conflict("workspace repository receipt does not match its product repository")
 	}
 	// A pushed-ref workspace never adopts a working copy started elsewhere.

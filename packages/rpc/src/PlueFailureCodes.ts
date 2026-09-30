@@ -35,7 +35,7 @@ export const PLUE_FAILURE_SCHEMA_VERSION = 1
  * @since 1.0.0
  * @category constants
  */
-export const PLUE_FAILURE_DIGEST = "sha256:cd0d293a3d274c845455d25a520362e3573049c40dc58b9df8aedaeb37c66220"
+export const PLUE_FAILURE_DIGEST = "sha256:21a0c1a689f5163c988339e74a6c7c25418e40e020bcb37522f5e01d4fe0a442"
 
 /**
  * Whose problem a failure is — the registry's verdict, and the only question the app
@@ -151,6 +151,7 @@ export const PLUE_FAILURE_CODES = [
   "peer_identity_denied",
   "plan_limit_exceeded",
   "preview_unavailable",
+  "profile_unavailable",
   "provisioning_failed",
   "push_too_large",
   "push_too_slow",
@@ -400,6 +401,8 @@ export const PLUE_FAILURES = {
   "plan_limit_exceeded": { fault: "user", status: 402, retryAfter: 0 },
   /** The preview gateway could not reach the port the box is serving. */
   "preview_unavailable": { fault: "infra", status: 503, retryAfter: 0 },
+  /** The signup profile store could not read or save the caller's account claim and poll answers. Nothing was changed. */
+  "profile_unavailable": { fault: "infra", status: 503, retryAfter: 1 },
   /** Provisioning a box failed for a reason plue has no specific code for. Persisted on the workspace row as failure_code. */
   "provisioning_failed": { fault: "bug", status: 500, retryAfter: 0 },
   /** The push exceeds the repository push size limit. */

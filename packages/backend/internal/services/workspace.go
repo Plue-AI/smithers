@@ -619,7 +619,9 @@ type WorkspaceService struct {
 	// flowJournals drops a deleted workspace's flow journal (#3172).
 	flowJournals FlowJournals
 	// boxHostActivity is when each box's coding host last recorded activity.
-	boxHostActivity     *sync.Map
+	boxHostActivity *sync.Map
+	// headReporterRetryAt spaces failed runtime publisher installs per workspace.
+	headReporterRetryAt *sync.Map
 	providerConnections ProviderPoolOffer
 	providerBootstrap   bool
 	platformSeats       []modelproxy.Seat
@@ -831,6 +833,7 @@ func NewWorkspaceService(q WorkspaceQuerier, opts ...WorkspaceServiceOption) *Wo
 	svc := &WorkspaceService{
 		provisionTasks:               newWorkspaceProvisionTasks(),
 		boxHostActivity:              &sync.Map{},
+		headReporterRetryAt:          &sync.Map{},
 		launchSessionCleanup:         SafeGo,
 		sessionProvisionGrace:        workspaceSessionProvisionGrace,
 		q:                            q,

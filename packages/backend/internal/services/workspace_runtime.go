@@ -366,6 +366,7 @@ func (s *WorkspaceService) ensureRuntimeWorkspaceRunningLocked(ctx context.Conte
 		s.meterWorkspaceUsage(ctx, row, "running")
 		s.notifyWorkspace(ctx, row.ID, "running")
 	}
+	row = s.ensureRuntimeWorkspaceHeadReporter(ctx, row, requesterID, observed)
 	_ = s.q.TouchWorkspaceActivity(ctx, row.ID)
 	return row, nil
 }
@@ -764,34 +765,82 @@ func (s *WorkspaceService) executeWorkspaceCommand(ctx context.Context, workspac
 	if !s.hasWorkspaceRuntime() || !s.runtime.Capabilities().Execution {
 		return WorkspaceCommandResult{}, pkgerrors.Internal("workspace execution unavailable")
 	}
-	if strings.TrimSpace(input.OperationID) == "" {
-		return WorkspaceCommandResult{}, pkgerrors.BadRequest("operation_id is required")
-	}
-	if len(input.Args) == 0 || strings.TrimSpace(input.Args[0]) == "" {
-		return WorkspaceCommandResult{}, pkgerrors.BadRequest("command args are required")
-	}
+	// Write authority is held from start through execution (f2b1c6c5), so a
+	// revocation or demotion waits for the command.
 	var output WorkspaceCommandResult
-	err := s.withWorkspaceMutation(ctx, workspaceID, repositoryID, userID, func(ctx context.Context, row db.Workspace) error {
-		row, err := s.ensureRuntimeWorkspaceRunning(ctx, row, userID)
+	err := s.withWorkspaceMutation(ctx, workspaceID, repositoryID, userID, func(ctx context.Context, _ db.Workspace) error {
+		prepared, err := s.prepareWorkspaceCommand(ctx, workspaceID, repositoryID, userID, input)
 		if err != nil {
 			return err
 		}
-		operationCtx, err := s.workspaceRuntimeContext(ctx, row, userID, input.OperationID)
-		if err != nil {
-			return err
-		}
-		result, err := s.runtime.ExecuteCommand(operationCtx, row.ID, workspaceapi.Command{
-			Args: append([]string(nil), input.Args...), Directory: input.Directory, Environment: cloneStringMap(input.Environment),
-		})
-		if err != nil {
-			return err
-		}
-		_ = s.q.TouchWorkspaceActivity(ctx, row.ID)
-		s.touchWorkspaceEntryRecency(ctx, row.ID, "command")
-		output = WorkspaceCommandResult{ExitCode: result.ExitCode, Stdout: result.Stdout, Stderr: result.Stderr, OutputTruncated: result.OutputTruncated}
-		return nil
+		output, err = s.executePreparedWorkspaceCommand(prepared.context, prepared.row, input)
+		return err
 	})
 	return output, err
+}
+
+// Refresh status under the same lock used by lifecycle transitions. A command
+// may resume an existing resource, but must never create a pending workspace.
+func (s *WorkspaceService) ensureRuntimeWorkspaceCommandReady(ctx context.Context, row db.Workspace, userID int64) (db.Workspace, error) {
+	unlock := s.lockRuntimeWorkspace(row.ID)
+	defer unlock()
+	current, err := s.currentRuntimeWorkspaceLocked(ctx, row)
+	if err != nil {
+		return row, err
+	}
+	if err := workspaceCommandReadinessError(current.Status); err != nil {
+		return current, err
+	}
+	return s.ensureRuntimeWorkspaceRunningLocked(ctx, current, userID)
+}
+
+type preparedWorkspaceCommand struct {
+	row     db.Workspace
+	context context.Context
+}
+
+func (s *WorkspaceService) prepareWorkspaceCommand(ctx context.Context, workspaceID string, repositoryID, userID int64, input WorkspaceCommandInput) (preparedWorkspaceCommand, error) {
+	if !s.hasWorkspaceRuntime() || !s.runtime.Capabilities().Execution {
+		return preparedWorkspaceCommand{}, pkgerrors.Internal("workspace execution unavailable")
+	}
+	if strings.TrimSpace(input.OperationID) == "" {
+		return preparedWorkspaceCommand{}, pkgerrors.BadRequest("operation_id is required")
+	}
+	if len(input.Args) == 0 || strings.TrimSpace(input.Args[0]) == "" {
+		return preparedWorkspaceCommand{}, pkgerrors.BadRequest("command args are required")
+	}
+	row, err := s.loadWorkspaceWithAccess(ctx, workspaceID, repositoryID, userID, WorkspaceAccessWrite)
+	if err != nil {
+		return preparedWorkspaceCommand{}, err
+	}
+	// Starting or resuming the machine is a mutation: hold write authority
+	// across it (f2b1c6c5). executeWorkspaceCommand holds it across the whole
+	// command; a queued job re-checks it before this preparation.
+	err = s.withWorkspaceMutationAuthority(ctx, row, userID, func(ctx context.Context) error {
+		var readyErr error
+		row, readyErr = s.ensureRuntimeWorkspaceCommandReady(ctx, row, userID)
+		return readyErr
+	})
+	if err != nil {
+		return preparedWorkspaceCommand{}, err
+	}
+	operationCtx, err := s.workspaceRuntimeContext(ctx, row, userID, input.OperationID)
+	if err != nil {
+		return preparedWorkspaceCommand{}, err
+	}
+	return preparedWorkspaceCommand{row: row, context: operationCtx}, nil
+}
+
+func (s *WorkspaceService) executePreparedWorkspaceCommand(ctx context.Context, row db.Workspace, input WorkspaceCommandInput) (WorkspaceCommandResult, error) {
+	result, err := s.runtime.ExecuteCommand(ctx, row.ID, workspaceapi.Command{
+		Args: append([]string(nil), input.Args...), Directory: input.Directory, Environment: cloneStringMap(input.Environment),
+	})
+	if err != nil {
+		return WorkspaceCommandResult{}, err
+	}
+	_ = s.q.TouchWorkspaceActivity(ctx, row.ID)
+	s.touchWorkspaceEntryRecency(ctx, row.ID, "command")
+	return WorkspaceCommandResult{ExitCode: result.ExitCode, Stdout: result.Stdout, Stderr: result.Stderr, OutputTruncated: result.OutputTruncated}, nil
 }
 
 func cloneStringMap(source map[string]string) map[string]string {
