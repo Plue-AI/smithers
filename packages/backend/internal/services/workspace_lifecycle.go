@@ -307,7 +307,6 @@ func (s *WorkspaceService) CleanupIdleWorkspaces(ctx context.Context) error {
 
 // CleanupOverQuotaWorkspaces suspends running workspaces after their owner has
 // exhausted today's sandbox hours, regardless of workspace or session activity.
-// A child workspace cannot resume: its parent's suspension stops it.
 func (s *WorkspaceService) CleanupOverQuotaWorkspaces(ctx context.Context) error {
 	if s.q == nil || s.billing == nil {
 		return nil
@@ -341,12 +340,6 @@ func (s *WorkspaceService) CleanupOverQuotaWorkspaces(ctx context.Context) error
 			limits[workspace.UserID] = limit
 		}
 		if limit == nil {
-			continue
-		}
-		if child, err := s.overQuotaWorkspaceChild(ctx, workspace); child || err != nil {
-			if err != nil {
-				errs = append(errs, fmt.Errorf("check over-quota workspace %s: %w", workspace.ID, err))
-			}
 			continue
 		}
 		if err := s.suspendWorkspace(ctx, workspace); err != nil {
