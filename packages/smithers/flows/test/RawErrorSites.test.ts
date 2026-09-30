@@ -84,11 +84,6 @@ const reviewed: ReadonlyArray<readonly [file: string, count: number, why: string
   ],
   ["platform-node/src/internal/WindowsProcessJob.ts", 4, supervisor],
   [
-    "sandbox/src/MicrosandboxSandbox/make.ts",
-    3,
-    "reattach refusals inside the acquire promise; the sandbox wraps them as a tagged SandboxError"
-  ],
-  [
     "src/internal/SandboxedFlowGuest.ts",
     1,
     "guest bundle started without its paths; a host programming error reported by the guest's exit"

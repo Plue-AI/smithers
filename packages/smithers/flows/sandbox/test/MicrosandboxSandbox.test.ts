@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, it } from "@effect/vitest"
-import { Effect, Exit, Fiber, Logger, References, Stream } from "effect"
+import { Cause, Effect, Exit, Fiber, Logger, References, Stream } from "effect"
 import { type ChildProcess as NodeChild, spawn } from "node:child_process"
 import {
   chmodSync,
@@ -654,6 +654,10 @@ const fakeSdk = (controls: Controls = {}) => {
   }
 }
 
+/** The reattach refusal a failed open carries as the cause of its `ProviderError`. */
+const refusalOf = (exit: Exit.Exit<unknown, unknown>): unknown =>
+  Exit.isFailure(exit) ? (Cause.squash(exit.cause) as ProviderError).cause : undefined
+
 const inSession = <A, E>(
   provider: Provider,
   key: string,
@@ -1012,7 +1016,11 @@ describe("MicrosandboxSandbox", () => {
       const fake = fakeSdk()
       const boot = (key: string, network?: "none" | "open") =>
         inSession(
-          MicrosandboxSandbox.make({ sdk: fake.sdk, workdir: join(root, `${key}-ws`), ...network === undefined ? {} : { network } }),
+          MicrosandboxSandbox.make({
+            sdk: fake.sdk,
+            workdir: join(root, `${key}-ws`),
+            ...network === undefined ? {} : { network }
+          }),
           key,
           () => Effect.void
         )
@@ -1043,6 +1051,10 @@ describe("MicrosandboxSandbox", () => {
         )
       )
       expect(String(Exit.isFailure(refused) ? refused.cause : "")).toContain("was created with another network")
+      expect(refusalOf(refused)).toMatchObject({
+        _tag: "@smthrs/sandbox/MicrosandboxReattachRefusal",
+        code: "network_mismatch"
+      })
       expect(fake.recorded.modifies).toEqual([])
     }))
 
@@ -1233,10 +1245,12 @@ describe("MicrosandboxSandbox", () => {
         const refused = yield* Effect.exit(inSession(sticky(network), "open", () => Effect.void))
         expect(refused).toMatchObject({ _tag: "Failure" })
         expect(String(Exit.isFailure(refused) ? refused.cause : "")).toContain("was created with another network")
+        expect(refusalOf(refused)).toMatchObject({ code: "network_mismatch" })
       }
       yield* inSession(sticky(), "closed", () => Effect.void)
       const opened = yield* Effect.exit(inSession(sticky("open"), "closed", () => Effect.void))
       expect(String(Exit.isFailure(opened) ? opened.cause : "")).toContain("was created with another network")
+      expect(refusalOf(opened)).toMatchObject({ code: "network_mismatch" })
       expect(fake.recorded.modifies).toEqual([])
 
       yield* inSession(sticky({ allow: ["example.com"] }), "fenced", () => Effect.void)
@@ -1266,6 +1280,7 @@ describe("MicrosandboxSandbox", () => {
         Effect.map(Effect.exit(inSession(sticky(limits), key, () => Effect.void)), (exit) => {
           expect(Exit.isFailure(exit)).toBe(true)
           expect(String(Exit.isFailure(exit) ? exit.cause : "")).toContain("was created with other limits")
+          expect(refusalOf(exit)).toMatchObject({ code: "limits_mismatch" })
         })
 
       // Created with larger ceilings, then asked for smaller ones.
@@ -2023,6 +2038,12 @@ describe("MicrosandboxSandbox", () => {
         const refused = yield* Effect.flip(inSession(provider, "unclaimable", () => Effect.void))
         expect(refused.code).toBe("unavailable")
         expect(refused.message).toContain("could not be opened")
+        if (controls.modifyApplied === false) {
+          expect(refused.cause).toMatchObject({
+            _tag: "@smthrs/sandbox/MicrosandboxReattachRefusal",
+            code: "ownership_not_recorded"
+          })
+        }
         expect(fake.recorded.connects).toEqual([])
       }
     }))

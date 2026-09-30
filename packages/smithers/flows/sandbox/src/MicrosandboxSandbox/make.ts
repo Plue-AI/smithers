@@ -15,6 +15,7 @@ import { finalizeWithin } from "../internal/finalizeWithin.ts"
 import { parentOf } from "../internal/guestPath.ts"
 import { linuxFileSystem } from "../internal/linuxFileSystem.ts"
 import { type GuestCommand, runGuest, signalGuest, spawnGuest } from "../internal/microsandboxProcess.ts"
+import { MicrosandboxReattachRefusal } from "../internal/MicrosandboxReattachRefusal.ts"
 import { removeMachine } from "../internal/microsandboxRemove.ts"
 import { rootedAt } from "../internal/rootedPath.ts"
 import { sessionSlug } from "../internal/sessionSlug.ts"
@@ -360,18 +361,29 @@ const openMachine = (
         const recorded = Object(Reflect.get(Object(JSON.parse(handle.configJson)), "labels"))
         // A reattached machine keeps the network it booted with.
         if (Reflect.get(recorded, networkLabel) !== ownership[networkLabel]) {
-          throw new Error(`${name} was created with another network; remove it or acquire another session`)
+          throw new MicrosandboxReattachRefusal({
+            code: "network_mismatch",
+            message: `${name} was created with another network; remove it or acquire another session`
+          })
         }
         // And the ceilings it booted with, which a restart does not change.
         if (ownership[limitsLabel] !== undefined && Reflect.get(recorded, limitsLabel) !== ownership[limitsLabel]) {
-          throw new Error(`${name} was created with other limits; remove it or acquire another session`)
+          throw new MicrosandboxReattachRefusal({
+            code: "limits_mismatch",
+            message: `${name} was created with other limits; remove it or acquire another session`
+          })
         }
         // The machine now belongs to this holder. Microsandbox cannot relabel
         // a running machine live, but a next-start modification is recorded
         // at once, and the recorded labels are what `reap` reads, so a sweep
         // does not take the dead creator's label as this holder's.
         const plan = await handle.modify({ labels: ownership, policy: "next_start" })
-        if (!plan.applied) throw new Error(`the ownership labels of ${name} were not recorded`)
+        if (!plan.applied) {
+          throw new MicrosandboxReattachRefusal({
+            code: "ownership_not_recorded",
+            message: `the ownership labels of ${name} were not recorded`
+          })
+        }
         const detached = options.detached ?? sticky
         return {
           sandbox: handle.status === "running"
