@@ -2,7 +2,7 @@ import { Control } from "@smthrs/control"
 import { Effect } from "effect"
 import assert from "node:assert/strict"
 import { spawn } from "node:child_process"
-import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { access, copyFile, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { DatabaseSync } from "node:sqlite"
@@ -50,23 +50,52 @@ const rows = (root: string) => {
 
 if (process.argv[2] === "observe") {
   const root = await mkdtemp(join(tmpdir(), "smithers-external-peer-"))
+  await symlink(fileURLToPath(new URL("../../../../node_modules", import.meta.url)), join(root, "node_modules"), "dir")
   await mkdir(join(root, "flows", "external-peer"), { recursive: true })
   await copyFile(
     fileURLToPath(new URL("./external-peer-flow.ts", import.meta.url)),
     join(root, "flows", "external-peer", "flow.ts")
   )
+  const observer = spawn(process.execPath, ["--experimental-strip-types", fixture, "observer", root], {
+    stdio: ["ignore", "pipe", "pipe"]
+  })
+  let observerOutput = ""
+  observer.stdout?.on("data", (chunk) => {
+    observerOutput += String(chunk)
+  })
+  observer.stderr?.on("data", (chunk) => {
+    observerOutput += String(chunk)
+  })
+  const observerExited = new Promise<void>((resolve) => observer.on("exit", () => resolve()))
+  await poll(async () => {
+    if (observer.exitCode !== null) throw new Error(`Observer exited: ${observerOutput}`)
+    return access(join(root, "observer-ready")).then(() => true, () => false)
+  }, "peer registration before launch")
   const original = spawn(process.execPath, ["--experimental-strip-types", fixture, "original", root], {
-    stdio: ["ignore", "ignore", "pipe"]
+    stdio: ["ignore", "pipe", "pipe"]
   })
   let stderr = ""
+  original.stdout?.on("data", (chunk) => {
+    stderr += String(chunk)
+  })
   original.stderr?.on("data", (chunk) => {
     stderr += String(chunk)
   })
   const exited = new Promise<void>((resolve) => original.on("exit", () => resolve()))
   try {
-    await poll(async () => (await workers(root)).length > 0, `external worker entered: ${stderr}`)
+    await poll(async () => {
+      if (original.exitCode !== null) throw new Error(`Owner exited: ${stderr}`)
+      return (await workers(root)).length > 0
+    }, "external worker entered")
     const runId = await readFile(join(root, "run-id"), "utf8")
     const first = (await workers(root))[0]!
+    assert.equal(first.owner, original.pid, "A peer must not adopt the launcher's external action")
+    await new Promise((resolve) => setTimeout(resolve, 2_000))
+    await writeFile(join(root, "observer-close"), "close")
+    await observerExited
+    assert.equal(observer.exitCode, 0, observerOutput)
+    assert.equal(alive(first.pid), true, "Closing an observation host must not terminate the worker")
+    assert.deepEqual(await workers(root), [first])
     await poll(() => rows(root).some((row) => row.status === "suspended"), "real engine parent park")
     await Effect.runPromise(
       Effect.gen(function*() {
@@ -90,6 +119,8 @@ if (process.argv[2] === "observe") {
       }).pipe(Effect.provide(host(root)), Effect.scoped)
     )
   } finally {
+    observer.kill("SIGKILL")
+    await observerExited
     original.kill("SIGKILL")
     await exited
     for (const worker of await workers(root)) {
