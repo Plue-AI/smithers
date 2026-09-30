@@ -414,6 +414,62 @@ export const CorrectPlan = Flow.make("coding/CorrectPlan", {
   body: (input) => Begin.call(input).pipe(Node.bindPlanned((cursor) => Round.child(cursor)))
 })
 
+/** The owner and findings a repair corrects, checked against the native read; the plan's memory rides along. */
+export const repairContext = (
+  { plan, previous, read }: typeof PrepareContext.payloadSchema.Type
+): typeof Context.Type => {
+  if (
+    previous.status !== "changes-requested" || !previous.findings.length ||
+    previous.changes.length !== plan.changes.length
+  ) throw stale("Only a result with all native implementations and actionable findings can request correction")
+  const index = Math.min(
+    ...previous.findings.map((finding) => plan.changes.findIndex((change) => change.id === finding.owner))
+  )
+  if (index < 0) throw stale("A finding has no known owner")
+  if (!sameCode(resolved(read, plan.base.changeId), plan.base)) {
+    throw stale("The planned base changed before correction")
+  }
+  for (const group of previous.changes) {
+    for (const atom of group.implementation.atoms) {
+      if (!sameCode(resolved(read, atom.changeId), atom)) {
+        throw stale("The known history changed before correction; replan")
+      }
+    }
+  }
+  const implementation = previous.changes[index]!.implementation
+  return {
+    owner: plan.changes[index]!,
+    implementation,
+    index,
+    findings: previous.findings.filter((finding) => finding.owner === implementation.change),
+    ...(plan.memory === undefined ? {} : { memory: plan.memory })
+  }
+}
+
+/** The one-atom Change a repair re-implements, carrying the context's memory to the edit step. */
+export const ownerRepair = (
+  { context, selection, memoryRevision }: typeof PrepareRepair.payloadSchema.Type
+): typeof Repair.Type => {
+  const ordinal = context.implementation.atoms.findIndex((atom) => atom.changeId === selection.changeId)
+  if (ordinal < 0) throw stale("The repair selected an atom outside its owning Change")
+  const planned = context.owner.atoms[ordinal]!
+  return {
+    index: context.index,
+    ordinal,
+    memoryRevision,
+    ...(context.memory === undefined ? {} : { memory: context.memory }),
+    parent: ordinal === 0 ? context.implementation.parent : context.implementation.atoms[ordinal - 1]!,
+    change: {
+      ...context.owner,
+      atoms: [{
+        ...planned,
+        changeId: selection.changeId,
+        intent: `${planned.intent}\n\nCorrection: ${selection.intent}`
+      }]
+    }
+  }
+}
+
 export const correctionLayers = Layer.mergeAll(
   feedbackLayers,
   Interpreter.layer(CorrectPlan),
@@ -439,58 +495,8 @@ export const correctionLayers = Layer.mergeAll(
       return outcome
     })
   ),
-  PrepareContext.toLayer(({ plan, previous, read }) =>
-    policy(() => {
-      if (
-        previous.status !== "changes-requested" || !previous.findings.length ||
-        previous.changes.length !== plan.changes.length
-      ) throw stale("Only a result with all native implementations and actionable findings can request correction")
-      const index = Math.min(
-        ...previous.findings.map((finding) => plan.changes.findIndex((change) => change.id === finding.owner))
-      )
-      if (index < 0) throw stale("A finding has no known owner")
-      if (!sameCode(resolved(read, plan.base.changeId), plan.base)) {
-        throw stale("The planned base changed before correction")
-      }
-      for (const group of previous.changes) {
-        for (const atom of group.implementation.atoms) {
-          if (!sameCode(resolved(read, atom.changeId), atom)) {
-            throw stale("The known history changed before correction; replan")
-          }
-        }
-      }
-      const implementation = previous.changes[index]!.implementation
-      return {
-        owner: plan.changes[index]!,
-        implementation,
-        index,
-        findings: previous.findings.filter((finding) => finding.owner === implementation.change),
-        ...(plan.memory === undefined ? {} : { memory: plan.memory })
-      }
-    })
-  ),
-  PrepareRepair.toLayer(({ context, selection, memoryRevision }) =>
-    policy(() => {
-      const ordinal = context.implementation.atoms.findIndex((atom) => atom.changeId === selection.changeId)
-      if (ordinal < 0) throw stale("The repair selected an atom outside its owning Change")
-      const planned = context.owner.atoms[ordinal]!
-      return {
-        index: context.index,
-        ordinal,
-        memoryRevision,
-        ...(context.memory === undefined ? {} : { memory: context.memory }),
-        parent: ordinal === 0 ? context.implementation.parent : context.implementation.atoms[ordinal - 1]!,
-        change: {
-          ...context.owner,
-          atoms: [{
-            ...planned,
-            changeId: selection.changeId,
-            intent: `${planned.intent}\n\nCorrection: ${selection.intent}`
-          }]
-        }
-      }
-    })
-  ),
+  PrepareContext.toLayer((input) => policy(() => repairContext(input))),
+  PrepareRepair.toLayer((input) => policy(() => ownerRepair(input))),
   ReturnTip.toLayer((input) =>
     Effect.gen(function*() {
       yield* policy(() => reconstruct(input))

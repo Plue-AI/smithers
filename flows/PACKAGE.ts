@@ -244,6 +244,7 @@ const codingRuntime = Smithers.NodeTest({
     Smithers.file("//flows/test/coding-planning-authority.test.ts"),
     Smithers.file("//flows/test/coding-planning-sources.test.ts"),
     Smithers.file("//flows/test/coding-planning-placement.test.ts"),
+    Smithers.file("//flows/test/coding-project-memory.test.ts"),
     Smithers.file("//flows/test/coding-stack-base.test.ts"),
     Smithers.file("//flows/test/coding-project-config.test.ts"),
     Smithers.file("//flows/test/coding-steering.test.ts"),

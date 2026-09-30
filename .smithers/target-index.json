@@ -30041,6 +30041,10 @@
       },
       {
         "kind": "file",
+        "path": "flows/test/coding-project-memory.test.ts"
+      },
+      {
+        "kind": "file",
         "path": "flows/test/coding-stack-base.test.ts"
       },
       {
