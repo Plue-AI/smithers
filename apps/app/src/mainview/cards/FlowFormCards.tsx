@@ -1,5 +1,6 @@
 import { flowAction, flowOf, flowProps } from "../flows/FlowAction"
 import { Button } from "@smthrs/ui"
+import { useLiveQuery } from "@tanstack/react-db"
 import { useCallback, useContext, useRef, type KeyboardEvent } from "react"
 import { ControllerContext } from "../ControllerContext"
 import type { Card } from "../state/AppState"
@@ -8,6 +9,9 @@ import { writeOnlyGesture } from "../flows/CommandGesture"
 import { flowArgs } from "../flows/FlowArgs"
 import { describedFailure, FailureNotice } from "../FailureNotice"
 import type { UserFailure, UserFailureCopy } from "@smthrs/rpc/UserFailure"
+import { accountOwnerOf } from "../state/AccountOwner"
+import { parseRepoSelection } from "../state/AppState"
+import type { AppController } from "../state/AppController"
 
 /*
  * THE FORM LAW (apps/app/AGENTS.md; docs/workbench-lanes/flow-forms.md): the
@@ -74,6 +78,38 @@ const focusNeighbor = (form: HTMLFormElement): void => {
 /** The required fields the draft has not filled (a boolean is answered either way). */
 export const unfilled = (payload: FlowFormCard["payload"]): ReadonlyArray<FlowFormField> =>
   payload.fields.filter((field) => field.required && field.kind !== "boolean" && field.kind !== "write-only" && blank(payload.draft[field.name]))
+
+/** A completed box form retains the original human act, but never launches it without a new click. */
+const AfterBoxAction = ({ card, onRunCommand, controller }: {
+  readonly card: FlowFormCard
+  readonly onRunCommand: RunCommand
+  readonly controller: AppController
+}) => {
+  const { data: boxes } = useLiveQuery(controller.store.collections.cloudWorkspaces)
+  const { data: sessions } = useLiveQuery(controller.store.collections.sessions)
+  const { data: identities } = useLiveQuery(controller.store.collections.identitySessions)
+  const pending = card.payload.afterBox
+  if (pending === undefined) return null
+  const selected = parseRepoSelection(sessions[0]?.activeRepoKey ?? "")
+  const box = boxes.find(row => row.id === pending.workspaceId)
+  const sameAccount = accountOwnerOf(identities.find(row => row.id === "identity")) === pending.owner
+  const ready = sameAccount && selected?.repoId === pending.repo && selected.copyId === `workspace:${pending.workspaceId}` &&
+    box?.repoId === pending.repo && ["running", "suspended", "stopped"].includes(box.status)
+  const status = pending.consumed === true ? "Review requested"
+    : !sameAccount ? "Account changed"
+    : pending.workspaceId === undefined ? "Choose Review again"
+    : selected?.repoId !== pending.repo || selected.copyId !== `workspace:${pending.workspaceId}` ? "Select this box"
+    : !ready ? "Box starting" : "Ready"
+  const statusId = `after-box-status-${card.id}`
+  return <div className="flow-run-actions">
+    <Button type="button" size="sm" data-testid="flow-form-after-box" disabled={!ready && pending.consumed !== true}
+      aria-disabled={pending.consumed === true} aria-describedby={statusId}
+      {...flowProps("form.submit", card.id)} onClick={() => { if (ready && pending.consumed !== true) onRunCommand("form.submit", card.id) }}>
+      {pending.consumed === true ? "Review requested" : `Review PR #${pending.number}`}
+    </Button>
+    <span id={statusId} role="status">{status}</span>
+  </div>
+}
 
 export const FlowFormCardBody = ({
   card,
@@ -260,6 +296,8 @@ export const FlowFormCardBody = ({
           </Button>
         </div>
       )}
+      {settled && controller !== null && card.payload.afterBox !== undefined ?
+        <AfterBoxAction card={card} onRunCommand={onRunCommand} controller={controller} /> : null}
       {error !== undefined ?
         <FailureNotice className="sui-approval-error" data-testid="flow-form-failure" failure={formFailure(error, card.payload.errorKind)} /> :
         null}

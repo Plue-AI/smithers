@@ -8,6 +8,8 @@ import { payloadFor } from "../flows/SlashPayload"
 import { ControllerContext } from "../ControllerContext"
 import type { AppController } from "../state/AppController"
 import type { FlowSubmission } from "../flows/Commands"
+import { createAppStore } from "../state/AppStore"
+import { memoryStorage, loadBox } from "../state/TestFixtures"
 
 test("a write-only input stays outside form.set, clears before submit, and travels only through the gesture", () => {
   const requests: FlowSubmission[] = []
@@ -112,6 +114,38 @@ const mount = (node: React.ReactNode): HTMLElement => {
   })
   return host
 }
+
+test("a completed PR box form offers its retained Review action only on its ready selected box", async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+  await store.dispatch({ type: "repo.selected", actor: "user", id: "will/flows" }).isPersisted.promise
+  const boxId = "0b0c0d0e-0000-4000-8000-00000000000a"
+  const calls: Array<[string, string | undefined]> = []
+  const controller = { store } as unknown as AppController
+  const card = formCard({ flow: "box.open", via: "user", fields: [], draft: { repo: "will/flows" }, given: { repo: "will/flows" },
+    afterBox: { kind: "prs.triage", repo: "will/flows", number: 17, owner: "will", workspaceId: boxId } }, "acted")
+  const host = mount(<ControllerContext value={controller}><FlowFormCardBody card={card} onRunCommand={(name, args) => { calls.push([name, args]) }} /></ControllerContext>)
+  const button = () => host.querySelector<HTMLButtonElement>("[data-testid=flow-form-after-box]")
+  expect(button()?.textContent).toBe("Review PR #17")
+  expect(button()?.disabled).toBe(true)
+  await loadBox(store, "will/flows", boxId, "running")
+  await store.dispatch({ type: "repo.selected", actor: "user", id: `will/flows#workspace:${boxId}` }).isPersisted.promise
+  await new Promise(resolve => setTimeout(resolve, 20))
+  expect(button()?.disabled).toBe(false)
+  flushSync(() => button()!.click())
+  expect(calls).toEqual([["form.submit", card.id]])
+  await store.dispatch({ type: "repo.selected", actor: "user", id: "will/flows" }).isPersisted.promise
+  await new Promise(resolve => setTimeout(resolve, 20))
+  expect(button()?.disabled).toBe(true)
+  const consumed = mount(<ControllerContext value={controller}><FlowFormCardBody card={formCard({ ...card.payload,
+    afterBox: { ...card.payload.afterBox!, consumed: true } }, "acted")} onRunCommand={(name, args) => { calls.push([name, args]) }} /></ControllerContext>)
+  const claimed = consumed.querySelector<HTMLButtonElement>("[data-testid=flow-form-after-box]")!
+  expect(claimed.textContent).toBe("Review requested")
+  expect(claimed.getAttribute("aria-disabled")).toBe("true")
+  flushSync(() => claimed.click())
+  expect(calls).toHaveLength(1)
+  await store.dispose?.()
+})
 
 const recorder = () => {
   const calls: Array<[string, string | undefined]> = []

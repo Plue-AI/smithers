@@ -2800,6 +2800,11 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
       ),
       draft: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])),
       given: z.record(z.string(), z.unknown()),
+      /** A Review PR request held while its explicitly opened box becomes selectable. */
+      afterBox: z.object({
+        kind: z.literal("prs.triage"), repo: z.string(), number: z.number().int().positive(), owner: z.string(),
+        workspaceId: z.string().optional(), consumed: z.boolean().optional()
+      }).optional(),
       /** A submission holds the form until its invocation settles. */
       submitting: z.boolean().optional(),
       submitLabel: z.string().optional(),

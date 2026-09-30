@@ -6,10 +6,13 @@ import type { CommandOutcome } from "../../flows/Commands"
 import type { FieldOption,FieldValue,FormDraft,FormField,FormHints,OptionProvider } from "@smthrs/ui/flow-form"
 import { assembleLine,declaredInput,displayLine,draftFrom,formFieldsFor,missingFields,positionalRead,publicFormPayload,submissionPayload } from "@smthrs/ui/flow-form"
 import { payloadFor } from "../../flows/SlashPayload"
+import { flowArgs } from "../../flows/FlowArgs"
 import { manifests } from "../../plugins/catalog"
 import { actorSharedState } from "../ActorBindings"
 import { decideApprovalAnswerInput } from "../ApprovalAnswerState"
 import type { Card, CloudWorkspaceRow } from "../AppState"
+import { parseRepoSelection } from "../AppState"
+import { activeRepositoryId } from "../RepoContext"
 import { knownRepositories, repositoryBoxChoices, resolveTargetRepo } from "../RepoContext"
 import { fileOptions,fileTargetKey } from "../seams/FilesSeam"
 import { readIssueOptions } from "../seams/IssuesSeam"
@@ -45,6 +48,8 @@ export interface FormRenderRequest {
   readonly args: string | undefined
   readonly via: "user" | "agent"
   readonly invocation?: AgentInvocation
+  /** The original human act waiting for a box the person chooses to open. */
+  readonly afterBox?: { readonly kind: "prs.triage"; readonly repo: string; readonly number: number }
   /** The flow's input schema and hints; looked up in the registry when the caller has only the name. */
   readonly input?: Schema.Top
   readonly hints?: FormHints
@@ -480,6 +485,7 @@ export const createFormsController = (ctx: ControllerContext, deps: FormsControl
         createdAt: existing?.createdAt ?? Date.now(),
         ordinal: deps.nextOrdinal(),
         payload: { flow: request.name, via: request.via, fields: resolved, draft, given, ...parseError, ...nestedPayload,
+          ...(request.afterBox === undefined || ctx.accountOwner() == null ? {} : { afterBox: { ...request.afterBox, owner: ctx.accountOwner()! } }),
           ...(hints?.submitLabel === undefined ? {} : { submitLabel: hints.submitLabel }) }
       }
     })
@@ -548,6 +554,30 @@ export const createFormsController = (ctx: ControllerContext, deps: FormsControl
   const submitForm: FormsController["submitForm"] = async (cardId, invocation, gesture) => {
     const card = formCard(cardId)
     if (card === undefined) return `There is no form card ${cardId}.`
+    if (card.status === "acted" && card.payload.flow === "box.open" && card.payload.afterBox !== undefined) {
+      const pending = card.payload.afterBox
+      if (ctx.commandActor !== "user" || card.payload.via !== "user") return "Only the person who opened the box can continue this act."
+      if (pending.consumed === true) return `Review PR #${pending.number} was already requested.`
+      if (ctx.accountOwner() !== pending.owner) return "The account changed. Open the review again."
+      const workspaceId = pending.workspaceId
+      const workspace = workspaceId === undefined ? undefined : store.collections.cloudWorkspaces.get(workspaceId)
+      if (workspace === undefined || workspace.repoId !== pending.repo || !["running", "suspended", "stopped"].includes(workspace.status)) return "The new box is not ready for this review yet."
+      if (activeRepositoryId(store) !== pending.repo || parseRepoSelection(store.session().activeRepoKey ?? "")?.copyId !== `workspace:${workspaceId}`) return "The selected box changed. Open the review again."
+      const epoch = ctx.accountEpoch
+      // Persist the claim before any command can launch. A reload or second click cannot repeat it.
+      await patch(card, { ...card.payload, afterBox: { ...pending, consumed: true } }, "acted")
+      if (ctx.disposed || ctx.accountEpoch !== epoch || ctx.accountOwner() !== pending.owner) return "The account changed before the review could start."
+      const outcome = await ctx.commands.run("box.select", flowArgs("box.select", {
+        workspaceId, repo: pending.repo, flow: "prs.triage", args: flowArgs("prs.triage", { number: pending.number, repo: pending.repo }) }))
+      if (outcome.status === "executed") return { value: outcome.value ?? `Review PR #${pending.number} requested.` }
+      const error = outcome.status === "failed" ? outcome.error
+        : outcome.status === "unavailable" ? outcome.reason
+        : outcome.status === "unknown-command" ? "/box.select is not available here."
+        : `Review PR #${pending.number} could not be started. Check Runs before requesting it again.`
+      const current = formCard(cardId)
+      if (current !== undefined) await patch(current, { ...current.payload, error, errorKind: "run" }, "acted")
+      return error
+    }
     if (card.status === "acted") return `The form ${cardId} was already submitted.`
     if (card.payload.submitting === true) return `The form ${cardId} is being submitted.`
     const missing = missingFields(card.payload.fields.filter(field => field.kind !== "write-only" || gesture?.hasWriteOnly?.(field.name) !== true), card.payload.draft)
@@ -613,6 +643,8 @@ export const createFormsController = (ctx: ControllerContext, deps: FormsControl
      */
     const epoch = ctx.accountEpoch
     const accountEnded = () => ctx.accountEpoch !== epoch
+    const existingBoxes = card.payload.afterBox === undefined ? undefined : new Set(store.collections.cloudWorkspaces.keys())
+    const selectedBefore = store.session().activeRepoKey
     await patch(card, { ...card.payload, submitting: true }, "active")
     if (accountEnded()) {
       continuations.delete(cardId)
@@ -645,7 +677,19 @@ export const createFormsController = (ctx: ControllerContext, deps: FormsControl
     if (outcome.status === "executed") {
       continuations.delete(cardId)
       if (current !== undefined) {
-        await patch(current, { ...withoutError(current.payload), submitting: false }, "acted")
+        const afterBox = current.payload.afterBox
+        const selection = parseRepoSelection(store.session().activeRepoKey ?? "")
+        const newBoxId = selection?.copyId?.startsWith("workspace:") ? selection.copyId.slice("workspace:".length) : undefined
+        const newBox = newBoxId === undefined ? undefined : store.collections.cloudWorkspaces.get(newBoxId)
+        const createdHere = existingBoxes === undefined ? [] : [...store.collections.cloudWorkspaces.values()]
+          .filter(row => row.repoId === afterBox?.repo && !existingBoxes.has(row.id))
+        const continued = afterBox !== undefined && selectedBefore !== null && selectedBefore !== undefined &&
+          activeRepositoryId(store) === afterBox.repo && newBox !== undefined && newBox.repoId === afterBox.repo &&
+          createdHere.length === 1 && createdHere[0]?.id === newBox.id && ctx.accountOwner() === afterBox.owner
+          ? { ...afterBox, workspaceId: newBox.id } : afterBox
+        await patch(current, { ...withoutError(current.payload), submitting: false,
+          ...(afterBox !== undefined && continued?.workspaceId === undefined ? { error: `The new box could not be tied to Review PR #${afterBox.number}. Choose Review again.`, errorKind: "run" as const } : {}),
+          ...(continued === undefined ? {} : { afterBox: continued }) }, "acted")
       }
       reopen?.()
       return { value: outcome.value ?? `submitted /${flow}${echo === "" ? "" : ` ${echo}`}` }

@@ -57,7 +57,7 @@ export interface WorkflowController {
   readonly listWorkspaceWorkflows: ViewAction<[repo?: string, sourceCard?: string]>
   /** The Flows pane: the surface switch, and the same listing that fills it. */
   readonly showFlows: () => Promise<string | void | { readonly value: string }>
-  readonly requireBox: (repo: string, act: { readonly flow: string; readonly args?: string }, title: string) => string | { readonly value: string } | undefined
+  readonly requireBox: (repo: string, act: { readonly flow: string; readonly args?: string; readonly afterBox?: { readonly kind: "prs.triage"; readonly number: number } }, title: string) => string | { readonly value: string } | undefined
   readonly requireJobBox: (repo: string, act: { readonly flow: string; readonly args?: string }, title: string) => string | { readonly value: string } | undefined
   readonly runWorkflow: (name: string, repo?: string, input?: Record<string, unknown>, sourceCard?: string, humanDoor?: boolean) => Promise<string | void | { readonly value: string }>
   /** A flow on one named box: a first import's box runs before the box list has caught up with it. */
@@ -839,10 +839,12 @@ export const createWorkflowController = (
   const listWorkspaceWorkflows = catalogs.list
 
   /** A human reaches the existing box form before a box-bound flow can run. */
-  const boxPrerequisite = (repo: string, binding: Extract<GatewayBinding, { readonly error: string }>, act: { readonly flow: string; readonly args?: string }, title: string): string | { readonly value: string } => {
+  const boxPrerequisite = (repo: string, binding: Extract<GatewayBinding, { readonly error: string }>, act: { readonly flow: string; readonly args?: string; readonly afterBox?: { readonly kind: "prs.triage"; readonly number: number } }, title: string): string | { readonly value: string } => {
     if (binding.choices !== undefined) return refuseOrPickBox(ctx, renderFlowForm, binding, { repo, ...act })
     if (ctx.commandActor === "user" && repositoryBoxOf(store, repo).kind === "none" && selectedBoxBinding(store, repo) === undefined) {
-      const rendered = renderFlowForm?.({ name: "box.open", args: flowArgs("box.open", { repo }), via: "user", title })
+      const rendered = renderFlowForm?.({ name: "box.open", args: flowArgs("box.open", { repo }), via: "user", title,
+        ...(act.afterBox === undefined ? {} : { cardId: `form-box.open-${act.flow}-${digest(act.args ?? "").slice(0, 16)}`,
+          afterBox: { ...act.afterBox, repo } }) })
       if (rendered !== undefined) return { value: formRenderedText(rendered.missing) }
     }
     return binding.error

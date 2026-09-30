@@ -26,8 +26,8 @@ export const createIssueFlowsController = (
   landings?: Pick<LandingsSeam, "readLandingContext">
 ): IssueFlowsController => {
   const cards = (): Array<Card> => [...ctx.store.collections.cards.values()]
-  const requireBox = (repo: string, flow: string, args: string, title: string, humanDoor: boolean): string | { readonly value: string } | undefined => {
-    if (humanDoor) return flows.requireBox(repo, { flow, args }, title)
+  const requireBox = (repo: string, flow: string, args: string, title: string, humanDoor: boolean, reviewNumber?: number): string | { readonly value: string } | undefined => {
+    if (humanDoor) return flows.requireBox(repo, { flow, args, ...(reviewNumber === undefined ? {} : { afterBox: { kind: "prs.triage" as const, number: reviewNumber } }) }, title)
     const binding = gatewayBindingFor(ctx.store, repo)
     return "error" in binding ? binding.error : undefined
   }
@@ -95,7 +95,7 @@ export const createIssueFlowsController = (
       // Keep the direct caller's read-before-refusal behavior; a human's
       // explicit Review act can choose a box before fetching PR context.
       if (humanDoor) {
-        const prerequisite = requireBox(selected.repo, "prs.triage", flowArgs("prs.triage", { number, repo: selected.repo }), `Open a box to review pull request #${number}`, true)
+        const prerequisite = requireBox(selected.repo, "prs.triage", flowArgs("prs.triage", { number, repo: selected.repo }), `Open a box to review pull request #${number}`, true, number)
         if (prerequisite !== undefined) return prerequisite
       }
       const context = await landings.readLandingContext(number, selected.repo)
