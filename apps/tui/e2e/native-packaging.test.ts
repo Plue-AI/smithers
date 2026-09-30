@@ -149,8 +149,10 @@ it("compiled shipped TUI embeds one corrected library and preserves selected Uni
     offset = next + corrected.length
   }
   expect(copies).toBe(1)
-  const require = createRequire(join(app, "package.json"))
-  const originalPath = join(dirname(require.resolve(`@opentui/core-${target}`)), artifact.file)
+  // The upstream platform package is an optional dependency of @opentui/core,
+  // so it resolves beside that package's install, not from this app's manifest.
+  const core = createRequire(createRequire(join(app, "package.json")).resolve("@opentui/core"))
+  const originalPath = join(dirname(core.resolve(`@opentui/core-${target}`)), artifact.file)
   const original = readFileSync(originalPath)
   expect(hash(original)).not.toBe(artifact.sha256)
   expect(executable.indexOf(original)).toBe(-1)
