@@ -197,6 +197,25 @@ test("with two asks waiting, a types and the count shows both", async () => {
   expect(frame()).not.toContain("enter Answer")
 })
 
+test("two asks from one worker count separately and keep a as chat text", async () => {
+  await delegate("add")
+  const first = await ask(1, "New name?", ["sum"])
+  const second = await ask(1, "New export?", ["plus"])
+  let answers = 0
+  void first().then(() => { answers++ })
+  void second().then(() => { answers++ })
+  await waitFor(() => frame().includes("Summary ◆2"))
+  await settle()
+  expect(frame()).not.toContain("ctrl+s Summary  a Answer")
+  await type("a")
+  expect(frame()).not.toContain("enter Answer")
+  await key("RETURN")
+  await waitFor(() => turns.length === 3)
+  expect(turns[2]!.input.prompt).toContain("a")
+  expect(answers).toBe(0)
+  expect(frame()).toContain("Summary ◆2")
+})
+
 test("a started message keeps its a", async () => {
   await delegate("add")
   await ask(1, "New name for add()?", ["sum"])
