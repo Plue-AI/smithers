@@ -120,7 +120,7 @@ describe("a streamed answer reaches the real client", () => {
       grade: { type: "score", score: 2 }
     })
     expect(response.confidence).toEqual({ yes: PROVIDER_CONFIDENCE, kind: PROVIDER_CONFIDENCE, grade: PROVIDER_CONFIDENCE })
-    expect(response.usage).toEqual({ inputTokens: 7, outputTokens: 1 })
+    expect(response.usage).toEqual({ modelId: PROVIDER_MODEL.answers, inputTokens: 7, outputTokens: 1 })
     expect((await last()).headers).toEqual({
       "ai-gateway-protocol-version": Evaluator.protocolVersion,
       "ai-gateway-auth-method": "api-key",

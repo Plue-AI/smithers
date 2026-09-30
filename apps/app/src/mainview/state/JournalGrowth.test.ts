@@ -772,7 +772,7 @@ for (const kind of ["diagnostics", "waiting", "closed"] as const) {
     const event = (message: string): Event => {
       const scope = { repo: "owner/repo", workspaceId: "ws-lsp", language: "typescript" as const }
       if (kind === "waiting") return { ...scope, type: kind, paths: ["index.ts"], note: message }
-      if (kind === "closed") return { ...scope, type: kind, paths: ["index.ts"], code: 1008, reason: message }
+      if (kind === "closed") return { ...scope, type: kind, paths: ["index.ts"], code: message === "changed" ? 1009 : 1008, reason: message }
       return { ...scope, type: kind, path: "index.ts", content, total: message === "" ? 0 : 5,
         items: message === "" ? [] : [{ line: 1, character: 1, endLine: 1, endCharacter: 2, severity: "error", message }] }
     }
@@ -800,7 +800,13 @@ for (const kind of ["diagnostics", "waiting", "closed"] as const) {
         const reopened = await open(fixture.path)
         const card = reopened.store.committedCard(id)
         expect(card?.kind).toBe("file")
-        if (card?.kind === "file") expect(JSON.stringify(card.payload)).toContain("original")
+        if (card?.kind === "file") {
+          if (kind === "closed") {
+            expect(card.payload.intel?.note).toBe("the box language server closed (1008)")
+            expect(JSON.stringify(card.payload)).not.toContain("original")
+            expect(JSON.stringify(card.payload)).not.toContain("changed")
+          } else expect(JSON.stringify(card.payload)).toContain("original")
+        }
         expect((await reopened.store.verifyState()).valid).toBe(true)
         return
       }
@@ -813,6 +819,12 @@ for (const kind of ["diagnostics", "waiting", "closed"] as const) {
       expect(accepted).toBe(initial + 2)
       held.release(); await store.settled?.()
       expect((await store.eventHistory()).head.sequence).toBe(before.head.sequence + 3)
+      if (kind === "closed") {
+        const committed = store.committedCard(id)
+        if (committed?.kind !== "file") throw new Error("Missing committed file")
+        expect(committed.payload.intel?.note).toBe("the box language server closed (1009)")
+        expect(JSON.stringify(committed.payload)).not.toContain("changed")
+      }
       publish!(event("")); await store.settled?.()
       const settled = await store.eventHistory()
       publish!(event("")); await store.settled?.()
