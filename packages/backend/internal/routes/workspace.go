@@ -142,6 +142,9 @@ type createWorkspaceRequest struct {
 	SourceBookmark string                        `json:"source_bookmark,omitempty"`
 	Kind           string                        `json:"kind,omitempty"`
 	Environment    services.WorkspaceEnvironment `json:"environment,omitempty"`
+	// ClientLeaseSeconds leases the workspace to this client; renew it with
+	// POST .../workspaces/{id}/lease or the workspace is reclaimed (#2457).
+	ClientLeaseSeconds int32 `json:"client_lease_seconds,omitempty"`
 }
 
 type forkWorkspaceRequest struct {
@@ -378,6 +381,8 @@ func (h *WorkspaceHandler) CreateWorkspace(w http.ResponseWriter, r *http.Reques
 		SourceBookmark: req.SourceBookmark,
 		Kind:           req.Kind,
 		Environment:    req.Environment,
+		// A lease is optional; zero leaves the workspace unleased.
+		ClientLeaseSeconds: req.ClientLeaseSeconds,
 	}
 	status := http.StatusCreated
 	var workspace services.WorkspaceResponse

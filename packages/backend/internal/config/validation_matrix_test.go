@@ -90,6 +90,7 @@ func TestValidateServerStartup_SandboxValidationMatrix(t *testing.T) {
 		name        string
 		persistence string
 		idleTimeout int64
+		leaseDelete int64
 		wantError   string
 	}{
 		{name: "empty_persistence_allowed", persistence: "", idleTimeout: 0},
@@ -97,6 +98,8 @@ func TestValidateServerStartup_SandboxValidationMatrix(t *testing.T) {
 		{name: "persistent_allowed", persistence: "persistent", idleTimeout: 10},
 		{name: "invalid_persistence", persistence: "shared", idleTimeout: 10, wantError: "sandbox.workspace_persistence must be one of ephemeral, persistent"},
 		{name: "negative_idle_timeout", persistence: "persistent", idleTimeout: -1, wantError: "sandbox.workspace_idle_timeout must be >= 0"},
+		{name: "zero_lease_delete_allowed", persistence: "persistent", idleTimeout: 10, leaseDelete: 0},
+		{name: "negative_lease_delete", persistence: "persistent", idleTimeout: 10, leaseDelete: -1, wantError: "sandbox.workspace_lease_delete_after must be >= 0"},
 	}
 
 	for _, tc := range tests {
@@ -105,6 +108,7 @@ func TestValidateServerStartup_SandboxValidationMatrix(t *testing.T) {
 			cfg := validStartupConfig()
 			cfg.Sandbox.WorkspacePersistence = tc.persistence
 			cfg.Sandbox.WorkspaceIdleTimeout = tc.idleTimeout
+			cfg.Sandbox.WorkspaceLeaseDeleteAfter = tc.leaseDelete
 
 			err := ValidateServerStartup(cfg)
 			if tc.wantError != "" {

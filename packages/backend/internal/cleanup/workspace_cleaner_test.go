@@ -19,6 +19,15 @@ type mockWorkspaceCleanupStore struct {
 	cleanupIdleWorkspacesFn      func(context.Context) error
 	cleanupOverQuotaWorkspacesFn func(context.Context) error
 	reclaimAgentDisksFn          func(context.Context) error
+	abandonedFn                  func(context.Context) error
+}
+
+func (m *mockWorkspaceCleanupStore) CleanupAbandonedWorkspaces(ctx context.Context) error {
+	m.calls = append(m.calls, "abandoned")
+	if m.abandonedFn != nil {
+		return m.abandonedFn(ctx)
+	}
+	return nil
 }
 
 func (m *mockWorkspaceCleanupStore) CleanupIdleSessions(ctx context.Context) error {
@@ -69,7 +78,7 @@ func TestWorkspaceCleanerSweep_CallsAllCleanupPasses(t *testing.T) {
 
 	err := cleaner.sweep(context.Background())
 	require.NoError(t, err)
-	assert.Equal(t, []string{"idle_sessions", "stale_pending", "idle_workspaces", "over_quota_workspaces", "agent_disks"}, store.calls)
+	assert.Equal(t, []string{"idle_sessions", "stale_pending", "idle_workspaces", "over_quota_workspaces", "agent_disks", "abandoned"}, store.calls)
 }
 
 func TestWorkspaceCleanerSweep_JoinsErrors(t *testing.T) {
@@ -80,6 +89,7 @@ func TestWorkspaceCleanerSweep_JoinsErrors(t *testing.T) {
 		cleanupIdleWorkspacesFn:      func(context.Context) error { return errors.New("idle failed") },
 		cleanupOverQuotaWorkspacesFn: func(context.Context) error { return errors.New("quota failed") },
 		reclaimAgentDisksFn:          func(context.Context) error { return errors.New("reclaim failed") },
+		abandonedFn:                  func(context.Context) error { return errors.New("abandon failed") },
 	}
 	cleaner := NewWorkspaceCleaner(store, time.Minute)
 
@@ -89,7 +99,8 @@ func TestWorkspaceCleanerSweep_JoinsErrors(t *testing.T) {
 	assert.Contains(t, err.Error(), "cleanup idle workspaces")
 	assert.Contains(t, err.Error(), "cleanup over-quota workspaces")
 	assert.Contains(t, err.Error(), "reclaim stopped agent workspace disks: reclaim failed")
-	assert.Equal(t, []string{"idle_sessions", "stale_pending", "idle_workspaces", "over_quota_workspaces", "agent_disks"}, store.calls)
+	assert.Contains(t, err.Error(), "cleanup abandoned workspaces: abandon failed")
+	assert.Equal(t, []string{"idle_sessions", "stale_pending", "idle_workspaces", "over_quota_workspaces", "agent_disks", "abandoned"}, store.calls)
 }
 
 func TestWorkspaceCleanerMeterFailureIncrementsSweepFailures(t *testing.T) {
@@ -106,5 +117,5 @@ func TestWorkspaceCleanerMeterFailureIncrementsSweepFailures(t *testing.T) {
 		return testutil.ToFloat64(SweepFailures.WithLabelValues("workspace")) == before+1
 	})
 	cleaner.Stop()
-	assert.Equal(t, []string{"idle_sessions", "stale_pending", "idle_workspaces", "over_quota_workspaces", "agent_disks"}, store.calls)
+	assert.Equal(t, []string{"idle_sessions", "stale_pending", "idle_workspaces", "over_quota_workspaces", "agent_disks", "abandoned"}, store.calls)
 }

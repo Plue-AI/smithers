@@ -10947,6 +10947,55 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/InternalError'
+  /api/repos/{owner}/{repo}/workspaces/{id}/lease:
+    post:
+      summary: POST /api/repos/{owner}/{repo}/workspaces/{id}/lease
+      operationId: post_api_repos_owner_repo_workspaces_id_lease
+      tags:
+        - Repositories
+      parameters:
+        - name: owner
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: repo
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      security:
+        - tokenAuth: []
+        - bearerAuth: []
+        - sessionCookie: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnyJSON'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
   /api/repos/{owner}/{repo}/workspaces/{id}/resume:
     post:
       summary: POST /api/repos/{owner}/{repo}/workspaces/{id}/resume

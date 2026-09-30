@@ -759,6 +759,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		services.WithWorkspaceAgentResources(cfg.Sandbox.AgentMemoryMB, cfg.Sandbox.AgentVCPUCount),
 		services.WithWorkspaceDesktopResources(cfg.Sandbox.DesktopMemoryMB, cfg.Sandbox.DesktopVCPUCount),
 		services.WithWorkspaceDesktopObserveText(cfg.Sandbox.DesktopObserveText),
+		services.WithWorkspaceLeaseDeleteAfter(time.Duration(cfg.Sandbox.WorkspaceLeaseDeleteAfter)*time.Second),
 		// Supply setup-only secrets and persistent nonsecret variables to fresh
 		// repository workspace VMs; secrets exist only during the setup phase
 		// and are stripped before the agent runs.

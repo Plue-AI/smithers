@@ -622,6 +622,9 @@ func (s *WorkspaceService) CreateWorkspace(ctx context.Context, input CreateWork
 		if err != nil {
 			return WorkspaceResponse{}, err
 		}
+		if workspace, err = s.applyWorkspaceClientLease(ctx, workspace, input.ClientLeaseSeconds); err != nil {
+			return WorkspaceResponse{}, err
+		}
 		workspace, err = s.ensureWorkspaceRunning(ctx, workspace, CreateWorkspaceSessionInput{
 			RepositoryID:   input.RepositoryID,
 			UserID:         input.UserID,
@@ -670,6 +673,10 @@ func (s *WorkspaceService) CreateWorkspace(ctx context.Context, input CreateWork
 	})
 	if err != nil {
 		return WorkspaceResponse{}, mapWorkspaceCreateError(err, "create snapshot workspace")
+	}
+	if workspace, err = s.applyWorkspaceClientLease(ctx, workspace, input.ClientLeaseSeconds); err != nil {
+		s.markWorkspaceProvisionFailed(ctx, workspace, err)
+		return WorkspaceResponse{}, err
 	}
 	if s.runtime != nil {
 		workspace, err = s.restoreRuntimeWorkspaceSnapshot(ctx, workspace, snapshot, input.UserID)
@@ -721,6 +728,9 @@ func (s *WorkspaceService) CreateWorkspaceAsync(ctx context.Context, input Creat
 		if err != nil {
 			return WorkspaceResponse{}, err
 		}
+		if workspace, err = s.applyWorkspaceClientLease(ctx, workspace, input.ClientLeaseSeconds); err != nil {
+			return WorkspaceResponse{}, err
+		}
 		s.provisionWorkspaceAsync(ctx, workspace, CreateWorkspaceSessionInput{
 			RepositoryID:   input.RepositoryID,
 			UserID:         input.UserID,
@@ -764,6 +774,10 @@ func (s *WorkspaceService) CreateWorkspaceAsync(ctx context.Context, input Creat
 	})
 	if err != nil {
 		return WorkspaceResponse{}, mapWorkspaceCreateError(err, "create snapshot workspace")
+	}
+	if workspace, err = s.applyWorkspaceClientLease(ctx, workspace, input.ClientLeaseSeconds); err != nil {
+		s.markWorkspaceProvisionFailed(ctx, workspace, err)
+		return WorkspaceResponse{}, err
 	}
 
 	s.provisionSnapshotWorkspaceAsync(ctx, workspace, snapshot)
