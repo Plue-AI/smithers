@@ -722,7 +722,8 @@ export function App(props: AppProps) {
       workspace.release(id)
     }
   }
-  const workerRun = (tab: Tab) => tab.continuationId ?? String(tab.launchedAt ?? tab.startedAt)
+  // The session survives queue admission; a retry opens a new session or continuation.
+  const workerRun = (tab: Tab) => tab.continuationId ?? tab.file
   const stopKey = (id: string, run: string) => JSON.stringify([id, run])
   const workerAction = (tab: Tab, action: Tabs.ActionId) => {
     switch (action) {

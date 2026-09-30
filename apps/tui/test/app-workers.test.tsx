@@ -12,7 +12,6 @@ import { act } from "react"
 import { App } from "../src/app.tsx"
 import type * as Host from "../src/host.ts"
 import * as Session from "../src/session.ts"
-import * as Theme from "../src/theme.ts"
 import { seats } from "../src/workspace.ts"
 
 // App boundary units with native headless rendering and real session storage.

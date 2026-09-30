@@ -9,6 +9,7 @@ import { App } from "../src/app.tsx"
 import { type Body, FlowError, type Listed, type Port } from "../src/flows.ts"
 import type * as Host from "../src/host.ts"
 import * as Session from "../src/session.ts"
+import { seats } from "../src/workspace.ts"
 
 // Actual App command/picker routing and real session IO. Flow discovery/body
 // and Host execution are typed boundary doubles; no provider executes.
@@ -21,6 +22,7 @@ let bodies: Array<
 > = []
 let turns: Array<{ input: Host.TurnInput; gate: ReturnType<typeof Promise.withResolvers<Host.Outcome>> }> = []
 let discoveries = 0
+let cancellations: Host.TurnInput[] = []
 let host: Host.Host
 let flows: Port
 let listed: ReadonlyArray<Listed> = []
@@ -96,6 +98,7 @@ beforeEach(async () => {
   bodies = []
   turns = []
   discoveries = 0
+  cancellations = []
   listed = [
     {
       name: "review",
@@ -157,7 +160,13 @@ beforeEach(async () => {
     run: (input) => {
       const gate = Promise.withResolvers<Host.Outcome>()
       turns.push({ input, gate })
-      return { done: gate.promise, cancel: () => gate.resolve({ _tag: "cancelled" }) }
+      return {
+        done: gate.promise,
+        cancel: () => {
+          cancellations.push(input)
+          gate.resolve({ _tag: "cancelled" })
+        }
+      }
     }
   }
   await mount()
@@ -296,4 +305,74 @@ test("/flow with an unknown name fails on its chat card, before a tab, body read
   await command("Recover in Chat")
   expect(turns[0]!.input.prompt).toBe("Recover in Chat")
   expect(turns[0]!.input.history).toEqual([])
+})
+
+test("Stop confirmation follows the same queued worker through launch", async () => {
+  await command("Coordinate reviews")
+  for (let index = 0; index < seats; index++) {
+    await act(async () => {
+      turns[0]!.input.runtime!.delegate!({ id: `seat-${index}`, title: `Seat ${index}`, prompt: `Review ${index}` })
+      await setImmediate()
+    })
+  }
+  await command("/flow review Queued review")
+  const queued = tabs().at(-1)!.tab
+  expect(queued.status).toBe("queued")
+  expect(bodies).toEqual([])
+  await key("k", { ctrl: true })
+  await type("tab:Queued review")
+  await key("RETURN")
+  await key("x", { meta: true })
+  expect(frame()).toContain("Stop Queued review?")
+  await act(async () => {
+    turns[1]!.gate.resolve({ _tag: "cancelled" })
+    await setImmediate()
+  })
+  await waitFor(() => bodies.length === 1)
+  await act(async () => {
+    bodies[0]!.gate.resolve(body())
+    await setImmediate()
+  })
+  await waitFor(() => turns.some((turn) => turn.input.prompt === "Queued review"))
+  const launched = turns.find((turn) => turn.input.prompt === "Queued review")!
+  expect(cancellations).toEqual([])
+  expect(frame()).toContain("Stop Queued review?")
+  await key("RETURN")
+  expect(cancellations).toEqual([launched.input])
+  await waitFor(() => tabs().findLast((record) => record.tab.id === queued.id)!.tab.status === "cancelled")
+})
+
+test("Stop confirmation cannot follow a failed worker into its retry", async () => {
+  await command("Coordinate retry")
+  await command("/flow review Retry review")
+  await waitFor(() => bodies.length === 1)
+  await act(async () => {
+    bodies[0]!.gate.resolve(body())
+    await setImmediate()
+  })
+  await waitFor(() => turns.length === 2)
+  const id = tabs().at(-1)!.tab.id
+  await key("ARROW_RIGHT", { ctrl: true })
+  await key("ARROW_RIGHT", { ctrl: true })
+  await key("x", { meta: true })
+  expect(frame()).toContain("Stop Retry review?")
+  await act(async () => {
+    turns[1]!.gate.resolve({ _tag: "failed", message: "Fixture failure", detail: "Failed while confirming" })
+    await setImmediate()
+  })
+  await waitFor(() => tabs().at(-1)!.tab.status === "failed")
+  await act(async () => {
+    turns[0]!.input.runtime!.retry!(id)
+    await setImmediate()
+  })
+  await waitFor(() => bodies.length === 2)
+  await act(async () => {
+    bodies[1]!.gate.resolve(body())
+    await setImmediate()
+  })
+  await waitFor(() => turns.length === 3)
+  await key("RETURN")
+  expect(cancellations).toEqual([])
+  expect(tabs().at(-1)!.tab.status).toBe("running")
+  expect(frame()).not.toContain("Stop Retry review?")
 })
