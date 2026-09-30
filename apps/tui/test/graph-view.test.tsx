@@ -59,9 +59,10 @@ it("keeps where PageDown scrolled when the forest redraws, and scrolls only for 
     choose("child 0")
     await setup!.renderOnce()
   })
-  // The scroll waits for layout.
-  await act(() => new Promise((done) => setTimeout(done, 10)))
-  await act(() => setup!.renderOnce())
+  // The scroll waits for layout: draw until the selected box shows.
+  for (let turn = 0; turn < 200 && !setup.captureCharFrame().includes("child 0"); turn++) {
+    await act(() => setup!.renderOnce())
+  }
   expect(setup.captureCharFrame()).toContain("child 0")
 })
 

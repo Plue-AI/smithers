@@ -358,6 +358,8 @@ export function GraphView(props: {
   readonly scrollRef?: RefObject<((direction: number) => void) | undefined>
 }) {
   const box = useRef<ScrollBoxRenderable>(null)
+  // The scroll for a selection waits for layout; a person's own scroll before it lands supersedes it.
+  const pending = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   // The clock redraws the app ten times a second; the forest is drawn again only when it changes.
   const shape = JSON.stringify(props.root)
   const drawn = useMemo(
@@ -371,15 +373,21 @@ export function GraphView(props: {
     [shape, props.selected]
   )
   if (props.scrollRef !== undefined) {
-    props.scrollRef.current = (direction) => box.current?.scrollBy(direction * 0.5, "viewport")
+    props.scrollRef.current = (direction) => {
+      clearTimeout(pending.current)
+      box.current?.scrollBy(direction * 0.5, "viewport")
+    }
   }
   // Only a new selection, or its box moving, scrolls the view; a redraw leaves PageUp/PageDown where they were.
   const at = drawn.boxes.get(props.selected)
   // After layout: before it the view has no size and clamps the scroll to 0. A new forest's size counts too.
   useEffect(() => {
     if (at === undefined) return
-    const timer = setTimeout(() => box.current?.scrollTo({ x: Math.max(0, at.x - 2), y: Math.max(0, at.y - 1) }), 0)
-    return () => clearTimeout(timer)
+    pending.current = setTimeout(
+      () => box.current?.scrollTo({ x: Math.max(0, at.x - 2), y: Math.max(0, at.y - 1) }),
+      0
+    )
+    return () => clearTimeout(pending.current)
   }, [props.selected, at?.x, at?.y, drawn.rows.length])
   return (
     <scrollbox ref={box} scrollX scrollY style={{ flexGrow: 1, scrollbarOptions: { visible: false } }}>
