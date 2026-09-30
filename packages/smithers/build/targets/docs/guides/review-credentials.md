@@ -10,8 +10,13 @@ immutable snapshots, and the review prompt and rubric before inference. Detected
 values become stable typed placeholders in prompts, policy, answers and
 diagnostics. Findings contain names and locations without values. Sample-like
 values, such as `test-` prefixes, paths and URLs, are masked without a finding.
-Pattern screening cannot recognize every credential format; inspect unfamiliar
-credentials locally before review.
+References such as `${TOKEN}`, `$(command)` and `%s`, environment variable
+names, literals such as `null` or `true`, unquoted expressions in source files,
+and words such as `credentials` in the prompt and rubric are not credentials and
+stay as written. More than 10,000 detected values, or more than 1 MiB of them, stop the
+review before inference.
+Pattern screening cannot recognize every credential format or escape, such as
+Python `\N{...}` names; inspect unfamiliar credentials locally before review.
 
 Default reviews use tool-free provider requests. Trusted executable overrides
 run outside the workspace with a disposable home and an engine-specific

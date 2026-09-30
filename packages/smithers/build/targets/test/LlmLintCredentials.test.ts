@@ -48,7 +48,7 @@ it("masks committed credentials before the model and masks reflected findings", 
   })))
   const prompt = await Fs.readFile(record, "utf8")
   expect(prompt).not.toContain(credential)
-  expect(prompt).toContain("<credential:github-token:1>")
+  expect(prompt).toContain("<credential:token:1>")
   expect(failure).toBeInstanceOf(LlmLint.FindingsError)
   expect(JSON.stringify(failure)).not.toContain(credential)
   expect((failure as LlmLint.FindingsError).findings).toEqual(expect.arrayContaining([
@@ -121,8 +121,44 @@ it("does not classify source placeholders and environment names as credentials",
 })
 
 it("does not classify counters and code expressions as credentials", async () => {
-  const source = "let tokens = 0\nexport const maxTokens = 4096\nexport const secretCount = count\n"
+  const source = [
+    "let tokens = 0",
+    "export const maxTokens = 4096",
+    "export const secretCount = count",
+    "export type Token = \"identifier\" | \"number\"",
+    "export const tokenType = \"Bearer\"",
+    "export const secret = true",
+    "export const password = null",
+    "// OPENAI_API_KEY=",
+    "// ANTHROPIC_API_KEY=",
+    "const key = anthropic ? \"ANTHROPIC_API_KEY\" : \"OPENAI_API_KEY\"",
+    "const request = { maxTokens: 16_384, credentials: \"omit\" }",
+    "const dsn = `postgres://${user}:${password}@${host}/db`",
+    "const format = \"postgres://%s:%s@%s/db\"",
+    "const init = { credentials: \"include\" }",
+    "const password = `${prefix}-${suffix}`",
+    "interface Usage { tokens: Array<string> }",
+    "const secrets: Record<string, string> = {}",
+    "const k = SecretKey::from_slice(bytes)",
+    ""
+  ].join("\n")
+  const config = [
+    "secret:",
+    "  secretName: app",
+    "password:",
+    "  type: string",
+    "secrets: inherit",
+    "credentials: same-origin",
+    "POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}",
+    "NPM_TOKEN: ${{secrets.NPM_TOKEN}}",
+    "TOKEN=$(gh auth token)",
+    "run: deploy --password=$db_password",
+    "{\"requirePassword\": true, \"password\": null}",
+    "password: \"left open\\",
+    ""
+  ].join("\n")
   await Fs.writeFile(Path.join(root, "src/a.ts"), source)
+  await Fs.writeFile(Path.join(root, "config.yml"), config)
   const executable = Path.join(root, "counter-reviewer.mjs")
   const record = Path.join(root, "counter-prompt.txt")
   await Fs.writeFile(
@@ -135,9 +171,9 @@ it("does not classify counters and code expressions as credentials", async () =>
   const report = await Effect.runPromise(LlmLint.review({ workspaceRoot: root, executable }, {
     base: "HEAD",
     include: [Input.glob("src/**/*.ts")],
-    context: [],
+    context: [Input.glob("config.yml")],
     prompt: "Review",
-    rubric: "Credentials",
+    rubric: "- Secrets: credentials, tokens, keys",
     engine: "claude",
     model: "test",
     batchSize: 1,
@@ -147,14 +183,28 @@ it("does not classify counters and code expressions as credentials", async () =>
   const prompt = await Fs.readFile(record, "utf8")
   expect(prompt).not.toContain("<credential:")
   expect(prompt).toContain("secretCount = count")
+  expect(prompt).toContain("credentials, tokens, keys")
 })
 
-it("masks a detected value that a model answer spells with JSON escapes", async () => {
-  const credential = "liveSecret42"
-  await Fs.writeFile(Path.join(root, "src/a.ts"), `export const DB_PASSWORD = "${credential}"\n`)
+const privateKey = "-----BEGIN PRIVATE KEY-----\nYWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXo=\n-----END PRIVATE KEY-----"
+
+it.each([
+  [
+    "unicode and slash escapes",
+    "export const DB_PASSWORD = \"liveSecret42\"\n",
+    "\\u006civeSecret42 \\/liveSecret42",
+    "liveSecret42"
+  ],
+  [
+    "control escapes",
+    `export const signingKey = ${JSON.stringify(privateKey)}\n`,
+    JSON.stringify(privateKey).slice(1, -1).replaceAll("\\n", "\\u000a"),
+    "YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXo="
+  ]
+])("masks a detected value that a model answer spells with %s", async (_label, source, message, credential) => {
+  await Fs.writeFile(Path.join(root, "src/a.ts"), source)
   const executable = Path.join(root, "escaped-reviewer.mjs")
-  const answer =
-    "[{\"file\":\"src/a.ts\",\"line\":1,\"severity\":\"warning\",\"message\":\"\\u006civeSecret42 \\/liveSecret42\"}]"
+  const answer = `[{"file":"src/a.ts","line":1,"severity":"warning","message":"${message}"}]`
   await Fs.writeFile(
     executable,
     `#!/usr/bin/env node\nlet p='';for await(const c of process.stdin)p+=c;process.stdout.write(JSON.stringify({result:${
@@ -175,7 +225,7 @@ it("masks a detected value that a model answer spells with JSON escapes", async 
   })))
   expect(failure).toBeInstanceOf(LlmLint.FindingsError)
   expect((failure as LlmLint.FindingsError).findings).toEqual(expect.arrayContaining([
-    expect.objectContaining({ severity: "warning", message: expect.stringContaining("<credential:db-password:1>") })
+    expect.objectContaining({ severity: "warning", message: expect.stringContaining("<credential:") })
   ]))
   expect(JSON.stringify(failure)).not.toContain(credential)
 })
@@ -235,7 +285,7 @@ it("pre-scans every batch before sending a shared credential in an earlier file"
   const prompts = (await Fs.readFile(record, "utf8")).trim().split("\n").map((line) => JSON.parse(line) as string)
   expect(prompts).toHaveLength(2)
   expect(prompts[0]).not.toContain(credential)
-  expect(prompts[0]).toContain("<credential:api-token:1>")
+  expect(prompts[0]).toContain("<credential:token:1>")
   expect(JSON.stringify(failure)).not.toContain(credential)
 })
 
@@ -253,9 +303,64 @@ it.each([
     "MIIsecretBody42"
   ],
   ["Stripe key", "stripe(\"sk_live_51Habcdefghijklmnopqrst\")\n", "sk_live_51Habcdefghijklmnopqrst"],
+  ["typed declaration", "export const apiKey: string = \"Zx81kPq0LmN3aa\"\n", "Zx81kPq0LmN3aa"],
+  ["Go short declaration", "apiKey := \"Gx81kPq0LmN3aa\"\n", "Gx81kPq0LmN3aa"],
+  ["Rust reference type", "const API_KEY: &str = \"Rx81kPq0LmN3aa\";\n", "Rx81kPq0LmN3aa"],
+  [
+    "escaped slash spelling",
+    "export const cfg = {\"password\":\"pass\\/word42\",\"copy\":\"pass/word42\"}\n",
+    "pass/word42"
+  ],
+  ["Ruby hash rocket", "const h = {\"password\" => \"Hx81kPq0LmN3aa\"}\n", "Hx81kPq0LmN3aa"],
+  ["Python annotation", "secret_key: str = \"Px81kPq0LmN3aa\"\n", "Px81kPq0LmN3aa"],
+  ["URL password without a user", "const REDIS = \"redis://:Xk9fQ2mTz81LpR7vWc@cache:6379/0\"\n", "Xk9fQ2mTz81LpR7vWc"],
+  [
+    "brace-wrapped JSON value",
+    "const DOCKER_CREDENTIALS = '{\"username\":\"ci\",\"auth\":\"Y2k6WGs5ZlEybVR6\"}'\n",
+    "Y2k6WGs5ZlEybVR6"
+  ],
+  ["value longer than one regex step", `const SSH_PRIVATE_KEY_B64 = "${"A".repeat(5000)}Qz9=="\n`, "AAAAQz9=="],
+  ["escape after one regex step", `const api_key = "${"A".repeat(512)}\\nTAILsecret42"\n`, "TAILsecret42"],
+  [
+    "copy of a nested value",
+    "const credentials = '{\"password\":\"liveSecret42\"}'\nconst copy = \"liveSecret42\"\n",
+    "liveSecret42"
+  ],
+  ["astral characters", "const cfg = {\"password\": \"abc\u{1F600}def42\"}\n", "abc\u{1F600}def42"],
+  ["a fetch mode word under another name", "const cfg = {\"password\": \"include\"}\n", "include\""],
+  ["an uninterpolated brace", "const cfg = {\"password\": \"correct${horse}staple\"}\n", "correct${horse}staple"],
+  ["a value several names end in", `const service_account_private_key = "${"k".repeat(600)}"\n`, "k".repeat(600)],
+  ["overlapping values", "const SECRET_DSN = \"amqp://svc:p4ss,w0rd;x@mq/\"\n", ",w0rd;x"],
+  [
+    "code point escape",
+    "const password = \"ab\\u{1F600}cd42\"; const copy = \"ab\u{1F600}cd42\"\n",
+    "ab\u{1F600}cd42"
+  ],
+  ["a name that spells its value", "const password_livevalue42 = \"livevalue42\"\n", "livevalue42"],
+  ["a name that spells its value in another case", "const TOKEN_AB_CD_EF = \"ab-cd-ef\"\n", "ab-cd-ef"],
+  [
+    "a name that spells another value",
+    "const password = \"hunter2pass\"\nconst token_hunter2pass = \"other12345\"\n",
+    "hunter2pass"
+  ],
+  ["an eight-digit password", "const password = \"12345678\"\n", "12345678"],
+  ["bell escape", "password = \"\\ahunter4Secret\"\ncopy = \"\u0007hunter4Secret\"\n", "hunter4Secret"],
+  ["octal escape", "password = \"\\150unter2Secret\"\ncopy = \"hunter2Secret\"\n", "hunter2Secret"],
+  [
+    "eight-digit code point escape",
+    "password = \"\\U00000068unter3Secret\"\ncopy = \"hunter3Secret\"\n",
+    "hunter3Secret"
+  ],
+  [
+    "a decoded value with trailing spaces",
+    "const password = \"\\x61\\x62\\x63\\x20\\x20\\x20\"; const copy = \"abc   \"\n",
+    "abc   "
+  ],
   ["uppercase password", "export const DB_PASSWORD = \"UPPERCASE42\"\n", "UPPERCASE42"],
   ["short password", "export const DB_PASSWORD = \"p4ss\"\n", "p4ss"],
-  ["dotenv key", "API_KEY=short-secret\n", "short-secret"]
+  ["dotenv key", "API_KEY=short-secret\n", "short-secret"],
+  ["hash inside an unquoted value", "DB_PASSWORD=Hx8#1kPq0LmN3aa\n", "1kPq0LmN3aa"],
+  ["ampersand inside an unquoted value", "DB_PASSWORD=ab1&cd34ef\n", "cd34ef"]
 ])("masks %s before provider delivery", async (_label, source, credential) => {
   await Fs.writeFile(Path.join(root, "src/a.ts"), source)
   const executable = Path.join(root, "short-reviewer.mjs")
@@ -281,6 +386,7 @@ it.each([
   expect(await Fs.readFile(record, "utf8")).not.toContain(credential)
   expect(JSON.stringify(outcome)).not.toContain(credential)
   expect(outcome._tag).toBe("Failure")
+  expect(JSON.stringify(outcome)).toContain("Rotate")
 })
 
 it.each([
@@ -292,6 +398,12 @@ it.each([
     "export const a = 2\n",
     "Review GITHUB_TOKEN=ghp_abcdefghijklmnopqrstuvwxyz1234567890",
     "ghp_abcdefghijklmnopqrstuvwxyz1234567890"
+  ],
+  [
+    "an identifier-shaped password in instructions",
+    "export const a = 2\n",
+    "Review; password=hunter2Secret",
+    "hunter2Secret"
   ]
 ])("masks %s without reporting a location", async (_label, source, prompt, credential) => {
   await Fs.writeFile(Path.join(root, "src/a.ts"), source)
@@ -333,6 +445,31 @@ const reviewPayload: LlmLint.Payload = {
   batchSize: 1,
   failOn: "error"
 }
+
+it("masks a credential word assigned in a file, not only one in instructions", async () => {
+  await Fs.writeFile(Path.join(root, "deploy.env"), "DB_PASSWORD=passwords\n")
+  await Fs.writeFile(Path.join(root, "src/a.ts"), "export const a = 2\n")
+  const executable = Path.join(root, "word-reviewer.mjs")
+  const record = Path.join(root, "word-prompt.txt")
+  await Fs.writeFile(
+    executable,
+    `#!/usr/bin/env node\nimport {writeFileSync} from 'node:fs'; let p=''; for await(const c of process.stdin)p+=c; writeFileSync(${
+      JSON.stringify(record)
+    },p); process.stdout.write(JSON.stringify({result:'[]'}))`
+  )
+  await Fs.chmod(executable, 0o755)
+  const outcome = await Effect.runPromise(Effect.result(LlmLint.review({ workspaceRoot: root, executable }, {
+    ...reviewPayload,
+    include: [Input.glob("src/**/*.ts")],
+    context: [Input.glob("deploy.env")],
+    rubric: "- Secrets: credentials, tokens, keys"
+  })))
+  const sent = await Fs.readFile(record, "utf8")
+  expect(sent).not.toContain("=passwords")
+  expect(sent).toContain("- Secrets: credentials, tokens, keys")
+  expect(outcome._tag).toBe("Failure")
+  expect(JSON.stringify(outcome)).toContain("Rotate")
+})
 
 it("masks context credentials in source, instructions, and subprocess diagnostics", async () => {
   const credential = "ghp_contextabcdefghijklmnopqrstuvwxyz1234567890"
@@ -523,4 +660,42 @@ it("redacts multiline private keys including JSON escaped reflected findings", a
   expect((failure as LlmLint.FindingsError).findings).toEqual(
     expect.arrayContaining([expect.objectContaining({ file: "signing.pem", line: 1, severity: "error" })])
   )
+})
+
+it.each([
+  [
+    "sample values",
+    "export const token = \"example-token\"\n".repeat(10_001) + "export const password = \"hunter2realsecret\"\n"
+  ],
+  [
+    "known formats",
+    Array.from({ length: 10_001 }, (_, index) => `// ghp_${String(index).padStart(36, "a")}\n`).join("")
+  ],
+  ["values read past one regex step", "token=".repeat(100_000)],
+  ["escaped spellings", `token=${"\u0001".repeat(524_000)}\n`]
+])("stops before inference when a scan finds too many %s", async (_label, source) => {
+  await Fs.writeFile(Path.join(root, "src/a.ts"), source)
+  const executable = Path.join(root, "capped-reviewer.mjs")
+  const record = Path.join(root, "capped-prompt.txt")
+  await Fs.writeFile(
+    executable,
+    `#!/usr/bin/env node\nimport {writeFileSync} from 'node:fs';writeFileSync(${
+      JSON.stringify(record)
+    },'called');process.stdout.write(JSON.stringify({result:'[]'}))`
+  )
+  await Fs.chmod(executable, 0o755)
+  const failure = await Effect.runPromise(
+    Effect.flip(LlmLint.review({ workspaceRoot: root, executable }, reviewPayload))
+  )
+  expect(failure).toBeInstanceOf(LlmLint.LlmReviewError)
+  expect((failure as LlmLint.LlmReviewError).message).toBe("Too many credential discoveries")
+  await expect(Fs.stat(record)).rejects.toMatchObject({ code: "ENOENT" })
+})
+
+it("redacts a standalone diagnostic and withholds one with too many values", () => {
+  // Diagnostic text is never source, so an identifier-shaped value is still a credential.
+  expect(LlmLint.redactCredentials("request failed: password=hunter2Secret at src/ghp_" + "R".repeat(36) + ".ts"))
+    .toBe("request failed: password=<credential:password:1> at src/<credential:github-token:2>.ts")
+  const crowded = Array.from({ length: 10_001 }, (_, index) => `ghp_${String(index).padStart(36, "a")}`).join(" ")
+  expect(LlmLint.redactCredentials(crowded)).toBe("<credentials: too many to mask>")
 })

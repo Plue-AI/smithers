@@ -910,7 +910,7 @@ const credentialPatterns: ReadonlyArray<readonly [string, RegExp]> = [
   ["slack-token", /\bxox[abprs]-[A-Za-z0-9-]{10,}\b/g],
   ["google-api-key", /\bAIza[0-9A-Za-z_-]{35}\b/g],
   ["npm-token", /\bnpm_[A-Za-z0-9]{36}\b/g],
-  ["url-password", /\b[A-Za-z][A-Za-z0-9+.-]{1,20}:\/\/[^\s:/@'"`]{1,256}:([^\s@/'"`]{1,256})@/g],
+  ["url-password", /\b[A-Za-z][A-Za-z0-9+.-]{1,20}:\/\/[^\s:/@'"`]{0,256}:([^\s@/'"`]{1,256})@/g],
   [
     "private-key",
     /-----BEGIN [A-Z0-9 ]{0,40}PRIVATE KEY(?: BLOCK)?-----[\s\S]{0,16384}?-----END [A-Z0-9 ]{0,40}PRIVATE KEY(?: BLOCK)?-----/g
@@ -920,106 +920,348 @@ const credentialPatterns: ReadonlyArray<readonly [string, RegExp]> = [
 const credentialName = String
   .raw`[A-Za-z0-9_-]{0,64}?(?:token|secret|passw(?:or)?d|api[_-]?key|private[_-]?key|credential)[A-Za-z0-9_-]{0,64}`
 
-const credentialValue = (quote: string): string => String.raw`${quote}((?:[^${quote}\\\r\n]|\\.){1,4096})${quote}`
+/** Longest value one regex step reads; a longer value is read to its end in linear time. */
+const credentialValueLimit = 512
+
+/** Code units of detected values, raw and escaped, that one review can mask. */
+const maximumCredentialCharacters = 1024 * 1024
+
+/** Code units a value adds to the matcher: its raw and its JSON-escaped spelling. */
+const spellingUnits = (value: string): number => value.length + JSON.stringify(value).length - 2
+
+/** A quoted value; the scan checks its closing quote, so the regex never backtracks into a shorter value. */
+const credentialValue = (quote: string): string =>
+  String.raw`${quote}((?:[^${quote}\\\r\n]|\\.){1,${credentialValueLimit}})`
 
 /**
- * A `name: value` or `name = value` pair whose name is credential-like. It is a
- * zero-width match at every position, so an assignment whose value swallows a
- * nested pair never hides that pair. Names and values are bounded so a crafted
- * line cannot make the scan quadratic in the file size.
+ * A `name: value`, `name = value`, `name := value` or `name: Type = value` pair
+ * whose name is credential-like. It is a zero-width match at every position, so
+ * an assignment whose value swallows a nested pair never hides that pair. A pair
+ * never spans lines, and names and values are bounded so a crafted line cannot
+ * make the scan quadratic in the file size.
  */
 const namedCredential = new RegExp(
-  String.raw`(?=((?:["'${"`"}](${credentialName})["'${"`"}]|\b(?=[A-Za-z_])(${credentialName}))\s*[:=]\s*(?:` +
+  String.raw`(?=((?:["'${"`"}](${credentialName})["'${"`"}]|\b(?=[A-Za-z_])(${credentialName}))` +
+    String.raw`[ \t]{0,64}(?:(?::[ \t]{0,64}[A-Za-z0-9_&<>\[\]|.?* ]{1,64}?)?:?=>?|:(?!:))[ \t]{0,64}(?:` +
     [
       credentialValue("\""),
       credentialValue("'"),
       credentialValue("`"),
-      String.raw`((?![{[("'${"`"}])[^\s,;#}&]{1,4096})`
+      String.raw`((?!\$[{(]|[{[("'${"`"}])[^\s,;}]{1,${credentialValueLimit}})`
     ].join("|") +
     ")))",
   "gi"
 )
 
+/** Names that describe a credential rather than hold one. */
+const credentialMetadataName =
+  /(?:url|uri|header|path|env|name|pattern|type|kind|count|limit|size|length|len|index|prefix|format|id|ids|label|field|file|dir)$/i
+
+/** Unquoted words that are types or literals, never credential values. */
+const credentialKeyword =
+  /^(?:null|true|false|none|nil|undefined|string|number|boolean|str|bytes|required|optional|inherit)$/i
+
+/** Unquoted words in review instructions that name credentials, such as a rubric's `Secrets: credentials`. */
+const credentialWord = /^(?:credentials?|tokens?|secrets?|passwords?|passphrases?|(?:api[_-]?|private[_-]?)?keys?)$/i
+
+/** A fetch `credentials` mode configures credential handling without holding one. */
+const credentialMode = /^(?:omit|include|same-origin)$/
+
+/** References such as `{smthrs:bun}`, `${TOKEN}`, `{{ secrets.TOKEN }}`, `$TOKEN` or `%s` hold no value. */
+const credentialReference = /^(?:\$?\{[\w.:-]*\}|\$\{\{[^{}]*\}\}|\{\{[^{}]*\}\}|\$[A-Z_][A-Z0-9_]*|%[a-z])$/
+
+/** An interpolated template or command substitution, which holds no literal value. */
+const credentialInterpolation = /\$\{|\{\{|^\$\(/
+
+/** An environment variable name, such as `OPENAI_API_KEY`, names a credential without holding it. */
+const credentialEnvironmentName = new RegExp(String.raw`^(?=[A-Z][A-Z0-9_]*$)(?:${credentialName.toUpperCase()})$`)
+
+/**
+ * The kind of credential a name holds. Placeholders carry only this fixed
+ * word, never the name itself, because a name can spell a detected value.
+ */
+const credentialKind = (name: string): string => {
+  const lower = name.toLowerCase()
+  if (/private[_-]?key/.test(lower)) return "private-key"
+  if (/api[_-]?key/.test(lower)) return "api-key"
+  if (/passw(?:or)?d/.test(lower)) return "password"
+  return lower.includes("secret") ? "secret" : lower.includes("token") ? "token" : "credential"
+}
+
 /** Source files where an unquoted value is an expression, never a literal credential. */
 const codeFile = /\.(?:[cm]?[jt]sx?|py|go|rs|java|kt|rb|swift)$/
+
+/** Decodes the backslash escapes of a quoted source literal, including octal and `\UXXXXXXXX` escapes. */
+const unescapeLiteral = (literal: string): string =>
+  literal.replace(
+    /\\(u\{[0-9a-fA-F]{1,6}\}|U[0-9a-fA-F]{8}|u[0-9a-fA-F]{4}|x[0-9a-fA-F]{2}|[0-3][0-7]{0,2}|[4-7][0-7]?|[\s\S])/g,
+    (escape, body: string) => {
+      if (/^[0-7]/.test(body)) return String.fromCharCode(Number.parseInt(body, 8))
+      if (body.startsWith("u{") || body.startsWith("U")) {
+        const code = Number.parseInt(body.replace(/^U|^u\{|\}$/g, ""), 16)
+        return code > 0x10ffff ? escape : String.fromCodePoint(code)
+      }
+      if (body.length > 1) return String.fromCharCode(Number.parseInt(body.slice(1), 16))
+      return ({ a: "\x07", n: "\n", r: "\r", t: "\t", b: "\b", f: "\f", v: "\v" } as Record<string, string>)[body] ??
+        body
+    }
+  )
+
+/** Reads a value the regex stopped at its length limit through to its closing quote or delimiter. */
+const valueEnd = (contents: string, start: number, quote: string | undefined): number => {
+  let end = start
+  while (end < contents.length) {
+    const char = contents[end]!
+    if (char === "\n" || char === "\r") break
+    if (quote === undefined ? /[\s,;}]/.test(char) : char === quote) break
+    end += quote !== undefined && char === "\\" ? 2 : 1
+  }
+  return Math.min(end, contents.length)
+}
+
+/** Matches many spellings in one linear pass, returning the longest spelling that ends at each code unit. */
+class SpellingMatcher {
+  /** Trie edges keyed by `node * 65536 + code unit`. */
+  readonly #edges = new Map<number, number>()
+  readonly #fail: Array<number> = [0]
+  /** Length and placeholder of the longest spelling that is a suffix of each node. */
+  readonly #longest: Array<readonly [number, string] | undefined> = [undefined]
+  constructor(spellings: Iterable<readonly [string, string]>) {
+    const children: Array<Array<number>> = [[]]
+    for (const [spelling, placeholder] of spellings) {
+      let node = 0
+      for (let index = 0; index < spelling.length; index++) {
+        const key = node * 65536 + spelling.charCodeAt(index)
+        let child = this.#edges.get(key)
+        if (child === undefined) {
+          child = this.#fail.length
+          this.#fail.push(0)
+          this.#longest.push(undefined)
+          children.push([])
+          children[node]!.push(spelling.charCodeAt(index))
+          this.#edges.set(key, child)
+        }
+        node = child
+      }
+      if ((this.#longest[node]?.[0] ?? 0) < spelling.length) this.#longest[node] = [spelling.length, placeholder]
+    }
+    const queue = children[0]!.map((code) => this.#edges.get(code)!)
+    for (let head = 0; head < queue.length; head++) {
+      const node = queue[head]!
+      for (const code of children[node]!) {
+        const child = this.#edges.get(node * 65536 + code)!
+        this.#fail[child] = node === 0 ? 0 : this.#step(this.#fail[node]!, code)
+        const inherited = this.#longest[this.#fail[child]]
+        if ((this.#longest[child]?.[0] ?? 0) < (inherited?.[0] ?? 0)) this.#longest[child] = inherited
+        queue.push(child)
+      }
+    }
+  }
+  /** Follows failure links from `node` until an edge for `code` exists, then takes it. */
+  #step(node: number, code: number): number {
+    for (let state = node;; state = this.#fail[state]!) {
+      const next = this.#edges.get(state * 65536 + code)
+      if (next !== undefined) return next
+      if (state === 0) return 0
+    }
+  }
+  /** Spans `[start, end, placeholder]` of the longest spelling ending at each code unit, in end order. */
+  spans(text: string): Array<readonly [number, number, string]> {
+    const spans: Array<readonly [number, number, string]> = []
+    let node = 0
+    for (let index = 0; index < text.length; index++) {
+      node = this.#step(node, text.charCodeAt(index))
+      const longest = this.#longest[node]
+      if (longest !== undefined) spans.push([index + 1 - longest[0], index + 1, longest[1]])
+    }
+    return spans
+  }
+}
 
 /** A local scan keeps values in memory and emits only typed locations. */
 class CredentialMask {
   readonly values = new Map<string, string>()
   readonly locations: Array<{ file: string; line: number; name: string; placeholder: string }> = []
+  readonly #located = new Set<string>()
+  #matcher: SpellingMatcher | undefined
+  #overflow = false
+  /** True once a scan found more values than a review can mask and report. */
+  get exhausted(): boolean {
+    return this.#overflow || this.values.size > maximumFindings || this.locations.length > maximumFindings ||
+      this.#characters > maximumCredentialCharacters
+  }
+  /** Code units across every recorded spelling, which bounds the matcher's size. */
+  #characters = 0
   /**
-   * Masks credential values in `contents`; `file` records their locations, `undefined` only masks them.
-   * `code` is false for text that is never source, such as a path, so no value is read as an expression.
+   * Records credential values in `contents`; `file` records their locations, `undefined` only masks them.
+   * Only a source file's unquoted identifiers are read as expressions; `code` is false for a file's path.
    */
-  scan(file: string | undefined, contents: string, code = true): string {
-    const found: Array<{ value: string; name: string; offset: number; report: boolean }> = []
+  scan(file: string | undefined, contents: string, code = true): void {
+    if (this.exhausted) return
+    const found: Array<{ value: string; alias: string; name: string; kind: string; offset: number; report: boolean }> =
+      []
+    // A value the regex stopped at its limit is read to its end. Ends are
+    // memoized per quote, and the characters read past the limit are budgeted,
+    // so a crafted file fails the review instead of making the scan quadratic.
+    const ends = new Map<string, readonly [number, number]>()
+    let budget = 2 * contents.length + credentialValueLimit
+    const readToEnd = (offset: number, from: number, quote: string | undefined): string | undefined => {
+      const memo = ends.get(quote ?? "")
+      const end = memo !== undefined && from >= memo[0] && from <= memo[1] ? memo[1] : valueEnd(contents, from, quote)
+      ends.set(quote ?? "", [from, end])
+      budget -= end - offset
+      return budget < 0 ? undefined : contents.slice(offset, end)
+    }
+    // Several names can end in one value, such as `service-account-private-key`; read each value once.
+    const offsets = new Set<number>()
     for (const match of contents.matchAll(namedCredential)) {
       const name = (match[2] ?? match[3])!
-      if (/(?:url|uri|header|path|env|name|pattern)$/i.test(name)) continue
-      const value = (match[4] ?? match[5] ?? match[6] ?? match[7])!
+      if (
+        credentialMetadataName.test(name) ||
+        /\b(?:type|interface|enum|class|struct)\s+$/.test(contents.slice(Math.max(0, match.index - 16), match.index))
+      ) continue
+      const quoted = match[7] === undefined
+      const read = (match[4] ?? match[5] ?? match[6] ?? match[7])!
+      const offset = match.index + match[1]!.length - read.length
+      const quote = quoted ? contents[offset - 1] : undefined
+      const next = contents[offset + read.length]
+      if (offsets.has(offset)) continue
+      offsets.add(offset)
+      let value: string | undefined = read
+      if (quoted && next !== quote) {
+        // A literal left open on its line is not a value.
+        if (next === undefined || next === "\n" || next === "\r") continue
+        if (next === "\\" && /^[\r\n]?$/.test(contents[offset + read.length + 1] ?? "")) continue
+        value = readToEnd(offset, offset + read.length, quote)
+      } else if (!quoted && next !== undefined && !/[\s,;}]/.test(next)) {
+        value = readToEnd(offset, offset + read.length, undefined)
+      }
+      if (value === undefined) {
+        this.#overflow = true
+        return
+      }
       if (
         // Short and small numeric values would mask unrelated text, such as `tokens = 0`.
         value.length < 4 ||
-        /^[-+]?\d{1,7}(?:\.\d+)?$/.test(value) ||
-        // References such as `{smthrs:bun}`, `${TOKEN}`, `{{ secrets.TOKEN }}` or `$TOKEN` hold no value.
-        /^(?:\$?\{[^{}]*\}|\{\{[^{}]*\}\}|\$[A-Z_][A-Z0-9_]*)$/.test(value) ||
-        (code && match[7] !== undefined && file !== undefined && codeFile.test(file) &&
-          /^[A-Za-z_$][\w$]*(?:[.([]|$)/.test(value))
+        /^[-+]?(?:\d{1,7}|\d{1,3}(?:_\d{3}){1,2})(?:\.\d+)?$/.test(value) ||
+        credentialReference.test(value) ||
+        ((quote === "`" || !quoted) && credentialInterpolation.test(value)) ||
+        credentialEnvironmentName.test(value) ||
+        (/^credentials$/i.test(name) && credentialMode.test(value)) ||
+        (!quoted &&
+          (credentialKeyword.test(value) || (file === undefined && credentialWord.test(value)) ||
+            /^(?:\$[A-Za-z_]\w*$|:)/.test(value) ||
+            (code && file !== undefined && codeFile.test(file) && /^[A-Za-z_$][\w$]*(?:[.([<]|::|$)/.test(value))))
       ) continue
       // Sample-like values are masked but not reported.
       const sample = /^(?:example|placeholder|replace|dummy|test|your)[-_ ]/i.test(value) ||
         /^(?:\/|https?:\/\/)/.test(value)
-      found.push({ value, name, offset: match.index + match[1]!.indexOf(value), report: !sample })
+      found.push({
+        value,
+        alias: quoted ? unescapeLiteral(value) : value,
+        name,
+        kind: credentialKind(name),
+        offset,
+        report: !sample
+      })
+      if (found.length > maximumFindings) {
+        this.#overflow = true
+        return
+      }
     }
     for (const [name, pattern] of credentialPatterns) {
       for (const match of contents.matchAll(pattern)) {
         const value = match[1] ?? match[0]
-        found.push({ value, name, offset: match.index + match[0].indexOf(value), report: true })
+        if (credentialReference.test(value) || credentialInterpolation.test(value)) continue
+        found.push({
+          value,
+          alias: value,
+          name,
+          kind: name,
+          offset: match.index + match[0].lastIndexOf(value),
+          report: true
+        })
+        if (found.length > maximumFindings) {
+          this.#overflow = true
+          return
+        }
+      }
+    }
+    const lineStarts = [0]
+    if (file !== undefined && found.length > 0) {
+      for (let index = contents.indexOf("\n"); index !== -1; index = contents.indexOf("\n", index + 1)) {
+        lineStarts.push(index + 1)
       }
     }
     for (const item of found) {
       if (!this.values.has(item.value)) {
         this.values.set(
           item.value,
-          `<credential:${item.name.toLowerCase().replaceAll("_", "-")}:${this.values.size + 1}>`
+          `<credential:${item.kind}:${this.values.size + 1}>`
         )
+        this.#characters += spellingUnits(item.value)
+        this.#matcher = undefined
       }
-      if (file === undefined || !item.report) continue
-      const line = contents.slice(0, item.offset).split("\n").length
       const placeholder = this.values.get(item.value)!
-      if (
-        !this.locations.some((entry) => entry.file === file && entry.line === line && entry.placeholder === placeholder)
-      ) {
-        this.locations.push({ file, line, name: item.name, placeholder })
+      // A value written with escapes is also masked in its decoded spelling, unless it is only whitespace.
+      if (item.alias.length >= 4 && /\S/.test(item.alias) && !this.values.has(item.alias)) {
+        this.values.set(item.alias, placeholder)
+        this.#characters += spellingUnits(item.alias)
+        this.#matcher = undefined
+      }
+      if (this.exhausted) return
+      if (file === undefined || !item.report) continue
+      let low = 0
+      let high = lineStarts.length - 1
+      while (low < high) {
+        const middle = (low + high + 1) >> 1
+        if (lineStarts[middle]! <= item.offset) low = middle
+        else high = middle - 1
+      }
+      const key = `${low + 1}\0${placeholder}\0${file}`
+      if (!this.#located.has(key)) {
+        this.#located.add(key)
+        this.locations.push({ file, line: low + 1, name: item.name, placeholder })
       }
     }
-    return this.sanitize(contents)
-  }
-  /** Replaces every known value in text sent to a provider, raw or JSON escaped. */
-  sanitize(text: string): string {
-    let safe = text
-    for (const [value, placeholder] of [...this.values].sort((left, right) => right[0].length - left[0].length)) {
-      safe = safe.replaceAll(JSON.stringify(value).slice(1, -1), placeholder)
-      safe = safe.replaceAll(value, placeholder)
-    }
-    return safe
   }
   /**
-   * Sanitizes a model answer or diagnostic. It first decodes the `\uXXXX` and
-   * `\/` escapes that JSON parsing would decode, so an escaped spelling cannot
-   * carry a value past the replacement.
+   * Replaces every known value in text sent to a provider, raw or JSON escaped,
+   * in one linear pass. Overlapping values are masked as one span, so masking
+   * one value never leaves part of another in the text.
+   */
+  sanitize(text: string): string {
+    if (this.values.size === 0) return text
+    this.#matcher ??= new SpellingMatcher(
+      [...this.values].flatMap(([value, placeholder]) =>
+        [...new Set([value, JSON.stringify(value).slice(1, -1)])].map((spelling) => [spelling, placeholder] as const)
+      )
+    )
+    const spans = this.#matcher.spans(text).sort((left, right) => left[0] - right[0] || right[1] - left[1])
+    let safe = ""
+    let cursor = 0
+    let index = 0
+    while (index < spans.length) {
+      const [start, end, placeholder] = spans[index]!
+      let until = end
+      while (index < spans.length && spans[index]![0] < until) until = Math.max(until, spans[index++]![1])
+      safe += text.slice(cursor, start) + placeholder
+      cursor = until
+    }
+    return safe + text.slice(cursor)
+  }
+  /**
+   * Sanitizes a model answer or diagnostic. It first rewrites every `\uXXXX`
+   * and `\/` escape into the spelling `JSON.stringify` produces, so an escaped
+   * spelling cannot carry a value past the replacement and JSON stays valid.
    */
   sanitizeAnswer(text: string): string {
     return this.sanitize(
-      text.replace(/\\(\\|\/|u([0-9a-fA-F]{4}))/g, (escape, body: string, hex: string | undefined) => {
-        if (body === "/") return "/"
-        if (hex === undefined) return escape
-        const code = Number.parseInt(hex, 16)
-        return code >= 0x20 && code !== 0x22 && code !== 0x5c && (code < 0xd800 || code > 0xdfff) &&
-            code !== 0x2028 && code !== 0x2029
-          ? String.fromCharCode(code)
-          : escape
-      })
+      text.replace(
+        /\\(\\|\/|u[0-9a-fA-F]{4}(?:\\u[0-9a-fA-F]{4})?)/g,
+        (escape, body: string) =>
+          body === "\\" ? escape : body === "/" ? "/" : JSON.stringify(JSON.parse(`"\\${body}"`)).slice(1, -1)
+      )
     )
   }
 }
@@ -1031,7 +1273,12 @@ class CredentialMask {
  * @category execution
  * @since 1.0.0
  */
-export const redactCredentials = (text: string): string => new CredentialMask().scan(undefined, text, false)
+export const redactCredentials = (text: string): string => {
+  const mask = new CredentialMask()
+  mask.scan(undefined, text, false)
+  // A text with more values than one mask records cannot be masked completely.
+  return mask.exhausted ? "<credentials: too many to mask>" : mask.sanitize(text)
+}
 
 /**
  * Attempt receipts without their completion envelopes or messages, which can carry finding evidence.
@@ -2660,7 +2907,13 @@ export const review = (
     // Review instructions reach the provider too; mask them without reporting a file.
     mask.scan(undefined, payload.prompt)
     mask.scan(undefined, payload.rubric)
-    for (const location of mask.locations) location.file = mask.sanitize(location.file)
+    if (mask.exhausted) {
+      return yield* Effect.fail(new LlmReviewError({ phase: "review", message: "Too many credential discoveries" }))
+    }
+    for (const location of mask.locations) {
+      location.file = mask.sanitize(location.file)
+      location.name = mask.sanitize(location.name)
+    }
     const name = (path: string) => mask.sanitize(path)
     const masked = (file: Segment): Segment =>
       wholeFile(name(file.path), mask.sanitize(file.contents), file.deleted === true)
@@ -2671,9 +2924,6 @@ export const review = (
       edges: new Map([...raw.edges].map(([from, to]) => [name(from), new Set([...to].map(name))] as const)),
       related: new Map([...raw.related].map(([from, to]) => [name(from), to.map(name)] as const)),
       files: new Map([...raw.files.values()].map((file) => [name(file.path), masked(file)] as const))
-    }
-    if (mask.locations.length > maximumFindings) {
-      return yield* Effect.fail(new LlmReviewError({ phase: "review", message: "Too many credential discoveries" }))
     }
     if (mask.locations.length > 0 && options.onCredentials !== undefined) {
       const discoveries = mask.locations.map(({ file, line, name }) => Object.freeze({ file, line, name }))
