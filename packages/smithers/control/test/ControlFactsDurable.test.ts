@@ -70,9 +70,11 @@ describe("production control fact commit helpers over file SQLite", () => {
         const published: Array<string> = []
         const changes = yield* journal.changes
         yield* Stream.fromSubscription(changes).pipe(
+          // The run's own stream: the run store's ownership facts publish on
+          // the run's companion stream, which this assertion is not about.
           Stream.runForEach((entry) =>
             Effect.sync(() => {
-              published.push(entry.eventType)
+              if (entry.runId === runId) published.push(entry.eventType)
             })
           ),
           Effect.forkChild

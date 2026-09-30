@@ -465,8 +465,14 @@ describe("a shared attached child", () => {
         }))
 
       yield* executeAndDrain(driver, Child, { executionId: "three-round-child", payload: {}, discard: true })
+      // Draining the first round does not drive the rounds after it: the
+      // middle round may still be running, and the final round not yet exist.
       for (let turn = 0; turn < 2000; turn++) {
-        if ((yield* store.get(final.executionId)).status === "completed") break
+        const status = yield* store.get(final.executionId).pipe(
+          Effect.map((row) => row.status),
+          Effect.catchIf((error) => error.code === "not_found_row", () => Effect.succeed(undefined))
+        )
+        if (status === "completed") break
         yield* Effect.sleep("2 millis")
       }
       assert.deepStrictEqual(
