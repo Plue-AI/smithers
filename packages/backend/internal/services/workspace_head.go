@@ -363,7 +363,7 @@ exit 1`
 		return workspace, pkgerrors.Conflict("workspace source publisher could not be checked; retry")
 	}
 	if *result.StatusCode == 0 {
-		return workspace, s.ensureWorkspaceCodingRuntime(ctx, workspace)
+		return workspace, nil
 	}
 	if *result.StatusCode != 1 {
 		return workspace, pkgerrors.Conflict("workspace source publisher probe failed; retry")

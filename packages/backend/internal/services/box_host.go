@@ -116,6 +116,10 @@ func (s *WorkspaceService) PrepareBoxHost(ctx context.Context, hostID, workspace
 	if _, err = s.ensureWorkspaceHeadReporter(ctx, workspace); err != nil {
 		return nil, err
 	}
+	// The host runs the box's helper: bring it to this release first (#3111).
+	if err = s.ensureWorkspaceCodingRuntime(ctx, workspace); err != nil {
+		return nil, err
+	}
 	repository, err := q.GetRepoByID(ctx, repositoryID)
 	if err != nil {
 		return nil, err
