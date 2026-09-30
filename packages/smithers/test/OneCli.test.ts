@@ -44,7 +44,7 @@ const fixture = async (handler: (req: IncomingMessage, res: ServerResponse, body
     home,
     origin,
     environment,
-    run: async (args: string[], env = environment) => {
+    run: async (args: string[], env: Record<string, string> = environment) => {
       let output = "", code = 0
       const cli = makeCli({
         environment: env,
