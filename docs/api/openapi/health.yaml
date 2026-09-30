@@ -1,0 +1,70 @@
+paths:
+  /api/status:
+    get:
+      summary: Read public canary status
+      operationId: get_api_status
+      tags:
+        - Health
+      parameters: []
+      responses:
+        '200':
+          description: Canary evidence; missing, stale, invalid, or unreadable runs report unknown.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, checked_at, components]
+                properties:
+                  status:
+                    type: string
+                    enum: [ok, degraded]
+                  checked_at:
+                    type: string
+                    format: date-time
+                  components:
+                    type: object
+                    required: [canary]
+                    properties:
+                      canary:
+                        type: object
+                        required: [status, detail]
+                        properties:
+                          status:
+                            type: string
+                            enum: [ok, error, unknown]
+                          detail:
+                            type: string
+                            minLength: 1
+  /api/health:
+    get:
+      summary: GET /api/health
+      operationId: get_api_health
+      tags:
+        - Health
+      parameters: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnyJSON'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'

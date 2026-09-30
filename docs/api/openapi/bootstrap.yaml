@@ -1,0 +1,34 @@
+paths:
+  /api/bootstrap:
+    get:
+      summary: Read the instance bootstrap document
+      description: The first request every product client makes. Lists only the capabilities this assembled process serves; self-hosted and hosted origins differ by capabilities and authFlow, never by path.
+      operationId: get_api_bootstrap
+      tags:
+        - Bootstrap
+      parameters: []
+      responses:
+        '200':
+          description: Bootstrap document
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AppBootstrap'
+        '405':
+          description: Method not allowed
+    head:
+      summary: Probe the instance bootstrap document
+      operationId: head_api_bootstrap
+      tags:
+        - Bootstrap
+      parameters: []
+      responses:
+        '200':
+          description: Bootstrap document available
+        '405':
+          description: Method not allowed

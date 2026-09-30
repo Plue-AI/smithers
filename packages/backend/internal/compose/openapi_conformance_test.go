@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"reflect"
 	"regexp"
 	"sort"
@@ -27,10 +28,15 @@ import (
 )
 
 // openAPIPath is the published product API every client is generated from.
+// scripts/openapi-bundle.mjs bundles it from the per-tag sources.
 const openAPIPath = "../../../../docs/api/openapi.yaml"
 
+// openAPISources holds one source file per tag; see scripts/openapi-bundle.mjs.
+const openAPISources = "../../../../docs/api/openapi"
+
 // openAPIUpdateEnv, when "1", appends a skeleton operation for every served
-// route the document lacks. Tighten its schemas by hand afterwards.
+// route the document lacks to its tag's source. Re-bundle, then tighten its
+// schemas by hand.
 const openAPIUpdateEnv = "SMITHERS_UPDATE_OPENAPI"
 
 var openAPIMethods = []string{"get", "put", "post", "delete", "options", "head", "patch", "trace"}
@@ -177,7 +183,7 @@ func servedAPIRoutes(t *testing.T) map[string]servedRoute {
 	return served
 }
 
-func loadOpenAPIDocument(t *testing.T) (*yaml.Node, *yaml.Node) {
+func loadOpenAPIPaths(t *testing.T) *yaml.Node {
 	t.Helper()
 	data, err := os.ReadFile(openAPIPath)
 	require.NoError(t, err)
@@ -186,7 +192,7 @@ func loadOpenAPIDocument(t *testing.T) (*yaml.Node, *yaml.Node) {
 	root := document.Content[0]
 	paths := mappingValue(root, "paths")
 	require.NotNil(t, paths, "OpenAPI document has no paths")
-	return &document, paths
+	return paths
 }
 
 func mappingValue(node *yaml.Node, key string) *yaml.Node {
@@ -215,7 +221,7 @@ func documentedOperations(paths *yaml.Node) map[string]bool {
 // the composed router disagree, in either direction.
 func TestOpenAPIDescribesEveryServedRoute(t *testing.T) {
 	served := servedAPIRoutes(t)
-	document, paths := loadOpenAPIDocument(t)
+	paths := loadOpenAPIPaths(t)
 	documented := documentedOperations(paths)
 
 	var missing []servedRoute
@@ -226,16 +232,9 @@ func TestOpenAPIDescribesEveryServedRoute(t *testing.T) {
 	}
 	sort.Slice(missing, func(i, j int) bool { return missing[i].key() < missing[j].key() })
 	if len(missing) > 0 && os.Getenv(openAPIUpdateEnv) == "1" {
-		for _, route := range missing {
-			appendOpenAPIOperation(t, paths, route)
+		for _, file := range appendOpenAPISkeletons(t, openAPISources, paths, missing) {
+			t.Errorf("appended skeletons to docs/api/openapi/%s; run `pnpm exec smithers-build run '//:openapiBundle'` to re-bundle", file)
 		}
-		var out bytes.Buffer
-		encoder := yaml.NewEncoder(&out)
-		encoder.SetIndent(2)
-		require.NoError(t, encoder.Encode(document))
-		require.NoError(t, encoder.Close())
-		require.NoError(t, os.WriteFile(openAPIPath, out.Bytes(), 0o644))
-		documented = documentedOperations(paths)
 		missing = nil
 	}
 	for _, route := range missing {
@@ -257,7 +256,7 @@ func TestOpenAPIDescribesEveryServedRoute(t *testing.T) {
 // loads first.
 func TestOpenAPIDescribesBootstrap(t *testing.T) {
 	t.Parallel()
-	_, paths := loadOpenAPIDocument(t)
+	paths := loadOpenAPIPaths(t)
 	documented := documentedOperations(paths)
 	require.True(t, documented["get /api/bootstrap"], "GET /api/bootstrap must be documented")
 	require.True(t, documented["head /api/bootstrap"], "HEAD /api/bootstrap must be documented")
@@ -265,7 +264,89 @@ func TestOpenAPIDescribesBootstrap(t *testing.T) {
 
 var operationIDUnsafe = regexp.MustCompile(`[^a-z0-9]+`)
 
-func appendOpenAPIOperation(t *testing.T, paths *yaml.Node, route servedRoute) {
+// openAPITagFile is the source file owning tag; scripts/openapi-bundle.mjs
+// derives the same name.
+func openAPITagFile(tag string) string {
+	return strings.Trim(operationIDUnsafe.ReplaceAllString(strings.ToLower(tag), "-"), "-") + ".yaml"
+}
+
+// appendOpenAPISkeletons appends a skeleton operation for each route to the
+// source of the tag openAPITag picks against the bundled paths, and returns
+// the source files it wrote.
+func appendOpenAPISkeletons(t *testing.T, sources string, bundled *yaml.Node, routes []servedRoute) []string {
+	t.Helper()
+	documents := map[string]*yaml.Node{}
+	var files []string
+	for _, route := range routes {
+		tag := openAPITag(bundled, route.path)
+		file := openAPITagFile(tag)
+		document, ok := documents[file]
+		if !ok {
+			document = &yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{{Kind: yaml.MappingNode}}}
+			if data, err := os.ReadFile(filepath.Join(sources, file)); err == nil {
+				require.NoError(t, yaml.Unmarshal(data, document))
+			} else {
+				require.ErrorIs(t, err, os.ErrNotExist)
+			}
+			documents[file] = document
+			files = append(files, file)
+		}
+		root := document.Content[0]
+		paths := mappingValue(root, "paths")
+		if paths == nil {
+			paths = &yaml.Node{Kind: yaml.MappingNode}
+			root.Content = append(root.Content, &yaml.Node{Kind: yaml.ScalarNode, Value: "paths"}, paths)
+		}
+		appendOpenAPIOperation(t, paths, route, tag)
+	}
+	sort.Strings(files)
+	for _, file := range files {
+		var out bytes.Buffer
+		encoder := yaml.NewEncoder(&out)
+		encoder.SetIndent(2)
+		require.NoError(t, encoder.Encode(documents[file]))
+		require.NoError(t, encoder.Close())
+		require.NoError(t, os.WriteFile(filepath.Join(sources, file), out.Bytes(), 0o644))
+	}
+	return files
+}
+
+func TestAppendOpenAPISkeletonsWritesTagSources(t *testing.T) {
+	t.Parallel()
+	sources := t.TempDir()
+	admin := "paths:\n  /api/admin/users:\n    get:\n      operationId: get_api_admin_users\n      tags:\n        - Admin\n      responses: {}\n"
+	require.NoError(t, os.WriteFile(filepath.Join(sources, "admin.yaml"), []byte(admin), 0o644))
+	var bundled yaml.Node
+	require.NoError(t, yaml.Unmarshal([]byte(admin), &bundled))
+
+	files := appendOpenAPISkeletons(t, sources, mappingValue(bundled.Content[0], "paths"), []servedRoute{
+		{method: "delete", path: "/api/admin/users/{id}", authed: true},
+		{method: "head", path: "/api/admin/users"},
+		{method: "get", path: "/api/pair_sessions"},
+	})
+	require.Equal(t, []string{"admin.yaml", "pair-sessions.yaml"}, files)
+
+	adminOut, err := os.ReadFile(filepath.Join(sources, "admin.yaml"))
+	require.NoError(t, err)
+	require.True(t, strings.HasPrefix(string(adminOut), admin), "existing operations stay byte-identical")
+	require.Contains(t, string(adminOut), "  /api/admin/users/{id}:\n    delete:\n      summary: DELETE /api/admin/users/{id}\n      operationId: delete_api_admin_users_id\n      tags:\n        - Admin\n")
+	var adminDocument yaml.Node
+	require.NoError(t, yaml.Unmarshal(adminOut, &adminDocument))
+	adminPaths := mappingValue(adminDocument.Content[0], "paths")
+	require.Equal(t, map[string]bool{
+		"get /api/admin/users":         true,
+		"head /api/admin/users":        true,
+		"delete /api/admin/users/{id}": true,
+	}, documentedOperations(adminPaths))
+	require.NotNil(t, mappingValue(mappingValue(mappingValue(adminPaths, "/api/admin/users/{id}"), "delete"), "security"))
+
+	created, err := os.ReadFile(filepath.Join(sources, "pair-sessions.yaml"))
+	require.NoError(t, err)
+	require.True(t, strings.HasPrefix(string(created), "paths:\n  /api/pair_sessions:\n    get:\n"), string(created))
+	require.Contains(t, string(created), "      tags:\n        - Pair Sessions\n")
+}
+
+func appendOpenAPIOperation(t *testing.T, paths *yaml.Node, route servedRoute, tag string) {
 	t.Helper()
 	item := mappingValue(paths, route.path)
 	if item == nil {
@@ -275,7 +356,7 @@ func appendOpenAPIOperation(t *testing.T, paths *yaml.Node, route servedRoute) {
 	var operation strings.Builder
 	fmt.Fprintf(&operation, "summary: %s %s\n", strings.ToUpper(route.method), route.path)
 	fmt.Fprintf(&operation, "operationId: %s\n", strings.Trim(operationIDUnsafe.ReplaceAllString(route.method+"_"+route.path, "_"), "_"))
-	fmt.Fprintf(&operation, "tags:\n  - %s\n", openAPITag(paths, route.path))
+	fmt.Fprintf(&operation, "tags:\n  - %s\n", tag)
 	params := regexp.MustCompile(`\{([^}]+)\}`).FindAllStringSubmatch(route.path, -1)
 	if len(params) == 0 {
 		operation.WriteString("parameters: []\n")

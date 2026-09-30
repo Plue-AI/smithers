@@ -399,6 +399,16 @@ const backendGo = Smithers.Shell.Test({
   timeout: "30m"
 })
 
+// The product API spec is bundled from one source per tag, so changes under
+// different tags never edit the same file. `run` re-bundles; `lint` fails when
+// the committed docs/api/openapi.yaml is stale.
+const openapiBundle = Smithers.Generate({
+  summary: "Bundle docs/api/openapi.yaml from its per-tag sources and drift-check it.",
+  script: Smithers.file("//scripts/openapi-bundle.mjs"),
+  data: [Smithers.glob("//docs/api/openapi/*.yaml")],
+  changes: ["docs/api/openapi.yaml"]
+})
+
 const nativeFilesystem = [{
   package: "smithers-ffi",
   binary: "smithers-jj-export",
@@ -425,6 +435,7 @@ const driftCi = Smithers.GithubCiGen({
     steps: [
       { name: "Formatting", verb: Smithers.Verb.Lint, pattern: "//...:fmt" },
       { name: "Target index drift", verb: Smithers.Verb.Lint, pattern: "//:targetIndex" },
+      { name: "OpenAPI bundle drift", verb: Smithers.Verb.Lint, pattern: "//:openapiBundle" },
       { name: "Documentation drift", verb: Smithers.Verb.Lint, pattern: "//scripts:docsDrift" },
       { name: "Declaration baseline", verb: Smithers.Verb.Build, pattern: "//scripts:apiBaseline" },
       { name: "Generated drift workflow", verb: Smithers.Verb.Lint, pattern: "//:driftCi" }
@@ -1247,6 +1258,7 @@ export const Package = Smithers.Package({
     reviewJsdocAgainstCode,
     lockfile,
     nodeModules,
+    openapiBundle,
     projectCopy,
     repoAbout,
     targetIndex,

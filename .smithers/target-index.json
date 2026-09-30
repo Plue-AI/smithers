@@ -556,6 +556,37 @@
     }
   },
   {
+    "label": "//:openapiBundle",
+    "package": "",
+    "name": "openapiBundle",
+    "rule": "Generate",
+    "kinds": [
+      "run",
+      "lint"
+    ],
+    "summary": "Bundle docs/api/openapi.yaml from its per-tag sources and drift-check it.",
+    "mode": "write",
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "scripts/openapi-bundle.mjs"
+      },
+      {
+        "kind": "glob",
+        "pattern": "docs/api/openapi/*.yaml",
+        "exclude": []
+      }
+    ],
+    "outputs": [
+      "docs/api/openapi.yaml"
+    ],
+    "dependencies": [],
+    "source": {
+      "file": "PACKAGE.ts"
+    }
+  },
+  {
     "label": "//:projectCopy",
     "package": "",
     "name": "projectCopy",
@@ -53471,6 +53502,51 @@
         "kind": "glob",
         "pattern": "scripts/fixtures/**/*.json",
         "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:openapiBundle",
+    "package": "scripts",
+    "name": "openapiBundle",
+    "rule": "NodeTest",
+    "kinds": [
+      "test"
+    ],
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "scripts/openapi-bundle.test.mjs"
+      },
+      {
+        "kind": "glob",
+        "pattern": "scripts/**/*.mjs",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "scripts/**/*.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "scripts/fixtures/**/*.json",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "docs/api/openapi/*.yaml",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "docs/api/openapi.yaml"
       }
     ],
     "outputs": [],

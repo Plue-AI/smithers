@@ -1,0 +1,648 @@
+paths:
+  /api/auth/auth0/authorize:
+    get:
+      summary: GET /api/auth/auth0/authorize
+      operationId: get_api_auth_auth0_authorize
+      tags:
+        - Authentication
+      parameters: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnyJSON'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/auth/auth0/callback:
+    get:
+      summary: GET /api/auth/auth0/callback
+      operationId: get_api_auth_auth0_callback
+      tags:
+        - Authentication
+      parameters: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnyJSON'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/auth/github:
+    get:
+      summary: GET /api/auth/github
+      operationId: get_api_auth_github
+      tags:
+        - Authentication
+      parameters: []
+      x-smithers-client-contract: multi-v1
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnyJSON'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/auth/github/callback:
+    get:
+      summary: GET /api/auth/github/callback
+      operationId: get_api_auth_github_callback
+      tags:
+        - Authentication
+      parameters: []
+      x-smithers-client-contract: multi-v1
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnyJSON'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/auth/github/cli:
+    get:
+      summary: GET /api/auth/github/cli
+      operationId: get_api_auth_github_cli
+      tags:
+        - Authentication
+      parameters:
+        - name: callback_port
+          in: query
+          required: true
+          description: Loopback HTTP callback port opened by the native client.
+          schema:
+            type: integer
+            minimum: 1024
+            maximum: 65535
+        - name: callback_state
+          in: query
+          required: false
+          description: Native client's random 256-bit callback state, bound to the OAuth attempt and echoed in the loopback callback fragment. Optional for legacy CLI callers.
+          schema:
+            type: string
+            pattern: ^[A-Za-z0-9_-]{43}$
+            minLength: 43
+            maxLength: 43
+        - name: scopes
+          in: query
+          required: false
+          description: Comma-separated ordinary personal access token scopes. Defaults to organization, repository, and user write scopes. Administrative scopes are always rejected through this parameter, including with admin=1.
+          schema:
+            type: string
+          example: read:user,read:organization,read:repository,write:repository,read:workspace,write:workspace,write:agent,write:approval
+        - name: admin
+          in: query
+          required: false
+          description: Set to 1 to request an administrator CLI token. After GitHub login, non-admins receive an HTML 403 with no token; admins must approve a verifier-bound, CSRF-protected consent page before a token is minted.
+          schema:
+            type: string
+            enum:
+              - '1'
+        - name: ttl
+          in: query
+          required: false
+          description: Go duration for an admin token, from 5m through 12h inclusive. Requires admin=1. Lifetime starts at consent approval; final expires_at is returned in the loopback callback fragment.
+          schema:
+            type: string
+            default: 1h
+          example: 1h
+      responses:
+        '302':
+          description: Redirect to GitHub OAuth. The subsequent callback shows admin consent or redirects a normal CLI login to loopback.
+          headers:
+            Location:
+              schema:
+                type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/auth/github/cli/consent:
+    get:
+      summary: Deny pending administrator CLI login
+      operationId: get_api_auth_github_cli_consent
+      tags:
+        - Authentication
+      description: Clears the OAuth verifier and CLI callback cookies. Does not mint a token. Pending consent expires after ten minutes.
+      responses:
+        '200':
+          description: HTML denial confirmation
+          content:
+            text/html:
+              schema:
+                type: string
+        '429':
+          $ref: '#/components/responses/RateLimited'
+    post:
+      summary: Approve administrator CLI login consent
+      operationId: post_api_auth_github_cli_consent
+      tags:
+        - Authentication
+      description: Consumes durable, single-use consent bound to the OAuth verifier cookie and CSRF token. Rechecks administrator membership, atomically creates an expiring smithers-cli-admin PAT and auth.cli_admin_login audit row, and redirects to the state-bound loopback port. Authenticates with OAuth state rather than an existing PAT or browser session.
+      parameters:
+        - name: smithers_oauth_state
+          in: cookie
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required:
+                - state
+                - csrf_token
+                - decision
+              properties:
+                state:
+                  type: string
+                  description: Single-use state supplied by the consent page.
+                csrf_token:
+                  type: string
+                  description: CSRF token bound to the OAuth verifier in durable consent state.
+                decision:
+                  type: string
+                  enum:
+                    - approve
+      responses:
+        '302':
+          description: Redirect to http://127.0.0.1 at the state-bound callback port with token, username, optional email and callback_state, and final expires_at in the fragment. Responses are no-store.
+          headers:
+            Location:
+              schema:
+                type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          description: Invalid, expired, or replayed consent, bad CSRF/verifier, or user no longer an administrator.
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/auth/key/nonce:
+    get:
+      summary: GET /api/auth/key/nonce
+      operationId: get_api_auth_key_nonce
+      tags:
+        - Authentication
+      parameters: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnyJSON'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/auth/linear:
+    get:
+      summary: GET /api/auth/linear
+      operationId: get_api_auth_linear
+      tags:
+        - Authentication
+      parameters: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnyJSON'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/auth/linear/callback:
+    get:
+      summary: GET /api/auth/linear/callback
+      operationId: get_api_auth_linear_callback
+      tags:
+        - Authentication
+      parameters: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnyJSON'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/auth/github/token-exchange:
+    post:
+      summary: POST /api/auth/github/token-exchange
+      operationId: post_api_auth_github_token_exchange
+      tags:
+        - Authentication
+      parameters: []
+      x-smithers-client-contract: multi-v1
+      x-smithers-auth-boundary: worker-owned
+      security:
+        - workerExchangeBearer: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnyJSON'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/auth/key/token:
+    post:
+      summary: POST /api/auth/key/token
+      operationId: post_api_auth_key_token
+      tags:
+        - Authentication
+      parameters: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnyJSON'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/auth/key/verify:
+    post:
+      summary: POST /api/auth/key/verify
+      operationId: post_api_auth_key_verify
+      tags:
+        - Authentication
+      parameters: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnyJSON'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/auth/logout:
+    post:
+      summary: POST /api/auth/logout
+      operationId: post_api_auth_logout
+      tags:
+        - Authentication
+      parameters: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnyJSON'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/auth/sse-ticket:
+    post:
+      summary: POST /api/auth/sse-ticket
+      operationId: post_api_auth_sse_ticket
+      tags:
+        - Authentication
+      parameters: []
+      x-smithers-client-contract: multi-v1
+      security:
+        - tokenAuth: []
+        - bearerAuth: []
+        - sessionCookie: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MultiSSETicketResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/auth/local/status:
+    get:
+      summary: GET /api/auth/local/status
+      operationId: get_api_auth_local_status
+      tags:
+        - Authentication
+      parameters: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnyJSON'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/auth/local/bootstrap:
+    post:
+      summary: POST /api/auth/local/bootstrap
+      operationId: post_api_auth_local_bootstrap
+      tags:
+        - Authentication
+      parameters: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AnyJSON'
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnyJSON'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/auth/local/login:
+    post:
+      summary: POST /api/auth/local/login
+      operationId: post_api_auth_local_login
+      tags:
+        - Authentication
+      parameters: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AnyJSON'
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnyJSON'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/auth/local/password:
+    post:
+      summary: POST /api/auth/local/password
+      operationId: post_api_auth_local_password
+      tags:
+        - Authentication
+      parameters: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AnyJSON'
+      security:
+        - tokenAuth: []
+        - bearerAuth: []
+        - sessionCookie: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnyJSON'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/auth/local/token:
+    post:
+      summary: POST /api/auth/local/token
+      operationId: post_api_auth_local_token
+      tags:
+        - Authentication
+      parameters: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AnyJSON'
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnyJSON'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'

@@ -1,0 +1,1581 @@
+openapi: 3.1.0
+info:
+  title: Smithers API
+  version: 1.0.0
+  description: Pre-release Smithers product API. TestOpenAPIDescribesEveryServedRoute in packages/backend/internal/compose fails when a served route and this document disagree; schemas are being tightened during product extraction.
+servers:
+  - url: /
+    description: Same-origin Smithers backend
+paths:
+components:
+  securitySchemes:
+    tokenAuth:
+      type: apiKey
+      in: header
+      name: Authorization
+      description: 'Use `Authorization: token smithers_...`.'
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: 'Use `Authorization: Bearer smithers_...`.'
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: smithers_session
+    workerExchangeBearer:
+      type: http
+      scheme: bearer
+      description: Shared first-party Worker secret from auth.worker_exchange_token / SMITHERS_AUTH_WORKER_EXCHANGE_TOKEN.
+  schemas:
+    AppBootstrap:
+      type: object
+      required:
+        - apiVersion
+        - host
+        - version
+        - buildSha
+        - capabilities
+        - authFlow
+        - sandbox
+      properties:
+        apiVersion:
+          type: integer
+          const: 1
+        host:
+          type: string
+          const: cloud
+        version:
+          type: string
+        buildSha:
+          type: string
+        capabilities:
+          type: array
+          items:
+            type: string
+            enum:
+              - identity
+              - agent
+              - github
+              - model.turn
+              - recommend
+              - cloud
+              - cloud.terminal
+              - billing.balance
+              - billing.overview
+              - billing.plans
+              - billing.portal
+              - billing.checkout
+        authFlow:
+          type: string
+          enum:
+            - none
+            - credentials
+            - redirect
+        sandbox:
+          oneOf:
+            - type: 'null'
+            - type: object
+              required:
+                - platform
+                - mode
+              properties:
+                platform:
+                  type: string
+                mode:
+                  type: string
+                  enum:
+                    - trusted-only
+                    - enforced
+    RepositoryTransferRequest:
+      type: object
+      required: [id, repository_id, sender_id, recipient_id, source_owner, source_name, status, created_at, expires_at]
+      properties:
+        id:
+          type: integer
+          format: int64
+        repository_id:
+          type: integer
+          format: int64
+        sender_id:
+          type: integer
+          format: int64
+        recipient_id:
+          type: integer
+          format: int64
+        source_user_id:
+          type: [integer, 'null']
+          format: int64
+        source_org_id:
+          type: [integer, 'null']
+          format: int64
+        source_owner:
+          type: string
+        source_name:
+          type: string
+        status:
+          type: string
+          enum: [pending, accepted, declined, cancelled, expired]
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        resolved_at:
+          type: [string, 'null']
+          format: date-time
+    RepositoryTransferResponse:
+      type: object
+      description: Repository response using its current owner. pending_transfer is present while a user transfer awaits acceptance.
+      properties:
+        owner:
+          type: string
+        full_name:
+          type: string
+        clone_url:
+          type: string
+        pending_transfer:
+          $ref: '#/components/schemas/RepositoryTransferRequest'
+    BillingPlan:
+      type: object
+      required:
+        - key
+        - display_name
+        - price_cents
+        - interval
+        - limits
+        - checkout_available
+      properties:
+        key:
+          type: string
+          enum:
+            - free
+            - pro
+            - max
+        display_name:
+          type: string
+        price_cents:
+          type: integer
+          format: int64
+          description: Monthly display price; Stripe is the source of truth for charges.
+        interval:
+          type: string
+          enum:
+            - monthly
+            - annual
+        checkout_available:
+          type: boolean
+        limits:
+          type: object
+          required:
+            - concurrent_sandboxes
+            - idle_timeout_secs
+            - hours_per_day
+            - private_repos
+            - storage_bytes
+            - ci_minutes
+            - agent_runs
+            - seats
+          properties:
+            concurrent_sandboxes:
+              type: integer
+              format: int64
+            idle_timeout_secs:
+              type: integer
+              format: int64
+            hours_per_day:
+              type: integer
+              format: int64
+            private_repos:
+              type: integer
+              format: int64
+            storage_bytes:
+              type: integer
+              format: int64
+            ci_minutes:
+              type: integer
+              format: int64
+            agent_runs:
+              type: integer
+              format: int64
+            seats:
+              type: integer
+              format: int64
+    BillingPlansResponse:
+      type: object
+      required:
+        - plans
+        - current_plan_key
+      properties:
+        current_plan_key:
+          type: string
+        plans:
+          type: array
+          items:
+            $ref: '#/components/schemas/BillingPlan'
+    SandboxEntitlement:
+      type: object
+      required:
+        - plan_key
+        - concurrent_sandboxes
+        - concurrent_in_use
+        - idle_timeout_secs
+        - hours_per_day
+        - seconds_used_today
+        - day_resets_at
+      properties:
+        plan_key:
+          type: string
+        concurrent_sandboxes:
+          type: integer
+          format: int64
+        concurrent_in_use:
+          type: integer
+          format: int64
+        idle_timeout_secs:
+          type: integer
+          format: int64
+          description: Zero means never auto-suspend.
+        hours_per_day:
+          type: integer
+          format: int64
+          description: Minus one means unlimited.
+        seconds_used_today:
+          type: integer
+          format: int64
+        day_resets_at:
+          type: string
+          format: date-time
+    AnyJSON:
+      description: Endpoint-specific JSON response.
+    LinearTeam:
+      type: object
+      required:
+        - id
+        - name
+        - key
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        key:
+          type: string
+      additionalProperties: false
+    LinearActor:
+      type: object
+      required:
+        - id
+        - name
+        - email
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        email:
+          type: string
+      additionalProperties: false
+    LinearOAuthSetup:
+      type: object
+      required:
+        - linear_actor
+        - teams
+        - expires_at
+      properties:
+        linear_actor:
+          $ref: '#/components/schemas/LinearActor'
+        teams:
+          type: array
+          items:
+            $ref: '#/components/schemas/LinearTeam'
+        expires_at:
+          type: string
+          format: date-time
+      additionalProperties: false
+    LinearIntegration:
+      type: object
+      required:
+        - id
+        - linear_team_id
+        - linear_team_name
+        - repo_owner
+        - repo_name
+        - repo_id
+        - is_active
+        - linear_actor
+      properties:
+        id:
+          type: integer
+          format: int64
+        linear_team_id:
+          type: string
+        linear_team_name:
+          type: string
+        linear_team_key:
+          type: string
+        repo_owner:
+          type: string
+        repo_name:
+          type: string
+        repo_id:
+          type: integer
+          format: int64
+        is_active:
+          type: boolean
+        remediation_state:
+          type: string
+        last_sync_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        linear_actor:
+          $ref: '#/components/schemas/LinearActor'
+      additionalProperties: false
+    LinearIntegrations:
+      type: array
+      items:
+        $ref: '#/components/schemas/LinearIntegration'
+    LinearSyncOp:
+      type: object
+      required:
+        - id
+        - source
+        - target
+        - entity
+        - entity_id
+        - action
+        - status
+        - error_message
+        - created_at
+      properties:
+        id:
+          type: integer
+          format: int64
+        run_id:
+          type: integer
+          format: int64
+        retry_of_id:
+          type: integer
+          format: int64
+        source:
+          type: string
+        target:
+          type: string
+        entity:
+          type: string
+          enum:
+            - issue
+            - comment
+        entity_id:
+          type: string
+        action:
+          type: string
+        status:
+          type: string
+          enum:
+            - pending
+            - success
+            - failed
+            - skipped
+        error_message:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+      additionalProperties: false
+    LinearSyncOps:
+      type: array
+      items:
+        $ref: '#/components/schemas/LinearSyncOp'
+    LinearSyncCount:
+      type: object
+      required:
+        - done
+        - total
+        - failed
+      properties:
+        done:
+          type: integer
+          minimum: 0
+        total:
+          type: integer
+          minimum: 0
+        failed:
+          type: integer
+          minimum: 0
+      additionalProperties: false
+    LinearSyncRunStatus:
+      type: object
+      required:
+        - state
+        - counts
+        - started_at
+        - finished_at
+      properties:
+        state:
+          type: string
+          enum:
+            - pending
+            - running
+            - completed
+            - failed
+        counts:
+          type: object
+          required:
+            - issues
+            - comments
+          properties:
+            issues:
+              $ref: '#/components/schemas/LinearSyncCount'
+            comments:
+              $ref: '#/components/schemas/LinearSyncCount'
+          additionalProperties: false
+        started_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        finished_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+      additionalProperties: false
+    GitMirrorSyncRunStatus:
+      type: object
+      required:
+        - state
+        - behind_refs
+        - failed_refs
+        - started_at
+        - finished_at
+        - refs
+      properties:
+        state:
+          type: string
+          enum:
+            - queued
+            - running
+            - succeeded
+            - failed
+        behind_refs:
+          type: integer
+          minimum: 0
+        failed_refs:
+          type: integer
+          minimum: 0
+        started_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        finished_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        refs:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+      additionalProperties: false
+    SyncRunAccepted:
+      type: object
+      required:
+        - run_id
+      properties:
+        run_id:
+          type: integer
+          format: int64
+      additionalProperties: false
+    ChangeFinding:
+      type: object
+      required:
+        - id
+        - seq
+        - commit_id
+        - analyzer
+        - source
+        - path
+        - line
+        - side
+        - severity
+        - text
+        - state
+        - created_at
+      properties:
+        id:
+          type: integer
+          format: int64
+        seq:
+          type: integer
+          format: int64
+          minimum: 1
+        commit_id:
+          type: string
+        analyzer:
+          type: string
+          minLength: 1
+        source:
+          type: string
+          enum:
+            - analyzer
+            - reviewer
+        path:
+          type: string
+          minLength: 1
+        line:
+          type: integer
+          format: int64
+          minimum: 1
+        side:
+          type: string
+          enum:
+            - left
+            - right
+            - both
+        severity:
+          type: string
+          minLength: 1
+        text:
+          type: string
+          minLength: 1
+        suggestion:
+          type: string
+        anchor_hash:
+          type: string
+        feedback:
+          type: string
+          enum:
+            - useful
+            - not_useful
+            - fixed
+        state:
+          type: string
+          enum:
+            - current
+            - stale
+            - moved
+        created_at:
+          type: string
+          format: date-time
+      additionalProperties: false
+    ChangeAnalyzerRun:
+      type: object
+      required:
+        - name
+        - state
+        - seq
+        - started_at
+        - finished_at
+      properties:
+        name:
+          type: string
+          minLength: 1
+        state:
+          type: string
+          enum:
+            - queued
+            - running
+            - done
+            - failed
+            - paused
+        seq:
+          type: integer
+          format: int64
+          minimum: 1
+        started_at:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: 'null'
+        finished_at:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: 'null'
+        paused_by:
+          type: string
+        paused_reason:
+          type: string
+        failure_reason:
+          type: string
+      additionalProperties: false
+    ChangeFindingsResponse:
+      type: object
+      required:
+        - change_id
+        - current_seq
+        - findings
+        - analyzers
+      properties:
+        change_id:
+          type: string
+        current_seq:
+          type: integer
+          format: int64
+          minimum: 1
+        findings:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChangeFinding'
+        analyzers:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChangeAnalyzerRun'
+      additionalProperties: false
+    LinearIntegrationCreateRequest:
+      type: object
+      required:
+        - setup_key
+        - linear_team_id
+        - repo
+      properties:
+        setup_key:
+          type: string
+          minLength: 1
+        linear_team_id:
+          type: string
+          minLength: 1
+        repo:
+          type: string
+          pattern: ^[^/\s]+/[^/\s]+$
+          description: Smithers repository in owner/name form.
+      additionalProperties: false
+    ResolveChangeConflictRequest:
+      type: object
+      required:
+        - path
+      properties:
+        path:
+          type: string
+          minLength: 1
+      additionalProperties: false
+    ResolveChangeConflictResponse:
+      type: object
+      required:
+        - agent_session_id
+      properties:
+        agent_session_id:
+          type: string
+          format: uuid
+      additionalProperties: false
+    SandboxEgressAuditEntries:
+      type: array
+      items:
+        $ref: '#/components/schemas/SandboxEgressAuditEntry'
+    SandboxEgressAuditEntry:
+      type: object
+      required:
+        - occurred_at
+        - host
+        - method
+        - path
+        - status
+        - allowed
+        - swapped_secret_names
+      properties:
+        occurred_at:
+          type: string
+          format: date-time
+        host:
+          type: string
+          maxLength: 253
+        method:
+          type: string
+          maxLength: 16
+        path:
+          type: string
+          maxLength: 2048
+          description: Request path with the query string removed.
+        status:
+          type: integer
+          minimum: 0
+          maximum: 999
+        allowed:
+          type: boolean
+        swapped_secret_names:
+          type: array
+          maxItems: 64
+          items:
+            type: string
+      additionalProperties: false
+    MultiWorkflowRunsResponse:
+      type: object
+      required:
+        - workflow_runs
+      properties:
+        workflow_runs:
+          type: array
+          items:
+            $ref: '#/components/schemas/MultiWorkflowRun'
+      additionalProperties: true
+    MultiWorkflowRun:
+      type: object
+      required:
+        - id
+        - repository_id
+        - workflow_definition_id
+        - status
+        - trigger_event
+        - trigger_ref
+        - trigger_commit_sha
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: integer
+          format: int64
+        repository_id:
+          type: integer
+          format: int64
+        workflow_definition_id:
+          type: integer
+          format: int64
+        status:
+          type: string
+        trigger_event:
+          type: string
+        trigger_ref:
+          type: string
+        trigger_commit_sha:
+          type: string
+        check_run_id:
+          type:
+            - integer
+            - 'null'
+          format: int64
+        check_run_url:
+          type:
+            - string
+            - 'null'
+        started_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        completed_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      additionalProperties: true
+    MultiWorkflowStepsResponse:
+      type: object
+      required:
+        - steps
+      properties:
+        steps:
+          type: array
+          items:
+            $ref: '#/components/schemas/MultiWorkflowStep'
+      additionalProperties: true
+    MultiWorkflowStep:
+      type: object
+      required:
+        - id
+        - workflow_run_id
+        - name
+        - position
+        - status
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: integer
+          format: int64
+        workflow_run_id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        position:
+          type: integer
+          format: int64
+        status:
+          type: string
+        started_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        completed_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      additionalProperties: true
+    IssueStateFact:
+      type: object
+      required:
+        - id
+        - stream_id
+        - sequence
+        - schema_version
+        - entity_type
+        - operation
+        - issue_id
+        - entity_key
+        - recorded_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        stream_id:
+          type: string
+          pattern: ^issues:[0-9]+$
+        sequence:
+          type: integer
+          format: int64
+          minimum: 1
+        schema_version:
+          type: integer
+          const: 1
+        entity_type:
+          type: string
+          enum:
+            - issue
+            - issue_label
+            - issue_assignee
+        operation:
+          type: string
+          enum:
+            - baseline
+            - created
+            - updated
+            - deleted
+        issue_id:
+          type: integer
+          format: int64
+        entity_key:
+          type: string
+        recorded_at:
+          type: string
+          format: date-time
+        post_image:
+          description: Absent on deletion; complete accepted row selected by entity_type. Issue search_vector is derived and omitted.
+          oneOf:
+            - $ref: '#/components/schemas/IssueStateRow'
+            - $ref: '#/components/schemas/IssueLabelStateRow'
+            - $ref: '#/components/schemas/IssueAssigneeStateRow'
+    IssueStateRow:
+      type: object
+      required:
+        - id
+        - repository_id
+        - number
+        - title
+        - body
+        - state
+        - author_id
+        - milestone_id
+        - comment_count
+        - closed_at
+        - fixed_by_id
+        - fixed_by_agent_session_id
+        - fixed_at
+        - verified_by_id
+        - verified_by_agent_session_id
+        - verified_at
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: integer
+          format: int64
+        repository_id:
+          type: integer
+          format: int64
+        number:
+          type: integer
+          format: int64
+        title:
+          type: string
+        body:
+          type: string
+        state:
+          type: string
+          enum:
+            - open
+            - closed
+            - fixed
+            - verified
+        author_id:
+          type: integer
+          format: int64
+        milestone_id:
+          type:
+            - integer
+            - 'null'
+          format: int64
+        comment_count:
+          type: integer
+          format: int64
+        closed_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        fixed_by_id:
+          type:
+            - integer
+            - 'null'
+          format: int64
+        fixed_by_agent_session_id:
+          type:
+            - string
+            - 'null'
+          format: uuid
+        fixed_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        verified_by_id:
+          type:
+            - integer
+            - 'null'
+          format: int64
+        verified_by_agent_session_id:
+          type:
+            - string
+            - 'null'
+          format: uuid
+        verified_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    IssueLabelStateRow:
+      type: object
+      required:
+        - issue_id
+        - label_id
+        - created_at
+      properties:
+        issue_id:
+          type: integer
+          format: int64
+        label_id:
+          type: integer
+          format: int64
+        created_at:
+          type: string
+          format: date-time
+    IssueAssigneeStateRow:
+      type: object
+      required:
+        - id
+        - issue_id
+        - user_id
+        - created_at
+      properties:
+        id:
+          type: integer
+          format: int64
+        issue_id:
+          type: integer
+          format: int64
+        user_id:
+          type:
+            - integer
+            - 'null'
+          format: int64
+        created_at:
+          type: string
+          format: date-time
+    IssueStateFactPage:
+      type: object
+      required:
+        - schema_version
+        - stream_id
+        - events
+        - cursor
+        - head
+        - has_more
+        - coverage
+      properties:
+        schema_version:
+          type: integer
+          const: 1
+        stream_id:
+          type: string
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/IssueStateFact'
+        cursor:
+          type: integer
+          format: int64
+          minimum: 0
+        head:
+          type: integer
+          format: int64
+          minimum: 0
+        has_more:
+          type: boolean
+        coverage:
+          type: object
+          required:
+            - kind
+          properties:
+            kind:
+              type: string
+              enum:
+                - legacy_snapshot
+                - from_creation
+            started_at:
+              type: string
+              format: date-time
+    NotificationFact:
+      type: object
+      required:
+        - id
+        - stream_id
+        - sequence
+        - schema_version
+        - type
+        - notification_id
+        - recorded_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        stream_id:
+          type: string
+          pattern: ^notifications:[0-9]+$
+        sequence:
+          type: integer
+          format: int64
+          minimum: 1
+        schema_version:
+          type: integer
+          const: 1
+        type:
+          type: string
+          enum:
+            - notification.baseline
+            - notification.created
+            - notification.read
+            - notification.unread
+            - notification.updated
+            - notification.deleted
+        notification_id:
+          type: integer
+          format: int64
+        recorded_at:
+          type: string
+          format: date-time
+        notification:
+          $ref: '#/components/schemas/NotificationPostImage'
+    NotificationPostImage:
+      type: object
+      required:
+        - id
+        - source_type
+        - source_id
+        - subject
+        - body
+        - status
+        - read_at
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 1
+        source_type:
+          type: string
+        source_id:
+          type:
+            - integer
+            - 'null'
+          format: int64
+        subject:
+          type: string
+        body:
+          type: string
+        status:
+          type: string
+          enum:
+            - unread
+            - read
+            - pinned
+        read_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    NotificationFactPage:
+      type: object
+      required:
+        - schema_version
+        - stream_id
+        - events
+        - cursor
+        - head
+        - has_more
+        - visibility_filtered
+        - coverage
+      properties:
+        schema_version:
+          type: integer
+          const: 1
+        stream_id:
+          type: string
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/NotificationFact'
+        cursor:
+          type: integer
+          format: int64
+          minimum: 0
+        head:
+          type: integer
+          format: int64
+          minimum: 0
+        has_more:
+          type: boolean
+        visibility_filtered:
+          type: boolean
+        coverage:
+          type: object
+          required:
+            - kind
+          properties:
+            kind:
+              type: string
+              enum:
+                - legacy_snapshot
+                - from_creation
+            started_at:
+              type: string
+              format: date-time
+    MultiNotificationListResponse:
+      type: array
+      items:
+        $ref: '#/components/schemas/MultiNotification'
+    MultiNotification:
+      type: object
+      required:
+        - id
+        - subject
+      properties:
+        id:
+          type: integer
+          format: int64
+        source_type:
+          type: string
+        source_id: {}
+        subject:
+          oneOf:
+            - type: string
+            - $ref: '#/components/schemas/MultiNotificationSubject'
+        body:
+          type: string
+        status:
+          type: string
+        unread:
+          type: boolean
+        reason:
+          type: string
+        repository:
+          type: object
+          properties:
+            full_name:
+              type: string
+          additionalProperties: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        read_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        last_read_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+      additionalProperties: true
+    MultiNotificationSubject:
+      type: object
+      required:
+        - title
+      properties:
+        title:
+          type: string
+        url:
+          type: string
+        type:
+          type: string
+      additionalProperties: true
+    MultiGitHubImportJob:
+      type: object
+      required:
+        - importJobId
+        - repoOwner
+        - repoName
+        - target_bookmark
+        - status
+        - stage
+        - counts
+        - created_at
+        - updated_at
+      properties:
+        importJobId:
+          type: string
+        repoOwner:
+          type: string
+        repoName:
+          type: string
+        target_bookmark:
+          type: string
+        workspace_id:
+          type: string
+        workspace: {}
+        status:
+          type: string
+          enum:
+            - cloning
+            - ready
+            - failed
+        stage:
+          type: string
+        counts:
+          type: object
+          required:
+            - refs
+            - objects
+            - issues
+          properties:
+            refs:
+              $ref: '#/components/schemas/MultiGitHubImportCount'
+            objects:
+              $ref: '#/components/schemas/MultiGitHubImportCount'
+            issues:
+              $ref: '#/components/schemas/MultiGitHubImportCount'
+          additionalProperties: false
+        error:
+          type: string
+        repository:
+          type: object
+          required:
+            - owner
+            - name
+          properties:
+            owner:
+              type: string
+            name:
+              type: string
+          additionalProperties: false
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      additionalProperties: true
+    MultiGitHubImportCount:
+      type: object
+      required:
+        - done
+        - total
+      properties:
+        done:
+          type: integer
+          format: int64
+          minimum: 0
+        total:
+          type: integer
+          format: int64
+          minimum: 0
+      additionalProperties: false
+    MultiSSETicketResponse:
+      type: object
+      required:
+        - ticket
+      properties:
+        ticket:
+          type: string
+      additionalProperties: true
+    MultiBillingOverview:
+      type: object
+      required:
+        - owner_type
+        - owner_name
+        - plan_key
+        - billing_interval
+        - stripe_configured
+        - usage
+      properties:
+        sandbox:
+          $ref: '#/components/schemas/SandboxEntitlement'
+        owner_type:
+          type: string
+        owner_id:
+          type: integer
+          format: int64
+        owner_name:
+          type: string
+        plan_key:
+          type: string
+        billing_interval:
+          type: string
+        stripe_configured:
+          type: boolean
+        account:
+          anyOf:
+            - $ref: '#/components/schemas/MultiBillingAccount'
+            - type: 'null'
+        subscription:
+          anyOf:
+            - $ref: '#/components/schemas/MultiBillingSubscription'
+            - type: 'null'
+        entitlements:
+          type: array
+          items:
+            $ref: '#/components/schemas/MultiBillingEntitlement'
+        usage_period_start:
+          type: string
+          format: date-time
+        usage_period_end:
+          type: string
+          format: date-time
+        usage:
+          type: array
+          items:
+            $ref: '#/components/schemas/MultiBillingUsage'
+      additionalProperties: true
+    MultiBillingAccount:
+      type: object
+      properties:
+        stripe_customer_id:
+          type: string
+        stripe_customer_email:
+          type: string
+        stripe_customer_name:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      additionalProperties: true
+    MultiBillingSubscription:
+      type: object
+      required:
+        - plan_key
+        - billing_interval
+        - status
+        - quantity
+        - cancel_at_period_end
+      properties:
+        stripe_subscription_id:
+          type: string
+        stripe_price_id:
+          type: string
+        plan_key:
+          type: string
+        billing_interval:
+          type: string
+        status:
+          type: string
+        quantity:
+          type: integer
+          format: int64
+        trial_end:
+          type: string
+          format: date-time
+        current_period_start:
+          type: string
+          format: date-time
+        current_period_end:
+          type: string
+          format: date-time
+        cancel_at_period_end:
+          type: boolean
+        canceled_at:
+          type: string
+          format: date-time
+      additionalProperties: true
+    MultiBillingEntitlement:
+      type: object
+      required:
+        - feature_key
+        - active
+        - last_synced_at
+      properties:
+        feature_key:
+          type: string
+        active:
+          type: boolean
+        last_synced_at:
+          type: string
+          format: date-time
+      additionalProperties: true
+    MultiBillingUsage:
+      type: object
+      required:
+        - metric_key
+        - included_quantity
+        - consumed_quantity
+        - overage_quantity
+      properties:
+        metric_key:
+          type: string
+        included_quantity:
+          type: integer
+          format: int64
+        consumed_quantity:
+          type: integer
+          format: int64
+        overage_quantity:
+          type: integer
+          format: int64
+      additionalProperties: true
+    MultiBillingSessionResult:
+      type: object
+      required:
+        - url
+      properties:
+        url:
+          type: string
+          format: uri
+      additionalProperties: true
+    ErrorDetail:
+      type: object
+      required:
+        - code
+      properties:
+        resource:
+          type: string
+        field:
+          type: string
+        code:
+          type: string
+          description: Machine-readable validation code.
+        message:
+          type: string
+      additionalProperties: false
+    Error:
+      type: object
+      required:
+        - message
+      properties:
+        code:
+          type: string
+        fault:
+          type: string
+        plan_key:
+          type: string
+        limit_kind:
+          type: string
+          enum:
+            - concurrent_sandboxes
+            - sandbox_hours_per_day
+        upgrade_plan_key:
+          type: string
+        message:
+          type: string
+        errors:
+          type: array
+          items:
+            $ref: '#/components/schemas/ErrorDetail'
+        request_id:
+          type: string
+        retryable:
+          type: boolean
+      additionalProperties: true
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Unauthorized:
+      description: Authentication required
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Forbidden:
+      description: Forbidden
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: Not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Conflict:
+      description: Conflict with current resource state
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    ValidationError:
+      description: Validation failed
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    RateLimited:
+      description: Rate limited
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    ServiceUnavailable:
+      description: Memory service unavailable; the request may be retried
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'

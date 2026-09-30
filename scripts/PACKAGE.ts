@@ -268,6 +268,14 @@ const docsDrift = Smithers.Shell.Diff({
   timeout: "5m"
 })
 
+// The per-tag OpenAPI bundler: ordering, refusals, merge-freedom across tags,
+// and that the committed bundle matches its sources.
+const openapiBundle = Smithers.NodeTest({
+  runner: Smithers.testRunner([Smithers.file("//scripts/openapi-bundle.test.mjs")]),
+  srcs: [...sources, Smithers.glob("//docs/api/openapi/*.yaml"), Smithers.file("//docs/api/openapi.yaml")],
+  deps: []
+})
+
 const driftJob = Smithers.NodeTest({
   runner: Smithers.testRunner([Smithers.file("//scripts/ci/drift-job.test.mjs")]),
   srcs: [
@@ -814,6 +822,7 @@ export const Package = Smithers.Package({
     apiBaseline,
     docsDrift,
     driftJob,
+    openapiBundle,
     nativeWindowsWorkflow,
     bunCoverage,
     commit,

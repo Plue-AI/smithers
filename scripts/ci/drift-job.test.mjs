@@ -20,6 +20,7 @@ const runFile = promisify(execFile)
 const gateCommands = [
   "pnpm exec smthrs lint '//...:fmt' --known-red '.github/ci-known-red.json' --verbose",
   "pnpm exec smthrs lint '//:targetIndex' --known-red '.github/ci-known-red.json' --verbose",
+  "pnpm exec smthrs lint '//:openapiBundle' --known-red '.github/ci-known-red.json' --verbose",
   "pnpm exec smthrs lint '//scripts:docsDrift' --known-red '.github/ci-known-red.json' --verbose",
   "pnpm exec smthrs build '//scripts:apiBaseline' --known-red '.github/ci-known-red.json' --verbose",
   "pnpm exec smthrs lint '//:driftCi' --known-red '.github/ci-known-red.json' --verbose",
