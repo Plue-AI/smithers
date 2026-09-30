@@ -110,6 +110,7 @@ inConversation
 import { PALETTE_MIRROR_KEY,THEME_MIRROR_KEY,rememberAppearance } from "./Appearance"
 import { consumeWriterTakeover, reportWriterMoved } from "./WriterOwnership"
 import { reportStorageFailure, type StoreFailure } from "./StorageFailure"
+import { storageWriteDiagnostic } from "./StorageWriteDiagnostics"
 import { isCurrentApprovalAnswer,type ApprovalAnswerInput } from "./ApprovalAnswerState"
 import { captureBrowserStorageRecovery,recoveryStorage } from "./BrowserStorageRecovery"
 import { CommandIntentSchema } from "./CommandIntent"
@@ -1410,6 +1411,12 @@ const initializeAppStore = async (
         // SQLite retains its failed writer state. A notice written through
         // that same journal would fail silently, so stop consumers and notify
         // the host before rollback wakes them. Never replay the refused act.
+        // Worker messages can contain SQL and row data. Report only this fixed
+        // classification, not the exception or its message.
+        try {
+          console.warn("Smithers: local write failed", storageWriteDiagnostic(error,
+            write.checkpoint !== undefined ? "checkpoint" : "event"))
+        } catch { /* Diagnostics cannot prevent the failed writer from closing. */ }
         rejectStorage(new StorageWriteFailedError())
       }
       if (acceptedGeneration === generation) {

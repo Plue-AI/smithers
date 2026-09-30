@@ -1,7 +1,10 @@
 import { expect, test } from "bun:test"
+import { Database } from "bun:sqlite"
 import type { MythicalItem, MythicalStack, MythicalWiki } from "@smthrs/rpc/Mythical"
-import { createAppStore } from "./AppStore"
+import { createAppStore, PERSISTED_COLLECTION_SPECS } from "./AppStore"
 import type { AppStore } from "./AppStore"
+import { APP_SCHEMA_VERSION } from "../chain/SchemaVersion"
+import { openSqliteRowStorage } from "../chain/SqliteRowStorage"
 import { scopedControllers } from "./ControllerTestScope"
 import { memoryStorage, unavailableAgent, waitFor } from "./TestFixtures"
 
@@ -390,6 +393,46 @@ test("a refused Wiki request fails on its notice with Retry", async () => {
   await waitFor(() => toast(store, WIKI_KEY)?.status === "failed")
   expect(toast(store, WIKI_KEY)?.action).toEqual({ flow: "wiki.create", args: REPO, label: "Retry" })
   expect(stackCard(store)?.payload.failure).toBeNull()
+})
+
+test("rapid refused Wiki attempts retain a healthy real SQLite writer and settle each notice", async () => {
+  const db = new Database(":memory:")
+  const adapter = await openSqliteRowStorage({
+    execute: async <Row>(sql: string, params: ReadonlyArray<unknown> = []) => {
+      const statement = db.query(sql)
+      if (/^\s*(SELECT|PRAGMA)/i.test(sql)) return statement.all(...params as []) as ReadonlyArray<Row>
+      statement.run(...params as []); return []
+    }, close: () => db.close()
+  }, { collections: PERSISTED_COLLECTION_SPECS, schemaVersion: APP_SCHEMA_VERSION })
+  const store = await createAppStore({ kind: "opfs", ...adapter,
+    storageEventApi: { addEventListener() {}, removeEventListener() {} }
+  })
+  const fake = cloud()
+  fake.handlers.set(`POST ${BASE}/wiki`, async () => Response.json({
+    code: "conflict", message: "create the history first; the stack keeps the wiki current"
+  }, { status: 409 }))
+  const failures: Error[] = []
+  store.onStorageFailure(error => { failures.push(error) })
+  const { controller } = await setup(fake, store)
+  try {
+    const results = await Promise.all([
+      controller.commands.run("wiki.create", REPO), controller.commands.run("wiki.create", REPO)
+    ])
+    expect(results.every(result => result.status === "executed")).toBe(true)
+    await waitFor(() => toast(store, WIKI_KEY)?.status === "failed")
+    expect(fake.writes.filter(write => write.path === `${BASE}/wiki`)).toHaveLength(1)
+    await waitFor(() => (store.session().wikiRequests ?? []).length === 0)
+
+    expect(await controller.commands.run("wiki.create", REPO)).toMatchObject({ status: "executed", value: "Requested" })
+    await waitFor(() => fake.writes.filter(write => write.path === `${BASE}/wiki`).length === 2)
+    await waitFor(() => (store.session().wikiRequests ?? []).length === 0)
+    expect(toast(store, WIKI_KEY)).toMatchObject({ status: "failed", action: { flow: "wiki.create", args: REPO, label: "Retry" } })
+    expect(failures).toEqual([])
+    expect((await store.verifyState()).valid).toBe(true)
+  } finally {
+    await controller.dispose()
+    await store.dispose?.()
+  }
 })
 
 test("a reload reconnects a running Wiki notice without sending the request again", async () => {

@@ -17,6 +17,9 @@ for (const count of [1, 12]) test(`a refused real SQLite write stops ${count} pe
   const directory = mkdtempSync(join(tmpdir(), "smithers-write-failure-")), path = join(directory, "app.sqlite")
   const held = Promise.withResolvers<void>(), entered = Promise.withResolvers<void>()
   let armed = false, writesAfterFailure = 0, failed = false
+  const originalWarn = console.warn
+  const diagnostics: Array<ReadonlyArray<unknown>> = []
+  let diagnosticSinkThrew = false
   const open = async () => {
     const db = new Database(path)
     const adapter = await openSqliteRowStorage({
@@ -36,6 +39,11 @@ for (const count of [1, 12]) test(`a refused real SQLite write stops ${count} pe
   let store: AppStore | undefined, restored: AppStore | undefined
   try {
     store = await open()
+    console.warn = (...parts: unknown[]) => {
+      if (parts[0] !== "Smithers: local write failed") return originalWarn(...parts)
+      diagnostics.push(parts)
+      if (count === 12) { diagnosticSinkThrew = true; throw new Error("diagnostic sink failed") }
+    }
     await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "owner", provider: "github", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
     const controller = controllerFor(store, silentAgent, {})
     await store.settled?.()
@@ -52,6 +60,11 @@ for (const count of [1, 12]) test(`a refused real SQLite write stops ${count} pe
     expect(outcomes.every(outcome => outcome.status === "failed")).toBe(true)
     expect(failures).toHaveLength(1)
     expect(failures[0]?.message).toBe("Changes could not be saved.")
+    expect(diagnostics).toEqual([["Smithers: local write failed", {
+      fault: "storage-unavailable", worker: "other", stage: "event"
+    }]])
+    expect(diagnosticSinkThrew).toBe(count === 12)
+    expect(JSON.stringify(diagnostics)).not.toContain("PRIVATE WORKER FAILURE")
     expect(controller.runCommand("account.show")).toBe(false)
     expect(() => controller.changeDraft("a later edit")).not.toThrow()
     expect(() => store!.dispatch({ type: "composer.changed", actor: "user", draft: "must not queue" })).toThrow()
@@ -67,8 +80,46 @@ for (const count of [1, 12]) test(`a refused real SQLite write stops ${count} pe
     expect((await retry.commands.run("signup.set", "name Retried name")).status).toBe("executed")
     expect(restored.session().signup?.draft.name).toBe("Retried name")
   } finally {
+    console.warn = originalWarn
     held.resolve(); await Promise.resolve(restored?.dispose?.()).catch(() => {}); await Promise.resolve(store?.dispose?.()).catch(() => {})
     rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test("a failed checkpoint names only its stage and still closes the SQLite writer", async () => {
+  const db = new Database(":memory:")
+  let fail = false
+  const adapter = await openSqliteRowStorage({
+    execute: async <Row>(sql: string, params: ReadonlyArray<unknown> = []) => {
+      if (fail && sql === "BEGIN IMMEDIATE") throw new Error("PRIVATE CHECKPOINT SQL")
+      const statement = db.query(sql)
+      if (/^\s*(SELECT|PRAGMA)/i.test(sql)) return statement.all(...params as []) as ReadonlyArray<Row>
+      statement.run(...params as []); return []
+    }, close: () => db.close()
+  }, { collections: PERSISTED_COLLECTION_SPECS, schemaVersion: APP_SCHEMA_VERSION })
+  const store = await createAppStore({ kind: "opfs", ...adapter,
+    storageEventApi: { addEventListener() {}, removeEventListener() {} }
+  })
+  const diagnostics: Array<ReadonlyArray<unknown>> = []
+  const originalWarn = console.warn
+  console.warn = (...parts: unknown[]) => {
+    if (parts[0] === "Smithers: local write failed") diagnostics.push(parts)
+    else originalWarn(...parts)
+  }
+  try {
+    const failures: Error[] = []
+    store.onStorageFailure(error => { failures.push(error) })
+    fail = true
+    await expect(store.compactEvents()).rejects.toThrow("PRIVATE CHECKPOINT SQL")
+    expect(diagnostics).toEqual([["Smithers: local write failed", {
+      fault: "storage-unavailable", worker: "other", stage: "checkpoint"
+    }]])
+    expect(JSON.stringify(diagnostics)).not.toContain("PRIVATE CHECKPOINT SQL")
+    expect(failures.map(error => error.message)).toEqual(["Changes could not be saved."])
+    expect(() => store.dispatch({ type: "composer.changed", actor: "user", draft: "must not queue" })).toThrow()
+  } finally {
+    console.warn = originalWarn
+    await Promise.resolve(store.dispose?.()).catch(() => {})
   }
 })
 
