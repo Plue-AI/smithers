@@ -111,7 +111,7 @@ func TestServerRouter_LFSVerifyRepositoryVisibility(t *testing.T) {
 			r.Header.Set("Authorization", lfsVerifyScopedAuthorization(t, repo, 999, oid, 1))
 			return r
 		}},
-		{name: "scoped verify wrong path", status: 404, public: 404, auth: func(t *testing.T, r *http.Request, _ string) *http.Request {
+		{name: "scoped verify wrong path", status: 403, public: 403, auth: func(t *testing.T, r *http.Request, _ string) *http.Request {
 			r.Header.Set("Authorization", lfsVerifyScopedAuthorization(t, "other", 999, oid, 1))
 			return r
 		}},

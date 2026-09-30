@@ -136,6 +136,9 @@ func TestServerRouter_TelemetrySelectsWorkerQuotaAndIngests(t *testing.T) {
 		require.Equal(t, http.StatusNoContent, rec.Code)
 		require.Equal(t, "120", rec.Header().Get("X-RateLimit-Limit"))
 	}
-	require.Equal(t, "10", post("Bearer wrong-secret").Header().Get("X-RateLimit-Limit"))
-	require.Equal(t, float64(42), testutil.ToFloat64(metrics.ClientErrorsTotal.WithLabelValues("web", "TypeError")))
+	invalid := post("Bearer wrong-secret")
+	require.Equal(t, http.StatusUnauthorized, invalid.Code)
+	require.Contains(t, invalid.Header().Get("WWW-Authenticate"), `error="invalid_token"`)
+	require.Empty(t, invalid.Header().Get("X-RateLimit-Limit"), "auth rejects the credential before the endpoint limiter")
+	require.Equal(t, float64(41), testutil.ToFloat64(metrics.ClientErrorsTotal.WithLabelValues("web", "TypeError")))
 }
