@@ -1,5 +1,7 @@
 # Web mode (funnel) beside native mode (default) — combined plan
 
+> Superseded 2026-09-30 (smithersai/smithers#3228): the chat Worker and its `SMITHERS_CHAT_URL`/`SMITHERS_CHAT_ORIGIN` settings are retired; every chat turn is the shared backend's `POST /api/agent/turn`.
+>
 > Partly superseded 2026-09-27 (smithersai/smithers#2239): the local repository inventory (`repos.loaded`), pins (`repo.pinned`, `repo.unpinned`, `repo.unpin`), `repo.open`, `local:` working copies and `POST /api/repo/files` are gone. Working copies are boxes and shared copies.
 
 Synthesis, 2026-09-02 20:50, from `web-mode.BRIEF.md`, `web-mode.fable.md`
@@ -214,7 +216,7 @@ the initial chunk group.
   (`DEPLOY.md:8-21`). Add `"env": { "production": { "name": "smithers-web",
   "routes": [{ "pattern": "app.smithers.sh", "custom_domain": true }],
   "assets": ..., "durable_objects": ..., "vars": { "SMITHERS_CHAT_URL":
-  "https://chat.smithers.sh/chat", "SMITHERS_CHAT_ORIGIN":
+  "<chat Worker URL>", "SMITHERS_CHAT_ORIGIN":
   "https://app.smithers.sh", "IDENTITY_UPSTREAM_URL": "https://identity.smithers.sh", ... } } }`.
   Wrangler does not inherit `assets` or `durable_objects` into an env, so
   both are re-declared; `migrations` are shared. Fresh DO storage is right:

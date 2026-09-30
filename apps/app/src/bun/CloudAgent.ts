@@ -1,51 +1,42 @@
 import { Cause, Effect, Fiber, FiberSet, Scope } from "effect"
-import { composeAgentInstructions } from "@smthrs/rpc/AgentContext"
-import { CardPatchSchema, CardSchema } from "@smthrs/rpc/Cards"
-import { AgentTurnDoneReasonSchema } from "@smthrs/rpc/NativeAgent"
+import { createHash, randomBytes } from "node:crypto"
+import { CANCEL_PATH, TURN_ERASE_PATH, TURN_PATH } from "@smthrs/rpc/AgentApiRoutes"
+import { AgentTurnJournalDeliverySchema, agentTurnJournalDigestInput } from "@smthrs/rpc/AgentTurnJournal"
+import { CardSchema } from "@smthrs/rpc/Cards"
 import type {
   AgentTurnFrame,
   FetchLike,
   StartAgentTurnRequest,
   StartAgentTurnResult
 } from "@smthrs/rpc/NativeAgent"
-import { z } from "zod"
 
-const DEFAULT_CHAT_URL = "https://chat.smithers.sh/chat"
-const DEFAULT_APP_ORIGIN = "https://smithers.sh"
 const MAX_ERROR_BYTES = 320
 
+/** The refusal a signed-out hybrid host gives a chat turn. */
+export const CLOUD_CHAT_SIGN_IN = "Sign in to Smithers Cloud to chat — /cloud.sign-in."
+
+/*
+ * The hybrid host's agent: every turn is a leg on the shared backend's
+ * canonical turn contract (`POST /api/agent/turn` on the Smithers Cloud API),
+ * sent as the signed-in Cloud user. The backend composes the runtime context
+ * into the model's instructions, so the turn rides the wire as the renderer
+ * sent it.
+ *
+ * The leg is a relay, not a second record: this host's own journal
+ * (NativeTurnJournal.ts) keeps what the renderer was sent, and the user's
+ * retire and erase act on that. Once a leg ends, however it ends, the agent
+ * cancels it if it never reached its terminal frame and erases the backend's
+ * copy with the leg's own deletion proof.
+ */
 export interface CloudAgentConfig {
-  readonly chatUrl?: string
-  readonly origin?: string
+  /** The Smithers Cloud API origin (the shared backend). */
+  readonly api: string
+  /** The Bun-held Cloud bearer, read per turn; undefined while signed out. */
+  readonly token: () => string | undefined
   readonly fetchImpl?: FetchLike
 }
 
 type PublishFrame = (frame: AgentTurnFrame) => void
-
-/** The upstream wire frame: an AgentTurnFrame without its runId (added on publish). */
-const WireAgentFrameSchema = z.discriminatedUnion("type", [
-  z.object({
-    type: z.literal("delta"),
-    kind: z.enum(["reasoning", "text"]),
-    text: z.string()
-  }),
-  z.object({
-    type: z.literal("done"),
-    reason: AgentTurnDoneReasonSchema.optional(),
-    error: z.string().optional()
-  }),
-  z.object({ type: z.literal("card"), card: CardSchema }),
-  z.object({ type: z.literal("card.update"), id: z.string(), patch: CardPatchSchema }),
-  z.object({
-    type: z.literal("tool_call"),
-    call_id: z.string(),
-    name: z.string(),
-    arguments: z.string()
-  })
-])
-type WireAgentFrame = z.infer<typeof WireAgentFrameSchema>
-
-const isFrame = (value: unknown): value is WireAgentFrame => WireAgentFrameSchema.safeParse(value).success
 
 const responseError = async (response: Response): Promise<string> => {
   const detail = (await response.text().catch(() => "")).trim().slice(0, MAX_ERROR_BYTES)
@@ -53,6 +44,40 @@ const responseError = async (response: Response): Promise<string> => {
 }
 
 const asError = (error: unknown): Error => error instanceof Error ? error : new Error("Smithers Cloud chat failed.")
+
+const upstreamUrl = (api: string, path: string): string => new URL(path, new URL(api).origin).toString()
+
+/** One backend leg: its identity, its private replay capability, and how far it got. */
+interface Leg {
+  readonly runId: string
+  readonly legId: string
+  readonly token: string
+  readonly bearer: string
+  admitted: boolean
+  settled: boolean
+}
+
+const openLeg = (bearer: string): Leg =>
+  ({ runId: crypto.randomUUID(), legId: crypto.randomUUID(), token: randomBytes(32).toString("base64url"), bearer, admitted: false, settled: false })
+
+/** Stop an unfinished leg, then erase the backend's copy; best effort, nothing waits on it. */
+const releaseLeg = (leg: Leg, config: CloudAgentConfig): Promise<void> => {
+  if (!leg.admitted) return Promise.resolve()
+  const post = (path: string, headers: Record<string, string>, body: unknown) => (config.fetchImpl ?? fetch)(upstreamUrl(config.api, path), {
+    method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body)
+  }).then(response => { void response.body?.cancel().catch(() => {}) }, () => {})
+  const cancelled = leg.settled ? Promise.resolve() : post(CANCEL_PATH, { authorization: `Bearer ${leg.bearer}` }, { runId: leg.runId })
+  // The proof is the hash of the replay capability; erasure needs no session.
+  const retirementProof = createHash("sha256").update(agentTurnJournalDigestInput("access", leg.token)).digest("hex")
+  return cancelled.then(() => post(TURN_ERASE_PATH, {}, { runId: leg.runId, legId: leg.legId, retirementProof }))
+}
+/** The frame on the caller's run: the upstream leg has its own run id, the transcript never sees it. */
+const onCallerRun = (frame: AgentTurnFrame, runId: string, upstreamRunId: string): AgentTurnFrame => {
+  if (frame.type === "card" && "runId" in frame.card.payload && frame.card.payload.runId === upstreamRunId) {
+    return { ...frame, runId, card: CardSchema.parse({ ...frame.card, payload: { ...frame.card.payload, runId } }) }
+  }
+  return { ...frame, runId }
+}
 
 /*
  * One turn as an interruptible Effect (Ruling B, docs/persistence.md). The
@@ -63,41 +88,29 @@ const asError = (error: unknown): Error => error instanceof Error ? error : new 
  */
 const streamTurn = (
   request: StartAgentTurnRequest,
+  leg: Leg,
   publish: PublishFrame,
   config: CloudAgentConfig
 ): Effect.Effect<void, Error, Scope.Scope> =>
   Effect.gen(function*() {
-    // Billing belongs to this provider invocation, while frames and cancellation retain the caller's id.
-    const upstreamRunId = crypto.randomUUID()
-    // The hidden runtime context is rendered server-side into the
-    // instructions: upstream sees one string, secrets and structure stay on
-    // this side, and the visible transcript never holds it. The chat seam caps
-    // that one string (16 KiB), so its size is named when the seam refuses.
-    const composedInstructions = composeAgentInstructions(request.instructions, request.context)
+    // A request that left may have been admitted even if its answer never arrives.
+    leg.admitted = true
     const response = yield* Effect.tryPromise({
       try: (signal) =>
-        (config.fetchImpl ?? fetch)(config.chatUrl?.trim() || DEFAULT_CHAT_URL, {
+        (config.fetchImpl ?? fetch)(upstreamUrl(config.api, TURN_PATH), {
           method: "POST",
           signal,
-          headers: {
-            "content-type": "application/json",
-            origin: config.origin?.trim() || DEFAULT_APP_ORIGIN,
-            "x-smithers-run-id": upstreamRunId
-          },
+          headers: { "content-type": "application/json", authorization: `Bearer ${leg.bearer}` },
           body: JSON.stringify({
+            // Each leg is its own backend run and journal: a tool-loop
+            // continuation re-POSTs the caller's run id, never the upstream's.
+            runId: leg.runId,
+            journal: { version: 1, legId: leg.legId, token: leg.token },
             messages: request.messages,
-            instructions: composedInstructions,
-            // The tool-loop contract (Wave 3b): the tool specs ride every turn on
-            // this boundary exactly as they do on the product Worker, otherwise the
-            // model is never offered a command and the loop can never start.
+            instructions: request.instructions,
+            ...(request.context === undefined ? {} : { context: request.context }),
             ...(request.tools === undefined ? {} : { tools: request.tools }),
-            // The model-tier hint (the recommender's `cheap`); the serving side maps it.
             ...(request.tier === undefined ? {} : { tier: request.tier }),
-            // The purpose and the named role (AgentRoles.ts) ride the wire as
-            // hints too; a server that ignores them answers on its default model.
-            // A cloud role (librarian, flows) is the exception: the app Worker
-            // answers it itself on Cerebras (apps/server/src/cloudRoleTurn.ts),
-            // and this native seam has no such key, so here it stays a hint.
             ...(request.purpose === undefined ? {} : { purpose: request.purpose }),
             ...(request.role === undefined ? {} : { role: request.role })
           })
@@ -105,14 +118,10 @@ const streamTurn = (
       catch: asError
     })
     if (!response.ok) {
-      const message = yield* Effect.promise(() => responseError(response))
-      // A size refusal names the size it refused, so the failure is diagnosable from the transcript.
-      const sized = response.status === 400 && /instructions/i.test(message)
-        ? `${message} (this turn's composed instructions were ${new TextEncoder().encode(composedInstructions).length} bytes)`
-        : message
-      return yield* Effect.fail(new Error(sized))
+      leg.admitted = false
+      return yield* Effect.fail(new Error(yield* Effect.promise(() => responseError(response))))
     }
-    if (response.body === null) {
+    if (response.body === null || !(response.headers.get("content-type") ?? "").includes("application/x-ndjson")) {
       return yield* Effect.fail(new Error("Smithers Cloud returned no response stream."))
     }
 
@@ -122,7 +131,6 @@ const streamTurn = (
     )
     const decoder = new TextDecoder()
     let buffer = ""
-    let settled = false
     const readLine = (line: string): void => {
       if (line.trim() === "") return
       let parsed: unknown
@@ -131,40 +139,20 @@ const streamTurn = (
       } catch {
         return
       }
-      if (!isFrame(parsed)) return
-      switch (parsed.type) {
-        case "delta":
-          publish({ runId: request.runId, type: "delta", kind: parsed.kind, text: parsed.text })
-          break
-        case "card":
-          publish({ runId: request.runId, type: "card", card: "runId" in parsed.card.payload && parsed.card.payload.runId === upstreamRunId
-            ? CardSchema.parse({ ...parsed.card, payload: { ...parsed.card.payload, runId: request.runId } })
-            : parsed.card })
-          break
-        case "card.update":
-          publish({ runId: request.runId, type: "card.update", id: parsed.id, patch: parsed.patch })
-          break
-        case "tool_call":
-          publish({
-            runId: request.runId,
-            type: "tool_call",
-            call_id: parsed.call_id,
-            name: parsed.name,
-            arguments: parsed.arguments
-          })
-          break
-        case "done":
-          publish({
-            runId: request.runId,
-            type: "done",
-            // `reason` is how the client tells an ordinary stop from the
-            // upstream tool-call cap; dropping it turned an honest
-            // tool_limit into a bare "empty response".
-            ...(parsed.reason === undefined ? {} : { reason: parsed.reason }),
-            ...(parsed.error ? { error: parsed.error } : {})
-          })
-          settled = true
-          break
+      const delivery = AgentTurnJournalDeliverySchema.safeParse(parsed)
+      if (!delivery.success || delivery.data.cursor.runId !== leg.runId || delivery.data.cursor.legId !== leg.legId) return
+      if (delivery.data.type === "caught-up") {
+        if (delivery.data.terminal && !leg.settled) {
+          leg.settled = true
+          publish({ runId: request.runId, type: "done" })
+        }
+        return
+      }
+      if (delivery.data.type !== "batch") return
+      for (const frame of delivery.data.batch.frames) {
+        if (leg.settled) return
+        publish(onCallerRun(frame, request.runId, leg.runId))
+        if (frame.type === "done") leg.settled = true
       }
     }
 
@@ -174,9 +162,9 @@ const streamTurn = (
       const lines = buffer.split("\n")
       buffer = done ? "" : (lines.pop() ?? "")
       for (const line of lines) readLine(line)
-      if (done || settled) break
+      if (done || leg.settled) break
     }
-    if (!settled) publish({ runId: request.runId, type: "done" })
+    if (!leg.settled) return yield* Effect.fail(new Error("The response stream ended before Smithers finished the turn."))
   })
 
 export interface CloudAgent {
@@ -186,7 +174,7 @@ export interface CloudAgent {
 
 export const createCloudAgent = (
   publish: PublishFrame,
-  config: CloudAgentConfig = {}
+  config: CloudAgentConfig
 ): CloudAgent => {
   /*
    * The scoped transport: one FiberSet owned by a Scope this agent holds, so
@@ -213,11 +201,16 @@ export const createCloudAgent = (
       if (activeTurns.has(request.runId)) {
         return { status: "error", message: "That Smithers turn is already running." }
       }
+      const bearer = config.token()
+      if (bearer === undefined) {
+        return { status: "error", message: CLOUD_CHAT_SIGN_IN, refusal: { code: "sign_in_required", message: CLOUD_CHAT_SIGN_IN, retryAt: null } }
+      }
       // Registered before the fork so a turn that settles without ever
       // suspending deregisters itself instead of leaving a stale entry.
       const entry: TurnEntry = {}
       activeTurns.set(request.runId, entry)
-      const turn = Effect.scoped(streamTurn(request, publish, config)).pipe(
+      const leg = openLeg(bearer)
+      const turn = Effect.scoped(streamTurn(request, leg, publish, config)).pipe(
         Effect.catchCause((cause) =>
           Cause.hasInterruptsOnly(cause)
             ? Effect.void
@@ -233,6 +226,7 @@ export const createCloudAgent = (
         Effect.ensuring(
           Effect.sync(() => {
             if (activeTurns.get(request.runId) === entry) activeTurns.delete(request.runId)
+            void releaseLeg(leg, config)
           })
         )
       )
@@ -243,6 +237,7 @@ export const createCloudAgent = (
       const active = activeTurns.get(runId)
       if (active === undefined) return { status: "not-found" }
       activeTurns.delete(runId)
+      // The interrupted turn's release cancels and erases its backend leg.
       if (active.fiber !== undefined) Effect.runFork(Fiber.interrupt(active.fiber))
       return { status: "cancelled" }
     }

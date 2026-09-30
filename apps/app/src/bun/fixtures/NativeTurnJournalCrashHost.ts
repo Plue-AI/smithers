@@ -4,11 +4,12 @@ import type { StartAgentTurnRequest } from "@smthrs/rpc/NativeAgent"
 import { LOCAL_SESSION_HEADER } from "@smthrs/rpc/LocalSession"
 import { createNativeTurnJournal } from "../NativeTurnJournal"
 import { startLocalServer } from "../server"
+import { signedInKeychain } from "./FakeBackendTurns"
 
 // An owned test process only. The gate withholds committed HTTP output before
 // it can reach the consumer; SIGKILL bypasses every graceful shutdown hook.
-const [root, modelUrl, boundary] = process.argv.slice(2)
-if (!root || !modelUrl || (boundary !== "acceptance" && boundary !== "batch" && boundary !== "before-inference")) throw new Error("Invalid crash fixture")
+const [root, backendUrl, boundary] = process.argv.slice(2)
+if (!root || !backendUrl || (boundary !== "acceptance" && boundary !== "batch" && boundary !== "before-inference")) throw new Error("Invalid crash fixture")
 if (boundary === "before-inference") {
   const journal = createNativeTurnJournal(`${root}/state`)
   const token = crypto.randomUUID()
@@ -27,8 +28,8 @@ if (boundary === "before-inference") {
 } else {
   const host = await startLocalServer({
     port: 0, distDir: root, home: root, stateDir: `${root}/state`,
-    cloudMode: "hybrid", cloudApi: null, identityUpstream: null,
-    chat: { chatUrl: modelUrl }, log: () => {}
+    cloudMode: "hybrid", cloudApi: backendUrl, cloudKeychain: signedInKeychain(), identityUpstream: null,
+    log: () => {}
   })
   const never = new Promise<never>(() => {})
   const gate = Bun.serve({ hostname: "127.0.0.1", port: 0, idleTimeout: 0, async fetch(request) {

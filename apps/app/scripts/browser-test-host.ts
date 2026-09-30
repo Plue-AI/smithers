@@ -3,7 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { MODEL_CREDENTIAL_ENV_PREFIX } from "@smthrs/rpc/ConfiguredModel"
 import { createChatStub } from "../e2e/support/ChatStub"
-import { startLocalServer } from "../src/bun/server"
+import { DEFAULT_CLOUD_API, startLocalServer } from "../src/bun/server"
 import type { LocalServerOptions } from "../src/bun/server"
 
 /** Test-only composition. A stubbed model is not permission to inspect host credentials. */
@@ -26,7 +26,14 @@ export const browserTestOptions = (
     distDir,
     ...(realChat ? {} : { agent: createChatStub }),
     cloudMode: realChat ? "hybrid" : "offline",
-    cloudApi: null,
+    // Real chat is a backend turn (`/api/agent/turn`) as the Cloud user that
+    // SMITHERS_CLOUD_TOKEN names; the empty keychain never reads a stored login.
+    cloudApi: realChat ? env.SMITHERS_CLOUD_API ?? DEFAULT_CLOUD_API : null,
+    cloudKeychain: {
+      read: async () => null,
+      write: async () => {},
+      remove: async () => {}
+    },
     identityUpstream: null,
     env: modelEnv,
     modelKeychain: {

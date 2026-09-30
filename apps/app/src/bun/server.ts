@@ -58,7 +58,7 @@ import type { AgentTurnFrame, StartAgentTurnRequest } from "@smthrs/rpc/NativeAg
 import { AgentTurnJournalRequestSchema } from "@smthrs/rpc/AgentTurnJournal"
 import { createNativeTurnJournal } from "./NativeTurnJournal"
 import { handleBrowserFetch } from "./BrowserFetch"
-import { createCloudAgent } from "./CloudAgent"
+import { CLOUD_CHAT_SIGN_IN, createCloudAgent } from "./CloudAgent"
 import type { CloudAgent } from "./CloudAgent"
 import { createCloudAuth } from "./CloudAuth"
 import type { CloudAuth, CloudKeychain } from "./CloudAuth"
@@ -71,8 +71,6 @@ import { machineReadableRefusal, upstreamRefusalMessage } from "@smthrs/rpc/Upst
 import { decodePath, invalidPath, json, jsonError, readJson, refuse, Router } from "./routes"
 import type { RouteHandler } from "./routes"
 
-/** chat.smithers.sh accepts this origin anonymously (verified 2026-08-26). */
-export const DEFAULT_CHAT_ORIGIN = "https://canary.smithers.sh"
 /** The deployed identity seam the sign-in device flow talks to. */
 export const DEFAULT_IDENTITY_UPSTREAM = "https://canary.smithers.sh"
 /** The Smithers Cloud API `/api/cloud/*` forwards to (SMITHERS_CLOUD_API overrides). */
@@ -130,14 +128,14 @@ export interface LocalServerOptions {
   readonly distDir: string
   /**
    * The agent behind the chat boundary, built with the frame publisher this
-   * host owns. Injected, never selected here: production passes nothing and
-   * gets the Smithers Cloud agent, and a test tier passes its own double
+   * host owns. Injected, never selected here: hybrid with none gets the
+   * Smithers Cloud agent (the backend's `/api/agent/turn`, as the signed-in
+   * Cloud user), and a test tier passes its own double
    * (e2e/support/ChatStub.ts). Offline with none is a host with no agent.
    */
   readonly agent?: (publish: (frame: AgentTurnFrame) => void) => CloudAgent
   /** Offline has no network egress; hybrid explicitly enables Smithers Cloud. */
   readonly cloudMode?: "offline" | "hybrid"
-  readonly chat?: { readonly chatUrl?: string; readonly origin?: string }
   /**
    * Where `/api/auth/*` and `/api/identity/*` are forwarded so the sign-in
    * device flow reaches a real identity seam. `null` disables the proxy; the
@@ -691,11 +689,8 @@ export const startLocalServer = async (options: LocalServerOptions): Promise<Loc
   const publishFrame = (frame: AgentTurnFrame): void => writers.get(frame.runId)?.write(frame)
   const agent: CloudAgent | undefined = options.agent !== undefined
     ? options.agent(publishFrame)
-    : remoteEnabled
-    ? createCloudAgent(publishFrame, {
-      chatUrl: options.chat?.chatUrl ?? Bun.env.SMITHERS_CHAT_URL,
-      origin: options.chat?.origin ?? Bun.env.SMITHERS_CHAT_ORIGIN ?? DEFAULT_CHAT_ORIGIN
-    })
+    : cloudUpstream !== null && cloudAuth !== undefined
+    ? createCloudAgent(publishFrame, { api: cloudUpstream, token: cloudAuth.token })
     : undefined
   const finish = (runId: string, writer: TurnWriter): void => {
     if (writers.get(runId) === writer) writers.delete(runId)
@@ -861,7 +856,7 @@ export const startLocalServer = async (options: LocalServerOptions): Promise<Loc
     const started = agent.start(body)
     if (started.status === "error") {
       writers.delete(runId)
-      return jsonError("turn_running", started.message)
+      return jsonError(started.refusal?.code === "sign_in_required" ? "cloud_sign_in_required" : "turn_running", started.message)
     }
     return respond()
   }
@@ -874,6 +869,10 @@ export const startLocalServer = async (options: LocalServerOptions): Promise<Loc
     }
     const body = parsed.body
     if ("model" in body) await modelCredentials.refresh()
+    // Refused by code before a recorded leg is admitted: the Cloud agent sends every turn as the signed-in user.
+    else if (options.agent === undefined && agent !== undefined && cloudAuth?.token() === undefined) {
+      return jsonError("cloud_sign_in_required", CLOUD_CHAT_SIGN_IN)
+    }
     if (body.journal === undefined) return startChatTurn(body)
     const journal = AgentTurnJournalRequestSchema.safeParse(body.journal)
     if (!journal.success) return jsonError("invalid_request", "The recorded turn identity is invalid.")

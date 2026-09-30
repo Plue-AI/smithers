@@ -8,6 +8,7 @@ import { TURN_PATH, TURN_REPLAY_PATH, TURN_RETIRE_PATH, TURN_ERASE_PATH } from "
 import { AgentTurnJournalDeliverySchema, agentTurnJournalDigestInput } from "@smthrs/rpc/AgentTurnJournal"
 import type { AgentTurnCursor } from "@smthrs/rpc/AgentTurnJournal"
 import { LOCAL_SESSION_HEADER } from "@smthrs/rpc/LocalSession"
+import { fakeBackend, signedInKeychain } from "./fixtures/FakeBackendTurns"
 import { startLocalServer } from "./server"
 import type { LocalServer } from "./server"
 
@@ -21,13 +22,13 @@ const fixture = async (upstream: () => Response) => {
   const root = await mkdtemp(join(tmpdir(), "smithers-native-journal-"))
   await writeFile(join(root, "index.html"), "<!doctype html><title>Test</title>")
   let calls = 0
-  const model = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => { calls++; return upstream() } })
+  const model = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: fakeBackend(() => { calls++; return upstream() }) })
   const hosts: LocalServer[] = []
   const boot = async (persist = true) => {
     const host = await startLocalServer({
       port: 0, distDir: root, home: root, ...(persist ? { stateDir: join(root, "state") } : {}),
-      cloudMode: "hybrid", cloudApi: null, identityUpstream: null,
-      chat: { chatUrl: `http://127.0.0.1:${model.port}/chat` }, log: () => {}
+      cloudMode: "hybrid", cloudApi: `http://127.0.0.1:${model.port}`, cloudKeychain: signedInKeychain(), identityUpstream: null,
+      log: () => {}
     })
     hosts.push(host)
     return host

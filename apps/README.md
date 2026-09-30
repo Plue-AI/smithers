@@ -32,8 +32,9 @@ backend, and the retired identity, billing and chat Workers.
 | `pnpm --filter smithers-app run build` | anywhere        | The Electrobun bundle: `vite build` into `apps/app/dist`, then `electrobun build`.                                                                             |
 
 The app serves the SPA from a Bun local origin on `127.0.0.1` and forwards
-`/api/auth/*` and `/api/identity/*` to `https://canary.smithers.sh`; chat calls
-`chat.smithers.sh` with no login. Ports, env flags (`SMITHERS_LOCAL_PORT`,
+`/api/auth/*` and `/api/identity/*` to `https://canary.smithers.sh`; chat is a
+turn on the shared backend's `/api/agent/turn` as the signed-in Smithers Cloud
+user. Ports, env flags (`SMITHERS_LOCAL_PORT`,
 `SMITHERS_CHAT_STUB`, ...), the HTTP and WebSocket API, and the test tiers are
 specified in `apps/app/docs/LOCAL-APP.md`. Signed-in state completes on the
 canary origin: the session cookie and the GitHub OAuth callback are bound

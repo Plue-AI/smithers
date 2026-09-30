@@ -39,7 +39,10 @@ exist.
 ## Local modes
 
 `SMITHERS_LOCAL_MODE=offline` is the headless default and performs no Smithers
-Cloud requests. `hybrid` enables the configured chat and identity upstreams.
+Cloud requests. `hybrid` enables the Smithers Cloud and identity upstreams:
+chat turns go to the shared backend's `POST /api/agent/turn` on
+`SMITHERS_CLOUD_API` as the signed-in Cloud user (`src/bun/CloudAgent.ts`),
+and signed out a turn is refused with `cloud_sign_in_required`.
 `SMITHERS_CHAT_STUB=1` selects the deterministic in-process agent
 (`e2e/support/ChatStub.ts`) in the two hosts that read it — the browser test
 host and the packaged app. `startLocalServer` itself never reads it: an agent
@@ -446,7 +449,8 @@ strings. `cloudFixture.spec.ts` checks these contracts and override isolation.
 
 The default Playwright host also owns a temporary home/state directory and
 reads no host credentials. `SMITHERS_CHAT_STUB=0` is an explicit real-chat
-request. A successful server shutdown removes only its owned temporary
+request: the turn runs on the backend (`SMITHERS_CLOUD_API`) as the Cloud user
+`SMITHERS_CLOUD_TOKEN` names; no stored login is read. A successful server shutdown removes only its owned temporary
 directory; failed startup/shutdown retains it for inspection.
 
 The root `test:e2e` command packages the stable macOS app with Electrobun's

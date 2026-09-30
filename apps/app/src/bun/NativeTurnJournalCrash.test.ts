@@ -7,6 +7,7 @@ import { TURN_PATH, TURN_REPLAY_PATH } from "@smthrs/rpc/AgentApiRoutes"
 import { AgentTurnJournalDeliverySchema, AgentTurnJournalHeadSchema, AgentTurnJournalReplySchema } from "@smthrs/rpc/AgentTurnJournal"
 import { LOCAL_SESSION_HEADER } from "@smthrs/rpc/LocalSession"
 import { createAppStore } from "../mainview/state/AppStore"
+import { fakeBackend, signedInKeychain } from "./fixtures/FakeBackendTurns"
 import { startLocalServer } from "./server"
 import type { LocalServer } from "./server"
 
@@ -34,12 +35,12 @@ describe("native HTTP journal survives an actual killed writer", () => {
     const root = await mkdtemp(join(tmpdir(), "smithers-killed-before-inference-"))
     await writeFile(join(root, "index.html"), "<!doctype html><title>Crash fixture</title>")
     let calls = 0
-    const model = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => {
+    const model = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: fakeBackend(() => {
       calls++
       return new Response("unexpected inference", { status: 500 })
-    } })
+    }) })
     const child = Bun.spawn([process.execPath, join(import.meta.dir, "fixtures/NativeTurnJournalCrashHost.ts"), root,
-      `http://127.0.0.1:${model.port}/chat`, "before-inference"], { stdout: "pipe", stderr: "pipe" })
+      `http://127.0.0.1:${model.port}`, "before-inference"], { stdout: "pipe", stderr: "pipe" })
     const stderr = new Response(child.stderr).text()
     const receipt = nextLine(child.stdout)
     let reopened: LocalServer | undefined
@@ -66,8 +67,8 @@ describe("native HTTP journal survives an actual killed writer", () => {
       expect(head.terminal).toBe(false)
 
       reopened = await startLocalServer({ port: 0, distDir: root, home: root, stateDir: join(root, "state"),
-        cloudMode: "hybrid", cloudApi: null, identityUpstream: null,
-        chat: { chatUrl: `http://127.0.0.1:${model.port}/chat` }, log: () => {} })
+        cloudMode: "hybrid", cloudApi: `http://127.0.0.1:${model.port}`, cloudKeychain: signedInKeychain(), identityUpstream: null,
+        log: () => {} })
       expect((await post(reopened.origin, ready.token, TURN_REPLAY_PATH, { runId: turn.runId, journal })).status).toBe(401)
       const initial = await post(reopened.origin, reopened.sessionToken, TURN_REPLAY_PATH, { runId: turn.runId, journal })
       expect(initial.status).toBe(200)
@@ -108,15 +109,15 @@ describe("native HTTP journal survives an actual killed writer", () => {
     await writeFile(join(root, "index.html"), "<!doctype html><title>Crash fixture</title>")
     let calls = 0
     const frames = Array.from({ length: 64 }, (_, index) => ({ runId: turn.runId, type: "delta", kind: "text", text: `part-${index};` }))
-    const model = Bun.serve({ hostname: "127.0.0.1", port: 0, idleTimeout: 0, fetch: () => {
+    const model = Bun.serve({ hostname: "127.0.0.1", port: 0, idleTimeout: 0, fetch: fakeBackend(() => {
       calls++
       return new Response(new ReadableStream<Uint8Array>({ start(controller) {
         if (boundary === "batch") controller.enqueue(new TextEncoder().encode(frames.map(frame => JSON.stringify(frame)).join("\n") + "\n"))
         // Remain live: there is deliberately no terminal frame or clean EOF.
       } }))
-    } })
+    }) })
     const child = Bun.spawn([process.execPath, join(import.meta.dir, "fixtures/NativeTurnJournalCrashHost.ts"), root,
-      `http://127.0.0.1:${model.port}/chat`, boundary], { stdout: "pipe", stderr: "pipe" })
+      `http://127.0.0.1:${model.port}`, boundary], { stdout: "pipe", stderr: "pipe" })
     const stderr = new Response(child.stderr).text()
     const receipt = nextLine(child.stdout)
     const bytes = new Map<string, string>()
@@ -151,8 +152,8 @@ describe("native HTTP journal survives an actual killed writer", () => {
       expect(store.collections.httpTurnLegs.get(journal.legId)?.cursor).toEqual(accepted.cursor)
 
       reopened = await startLocalServer({ port: 0, distDir: root, home: root, stateDir: join(root, "state"),
-        cloudMode: "hybrid", cloudApi: null, identityUpstream: null,
-        chat: { chatUrl: `http://127.0.0.1:${model.port}/chat` }, log: () => {} })
+        cloudMode: "hybrid", cloudApi: `http://127.0.0.1:${model.port}`, cloudKeychain: signedInKeychain(), identityUpstream: null,
+        log: () => {} })
       expect((await post(reopened.origin, ready.token, TURN_REPLAY_PATH, { runId: turn.runId, journal })).status).toBe(401)
       const replay = await post(reopened.origin, reopened.sessionToken, TURN_REPLAY_PATH, { runId: turn.runId, journal, after: accepted.cursor })
       expect(replay.status).toBe(200)

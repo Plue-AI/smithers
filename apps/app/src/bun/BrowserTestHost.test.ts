@@ -8,7 +8,7 @@ import { LOCAL_SESSION_HEADER } from "@smthrs/rpc/LocalSession"
 import { createChatStub } from "../../e2e/support/ChatStub"
 import { browserTestOptions } from "../../scripts/browser-test-host"
 import { createModelCredentials, MODEL_KEYCHAIN_SERVICE, modelKeychainAccount } from "./ModelCredentials"
-import { startLocalServer } from "./server"
+import { DEFAULT_CLOUD_API, startLocalServer } from "./server"
 
 describe("browser tests separate fixture ownership from real-host authority", () => {
   test("default options cannot discover host credentials or inherit hybrid cloud configuration", async () => {
@@ -76,7 +76,7 @@ describe("browser tests separate fixture ownership from real-host authority", ()
     }
   })
 
-  test("real chat is a separate explicit opt-in and never imports real identity authority", () => {
+  test("real chat is a separate explicit opt-in and never imports real identity authority", async () => {
     const options = browserTestOptions("/fixture/owned", "/fixture/dist", {
       SMITHERS_CHAT_STUB: "0",
       OPENAI_API_KEY: "ambient-key-must-not-pass",
@@ -86,7 +86,9 @@ describe("browser tests separate fixture ownership from real-host authority", ()
     expect(options.agent).toBeUndefined()
     expect(options.cloudMode).toBe("hybrid")
     expect(options.home).toBe("/fixture/owned")
-    expect(options.cloudApi).toBeNull()
+    expect(options.cloudApi).toBe(DEFAULT_CLOUD_API)
+    // The Cloud user is the explicit SMITHERS_CLOUD_TOKEN, never a stored login.
+    expect(await options.cloudKeychain!.read("smithers-cloud", "account")).toBeNull()
     expect(options.identityUpstream).toBeNull()
     expect(options.env).toEqual({
       SMITHERS_MODEL_KEY_LOOPBACK: "explicit-fixture-key",

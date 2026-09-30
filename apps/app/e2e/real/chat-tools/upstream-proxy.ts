@@ -1,4 +1,7 @@
-const upstream = process.env.SMITHERS_REAL_CHAT_UPSTREAM ?? "https://chat.smithers.sh/chat"
+import { DEFAULT_CLOUD_API } from "../../../src/bun/server"
+
+// The shared backend the fault host's hybrid agent reaches through this passthrough.
+const upstream = new URL(process.env.SMITHERS_CLOUD_API ?? DEFAULT_CLOUD_API).origin
 const port = Number(process.env.SMITHERS_REAL_CHAT_PROXY_PORT)
 if (!Number.isInteger(port) || port < 1 || port > 65_535) {
   throw new Error(`Invalid SMITHERS_REAL_CHAT_PROXY_PORT: ${process.env.SMITHERS_REAL_CHAT_PROXY_PORT}`)
@@ -12,16 +15,13 @@ const server = Bun.serve({
     if (request.method === "GET" && incoming.pathname === "/__harness_ready") {
       return new Response(null, { status: 204 })
     }
-    if (request.method !== "POST" || incoming.pathname !== "/chat") {
-      return new Response("not found", { status: 404 })
-    }
     const headers = new Headers(request.headers)
     headers.delete("host")
     console.error(`[chat-passthrough] forwarding ${request.method} ${incoming.pathname}`)
-    const response = await fetch(upstream, {
+    const response = await fetch(`${upstream}${incoming.pathname}${incoming.search}`, {
       method: request.method,
       headers,
-      body: request.body
+      body: request.method === "GET" || request.method === "HEAD" ? undefined : request.body
     })
     return new Response(response.body, { status: response.status, headers: response.headers })
   }

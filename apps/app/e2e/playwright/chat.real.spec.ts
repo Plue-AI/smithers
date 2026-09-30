@@ -4,12 +4,13 @@ import { assistantReplyEvidence } from "../contracts/assistantReplyEvidence"
 import type { TranscriptBubble } from "../contracts/assistantReplyEvidence"
 
 /*
- * The anonymous path against the real endpoint: chat.smithers.sh with
- * origin https://canary.smithers.sh, no login, no key. Runs only when the
- * suite is started with SMITHERS_CHAT_STUB=0 (network, model spend).
+ * A real turn on the shared backend (`POST /api/agent/turn` on
+ * SMITHERS_CLOUD_API) as the Cloud user SMITHERS_CLOUD_TOKEN names. Runs only
+ * when the suite is started with SMITHERS_CHAT_STUB=0 (network, model spend).
  */
 
 test.skip(process.env.SMITHERS_CHAT_STUB !== "0", "set SMITHERS_CHAT_STUB=0 to hit the real endpoint")
+test.skip(!process.env.SMITHERS_CLOUD_TOKEN, "set SMITHERS_CLOUD_TOKEN to a Smithers Cloud token for the real turn")
 
 const PROMPT = "Reply with the single word: ok"
 
@@ -24,7 +25,7 @@ const transcript = (page: Page): Promise<Array<TranscriptBubble>> =>
     }))
   )
 
-test("an anonymous turn gets a non-empty reply from chat.smithers.sh", async ({ page }) => {
+test("a signed-in turn gets a non-empty reply from the backend", async ({ page }) => {
   test.setTimeout(120_000)
   await page.goto("/")
   const input = page.getByTestId("composer-input")

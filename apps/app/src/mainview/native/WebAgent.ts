@@ -187,9 +187,9 @@ const streamJournal = async (body: ReadableStream<Uint8Array>, runId: string, le
 }
 
 /**
- * The HTTP agent: POSTs turns to a same-origin boundary that keeps the
- * chat.smithers.sh URL and origin server-side, then renders the streamed
- * NDJSON AgentTurnFrames.
+ * The HTTP agent: POSTs turns to a same-origin boundary (the shared
+ * backend's turn contract, or the local host that relays to it), then renders
+ * the streamed NDJSON AgentTurnFrames.
  */
 /*
  * Every host composes this on the default /api/agent seam (Runtime.ts passes

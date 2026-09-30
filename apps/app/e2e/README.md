@@ -54,7 +54,8 @@ recording. The PR browser tier runs the same cases without recording.
 ## The real tier (`real/`)
 
 The real tier has no doubles. `scripts/run-real-e2e.ts` builds the SPA, boots
-an isolated local host in hybrid mode with `SMITHERS_CHAT_STUB=0`, drives it
+an isolated local host in hybrid mode with `SMITHERS_CHAT_STUB=0` (chat turns
+run on the backend's `/api/agent/turn` as the signed-in Cloud user), drives it
 with Chromium through `playwright.real.config.ts`, and then runs the coverage
 gate (`scripts/check-real-e2e.ts`). `real/coverage/README.md` holds the
 scenario contract the gate enforces. Arguments pass through:

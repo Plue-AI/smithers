@@ -100,10 +100,7 @@ product = await startLocalServer({
   home,
   stateDir: join(root, "state"),
   cloudMode: "hybrid",
-  chat: {
-    chatUrl: `http://127.0.0.1:${proxyPort}/chat`,
-    origin: "https://canary.smithers.sh"
-  },
+  cloudApi: `http://127.0.0.1:${proxyPort}`,
   log: (line) => console.error(`[fault-product] ${line}`)
 })
 
