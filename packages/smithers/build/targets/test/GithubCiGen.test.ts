@@ -1736,6 +1736,23 @@ describe("system packages", () => {
     expect(rendered).not.toMatch(otherCondition)
   })
 
+  it("provisions sshd privilege separation only for a declared SSH server", () => {
+    for (const packages of [["openssh-server"], ["bubblewrap"]] as const) {
+      const rendered = render({
+        ...goldenAttrs,
+        jobs: [{
+          id: "ssh",
+          name: "ssh",
+          runsOn: "ubuntu-latest",
+          toolchain: CiToolchain.Needs({ runtimes: [node], apt: CiToolchain.Apt({ packages }) }),
+          steps: [{ verb: Verb.Test, pattern: "//packages/..." }]
+        }],
+        gates: []
+      })
+      expect(rendered.includes("sudo install -d -m 0755 /run/sshd")).toBe(packages[0] === "openssh-server")
+    }
+  })
+
   it("turns the containerd image store on for a job that declares it, under bash, with no if key", () => {
     const rendered = render({
       ...goldenAttrs,

@@ -6,8 +6,10 @@ import * as Os from "node:os"
 import * as NodePath from "node:path"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import * as ProcessTable from "../../../../testing/src/ProcessTable.ts"
+import { Smithers } from "../src/index.ts"
 import * as Input from "../src/Input.ts"
 import * as LlmLint from "../src/LlmLint.ts"
+import * as SecurityReview from "../src/SecurityReview.ts"
 import * as Target from "../src/Target.ts"
 
 let root: string
@@ -232,11 +234,7 @@ describe("LlmLint.review context files", () => {
       const prompt = call.stdin
       expect(prompt).toContain("=== CHANGED FILES (under review) ===")
       expect(prompt).toContain("=== CONTEXT FILES (shared reference material) ===")
-      expect(prompt).toContain(`--- CONTEXT FILE: "docs/reference/a.md" ---\n${
-        JSON.stringify({
-          contents: "The `a` export returns 1.\n"
-        })
-      }`)
+      expect(prompt).toContain("--- CONTEXT FILE: \"docs/reference/a.md\" ---\nThe `a` export returns 1.")
       expect(prompt.match(/--- CONTEXT FILE:/g)).toHaveLength(1)
       expect(prompt).not.toContain("excluded reference")
       expect(prompt).not.toContain("ignored reference")
@@ -281,7 +279,141 @@ describe("LlmLint.review context files", () => {
     )
     expect(report.files).toEqual(["src/a.ts"])
     const calls = await cli.calls()
-    expect(calls[0]?.stdin).toContain(`--- CONTEXT FILE: "README.md" ---\n${JSON.stringify({ contents: "# base\n" })}`)
+    expect(calls[0]?.stdin).toContain("--- CONTEXT FILE: \"README.md\" ---\n# base")
+  })
+})
+
+describe("SecurityReview boundary execution", () => {
+  it("runs for a backend-only edit and reads the full boundary in every batch", async () => {
+    const files = {
+      "packages/web/src/caller.ts": "caller fixture: sends tenant request\n",
+      "packages/auth/src/authorize.ts": "authorization fixture: checks tenant identity\n",
+      "packages/backend/src/service.ts": "service fixture: performs authorized action\n",
+      "packages/storage/src/write.ts": "storage fixture: writes tenant data\n"
+    }
+    for (const [path, content] of Object.entries(files)) await write(path, content)
+    await git("add", ".")
+    await git("commit", "-m", "boundary fixture")
+
+    const boundary: SecurityReview.Boundary = {
+      id: "tenant-write",
+      actors: ["Tenant member"],
+      assets: ["Tenant data"],
+      entryPoints: ["Browser request"],
+      identityTransformations: ["Session becomes tenant identity"],
+      enforcementPoints: ["Authorize tenant before write"],
+      deploymentAssumptions: ["Storage uses tenant-scoped credentials"],
+      path: {
+        caller: ["src/caller.ts"],
+        authorization: ["//packages/auth/src/authorize.ts"],
+        service: ["//packages/backend/src/service.ts"],
+        storageOrEgress: ["//packages/storage/src/write.ts"]
+      }
+    }
+    const target = Smithers.SecurityReview({
+      cwd: "packages/web",
+      checks: [],
+      boundaries: [boundary],
+      workspaceRoot: root,
+      base: "HEAD",
+      batchSize: 1
+    }).security
+    const attrs = Target.metadata(target).attrs as LlmLint.Attrs
+    const reviewPayload: LlmLint.Payload = {
+      base: attrs.changes.base,
+      include: attrs.include,
+      context: attrs.context,
+      prompt: attrs.prompt,
+      rubric: attrs.rubric,
+      engine: attrs.engine,
+      model: attrs.model,
+      batchSize: attrs.batchSize,
+      failOn: attrs.failOn,
+      securityChecks: attrs.securityChecks,
+      scope: attrs.scope
+    }
+    const answer = JSON.stringify({
+      status: "completed",
+      coverage: attrs.securityChecks?.map((checkId) => ({
+        checkId,
+        status: "completed",
+        evidence: "Inspected this boundary across all supplied files."
+      })),
+      missingContext: [],
+      findings: []
+    })
+    const record = NodePath.join(root, "boundary-review.calls")
+    const executable = await scriptCli(
+      "boundary-review",
+      "import { appendFileSync } from 'node:fs'\n" +
+        "let stdin = ''\n" +
+        "for await (const chunk of process.stdin) stdin += chunk\n" +
+        `appendFileSync(${JSON.stringify(record)}, JSON.stringify({ args: process.argv.slice(2), stdin }) + '\\n')\n` +
+        `process.stdout.write(process.argv.includes('exec') ? ${JSON.stringify(codexEnvelope(answer))} : ${
+          JSON.stringify(
+            JSON.stringify({
+              type: "result",
+              subtype: "success",
+              is_error: false,
+              stop_reason: "end_turn",
+              result: answer
+            })
+          )
+        })\n`
+    )
+    await write("packages/backend/src/service.ts", "service fixture: rejects a foreign tenant\n")
+    const backendOnly = await Effect.runPromise(
+      LlmLint.review({ workspaceRoot: root, executable }, reviewPayload)
+    )
+    expect(backendOnly.files).toEqual(["packages/backend/src/service.ts"])
+
+    await write("packages/auth/src/authorize.ts", "authorization fixture: checks the current tenant\n")
+    const twoBatches = await Effect.runPromise(
+      LlmLint.review({ workspaceRoot: root, executable }, reviewPayload)
+    )
+    expect(twoBatches.files).toEqual(["packages/auth/src/authorize.ts", "packages/backend/src/service.ts"])
+    const calls = (await Fs.readFile(record, "utf8")).trim().split("\n").map((line) => JSON.parse(line) as FakeCall)
+    expect(calls).toHaveLength(9)
+    for (const [index, call] of calls.entries()) {
+      for (
+        const [path, content] of Object.entries({
+          ...files,
+          "packages/auth/src/authorize.ts": index < 3
+            ? files["packages/auth/src/authorize.ts"]
+            : "authorization fixture: checks the current tenant\n",
+          "packages/backend/src/service.ts": "service fixture: rejects a foreign tenant\n"
+        })
+      ) {
+        expect(call.stdin).toContain(`--- CONTEXT FILE: ${JSON.stringify(path)} ---`)
+        expect(call.stdin).toContain(content.trimEnd())
+      }
+      expect(call.stdin).toContain("tenant-write")
+    }
+    expect(calls[0]?.stdin).toContain("--- CHANGED FILE: \"packages/backend/src/service.ts\" ---")
+
+    const incompleteAnswer = JSON.stringify({
+      status: "completed",
+      coverage: [{ checkId: "general", status: "completed", evidence: "Inspected the general check." }],
+      missingContext: [],
+      findings: []
+    })
+    const incompleteCli = await scriptCli(
+      "missing-boundary-coverage",
+      `process.stdout.write(process.argv.includes('exec') ? ${JSON.stringify(codexEnvelope(incompleteAnswer))} : ${
+        JSON.stringify(JSON.stringify({
+          type: "result",
+          subtype: "success",
+          is_error: false,
+          stop_reason: "end_turn",
+          result: incompleteAnswer
+        }))
+      })`
+    )
+    const incomplete = await Effect.runPromise(Effect.flip(
+      LlmLint.review({ workspaceRoot: root, executable: incompleteCli }, reviewPayload)
+    ))
+    expect(incomplete).toMatchObject({ phase: "parse" })
+    expect(incomplete.message).toContain("incomplete coverage")
   })
 })
 

@@ -9,9 +9,9 @@ import { REVIEW_MIGRATIONS } from "./src/server/migrations.ts";
  * custom domain (the jjhub.tech zone is on this Cloudflare account).
  *
  * Plan:     pnpm -C apps/review run plan
- * Deploy:   pnpm -C apps/review run deploy
+ * Deploy:   qualified Cloud rollout only; see docs/deployment.md
  * Destroy:  pnpm -C apps/review run destroy
- * Every command pins `--stage prod` and state lives in the account's shared
+ * Provider operations pin `--stage prod`; state lives in the account's shared
  * `alchemy-state-store` Worker, so every machine plans against one record.
  * The physical names are the ones Alchemy 1 derived for the live resources;
  * the first Alchemy 2 plan and deploy add `--adopt` to take them over.

@@ -17,6 +17,8 @@ import type * as PlatformError from "effect/PlatformError"
 import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
 import { minimatch } from "minimatch"
+import * as NodeFs from "node:fs"
+import * as NodeOs from "node:os"
 import * as NodePath from "node:path"
 import { failureMessage } from "./GeneratedFile.ts"
 import * as Input from "./Input.ts"
@@ -407,6 +409,7 @@ interface SpawnOptions {
   readonly timeoutMs: number
   readonly sensitiveEnv: ReadonlyArray<string>
   readonly git: boolean
+  readonly engine?: Engine
 }
 
 interface ByteCapture {
@@ -493,29 +496,38 @@ const spawnError = (message: string, code?: string | undefined): NodeJS.ErrnoExc
   return error
 }
 
-/** Builds the subprocess environment while withholding cache credentials and injection hooks. */
+/** Builds a minimal process environment with only the selected model credential. */
 const spawnEnvironment = (
   sensitiveEnv: ReadonlyArray<string>,
-  git: boolean
+  git: boolean,
+  home: string,
+  engine?: Engine
 ): NodeJS.ProcessEnv => {
-  // Start empty: a denylist cannot know the names of an operator's secrets.
-  // The CLI still needs its runtime and its own authentication configuration;
-  // this environment boundary is not filesystem or network confinement.
-  const env: NodeJS.ProcessEnv = {}
-  const names = ["PATH", "HOME", "USERPROFILE", "SYSTEMROOT", "SystemRoot", "WINDIR", "TMPDIR", "TMP", "TEMP"]
-  if (!git) names.push("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "OPENAI_API_KEY", "CODEX_HOME", "CLAUDE_CONFIG_DIR")
-  for (const name of names) {
-    const value = process.env[name]
-    if (value !== undefined) env[name] = value
+  const env: NodeJS.ProcessEnv = {
+    PATH: process.env["PATH"] ?? "",
+    HOME: home,
+    TMPDIR: home,
+    CLICOLOR: "0",
+    FORCE_COLOR: "0",
+    LANG: "C",
+    LC_ALL: "C",
+    NO_COLOR: "1"
   }
-  for (const name of sensitiveEnv) delete env[name]
-  env["CLICOLOR"] = "0"
-  env["FORCE_COLOR"] = "0"
-  env["LANG"] = "C"
-  env["LC_ALL"] = "C"
-  env["NO_COLOR"] = "1"
+  if (process.platform === "win32") {
+    env["USERPROFILE"] = home
+    if (process.env["SystemRoot"] !== undefined) env["SystemRoot"] = process.env["SystemRoot"]
+  }
+  const auth = engine === "claude" ?
+    ["ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"]
+    : engine === "codex"
+    ? ["OPENAI_API_KEY", "CODEX_API_KEY"]
+    : []
+  for (const name of auth) {
+    if (!sensitiveEnv.includes(name) && process.env[name] !== undefined) env[name] = process.env[name]
+  }
+  if (engine === "claude") env["CLAUDE_CONFIG_DIR"] = NodePath.join(home, ".claude")
+  if (engine === "codex") env["CODEX_HOME"] = NodePath.join(home, ".codex")
   if (git) {
-    for (const name of Object.keys(env)) if (name.startsWith("GIT_")) delete env[name]
     env["GIT_CONFIG_GLOBAL"] = process.platform === "win32" ? "NUL" : "/dev/null"
     env["GIT_CONFIG_NOSYSTEM"] = "1"
     env["GIT_OPTIONAL_LOCKS"] = "0"
@@ -525,7 +537,80 @@ const spawnEnvironment = (
   return env
 }
 
-/** Spawns an executable in the workspace root, never through a shell. */
+/**
+ * Value-free discovery delivered to a trusted host's private rotation workflow.
+ * @category models
+ * @since 1.0.0
+ */
+export interface CredentialDiscovery {
+  readonly file: string
+  readonly line: number
+  readonly name: string
+}
+
+/** A local scan keeps values in memory and emits only typed locations. */
+class CredentialMask {
+  readonly values = new Map<string, string>()
+  readonly locations: Array<{ file: string; line: number; name: string; placeholder: string }> = []
+  scan(file: string, contents: string): string {
+    const patterns: ReadonlyArray<readonly [string, RegExp]> = [
+      ["github-token", /\b(?:gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,})\b/g],
+      ["aws-access-key", /\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/g],
+      ["openai-key", /\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}\b/g],
+      [
+        "private-key",
+        /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----[\s\S]*?-----END (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/g
+      ]
+    ]
+    const found: Array<{ value: string; name: string; offset: number }> = []
+    const named =
+      /(?:["'`]([A-Za-z_][A-Za-z0-9_-]*)["'`]|\b([A-Za-z_][A-Za-z0-9_]*))\s*[:=]\s*(?:"([^"\r\n]+)"|'([^'\r\n]+)'|`([^`\r\n]+)`|([^\s,;#}]+))/g
+    for (const match of contents.matchAll(named)) {
+      const name = (match[1] ?? match[2])!
+      if (
+        !/(?:token|secret|password|api[_-]?key|private[_-]?key|credential)/i.test(name) ||
+        /(?:url|uri|header|path|env|name|pattern)$/i.test(name)
+      ) continue
+      const value = (match[3] ?? match[4] ?? match[5] ?? match[6])!
+      if (
+        /^(?:example|placeholder|replace|dummy|test|your)[-_ ]/i.test(value) ||
+        /^(?:[/{]|https?:\/\/)/.test(value) ||
+        (match[6] !== undefined && file.endsWith(".ts") &&
+          /^(?:process\.|[A-Za-z_$][\w$]*[.(]|true$|false$|null$|undefined$)/.test(value))
+      ) continue
+      found.push({ value, name, offset: match.index + match[0].indexOf(value) })
+    }
+    for (const [name, pattern] of patterns) {
+      for (const match of contents.matchAll(pattern)) found.push({ value: match[0], name, offset: match.index })
+    }
+    for (const item of found) {
+      if (!this.values.has(item.value)) {
+        this.values.set(
+          item.value,
+          `<credential:${item.name.toLowerCase().replaceAll("_", "-")}:${this.values.size + 1}>`
+        )
+      }
+      const line = contents.slice(0, item.offset).split("\n").length
+      const placeholder = this.values.get(item.value)!
+      if (
+        !this.locations.some((entry) => entry.file === file && entry.line === line && entry.placeholder === placeholder)
+      ) {
+        this.locations.push({ file, line, name: item.name, placeholder })
+      }
+    }
+    return this.sanitize(contents)
+  }
+  sanitize(text: string): string {
+    let safe = text
+    for (const [value, placeholder] of [...this.values].sort((left, right) => right[0].length - left[0].length)) {
+      safe = safe.replaceAll(JSON.stringify(value).slice(1, -1), placeholder)
+      safe = safe.replaceAll(value, placeholder)
+    }
+    return safe
+  }
+}
+
+/** Spawns git in the workspace and model CLIs in an isolated home, never through a shell. */
 const spawnText = (
   cwd: string,
   executable: string,
@@ -533,11 +618,15 @@ const spawnText = (
   options: SpawnOptions
 ): Effect.Effect<Spawned, NodeJS.ErrnoException> =>
   Effect.gen(function*() {
+    const home = yield* Effect.acquireRelease(
+      Effect.sync(() => NodeFs.mkdtempSync(NodePath.join(NodeOs.tmpdir(), "smithers-review-"))),
+      (directory) => Effect.sync(() => NodeFs.rmSync(directory, { recursive: true, force: true }))
+    )
     const child = yield* ScopedProcess.spawn({
       command: executable,
       args,
-      cwd,
-      env: spawnEnvironment(options.sensitiveEnv, options.git),
+      cwd: options.engine === undefined ? cwd : home,
+      env: spawnEnvironment(options.sensitiveEnv, options.git, home, options.engine),
       stdin: options.stdin === undefined ? "ignore" : "pipe",
       killSignal: "SIGKILL",
       forceKillAfter: 0,
@@ -864,12 +953,7 @@ const contextPaths = (
 
 /** Renders one labelled file section of the prompt. */
 const renderFiles = (label: string, files: ReadonlyArray<BatchFile>): string =>
-  files.map((file) =>
-    `--- ${label}: ${JSON.stringify(file.path)} ---\n${
-      JSON.stringify({ ...(file.deleted ? { deleted: true } : {}), contents: file.contents })
-    }`
-  )
-    .join("\n\n")
+  files.map((file) => `--- ${label}: ${JSON.stringify(file.path)} ---\n${file.contents}`).join("\n\n")
 
 /** Renders the deterministic review prompt for one batch. */
 const renderPrompt = (
@@ -1193,7 +1277,8 @@ const invokeEngine = (
     stdoutBytes: maximumModelOutputBytes,
     timeoutMs: runtime.timeoutMs,
     sensitiveEnv: runtime.sensitiveEnv,
-    git: false
+    git: false,
+    engine
   }).pipe(
     Effect.mapError((error) =>
       SafeFs.errorCode(error) === "ENOENT"
@@ -1240,11 +1325,12 @@ const reviewBatch = (
   payload: Payload,
   batch: ReadonlyArray<BatchFile>,
   context: ReadonlyArray<BatchFile>,
+  mask: CredentialMask,
   onCompletion?: (completion: typeof SecurityCompletion.Type) => void
 ): Effect.Effect<ReadonlyArray<Finding>, ModelCliMissing | LlmReviewError> =>
   Effect.flatMap(
     Effect.try({
-      try: () => renderPrompt(payload, batch, context),
+      try: () => mask.sanitize(renderPrompt(payload, batch, context)),
       catch: (cause) => new LlmReviewError({ phase: "review", message: failureMessage(cause) })
     }),
     (prompt) =>
@@ -1256,11 +1342,21 @@ const reviewBatch = (
           prompt,
           runtime.timeoutMs,
           maximumModelOutputBytes,
-          `${payload.prompt}\nRubric:\n${payload.rubric}`
+          mask.sanitize(`${payload.prompt}\nRubric:\n${payload.rubric}`)
         ).pipe(
           Effect.mapError((error) => new LlmReviewError({ phase: "review", message: error.message }))
         )
   ).pipe(
+    Effect.map((answer) => mask.sanitize(answer)),
+    Effect.mapError((error) =>
+      error instanceof LlmReviewError
+        ? new LlmReviewError({ phase: error.phase, message: mask.sanitize(error.message) })
+        : new ModelCliMissing({
+          engine: error.engine,
+          executable: mask.sanitize(error.executable),
+          message: mask.sanitize(error.message)
+        })
+    ),
     Effect.flatMap((text) =>
       payload.securityChecks === undefined ? parseFindings(text) : Effect.try({
         try: () => {
@@ -1346,7 +1442,8 @@ const securityBatch = (
   batch: ReadonlyArray<BatchFile>,
   context: ReadonlyArray<BatchFile>,
   batchIndex: number,
-  attempts: Array<typeof ReviewAttempt.Type>
+  attempts: Array<typeof ReviewAttempt.Type>,
+  mask: CredentialMask
 ): Effect.Effect<ReadonlyArray<Finding>, LlmReviewError> =>
   Effect.gen(function*() {
     const alternate = payload.engine === "claude" ? "codex" : "claude"
@@ -1391,6 +1488,7 @@ const securityBatch = (
             request,
             batch,
             context,
+            mask,
             (value) => {
               completion = value
             }
@@ -1482,6 +1580,9 @@ export const review = (
   options: {
     readonly workspaceRoot: string
     readonly snapshot?: ReadonlyArray<SnapshotFile> | undefined
+    readonly onCredentials?:
+      | ((discoveries: ReadonlyArray<CredentialDiscovery>) => Effect.Effect<void, unknown>)
+      | undefined
     readonly executable?: string | undefined
     readonly timeoutMs?: number | undefined
     readonly sensitiveEnv?: ReadonlyArray<string> | undefined
@@ -1565,25 +1666,43 @@ export const review = (
       "fail",
       snapshot
     )
+    const mask = new CredentialMask()
+    for (const file of context) mask.scan(file.path, file.contents)
+    const loadedBatches: Array<ReadonlyArray<BatchFile>> = []
+    // Snapshot and scan every bounded batch before the first provider request.
+    for (const batchPaths of batches) {
+      const batch = yield* readBatch(runtime.workspaceRoot, batchPaths, maximumBatchContentBytes, "skip", snapshot)
+      loadedBatches.push(batch)
+      for (const file of batch) mask.scan(file.path, file.contents)
+    }
+    if (mask.locations.length > maximumFindings) {
+      return yield* Effect.fail(new LlmReviewError({ phase: "review", message: "Too many credential discoveries" }))
+    }
+    if (mask.locations.length > 0 && options.onCredentials !== undefined) {
+      const discoveries = mask.locations.map(({ file, line, name }) => Object.freeze({ file, line, name }))
+      yield* Effect.suspend(() => options.onCredentials!(Object.freeze(discoveries))).pipe(
+        Effect.catchCause(() =>
+          Effect.fail(
+            new LlmReviewError({
+              phase: "review",
+              message: "Private credential rotation delivery failed"
+            })
+          )
+        )
+      )
+    }
     const reviewed: Array<string> = []
     const findings: Array<Finding> = []
     const attempts: Array<typeof ReviewAttempt.Type> = []
     let batchIndex = 0
     let findingBytes = 0
-    for (const batchPaths of batches) {
-      const batch = yield* readBatch(
-        runtime.workspaceRoot,
-        batchPaths,
-        maximumBatchContentBytes,
-        "skip",
-        snapshot
-      )
+    for (const batch of loadedBatches) {
       if (batch.length === 0) {
         continue
       }
       reviewed.push(...batch.map((file) => file.path))
       const batchFindings = yield* (payload.securityChecks === undefined
-        ? reviewBatch(runtime, payload, batch, context)
+        ? reviewBatch(runtime, payload, batch, context, mask)
         : securityBatch(
           runtime,
           options.executable,
@@ -1591,7 +1710,8 @@ export const review = (
           batch,
           context,
           batchIndex,
-          attempts
+          attempts,
+          mask
         ))
       batchIndex++
       findings.push(...batchFindings)
@@ -1614,6 +1734,25 @@ export const review = (
           })
         )
       }
+    }
+    for (const location of mask.locations) {
+      findings.push({
+        file: location.file,
+        line: location.line,
+        severity: "error",
+        message: `Rotate ${location.name} privately.`,
+        ...(payload.securityChecks === undefined ? {} : {
+          security: {
+            checkId: "general",
+            impact: "high" as const,
+            verification: "suspected" as const,
+            releaseRecommendation: "block" as const,
+            attackerPreconditions: "An attacker can read the exposed source credential.",
+            evidence: `A ${location.name} credential pattern was detected at this location.`,
+            nextConfirmationStep: "Check credential validity privately; do not disclose it."
+          }
+        })
+      })
     }
     const failing = findings.filter((finding) =>
       payload.securityChecks === undefined
@@ -1645,6 +1784,10 @@ export const review = (
  */
 export const LlmReviewLive = (options: {
   readonly workspaceRoot: string
+  readonly snapshot?: ReadonlyArray<SnapshotFile> | undefined
+  readonly onCredentials?:
+    | ((discoveries: ReadonlyArray<CredentialDiscovery>) => Effect.Effect<void, unknown>)
+    | undefined
   readonly executable?: string | undefined
   readonly timeoutMs?: number | undefined
   readonly sensitiveEnv?: ReadonlyArray<string> | undefined

@@ -168,6 +168,7 @@ const anthropicAt = (baseUrl: string, apiKey: Redacted.Redacted<string>) =>
   Result.map(Endpoint.make({ url: baseUrl, path: "/v1/messages" }), (endpoint) =>
     Route.make({
       id: "anthropic",
+      providerName: "anthropic",
       protocol: AnthropicMessages.protocol,
       endpoint,
       auth: Auth.apiKeyHeader("x-api-key", apiKey),
@@ -258,6 +259,7 @@ export function reviewSeatResolver(
               ? seatOf(
                 Route.openaiResponsesCompatible({
                   id: "openrouter",
+                  providerName: "openrouter",
                   baseUrl: "https://openrouter.ai/api",
                   apiKey: credential,
                 }),

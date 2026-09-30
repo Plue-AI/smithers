@@ -71,9 +71,10 @@ the declared source path must still make the review incomplete.
 The existing file, context and prompt size limits still apply; declare focused
 paths rather than whole package trees.
 
-The server declaration traces browser session and bearer attachment through
-backend authentication, repository authorization, workflow admission and
-storage. The gateway traces control authentication into control operations
+The server declaration starts at the deployed edge entry and its HTTP transport,
+then traces backend authentication, repository authorization, workflow admission
+and storage. The backend owns browser identity; the edge forwards requests to
+its configured backend origin and removes caller-supplied identity headers. The gateway traces control authentication into control operations
 and execution. The sandbox traces flow execution into microVM policy,
 provider operations and guest results. Named checks and the general sweep
 apply across these paths; a package-local check is not proof of boundary

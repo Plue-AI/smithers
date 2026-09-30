@@ -30,7 +30,7 @@
     "check": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit",
     "plan": "alchemy deploy --dry-run --stage prod",
-    "deploy": "alchemy deploy --stage prod",
+    "deploy": "node ../../flows/rollout/refuse-unqualified.mjs",
     "destroy": "alchemy destroy --stage prod",
     "test:live": "SMITHERS_REVIEW_E2E=1 bun test tests/reviewPullRequest.e2e.test.ts tests/action/liveWorkflow.e2e.test.ts"
   },

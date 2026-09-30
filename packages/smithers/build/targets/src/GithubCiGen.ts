@@ -999,6 +999,7 @@ export const toolchainSteps = (attrs: Attrs, job: Job): ReadonlyArray<RenderedSt
           needs.apt.packages.map(shellWord).join(" ")
         }`,
         ...sandboxSetup,
+        ...(needs.apt.packages.includes("openssh-server") ? ["  sudo install -d -m 0755 /run/sshd"] : []),
         "fi"
       ].join("\n")
     })

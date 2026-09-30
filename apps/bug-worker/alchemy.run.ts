@@ -9,9 +9,9 @@
  * Worker serves bug.smithers.sh as a custom domain directly.
  *
  * Plan:     pnpm -C apps/bug-worker run plan
- * Deploy:   pnpm -C apps/bug-worker run deploy
+ * Deploy:   qualified Cloud rollout only; see docs/deployment.md
  * Destroy:  pnpm -C apps/bug-worker run destroy
- * Every command pins `--stage prod` and state lives in the account's shared
+ * Provider operations pin `--stage prod`; state lives in the account's shared
  * `alchemy-state-store` Worker, so every machine plans against one record.
  * The physical names are the ones Alchemy 1 derived for the live resources;
  * the first Alchemy 2 plan and deploy add `--adopt` to take them over.
