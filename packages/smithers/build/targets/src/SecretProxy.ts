@@ -715,6 +715,11 @@ export const startProxy = (vault: Vault): Promise<Proxy> =>
     const destinationByDeclaration = new Map<string, string>()
     const origins = new Map<string, Promise<string>>()
     const originServers = new Set<NodeHttp.Server>()
+    // A CONNECT socket leaves the HTTP server's bookkeeping once it is handed
+    // over, so `closeAllConnections` never reaches it. Each accepted socket and
+    // each upstream, pending or established, registers its teardown here for
+    // `close` to run.
+    const tunnels = new Set<() => void>()
     // Loopback origin to the route builder of the audience behind it, so a
     // tool that sends a brokered origin through the proxy anyway lands on the
     // same route instead of being denied for the loopback origin.
@@ -809,6 +814,11 @@ export const startProxy = (vault: Vault): Promise<Proxy> =>
       forward(vault, request, response, { target, substitutePath: true })
     })
     server.on("connect", (request, socket: NodeNet.Socket, head: Buffer) => {
+      // A refused CONNECT still holds its socket open until the child reads
+      // the answer, so the accepted socket is proxy-owned from the start.
+      const release = () => socket.destroy()
+      tunnels.add(release)
+      socket.once("close", () => tunnels.delete(release))
       const authority = parseConnectAuthority(request.url ?? "")
       if (authority === undefined) {
         socket.end("HTTP/1.1 400 Bad Request\r\n\r\n")
@@ -850,10 +860,19 @@ export const startProxy = (vault: Vault): Promise<Proxy> =>
       // operating system's whole TCP connect timeout, so the same elapsed
       // bound as a proxy-owned request applies here.
       const deadline = setTimeout(drop, upstreamTimeoutMs)
+      const teardown = () => {
+        clearTimeout(deadline)
+        upstream.destroy()
+      }
+      tunnels.add(teardown)
       upstream.once("error", drop)
       socket.once("error", drop)
       socket.once("close", () => upstream.destroy())
-      upstream.once("close", () => socket.destroy())
+      upstream.once("close", () => {
+        tunnels.delete(teardown)
+        clearTimeout(deadline)
+        socket.destroy()
+      })
     })
     server.on("error", reject)
     server.listen(0, "127.0.0.1", () => {
@@ -921,8 +940,10 @@ export const startProxy = (vault: Vault): Promise<Proxy> =>
           origins.set(normalized, bound)
           return bound
         },
-        close: () =>
-          Promise.all(
+        close: () => {
+          for (const teardown of tunnels) teardown()
+          tunnels.clear()
+          return Promise.all(
             [server, ...originServers].map((listening) =>
               new Promise<void>((done) => {
                 listening.closeAllConnections()
@@ -930,6 +951,7 @@ export const startProxy = (vault: Vault): Promise<Proxy> =>
               })
             )
           ).then(() => undefined)
+        }
       })
     })
   })

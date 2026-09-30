@@ -876,6 +876,125 @@ describe("SecretProxy server", () => {
     }
   })
 
+  describe("close", () => {
+    /** Settles with "settled" once `promise` does, or "pending" after `ms`. */
+    const within = (promise: Promise<unknown>, ms: number): Promise<"settled" | "pending"> =>
+      Promise.race([
+        promise.then(() => "settled" as const),
+        new Promise<"pending">((resolve) => NodeTimers.setTimeout(() => resolve("pending"), ms))
+      ])
+    /** A client that sends `request` to the proxy and never closes on its own. */
+    const client = (proxy: SecretProxy.Proxy, request: string) => {
+      const socket = NodeNet.connect({
+        host: "127.0.0.1",
+        port: Number(new URL(proxy.endpoint).port),
+        allowHalfOpen: true
+      })
+      socket.setEncoding("utf8")
+      let received = ""
+      socket.on("data", (data: string) => {
+        received += data
+      })
+      socket.once("error", () => {})
+      // Half-open clients never close on their own: the proxy hanging up is the end of the stream.
+      const closed = new Promise<void>((resolve) => {
+        socket.once("end", () => resolve())
+        socket.once("close", () => resolve())
+      })
+      socket.once("connect", () => socket.write(request))
+      const until = async (text: string) => {
+        const start = Date.now()
+        while (!received.includes(text)) {
+          if (Date.now() - start > 5_000) throw new Error(`no ${JSON.stringify(text)} in ${JSON.stringify(received)}`)
+          await new Promise<void>((resolve) => NodeTimers.setTimeout(resolve, 5))
+        }
+      }
+      return { socket, closed, until, received: () => received }
+    }
+
+    it("drops an established CONNECT tunnel and its upstream without the client's help", async () => {
+      const upstreamSockets = new Set<NodeNet.Socket>()
+      const upstreamClosed: Array<Promise<void>> = []
+      const upstream = NodeNet.createServer({ allowHalfOpen: true }, (socket) => {
+        upstreamSockets.add(socket)
+        upstreamClosed.push(
+          new Promise<void>((resolve) => {
+            socket.once("end", () => resolve())
+            socket.once("close", () => resolve())
+          })
+        )
+        socket.on("data", () => socket.write("held"))
+      })
+      await new Promise<void>((resolve) => upstream.listen(0, "127.0.0.1", resolve))
+      const port = (upstream.address() as NodeNet.AddressInfo).port
+      const proxy = await SecretProxy.startProxy(SecretProxy.makeVault())
+      const tunnel = client(proxy, `CONNECT 127.0.0.1:${port} HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\n\r\n`)
+      try {
+        await tunnel.until("\r\n\r\n")
+        expect(tunnel.received()).toMatch(/^HTTP\/1\.1 200 Connection Established/)
+        tunnel.socket.write("before-close")
+        await tunnel.until("held")
+        expect(await within(proxy.close(), 2_000)).toBe("settled")
+        expect(await within(tunnel.closed, 2_000)).toBe("settled")
+        expect(await within(Promise.all(upstreamClosed), 2_000)).toBe("settled")
+        expect(upstreamClosed).toHaveLength(1)
+        // A second close is a no-op that still settles.
+        expect(await within(proxy.close(), 2_000)).toBe("settled")
+      } finally {
+        tunnel.socket.destroy()
+        for (const socket of upstreamSockets) socket.destroy()
+        await new Promise<void>((resolve) => upstream.close(() => resolve()))
+      }
+    })
+
+    it("drops a CONNECT whose upstream has not connected yet", async () => {
+      const proxy = await SecretProxy.startProxy(SecretProxy.makeVault())
+      // 192.0.2.0/24 is TEST-NET-1: the SYN is never answered, so the tunnel
+      // is still pending when close runs. A host that refuses it outright
+      // answers 502 first, which close must also not wait on.
+      const pending = client(proxy, "CONNECT 192.0.2.1:443 HTTP/1.1\r\nHost: 192.0.2.1:443\r\n\r\n")
+      try {
+        await new Promise<void>((resolve) => pending.socket.once("connect", () => resolve()))
+        await new Promise<void>((resolve) => NodeTimers.setTimeout(resolve, 50))
+        expect(await within(proxy.close(), 2_000)).toBe("settled")
+        expect(await within(pending.closed, 2_000)).toBe("settled")
+        expect(pending.received()).not.toContain("200 Connection Established")
+      } finally {
+        pending.socket.destroy()
+      }
+    })
+
+    it("drops a refused CONNECT the client never hangs up on, beside an in-flight HTTP request", async () => {
+      const held: Array<NodeHttp.ServerResponse> = []
+      const upstream = NodeHttp.createServer((_request, response) => {
+        held.push(response)
+      })
+      await new Promise<void>((resolve) => upstream.listen(0, "127.0.0.1", resolve))
+      const port = (upstream.address() as NodeNet.AddressInfo).port
+      const proxy = await SecretProxy.startProxy(SecretProxy.makeVault())
+      const refused = client(proxy, "CONNECT example.com:not-a-port HTTP/1.1\r\nHost: example.com\r\n\r\n")
+      const plain = client(proxy, `GET http://127.0.0.1:${port}/held HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\n\r\n`)
+      try {
+        await refused.until("\r\n\r\n")
+        expect(refused.received()).toMatch(/^HTTP\/1\.1 400 Bad Request/)
+        const start = Date.now()
+        while (held.length === 0 && Date.now() - start < 5_000) {
+          await new Promise<void>((resolve) => NodeTimers.setTimeout(resolve, 5))
+        }
+        expect(held).toHaveLength(1)
+        expect(await within(proxy.close(), 2_000)).toBe("settled")
+        expect(await within(refused.closed, 2_000)).toBe("settled")
+        expect(await within(plain.closed, 2_000)).toBe("settled")
+      } finally {
+        refused.socket.destroy()
+        plain.socket.destroy()
+        for (const response of held) response.destroy()
+        upstream.closeAllConnections()
+        await new Promise<void>((resolve) => upstream.close(() => resolve()))
+      }
+    })
+  })
+
   it("refuses an upstream response larger than the buffered ceiling", async () => {
     const vault = SecretProxy.makeVault({ read: () => "real-value" })
     const result = await throughProxy(vault, () => ({
