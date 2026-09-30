@@ -34,6 +34,7 @@ it("composes control, memory, and integration cursors in a fresh database and re
     { migration_id: 6001, name: "control_control_tables" },
     { migration_id: 7001, name: "memory_initial" },
     { migration_id: 7002, name: "memory_indexes" },
+    { migration_id: 7003, name: "memory_fts_fold" },
     { migration_id: 8001, name: "integrations_integration_cursors" },
     { migration_id: 8002, name: "integrations_integration_records" }
   ]))

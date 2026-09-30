@@ -202,7 +202,7 @@ describe("NodeControl.seatResolver ChatGPT mode", () => {
 
   it.each([
     ["openai:gpt-5.6-sol", "gpt-5.6-sol", "chatgpt"],
-    ["codex:sol", "gpt-6-sol", undefined],
+    ["codex:sol", "gpt-6.1-sol", undefined],
     ["codex:gpt-6-luna", "gpt-6-luna", undefined]
   ])("routes %s through the signed-in vendor CLI", async (id, modelId, authMode) => {
     const resolved = await Effect.runPromise(resolve({

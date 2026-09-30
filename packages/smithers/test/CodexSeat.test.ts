@@ -701,7 +701,7 @@ process.stdin.resume(); process.stdin.on('end', () => { for (const event of even
     const codex = vendor("Logged in using ChatGPT")
     const seat = await Effect.runPromise(resolve(codex.environment))
     expect(seat.id).toBe("codex:sol")
-    expect(seat.modelId).toBe("gpt-6-sol")
+    expect(seat.modelId).toBe("gpt-6.1-sol")
     const prepared = await Effect.runPromise(seat.route.prepare({
       modelId: seat.modelId,
       system: [],
