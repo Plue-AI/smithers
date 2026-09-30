@@ -437,7 +437,7 @@ function CellView(props: {
     <box style={{ border: ["left"], paddingLeft: 1, marginBottom: 1 }} borderColor={tone} customBorderChars={bar}>
       <box
         style={{ flexDirection: "row", justifyContent: "space-between" }}
-        {...(props.selected ? { backgroundColor: color.element } : {})}
+        {...(props.selected ? { backgroundColor: color.selected } : {})}
         onMouseDown={() => setFolded(!folded)}
       >
         <text style={{ flexShrink: 1 }} wrapMode="none">

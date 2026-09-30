@@ -65,7 +65,7 @@ export function TabStrip(props: {
           <box
             key={chip.id}
             style={{ flexShrink: 0, marginRight: 1 }}
-            backgroundColor={selected ? color.element : color.page}
+            backgroundColor={selected ? color.selected : color.page}
             onMouseDown={() => props.onSelect(chip.id)}
           >
             <text wrapMode="none">
@@ -131,7 +131,7 @@ export function WorkerList(props: {
             style={{ border: ["left"], paddingLeft: 1, marginBottom: 1 }}
             borderColor={selected ? color.brand : tone}
             customBorderChars={View.bar}
-            backgroundColor={selected ? color.element : color.page}
+            backgroundColor={selected ? color.selected : color.page}
             onMouseDown={() => props.onSelect(`tab:${tab.id}`)}
           >
             <text wrapMode="word">

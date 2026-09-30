@@ -120,17 +120,20 @@ if (values.print !== undefined) {
 let flows: ReturnType<typeof FlowControl.make> | undefined
 try {
   await import("./native.ts")
-  const [{ createCliRenderer }, { createRoot }, { App }, { createElement }] = await Promise.all([
-    import("@opentui/core"),
-    import("@opentui/react"),
-    import("./app.tsx"),
-    import("react")
-  ])
+  const [{ createCliRenderer }, { createRoot }, { App }, { createElement }, { applyColorMode, colorModeOf }] =
+    await Promise.all([
+      import("@opentui/core"),
+      import("@opentui/react"),
+      import("./app.tsx"),
+      import("react"),
+      import("./theme.ts")
+    ])
   // App warms the host after first draw; discovery alone never imports a flow module.
   flows = FlowControl.make({ cwd, environment: available.environment, approvals: host.approvals! })
   const resumeFile = values.continue === true ? Session.latest(cwd) : undefined
   const branch = spawnSync("git", ["branch", "--show-current"], { cwd, encoding: "utf8" }).stdout?.trim()
   const renderer = await createCliRenderer({ exitOnCtrlC: false, targetFps: 30 })
+  applyColorMode(renderer, colorModeOf(process.env))
   Log.install()
   createRoot(renderer).render(
     createElement(App, {

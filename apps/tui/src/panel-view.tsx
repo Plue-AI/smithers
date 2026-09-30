@@ -140,7 +140,7 @@ export function PanelView(
         {panel.rows.slice(first, first + visible).map((item, index) => (
           <box
             key={item.id}
-            backgroundColor={first + index === selected ? color.element : color.page}
+            backgroundColor={first + index === selected ? color.selected : color.page}
             style={{ flexDirection: "row", paddingLeft: 1 }}
           >
             <text fg={item.status === "failed" ? color.danger : first + index === selected ? color.brand : color.faint}>

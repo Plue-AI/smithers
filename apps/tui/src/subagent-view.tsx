@@ -74,7 +74,7 @@ function CardView(props: {
       style={{ width: props.width, height: props.height, border: ["left"], flexShrink: 0 }}
       borderColor={cards.lane(tab.id)}
       customBorderChars={rail}
-      {...(focused ? { backgroundColor: color.element } : {})}
+      {...(focused ? { backgroundColor: color.selected } : {})}
       onMouseDown={() => cards.onOpen(tab.id)}
     >
       <text wrapMode="none">

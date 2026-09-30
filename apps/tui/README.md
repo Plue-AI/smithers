@@ -178,6 +178,10 @@ one row per flow call (`→ read`, `$ ran`, `← edited`); an edit draws its dif
 The Summary view keeps cell code behind expandable rows. Panels, dialogs, and the
 completion menu follow opencode's shapes; fuzzy matching is pi's.
 
+Under `NO_COLOR` the TUI draws with bold, dim and reverse video only: muted
+text is dim and the selection is reversed. `TERM=xterm` gets 16 colors;
+`xterm-256color` gets 256 unless `COLORTERM=truecolor`.
+
 A worker's timeline shows what entered its window: `→ context 12 in · 3
 withheld` at run start and `→ memory 7 in · 4 withheld` for recalled memory.
 An unjudged or failed memory opening shows `→ memory unavailable`.

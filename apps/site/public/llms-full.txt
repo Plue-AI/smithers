@@ -2952,6 +2952,8 @@ Worker completions and monitors require a connected ChatGPT subscription, direct
 | `SMITHERS_TUI_APPROVE` | `all`; also `ask`, `deny`. `--approve` wins. |
 | `SMITHERS_TUI_BUDGET_TOKENS` | Unbounded. Checks estimated tokens before each model call, per turn and worker; `--budget-tokens` wins. |
 | `SMITHERS_TUI_SESSION_DIR` | Where conversations are stored. |
+| `NO_COLOR` | Unset. When set, only bold, dim and reverse video. |
+| `TERM`, `COLORTERM` | 24-bit color. `xterm` gets 16 colors; `xterm-256color` gets 256 unless `COLORTERM=truecolor`. |
 | `VISUAL`, then `EDITOR` | Editor for Ctrl+G; falls back to `nano`. |
 | `SMITHERS_TUI_BIN`, `SMITHERS_BUN` | Which TUI build and Bun the launcher uses. |
 | `SMITHERS_WORKSPACE_JJ_EXPORT_BINARY` | Native helper for flows. |
