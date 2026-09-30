@@ -53,6 +53,22 @@ const Checks = ({ item }: { readonly item: MythicalItem }) => {
   return <span className="world-card-path" data-checks={item.checks.state}>{item.checks.state === "passed" ? "✓" : "…"}</span>
 }
 
+/** One line per check receipt on the candidate: its mark and check; a check still running reads pending. */
+const Receipts = ({ item }: { readonly item: MythicalItem }) => {
+  const receipts = item.checks?.receipts ?? []
+  if (receipts.length === 0 && item.checks?.state !== "pending") return null
+  return (
+    <ul className="stack-receipts" data-testid={`stack-item-${item.id}-receipts`}>
+      {receipts.map((receipt) => (
+        <li key={`${receipt.check}-${receipt.commit}`} className="world-card-path" data-receipt={receipt.status}>
+          {receipt.status === "passed" ? "✓" : "✗"} {receipt.check}
+        </li>
+      ))}
+      {item.checks?.state === "pending" ? <li className="world-card-path" data-receipt="pending">… pending</li> : null}
+    </ul>
+  )
+}
+
 const ItemCells = ({ item, repo, onRunCommand, retry = true, reason, progress }: {
   readonly item: MythicalItem
   readonly repo: string
@@ -145,6 +161,7 @@ const IssueRow = ({ stack, group, item, repo, now, onRunCommand }: {
         <time className="world-card-path" dateTime={item.updatedAt} data-testid={`stack-item-${item.id}-elapsed`}>{clock}</time>
       )}
       <ItemCells item={item} repo={repo} onRunCommand={onRunCommand} reason={group.id === "needs-you" ? undefined : itemReason(item)} progress={issueProgress(item)} />
+      <Receipts item={item} />
     </li>
   )
 }

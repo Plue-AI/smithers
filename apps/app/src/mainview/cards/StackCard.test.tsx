@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+import { MythicalStackSchema } from "@smthrs/rpc/Mythical"
 import type { MythicalItem, MythicalStack, MythicalWiki } from "@smthrs/rpc/Mythical"
 import { renderToStaticMarkup } from "react-dom/server"
 import { StackBody } from "./StackCard"
@@ -326,5 +327,33 @@ describe("filing a TODO (#2782)", () => {
   test("an absent history offers no TODO door: there is no stack to file on", () => {
     const absent = { ...STACK, state: "absent" as const, items: [], changes: [], lanes: [] }
     expect(render({ snapshot: { stack: absent, error: null } })).not.toContain("history.todo")
+  })
+})
+
+describe("check receipts on a TODO", () => {
+  const wire = { repository: REPO, state: "active", generation: 1, mainBehind: false, changes: [], lanes: [], limits: { maxParallel: 1 },
+    items: [
+      { ...item("r1", "proposed"), checks: { state: "failed", failed: ["affected-test"], receipts: [
+        { check: "affected-lint", tier: "fast", status: "passed", commit: "1a2b3c4d5e" },
+        { check: "affected-test", tier: "slow", status: "failed", fault: "factory", commit: "1a2b3c4d5e" }] } },
+      { ...item("r2", "verifying"), checks: { state: "pending", failed: [] } }
+    ] } as const
+  const html = (): string => render({ snapshot: { stack: MythicalStackSchema.parse(wire), error: null } })
+
+  test("keeps the wire shape and lists one line per receipt: a mark and the check", () => {
+    const parsed = MythicalStackSchema.parse(wire)
+    expect(parsed.items[0]?.checks?.receipts).toEqual([...wire.items[0]!.checks.receipts])
+    const list = html().slice(html().indexOf('data-testid="stack-item-r1-receipts"'))
+    const lines = [...list.slice(0, list.indexOf("</ul>")).matchAll(/data-receipt="(\w+)">([^<]*)</g)].map((m) => [m[1], m[2]])
+    expect(lines).toEqual([["passed", "✓ affected-lint"], ["failed", "✗ affected-test"]])
+  })
+
+  test("a check still running reads pending", () => {
+    const list = html().slice(html().indexOf('data-testid="stack-item-r2-receipts"'))
+    expect(list.slice(0, list.indexOf("</ul>"))).toContain('data-receipt="pending">… pending')
+  })
+
+  test("an item with no checks lists no receipts", () => {
+    expect(render()).not.toContain("stack-item-i3-receipts")
   })
 })
