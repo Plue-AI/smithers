@@ -115,7 +115,11 @@ and neither becomes one by being wrapped in `Sandbox.layerHost`.
 ## Network policy
 
 Every provider takes the neutral option
-`network: "none" | { allow: string[] }`. `"none"` gives the guest no network.
+`network: "none" | "open" | { allow: string[] }`. `"none"` gives the guest no
+network. `"open"` asks for the provider's unrestricted network; a provider that
+cannot restrict the network accepts only `"open"`. `MicrosandboxSandbox` and
+`ContainerSandbox` give a guest no network unless one is named, and so do
+`VercelSandbox` and `DaytonaSandbox`: omitting `network` is `"none"`.
 `{ allow }` denies egress except to the listed hosts: exact DNS names such as
 `registry.npmjs.org`, or `*.` and a name, such as `*.npmjs.org`, for every name
 below it. List the apex of a `*.` entry separately when it must be reachable:
@@ -233,8 +237,8 @@ Ask the question in this order.
    you coherence and lifetime with no provisioning cost, and that is a
    legitimate use.
 2. **Do you need the code contained on this machine?** Use
-   `ContainerSandbox` (which defaults to `network: "none"`) or `MicrosandboxSandbox` with
-   `network: "none"`, and accept the boundary each one actually has: a container
+   `ContainerSandbox` or `MicrosandboxSandbox`, both of which default to no
+   network, and accept the boundary each one actually has: a container
    shares the host kernel, and a microVM does not.
 3. **Do you need it off this machine?** Use `KubernetesSandbox`,
    `AwsSandbox`, `VercelSandbox`, `DaytonaSandbox`, or `CloudflareSandbox`, and

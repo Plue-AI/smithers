@@ -153,7 +153,8 @@ both, because they are structurally identical records and this text is identity
 rather than display: a stored decision keeps these exact bytes and is read back
 through them.
 
-Throws an `Error` naming the action when it is outside the closed vocabulary,
+Throws an `InvalidCapabilityAction` (`_tag` `@smthrs/capability/InvalidCapabilityAction`,
+`code` `invalid_capability_action`) naming the action when it is outside the closed vocabulary,
 so an invalid structural input cannot be rendered into a string that collides
 with a valid one.
 

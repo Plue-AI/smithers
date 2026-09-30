@@ -77,6 +77,16 @@ would arrive on the other side of a replay with its message gone.
 such as `ENOENT`), and `message`. `jjErrorCause(cause)` is the supported
 projection from an arbitrary host failure onto that shape.
 
+When the browser layer or the Node diff path refuses on its own check, the
+cause carries the `name` `JjInternalFault` and a stable `code` instead of a
+message to parse: `reactor_disposed`, `reactor_instantiation_failed`,
+`reactor_abi_incomplete`, `reactor_request_allocation_failed`,
+`reactor_response_allocation_failed`, `reactor_symlinks_unsupported`,
+`patch_path_metadata_invalid`, `patch_path_metadata_incomplete`,
+`patch_headers_disagree`, `patch_output_unexpected`, `wasi_not_initialized`, or
+`lock_timeout`. The `JjError` `code`
+stays `unknown`.
+
 Bounding it is the second job. A live `PlatformError` carries argv, and an
 arbitrary object can be cyclic or mutable, so every field is capped at
 `causeMessageLimit` (1024 characters, with the ellipsis inside the budget). The

@@ -1,0 +1,19 @@
+{
+  "testedCandidate": "3e7464becedd3a96a7f8b125b3da0aa535668e78",
+  "completeIssues": [
+    2996,
+    3156,
+    3194,
+    3251
+  ],
+  "landedPrerequisitesStillOpen": [
+    2998,
+    3110,
+    3184
+  ],
+  "input": "16 original selected cases pass including actual executable TCP file/stdin nested and boolean JSON. Final row boxing15units pass; source/test types passed before rebase. API input schema block and Client/Misc unchanged after rebase; actual startup2cases and source types pass.",
+  "credentialRedaction": "Before-rebase SQLite675 and realPostgres675 pass;1350 merged and100% executed coverage with original thresholds. Incoming typed depth error retained; after-rebase268Redaction/LeakForms,1realPG committedrow,20Bug/actualCLI cases pass. After-rebase focused runs do not claim fresh whole-package100% coverage.",
+  "validators": "Exact shipped builder compiles actual host graph without launch; allfour serializer bindings preserved. Generated valid/malformed review/push/replay,closedguard and inventory53cases pass after rebase. No arbitrary minifier or deployed execution claim.",
+  "pending": "2998 preserved cause and cancellation pass; actual verbose qualification remains3204/3006. 3110 HTTP2/history corrections qualified, missinghelper+AgentMemory focused cases remain. 3184 canonical declaration build fails through foreign3241; baseline unchanged. IncomingCLItesttypes blocked by sameProcessConfinement import inCloudSandboxCommand.integration.test.ts; source types/startup pass.",
+  "generated": "Targetindexgeneration, indexdrift, CLIgeneration/check, docssync/check all exit0."
+}

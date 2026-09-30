@@ -738,6 +738,21 @@ guarantee, and a path-delegating attestation would route `access`, `copy`,
 `chmod`, `link`, `symlink`, `open`, `watch`, `sink`, `stream`, and every
 `makeTemp*` call back through pathnames after the capability check.
 
+### FileSystem.FileSystemFault
+
+```ts
+class FileSystemFault extends Schema.TaggedError<FileSystemFault>()("@smthrs/kernel/FileSystemFault", {
+  code: "executor_already_present" | "isolated_operation_unsupported" | "workspace_identity_changed"
+  message: string
+})
+```
+
+The tagged failure of a broken composition. `withIsolatedFileSystem` throws
+`executor_already_present`. A guarded batch whose root no longer names the
+authorized descriptor reports `workspace_identity_changed` as the `cause` of a
+`Busy` `PlatformError`. `isolated_operation_unsupported` is a defect: an
+attested volume never advertises `resolve` or `batch`.
+
 ### FileSystem.confined
 
 ```ts
