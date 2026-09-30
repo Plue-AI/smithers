@@ -203,10 +203,14 @@ more runs than `limit`, so a host cannot treat the page size as a bound on
 An exact `runId` filter keeps the direct lookup and applies the remaining
 filters to that observation.
 
-`principalId` stays on the wire and is refused by `Control.list`. Deleting the
-field would move the same overbroad answer one layer out, because struct
-decoding strips a property the schema does not declare and the server would
-never see it.
+`principalId` selects the runs whose `RunSummary.launchedBy.id` it names. A
+run the control plane launched records its launcher; one the engine created
+(a child, a fork, a later round) records none. Over RPC the server restricts a
+reader that `ControlRpcs.RunVisibility` does not make an operator to the runs
+its own principal launched: `List` sets `ListInput.reader` and `Watch` sets
+`WatchInput.reader`, neither of which is on the wire. Such a reader lists and
+watches only those runs, sees only the fires that started them, receives
+nothing from a plan partition, and gets `RunNotFound` for any other run.
 
 The `triggers` and `fires` variants are answered through the `DispatchReader`
 port. A host without one refuses both with `InvalidInput` whose issue is

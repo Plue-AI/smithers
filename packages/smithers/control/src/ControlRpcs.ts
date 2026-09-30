@@ -64,6 +64,24 @@ export class ControlAuth extends RpcMiddleware.Service<ControlAuth, {
 }>()("/control/ControlAuth", { error: Unauthorized }) {}
 
 /**
+ * Which authenticated principals read every run.
+ *
+ * `List` and `Watch` answer a principal this returns `true` for with every
+ * run: that principal is an operator. Every other principal reads only the
+ * runs it launched (`RunSummary.launchedBy`) and, from `Watch`, only their
+ * events. The authentication layer decides, because it is what knows which
+ * identities it can stamp: `layerBearerAuth` and `layerNoopAuth` stamp one
+ * principal and make it the operator, and `layerAuth` takes the rule as an
+ * option. Where nothing provides one, no principal is an operator.
+ *
+ * @category services
+ * @since 1.0.0
+ */
+export const RunVisibility = Context.Reference<{
+  readonly seesAllRuns: (principal: typeof Principal.Type) => boolean
+}>("/control/RunVisibility", { defaultValue: () => ({ seesAllRuns: () => false }) })
+
+/**
  * The sentence a client reads when a control handler dies.
  *
  * @category defects
@@ -365,29 +383,52 @@ export const anyAuthenticator = (authenticators: ReadonlyArray<Authenticator>): 
 })
 
 /**
- * Provides `ControlAuth` from a transport-header authenticator, telling it
- * which procedure and payload each frame carries.
+ * Options for {@link layerAuth}.
  *
- * @category layers
- * @since 0.1.0
+ * @category models
+ * @since 1.0.0
  */
-export const layerAuth = (authenticator: Authenticator) =>
-  Layer.succeed(
-    ControlAuth,
-    (effect, options) =>
-      Effect.flatMap(
-        authenticator.authenticate(options.headers, { rpc: options.rpc._tag, payload: options.payload }),
-        (principal) => Effect.provideService(effect, ControlPrincipal, principal)
-      )
-  )
+export interface AuthOptions {
+  /**
+   * The operators: the principals `List` and `Watch` show every run. Omitted,
+   * every principal reads only the runs it launched. See {@link RunVisibility}.
+   */
+  readonly seesAllRuns?: ((principal: typeof Principal.Type) => boolean) | undefined
+}
 
 /**
- * Provides `ControlAuth` using one shared bearer token.
+ * Provides `ControlAuth` from a transport-header authenticator, telling it
+ * which procedure and payload each frame carries. Each authenticated call
+ * also receives the {@link RunVisibility} rule for the principal it stamps.
  *
  * @category layers
  * @since 0.1.0
  */
-export const layerBearerAuth = (options: BearerAuthOptions) => layerAuth(bearerAuthenticator(options))
+export const layerAuth = (authenticator: Authenticator, options: AuthOptions = {}) => {
+  const visibility = { seesAllRuns: options.seesAllRuns ?? (() => false) }
+  return Layer.succeed(
+    ControlAuth,
+    (effect, call) =>
+      Effect.flatMap(
+        authenticator.authenticate(call.headers, { rpc: call.rpc._tag, payload: call.payload }),
+        (principal) =>
+          effect.pipe(
+            Effect.provideService(ControlPrincipal, principal),
+            Effect.provideService(RunVisibility, visibility)
+          )
+      )
+  )
+}
+
+/**
+ * Provides `ControlAuth` using one shared bearer token. Its one principal is
+ * the operator and reads every run.
+ *
+ * @category layers
+ * @since 0.1.0
+ */
+export const layerBearerAuth = (options: BearerAuthOptions) =>
+  layerAuth(bearerAuthenticator(options), { seesAllRuns: () => true })
 
 /**
  * Permissive authentication middleware for tests and trusted in-process use.
@@ -399,4 +440,4 @@ export const layerNoopAuth = (principal: typeof Principal.Type = {
   id: "test-principal",
   kind: "test",
   stampedAt: 0
-}) => layerAuth({ authenticate: () => Effect.succeed(principal) })
+}) => layerAuth({ authenticate: () => Effect.succeed(principal) }, { seesAllRuns: () => true })

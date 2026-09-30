@@ -81,16 +81,15 @@ parked on something else, so completing this wait would deliver nothing.
 The request did not satisfy its schema or a stated precondition. The `issue`
 field names the path. The ones you will actually meet:
 
-| `issue`                                                                                                   | Fix                                                                                  |
-| --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| `afterSequence: a watch cursor resumes one run, so it requires runId`                                     | Scope the watch. Sequences are partition-local.                                      |
-| `limit: must be an integer between 1 and 500, received 0`                                                 | Use a page size in range, or omit it for 100.                                        |
-| `cursor: must be a cursor this listing returned, received "..."`                                          | Pass back `nextCursor` verbatim.                                                     |
-| `filters.principalId: rc.0 records no launch principal on a run summary, so the filter cannot be applied` | Filter on `flowId` or `status` instead.                                              |
-| `message.runId: must be "run-17", received "run-18"`                                                      | The steer's envelope and the call must name one run.                                 |
-| `<operation>: contains an accessor` (or a cycle, a non-plain object, a non-finite number)                 | Pass plain JSON data. The identity boundary refuses anything it cannot copy inertly. |
-| `<operation>.idempotencyKey: must be 1 to 1024 well-formed characters`                                    | Shorten the key, or remove the lone surrogate or NUL.                                |
-| `webhook body: declared N bytes exceeds the M byte limit`                                                 | Raise the mount's ceiling, or send less.                                             |
+| `issue`                                                                                   | Fix                                                                                  |
+| ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `afterSequence: a watch cursor resumes one run, so it requires runId`                     | Scope the watch. Sequences are partition-local.                                      |
+| `limit: must be an integer between 1 and 500, received 0`                                 | Use a page size in range, or omit it for 100.                                        |
+| `cursor: must be a cursor this listing returned, received "..."`                          | Pass back `nextCursor` verbatim.                                                     |
+| `message.runId: must be "run-17", received "run-18"`                                      | The steer's envelope and the call must name one run.                                 |
+| `<operation>: contains an accessor` (or a cycle, a non-plain object, a non-finite number) | Pass plain JSON data. The identity boundary refuses anything it cannot copy inertly. |
+| `<operation>.idempotencyKey: must be 1 to 1024 well-formed characters`                    | Shorten the key, or remove the lone surrogate or NUL.                                |
+| `webhook body: declared N bytes exceeds the M byte limit`                                 | Raise the mount's ceiling, or send less.                                             |
 
 ### `Unauthorized` (`unauthorized`)
 

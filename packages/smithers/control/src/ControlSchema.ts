@@ -561,6 +561,14 @@ export const RunSummary = Schema.Struct({
   })),
   ownerId: Schema.optional(Schema.String),
   /**
+   * The authenticated principal that launched this run through the control
+   * plane. A reader that does not see every run sees only the runs its own
+   * principal launched. Absent on a run the engine created (a child, a fork,
+   * a later trampoline round) and on a run launched before it was recorded;
+   * only a reader that sees every run sees those.
+   */
+  launchedBy: Schema.optional(Schema.Struct({ id: Schema.String, kind: Schema.String })),
+  /**
    * The run this one branched from: the spawning run, the forked-from run, or
    * the previous trampoline round. Absent on a run with no ancestor.
    */
@@ -1096,14 +1104,10 @@ export type FireSummary = typeof FireSummary.Type
  * A typed listing request for discovered flows, durable runs, registered
  * triggers, or the trigger fire ledger.
  *
- * `principalId` stays on the wire and is REFUSED by `Control.list` rather than
- * removed from it. rc.0 records no launch principal on a run summary, so there
- * is nothing to evaluate the filter against, and the field used to be accepted
- * and applied nowhere: a caller using it as a tenant restriction received every
- * run. Deleting the field would have moved the same overbroad answer one layer
- * out, because Effect struct decoding strips a property the schema does not
- * declare and the server would never see it. A refusal is the clear failure the
- * release policy asks an unsupported feature for.
+ * `principalId` selects the runs whose `launchedBy.id` it names. It narrows a
+ * listing; it is not an authorization boundary. The server restricts a reader
+ * that does not see every run to the runs its own principal launched, whatever
+ * filter it sends.
  *
  * @since 0.1.0
  * @category models

@@ -217,6 +217,12 @@ const decodeStoredJson = <S extends Schema.Top>(
   }).pipe(Effect.flatMap((value) => decodeStoredValue(location, schema, value)))
 
 /** The admitting principal a signal command recorded, spread onto the command. */
+/** `summary` with the launcher its run's launch index recorded, if any. */
+const withLauncher = (
+  summary: RunSummary,
+  launcher: { readonly id: string; readonly kind: string } | undefined
+): RunSummary => launcher === undefined ? summary : { ...summary, launchedBy: { id: launcher.id, kind: launcher.kind } }
+
 const signalPrincipal = (
   json: string | null
 ): Effect.Effect<{ readonly principal?: Principal }, PersistenceError> =>
@@ -648,7 +654,7 @@ const makeRuntime = (
       ancestry: AncestryIndex
     ): Effect.Effect<RunSummary, PersistenceError> =>
       Effect.gen(function*() {
-        const base = baseSummary(row, yield* decodeRunState(row.stateJson))
+        const base = withLauncher(baseSummary(row, yield* decodeRunState(row.stateJson)), yield* launcherOf(row.runId))
         const parentRunId = optional(row.parentRunId).value ?? ancestry.spawnedBy.get(row.runId)
         const lineageId = optional(row.lineageId).value
         const roundOrdinal = optional(row.roundOrdinal).value
@@ -1098,7 +1104,11 @@ const makeRuntime = (
      * plane's own fence authorized, which is a control row by construction.
      */
     const summaryOf = (row: RunStore.RunRow): Effect.Effect<RunSummary, PersistenceError> =>
-      Effect.map(decodeRunState(row.stateJson), (state) => baseSummary(row, state))
+      Effect.zipWith(
+        decodeRunState(row.stateJson),
+        launcherOf(row.runId),
+        (state, launcher) => withLauncher(baseSummary(row, state), launcher)
+      )
 
     const snapshotOf = (row: RunStore.RunRow): RunStore.RunSnapshot => ({
       status: row.status,
@@ -1340,6 +1350,12 @@ const makeRuntime = (
       if (filters?.lineageId !== undefined) conditions.push(sql`${lineage} = ${filters.lineageId}`)
       if (filters?.since !== undefined) conditions.push(sql`runs.created_at_ms >= ${filters.since}`)
       if (filters?.until !== undefined) conditions.push(sql`runs.created_at_ms < ${filters.until}`)
+      if (filters?.launchedBy !== undefined) {
+        conditions.push(sql`indexed.principal_id = ${filters.launchedBy.id}`)
+        if (filters.launchedBy.kind !== undefined) {
+          conditions.push(sql`indexed.principal_kind = ${filters.launchedBy.kind}`)
+        }
+      }
       if (filters?.runIds !== undefined) {
         // One JSON parameter, so a trigger's whole ledger never meets the bind-variable limit.
         const ids = JSON.stringify([...new Set(filters.runIds)])
@@ -1443,6 +1459,24 @@ const makeRuntime = (
       })
 
     const pagePlanIds = (request: IdPageRequest) => pageByRowId(request, "control_plans", "plan_id", "page plans")
+
+    /**
+     * The recorded launcher of a run this plane launched. The launch index is
+     * written once, so it outlives the control summary the engine replaces in
+     * `flows_runs.state_json` when it takes the run over.
+     */
+    const launcherOf = (
+      runId: RunId
+    ): Effect.Effect<{ readonly id: string; readonly kind: string } | undefined, PersistenceError> =>
+      Effect.map(
+        sql<{ readonly id: string | null; readonly kind: string | null }>`
+          SELECT principal_id AS id, principal_kind AS kind FROM control_runs WHERE run_id = ${runId}
+        `.pipe(query("read a run launcher")),
+        (rows) => {
+          const row = rows[0]
+          return row === undefined || row.id === null || row.kind === null ? undefined : { id: row.id, kind: row.kind }
+        }
+      )
 
     const messages = <S extends Schema.Top>(
       runId: RunId,
@@ -1765,7 +1799,8 @@ const makeRuntime = (
       launch: Effect.fn("SqlControlRuntime.launch")(function*(
         planId: string,
         requestedDigest: string,
-        envelope: Envelope
+        envelope: Envelope,
+        principal?: Principal | undefined
       ) {
         const row = yield* requirePlan(planId)
         const plan = yield* storedPlan(row)
@@ -1816,7 +1851,8 @@ const makeRuntime = (
         yield* runStore.create(runId, JSON.stringify(summary)).pipe(
           Effect.mapError(persistence("create a run"))
         )
-        yield* sql`INSERT INTO control_runs (run_id, created_seq) VALUES (${runId}, ${sequence})`.pipe(
+        yield* sql`INSERT INTO control_runs (run_id, created_seq, principal_id, principal_kind)
+          VALUES (${runId}, ${sequence}, ${principal?.id ?? null}, ${principal?.kind ?? null})`.pipe(
           Effect.mapError(persistence("index a run"))
         )
         const outcome = yield* runStore.claimAndOwn(
@@ -1829,7 +1865,7 @@ const makeRuntime = (
         const started: LaunchResult = {
           _tag: "Started",
           receipt: accepted(`launch:${planId}:${runId}`, runId),
-          run: summary
+          run: withLauncher(summary, principal)
         }
         return started
       }),

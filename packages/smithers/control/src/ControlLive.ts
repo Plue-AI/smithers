@@ -17,10 +17,12 @@ import * as Cancellation from "./Cancellation.ts"
 import {
   type ApprovalInput,
   Control,
+  type ListInput,
   type RunMutationInput,
   type Service,
   type SignalInput,
-  type SteerInput
+  type SteerInput,
+  type WatchInput
 } from "./Control.ts"
 import {
   ClaimLost,
@@ -34,19 +36,18 @@ import {
   type PlanDenied,
   type PlanDigestMismatch,
   type PlanNotFound,
-  type RunNotFound,
+  RunNotFound,
   Unauthorized,
   Unavailable
 } from "./ControlError.ts"
 import type { CancelRecord, Launch } from "./ControlExecutor.ts"
 import { ControlExecutor } from "./ControlExecutor.ts"
 import * as ControlFacts from "./ControlFacts.ts"
-import { ControlRuntime, type IdPage, type IdPageRequest, type RunPage } from "./ControlRuntime.ts"
+import { ControlRuntime, type IdPage, type IdPageRequest, launchedByMatches, type RunPage } from "./ControlRuntime.ts"
 import type {
   ControlEvent,
   FireSummary,
   IdempotencyKey,
-  ListRequest,
   ListResponse,
   Receipt,
   RunId,
@@ -1013,7 +1014,20 @@ export const layer: Layer.Layer<
         }
       })
 
-    const list = (request: ListRequest): Effect.Effect<ListResponse, ControlError> =>
+    /**
+     * Whether a restricted reader may see `runId`: only a run this plane
+     * launched for the reader's own principal. A plan partition, an
+     * engine-created run, and a run that does not exist are all invisible.
+     */
+    const readerSees = (reader: Principal, runId: string): Effect.Effect<boolean, ControlError> =>
+      runId.startsWith("plan:")
+        ? Effect.succeed(false)
+        : runtime.getRun(runId).pipe(
+          Effect.map((run) => launchedByMatches(run, reader)),
+          Effect.catchTag("/control/RunNotFound", () => Effect.succeed(false))
+        )
+
+    const list = (request: ListInput): Effect.Effect<ListResponse, ControlError> =>
       Effect.gen(function*() {
         const bounds = yield* pageBounds(request._tag === "runs" ? undefined : request.cursor, request.limit)
         if (request._tag === "flows") {
@@ -1053,6 +1067,15 @@ export const layer: Layer.Layer<
 
         if (request._tag === "fires") {
           let fires: ReadonlyArray<FireSummary> = yield* dispatch.fires(request)
+          const reader = request.reader
+          if (reader !== undefined) {
+            // A restricted reader sees the fires that started its own runs.
+            const seen = yield* Effect.forEach(fires, (fire) =>
+              fire.runId === undefined ? Effect.succeed(false) : readerSees(reader, fire.runId))
+            fires = fires.filter((_, index) =>
+              seen[index]
+            )
+          }
           if (request.filters?.triggerId !== undefined) {
             fires = fires.filter((fire) => fire.triggerId === request.filters?.triggerId)
           }
@@ -1068,14 +1091,18 @@ export const layer: Layer.Layer<
             : { _tag: "fires", items: result.items, nextCursor: result.nextCursor }
         }
 
-        if (request.filters?.principalId !== undefined) {
-          return yield* Effect.fail(
-            invalid(
-              "filters.principalId: rc.0 records no launch principal on a run summary, so the filter cannot be applied"
-            )
-          )
-        }
         const filters = request.filters
+        // A restricted reader lists only its own runs, whatever it asked for:
+        // naming another principal's id selects nothing.
+        const reader = request.reader
+        if (reader !== undefined && filters?.principalId !== undefined && filters.principalId !== reader.id) {
+          return { _tag: "runs", items: [] }
+        }
+        const launcher = reader !== undefined
+          ? { id: reader.id, kind: reader.kind }
+          : filters?.principalId === undefined
+          ? undefined
+          : { id: filters.principalId }
         const fingerprint = JSON.stringify([
           filters?.runId ?? null,
           filters?.flowId ?? null,
@@ -1088,7 +1115,8 @@ export const layer: Layer.Layer<
             : [filters?.terminal ?? null, request.order ?? null]),
           ...(filters?.since === undefined && filters?.until === undefined && filters?.triggerId === undefined
             ? []
-            : [filters.since ?? null, filters.until ?? null, filters.triggerId ?? null])
+            : [filters.since ?? null, filters.until ?? null, filters.triggerId ?? null]),
+          ...(launcher === undefined ? [] : [launcher.id, launcher.kind ?? null])
         ])
         const cursor = request.cursor === undefined ? undefined : yield* Schema.decodeUnknownEffect(runCursor)(
           request.cursor
@@ -1108,6 +1136,7 @@ export const layer: Layer.Layer<
           if (filters.terminal !== undefined) runs = runs.filter((run) => terminal(run.status) === filters.terminal)
           if (filters.parentRunId !== undefined) runs = runs.filter((run) => run.parentRunId === filters.parentRunId)
           if (filters.lineageId !== undefined) runs = runs.filter((run) => run.lineageId === filters.lineageId)
+          if (launcher !== undefined) runs = runs.filter((run) => launchedByMatches(run, launcher))
           if (filters.since !== undefined) runs = runs.filter((run) => run.createdAt >= filters.since!)
           if (filters.until !== undefined) runs = runs.filter((run) => run.createdAt < filters.until!)
           if (filters.triggerId !== undefined) {
@@ -1132,7 +1161,8 @@ export const layer: Layer.Layer<
         // filter the source cannot evaluate costs a walk, which is why the
         // walk stops at a full page or at the end of the runs.
         const postFiltered = observing && (filters?.status !== undefined || filters?.terminal !== undefined)
-        const { triggerId, ...selected } = filters ?? {}
+        const { triggerId, principalId: _principalId, ...unowned } = filters ?? {}
+        const selected = launcher === undefined ? unowned : { ...unowned, launchedBy: launcher }
         const narrowed = triggerId === undefined ? selected : { ...selected, runIds: yield* triggerRuns(triggerId) }
         const sourceFilters = postFiltered
           ? Object.fromEntries(Object.entries(narrowed).filter(([key]) => key !== "status" && key !== "terminal"))
@@ -1459,8 +1489,38 @@ export const layer: Layer.Layer<
           })
         )
 
+    /**
+     * Keeps a restricted reader's watch to the runs it launched. A named run it
+     * may not see fails `RunNotFound` exactly as a missing one does; a global
+     * watch drops every other partition's events, deciding each partition once.
+     */
+    const watch = (filter: WatchInput): Stream.Stream<ControlEvent, ControlError> => {
+      const { reader, ...unrestricted } = filter
+      if (reader === undefined) return watchAll(unrestricted)
+      if (filter.runId !== undefined) {
+        const runId = filter.runId
+        return Stream.unwrap(Effect.map(
+          readerSees(reader, runId),
+          (visible) => visible ? watchAll(unrestricted) : Stream.fail(new RunNotFound({ runId }))
+        ))
+      }
+      const decided = new Map<string, boolean>()
+      return watchAll(unrestricted).pipe(
+        Stream.filterEffect((event) => {
+          const partition = event.runId
+          if (partition === undefined) return Effect.succeed(false)
+          const known = decided.get(partition)
+          if (known !== undefined) return Effect.succeed(known)
+          return Effect.tap(
+            readerSees(reader, partition),
+            (visible) => Effect.sync(() => decided.set(partition, visible))
+          )
+        })
+      )
+    }
+
     /** Expands each source row in stable order and checkpoints individual members. */
-    const watch = (filter: WatchFilter): Stream.Stream<ControlEvent, ControlError> => {
+    const watchAll = (filter: WatchFilter): Stream.Stream<ControlEvent, ControlError> => {
       if (filter.afterSequence !== undefined && filter.runId === undefined) {
         return Stream.fail(invalid("afterSequence: a watch cursor resumes one run, so it requires runId"))
       }
@@ -1580,7 +1640,7 @@ export const layer: Layer.Layer<
             principal,
             fingerprint("run", principal, input),
             Effect.gen(function*() {
-              const launched = yield* runtime.launch(input.planId, input.digest, input.envelope)
+              const launched = yield* runtime.launch(input.planId, input.digest, input.envelope, principal)
               if (launched._tag === "Parked") {
                 return { ...launched.receipt, receiptId: input.idempotencyKey }
               }

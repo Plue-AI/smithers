@@ -9,7 +9,7 @@ import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstab
 import { RpcServer } from "effect/unstable/rpc"
 import { Control } from "./Control.ts"
 import { Unauthorized } from "./ControlError.ts"
-import { ControlPrincipal, ControlRpcs } from "./ControlRpcs.ts"
+import { ControlPrincipal, ControlRpcs, RunVisibility } from "./ControlRpcs.ts"
 
 /**
  * Logs the raw defect of a failed RPC handler on the server, and nothing for
@@ -34,12 +34,23 @@ const logged = <A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.tapCause(effe
  * is what reaches the journal, `RunSummary.cancellation`, and a steer's
  * notification provenance.
  *
+ * `List` and `Watch` read it too: a principal `ControlRpcs.RunVisibility`
+ * does not make an operator reads only the runs it launched.
+ *
  * @category layers
  * @since 0.1.0
  */
 export const layer = ControlRpcs.toLayer(
   Effect.gen(function*() {
     const control = yield* Control
+    // A reader that is not an operator is restricted to the runs its own
+    // principal launched. `reader` is not on the wire, so only this stamp sets
+    // it. The authentication middleware provides the rule with the principal.
+    const reader = Effect.gen(function*() {
+      const principal = yield* ControlPrincipal
+      const visibility = yield* RunVisibility
+      return visibility.seesAllRuns(principal) ? {} : { reader: principal }
+    })
     return ControlRpcs.of({
       Plan: Effect.fn("Control.plan")((input) => control.plan(input), logged),
       Run: Effect.fn("Control.run")((input) =>
@@ -89,8 +100,15 @@ export const layer = ControlRpcs.toLayer(
           const principal = yield* ControlPrincipal
           return yield* control.resume({ ...input, principal })
         }), logged),
-      List: Effect.fn("Control.list")((input) => control.list(input), logged),
-      Watch: (input) => Stream.tapCause(control.watch(input), logDefect)
+      List: Effect.fn("Control.list")(
+        (input) => Effect.flatMap(reader, (restriction) => control.list({ ...input, ...restriction })),
+        logged
+      ),
+      Watch: (input) =>
+        Stream.tapCause(
+          Stream.unwrap(Effect.map(reader, (restriction) => control.watch({ ...input, ...restriction }))),
+          logDefect
+        )
     })
   })
 )

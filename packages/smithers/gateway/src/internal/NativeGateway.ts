@@ -176,8 +176,16 @@ export const layerAuth = (options: ServerOptions): Layer.Layer<ControlRpcs.Contr
           )
         )
       }
-    })
-    : ControlRpcs.layerAuth(credentialAuthenticator(options.credential))
+    }, gatewayRunVisibility)
+    : ControlRpcs.layerAuth(credentialAuthenticator(options.credential), gatewayRunVisibility)
+
+/**
+ * Every identity this gateway stamps reads every run. They all stand for the
+ * one operator who holds the gateway's credential, or the machine's loopback
+ * user when there is none; a scoped token is that operator's grant, confined
+ * by the procedures, run, or flow it names rather than by who launched a run.
+ */
+const gatewayRunVisibility: ControlRpcs.AuthOptions = { seesAllRuns: () => true }
 
 /**
  * The bearer credential itself, or a scoped token minted under it.

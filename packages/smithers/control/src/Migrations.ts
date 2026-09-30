@@ -15,6 +15,7 @@ import { runKeys } from "./migrations/0002_run_keys.ts"
 import { signalCommands } from "./migrations/0003_signal_commands.ts"
 import { approvalDecisions } from "./migrations/0004_approval_decisions.ts"
 import { signalPrincipals } from "./migrations/0005_signal_principals.ts"
+import { runPrincipals } from "./migrations/0006_run_principals.ts"
 
 /**
  * The control package's namespaced migration set.
@@ -30,7 +31,8 @@ export const set: DatabaseMigrations.MigrationSet = {
     "0002_run_keys": runKeys,
     "0003_signal_commands": signalCommands,
     "0004_approval_decisions": approvalDecisions,
-    "0005_signal_principals": signalPrincipals
+    "0005_signal_principals": signalPrincipals,
+    "0006_run_principals": runPrincipals
   }
 }
 

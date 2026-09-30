@@ -80,6 +80,35 @@ export type RunInput = typeof RunInputSchema.Type & {
 export type { ApprovalTarget } from "./ControlSchema.ts"
 
 /**
+ * A listing request, restricted to one reader's runs when `reader` is set.
+ *
+ * The server sets `reader` to the authenticated principal unless its
+ * `RunVisibility` lets that principal see every run; `ControlSchema.ListRequest`
+ * excludes it from the wire, so a remote client cannot widen or borrow a view.
+ * A restricted reader sees only the runs its principal launched, and the fires
+ * that started them; an in-process caller that names no reader sees every run.
+ *
+ * @category models
+ * @since 1.0.0
+ */
+export type ListInput = ListRequest & {
+  readonly reader?: Principal | undefined
+}
+
+/**
+ * A watch filter, restricted to one reader's runs when `reader` is set.
+ *
+ * A restricted reader receives the events of the runs its principal launched
+ * and nothing from a plan or from a run it did not launch. See {@link ListInput}.
+ *
+ * @category models
+ * @since 1.0.0
+ */
+export type WatchInput = WatchFilter & {
+  readonly reader?: Principal | undefined
+}
+
+/**
  * Full approval decision submitted to the authenticated server boundary.
  *
  * The local service may receive a runtime-stamped principal.
@@ -237,9 +266,9 @@ export interface Service {
     Receipt,
     RunNotFound | ClaimLost | CodeDrift | InvalidInput | PersistenceError | Unavailable | TransportError | Unauthorized
   >
-  readonly list: (input: ListRequest) => Effect.Effect<ListResponse, ControlError>
+  readonly list: (input: ListInput) => Effect.Effect<ListResponse, ControlError>
   /** Checkpoint `event.cursor` after processing each event and resume with `afterCursor`. */
-  readonly watch: (filter: WatchFilter) => Stream.Stream<ControlEvent, ControlError>
+  readonly watch: (filter: WatchInput) => Stream.Stream<ControlEvent, ControlError>
 }
 
 /**

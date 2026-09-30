@@ -94,12 +94,32 @@ export interface RunQuery {
     readonly until?: number | undefined
     /** Only these runs; an empty list selects none. */
     readonly runIds?: ReadonlyArray<RunId> | undefined
+    /**
+     * Only runs this plane launched for a principal with this `id`, and this
+     * `kind` when given. A run with no recorded launcher never matches.
+     */
+    readonly launchedBy?: { readonly id: string; readonly kind?: string | undefined } | undefined
   } | undefined
   /** Creation time first, newest or oldest; ties use the durable sequence. */
   readonly order?: "newest" | "oldest" | undefined
   readonly cursor?: RunCursor | undefined
   readonly limit: number
 }
+
+/**
+ * Whether `run` was launched by the principal `launcher` names: the same `id`,
+ * and the same `kind` when `launcher` gives one. A run with no recorded
+ * launcher never matches.
+ *
+ * @category predicates
+ * @since 1.0.0
+ */
+export const launchedByMatches = (
+  run: Pick<RunSummary, "launchedBy">,
+  launcher: { readonly id: string; readonly kind?: string | undefined }
+): boolean =>
+  run.launchedBy !== undefined && run.launchedBy.id === launcher.id &&
+  (launcher.kind === undefined || run.launchedBy.kind === launcher.kind)
 
 /**
  * A bounded page; the cursor names the last selected row, even if retention removed it.
@@ -470,10 +490,16 @@ export interface Service {
     principal: Principal,
     scope?: GrantScope | undefined
   ) => Effect.Effect<void, AlreadyResolved | PersistenceError | Unauthorized>
+  /**
+   * Starts an approved plan. `principal` is the identity that asked; its `id`
+   * and `kind` are recorded as the run's `launchedBy`, which decides which
+   * readers a restricted listing or watch shows the run to.
+   */
   readonly launch: (
     planId: string,
     digest: string,
-    envelope: Envelope
+    envelope: Envelope,
+    principal?: Principal | undefined
   ) => Effect.Effect<
     LaunchResult,
     PlanNotFound | PlanDenied | PlanDigestMismatch | EnvelopeMismatch | ClaimLost | PersistenceError
@@ -1090,7 +1116,7 @@ export const layerMemory = (options: MemoryOptions = {}): Layer.Layer<ControlRun
             }
           }
         ),
-        launch: Effect.fn("ControlRuntime.launch")(function*(planId, requestedDigest, envelope) {
+        launch: Effect.fn("ControlRuntime.launch")(function*(planId, requestedDigest, envelope, principal) {
           const plan = yield* Effect.fromOption(
             Option.fromNullishOr(plans.get(planId)),
             () => new PlanNotFound({ planId })
@@ -1135,6 +1161,7 @@ export const layerMemory = (options: MemoryOptions = {}): Layer.Layer<ControlRun
             ...(plan.card.executionDigest === undefined ? {} : { executionDigest: plan.card.executionDigest }),
             ...(options.engineVersion === undefined ? {} : { engineVersion: options.engineVersion }),
             ownerId: "memory-owner",
+            ...(principal === undefined ? {} : { launchedBy: { id: principal.id, kind: principal.kind } }),
             createdAt: timestamp,
             updatedAt: timestamp
           }
@@ -1202,6 +1229,7 @@ export const layerMemory = (options: MemoryOptions = {}): Layer.Layer<ControlRun
             ) continue
             if (filters?.parentRunId !== undefined && summary.parentRunId !== filters.parentRunId) continue
             if (filters?.lineageId !== undefined && summary.lineageId !== filters.lineageId) continue
+            if (filters?.launchedBy !== undefined && !launchedByMatches(summary, filters.launchedBy)) continue
             selected.push(run)
             if (selected.length > request.limit) break
           }

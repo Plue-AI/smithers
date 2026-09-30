@@ -205,19 +205,33 @@ describe("ControlLive idempotency keys", () => {
 })
 
 describe("ControlLive listings", () => {
-  it("refuses filters.principalId instead of ignoring it and answering with every run", async () => {
+  it("applies filters.principalId to the recorded launcher and a reader to its own runs", async () => {
     // The field crosses the wire, so a caller can reasonably read it as a
-    // tenant restriction. rc.0 records no launch principal to evaluate it
-    // against, and a filter that silently matches everything is the widest
-    // possible answer to a narrowing question.
-    const error = await run(Effect.gen(function*() {
+    // tenant restriction. It selects on the launcher every control launch now
+    // records, and a restricted reader cannot use it to borrow another's view.
+    const observed = await run(Effect.gen(function*() {
       const control = yield* Control
-      yield* start("principal-filter")
-      return yield* control.list({ _tag: "runs", filters: { principalId: "nobody" } }).pipe(Effect.flip)
+      const runId = yield* start("principal-filter")
+      const ids = (input: Parameters<typeof control.list>[0]) =>
+        Effect.map(control.list(input), (page) => page._tag === "runs" ? page.items.map((item) => item.runId) : [])
+      const reader = { id: "memory", kind: "test", stampedAt: 0 }
+      return {
+        runId,
+        nobody: yield* ids({ _tag: "runs", filters: { principalId: "nobody" } }),
+        launcher: yield* ids({ _tag: "runs", filters: { principalId: "memory" } }),
+        exact: yield* ids({ _tag: "runs", filters: { runId, principalId: "nobody" } }),
+        reader: yield* ids({ _tag: "runs", reader }),
+        otherKind: yield* ids({ _tag: "runs", reader: { ...reader, kind: "user" } }),
+        borrowed: yield* ids({ _tag: "runs", reader: { ...reader, id: "other" }, filters: { principalId: "memory" } })
+      }
     }))
 
-    expect(error).toBeInstanceOf(InvalidInput)
-    expect((error as InvalidInput).issue).toContain("filters.principalId")
+    expect(observed.nobody).toEqual([])
+    expect(observed.launcher).toEqual([observed.runId])
+    expect(observed.exact).toEqual([])
+    expect(observed.reader).toEqual([observed.runId])
+    expect(observed.otherKind).toEqual([])
+    expect(observed.borrowed).toEqual([])
   })
 
   it("leaves the steering count absent when the queue cannot answer", async () => {
