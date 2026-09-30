@@ -647,7 +647,7 @@ const runners: Readonly<Record<string, ReadonlyArray<ReadonlyArray<string>>>> = 
 
 /**
  * What a declared-read-only command does, read lexically: `reads`, `runs`
- * the workspace's own scripts or tests, or `false` for anything else.
+ * the workspace's own scripts, tests or Git helpers, or `false` for anything else.
  */
 export type Reading = "reads" | "runs" | false
 
@@ -698,7 +698,10 @@ const reading = (command: Words, root: string, base: string): Reading => {
     if (!reader.subcommands.includes(rest[at] ?? "")) return false
     at++
   }
-  return rest.slice(at).every((word) => !word.startsWith("-") || word === "-" || allowed(reader, word)) && "reads"
+  // Git readers can run configured helpers from editable workspace files.
+  // Conservatively treat every Git subcommand as running workspace code.
+  return rest.slice(at).every((word) => !word.startsWith("-") || word === "-" || allowed(reader, word)) &&
+    (program === "git" ? "runs" : "reads")
 }
 
 /** One command's words, quotes and escapes removed. */
@@ -772,8 +775,8 @@ const parse = (shell: string): Parsed => {
 /**
  * Whether shell text reads as only reading, lexically, run from `base`
  * inside the workspace `root` (both real): every command in it is a known
- * reader called with allowed options, or runs a script file inside `root`
- * or the workspace's tests (`runs`), with no expansion, command
+ * reader called with allowed options, or runs a script file inside `root`,
+ * the workspace's tests or Git helpers (`runs`), with no expansion, command
  * substitution, here-document, or output redirection except `N>&M` or to
  * `/dev/null`. It is a check of the declaration, not a sandbox; `Memory`
  * stops trusting declarations once one changed a file or could not be checked.
@@ -1083,8 +1086,8 @@ const internal = (resource: string): boolean => /\/\.(git|jj)(\/|$)/i.test(resou
  *   except writes to `.git` or `.jj`.
  * - A shell call that declares `writes: []` and reads as only reading
  *   (`readOnly`) runs unasked, while the run has refused nothing and every
- *   such earlier call was captured changing no file. One that runs a script
- *   or tests runs unasked only until `a` allows edits.
+ *   such earlier call was captured changing no file. One that runs a script,
+ *   tests or Git helpers runs unasked only until `a` allows edits.
  *
  * A denial wins over every allowance. The host keeps one `Memory` under
  * `ask` only: `deny` must never meet an allowance.
@@ -1153,7 +1156,7 @@ export class Memory {
         run.grants.some((pattern) => Capability.matches(pattern, request.capability))
       ) return { _tag: "allow" }
     }
-    // Once `a` allows edits nobody sees, a script or test may be one of them.
+    // Once `a` allows edits nobody sees, a script, test or Git helper may be one of them.
     const reading = shell?.readOnly === "reads" ||
       (shell?.readOnly === "runs" && run?.grants.some((pattern) => pattern.action === "fs:write") !== true)
     if (

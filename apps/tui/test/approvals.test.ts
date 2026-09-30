@@ -465,10 +465,6 @@ describe("read-only declarations", () => {
 
   it("reads known readers called with allowed options as reading", () => {
     reads(workspace(), [
-      "git status --porcelain",
-      "git --no-pager diff",
-      "git diff -- src",
-      "git log -5 --oneline --format=%H",
       "grep -E 'a|b;c>d' src",
       "grep -r add . >/dev/null",
       "echo 'hello' | cmp --quiet NOTES.md -",
@@ -480,10 +476,25 @@ describe("read-only declarations", () => {
       "tree -L 2",
       "head -5 a",
       "jq '.a' x.json",
-      "git log HEAD~1 -1",
       "cat '~/x' \\~/y",
       ""
     ], "reads")
+  })
+
+  it("treats every allowed Git reader as capable of running workspace helpers", () => {
+    reads(workspace(), [
+      "git status --porcelain",
+      "git --no-pager diff",
+      "git diff -- src",
+      "git log -5 --oneline --format=%H",
+      "git log HEAD~1 -1",
+      "git show HEAD",
+      "git grep text",
+      "git ls-files",
+      "git rev-parse --show-toplevel",
+      "git blame check.mjs",
+      "cat check.mjs && git status"
+    ], "runs")
   })
 
   it("reads a script file inside the workspace, or its tests, as running its code", () => {
@@ -1002,29 +1013,42 @@ describe("a run remembers what the person decided", () => {
     ])
   })
 
-  it("stops running scripts and tests unasked once a allows edits, and keeps running reads", async () => {
+  it("stops running scripts, tests and Git helpers unasked once a allows edits, and keeps running reads", async () => {
     const root = scripted()
     const declared = (command: string) => callOf("bash", { mode: "hermetic", reads: [], writes: [], command })
+    const commands = [
+      "node check.mjs",
+      "npm test",
+      "git status --porcelain",
+      "git --no-pager diff",
+      "git show HEAD",
+      "cat check.mjs && git status"
+    ]
     const result = await withStore("ask", (grants) =>
       Effect.gen(function*() {
         const memory = new Approvals.Memory()
         const authorize = Approvals.authorize(grants, { cwd: root, source: "t1", memory })
-        yield* authorize(declared("node check.mjs"))
+        for (const command of commands) yield* authorize(declared(command))
         const before = (yield* grants.list).length
         const edit = yield* Effect.forkChild(authorize(callOf("write", { path: "a.js", content: "x" })))
         yield* Approvals.reply(grants, memory, (yield* settledPending(grants, 1))[0]!, "run", root)
         yield* Fiber.join(edit)
-        yield* authorize(declared("git status --porcelain"))
+        yield* authorize(declared("cat check.mjs"))
         const reads = (yield* grants.list).length
         const asked: Array<string> = []
-        for (const command of ["node check.mjs", "npm test"]) {
+        for (const command of commands) {
           const fiber = yield* Effect.forkChild(authorize(declared(command)))
           asked.push((yield* settledPending(grants, 1))[0]!.subject)
           yield* Fiber.interrupt(fiber)
         }
-        return { before, reads, asked }
+        const git = declared("git status --short")
+        const waiting = yield* Effect.forkChild(authorize(git))
+        yield* Approvals.reply(grants, memory, (yield* settledPending(grants, 1))[0]!, "once", root)
+        yield* Fiber.join(waiting)
+        yield* authorize(git)
+        return { before, reads, asked, approved: (yield* grants.list).length }
       }), root)
-    expect(result).toEqual({ before: 0, reads: 0, asked: ["node check.mjs", "npm test"] })
+    expect(result).toEqual({ before: 0, reads: 0, asked: commands, approved: 0 })
   })
 
   it("asks for brace runners and printf variable assignments despite writes: [], before and after a allows edits", async () => {

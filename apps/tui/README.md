@@ -91,8 +91,8 @@ the run. A command that declares `mode: "hermetic"` with `writes: []` and reads
 as only reading runs unasked in a git or jj repository, until one such command
 is captured changing a file or the run denies anything. Only reading programs
 with their listed options, a script file inside the repository, or its tests
-qualify: no expansion, piped code or redirection. Scripts and tests ask again
-once `a` allows edits. Every turn is told whether the repository uses jj or git.
+qualify: no expansion, piped code or redirection. Scripts, tests and Git commands
+ask again once `a` allows edits. Every turn is told whether the repository uses jj or git.
 
 `--box owner/repo/workspace-id` (or `SMITHERS_BOX`) runs every worker's
 filesystem and shell flows in that Smithers Cloud workspace, over its SSH
