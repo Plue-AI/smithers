@@ -93,6 +93,8 @@ ${
       : "Do not report READY before tests and required review pass."
   } Retain the issue-to-commit mapping with test evidence and review verdict in your notes.
 
+REPORT: READY #<issue-number> <commit-id> or READY <commit-id> in assigned issue order; BLOCKED #<issue-number> <reason>. Use explicit issue IDs when skipping a blocked issue. One status per issue. Report missing host closure verification as BLOCKED; never claim CLOSED from worker text. Keep notes on separate lines.
+
 ${
     execution === "cloud"
       ? "FINISH: report full prepared commit IDs and explicitly state guest suites were not run; launcher Fable and host queue CI remain required. The launcher retains the artifact, reviews, reconstructs local commits and updates issue comments. Only the merge queue closes after origin main is verified. Final stdout: at most six lines, READY first, then blockers or notes."

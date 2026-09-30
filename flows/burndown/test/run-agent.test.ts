@@ -250,6 +250,42 @@ test("Codex does not reuse an earlier READY after an empty completed turn", () =
   assert.deepEqual(result.commits, [])
 })
 
+for (const message of ["Transient connection error", "429 Too Many Requests"]) {
+  test(`Codex recovers a transient error before its successful final report: ${message}`, () => {
+    const result = parse(jsonl(
+      { type: "turn.started" },
+      { type: "error", message },
+      { type: "item.completed", item: { type: "agent_message", text: `READY ${first}` } },
+      { type: "turn.completed" }
+    ))
+    assert.equal(result.status, "ready")
+    assert.deepEqual(result.commits, [{ issue: 2955, commit: first }])
+  })
+}
+
+test("Codex cannot recover a failed turn merely by emitting a later completion", () => {
+  const result = parse(jsonl(
+    { type: "turn.started" },
+    { type: "turn.failed", error: { message: "Fatal execution failure" } },
+    { type: "item.completed", item: { type: "agent_message", text: `READY ${first}` } },
+    { type: "turn.completed" }
+  ))
+  assert.equal(result.status, "failed")
+  assert.deepEqual(result.commits, [])
+})
+
+for (const tool of ["codex", "claude"] as const) {
+  test(`${tool} does not classify failed exits from quota words in tool output`, () => {
+    const toolOutput = tool === "codex"
+      ? { type: "item.completed", item: { type: "command_execution", aggregated_output: "rate limit regression" } }
+      : { type: "user", message: { content: [{ type: "tool_result", content: "rate limit regression" }] } }
+    const final = tool === "codex" ? codex(`READY ${first}`) : claude(`READY ${first}`)
+    const result = parse(`${jsonl(toolOutput)}\n${final}`, 1, tool)
+    assert.equal(result.status, "failed")
+    assert.deepEqual(result.commits, [])
+  })
+}
+
 for (const tool of ["codex", "claude"] as const) {
   const report = (text: string) => tool === "codex" ? codex(text) : claude(text)
   for (const [name, text] of [

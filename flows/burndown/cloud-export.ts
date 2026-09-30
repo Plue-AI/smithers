@@ -21,7 +21,7 @@ export const cloudDiagnostic = (value: string, redactions: ReadonlyArray<string>
       /Bearer\s+[^\s"']+|(?:gh[pousr]_|github_pat_)[A-Za-z0-9_]+|sk-[A-Za-z0-9_-]+|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/gi,
       "[redacted]"
     )
-    .replaceAll(/[\x00-\x08\x0b-\x1f\x7f]/g, "").slice(0, 2048)
+    .replaceAll(/(?![\n\t])\p{Cc}/gu, "").slice(0, 2048)
 }
 type Entry = { oid: string; type: "file" | "symlink"; executable: boolean }
 

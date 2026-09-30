@@ -63,6 +63,7 @@ if (!process.execArgv.includes("--experimental-test-module-mocks")) {
   })
   mock.module("../burndown/accounts.ts", {
     namedExports: {
+      accountEnv: () => ({}),
       discoverAccounts: async () => ({ accounts: [] }),
       readAccounts: async () => accountReadings
     }
@@ -75,9 +76,12 @@ if (!process.execArgv.includes("--experimental-test-module-mocks")) {
   })
   // External filesystem receipts are isolated: these unit tests exercise the real
   // action registrations without modifying the live burndown's operational files.
+  // Launch reads free disk; a fixed reading keeps host disk state out of every test.
+  let freeBytes = 64 * 2 ** 30
   mock.module("node:fs/promises", {
     namedExports: {
       ...filesystem,
+      statfs: async () => ({ bavail: freeBytes / 4096, bsize: 4096 }),
       mkdir: async () => undefined,
       writeFile: async (path: string, value: string) => {
         writes.push({ path, value })
@@ -504,12 +508,22 @@ if (!process.execArgv.includes("--experimental-test-module-mocks")) {
     assert.equal(starts.length, 1)
   })
 
-  for (const placement of ["local", "cloud"] as const) {
-    test(`${placement} launch ${placement === "local" ? "waits without claiming" : "continues"} below the free-disk floor`, async () => {
+  for (
+    const [placement, free, floor, expected] of [
+      ["local", 8 * 2 ** 30 - 4096, undefined, 0],
+      ["local", 8 * 2 ** 30, undefined, 1],
+      ["local", 8 * 2 ** 30 - 4096, "not-a-number", 0],
+      ["local", 2 * 2 ** 30, "1.5", 1],
+      ["cloud", 0, undefined, 1]
+    ] as const
+  ) {
+    test(`${placement} launch with ${free} free bytes and floor ${floor ?? "default"} starts ${expected}`, async () => {
       starts.length = 0
       claims.length = 0
       const saved = process.env.BURNDOWN_MIN_FREE_GIB
-      process.env.BURNDOWN_MIN_FREE_GIB = String(Number.MAX_SAFE_INTEGER)
+      if (floor === undefined) delete process.env.BURNDOWN_MIN_FREE_GIB
+      else process.env.BURNDOWN_MIN_FREE_GIB = floor
+      freeBytes = free
       try {
         const launched = await invoke(Launch.name, {
           state: { ...initial(), options: { ...initial().options, placement } },
@@ -520,11 +534,11 @@ if (!process.execArgv.includes("--experimental-test-module-mocks")) {
             note: "disk"
           }
         })
-        const expected = placement === "local" ? 0 : 1
         assert.equal((launched as Array<unknown>).length, expected)
         assert.equal(starts.length, expected)
         assert.equal(claims.filter((args) => args[1] === "claim").length, expected)
       } finally {
+        freeBytes = 64 * 2 ** 30
         if (saved === undefined) delete process.env.BURNDOWN_MIN_FREE_GIB
         else process.env.BURNDOWN_MIN_FREE_GIB = saved
       }
@@ -577,9 +591,13 @@ if (!process.execArgv.includes("--experimental-test-module-mocks")) {
     process.env.BURNDOWN_LAND = "on"
     try {
       const { Pace } = await import("../burndown/pace.ts")
+      const { RunAgent } = await import("../burndown/run-agent.ts")
       const implementations = Layer.mergeAll(
         layer,
         Pace.toLayer(() => Effect.succeed({ launches: [], nextTarget: 4, note: "fixture" })),
+        RunAgent.toLayer(() => Effect.die("READY recovery must not launch a worker"), {
+          implementationVersion: "burndown/run-agent/v6"
+        }),
         Sleep.layer
       ).pipe(Layer.provideMerge(Action.layerImplementations))
       const services = Interpreter.layerWithImplementations(Burndown, implementations).pipe(
@@ -654,7 +672,7 @@ if (!process.execArgv.includes("--experimental-test-module-mocks")) {
         assert.equal(observed.capacity[0]!.slots, 0)
         assert.match(observed.capacity[0]!.problem!, /UsageUnavailable/)
         assert.equal(observed.exhausted, false)
-        const retained = observed as typeof Observe.successSchema.Type
+        const retained = observed
         const firstReading = (retained.readings as { readings: Array<typeof prior> }).readings[0]!
         assert.deepEqual(firstReading.usage, prior.usage)
         assert.equal(firstReading.observedAt, prior.observedAt)

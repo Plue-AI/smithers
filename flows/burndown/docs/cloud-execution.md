@@ -27,8 +27,9 @@ supplies Codex, its code mode companion, and Claude (Codex 0.159.1 and Claude 2.
 Agent output is redacted before the launcher retains it. Cloud commands do not
 write an unredacted agent log in the checkout.
 
-A READY response starts handoff before the sandbox scope closes. The guest
-commits with Git and reports `READY <40-hex sha>`. Read-only Git plumbing
+A READY response starts handoff before the sandbox scope closes. The host first
+retains the assignment identity, workspace ID and reported commits in a bounded
+recovery receipt. The guest reports `READY <40-hex sha>`. Read-only Git plumbing
 commands export the ordered single-parent commits, including before/after bytes, executable
 modes, symlinks, and deletions. The launcher validates and durably retains this
 artifact, runs the trusted host Fable CLI with source-only stdin and an explicitly selected review account,
@@ -38,8 +39,17 @@ recovery and returns an error.
 The host reconstructs one local commit per exported commit under the existing
 VCS lock. It refuses conflicting local edits or mismatched base bytes, preserves
 unrelated working copy changes, and leaves `main` unchanged. The worker returns
-these local commit IDs to the existing merge queue. Only after retention and
-reconstruction does scope release delete the Cloud workspace.
+these local commit IDs to the existing merge queue. After durable artifact retention, scope release may delete the Cloud workspace.
+Export failure preserves the workspace and recovery receipt; review or
+reconstruction failure preserves the retained bytes and receipts. Unknown
+execution outcomes also keep the workspace. Temporary agent login material
+still receives its normal cleanup.
+
+Export errors identify the metadata, tree or blob stage and distinguish a Git
+exit from SSH grant or command transport failures. Diagnostics are bounded and
+redacted; agent notes and SSH grant commands are excluded from recovery receipts.
+The actual coding tool/model also survives reconstruction, so Opus work receives
+its own coauthor trailer. See [commit recovery](cloud-handoff.md).
 
 Run deterministic lifecycle and handoff checks with:
 

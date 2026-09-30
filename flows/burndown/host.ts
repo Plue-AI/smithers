@@ -36,7 +36,10 @@ const claimScript = process.env.BURNDOWN_ISSUE_CLAIM_SCRIPT ??
 const horizonHours = Number(process.env.BURNDOWN_HORIZON_HOURS ?? 12)
 
 /** Local launches wait while free disk is below this many GiB; running workers continue. */
-const minFreeGiB = () => Number(process.env.BURNDOWN_MIN_FREE_GIB ?? 8)
+const minFreeGiB = () => {
+  const value = Number(process.env.BURNDOWN_MIN_FREE_GIB?.trim() || Number.NaN)
+  return Number.isFinite(value) && value >= 0 ? value : 8
+}
 
 const models = { claude: "claude-opus-5-5", codex: "gpt-6.1-sol" } as const
 
@@ -239,8 +242,9 @@ const launch = (
     if (state.options.placement === "local" && launches.length > 0) {
       const disk = yield* Effect.promise(() => statfs(homedir()))
       const freeGiB = (disk.bavail * disk.bsize) / 2 ** 30
-      if (freeGiB < minFreeGiB()) {
-        yield* Effect.logWarning(`burndown: ${freeGiB.toFixed(1)} GiB free < ${minFreeGiB()} GiB; not launching`)
+      const floor = minFreeGiB()
+      if (freeGiB < floor) {
+        yield* Effect.logWarning(`burndown: ${freeGiB.toFixed(1)} GiB free < ${floor} GiB; not launching`)
         return []
       }
     }
@@ -376,7 +380,9 @@ const settle = (
     }
     const queue = readyWork(state, observation)
     // A mixed READY/BLOCKED bundle is a repair receipt, not a complete queue member.
-    const invalid = reportedReady(state, observation).filter((member) => !Schema.is(Ready)(member)).map((member) => ({
+    const invalid = reportedReady(state, observation).filter((member): boolean => !Schema.is(Ready)(member)).map((
+      member
+    ) => ({
       ...member,
       key: member.assignment.key,
       error: `Incomplete READY bundle: ${member.result.notes}`

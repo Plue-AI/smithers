@@ -7,6 +7,8 @@ Quoted examples stay excluded until their matching Markdown fence closes.
 A failed process exit cannot produce READY. Structured final quota errors return
 limited even when the CLI exits zero; limit words in a successful report or tool
 output do not override a successful final result.
+Codex transient errors can recover when the same turn completes successfully;
+a failed turn cannot recover without a new turn.
 
 READY accepts full commit IDs in assigned issue order, or explicit
 `READY #<issue> <commit>` mappings. Explicit mappings reserve their issues before

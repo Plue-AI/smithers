@@ -50,6 +50,15 @@ const repoDirs: Record<string, string> = {
   "smithersai/plue": join(homedir(), "plue")
 }
 
+/** The host's Go build cache: Go's own default, so workers never add a second cold cache. */
+const goCache = () =>
+  process.env.GOCACHE ?? join(
+    process.platform === "darwin"
+      ? join(homedir(), "Library/Caches")
+      : process.env.XDG_CACHE_HOME ?? join(homedir(), ".cache"),
+    "go-build"
+  )
+
 /**
  * This machine: the shared checkout on main, the account's local login dir,
  * run scratch removed when the agent exits, and one Go build cache for all runs.
@@ -69,7 +78,7 @@ export const layerLocal = Layer.effect(Placement)(
             workdir,
             stateDir,
             scratch,
-            env: { ...accountEnv(account), TMPDIR: scratch, GOCACHE: join(homedir(), ".cache/burndown/go-build") }
+            env: { ...accountEnv(account), TMPDIR: scratch, GOCACHE: goCache() }
           })
       }
     }
@@ -119,8 +128,9 @@ const finalReport = (tool: Assignment["tool"], output: string): { readonly text?
   let message: string | undefined
   let completed = false
   let failure: string | undefined
+  let fatal = false
   for (const record of records) {
-    if (record.type === "turn.started") { message = undefined; completed = false; failure = undefined }
+    if (record.type === "turn.started") { message = undefined; completed = false; failure = undefined; fatal = false }
     if (record.type === "item.completed") {
       const item = record.item as Record<string, unknown> | undefined
       if (item?.type === "agent_message") {
@@ -128,10 +138,11 @@ const finalReport = (tool: Assignment["tool"], output: string): { readonly text?
         completed = false
       }
     }
-    if (record.type === "turn.completed") completed = true
+    if (record.type === "turn.completed" && !fatal) { completed = true; failure = undefined }
     if (record.type === "turn.failed" || record.type === "error") {
       completed = false
       failure = JSON.stringify(record)
+      fatal ||= record.type === "turn.failed"
     }
   }
   return failure !== undefined ? { failure } : completed && message !== undefined ? { text: message } : {}

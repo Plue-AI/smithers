@@ -57,11 +57,12 @@ agent-hours spent on that account. Opus chooses launches within the ceilings.
 
 ## Local disk
 
-Each local worker gets `TMPDIR` in `~/Smithers-Ops/burndown/runs/<key>/tmp`,
-deleted when the agent exits; `brief.md` and `agent.log` stay. All local
-workers share one Go build cache, `~/.cache/burndown/go-build`. Local launches
-wait while the home volume has less than `BURNDOWN_MIN_FREE_GIB` (default 8)
-free; running workers continue.
+Each local worker gets `TMPDIR` in `~/Smithers-Ops/burndown/runs/<key>/tmp`.
+The run script deletes it when the agent exits or is stopped by HUP, INT or
+TERM; `brief.md` and `agent.log` stay. A SIGKILL or host crash leaves it in
+place. All local workers share the host's Go build cache (`GOCACHE`, else Go's
+default). Local launches wait while the home volume has less than
+`BURNDOWN_MIN_FREE_GIB` (default 8) free; running workers continue.
 
 ## Accounts
 

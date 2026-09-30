@@ -136,3 +136,11 @@ test("Cloud product bug review requires Fable without an Opus fallback", () => {
   assert.match(text, /Mandatory final product-bug review is Fable/)
   assert.match(text, /never[^\n]*fall back to Opus/)
 })
+
+for (const execution of ["local", "cloud"] as const) {
+  test(`${execution} brief gives explicit issue result grammar for partial bundles`, () => {
+    const text = brief({ ...options, execution, extras: [{ n: 43, title: "Independent fix" }] })
+    assert.ok(text.includes("READY #<issue-number> <commit-id>"))
+    assert.ok(text.includes("BLOCKED #<issue-number> <reason>"))
+  })
+}

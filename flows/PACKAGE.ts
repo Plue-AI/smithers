@@ -182,6 +182,29 @@ const codingProjectInputs = [
 const node = Smithers.Runtime.Node({ version: ">=26.4.0" })
 const bun = Smithers.Runtime.Bun({ version: ">=1.4.0" })
 
+// The burndown flow, its Cloud handoff, monitor and round.
+const burndown = Smithers.NodeTest({
+  runtime: node,
+  runner: Smithers.testRunner([
+    Smithers.file("//flows/burndown/test/accounts.test.ts"),
+    Smithers.file("//flows/burndown/test/brief.test.ts"),
+    Smithers.file("//flows/burndown/test/cloud-export.test.ts"),
+    Smithers.file("//flows/burndown/test/cloud-placement.test.ts"),
+    Smithers.file("//flows/burndown/test/cloud-symlink.test.ts"),
+    Smithers.file("//flows/burndown/test/issues.test.ts"),
+    Smithers.file("//flows/burndown/test/land.test.ts"),
+    Smithers.file("//flows/burndown/test/local-scratch.test.ts"),
+    Smithers.file("//flows/burndown/test/pacing.test.ts"),
+    Smithers.file("//flows/burndown/test/run-agent.test.ts"),
+    Smithers.file("//flows/test/burndown-cloud-handoff.test.ts"),
+    Smithers.file("//flows/test/burndown-monitor.test.ts"),
+    Smithers.file("//flows/test/burndown-round.test.ts"),
+    Smithers.file("//flows/test/burndown-selection.test.ts")
+  ]),
+  srcs: [sources, scripts, Smithers.file("//pnpm-workspace.yaml")],
+  deps: [],
+  cwd
+})
 // Existing policy integration uses actual JJ and the Node SQLite fixture.
 const coding = Smithers.NodeTest({
   runtime: node,
@@ -635,6 +658,7 @@ export const Package = Smithers.Package({
     codingConfigBun,
     codingNative,
     testCoverage,
+    burndown,
     codingNativeBun,
     codingBundle,
     codingBundleBun,
