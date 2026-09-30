@@ -362,6 +362,53 @@ export const MythicalFailureSchema = z.object({
 export type MythicalFailure = z.infer<typeof MythicalFailureSchema>
 
 /**
+ * The machine an item's latest lane was placed on (`kind` `vm` boots the
+ * repository's NixOS `image`, `container` the default guest), or the typed
+ * `refusal` it stopped at, with what the repository `declared`.
+ *
+ * @since 1.0.0
+ * @category schemas
+ */
+export const MythicalPlacementSchema = z.object({
+  declared: z.object({
+    revision: z.string().optional(),
+    environment: z.string().optional(),
+    environmentDigest: z.string().optional(),
+    vcpus: z.number().int().positive().optional(),
+    memoryMiB: z.number().int().positive().optional(),
+    tools: z.array(z.string()).optional()
+  }),
+  kind: z.string().optional(),
+  vcpus: z.number().int().positive().optional(),
+  memoryMiB: z.number().int().positive().optional(),
+  imageId: z.string().optional(),
+  image: z.string().optional(),
+  closureHash: z.string().optional(),
+  imageRevision: z.string().optional(),
+  refusal: z.string().optional(),
+  reason: z.string().optional()
+})
+
+/**
+ * The decoded value accepted by {@link MythicalPlacementSchema}.
+ *
+ * @since 1.0.0
+ * @category models
+ */
+export type MythicalPlacement = z.infer<typeof MythicalPlacementSchema>
+
+/**
+ * A placed lane's machine as every surface shows it: its kind and image
+ * (`vm · registry/env:…`, or `container`); undefined when it was refused or
+ * never placed.
+ *
+ * @since 1.0.0
+ * @category projections
+ */
+export const mythicalMachine = (placement: MythicalPlacement | undefined): string | undefined =>
+  placement?.kind === undefined ? undefined : [placement.kind, placement.image].filter(Boolean).join(" · ")
+
+/**
  * A TODO's progress: `replans` plans failed so far (it runs plan
  * `replans + 1` of 3), `veryHard` while it runs its one continuation after
  * the last replan, and the typed `fault` it retries after or stopped at.
@@ -473,6 +520,8 @@ export const MythicalItemSchema = z.object({
   request: z.string().optional(),
   /** Why the item stopped or retries; `reason` is its sentence. */
   failure: MythicalFailureSchema.optional(),
+  /** The machine its latest lane was placed on, or the refusal it stopped at. */
+  placement: MythicalPlacementSchema.optional(),
   /** The settled platform-key model cost of the item's lanes, in USD nanos; pending and pooled subscription calls carry none. */
   costNanos: z.number().int().nonnegative().optional(),
   pullRequest: MythicalPullRequestSchema.optional(),

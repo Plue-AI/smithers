@@ -108,6 +108,18 @@ export const receiptLine = (item: Values): string =>
   ).join(" · ")
 
 /**
+ * The machine the item's lane runs on, as every surface shows it
+ * (`mythicalMachine`): `vm · registry/env:…`, or `container`; "" when its
+ * placement was refused or it was never placed.
+ * @private
+ * @since 1.0.0
+ */
+export const machineLine = (item: Values): string => {
+  const placement = object(item.placement)
+  return placement.kind === undefined ? "" : [str(placement.kind), str(placement.image)].filter(Boolean).map(clean).join(" · ")
+}
+
+/**
  * The History as lines: the stack's state and lanes, then Needs you, Working
  * and Done (the last 24 hours), ordered as the app lists them.
  * @private
@@ -150,7 +162,10 @@ export const render = (value: unknown, now = Date.now()): string => {
     head,
     ...groups.filter(([, rows]) => rows.length > 0).flatMap(([label, rows]) => [
       `${label} ${rows.length}`,
-      ...rows.map(({ item }) => `  ${itemLine(item, changes)}`)
+      ...rows.map(({ item }) => {
+        const machine = machineLine(item)
+        return `  ${itemLine(item, changes)}${machine === "" ? "" : `\n    ${machine}`}`
+      })
     ])
   ].join("\n")
 }

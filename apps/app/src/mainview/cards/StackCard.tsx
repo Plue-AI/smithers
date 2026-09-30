@@ -12,7 +12,7 @@ import { useClock } from "@smthrs/ui/clock"
  * repository homepage (`S.Home.Stack`); the snapshot is the stack seam's live
  * read, never card state.
  */
-import type { MythicalItem, MythicalItemState, MythicalStack, MythicalWiki } from "@smthrs/rpc/Mythical"
+import { type MythicalItem, type MythicalItemState, type MythicalStack, type MythicalWiki, mythicalMachine } from "@smthrs/rpc/Mythical"
 import { Button } from "@smthrs/ui"
 import { useContext, useSyncExternalStore } from "react"
 import { ControllerContext } from "../ControllerContext"
@@ -67,6 +67,13 @@ const Receipts = ({ item }: { readonly item: MythicalItem }) => {
       {item.checks?.state === "pending" ? <li className="world-card-path" data-receipt="pending">… pending</li> : null}
     </ul>
   )
+}
+
+/** The machine the item's lane runs on: its kind and image. */
+const Machine = ({ item }: { readonly item: MythicalItem }) => {
+  const machine = mythicalMachine(item.placement)
+  return machine === undefined ? null
+    : <span className="world-card-path" data-testid={`stack-item-${item.id}-machine`}>{machine}</span>
 }
 
 const ItemCells = ({ item, repo, onRunCommand, retry = true, reason, progress }: {
@@ -162,6 +169,7 @@ const IssueRow = ({ stack, group, item, repo, now, onRunCommand }: {
       )}
       <ItemCells item={item} repo={repo} onRunCommand={onRunCommand} reason={group.id === "needs-you" ? undefined : itemReason(item)} progress={issueProgress(item)} />
       <Receipts item={item} />
+      <Machine item={item} />
     </li>
   )
 }

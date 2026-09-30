@@ -4,11 +4,11 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
-import { MythicalItemStateSchema } from "../../rpc/src/Mythical.ts"
+import { MythicalItemSchema, MythicalItemStateSchema, mythicalMachine } from "../../rpc/src/Mythical.ts"
 import { issueGroupOf } from "../../rpc/src/StackIssues.ts"
 import { itemStateLabel, settled } from "../../rpc/src/StackView.ts"
 import { main } from "../src/cli/Entry.ts"
-import { groupOf, itemLine, outOfLanes, receiptLine, render, stateLabel } from "../src/internal/backend/History.ts"
+import { groupOf, itemLine, machineLine, outOfLanes, receiptLine, render, stateLabel } from "../src/internal/backend/History.ts"
 
 const dirs: Array<string> = []
 afterEach(async () => {
@@ -78,6 +78,35 @@ describe("history rendering", () => {
       }
     }))).toBe("✓ affected-lint abcdef0 · ✗ affected-test abcdef0")
     expect(receiptLine(item("running"))).toBe("")
+  })
+  it("shows the machine an issue's lane runs on under it, as the app and TUI do", () => {
+    const placed = item("running", {
+      lane: 0,
+      placement: {
+        declared: { environment: ".smithers/environment.nix", tools: ["go"] },
+        kind: "vm",
+        vcpus: 2,
+        memoryMiB: 4096,
+        imageId: "img-1",
+        image: "registry/env:abc"
+      }
+    })
+    const container = item("running", { placement: { declared: {}, kind: "container", vcpus: 2, memoryMiB: 4096 } })
+    const refused = item("blocked", { placement: { declared: { vcpus: 8 }, refusal: "machine_too_small", reason: "too big" } })
+    for (const value of [placed, container, refused, item("running")]) {
+      expect(machineLine(value)).toBe(mythicalMachine(MythicalItemSchema.parse(value).placement) ?? "")
+    }
+    expect(machineLine(placed)).toBe("vm · registry/env:abc")
+    expect(machineLine(item("running", { placement: { declared: {}, kind: "vm", image: "reg/env:x\u001b[2J" } })))
+      .toBe("vm · reg/env:x")
+    expect(render(stack([placed, refused]), now)).toBe([
+      "active · 1/2 lanes",
+      "◆ Needs you 1",
+      "  #12 Fix login · blocked",
+      "◐ Working 1",
+      "  #12 Fix login · implementing",
+      "    vm · registry/env:abc"
+    ].join("\n"))
   })
   it("names a chat item by its stack change, else its id", () => {
     const chat = { ...item("running"), issue: undefined }

@@ -7,6 +7,7 @@ import {
   MythicalItemSchema,
   MythicalLaneSchema,
   MythicalLaneSubmissionSchema,
+  mythicalMachine,
   type MythicalReceipt,
   mythicalReceiptDuration,
   mythicalRoute,
@@ -235,6 +236,39 @@ describe("the mythical stack contract", () => {
     for (const failure of [{ kind: "quota", fault: "infra" }, { kind: "model", fault: "provider" }, { kind: "model" }]) {
       expect(MythicalItemSchema.safeParse({ ...failed, failure }).success).toBe(false)
     }
+  })
+
+  test("a lane's placement decodes as the stack service writes it, and shows as its machine and image", () => {
+    // The receipt mythical_placement_test.go records for a NixOS lane.
+    const placed = {
+      ...snapshot.items[2],
+      placement: {
+        declared: {
+          revision: "a".repeat(40),
+          environment: ".smithers/environment.nix",
+          environmentDigest: "d".repeat(64),
+          vcpus: 2,
+          memoryMiB: 4096,
+          tools: ["go"]
+        },
+        kind: "vm",
+        vcpus: 2,
+        memoryMiB: 4096,
+        imageId: "img-1",
+        image: "registry/env:" + "c".repeat(32),
+        closureHash: "c".repeat(32),
+        imageRevision: "b".repeat(40)
+      }
+    }
+    const decoded = MythicalItemSchema.parse(placed)
+    expect(decoded.placement).toEqual(placed.placement)
+    expect(mythicalMachine(decoded.placement)).toBe("vm · registry/env:" + "c".repeat(32))
+    expect(mythicalMachine({ declared: {}, kind: "container", vcpus: 2, memoryMiB: 4096 })).toBe("container")
+    const refused = { declared: { vcpus: 8 }, refusal: "machine_too_small", reason: "it needs 8 vCPUs and lane machines here have 2" }
+    expect(MythicalItemSchema.parse({ ...placed, placement: refused }).placement).toEqual(refused)
+    expect(mythicalMachine(refused)).toBeUndefined()
+    expect(mythicalMachine(undefined)).toBeUndefined()
+    expect(MythicalItemSchema.safeParse({ ...placed, placement: { ...placed.placement, vcpus: 0 } }).success).toBe(false)
   })
 
   test("a TODO's metrics decode: its route, a person's take-over and its cost", () => {

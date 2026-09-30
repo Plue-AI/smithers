@@ -330,6 +330,29 @@ describe("filing a TODO (#2782)", () => {
   })
 })
 
+describe("the machine a TODO runs on", () => {
+  const wire = { repository: REPO, state: "active", generation: 1, mainBehind: false, changes: [], lanes: [], limits: { maxParallel: 1 },
+    items: [
+      { ...item("m1", "verifying"), placement: { declared: { environment: ".smithers/environment.nix", tools: ["go"] }, kind: "vm",
+        vcpus: 2, memoryMiB: 4096, imageId: "img-1", image: "registry/env:abc", closureHash: "abc", imageRevision: "b".repeat(40) } },
+      { ...item("m2", "verifying"), placement: { declared: {}, kind: "container", vcpus: 2, memoryMiB: 4096 } },
+      { ...item("m3", "blocked"), placement: { declared: { vcpus: 8 }, refusal: "machine_too_small", reason: "it needs 8 vCPUs" } }
+    ] } as const
+  const html = (): string => render({ snapshot: { stack: MythicalStackSchema.parse(wire), error: null } })
+
+  test("shows the machine's kind and image, nothing else", () => {
+    expect(html()).toContain('data-testid="stack-item-m1-machine">vm · registry/env:abc</span>')
+    expect(html()).toContain('data-testid="stack-item-m2-machine">container</span>')
+    expect(html()).not.toContain("4096")
+    expect(html()).not.toContain("img-1")
+  })
+
+  test("a refused or unplaced item shows no machine", () => {
+    expect(html()).not.toContain("stack-item-m3-machine")
+    expect(render()).not.toContain("-machine\"")
+  })
+})
+
 describe("check receipts on a TODO", () => {
   const wire = { repository: REPO, state: "active", generation: 1, mainBehind: false, changes: [], lanes: [], limits: { maxParallel: 1 },
     items: [
