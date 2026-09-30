@@ -753,6 +753,9 @@ export const make = (
     // that has since built its catalog offers the hook, and one that never
     // builds a catalog keeps planning exactly as it did, with no nodes.
     const executable = host.catalog?.executables.find((entry) => entry.descriptor.name === descriptor.name)
+    // A module whose delegate this host never registered is driven by the host
+    // program that registers it: it plans with no nodes and is accepted pending,
+    // where every other refusal (an unreadable body) is refused before admission.
     const refusal = host.catalog?.refused.find((entry) => entry.flow === descriptor.name)
     const refusedMessage = (refusal?.cause instanceof PlatformError.PlatformError
       ? refusal.cause.reason.description ?? refusal.message
@@ -782,7 +785,7 @@ export const make = (
           })
       }),
       ...(executable === undefined
-        ? descriptor.body._tag === "Module" && host.catalog !== undefined
+        ? descriptor.body._tag === "Module" && host.catalog !== undefined && refusal?.code !== "missing_delegate"
           ? {
             plan: () =>
               Effect.fail(

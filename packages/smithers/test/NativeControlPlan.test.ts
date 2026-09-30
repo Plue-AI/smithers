@@ -287,6 +287,37 @@ describe("planning a discovered flow on the native host", () => {
     }
   }, 60_000)
 
+  it("plans a flow whose delegate this host never registered, to be driven by the host that does", async () => {
+    const root = await project()
+    try {
+      const registry = NodeControl.layerRegistry(root)
+      const modules = Layer.succeed(Executable.Catalog, {
+        executables: [],
+        refused: [
+          new Executable.ExecutableError({
+            code: "missing_delegate",
+            flow: "native",
+            delegate: "agent",
+            available: [],
+            message: "flow \"native\" delegates to \"agent\", which no registered flow provides"
+          })
+        ]
+      })
+      const card = await Effect.runPromise(
+        Effect.flatMap(Control.Control, (control) => control.plan({ flowId: "native", input: { value: "planned" } }))
+          .pipe(
+            Effect.provide(
+              NodeControl.layerControl({ root, evaluator: ScriptedJudge.layer }, registry, undefined, modules)
+            ),
+            Effect.scoped
+          )
+      )
+      expect(card.flowId).toBe("native")
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  }, 60_000)
+
   it("answers with the delegate's own keyed nodes and their edges", async () => {
     const root = await project()
     try {
