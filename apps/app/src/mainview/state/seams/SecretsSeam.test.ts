@@ -1,5 +1,5 @@
 import type { StorageApi } from "@tanstack/db"
-import { describe, expect, test } from "bun:test"
+import { afterEach, describe, expect, test } from "bun:test"
 
 import type { AgentPort } from "../../runtime/AgentPort"
 import { createAppController } from "../AppController"
@@ -304,4 +304,153 @@ describe("secrets seam — secrets.scope", () => {
     const confirmation = [...store.collections.messages.values()].find(message => message.action?.flow === "secrets.scope")
     expect(confirmation?.action?.args).toStartWith("DEPLOY all")
   })
+})
+
+const held = new Set<() => void>()
+const pending = new Set<Promise<unknown>>()
+const checkpoint = () => new Promise<void>(resolve => setImmediate(resolve))
+const track = <T>(promise: Promise<T>): Promise<T> => { pending.add(promise); return promise }
+const bounded = async <T>(promise: Promise<T>): Promise<T> => {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([promise, new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => reject(new Error("Secret fixture did not settle")), 3_000)
+    })])
+  } finally { clearTimeout(timer) }
+}
+const heldResponse = () => {
+  const response = Promise.withResolvers<Response>()
+  held.add(() => response.resolve(json(503, {})))
+  track(response.promise)
+  return response
+}
+afterEach(async () => {
+  for (const release of held) release()
+  held.clear()
+  await Promise.allSettled([...pending])
+  pending.clear()
+})
+
+// Repo admission performs these adjacent discovery reads; they have no content in this fixture.
+const discoveryRoutes = new Set([
+  "/api/repos/will/flows/contents/.smithers/factory.json", "/api/repos/will/flows/home",
+  ...["issues", "review", "ci", "feature", "chores"].map(job => `/api/repository-setup/state?repo=will%2Fflows&job=${job}`)
+])
+const heldController = async (services: AppServices) => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const routed: AppServices = {
+    ...services,
+    fetchImpl: (input, init) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url
+      if (discoveryRoutes.has(url)) return Promise.resolve(json(404, {}))
+      return track(Promise.resolve(services.fetchImpl!(input, init)))
+    }
+  }
+  return { store, controller: createAppController(store, unavailableAgent, routed) }
+}
+
+const metadataAnswer = (name = "CURRENT_SECRET") => ({ setup_script: "", env: [], secrets: [{ name, hosts: [], match_headers: [], updated_at: null, value: "PRIVATE_BYTES" }] })
+
+for (const retirement of ["account", "sign-out", "dispose"] as const) for (const answer of ["success", "rejection"] as const) {
+  test(`a held secret read ${answer} after ${retirement} cannot publish the retired metadata`, async () => {
+    const reply = heldResponse()
+    const entered = Promise.withResolvers<void>()
+    const hits: string[] = []
+    const { store, controller } = await heldController({ fetchImpl: async input => {
+      hits.push(String(input)); entered.resolve(); return reply.promise
+    } })
+    await ready(store)
+    const reading = track(controller.commands.run("secrets.list"))
+    await bounded(entered.promise)
+    controller.changeDraft("Keep my current chat")
+    if (retirement === "account") await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ada", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+    else if (retirement === "sign-out") await signedOut(store)
+    else await controller.dispose()
+    if (answer === "success") reply.resolve(json(200, metadataAnswer("RETIRED_SECRET")))
+    else reply.reject(new Error("retired transport failure"))
+    const outcome = await bounded(reading)
+    await bounded(Promise.allSettled([...pending]))
+    await checkpoint()
+    expect(hits).toEqual(["/api/repos/will/flows/agent-environment"])
+    expect(secretsCard(store)).toBeUndefined()
+    expect(outcome).toEqual(retirement === "dispose"
+      ? { status: "failed", error: "The command's outcome could not be saved. Check its result before trying again.", persistenceFailed: true }
+      : { status: "executed", value: undefined })
+    const retiredFailure = "The agent environment for will/flows couldn't be read — the platform didn't answer."
+    const evidence = JSON.stringify({ messages: [...store.collections.messages.values()], toasts: [...store.collections.toasts.values()], cards: [...store.collections.cards.values()], journal: (await store.eventHistory()).events })
+    expect(evidence).not.toContain("RETIRED_SECRET")
+    expect(evidence).not.toContain(retiredFailure)
+    expect(evidence).not.toContain("PRIVATE_BYTES")
+    if (retirement === "dispose") expect(store.session().draft).toBe("Keep my current chat")
+  })
+}
+
+test("duplicate user and agent reads join the held request and publish one metadata card", async () => {
+  const reply = heldResponse()
+  const entered = Promise.withResolvers<void>()
+  let reads = 0
+  const { store, controller } = await heldController({ fetchImpl: async () => { reads++; entered.resolve(); return reply.promise } })
+  await ready(store)
+  const first = track(controller.commands.run("secrets.list"))
+  await bounded(entered.promise)
+  const duplicate = track(controller.commands.runForAgent("secrets.list"))
+  await checkpoint()
+  expect(reads).toBe(1)
+  expect(secretsCard(store)).toBeUndefined()
+  controller.changeDraft("Chat can be edited during the read")
+  expect(store.session().draft).toBe("Chat can be edited during the read")
+  reply.resolve(json(200, metadataAnswer()))
+  const outcomes = await bounded(Promise.all([first, duplicate]))
+  expect(outcomes).toEqual([
+    { status: "executed", value: undefined },
+    { status: "executed", value: "Secrets · will/flows\nCURRENT_SECRET · hosts: none · headers: none · updated: unknown" }
+  ])
+  expect(reads).toBe(1)
+  expect([...store.collections.cards.values()].filter(card => card.kind === "secrets")).toHaveLength(1)
+  expect(secretsCard(store)?.payload.secrets).toEqual([{ name: "CURRENT_SECRET", hosts: [], matchHeaders: [], updatedAt: null }])
+})
+
+test("a refused read can retry immediately without caching the failed answer", async () => {
+  let reads = 0
+  const { store, controller } = await heldController({ fetchImpl: async () => ++reads === 1 ? json(503, { message: "Try the repository again" }) : json(200, metadataAnswer()) })
+  await ready(store)
+  expect(await controller.commands.run("secrets.list")).toEqual({ status: "failed", error: "The agent environment for will/flows couldn't be read (HTTP 503). Something on Smithers' side failed. Not your fault, and nothing your request could have changed." })
+  expect(await controller.commands.run("secrets.list")).toEqual({ status: "executed", value: "Secrets · will/flows\nCURRENT_SECRET · hosts: none · headers: none · updated: unknown" })
+  expect(reads).toBe(2)
+  expect(secretsCard(store)?.status).toBe("active")
+  expect(secretsCard(store)?.body).toBeUndefined()
+})
+
+test("optional secret bindings and reconnect metadata survive without leaking unexpected credential fields", async () => {
+  const wire = { setup_script: "PRIVATE_SETUP", env: [{ name: "PRIVATE_ENV", value: "PRIVATE_ENV_VALUE" }], secrets: [
+    { name: "OMITTED", value: "PRIVATE_BYTES" },
+    { name: "NULL_BINDINGS", hosts: null, match_headers: null, updated_at: "" },
+    { name: "RECONNECT", hosts: ["api.example.test"], match_headers: ["authorization"], updated_at: "2026-09-28T00:00:00Z", reconnect_required: true, token: "PRIVATE_BYTES" }
+  ] }
+  const { store, controller } = await heldController({ fetchImpl: async () => json(200, wire) })
+  await ready(store)
+  const outcome = await controller.commands.runForAgent("secrets.list")
+  expect(outcome).toEqual({ status: "executed", value: "Secrets · will/flows\nOMITTED · hosts: none · headers: none · updated: unknown\nNULL_BINDINGS · hosts: none · headers: none · updated: unknown\nRECONNECT · hosts: api.example.test · headers: authorization · updated: 2026-09-28T00:00:00Z" })
+  expect(secretsCard(store)?.payload.secrets).toEqual([
+    { name: "OMITTED", hosts: [], matchHeaders: [], updatedAt: null },
+    { name: "NULL_BINDINGS", hosts: [], matchHeaders: [], updatedAt: null },
+    { name: "RECONNECT", hosts: ["api.example.test"], matchHeaders: ["authorization"], updatedAt: "2026-09-28T00:00:00Z", reconnect: true }
+  ])
+  const persisted = JSON.stringify((await store.eventHistory()).events)
+  for (const privateText of ["PRIVATE_BYTES", "PRIVATE_SETUP", "PRIVATE_ENV", "PRIVATE_ENV_VALUE"]) expect(persisted).not.toContain(privateText)
+})
+
+
+test("a same-owner held network rejection remains an exact visible failure", async () => {
+  const reply = heldResponse()
+  const entered = Promise.withResolvers<void>()
+  const { store, controller } = await heldController({ fetchImpl: async () => { entered.resolve(); return reply.promise } })
+  await ready(store)
+  const reading = track(controller.commands.run("secrets.list"))
+  await bounded(entered.promise)
+  reply.reject(new Error("provider transport failed"))
+  const failure = "The agent environment for will/flows couldn't be read — the platform didn't answer."
+  expect(await bounded(reading)).toEqual({ status: "failed", error: failure })
+  expect(store.collections.cards.get("secrets-will/flows")).toMatchObject({ status: "error", loading: false, body: failure })
+  expect(JSON.stringify((await store.eventHistory()).events)).toContain(failure)
 })
