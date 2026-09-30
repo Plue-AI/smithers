@@ -197,6 +197,54 @@ test("archive streaming propagates transport exit and spawn errors", () => fixtu
   await assert.rejects(captureArchive(process.execPath, "invalid arguments", join(root, "invalid.zip")), /args/)
 }))
 
+const descendantAlive = (pid) => {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (error) {
+    if (error.code === "ESRCH") return false
+    throw error
+  }
+}
+
+const descendantExits = async (pid) => {
+  for (const started = Date.now(); Date.now() - started < 2000;) {
+    if (!descendantAlive(pid)) return true
+    await new Promise((resolve) => setTimeout(resolve, 10))
+  }
+  return false
+}
+
+/** Parent starts an owned descendant on inherited pipes and exits 0; the descendant runs `body` and keeps running. */
+const exitedParent = (pidFile, body) => [
+  "-e",
+  `const { spawn } = require("node:child_process")
+   const child = spawn(process.execPath, ["-e", ${JSON.stringify(`${body}; setInterval(() => {}, 1000)`)}], { stdio: ["ignore", "inherit", "inherit"] })
+   require("node:fs").writeFileSync(${JSON.stringify(pidFile)}, String(child.pid))
+   process.exit(0)`
+]
+
+test("archive aborts settle and kill a descendant still holding the pipes after its parent exited", () => fixture(async ({ root }) => {
+  const cases = [
+    { name: "limit", body: "setTimeout(() => process.stdout.write(Buffer.alloc(20, 97)), 100)", timeoutMs: 60_000, failure: /exceeds its byte limit/ },
+    { name: "deadline", body: "", timeoutMs: 300, failure: /download timed out/ }
+  ]
+  for (const { name, body, timeoutMs, failure } of cases) {
+    const pidFile = join(root, `${name}.pid`)
+    let pid
+    try {
+      const started = Date.now()
+      await assert.rejects(captureArchive(process.execPath, exitedParent(pidFile, body), join(root, `${name}.zip`), 8, timeoutMs), failure)
+      assert.ok(Date.now() - started < 5000)
+      pid = Number(await readFile(pidFile, "utf8"))
+      assert.equal(await descendantExits(pid), true)
+      assert.equal((await readFile(join(root, `${name}.zip`))).length, 0)
+    } finally {
+      if (pid !== undefined && descendantAlive(pid)) process.kill(pid, "SIGKILL")
+    }
+  }
+}))
+
 test("the shared source roster reader refuses missing or unknown workspace groups", () => fixture(async ({ root }) => {
   const repository = join(root, "source")
   const member = join(repository, "packages/member")

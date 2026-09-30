@@ -1,11 +1,12 @@
 /** Restore one immutable tested release archive; this script never publishes. */
-import { execFileSync, spawn } from "node:child_process"
+import { execFileSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { createReadStream, closeSync, openSync, writeSync } from "node:fs"
 import { access, mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { dirname, join, resolve } from "node:path"
 
 import { preflight, registryIntegrity } from "./publish-release.mjs"
+import { superviseProcess } from "./release-process.mjs"
 import { dependencyOrder, publishedPackages, readWorkspaceManifests, workspaceDependencies } from "./pack-release.mjs"
 import { isMain } from "./workspace-packages.mjs"
 
@@ -75,34 +76,30 @@ export const extractArchive = (archive, destination, maximumPackages = published
   execFileSync("python3", ["-c", extractProgram, archive, destination, String(maximumPackages)], { stdio: ["ignore", "pipe", "pipe"], timeout: 60_000 })
 }
 
-/** Stream subprocess output to an archive file with a byte cap enforced before each write. */
-export const captureArchive = (command, args, path, maximumBytes = maximumArchiveBytes) => new Promise((resolveCapture, reject) => {
+/**
+ * Stream subprocess output to an archive file with a byte cap enforced before
+ * each write. An abort or deadline settles at once and kills the whole owned
+ * process group, even when a descendant still holds the output pipes.
+ */
+export const captureArchive = async (command, args, path, maximumBytes = maximumArchiveBytes, timeoutMs = 180_000) => {
   const file = openSync(path, "wx")
-  let child
-  try { child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] }) }
-  catch (error) { closeSync(file); reject(error); return }
-  let failure
   let bytes = 0
-  const stop = (error) => { failure ??= error; child.kill("SIGKILL") }
-  const timeout = setTimeout(() => stop(new Error("Release archive download timed out")), 180_000)
-  child.stdout.on("data", (chunk) => {
-    if (failure) return
-    bytes += chunk.length
-    if (bytes > maximumBytes) return stop(new Error("Release archive download exceeds its byte limit"))
-    try {
-      for (let offset = 0; offset < chunk.length;) offset += writeSync(file, chunk, offset)
-    } catch (error) { stop(error) }
+  let { failure, code, signal } = await superviseProcess(command, args, {
+    timeoutMs,
+    timeoutMessage: "Release archive download timed out",
+    onOutput: (chunk, source, stop) => {
+      if (source !== "stdout") return
+      bytes += chunk.length
+      if (bytes > maximumBytes) return stop(new Error("Release archive download exceeds its byte limit"))
+      try {
+        for (let offset = 0; offset < chunk.length;) offset += writeSync(file, chunk, offset)
+      } catch (error) { stop(error) }
+    }
   })
-  child.stderr.resume()
-  child.once("error", (error) => { failure ??= error })
-  child.once("close", (code) => {
-    clearTimeout(timeout)
-    try { closeSync(file) } catch (error) { failure ??= error }
-    if (failure) reject(failure)
-    else if (code !== 0) reject(new Error(`Release archive download exited with ${code}`))
-    else resolveCapture()
-  })
-})
+  try { closeSync(file) } catch (error) { failure ??= error }
+  if (failure) throw failure
+  if (code !== 0) throw new Error(`Release archive download exited with ${code ?? signal}`)
+}
 
 export const restoreCandidate = async (directory, options) => {
   const selection = restoreSelection(options.runId, options.artifactId)
