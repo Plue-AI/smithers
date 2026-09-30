@@ -521,7 +521,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	gitHubSyncedRepoService.SetFetcherFactory(
 		gitHubUserReposService.SyncedRepoInstallationFetcherFactory(repoConnectionService))
 	gitHubCheckRunService := services.NewGitHubCheckRunService(repoConnectionService)
-	webhookSecretCodec, err := newSecretCodec(cfg.Webhook.SecretEncryptionKey)
+	webhookSecretCodec, err := newSecretCodec(cfg.Webhook)
 	if err != nil {
 		slog.Error("failed to initialize webhook secret codec", "error", err)
 		return err

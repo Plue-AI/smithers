@@ -11,6 +11,8 @@ import (
 	"sort"
 	"syscall"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 // CollectReport is the evidence of one layer garbage collection.
@@ -22,48 +24,84 @@ type CollectReport struct {
 	FreeBytesAfter   int64
 }
 
-// allocatedBytes sums the blocks a directory tree actually allocates. APFS
-// clones share blocks, so this over-counts shared layers: a conservative
-// budget measure.
+// A machine's directory holds the guest's writable runtime share (`/.msb`),
+// so a guest can plant symlinks in it and swap a directory for a link while
+// the host walks it. walkTree therefore never resolves a path below root: it
+// opens each directory relative to its parent's descriptor with O_NOFOLLOW,
+// inspects every entry with lstat semantics, and never descends into or
+// counts through a symlink, so a walk cannot leave root.
+func walkTree(root string, visit func(parent int, name string, stat *unix.Stat_t)) {
+	fd, err := unix.Open(root, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return
+	}
+	walkDirectory(fd, visit)
+}
+
+// walkDirectory visits every entry below an open directory and closes it.
+func walkDirectory(fd int, visit func(parent int, name string, stat *unix.Stat_t)) {
+	directory := os.NewFile(uintptr(fd), "")
+	defer directory.Close()
+	names, _ := directory.Readdirnames(-1)
+	for _, name := range names {
+		var stat unix.Stat_t
+		if unix.Fstatat(fd, name, &stat, unix.AT_SYMLINK_NOFOLLOW) != nil {
+			continue
+		}
+		visit(fd, name, &stat)
+		if stat.Mode&unix.S_IFMT != unix.S_IFDIR {
+			continue
+		}
+		// A directory replaced by a link after the lstat fails to open here.
+		child, err := unix.Openat(fd, name, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+		if err == nil {
+			walkDirectory(child, visit)
+		}
+	}
+}
+
+// allocatedBytes sums the blocks a directory tree actually allocates, links
+// counted as themselves and never followed. APFS clones share blocks, so this
+// over-counts shared layers: a conservative budget measure.
 func allocatedBytes(root string) int64 {
 	var total int64
-	_ = filepath.WalkDir(root, func(_ string, entry fs.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		info, err := entry.Info()
-		if err != nil {
-			return nil
-		}
-		if stat, ok := info.Sys().(*syscall.Stat_t); ok {
-			total += stat.Blocks * 512
-		}
-		return nil
+	walkTree(root, func(_ int, _ string, stat *unix.Stat_t) {
+		total += int64(stat.Blocks) * 512
 	})
 	return total
 }
 
-// privateBytes sums what deleting a directory tree frees: each file's bytes
-// that no APFS clone shares. Where the file system reports no clone
-// accounting it counts allocated blocks.
+// privateBytes sums what deleting a directory tree frees: each regular file's
+// bytes that no APFS clone shares. Where the file system reports no clone
+// accounting it counts allocated blocks. Only regular files below root count;
+// links, devices and FIFOs are never opened.
 func privateBytes(root string) int64 {
 	var total int64
-	_ = filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
-		if err != nil || !entry.Type().IsRegular() {
-			return nil
+	walkTree(root, func(parent int, name string, stat *unix.Stat_t) {
+		if stat.Mode&unix.S_IFMT == unix.S_IFREG {
+			total += regularFileBytes(parent, name)
 		}
-		if size, ok := filePrivateBytes(path); ok {
-			total += size
-			return nil
-		}
-		if info, err := entry.Info(); err == nil {
-			if stat, ok := info.Sys().(*syscall.Stat_t); ok {
-				total += stat.Blocks * 512
-			}
-		}
-		return nil
 	})
 	return total
+}
+
+// regularFileBytes is what deleting one entry of an open directory frees,
+// or zero unless that entry is still a regular file: the guest may have
+// swapped it for a link, FIFO or directory since the walk saw it.
+func regularFileBytes(parent int, name string) int64 {
+	file, err := unix.Openat(parent, name, unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_NONBLOCK|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return 0
+	}
+	defer unix.Close(file)
+	var stat unix.Stat_t
+	if unix.Fstat(file, &stat) != nil || stat.Mode&unix.S_IFMT != unix.S_IFREG {
+		return 0
+	}
+	if size, ok := filePrivateBytes(file); ok {
+		return size
+	}
+	return int64(stat.Blocks) * 512
 }
 
 // machineDirectory is where Microsandbox keeps a machine's disk and logs.

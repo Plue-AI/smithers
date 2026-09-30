@@ -16,6 +16,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/flowdispatch"
 	"github.com/smithersai/smithers/packages/backend/flowhost"
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
+	"github.com/smithersai/smithers/packages/backend/internal/config"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/jobs"
 	"github.com/stretchr/testify/require"
@@ -68,7 +69,7 @@ func TestFlowWorkerRechecksMeteredAdmissionBeforeHostLaunch(t *testing.T) {
 	defer server.Close()
 	launcher, err := newAdmittedFlowLauncher(refusingHostTransport{server.URL}, db.New(pool), policy)
 	require.NoError(t, err)
-	codec, err := newSecretCodec("integration-only-secret")
+	codec, err := newSecretCodec(config.WebhookConfig{SecretEncryptionKey: "integration-only-secret"})
 	require.NoError(t, err)
 	bindings, err := flowhost.NewStore(pool, codec)
 	require.NoError(t, err)

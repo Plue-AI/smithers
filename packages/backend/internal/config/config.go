@@ -394,11 +394,26 @@ type AuthConfig struct {
 
 type WebhookConfig struct {
 	SecretEncryptionKey string `mapstructure:"secret_encryption_key"`
-	GitHubAppSecret     string `mapstructure:"github_app_secret"`
+	// PreviousSecretEncryptionKeys lists, comma separated and newest first,
+	// operator keys that still open stored secrets during a key rotation.
+	PreviousSecretEncryptionKeys string `mapstructure:"previous_secret_encryption_keys"`
+	GitHubAppSecret              string `mapstructure:"github_app_secret"`
 	// Optional event receiver for repositories mirrored to GitHub. Both fields
 	// must be set together; the receiver is a public self-hosting integration.
 	GitHubSyncURL    string `mapstructure:"github_sync_url"`
 	GitHubSyncSecret string `mapstructure:"github_sync_secret"`
+}
+
+// PreviousKeys splits PreviousSecretEncryptionKeys; blank means none.
+func (w WebhookConfig) PreviousKeys() []string {
+	if strings.TrimSpace(w.PreviousSecretEncryptionKeys) == "" {
+		return nil
+	}
+	keys := strings.Split(w.PreviousSecretEncryptionKeys, ",")
+	for i := range keys {
+		keys[i] = strings.TrimSpace(keys[i])
+	}
+	return keys
 }
 
 // ProviderConnectionsConfig is the Codex token endpoint and the Codex CLI
@@ -562,6 +577,7 @@ func Load(configFile string) (*Config, error) {
 	v.SetDefault("billing.enterprise_monthly_price_id", "")
 	v.SetDefault("billing.enterprise_annual_price_id", "")
 	v.SetDefault("webhook.secret_encryption_key", "")
+	v.SetDefault("webhook.previous_secret_encryption_keys", "")
 	v.SetDefault("provider_connections.codex_token_url", "https://auth.openai.com/oauth/token")
 	v.SetDefault("provider_connections.codex_client_id", "app_EMoamEEZ73f0CkXaXp7hrann")
 	v.SetDefault("webhook.github_app_secret", "")
@@ -725,6 +741,7 @@ func Load(configFile string) (*Config, error) {
 		{"billing.enterprise_monthly_price_id", "SMITHERS_BILLING_ENTERPRISE_MONTHLY_PRICE_ID"},
 		{"billing.enterprise_annual_price_id", "SMITHERS_BILLING_ENTERPRISE_ANNUAL_PRICE_ID"},
 		{"webhook.secret_encryption_key", "SMITHERS_WEBHOOK_SECRET_ENCRYPTION_KEY"},
+		{"webhook.previous_secret_encryption_keys", "SMITHERS_WEBHOOK_SECRET_ENCRYPTION_PREVIOUS_KEYS"},
 		{"webhook.github_app_secret", "SMITHERS_WEBHOOK_GITHUB_APP_SECRET"},
 		{"webhook.github_sync_url", "SMITHERS_WEBHOOK_GITHUB_SYNC_URL"},
 		{"webhook.github_sync_secret", "SMITHERS_WEBHOOK_GITHUB_SYNC_SECRET"},

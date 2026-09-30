@@ -42,6 +42,16 @@ func ValidateServerStartupWithDependencies(cfg *Config, dependencies StartupDepe
 	if strings.TrimSpace(cfg.Webhook.SecretEncryptionKey) == "" {
 		errs = append(errs, "webhook.secret_encryption_key must not be empty")
 	}
+	for _, key := range cfg.Webhook.PreviousKeys() {
+		if key == "" {
+			errs = append(errs, "webhook.previous_secret_encryption_keys must not hold an empty key")
+			break
+		}
+		if key == strings.TrimSpace(cfg.Webhook.SecretEncryptionKey) {
+			errs = append(errs, "webhook.previous_secret_encryption_keys must not repeat the current key")
+			break
+		}
+	}
 	if strings.TrimSpace(cfg.RepoHost.PushHookCallbackToken) == "" {
 		errs = append(errs, "repo_host.push_hook_callback_token must not be empty")
 	} else if cfg.RepoHost.PushHookCallbackToken != strings.TrimSpace(cfg.RepoHost.PushHookCallbackToken) {

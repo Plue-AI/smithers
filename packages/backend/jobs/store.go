@@ -321,3 +321,22 @@ func (store *Store) HasActiveWithReceipt(ctx context.Context, scope Scope, opera
 		scope.TenantID, scope.PrincipalID, operation, canonical).Scan(&active)
 	return active, err
 }
+
+// ReplacePayload swaps a request's payload for replacement while the stored
+// payload still equals expected, keeping its fingerprint in step, and reports
+// whether it did. An operator key rotation reseals encrypted payload fields
+// this way; the request's state and receipts are untouched.
+func (store *Store) ReplacePayload(ctx context.Context, operationID string, expected, replacement json.RawMessage) (bool, error) {
+	payload, err := canonicalJSON(replacement, false)
+	if err != nil {
+		return false, err
+	}
+	fingerprint := payloadFingerprint(payload)
+	tag, err := store.pool.Exec(ctx, `
+		UPDATE product_job_requests SET payload=$2, payload_fingerprint=$3
+		WHERE id=$1 AND payload=$4::jsonb`, operationID, payload, fingerprint[:], expected)
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() == 1, nil
+}

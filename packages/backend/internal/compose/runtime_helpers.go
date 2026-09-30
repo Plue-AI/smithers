@@ -320,7 +320,9 @@ var (
 	shutdownTimeoutFn = serverShutdownTimeout
 	startSSEBroker    = (*sse.Broker).Start
 	newEmailTransport = initEmailTransport
-	newSecretCodec    = webhook.NewSecretCodec
+	newSecretCodec    = func(keys config.WebhookConfig) (*webhook.AESGCMSecretCodec, error) {
+		return webhook.NewSecretCodec(keys.SecretEncryptionKey, keys.PreviousKeys()...)
+	}
 	newBlobStore      = initializeBlobStore
 )
 

@@ -44,7 +44,7 @@ func TestRun_EmailFromSMTPFallback(t *testing.T) {
 	preserveSlog(t)
 	applyEnv(t, baseRunEnv(t))
 	stubSSEBroker(t)
-	swapVar(t, &newSecretCodec, func(string) (*webhook.AESGCMSecretCodec, error) {
+	swapVar(t, &newSecretCodec, func(config.WebhookConfig) (*webhook.AESGCMSecretCodec, error) {
 		return nil, errors.New("stop here")
 	})
 	path := writeRunConfigYAML(t, "email:\n  from: \"\"\n  smtp_from: \"fallback@example.com\"\n")

@@ -30,6 +30,11 @@ var secretNames = []string{
 	"SMITHERS_AUTH_BOOTSTRAP_TOKEN",
 }
 
+const (
+	operatorKeyName          = "SMITHERS_WEBHOOK_SECRET_ENCRYPTION_KEY"
+	previousOperatorKeysName = "SMITHERS_WEBHOOK_SECRET_ENCRYPTION_PREVIOUS_KEYS"
+)
+
 type secretFile struct {
 	Version int               `json:"version"`
 	Values  map[string]string `json:"values"`
@@ -93,6 +98,7 @@ func configure(root string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	_, explicitOperatorKey := os.LookupEnv(operatorKeyName)
 	for _, name := range secretNames {
 		if value, exists := os.LookupEnv(name); exists {
 			if strings.TrimSpace(value) == "" {
@@ -102,6 +108,15 @@ func configure(root string) (string, error) {
 		}
 		if err := os.Setenv(name, values[name]); err != nil {
 			return "", err
+		}
+	}
+	// An interrupted rotation left the replaced key beside the new one; an
+	// operator key from the environment brings its own previous keys.
+	if previous, ok := values[previousOperatorKeysName]; ok && !explicitOperatorKey {
+		if _, exists := os.LookupEnv(previousOperatorKeysName); !exists {
+			if err := os.Setenv(previousOperatorKeysName, previous); err != nil {
+				return "", err
+			}
 		}
 	}
 	for name, value := range map[string]string{
@@ -199,33 +214,47 @@ func loadOrCreateSecrets(configDir string) (map[string]string, error) {
 		}
 		values[name] = hex.EncodeToString(bytes)
 	}
+	// Link publishes complete bytes without replacing a concurrent winner.
+	if err := publishSecrets(configDir, values, func(staged string) error {
+		if err := os.Link(staged, path); err != nil && !errors.Is(err, os.ErrExist) {
+			return err
+		}
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	return readSecrets(path)
+}
+
+// publishSecrets writes values to a private synced file in configDir, hands
+// its path to publish, and syncs the directory.
+func publishSecrets(configDir string, values map[string]string, publish func(staged string) error) error {
 	file, err := os.CreateTemp(configDir, ".secrets-*")
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer os.Remove(file.Name())
 	defer file.Close()
 	if err := file.Chmod(0o600); err != nil {
-		return nil, err
+		return err
 	}
 	if err := json.NewEncoder(file).Encode(secretFile{Version: 1, Values: values}); err != nil {
-		return nil, err
+		return err
 	}
 	if err := file.Sync(); err != nil {
-		return nil, err
+		return err
 	}
 	if err := file.Close(); err != nil {
-		return nil, err
+		return err
 	}
-	// Link publishes complete bytes without replacing a concurrent winner.
-	if err := os.Link(file.Name(), path); err != nil && !errors.Is(err, os.ErrExist) {
-		return nil, err
+	if err := publish(file.Name()); err != nil {
+		return err
 	}
 	if dir, err := os.Open(configDir); err == nil {
 		_ = dir.Sync()
 		_ = dir.Close()
 	}
-	return readSecrets(path)
+	return nil
 }
 
 func readSecrets(path string) (map[string]string, error) {
@@ -250,7 +279,14 @@ func readSecrets(path string) (map[string]string, error) {
 	if data.Version != 1 {
 		return nil, fmt.Errorf("unsupported local secrets version %d", data.Version)
 	}
-	if len(data.Values) != len(secretNames) {
+	expected := len(secretNames)
+	if previous, ok := data.Values[previousOperatorKeysName]; ok {
+		if strings.TrimSpace(previous) == "" {
+			return nil, fmt.Errorf("local secrets file has an empty %s", previousOperatorKeysName)
+		}
+		expected++
+	}
+	if len(data.Values) != expected {
 		return nil, errors.New("local secrets file is incomplete")
 	}
 	for _, name := range secretNames {

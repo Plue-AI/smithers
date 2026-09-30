@@ -344,7 +344,7 @@ func TestRun_SecretCodecError(t *testing.T) {
 	preserveSlog(t)
 	applyEnv(t, baseRunEnv(t))
 	stubSSEBroker(t)
-	swapVar(t, &newSecretCodec, func(string) (*webhook.AESGCMSecretCodec, error) {
+	swapVar(t, &newSecretCodec, func(config.WebhookConfig) (*webhook.AESGCMSecretCodec, error) {
 		return nil, errors.New("codec boom")
 	})
 	stderr := &syncBuffer{}

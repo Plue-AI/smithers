@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/smithersai/smithers/packages/backend/internal/config"
 	"github.com/smithersai/smithers/packages/backend/internal/subscriptiontoken"
 	"github.com/smithersai/smithers/packages/backend/internal/webhook"
 	"github.com/smithersai/smithers/packages/backend/ports"
@@ -22,19 +23,37 @@ import (
 // PostgreSQL starts, so it is obtained at turn time. The first turn opens a
 // pool that later turns reuse; a changed address replaces it.
 type OwnerSecretResolver struct {
-	databaseURL func() string
-	secretKey   func() string
+	databaseURL  func() string
+	secretKey    func() string
+	previousKeys func() string
 
 	mu      sync.Mutex
 	pool    *pgxpool.Pool
 	poolURL string
 }
 
-func NewOwnerSecretResolver(databaseURL, secretKey func() string) (*OwnerSecretResolver, error) {
+// OwnerSecretOption configures an OwnerSecretResolver.
+type OwnerSecretOption func(*OwnerSecretResolver)
+
+// WithPreviousSecretKeys supplies the operator keys a rotation replaced, in
+// the SMITHERS_WEBHOOK_SECRET_ENCRYPTION_PREVIOUS_KEYS form, so credentials
+// stay readable until they are resealed under the current key.
+func WithPreviousSecretKeys(previousKeys func() string) OwnerSecretOption {
+	return func(resolver *OwnerSecretResolver) { resolver.previousKeys = previousKeys }
+}
+
+func NewOwnerSecretResolver(databaseURL, secretKey func() string, options ...OwnerSecretOption) (*OwnerSecretResolver, error) {
 	if databaseURL == nil || secretKey == nil {
 		return nil, errors.New("owner model secrets require database and encryption key providers")
 	}
-	return &OwnerSecretResolver{databaseURL: databaseURL, secretKey: secretKey}, nil
+	resolver := &OwnerSecretResolver{databaseURL: databaseURL, secretKey: secretKey, previousKeys: func() string { return "" }}
+	for _, option := range options {
+		option(resolver)
+	}
+	if resolver.previousKeys == nil {
+		return nil, errors.New("owner model secrets require a previous key provider")
+	}
+	return resolver, nil
 }
 
 func (resolver *OwnerSecretResolver) ResolveChatModel(ctx context.Context, ownerID, repositoryID int64, request json.RawMessage) (Binding, error) {
@@ -56,7 +75,7 @@ func (resolver *OwnerSecretResolver) ResolveChatModel(ctx context.Context, owner
 	if ownerID <= 0 || strings.TrimSpace(resolver.databaseURL()) == "" {
 		return Binding{}, errors.New("owner model store is unavailable")
 	}
-	codec, err := webhook.NewSecretCodec(resolver.secretKey())
+	codec, err := webhook.NewSecretCodec(resolver.secretKey(), config.WebhookConfig{PreviousSecretEncryptionKeys: resolver.previousKeys()}.PreviousKeys()...)
 	if err != nil {
 		return Binding{}, fmt.Errorf("open owner model secrets: %w", err)
 	}

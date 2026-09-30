@@ -29,10 +29,11 @@ type Config struct {
 	Stderr       io.Writer
 }
 
-// Dispatch recognizes credits and plans, returning false for other commands.
-// All command syntax and audit inputs are checked before OpenDatabase runs.
+// Dispatch recognizes credits, plans and keys, returning false for other
+// commands. All command syntax and audit inputs are checked before
+// OpenDatabase runs.
 func Dispatch(ctx context.Context, args []string, cfg Config) (bool, error) {
-	if len(args) == 0 || (args[0] != "credits" && args[0] != "plans") {
+	if len(args) == 0 || (args[0] != "credits" && args[0] != "plans" && args[0] != "keys") {
 		return false, nil
 	}
 	if cfg.Stdout == nil {
@@ -40,6 +41,9 @@ func Dispatch(ctx context.Context, args []string, cfg Config) (bool, error) {
 	}
 	if cfg.Stderr == nil {
 		cfg.Stderr = io.Discard
+	}
+	if args[0] == "keys" {
+		return true, runKeys(ctx, args[1:], cfg)
 	}
 	var run func(*pgxpool.Pool) error
 	if args[0] == "credits" {
@@ -76,18 +80,22 @@ func Dispatch(ctx context.Context, args []string, cfg Config) (bool, error) {
 			return err
 		}
 	}
+	return true, withDatabase(ctx, cfg, run)
+}
+
+func withDatabase(ctx context.Context, cfg Config, run func(*pgxpool.Pool) error) error {
 	if cfg.OpenDatabase == nil {
-		return true, errors.New("operator: database opener required")
+		return errors.New("operator: database opener required")
 	}
 	pool, err := cfg.OpenDatabase(ctx)
 	if err != nil {
-		return true, err
+		return err
 	}
 	if pool == nil {
-		return true, errors.New("operator: database pool required")
+		return errors.New("operator: database pool required")
 	}
 	defer pool.Close()
-	return true, run(pool)
+	return run(pool)
 }
 
 func parsePlanGrant(args []string, stderr io.Writer) (services.PlanGrant, string, error) {
