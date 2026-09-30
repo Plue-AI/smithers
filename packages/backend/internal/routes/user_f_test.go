@@ -560,7 +560,7 @@ func TestUser_F_PaginationHelpers(t *testing.T) {
 		req2 := httptest.NewRequest(http.MethodGet, "/x?limit=999999&cursor=30", nil)
 		cursor2, limit2, err2 := parseReadableReposPagination(req2)
 		require.NoError(t, err2)
-		require.Equal(t, "z", cursor2)
+		require.Equal(t, "30", cursor2)
 		require.Equal(t, services.MaxReadableReposPerPage, limit2)
 
 		req3 := httptest.NewRequest(http.MethodGet, "/x?limit=bad", nil)

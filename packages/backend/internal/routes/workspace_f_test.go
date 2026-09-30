@@ -272,7 +272,7 @@ func TestWorkspace_F_ParseUserWorkspacesPagination(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/x?limit=100000&cursor=30", nil)
 		cursor, limit, err := parseUserWorkspacesPagination(req)
 		require.Nil(t, err)
-		require.Equal(t, "abc", cursor)
+		require.Equal(t, "30", cursor)
 		require.Equal(t, services.MaxUserWorkspacesPerPage, limit)
 	})
 
