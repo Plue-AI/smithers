@@ -148,7 +148,7 @@ test("a run that died late names what happened from its stamped fault, never in 
   /* The brake's two halves mean different things since 46fcc61722f5, so they read differently. */
   const unproven = runFailureOf({ workflow: LATE_FLOW, events: journal(UNPROVEN, stamp(HARNESS("claim_unproven"), "factory")) })
   const unjudged = runFailureOf({ workflow: LATE_FLOW, events: journal("completion_unjudged: 503", stamp(HARNESS("completion_unjudged"), "dependency")) })
-  expect(unproven.message).not.toBe(unjudged.message)
+  expect(unproven.message).not.toBe(unjudged.message)  for (const failure of [unproven, unjudged]) expect(failure.message).toContain("Not your fault")
 })
 
 /*
@@ -299,4 +299,132 @@ test("every setup refusal long enough for the gateway to clip is told apart by w
     const kept = [...`invalid_receipt: ${refusal}`].slice(0, 99).join("").slice("invalid_receipt: ".length)
     expect([...SETUP_REFUSALS].filter((other) => other.startsWith(kept))).toEqual([refusal])
   }
+})
+
+/* Literal public copy and blame per setup receipt code; nothing here is read from the classifier under test. */
+const setupCodes = [
+  { code: "invalid_plan", fault: "bug", message: "That's a bug in Smithers, not something you did." },
+  { code: "invalid_request", fault: "user" }, { code: "fast_gate", fault: "user" }, { code: "stale_revision", fault: "user" },
+  { code: "check_infra", fault: "infra", message: INFRA },
+  { code: "invalid_receipt", fault: "infra", message: INFRA },
+  { code: "unavailable", fault: "dependency", message: "Something Smithers depends on failed. Not your doing." },
+  { code: "execution", fault: "infra", message: INFRA },
+  { code: "source_missing", fault: "user" }, { code: "source_changed", fault: "user" }, { code: "source_refused", fault: "user" },
+  { code: "source_unavailable", fault: "dependency", message: "Something Smithers depends on failed. Not your doing." },
+  { code: "declined", fault: "user" }, { code: "stalled", fault: "user" }
+] as const
+
+test("setup receipt codes have literal blame and copy on both settled and journalled surfaces", () => {
+  expect(setupCodes.map(row => row.code).sort()).toEqual([...RECEIPT_CODES].sort())
+  for (const row of setupCodes) {
+    for (const sentence of [TRIAL, "Something the engine wrote"]) {
+      const user = row.fault === "user" || row.code === "invalid_receipt" && sentence === TRIAL
+      const fault = user ? "user" : row.fault
+      const message = user ? sentence : "message" in row ? row.message : sentence
+      const verdict = `failed — ${row.code}: ${sentence}`
+      expect(setupVerdict(verdict)).toEqual({ fault, message })
+      expect(runFailureOf({ workflow: "repository/setup", error: verdict, events: journal(`${row.code}: ${sentence}`) }))
+        .toEqual({ fault, message, detail: user ? `${row.code}: ${sentence}` : verdict })
+    }
+  }
+})
+
+/* The harness's and the model's worded codes, with the copy a person reads for each. */
+const stampedCauses = [
+  { tag: HARNESS("assembly_failed"), fault: "infra", message: "This run couldn't be assembled, so no turn ever opened. Not your fault — that's a defect here." },
+  { tag: HARNESS("incompatible_journal"), fault: "infra", message: "This run's record was written by a different version of Smithers and can't be read back. Not your fault — start a new run." },
+  { tag: HARNESS("render_failed"), fault: "bug", message: "Smithers couldn't build the next turn to send. Not your fault, and not your request's — that's a defect here." },
+  { tag: HARNESS("model_failed"), fault: "infra", message: "A turn opened and the model never answered, so the run stopped with no result. Not your fault — the turns it finished stand, and it's worth asking again." },
+  { tag: HARNESS("engine_failed"), fault: "infra", message: "The engine underneath this run failed before a turn could finish, so the run stopped. Not your fault, and the turns it finished stand; it's worth starting it again." },
+  { tag: HARNESS("read_only_cap"), fault: "policy", message: "This run read for turn after turn without changing anything, so Smithers stopped it. Not your fault — it's worth asking again." },
+  { tag: HARNESS("completion_unjudged"), fault: "infra", message: "The run finished, but nothing was able to check its answer, so Smithers didn't pass it on. Not your fault — it's worth asking again." },
+  { tag: HARNESS("claim_unproven"), fault: "infra", message: "The run claimed work its own record doesn't show it doing, so Smithers refused the answer rather than pass it on. Not your fault — ask again and it has to show the work." },
+  { tag: HARNESS("suspended"), fault: "infra", message: "The run stopped to wait for something that never came. Not your fault — it's worth starting it again." },
+  { tag: "flows/model/ModelError/context_overflow", fault: "user", message: "The conversation outgrew the model's context window. Not your fault — start a fresh run." },
+  { tag: "flows/model/ModelError/no_route", fault: "infra", message: "No model seat was available for this run. Not your fault — it's a setting on Smithers' side." },
+  { tag: "flows/model/ModelError/authentication", fault: "user", message: "The model provider rejected the sign-in. Sign in again, then run it again." },
+  { tag: "flows/model/ModelError/quota_exceeded", fault: "wait", message: "The model account is out of credit, so the run stopped where it was. Not your fault — it can run again once the account has credit." },
+  { tag: "flows/model/ModelError/out_of_credit", fault: "user", message: "The hosted credit is spent, so the run stopped where it was. Add credit, then run it again." },
+  { tag: "flows/model/ModelError/content_policy", fault: "user", message: "The model provider refused this request under its content policy. Ask for something else." },
+  { tag: "flows/model/ModelError/provider_internal", fault: "dependency", message: "The model provider failed on its own side. Not your doing — it's worth asking again." },
+  { tag: "flows/model/ModelError/transport", fault: "dependency", message: "The call to the model provider never completed. Not your doing — it's worth asking again." },
+  { tag: "flows/model/ModelError/call_timeout", fault: "infra", message: "A model call ran past the time this run allows and was cut off, so nothing came back from it. Not your fault — asking for something shorter usually gets through." },
+  { tag: "flows/model/ModelError/invalid_provider_output", fault: "dependency", message: "The model provider answered with something Smithers couldn't read. Not your doing — it's worth asking again." }
+] as const satisfies ReadonlyArray<{ tag: string; fault: PlueFault; message: string }>
+
+test("every stamped harness and model code reaches a person as its own sentence on the journal, the row and the settled verdict", () => {
+  for (const row of stampedCauses) {
+    const code = row.tag.slice(row.tag.lastIndexOf("/") + 1)
+    const cause = `${code}: whatever the host wrote`
+    const verdict = `failed — ${cause}`
+    const failure = stamp(row.tag, row.fault)
+    expect(runCause(row.tag)).toBe(row.message)
+    expect(runFailureOf({ workflow: LATE_FLOW, error: verdict, events: journal(cause, failure) }))
+      .toEqual({ fault: row.fault, message: row.message, detail: cause })
+    expect(runFailureOf({ workflow: LATE_FLOW, error: verdict, failure }))
+      .toEqual({ fault: row.fault, message: row.message, detail: verdict })
+    expect(runFailureOf({ workflow: LATE_FLOW, error: verdict, events: [], failure }))
+      .toEqual({ fault: row.fault, message: row.message, detail: verdict })
+  }
+})
+
+test("a code spelled by another author never takes a harness or model sentence", () => {
+  for (const code of ["model_failed", "transport", "claim_unproven"]) {
+    for (const author of ["coding/Error", "@smthrs/jj/JjError", "@smthrs/std/StdError"]) {
+      const tag = `${author}/${code}`
+      expect(runCause(tag)).toBeUndefined()
+      expect(runFailureOf({ workflow: LATE_FLOW, failure: stamp(tag, "bug") }))
+        .toEqual({ fault: "bug", message: REFUSAL_COPY.bug.lead, detail: "" })
+    }
+  }
+})
+
+test("the latest failed event wins over a conflicting persisted verdict and unrelated later events", () => {
+  const stale = stamp(HARNESS("suspended"), "infra")
+  const live = stamp("flows/model/ModelError/context_overflow", "user")
+  const events = [
+    ...journal("suspended: Earlier failure", stale),
+    { sequence: 2, kind: "control.run.failed", payload: { cause: "context_overflow: Raw provider detail\r\nPRIVATE-STACK", fault: live } },
+    { sequence: 3, kind: "control.run.completed", payload: { cause: "transport: Ignore unrelated cause", fault: stamp("flows/model/ModelError/transport", "dependency") } }
+  ]
+  const failure = runFailureOf({ workflow: LATE_FLOW, error: "failed — transport: Old network failure", events })
+  expect(failure).toEqual({ fault: "user", message: runCause(live.tag)!, detail: "context_overflow: Raw provider detail" })
+  expect(JSON.stringify(failure)).not.toContain("PRIVATE-STACK")
+  /* The setup bridge reads the newest failed pair the same way. */
+  const setupEvents = [
+    ...journal("stale_revision: Earlier revision moved"),
+    { sequence: 2, kind: "control.run.failed", payload: { cause: "execution: Host stopped\r\nPRIVATE-STACK" } },
+    { sequence: 3, kind: "control.run.completed", payload: { cause: "stale_revision: Ignore unrelated cause" } }
+  ]
+  const error = "failed — stale_revision: Saved older verdict"
+  expect(runFailureOf({ workflow: "repository/setup", error, events: setupEvents })).toEqual({ fault: "infra", message: INFRA, detail: error })
+})
+
+test("an unknown journal code cannot inherit the cause from a conflicting known verdict", () => {
+  const error = "failed — context_overflow: Older failure"
+  expect(runFailureOf({ workflow: LATE_FLOW, error, events: journal("brand_new_code: Newest failure") })).toEqual({ fault: "infra", message: INFRA, detail: error })
+  expect(runFailureOf({ workflow: LATE_FLOW, error, events: journal("An uncoded transport exception") })).toEqual({ fault: "infra", message: INFRA, detail: error })
+  /* On the setup bridge an unknown journal pair defers to the settled row, never to a known-code guess. */
+  expect(runFailureOf({ workflow: "repository/setup", error: "failed — brand_new_code: Older", events: journal("stale_revision: Newest") }))
+    .toEqual({ fault: "user", message: "Newest", detail: "stale_revision: Newest" })
+})
+
+test.each(["not-json", "null", "[]", "{}", "17", '"plain error"'])("uncoded serialized error %s retains evidence without inferred blame", raw => {
+  expect(runFailure(raw)).toEqual({ fault: "infra", message: INFRA, detail: raw })
+})
+
+test("setup refusal matching is exact and excludes private later lines", () => {
+  expect(setupVerdict(`failed — invalid_receipt: ${TRIAL}\r\nPRIVATE-DETAIL`)).toEqual({ fault: "user", message: TRIAL })
+  expect(runFailureOf({ workflow: "repository/setup", error: "saved verdict", events: journal(`invalid_receipt: ${TRIAL}.\nPRIVATE-DETAIL`) }))
+    .toEqual({ fault: "infra", message: INFRA, detail: "saved verdict" })
+  expect(setupFailureSentence("failed — invalid_receipt: Job input does not match its registered responsibility or candidate"))
+    .toBe("This run doesn't match the configuration this job has registered. Apply the current draft, then run it again.")
+})
+
+test.each([
+  ["Setup input must match the reviewed candidate digest", "This setup changed after it was reviewed. Test this draft again, then apply it."],
+  ["Job input does not match its registered responsibility or candidate", "This run doesn't match the configuration this job has registered. Apply the current draft, then run it again."]
+])("journalled setup refusal %s carries actionable copy and its original evidence", (sentence, message) => {
+  expect(runFailureOf({ workflow: "repository/setup", error: "older saved verdict", events: journal(`invalid_receipt: ${sentence}\nPRIVATE-DETAIL`) }))
+    .toEqual({ fault: "user", message, detail: `invalid_receipt: ${sentence}` })
 })
