@@ -40,7 +40,7 @@ export const contains = () =>
       })
   })
 
-/** Existing model-agnostic 1–5 rubric scorer. @category scorers @since 0.1.0 */
+/** Existing model-agnostic 1 to 5 rubric scorer. @category scorers @since 0.1.0 */
 export const rubric = Rubric.make
 
 /** A command in an already acquired sandbox session. @category models @since 0.1.0 */

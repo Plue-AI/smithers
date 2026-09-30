@@ -234,9 +234,9 @@ That package's `Ownership` re-exports it alongside `LivenessEvidence`,
 ## Consensus
 
 The injectable strategy that arbitrates who holds a run. The journal owns the
-rules — one writer per run, fenced and unfenced appends, commit-time
+rules (one writer per run, fenced and unfenced appends, commit-time
 admission, the generation fence, steal only on staleness plus liveness
-evidence, and ownership transitions as events — and a strategy chooses where
+evidence, and ownership transitions as events), and a strategy chooses where
 the lease lives and how the fence is checked at commit time.
 
 | Export                                                                                          | Signature                                                                                                                                      |
