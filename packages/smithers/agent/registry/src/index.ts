@@ -42,6 +42,12 @@ export * as Discovery from "./Discovery.ts"
 export * as MarkdownFlow from "./MarkdownFlow.ts"
 
 /**
+ * @category markdown
+ * @since 1.0.0-rc.1
+ */
+export * as Prompt from "./Prompt.ts"
+
+/**
  * @category conversions
  * @since 0.1.0
  */

@@ -1,0 +1,11 @@
+import { Greeting } from "./component.ts"
+
+export const loaded = (globalThis.__smithersMdxLoaded = (globalThis.__smithersMdxLoaded ?? 0) + 1)
+
+# Hello {props.name}
+
+<Greeting name={props.name} />
+
+```json
+{"verified":true}
+```

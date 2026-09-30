@@ -299,7 +299,7 @@
       },
       "declarations": {
         "Agent.d.ts": "0e8be0ad44a5d8177f34fe4e4be780b00a2fae8cba6c2a23d0284d12403c749c",
-        "AgentAction.d.ts": "abf1872aa163c26b21d382ae93e5a8d098894584053e94823ecf5d0b540d38df",
+        "AgentAction.d.ts": "20506cc79c51dbf6a077034bb53efa751833abad115e2e0837822f2dd7c69504",
         "AgentSession.d.ts": "c2423ee0b70b1f0f8289376beeb42b347f35461b5e18fd740257405dca925c10",
         "Budget.d.ts": "d0f1a0d8ac88c58567dc5f8c7bcbf2c790bcfa8a94b45600e5b75d8801d16fb8",
         "CellPlugin.d.ts": "318db00f2f1d0034818f1c3abe9544a2905f6bafa10d7afbd88c378c80c62ce6",
@@ -2753,17 +2753,17 @@
         }
       },
       "declarations": {
-        "app.d.ts": "b090166900e2a01101c6b9ac7f1507221b57d957f1399b137f3178d30a160594",
+        "app.d.ts": "96d742777265a40ffc85086a590d3921b198930a3611b1329b5b672f750638fc",
         "http.d.ts": "3b825ff2feced7390c6fef9b7c37f09fdf5b379e1f19bfda308467ac9ac5271b",
-        "index.d.ts": "08bbc82bec18a28843f0d019b479283067dac2659f0ddcb684e6471115dcc6cd",
+        "index.d.ts": "c8c778ee6938536c2837dd95dc8dfc4305d628fb5b3b558ee3d0c1da4c78b450",
         "package.d.ts": "b9abcdfb27de2020a6ed907bd7785044c07bd6241b93ba4439370bb3f2a5d239",
-        "router.d.ts": "da8fd3772f0b61bce76cbf593e2049859e978e14412dd808af8870fba90cf882",
+        "router.d.ts": "98d2f06956a7171724f9933ae44212486b0fc6a7bc2d17a0efa6c0b748b18b9b",
         "routesBin.d.ts": "01a807fe8ac9880273ac7033f35e8c044dd225d5c8503230b094b1efc6681526",
-        "runtime.d.ts": "81fedc29331e76b61cecdb1d983fa83ed75b507265fa5f2d9b4e718f90a8a3b6",
-        "testing.d.ts": "fef6d022ea8d1f56d97c64028fbcfba8862fa0903cd21900f2df0b9a56dd9151",
+        "runtime.d.ts": "df94b2f049645032075edd9151b4b5072afe9465f65381df2dd5e4fc1f454e2e",
+        "testing.d.ts": "9ead97b833b803ce4ac37b83635fa394a6c8004f634495fa77a37b7ce4c18449",
         "ui.d.ts": "a2fa138686a6632b1ed1c1167cc86ce7b48d01592661d3a382d74fff1874c759",
         "vite.d.ts": "0e4a3c423b7a73f1b495789762a22af18898a86d0ae07beba8524839f6d67133",
-        "worker.d.ts": "70c191d0e1be084913a1a44e295f4935d579380a417dbb784544313d5dea8a5b"
+        "worker.d.ts": "ab26a9f25c58a3f4972673c1983149b19657da548ce03edaab44890b712442d2"
       }
     },
     "@smthrs/crypto": {
@@ -3871,7 +3871,7 @@
         "Action/UncanonicalIdempotencyKey.d.ts": "d5bdc0c60f90685cbb83b839e7ba6cf1129b3b985e3fc055cd13ca6180148e47",
         "Action/idempotencyKey.d.ts": "1f1835393bc5d274ed35ec1cc262c1ac766b701274f2da47289f912ef8d5adb3",
         "Action/index.d.ts": "eba715e5dad3e4454520728c56a5670572e818798e8026f58ec6b00abf0c0263",
-        "Action/make.d.ts": "1ac60cf73fef4e9bb4766fccc04b946901e5258fa444458b4d52eafa73167ea0",
+        "Action/make.d.ts": "2527946c711561d8e64053b5595f083576ef3f900fa190f24987e2ac5698876d",
         "Action/raceAll.d.ts": "f3302ce135966a1cb6d778e53ea27eda4c1948bf7e03c1a4e664ea946df95004",
         "Action/retry.d.ts": "95b940d60e7a930748ab255df8c47ed91a1019b593de80a87449fa3d9b64d643",
         "DurableClock.d.ts": "f8a8f2914499d78cae83d7453c879badb5853407c69c86060bba0633c85e5f24",
@@ -3882,14 +3882,15 @@
         "Flow/CapabilityCeiling.d.ts": "55739697e89fa4afe2fb148fcdaa088557a817e80a384b276adba56f3d2cdaf6",
         "Flow/ExecutionIdRequired.d.ts": "aae4a4c0a4435703aac2e6a475e025721f8e3ad202f34bc3d7df923efc7c6be4",
         "Flow/ExecutionIds.d.ts": "77df448f8a6c27b8810834b7e071745dbb9d038eee57ad25a68e123907da35a4",
-        "Flow/Flow.d.ts": "af4d8fc9e9feb6858eb8863cb2dac03c82a27e28388641324c69a067db9dc682",
+        "Flow/Flow.d.ts": "bbe1897ffcd53ef3c3c39ed5e87158085b7768a65617a235da146db8472b3975",
         "Flow/MaxRoundsExceeded.d.ts": "6fcef3a0b204d1bb584d724847bb64c1655ac646be54467891e3ba0b97349f47",
         "Flow/Outcome.d.ts": "8f026cd61e1112e1b8408ca23a760eca9cb04d0bf6bdeb8d6ab215244f44a973",
         "Flow/Result.d.ts": "a932574b7adaefc365c7e76f5c738b3ea0428f4c86251aece25c8d9978d0ecf5",
         "Flow/Runtime.d.ts": "655fa285cfaff6b7f631f149a5acd3ff339b83dec0e8bf94b3e685060179910c",
         "Flow/TypeId.d.ts": "d0df9deddec32c88994801037737780b7d652f89bd2afe42edcfd3f9ce6936a2",
         "Flow/index.d.ts": "d637b29a6c4520cbc7118c44c7333392d95cee6b86425c2ce1cb99813054308f",
-        "Flow/make.d.ts": "6aed0fbd9a1cf48b14e757ec2933faaa0622287d121acef833bea3617c1244c4",
+        "Flow/internal.d.ts": "de605cc38c74a17af99ff1dc98f0f73a4aae158c13ca03a8d018961752ac4f45",
+        "Flow/make.d.ts": "2f65093955fbf9df9e25b2d44fcc9b8ef59ab74efc8f41c3c559070693c32d51",
         "FlowRuntime/CancelRequestFailed.d.ts": "4ae430e409ea3ce80f41745bb26164b42f5c7788a3812e684ae53792ea766e18",
         "FlowRuntime/FlowCycleDetected.d.ts": "10b927322b3e074061fd8916e0d88a7606ccc2f78f42c0b050eae17796014894",
         "FlowRuntime/FlowExecutionNotFound.d.ts": "4a74cb29b309751864d8d1651dcd900f1572f772e7bde547fb55dbab152e3287",
@@ -8296,6 +8297,26 @@
             "types": "./dist/cjs/index.d.ts",
             "default": "./dist/cjs/index.js"
           }
+        },
+        "./Prompt": {
+          "import": {
+            "types": "./dist/esm/Prompt.d.ts",
+            "default": "./dist/esm/Prompt.js"
+          },
+          "require": {
+            "types": "./dist/cjs/Prompt.d.ts",
+            "default": "./dist/cjs/Prompt.js"
+          }
+        },
+        "./Prompt/jsx-runtime": {
+          "import": {
+            "types": "./dist/esm/Prompt/jsx-runtime.d.ts",
+            "default": "./dist/esm/Prompt/jsx-runtime.js"
+          },
+          "require": {
+            "types": "./dist/cjs/Prompt/jsx-runtime.d.ts",
+            "default": "./dist/cjs/Prompt/jsx-runtime.js"
+          }
         }
       },
       "declarations": {
@@ -8305,13 +8326,15 @@
         "Executable.d.ts": "8862ae0fd0af3411fc9530a6e9154ef0e99ab4a3995645d083f1bd54dd50aa4d",
         "MarkdownFlow.d.ts": "8528795b71675a61c84ba392cfdc18155e614f0342b3d43dc5c4e2616cfcc319",
         "Pack.d.ts": "4c34430737c9942dfc2d786450e1b289e4803f5644bb434fd6c4944cc49d35cc",
+        "Prompt.d.ts": "2e6f184c1f38d22f43cb74d8282f4ce9228d1f3284f94b0962ef3efce91d3e0c",
+        "Prompt/jsx-runtime.d.ts": "788e6bbaa4974f184a91f26a1dd7e8bc04a5826115484d30f52954e7f1082b51",
         "Registry.d.ts": "7c09af7907478b6711f6bed1b8a4e18d979fde89d43eaacee082350efaab9ad9",
         "RegistryError.d.ts": "39e84c0c8b90e896e708838f839eb7b42a62b646c509d2c7dab828968cc6f138",
-        "index.d.ts": "2e1d3f852bf5b7cfa6407c79e1bc9d61e6ac5c329b4bd2888cb056facced51db",
+        "index.d.ts": "8124986837d7dc42c9b6a595a902a52400df83113984ef1b68f6666d5767e22b",
         "internal/Authority.d.ts": "4743dedef584b6f54e9414e06f4eef845b3c8358f6484d964e1b6b91510f44f1",
         "internal/Body.d.ts": "5e53f2ee33fb894c2e948a38a2cd55100455cf87c21db55767ae238c17459a88",
         "internal/Frontmatter.d.ts": "2b1fcaaea6876717b496766396bf099a22e7fc3e63a9dae434e5f51749c7d30a",
-        "internal/ModuleClosure.d.ts": "f3d4952d9ad790e8ab4b76eaede5a76cce8a89b6ffd5c16e0bce58022f042615",
+        "internal/ModuleClosure.d.ts": "47c7a1e7cd9d7d7c0372c09123dd20ed61875d13f3f01b50b171f438e1274b98",
         "internal/ModuleMetadata.d.ts": "5632a07a7397919359ccfe5be397507831efca4503cb1c76abbb96f029865d98",
         "internal/Names.d.ts": "494cebeead34279e668e159507d71cf7037ad88a402cccc41191a2374c418e9f"
       }

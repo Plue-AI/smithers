@@ -44,6 +44,7 @@ import * as Effect from "effect/Effect"
 import type * as FileSystem from "effect/FileSystem"
 import type * as Path from "effect/Path"
 import type { ModuleImport } from "../Descriptor.ts"
+import * as Prompt from "../Prompt.ts"
 import { stringLiteral, type Token, tokenize } from "./ModuleMetadata.ts"
 
 /**
@@ -659,7 +660,10 @@ const walk = (
           }
           for (const file of targets.files) {
             if ((yield* resolve(fs, path, directory, file, memo)) !== undefined) {
-              pending.push({ from, directory, specifier: file })
+              if (from.endsWith(".mdx") && specifier === "@smthrs/registry/Prompt/jsx-runtime") {
+                const description = `${importer} maps the MDX text runtime to project files`
+                found.set(description, unpinnable(description))
+              } else pending.push({ from, directory, specifier: file })
             }
           }
         }
@@ -722,7 +726,16 @@ const walk = (
         break
       }
       const contentDigest = Digest.digest(read.success)
-      const source = new TextDecoder().decode(read.success)
+      const rawSource = new TextDecoder().decode(read.success)
+      const compiled = yield* Effect.result(
+        Effect.try(() => resolved.endsWith(".mdx") ? Prompt.compile(rawSource) : rawSource)
+      )
+      if (compiled._tag === "Failure") {
+        const description = `"${recorded}" could not be compiled as MDX`
+        found.set(description, unpinnable(description))
+        continue
+      }
+      const source = compiled.success
       reads?.set(resolved, { bytes: read.success, source })
       const specifiers = specifiersOf(source)
       reportOpaque(`"${recorded}"`, specifiers.opaque)
@@ -744,8 +757,8 @@ const walk = (
   })
 
 /**
- * One module of a {@link snapshot}: the bytes that were measured, their text,
- * and each static specifier in it that names another module of the closure.
+ * One module of a {@link snapshot}: the bytes that were measured, executable
+ * source (compiled for MDX), and its static links to other captured modules.
  *
  * @category models
  * @since 1.0.0

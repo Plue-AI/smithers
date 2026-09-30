@@ -593,7 +593,7 @@ const importModule = (
         reserveSibling(
           fs,
           platformPath.join(directory, `.smithers-${source.contentDigest}-`),
-          platformPath.extname(original) || ".mjs"
+          original.endsWith(".mdx") ? ".mjs" : platformPath.extname(original) || ".mjs"
         ),
         // The module is already evaluated; a sibling that will not unlink
         // (EBUSY on Windows, a guard refusal) must not undo a successful
@@ -628,7 +628,7 @@ const importModule = (
  *
  * The replacement is the sibling's path relative to the importer's directory,
  * spelled literally as the closure walk resolved the original. A module with
- * no links is written byte for byte.
+ * no links is written byte for byte, except MDX, which uses its compiled source.
  */
 const rewriteLinks = (
   platformPath: Path.Path,
@@ -636,7 +636,11 @@ const rewriteLinks = (
   module: ClosureModule,
   siblings: ReadonlyMap<string, string>
 ): Uint8Array => {
-  if (module.links.length === 0) return module.bytes
+  if (module.links.length === 0) {
+    return original.endsWith(".mdx")
+      ? new TextEncoder().encode(module.source)
+      : module.bytes
+  }
   const directory = platformPath.dirname(original)
   let text = ""
   let copied = 0

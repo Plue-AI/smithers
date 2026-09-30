@@ -3,7 +3,7 @@ title: "API reference"
 description: "Every public export of @smthrs/registry: the FlowDescriptor model, the Discovery and Registry services, markdown flow compatibility, disclosure projections, the executable bridge, workflow packs, and the typed failures."
 ---
 
-`@smthrs/registry` exports eight modules from its root entry point, and each is
+`@smthrs/registry` exports nine modules from its root entry point, and each is
 also importable from `@smthrs/registry/<Module>`:
 
 ```ts
@@ -31,6 +31,7 @@ declaration values a discovered body carries, see the
 | [`Executable`](#executable)       | Turning a descriptor into a runnable `@smthrs/flow` value.                |
 | [`Pack`](#pack)                   | Manifests, content addresses, compatibility ranges, and merge precedence. |
 | [`RegistryError`](#registryerror) | The typed failures and their constructors.                                |
+| [`Prompt`](#prompt)               | Compiles typed MDX prompts to Markdown text components.                   |
 
 ## Example
 
@@ -45,6 +46,20 @@ const flows = Registry.Registry.use((catalog) => catalog.list())
 
 console.log(await Effect.runPromise(flows.pipe(Effect.provide(registry), Effect.orDie)))
 ```
+
+## Prompt
+
+`Prompt.compile(source)` compiles MDX into an ESM module whose default export
+renders Markdown text. Compilation parses code without evaluating expressions.
+The module is evaluated by the same verified loader as its importing flow.
+
+`Prompt.Component<Props>` types the props of one concrete prompt import.
+Declare it in a sibling `prompt.d.mdx.ts`; there is no untyped wildcard import.
+`Prompt.Content` is the content the text JSX runtime accepts.
+
+`@smthrs/registry/Prompt/jsx-runtime` exports `jsx`, `jsxs`, `Fragment`, and
+`render(content)`. Markdown elements render as Markdown text; expressions and
+imported components use ordinary MDX semantics. See [MDX prompts](./guides/mdx-prompts.md).
 
 ## Descriptor
 

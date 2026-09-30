@@ -23,6 +23,10 @@
 
 ### Added
 
+- Typed MDX prompt imports compile through a text JSX runtime. Discovery pins
+  prompt and component bytes; the verified module loader refuses stale content
+  and executes captured bytes on Node and Bun (#2271).
+
 - `BudgetOnExceeded` includes `park`; flow budget metadata carries an optional
   `onExceeded` policy through the approved envelope (#1843).
 

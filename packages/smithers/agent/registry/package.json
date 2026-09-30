@@ -45,7 +45,9 @@
     "./Pack": "./src/Pack.ts",
     "./Registry": "./src/Registry.ts",
     "./RegistryError": "./src/RegistryError.ts",
-    "./index": "./src/index.ts"
+    "./index": "./src/index.ts",
+    "./Prompt": "./src/Prompt.ts",
+    "./Prompt/jsx-runtime": "./src/Prompt/jsx-runtime.ts"
   },
   "files": [
     "src/**/*.ts",
@@ -165,6 +167,26 @@
           "types": "./dist/cjs/index.d.ts",
           "default": "./dist/cjs/index.js"
         }
+      },
+      "./Prompt": {
+        "import": {
+          "types": "./dist/esm/Prompt.d.ts",
+          "default": "./dist/esm/Prompt.js"
+        },
+        "require": {
+          "types": "./dist/cjs/Prompt.d.ts",
+          "default": "./dist/cjs/Prompt.js"
+        }
+      },
+      "./Prompt/jsx-runtime": {
+        "import": {
+          "types": "./dist/esm/Prompt/jsx-runtime.d.ts",
+          "default": "./dist/esm/Prompt/jsx-runtime.js"
+        },
+        "require": {
+          "types": "./dist/cjs/Prompt/jsx-runtime.d.ts",
+          "default": "./dist/cjs/Prompt/jsx-runtime.js"
+        }
       }
     }
   },
@@ -181,7 +203,8 @@
     "@smthrs/core": "1.0.0-rc.1",
     "@smthrs/flow": "1.0.0-rc.1",
     "@smthrs/plan": "1.0.0-rc.1",
-    "yaml": "2.9.0"
+    "yaml": "2.9.0",
+    "@mdx-js/mdx": "3.1.1"
   },
   "devDependencies": {
     "@effect/language-service": "0.87.2",
@@ -207,7 +230,8 @@
     "madge": "8.0.0",
     "typescript": "5.9.3",
     "typescript-eslint": "8.69.0",
-    "vitest": "5.0.0"
+    "vitest": "5.0.0",
+    "@smthrs/engine": "1.0.0-rc.1"
   },
   "peerDependencies": {
     "effect": "4.0.0-rc.115"
