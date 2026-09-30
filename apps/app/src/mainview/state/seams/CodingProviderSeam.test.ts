@@ -358,7 +358,6 @@ afterEach(async () => {
   if (failures.length) throw new AggregateError(failures, "Provider fixture cleanup failed")
 })
 
-type StoreRequestRow = RequestRow
 async function storeHarness(options: {
   persist?: (rows: RequestRow[]) => Promise<void>
   rows?: RequestRow[]
