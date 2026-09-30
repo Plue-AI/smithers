@@ -384,8 +384,8 @@ export const summarizeHealth = (verdicts: ReadonlyArray<HealthVerdict>): HealthS
   const healthy = verdicts.filter((verdict) => verdict.state === "healthy").length
   const unhealthy = verdicts.filter((verdict) => verdict.state === "unhealthy").length
   const notConfigured = verdicts.filter((verdict) => verdict.state === "not-configured").length
-  // Targets, not Workers: identity and chat each answer on more than one
-  // route, and every route the product configures is probed.
+  // Targets, not Workers: a Worker may answer on more than one route, and
+  // every route the product configures is probed.
   const counts =
     `${healthy} healthy, ${unhealthy} unhealthy, ${notConfigured} not configured, of ${verdicts.length} targets`
   if (unhealthy > 0) {

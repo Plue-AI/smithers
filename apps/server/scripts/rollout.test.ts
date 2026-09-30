@@ -14,7 +14,6 @@ test("Worker failing site probe invokes pinned rollback and checks restored SHA"
   const commands: string[][] = []
   const host = workerRolloutHost({
     previous, serverDir: "/server/", accountId: "account", worker: "worker", token: "fake",
-    inviteConfigured: false,
     publish: async () => { live = next.version; return next },
     record: async () => {},
     get: async path => path.endsWith("/deployments")
@@ -35,48 +34,57 @@ test("Worker failing site probe invokes pinned rollback and checks restored SHA"
   const restore = commands.find(c => c.includes("rollback"))!
   expect(restore).toEqual(["node", "/server/node_modules/wrangler/bin/wrangler.js", "rollback", previous.version, "--yes", "--message", "Automatic rollback: required rollout check failed"])
   expect(commands.at(-3)).toContain(previous.revision)
-  expect(result.skippedChecks).toEqual(["CN-23"])
+  expect(result.skippedChecks).toEqual([])
 })
 test("CN-24 refuses a split deployment or missing captured target", async () => {
   for (const result of [{ success: true, result: { id: "other" } }, { success: false }]) {
-    const host = workerRolloutHost({ previous, serverDir: "/server/", accountId: "account", worker: "worker", token: "fake", inviteConfigured: false,
+    const host = workerRolloutHost({ previous, serverDir: "/server/", accountId: "account", worker: "worker", token: "fake",
       publish: async () => next, record: async () => {}, run: async () => ({ exitCode: 0, output: "" }), get: async () => result })
     await expect(host.check("CN-24", previous, "baseline")).resolves.toEqual({ status: "failed" })
   }
 })
 
-test("CN-18 and CN-23 fail a rollout without restoring its Worker", async () => {
-  for (const failed of ["scripts/canary/workers-health.ts", "scripts/canary/invite-probe.ts"]) {
-    let live = previous.version
-    const commands: string[][] = []
-    const host = workerRolloutHost({ previous, serverDir: "/server/", accountId: "account", worker: "worker", token: "fake", inviteConfigured: true,
-      publish: async () => { live = next.version; return next }, record: async () => {},
-      get: async path => path.endsWith("/deployments")
-        ? { success: true, result: { deployments: [{ versions: [{ version_id: live, percentage: 100 }] }] } }
-        : { success: true, result: { id: previous.version } },
-      run: async cmd => { commands.push([...cmd]); return { exitCode: cmd.includes(failed) ? 1 : 0, output: "" } } })
-    expect((await rollout(host)).status).toBe("failed")
-    expect(commands.some(cmd => cmd.includes("rollback"))).toBe(false)
-    expect(live).toBe(next.version)
-  }
+test("CN-18 fails a rollout without restoring its Worker", async () => {
+  let live = previous.version
+  const commands: string[][] = []
+  const host = workerRolloutHost({ previous, serverDir: "/server/", accountId: "account", worker: "worker", token: "fake",
+    publish: async () => { live = next.version; return next }, record: async () => {},
+    get: async path => path.endsWith("/deployments")
+      ? { success: true, result: { deployments: [{ versions: [{ version_id: live, percentage: 100 }] }] } }
+      : { success: true, result: { id: previous.version } },
+    run: async cmd => { commands.push([...cmd]); return { exitCode: cmd.includes("scripts/canary/workers-health.ts") ? 1 : 0, output: "" } } })
+  const result = await rollout(host)
+  expect(result.status).toBe("failed")
+  expect(result.failedChecks).toEqual(["CN-18"])
+  expect(commands.some(cmd => cmd.includes("rollback"))).toBe(false)
+  expect(live).toBe(next.version)
+})
+
+test("the rollout requires exactly CN-1, site, CN-18 and CN-24, and refuses an unknown check", async () => {
+  const host = workerRolloutHost({ previous, serverDir: "/server/", accountId: "account", worker: "worker", token: "fake",
+    publish: async () => next, record: async () => {}, run: async () => ({ exitCode: 0, output: "" }) })
+  expect(host.checks).toEqual(["CN-1", "site", "CN-18", "CN-24"])
+  expect(host.skippedChecks).toBeUndefined()
+  await expect(host.check("CN-23", next, "candidate")).rejects.toThrow("Unknown required check")
 })
 
 
-test("dry runs execute upstream checks, fail on errors, and explicitly skip unconfigured invites", async () => {
-  for (const inviteConfigured of [true, false]) {
+test("dry runs execute CN-18 alone and fail on a red exit or an error", async () => {
+  for (const outcome of ["red", "throws"] as const) {
     const commands: string[][] = []
-    const result = await dryRunChecks({ serverDir: "/server", accountId: "account", inviteConfigured,
+    const result = await dryRunChecks({ serverDir: "/server", accountId: "account",
       run: async (cmd, options) => {
         commands.push([...cmd])
         expect(options.timeout).toBe(30_000)
-        if (cmd.includes("scripts/canary/workers-health.ts")) throw Error("timeout secret")
+        if (outcome === "throws") throw Error("timeout secret")
         return { exitCode: 1, output: "" }
       } })
-    expect(commands.map(c => c[1])).toEqual(["scripts/canary/workers-health.ts", ...(inviteConfigured ? ["scripts/canary/invite-probe.ts"] : [])])
-    expect(result.checks.every(c => c.status === "failed")).toBe(true)
-    expect(result.skippedChecks).toEqual(inviteConfigured ? [] : ["CN-23"])
+    expect(commands.map(c => c[1])).toEqual(["scripts/canary/workers-health.ts"])
+    expect(result).toEqual({ checks: [{ name: "CN-18", status: "failed" }] })
     expect(JSON.stringify(result)).not.toContain("secret")
   }
+  const green = await dryRunChecks({ serverDir: "/server", accountId: "account", run: async () => ({ exitCode: 0, output: "" }) })
+  expect(green).toEqual({ checks: [{ name: "CN-18", status: "passed" }] })
 })
 
 test("unreadable previous build stamps write refusal evidence and never publish", async () => {
@@ -85,7 +93,7 @@ test("unreadable previous build stamps write refusal evidence and never publish"
     const receipts: unknown[] = []
     let published = false
     const host = workerRolloutHost({ previous: async () => ({ version: previous.version, revision: await readPreviousRevision(read) }),
-      serverDir: "/server", accountId: "account", worker: "worker", token: "fake", inviteConfigured: false,
+      serverDir: "/server", accountId: "account", worker: "worker", token: "fake",
       publish: async () => { published = true; return next }, record: async r => { receipts.push(r) },
       run: async () => { throw Error("must not probe without identity") } })
     expect((await rollout(host)).status).toBe("refused")
@@ -109,7 +117,7 @@ test("a failed fix-forward writes verified rollback evidence and the next deploy
       : { success: true, result: { id: previous.version, annotations: {} } }
     try {
       const options = {
-        previous, serverDir: "/server", accountId: WORKER_IDENTITY.accountId, worker: WORKER_IDENTITY.name, token: "fake", inviteConfigured: false,
+        previous, serverDir: "/server", accountId: WORKER_IDENTITY.accountId, worker: WORKER_IDENTITY.name, token: "fake",
         identity: { accountId: WORKER_IDENTITY.accountId, worker: WORKER_IDENTITY.name, target: identity }, get,
         publish: async () => { live = next.version; newest = next.version; return next },
         record: async (receipt: Parameters<typeof writeRolloutReceipt>[1]) => { writeRolloutReceipt(directory, receipt) },
@@ -138,15 +146,15 @@ test("a failed fix-forward writes verified rollback evidence and the next deploy
 test("the sequential site probe gets its own timeout; other checks keep 30 s", async () => {
   const timeouts = new Map<string, number | undefined>()
   const host = workerRolloutHost({
-    previous, serverDir: "/server/", accountId: "account", worker: "worker", token: "fake", inviteConfigured: true,
+    previous, serverDir: "/server/", accountId: "account", worker: "worker", token: "fake",
     publish: async () => next, record: async () => {},
     run: async (cmd, options) => { timeouts.set(cmd[1]!, options.timeout); return { exitCode: 0, output: "" } },
     sleep: async () => {}
   })
-  for (const name of ["CN-1", "site", "CN-18", "CN-23"]) await host.check(name, next, "candidate")
+  for (const name of ["CN-1", "site", "CN-18"]) await host.check(name, next, "candidate")
   // The probe measured 43 s against canary.smithers.sh; a 30 s kill rolled back every release.
   expect(timeouts.get("scripts/canary/site-probe.ts")).toBe(siteProbeTimeout)
   expect(siteProbeTimeout).toBeGreaterThan(43_000 * 3)
-  for (const probe of ["scripts/canary/build-probe.ts", "scripts/canary/workers-health.ts", "scripts/canary/invite-probe.ts"])
+  for (const probe of ["scripts/canary/build-probe.ts", "scripts/canary/workers-health.ts"])
     expect(timeouts.get(probe)).toBe(30_000)
 })

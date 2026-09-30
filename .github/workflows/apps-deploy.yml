@@ -155,13 +155,10 @@ jobs:
       - name: Deploy (dry-run)
         id: deploy_dry
         if: steps.mode.outputs.dry_run == 'true'
-        env:
-          IDENTITY_SERVICE_TOKEN: ${{ secrets.IDENTITY_SERVICE_TOKEN }}
-          CANARY_ALLOWLIST_LOGINS: ${{ vars.CANARY_ALLOWLIST_LOGINS }}
         run: pnpm --filter smithers-server run deploy:dry
-      # Cloudflare deploy credentials plus read-only CN-23 probe inputs. The Worker's secrets are set once on
+      # Cloudflare deploy credentials only. The Worker's secrets are set once on
       # the live script with `wrangler secret put` and every `wrangler deploy`
-      # keeps them (`keep_bindings`). Probe inputs are not uploaded as bindings. `SMITHERS_BUILD_SHA`
+      # keeps them (`keep_bindings`). `SMITHERS_BUILD_SHA`
       # is not a binding either; scripts/deploy.ts bakes it into the site build.
       # apps/server/scripts/deploy-docs.test.ts holds this env to that rule.
       - name: Deploy (real)
@@ -170,9 +167,6 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          # Read-only CN-23 probe inputs, never uploaded as Worker bindings.
-          IDENTITY_SERVICE_TOKEN: ${{ secrets.IDENTITY_SERVICE_TOKEN }}
-          CANARY_ALLOWLIST_LOGINS: ${{ vars.CANARY_ALLOWLIST_LOGINS }}
         run: pnpm --filter smithers-server run deploy
       # scripts/deploy.ts owns the deterministic rollout and all required probes.
       # Keep the rollout receipt even after successful recovery (the run stays red).

@@ -114,21 +114,19 @@ test("the secrets section names every secret and knob the Worker reads, and no v
 })
 
 /*
- * CI parity: Cloudflare credentials deploy the Worker. The one additional
- * Worker secret is consumed only by CN-23's read-only allowlist probe, never
- * uploaded as a binding. apps-deploy.yml remains hand-maintained.
+ * CI parity: Cloudflare credentials deploy the Worker, and no Worker secret or
+ * variable rides the deploy step. apps-deploy.yml remains hand-maintained.
  */
 const deployRealEnv = (): string => {
   const step = workflow.split("- name: Deploy (real)")[1]!
   return step.split("run:")[0]!
 }
 
-test("the CI deploy step exports only deployment and read-only probe credentials", () => {
+test("the CI deploy step exports only deployment credentials", () => {
   const env = deployRealEnv()
   expect(env).toContain("CLOUDFLARE_API_TOKEN:")
   expect(env).toContain("CLOUDFLARE_ACCOUNT_ID:")
   for (const name of [...Object.keys(WORKER_IDENTITY.secrets), ...WORKER_IDENTITY.optionalVars]) {
-    if (name === "IDENTITY_SERVICE_TOKEN") continue // Read-only CN-23, never passed to wrangler as a binding.
     expect(`${name}: ${new RegExp(`^\\s+${name}: `, "m").test(env)}`).toBe(`${name}: false`)
   }
   expect(env).not.toContain("${{ secrets.GITHUB_TOKEN }}")

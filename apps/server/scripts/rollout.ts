@@ -12,7 +12,6 @@ export interface WorkerRolloutOptions {
   accountId: string
   worker: string
   token: string
-  inviteConfigured: boolean
   beforePublish?(): Promise<void>
   publish(): Promise<Release>
   record(receipt: WorkerRolloutReceipt): Promise<void>
@@ -38,11 +37,9 @@ export const workerRolloutHost = (options: WorkerRolloutOptions): RolloutHost =>
     env: { CLOUDFLARE_ACCOUNT_ID: options.accountId } })
   let previous: Release
   let recovery: RecoveryEvidence | undefined = options.identity ? { ...options.identity, newestVersion: options.identity.target.versionId } : undefined
-  const checks = ["CN-1", "site", "CN-18", ...(options.inviteConfigured ? ["CN-23"] : []), "CN-24"]
   return {
-    checks,
+    checks: ["CN-1", "site", "CN-18", "CN-24"],
     rollbackChecks: ["CN-1", "site", "CN-24"],
-    skippedChecks: options.inviteConfigured ? [] : ["CN-23"],
     capture: async () => {
       previous = typeof options.previous === "function" ? await options.previous() : options.previous
       return previous
@@ -76,8 +73,7 @@ export const workerRolloutHost = (options: WorkerRolloutOptions): RolloutHost =>
       } else {
         const args = name === "CN-1" ? ["scripts/canary/build-probe.ts", origin, "--sha", release.revision]
           : name === "site" ? ["scripts/canary/site-probe.ts", "canary.smithers.sh"]
-          : name === "CN-18" ? ["scripts/canary/workers-health.ts"]
-          : name === "CN-23" ? ["scripts/canary/invite-probe.ts"] : null
+          : name === "CN-18" ? ["scripts/canary/workers-health.ts"] : null
         if (!args) throw new Error("Unknown required check")
         for (let attempt = 0; attempt < (name === "CN-1" ? 3 : 1); attempt++) {
           if ((await command(["bun", ...args], name === "site" ? siteProbeTimeout : undefined)).exitCode === 0) {
@@ -114,15 +110,12 @@ export const writeRolloutReceipt = (directory: string, receipt: WorkerRolloutRec
 }
 
 /** Read-only checks still run during a rehearsal; they cannot publish or restore. */
-export const dryRunChecks = async (options: Pick<WorkerRolloutOptions, "run" | "serverDir" | "accountId" | "inviteConfigured">): Promise<{ checks: CheckResult[]; skippedChecks: string[] }> => {
+export const dryRunChecks = async (options: Pick<WorkerRolloutOptions, "run" | "serverDir" | "accountId">): Promise<{ checks: CheckResult[] }> => {
   const host = workerRolloutHost({ ...options, previous: { version: "dry-run", revision: "dry-run" }, worker: "", token: "",
     publish: async () => { throw new Error("Dry run cannot publish") }, record: async () => {} })
-  const checks: CheckResult[] = []
-  for (const name of ["CN-18", ...(options.inviteConfigured ? ["CN-23"] : [])]) {
-    try { checks.push({ name, ...(await host.check(name, { version: "dry-run", revision: "dry-run" }, "candidate")) }) }
-    catch { checks.push({ name, status: "failed" }) }
-  }
-  return { checks, skippedChecks: options.inviteConfigured ? [] : ["CN-23"] }
+  const name = "CN-18"
+  try { return { checks: [{ name, ...(await host.check(name, { version: "dry-run", revision: "dry-run" }, "candidate")) }] } }
+  catch { return { checks: [{ name, status: "failed" }] } }
 }
 
 /** Called inside capture so HTTP/JSON/timeout failures produce a refused receipt. */

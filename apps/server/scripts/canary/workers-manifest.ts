@@ -18,13 +18,10 @@ export interface BackingWorker {
    */
   readonly origin: string | undefined
   /**
-   * The other routes this product configures for the same seam. identity
-   * answers on both a custom domain and a workers.dev subdomain, and
-   * apps/server/wrangler.jsonc points at the workers.dev one; the canary's
-   * chat upstream is a separate deployment of the chat Worker entirely. Probing
-   * only the custom domain would report a green CN-18 while the route the
-   * product actually calls was dead. Each alternate carries its Worker's
-   * contract.
+   * The other routes this product configures for the same seam, such as a
+   * workers.dev twin of a custom domain. Probing only the custom domain would
+   * report a green CN-18 while the route the product actually calls was dead.
+   * Each alternate carries its Worker's contract.
    */
   readonly alternateOrigins: ReadonlyArray<string>
   /** Health path, joined onto the origin. "/" for a Worker with no health route. */
@@ -42,31 +39,6 @@ const DEPLOYED_SERVICES: ReadonlyArray<BackingWorker> = [
     path: "/api/bootstrap",
     contract: "application-bootstrap",
     note: "canonical shared application backend; SMITHERS_BACKEND_ORIGIN"
-  },
-  {
-    name: "identity",
-    origin: "https://identity.smithers.sh",
-    alternateOrigins: ["https://smithers-cloud-identity.willcory10.workers.dev"],
-    path: "/healthz",
-    contract: "ok-json",
-    note: "GitHub OAuth, sessions, the allowlist; IDENTITY_UPSTREAM_URL"
-  },
-  {
-    name: "billing",
-    origin: "https://billing.smithers.sh",
-    alternateOrigins: [],
-    path: "/healthz",
-    contract: "ok-json",
-    note: "balances, grants, the admin grant surface; BILLING_UPSTREAM_URL"
-  },
-  {
-    name: "chat",
-    origin: "https://chat.smithers.sh",
-    alternateOrigins: ["https://smithers-cloud-chat-canary.willcory10.workers.dev"],
-    path: "/",
-    contract: "responds",
-    note:
-      "the metered turn upstream (SMITHERS_CHAT_URL); no health route — / answers 404 with the Worker's own \"Not found\", and /chat is origin-gated, so a Worker-authored body is the whole assertion"
   },
   {
     name: "connectors-catalog",

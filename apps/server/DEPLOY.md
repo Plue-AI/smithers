@@ -106,7 +106,7 @@ Landing on `main` is the deploy. Every push to `main` runs two jobs:
    kept.
    `scripts/deploy.ts` owns publication, the required probes, automatic
    restoration and re-verification. The workflow uploads its receipts as the
-   `deploy-receipt` artifact. CN-23 uses separate read-only probe inputs.
+   `deploy-receipt` artifact.
 
 A manual `workflow_dispatch` run, or a push while the `production`
 environment has no token, runs the gates and the dry-run deploy.
@@ -164,19 +164,17 @@ The old deployment-credential gateway relay cannot be reactivated by a secret.
 
 ### Other upstream services
 
-The only active product upstream is `SMITHERS_BACKEND_ORIGIN`. Identity, chat
-and billing sibling Workers are retirement subjects in the cutover manifest,
-not dependencies of `src/edge.ts`. Do not disable them before their data and
-in-flight work have verified disposition.
+The only active product upstream is `SMITHERS_BACKEND_ORIGIN`. The identity,
+billing and chat sibling Workers are retired; their data disposition and the
+operator retirement steps are in `docs/shared-edge-cutover.md` (#3124).
 
 ## Rollback
 
 Every real deploy captures the live Worker version and checks it before
 publication. Only checks this deploy can affect trigger rollback: CN-1 (served
 SHA), the site probe and CN-24 (exact version and rollback target). CN-18 checks
-upstream Workers; CN-23 checks the upstream allowlist when either existing
-credential/roster input is configured, and is recorded as skipped otherwise.
-Upstream failures mark the run red but never roll back the Worker. Missing
+upstream services. Upstream failures mark the run red but never roll back the
+Worker. Missing
 inputs for a required check, exceptions and timeouts fail the check.
 
 A red baseline permits fix-forward. If the candidate passes its deployment
@@ -211,8 +209,7 @@ timestamped copies. The deployment receipt (`deploy-receipts/latest.json`)
 embeds the final rollout receipt as `rollout`. A missing `Current Version ID`
 after publication triggers restoration too. An unreadable previous build stamp
 writes a `refused` receipt without publishing. Dry runs publish and restore
-nothing; they still run CN-18 and configured CN-23, record the results and fail
-on a red check.
+nothing; they still run CN-18, record the result and fail on a red check.
 
 Read the live version from `rollout.status`, not from the exit code or an older
 receipt:
@@ -220,7 +217,7 @@ receipt:
 | `rollout.status` | Live version | `wranglerVersionId` |
 | --- | --- | --- |
 | `passed` | candidate | candidate |
-| `failed` | candidate; only CN-18 or CN-23 failed | candidate |
+| `failed` | candidate; only CN-18 failed | candidate |
 | `refused` | previous; nothing published | `null` |
 | `rolled-back` | previous, restored and re-verified | previous |
 | `rollback-failed` | unknown | `null` |

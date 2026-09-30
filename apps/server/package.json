@@ -17,11 +17,9 @@
     "check": "tsc --noEmit && bun scripts/effect-policy.ts",
     "typecheck": "tsc --noEmit",
     "test": "bun test src scripts",
-    "seed:allowlist": "node scripts/seed-allowlist.mjs",
     "canary:build": "bun scripts/canary/build-probe.ts",
     "canary:workers": "bun scripts/canary/workers-health.ts",
     "canary:uptime": "bun scripts/canary/uptime-probe.ts",
-    "canary:invite": "bun scripts/canary/invite-probe.ts",
     "canary:rollback": "bun scripts/canary/rollback-probe.ts",
     "deploy:preflight": "bun scripts/adopt-durable-objects.ts",
     "check:effect": "bun scripts/effect-policy.ts"

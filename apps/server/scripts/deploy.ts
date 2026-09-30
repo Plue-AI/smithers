@@ -180,7 +180,6 @@ let versionId: string | null = null
 let rolloutReceipt: RolloutReceipt | null = null
 let activation: { readonly recordSHA256: string; readonly artifactSHA256: string } | null = null
 let rehearsalChecks: Awaited<ReturnType<typeof dryRunChecks>> | null = null
-const inviteConfigured = Boolean(process.env.IDENTITY_SERVICE_TOKEN || process.env.CANARY_ALLOWLIST_LOGINS)
 
 if (dryRun) {
   const outdir = mkdtempSync(join(tmpdir(), "smithers-mvp-web-dry-run-"))
@@ -191,7 +190,7 @@ if (dryRun) {
     process.exit(plan.exitCode)
   }
   console.log("[deploy] the dry run reads no live script; run `bun scripts/adopt-durable-objects.ts` for the identity verdict.")
-  rehearsalChecks = await dryRunChecks({ run, serverDir, accountId, inviteConfigured })
+  rehearsalChecks = await dryRunChecks({ run, serverDir, accountId })
 } else {
   if (apiToken === undefined || apiToken === "") {
     console.error("[deploy] CLOUDFLARE_API_TOKEN is unset; a real deploy needs it (see DEPLOY.md).")
@@ -229,7 +228,6 @@ if (dryRun) {
     previous: async () => ({ version: guard!.liveVersion, revision: await readPreviousRevision() }),
     identity: { accountId, worker: WORKER_IDENTITY.name, target: capturedIdentity! },
     serverDir, accountId, worker: WORKER_IDENTITY.name, token: apiToken,
-    inviteConfigured,
     run,
     record: async receipt => {
       writeRolloutReceipt(join(serverDir, "deploy-receipts", "rollout"), receipt)

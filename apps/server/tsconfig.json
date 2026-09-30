@@ -17,7 +17,7 @@
   },
   // scripts/ is typechecked too: the deploy script and the canary probes are
   // the only things that verify a deployment, and an untypechecked verifier
-  // is not one (scripts/seed-allowlist.mjs is JavaScript and is not matched).
+  // is not one.
   "include": ["src", "scripts"],
   "exclude": ["node_modules", "dist"]
 }

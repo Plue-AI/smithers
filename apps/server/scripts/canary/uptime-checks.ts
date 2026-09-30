@@ -323,7 +323,7 @@ export const uptimeVerdict = (samples: ReadonlyArray<Sample>): Check => {
  * REPORTS and never one it asserts — asserting `false` would red the canary on
  * the day the allowlist is flipped off. What separates a visitor from an
  * admitted alpha account is membership in the roster $CANARY_ALLOWLIST_LOGINS
- * names, the same roster invite-probe.ts reads back, so that is what is tested.
+ * names, so that is what is tested.
  */
 export type SessionRead =
   | { readonly state: "signed-out" }

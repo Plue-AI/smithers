@@ -134,7 +134,7 @@ describe("the manifest", () => {
       "application", "connectors-catalog", "status"
     ])
     expect(RETIRED_WORKERS.map(entry => entry.name).sort()).toEqual([
-      "billing", "chat", "cron", "identity", "sync", "webhooks"
+      "cron", "sync", "webhooks"
     ])
     for (const entry of BACKING_WORKERS) {
       expect(entry.origin).toStartWith("https://")

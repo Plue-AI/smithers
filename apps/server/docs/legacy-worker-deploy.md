@@ -560,7 +560,7 @@ issue.
 | `SMITHERS_E2E_USER` | env var for a local `uptime-probe.ts` run | the e2e account's GitHub login, read when `CANARY_SESSION_LOGIN` is unset |
 | `CANARY_SESSION_COOKIE` | secret, `Canary` workflow | that account's signed-in cookie header, sent on the hourly tick only |
 | `CANARY_SESSION_LOGIN` | repository variable | the login `$CANARY_SESSION_COOKIE` must belong to; the `Canary` workflow reads only this variable, and a cookie with no declared login fails |
-| `CANARY_ALLOWLIST_LOGINS` | repository variable | the hand-seeded closed-alpha roster; `invite-probe.ts` reads it back, and `uptime-probe.ts` refuses a cookie belonging to one of those logins |
+| `CANARY_ALLOWLIST_LOGINS` | repository variable | the hand-seeded closed-alpha roster; `uptime-probe.ts` refuses a cookie belonging to one of those logins |
 
 **The assertion.** `uptime-probe.ts` reads its own session back through
 `GET /api/auth/session` before it spends anything. It fails the run, taking no
@@ -571,13 +571,6 @@ is declared, the check fails rather than guess, and says to set
 `CANARY_SESSION_LOGIN`. Rotating the cookie into an operator's account
 therefore reddens the canary instead of quietly passing on privileges no
 visitor has.
-
-**The one probe that needs admin.** `scripts/canary/invite-probe.ts` reads and
-writes the allowlist, so it needs the identity Worker's admin credential. It
-declares that credential by its own name, `IDENTITY_ADMIN_TOKEN`, and prints a
-`skip:` line naming the missing variable rather than running under some other
-identity. Any future probe of an admin surface follows that shape: a separate,
-named credential and an honest skip, never a shared privileged session.
 
 ## Rollback
 

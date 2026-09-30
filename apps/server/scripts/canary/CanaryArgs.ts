@@ -1,8 +1,7 @@
 /*
  * One flag reader for every canary command shell.
  *
- * The shells (build-probe, uptime-probe, uptime-report, invite-probe,
- * rollback-probe) all take `--name value` options, and each one used to
+ * The shells (build-probe, uptime-probe, uptime-report, rollback-probe) all take `--name value` options, and each one used to
  * redeclare the same `indexOf(name) + 1` lookup. Only one of those copies
  * refused to read a following flag as a value, so `--json --samples 3` wrote a
  * report to a file called "--samples" and `--sha --max-drift 3` graded the
@@ -53,4 +52,17 @@ export const argReader = (
   const read = readFlag(argv, name)
   if (read.state === "no-value") return refuse(read.detail)
   return read.state === "value" ? read.value : undefined
+}
+
+/*
+ * Split a comma- or newline-separated login roster, dropping blanks and `#`
+ * comments. Splitting on spaces too would quietly turn a malformed entry into
+ * several well-formed ones, which is how a bad roster passes validation.
+ */
+export const parseLogins = (raw: string | undefined): ReadonlyArray<string> => {
+  if (raw === undefined) return []
+  return raw
+    .split(/[,\n]/)
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0 && !entry.startsWith("#"))
 }

@@ -59,9 +59,8 @@ and Windows legs of the one `package suites (${{ matrix.os }})` matrix carry
 its `ubuntu-latest` leg is required. An advisory failure establishes no support
 for that host and does not block the required Node/Linux target.
 
-The Windows lane remains red. On Windows, the server seed-allowlist test
-constructs a module path with a doubled drive prefix, and the `jj` package's
-symlink/dirent assertions do not yet match Windows behavior. This is a tracked
+The Windows lane remains red. On Windows, the `jj` package's symlink/dirent
+assertions do not yet match Windows behavior. This is a tracked
 CI-portability gap, not a waived required check; promote the Windows lane only
 after its failures are fixed and repeated main-branch runs are green.
 

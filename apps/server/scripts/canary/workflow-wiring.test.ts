@@ -121,7 +121,7 @@ const conditionalEnforcement = (source: string): ReadonlyArray<string> => {
 /*
  * An entry point reads process.argv; a library does not. That is the same
  * split the files themselves document — BuildStamp.ts, workers-manifest.ts,
- * invite-verdict.ts and rollback-verdict.ts hold verdicts, and the *-probe.ts
+ * and rollback-verdict.ts hold verdicts, and the *-probe.ts
  * shells hold the process.
  */
 const entryPoints = readdirSync(canaryDir)
@@ -137,7 +137,6 @@ describe("canary probes are wired into a gate", () => {
     expect(entryPoints).toContain("build-probe.ts")
     expect(entryPoints).toContain("workers-health.ts")
     expect(entryPoints).toContain("uptime-probe.ts")
-    expect(entryPoints).toContain("invite-probe.ts")
     expect(entryPoints).toContain("rollback-probe.ts")
   })
 
@@ -188,26 +187,17 @@ describe("canary probes are wired into a gate", () => {
     expect(JSON.stringify(deploy)).not.toContain("continue-on-error")
   })
 
-  /*
-   * Neither IDENTITY_SERVICE_TOKEN nor CANARY_ALLOWLIST_LOGINS exists on the
-   * repository, so an unconditional CN-23 step exited `ASSERTED NOTHING` and
-   * finished every deploy red, dry runs included. With both absent the step
-   * does not run and a warning says so; with either one present the probe
-   * runs, so a half-configured roster or token still fails the job.
-   */
-  it("supplies read-only invite probe inputs and always retains rollback evidence", () => {
+  it("passes no retired identity probe inputs and always retains rollback evidence", () => {
     const deploy = Bun.YAML.parse(readWorkflow("apps-deploy.yml")) as DeployWorkflow
     const steps = deploy.jobs.deploy.steps
     const restore = steps.find(step => step.name === "Restore rollback receipt")!
     expect(restore.run).toBe("bun apps/server/scripts/rollout-receipt.ts")
     expect(steps.indexOf(restore)).toBeLessThan(steps.findIndex(step => step.id === "deploy_real"))
     const dry = steps.find(step => step.id === "deploy_dry")!
-    expect(dry.env?.IDENTITY_SERVICE_TOKEN).toBe("${{ secrets.IDENTITY_SERVICE_TOKEN }}")
-    expect(dry.env?.CANARY_ALLOWLIST_LOGINS).toBe("${{ vars.CANARY_ALLOWLIST_LOGINS }}")
+    expect(dry.env).toBeUndefined()
     expect(readFileSync(new URL("../deploy.ts", import.meta.url), "utf8")).toContain("rehearsalChecks = await dryRunChecks(")
     const real = steps.find(step => step.id === "deploy_real")!
-    expect(real.env?.IDENTITY_SERVICE_TOKEN).toBe("${{ secrets.IDENTITY_SERVICE_TOKEN }}")
-    expect(real.env?.CANARY_ALLOWLIST_LOGINS).toBe("${{ vars.CANARY_ALLOWLIST_LOGINS }}")
+    expect(Object.keys(real.env ?? {}).sort()).toEqual(["CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_API_TOKEN"])
     const upload = steps.find(step => step.with?.name === "deploy-receipt")!
     expect(upload.if).toBe("always()")
     expect(upload.with?.path).toBe("apps/server/deploy-receipts/**/*.json")
