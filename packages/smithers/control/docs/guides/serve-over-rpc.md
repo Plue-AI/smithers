@@ -124,9 +124,9 @@ incorrect credential all fail closed with the same `Unauthorized` response.
 Every run the control plane launches records the principal that launched it as
 `RunSummary.launchedBy`. `List` and `Watch` answer an operator with every run
 and every other principal with only the runs it launched: its own run
-summaries, the fires that started them, and their events. Triggers, a plan's
-events and a run the engine created (a child, a fork, a later round) reach
-operators only.
+summaries, the fires that started them, and their events. `Steer`, `Signal`,
+`Cancel` and `Resume` accept the same runs. Triggers, a plan's events and a run
+the engine created (a child, a fork, a later round) reach operators only.
 Another principal's run answers `RunNotFound`, exactly as a missing one does.
 
 The authentication layer names the operators, because it knows which
@@ -139,9 +139,6 @@ const auth = ControlRpcs.layerAuth(authenticator, {
   seesAllRuns: (principal) => principal.kind === "operator"
 })
 ```
-
-Mutations are not yet confined the same way: a principal that learns another
-principal's run id can still steer, signal, cancel, or resume it.
 
 An authenticator also receives the call it is guarding, `{ rpc, payload }`,
 on every in-band frame and nothing at a transport edge; `anyAuthenticator`

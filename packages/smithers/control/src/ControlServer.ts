@@ -34,8 +34,9 @@ const logged = <A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.tapCause(effe
  * is what reaches the journal, `RunSummary.cancellation`, and a steer's
  * notification provenance.
  *
- * `List` and `Watch` read it too: a principal `ControlRpcs.RunVisibility`
- * does not make an operator reads only the runs it launched.
+ * `List`, `Watch` and every run mutation read it too: a principal
+ * `ControlRpcs.RunVisibility` does not make an operator reads and mutates only
+ * the runs it launched; any other run answers `RunNotFound`.
  *
  * @category layers
  * @since 0.1.0
@@ -83,22 +84,22 @@ export const layer = ControlRpcs.toLayer(
           // the authenticated identity replaces whatever arrived. It reaches
           // the notification's `sourceActor` and the run transcript, which is
           // exactly where a spoofed name would be read as truth.
-          return yield* control.steer({ ...input, message: { ...input.message, principal } })
+          return yield* control.steer({ ...input, message: { ...input.message, principal }, ...yield* reader })
         }), logged),
       Signal: Effect.fn("Control.signal")((input) =>
         Effect.gen(function*() {
           const principal = yield* ControlPrincipal
-          return yield* control.signal({ ...input, principal })
+          return yield* control.signal({ ...input, principal, ...yield* reader })
         }), logged),
       Cancel: Effect.fn("Control.cancel")((input) =>
         Effect.gen(function*() {
           const principal = yield* ControlPrincipal
-          return yield* control.cancel({ ...input, principal })
+          return yield* control.cancel({ ...input, principal, ...yield* reader })
         }), logged),
       Resume: Effect.fn("Control.resume")((input) =>
         Effect.gen(function*() {
           const principal = yield* ControlPrincipal
-          return yield* control.resume({ ...input, principal })
+          return yield* control.resume({ ...input, principal, ...yield* reader })
         }), logged),
       List: Effect.fn("Control.list")(
         (input) => Effect.flatMap(reader, (restriction) => control.list({ ...input, ...restriction })),

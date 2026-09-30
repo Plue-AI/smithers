@@ -1,5 +1,6 @@
 /**
- * Which runs `List` and `Watch` answer each authenticated principal.
+ * Which runs `List` and `Watch` answer, and run mutations accept, for each
+ * authenticated principal.
  *
  * A host whose authenticator stamps several principals used to show every run
  * and every run's events to all of them. Each principal now reads only the
@@ -169,6 +170,66 @@ describe("run visibility per principal", () => {
     expect(observed.alice).toEqual([observed.a])
     expect(observed.alice).not.toContain(observed.local)
     expect(observed.inProcess).toBe(3)
+  })
+
+  it("refuses every run mutation on another principal's run exactly as on a missing one", async () => {
+    const observed = await withStack((as) =>
+      Effect.gen(function*() {
+        const a = yield* launch(as, alice, "alice")
+        const control = yield* Control
+        const card = yield* control.plan({ flowId: "system/test", input: { suite: "local" } })
+        yield* control.approve({ ...card.approval, idempotencyKey: "approve:local" })
+        const started = yield* control.run({
+          _tag: "Plan",
+          planId: card.planId,
+          digest: card.digest,
+          envelope: card.envelope,
+          idempotencyKey: "run:local"
+        })
+        if (started._tag !== "Accepted" || started.runId === undefined) return yield* Effect.die("expected a run")
+        const local = started.runId
+        const mutations = (rpc: Client, runId: string) => ({
+          steer: rpc.Steer({
+            runId,
+            message: { messageId: `steer:${runId}`, runId, principal: bob, createdAt: 1, body: "take over" },
+            idempotencyKey: `steer:${runId}`
+          }),
+          signal: rpc.Signal({ runId, signal: { name: "ready", payload: null }, idempotencyKey: `signal:${runId}` }),
+          cancel: rpc.Cancel({ runId, reason: "hijack", idempotencyKey: `cancel:${runId}` }),
+          resume: rpc.Resume({ runId, reason: "hijack", idempotencyKey: `resume:${runId}` })
+        })
+        const refusals = (rpc: Client, runId: string) =>
+          Effect.forEach(
+            Object.entries(mutations(rpc, runId)),
+            ([name, mutation]) =>
+              Effect.map(Effect.flip(mutation), (error) => [name, error instanceof RunNotFound && error.runId] as const)
+          )
+        const asBob = yield* as(bob)
+        const others = yield* refusals(asBob, a)
+        const engine = yield* refusals(asBob, local)
+        const missing = yield* refusals(asBob, "run-404")
+        const service = yield* refusals(yield* as(aliceService), a)
+        const untouched = yield* Effect.map(
+          (yield* as(alice)).List({ _tag: "runs", filters: { runId: a } }),
+          (page) => page._tag === "runs" ? page.items[0]?.cancellation : "missing"
+        )
+        const own = yield* (yield* as(alice)).Cancel({ runId: a, reason: "mine", idempotencyKey: "cancel:own" })
+        const operatorCancel = yield* (yield* as(operator)).Cancel({
+          runId: local,
+          reason: "ops",
+          idempotencyKey: "cancel:ops"
+        })
+        return { a, local, others, engine, missing, service, untouched, own, operatorCancel }
+      })
+    )
+    const refused = (runId: string) => ["steer", "signal", "cancel", "resume"].map((name) => [name, runId] as const)
+    expect(observed.others).toEqual(refused(observed.a))
+    expect(observed.engine).toEqual(refused(observed.local))
+    expect(observed.missing).toEqual(refused("run-404"))
+    expect(observed.service).toEqual(refused(observed.a))
+    expect(observed.untouched).toBeUndefined()
+    expect(observed.own._tag).not.toBe("Conflict")
+    expect(observed.operatorCancel._tag).not.toBe("Conflict")
   })
 
   it("restricts every principal when the host names no operator", async () => {

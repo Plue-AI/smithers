@@ -128,7 +128,15 @@ export interface ApprovalInput extends ApprovalPayload {
  * @category models
  * @since 0.1.0
  */
-export type SteerInput = typeof SteerInputSchema.Type
+export type SteerInput = typeof SteerInputSchema.Type & {
+  /**
+   * Set by the server to the authenticated principal unless its
+   * `RunVisibility` lets that principal see every run. A run the reader may
+   * not see fails `RunNotFound`, exactly as a missing run does. Not on the
+   * wire; an in-process caller that names no reader mutates any run.
+   */
+  readonly reader?: Principal | undefined
+}
 
 /**
  * Signal mutation arguments.
@@ -139,6 +147,13 @@ export type SteerInput = typeof SteerInputSchema.Type
 export type SignalInput = typeof SignalInputSchema.Type & {
   /** Authenticated actor used only to scope durable idempotency. */
   readonly principal?: Principal | undefined
+  /**
+   * Set by the server to the authenticated principal unless its
+   * `RunVisibility` lets that principal see every run. A run the reader may
+   * not see fails `RunNotFound`, exactly as a missing run does. Not on the
+   * wire; an in-process caller that names no reader mutates any run.
+   */
+  readonly reader?: Principal | undefined
 }
 
 /**
@@ -174,6 +189,13 @@ export interface RunMutationInput {
    * `CodeDrift` and leaves the run where it was.
    */
   readonly allowCodeDrift?: boolean | undefined
+  /**
+   * Set by the server to the authenticated principal unless its
+   * `RunVisibility` lets that principal see every run. A run the reader may
+   * not see fails `RunNotFound`, exactly as a missing run does. Not on the
+   * wire; an in-process caller that names no reader mutates any run.
+   */
+  readonly reader?: Principal | undefined
 }
 
 /**
