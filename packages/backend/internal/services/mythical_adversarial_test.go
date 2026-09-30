@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -245,4 +246,86 @@ func TestMythicalAdversarialMeteredRepositoryBudgetWithoutWorkspace(t *testing.T
 	assert.Equal(t, "queued", item.State)
 	assert.Equal(t, "the factory's daily token budget is spent; work resumes at 00:00 UTC", item.Reason)
 	assert.Empty(t, o.launcher.requests)
+}
+
+// A call whose usage the provider never reported is charged at its bound, so
+// the daily budget counts it at its bound's tokens; a failed call, which the
+// provider cannot have charged, counts nothing (#2788).
+func TestMythicalBudgetCountsUnreportedUsageAtItsBound(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		outcome credits.ModelOutcome
+		state   string
+	}{
+		{name: "unknown outcome", outcome: credits.ModelUnknown, state: "queued"},
+		{name: "no outcome reported", outcome: "", state: "queued"},
+		{name: "failed before the provider charged", outcome: credits.ModelFailed, state: "running"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			o := newMythicalOrchestration(t)
+			adversarialGitHubSource(o)
+			ctx := context.Background()
+			o.service.SetPolicyReader(policyHost{`{"on":[],"github":{"mirror":"pull","issues":"two-way","changes":"send-upstream","maintainers":["roninjin10"],"dailyTokens":1000}}`})
+			ledger := credits.Ledger{DB: o.pool.(*pgxpool.Pool)}
+			account, err := ledger.EnsureAccount(ctx, "user", o.userID)
+			require.NoError(t, err)
+			maximum := modelprice.Usage{InputTokens: 900, OutputTokens: 200}
+			_, price, ok := modelproxy.Price(modelproxy.ProviderOpenAI, "gpt-6-sol")
+			require.True(t, ok)
+			bound, err := modelproxy.Bound(price, maximum)
+			require.NoError(t, err)
+			require.NoError(t, ledger.Grant(ctx, account, "unreported-"+uuid.NewString(), bound, nil))
+			meter := modelproxy.Meter{Ledger: ledger}
+			_, err = meter.Execute(ctx, modelproxy.Caller{
+				OwnerType: "user", OwnerID: o.userID, UserID: o.userID, RepositoryID: o.repoID,
+				Source: modelproxy.SourceWorkspace,
+			}, modelproxy.Call{Provider: modelproxy.ProviderOpenAI, Model: "gpt-6-sol", Maximum: maximum},
+				func(context.Context) (modelproxy.Result, error) {
+					return modelproxy.Result{Outcome: tc.outcome, Usage: modelprice.Usage{InputTokens: 10}}, nil
+				})
+			if tc.outcome == credits.ModelFailed {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, credits.ErrOutcomeUnknown, "the ledger charged the bound")
+			}
+			var bounded, reported int64
+			require.NoError(t, o.pool.QueryRow(ctx, `SELECT bound_tokens, input_tokens + output_tokens FROM model_usage WHERE repository_id = $1`, o.repoID).Scan(&bounded, &reported))
+			assert.EqualValues(t, 1100, bounded, "the row keeps the bound its reservation was priced at")
+			assert.Zero(t, reported, "no usage was reported")
+			require.NoError(t, o.service.ObserveGitHubEvent(ctx, "issues",
+				adversarialIssueEvent(t, 605, "labeled", "todo", "roninjin10", []string{"todo"}, true)))
+			o.wake()
+			item := o.item(605)
+			assert.Equal(t, tc.state, item.State, item.Reason)
+			if tc.state == "queued" {
+				assert.Equal(t, "the factory's daily token budget is spent; work resumes at 00:00 UTC", item.Reason)
+				assert.Empty(t, o.launcher.requests)
+			}
+		})
+	}
+}
+
+// A call left pending by a crashed process counts its bound too, and a
+// settled call counts what it reported even past its recorded bound.
+func TestMythicalBudgetCountsPendingCallsAtTheirBound(t *testing.T) {
+	o := newMythicalOrchestration(t)
+	ctx := context.Background()
+	q := db.New(o.pool)
+	day := time.Now().UTC().Truncate(24 * time.Hour)
+	o.spend("", 40)
+	_, err := o.pool.Exec(ctx, `UPDATE model_usage SET outcome = 'pending', settled_at = NULL, bound_tokens = 700 WHERE repository_id = $1`, o.repoID)
+	require.NoError(t, err)
+	spent, err := q.MythicalRepositoryTokensSince(ctx, o.repoID, day)
+	require.NoError(t, err)
+	assert.EqualValues(t, 700, spent, "a pending call counts its bound")
+	_, err = o.pool.Exec(ctx, `UPDATE model_usage SET outcome = 'succeeded', settled_at = now() WHERE repository_id = $1`, o.repoID)
+	require.NoError(t, err)
+	spent, err = q.MythicalRepositoryTokensSince(ctx, o.repoID, day)
+	require.NoError(t, err)
+	assert.EqualValues(t, 40, spent, "a settled call counts what it reported")
+	_, err = o.pool.Exec(ctx, `UPDATE model_usage SET outcome = 'unknown', bound_tokens = 10 WHERE repository_id = $1`, o.repoID)
+	require.NoError(t, err)
+	spent, err = q.MythicalRepositoryTokensSince(ctx, o.repoID, day)
+	require.NoError(t, err)
+	assert.EqualValues(t, 40, spent, "never less than what was recorded")
 }

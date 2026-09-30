@@ -911,7 +911,8 @@ type mythicalItemStep struct {
 // now, or nil: past its launch bound it stops for a person; while the
 // factory's daily token budget is spent it waits for the next UTC day. The
 // budget sums every token the repository's work recorded today, a workspace
-// named or not; a call whose usage the provider never reported counts zero.
+// named or not; a call whose usage the provider never reported counts the
+// token bound its credit reservation was priced at.
 // Every other TODO run in flight also holds mythicalRunTokenReserve of it,
 // on top of what it has recorded so far, so a launch waits while they settle.
 // A day's TODO lanes overshoot dailyTokens only by what the last admitted run

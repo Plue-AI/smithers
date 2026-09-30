@@ -183,12 +183,13 @@ func (m Meter) Execute(ctx context.Context, caller Caller, call Call, spend func
 
 func insertUsage(ctx context.Context, db *pgxpool.Pool, key string, accountID int64, caller Caller, call Call) error {
 	tag, err := db.Exec(ctx, `INSERT INTO model_usage (request_key, credit_account_id, reservation_id, owner_type, owner_id, source,
-			user_id, repository_id, workspace_id, workflow_run_id, reference, provider, model, stream)
-		SELECT $1, $2, r.id, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13
+			user_id, repository_id, workspace_id, workflow_run_id, reference, provider, model, stream, bound_tokens)
+		SELECT $1, $2, r.id, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
 		FROM credit_reservations r WHERE r.account_id = $2 AND r.request_key = $1`,
 		key, accountID, caller.OwnerType, caller.OwnerID, caller.Source,
 		positive(caller.UserID), positive(caller.RepositoryID), nonEmpty(caller.WorkspaceID), positive(caller.WorkflowRunID),
-		caller.Reference, call.Provider, strings.TrimSpace(call.Model), call.Stream)
+		caller.Reference, call.Provider, strings.TrimSpace(call.Model), call.Stream,
+		call.Maximum.PromptTokens()+call.Maximum.OutputTokens)
 	if err == nil && tag.RowsAffected() != 1 {
 		err = errors.New("reservation not found")
 	}

@@ -1446,6 +1446,7 @@ type ModelUsage struct {
 	CreatedAt          time.Time          `json:"created_at"`
 	SettledAt          pgtype.Timestamptz `json:"settled_at"`
 	CacheWrite1hTokens int64              `json:"cache_write_1h_tokens"`
+	BoundTokens        int64              `json:"bound_tokens"`
 }
 
 type MythicalChange struct {

@@ -418,10 +418,14 @@ func (q *Queries) InsertMythicalChatItem(ctx context.Context, item MythicalItem)
 
 // MythicalRepositoryTokensSince is every metered model token (input,
 // output and cache) the repository's work recorded since since, whether or
-// not a workspace was named on it.
+// not a workspace was named on it. A call whose usage the provider never
+// reported (pending, or unknown) is charged at its reservation's bound, so it
+// counts its bound_tokens; a failed call cannot have been charged.
 func (q *Queries) MythicalRepositoryTokensSince(ctx context.Context, repositoryID int64, since time.Time) (int64, error) {
 	var tokens int64
-	err := q.db.QueryRow(ctx, `SELECT COALESCE(SUM(input_tokens + output_tokens + cache_read_tokens + cache_write_tokens), 0)::bigint
+	err := q.db.QueryRow(ctx, `SELECT COALESCE(SUM(CASE WHEN outcome IN ('pending', 'unknown')
+			THEN GREATEST(bound_tokens, input_tokens + output_tokens + cache_read_tokens + cache_write_tokens)
+			ELSE input_tokens + output_tokens + cache_read_tokens + cache_write_tokens END), 0)::bigint
 		FROM model_usage WHERE repository_id = $1 AND created_at >= $2`, repositoryID, since).Scan(&tokens)
 	return tokens, err
 }
