@@ -5,8 +5,9 @@ A minimal terminal coding agent over the Smithers cell harness.
 [User guide](https://smithers.sh/docs/tui/) · [Recordings](docs/README.md) · [Playground](../tui-docs/README.md)
 
 The agent has no tools. Each model turn writes a JavaScript cell that calls
-flows through `ctx.call`. The TUI streams each cell as it is written, then its
-flow calls, printed output, and result. Keys and commands follow
+flows through `ctx.call`. The TUI shows what each cell did, one row per flow
+call, then the result; Ctrl+O reveals the program: its code, arguments,
+printed output and timing. Keys and commands follow
 [pi](https://github.com/badlogic/pi-mono) where the cell harness has the same
 idea.
 
@@ -128,7 +129,7 @@ the only help key.
 | Ctrl+L                                                | Model dialog; type to filter                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | Ctrl+P, Shift+Ctrl+P                                  | Next, previous model                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | Shift+Tab                                             | Cycle reasoning effort                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| Ctrl+O                                                | Expand cell code, output, and diffs                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| Ctrl+O                                                | Show the program: cell code, output, plumbing calls, timing, and diffs                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | Ctrl+T                                                | Inspect the run timeline; arrows scrub, [ ] or Shift+Left/Right step milestones, Home/End jump, Esc returns to live                                                                                                                                                                                                                                                                                                                                                                  |
 | Ctrl+S                                                | Open Summary on this tab / back to it or Chat; only a main or custom view switches focus. With work it's the overview: Needs you (parked, failed, a worker's ask, a flow waiting on its form), Working and Done, each row `glyph name seat clock window% cache%`, beside the selected row's cards (Chat heads the list and shows the conversation review). Tab switches pane, arrows/hjkl move, Space peeks at the row's ask or last step, **a** answers it, Enter opens, Esc closes |
 | Ctrl+], Ctrl+[, Ctrl+Right, Ctrl+Left                 | Next, previous tab: Chat, Summary, worker tabs, trees, and custom views. Click a tab to open it                                                                                                                                                                                                                                                                                                                                                                                      |
@@ -173,8 +174,12 @@ work, custom views, and Claude Code or Codex workers are in Ctrl+K.
 
 Night Owl dark surfaces from the Smithers app (`apps/app/.../tokens.css`),
 layered page, panel, element. Your messages keep the composer's shape, a
-brand bar on a filled panel. Each cell is a left bar colored by status with
-one row per flow call (`→ read`, `$ ran`, `← edited`); an edit draws its diff.
+brand bar on a filled panel. A cell shows one row per flow call (`→ read`,
+`$ ran node check.mjs  exit 1`, `← edited`), and an edit draws its diff; a
+cell with no such row, only `agent.delegate`, `ui.publish`, `tab.read`,
+`tab.list`, `smithers.run` or `monitor.*` calls, or a rejected cell shows
+nothing. Ctrl+O, or selecting a step, draws the whole cell as a left bar
+colored by status: code, printed output and each call's duration.
 The Summary view keeps cell code behind expandable rows. Panels, dialogs, and the
 completion menu follow opencode's shapes; fuzzy matching is pi's.
 

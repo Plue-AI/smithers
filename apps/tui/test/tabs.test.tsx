@@ -299,7 +299,7 @@ describe("WorkerView", () => {
       } as never, 1_300)
   ].reduce((value, step) => step(value), Transcript.empty)
 
-  it("heads the transcript with status, model, elapsed and tokens, and renders cells as the chat does", async () => {
+  it("heads the transcript with status, model, elapsed and tokens, and renders cells as the chat does, program hidden", async () => {
     const { captureCharFrame } = await mount(
       <WorkerView
         tab={tab("a", "running")}
@@ -322,8 +322,9 @@ describe("WorkerView", () => {
     expect(frame).toContain("3.0s")
     expect(frame).toContain("↑18k ↓2.3k")
     expect(frame).toContain("Audit the auth middleware.")
-    expect(frame).toContain("Read the middleware.")
-    expect(frame).toContain("ctx.call(\"read\")")
+    // A cell the model is still writing shows as work, its program behind ctrl+o.
+    expect(frame).toContain("⠋ working")
+    expect(frame).not.toContain("ctx.call(\"read\")")
     for (const label of ["x Stop", "s Steer"]) expect(frame).toContain(label)
     expect(frame).not.toContain("Open in chat")
     expect(frame).not.toContain("r Resume")

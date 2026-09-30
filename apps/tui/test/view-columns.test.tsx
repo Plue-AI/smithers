@@ -14,7 +14,7 @@ afterEach(async () => {
 
 const long = "No `io` test exists yet, so check whether it already reads the whole stream before splitting"
 
-test("a clipped cell or call row keeps a space before its right-aligned duration", async () => {
+test("an expanded, clipped cell or call row keeps a space before its right-aligned duration", async () => {
   const item: Transcript.Item = {
     kind: "cell",
     id: "c2",
@@ -34,7 +34,7 @@ test("a clipped cell or call row keeps a space before its right-aligned duration
     }]
   }
   setup = await testRender(
-    <View.Entry item={item} now={11_400} tick="⠼" expanded={false} />,
+    <View.Entry item={item} now={11_400} tick="⠼" expanded />,
     { width: 48, height: 12 }
   )
   await setup.renderOnce()

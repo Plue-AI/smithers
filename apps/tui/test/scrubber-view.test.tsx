@@ -88,6 +88,65 @@ describe("the scrubber on screen", () => {
   })
 })
 
+describe("the default cell", () => {
+  const call = (flow: string, subject: string, extra: object = {}) => ({
+    flow,
+    subject,
+    status: "ok" as const,
+    startedAt: 0,
+    endedAt: 0,
+    ...extra
+  })
+  const cell = {
+    kind: "cell" as const,
+    id: "8",
+    index: 2,
+    prose: "Delegate the fix.",
+    source: "const result = await ctx.call(\"agent.delegate\", {\n  prompt: \"Fix math.js\"\n})",
+    status: "done" as const,
+    calls: [
+      call("agent.delegate", "Fix math.js"),
+      call("ui.publish", "status"),
+      call("monitor.watch", "ci"),
+      call("bash", "node check.mjs", { exit: 0 })
+    ],
+    printed: "one\ntwo",
+    startedAt: 0,
+    endedAt: 38_000,
+    turn: 0,
+    frame: 2
+  }
+  const draw = async (item: typeof cell, expanded: boolean) => {
+    setup = await testRender(
+      <box style={{ width: 90 }}>
+        <View.Entry item={item} now={0} tick="" expanded={expanded} step={{ notes: [] }} />
+      </box>,
+      { width: 90, height: 24 }
+    )
+    await setup.renderOnce()
+    return setup.captureCharFrame()
+  }
+
+  test("shows only what the program did, and Ctrl+O shows the program", async () => {
+    const shown = await draw(cell, false)
+    expect(shown).toContain("$ bash node check.mjs  exit 0")
+    for (const hidden of ["ctx.call", "agent.delegate", "ui.publish", "monitor.watch", "printed", "0ms", "38.0s"]) {
+      expect(shown).not.toContain(hidden)
+    }
+    setup!.renderer.destroy()
+    const expanded = await draw(cell, true)
+    for (const program of ["ctx.call", "agent.delegate", "ui.publish", "one", "0ms"]) {
+      expect(expanded).toContain(program)
+    }
+  })
+
+  test("draws nothing for a rejected cell or one that only ran plumbing", async () => {
+    expect((await draw({ ...cell, calls: cell.calls.slice(0, 2) }, false)).trim()).toBe("")
+    setup!.renderer.destroy()
+    expect((await draw({ ...cell, status: "rejected" as never, error: "syntax" } as never, false)).trim()).toBe("")
+  })
+})
+
 describe("numbered steps", () => {
   const cell = {
     kind: "cell" as const,
@@ -124,10 +183,10 @@ describe("numbered steps", () => {
     { seq: 5, spanId: "frame-1", tone: "bad" as const, title: "claim refused", body: "complete 0, overclaims 1." }
   ]
 
-  test("a step reads its number, its line, its outcome at the right, the quoted intent, and its callouts", async () => {
+  test("a selected step reads its number, its line, its outcome at the right, the quoted intent, and its callouts", async () => {
     setup = await testRender(
       <box style={{ width: 90 }}>
-        <View.Entry item={cell} now={0} tick="" expanded={false} step={{ line, notes }} />
+        <View.Entry item={cell} now={0} tick="" expanded={false} selected step={{ line, notes }} />
       </box>,
       { width: 90, height: 24 }
     )
@@ -173,7 +232,7 @@ describe("numbered steps", () => {
   test("a click on the header folds the step to one line and keeps its callouts", async () => {
     setup = await testRender(
       <box style={{ width: 90 }}>
-        <View.Entry item={cell} now={0} tick="" expanded={false} step={{ line, notes }} />
+        <View.Entry item={cell} now={0} tick="" expanded={false} selected step={{ line, notes }} />
       </box>,
       { width: 90, height: 24 }
     )

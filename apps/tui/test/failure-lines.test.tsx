@@ -53,11 +53,12 @@ describe("a failed step", () => {
     expect(expanded).toContain(RAW)
   })
 
-  it("words a rejected step by its code and never shows the code collapsed", async () => {
+  it("hides a rejected step until ctrl+o, which words it by its code", async () => {
     const collapsed = await frame(cell({ status: "rejected", error: "compile_failed" }), false)
-    expect(collapsed).toContain("This step's code did not compile.")
-    expect(collapsed).not.toContain("compile_failed")
-    expect(await frame(cell({ status: "rejected", error: "compile_failed" }), true)).toContain("compile_failed")
+    expect(collapsed.trim()).toBe("")
+    const expanded = await frame(cell({ status: "rejected", error: "compile_failed" }), true)
+    expect(expanded).toContain("This step's code did not compile.")
+    expect(expanded).toContain("compile_failed")
   })
 })
 

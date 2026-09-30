@@ -433,6 +433,32 @@ function CellView(props: {
   const open = live || !folded
   const mark = live ? props.tick : open ? "▾" : "▸"
   const result = line === undefined ? "" : Scrubber.outcome(line)
+  const notes = step.notes.filter((note) => props.expanded || (note.tone !== "good" && note.title !== "unmoved"))
+  // By default a cell is what it did: its agent rows. Ctrl+O, or selecting it, shows the program.
+  if (!props.expanded && !props.selected) {
+    const rows = cell.calls.filter((call) => !plumbing(call.flow))
+    if (cell.status === "rejected" || (rows.length === 0 && cell.error === undefined && notes.length === 0 && !live)) {
+      return null
+    }
+    return (
+      <box style={{ paddingLeft: 1, marginBottom: 1 }}>
+        {live && rows.length === 0 ? <text fg={color.faint}>{props.tick} working</text> : null}
+        {rows.map((call, index) => (
+          <CallView key={index} call={call} now={props.now} tick={props.tick} expanded={false} timed={false} />
+        ))}
+        {cell.error === undefined
+          ? null
+          : (
+            <FailureLine
+              failure={Failures.cellFailure("failed", cell.error)}
+              tone={color.danger}
+              expanded={false}
+            />
+          )}
+        {notes.map((note) => <Callout key={note.seq} note={note} expanded={false} />)}
+      </box>
+    )
+  }
   return (
     <box style={{ border: ["left"], paddingLeft: 1, marginBottom: 1 }} borderColor={tone} customBorderChars={bar}>
       <box
@@ -510,9 +536,7 @@ function CellView(props: {
             expanded={props.expanded}
           />
         )}
-      {step.notes.filter((note) => props.expanded || (note.tone !== "good" && note.title !== "unmoved")).map((note) => (
-        <Callout key={note.seq} note={note} expanded={props.expanded} />
-      ))}
+      {notes.map((note) => <Callout key={note.seq} note={note} expanded={props.expanded} />)}
     </box>
   )
 }
@@ -547,8 +571,20 @@ const icons: Record<string, string> = {
   write: "←"
 }
 
+/** Calls that run the program rather than the work; they show only with Ctrl+O. */
+export const plumbing = (flow: string): boolean =>
+  ["agent.delegate", "ui.publish", "tab.read", "tab.list", "smithers.run"].includes(flow) ||
+  flow.startsWith("monitor.")
+
 function CallView(
-  props: { readonly call: Transcript.Call; readonly now: number; readonly tick: string; readonly expanded: boolean }
+  props: {
+    readonly call: Transcript.Call
+    readonly now: number
+    readonly tick: string
+    readonly expanded: boolean
+    /** Draws the call's duration; the default view leaves it out. */
+    readonly timed?: boolean
+  }
 ) {
   const { call } = props
   const tone = call.status === "running" ? color.info : call.status === "ok" ? color.muted : color.danger
@@ -576,10 +612,12 @@ function CallView(
             ? null
             : <span fg={call.exit === 0 ? color.muted : color.warning}>{"  "}exit {call.exit}</span>}
         </text>
-        <text fg={color.faint} style={{ flexShrink: 0 }}>
-          {" "}
-          {Transcript.duration((call.endedAt ?? props.now) - call.startedAt)}
-        </text>
+        {props.timed === false ? null : (
+          <text fg={color.faint} style={{ flexShrink: 0 }}>
+            {" "}
+            {Transcript.duration((call.endedAt ?? props.now) - call.startedAt)}
+          </text>
+        )}
       </box>
       {call.message === undefined
         ? null
