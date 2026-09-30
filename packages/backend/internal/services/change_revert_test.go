@@ -5,10 +5,12 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 )
@@ -89,6 +91,10 @@ func (l *changeRevertTestLandingCreator) CreateLandingRequest(_ context.Context,
 type changeRevertTestChangesetCreator struct {
 	orgName string
 	input   CreateChangesetInput
+}
+
+func (c *changeRevertTestChangesetCreator) AuthorizeChangesetRevert(context.Context, *db.User, string, []db.Repository) error {
+	return nil
 }
 
 func (c *changeRevertTestChangesetCreator) CreateChangeset(_ context.Context, _ *db.User, orgName string, input CreateChangesetInput) (ChangesetResponse, error) {
@@ -193,4 +199,87 @@ func TestChangeRevertServiceDoesNotComposeConflictedChangesetBackout(t *testing.
 	require.ErrorAs(t, err, &apiErr)
 	assert.Equal(t, 409, apiErr.Status)
 	assert.Empty(t, changesets.input.Members)
+}
+
+func TestChangeRevertServicePreflightsAllChangesetPermissions(t *testing.T) {
+	for _, denied := range []string{"later member", "organization", "repository credential", "read-only credential", "foreign organization"} {
+		t.Run(denied, func(t *testing.T) {
+			q := newFakeChangesetQueries()
+			q.permissions = map[int64]string{11: "write", 12: "write"}
+			ctx := context.Background()
+			switch denied {
+			case "later member":
+				q.permissions[12] = "read"
+			case "organization":
+				delete(q.members, 1)
+			case "repository credential":
+				ctx = middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{IsTokenAuth: true, RawScopes: "write:repository,repo:11", Scopes: middleware.ParseTokenScopes("write:repository,repo:11")})
+			case "read-only credential":
+				ctx = middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{IsTokenAuth: true, Scopes: middleware.ParseTokenScopes("read:repository")})
+			case "foreign organization":
+				repo := q.repos["web"]
+				repo.OrgID = pgtype.Int8{Int64: 99, Valid: true}
+				q.repos["web"] = repo
+			}
+			queries := &changeRevertTestQueries{
+				landedChangeset: db.Changeset{ID: 5, OrganizationID: 7, ChangeID: "original", TargetBookmark: "main"},
+				org:             q.org,
+				members: []db.ChangesetMember{
+					{RepositoryID: 11, ChangeID: "api-change", CommitID: "api-pinned", TargetBookmark: "main"},
+					{RepositoryID: 12, ChangeID: "web-change", CommitID: "web-pinned", TargetBookmark: "main"},
+				},
+				repos: map[int64]db.Repository{11: q.repos["api"], 12: q.repos["web"]},
+			}
+			host := &changeRevertTestRepoHost{backouts: map[string]repohost.Change{"api": {ChangeID: "api-revert"}, "web": {ChangeID: "web-revert"}}}
+			recorder := &changeRevertTestRecorder{}
+			s := NewChangeRevertService(queries, host, nil, NewChangesetService(q, &fakeChangesetRepoHost{}, nil, nil), recorder)
+			_, err := s.RevertChange(ctx, &db.User{ID: 1}, 11, "acme", "api", "api-change")
+			var apiErr *pkgerrors.APIError
+			require.ErrorAs(t, err, &apiErr)
+			assert.Equal(t, 403, apiErr.Status)
+			assert.Empty(t, host.backoutCalls, "authorization must precede every member backout")
+			assert.Empty(t, recorder.recorded)
+			assert.Empty(t, q.changesets)
+		})
+	}
+}
+
+func TestChangeRevertServiceDeniedMemberLeavesNativeRepositoriesUnchanged(t *testing.T) {
+	n := newNativeChangesetRepos(t, "api", "web", OrgSuperprojectRepoName)
+	q := newFakeChangesetQueries()
+	queries := &changeRevertTestQueries{
+		landedChangeset: db.Changeset{ID: 5, OrganizationID: 7, ChangeID: "original", TargetBookmark: "main"},
+		org:             q.org, repos: map[int64]db.Repository{},
+	}
+	before := map[string][]repohost.Change{}
+	heads := map[string]string{}
+	for _, name := range []string{"api", "web", OrgSuperprojectRepoName} {
+		base := n.commit(name, "refs/heads/main", "", map[string]string{"file": "base"})
+		commit := n.commit(name, "refs/heads/main", base, map[string]string{"file": "landed"})
+		if name != OrgSuperprojectRepoName {
+			repo := q.repos[name]
+			queries.repos[repo.ID] = repo
+			queries.members = append(queries.members, db.ChangesetMember{RepositoryID: repo.ID, ChangeID: n.changeID(name, commit), CommitID: commit, TargetBookmark: "main"})
+		}
+		changes, _, err := n.client.ListChanges(context.Background(), "acme", name, "", 100)
+		require.NoError(t, err)
+		before[name], heads[name] = changes, n.head(name)
+	}
+	// Membership and write access to the entry repository do not authorize web.
+	q.permissions = map[int64]string{11: "write", 12: "read"}
+	recorder := &changeRevertTestRecorder{}
+	s := NewChangeRevertService(queries, n.client, nil, NewChangesetService(q, n.client, nil, nil), recorder)
+	_, err := s.RevertChange(context.Background(), &db.User{ID: 1}, 11, "acme", "api", queries.members[0].ChangeID)
+	var apiErr *pkgerrors.APIError
+	require.ErrorAs(t, err, &apiErr)
+	require.Equal(t, 403, apiErr.Status)
+	for _, name := range []string{"api", "web", OrgSuperprojectRepoName} {
+		changes, _, err := n.client.ListChanges(context.Background(), "acme", name, "", 100)
+		require.NoError(t, err)
+		assert.Equal(t, before[name], changes, "%s acquired a backout change", name)
+		assert.Equal(t, heads[name], n.head(name))
+		assert.Equal(t, "landed", n.file(name, "file"))
+	}
+	assert.Empty(t, recorder.recorded)
+	assert.Empty(t, q.changesets)
 }

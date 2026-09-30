@@ -42,6 +42,7 @@ type ChangeRevertLandingCreator interface {
 }
 
 type ChangeRevertChangesetCreator interface {
+	AuthorizeChangesetRevert(ctx context.Context, actor *db.User, orgName string, repositories []db.Repository) error
 	CreateChangeset(ctx context.Context, actor *db.User, orgName string, input CreateChangesetInput) (ChangesetResponse, error)
 }
 
@@ -171,12 +172,22 @@ func (s *ChangeRevertService) revertChangeset(ctx context.Context, actor *db.Use
 		return ChangeRevertResponse{}, pkgerrors.Conflict("landed changeset has no members")
 	}
 
-	inputs := make([]ChangesetMemberInput, 0, len(members))
+	// Resolve and authorize the complete set before any repo-host or recorder
+	// write. CreateChangeset's eventual authorization is too late for backouts.
+	repositories := make([]db.Repository, 0, len(members))
 	for _, member := range members {
 		repository, err := s.queries.GetRepoByID(ctx, member.RepositoryID)
 		if err != nil {
 			return ChangeRevertResponse{}, pkgerrors.Internal("failed to load changeset member repository").WithCause(err)
 		}
+		repositories = append(repositories, repository)
+	}
+	if err := s.changesets.AuthorizeChangesetRevert(ctx, actor, org.Name, repositories); err != nil {
+		return ChangeRevertResponse{}, err
+	}
+	inputs := make([]ChangesetMemberInput, 0, len(members))
+	for i, member := range members {
+		repository := repositories[i]
 		reverting, err := s.repoHost.BackoutChange(ctx, org.Name, repository.Name, member.ChangeID, repohost.BackoutChangeRequest{
 			// CommitID is the exact revision pinned into the changeset. The
 			// landed bookmark head may instead be a merge commit whose change

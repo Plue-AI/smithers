@@ -7,8 +7,37 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 )
+
+// AuthorizeChangesetRevert checks the entire mutation set before a backout is
+// created. Actor permissions cannot widen a repository-bound credential.
+func (s *ChangesetService) AuthorizeChangesetRevert(ctx context.Context, actor *db.User, orgName string, repositories []db.Repository) error {
+	if actor == nil {
+		return pkgerrors.Unauthorized("authentication required")
+	}
+	org, err := s.requireOrgMember(ctx, actor, orgName)
+	if err != nil {
+		return err
+	}
+	auth := middleware.AuthInfoFromContext(ctx)
+	if auth != nil && auth.IsTokenAuth && !auth.Scopes.Has(middleware.ScopeWriteRepository) {
+		return pkgerrors.Forbidden("write repository scope required")
+	}
+	for _, repo := range repositories {
+		if !repo.OrgID.Valid || repo.OrgID.Int64 != org.ID {
+			return pkgerrors.Forbidden("member repository does not belong to the changeset organization")
+		}
+		if auth != nil && auth.RepositoryRestriction() != 0 && auth.RepositoryRestriction() != repo.ID {
+			return pkgerrors.Forbidden("credential is restricted to another repository")
+		}
+		if err := s.requireRepoAccess(ctx, repo, actor.ID, true); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 func (s *ChangesetService) requireRepoAccess(ctx context.Context, repo db.Repository, userID int64, write bool) error {
 	var allowed bool
