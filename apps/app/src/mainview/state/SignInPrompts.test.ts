@@ -203,7 +203,7 @@ test("the web-Plue session uses the selected backend identity and canonical OAut
     await controller.commands.run("auth.sign-in")
     await settle()
 
-    expect(assigned).toEqual(["/api/auth/github"])
+    expect(assigned).toEqual(["/api/auth/github?return_to=%2F%3Fsigned-in%3Dgithub"])
     expect(localStatusReads).toBe(0)
     expect(applicationIdentityReads).toBe(1)
   } finally {
