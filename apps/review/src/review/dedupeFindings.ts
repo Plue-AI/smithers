@@ -1,17 +1,23 @@
 import { rankSeverity } from "./rankSeverity.ts";
 import type { ReviewComment } from "../workflow/reviewCommentSchema.ts";
 
+/**
+ * The letters and digits of a finding in any script, case-folded, as code
+ * points: punctuation and spacing never make two findings distinct.
+ */
 function normalizedContentKey(value: string) {
-  return value.toLowerCase().replace(/[^a-z0-9]/g, "");
+  return Array.from(value.normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{N}\p{M}]/gu, ""));
 }
 
 function nearIdenticalContent(a: string, b: string) {
   const keyA = normalizedContentKey(a);
   const keyB = normalizedContentKey(b);
-  if (keyA === keyB) return true;
+  // Nothing but punctuation or symbols: only the same text is a duplicate.
+  if (keyA.length === 0 || keyB.length === 0) return a.trim() === b.trim();
+  if (keyA.join("") === keyB.join("")) return true;
   const longer = Math.max(keyA.length, keyB.length);
   const shorter = Math.min(keyA.length, keyB.length);
-  if (shorter === 0 || shorter / longer < 0.9) return false;
+  if (shorter / longer < 0.9) return false;
 
   const previous = Array.from({ length: keyB.length + 1 }, (_, index) => index);
   for (let aIndex = 1; aIndex <= keyA.length; aIndex += 1) {
