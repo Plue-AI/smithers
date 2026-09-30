@@ -25,11 +25,15 @@ type secretsCovService struct {
 	deleteOrgSecretFn func(context.Context, *db.User, string, string) error
 }
 
+func (s secretsCovService) SetSecretBinding(_ context.Context, _ *db.User, _, _, name string, binding services.SecretBinding) (services.SecretResponse, error) {
+	return services.SecretResponse{Name: name, Hosts: binding.Hosts, MatchHeaders: binding.MatchHeaders}, nil
+}
+
 func (s secretsCovService) SetSecretMainOnly(_ context.Context, _ *db.User, _, _, name string, mainOnly bool) (services.SecretResponse, error) {
 	return services.SecretResponse{Name: name, MainOnly: mainOnly}, nil
 }
 
-func (s secretsCovService) SetSecret(ctx context.Context, actor *db.User, owner, repo, name, value string, _ *bool) (services.SecretResponse, error) {
+func (s secretsCovService) SetSecret(ctx context.Context, actor *db.User, owner, repo, name, value string, _ *bool, _ *services.SecretBinding) (services.SecretResponse, error) {
 	if s.setSecretFn != nil {
 		return s.setSecretFn(ctx, actor, owner, repo, name, value)
 	}
@@ -50,7 +54,7 @@ func (s secretsCovService) DeleteSecret(ctx context.Context, actor *db.User, own
 	return nil
 }
 
-func (s secretsCovService) SetOrgSecret(ctx context.Context, actor *db.User, orgName, name, value string) (services.SecretResponse, error) {
+func (s secretsCovService) SetOrgSecret(ctx context.Context, actor *db.User, orgName, name, value string, _ *services.SecretBinding) (services.SecretResponse, error) {
 	if s.setOrgSecretFn != nil {
 		return s.setOrgSecretFn(ctx, actor, orgName, name, value)
 	}

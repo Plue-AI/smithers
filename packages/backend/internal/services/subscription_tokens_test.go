@@ -46,11 +46,11 @@ func TestSubscriptionTokensRefusedUnlessFlagOn(t *testing.T) {
 	type write func(allowed bool) error
 	for name, fn := range map[string]write{
 		"repo secret": func(allowed bool) error {
-			_, err := NewSecretService(&mockSecretQuerier{}, webhook.NoopSecretCodec{}, WithSecretSubscriptionTokens(allowed)).SetSecret(ctx, actor, "alice", "demo", "ANTHROPIC_AUTH_TOKEN", token, nil)
+			_, err := NewSecretService(&mockSecretQuerier{}, webhook.NoopSecretCodec{}, WithSecretSubscriptionTokens(allowed)).SetSecret(ctx, actor, "alice", "demo", "ANTHROPIC_AUTH_TOKEN", token, nil, nil)
 			return err
 		},
 		"org secret": func(allowed bool) error {
-			_, err := NewSecretService(&mockSecretQuerier{}, webhook.NoopSecretCodec{}, WithSecretSubscriptionTokens(allowed)).SetOrgSecret(ctx, actor, "acme", "CLAUDE_CODE_OAUTH_TOKEN", token)
+			_, err := NewSecretService(&mockSecretQuerier{}, webhook.NoopSecretCodec{}, WithSecretSubscriptionTokens(allowed)).SetOrgSecret(ctx, actor, "acme", "CLAUDE_CODE_OAUTH_TOKEN", token, nil)
 			return err
 		},
 		"repo variable": func(allowed bool) error {
@@ -92,7 +92,7 @@ func TestSubscriptionTokensRefusedUnlessFlagOn(t *testing.T) {
 			return err
 		},
 		"chatgpt repo secret": func(allowed bool) error {
-			_, err := NewSecretService(&mockSecretQuerier{}, webhook.NoopSecretCodec{}, WithSecretSubscriptionTokens(allowed)).SetSecret(ctx, actor, "alice", "demo", "OPENAI_CODEX_ACCESS_TOKEN", chatGPTAccessTokenForTest(t), nil)
+			_, err := NewSecretService(&mockSecretQuerier{}, webhook.NoopSecretCodec{}, WithSecretSubscriptionTokens(allowed)).SetSecret(ctx, actor, "alice", "demo", "OPENAI_CODEX_ACCESS_TOKEN", chatGPTAccessTokenForTest(t), nil, nil)
 			return err
 		},
 	} {
@@ -109,10 +109,10 @@ func TestSubscriptionTokensRefusedUnlessFlagOn(t *testing.T) {
 	}
 
 	// The default constructor is the hosted posture.
-	_, err = NewSecretService(&mockSecretQuerier{}, webhook.NoopSecretCodec{}).SetSecret(ctx, actor, "alice", "demo", "ANTHROPIC_AUTH_TOKEN", token, nil)
+	_, err = NewSecretService(&mockSecretQuerier{}, webhook.NoopSecretCodec{}).SetSecret(ctx, actor, "alice", "demo", "ANTHROPIC_AUTH_TOKEN", token, nil, nil)
 	requireSubscriptionTokenRefused(t, err)
 	// An ordinary API key is unaffected.
-	_, err = NewSecretService(&mockSecretQuerier{}, webhook.NoopSecretCodec{}).SetSecret(ctx, actor, "alice", "demo", "ANTHROPIC_API_KEY", "sk-ant-api03-key", nil)
+	_, err = NewSecretService(&mockSecretQuerier{}, webhook.NoopSecretCodec{}).SetSecret(ctx, actor, "alice", "demo", "ANTHROPIC_API_KEY", "sk-ant-api03-key", nil, nil)
 	require.NoError(t, err)
 }
 

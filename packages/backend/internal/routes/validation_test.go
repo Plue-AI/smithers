@@ -180,11 +180,15 @@ type mockSecretService struct {
 	deleteSecretFn func(ctx context.Context, actor *db.User, owner, repo, name string) error
 }
 
+func (m *mockSecretService) SetSecretBinding(_ context.Context, _ *db.User, _, _, name string, binding services.SecretBinding) (services.SecretResponse, error) {
+	return services.SecretResponse{Name: name, Hosts: binding.Hosts, MatchHeaders: binding.MatchHeaders}, nil
+}
+
 func (m *mockSecretService) SetSecretMainOnly(_ context.Context, _ *db.User, _, _, name string, mainOnly bool) (services.SecretResponse, error) {
 	return services.SecretResponse{Name: name, MainOnly: mainOnly}, nil
 }
 
-func (m *mockSecretService) SetSecret(ctx context.Context, actor *db.User, owner, repo, name, value string, _ *bool) (services.SecretResponse, error) {
+func (m *mockSecretService) SetSecret(ctx context.Context, actor *db.User, owner, repo, name, value string, _ *bool, _ *services.SecretBinding) (services.SecretResponse, error) {
 	if m.setSecretFn != nil {
 		return m.setSecretFn(ctx, actor, owner, repo, name, value)
 	}
@@ -205,7 +209,7 @@ func (m *mockSecretService) DeleteSecret(ctx context.Context, actor *db.User, ow
 	return nil
 }
 
-func (m *mockSecretService) SetOrgSecret(ctx context.Context, actor *db.User, orgName, name, value string) (services.SecretResponse, error) {
+func (m *mockSecretService) SetOrgSecret(ctx context.Context, actor *db.User, orgName, name, value string, _ *services.SecretBinding) (services.SecretResponse, error) {
 	return services.SecretResponse{Name: name, CreatedAt: "2026-01-01T00:00:00Z", UpdatedAt: "2026-01-01T00:00:00Z"}, nil
 }
 

@@ -27,7 +27,7 @@ func TestInvokedFlowLogRedactsBeforeTruncation(t *testing.T) {
 func TestInvokedFlowProjectionRedactsAcrossTruncationBoundary(t *testing.T) {
 	f := newInvokedFlowTestFixture(t)
 	secret := "secret-boundary-tail"
-	_, err := NewSecretService(db.New(f.pool), f.codec).SetSecret(context.Background(), f.owner, f.owner.Username, f.repository, "API_KEY", secret, nil)
+	_, err := NewSecretService(db.New(f.pool), f.codec).SetSecret(context.Background(), f.owner, f.owner.Username, f.repository, "API_KEY", secret, nil, nil)
 	require.NoError(t, err)
 	payload, err := json.Marshal(map[string]string{"text": strings.Repeat("x", invokedFlowLogEntryLimit-32) + secret + strings.Repeat("z", 100)})
 	require.NoError(t, err)
@@ -52,7 +52,7 @@ func TestInvokedFlowLogRedactsJSONEncodedMultilineSecret(t *testing.T) {
 func TestInvokedFlowProjectionRedactsJSONEncodedMultilineSecret(t *testing.T) {
 	f := newInvokedFlowTestFixture(t)
 	secret := "-----BEGIN KEY-----\nprivate-value\n-----END KEY-----"
-	_, err := NewSecretService(db.New(f.pool), f.codec).SetSecret(context.Background(), f.owner, f.owner.Username, f.repository, "PRIVATE_KEY", secret, nil)
+	_, err := NewSecretService(db.New(f.pool), f.codec).SetSecret(context.Background(), f.owner, f.owner.Username, f.repository, "PRIVATE_KEY", secret, nil, nil)
 	require.NoError(t, err)
 	payload, err := json.Marshal(map[string]string{"text": secret})
 	require.NoError(t, err)

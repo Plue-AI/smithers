@@ -186,6 +186,20 @@ func bindNixCIGuestSecrets(req *sandbox.CreateRequest, bound []sandbox.EgressPro
 	if req.EgressProxy == nil {
 		return nil, nil
 	}
+	// A repository or organization secret can share a name with a platform
+	// credential; the proxy could substitute only one of them.
+	seen := make(map[string]struct{}, len(bound))
+	var twice []string
+	for _, secret := range bound {
+		if _, dup := seen[secret.Name]; dup {
+			twice = append(twice, secret.Name)
+		}
+		seen[secret.Name] = struct{}{}
+	}
+	if len(twice) > 0 {
+		sort.Strings(twice)
+		return nil, &CISecretChannelError{Names: twice, Reason: "a platform credential uses the same name"}
+	}
 	policy := *req.EgressProxy
 	policy.Secrets = mergeEgressSecrets(policy.Secrets, bound)
 	if err := policy.Validate(); err != nil {

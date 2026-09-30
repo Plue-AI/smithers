@@ -98,17 +98,17 @@ func TestSecret_Cov_RepoSecretsSuccessAndFailures(t *testing.T) {
 			return db.RepositorySecret{Name: arg.Name, CreatedAt: now, UpdatedAt: now}, nil
 		},
 	}, secretCovCodec{})
-	resp, err := svc.SetSecret(context.Background(), &db.User{ID: 1}, "alice", "demo", " TOKEN ", "value", nil)
+	resp, err := svc.SetSecret(context.Background(), &db.User{ID: 1}, "alice", "demo", " TOKEN ", "value", nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "TOKEN", resp.Name)
 	assert.Equal(t, []byte("enc:value"), stored.ValueEncrypted)
 
 	svc = NewSecretService(&mockSecretQuerier{}, secretCovCodec{encryptErr: errors.New("encrypt failed")})
-	_, err = svc.SetSecret(context.Background(), &db.User{ID: 1}, "alice", "demo", "KEY", "value", nil)
+	_, err = svc.SetSecret(context.Background(), &db.User{ID: 1}, "alice", "demo", "KEY", "value", nil, nil)
 	require.Error(t, err)
 	assert.Equal(t, 500, apiStatus(t, err))
 
-	_, err = NewSecretService(&mockSecretQuerier{}, webhook.NoopSecretCodec{}).SetSecret(context.Background(), &db.User{ID: 1}, "alice", "demo", string(make([]byte, 256)), "value", nil)
+	_, err = NewSecretService(&mockSecretQuerier{}, webhook.NoopSecretCodec{}).SetSecret(context.Background(), &db.User{ID: 1}, "alice", "demo", string(make([]byte, 256)), "value", nil, nil)
 	require.Error(t, err)
 	assert.Equal(t, 422, apiStatus(t, err))
 
@@ -147,7 +147,7 @@ func TestSecret_Cov_OrgSecretsAndOrgPermissions(t *testing.T) {
 		},
 	}
 	svc := NewSecretService(q, webhook.NoopSecretCodec{})
-	resp, err := svc.SetOrgSecret(context.Background(), &db.User{ID: 2}, "Acme", "ORG_KEY", "org-value")
+	resp, err := svc.SetOrgSecret(context.Background(), &db.User{ID: 2}, "Acme", "ORG_KEY", "org-value", nil)
 	require.NoError(t, err)
 	assert.Equal(t, "ORG_KEY", resp.Name)
 
@@ -164,7 +164,7 @@ func TestSecret_Cov_OrgSecretsAndOrgPermissions(t *testing.T) {
 	require.NoError(t, svc.DeleteOrgSecret(context.Background(), &db.User{ID: 2}, "Acme", " ORG_KEY "))
 	assert.Equal(t, "ORG_KEY", deleted.Name)
 
-	_, err = svc.SetOrgSecret(context.Background(), nil, "Acme", "KEY", "value")
+	_, err = svc.SetOrgSecret(context.Background(), nil, "Acme", "KEY", "value", nil)
 	require.Error(t, err)
 	assert.Equal(t, 401, apiStatus(t, err))
 

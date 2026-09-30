@@ -477,12 +477,13 @@ type nixCIRunEnvironment struct {
 	// Env holds plain values the job sees verbatim: repository and
 	// organization variables and service URLs.
 	Env map[string]string
-	// Secrets holds repository and organization secret values. They carry no
-	// host binding, so no supported channel reaches a NixOS CI guest and a
-	// job refuses to start while any is present.
+	// Secrets holds the repository and organization secret values that
+	// carry no host binding: no supported channel reaches a NixOS CI guest
+	// with them, so a job refuses to start while any is present.
 	Secrets map[string]string
-	// Bound are platform credentials delivered through the guest's egress
-	// proxy; the guest sees only their placeholders.
+	// Bound are the repository and organization secrets bound to hosts and
+	// the platform credentials, delivered through the guest's egress proxy;
+	// the guest sees only their placeholders.
 	Bound     []sandbox.EgressProxySecret
 	RedactEnv map[string]string
 }

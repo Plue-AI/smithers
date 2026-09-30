@@ -215,7 +215,7 @@ func (s *AgentEnvironmentService) PutAgentEnvironment(ctx context.Context, actor
 		if err := refuseSubscriptionToken(s.subscriptionTokens, name, secret.Value); err != nil {
 			return AgentEnvironmentResponse{}, err
 		}
-		hosts, matchHeaders, err := validateAgentEnvironmentSecretBinding(secret.Hosts, secret.MatchHeaders)
+		hosts, matchHeaders, err := validateSecretBinding(secret.Hosts, secret.MatchHeaders)
 		if err != nil {
 			return AgentEnvironmentResponse{}, err
 		}
@@ -312,7 +312,7 @@ func (s *AgentEnvironmentService) PutAgentEnvironmentSecret(ctx context.Context,
 	if err := refuseSubscriptionToken(s.subscriptionTokens, name, input.Value); err != nil {
 		return AgentEnvironmentSecretMetadata{}, err
 	}
-	hosts, matchHeaders, err := validateAgentEnvironmentSecretBinding(input.Hosts, input.MatchHeaders)
+	hosts, matchHeaders, err := validateSecretBinding(input.Hosts, input.MatchHeaders)
 	if err != nil {
 		return AgentEnvironmentSecretMetadata{}, err
 	}
@@ -615,35 +615,36 @@ func validateAgentEnvironment(setupScript string, variables []AgentEnvironmentVa
 	return normalized, names, nil
 }
 
-const maxAgentEnvironmentBindingEntries = 20
+const maxSecretBindingEntries = 20
 
-var agentEnvironmentHeaderPattern = regexp.MustCompile(`^[A-Za-z0-9-]{1,128}$`)
+var secretBindingHeaderPattern = regexp.MustCompile(`^[A-Za-z0-9-]{1,128}$`)
 
-// validateAgentEnvironmentSecretBinding normalises an egress-proxy binding.
+// validateSecretBinding normalises an egress-proxy binding, for
+// agent-environment and workflow secrets alike.
 // Empty on both sides means the legacy environment path. Hosts must be DNS
 // names, "*.suffix" wildcards, or CIDRs; headers must be plain header names.
 // A one-sided binding is rejected: the proxy needs both a host and a
 // location to scope a swap.
-func validateAgentEnvironmentSecretBinding(hosts, matchHeaders []string) ([]string, []string, error) {
+func validateSecretBinding(hosts, matchHeaders []string) ([]string, []string, error) {
 	hosts = normaliseBindingList(hosts, strings.ToLower)
 	matchHeaders = normaliseBindingList(matchHeaders, strings.ToLower)
 	if len(hosts) == 0 && len(matchHeaders) == 0 {
 		return []string{}, []string{}, nil
 	}
 	if len(hosts) == 0 || len(matchHeaders) == 0 {
-		return nil, nil, pkgerrors.BadRequest("agent environment secret binding needs both hosts and match_headers")
+		return nil, nil, pkgerrors.BadRequest("secret binding needs both hosts and match_headers")
 	}
-	if len(hosts) > maxAgentEnvironmentBindingEntries || len(matchHeaders) > maxAgentEnvironmentBindingEntries {
-		return nil, nil, pkgerrors.BadRequest("agent environment secret binding has too many entries")
+	if len(hosts) > maxSecretBindingEntries || len(matchHeaders) > maxSecretBindingEntries {
+		return nil, nil, pkgerrors.BadRequest("secret binding has too many entries")
 	}
 	for _, host := range hosts {
 		if !sandbox.ValidEgressHost(host) {
-			return nil, nil, pkgerrors.BadRequest("invalid agent environment secret binding host")
+			return nil, nil, pkgerrors.BadRequest("invalid secret binding host")
 		}
 	}
 	for _, header := range matchHeaders {
-		if !agentEnvironmentHeaderPattern.MatchString(header) {
-			return nil, nil, pkgerrors.BadRequest("invalid agent environment secret binding header")
+		if !secretBindingHeaderPattern.MatchString(header) {
+			return nil, nil, pkgerrors.BadRequest("invalid secret binding header")
 		}
 	}
 	return hosts, matchHeaders, nil

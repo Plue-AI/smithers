@@ -179,10 +179,10 @@ func TestReservedSecretMarkerIsRejectedAcrossConfigurationBoundaries(t *testing.
 	actor := &db.User{ID: 1}
 
 	_, err := NewSecretService(&mockSecretQuerier{}, webhook.NoopSecretCodec{}).SetSecret(
-		context.Background(), actor, "alice", "demo", SecretEnvKeysRuntimeMarker, "secret", nil)
+		context.Background(), actor, "alice", "demo", SecretEnvKeysRuntimeMarker, "secret", nil, nil)
 	assert.Equal(t, http.StatusUnprocessableEntity, apiStatus(t, err))
 	_, err = NewSecretService(&mockSecretQuerier{}, webhook.NoopSecretCodec{}).SetOrgSecret(
-		context.Background(), actor, "acme", SecretEnvKeysRuntimeMarker, "secret")
+		context.Background(), actor, "acme", SecretEnvKeysRuntimeMarker, "secret", nil)
 	assert.Equal(t, http.StatusUnprocessableEntity, apiStatus(t, err))
 	_, err = NewVariableService(&mockVariableQuerier{}).SetVariable(
 		context.Background(), actor, "alice", "demo", SecretEnvKeysRuntimeMarker, "value")

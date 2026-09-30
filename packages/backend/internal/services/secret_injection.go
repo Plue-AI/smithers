@@ -10,6 +10,7 @@ import (
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/webhook"
+	"github.com/smithersai/smithers/packages/backend/sandbox"
 )
 
 const (
@@ -81,42 +82,88 @@ func (s *SecretInjector) RepositoryEnvironment(ctx context.Context, repositoryID
 	return env, err
 }
 
-// RepositoryEnvironmentAndSecrets loads one coherent repository/org snapshot
-// and derives both the injected environment and the redaction-only secret map
-// from the same decrypted rows. Callers that build an execution environment
-// must use this method so a concurrent secret rotation cannot inject one value
-// while marking/redacting a different value. A main-only repository secret is
-// included only for mainTrusted, a trusted run on the default bookmark
-// (workflowRunOnTrustedMain); an agent's run never is one.
+// RepositoryEnvironmentAndSecrets is RepositorySecrets' environment and
+// redaction map. A secret bound to hosts is in neither: it reaches a guest
+// only through its egress proxy, which only a NixOS CI guest has.
 func (s *SecretInjector) RepositoryEnvironmentAndSecrets(ctx context.Context, repositoryID int64, mainTrusted bool) (map[string]string, map[string]string, error) {
+	snapshot, err := s.RepositorySecrets(ctx, repositoryID, mainTrusted)
+	if err != nil {
+		return nil, nil, err
+	}
+	return snapshot.Env, snapshot.Secrets, nil
+}
+
+// RepositorySecretSnapshot is one coherent read of a repository's and its
+// organization's variables and secrets.
+type RepositorySecretSnapshot struct {
+	// Env holds variables and the unbound secrets' values.
+	Env map[string]string
+	// Secrets holds the unbound secrets' values, for redaction.
+	Secrets map[string]string
+	// Bound holds the secrets bound to hosts, with their values, sorted by
+	// name. Only an egress proxy may carry them into a guest.
+	Bound []sandbox.EgressProxySecret
+}
+
+// RepositorySecrets loads one coherent repository/org snapshot and derives
+// the injected environment, the redaction-only secret map and the bound
+// secrets from the same decrypted rows. Callers that build an execution
+// environment must use it (or RepositoryEnvironmentAndSecrets) so a
+// concurrent secret rotation cannot inject one value while marking/redacting
+// a different value. A main-only repository secret is included only for
+// mainTrusted, a trusted run on the default bookmark
+// (workflowRunOnTrustedMain); an agent's run never is one. A repository
+// secret overrides an organization secret of the same name, binding and all.
+func (s *SecretInjector) RepositorySecrets(ctx context.Context, repositoryID int64, mainTrusted bool) (RepositorySecretSnapshot, error) {
 	if repositoryID <= 0 {
-		return nil, nil, fmt.Errorf("repository id must be positive")
+		return RepositorySecretSnapshot{}, fmt.Errorf("repository id must be positive")
 	}
 	if s == nil || s.queries == nil {
-		return map[string]string{}, map[string]string{}, nil
+		return RepositorySecretSnapshot{Env: map[string]string{}, Secrets: map[string]string{}}, nil
 	}
 
 	repository, err := s.queries.GetRepoByID(ctx, repositoryID)
 	if err != nil {
-		return nil, nil, fmt.Errorf("load repository: %w", err)
+		return RepositorySecretSnapshot{}, fmt.Errorf("load repository: %w", err)
 	}
 
 	env := map[string]string{}
 	secrets := map[string]string{}
+	bound := map[string]sandbox.EgressProxySecret{}
+	// keep records one decrypted secret under the binding it carries.
+	keep := func(kind, name, value string, hosts, matchHeaders []string) error {
+		if len(hosts) == 0 && len(matchHeaders) == 0 {
+			delete(bound, name)
+			env[name] = value
+			secrets[name] = value
+			return nil
+		}
+		secret := sandbox.EgressProxySecret{
+			Name: name, Value: value,
+			Hosts: append([]string(nil), hosts...), MatchHeaders: append([]string(nil), matchHeaders...),
+		}
+		if err := secret.Validate(); err != nil {
+			return fmt.Errorf("%s %q has an invalid host binding: %w", kind, name, err)
+		}
+		delete(env, name)
+		delete(secrets, name)
+		bound[name] = secret
+		return nil
+	}
 
 	// Load organization variables before repository variables; repo values override.
 	if repository.OrgID.Valid {
 		orgVarRows, err := s.queries.ListOrgVariables(ctx, repository.OrgID.Int64)
 		if err != nil {
-			return nil, nil, fmt.Errorf("list organization variables: %w", err)
+			return RepositorySecretSnapshot{}, fmt.Errorf("list organization variables: %w", err)
 		}
 		for _, row := range orgVarRows {
 			name := strings.TrimSpace(row.Name)
 			if !IsInjectedSecretName(name) {
-				return nil, nil, fmt.Errorf("organization variable %q is not a valid environment variable name", row.Name)
+				return RepositorySecretSnapshot{}, fmt.Errorf("organization variable %q is not a valid environment variable name", row.Name)
 			}
 			if err := refuseStoredSubscriptionToken(s.subscriptionTokens, "organization variable", name, row.Value); err != nil {
-				return nil, nil, err
+				return RepositorySecretSnapshot{}, err
 			}
 			if row.Value == "" {
 				continue
@@ -128,16 +175,16 @@ func (s *SecretInjector) RepositoryEnvironmentAndSecrets(ctx context.Context, re
 	// Load repository variables before secrets; secrets override on name collision.
 	varRows, err := s.queries.ListVariables(ctx, repositoryID)
 	if err != nil {
-		return nil, nil, fmt.Errorf("list repository variables: %w", err)
+		return RepositorySecretSnapshot{}, fmt.Errorf("list repository variables: %w", err)
 	}
 
 	for _, row := range varRows {
 		name := strings.TrimSpace(row.Name)
 		if !IsInjectedSecretName(name) {
-			return nil, nil, fmt.Errorf("repository variable %q is not a valid environment variable name", row.Name)
+			return RepositorySecretSnapshot{}, fmt.Errorf("repository variable %q is not a valid environment variable name", row.Name)
 		}
 		if err := refuseStoredSubscriptionToken(s.subscriptionTokens, "repository variable", name, row.Value); err != nil {
-			return nil, nil, err
+			return RepositorySecretSnapshot{}, err
 		}
 		if row.Value == "" {
 			continue
@@ -149,37 +196,38 @@ func (s *SecretInjector) RepositoryEnvironmentAndSecrets(ctx context.Context, re
 	if repository.OrgID.Valid {
 		orgSecretRows, err := s.queries.ListOrgSecretValues(ctx, repository.OrgID.Int64)
 		if err != nil {
-			return nil, nil, fmt.Errorf("list organization secrets: %w", err)
+			return RepositorySecretSnapshot{}, fmt.Errorf("list organization secrets: %w", err)
 		}
 		for _, row := range orgSecretRows {
 			name := strings.TrimSpace(row.Name)
 			if !IsInjectedSecretName(name) {
-				return nil, nil, fmt.Errorf("organization secret %q is not a valid environment variable name", row.Name)
+				return RepositorySecretSnapshot{}, fmt.Errorf("organization secret %q is not a valid environment variable name", row.Name)
 			}
 			value, err := s.secretCodec.DecryptString(string(row.ValueEncrypted))
 			if err != nil {
-				return nil, nil, fmt.Errorf("decrypt organization secret %q: %w", name, err)
+				return RepositorySecretSnapshot{}, fmt.Errorf("decrypt organization secret %q: %w", name, err)
 			}
 			if err := refuseStoredSubscriptionToken(s.subscriptionTokens, "organization secret", name, value); err != nil {
-				return nil, nil, err
+				return RepositorySecretSnapshot{}, err
 			}
 			if value == "" {
 				continue
 			}
-			env[name] = value
-			secrets[name] = value
+			if err := keep("organization secret", name, value, row.Hosts, row.MatchHeaders); err != nil {
+				return RepositorySecretSnapshot{}, err
+			}
 		}
 	}
 
 	secretRows, err := s.queries.ListSecretValues(ctx, repositoryID)
 	if err != nil {
-		return nil, nil, fmt.Errorf("list repository secrets: %w", err)
+		return RepositorySecretSnapshot{}, fmt.Errorf("list repository secrets: %w", err)
 	}
 
 	for _, row := range secretRows {
 		name := strings.TrimSpace(row.Name)
 		if !IsInjectedSecretName(name) {
-			return nil, nil, fmt.Errorf("repository secret %q is not a valid environment variable name", row.Name)
+			return RepositorySecretSnapshot{}, fmt.Errorf("repository secret %q is not a valid environment variable name", row.Name)
 		}
 		if row.MainOnly && !mainTrusted {
 			continue
@@ -187,22 +235,33 @@ func (s *SecretInjector) RepositoryEnvironmentAndSecrets(ctx context.Context, re
 
 		value, err := s.secretCodec.DecryptString(string(row.ValueEncrypted))
 		if err != nil {
-			return nil, nil, fmt.Errorf("decrypt repository secret %q: %w", name, err)
+			return RepositorySecretSnapshot{}, fmt.Errorf("decrypt repository secret %q: %w", name, err)
 		}
 		if err := refuseStoredSubscriptionToken(s.subscriptionTokens, "repository secret", name, value); err != nil {
-			return nil, nil, err
+			return RepositorySecretSnapshot{}, err
 		}
 		if value == "" {
 			continue
 		}
-		env[name] = value
-		secrets[name] = value
+		if err := keep("repository secret", name, value, row.Hosts, row.MatchHeaders); err != nil {
+			return RepositorySecretSnapshot{}, err
+		}
 	}
 
-	if err := validateInjectedEnvBudget(env); err != nil {
-		return nil, nil, err
+	budget := make(map[string]string, len(env)+len(bound))
+	for name, value := range env {
+		budget[name] = value
 	}
-	return env, secrets, nil
+	snapshot := RepositorySecretSnapshot{Env: env, Secrets: secrets}
+	for name, secret := range bound {
+		budget[name] = secret.Value
+		snapshot.Bound = append(snapshot.Bound, secret)
+	}
+	if err := validateInjectedEnvBudget(budget); err != nil {
+		return RepositorySecretSnapshot{}, err
+	}
+	slices.SortFunc(snapshot.Bound, func(a, b sandbox.EgressProxySecret) int { return strings.Compare(a.Name, b.Name) })
+	return snapshot, nil
 }
 
 func (s *SecretInjector) InjectRepositoryEnvironment(

@@ -74,6 +74,10 @@ func (m *mockSecretQuerier) GetCollaboratorPermissionForRepoUser(ctx context.Con
 	return "", nil
 }
 
+func (m *mockSecretQuerier) SetSecretBinding(_ context.Context, arg db.SetSecretBindingParams) (db.RepositorySecret, error) {
+	return db.RepositorySecret{Name: arg.Name, Hosts: arg.Hosts, MatchHeaders: arg.MatchHeaders}, nil
+}
+
 func (m *mockSecretQuerier) SetSecretMainOnly(_ context.Context, arg db.SetSecretMainOnlyParams) (db.RepositorySecret, error) {
 	return db.RepositorySecret{Name: arg.Name, MainOnly: arg.MainOnly}, nil
 }
@@ -134,7 +138,7 @@ func TestSecretService_SetSecret_NilActor(t *testing.T) {
 	t.Parallel()
 
 	svc := NewSecretService(&mockSecretQuerier{}, webhook.NoopSecretCodec{})
-	_, err := svc.SetSecret(context.Background(), nil, "alice", "demo", "KEY", "val", nil)
+	_, err := svc.SetSecret(context.Background(), nil, "alice", "demo", "KEY", "val", nil, nil)
 	require.Error(t, err)
 	var apiErr *pkgerrors.APIError
 	require.ErrorAs(t, err, &apiErr)
@@ -146,7 +150,7 @@ func TestSecretService_SetSecret_EmptyName(t *testing.T) {
 
 	svc := NewSecretService(&mockSecretQuerier{}, webhook.NoopSecretCodec{})
 	actor := &db.User{ID: 1}
-	_, err := svc.SetSecret(context.Background(), actor, "alice", "demo", "", "val", nil)
+	_, err := svc.SetSecret(context.Background(), actor, "alice", "demo", "", "val", nil, nil)
 	require.Error(t, err)
 	var apiErr *pkgerrors.APIError
 	require.ErrorAs(t, err, &apiErr)
@@ -158,7 +162,7 @@ func TestSecretService_SetSecret_EmptyValue(t *testing.T) {
 
 	svc := NewSecretService(&mockSecretQuerier{}, webhook.NoopSecretCodec{})
 	actor := &db.User{ID: 1}
-	_, err := svc.SetSecret(context.Background(), actor, "alice", "demo", "KEY", "", nil)
+	_, err := svc.SetSecret(context.Background(), actor, "alice", "demo", "KEY", "", nil, nil)
 	require.Error(t, err)
 	var apiErr *pkgerrors.APIError
 	require.ErrorAs(t, err, &apiErr)
@@ -170,7 +174,7 @@ func TestSecretService_SetSecret_Success(t *testing.T) {
 
 	svc := NewSecretService(&mockSecretQuerier{}, webhook.NoopSecretCodec{})
 	actor := &db.User{ID: 1}
-	resp, err := svc.SetSecret(context.Background(), actor, "alice", "demo", "API_KEY", "secret-val", nil)
+	resp, err := svc.SetSecret(context.Background(), actor, "alice", "demo", "API_KEY", "secret-val", nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "API_KEY", resp.Name)
 }
@@ -215,7 +219,7 @@ func TestSecretService_SetSecret_ValueTooLarge(t *testing.T) {
 	svc := NewSecretService(&mockSecretQuerier{}, webhook.NoopSecretCodec{})
 	actor := &db.User{ID: 1}
 	oversized := strings.Repeat("x", maxSecretValueBytes+1)
-	_, err := svc.SetSecret(context.Background(), actor, "alice", "demo", "KEY", oversized, nil)
+	_, err := svc.SetSecret(context.Background(), actor, "alice", "demo", "KEY", oversized, nil, nil)
 	require.Error(t, err)
 	var apiErr *pkgerrors.APIError
 	require.ErrorAs(t, err, &apiErr)
@@ -235,7 +239,7 @@ func TestSecretService_SetSecret_QuotaExceeded(t *testing.T) {
 		},
 	}, webhook.NoopSecretCodec{})
 	actor := &db.User{ID: 1}
-	_, err := svc.SetSecret(context.Background(), actor, "alice", "demo", "NEW_NAME", "val", nil)
+	_, err := svc.SetSecret(context.Background(), actor, "alice", "demo", "NEW_NAME", "val", nil, nil)
 	require.Error(t, err)
 	var apiErr *pkgerrors.APIError
 	require.ErrorAs(t, err, &apiErr)
@@ -256,7 +260,7 @@ func TestSecretService_SetSecret_QuotaAllowsUpdateOfExistingName(t *testing.T) {
 		},
 	}, webhook.NoopSecretCodec{})
 	actor := &db.User{ID: 1}
-	resp, err := svc.SetSecret(context.Background(), actor, "alice", "demo", "TARGET_NAME", "val", nil)
+	resp, err := svc.SetSecret(context.Background(), actor, "alice", "demo", "TARGET_NAME", "val", nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "TARGET_NAME", resp.Name)
 }
@@ -267,7 +271,7 @@ func TestSecretService_SetOrgSecret_ValueTooLarge(t *testing.T) {
 	svc := NewSecretService(&mockSecretQuerier{}, webhook.NoopSecretCodec{})
 	actor := &db.User{ID: 1}
 	oversized := strings.Repeat("x", maxSecretValueBytes+1)
-	_, err := svc.SetOrgSecret(context.Background(), actor, "acme", "KEY", oversized)
+	_, err := svc.SetOrgSecret(context.Background(), actor, "acme", "KEY", oversized, nil)
 	require.Error(t, err)
 	var apiErr *pkgerrors.APIError
 	require.ErrorAs(t, err, &apiErr)
@@ -287,7 +291,7 @@ func TestSecretService_SetOrgSecret_QuotaExceeded(t *testing.T) {
 		},
 	}, webhook.NoopSecretCodec{})
 	actor := &db.User{ID: 1}
-	_, err := svc.SetOrgSecret(context.Background(), actor, "acme", "NEW_NAME", "val")
+	_, err := svc.SetOrgSecret(context.Background(), actor, "acme", "NEW_NAME", "val", nil)
 	require.Error(t, err)
 	var apiErr *pkgerrors.APIError
 	require.ErrorAs(t, err, &apiErr)
@@ -303,7 +307,7 @@ func TestSecretService_RepoNotFound(t *testing.T) {
 		},
 	}, webhook.NoopSecretCodec{})
 	actor := &db.User{ID: 1}
-	_, err := svc.SetSecret(context.Background(), actor, "alice", "missing", "KEY", "val", nil)
+	_, err := svc.SetSecret(context.Background(), actor, "alice", "missing", "KEY", "val", nil, nil)
 	require.Error(t, err)
 	var apiErr *pkgerrors.APIError
 	require.ErrorAs(t, err, &apiErr)

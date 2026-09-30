@@ -33,13 +33,13 @@ func TestMainOnlySecretsReachOnlyTrustedMainRunsPostgres(t *testing.T) {
 	service := NewSecretService(db.New(pool), codec)
 	yes := true
 
-	created, err := service.SetSecret(ctx, owner, owner.Username, repoName, "DEPLOY_TOKEN", "deploy", &yes)
+	created, err := service.SetSecret(ctx, owner, owner.Username, repoName, "DEPLOY_TOKEN", "deploy", &yes, nil)
 	require.NoError(t, err)
 	assert.True(t, created.MainOnly)
-	_, err = service.SetSecret(ctx, owner, owner.Username, repoName, "LINT_TOKEN", "lint", nil)
+	_, err = service.SetSecret(ctx, owner, owner.Username, repoName, "LINT_TOKEN", "lint", nil, nil)
 	require.NoError(t, err)
 	// Replacing the value keeps the scope.
-	replaced, err := service.SetSecret(ctx, owner, owner.Username, repoName, "DEPLOY_TOKEN", "deploy-2", nil)
+	replaced, err := service.SetSecret(ctx, owner, owner.Username, repoName, "DEPLOY_TOKEN", "deploy-2", nil, nil)
 	require.NoError(t, err)
 	assert.True(t, replaced.MainOnly)
 	listed, err := service.ListSecrets(ctx, owner, owner.Username, repoName)

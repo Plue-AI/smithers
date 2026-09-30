@@ -485,9 +485,9 @@ func TestInvokedFlowHostReceivesTheWorkflowEnvironment(t *testing.T) {
 		_, err := variables.SetVariable(ctx, f.owner, f.owner.Username, f.repository, name, value)
 		require.NoError(t, err)
 	}
-	_, err := secrets.SetSecret(ctx, f.owner, f.owner.Username, f.repository, "TOKEN", "secret-token", nil)
+	_, err := secrets.SetSecret(ctx, f.owner, f.owner.Username, f.repository, "TOKEN", "secret-token", nil, nil)
 	require.NoError(t, err)
-	_, err = secrets.SetSecret(ctx, f.owner, f.owner.Username, f.repository, "DEPLOY_KEY", "main-only", &yes)
+	_, err = secrets.SetSecret(ctx, f.owner, f.owner.Username, f.repository, "DEPLOY_KEY", "main-only", &yes, nil)
 	require.NoError(t, err)
 
 	authority, err := f.invoked.ResolveFlowHostTarget(ctx, flowruntime.Target{
@@ -551,7 +551,7 @@ func createSecretIntegrationUserIn(t *testing.T, pool *pgxpool.Pool, prefix stri
 func TestInvokedFlowJournalAndFailureReachTheRunLog(t *testing.T) {
 	f := newInvokedFlowTestFixture(t)
 	ctx := context.Background()
-	_, err := NewSecretService(db.New(f.pool), f.codec).SetSecret(ctx, f.owner, f.owner.Username, f.repository, "API_KEY", "sk-live-123", nil)
+	_, err := NewSecretService(db.New(f.pool), f.codec).SetSecret(ctx, f.owner, f.owner.Username, f.repository, "API_KEY", "sk-live-123", nil, nil)
 	require.NoError(t, err)
 
 	steps := f.steps(t)

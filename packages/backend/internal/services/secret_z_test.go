@@ -22,7 +22,7 @@ func TestSecret_Z_RepositorySecretErrorsAndPermissions(t *testing.T) {
 	other := &db.User{ID: 2}
 
 	_, err := NewSecretService(&mockSecretQuerier{}, webhook.NoopSecretCodec{}).
-		SetSecret(ctx, other, "alice", "demo", "KEY", "value", nil)
+		SetSecret(ctx, other, "alice", "demo", "KEY", "value", nil, nil)
 	require.Error(t, err)
 	assert.Equal(t, 403, apiStatus(t, err))
 
@@ -30,7 +30,7 @@ func TestSecret_Z_RepositorySecretErrorsAndPermissions(t *testing.T) {
 		createOrUpdateFn: func(context.Context, db.CreateOrUpdateSecretParams) (db.RepositorySecret, error) {
 			return db.RepositorySecret{}, errors.New("insert failed")
 		},
-	}, webhook.NoopSecretCodec{}).SetSecret(ctx, actor, "alice", "demo", "KEY", "value", nil)
+	}, webhook.NoopSecretCodec{}).SetSecret(ctx, actor, "alice", "demo", "KEY", "value", nil, nil)
 	require.Error(t, err)
 	assert.Equal(t, 500, apiStatus(t, err))
 
@@ -107,7 +107,7 @@ func TestSecret_Z_OrgSecretErrorsAndHelpers(t *testing.T) {
 		{name: "blank org", org: " ", key: "KEY", value: "value", want: 400},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := svc.SetOrgSecret(ctx, actor, tc.org, tc.key, tc.value)
+			_, err := svc.SetOrgSecret(ctx, actor, tc.org, tc.key, tc.value, nil)
 			require.Error(t, err)
 			assert.Equal(t, tc.want, apiStatus(t, err))
 		})
@@ -119,12 +119,12 @@ func TestSecret_Z_OrgSecretErrorsAndHelpers(t *testing.T) {
 				return db.OrgMember{Role: "member"}, nil
 			},
 		},
-	}, webhook.NoopSecretCodec{}).SetOrgSecret(ctx, actor, "acme", "KEY", "value")
+	}, webhook.NoopSecretCodec{}).SetOrgSecret(ctx, actor, "acme", "KEY", "value", nil)
 	require.Error(t, err)
 	assert.Equal(t, 403, apiStatus(t, err))
 
 	_, err = NewSecretService(&secretCovQuerier{mockSecretQuerier: &mockSecretQuerier{}}, secretCovCodec{encryptErr: errors.New("encrypt failed")}).
-		SetOrgSecret(ctx, actor, "acme", "KEY", "value")
+		SetOrgSecret(ctx, actor, "acme", "KEY", "value", nil)
 	require.Error(t, err)
 	assert.Equal(t, 500, apiStatus(t, err))
 
@@ -133,7 +133,7 @@ func TestSecret_Z_OrgSecretErrorsAndHelpers(t *testing.T) {
 		createOrgFn: func(context.Context, db.CreateOrUpdateOrgSecretParams) (db.OrganizationSecret, error) {
 			return db.OrganizationSecret{}, errors.New("insert failed")
 		},
-	}, webhook.NoopSecretCodec{}).SetOrgSecret(ctx, actor, "acme", "KEY", "value")
+	}, webhook.NoopSecretCodec{}).SetOrgSecret(ctx, actor, "acme", "KEY", "value", nil)
 	require.Error(t, err)
 	assert.Equal(t, 500, apiStatus(t, err))
 
@@ -189,7 +189,7 @@ func TestSecret_Z_OrgSecretErrorsAndHelpers(t *testing.T) {
 			return db.OrganizationSecret{Name: arg.Name, CreatedAt: now, UpdatedAt: now}, nil
 		},
 	}
-	resp, err := NewSecretService(q, webhook.NoopSecretCodec{}).SetOrgSecret(ctx, actor, "acme", "KEY", "value")
+	resp, err := NewSecretService(q, webhook.NoopSecretCodec{}).SetOrgSecret(ctx, actor, "acme", "KEY", "value", nil)
 	require.NoError(t, err)
 	assert.Equal(t, "KEY", resp.Name)
 }

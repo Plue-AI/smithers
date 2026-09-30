@@ -35,6 +35,7 @@ type SecretQuerier interface {
 
 	CreateOrUpdateSecret(ctx context.Context, arg db.CreateOrUpdateSecretParams) (db.RepositorySecret, error)
 	SetSecretMainOnly(ctx context.Context, arg db.SetSecretMainOnlyParams) (db.RepositorySecret, error)
+	SetSecretBinding(ctx context.Context, arg db.SetSecretBindingParams) (db.RepositorySecret, error)
 	ListSecrets(ctx context.Context, repositoryID int64) ([]db.ListSecretsRow, error)
 	ListSecretValuesForRepo(ctx context.Context, repositoryID int64) ([]db.ListSecretValuesForRepoRow, error)
 	DeleteSecret(ctx context.Context, arg db.DeleteSecretParams) error
@@ -99,11 +100,34 @@ type SecretResponse struct {
 	// MainOnly reports a repository secret that reaches only trusted runs on
 	// the default bookmark (SecretInjector.RepositoryEnvironmentAndSecrets).
 	MainOnly bool `json:"main_only"`
+	// Hosts and MatchHeaders are the secret's egress binding
+	// (validateSecretBinding): a NixOS CI guest receives a bound secret only
+	// as a placeholder its egress proxy swaps for the value on requests to
+	// those hosts, in those headers. An unbound secret has neither.
+	Hosts        []string `json:"hosts"`
+	MatchHeaders []string `json:"match_headers"`
+}
+
+// SecretBinding is a secret's egress binding: the hosts and request headers
+// it may be sent to. Both or neither; empty on both sides unbinds it.
+type SecretBinding struct {
+	Hosts        []string `json:"hosts"`
+	MatchHeaders []string `json:"match_headers"`
+}
+
+// normalize validates the binding and returns it in stored form.
+func (b SecretBinding) normalize() (SecretBinding, error) {
+	hosts, matchHeaders, err := validateSecretBinding(b.Hosts, b.MatchHeaders)
+	if err != nil {
+		return SecretBinding{}, err
+	}
+	return SecretBinding{Hosts: hosts, MatchHeaders: matchHeaders}, nil
 }
 
 // SetSecret stores a repository secret. mainOnly nil keeps a replaced
-// secret's scope (a new one reaches every run).
-func (s *SecretService) SetSecret(ctx context.Context, actor *db.User, owner, repo, name, value string, mainOnly *bool) (SecretResponse, error) {
+// secret's scope (a new one reaches every run); binding nil keeps a replaced
+// secret's egress binding (a new one is unbound).
+func (s *SecretService) SetSecret(ctx context.Context, actor *db.User, owner, repo, name, value string, mainOnly *bool, binding *SecretBinding) (SecretResponse, error) {
 	if actor == nil {
 		return SecretResponse{}, pkgerrors.Unauthorized("authentication required")
 	}
@@ -126,6 +150,14 @@ func (s *SecretService) SetSecret(ctx context.Context, actor *db.User, owner, re
 	}
 	if err := refuseSubscriptionToken(s.subscriptionTokens, trimmedName, value); err != nil {
 		return SecretResponse{}, err
+	}
+	var stored *SecretBinding
+	if binding != nil {
+		normalized, err := binding.normalize()
+		if err != nil {
+			return SecretResponse{}, err
+		}
+		stored = &normalized
 	}
 
 	repository, err := s.resolveRepoByOwnerAndName(ctx, owner, repo)
@@ -157,6 +189,9 @@ func (s *SecretService) SetSecret(ctx context.Context, actor *db.User, owner, re
 		if mainOnly != nil {
 			params.MainOnly = pgtype.Bool{Bool: *mainOnly, Valid: true}
 		}
+		if stored != nil {
+			params.Hosts, params.MatchHeaders = stored.Hosts, stored.MatchHeaders
+		}
 		created, werr = s.queries.CreateOrUpdateSecret(ctx, params)
 		if isSecretCapViolation(werr, "repository_secrets_repo_cap") {
 			return repoSecretQuotaExceeded()
@@ -178,6 +213,7 @@ func repositorySecretResponse(secret db.RepositorySecret) SecretResponse {
 		CreatedAt: secret.CreatedAt.Format("2006-01-02T15:04:05Z"),
 		UpdatedAt: secret.UpdatedAt.Format("2006-01-02T15:04:05Z"),
 		MainOnly:  secret.MainOnly,
+		Hosts:     nonNilStrings(secret.Hosts), MatchHeaders: nonNilStrings(secret.MatchHeaders),
 	}
 }
 
@@ -216,6 +252,46 @@ func (s *SecretService) SetSecretMainOnly(ctx context.Context, actor *db.User, o
 	return repositorySecretResponse(updated), nil
 }
 
+// SetSecretBinding sets or clears a repository secret's egress binding
+// without its value. Only an administrator changes it.
+func (s *SecretService) SetSecretBinding(ctx context.Context, actor *db.User, owner, repo, name string, binding SecretBinding) (SecretResponse, error) {
+	if actor == nil {
+		return SecretResponse{}, pkgerrors.Unauthorized("authentication required")
+	}
+	trimmedName := strings.TrimSpace(name)
+	if !IsInjectedSecretName(trimmedName) {
+		return SecretResponse{}, pkgerrors.ValidationFailed(pkgerrors.FieldError{Resource: "Secret", Field: "name", Code: "invalid"})
+	}
+	normalized, err := binding.normalize()
+	if err != nil {
+		return SecretResponse{}, err
+	}
+	repository, err := s.resolveRepoByOwnerAndName(ctx, owner, repo)
+	if err != nil {
+		return SecretResponse{}, err
+	}
+	if err := s.requireAdminAccess(ctx, repository, actor); err != nil {
+		return SecretResponse{}, err
+	}
+	var updated db.RepositorySecret
+	if err := guardedRepoWrite(ctx, s.ownershipGuard, repository, func() error {
+		var werr error
+		updated, werr = s.queries.SetSecretBinding(ctx, db.SetSecretBindingParams{
+			Hosts: normalized.Hosts, MatchHeaders: normalized.MatchHeaders, RepositoryID: repository.ID, Name: trimmedName,
+		})
+		if stdErrors.Is(werr, pgx.ErrNoRows) {
+			return pkgerrors.NotFound("secret not found")
+		}
+		if werr != nil {
+			return pkgerrors.Internal("failed to set secret binding").WithCause(werr)
+		}
+		return nil
+	}); err != nil {
+		return SecretResponse{}, err
+	}
+	return repositorySecretResponse(updated), nil
+}
+
 func (s *SecretService) ListSecrets(ctx context.Context, actor *db.User, owner, repo string) ([]SecretResponse, error) {
 	if actor == nil {
 		return nil, pkgerrors.Unauthorized("authentication required")
@@ -242,6 +318,8 @@ func (s *SecretService) ListSecrets(ctx context.Context, actor *db.User, owner, 
 			UpdatedAt:         row.UpdatedAt.Format("2006-01-02T15:04:05Z"),
 			ReconnectRequired: row.SubscriptionTokenFlaggedAt.Valid && !s.subscriptionTokens,
 			MainOnly:          row.MainOnly,
+			Hosts:             nonNilStrings(row.Hosts),
+			MatchHeaders:      nonNilStrings(row.MatchHeaders),
 		}
 	}
 	return result, nil
@@ -307,7 +385,9 @@ func (s *SecretService) DeleteSecret(ctx context.Context, actor *db.User, owner,
 	})
 }
 
-func (s *SecretService) SetOrgSecret(ctx context.Context, actor *db.User, orgName, name, value string) (SecretResponse, error) {
+// SetOrgSecret stores an organization secret. binding nil keeps a replaced
+// secret's egress binding (a new one is unbound).
+func (s *SecretService) SetOrgSecret(ctx context.Context, actor *db.User, orgName, name, value string, binding *SecretBinding) (SecretResponse, error) {
 	if actor == nil {
 		return SecretResponse{}, pkgerrors.Unauthorized("authentication required")
 	}
@@ -330,6 +410,14 @@ func (s *SecretService) SetOrgSecret(ctx context.Context, actor *db.User, orgNam
 	if err := refuseSubscriptionToken(s.subscriptionTokens, trimmedName, value); err != nil {
 		return SecretResponse{}, err
 	}
+	var stored *SecretBinding
+	if binding != nil {
+		normalized, err := binding.normalize()
+		if err != nil {
+			return SecretResponse{}, err
+		}
+		stored = &normalized
+	}
 
 	org, err := s.resolveOrgByName(ctx, orgName)
 	if err != nil {
@@ -347,11 +435,15 @@ func (s *SecretService) SetOrgSecret(ctx context.Context, actor *db.User, orgNam
 	if err != nil {
 		return SecretResponse{}, pkgerrors.Internal("failed to encrypt secret").WithCause(err)
 	}
-	created, err := s.queries.CreateOrUpdateOrgSecret(ctx, db.CreateOrUpdateOrgSecretParams{
+	params := db.CreateOrUpdateOrgSecretParams{
 		OrganizationID: org.ID,
 		Name:           trimmedName,
 		ValueEncrypted: []byte(encrypted),
-	})
+	}
+	if stored != nil {
+		params.Hosts, params.MatchHeaders = stored.Hosts, stored.MatchHeaders
+	}
+	created, err := s.queries.CreateOrUpdateOrgSecret(ctx, params)
 	if isSecretCapViolation(err, "organization_secrets_org_cap") {
 		return SecretResponse{}, orgSecretQuotaExceeded()
 	}
@@ -359,9 +451,11 @@ func (s *SecretService) SetOrgSecret(ctx context.Context, actor *db.User, orgNam
 		return SecretResponse{}, pkgerrors.Internal("failed to set organization secret").WithCause(err)
 	}
 	return SecretResponse{
-		Name:      created.Name,
-		CreatedAt: created.CreatedAt.Format("2006-01-02T15:04:05Z"),
-		UpdatedAt: created.UpdatedAt.Format("2006-01-02T15:04:05Z"),
+		Name:         created.Name,
+		CreatedAt:    created.CreatedAt.Format("2006-01-02T15:04:05Z"),
+		UpdatedAt:    created.UpdatedAt.Format("2006-01-02T15:04:05Z"),
+		Hosts:        nonNilStrings(created.Hosts),
+		MatchHeaders: nonNilStrings(created.MatchHeaders),
 	}, nil
 }
 
@@ -384,6 +478,8 @@ func (s *SecretService) ListOrgSecrets(ctx context.Context, actor *db.User, orgN
 			CreatedAt:         row.CreatedAt.Format("2006-01-02T15:04:05Z"),
 			UpdatedAt:         row.UpdatedAt.Format("2006-01-02T15:04:05Z"),
 			ReconnectRequired: row.SubscriptionTokenFlaggedAt.Valid && !s.subscriptionTokens,
+			Hosts:             nonNilStrings(row.Hosts),
+			MatchHeaders:      nonNilStrings(row.MatchHeaders),
 		}
 	}
 	return result, nil

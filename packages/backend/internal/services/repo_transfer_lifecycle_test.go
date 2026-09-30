@@ -1461,7 +1461,7 @@ func TestSetSecret_OwnershipGuardBlocksStaleWrite(t *testing.T) {
 	guard := &fakeOwnershipGuard{err: pkgerrors.Conflict("repository ownership changed concurrently")}
 	svc := NewSecretService(q, nil, WithSecretOwnershipGuard(guard))
 
-	_, err := svc.SetSecret(context.Background(), &db.User{ID: 1}, "owner", "repo", "TOKEN", "v", nil)
+	_, err := svc.SetSecret(context.Background(), &db.User{ID: 1}, "owner", "repo", "TOKEN", "v", nil, nil)
 	assert.Equal(t, 409, apiStatus(t, err))
 	assert.Equal(t, 1, guard.calls)
 	assert.Equal(t, 0, writes)
@@ -1480,7 +1480,7 @@ func TestSetSecret_OwnershipGuardAllowsWrite(t *testing.T) {
 	guard := &fakeOwnershipGuard{}
 	svc := NewSecretService(q, nil, WithSecretOwnershipGuard(guard))
 
-	created, err := svc.SetSecret(context.Background(), &db.User{ID: 1}, "owner", "repo", "TOKEN", "v", nil)
+	created, err := svc.SetSecret(context.Background(), &db.User{ID: 1}, "owner", "repo", "TOKEN", "v", nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "TOKEN", created.Name)
 	assert.Equal(t, 1, guard.calls)

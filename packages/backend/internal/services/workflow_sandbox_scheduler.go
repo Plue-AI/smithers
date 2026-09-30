@@ -508,8 +508,11 @@ func (w *WorkflowSandboxSchedulerWorker) executeRun(ctx context.Context, claim w
 
 	plainEnv := map[string]string{}
 	secrets := map[string]string{}
+	// bound carries every credential a guest's egress proxy substitutes:
+	// repository and organization secrets bound to hosts, then the platform's.
+	var bound []sandbox.EgressProxySecret
 	if w.secretInjector != nil {
-		env, repoSecrets, err := w.secretInjector.RepositoryEnvironmentAndSecrets(runCtx, run.RepositoryID, workflowRunOnTrustedMain(run, repository))
+		snapshot, err := w.secretInjector.RepositorySecrets(runCtx, run.RepositoryID, workflowRunOnTrustedMain(run, repository))
 		if err != nil {
 			message := "failed to load repository secrets"
 			var apiErr *pkgerrors.APIError
@@ -519,14 +522,18 @@ func (w *WorkflowSandboxSchedulerWorker) executeRun(ctx context.Context, claim w
 			}
 			return w.failRun(runCtx, claim, 0, message)
 		}
-		for name, value := range env {
-			if _, secret := repoSecrets[name]; !secret {
+		for name, value := range snapshot.Env {
+			if _, secret := snapshot.Secrets[name]; !secret {
 				plainEnv[name] = value
 			}
 		}
-		for name, value := range repoSecrets {
+		for name, value := range snapshot.Secrets {
 			secrets[name] = value
 			redactEnv[name] = value
+		}
+		for _, secret := range snapshot.Bound {
+			bound = append(bound, secret)
+			redactEnv[secret.Name] = secret.Value
 		}
 	}
 
@@ -536,7 +543,6 @@ func (w *WorkflowSandboxSchedulerWorker) executeRun(ctx context.Context, claim w
 	// mint failure or an unbindable API host must not fail the run (the
 	// tools simply 401 if used). Org-owned repos have no user-scoped token
 	// (cloneUserID == 0), so skip them.
-	var bound []sandbox.EgressProxySecret
 	if repository.UserID.Valid && cloneUserID > 0 {
 		if host, bindErr := nixCIEgressHost("SMITHERS_JJHUB_TOKEN", w.apiBaseURL); bindErr != nil {
 			logger.Warn("per-run jjhub api token withheld", "error", bindErr)

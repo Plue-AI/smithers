@@ -904,6 +904,7 @@ paths:
           $ref: '#/components/responses/InternalError'
     post:
       summary: POST /api/orgs/{org}/secrets
+      description: 'Sets an organization secret (`name`, `value`). Optional `hosts` with `match_headers`: the hosts and request headers the secret may be sent to, both or neither; omitted, a replaced secret keeps its binding. Organization owners only.'
       operationId: post_api_orgs_org_secrets
       tags:
         - Organizations
