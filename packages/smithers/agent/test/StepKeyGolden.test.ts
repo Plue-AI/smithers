@@ -228,7 +228,10 @@ describe("the sealed model step key", () => {
     // Moved an eighth time when the evaluator's typed failure joined the
     // error union the step embeds (fc7f29e867, #2807).
     expect(observed.host).not.toBe("key1_15a4c2592ebebcb92233e55ddcdc49a1b1c4fad7ee7273af7c0ac3192cdc4bcc")
-    expect(observed.host).toBe("key1_0f7a7d81883e298518a57713e6cb7218a527b713388fe7e7b1cf5310e61350a9")
+    // Moved a ninth time when that failure carried what a failed reading
+    // paid (#3010).
+    expect(observed.host).not.toBe("key1_0f7a7d81883e298518a57713e6cb7218a527b713388fe7e7b1cf5310e61350a9")
+    expect(observed.host).toBe("key1_4fd148a67a94aaa4ec702d424fa156e78b71935a61c926d4fca4753683a812af")
     // Sealed means content-addressed: the same declaration through a second
     // port of the same composition is one recorded answer, not two calls.
     expect(observed.again).toBe(observed.host)
@@ -256,7 +259,10 @@ describe("the sealed cell-call key", () => {
     // Moved when `HarnessError.cause` gained the typed `EvaluatorError`
     // member (fc7f29e867, #2807).
     expect(observed.host).not.toBe("key1_0336839392318b217d1892c2ae94ae09d6a644dd695239675803285d5e475b14")
-    expect(observed.host).toBe("key1_88223cc71e3c3ad27cb1dffea61a732b14dcfd48282f61d2253173adbd4d8d7b")
+    // Moved when that `EvaluatorError` carried what a failed reading paid
+    // (#3010).
+    expect(observed.host).not.toBe("key1_88223cc71e3c3ad27cb1dffea61a732b14dcfd48282f61d2253173adbd4d8d7b")
+    expect(observed.host).toBe("key1_a839b582877e4aed09963b2cc3aa15af094379d286e83018dd67dd3efb06d4c8")
     // The composition really is in the key: the same call resolved under a
     // different layer set is a different boundary, not a cache hit.
     expect(observed.other).not.toBe(observed.host)

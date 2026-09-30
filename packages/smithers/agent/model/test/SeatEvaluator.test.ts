@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest"
 import * as Evaluator from "../src/Evaluator.ts"
 import * as Model from "../src/Model.ts"
 import { ModelError } from "../src/ModelError.ts"
+import type { ModelEvent } from "../src/ModelEvent.ts"
 import type { ModelRequest } from "../src/ModelRequest.ts"
 
 const request: Evaluator.Request = {
@@ -85,7 +86,61 @@ describe("subscription seat evaluator", () => {
         )
     }))
     expect(result.answers).toEqual(scored)
-    expect(result.usage).toEqual({ inputTokens: 12, outputTokens: 7 })
+    expect(result.usage).toEqual({ inputTokens: 12, outputTokens: 7, modelId: "gpt-6.1-sol" })
+  })
+  const metered = (...events: ReadonlyArray<ModelEvent>) =>
+    Model.make({ stream: () => Stream.fromIterable([{ type: "usage", inputTokens: 30, outputTokens: 4 }, ...events]) })
+  const paid = { inputTokens: 30, outputTokens: 4, modelId: "gpt-6.1-sol" }
+  it("charges a metered verdict that answered badly with what it paid", async () => {
+    await expect(run(metered(
+      { type: "text-delta", id: "answer", text: "not json" },
+      { type: "settle", stopReason: "stop" }
+    ))).rejects.toMatchObject({ code: "invalid_answer", usage: paid })
+  })
+  it("charges a truncated verdict with what it paid", async () => {
+    await expect(run(metered(
+      { type: "text-delta", id: "answer", text: JSON.stringify({ answers }) },
+      { type: "settle", stopReason: "length" }
+    ))).rejects.toMatchObject({ code: "invalid_answer", usage: paid })
+  })
+  it("charges a reading cut off at its deadline with what it had metered", async () => {
+    await expect(run(
+      Model.make({
+        stream: () =>
+          Stream.concat(
+            Stream.make({ type: "usage", inputTokens: 30, outputTokens: 4 } as const),
+            Stream.fromEffect(Effect.never)
+          )
+      }),
+      { timeoutMs: 5 }
+    )).rejects.toMatchObject({ code: "timeout", usage: paid })
+  })
+  it("charges a stream that failed after it was metered", async () => {
+    await expect(run(Model.make({
+      stream: () =>
+        Stream.concat(
+          Stream.make({ type: "usage", inputTokens: 30, outputTokens: 4 } as const),
+          Stream.fail(new ModelError({ code: "transport", message: "reset" }))
+        )
+    }))).rejects.toMatchObject({ code: "unreachable", usage: paid })
+  })
+  it("charges only the attempt a retry settled on", async () => {
+    const result = await run(Model.make({
+      stream: () =>
+        Stream.make(
+          { type: "usage", inputTokens: 30, outputTokens: 4 },
+          { type: "retry", attempt: 1, code: "transport", delayMillis: 0 },
+          { type: "text-delta", id: "answer", text: JSON.stringify({ answers }) },
+          { type: "usage", inputTokens: 8, outputTokens: 1 },
+          { type: "settle", stopReason: "stop" }
+        )
+    }))
+    expect(result.usage).toEqual({ inputTokens: 8, outputTokens: 1, modelId: "gpt-6.1-sol" })
+  })
+  it("charges nothing for a failure the transport never metered", async () => {
+    const error = await run(reply("not json")).catch((failure: Evaluator.EvaluatorError) => failure)
+    expect(error).toMatchObject({ code: "invalid_answer" })
+    expect((error as Evaluator.EvaluatorError).usage).toBeUndefined()
   })
   it.each([
     "not json",

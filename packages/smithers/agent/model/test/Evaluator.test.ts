@@ -437,7 +437,7 @@ describe("Evaluator.layerVercelGateway", () => {
 
     const response = success(await evaluate(layer))
 
-    expect(response.usage).toEqual({ inputTokens: 120, outputTokens: 3 })
+    expect(response.usage).toEqual({ inputTokens: 120, outputTokens: 3, modelId: "typesafe-ai/jev-next" })
     const [{ body, modelCall, request }] = sent as [Sent]
     expect(request.url).toBe("https://gateway.example.test/evaluate")
     expect(request.headers).toMatchObject({
@@ -457,6 +457,22 @@ describe("Evaluator.layerVercelGateway", () => {
     const error = failure(await Effect.runPromise(Layer.build(layer).pipe(Effect.result, Effect.scoped)))
 
     expect(error).toMatchObject({ _tag: "ConfigError" })
+  })
+
+  it.each(
+    [
+      ["an answer of the wrong shape", "invalid_answer", { answers: { done: { type: "boolean" } } }],
+      ["no answers", "empty", {}]
+    ] as const
+  )("keeps the metered usage of a body with %s on its failure", async (_label, code, body) => {
+    const layer = Evaluator.layerVercelGateway({ apiKey: Redacted.make("k") }).pipe(
+      Layer.provide(httpLayer([], () => json({ ...body, usage: { inputTokens: 40, outputTokens: 2 } })))
+    )
+
+    expect(failure(await evaluate(layer))).toMatchObject({
+      code,
+      usage: { inputTokens: 40, outputTokens: 2, modelId: Evaluator.defaultModel }
+    })
   })
 
   it("ignores usage that is not a pair of numbers", async () => {

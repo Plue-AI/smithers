@@ -66,7 +66,7 @@ describe("EvaluatorBackup.fromModel judgment boundaries", () => {
     expect(Result.isSuccess(result)).toBe(true)
     if (Result.isFailure(result)) return
     expect(result.success.answers).toEqual(answers)
-    expect(result.success.usage).toEqual({ inputTokens: 23, outputTokens: 17 })
+    expect(result.success.usage).toEqual({ inputTokens: 23, outputTokens: 17, modelId: "fixture/judge" })
     expect(result.success.latencyMs).toBeGreaterThanOrEqual(0)
     expect(sent).toHaveLength(1)
     expect(sent[0]?.modelId).toBe("fixture/judge")
@@ -97,6 +97,20 @@ describe("EvaluatorBackup.fromModel judgment boundaries", () => {
     const result = await run(seat(Model.make({ stream: () => textEvents("") })))
     expect(Result.isFailure(result)).toBe(true)
     if (Result.isFailure(result)) expect(result.failure.code).toBe("empty")
+  })
+
+  it("keeps what an empty answer paid", async () => {
+    const result = await run(seat(Model.make({
+      stream: () =>
+        Stream.concat(Stream.make({ type: "usage" as const, inputTokens: 9, outputTokens: 0 }), textEvents(""))
+    })))
+    expect(Result.isFailure(result)).toBe(true)
+    if (Result.isFailure(result)) {
+      expect(result.failure).toMatchObject({
+        code: "empty",
+        usage: { inputTokens: 9, outputTokens: 0, modelId: "fixture/judge" }
+      })
+    }
   })
 
   it("hides stream failure details", async () => {
@@ -218,6 +232,58 @@ describe("EvaluatorBackup.withFallback", () => {
       expect(calls).toHaveLength(0)
     }
   )
+
+  const paid = { inputTokens: 11, outputTokens: 2, modelId: "fixture/judge" }
+
+  it.each(["unreachable", "timeout"] as const)(
+    "does not ask the backup after a %s the primary was already paid for",
+    async (code) => {
+      const calls: Array<Evaluator.Request> = []
+      const primary = Evaluator.Evaluator.of({
+        evaluate: () => Effect.fail(new Evaluator.EvaluatorError({ code, message: code, usage: paid }))
+      })
+      const result = await run(EvaluatorBackup.withFallback(primary, answered(calls)))
+      expect(Result.isFailure(result)).toBe(true)
+      if (Result.isFailure(result)) expect(result.failure).toMatchObject({ code, usage: paid })
+      expect(calls).toHaveLength(0)
+    }
+  )
+
+  it("keeps the primary's setup reason with what the failed backup paid", async () => {
+    const backup = Evaluator.Evaluator.of({
+      evaluate: () => Effect.fail(new Evaluator.EvaluatorError({ code: "timeout", message: "late", usage: paid }))
+    })
+    const primary = Evaluator.Evaluator.of({
+      evaluate: () =>
+        Effect.fail(
+          new Evaluator.EvaluatorError({ code: "refused", status: 429, resetAtEpochMillis: 5, message: "quota" })
+        )
+    })
+    const result = await run(EvaluatorBackup.withFallback(primary, backup))
+    expect(Result.isFailure(result)).toBe(true)
+    if (Result.isFailure(result)) {
+      expect(result.failure).toMatchObject({
+        code: "refused",
+        status: 429,
+        resetAtEpochMillis: 5,
+        message: "quota",
+        usage: paid
+      })
+    }
+  })
+
+  it("keeps the primary's missing-key reason with what the failed backup paid", async () => {
+    const backup = Evaluator.Evaluator.of({
+      evaluate: () => Effect.fail(new Evaluator.EvaluatorError({ code: "timeout", message: "late", usage: paid }))
+    })
+    const result = await run(EvaluatorBackup.withFallback(failed("unconfigured"), backup))
+    expect(Result.isFailure(result)).toBe(true)
+    if (Result.isFailure(result)) {
+      expect(result.failure).toMatchObject({ code: "unconfigured", message: "unconfigured", usage: paid })
+      expect(result.failure.status).toBeUndefined()
+      expect(result.failure.resetAtEpochMillis).toBeUndefined()
+    }
+  })
 
   it("returns a primary success without contacting backup", async () => {
     const primaryCalls: Array<Evaluator.Request> = []

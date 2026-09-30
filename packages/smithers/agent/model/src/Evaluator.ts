@@ -76,7 +76,17 @@ export class EvaluatorError extends Schema.TaggedError<EvaluatorError>()("flows/
   code: EvaluatorErrorCode,
   status: Schema.optional(Schema.Number),
   resetAtEpochMillis: Schema.optional(Schema.Number),
-  message: Schema.String
+  message: Schema.String,
+  /**
+   * What the reading paid before it failed: a verdict the seat streamed and
+   * then answered badly, or cut short at the deadline, was still metered.
+   * Absent when the transport reported nothing.
+   */
+  usage: Schema.optional(Schema.Struct({
+    inputTokens: Schema.Number,
+    outputTokens: Schema.Number,
+    modelId: Schema.optional(Schema.String)
+  }))
 }) {}
 
 /**
@@ -406,6 +416,8 @@ export interface Request {
 export interface Usage {
   readonly inputTokens: number
   readonly outputTokens: number
+  /** The model that took the reading, when the transport knows it: what prices it. */
+  readonly modelId?: string | undefined
 }
 
 /**
@@ -596,13 +608,21 @@ const confidenceOf = (body: Record<string, unknown>): Readonly<Record<string, nu
   return numbers.length === 0 ? undefined : Object.fromEntries(numbers)
 }
 
-const usageOf = (body: Record<string, unknown>): Usage | undefined => {
+const usageOf = (body: Record<string, unknown>, modelId: string): Usage | undefined => {
   const usage = body["usage"]
   if (!isRecord(usage)) return undefined
   const inputTokens = usage["inputTokens"]
   const outputTokens = usage["outputTokens"]
-  return typeof inputTokens === "number" && typeof outputTokens === "number" ? { inputTokens, outputTokens } : undefined
+  return typeof inputTokens === "number" && typeof outputTokens === "number"
+    ? { inputTokens, outputTokens, modelId }
+    : undefined
 }
+
+/** The usage a metered stream reported so far, when it reported both counts. */
+const streamedUsage = (usage: ModelEvent.Usage, modelId: string): Usage | undefined =>
+  usage.inputTokens === undefined || usage.outputTokens === undefined
+    ? undefined
+    : { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, modelId }
 
 /**
  * The status codes the gateway answers to a question it could not accept.
@@ -777,18 +797,21 @@ export function layerVercelGateway(
             try: (): unknown => JSON.parse(text),
             catch: () => new EvaluatorError({ code: "empty", status: 200, message: "Unreadable body: Decode" })
           })
+          // A body that answered badly was still metered: its failure carries
+          // what the reading paid, so the run's budget charges it (#3010).
+          const usage = isRecord(body) ? usageOf(body, model) : undefined
+          const paid = usage === undefined ? {} : { usage }
           if (!isRecord(body) || !isRecord(body["answers"])) {
             return yield* Effect.fail(
-              new EvaluatorError({ code: "empty", status: 200, message: "The body carried no answers" })
+              new EvaluatorError({ code: "empty", status: 200, message: "The body carried no answers", ...paid })
             )
           }
           const answers = yield* decodeRawAnswers(body["answers"]).pipe(
             Effect.mapError((error) =>
-              new EvaluatorError({ code: "invalid_answer", status: 200, message: error.message })
+              new EvaluatorError({ code: "invalid_answer", status: 200, message: error.message, ...paid })
             )
           )
           const confidence = confidenceOf(body)
-          const usage = usageOf(body)
           const latencyMs = (yield* Clock.currentTimeMillis) - started
           return {
             answers,
@@ -881,8 +904,16 @@ export const layerFromSeat = (
   options: { readonly timeoutMs?: number } = {}
 ): Layer.Layer<Evaluator> =>
   Layer.succeed(Evaluator)({
-    evaluate: (request) =>
-      Effect.gen(function*() {
+    evaluate: (request) => {
+      // What the seat has metered so far, folded the way `settledMessage`
+      // folds it. A reading that fails after the provider metered it, at the
+      // deadline included, carries it, so the run's budget charges it (#3010).
+      let metered: ModelEvent.Usage = {}
+      const paid = (): { readonly usage?: Usage } => {
+        const usage = streamedUsage(metered, seat.modelId)
+        return usage === undefined ? {} : { usage }
+      }
+      return Effect.gen(function*() {
         const started = yield* Clock.currentTimeMillis
         const prompt = yield* Effect.try({
           try: () => CanonicalJson.stringify({ state: request.state, questions: encodeQuestions(request.questions) }),
@@ -905,6 +936,11 @@ export const layerFromSeat = (
             params: {}
           })
         ).pipe(
+          Stream.tap((event) =>
+            Effect.sync(() => {
+              metered = ModelEvent.settledMessage([{ type: "usage", ...metered }, event]).usage
+            })
+          ),
           Stream.runCollect,
           Effect.catch((error) =>
             Effect.gen(function*() {
@@ -920,16 +956,17 @@ export const layerFromSeat = (
                   code: "refused",
                   status: 429,
                   ...(resetAtEpochMillis === undefined ? {} : { resetAtEpochMillis }),
-                  message: usageLimitMessage(resetAtEpochMillis)
+                  message: usageLimitMessage(resetAtEpochMillis),
+                  ...paid()
                 })
               }
-              return yield* new EvaluatorError({ code: "unreachable", message: unreachableMessage })
+              return yield* new EvaluatorError({ code: "unreachable", message: unreachableMessage, ...paid() })
             })
           )
         )
-        const { message, usage } = ModelEvent.settledMessage(events)
+        const { message } = ModelEvent.settledMessage(events)
         const invalid = () =>
-          new EvaluatorError({ code: "invalid_answer", message: "The seat returned an invalid judgment." })
+          new EvaluatorError({ code: "invalid_answer", message: "The seat returned an invalid judgment.", ...paid() })
         if (message.stopReason !== "stop" || message.content.some((part) => part.type === "tool-call")) {
           return yield* Effect.fail(invalid())
         }
@@ -957,15 +994,20 @@ export const layerFromSeat = (
         return {
           answers,
           latencyMs: (yield* Clock.currentTimeMillis) - started,
-          ...(usage.inputTokens !== undefined && usage.outputTokens !== undefined
-            ? { usage: { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens } }
-            : {})
+          ...paid()
         }
       }).pipe(Effect.timeoutOrElse({
         duration: options.timeoutMs ?? 120_000,
         orElse: () =>
-          Effect.fail(new EvaluatorError({ code: "timeout", message: "The seat did not answer the judgment in time." }))
+          Effect.fail(
+            new EvaluatorError({
+              code: "timeout",
+              message: "The seat did not answer the judgment in time.",
+              ...paid()
+            })
+          )
       }))
+    }
   })
 
 /**

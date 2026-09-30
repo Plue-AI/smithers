@@ -10,7 +10,7 @@
   "form": "declared",
   "input": {
     "action": "harness/cell-call/fs/write",
-    "declaration": "key1_c1513cb82df2002d4ae92ceb2aca2eea59372cc7a365cc000d4dd93981ad11d0",
+    "declaration": "key1_3a416ae5755519b642f3bf525de060e7dceb173b8e859a3b6fbb957881362a5e",
     "idempotencyKey": "key1_6896594bad61200c4959230649a359bbf2e575421091d7fb01a65641f5993cc0"
   },
   "kind": "cache"

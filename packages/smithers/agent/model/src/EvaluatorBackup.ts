@@ -44,7 +44,11 @@ export const fromModel = (model: Model.Model, modelId: string): Evaluator.Evalua
         Effect.provide(Evaluator.layerFromSeat({ model: scriptedRequest, modelId })),
         Effect.mapError((error) =>
           emptyText && error.code === "invalid_answer"
-            ? new Evaluator.EvaluatorError({ code: "empty", message: "The model returned no judgment text." })
+            ? new Evaluator.EvaluatorError({
+              code: "empty",
+              message: "The model returned no judgment text.",
+              ...(error.usage === undefined ? {} : { usage: error.usage })
+            })
             : error
         )
       )
@@ -54,8 +58,11 @@ export const fromModel = (model: Model.Model, modelId: string): Evaluator.Evalua
 /**
  * Use the backup only when the primary is unavailable: unconfigured, unreachable, timed
  * out, or refusing with a server error or 429 after its own retries. A
- * refusal of the caller (4xx) or of the question never falls back. If both
- * fail, keep a configuration or usage-limit reason over a transport outage.
+ * refusal of the caller (4xx) or of the question never falls back, and
+ * neither does a failure that carries paid usage: that reading was taken and
+ * metered, and asking again would pay twice for one judgment whose response
+ * can carry only one reading's usage. If both fail, keep a configuration or
+ * usage-limit reason over a transport outage.
  *
  * @category constructors
  * @since 1.0.0-rc.1
@@ -65,13 +72,21 @@ export const withFallback = (primary: Evaluator.Evaluator, backup: Evaluator.Eva
     evaluate: (request) =>
       primary.evaluate(request).pipe(
         Effect.catch((error) =>
-          error.code === "unconfigured" || error.code === "unreachable" || error.code === "timeout" ||
-            (error.code === "refused" && error.status !== undefined && (error.status >= 500 || error.status === 429))
+          error.usage === undefined &&
+            (error.code === "unconfigured" || error.code === "unreachable" || error.code === "timeout" ||
+              (error.code === "refused" && error.status !== undefined && (error.status >= 500 || error.status === 429)))
             ? backup.evaluate(request).pipe(Effect.mapError((failure) =>
               ((failure.code === "unreachable" || failure.code === "timeout") && error.code === "unconfigured") ||
                 ((failure.code === "unreachable" || failure.code === "timeout" || failure.code === "unconfigured") &&
                   error.code === "refused" && error.status === 429)
-                ? error
+                // The primary's reason, with whatever the backup's reading paid.
+                ? failure.usage === undefined ? error : new Evaluator.EvaluatorError({
+                  code: error.code,
+                  message: error.message,
+                  ...(error.status === undefined ? {} : { status: error.status }),
+                  ...(error.resetAtEpochMillis === undefined ? {} : { resetAtEpochMillis: error.resetAtEpochMillis }),
+                  usage: failure.usage
+                })
                 : failure
             ))
             : Effect.fail(error)
