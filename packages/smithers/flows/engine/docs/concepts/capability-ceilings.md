@@ -15,9 +15,13 @@ Existing durable executions without persisted authority refuse further dispatch.
 Inspect their completed effects before starting replacement work; automatically
 re-keying an old action could repeat it.
 
-Remote execution and resume under restricted authority fail before connecting
-with `FlowEngine.RemoteCapabilityCeilingUnsupported`, a defect carrying
-`flowName` and `message`. The current remote protocol cannot preserve caller
-ceilings. Run locally when either caller or flow is restricted. Remote execution
-requires unrestricted caller authority and an omitted or `["*"]` flow ceiling. Remote
-cancellation remains available under restricted authority.
+Remote execution, discard, and resume carry the caller's ceiling, narrowed by
+the flow's own declaration, as `capabilityCeilings` on the `FlowProxy` request.
+The serving engine intersects it with its own authority before admission, so a
+request can only narrow what the serving host already allows. The serving engine
+persists, recovers, and joins under that authority exactly as a local run does.
+A request with no `capabilityCeilings` is bounded by the serving host alone.
+A request carries at most `FlowProxy.maxCeilingGroups` groups of at most
+`FlowProxy.maxCeilingPatterns` patterns. A refused join crosses the wire as the
+serving engine's `FlowHandlerDefect`. Remote cancellation carries no ceiling: it
+can only stop work.

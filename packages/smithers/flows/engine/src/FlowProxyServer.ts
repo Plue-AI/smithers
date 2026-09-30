@@ -144,7 +144,11 @@ const guardDefects = (flowName: string) => <A, E, R>(effect: Effect.Effect<A, E,
     )
   })
 
-/** The decoded body of an execute or a discard request. */
+/**
+ * The decoded body of an execute or a discard request. `capabilityCeilings`
+ * only ever narrows this server's own authority: omitted, the request runs
+ * under the server's authority alone.
+ */
 type ExecuteRequest = {
   readonly payload: any
   readonly executionId: string

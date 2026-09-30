@@ -115,9 +115,8 @@ old action could repeat a completed effect. Inspect existing effects before
 starting replacement work with a new execution ID.
 Graph diagnostics are advisory conservative checks of glob coverage; execution
 checks the exact intersection with the kernel matcher. Cross-run cache keys include
-this effective authority. Remote execution and resume refuse restricted callers or flows
-until the remote protocol can preserve their ceilings; local execution remains
-available and remote cancellation still works.
+this effective authority. Remote execution and resume carry the ceiling to the
+serving engine, which intersects it with its own authority and never widens it.
 
 `Flow.capabilityCeilings(annotations)` reads explicitly declared groups, preserving
 omission. `Flow.parseCapabilityCeilings(groups)` parses them, dropping invalid

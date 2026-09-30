@@ -101,14 +101,38 @@ export const assertNoCollisions = (
   }
 }
 
+/**
+ * The most capability groups one placed request may carry.
+ *
+ * @category constants
+ * @since 1.0.0
+ */
+export const maxCeilingGroups = 64
+
+/**
+ * The most capability patterns one group of a placed request may carry.
+ *
+ * @category constants
+ * @since 1.0.0
+ */
+export const maxCeilingPatterns = 256
+
 const ExecutionId = Schema.String.check(
   Schema.isMinLength(1),
   Schema.isMaxLength(4096),
   Schema.makeFilter(isWellFormedUtf16, { expected: "well-formed UTF-16 text" })
 )
 
-/** Authority carried by a placed request; each inner group is an alternative, and groups intersect. */
-const CapabilityCeilings = Schema.Array(Schema.Array(CapabilityPattern))
+/**
+ * Authority carried by a placed request; each inner group is an alternative,
+ * and groups intersect. The serving engine intersects it with its own
+ * authority, so it can only narrow the run. Omitted is unrestricted, which a
+ * serving engine still bounds by its own authority. Both levels are bounded so
+ * a request cannot make admission do unbounded work.
+ */
+const CapabilityCeilings = Schema.Array(
+  Schema.Array(CapabilityPattern).check(Schema.isMaxLength(maxCeilingPatterns))
+).check(Schema.isMaxLength(maxCeilingGroups))
 const OptionalCapabilityCeilings = Schema.optional(CapabilityCeilings)
 
 type ExecutePayload<Payload extends Flow.AnyStructSchema> = Schema.Struct<{
