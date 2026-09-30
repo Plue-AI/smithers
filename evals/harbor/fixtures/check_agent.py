@@ -188,8 +188,11 @@ def check_journal() -> str:
     try:
         from harbor.models.trajectories import Trajectory  # type: ignore[import-not-found]
     except ImportError:
+        if os.environ.get("HARBOR_PYTHON"):
+            raise
         return "structural only (harbor not importable)"
-    Trajectory.model_validate(document)
+    validated = Trajectory.model_validate(document)
+    assert validated.final_metrics.extra["cached_share"] == 1100 / 3000
     return "validated by harbor.models.trajectories.Trajectory"
 
 
