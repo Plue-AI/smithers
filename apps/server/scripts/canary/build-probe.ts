@@ -130,7 +130,7 @@ if (expectedSha === undefined) {
  * from different versions, and that disagreement is a propagation symptom
  * before it is a verdict.
  */
-const settle = await awaitDeployment({ fetch, now: Date.now, sleep: Bun.sleep }, {
+const settle = await awaitDeployment({ fetch, now: Date.now, sleep: Bun.sleep, abortAfter: AbortSignal.timeout }, {
   origin,
   documentPath: DEFAULT_APP_DOCUMENT_PATH,
   expectedSha,

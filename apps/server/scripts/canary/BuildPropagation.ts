@@ -19,7 +19,8 @@
  * that a read taken before propagation finished is no longer a verdict.
  *
  * This module owns the loop and nothing else. Every judgement it makes comes
- * from BuildStamp.ts, and `fetch`, the clock and the sleep are injected, so
+ * from BuildStamp.ts, and `fetch`, the clock, the sleep and the read deadline
+ * are injected, so
  * build-probe.test.ts holds the window to a stopwatch without a deployment
  * and without a network.
  */
@@ -49,6 +50,13 @@ export const SETTLE_MS = 90_000
  */
 export const SETTLE_INTERVAL_MS = 3_000
 
+/**
+ * The least time one read is given, so a zero window (`--settle-ms 0
+ * --settle-interval-ms 0`) still takes its one read rather than aborting it
+ * before it starts.
+ */
+export const MIN_READ_MS = 100
+
 /** One reading of the deployment: what it says it is, and what its HTML says. */
 export interface DeploymentRead {
   /** The parsed stamp, or the sentence naming why there is none (`parseBuildStamp`'s contract). */
@@ -58,13 +66,14 @@ export interface DeploymentRead {
 
 /**
  * Everything the loop touches that is not a pure function. The shell supplies
- * the real three; a test supplies three fakes and the window runs in no time
- * at all.
+ * the real four; a test supplies fakes and the window runs in no time at all.
  */
 export interface SettleDeps {
   readonly fetch: (url: string, init: RequestInit) => Promise<Response>
   readonly now: () => number
   readonly sleep: (ms: number) => Promise<void>
+  /** A signal that aborts after `ms` of real time: the shell's `AbortSignal.timeout`. */
+  readonly abortAfter: (ms: number) => AbortSignal
 }
 
 export interface SettleOptions {
@@ -100,11 +109,35 @@ const NO_CACHE = { cache: "no-store" as const, headers: { "cache-control": "no-c
 /** A fetch that answered, or the reason it never did. */
 type Fetched = { readonly status: number; readonly body: string } | { readonly error: string }
 
-const fetchText = async (deps: SettleDeps, url: string): Promise<Fetched> => {
+/**
+ * Settles with `work`, or rejects once `signal` aborts. An injected or real
+ * fetch that ignores its signal still cannot hold the read past its deadline.
+ */
+const untilAborted = <A>(work: Promise<A>, signal: AbortSignal): Promise<A> =>
+  signal.aborted
+    ? Promise.reject(signal.reason)
+    : new Promise<A>((resolve, reject) => {
+      const abort = () => reject(signal.reason)
+      signal.addEventListener("abort", abort, { once: true })
+      work.then(
+        (value) => {
+          signal.removeEventListener("abort", abort)
+          resolve(value)
+        },
+        (error: unknown) => {
+          signal.removeEventListener("abort", abort)
+          reject(error)
+        }
+      )
+    })
+
+const fetchText = async (deps: SettleDeps, url: string, signal: AbortSignal, budgetMs: number): Promise<Fetched> => {
   try {
-    const response = await deps.fetch(url, NO_CACHE)
-    return { status: response.status, body: await response.text() }
+    /* One deadline covers the headers and the whole body: a stalled edge is a bounded observation. */
+    const response = await untilAborted(deps.fetch(url, { ...NO_CACHE, signal }), signal)
+    return { status: response.status, body: await untilAborted(response.text(), signal) }
   } catch (error) {
+    if (signal.aborted) return { error: `no complete answer within ${budgetMs} ms` }
     /*
      * DNS that has not caught up with a freshly attached custom domain, a TLS
      * handshake against a colo mid-rollout, a connection reset: the same
@@ -118,14 +151,18 @@ const fetchText = async (deps: SettleDeps, url: string): Promise<Fetched> => {
   }
 }
 
-/** Read the deployment once: the stamp asset, then the app document. */
-export const readDeployment = async (deps: SettleDeps, options: SettleOptions): Promise<DeploymentRead> => {
+/**
+ * Read the deployment once: the stamp asset, then the app document, both
+ * inside one `budgetMs` deadline.
+ */
+export const readDeployment = async (deps: SettleDeps, options: SettleOptions, budgetMs: number): Promise<DeploymentRead> => {
   const bust = `?t=${deps.now()}`
-  const stampFetch = await fetchText(deps, `${options.origin}${BUILD_STAMP_PATH}${bust}`)
+  const signal = deps.abortAfter(budgetMs)
+  const stampFetch = await fetchText(deps, `${options.origin}${BUILD_STAMP_PATH}${bust}`, signal, budgetMs)
   const stamp = "error" in stampFetch
     ? `GET ${BUILD_STAMP_PATH} never answered: ${stampFetch.error}`
     : parseBuildStamp(stampFetch)
-  const htmlFetch = await fetchText(deps, `${options.origin}${options.documentPath}${bust}`)
+  const htmlFetch = await fetchText(deps, `${options.origin}${options.documentPath}${bust}`, signal, budgetMs)
   if ("error" in htmlFetch) {
     return { stamp, html: { status: 0, metaSha: null, transportError: htmlFetch.error } }
   }
@@ -167,12 +204,17 @@ export const readIsSettled = (
  * The first read short-circuits on success, so a deployment that is already
  * serving the right commit costs one round trip and no sleep — the common
  * case, and the one the autodeploy runner pays on every green deploy.
+ *
+ * Each read is bounded by what is left of the window (never less than one
+ * interval or `MIN_READ_MS`), across headers and body, so a stalled edge
+ * cannot hold the probe past its deadline by more than that one read's floor.
  */
 export const awaitDeployment = async (deps: SettleDeps, options: SettleOptions): Promise<SettleResult> => {
   const startedAt = deps.now()
   let reads = 0
   for (;;) {
-    const read = await readDeployment(deps, options)
+    const left = options.settleMs - (deps.now() - startedAt)
+    const read = await readDeployment(deps, options, Math.max(left, options.intervalMs, MIN_READ_MS))
     reads += 1
     const waitedMs = deps.now() - startedAt
     if (readIsSettled(read, options.expectedSha, options.allowUnstampedHtml)) {

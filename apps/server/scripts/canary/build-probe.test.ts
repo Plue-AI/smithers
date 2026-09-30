@@ -1,8 +1,12 @@
 import { describe, expect, test } from "bun:test"
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import {
   awaitDeployment,
   describeWait,
+  MIN_READ_MS,
   readIsSettled,
   SETTLE_INTERVAL_MS,
   SETTLE_MS
@@ -65,6 +69,7 @@ const deployment = (states: ReadonlyArray<Serving>) => {
   const urls: Array<string> = []
   const inits: Array<RequestInit> = []
   const sleeps: Array<number> = []
+  const budgets: Array<number> = []
   let clock = 0
   let reads = 0
   const deps: SettleDeps = {
@@ -91,9 +96,14 @@ const deployment = (states: ReadonlyArray<Serving>) => {
       sleeps.push(ms)
       clock += ms
       return Promise.resolve()
+    },
+    /* The fake deployment always answers, so its deadline never fires; the budget each read got is recorded. */
+    abortAfter: (ms) => {
+      budgets.push(ms)
+      return new AbortController().signal
     }
   }
-  return { deps, urls, inits, sleeps }
+  return { deps, urls, inits, sleeps, budgets }
 }
 
 describe("the propagation window", () => {
@@ -216,6 +226,46 @@ describe("the propagation window", () => {
     }
   })
 
+  test("each read is bounded by the rest of the window, never less than one interval", async () => {
+    const world = deployment([{ stamp: OLD }])
+    await awaitDeployment(world.deps, { ...OPTIONS, settleMs: 700, intervalMs: 300 })
+    /* One deadline per read, shared by the stamp and the document; the read at the deadline keeps one interval. */
+    expect(world.budgets).toEqual([700, 400, 300, 300])
+    const once = deployment([{ stamp: OLD }])
+    await awaitDeployment(once.deps, { ...OPTIONS, settleMs: 0, intervalMs: 0 })
+    expect(once.budgets).toEqual([MIN_READ_MS])
+    for (const init of [...world.inits, ...once.inits]) expect(init.signal).toBeInstanceOf(AbortSignal)
+  })
+
+  /*
+   * A stalled edge: headers that never come, or a body that stops mid-stream.
+   * The deadline aborts the read even when the fetch ignores its signal, and
+   * the window closes on a bounded failure naming what never finished.
+   */
+  for (const stall of ["headers", "body"] as const) {
+    test(`a read stalled in its ${stall} is cut at the deadline and graded as a failure`, async () => {
+      const world = deployment([{ stamp: NEW }])
+      const stalled: SettleDeps = {
+        ...world.deps,
+        fetch: () =>
+          stall === "headers"
+            ? new Promise<Response>(() => {})
+            : Promise.resolve(new Response(new ReadableStream({ start(controller) { controller.enqueue(new TextEncoder().encode("{")) } }))),
+        abortAfter: (ms) => {
+          world.budgets.push(ms)
+          const controller = new AbortController()
+          queueMicrotask(() => controller.abort(new Error("deadline")))
+          return controller.signal
+        }
+      }
+      const result = await awaitDeployment(stalled, { ...OPTIONS, settleMs: 300, intervalMs: 100 })
+      expect(result.settled).toBe(false)
+      expect(result.read.stamp).toBe(`GET ${BUILD_STAMP_PATH} never answered: no complete answer within 100 ms`)
+      expect(result.read.html.transportError).toBe("no complete answer within 100 ms")
+      expect(world.budgets).toEqual([300, 200, 100, 100])
+    })
+  }
+
   test("with no expected sha there is nothing for the window to wait for", () => {
     const read: DeploymentRead = {
       stamp: { worker: "smithers-mvp-web", gitSha: OLD, builtAt: "2026-09-14T11:42:28.586Z" },
@@ -306,6 +356,64 @@ describe("the probe's exit code under a propagating deployment", () => {
     expect(result.stderr).toContain("--settle-ms takes milliseconds")
     expect(result.stdout).not.toContain("CN-1")
   })
+
+  /*
+   * A real stalled edge: the loopback server holds the stamp's headers, or
+   * sends one byte of its body and holds the rest, until the test releases
+   * it. The probe must fail with its JSON receipt inside the window while the
+   * connection is still held.
+   */
+  for (const stall of ["headers", "body"] as const) {
+    test(`a stamp stalled in its ${stall} still fails inside --settle-ms and writes its receipt`, async () => {
+      const releases: Array<() => void> = []
+      const server = Bun.serve({
+        port: 0,
+        fetch: (request) => {
+          const path = new URL(request.url).pathname
+          if (path !== BUILD_STAMP_PATH) return new Response(htmlBody(NEW), { headers: { "content-type": "text/html" } })
+          if (stall === "headers") return new Promise<Response>((resolve) => releases.push(() => resolve(new Response(stampBody(NEW)))))
+          return new Response(new ReadableStream({
+            start(controller) {
+              controller.enqueue(new TextEncoder().encode("{"))
+              releases.push(() => {
+                try {
+                  controller.close()
+                } catch {
+                  /* The probe already hung up. */
+                }
+              })
+            }
+          }), { headers: { "content-type": "application/json" } })
+        }
+      })
+      const dir = mkdtempSync(join(tmpdir(), "build-probe-stall-"))
+      const receipt = join(dir, "receipt.json")
+      try {
+        const startedAt = Date.now()
+        const proc = Bun.spawn(["bun", probePath, server.url.origin, "--sha", NEW, "--settle-ms", "100", "--settle-interval-ms", "25", "--json", receipt], {
+          stdout: "pipe",
+          stderr: "pipe"
+        })
+        const exitCode = await Promise.race([proc.exited, Bun.sleep(5_000).then(() => "still running" as const)])
+        const elapsedMs = Date.now() - startedAt
+        if (exitCode === "still running") proc.kill()
+        expect(exitCode).toBe(1)
+        expect(releases.length).toBeGreaterThan(0)
+        expect(elapsedMs).toBeLessThan(5_000)
+        expect(existsSync(receipt)).toBe(true)
+        const report = JSON.parse(readFileSync(receipt, "utf8")) as { stamp: unknown; settle: { settleMs: number; waitedMs: number; settled: boolean }; checks: Array<{ label: string; status: string; detail: string }> }
+        expect(report.stamp).toBeNull()
+        expect(report.settle.settleMs).toBe(100)
+        expect(report.settle.settled).toBe(false)
+        expect(report.settle.waitedMs).toBeLessThan(1_000)
+        expect(report.checks[0]).toEqual({ label: "the deployment carries a build stamp", status: "FAIL", detail: expect.stringContaining("no complete answer within") })
+      } finally {
+        for (const release of releases) release()
+        server.stop(true)
+        rmSync(dir, { recursive: true, force: true })
+      }
+    })
+  }
 
   test("--settle-ms 0 grades the first read, the behaviour before the window existed", async () => {
     const result = await runProbe(1, ["--settle-ms", "0"])
