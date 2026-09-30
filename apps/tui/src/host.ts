@@ -855,7 +855,7 @@ export const turnOptions = (
           `Background tabs: ${input.background ?? "[]"}`
         ]
         : [
-          "Start each cell with a short purpose sentence. Split independent work with agent.delegate, then use agent.wait({ids}) and aggregate the child answers. Children can delegate to depth 3; depth 4 is refused. When you cannot decide alone, ask({question, options}) goes to the agent that started you, then up to the person; answer a child's ask with agent.answer({id, answer}). End with one sentence and essential evidence. Never claim unobserved tests passed."
+          "Start each cell with a one-line purpose. Split independent work with agent.delegate, then agent.wait({ids}), and aggregate the answers. Children delegate to depth 3; depth 4 is refused. When you cannot decide alone, ask({question, options}) goes to your parent, then the person; answer a child's ask with agent.answer({id, answer}). End with one sentence and essential evidence. Never claim unobserved tests passed."
         ]),
       ...(agent === undefined ? [] : [agent.system])
     ],

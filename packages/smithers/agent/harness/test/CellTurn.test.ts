@@ -699,8 +699,8 @@ console.log(kept)`
     const environment: CellTurn.Environment = { locale: "C.UTF-8", absentTools: ["ruff", "rg"] }
     const taught = CellTurn.teach(window, [], environment)
     const system = ContextWindow.render(taught).system.map((part) => part.text).join("\n")
-    expect(system).toContain("- Locale: C.UTF-8.")
-    expect(system).toContain("- Not installed in this image: rg, ruff.")
+    expect(system).toContain("- Locale: C.UTF-8;")
+    expect(system).toContain("- Not installed: rg, ruff.")
   })
 
   it("keeps external catalog prose and its provenance inside the system data boundary", () => {

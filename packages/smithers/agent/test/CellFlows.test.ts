@@ -1872,7 +1872,7 @@ ctx.done(files.filter((_, i) => judged.answers[String(i)].value).map((f) => f.pa
       cells: [`ctx.done("shown")`]
     }))
     expect(shown._tag).toBe("completed")
-    const example = /```cell\n([\s\S]*?)```/.exec(requests[0]!.slice(requests[0]!.indexOf("Hundreds fit in one call")))
+    const example = /```cell\n([\s\S]*?)```/.exec(requests[0]!.slice(requests[0]!.indexOf("Hundreds take ~300 ms")))
     expect(example).not.toBeNull()
 
     const match = (file: string) => ({ file, line: 1, text: "timeout", before: [], after: [] })

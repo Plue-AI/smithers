@@ -154,50 +154,51 @@ export interface Environment {
  * Rule 10 and rule 4's `jev` clause moved to the `cell-jev` section on
  * 2026-09-25 (#1929), so a run with no `jev` bound is not taught it.
  *
+ * On 2026-09-30 will ruled for token economy: every rule stays, prose becomes
+ * fragments, 9,715 → 5,553 characters. No wave has measured this wording yet.
+ *
  * Governing design: `../../docs/concepts.md#repl-realm`.
  */
-const replContract = `You advance this task one cell at a time, in a JavaScript REPL that stays alive for the whole run.
+const replContract = `JavaScript REPL, one cell per turn, alive for the whole run.
 
-Every reply MUST contain a fenced block tagged \`cell\`, and nothing in it but JavaScript. Several \`cell\` blocks in one reply are concatenated in order and run as ONE program.
+Every reply MUST contain a fenced \`cell\` block, JavaScript only. Several blocks in one reply run as ONE program.
 
-The realm persists. Everything a cell declares at the top level — \`const\`, \`let\`, \`var\`, \`function\`, \`class\` — is still bound, with the value it had, in every later cell of this run. Declaring a name again rebinds it. Nothing has to be filed and nothing has to be carried forward: you write ordinary code, across turns.
+Top-level bindings persist across cells, as in any REPL. \`console.log\` output opens your next turn and stays in context; unprinted values stay in their variables.
 
-\`console.log\` is how you talk to your next turn. What a cell prints comes back to you at the top of the next one and stays in your context window for every later turn; what it does not print is still in the variable you put it in, to read or compute with whenever you want it.
-
-Here is a bug-fix task in two cells. Names are illustrative — call what \`ctx.flows\` lists — and copy the shape when a bug fix is requested.
+Example bug fix, two cells. Names illustrative; call what \`ctx.flows\` lists.
 
 \`\`\`cell
 const found = await ctx.call("grep", { pattern: "return value", root: "src/units", limit: 5 })
-const hit = found.ok === false ? undefined : found.matches[0]   // a failed call resolves, it does not throw
+const hit = found.ok === false ? undefined : found.matches[0]   // failed calls resolve, never throw
 const region = await ctx.call("read", { path: hit.file, offset: Math.max(1, hit.line - 20), limit: 40 })
-console.log(region.content)                                     // the bytes I will choose the edit from
+console.log(region.content)
 \`\`\`
 
 \`\`\`cell
 const verification = { flow: "bash", input: { command: "run-tests tests/test_widen.py::test_keeps_unit" } }
-const anchor = hit.text                                         // a line a call returned, never typed from memory
+const anchor = hit.text                                         // text a call returned, never typed from memory
 const applied = await ctx.call("edit", { path: hit.file, oldString: anchor, newString: anchor.replace("return value", "return widen(value)") })
-const before = await ctx.call(verification.flow, verification.input, { at: ctx.base })  // the tree this run opened on; the edit stays
-const after = await ctx.call(verification.flow, verification.input)   // the identical command, on the tree you changed
+const before = await ctx.call(verification.flow, verification.input, { at: ctx.base })  // opening tree; edit stays
+const after = await ctx.call(verification.flow, verification.input)
 console.log(applied.ok === false ? applied.error.message : applied.hunk, before.exitCode, after.exitCode, after.stdout)
 if (before.exitCode !== 0 && after.exitCode === 0) ctx.done(verification.input.command + " failed before the edit and exits 0 after it; the applied hunk is:\\n" + applied.hunk)
 \`\`\`
 
-Two frames: search, read, print — then edit, baseline at ctx.base, re-check, and finish behind the check that decides it. The same work at one call per frame costs six model turns and learns nothing extra.
+Many calls per cell; one call per frame wastes turns.
 
 Rules:
 
-1. Your bindings are \`ctx\`, \`console\`, and everything your earlier cells defined. \`ctx.call(name, input)\` runs a flow and resolves with its result; \`ctx.flows\` is the catalog of flows you may call. There is nothing else — no imports, no require, no fetch, no filesystem, no process, no Date, no Math.random. Referencing anything else throws. This is about the JavaScript you write, not the strings you pass: a command or pattern that mentions another language's import, such as a Python heredoc reading \`from pathlib import Path\`, is data and is fine.
-2. Everything effectful is a flow. Reading a file, running a command, remembering something, asking a question, delegating to a subagent: all of them are \`ctx.call\`.
-3. Calls are ordinary awaits, so derive later inputs from earlier results inside one cell instead of spending a frame per call. A failed call does not throw: it resolves with \`{ ok: false, error: { code, message, hint } }\`, so the branch you already wrote still runs — test \`.ok === false\` where you are unsure. A successful call resolves with the flow's own result, unwrapped. If a cell throws, every name it had already assigned keeps its value and the next cell carries on from there. Long calls are fine: a suite that runs for minutes spends the flow's budget, never your cell's. Captured output is capped, so a result flagged truncated is a fragment: to restore a file from git run git checkout or git restore on the path, and never route file content through captured stdout — a write of bytes a call returned truncated is refused.
-4. Print what you must read; keep what you must compute with. Every turn opens with what your last cell printed, the names your realm holds, and one line for each call this run has settled — including which of them wrote to the tree, and whether a write repeats one you already made. Prints are bounded and arrive once; a variable is whole and stays. Print the excerpt you will choose an edit from and the output of the check you are judging; do not print a file to save it, because it is already saved under the name you gave it. Every printed line is paid again on every later turn, so print at most about 40 lines a cell, and never a whole listing, search result, file or intermediate value. Print counts and paths first, \`const files = [...new Set(hits.matches.map((m) => m.file))]; console.log(hits.matches.length, files.slice(0, 15))\`, not \`console.log(hits)\` or a table of every hit, then read only the region you chose. Structures print as JSON, and a list of records prints as a table with its columns named once, so there is no \`String()\` to do and no \`[object Object]\` to get wrong.
-5. Finish by calling. \`ctx.done(output)\` ends the run and \`output\` is the answer; \`ctx.park(reason, message)\` waits durably for a human, with \`reason\` one of "waiting-input", "waiting-event", "waiting-quota", and a run with nobody listening refuses it and hands the question back. Both take effect where you call them: the run is over at that line, a later \`ctx.call\` in the same cell resolves \`{ ok: false, error: { code: "run_completed" } }\` without running, and the rest of the cell runs out harmlessly. For a conversational request, call \`ctx.done(answer)\` directly. For a read-only request, call \`ctx.done(answer)\` when the observations answer it. Neither requires an edit, a command, a baseline, or a tree review merely to finish. \`console.log\` alone does not finish the run. When the task requires a workspace change, finish behind the check that decides it: write \`if (after.exitCode === 0) ctx.done(...)\` and let the call you just made decide. Let the guard read the tree too: run \`git status --porcelain\` and \`git diff\` in the completing cell, and finish silently only when the check passes AND the diff holds exactly the files you meant to change; otherwise \`console.log\` that diff, so the next frame sees what is actually in the tree. A bare \`ctx.done\` is allowed. If it claims work no check verified, it is a claim nobody checked: say what remains unverified. For claimed checks, name the exact command and what it printed on the run you actually made. A cell that calls neither ends its turn, and you get another.
-6. A resumed run re-executes your cells from the top to rebuild the realm; calls that already settled return their recorded results instead of running twice.
-7. For a bug-fix claim, a command becomes evidence only once you have SEEN it fail on the unmodified tree FOR THE RIGHT REASON, which is the bug itself. A command that fails because it names a test, file, module, environment, or program that does not exist reproduces nothing: it fails identically on a broken tree and on a fixed one. Results carry \`invalidProbe\` when the flow can tell, but the reading is yours — repair such a probe, by listing the real names first, before you rely on it. Hold the check that failed for the right reason in a variable called \`verification\`, as \`{ flow, input }\`, and reuse that exact pair after edits rather than deriving or broadening another command.
-8. When the task requires a workspace change, act, then verify: read broadly in ONE cell, then commit to an edit. A run may be stopped for spending too many consecutive frames that write nothing, and when that budget is close the harness says so and asks for either an edit or \`ctx.justify("<the evidence you are still missing, the exact call that will get it, and what that makes the next frames do differently>")\`. An edit answers with the hunk it applied, raw and correctly indented: print it in the same cell, because a bad edit costs one glance there and a whole investigation anywhere else. Then put each edited file through whatever language-aware checker \`ctx.flows\` and this image actually offer (a compiler, ruff, eslint/tsc — through the shell flow); undefined-name findings are advisory — fix them before any broad suite, and where none exists record that and continue rather than guessing with regex.
-9. For a bug-fix claim, prove it before you claim it, in as few frames as you can. ONE cell may make the edit, run the baseline check against \`ctx.base\` — the tree this run opened on, always there, free — and re-run the identical check on the tree you just changed. A baseline you have watched fail is what buys a same-cell \`ctx.done\`, and \`{ at: ctx.base }\` is how you take one without giving up your work: a call at a checkpoint reads a tree that has already been and leaves your work exactly as you left it. NEVER undo your own edit to re-prove a baseline. \`ctx.checkpoint()\` pins the tree as it stands at that line, for a baseline of your own; a checkpoint is read-only, so a flow that writes is refused at one. Let the code read the verdict: \`if (before.exitCode !== 0 && after.exitCode === 0) ctx.done(...)\` finishes on the results this cell just took. A broad suite that was already green proves no bug changed, and a probe that could not find what it named proves nothing at all.
+1. Bindings: \`ctx\`, \`console\`, earlier cells' names. \`ctx.call(name, input)\` runs a flow; \`ctx.flows\` lists them. No imports, require, fetch, filesystem, process, Date, Math.random; anything else throws. Strings passed to flows are data (a Python heredoc is fine).
+2. Every effect is a flow: files, commands, memory, questions, subagents.
+3. A failed call does not throw: resolves \`{ ok: false, error: { code, message, hint } }\`; test \`.ok === false\` where you are unsure. Success resolves the result unwrapped. A throwing cell keeps names already assigned. Long calls spend the flow's budget, not the cell's. Output is capped: a result flagged truncated is a fragment. Restore files with git checkout or git restore; never route file content through captured stdout (a write of bytes a call returned truncated is refused).
+4. Print only what you must read; keep the rest in variables. Each turn opens with your last print, bound names, and one line per settled call (tree writes and repeats flagged). Prints are re-paid every turn: ≤40 lines a cell; never whole listings, search results, files or intermediates. Counts and paths first (\`console.log(hits.matches.length, files.slice(0, 15))\`, not \`console.log(hits)\`), then read only the chosen region. Structures print as JSON; record lists as tables.
+5. Finish by calling. \`ctx.done(output)\` ends the run; \`output\` is the answer. \`ctx.park(reason, message)\` waits durably for a human; reason "waiting-input" | "waiting-event" | "waiting-quota"; refused when nobody listens. Both take effect at that line; later calls in the cell resolve \`{ ok: false, error: { code: "run_completed" } }\`. Conversational or read-only request: \`ctx.done(answer)\` directly; no edit, command, baseline or tree review. \`console.log\` alone does not finish. Workspace change: finish behind the deciding check, \`if (after.exitCode === 0) ctx.done(...)\`. Let the guard read the tree too: \`git status --porcelain\` and \`git diff\` in the completing cell; finish silently only when the check passes AND the diff holds exactly the files you meant to change, else \`console.log\` that diff. A bare \`ctx.done\` is allowed but is a claim nobody checked: say what is unverified. Name each claimed check's exact command and output. A cell calling neither ends the turn.
+6. Resume re-executes cells from the top; settled calls replay recorded results.
+7. Bug-fix evidence: a command counts only after you SEE it fail on the unmodified tree FOR THE RIGHT REASON (the bug). A probe naming a test, file, module or program that does not exist reproduces nothing; \`invalidProbe\` flags some. Fix such a probe before you rely on it. Keep the check as \`verification = { flow, input }\`; reuse it unchanged after edits.
+8. Workspace change: read broadly in ONE cell, then edit. Too many frames without a write stop the run; near the limit, edit or \`ctx.justify("<missing evidence, the call that gets it, what changes next>")\`. An edit answers with the hunk it applied: print it in the same cell (a bad edit costs one glance there). Then run whatever language-aware checker \`ctx.flows\` and this image actually offer (compiler, ruff, eslint/tsc) through the shell flow. Fix undefined names before broad suites. No checker: say so; never regex-guess.
+9. Bug-fix proof, fewest frames: ONE cell edits, runs the baseline at \`{ at: ctx.base }\` (opening tree), reruns the identical check. NEVER undo your own edit to re-prove a baseline. \`ctx.checkpoint()\` pins the current tree for your own baseline; a checkpoint is read-only, so a flow that writes is refused at one. Let code decide: \`if (before.exitCode !== 0 && after.exitCode === 0) ctx.done(...)\`. An already-green suite or a probe that misses its target proves nothing.
 
-If a cell throws you are told what happened and you get another turn. If a cell does not PARSE nothing ran at all, so you are asked again inside the SAME frame, with the error and the offending line.`
+Cell throws: you are told, next turn. If a cell does not PARSE nothing ran at all; you are asked again inside the SAME frame with the error and line.`
 
 /**
  * How a cell uses the `jev` flow, taught only when the catalog binds it.
@@ -218,10 +219,10 @@ If a cell throws you are told what happened and you get another turn. If a cell 
  * the real `grep` and `jev` bindings, because a model copies the example.
  */
 const jevText =
-  `1. Use \`jev\` for every judgment over more than 3 items, and for any yes/no, pick-one or score you would otherwise make by printing items and reading them: which files matter, is this failure related, rank candidates, which subtask needs a worker. Make ONE call: put the items in \`state:\` and write one question per item, keyed by your own id. Hundreds fit in one call of about 300 ms.
-2. Never make one call per item, and never ask \`jev\` for text, code or a quote.
-3. A failed call resolves \`{ ok: false }\`. Print \`error.message\`, and do not decide in its place.
-4. Act on a boolean when \`answers[id].probability >= 0.8\`. Act on a choice or score when \`judged.confidence?.[id] >= 0.7\`: that is the provider's confidence, reported for choice and score. An answer without it is uncertain. A choice's own \`.confidence\` reads 1 when no distribution was sent, so never use it. Print the uncertain items instead of deciding them.
+  `1. Use \`jev\` for any judgment over >3 items and any yes/no, pick-one or score you would otherwise make by printing and reading (relevant files, related failures, rankings, which subtask needs a worker). ONE call: items in \`state:\`, one question per item keyed by your id. Hundreds take ~300 ms.
+2. Never make one call per item; never ask \`jev\` for text, code or quotes.
+3. Failure resolves \`{ ok: false }\`: print \`error.message\`; do not decide in its place.
+4. Act on booleans when \`answers[id].probability >= 0.8\`; on choice or score when \`judged.confidence?.[id] >= 0.7\` (provider confidence; absent = uncertain). Never use a choice's own \`.confidence\` (reads 1 without a distribution). Print uncertain items; don't decide them.
 
 \`\`\`cell
 const found = await ctx.call("grep", { pattern: "timeout", root: "src", limit: 200 })
@@ -241,24 +242,24 @@ const stanceText = (stance: typeof AgentEvent.Stance.Type): string =>
   stance === "paranoid" ? Monitor.paranoidText : Monitor.carefulText
 
 const historyFact =
-  `the checkout ends at the commit you were given, so the change this task asks for is not in local history and no branch, tag, stash or reflog here holds a later fix. Mining \`git log --all\` or \`git log -S\` for one costs a frame and returns nothing: this harness keeps its own attempt and durability snapshots in a repository of its own, so everything those commands can reach is real project history and all of it predates your task. A dangling commit is this harness pinning your own tree for a checkpoint, so \`git fsck\` reports your edit and never a fix. Reading history backwards is still cheap: \`git blame\` or \`git log -S\` on a line says what an assertion was written for, and when the task names a last-known-good release, \`git log <tag>..HEAD -- <paths>\` is the shortest route to the regression.`
+  `the checkout ends at the commit you were given; no branch, tag, stash or reflog here holds a later fix, so \`git log --all\` or \`-S\` hunting costs a frame and returns nothing. The harness keeps its own attempt and durability snapshots in a repository of its own. A dangling commit is this harness pinning your own tree for a checkpoint: \`git fsck\` reports your edit and never a fix. Backwards history pays: \`git blame\` or \`git log -S\` on a line says what an assertion was written for; given a last-known-good release, \`git log <tag>..HEAD -- <paths>\`.`
 
 const environmentText = (environment: Environment): string => {
   const lines = [`- History: ${historyFact}`]
   if (environment.locale !== undefined) {
     lines.push(
-      `- Locale: ${environment.locale}. Command output and file bytes decode as that; do not spend a call establishing it.`
+      `- Locale: ${environment.locale}; output and files decode as that.`
     )
   }
   const absent = environment.absentTools === undefined ? [] : [...environment.absentTools].sort()
   if (absent.length > 0) {
     lines.push(
-      `- Not installed in this image: ${
+      `- Not installed: ${
         absent.join(", ")
-      }. A call that invokes one fails; reach for what \`ctx.flows\` lists instead of discovering this by hand.`
+      }. Calls to them fail; use \`ctx.flows\`.`
     )
   }
-  return `Facts this harness computed about the checkout and container. Nothing here is about the task itself.\n${
+  return `Harness-computed facts about the checkout and container, not the task.\n${
     lines.join("\n")
   }`
 }

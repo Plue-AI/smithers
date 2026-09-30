@@ -282,8 +282,7 @@ describe("cellPrompt", () => {
     // 13821 cited one as evidence. The fact that closes that class is true of
     // every checkout, so it is stated whether or not a host measured anything.
     const environment = sectionOf("cell-environment")
-    expect(environment).toContain("Facts this harness computed about the checkout and container")
-    expect(environment).toContain("Nothing here is about the task itself")
+    expect(environment).toContain("Harness-computed facts about the checkout and container, not the task.")
     expect(environment).toContain("the checkout ends at the commit you were given")
     expect(environment).toContain("no branch, tag, stash or reflog here holds a later fix")
     expect(environment).toContain("costs a frame and returns nothing")
@@ -314,7 +313,7 @@ describe("cellPrompt", () => {
 
   it("states a measured locale and omits the line when the host measured none", () => {
     expect(sectionOf("cell-environment", {}, { locale: "C.UTF-8" })).toContain(
-      "- Locale: C.UTF-8. Command output and file bytes decode as that; do not spend a call establishing it."
+      "- Locale: C.UTF-8; output and files decode as that."
     )
     expect(sectionOf("cell-environment", {}, {})).not.toContain("- Locale:")
     expect(sectionOf("cell-environment")).not.toContain("- Locale:")
@@ -322,17 +321,17 @@ describe("cellPrompt", () => {
 
   it("names absent tools once, sorted, and says nothing when none were measured", () => {
     expect(sectionOf("cell-environment", {}, { absentTools: ["ruff", "rg"] })).toContain(
-      "- Not installed in this image: rg, ruff. A call that invokes one fails; reach for what `ctx.flows` lists instead of discovering this by hand."
+      "- Not installed: rg, ruff. Calls to them fail; use `ctx.flows`."
     )
     // An empty measurement is not a claim that every tool is present.
-    expect(sectionOf("cell-environment", {}, { absentTools: [] })).not.toContain("- Not installed in this image:")
-    expect(sectionOf("cell-environment", {}, {})).not.toContain("- Not installed in this image:")
+    expect(sectionOf("cell-environment", {}, { absentTools: [] })).not.toContain("- Not installed:")
+    expect(sectionOf("cell-environment", {}, {})).not.toContain("- Not installed:")
   })
 
   it("renders every measured fact together, in a stable order", () => {
     const environment = sectionOf("cell-environment", {}, { locale: "C.UTF-8", absentTools: ["rg"] })
     expect(environment.indexOf("- History:")).toBeLessThan(environment.indexOf("- Locale:"))
-    expect(environment.indexOf("- Locale:")).toBeLessThan(environment.indexOf("- Not installed in this image:"))
+    expect(environment.indexOf("- Locale:")).toBeLessThan(environment.indexOf("- Not installed:"))
   })
 
   it("admits only typed, harness-measurable facts into the environment section", () => {
@@ -388,9 +387,12 @@ describe("cellPrompt", () => {
     // Lowered to 2,490 on 2026-09-25: rule 10 and the rule-4 jev clause moved
     // to cell-jev on 2026-09-25 (owner decision, #1929); a SWE-bench arm
     // measures this wording and informs tuning, not reverting.
-    expect(Tokens.estimate(contractText())).toBeLessThanOrEqual(2_490)
+    //
+    // Lowered to 1,450 on 2026-09-30 by the token-economy rewrite: the same
+    // rules in fragments. The environment ceiling fell from 300 to 200.
+    expect(Tokens.estimate(contractText())).toBeLessThanOrEqual(1_450)
     expect(Tokens.estimate(sectionOf("cell-environment", {}, { locale: "C.UTF-8", absentTools: ["rg", "ruff"] })))
-      .toBeLessThanOrEqual(300)
+      .toBeLessThanOrEqual(200)
   })
 })
 
@@ -445,9 +447,11 @@ describe("the contract", () => {
     // It moved again on 2026-09-25, 10,753 → 9,715: rule 10 and the rule-4 jev
     // clause moved to cell-jev on 2026-09-25 (owner decision, #1929); a
     // SWE-bench arm measures this wording and informs tuning, not reverting.
-    expect(replText()).toHaveLength(9_715)
+    // It moved again on 2026-09-30, 9,715 → 5,553, on will's token-economy
+    // ruling: every rule kept, prose cut to fragments. Unmeasured by a wave.
+    expect(replText()).toHaveLength(5_553)
     expect(Digest.digest(replText()))
-      .toBe("7ad8b2ce63040d6c565a2fa2610c156ffabeeb90e6a435b73eb8b211d8d5eb69")
+      .toBe("11484a7f060a8490eda84a3bac7f72bbafad8b8e7f52c3e14a6be805c55ca122")
   })
 
   it("encourages the guard shape and leaves the unguarded completion legal", () => {
@@ -479,7 +483,7 @@ describe("the contract", () => {
     expect(text).toContain(
       "finish silently only when the check passes AND the diff holds exactly the files you meant to change"
     )
-    expect(text).toContain("`console.log` that diff, so the next frame sees what is actually in the tree")
+    expect(text).toContain("else `console.log` that diff")
   })
 
   it("shows the guard in the worked example rather than only describing it", () => {
@@ -531,9 +535,10 @@ describe("the jev teaching", () => {
     // Rule 10 and the rule-4 jev clause moved here on 2026-09-25 (owner
     // decision, #1929), with the owner's floors and one worked example. A
     // SWE-bench arm measures this wording and informs tuning, not reverting.
-    expect(jevText()).toHaveLength(1_677)
-    expect(Digest.digest(jevText())).toBe("421fcbbc33411ebcdb2810914ee6ad30b5efded8fdab6eaf1e4088294a85f31b")
-    expect(Tokens.estimate(jevText())).toBeLessThanOrEqual(450)
+    // Rewritten in fragments on 2026-09-30 (token economy); the example is unchanged.
+    expect(jevText()).toHaveLength(1_484)
+    expect(Digest.digest(jevText())).toBe("a363cb6d4ad893a6cb1829859d9d42531d09d463dc57a1d15ebc7dd3c81e48e5")
+    expect(Tokens.estimate(jevText())).toBeLessThanOrEqual(410)
   })
 
   it("teaches the owner's floors and one call, never a call per item", () => {

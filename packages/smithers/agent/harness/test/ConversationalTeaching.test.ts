@@ -9,17 +9,16 @@ describe("completion teaching across task kinds", () => {
     // The live chat request "Reply with only the letter A" printed A six
     // times, then looked for a failing test instead of completing its answer.
     const text = contract()
-    expect(text).toContain("For a conversational request, call `ctx.done(answer)` directly")
-    expect(text).toContain("For a read-only request, call `ctx.done(answer)` when the observations answer it")
-    expect(text).toContain("Neither requires an edit, a command, a baseline, or a tree review merely to finish")
-    expect(text).toContain("`console.log` alone does not finish the run")
+    expect(text).toContain("Conversational or read-only request: `ctx.done(answer)` directly")
+    expect(text).toContain("no edit, command, baseline or tree review")
+    expect(text).toContain("`console.log` alone does not finish")
   })
 
   it("scopes edit and proof rules to requested workspace changes while retaining their safeguards", () => {
     const text = contract()
-    expect(text).toContain("When the task requires a workspace change, finish behind the check that decides it")
-    expect(text).toContain("8. When the task requires a workspace change, act, then verify")
-    expect(text).toContain("9. For a bug-fix claim, prove it before you claim it")
+    expect(text).toContain("Workspace change: finish behind the deciding check")
+    expect(text).toContain("8. Workspace change: read broadly in ONE cell, then edit")
+    expect(text).toContain("9. Bug-fix proof, fewest frames")
     expect(text).toContain("if (before.exitCode !== 0 && after.exitCode === 0) ctx.done(")
     expect(text).toContain("`git status --porcelain` and `git diff` in the completing cell")
     expect(text).toContain("NEVER undo your own edit to re-prove a baseline")

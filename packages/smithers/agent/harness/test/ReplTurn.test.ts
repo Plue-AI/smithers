@@ -185,7 +185,7 @@ describe("CellTurn in repl mode", () => {
   it("teaches the realm contract, and nothing about a returned transition", async () => {
     const { model } = await run({ script: [emits("ctx.done('finished')")] })
     const system = (model.recorder.requests[0]?.system ?? []).map((part) => part.text).join("\n")
-    expect(system).toContain("a JavaScript REPL that stays alive for the whole run")
+    expect(system).toContain("JavaScript REPL, one cell per turn, alive for the whole run")
     expect(system).toContain("ctx.done(output)")
     expect(system).not.toContain("Return a transition")
   })
