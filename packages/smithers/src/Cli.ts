@@ -11,7 +11,8 @@ import * as MigrateCommand from "@smthrs/migrate/flow/Command"
 import type * as Evaluator from "@smthrs/model/Evaluator"
 import { Effect, Layer, Logger } from "effect"
 import { Cli, z } from "incur"
-import { resolve } from "node:path"
+import { createRequire } from "node:module"
+import { dirname, resolve } from "node:path"
 import * as Agents from "./Agents.ts"
 import * as Argv from "./cli/Argv.ts"
 import * as Bridge from "./cli/ControlBridge.ts"
@@ -110,6 +111,10 @@ export const makeCli = (config: Bridge.Runtime = {}): ReturnType<typeof makeBuil
     cliName: "smthrs",
     cliVersion: packageVersion,
     cliDescription: "Build workspace targets and operate durable agent flows",
+    sync: {
+      cwd: dirname(createRequire(import.meta.url).resolve("@smthrs/cli/package.json")),
+      include: ["skills/*"]
+    },
     cacheSteps: createStepCacheCli()
   })
   cli.use((context, next) => Presentation.scope(context, config, next))

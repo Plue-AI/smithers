@@ -142,6 +142,8 @@ export interface RuntimeConfig {
   readonly cliName?: string | undefined
   readonly cliVersion?: string | undefined
   readonly cliDescription?: string | undefined
+  /** Packaged authoring skills included by the public skills installer. */
+  readonly sync?: { cwd?: string | undefined; include?: Array<string> | undefined } | undefined
   readonly cacheUrl?: string | undefined
   readonly cacheToken?: string | undefined
   /** Optional durable step-cache commands supplied by the unified CLI. */
@@ -1118,7 +1120,8 @@ const makeCommands = (config: RuntimeConfig) =>
   Cli.create(config.cliName ?? "smithers-build", {
     description: config.cliDescription ?? "Execute declared targets and install the workspace with flows",
     version: config.cliVersion ?? metadata.version,
-    globals: globalOptions
+    globals: globalOptions,
+    sync: config.sync
   })
     .command(cacheCli(config))
     .command(

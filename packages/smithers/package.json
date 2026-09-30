@@ -115,6 +115,7 @@
     "bin/**/*.mjs",
     "src/**/*.ts",
     "docs/**",
+    "skills/**",
     "dist/**/*.js",
     "dist/**/*.js.map",
     "dist/**/*.d.ts",

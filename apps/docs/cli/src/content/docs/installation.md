@@ -131,3 +131,7 @@ embeds the command tree adds no further packages. See
 ## Next step
 
 Run one project from `init` to a settled run in the [Quickstart](/quickstart/).
+
+## Agent skill
+
+Run `smthrs skills add` to install or refresh the packaged Smithers authoring skill in detected agents. The skill comes from the installed CLI package, regardless of your current directory.
