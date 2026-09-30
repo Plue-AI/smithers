@@ -99,10 +99,12 @@ describe("the scan surface's dependency boundary", () => {
   })
 
   it("keeps the flow-lane packages out of the hard dependencies", () => {
-    // The Node adapter owns its node-shared implementation dependency. The
-    // scanner declares only packages it imports directly.
+    // The scanner declares the packages it imports directly, plus the Node
+    // adapter's shared platform, which the adapter would otherwise take at
+    // the newest release candidate its caret range allows (#2398).
     expect(Object.keys(manifest.dependencies).sort()).toEqual([
       "@effect/platform-node",
+      "@effect/platform-node-shared",
       "effect",
       "typescript"
     ])
@@ -115,17 +117,14 @@ describe("the scan surface's dependency boundary", () => {
       new URL("../../../../scripts/check-single-effect-version.mjs", import.meta.url).href
     )
     // The scanner can run before a project installs the flow runtime. Its own
-    // Effect and Node adapter are hard dependencies, sharing the checked-in
-    // family pin; only the adapter's shared platform contract remains a peer.
-    for (const name of ["effect", "@effect/platform-node"]) {
+    // Effect, the Node adapter and its shared platform are hard dependencies
+    // at the checked-in family pin. A peer-only shared platform let npm, pnpm
+    // and Bun each resolve the adapter's own caret edge to a newer release
+    // candidate beside the pinned Effect (#2398).
+    for (const name of ["effect", "@effect/platform-node", "@effect/platform-node-shared"]) {
       expect(manifest.dependencies[name]).toBe(EXPECTED_EFFECT_VERSION)
       expect(manifest.devDependencies[name]).toBe(EXPECTED_EFFECT_VERSION)
     }
-    expect(Object.keys(manifest.peerDependencies)).toEqual(["@effect/platform-node-shared"])
-    for (const [name, version] of Object.entries(manifest.peerDependencies)) {
-      expect(version).toBe(EXPECTED_EFFECT_VERSION)
-      expect(manifest.dependencies[name]).toBeUndefined()
-      expect(manifest.devDependencies[name]).toBe(version)
-    }
+    expect(manifest.peerDependencies).toBeUndefined()
   })
 })

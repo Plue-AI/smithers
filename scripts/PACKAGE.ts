@@ -116,7 +116,9 @@ const releaseRehearsal = Smithers.NodeTest({
     Smithers.file("//scripts/release-graph.test.mjs"),
     Smithers.file("//scripts/release-gates.test.mjs"),
     Smithers.file("//scripts/runtime-node-support.test.mjs"),
-    Smithers.file("//scripts/dev-compiler-isolation.test.mjs")
+    Smithers.file("//scripts/dev-compiler-isolation.test.mjs"),
+    Smithers.file("//scripts/release-mcp-handshake.test.mjs"),
+    Smithers.file("//scripts/check-single-effect-version.test.mjs")
   ]),
   srcs: [
     ...sources,

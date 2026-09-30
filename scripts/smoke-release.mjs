@@ -13,6 +13,11 @@
  * the consumer is told to bring: `@smthrs/platform-bun` resolves
  * `@effect/platform-bun` at import time, and without it the ESM entry throws
  * ERR_MODULE_NOT_FOUND in the consumer's project.
+ * A second, empty consumer installs `@smthrs/cli` alone with npm and an empty
+ * package cache, answers MCP `initialize` from the installed `smthrs --mcp`,
+ * and holds every Effect-family package it resolved to the pinned version: a
+ * fresh resolver taking a third-party caret edge past the pin is how
+ * `smithers-orchestrator@0.32.0` failed before its handshake (#2398).
  * Separate npm and pnpm consumers then certify default libraries, selected
  * Node/browser/Bun adapters, create-app/testing, and migration install shapes
  * against the same tarballs before a successful smoke receipt is written.
@@ -47,6 +52,8 @@ import { recordSmokeSuccess, verifyLocalCandidate } from "./publish-release.mjs"
 import { assertNodeSupport } from "./release-node-support.mjs"
 import { assertSmokeNpmSupport } from "./release-npm-support.mjs"
 import { verifyPackagedNativeHelpers } from "./release-native-helpers.mjs"
+import { EXPECTED_EFFECT_VERSION } from "./check-single-effect-version.mjs"
+import { assertEffectFamilyInstalled, mcpInitialize } from "./release-mcp-handshake.mjs"
 import { adapterProfiles, consumerCacheFlags, migrationProfiles, minimalProfiles, releasePackageManager, runConsumerMatrix, templateProfile } from "./release-consumers.mjs"
 import { repoRoot } from "./workspace-packages.mjs"
 
@@ -265,6 +272,28 @@ try {
     if (!result.ok) throw new Error(`Installed CLI ${args.join(" ")} failed: ${result.output}`)
   }
   console.log("CLI smoke ok: packaged binaries, workspace initialization, target loading, and flow discovery")
+
+  await phase("installed CLI MCP handshake", async () => {
+    const cliVersion = packManifest.find((entry) => entry.name === "@smthrs/cli").version
+    const consumer = await mkdtemp(join(tmpdir(), "smthrs-release-mcp-"))
+    try {
+      await writeFile(join(consumer, ".npmrc"), `@smthrs:registry=${registry.url}\n`)
+      await writeFile(join(consumer, "package.json"), `${JSON.stringify({
+        private: true, dependencies: { "@smthrs/cli": cliVersion }
+      }, null, 2)}\n`)
+      // An empty cache: every third-party range resolves as a new user's would.
+      await run("npm", ["install", "--ignore-scripts", "--no-audit", "--no-fund", "--cache", join(consumer, ".empty-npm-cache")], consumer)
+      const installed = assertEffectFamilyInstalled(consumer, EXPECTED_EFFECT_VERSION)
+      const serverInfo = await mcpInitialize(join(consumer, "node_modules/.bin/smthrs"), ["--mcp"], { cwd: consumer, env: cliEnv })
+      if (serverInfo.version !== cliVersion) {
+        throw new Error(`installed smthrs --mcp reported ${serverInfo.version}, packed ${cliVersion}`)
+      }
+      console.log(`MCP smoke ok: installed smthrs --mcp answered initialize as ${serverInfo.name} ${serverInfo.version}; ` +
+        `${installed.length} Effect-family packages all at ${EXPECTED_EFFECT_VERSION}`)
+    } finally {
+      await rm(consumer, { recursive: true, force: true })
+    }
+  })
 
   // Import-only checks cannot catch a guest runner path erased by a CJS build.
   // Execute a real sandboxed flow through both published module conditions.

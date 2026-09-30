@@ -3117,6 +3117,7 @@
       },
       "dependencies": {
         "@effect/platform-node": "4.0.0-rc.115",
+        "@effect/platform-node-shared": "4.0.0-rc.115",
         "effect": "4.0.0-rc.115",
         "typescript": "7.0.2",
       },
@@ -3154,9 +3155,6 @@
         "@smthrs/plan": "1.0.0-rc.1",
         "@smthrs/platform-node": "1.0.0-rc.1",
         "@smthrs/registry": "1.0.0-rc.1",
-      },
-      "peerDependencies": {
-        "@effect/platform-node-shared": "4.0.0-rc.115",
       },
     },
     "packages/smithers/notifications": {

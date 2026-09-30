@@ -35,6 +35,39 @@ export const assertEffectPins = (records) => {
     wrong.map(({ name, version, source }) => `  ${source}: ${name}@${version}`).join("\n"))
 }
 
+/**
+ * `@effect/platform-bun` and `@effect/platform-node` ask for
+ * `@effect/platform-node-shared` with a caret range, so a fresh consumer
+ * resolves its newest release candidate, which imports Effect modules the
+ * pinned `effect` lacks: `smithers-orchestrator@0.32.0` exited before MCP
+ * `initialize` that way (#2398). A published package that declares either
+ * platform must therefore declare `@effect/platform-node-shared` exactly
+ * itself: in `dependencies` when the platform is a dependency, and in
+ * `dependencies` or `peerDependencies` when the platform is a peer.
+ */
+const platformsNeedingShared = ["@effect/platform-bun", "@effect/platform-node"]
+export const nodeSharedPinProblems = (manifests) => {
+  const problems = []
+  for (const [directory, manifest] of manifests) {
+    for (const section of ["dependencies", "peerDependencies", "optionalDependencies"]) {
+      const platforms = platformsNeedingShared.filter((name) => Object.hasOwn(manifest[section] ?? {}, name))
+      if (platforms.length === 0) continue
+      const allowed = section === "peerDependencies" ? ["dependencies", "peerDependencies"] : ["dependencies"]
+      const pinned = allowed.some((where) => manifest[where]?.["@effect/platform-node-shared"] === EXPECTED_EFFECT_VERSION)
+      if (!pinned) {
+        problems.push(`${directory} (${manifest.name}): ${section} declares ${platforms.join(" and ")} without an exact ` +
+          `@effect/platform-node-shared@${EXPECTED_EFFECT_VERSION} in ${allowed.join(" or ")}`)
+      }
+    }
+  }
+  return problems
+}
+
+export const assertNodeSharedPins = (manifests) => {
+  const problems = nodeSharedPinProblems(manifests)
+  if (problems.length > 0) throw new Error(`Published packages leave @effect/platform-node-shared to a caret range:\n  ${problems.join("\n  ")}`)
+}
+
 /** Missing and malformed installs fail closed; same-version private Effect copies fail too. */
 export const installedEffectResolutions = (root, manifests) => {
   const rootEffect = realpathSync(createRequire(join(root, "package.json")).resolve("effect/package.json"))
@@ -73,6 +106,7 @@ export const checkEffectVersions = (root = repoRoot) => {
   }
   assertEffectPins([...manifestRecords, ...locked])
   const published = readWorkspaceManifests(root)
+  assertNodeSharedPins(published)
   const installed = installedEffectResolutions(root, published)
   assertEffectPins(installed)
   return { declarations: manifestRecords.length, locked: locked.length, resolutions: installed.length, packages: published.size }

@@ -54663,6 +54663,14 @@
         "path": "scripts/dev-compiler-isolation.test.mjs"
       },
       {
+        "kind": "file",
+        "path": "scripts/release-mcp-handshake.test.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/check-single-effect-version.test.mjs"
+      },
+      {
         "kind": "glob",
         "pattern": "scripts/**/*.mjs",
         "exclude": []
