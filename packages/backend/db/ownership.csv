@@ -263,3 +263,4 @@ issue_sync_receipts,product,issue chat routing and durable receipts
 issue_sync_deliveries,product,issue chat routing and durable receipts
 issue_external_reactions,product,issue chat routing and durable receipts
 issue_comment_keys,product,durable issue comment request identities
+github_mirror_refreshes,product,GitHub import mirror refresh cooldown

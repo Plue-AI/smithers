@@ -123,6 +123,7 @@ var migrationRegistry = []migrationSpec{
 	{85, "migrations/0085_model_usage_bound_tokens.sql"},
 	{86, "migrations/0086_model_usage_created_at.sql"},
 	{87, "migrations/0087_workspace_client_lease.sql"},
+	{88, "migrations/0088_github_mirror_refreshes.sql"},
 }
 
 type migration struct {

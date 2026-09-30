@@ -298,9 +298,11 @@ type GitHubImportService struct {
 	billing      BillingPolicy
 	storageSetID string
 	asyncTimeout time.Duration
-	cloneMirror  func(ctx context.Context, owner, repo, sourceToken, pushURL, pushToken, jobID string) error
-	runGit       func(ctx context.Context, env []string, args ...string) (string, error)
-	mkdirTemp    func(dir, pattern string) (string, error)
+	// refreshCooldown is the per-mirror window between GitHub clones (#2970).
+	refreshCooldown time.Duration
+	cloneMirror     func(ctx context.Context, owner, repo, sourceToken, pushURL, pushToken, jobID string) error
+	runGit          func(ctx context.Context, env []string, args ...string) (string, error)
+	mkdirTemp       func(dir, pattern string) (string, error)
 	// provenanceMatches reports whether an existing local repo is provably the
 	// mirror of the requested GitHub source: a ready import job or a failed job
 	// with the exact durable published binding for this user + github source.
@@ -432,17 +434,18 @@ func withGitHubImportProvenance(fn func(ctx context.Context, userID int64, githu
 
 func NewGitHubImportService(db GitHubImportDB, repoDB GitHubImportRepoDB, tokenDB GitHubImportTokenDB, repoHost GitHubImportRepoHost, decrypter OAuthAccessTokenDecrypter, gitBaseURL string, opts ...GitHubImportOption) *GitHubImportService {
 	s := &GitHubImportService{
-		db:           db,
-		repoDB:       repoDB,
-		tokenDB:      tokenDB,
-		repoHost:     repoHost,
-		decrypter:    decrypter,
-		httpClient:   observability.NewHTTPClient(15 * time.Second),
-		gitBaseURL:   gitBaseURL,
-		storageSetID: DefaultStorageSetID,
-		asyncTimeout: 10 * time.Minute,
-		runGit:       runGitCombinedOutput,
-		mkdirTemp:    os.MkdirTemp,
+		db:              db,
+		repoDB:          repoDB,
+		tokenDB:         tokenDB,
+		repoHost:        repoHost,
+		decrypter:       decrypter,
+		httpClient:      observability.NewHTTPClient(15 * time.Second),
+		gitBaseURL:      gitBaseURL,
+		storageSetID:    DefaultStorageSetID,
+		asyncTimeout:    10 * time.Minute,
+		refreshCooldown: githubMirrorRefreshCooldown(),
+		runGit:          runGitCombinedOutput,
+		mkdirTemp:       os.MkdirTemp,
 	}
 	s.cloneMirror = s.cloneAndPushMirror
 	s.provenanceMatches = s.importJobProvenanceMatches
@@ -1115,6 +1118,8 @@ func (s *GitHubImportService) finishDurablePublishedImport(
 	} else if err := s.renewDurableImportClaim(ctx, *job); err != nil {
 		return err
 	}
+	// A published import mirror was cloned from GitHub by this job.
+	s.recordMirrorCloned(ctx, repository.ID)
 
 	s.setStage(ctx, job.ID, importStageCreatingBookmark)
 	exists, err := s.bookmarkExists(ctx, job.RepoOwner, repository.Name, job.Branch)
@@ -1740,6 +1745,7 @@ func (s *GitHubImportService) runFreshImport(ctx context.Context, userID int64, 
 		s.observeFailure("import_refs", err)
 		return WorkspaceResponse{}, fmt.Errorf("import refs: %w", err)
 	}
+	s.recordMirrorCloned(ctx, repository.ID)
 	if s.metrics != nil {
 		s.metrics.ObserveMirrorDuration("import_refs", time.Since(importStarted).Seconds())
 	}
@@ -1852,10 +1858,20 @@ func (s *GitHubImportService) finishReusedImport(ctx context.Context, userID int
 // GitHub outage or an expired user token must NOT fail the reopen — it logs
 // mirror.reuse.refresh_failed and degrades to serving the existing (stale)
 // mirror. It NEVER deletes the pre-existing repo (this is not the fresh path;
-// the e60d6f8beb compensation only applies to freshly-created repos).
+// the e60d6f8beb compensation only applies to freshly-created repos). Inside
+// the mirror's refresh cooldown, or while another import refreshes it, it
+// clones nothing (claimMirrorRefresh).
 func (s *GitHubImportService) refreshReusedMirror(ctx context.Context, userID, repositoryID int64, sourceOwner, sourceRepo, localOwner, mirrorName, jobID, githubCloneToken string) {
+	claim, claimed := s.claimMirrorRefresh(ctx, repositoryID, jobID)
+	if !claimed {
+		if s.metrics != nil {
+			s.metrics.ObserveMirrorAttempt("refresh_skipped")
+		}
+		return
+	}
 	started := time.Now()
 	if err := s.refreshMirrorFromGitHub(ctx, userID, repositoryID, sourceOwner, sourceRepo, localOwner, mirrorName, jobID, githubCloneToken); err != nil {
+		s.settleMirrorRefresh(ctx, repositoryID, claim, false)
 		// Degrade to the stale mirror: the user still gets their repo, staleness
 		// is the fallback, not the norm. Not surfaced, not fatal, no cleanup.
 		slog.Warn("mirror.reuse.refresh_failed", "import_job_id", jobID, "repo_owner", localOwner, "repo_name", mirrorName, "error", err)
@@ -1864,6 +1880,7 @@ func (s *GitHubImportService) refreshReusedMirror(ctx context.Context, userID, r
 		}
 		return
 	}
+	s.settleMirrorRefresh(ctx, repositoryID, claim, true)
 	if s.metrics != nil {
 		s.metrics.ObserveMirrorDuration("refresh", time.Since(started).Seconds())
 	}

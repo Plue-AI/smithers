@@ -957,6 +957,8 @@ func TestGitHubImportService_RunImportReuseFailureDoesNotDeleteExistingRepo(t *t
 // order; every other statement is unexpected in the direct-runImport tests.
 type stageRecordingDB struct {
 	stages []string
+	// ledger records the mirror refresh ledger statements, each granted.
+	ledger []string
 }
 
 type stageIDRow struct{ err error }
@@ -979,6 +981,11 @@ func (d *stageRecordingDB) QueryRow(_ context.Context, sql string, args ...any) 
 			d.stages = append(d.stages, stage)
 			return stageIDRow{}
 		}
+	}
+	switch sql {
+	case claimGitHubMirrorRefreshSQL, completeGitHubMirrorRefreshSQL, releaseGitHubMirrorRefreshSQL, recordGitHubMirrorClonedSQL:
+		d.ledger = append(d.ledger, sql)
+		return stageIDRow{}
 	}
 	return stageIDRow{err: fmt.Errorf("unexpected statement: %s", sql)}
 }
