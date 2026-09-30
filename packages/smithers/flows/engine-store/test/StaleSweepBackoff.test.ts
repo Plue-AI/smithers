@@ -233,6 +233,19 @@ describe("the stale-running sweep backs off refused rows (B-04)", () => {
         const sql = yield* Effect.service(SqlClient.SqlClient)
         const writer = yield* DurableWriter.DurableWriter
         const probed: Array<number> = []
+        // Each sweep tick ends with the pending-admission read, and the sweeper
+        // then sleeps one heartbeat from whatever the clock reads. Advancing
+        // the clock while a tick is still running schedules the next tick past
+        // the new time, where nothing ever wakes it, so every advance here waits
+        // for the tick it started to finish.
+        const engineState = yield* DurableEngineState.DurableEngineState
+        let ticks = 0
+        const tick = (millis: number) =>
+          Effect.gen(function*() {
+            const before = ticks
+            yield* TestClock.adjust(millis)
+            yield* TestDatabase.until(Effect.sync(() => ticks > before))
+          })
         const driver = yield* RunDriver.make({
           owner: { hostId: "sweep-host", pid: 1, nonce: "sweeper" },
           journalSource: "stale-sweep-backoff",
@@ -242,7 +255,13 @@ describe("the stale-running sweep backs off refused rows (B-04)", () => {
               return true
             }),
           engine: Effect.succeed(fakeEngine)
-        })
+        }).pipe(Effect.provideService(DurableEngineState.DurableEngineState, {
+          ...engineState,
+          pendingRunTail: (flowName, eligibleBeforeMs) =>
+            engineState.pendingRunTail(flowName, eligibleBeforeMs).pipe(Effect.ensuring(Effect.sync(() => {
+              ticks = ticks + 1
+            })))
+        }))
         yield* driver.register(TestFlow, () => Effect.succeed("never reached"))
         yield* insertStaleRun(1)
 
@@ -255,12 +274,12 @@ describe("the stale-running sweep backs off refused rows (B-04)", () => {
 
         // Three refusals in a row: the wait doubles each time, so by the third
         // the row is deferred for several ticks.
-        yield* TestClock.adjust(staleAfterMs + heartbeatMs)
+        yield* tick(staleAfterMs + heartbeatMs)
         yield* TestDatabase.until(Effect.sync(() => probed.length >= 1))
         yield* TestDatabase.until(refusalsOf(runIdOf(1)).pipe(Effect.map((rows) => rows.length === 1)))
-        yield* TestClock.adjust(heartbeatMs * 2)
+        yield* tick(heartbeatMs * 2)
         yield* TestDatabase.until(Effect.sync(() => probed.length >= 2))
-        yield* TestClock.adjust(heartbeatMs * 4)
+        yield* tick(heartbeatMs * 4)
         yield* TestDatabase.until(Effect.sync(() => probed.length >= 3))
         const afterThreeRefusals = probed.length
 
@@ -268,14 +287,14 @@ describe("the stale-running sweep backs off refused rows (B-04)", () => {
         // window entirely and the sweep stops seeing it.
         const nowMs = yield* Clock.currentTimeMillis
         yield* setHeartbeat(nowMs)
-        yield* TestClock.adjust(heartbeatMs)
+        yield* tick(heartbeatMs)
         const whileFresh = probed.length
 
         // …and then stalls again, under a new lease. The refusal the driver
         // was holding was about the old one, so this stall is arbitrated now
         // rather than waiting out a backoff it did not earn.
         yield* setHeartbeat((yield* Clock.currentTimeMillis) - staleAfterMs - 1)
-        yield* TestClock.adjust(heartbeatMs)
+        yield* tick(heartbeatMs)
         yield* TestDatabase.until(Effect.sync(() => probed.length >= 4))
         return { afterThreeRefusals, whileFresh, afterNewLease: probed.length }
       }))
