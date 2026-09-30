@@ -44,7 +44,9 @@
  * It never falls back. A snapshot Jev could not read is journaled as
  * {@link AgentEvent.SupervisorUnjudged} with the transport's own reason; it
  * nudges nothing, and is never counted as a reading that
- * found the run calm or on target. Nothing here is a default value: every
+ * found the run calm or on target. A host with no judge (`unconfigured`) is
+ * journaled once per streak rather than every frame; each reading still asks,
+ * so a judge connected mid-run is used at once. Nothing here is a default value: every
  * level and every word on the settled event came back from the transport.
  *
  * What a reading says is delivered wherever the host holds a real judge

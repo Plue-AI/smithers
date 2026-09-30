@@ -713,6 +713,74 @@ describe("Supervisor", () => {
     expect(of(read.seen, "supervisor-unjudged")[0]?.reason).toBe("unreachable")
   })
 
+  describe("a host without a judge (#2163)", () => {
+    const unconfigured = new Evaluator.EvaluatorError({ code: "unconfigured", message: "No judge is set up" })
+    const refused = new Evaluator.EvaluatorError({ code: "refused", status: 503, message: "gateway down" })
+    /** Answers the supervisor's nth request from `script`, and holds each boundary until the one before was asked. */
+    const judged = (script: ReadonlyArray<Evaluator.EvaluatorError | "calm">) => {
+      const asked = script.map(() => Effect.runSync(Deferred.make<void>()))
+      const seen: Array<AgentEvent.AgentEvent> = []
+      const { contacted, layer } = scripted((_, ordinal) => {
+        if (asked[ordinal] !== undefined) Effect.runSync(Deferred.succeed(asked[ordinal], undefined))
+        const answer = script[ordinal] ?? "calm"
+        return answer === "calm" ? calm() : Effect.fail(answer)
+      })
+      return {
+        contacted,
+        seen,
+        evaluator: layer,
+        observer: (event: AgentEvent.AgentEvent) => Effect.sync(() => void seen.push(event)),
+        steering: steeringAfter((boundary) => {
+          const frame = Number(boundary.split(":")[0])
+          const held = asked[frame - 1]
+          return frame === 0 || held === undefined ? Effect.void : Deferred.await(held)
+        })
+      }
+    }
+    const frames = (count: number) => [
+      ...Array.from({ length: count - 1 }, (_, index) => emits(`console.log(${index})`)),
+      emits(`ctx.done("done")`)
+    ]
+    /** Each frame's unjudged reason or `settled`, for the frames the script covers. */
+    const readings = (seen: ReadonlyArray<AgentEvent.AgentEvent>, count: number) =>
+      Array.from(
+        { length: count },
+        (_, frame) =>
+          seen.flatMap((event) =>
+            event._tag === "supervisor-unjudged" && event.frame === frame
+              ? [event.reason]
+              : event._tag === "supervisor-settled" && event.frame === frame
+              ? ["settled"]
+              : []
+          ).join(",")
+      )
+
+    it("journals a missing judge once per streak, not once per frame", async () => {
+      const probe = judged([unconfigured, unconfigured, unconfigured])
+      const { failure } = await run({ state: state(5), script: frames(5), ...probe, judged: true })
+      expect(failure).toBeUndefined()
+      // Every frame still asks, so a judge connected mid-run is used at once.
+      expect(probe.contacted).toHaveLength(3)
+      expect(readings(probe.seen, 3)).toEqual(["unconfigured", "", ""])
+      expect(of(probe.seen, "supervisor-unjudged")).toHaveLength(1)
+    })
+
+    it("uses a judge connected mid-run, and says so again when it goes missing", async () => {
+      const probe = judged([unconfigured, "calm", unconfigured])
+      await run({ state: state(5), script: frames(5), ...probe, judged: true })
+      expect(readings(probe.seen, 3)).toEqual(["unconfigured", "settled", "unconfigured"])
+    })
+
+    it("journals every failure of a judge that is set up, and a missing judge after one", async () => {
+      const failing = judged([refused, refused, unconfigured])
+      await run({ state: state(5), script: frames(5), ...failing, judged: true })
+      expect(readings(failing.seen, 3)).toEqual(["refused", "refused", "unconfigured"])
+      const between = judged([unconfigured, refused, unconfigured])
+      await run({ state: state(5), script: frames(5), ...between, judged: true })
+      expect(readings(between.seen, 3)).toEqual(["unconfigured", "refused", "unconfigured"])
+    })
+  })
+
   it("writes nothing to memory and shows each recalled row relevance keeps once", async () => {
     const { memory, remembered } = recalling([tests, layout])
     const read = untilRead()

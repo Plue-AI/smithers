@@ -300,6 +300,23 @@ export const open = (input: {
     const inFlight = yield* Ref.make<Option.Option<{ readonly frame: number; readonly done: Deferred.Deferred<void> }>>(
       Option.none()
     )
+    // Which readings last failed for want of a judge. A host with none says so
+    // once, not every frame; the next reading still asks, so a judge connected
+    // mid-run is used at once, and any other failure is journaled every time.
+    const unconfigured = new Set<"supervisor" | "memory" | "marks">()
+    const repeated = (
+      reading: "supervisor" | "memory" | "marks",
+      unjudged: { readonly reason: string } | null,
+      answered: boolean
+    ): boolean => {
+      if (unjudged?.reason === "unconfigured") {
+        const seen = unconfigured.has(reading)
+        unconfigured.add(reading)
+        return seen
+      }
+      if (unjudged !== null || answered) unconfigured.delete(reading)
+      return false
+    }
 
     // A store that refused a read is journaled, typed, and the reading goes
     // on: memory is the supervisor's aid, not its evidence.
@@ -494,13 +511,18 @@ export const open = (input: {
         // full decisions and the memory reading go ahead of it, so a host that
         // acts on the verdict the moment it is checkpointed never finds the
         // record behind it missing.
+        const quiet = {
+          memory: repeated("memory", recorded.memoryUnjudged, recorded.memory !== null),
+          marks: repeated("marks", recorded.marksUnjudged, recorded.marksDecisions.length > 0),
+          supervisor: repeated("supervisor", recorded.unjudged, recorded.settled !== null)
+        }
         if (recorded.decision !== null) yield* emit(recorded.decision)
         for (const decision of recorded.memoryDecisions) yield* emit(decision)
         if (recorded.memory !== null) yield* emit(recorded.memory)
-        if (recorded.memoryUnjudged !== null) yield* emit(recorded.memoryUnjudged)
+        if (recorded.memoryUnjudged !== null && !quiet.memory) yield* emit(recorded.memoryUnjudged)
         for (const decision of recorded.marksDecisions) yield* emit(decision)
-        if (recorded.marksUnjudged !== null) yield* emit(recorded.marksUnjudged)
-        if (recorded.unjudged !== null) yield* emit(recorded.unjudged)
+        if (recorded.marksUnjudged !== null && !quiet.marks) yield* emit(recorded.marksUnjudged)
+        if (recorded.unjudged !== null && !quiet.supervisor) yield* emit(recorded.unjudged)
         if (recorded.settled !== null) yield* emit(recorded.settled)
       }).pipe(
         // A reading the fiber could not even record is logged and dropped:

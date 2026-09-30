@@ -996,6 +996,55 @@ describe("Host.run jev binding", () => {
   })
 })
 
+describe("Host.run without a judge (#2163)", () => {
+  /** Frames of a coordinator turn and the supervisor readings its judge was asked for. */
+  const supervise = async (failure: Evaluator.EvaluatorError) => {
+    const cwd = mkdtempSync(join(tmpdir(), "smithers-tui-no-judge-"))
+    roots.push(cwd)
+    let asked = 0
+    const judge = Evaluator.layerScripted((request) => {
+      if (Object.hasOwn(request.questions, "thrashing")) asked++
+      return Effect.fail(failure)
+    })
+    const host = Host.make({ cwd, environment: {}, judge })
+    const unjudged: Array<string> = []
+    let frames = 0
+    try {
+      const outcome = await host.run({
+        prompt: "count",
+        role: "coordinator",
+        seat: `replay:${doneReplay(cwd, "console.log(1)", "console.log(2)", "console.log(3)", "ctx.done(\"ok\")")}`,
+        history: [],
+        onEvent: (event) => {
+          if (event._tag === "cell-produced") frames++
+          if (event._tag === "supervisor-unjudged") unjudged.push(event.reason)
+        }
+      }).done
+      return { outcome, asked, frames, unjudged }
+    } finally {
+      await host.dispose()
+    }
+  }
+
+  test("a missing judge is journaled once, not every frame, and the turn still answers", async () => {
+    const { asked, frames, outcome, unjudged } = await supervise(
+      new Evaluator.EvaluatorError({ code: "unconfigured", message: "AI_GATEWAY_API_KEY is not set." })
+    )
+    expect(outcome).toEqual({ _tag: "done", answer: "ok" })
+    expect(frames).toBe(4)
+    // Readings kept asking, so a judge connected mid-turn would be used.
+    expect(asked).toBeGreaterThanOrEqual(2)
+    expect(unjudged).toEqual(["unconfigured"])
+  })
+
+  test("a judge that is set up but failing is journaled for every reading", async () => {
+    const { asked, unjudged } = await supervise(
+      new Evaluator.EvaluatorError({ code: "refused", status: 503, message: "gateway down" })
+    )
+    expect(unjudged.filter((reason) => reason === "refused")).toHaveLength(asked)
+  })
+})
+
 describe("Host.run judge failure copy", () => {
   test.each(
     [
