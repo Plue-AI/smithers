@@ -518,3 +518,116 @@ func TestPostgresJournalsWorkspacesListsOnlyThisBackendsJournals(t *testing.T) {
 	_, err = journals.Workspaces(cancelled)
 	require.Error(t, err)
 }
+
+func TestResealJournalPasswordsRetiresTheReplacedKeysPasswordsPostgres(t *testing.T) {
+	server := newJournalServer(t, true)
+	ctx := context.Background()
+	journals, err := NewPostgresJournals(ctx, server.pool, server.adminURL, JournalKey("old-operator-key"))
+	require.NoError(t, err)
+	first, second := uuid.NewString(), uuid.NewString()
+	oldFirst := server.provisioned(t, journals, first)
+	oldSecond := server.provisioned(t, journals, second)
+	live, err := pgx.Connect(ctx, oldFirst.URL)
+	require.NoError(t, err)
+	defer live.Close(ctx)
+
+	// Another backend's journal on the same server keeps its password.
+	other := newJournalServer(t, true)
+	otherJournals, err := NewPostgresJournals(ctx, other.pool, other.adminURL, JournalKey("old-operator-key"))
+	require.NoError(t, err)
+	foreign := other.provisioned(t, otherJournals, uuid.NewString())
+
+	resealed, err := ResealJournalPasswords(ctx, server.pool, "new-operator-key")
+	require.NoError(t, err)
+	assert.Equal(t, 2, resealed)
+
+	for _, old := range []JournalDatabase{oldFirst, oldSecond} {
+		_, err = pgx.Connect(ctx, old.URL)
+		require.ErrorContains(t, err, "password authentication failed", old.Name)
+	}
+	rotated, err := NewPostgresJournals(ctx, server.pool, server.adminURL, JournalKey("new-operator-key"))
+	require.NoError(t, err)
+	for _, workspace := range []string{first, second} {
+		current, err := rotated.Describe(workspace)
+		require.NoError(t, err)
+		conn, err := pgx.Connect(ctx, current.URL)
+		require.NoError(t, err, workspace)
+		require.NoError(t, conn.Close(ctx))
+	}
+	// A session opened before the rotation is not cut off.
+	require.NoError(t, live.Ping(ctx))
+	conn, err := pgx.Connect(ctx, foreign.URL)
+	require.NoError(t, err)
+	require.NoError(t, conn.Close(ctx))
+
+	// Idempotent, and a role dropped after listing is skipped.
+	resealed, err = ResealJournalPasswords(ctx, server.pool, "new-operator-key")
+	require.NoError(t, err)
+	assert.Equal(t, 2, resealed)
+	changed, err := rotated.resealPassword(ctx, uuid.NewString())
+	require.NoError(t, err)
+	assert.False(t, changed)
+	require.NoError(t, rotated.Drop(ctx, second))
+	resealed, err = ResealJournalPasswords(ctx, server.pool, "new-operator-key")
+	require.NoError(t, err)
+	assert.Equal(t, 1, resealed)
+}
+
+func TestResealJournalPasswordsRefusesMissingInputs(t *testing.T) {
+	_, err := ResealJournalPasswords(context.Background(), nil, "key")
+	require.ErrorContains(t, err, "backend pool and the operator key")
+	pool, err := pgxpool.New(context.Background(), "postgres://127.0.0.1:1/none")
+	require.NoError(t, err)
+	defer pool.Close()
+	_, err = ResealJournalPasswords(context.Background(), pool, "")
+	require.ErrorContains(t, err, "backend pool and the operator key")
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err = ResealJournalPasswords(cancelled, pool, "key")
+	require.ErrorContains(t, err, "flow journals")
+}
+
+func TestJournalKeyDependsOnlyOnTheOperatorKey(t *testing.T) {
+	assert.Equal(t, JournalKey("a"), JournalKey("a"))
+	assert.NotEqual(t, JournalKey("a"), JournalKey("b"))
+	assert.Len(t, JournalKey(""), 32)
+}
+
+func TestResealJournalPasswordsResumesAfterAPartialPassPostgres(t *testing.T) {
+	server := newJournalServer(t, true)
+	ctx := context.Background()
+	journals, err := NewPostgresJournals(ctx, server.pool, server.adminURL, JournalKey("old-operator-key"))
+	require.NoError(t, err)
+	workspaces := []string{uuid.NewString(), uuid.NewString()}
+	slices.Sort(workspaces) // resealed in this order
+	old := []JournalDatabase{server.provisioned(t, journals, workspaces[0]), server.provisioned(t, journals, workspaces[1])}
+	// A role the backend may no longer alter stops the pass after the first.
+	_, err = server.superuser.Exec(ctx, "ALTER ROLE "+old[1].Name+" SUPERUSER")
+	require.NoError(t, err)
+	resealed, err := ResealJournalPasswords(ctx, server.pool, "new-operator-key")
+	require.ErrorContains(t, err, "flow journal role password")
+	assert.Equal(t, 1, resealed)
+	_, err = pgx.Connect(ctx, old[0].URL)
+	require.ErrorContains(t, err, "password authentication failed")
+	_, err = server.superuser.Exec(ctx, "ALTER ROLE "+old[1].Name+" NOSUPERUSER")
+	require.NoError(t, err)
+	conn, err := pgx.Connect(ctx, old[1].URL)
+	require.NoError(t, err, "the role the pass stopped at keeps its password")
+	require.NoError(t, conn.Close(ctx))
+
+	// Running again with the same key finishes the rotation.
+	resealed, err = ResealJournalPasswords(ctx, server.pool, "new-operator-key")
+	require.NoError(t, err)
+	assert.Equal(t, 2, resealed)
+	rotated, err := NewPostgresJournals(ctx, server.pool, server.adminURL, JournalKey("new-operator-key"))
+	require.NoError(t, err)
+	for index, workspace := range workspaces {
+		_, err = pgx.Connect(ctx, old[index].URL)
+		require.ErrorContains(t, err, "password authentication failed")
+		current, err := rotated.Describe(workspace)
+		require.NoError(t, err)
+		conn, err := pgx.Connect(ctx, current.URL)
+		require.NoError(t, err)
+		require.NoError(t, conn.Close(ctx))
+	}
+}

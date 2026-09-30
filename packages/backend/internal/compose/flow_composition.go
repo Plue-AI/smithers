@@ -2,7 +2,6 @@ package compose
 
 import (
 	"context"
-	"crypto/sha256"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -126,8 +125,7 @@ func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Po
 	})
 	var journals flowhost.Journals
 	if address := strings.TrimSpace(cfg.Sandbox.FlowJournalPostgresURL); address != "" {
-		key := sha256.Sum256([]byte("smithers flow journal key v1\x00" + cfg.Webhook.SecretEncryptionKey))
-		postgres, err := flowhost.NewPostgresJournals(context.Background(), pool, address, key[:])
+		postgres, err := flowhost.NewPostgresJournals(context.Background(), pool, address, flowhost.JournalKey(cfg.Webhook.SecretEncryptionKey))
 		if err != nil {
 			return nil, err
 		}

@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/smithersai/smithers/packages/backend/flowhost"
 	"github.com/smithersai/smithers/packages/backend/internal/config"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/internal/webhook"
@@ -23,6 +24,9 @@ const keysUsage = "usage: keys rotate | keys reseal"
 //	keys reseal  moves stored values to SMITHERS_WEBHOOK_SECRET_ENCRYPTION_KEY
 //	             while SMITHERS_WEBHOOK_SECRET_ENCRYPTION_PREVIOUS_KEYS holds
 //	             the keys it replaced; it runs beside a server that holds both.
+//
+// Both also reset each Flow journal role's password to the one the new key
+// derives.
 func runKeys(ctx context.Context, args []string, cfg Config) error {
 	if len(args) != 1 {
 		return errors.New(keysUsage)
@@ -63,6 +67,15 @@ func resealKeys(ctx context.Context, cfg Config, current string, previous []stri
 			if _, printErr := fmt.Fprintf(cfg.Stdout, "%s resealed=%d current=%d raced=%d\n", count.Store, count.Resealed, count.Current, count.Raced); printErr != nil && err == nil {
 				err = printErr
 			}
+		}
+		if err != nil {
+			return err
+		}
+		// Flow journal role passwords derive from the operator key; the
+		// replaced key's passwords must stop signing in.
+		roles, err := flowhost.ResealJournalPasswords(ctx, pool, current)
+		if _, printErr := fmt.Fprintf(cfg.Stdout, "flow journal roles resealed=%d\n", roles); printErr != nil && err == nil {
+			err = printErr
 		}
 		return err
 	})

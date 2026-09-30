@@ -164,7 +164,74 @@ func NewPostgresJournals(ctx context.Context, pool *pgxpool.Pool, address string
 	// Best effort: a backend that does not own its database is refused per
 	// provision by the connect check, with the remedy in the error.
 	_, _ = pool.Exec(ctx, "REVOKE CONNECT, TEMPORARY ON DATABASE "+pgx.Identifier{database}.Sanitize()+" FROM PUBLIC")
-	return &PostgresJournals{pool: pool, address: parsed, key: append([]byte(nil), key...), tag: "smithers flow journal of database " + database}, nil
+	return &PostgresJournals{pool: pool, address: parsed, key: append([]byte(nil), key...), tag: journalTag(database)}, nil
+}
+
+func journalTag(database string) string { return "smithers flow journal of database " + database }
+
+// JournalKey derives the key that mints journal role passwords from the
+// operator key, so rotating the operator key rotates every journal password.
+func JournalKey(operatorKey string) []byte {
+	key := sha256.Sum256([]byte("smithers flow journal key v1\x00" + operatorKey))
+	return key[:]
+}
+
+// ResealJournalPasswords sets every journal role this backend's database
+// provisioned to the password operatorKey derives, so after an operator key
+// rotation the passwords the replaced key derived no longer sign in. Sessions
+// already open stay open; a host restarted afterwards gets the new password.
+// It needs no journal address: the backend with no journals configured finds
+// no roles. Each role is updated under the lock Provision and Drop share.
+func ResealJournalPasswords(ctx context.Context, pool *pgxpool.Pool, operatorKey string) (int, error) {
+	if pool == nil || operatorKey == "" {
+		return 0, errors.New("flow journal passwords need the backend pool and the operator key")
+	}
+	var database string
+	if err := pool.QueryRow(ctx, `SELECT current_database()`).Scan(&database); err != nil {
+		return 0, fmt.Errorf("flow journals: %w", err)
+	}
+	journals := &PostgresJournals{pool: pool, key: JournalKey(operatorKey), tag: journalTag(database)}
+	workspaces, err := journals.Workspaces(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("flow journals: %w", err)
+	}
+	resealed := 0
+	for _, workspaceID := range workspaces {
+		changed, err := journals.resealPassword(ctx, workspaceID)
+		if err != nil {
+			return resealed, err
+		}
+		if changed {
+			resealed++
+		}
+	}
+	return resealed, nil
+}
+
+// resealPassword sets one journal role's password; a role dropped since it
+// was listed is skipped.
+func (journals *PostgresJournals) resealPassword(ctx context.Context, workspaceID string) (bool, error) {
+	name, err := JournalDatabaseName(workspaceID)
+	if err != nil {
+		return false, err
+	}
+	conn, release, err := journals.lockJournal(ctx, name)
+	if err != nil {
+		return false, err
+	}
+	defer release()
+	var exists bool
+	if err = conn.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $1)`, name).Scan(&exists); err != nil || !exists {
+		return false, err
+	}
+	verifier, err := scramVerifier(journals.password(name))
+	if err != nil {
+		return false, err
+	}
+	if _, err = conn.Exec(ctx, "ALTER ROLE "+pgx.Identifier{name}.Sanitize()+" WITH PASSWORD '"+verifier+"'"); err != nil {
+		return false, fmt.Errorf("flow journal role password: %w", err)
+	}
+	return true, nil
 }
 
 // Describe answers a workspace's journal without touching the server, for
