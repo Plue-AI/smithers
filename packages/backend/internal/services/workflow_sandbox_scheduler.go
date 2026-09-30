@@ -242,6 +242,12 @@ func (claim workflowSandboxRunClaim) failureParams() runtimeports.MarkWorkflowRu
 	}
 }
 
+// execution names this claim's execution of the run: a later claim of the
+// same run is a different execution.
+func (claim workflowSandboxRunClaim) execution() string {
+	return claim.Token + "/" + strconv.FormatInt(claim.Generation, 10)
+}
+
 func (claim workflowSandboxRunClaim) renewalParams() runtimeports.RenewWorkflowSandboxClaimParams {
 	return runtimeports.RenewWorkflowSandboxClaimParams{
 		ID: claim.Run.ID, ClaimToken: claim.Token, ClaimGeneration: claim.Generation,
@@ -556,6 +562,7 @@ func (w *WorkflowSandboxSchedulerWorker) executeRun(ctx context.Context, claim w
 	}
 
 	return w.executeNixCIRun(runCtx, claim, nixCIRunEnvironment{
+		Execution:      claim.execution(),
 		RepositoryID:   run.RepositoryID,
 		Owner:          owner,
 		RepositoryName: repository.Name,
