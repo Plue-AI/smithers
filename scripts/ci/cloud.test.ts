@@ -400,6 +400,8 @@ describe("Smithers Cloud CI", () => {
         'tar() { echo "TAR $*"; }',
         'chmod() { echo "CHMOD $*"; }',
         'command() { case "${1:-} ${2:-}" in "-v jj"|"-v rg") return 1 ;; esac; builtin command "$@"; }',
+        // No preinstalled Rust unless a case says otherwise.
+        "rustc() { return 127; }",
         `tools_dir="$(mktemp -d)"`,
         `CARGO_HOME="$tools_dir/cargo"`,
         ...extra,
@@ -433,6 +435,34 @@ describe("Smithers Cloud CI", () => {
         })
       }
     }
+
+    describe("ensure_rust and a preinstalled toolchain", () => {
+      const channel = /^channel = "([^"]+)"$/m.exec(readFileSync(new URL("../../rust-toolchain.toml", import.meta.url), "utf8"))![1]!
+      const machine = (rustc: string, rustup: boolean) => [
+        `rustc() { echo "${rustc}"; }`,
+        `command() { case "\${1:-} \${2:-}" in "-v rustup") ${rustup ? "echo /opt/rustup; return 0" : "return 1"} ;; esac; builtin command "$@"; }`
+      ]
+
+      test("uses the machine's pinned channel without downloading", () => {
+        const result = run("x86_64", "ensure_rust", machine(`rustc ${channel} (0000000 2026-08-20)`, false))
+        expect(result.status).toBe(0)
+        expect(result.stderr).toContain(`Using the preinstalled Rust ${channel}`)
+        expect(result.stdout).not.toContain("DOWNLOAD")
+        expect(result.stdout).toContain("INSTALLED")
+      })
+
+      for (const [name, rustc, rustup] of [
+        ["another channel", "rustc 1.0.0 (0000000 2015-05-15)", false],
+        ["a channel that only starts with the pin", `rustc ${channel}1 (0000000 2026-08-20)`, false],
+        ["a rustup proxy", `rustc ${channel} (0000000 2026-08-20)`, true]
+      ] as const) {
+        test(`installs the pinned toolchain over ${name}`, () => {
+          const result = run("x86_64", "ensure_rust", machine(rustc, rustup))
+          expect(result.stderr).not.toContain("Using the preinstalled Rust")
+          expect(result.stdout).toContain("DOWNLOAD https://static.rust-lang.org/rustup/")
+        })
+      }
+    })
 
     test("a download matching its pinned digest is unpacked", () => {
       const result = run("x86_64", "ensure_foundry", [`tool_digest() { printf '%s\\n' "$(printf tampered | sha256sum | cut -d' ' -f1)"; }`])
@@ -532,7 +562,7 @@ describe("Smithers Cloud CI", () => {
       const failing = stubs.replace(
         /^pnpm\(\) \{.*$/m,
         "pnpm() { echo \"RAN $*\"; case \"$*\" in *//apps/tui-docs:browserTests*) return 23 ;; esac; }"
-      )
+      ).replace(/^cargo\(\) \{.*$/m, "cargo() { echo \"RAN cargo $*\"; }")
       writeFileSync(browserProbe, shell.replace(marker, `${failing}${marker}`))
       try {
         const invoke = (...args: string[]) =>
@@ -550,6 +580,29 @@ describe("Smithers Cloud CI", () => {
         expect(grouped.stderr).toContain("GATE-FAIL docs")
       } finally {
         rmSync(browserProbe, { force: true })
+      }
+    })
+
+    test("docs builds the native workspace helper before the TUI recordings run", () => {
+      expect(tools.get("docs")).toEqual(["js", "jj", "rust"])
+      const helperProbe = new URL("cloud.helper-probe.tmp.sh", import.meta.url)
+      const passing = stubs
+        .replace(/^pnpm\(\) \{.*$/m, "pnpm() { echo \"RAN $* helper=${SMITHERS_WORKSPACE_JJ_EXPORT_BINARY:-none}\"; }")
+        .replace(/^cargo\(\) \{.*$/m, "cargo() { echo \"RAN cargo $*\"; }")
+      writeFileSync(helperProbe, shell.replace(marker, `${passing}${marker}`))
+      try {
+        const result = spawnSync("bash", ["scripts/ci/cloud.helper-probe.tmp.sh", "group", "docs"], { cwd: root, encoding: "utf8" })
+        expect(result.error).toBeUndefined()
+        expect(result.status).toBe(0)
+        expect(result.stdout).toContain("BOOTSTRAP-rust")
+        const build = result.stdout.indexOf("RAN cargo build --locked -p smithers-ffi --bin smithers-jj-export")
+        const recordings = result.stdout.indexOf("RAN exec smthrs test //apps/tui-docs:browserTests --verbose helper=")
+        expect(build).toBeGreaterThan(-1)
+        expect(recordings).toBeGreaterThan(build)
+        expect(result.stdout).toMatch(/\/apps\/tui-docs:browserTests --verbose helper=\S+\/native\/smithers-jj-export$/m)
+        expect(result.stdout).toContain("::gate docs ok")
+      } finally {
+        rmSync(helperProbe, { force: true })
       }
     })
 

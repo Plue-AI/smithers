@@ -304,7 +304,11 @@ in
       pkgs.openssl.dev
       # A system Chromium for anything that honours CHROME_PATH, beside the
       # libraries above that let Playwright run its own pinned build.
+      # apps/tui-docs records and tests with the `chromium` on PATH.
       pkgs.chromium
+      # The `docs` gate records every TUI guide: apps/tui-docs encodes each
+      # recording's GIF with FFmpeg (palettegen/paletteuse, no display).
+      pkgs.ffmpeg-headless
     ];
 
   programs.nix-ld.libraries = playwrightLibraries;

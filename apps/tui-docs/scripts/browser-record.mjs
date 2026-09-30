@@ -15,6 +15,7 @@ import {
 } from "node:fs"
 import { join } from "node:path"
 import { chromium } from "playwright"
+import { launchOptions } from "./browser.mjs"
 import { browserReplies, completion } from "./browser-replies.mjs"
 const digestOf = (bytes) => createHash("sha256").update(bytes).digest("hex")
 export async function recordBrowser({ scripts, base, here, output, cache, ffmpeg }) {
@@ -61,14 +62,7 @@ export async function recordBrowser({ scripts, base, here, output, cache, ffmpeg
               reject(new Error(`Recording server exited ${code}`))
             })
           })
-          browser = await chromium.launch({
-            headless: true,
-            ...(process.env.CHROME_BIN
-              ? { executablePath: process.env.CHROME_BIN }
-              : process.platform === "darwin"
-              ? { executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" }
-              : {})
-          })
+          browser = await chromium.launch(launchOptions())
         }
         const staging = mkdtempSync(join(cache, `${digest}.`)), frames = join(staging, "frames")
         mkdirSync(frames)

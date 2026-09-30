@@ -18,6 +18,7 @@ import { dirname, join, resolve } from "node:path"
 import { createInterface } from "node:readline"
 import { fileURLToPath } from "node:url"
 import { chromium } from "playwright"
+import { launchOptions } from "./browser.mjs"
 import { recordBrowser } from "./browser-record.mjs"
 import { runtimeInputs } from "./inputs.mjs"
 import { providerFixture } from "./provider-fixture.mjs"
@@ -199,14 +200,7 @@ try {
           await sleep(1000)
         }
         if (!browser) {
-          browser = await chromium.launch({
-            headless: true,
-            ...(process.env.CHROME_BIN
-              ? { executablePath: process.env.CHROME_BIN }
-              : process.platform === "darwin"
-              ? { executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" }
-              : {})
-          })
+          browser = await chromium.launch(launchOptions())
         }
         const page = await browser.newPage({ viewport: { width: 880, height: 480 }, deviceScaleFactor: 1 })
         const capture = async (label) => {

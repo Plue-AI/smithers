@@ -349,7 +349,17 @@ ensure_foundry() {
 }
 
 ensure_rust() {
-  # The image has no Rust. Cargo metadata is also needed by the script suite.
+  # The NixOS Cloud machine ships rust-toolchain.toml's channel, components and
+  # target without rustup (.smithers/environment.nix), and its guests have no
+  # route to static.rust-lang.org. Use that toolchain as it is. With rustup on
+  # PATH, `rustc` is a proxy, so the pinned install below still decides.
+  local channel
+  channel="$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)"
+  if ! command -v rustup >/dev/null 2>&1 && [[ "$(rustc --version 2>/dev/null || true)" == "rustc $channel "* ]]; then
+    echo "Using the preinstalled Rust $channel" >&2
+    return 0
+  fi
+  # Otherwise the image has no Rust. Cargo metadata is also needed by the script suite.
   apt_install ca-certificates curl build-essential pkg-config libssl-dev
   # Install into whatever homes the environment already names. The Cloud image
   # exports CARGO_HOME=/workspace/.cargo and RUSTUP_HOME=/workspace/.rustup and
@@ -415,7 +425,7 @@ gate_tools() {
     bug-worker) echo 'js' ;;
     project-copy) echo 'js' ;;
     site) echo 'js' ;;
-    docs) echo 'js' ;;
+    docs) echo 'js jj rust' ;;
     review-eval) echo 'js' ;;
     review-check) echo 'js' ;;
     recommend-eval) echo 'js' ;;
@@ -575,6 +585,9 @@ run_gate() {
       ;;
     docs)
       pnpm exec smthrs ci '//apps/docs/...' --known-red '.github/ci-known-red.json' --verbose
+      # The TUI recordings run flow examples through the native workspace
+      # helper, as the tui gate's tests do.
+      native_jj_export
       pnpm exec smthrs run '//apps/tui-docs:check' --verbose
       pnpm exec smthrs test '//apps/tui-docs:test' --verbose
       # browserTests depends on build, which depends on recordings, so this

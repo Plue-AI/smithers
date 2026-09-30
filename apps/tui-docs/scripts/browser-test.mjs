@@ -4,18 +4,12 @@ import { createHash } from "node:crypto"
 import { once } from "node:events"
 import { fileURLToPath } from "node:url"
 import { chromium } from "playwright"
+import { launchOptions } from "./browser.mjs"
 import { browserReplies, completion } from "./browser-replies.mjs"
 import { collectScripts } from "./scripts.mjs"
 const recordings = [...collectScripts(fileURLToPath(new URL("../../tui/docs/", import.meta.url))).keys()]
 assert(recordings.length > 0, "No TUI recordings declared")
-const browser = await chromium.launch({
-  headless: true,
-  ...(process.env.CHROME_BIN
-    ? { executablePath: process.env.CHROME_BIN }
-    : process.platform === "darwin"
-    ? { executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" }
-    : {})
-})
+const browser = await chromium.launch(launchOptions())
 const context = await browser.newContext({ viewport: { width: 1440, height: 1050 } })
 const page = await context.newPage()
 const errors = []

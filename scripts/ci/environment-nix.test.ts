@@ -128,7 +128,7 @@ describe("the Cloud machine pins what the repository declares", () => {
   test("PostgreSQL is the release PACKAGE.ts names for the storage matrix", () => {
     const release = only(rootPackage, /CiToolchain\.Postgres\(\{ release: "([^"]+)" \}\)/, "Postgres in PACKAGE.ts")
     expect(environment).toContain(`pkgs.postgresql_${release}`)
-    expect(cloud).toContain("packages) echo 'js jj foundry postgres'")
+    expect(cloud).toMatch(/^\s*packages\) echo '[^']*\bpostgres\b[^']*' ;;$/m)
     expect(cloud).toContain("postgres) ensure_postgres")
   })
 
@@ -138,6 +138,18 @@ describe("the Cloud machine pins what the repository declares", () => {
       only(cloud, /foundry-rs\/foundry\/releases\/download\/(v[0-9][0-9.]*)\//, "Foundry release in cloud.sh"))
     expect(`v${foundry}`).toBe(
       only(rootPackage, /CiToolchain\.Foundry\(\{ release: "([^"]+)" \}\)/, "Foundry in PACKAGE.ts"))
+  })
+
+  test("the docs gate's recording tools are on the machine", () => {
+    // apps/tui-docs/scripts/record.mjs refuses to record without FFmpeg,
+    // Python 3 (the base module ships it), Git and Bun. A target run passes
+    // only PATH through, so the browser is the `chromium` found there
+    // (apps/tui-docs/scripts/browser.mjs).
+    const record = read("apps/tui-docs/scripts/record.mjs")
+    expect(record).toContain('process.env.FFMPEG || "ffmpeg"')
+    expect(environment).toMatch(/^\s*pkgs\.ffmpeg-headless$/m)
+    expect(read("apps/tui-docs/scripts/browser.mjs")).toContain('join(dir, "chromium")')
+    expect(environment).toMatch(/^\s*pkgs\.chromium$/m)
   })
 
   test("every download is content-addressed, so a build cannot drift", () => {

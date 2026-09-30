@@ -43,6 +43,7 @@ Recording requires Node from `.node-version`, Bun >=1.4, Python 3, Git, FFmpeg,
 Chromium, and the native workspace helper for flow examples. Set
 `SMITHERS_WORKSPACE_JJ_EXPORT_BINARY` to its installed path.
 `SMITHERS_DOCS_BUN`, `FFMPEG`, and `CHROME_BIN` select installed tools.
+Without `CHROME_BIN`, macOS uses Google Chrome and Linux the `chromium` on `PATH`.
 
 ## Browser host and recovery
 
