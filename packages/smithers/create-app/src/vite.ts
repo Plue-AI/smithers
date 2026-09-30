@@ -263,7 +263,7 @@ export interface CreateAppPlugin {
 const isRouted = (file: string): boolean => {
   const path = file.replaceAll("\\", "/")
   return /\/(?:page|layout)\.tsx$/.test(path) || /\/panes\/[^/]+\.tsx$/.test(path) ||
-    /\/flow\.(?:ts|mdx)$/.test(path) || /\/(?:AGENT|SANDBOX|TOOLS)\.ts$/.test(path)
+    /\/flow\.ts$/.test(path) || /\/(?:AGENT|SANDBOX|TOOLS)\.ts$/.test(path)
 }
 
 /**

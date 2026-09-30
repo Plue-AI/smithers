@@ -20,10 +20,10 @@ A flow's test sits beside it, so the fixture URL is relative:
 ```ts
 import { cachedModelTest } from "@smthrs/create-app/testing"
 import type * as Schema from "effect/Schema"
-import { Flow } from "./flow.ts"
+import Flow from "./flow.ts"
 
-type Payload = Schema.Struct.Type<typeof Flow.payload>
-type Output = typeof Flow.output.Type
+type Payload = typeof Flow.payloadSchema.Type
+type Output = typeof Flow.successSchema.Type
 
 cachedModelTest<Payload, Output>("chat answers a balance question", {
   fixture: new URL("./fixtures/balance.json", import.meta.url),
@@ -125,15 +125,14 @@ the environment, so read the fixture before you commit it.
 
 ## Common refusals
 
-| Message                                                                | Cause                                                                                 |
-| ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| `no fixture at <path>. Record one with ...`                            | Replaying a test whose fixture is not committed yet                                   |
-| `flow "<id>" is not routed. Known flows: ...`                          | The `flow` option does not match a routed id, often because `pnpm routes` has not run |
-| `cachedModelTest cannot run <file>: a markdown flow has no loader yet` | The flow is a `flow.mdx`                                                              |
-| `SMTHRS_RECORD=1 needs a live model`                                   | Recording a test that declares no `live`                                              |
-| `recording produced no model calls`                                    | The run finished without reaching the model                                           |
-| `the recording of <path> contains the value of <NAME>`                 | A prompt or tool result echoed a credential; the fixture was not written              |
-| `<path> is not a @smthrs/testing fixture`                              | The fixture drifted from the schema; record it again                                  |
+| Message                                                | Cause                                                                                 |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------- |
+| `no fixture at <path>. Record one with ...`            | Replaying a test whose fixture is not committed yet                                   |
+| `flow "<id>" is not routed. Known flows: ...`          | The `flow` option does not match a routed id, often because `pnpm routes` has not run |
+| `SMTHRS_RECORD=1 needs a live model`                   | Recording a test that declares no `live`                                              |
+| `recording produced no model calls`                    | The run finished without reaching the model                                           |
+| `the recording of <path> contains the value of <NAME>` | A prompt or tool result echoed a credential; the fixture was not written              |
+| `<path> is not a @smthrs/testing fixture`              | The fixture drifted from the schema; record it again                                  |
 
 Each one is expanded in [Troubleshooting](../troubleshooting.md).
 

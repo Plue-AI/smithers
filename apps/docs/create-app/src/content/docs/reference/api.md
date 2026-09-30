@@ -42,7 +42,7 @@ filesystem.
 
 The root entry point re-exports `./app` and `./package` flat, rather than as
 namespaces, because it is an authoring API rather than a service API: an app
-writes `defineFlow`, not `App.defineFlow`.
+writes layers directly. File flows use `@smthrs/flow`.
 The explicit `@smthrs/create-app/index` subpath serves the same root module.
 
 ## @smthrs/create-app/package
@@ -106,12 +106,11 @@ The browser-safe half: types and plain data constructors only.
 
 ### Constructors
 
-| Export          | Signature                                                                                                         |
-| --------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `defineAgent`   | `(options: Omit<AgentSpec, "_tag">) => AgentSpec`                                                                 |
-| `defineSandbox` | `(options: Omit<SandboxSpec, "_tag">) => SandboxSpec`                                                             |
-| `defineTools`   | `(options: Omit<ToolsSpec, "_tag" \| "grant"> & { grant?: ReadonlyArray<ToolsGrant> }) => ToolsSpec`              |
-| `defineFlow`    | `<P extends Schema.Struct.Fields, O extends Schema.Top>(options: Omit<FlowSpec<P, O>, "_tag">) => FlowSpec<P, O>` |
+| Export          | Signature                                                                                            |
+| --------------- | ---------------------------------------------------------------------------------------------------- |
+| `defineAgent`   | `(options: Omit<AgentSpec, "_tag">) => AgentSpec`                                                    |
+| `defineSandbox` | `(options: Omit<SandboxSpec, "_tag">) => SandboxSpec`                                                |
+| `defineTools`   | `(options: Omit<ToolsSpec, "_tag" \| "grant"> & { grant?: ReadonlyArray<ToolsGrant> }) => ToolsSpec` |
 
 `defineTools` defaults `grant` to `[]`, the empty envelope: the harness refuses
 every call that declares a capability. `[{ action: "*", resource: "*" }]` grants
@@ -121,18 +120,16 @@ inheriting one silently.
 
 ### Specs
 
-| Type             | Fields                                                                                               |
-| ---------------- | ---------------------------------------------------------------------------------------------------- |
-| `AgentSpec`      | `seat: string`, `system: ReadonlyArray<string>`, `limits?: { calls?: number }`, `maxFrames?: number` |
-| `SandboxSpec`    | `limits: { heapBytes?: number; interruptChecks?: number; wallClockMs?: number }`                     |
-| `ToolsSpec`      | `sources: ReadonlyArray<FlowBinding.Source>`, `grant: ReadonlyArray<ToolsGrant>`                     |
-| `ToolsGrant`     | `action: Capability.PatternAction`, `resource: string`                                               |
-| `FlowSpec<P, O>` | `description`, `payload: P`, `output: O`, `prompt: (payload) => string`, `system?`, `chat?`          |
-| `AnyFlowSpec`    | `FlowSpec` with its payload type erased, which is what a route table holds                           |
+| Type          | Fields                                                                                               |
+| ------------- | ---------------------------------------------------------------------------------------------------- |
+| `AgentSpec`   | `seat: string`, `system: ReadonlyArray<string>`, `limits?: { calls?: number }`, `maxFrames?: number` |
+| `SandboxSpec` | `limits: { heapBytes?: number; interruptChecks?: number; wallClockMs?: number }`                     |
+| `ToolsSpec`   | `sources: ReadonlyArray<FlowBinding.Source>`, `grant: ReadonlyArray<ToolsGrant>`                     |
+| `ToolsGrant`  | `action: Capability.PatternAction`, `resource: string`                                               |
 
-`AnyFlowSpec.prompt` takes `never` rather than the erased payload: `prompt` is
-contravariant in its payload, so any other erasure would refuse every concrete
-flow.
+File flows default-export a tagged `Flow.make` from `@smthrs/flow`.
+Prompt flows declare `success`, `error: AgentAction.AgentFailure`, and `prompt`.
+Body flows export their implementations as an optional named `layer`.
 
 `chat` is routing metadata and nothing else. Nothing in
 `@smthrs/create-app/runtime` reads it.
@@ -222,13 +219,17 @@ the transcript's cards, `park` suspends the run for a human, and `done` or
 ### materializeFlow
 
 ```ts
-const materializeFlow: (id: string, spec: AnyFlowSpec, agent: AgentSpec) => MaterializedFlow
+const materializeFlow: (
+  id: string,
+  flow: Flow.AnyWithProps,
+  agent: AgentSpec,
+  implementations?: unknown
+) => MaterializedFlow
 ```
 
-Binds one flow declaration to the agent layer resolved for it. Returns `id`, an
-`action` named `app/<id>/agent`, and a `flow` named `app/<id>` whose body is one
-call to that action. The action's system teaching is the agent layer's lines
-followed by the flow's own, in that order.
+Returns the authored `flow` and its implementation `layer`. Prompt flows bind
+the action the canonical declaration owns to the resolved agent. Body flows
+use their module's optional named layer. Agent teaching precedes flow teaching.
 
 ### layerFor
 
@@ -458,11 +459,11 @@ class RouterError extends Data.TaggedError("create-app/RouterError") {
   readonly name: "RouterError"
   readonly code: RouterErrorCode
 }
-type RouterErrorCode = "missing_layer" | "duplicate_name" | "invalid_name"
+type RouterErrorCode = "missing_layer" | "invalid_name"
 ```
 
-`missing_layer` is a flow with no ancestor layer file of some kind,
-`duplicate_name` is two files claiming one route, and `invalid_name` is a pane,
+`missing_layer` is a flow with no ancestor layer file of some kind.
+`invalid_name` is a pane,
 page segment, or flow segment that is not lowercase kebab-case. Inside an
 `Effect`, catch it with `Effect.catchTag("create-app/RouterError")`.
 
@@ -546,9 +547,9 @@ The flow id is a string and only `payload` constrains `P`, so nothing infers
 read a field.
 
 ```ts
-import { Flow } from "../flows/chat/flow.ts"
+import Flow from "../flows/chat/flow.ts"
 
-cachedModelTest<{ message: string }, typeof Flow.output.Type>(
+cachedModelTest<{ message: string }, typeof Flow.successSchema.Type>(
   "chat answers a balance question",
   {
     fixture: new URL("./fixtures/balance.json", import.meta.url),

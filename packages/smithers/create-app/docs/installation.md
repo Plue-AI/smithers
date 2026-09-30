@@ -88,7 +88,7 @@ importing. There is no barrel that serves all of them:
 import { CreateApp } from "@smthrs/create-app"
 
 // AGENT.ts, SANDBOX.ts, TOOLS.ts, and flow files: browser, workerd, or Node.
-import { defineAgent, defineFlow, defineSandbox, defineTools } from "@smthrs/create-app/app"
+import { defineAgent, defineSandbox, defineTools } from "@smthrs/create-app/app"
 
 // app/panes/<name>.tsx, in the browser.
 import { definePane } from "@smthrs/create-app/ui"

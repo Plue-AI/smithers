@@ -13,17 +13,19 @@
  * seat and teaching come from the root AGENT.ts, and its tools come from the
  * root TOOLS.ts. Nothing here names a model.
  */
-import { defineFlow } from "@smthrs/create-app/app"
+import { Flow } from "@smthrs/flow"
+import * as AgentAction from "@smthrs/agent/AgentAction"
 import * as Schema from "effect/Schema"
 
-export const Flow = defineFlow({
+export default Flow.make("chat", {
   description: "Answer a question about any EVM chain against an in-memory fork, rendering results as panes.",
   payload: { message: Schema.String },
-  output: Schema.Struct({
+  success: Schema.Struct({
     answer: Schema.String.annotate({ description: "The prose answer; cards carry the data, so keep it short" }),
     cards: Schema.Array(Schema.String).annotate({ description: "Card ids emitted this turn, in order" })
   }),
   chat: true,
+  error: AgentAction.AgentFailure,
   prompt: ({ message }) => message,
   system: [
     "Open a fork with tevm/fork before the first chain read of a session. Later turns reuse it; do not fork again unless the user names a different block. The host configures the chain endpoint; tevm/fork cannot change chains.",

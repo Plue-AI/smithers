@@ -24,7 +24,7 @@ the `smithers-routes` executable, inside the Vite plugin, and inside a test.
   A file deeper than that falls through to the page rule, so
   `<app>/panes/deep/page.tsx` is the page `/panes/deep` rather than a pane
   called `page`.
-- `<flows>/**/flow.ts` or `flow.mdx` is the flow named by its directory, so
+- `<flows>/**/flow.ts` is the flow named by its directory, so
   `flows/build/plan/flow.ts` is the flow `build/plan`.
 - `AGENT.ts`, `SANDBOX.ts`, and `TOOLS.ts` are layers for every flow in their
   directory and below. [Layer files](/concepts/layers/) has the resolution rule.
@@ -62,13 +62,6 @@ what the router will accept can ask rather than keep a second copy of the
 expression. The `aomi` template's promote tool does exactly that: it runs
 inside a Worker and refuses a flow id the router would refuse, before writing
 `flows/<id>/flow.ts` for it.
-
-## Two files claiming one route
-
-Two files that resolve to the same pane name, page route, or flow id are
-refused with `duplicate_name`, naming both files. Nothing wins by ordering: the
-walk sorts the whole collected set before it routes anything, so the refusal
-does not depend on what the filesystem hands back.
 
 ## What the walk skips
 

@@ -23,7 +23,7 @@
 import * as EventSink from "@smthrs/agent/EventSink"
 import * as FlowEngineLike from "@smthrs/agent/FlowEngineLike"
 import * as Seat from "@smthrs/agent/Seat"
-import { Interpreter } from "@smthrs/flow"
+import { type Flow, Interpreter } from "@smthrs/flow"
 import type * as AgentEvent from "@smthrs/harness/AgentEvent"
 import type * as QuickJSSandbox from "@smthrs/harness/QuickJSSandbox"
 import type * as Evaluator from "@smthrs/model/Evaluator"
@@ -38,7 +38,7 @@ import * as Redacted from "effect/Redacted"
 import type * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
 import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient"
-import type { AgentSpec, AnyFlowSpec, SandboxSpec, ToolsSpec } from "./app.ts"
+import type { AgentSpec, SandboxSpec, ToolsSpec } from "./app.ts"
 import { readJson } from "./http.ts"
 import { layerFor, materializeFlow, type SeatProvider } from "./runtime.ts"
 import type { AppCard, TurnFrame } from "./ui.ts"
@@ -145,7 +145,8 @@ export const layerCryptoWeb: Layer.Layer<Crypto.Crypto> = Layer.succeed(Crypto.C
  */
 export interface TurnRoute {
   readonly id: string
-  readonly spec: AnyFlowSpec
+  readonly spec: Flow.AnyWithProps
+  readonly layer?: unknown
   readonly agent: AgentSpec
   readonly sandbox: SandboxSpec
   readonly tools: ToolsSpec
@@ -374,8 +375,11 @@ const execute = async (
   signal: AbortSignal | undefined
 ): Promise<ReadableStream<Uint8Array> | TurnRefusal> => {
   const seats = host.seats ?? seatsFromEnv(host.env)
-  const seat = await Effect.runPromise(Effect.result(seats.resolve(route.agent.seat)))
-  if (seat._tag === "Failure") return { status: 503, error: "host_unconfigured", message: seat.failure.message }
+  if (route.spec.prompt !== undefined) {
+    const seatId = typeof route.spec.model === "string" ? route.spec.model : route.spec.model?.[0] ?? route.agent.seat
+    const seat = await Effect.runPromise(Effect.result(seats.resolve(seatId)))
+    if (seat._tag === "Failure") return { status: 503, error: "host_unconfigured", message: seat.failure.message }
+  }
 
   const lines: Array<TurnFrame> = []
   let push: ((frame: TurnFrame) => void) | undefined
@@ -390,12 +394,14 @@ const execute = async (
   }
 
   let hostLayer: ReturnType<typeof layerFor>
+  let materialized: ReturnType<typeof materializeFlow>
   try {
+    materialized = materializeFlow(route.id, route.spec, route.agent, route.layer)
     hostLayer = layerFor({
       agent: route.agent,
       sandbox: route.sandbox,
       tools: host.tools === undefined ? route.tools : host.tools(route, cards),
-      seats: { resolve: () => Effect.succeed(seat.success) },
+      seats,
       crypto: host.crypto ?? layerCryptoWeb,
       sandboxVariant: host.sandboxVariant,
       ...(host.evaluator === undefined ? {} : { evaluator: host.evaluator })
@@ -404,7 +410,6 @@ const execute = async (
     return { status: 503, error: "host_unconfigured", message: publicMessage(cause) }
   }
 
-  const materialized = materializeFlow(route.id, route.spec, route.agent)
   const state = { cells: 0, inputs: new Map<string, unknown>() }
   const sink = EventSink.layer({
     emit: (event) =>
@@ -413,7 +418,7 @@ const execute = async (
         if (frame !== undefined) send(frame)
       })
   })
-  const runtime = Layer.mergeAll(materialized.action.layer, Interpreter.layer(materialized.flow), sink).pipe(
+  const runtime = Layer.mergeAll(materialized.layer, Interpreter.layer(materialized.flow), sink).pipe(
     Layer.provideMerge(hostLayer)
   )
   // `materializeFlow` erases the payload and success types; `run` reads

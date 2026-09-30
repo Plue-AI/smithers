@@ -25,7 +25,7 @@ all import. You never edit those tables. You regenerate them, and
 
 Three more things fall out of the same declaration:
 
-- A flow never names a model. Its seat comes from the nearest ancestor
+- A prompt flow inherits its model from the nearest ancestor
   `AGENT.ts`, so moving one directory's flows onto a stronger model is a
   one-file change.
 - A flow's test replays a recorded model transcript through the production
@@ -56,16 +56,18 @@ A second flow is a directory and a file. Nothing registers it:
 
 ```ts
 // flows/summarize/flow.ts
-import { defineFlow } from "@smthrs/create-app/app"
+import * as AgentAction from "@smthrs/agent/AgentAction"
+import { Flow } from "@smthrs/flow"
 import * as Schema from "effect/Schema"
 
-export const Flow = defineFlow({
+export default Flow.make("chat", {
   description: "Summarize a ledger entry for an operator.",
   payload: { entryId: Schema.String },
-  output: Schema.Struct({
+  success: Schema.Struct({
     summary: Schema.String,
     risk: Schema.Literals(["none", "review", "block"])
   }),
+  error: AgentAction.AgentFailure,
   prompt: ({ entryId }) => `Summarize entry ${entryId}.`
 })
 ```

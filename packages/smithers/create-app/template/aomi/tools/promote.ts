@@ -110,13 +110,15 @@ export const bestPractices = [
 ].join("\n")
 
 /** The flow.ts skeleton `flows/write-flow` expects back, filled in. */
-export const flowTemplate = `import { defineFlow } from "@smthrs/create-app/app"
+export const flowTemplate = `import { Flow } from "@smthrs/flow"
+import * as AgentAction from "@smthrs/agent/AgentAction"
 import * as Schema from "effect/Schema"
 
-export const Flow = defineFlow({
+export default Flow.make("<flow-id>", {
   description: "<one line the flow list shows>",
   payload: { /* every value this script read from the conversation */ },
-  output: Schema.Struct({ /* typed fields, no prose blobs */ }),
+  success: Schema.Struct({ /* typed fields, no prose blobs */ }),
+  error: AgentAction.AgentFailure,
   prompt: (payload) => \`<the instruction, built from payload>\`,
   system: ["<anything the root AGENT.ts does not already teach>"]
 })

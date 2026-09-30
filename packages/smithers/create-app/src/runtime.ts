@@ -1,8 +1,8 @@
 /**
- * Turns declarations into executable flows.
+ * Binds routed canonical declarations to host implementations.
  *
- * {@link materializeFlow} pairs one `FlowSpec` with the `AgentSpec` the router
- * resolved for it, which is why a flow file never names a seat.
+ * {@link materializeFlow} pairs one canonical flow with the `AgentSpec` the router
+ * resolved for its host defaults.
  * {@link layerFor} composes the host services one flow runs under from its
  * three layer files. A host calls both per run: the Worker does it per turn,
  * and `@smthrs/create-app/testing` does it per test.
@@ -18,7 +18,7 @@ import * as Seat from "@smthrs/agent/Seat"
 import * as SeatResolver from "@smthrs/agent/SeatResolver"
 import * as Capability from "@smthrs/capability/Capability"
 import { FlowEngine } from "@smthrs/engine"
-import { Action, Flow } from "@smthrs/flow"
+import { Action, Flow, type Interpreter } from "@smthrs/flow"
 import type * as QuickJSSandbox from "@smthrs/harness/QuickJSSandbox"
 import type * as Sandbox from "@smthrs/harness/Sandbox"
 import * as Evaluator from "@smthrs/model/Evaluator"
@@ -32,7 +32,6 @@ import * as Option from "effect/Option"
 import type * as Schema from "effect/Schema"
 import {
   type AgentSpec,
-  type AnyFlowSpec,
   defaultCallLimit,
   defaultMaxFrames,
   type SandboxSpec,
@@ -41,47 +40,53 @@ import {
 } from "./app.ts"
 
 /**
- * One flow made executable: the declared agent action and the flow that calls
- * it, both named after the flow's routed id.
+ * The authored flow and the implementation layer its routed host runs.
  *
  * @category models
  * @since 0.1.0
  */
 export interface MaterializedFlow {
   readonly id: string
-  readonly action: ReturnType<typeof AgentAction.make>
-  readonly flow: ReturnType<typeof Flow.make>
+  readonly flow: Parameters<typeof Interpreter.layer>[0]
+  readonly layer: Layer.Layer<never, unknown, unknown>
 }
 
 /**
- * Binds one flow declaration to the agent layer resolved for it.
+ * Attaches the resolved agent host to the authored canonical flow.
  *
- * The action's system teaching is the agent layer's lines followed by the
- * flow's own, in that order: the layer says what the app is, the flow says
- * what this task is.
+ * Body flows provide their implementations through the module's named layer.
+ * Prompt flows lower to the ordinary action the declaration already owns.
  *
  * @category constructors
  * @since 0.1.0
  */
-export const materializeFlow = (id: string, spec: AnyFlowSpec, agent: AgentSpec): MaterializedFlow => {
-  // `AnyFlowSpec` erased the payload type, and `prompt` is contravariant in it,
-  // so the two are re-paired here. `defineFlow` is what guarantees the pairing:
-  // it built both from one type parameter.
-  const prompt = spec.prompt as (payload: Schema.Struct.Type<Schema.Struct.Fields>) => string
-  const action = AgentAction.make(`app/${id}/agent`, {
-    payload: spec.payload,
-    output: spec.output,
-    seat: agent.seat,
-    system: [...agent.system, ...(spec.system ?? [])],
-    prompt
+export const materializeFlow = (
+  id: string,
+  flow: Flow.AnyWithProps,
+  agent: AgentSpec,
+  implementations?: unknown
+): MaterializedFlow => {
+  if (!Flow.isFlow(flow)) throw new TypeError("A flow module must default-export a tagged Flow.make")
+  if (flow._tag !== id) throw new TypeError(`Flow.make tag "${flow._tag}" must match its routed id "${id}"`)
+  if (implementations !== undefined && !Layer.isLayer(implementations)) {
+    throw new TypeError("A flow module's named layer must be an Effect Layer")
+  }
+  const moduleLayer = implementations === undefined ? Layer.empty : implementations
+  if (flow.prompt === undefined || flow.action === undefined) {
+    return { id, flow: flow as Parameters<typeof Interpreter.layer>[0], layer: moduleLayer }
+  }
+  const action = flow.action as Action.Declared<
+    string,
+    Flow.AnyStructSchema,
+    Schema.Top,
+    typeof AgentAction.AgentFailure
+  >
+  const layer = AgentAction.implement(action, {
+    seat: flow.model ?? agent.seat,
+    system: [...agent.system, ...(flow.system ?? [])],
+    prompt: flow.prompt as (payload: unknown) => string
   })
-  const flow = Flow.make(`app/${id}`, {
-    payload: spec.payload,
-    success: spec.output,
-    error: AgentAction.AgentFailure,
-    body: (payload: Schema.Struct.Type<typeof spec.payload>) => action.call(payload)
-  })
-  return { id, action, flow }
+  return { id, flow: flow as Parameters<typeof Interpreter.layer>[0], layer: Layer.mergeAll(layer, moduleLayer) }
 }
 
 /**

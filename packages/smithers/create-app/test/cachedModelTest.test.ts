@@ -1,3 +1,5 @@
+import * as AgentAction from "@smthrs/agent/AgentAction"
+import { Flow as FlowDeclaration } from "@smthrs/flow"
 /**
  * The helper end to end, on a flow that exists only here.
  *
@@ -21,7 +23,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
 import { inspect } from "node:util"
-import { defineAgent, defineFlow, defineSandbox, defineTools } from "../src/index.ts"
+import { defineAgent, defineSandbox, defineTools } from "../src/index.ts"
 import {
   cachedModelTest,
   preparedRequest,
@@ -36,14 +38,15 @@ const Output = Schema.Struct({ answer: Schema.String })
 // The spelling `docs/api.md` tells a caller to write for `cachedModelTest`'s
 // output type argument, which nothing infers from a string flow id. `tsc`
 // holds it to the schema the flow declares.
-type Output = typeof Flow.output.Type
+type Output = typeof Flow.successSchema.Type
 
 const answerText = "Durable runs resume instead of repeating."
 
-const Flow = defineFlow({
+const Flow = FlowDeclaration.make("echo", {
   description: "Answers a topic in one line.",
   payload: { topic: Schema.String },
-  output: Output,
+  success: Output,
+  error: AgentAction.AgentFailure,
   prompt: ({ topic }) => `Answer in one line: ${topic}`
 })
 
@@ -66,16 +69,20 @@ const rootSystem = "You are the agent at the app root."
 const nearSystem = "You are the agent beside the flow."
 
 /**
- * A real `flows/echo/flow.ts`: `defineFlow` with usable schemas, imported by
+ * A real `flows/echo/flow.ts`: `Flow.make` with usable schemas, imported by
  * absolute URL because the tree is written outside this package.
  */
-const flowSource = `import { defineFlow } from ${JSON.stringify(new URL("../src/index.ts", import.meta.url).href)}
+const flowSource = `import { Flow as FlowDeclaration } from ${
+  JSON.stringify(new URL("../../flows/flow/src/index.ts", import.meta.url).href)
+}
+import * as AgentAction from ${JSON.stringify(new URL("../../agent/src/AgentAction.ts", import.meta.url).href)}
 import * as Schema from "effect/Schema"
 
-export const Flow = defineFlow({
+export default FlowDeclaration.make("echo", {
   description: "Answers a topic in one line.",
   payload: { topic: Schema.String },
-  output: Schema.Struct({ answer: Schema.String }),
+  success: Schema.Struct({ answer: Schema.String }),
+  error: AgentAction.AgentFailure,
   prompt: ({ topic }) => \`Answer in one line: \${topic}\`
 })
 `
@@ -202,15 +209,14 @@ describe("the default routes loader", () => {
 
   it("routes a flow, imports its layer files, and runs it", async () => {
     const root = tree(app({
-      "flows/echo/flow.ts":
-        `export const Flow = { _tag: "FlowSpec", description: "d", payload: {}, output: {}, prompt: () => "" }\n`
+      "flows/echo/flow.ts": flowSource
     }))
     // The flow module is imported for its `Flow` export; the spec that
     // actually runs comes from this file, so the schemas stay real.
     const loaded = await import(pathToFileURL(join(root, "flows/echo/flow.ts")).href) as {
-      readonly Flow: { readonly _tag: string }
+      readonly default: { readonly _tag: string }
     }
-    expect(loaded.Flow._tag).toBe("FlowSpec")
+    expect(loaded.default._tag).toBe("echo")
 
     await runCachedModelTest<{ topic: string }, Output>("routed", {
       fixture,
@@ -292,11 +298,59 @@ describe("the default routes loader", () => {
     ).rejects.toThrow("flow \"missing\" is not routed. Known flows: echo")
   })
 
-  it("refuses a markdown flow, which has no loader", async () => {
+  it("ignores a standalone MDX prompt as a flow", async () => {
     const root = tree(app({ "flows/notes/flow.mdx": "# notes\n" }))
     await expect(
       runCachedModelTest("markdown flow", { fixture, flow: "notes", payload: {}, root, expect: () => {} })
-    ).rejects.toThrow("markdown flow has no loader")
+    ).rejects.toThrow("flow \"notes\" is not routed")
+  })
+
+  it("runs a default body flow with its optional named layer", async () => {
+    const bodySource = `import { Flow } from ${
+      JSON.stringify(new URL("../../flows/flow/src/index.ts", import.meta.url).href)
+    }
+import * as Node from ${JSON.stringify(new URL("../../flows/core/src/Node.ts", import.meta.url).href)}
+import * as Schema from "effect/Schema"
+import * as Layer from "effect/Layer"
+export const layer = Layer.empty
+export default Flow.make("echo", { payload: { topic: Schema.String }, success: Schema.String,
+  body: ({ topic }) => Node.succeed(topic) })`
+    const root = tree(app({ "flows/echo/flow.ts": bodySource }))
+    await runCachedModelTest<{ topic: string }, string>("body", {
+      fixture,
+      flow: "echo",
+      payload: { topic: "computed" },
+      root,
+      expect: (output) => expect(output).toBe("computed")
+    })
+  })
+
+  it("refuses a default flow whose tag differs from its directory", async () => {
+    const root = tree(app({ "flows/echo/flow.ts": flowSource.replace("make(\"echo\"", "make(\"other\"") }))
+    await expect(
+      runCachedModelTest("wrong-id", { fixture, flow: "echo", payload: { topic: "identity" }, root, expect: () => {} })
+    )
+      .rejects.toThrow("tag \"other\" must match its routed id \"echo\"")
+  })
+
+  it("refuses an invalid named flow layer", async () => {
+    const root = tree(app({ "flows/echo/flow.ts": `${flowSource}\nexport const layer = {}` }))
+    await expect(
+      runCachedModelTest("bad-layer", { fixture, flow: "echo", payload: { topic: "layers" }, root, expect: () => {} })
+    )
+      .rejects.toThrow("named layer must be an Effect Layer")
+  })
+
+  it("refuses a flow with only a named legacy export", async () => {
+    const root = tree(app({ "flows/echo/flow.ts": "export const Flow = {}\n" }))
+    await expect(runCachedModelTest("legacy", { fixture, flow: "echo", payload: {}, root, expect: () => {} }))
+      .rejects.toThrow("flows/echo/flow.ts must default-export a tagged Flow.make")
+  })
+
+  it("refuses a default export from another flow model", async () => {
+    const root = tree(app({ "flows/echo/flow.ts": "export default { _tag: \"echo\" }\n" }))
+    await expect(runCachedModelTest("lookalike", { fixture, flow: "echo", payload: {}, root, expect: () => {} }))
+      .rejects.toThrow("flows/echo/flow.ts must default-export a tagged Flow.make")
   })
 
   it("refuses a layer file that exports nothing under the expected name", async () => {
@@ -304,7 +358,7 @@ describe("the default routes loader", () => {
       "AGENT.ts": "export const NotAgent = {}\n",
       "SANDBOX.ts": `export const Sandbox = ${JSON.stringify(Sandbox)}\n`,
       "TOOLS.ts": `export const Tools = ${JSON.stringify(Tools)}\n`,
-      "flows/echo/flow.ts": `export const Flow = { _tag: "FlowSpec" }\n`
+      "flows/echo/flow.ts": flowSource
     })
     await expect(
       runCachedModelTest("missing export", { fixture, flow: "echo", payload: {}, root, expect: () => {} })
@@ -319,7 +373,7 @@ describe("the default routes loader", () => {
       "AGENT.ts": "export const Agent = 42\n",
       "SANDBOX.ts": `export const Sandbox = ${JSON.stringify(Sandbox)}\n`,
       "TOOLS.ts": `export const Tools = ${JSON.stringify(Tools)}\n`,
-      "flows/echo/flow.ts": `export const Flow = { _tag: "FlowSpec" }\n`
+      "flows/echo/flow.ts": flowSource
     })
     await expect(
       runCachedModelTest("not a spec", { fixture, flow: "echo", payload: {}, root, expect: () => {} })
@@ -332,7 +386,7 @@ describe("the default routes loader", () => {
       "SANDBOX.ts": `export const Sandbox = ${JSON.stringify(Sandbox)}\n`,
       // The shape of a `TOOLS.ts` export, built by the wrong constructor.
       "TOOLS.ts": `export const Tools = ${JSON.stringify({ ...Tools, _tag: "SandboxSpec" })}\n`,
-      "flows/echo/flow.ts": `export const Flow = { _tag: "FlowSpec" }\n`
+      "flows/echo/flow.ts": flowSource
     })
     await expect(
       runCachedModelTest("wrong tag", { fixture, flow: "echo", payload: {}, root, expect: () => {} })
@@ -341,8 +395,7 @@ describe("the default routes loader", () => {
 
   it("loads the flow, agent, sandbox, and tools a routed tree declares", async () => {
     const root = tree(app({
-      "flows/echo/flow.ts":
-        `export const Flow = { _tag: "FlowSpec", description: "d", payload: {}, output: {}, prompt: () => "" }\n`
+      "flows/echo/flow.ts": flowSource
     }))
     // A payload of `{}` and an output of `{}` are not usable schemas, so the
     // run is expected to fail — what matters is that it failed AFTER the four

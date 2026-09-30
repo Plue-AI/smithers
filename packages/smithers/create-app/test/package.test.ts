@@ -130,7 +130,6 @@ describe("targets", () => {
       "site/layout.tsx",
       "site/panes/*.tsx",
       "pipelines/**/flow.ts",
-      "pipelines/**/flow.mdx",
       "**/AGENT.ts",
       "**/SANDBOX.ts",
       "**/TOOLS.ts"

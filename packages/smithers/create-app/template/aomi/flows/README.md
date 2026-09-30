@@ -3,7 +3,7 @@
 A flow's file location is its name: `flows/chat/flow.ts` is the flow `chat`.
 No path literal appears anywhere else.
 
-Each `flow.ts` exports `Flow = defineFlow({...})`: a payload, a typed output, the
+Each `flow.ts` default-exports a tagged `Flow.make` from `@smthrs/flow`: a payload, a typed output, the
 prompt built from the payload, and whether it is a chat. It never names a model.
 
 The seat, sandbox, and tools come from the nearest ancestor `AGENT.ts`,

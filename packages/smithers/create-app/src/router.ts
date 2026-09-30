@@ -15,7 +15,7 @@
  *   {@link RouterErrorCode} `invalid_name`'s lowercase kebab-case grammar.
  * - `<app>/panes/<name>.tsx` is the pane `<name>`, and only at that exact
  *   depth: `<app>/panes/<dir>/page.tsx` is the page `/panes/<dir>`.
- * - `<flows>/**\/flow.ts` or `flow.mdx` is the flow named by its directory, so
+ * - `<flows>/**\/flow.ts` is the flow named by its directory, so
  *   `flows/build/plan/flow.ts` is the flow `build/plan`.
  * - `AGENT.ts`, `SANDBOX.ts`, and `TOOLS.ts` are layers for every flow in
  *   their directory and below. The nearest ancestor of each kind wins and
@@ -49,13 +49,13 @@ export interface RouterOptions {
  * Why the router refused a tree.
  *
  * `missing_layer` is a flow with no ancestor layer file of some kind,
- * `duplicate_name` is two files claiming one route, and `invalid_name` is a
+ * `invalid_name` is a
  * pane or flow directory that is not lowercase kebab-case.
  *
  * @category models
  * @since 0.1.0
  */
-export type RouterErrorCode = "missing_layer" | "duplicate_name" | "invalid_name"
+export type RouterErrorCode = "missing_layer" | "invalid_name"
 
 /**
  * A refused tree, thrown rather than returned because every caller — the bin,
@@ -164,14 +164,6 @@ export const discover = (options: RouterOptions): AppRoutes => {
   const pages: Array<PageRoute> = []
   const panes: Array<PaneRoute> = []
   const flows: Array<FlowRoute> = []
-  const seen = new Map<string, string>()
-  const claim = (key: string, file: string): void => {
-    const previous = seen.get(key)
-    if (previous !== undefined) {
-      throw new RouterError("duplicate_name", `${file} and ${previous} both resolve to ${key}`)
-    }
-    seen.set(key, file)
-  }
 
   for (const file of [...files].sort()) {
     // Exactly one level below `panes/`, which is what the docstring, the
@@ -184,7 +176,6 @@ export const discover = (options: RouterOptions): AppRoutes => {
       if (!isRouteSegment(name)) {
         throw new RouterError("invalid_name", `pane file name must match ${routeSegmentGrammar}: ${file}`)
       }
-      claim(`pane:${name}`, file)
       panes.push({ name, file })
       continue
     }
@@ -197,16 +188,14 @@ export const discover = (options: RouterOptions): AppRoutes => {
       if (route !== "/" && !route.slice(1).split("/").every(isRouteSegment)) {
         throw new RouterError("invalid_name", `page directory segments must match ${routeSegmentGrammar}: ${file}`)
       }
-      claim(`page:${route}`, file)
       pages.push({ route, file })
       continue
     }
-    if (file.startsWith(flowsPrefix) && (posix.basename(file) === "flow.ts" || posix.basename(file) === "flow.mdx")) {
+    if (file.startsWith(flowsPrefix) && posix.basename(file) === "flow.ts") {
       const id = posix.dirname(file).slice(flowsPrefix.length)
       if (!id.split("/").every(isRouteSegment)) {
         throw new RouterError("invalid_name", `flow directory segments must match ${routeSegmentGrammar}: ${file}`)
       }
-      claim(`flow:${id}`, file)
       const dir = join(root, posix.dirname(file))
       flows.push({
         id,
@@ -271,7 +260,7 @@ export const render = (routes: AppRoutes): string => {
     lines.push(
       `  { id: ${JSON.stringify(flow.id)}, file: ${JSON.stringify(flow.file)}, spec: ${
         binding("flow", position)
-      }.Flow, ` +
+      }.default, layer: "layer" in ${binding("flow", position)} ? ${binding("flow", position)}.layer : undefined, ` +
         `agent: ${layerIds.get(flow.agent)}.Agent, sandbox: ${layerIds.get(flow.sandbox)}.Sandbox, tools: ${
           layerIds.get(flow.tools)
         }.Tools },`
@@ -331,7 +320,7 @@ export const renderUi = (routes: AppRoutes): string => {
     lines.push(
       `  { id: ${JSON.stringify(flow.id)}, file: ${JSON.stringify(flow.file)}, chat: ${
         binding("flow", position)
-      }.Flow.chat === true },`
+      }.default.chat === true },`
     )
   }
   lines.push("] as const")

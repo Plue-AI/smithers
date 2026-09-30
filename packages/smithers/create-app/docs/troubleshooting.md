@@ -40,15 +40,6 @@ to panes and flows, because every segment reaches a generated import specifier
 as well as a URL path. On a case-insensitive filesystem, renaming `Balance.tsx`
 to `balance.tsx` may need two steps.
 
-### `<a>` and `<b>` both resolve to `<key>`
-
-**What happened.** Code `duplicate_name`. Two files claim one pane name, page
-route, or flow id.
-
-**What to change.** Delete or move one of them. Nothing wins by ordering: the
-walk sorts the whole collected set before it routes anything, so the refusal
-does not depend on what the filesystem hands back.
-
 ## smithers-routes
 
 ### --root expects a value
@@ -165,14 +156,6 @@ message lists the ids the router did find.
 **What to change.** Run `pnpm routes` if you have just added the flow, check
 the directory name against the id you passed, and check the `root` option if
 the test does not run from the app root.
-
-### cachedModelTest cannot run flows/x/flow.mdx
-
-**What happened.** The flow is a markdown flow. It routes, and it appears in
-`routes.gen.ts`, but the test harness has no loader for one.
-
-**What to change.** Write the flow as a `flow.ts` if you want it covered by the
-offline suite.
 
 ### AGENT.ts must export `Agent` built by defineAgent
 

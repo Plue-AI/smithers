@@ -99,7 +99,6 @@ export const CreateApp = (options: CreateAppOptions): AppTargets => {
     `${dirs.app}/layout.tsx`,
     `${dirs.app}/panes/*.tsx`,
     `${dirs.flows}/**/flow.ts`,
-    `${dirs.flows}/**/flow.mdx`,
     "**/AGENT.ts",
     "**/SANDBOX.ts",
     "**/TOOLS.ts"

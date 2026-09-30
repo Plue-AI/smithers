@@ -95,11 +95,9 @@ describe("discover", () => {
     expect(routes.flows.map((flow) => flow.id)).toEqual(["build/plan", "chat"])
   })
 
-  it("routes a flow.mdx the same as a flow.ts", () => {
+  it("ignores MDX prompts as file flows", () => {
     const root = appTree({ ...layers, "flows/notes/flow.mdx": "# notes\n" })
-    expect(discover({ root, dirs }).flows).toEqual([
-      { id: "notes", file: "flows/notes/flow.mdx", agent: "AGENT.ts", sandbox: "SANDBOX.ts", tools: "TOOLS.ts" }
-    ])
+    expect(discover({ root, dirs }).flows).toEqual([])
   })
 
   it("reports no layout as undefined, not as an error", () => {
@@ -287,21 +285,13 @@ describe("layer resolution", () => {
 })
 
 describe("name collisions", () => {
-  it("refuses flow.ts and flow.mdx in one directory", () => {
+  it("routes TypeScript alongside an imported MDX prompt", () => {
     const root = appTree({
       ...layers,
-      "flows/chat/flow.ts": "export const Flow = {}\n",
-      "flows/chat/flow.mdx": "# chat\n"
+      "flows/chat/flow.ts": "export default {}\n",
+      "flows/chat/prompt.mdx": "# chat\n"
     })
-    try {
-      discover({ root, dirs })
-      expect.unreachable("discover should have thrown")
-    } catch (error) {
-      expect((error as RouterError).code).toBe("duplicate_name")
-      expect((error as RouterError).message).toBe(
-        "flows/chat/flow.ts and flows/chat/flow.mdx both resolve to flow:chat"
-      )
-    }
+    expect(discover({ root, dirs }).flows.map((flow) => flow.file)).toEqual(["flows/chat/flow.ts"])
   })
 
   it("refuses an uppercase pane file name", () => {
@@ -391,9 +381,9 @@ describe("render", () => {
       "export const paneNames = [\"balances\"] as const",
       "",
       "export const flows = [",
-      "  { id: \"build\", file: \"flows/build/flow.ts\", spec: flow0.Flow, agent: layer3.Agent, " +
+      "  { id: \"build\", file: \"flows/build/flow.ts\", spec: flow0.default, layer: \"layer\" in flow0 ? flow0.layer : undefined, agent: layer3.Agent, " +
       "sandbox: layer1.Sandbox, tools: layer2.Tools },",
-      "  { id: \"chat\", file: \"flows/chat/flow.ts\", spec: flow1.Flow, agent: layer0.Agent, " +
+      "  { id: \"chat\", file: \"flows/chat/flow.ts\", spec: flow1.default, layer: \"layer\" in flow1 ? flow1.layer : undefined, agent: layer0.Agent, " +
       "sandbox: layer1.Sandbox, tools: layer2.Tools },",
       "] as const",
       ""
@@ -419,8 +409,8 @@ describe("render", () => {
       "} as const",
       "",
       "export const flowSummaries = [",
-      "  { id: \"build\", file: \"flows/build/flow.ts\", chat: flow0.Flow.chat === true },",
-      "  { id: \"chat\", file: \"flows/chat/flow.ts\", chat: flow1.Flow.chat === true },",
+      "  { id: \"build\", file: \"flows/build/flow.ts\", chat: flow0.default.chat === true },",
+      "  { id: \"chat\", file: \"flows/chat/flow.ts\", chat: flow1.default.chat === true },",
       "] as const",
       ""
     ].join("\n")
@@ -446,8 +436,8 @@ describe("render", () => {
     })
     const ui = renderUi(discover({ root, dirs }))
     expect(ui).toContain("export const flowSummaries = [")
-    expect(ui).toContain("{ id: \"build\", file: \"flows/build/flow.ts\", chat: flow0.Flow.chat === true }")
-    expect(ui).toContain("{ id: \"chat\", file: \"flows/chat/flow.ts\", chat: flow1.Flow.chat === true }")
+    expect(ui).toContain("{ id: \"build\", file: \"flows/build/flow.ts\", chat: flow0.default.chat === true }")
+    expect(ui).toContain("{ id: \"chat\", file: \"flows/chat/flow.ts\", chat: flow1.default.chat === true }")
     const specifiers = importsOf(ui).map((entry) => entry.specifier)
     expect(specifiers).toEqual(expect.arrayContaining(["./flows/build/flow.ts", "./flows/chat/flow.ts"]))
     for (const specifier of specifiers) {

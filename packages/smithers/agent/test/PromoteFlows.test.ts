@@ -305,14 +305,14 @@ describe("flows/show-script", () => {
   it("teaches the host's own rules and template when it has them", async () => {
     const source = PromoteFlows.source(services(ran(), FlowStore.makeMemory()), {
       bestPractices: "One rule: the payload carries everything.",
-      template: "export const Flow = defineFlow({})\n"
+      template: 'export default Flow.make("example", { payload: {}, success: Schema.String, prompt: () => "Answer" })\n'
     })
 
     const result = await Effect.runPromise(invoke(source, "flows/show-script", {}))
 
     expect(result.value).toMatchObject({
       bestPractices: "One rule: the payload carries everything.",
-      template: "export const Flow = defineFlow({})\n"
+      template: 'export default Flow.make("example", { payload: {}, success: Schema.String, prompt: () => "Answer" })\n'
     })
   })
 })

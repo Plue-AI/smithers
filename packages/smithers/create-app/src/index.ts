@@ -10,10 +10,10 @@
  *
  * This entry point re-exports the two halves of the authoring surface flat,
  * rather than as namespaces, because it is an authoring API rather than a
- * service API — an app writes `defineFlow`, not `App.defineFlow`.
+ * service API. File flows use the canonical `@smthrs/flow` constructor.
  *
  * Three subpaths ship into a running app and bundle for the browser and for
- * workerd: `./app` (layer files, flow files, types), `./ui` (panes and cards),
+ * workerd: `./app` (layer files and app types), `./ui` (panes and cards),
  * and `./runtime` (flows made executable), which is what a scaffolded
  * Cloudflare Worker imports. The rest are Node-only build and test tooling:
  * `./package` (`CreateApp` over `@smthrs/targets`), `./router` (the file

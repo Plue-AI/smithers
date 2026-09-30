@@ -51,6 +51,6 @@ export const panes = {
 } as const
 
 export const flowSummaries = [
-  { id: "build", file: "flows/build/flow.ts", chat: flow0.Flow.chat === true },
-  { id: "chat", file: "flows/chat/flow.ts", chat: flow1.Flow.chat === true },
+  { id: "build", file: "flows/build/flow.ts", chat: flow0.default.chat === true },
+  { id: "chat", file: "flows/chat/flow.ts", chat: flow1.default.chat === true },
 ] as const

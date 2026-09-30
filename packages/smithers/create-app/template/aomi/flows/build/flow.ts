@@ -10,7 +10,8 @@
  * returns a typed plan the Build page renders. `flows/build/AGENT.ts` gives it
  * a stronger seat than the root agent.
  */
-import { defineFlow } from "@smthrs/create-app/app"
+import { Flow } from "@smthrs/flow"
+import * as AgentAction from "@smthrs/agent/AgentAction"
 import * as Schema from "effect/Schema"
 
 /** One file the plan intends to write. */
@@ -37,15 +38,16 @@ export const BuildPlan = Schema.Struct({
 })
 export type BuildPlan = typeof BuildPlan.Type
 
-export const Flow = defineFlow({
+export default Flow.make("build", {
   description: "Build or extend an app from a prompt: describe, plan, generate, validate, fix, smoke test, then ship.",
   payload: {
     app: Schema.String,
     prompt: Schema.String,
     source: Schema.optionalKey(Schema.Literals(["new", "existing"]))
   },
-  output: BuildPlan,
+  success: BuildPlan,
   chat: false,
+  error: AgentAction.AgentFailure,
   prompt: ({ app, prompt, source }) =>
     [
       `App: ${app}`,

@@ -12,6 +12,6 @@ import * as flow1 from "./flows/chat/flow.ts"
 export const paneNames = ["build-files","build-plan","chain-balance","chain-block","chain-contract","chain-tx"] as const
 
 export const flows = [
-  { id: "build", file: "flows/build/flow.ts", spec: flow0.Flow, agent: layer3.Agent, sandbox: layer1.Sandbox, tools: layer2.Tools },
-  { id: "chat", file: "flows/chat/flow.ts", spec: flow1.Flow, agent: layer0.Agent, sandbox: layer1.Sandbox, tools: layer2.Tools },
+  { id: "build", file: "flows/build/flow.ts", spec: flow0.default, layer: "layer" in flow0 ? flow0.layer : undefined, agent: layer3.Agent, sandbox: layer1.Sandbox, tools: layer2.Tools },
+  { id: "chat", file: "flows/chat/flow.ts", spec: flow1.default, layer: "layer" in flow1 ? flow1.layer : undefined, agent: layer0.Agent, sandbox: layer1.Sandbox, tools: layer2.Tools },
 ] as const

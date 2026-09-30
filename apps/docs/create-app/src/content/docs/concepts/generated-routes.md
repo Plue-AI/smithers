@@ -29,7 +29,7 @@ export const flows = [
   {
     id: "chat",
     file: "flows/chat/flow.ts",
-    spec: flow0.Flow,
+    spec: flow0.default,
     agent: layer0.Agent,
     sandbox: layer1.Sandbox,
     tools: layer2.Tools
@@ -64,7 +64,7 @@ export const panes = {
 } as const
 
 export const flowSummaries = [
-  { id: "chat", file: "flows/chat/flow.ts", chat: flow0.Flow.chat === true }
+  { id: "chat", file: "flows/chat/flow.ts", chat: flow0.default.chat === true }
 ] as const
 ```
 
@@ -73,7 +73,7 @@ branch on it rather than guess.
 
 `flowSummaries` is what a browser shell needs of a flow: its id, its file, and
 whether it is a chat. It reaches only the flow files, which import
-`defineFlow` and a schema. The browser never reads `routes.gen.ts` for this:
+`Flow.make` and a schema. The browser never reads `routes.gen.ts` for this:
 that table imports every layer file and every tool module, and the aomi
 template's chain tools build an EVM client at module scope.
 
@@ -120,7 +120,7 @@ hold.
 The Vite plugin regenerates both files when the config resolves and whenever a
 routed file appears or disappears, so `pnpm dev` never serves a stale table. A
 file counts as routed when it is a `page.tsx`, a `layout.tsx`, a file directly
-under a `panes/` directory, a `flow.ts` or `flow.mdx`, or one of the three
+under a `panes/` directory, a `flow.ts`, or one of the three
 layer files.
 
 Both tables are replaced together or not at all. The Worker bundle imports one

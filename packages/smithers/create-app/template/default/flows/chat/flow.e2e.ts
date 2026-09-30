@@ -20,15 +20,14 @@
  */
 import { fileURLToPath } from "node:url"
 import { cachedModelTest } from "@smthrs/create-app/testing"
-import type * as Schema from "effect/Schema"
 import { beforeEach } from "vitest"
 import { collectedCards, resetCollectedCards } from "../../tools/ui.ts"
-import { Flow } from "./flow.ts"
+import Flow from "./flow.ts"
 
 beforeEach(resetCollectedCards)
 
-type Payload = Schema.Struct.Type<typeof Flow.payload>
-type Output = typeof Flow.output.Type
+type Payload = typeof Flow.payloadSchema.Type
+type Output = typeof Flow.successSchema.Type
 
 cachedModelTest<Payload, Output>("chat answers a question and renders a pane", {
   fixture: new URL("./fixtures/answer.json", import.meta.url),

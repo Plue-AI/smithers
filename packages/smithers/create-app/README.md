@@ -64,7 +64,7 @@ Every other name comes from a file's location:
 | `AGENT.ts`             | `Agent`   | `defineAgent`     |
 | `SANDBOX.ts`           | `Sandbox` | `defineSandbox`   |
 | `TOOLS.ts`             | `Tools`   | `defineTools`     |
-| `flows/<id>/flow.ts`   | `Flow`    | `defineFlow`      |
+| `flows/<id>/flow.ts`   | default   | `Flow.make`       |
 | `app/panes/<name>.tsx` | `Pane`    | `definePane`      |
 | `app/**/page.tsx`      | default   | a React component |
 | `app/layout.tsx`       | default   | a React component |
@@ -78,14 +78,14 @@ ancestor of each kind wins and nothing merges, so `flows/build/AGENT.ts` moves
 the build flows to another seat and leaves their sandbox and tools alone. The
 app root must provide all three, which is what makes resolution terminate.
 
-A flow never names a model. Its seat comes from the resolved `AGENT.ts`.
+A prompt flow inherits its model from the resolved `AGENT.ts` by default.
 
 ## Public API
 
 | Import                         | Runtime                | What it holds                                                                                               |
 | ------------------------------ | ---------------------- | ----------------------------------------------------------------------------------------------------------- |
 | `@smthrs/create-app`           | Node                   | Both halves, flat: `CreateApp` plus everything in `./app`.                                                  |
-| `@smthrs/create-app/app`       | browser, workerd, Node | The layer, flow, and manifest constructors and types, plus the route-name grammar.                          |
+| `@smthrs/create-app/app`       | browser, workerd, Node | Layer constructors, app types, and the route-name grammar.                                                  |
 | `@smthrs/create-app/ui`        | browser, workerd, Node | `definePane`, `PaneRegistry`, `PaneContext`, the card schemas, `AppCard`, and `TurnFrame`.                  |
 | `@smthrs/create-app/runtime`   | browser, workerd, Node | `materializeFlow`, `layerFor`, `emptyRegistry`, `LayerError`, `SeatProvider`.                               |
 | `@smthrs/create-app/package`   | Node                   | `CreateApp` over `@smthrs/targets`, `CreateAppOptions`, `AppTargets`.                                       |

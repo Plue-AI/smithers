@@ -1,12 +1,12 @@
 ---
 title: "Add a flow"
-description: "Declare a second flow in a Smithers app: where the file goes, what defineFlow takes, what chat: true does and does not do, and how to give one flow its own seat."
+description: "Declare a second flow in a Smithers app: where the file goes, what Flow.make takes, what chat: true does and does not do, and how to give one flow its own seat."
 sidebar:
   order: 1
 ---
 
 A flow is a directory under the app's flows directory holding a `flow.ts` that
-exports `Flow`. The directory is the flow's id, so there is nothing to register
+default-exports a tagged `Flow.make`. The directory is the flow's id, so there is nothing to register
 and no id to keep in step with a file name.
 
 ## Write the file
@@ -14,16 +14,18 @@ and no id to keep in step with a file name.
 Create `flows/summarize/flow.ts`:
 
 ```ts
-import { defineFlow } from "@smthrs/create-app/app"
+import * as AgentAction from "@smthrs/agent/AgentAction"
+import { Flow } from "@smthrs/flow"
 import * as Schema from "effect/Schema"
 
-export const Flow = defineFlow({
+export default Flow.make("summarize", {
   description: "Summarize a ledger entry for an operator.",
   payload: { entryId: Schema.String, audience: Schema.String },
-  output: Schema.Struct({
+  success: Schema.Struct({
     summary: Schema.String.annotate({ description: "Two sentences at most" }),
     risk: Schema.Literals(["none", "review", "block"])
   }),
+  error: AgentAction.AgentFailure,
   prompt: ({ audience, entryId }) => `Summarize entry ${entryId} for ${audience}.`,
   system: ["Say what changed and who it affects. Do not speculate about intent."]
 })
@@ -34,7 +36,7 @@ Five fields carry the flow:
 - `description` is what a host shows when it lists the flow.
 - `payload` is a struct of schema fields, and `prompt` receives the decoded
   value of exactly those fields.
-- `output` is the schema the model's answer must fit. It is rendered into the
+- `success` is the schema the model's answer must fit. It is rendered into the
   run's teaching and enforced against the final answer, so prefer typed fields
   over prose.
 - `prompt` builds the opening message from the payload.
@@ -62,7 +64,7 @@ directory whose name breaks the route grammar is refused instead:
 ## Decide whether it is a chat
 
 ```ts
-export const Flow = defineFlow({
+export default Flow.make("summarize", {
   // ...
   chat: true
 })
@@ -108,10 +110,10 @@ transcript, so the suite runs offline:
 ```ts
 import { cachedModelTest } from "@smthrs/create-app/testing"
 import type * as Schema from "effect/Schema"
-import { Flow } from "./flow.ts"
+import Flow from "./flow.ts"
 
-type Payload = Schema.Struct.Type<typeof Flow.payload>
-type Output = typeof Flow.output.Type
+type Payload = typeof Flow.payloadSchema.Type
+type Output = typeof Flow.successSchema.Type
 
 cachedModelTest<Payload, Output>("summarize flags a risky entry", {
   fixture: new URL("./fixtures/risky.json", import.meta.url),
@@ -124,10 +126,3 @@ cachedModelTest<Payload, Output>("summarize flags a risky entry", {
 ```
 
 Recording the fixture is [Test a flow](./test-a-flow.md).
-
-## Markdown flows
-
-`flows/<id>/flow.mdx` is routed the same way and appears in `routes.gen.ts`.
-The test harness cannot run one: `cachedModelTest` refuses a markdown flow with
-`a markdown flow has no loader yet`, so a flow you want covered by the offline
-suite is a `flow.ts`.

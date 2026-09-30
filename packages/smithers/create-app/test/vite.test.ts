@@ -175,6 +175,8 @@ describe("createApp", () => {
 
     const eventPath = (file: string): string => join(root, file).replaceAll("\\", "/").replaceAll("/", separator)
     listeners[0]!(eventPath("src/theme.css"))
+    listeners[0]!(eventPath("flows/chat/flow.mdx"))
+    listeners[0]!(eventPath("flows/chat/prompt.mdx"))
     expect(readFileSync(join(root, "routes.ui.gen.ts"), "utf8")).not.toContain("balances")
 
     listeners[0]!(eventPath("app/panes/balances.tsx"))
@@ -183,8 +185,8 @@ describe("createApp", () => {
 
   // The listener runs inside chokidar's emit, so a throw out of it is an
   // uncaught exception that takes the dev server down rather than an error
-  // overlay. A capitalised pane file, a second flow.ts for an existing id, or
-  // a deleted root AGENT.ts each raise one while the server is running.
+  // overlay. A capitalised pane file or a deleted root AGENT.ts can raise one
+  // while the server is running.
   it("reports a refused tree instead of taking the dev server down", async () => {
     const root = tree({ ...layers, "app/page.tsx": "export default () => null\n" })
     const refused: Array<RouterError> = []

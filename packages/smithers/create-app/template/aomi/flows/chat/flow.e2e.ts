@@ -15,14 +15,13 @@
  */
 import { cachedModelTest } from "@smthrs/create-app/testing"
 import type { AppCard } from "@smthrs/create-app/ui"
-import type * as Schema from "effect/Schema"
 import { Agent } from "../../AGENT.ts"
 import { liveModel } from "../../test/support/liveModel.ts"
 import { routedFlows } from "../../test/support/routedFlows.ts"
-import { Flow } from "./flow.ts"
+import Flow from "./flow.ts"
 
-type Payload = Schema.Struct.Type<typeof Flow.payload>
-type Output = typeof Flow.output.Type
+type Payload = typeof Flow.payloadSchema.Type
+type Output = typeof Flow.successSchema.Type
 
 /** Every card the turn's `ui/*` calls emitted, in emission order. */
 const cards: Array<AppCard> = []

@@ -1,19 +1,11 @@
+import * as AgentAction from "@smthrs/agent/AgentAction"
+import { Flow as FlowDeclaration } from "@smthrs/flow"
 /**
- * The layer and flow constructors are plain data with one job each: tag the
- * value so a generated route table can tell an `Agent` from a `Sandbox`, and
- * keep every declared field verbatim.
+ * Layer constructors keep tagged data; file flows use the canonical authoring API.
  */
 import { describe, expect, it } from "@effect/vitest"
 import * as Schema from "effect/Schema"
-import {
-  defaultCallLimit,
-  defaultDirs,
-  defaultMaxFrames,
-  defineAgent,
-  defineFlow,
-  defineSandbox,
-  defineTools
-} from "../src/app.ts"
+import { defaultCallLimit, defaultDirs, defaultMaxFrames, defineAgent, defineSandbox, defineTools } from "../src/app.ts"
 
 describe("defineAgent", () => {
   it("tags the spec and keeps every declared field", () => {
@@ -61,25 +53,27 @@ describe("defineTools", () => {
   })
 })
 
-describe("defineFlow", () => {
+describe("canonical Flow.make", () => {
   it("tags the spec and keeps the prompt callable", () => {
-    const flow = defineFlow({
+    const flow = FlowDeclaration.make("echo", {
       description: "Answers a question about the ledger.",
       payload: { message: Schema.String },
-      output: Schema.Struct({ answer: Schema.String }),
+      success: Schema.Struct({ answer: Schema.String }),
+      error: AgentAction.AgentFailure,
       prompt: ({ message }) => message,
       chat: true
     })
-    expect(flow._tag).toBe("FlowSpec")
+    expect(flow._tag).toBe("echo")
     expect(flow.chat).toBe(true)
     expect(flow.prompt({ message: "hello" })).toBe("hello")
   })
 
   it("declares no chat mode and no extra teaching by default", () => {
-    const flow = defineFlow({
+    const flow = FlowDeclaration.make("echo", {
       description: "Summarizes a block.",
       payload: { number: Schema.Number },
-      output: Schema.Struct({ summary: Schema.String }),
+      success: Schema.Struct({ summary: Schema.String }),
+      error: AgentAction.AgentFailure,
       prompt: ({ number }) => `Summarize block ${number}.`
     })
     expect(flow.chat).toBeUndefined()

@@ -4,6 +4,13 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Removed `defineFlow`, `FlowSpec`, and named flow exports. File flows now
+  default-export canonical `Flow.make(tag, options)` from `@smthrs/flow`;
+  generated routes and hosts execute that declaration with its original
+  schemas and optional implementation layer (#1799).
+
 ### Added
 
 - Added `@smthrs/create-app/worker`: `turnResponse` runs a routed chat flow for

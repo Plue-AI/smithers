@@ -105,7 +105,7 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 
 const runtime = Layer.mergeAll(
-  materialized.action.layer,
+  materialized.layer,
   Interpreter.layer(materialized.flow)
 ).pipe(Layer.provideMerge(host))
 

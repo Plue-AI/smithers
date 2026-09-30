@@ -10,8 +10,8 @@
  * - `AGENT.ts`, `SANDBOX.ts`, `TOOLS.ts` are layer files. They export `Agent`,
  *   `Sandbox`, and `Tools` built by {@link defineAgent}, {@link defineSandbox},
  *   and {@link defineTools}.
- * - `flows/<id>/flow.ts` exports `Flow` built by {@link defineFlow}. A flow
- *   never names a model; its seat comes from the resolved `AGENT.ts`.
+ * - `flows/<id>/flow.ts` default-exports a tagged `Flow.make` from `@smthrs/flow`. A flow
+ *   inherits prompt host defaults from the resolved `AGENT.ts`.
  * - `app/**\/page.tsx` and `app/panes/<name>.tsx` are the UI, resolved by
  *   `@smthrs/create-app/router`.
  * - The rule: file location alone names the thing, and each layer kind
@@ -22,7 +22,6 @@
 
 import type * as Capability from "@smthrs/capability/Capability"
 import type * as FlowBinding from "@smthrs/harness/FlowBinding"
-import type * as Schema from "effect/Schema"
 
 /**
  * Font stacks a brand may declare.
@@ -130,7 +129,7 @@ export interface NavGroup {
  * The seat and teaching every flow under an `AGENT.ts` runs with.
  *
  * `seat` is a `<provider>:<model>` string the host's `SeatResolver` turns into
- * a live model, which is why no flow file names a model.
+ * a live model. Prompt flows inherit that seat by default.
  *
  * @category models
  * @since 0.1.0
@@ -280,79 +279,6 @@ export const defineTools = (
   sources: options.sources,
   grant: options.grant ?? []
 })
-
-/**
- * One flow: a payload, an output schema, and the prompt that opens the run.
- *
- * A flow declares no seat and no system prompt of its own beyond `system`,
- * which is appended after the resolved `AGENT.ts` teaching.
- *
- * `chat` is routing metadata and nothing else: it decides which endpoint a
- * host offers the flow on. A host reports it on its flow listing and sends a
- * `chat: true` flow to its turn endpoint rather than its flow-run endpoint;
- * the aomi template's Worker refuses a chat flow on `POST /api/flows/run` for
- * exactly that reason. Nothing in `@smthrs/create-app/runtime` reads it, and
- * no execution in this package carries a conversation across turns: each turn
- * opens its own execution from its own payload. A host that wants continuity
- * owns the history it replays into the next turn's payload.
- *
- * @category models
- * @since 0.1.0
- */
-export interface FlowSpec<P extends Schema.Struct.Fields, O extends Schema.Top> {
-  readonly _tag: "FlowSpec"
-  readonly description: string
-  readonly payload: P
-  readonly output: O
-  readonly prompt: (payload: Schema.Struct.Type<P>) => string
-  readonly system?: ReadonlyArray<string>
-  readonly chat?: boolean
-}
-
-/**
- * Declares the `Flow` export of a `flows/<id>/flow.ts` file.
- *
- * @example
- * ```ts
- * import { defineFlow } from "@smthrs/create-app/app"
- * import * as Schema from "effect/Schema"
- *
- * export const Flow = defineFlow({
- *   description: "Answers a question about the ledger.",
- *   payload: { message: Schema.String },
- *   output: Schema.Struct({ answer: Schema.String }),
- *   prompt: ({ message }) => message,
- *   chat: true
- * })
- * ```
- *
- * @category constructors
- * @since 0.1.0
- */
-export const defineFlow = <P extends Schema.Struct.Fields, O extends Schema.Top>(
-  options: Omit<FlowSpec<P, O>, "_tag">
-): FlowSpec<P, O> => ({ _tag: "FlowSpec", ...options })
-
-/**
- * A {@link FlowSpec} with its payload type erased, which is what a route table
- * holds once the router has stopped knowing each flow's fields.
- *
- * `prompt` takes `never` rather than the erased payload: a heterogeneous table
- * cannot hand back a typed prompt builder, and `prompt` is contravariant in its
- * payload, so any other erasure would refuse every concrete flow.
- *
- * @category models
- * @since 0.1.0
- */
-export interface AnyFlowSpec {
-  readonly _tag: "FlowSpec"
-  readonly description: string
-  readonly payload: Schema.Struct.Fields
-  readonly output: Schema.Top
-  readonly prompt: (payload: never) => string
-  readonly system?: ReadonlyArray<string>
-  readonly chat?: boolean
-}
 
 /**
  * One routed page: the URL path and the file that renders it.

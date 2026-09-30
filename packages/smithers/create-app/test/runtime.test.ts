@@ -1,3 +1,5 @@
+import * as Node from "@smthrs/core/Node"
+import { Flow as FlowDeclaration } from "@smthrs/flow"
 /**
  * `materializeFlow` is where a flow file's declaration and its resolved
  * `AGENT.ts` meet, so what it names and in which order it stacks the system
@@ -23,14 +25,15 @@ import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
-import { defineAgent, defineFlow, defineSandbox, defineTools, type ToolsGrant, type ToolsSpec } from "../src/app.ts"
+import { defineAgent, defineSandbox, defineTools, type ToolsGrant, type ToolsSpec } from "../src/app.ts"
 import { emptyRegistry, LayerError, layerFor, materializeFlow } from "../src/runtime.ts"
 import { preparedRequest } from "../src/testing.ts"
 
-const spec = defineFlow({
+const spec = FlowDeclaration.make("echo", {
   description: "Answers a topic in one line.",
   payload: { topic: Schema.String },
-  output: Schema.Struct({ answer: Schema.String }),
+  success: Schema.Struct({ answer: Schema.String }),
+  error: AgentAction.AgentFailure,
   prompt: ({ topic }) => `Answer in one line: ${topic}`,
   system: ["Keep it to one sentence."]
 })
@@ -38,21 +41,58 @@ const spec = defineFlow({
 const agent = defineAgent({ seat: "test:scripted", system: ["You are a test agent."] })
 
 describe("materializeFlow", () => {
-  it("names the action and the flow after the routed id", () => {
-    const materialized = materializeFlow("build/plan", spec, agent)
-    expect(materialized.id).toBe("build/plan")
-    expect(materialized.action.name).toBe("app/build/plan/agent")
-    expect(materialized.flow._tag).toBe("app/build/plan")
+  it("preserves the canonical action and authored flow identity", () => {
+    const materialized = materializeFlow("echo", spec, agent)
+    expect(materialized.id).toBe("echo")
+    expect(materialized.flow).toBe(spec)
+    expect(spec.action.name).toBe("echo/prompt")
+    expect(materialized.flow._tag).toBe("echo")
   })
 
   it("accepts a flow that adds no teaching of its own", () => {
-    const bare = defineFlow({
+    const bare = FlowDeclaration.make("echo", {
       description: "Echoes.",
       payload: { topic: Schema.String },
-      output: Schema.Struct({ answer: Schema.String }),
+      success: Schema.Struct({ answer: Schema.String }),
+      error: AgentAction.AgentFailure,
       prompt: ({ topic }) => topic
     })
-    expect(materializeFlow("echo", bare, agent).action.name).toBe("app/echo/agent")
+    expect(materializeFlow("echo", bare, agent).flow).toBe(bare)
+  })
+  it("keeps a canonical body flow and its module implementations", () => {
+    const bodyFlow = FlowDeclaration.make("echo-body", {
+      payload: { topic: Schema.String },
+      success: Schema.String,
+      body: ({ topic }) => Node.succeed(topic)
+    })
+    const layer = Layer.empty
+    const materialized = materializeFlow("echo-body", bodyFlow, agent, layer)
+    expect(materialized.flow).toBe(bodyFlow)
+    expect(materialized.layer).toBe(layer)
+    expect(materializeFlow("echo-body", bodyFlow, agent).flow).toBe(bodyFlow)
+  })
+
+  it("refuses declarations from another flow model", () => {
+    expect(() => materializeFlow("echo", { _tag: "echo" } as never, agent)).toThrow("default-export a tagged Flow.make")
+  })
+
+  it("refuses a flow tag that differs from its routed path", () => {
+    expect(() => materializeFlow("build/plan", spec, agent)).toThrow(
+      "tag \"echo\" must match its routed id \"build/plan\""
+    )
+  })
+
+  it("refuses an invalid module implementation layer", () => {
+    expect(() => materializeFlow("echo", spec, agent, {})).toThrow("named layer must be an Effect Layer")
+  })
+
+  it("requires the agent failure schema on a prompt action", () => {
+    const invalid = FlowDeclaration.make("invalid", {
+      payload: { topic: Schema.String },
+      success: Schema.String,
+      prompt: ({ topic }) => topic
+    })
+    expect(() => materializeFlow("invalid", invalid, agent)).toThrow("requires error: AgentAction.AgentFailure")
   })
 })
 
@@ -188,7 +228,7 @@ describe("runtime budget boundaries", () => {
           })
       })
       const declaredAgent = defineAgent({ seat: "test:scripted", system: [], limits: { calls: 1 }, maxFrames: 2 })
-      const materialized = materializeFlow("budget", spec, declaredAgent)
+      const materialized = materializeFlow("echo", spec, declaredAgent)
       const host = layerFor({
         agent: declaredAgent,
         sandbox: defineSandbox({ limits: { heapBytes: 32 * 1024 * 1024, wallClockMs: 10_000 } }),
@@ -197,12 +237,12 @@ describe("runtime budget boundaries", () => {
         evaluator: ScriptedJudge.layer,
         crypto: NodeCrypto.layer
       })
-      const runtime = Layer.mergeAll(materialized.action.layer, Interpreter.layer(materialized.flow)).pipe(
+      const runtime = Layer.mergeAll(materialized.layer, Interpreter.layer(materialized.flow)).pipe(
         Layer.provideMerge(host)
       )
       const exit = await Effect.runPromise(
-        materialized.flow.execute({ topic: "budgets" }, { executionId: `budget/${exceedsCalls}` }).pipe(
-          Effect.provide(runtime),
+        spec.execute({ topic: "budgets" }, { executionId: `budget/${exceedsCalls}` }).pipe(
+          Effect.provide(runtime as Layer.Layer<Effect.Services<ReturnType<typeof spec.execute>>>),
           Effect.provideService(EventSink.EventSink, {
             emit: (event) =>
               Effect.sync(() => {
@@ -271,7 +311,7 @@ describe("defineTools default envelope", () => {
         ])
     })
     const declaredAgent = defineAgent({ seat: "test:scripted", system: [], maxFrames: 1 })
-    const materialized = materializeFlow("grant", spec, declaredAgent)
+    const materialized = materializeFlow("echo", spec, declaredAgent)
     const sources = [FlowBinding.source("test", [tool])]
     const host = layerFor({
       agent: declaredAgent,
@@ -281,12 +321,12 @@ describe("defineTools default envelope", () => {
       evaluator: ScriptedJudge.layer,
       crypto: NodeCrypto.layer
     })
-    const runtime = Layer.mergeAll(materialized.action.layer, Interpreter.layer(materialized.flow)).pipe(
+    const runtime = Layer.mergeAll(materialized.layer, Interpreter.layer(materialized.flow)).pipe(
       Layer.provideMerge(host)
     )
     await Effect.runPromise(
-      materialized.flow.execute({ topic: "grants" }, { executionId: `grant/${grant === undefined}` }).pipe(
-        Effect.provide(runtime),
+      spec.execute({ topic: "grants" }, { executionId: `grant/${grant === undefined}` }).pipe(
+        Effect.provide(runtime as Layer.Layer<Effect.Services<ReturnType<typeof spec.execute>>>),
         Effect.provideService(EventSink.EventSink, {
           emit: (event) =>
             Effect.sync(() => {

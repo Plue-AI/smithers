@@ -7,10 +7,13 @@
  * terminal frame, one close; and every refusal decided before a stream opens.
  */
 import { describe, expect, it } from "@effect/vitest"
+import * as AgentAction from "@smthrs/agent/AgentAction"
 import * as ScriptedJudge from "@smthrs/agent/ScriptedJudge"
+import * as Node from "@smthrs/core/Node"
+import { Flow as FlowDeclaration } from "@smthrs/flow"
 import * as QuickJSSandbox from "@smthrs/harness/QuickJSSandbox"
 import { make as makeModel } from "@smthrs/model/Model"
-import type * as ModelEvent from "@smthrs/model/ModelEvent"
+import * as ModelEvent from "@smthrs/model/ModelEvent"
 import { Fixture } from "@smthrs/testing/Fixture"
 import * as RecordedModel from "@smthrs/testing/RecordedModel"
 import * as Crypto from "effect/Crypto"
@@ -18,7 +21,6 @@ import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
 import { readFileSync } from "node:fs"
-import { defineFlow } from "../src/app.ts"
 import { authorized } from "../src/http.ts"
 import type { SeatProvider } from "../src/runtime.ts"
 import { preparedRequest, replayModelError } from "../src/testing.ts"
@@ -262,10 +264,11 @@ describe("runTurn", () => {
 })
 
 describe("resolveChatFlow", () => {
-  const build = defineFlow({
+  const build = FlowDeclaration.make("echo", {
     description: "Not a chat flow.",
     payload: { topic: Schema.String },
-    output: Schema.Struct({ answer: Schema.String }),
+    success: Schema.Struct({ answer: Schema.String }),
+    error: AgentAction.AgentFailure,
     prompt: ({ topic }) => topic
   })
   const table: ReadonlyArray<TurnRoute> = [...flows, { ...flows[0]!, id: "build", spec: build }]
@@ -290,7 +293,18 @@ describe("resolveChatFlow", () => {
 
 describe("runFlow", () => {
   // The chat route with `chat` off: the same prompt, so the same fixture replays.
-  const pipeline: TurnRoute = { ...flows[0]!, id: "answer", spec: { ...flows[0]!.spec, chat: false } }
+  const pipeline: TurnRoute = {
+    ...flows[0]!,
+    id: "answer",
+    spec: FlowDeclaration.make("answer", {
+      payload: flows[0]!.spec.payloadSchema,
+      success: flows[0]!.spec.successSchema,
+      error: AgentAction.AgentFailure,
+      prompt: flows[0]!.spec.prompt!,
+      system: flows[0]!.spec.system,
+      chat: false
+    })
+  }
 
   it("runs a pipeline flow to one done frame with the same frames a turn streams", async () => {
     const stream = await runFlow(await host({ flows: [...flows, pipeline] }), { ...question, flow: "answer" })
@@ -299,6 +313,72 @@ describe("runFlow", () => {
     expect(frames.some((frame) => frame.type === "card")).toBe(true)
     expect(frames.at(-1)!.type).toBe("done")
     expect(frames.filter((frame) => frame.type === "done" || frame.type === "error")).toHaveLength(1)
+  })
+
+  for (const model of ["test:chosen", ["test:chosen", "test:backup"] as const]) {
+    it(`resolves a declared ${typeof model === "string" ? "model" : "model list"} through the host`, async () => {
+      const spec = FlowDeclaration.make("answer", {
+        payload: flows[0]!.spec.payloadSchema,
+        success: flows[0]!.spec.successSchema,
+        error: AgentAction.AgentFailure,
+        prompt: flows[0]!.spec.prompt!,
+        system: flows[0]!.spec.system,
+        model
+      })
+      const scripted = makeModel({
+        stream: () =>
+          Stream.fromIterable([
+            ModelEvent.ModelEvent.TextStart({ type: "text-start", id: "cell" }),
+            ModelEvent.ModelEvent.TextDelta({
+              type: "text-delta",
+              id: "cell",
+              text: "```cell\nawait ctx.done({ answer: \"Chosen\", cards: [] })\n```"
+            }),
+            ModelEvent.ModelEvent.TextEnd({ type: "text-end", id: "cell" }),
+            ModelEvent.ModelEvent.Settle({ type: "settle", stopReason: "stop" })
+          ])
+      })
+      const resolved: Array<string> = []
+      const hostSeats: SeatProvider = {
+        resolve: (id) => {
+          resolved.push(id)
+          return Effect.succeed({ model: scripted, route: { prepare: () => Effect.succeed(preparedRequest) } })
+        }
+      }
+      const stream = await runFlow(await host({ flows: [{ ...pipeline, spec }], seats: hostSeats }), {
+        ...question,
+        flow: "answer"
+      })
+      if (!(stream instanceof ReadableStream)) throw new Error(`refused: ${JSON.stringify(stream)}`)
+      expect((await read(stream)).at(-1)).toMatchObject({ type: "done" })
+      expect(resolved.length).toBeGreaterThan(0)
+      const declaredIds: ReadonlyArray<string> = typeof model === "string" ? [model] : model
+      expect(resolved[0]).toBe(declaredIds[0])
+      expect(resolved.every((id) => declaredIds.includes(id))).toBe(true)
+    })
+  }
+
+  it("runs an authored body flow without resolving a model", async () => {
+    const spec = FlowDeclaration.make("answer", {
+      payload: { message: Schema.String },
+      success: Schema.String,
+      body: ({ message }) => Node.succeed(message)
+    })
+    const bodyRoute: TurnRoute = { ...flows[0]!, id: "answer", spec }
+    const stream = await runFlow(
+      await host({ flows: [bodyRoute], seats: { resolve: () => Effect.die("unused model") } }),
+      { flow: "answer", payload: { message: "computed" } }
+    )
+    if (!(stream instanceof ReadableStream)) throw new Error(`refused: ${JSON.stringify(stream)}`)
+    expect(await read(stream)).toEqual([{ type: "done", output: "computed" }])
+  })
+
+  it("refuses an invalid authored implementation layer before opening a stream", async () => {
+    const route = { ...pipeline, layer: {} }
+    expect(await runFlow(await host({ flows: [route] }), { ...question, flow: "answer" })).toMatchObject({
+      status: 503,
+      error: "host_unconfigured"
+    })
   })
 
   it("refuses a chat flow and an unrouted one before opening a stream", async () => {

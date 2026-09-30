@@ -5,9 +5,9 @@
  * `output` is `unknown` and `expect` cannot read a field.
  *
  * ```ts
- * import { Flow } from "../flows/chat/flow.ts"
+ * import Flow from "../flows/chat/flow.ts"
  *
- * cachedModelTest<{ message: string }, typeof Flow.output.Type>(
+ * cachedModelTest<{ message: string }, typeof Flow.successSchema.Type>(
  *   "chat answers a balance question",
  *   {
  *     fixture: new URL("./fixtures/balance.json", import.meta.url),
@@ -31,7 +31,7 @@
 
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
 import * as ScriptedJudge from "@smthrs/agent/ScriptedJudge"
-import { Interpreter } from "@smthrs/flow"
+import { Flow, Interpreter } from "@smthrs/flow"
 import { make as makeModel, type Model, type ModelFailure } from "@smthrs/model/Model"
 import { ModelError } from "@smthrs/model/ModelError"
 import type * as ModelEvent from "@smthrs/model/ModelEvent"
@@ -49,7 +49,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "
 import { dirname, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { expect as vitestExpect, test } from "vitest"
-import { type AgentSpec, type AnyFlowSpec, type AppDirs, defaultDirs, type SandboxSpec, type ToolsSpec } from "./app.ts"
+import { type AgentSpec, type AppDirs, defaultDirs, type SandboxSpec, type ToolsSpec } from "./app.ts"
 import { discover } from "./router.ts"
 import { layerFor, materializeFlow } from "./runtime.ts"
 
@@ -62,7 +62,8 @@ import { layerFor, materializeFlow } from "./runtime.ts"
 export interface RoutedFlow {
   readonly id: string
   readonly file: string
-  readonly spec: AnyFlowSpec
+  readonly spec: Flow.AnyWithProps
+  readonly layer?: unknown
   readonly agent: AgentSpec
   readonly sandbox: SandboxSpec
   readonly tools: ToolsSpec
@@ -357,6 +358,12 @@ const named = <T extends { readonly _tag: string }>(
   return value as T
 }
 
+/** Reads the canonical declaration the flow file owns. */
+const fileFlow = (value: unknown, file: string): Flow.AnyWithProps => {
+  if (!Flow.isFlow(value)) throw new Error(`${file} must default-export a tagged Flow.make`)
+  return value as Flow.AnyWithProps
+}
+
 /**
  * Resolves one flow by re-running the router, then imports only that flow and
  * its three layer files.
@@ -376,9 +383,6 @@ const discoverRoutedFlow = async (id: string, root: string, dirs: AppDirs): Prom
       `flow "${id}" is not routed. Known flows: ${routes.flows.map((candidate) => candidate.id).join(", ")}`
     )
   }
-  if (route.file.endsWith(".mdx")) {
-    throw new Error(`cachedModelTest cannot run ${route.file}: a markdown flow has no loader yet`)
-  }
   const [flowModule, agentModule, sandboxModule, toolsModule] = await Promise.all([
     importModule(root, route.file),
     importModule(root, route.agent),
@@ -388,7 +392,8 @@ const discoverRoutedFlow = async (id: string, root: string, dirs: AppDirs): Prom
   return [{
     id: route.id,
     file: route.file,
-    spec: named<AnyFlowSpec>(flowModule, "Flow", route.file, { tag: "FlowSpec", constructor: "defineFlow" }),
+    spec: fileFlow(flowModule.default, route.file),
+    ...(flowModule.layer === undefined ? {} : { layer: flowModule.layer }),
     agent: named<AgentSpec>(agentModule, "Agent", route.agent, { tag: "AgentSpec", constructor: "defineAgent" }),
     sandbox: named<SandboxSpec>(sandboxModule, "Sandbox", route.sandbox, {
       tag: "SandboxSpec",
@@ -504,7 +509,7 @@ export const runCachedModelTest = async <P, O>(
     model = asModel(await Effect.runPromise(RecordedModel.make(fixture)))
   }
 
-  const materialized = materializeFlow(flow.id, flow.spec, flow.agent)
+  const materialized = materializeFlow(flow.id, flow.spec, flow.agent, flow.layer)
   const host = layerFor({
     agent: flow.agent,
     sandbox: flow.sandbox,
@@ -517,7 +522,7 @@ export const runCachedModelTest = async <P, O>(
     // completion replays exactly as it was recorded.
     evaluator: ScriptedJudge.layer
   })
-  const runtime = Layer.mergeAll(materialized.action.layer, Interpreter.layer(materialized.flow)).pipe(
+  const runtime = Layer.mergeAll(materialized.layer, Interpreter.layer(materialized.flow)).pipe(
     Layer.provideMerge(host)
   )
 
