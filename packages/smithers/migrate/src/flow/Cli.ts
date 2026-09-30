@@ -44,9 +44,8 @@ const flags = {
   flowsDir: Flag.String("flows-dir").pipe(Flag.optional),
   // What the project really runs to verify itself. The detection ladder reads
   // the manifests and the lockfile and is right about most projects; these are
-  // for the rest. They matter more than a convenience: the agent's shell is
-  // confined to these exact command lines, so a wrongly derived command is one
-  // an operator has no other way to correct.
+  // for the rest. The orchestrator verifies each rewrite with these commands.
+  // Agents cannot run a shell or bypass the configured verification.
   verifyInstall: Flag.String("verify-install").pipe(
     Flag.withDescription("The command that installs dependencies, instead of the one the lockfile implies"),
     Flag.optional

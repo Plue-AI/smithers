@@ -444,10 +444,9 @@ export interface Flags {
    * What the project really runs to verify itself, when the detection ladder
    * guessed wrong.
    *
-   * Every unit is verified with these commands and the agent is granted
-   * `proc:spawn` for exactly these lines, so a project whose typecheck lives in
-   * a Makefile has no other way to be migrated: without an override the derived
-   * command fails, and the shell the agent is offered refuses the real one.
+   * The orchestrator verifies every unit with these commands after the agent
+   * answers. A project whose checks live in a Makefile needs an override when
+   * the detection ladder cannot derive them.
    *
    * `verifyTypecheck` is repeatable because a project can have several
    * tsconfigs. One empty value means "run no typecheck at all"; no value at all

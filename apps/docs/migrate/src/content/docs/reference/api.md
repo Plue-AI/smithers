@@ -989,9 +989,8 @@ operator override and keeps shell semantics. `Units.simpleCommand(line)` turns
 a repository-authored line into an argv when it is plain words and refuses
 anything a shell would interpret; a `repoCommands.test` it refuses is reported
 in the plan's notes with the command that ran instead. `Contract.commandLine`
-renders either form as the one line the prompt, the report, and the
-`proc:spawn` grant share, which for an argv is the kernel's own rendering of
-the command it spawns.
+renders either form as the one line the prompt and the report share.
+The orchestrator executes verification after the agent answers.
 
 ## Checks
 
@@ -1319,7 +1318,7 @@ The agent's half runs on kernel-guarded services pinned to the project root, wit
 
 The prompt treats everything it quotes from the project as data. `Contract.fenced` fences a source, a hint, a snippet, or a command's output with one more backtick than the longest run inside it, so the content cannot end the block; `Contract.inline` does the same for a path or a command; and the contract's last rule says that an instruction inside any of them is part of the project and changes nothing.
 
-The same rules grant `proc:spawn` one command line at a time, for this project's own install, format, typecheck, and test commands and nothing else. Those commands are what the manifests and the lockfile imply, as argv values the tool spawns with no shell, with the operator's `--verify-install`, `--verify-format`, `--verify-typecheck`, and `--verify-test` on top as the shell lines the operator typed; one derivation, `Layers.commandsFor`, serves the host and the units, because an agent shown one set of commands and granted another would be refused the very lines its brief lists, and the line a grant names is the kernel's own rendering of the argv it spawns. A spawned process writes at the OS level, where no `fs:write` rule can see it, so confining the spawn is the only place a shell can be stopped from reaching a database. What those commands then do is outside any rule, and the run-state digests are what catch it: the unit fails its checks and is restored.
+The migration agent receives no process authority or shell/verification bindings. It edits through guarded filesystem flows. The deterministic orchestrator runs the configured verification commands after each rewrite and returns failures for repair; run-state digests detect changes to protected state and restore the unit.
 
 ### What a unit is allowed to write
 
@@ -1397,7 +1396,7 @@ inside.
 | `limits`                    | `Sandbox.Limits`                                                                    | The sandbox budget it runs under.                                               |
 | `envelope`                  | `() => ReadonlyArray<string>`                                                       | The capability envelope the bound flows need.                                   |
 | `bindings`, `hostLayer`     | `(options) => ...`                                                                  | The flows the rewrite may call, and the judged host that binds them with `jev`. |
-| `mappingFlow`, `verifyFlow` | `CoreFlow.Flow`                                                                     | The two capabilities the rewrite reaches: mapping lookup and verification.      |
+| `mappingFlow`               | `CoreFlow.Flow`                                                                     | The mapping lookup the rewrite reaches.                                         |
 
 ### Repair
 
@@ -1518,21 +1517,21 @@ implementation.
 `@smthrs/migrate/flow/Layers`. The Node composition, its grant rules, and a
 scripted composition to test a migration against.
 
-| Export                                                              | Signature                                                        | What it is                                                                                                                                                                 |
-| ------------------------------------------------------------------- | ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `layerNode`                                                         | `(config: NodeConfig) => Layer`                                  | Everything a migration needs on Node.                                                                                                                                      |
-| `layerNodeScanned`                                                  | `(config: ScannedConfig) => Layer`                               | The same, deriving the grant rules and commands from a scan.                                                                                                               |
-| `layerScripted`                                                     | `(config) => Layer`                                              | The same composition with a scripted model, for tests.                                                                                                                     |
-| `layerSnapshotBoundary`                                             | `Layer<FlowEngine.SnapshotBoundary>`                             | The engine's snapshot boundary.                                                                                                                                            |
-| `rules`                                                             | `(options) => ...`                                               | The grant rules: `fs:*` denied on run state, the report directory, and every case spelling of `.git`, `.jj`, and `.env*`; `proc:spawn` granted one command line at a time. |
-| `commandsFor`                                                       | `(detection, overrides?, flowsDir?) => Contract.Commands`        | One derivation for the host, the prompt, and the grants.                                                                                                                   |
-| `verificationCommands`                                              | `(commands: Contract.Commands) => ReadonlyArray<string>`         | Those commands as the lines a grant names.                                                                                                                                 |
-| `seatResolver`                                                      | `(options) => SeatResolver.Service`                              | Maps the declared seat onto `provider:model` and reads that provider's key.                                                                                                |
-| `configuredProvider`                                                | `(environment) => string \| undefined`                           | The provider whose key is present, and nothing about which model.                                                                                                          |
-| `apiKeyVariable`                                                    | `{ anthropic, openai, openrouter }`                              | Which variable carries each provider's key.                                                                                                                                |
-| `migrationRoot`                                                     | `(root: string) => Effect<MigrationRoot, MigrateError>`          | The branded absolute root every service is pinned to.                                                                                                                      |
-| `scriptedModel`, `done`                                             | `(script: Script) => Model.Model`, `(output: unknown) => string` | The test model and the cell that answers with a value.                                                                                                                     |
-| `NodeConfig`, `ScannedConfig`, `Script`, `Runtime`, `MigrationRoot` | `interface` or `type`                                            | The composition's inputs and its runtime type.                                                                                                                             |
+| Export                                                              | Signature                                                        | What it is                                                                                                                                            |
+| ------------------------------------------------------------------- | ---------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `layerNode`                                                         | `(config: NodeConfig) => Layer`                                  | Everything a migration needs on Node.                                                                                                                 |
+| `layerNodeScanned`                                                  | `(config: ScannedConfig) => Layer`                               | The same, deriving the grant rules and commands from a scan.                                                                                          |
+| `layerScripted`                                                     | `(config) => Layer`                                              | The same composition with a scripted model, for tests.                                                                                                |
+| `layerSnapshotBoundary`                                             | `Layer<FlowEngine.SnapshotBoundary>`                             | The engine's snapshot boundary.                                                                                                                       |
+| `rules`                                                             | `(options) => ...`                                               | The grant rules: `fs:*` denied on run state, the report directory, and every case spelling of `.git`, `.jj`, and `.env*`; no agent process authority. |
+| `commandsFor`                                                       | `(detection, overrides?, flowsDir?) => Contract.Commands`        | One derivation for the host, the prompt, and the grants.                                                                                              |
+| `verificationCommands`                                              | `(commands: Contract.Commands) => ReadonlyArray<string>`         | Those commands as the lines a grant names.                                                                                                            |
+| `seatResolver`                                                      | `(options) => SeatResolver.Service`                              | Maps the declared seat onto `provider:model` and reads that provider's key.                                                                           |
+| `configuredProvider`                                                | `(environment) => string \| undefined`                           | The provider whose key is present, and nothing about which model.                                                                                     |
+| `apiKeyVariable`                                                    | `{ anthropic, openai, openrouter }`                              | Which variable carries each provider's key.                                                                                                           |
+| `migrationRoot`                                                     | `(root: string) => Effect<MigrationRoot, MigrateError>`          | The branded absolute root every service is pinned to.                                                                                                 |
+| `scriptedModel`, `done`                                             | `(script: Script) => Model.Model`, `(output: unknown) => string` | The test model and the cell that answers with a value.                                                                                                |
+| `NodeConfig`, `ScannedConfig`, `Script`, `Runtime`, `MigrationRoot` | `interface` or `type`                                            | The composition's inputs and its runtime type.                                                                                                        |
 
 `rules` grants process commands only when the capability pattern grammar can
 represent the complete line literally. Lines containing `*` or `?` receive no

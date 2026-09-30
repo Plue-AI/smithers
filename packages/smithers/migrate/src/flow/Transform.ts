@@ -10,12 +10,11 @@
  * asked for.
  *
  * The host it works inside is narrow on purpose. It offers the standard
- * filesystem and shell flows over kernel-guarded services rooted at the
- * project, two flows of this package's own, and a capability envelope that
+ * filesystem flows over kernel-guarded services rooted at the
+ * project, the mapping lookup, and a capability envelope that
  * grants the project and nothing else. A write to `.smithers/smithers.db` is
- * refused by the kernel rather than by a sentence in the prompt, and the shell
- * runs this project's own verification commands and nothing else, because a
- * spawned process writes where no filesystem rule can see it.
+ * refused by the kernel rather than by a sentence in the prompt, and agent process execution is unavailable. The orchestrator verifies each
+ * rewrite after the agent answers.
  *
  * @since 1.0.0-rc.0
  */
@@ -34,7 +33,6 @@ import * as FileSystem from "effect/FileSystem"
 import * as Layer from "effect/Layer"
 import * as Path from "effect/Path"
 import * as Schema from "effect/Schema"
-import type { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import * as Fs from "../internal/Fs.ts"
 import type * as Inventory from "../Inventory.ts"
 import * as Mapping from "../Mapping.ts"
@@ -45,7 +43,6 @@ import type * as Units from "../Units.ts"
 import * as Checkpoint from "./Checkpoint.ts"
 import * as Contract from "./Contract.ts"
 import * as Options from "./Options.ts"
-import * as Verify from "./Verify.ts"
 
 /**
  * What the agent hands back for one unit.
@@ -490,7 +487,7 @@ export const layer = action.layer
  *
  * It reads wider than the confinement, and that is not a mistake. An envelope
  * has to *subsume* what a bound flow declares, and `@smthrs/std` declares
- * `fs:read:/**`, `fs:write:/**`, and `proc:spawn:*` — the declarations of a
+ * `fs:read:/**` and `fs:write:/**` — the declarations of a
  * capability whose real bounds the host decides. An envelope narrowed to the
  * project root refuses `write` outright, which is how the first version of
  * this module failed: the agent was offered an editing flow it could never
@@ -500,8 +497,7 @@ export const layer = action.layer
  * declared: `Workspace.layer(root)` pins the root, the kernel filesystem
  * resolves and executes every operation relative to that descriptor, and the
  * grant store in {@link module:Layers.rules} denies every write under a 0.x
- * run-state path and grants `proc:spawn` only for this project's own
- * verification command lines. A pattern string cannot express "everything but
+ * run-state path. A pattern string cannot express "everything but
  * these"; a rule set can, and the kernel asks it on every operation.
  *
  * @category combinators
@@ -510,7 +506,6 @@ export const layer = action.layer
 export const envelope = (): ReadonlyArray<string> => [
   "fs:read:/**",
   "fs:write:/**",
-  "proc:spawn:*",
   "model:call:typesafe-ai/jev"
 ]
 
@@ -530,37 +525,7 @@ export const mappingFlow = CoreFlow.make({
 })
 
 /**
- * The verification run, as one ordinary flow.
- *
- * Bound so the agent can find out whether its rewrite holds before it answers,
- * rather than answering and being told by a repair round.
- *
- * @category flows
- * @since 1.0.0-rc.0
- */
-export const verifyFlow = CoreFlow.make({
-  name: "migrate/verify",
-  description:
-    "Run this unit's verification commands (install, format, typecheck, tests, flow discovery) and report whether they pass and what failed. Pass expectFlows:false when this unit writes no flow, which the unit brief says under Verification, so the discovery check is skipped instead of failing.",
-  input: Schema.Struct({
-    /**
-     * Whether a flow is supposed to exist by the time this unit verifies.
-     * Absent means yes, the same default {@link module:Verify.action} uses, so
-     * a caller that says nothing gets the strict answer.
-     */
-    expectFlows: Schema.optional(Schema.Boolean)
-  }),
-  output: Schema.Struct({
-    verdict: Schema.Literals(["pass", "fail"]),
-    failures: Schema.Array(Schema.String)
-  }),
-  effects: { reads: [], writes: [], mode: "expected", onConflict: "serialize", tier: "irreversible" }
-})
-
-/**
- * The two flows this package binds into the agent's catalog: the mapping table
- * it may consult for a construct, and the verification it may run before it
- * answers.
+ * The mapping table this package binds into the agent's catalog.
  *
  * A binding rather than a prompt section because the mapping table is large and
  * the agent should pay for the row it wants, not for all of them.
@@ -568,68 +533,37 @@ export const verifyFlow = CoreFlow.make({
  * @category constructors
  * @since 1.0.0-rc.0
  */
-export const bindings = (options: {
-  readonly root: string
-  readonly commands: Contract.Commands
-}): Effect.Effect<
-  FlowBinding.Source,
-  never,
-  FileSystem.FileSystem | Path.Path | ChildProcessSpawner
-> =>
-  Effect.gen(function*() {
-    const services = yield* Effect.context<FileSystem.FileSystem | Path.Path | ChildProcessSpawner>()
-    return FlowBinding.source("migrate", [
-      FlowBinding.make({
-        flow: mappingFlow,
-        handler: (input) => {
-          const row = Mapping.byConstruct(input.construct)
-          return Effect.succeed(
-            row === undefined
-              ? {
-                construct: input.construct,
-                target: null,
-                targetModule: null,
-                rule: "no mapping row",
-                class: "unsafe" as const
-              }
-              : {
-                construct: row.construct,
-                target: row.target,
-                targetModule: row.targetModule,
-                rule: row.rule,
-                class: row.class
-              }
-          )
-        }
-      }),
-      FlowBinding.provide(
-        FlowBinding.make({
-          flow: verifyFlow,
-          handler: (input) =>
-            Verify.run({
-              root: options.root,
-              commands: options.commands,
-              ...(input.expectFlows === undefined ? {} : { expectFlows: input.expectFlows })
-            }).pipe(
-              Effect.map((result) => ({
-                verdict: Verify.verdict(result),
-                failures: Verify.failures(result)
-              })),
-              Effect.catchTag(
-                "@smthrs/migrate/MigrateError",
-                (error) => Effect.succeed({ verdict: "fail" as const, failures: [error.message] })
-              )
-            )
-        }),
-        services
-      )
-    ])
-  })
+export const bindings = (): Effect.Effect<FlowBinding.Source> =>
+  Effect.succeed(FlowBinding.source("migrate", [
+    FlowBinding.make({
+      flow: mappingFlow,
+      handler: (input) => {
+        const row = Mapping.byConstruct(input.construct)
+        return Effect.succeed(
+          row === undefined
+            ? {
+              construct: input.construct,
+              target: null,
+              targetModule: null,
+              rule: "no mapping row",
+              class: "unsafe" as const
+            }
+            : {
+              construct: row.construct,
+              target: row.target,
+              targetModule: row.targetModule,
+              rule: row.rule,
+              class: row.class
+            }
+        )
+      }
+    })
+  ]))
 
 /**
  * The host every model-backed migration step shares: the standard filesystem
- * and shell flows over the services the caller guarded, the `jev` flow over
- * the host's judge, this package's own two flows, the capability envelope,
+ * flows over the services the caller guarded, the `jev` flow over
+ * the host's judge, the mapping lookup, the capability envelope,
  * and the sandbox budget. Every step is judged: a migration host always holds
  * a real judge.
  *
@@ -637,29 +571,25 @@ export const bindings = (options: {
  * @since 1.0.0-rc.0
  */
 export const hostLayer = (options: {
-  readonly root: string
-  readonly commands: Contract.Commands
   readonly environment?: Readonly<Record<string, string | undefined>> | undefined
-}): Layer.Layer<
+} = {}): Layer.Layer<
   AgentAction.Host,
   never,
-  FileSystem.FileSystem | Path.Path | ChildProcessSpawner | Evaluator.Evaluator
+  FileSystem.FileSystem | Path.Path | Evaluator.Evaluator
 > => {
   const stance = AgentAction.supervisorStance(options.environment ?? {})
   return Layer.effect(
     AgentAction.Host,
     Effect.gen(function*() {
       const filesystem = yield* Effect.context<FileSystem.FileSystem | Path.Path>()
-      const shell = yield* Effect.context<ChildProcessSpawner | Path.Path>()
       const judge = yield* Effect.context<Evaluator.Evaluator>()
       const registry = yield* Registry.Registry
-      const own = yield* bindings({ root: options.root, commands: options.commands })
+      const own = yield* bindings()
       return AgentAction.makeHost({
         registry,
         limits,
         flows: [
           StandardFlows.filesystem(filesystem),
-          StandardFlows.shell(shell),
           StandardFlows.jev(judge),
           own
         ],

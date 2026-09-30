@@ -83,8 +83,7 @@ if (Command.isMigrateError(error)) {
 `Command.layerNode` is effectful and fails with the scanner's own error,
 because the composition has to know two things the caller does not: which paths
 hold 0.x run state, so the grant store can deny every filesystem action on
-them, and which commands verify a unit, so the model can run them before it
-answers. Both come from a read-only scan of the project.
+them, and which commands the orchestrator runs after the model answers. Both come from a read-only scan of the project.
 
 ## Survey now, run later
 

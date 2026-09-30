@@ -9,7 +9,7 @@ editUrl: "https://github.com/smithersai/smithers/edit/main/packages/smithers/mig
 Every unit is verified before it is accepted, with four kinds of command plus
 registry discovery. The tool derives them from your project. When the
 derivation is wrong, an override is the only way to correct it, because the
-model's shell is confined to exactly these command lines.
+orchestrator runs these commands after the model answers.
 
 `--apply` runs the project's own install, format, typecheck, and test commands
 on your machine, package manager lifecycle scripts and `repoCommands.test`
@@ -66,8 +66,7 @@ smithers-migrate --verify-typecheck ""
 
 These flags matter more than convenience. A project whose typecheck lives in a
 Makefile has no other way to be migrated, because every unit is verified with
-these lines and the model's shell is confined to literal grants derived from
-them. A command the tool never derived is a command the model can never run.
+these lines after the model answers. The model has no shell or verification tool.
 
 ## Derived commands get no shell
 
@@ -85,27 +84,13 @@ not a flag. A line the tool refuses is reported in the plan's notes, naming the
 command that ran instead and the exact `--verify-test` value that runs the line
 as written.
 
-## One derivation serves the prompt and the grant
+## Verification belongs to the host
 
-The same derivation builds the command list shown to the model, the list
-recorded in the report, and the inputs to the `proc:spawn` grants the kernel
-enforces. A grant names the resource the kernel checks when it spawns the
-command: the rendering of a derived argv, or an override line as typed. An
-override holding shell control syntax, such as `tsc -b && eslint .`, runs
-through a shell, so the kernel checks it as `sh -c 'tsc -b && eslint .'` and
-the grant names that. Only resources that the capability grammar can represent
-literally become grants.
-
-## Commands containing wildcard characters
-
-The capability pattern grammar cannot represent literal `*` or `?` characters.
-A command line containing either gets no agent process grant, including when
-the character is quoted or backslash-prefixed. This prevents a shell glob such
-as `tests/*` from granting appended commands or command substitutions.
-
-Deterministic verification still executes the exact configured command. To let
-the agent run it through its shell or `migrate/verify` self-check, put the glob
-inside a package script and configure a literal line such as `npm run test`.
+The same derivation builds the command list shown to the model and recorded
+in the report. The orchestrator runs those exact commands after each rewrite
+and returns failures for repair. Agents edit through guarded filesystem flows;
+no shell or `migrate/verify` tool is offered. Operator overrides keep their
+shell syntax, including literal wildcard characters.
 
 ## Bounded output
 

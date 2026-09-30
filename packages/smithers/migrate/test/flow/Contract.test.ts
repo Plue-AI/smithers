@@ -168,14 +168,14 @@ describe("Contract.unitPrompt", () => {
     })
     expect(structured).toContain("typecheck: `tsc -p 'tsconfig.a b.json'`")
     expect(prompt).toContain("every flow under `flows/` must be listed with no warning")
-    expect(prompt).toContain("Run them yourself with the `migrate/verify` flow before you answer.")
-    expect(prompt).toContain("The shell runs these commands and no others: anything else is refused.")
+    expect(prompt).toContain("The host runs these checks after you answer and returns failures for repair.")
+    expect(prompt).toContain("Agent shell commands and self-verification are unavailable.")
   })
 
   it("tells a unit that writes no flow not to expect discovery to pass", () => {
     const dependencies = Contract.unitPrompt({ ...brief, id: "dependencies", kind: "dependencies", expectFlows: false })
     expect(dependencies).toContain("this unit writes no flow, so there is nothing under `flows/` to discover yet")
-    expect(dependencies).toContain("Call it with `expectFlows: false`")
+    expect(dependencies).not.toContain("migrate/verify")
     expect(dependencies).not.toContain("every flow under `flows/` must be listed with no warning")
   })
 

@@ -711,9 +711,7 @@ export const unitPrompt = (unit: UnitBrief, failures?: Failures): string => {
           ? `discovery: this unit writes no flow, so there is nothing under \`${unit.commands.flowsDir}/\` to discover yet`
           : `discovery: every flow under \`${unit.commands.flowsDir}/\` must be listed with no warning`
       ])
-    }\n\nRun them yourself with the \`migrate/verify\` flow before you answer.${
-      unit.expectFlows === false ? " Call it with `expectFlows: false`, because this unit writes no flow." : ""
-    } The shell runs these commands and no others: anything else is refused.`
+    }\n\nThe host runs these checks after you answer and returns failures for repair. Agent shell commands and self-verification are unavailable.`
   ))
 
   if (failures !== undefined) parts.push(failureReport(failures))

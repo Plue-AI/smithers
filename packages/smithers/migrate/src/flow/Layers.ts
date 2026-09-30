@@ -8,12 +8,9 @@
  * guarded filesystem costs a helper process per authorized operation. The
  * agent's half runs through the kernel: descriptor-relative access pinned to
  * the project root, a capability envelope that names the project, and a grant
- * store that denies every write under a 0.x run-state path and permits only
- * this project's own verification command lines. Both halves of the promise
- * the tool makes operators are therefore enforced rather than asserted: the
- * kernel refuses a run-state write and refuses a shell command the project
- * does not already run, and the run-state digests fail the unit if the bytes
- * moved anyway.
+ * store that denies filesystem access to protected run state. Agent process
+ * execution is unavailable; configured verification belongs to the deterministic
+ * orchestrator, whose run-state digests detect changes and restore the unit.
  *
  * The seat is a role. `AgentAction` declares `migrate`, and the resolver here
  * maps that one name onto whatever the operator asked for with `--seat`. No
@@ -39,7 +36,6 @@ import { FlowEngine } from "@smthrs/engine"
 import { Action } from "@smthrs/flow"
 import type * as FlowRuntime from "@smthrs/flow/FlowRuntime"
 import { Capability, GrantStore, Permission, Workspace } from "@smthrs/kernel"
-import * as KernelChildProcessSpawner from "@smthrs/kernel/ChildProcessSpawner"
 import * as KernelFileSystem from "@smthrs/kernel/FileSystem"
 import * as KernelPath from "@smthrs/kernel/Path"
 import * as Evaluator from "@smthrs/model/Evaluator"
@@ -53,7 +49,6 @@ import * as EgressHttpClient from "@smthrs/platform-node/EgressHttpClient"
 import type * as Brand from "effect/Brand"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
-import * as Option from "effect/Option"
 import * as Redacted from "effect/Redacted"
 import type * as Result from "effect/Result"
 import * as Stream from "effect/Stream"
@@ -208,8 +203,7 @@ const verificationList = (
  * format, typecheck, and test commands, in the order a verification runs them.
  *
  * The list is exactly what {@link module:Verify.run} executes, as the prompt
- * and the report show it. {@link verificationResources} is what {@link rules}
- * grants for the same commands.
+ * and the report show it. Agent process execution is unavailable.
  *
  * @category combinators
  * @since 1.0.0-rc.0
@@ -219,8 +213,8 @@ export const verificationCommands = (commands: Contract.Commands): ReadonlyArray
 
 /**
  * The `proc:spawn` resource the kernel checks for each command
- * {@link verificationCommands} lists, in the same order. {@link rules} grants
- * the agent only resources the capability grammar can represent literally.
+ * {@link verificationCommands} lists, in the same order, for diagnostics.
+ * Migration agents receive no process grants.
  *
  * @category combinators
  * @since 1.0.0-rc.1
@@ -279,28 +273,14 @@ const caseSpellings = (name: string): ReadonlyArray<string> =>
 
 /**
  * The permission rules one migration runs under: the project tree, the
- * commands that verify it, the model calls that rewrite it, and a denial of
+ * model calls that rewrite it, and a denial of
  * every filesystem action on every 0.x run-state path, on the default and the
  * configured report directory, on `.git` and `.jj`, and on every path whose
  * name starts with `.env`, each in every ASCII case spelling.
  *
- * `proc:spawn` is granted only when the command's resource can be represented
- * as an exact capability pattern. The kernel checks the resource produced by
- * `@smthrs/kernel/CommandLine.resource`, which {@link Contract.grantResource}
- * mirrors: an operator override holding shell control syntax is granted as
- * `sh -c '<line>'`, the way the kernel names it. The glob grammar has no
- * escape for `*` or `?`, so resources containing either receive no agent
- * process grant. The
- * deterministic verification still runs the configured commands; a package
- * script without those characters lets the agent run them too. The store is
- * unattended, so a line that matches no grant is refused rather than queued.
- *
- * That matters more than a filesystem rule does. A spawned process writes at
- * the OS level, where the kernel's `fs:write` denials cannot see it, so
- * confining the spawn is the only place run-state protection can be *enforced*
- * against a shell. What the project's own verification commands then do is
- * outside any rule, and the run-state digests in {@link module:Checkpoint.Ref}
- * are what catch it: the unit fails its checks and is restored.
+ * The agent receives no process authority. The deterministic orchestrator runs
+ * the configured verification commands after each rewrite; run-state digests
+ * catch changes made by those operator-selected commands and restore the unit.
  *
  * The denials come last and are configured rules, so they veto: no envelope,
  * no remembered grant, and no later allow can reach a run-state path.
@@ -331,12 +311,6 @@ export const rules = (options: {
     // project units exist to rewrite.
     allow("fs:*", root),
     allow("fs:*", `${root}/**`),
-    ...verificationResources(options.commands).flatMap((resource) =>
-      Capability.patternFromCapability(Capability.make("proc:spawn", resource)).pipe(
-        Option.map((pattern) => new Permission.Rule({ effect: "allow", pattern })),
-        Option.toArray
-      )
-    ),
     allow("net:*", "**"),
     allow("model:*", "**"),
     // The permanent SQLite lock inode and diagnostic state are host-owned,
@@ -465,19 +439,17 @@ const hostFor = (
   const grants = grantsFor(config)
   // The kernel-guarded platform, as `@smthrs/cli`'s `layerGuardedPlatform`
   // builds it: descriptor-relative atomic access under a pinned root, with the
-  // same grant store answering for the filesystem and the shell. Two stores
+  // same grant store answering for every filesystem operation. Two stores
   // would be a fail-open the types could not catch.
   const platform = Layer.orDie(KernelFileSystem.layer).pipe(
     Layer.provide([Workspace.layer(config.root), grants]),
     Layer.provideMerge(Layer.provideMerge(AtomicFileSystem.layer, NodeServices.layer))
   )
-  const guarded = Layer.merge(KernelChildProcessSpawner.layer, KernelPath.layer).pipe(
-    Layer.provide([Workspace.layer(config.root), grants]),
+  const guarded = KernelPath.layer.pipe(
+    Layer.provide(Workspace.layer(config.root)),
     Layer.provideMerge(platform)
   )
-  return Transform.hostLayer({ root: config.root, commands: config.commands, environment: config.environment }).pipe(
-    Layer.provide(guarded)
-  )
+  return Transform.hostLayer({ environment: config.environment }).pipe(Layer.provide(guarded))
 }
 
 /**
@@ -527,10 +499,10 @@ const evaluatorFor = (
       )
   })
 
-// The credentialed half answers to the same store as the filesystem and the
-// shell, for the reason `hostFor` gives: a second store is a fail-open the
+// The credentialed half answers to the same store as the filesystem,
+// for the reason `hostFor` gives: a second store is a fail-open the
 // types cannot catch. `rules` grants `net:*` and `model:*` over `**` today, so
-// nothing a migration reaches is refused by this, but a host that narrows
+// private-network authority remains withheld; a host that narrows
 // either one gets the narrowing it asked for instead of a guard consulting a
 // store nobody configured.
 const executorFor = (config: ValidatedConfig): Layer.Layer<RequestExecutor.RequestExecutor, never, never> =>
@@ -616,11 +588,8 @@ export interface ScannedConfig {
   /**
    * The operator's own command overrides, if they named any.
    *
-   * They have to reach the host, not only the units. The host binds
-   * `migrate/verify` and grants `proc:spawn` per command line, so a host that
-   * derived its commands from the manifests while the units ran the operator's
-   * would offer the agent a self-check that measures something else and refuse
-   * the very commands its brief lists.
+   * The unit brief and the orchestrator use the same commands; agents cannot
+   * execute commands themselves.
    */
   readonly commands?: Units.CommandOverrides | undefined
 }
@@ -629,11 +598,8 @@ export interface ScannedConfig {
  * The verification commands one project verifies a unit with: what its
  * manifests and lockfiles imply, with the operator's overrides on top.
  *
- * One derivation, two callers. The host binds `migrate/verify` and grants
- * `proc:spawn` from this list, and each unit's outline carries it into the
- * prompt and into `Verify`. If those two ever came from different code the
- * agent would be shown one set of commands, permitted another, and measured by
- * a third.
+ * One derivation serves each unit's prompt and the orchestrator's verification.
+ * Agents edit through guarded filesystem flows and receive failures for repair.
  *
  * @category combinators
  * @since 1.0.0-rc.0

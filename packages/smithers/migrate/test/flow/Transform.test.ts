@@ -1,16 +1,8 @@
-/**
- * The two flows this package binds into the agent's catalog, asked the way a
- * cell asks them.
- *
- * The mapping flow answers from the same table the prompt is built from. The
- * verification flow is the agent's own self-check, and the thing worth pinning
- * is that it agrees with the verification the flow runs afterwards: a unit that
- * writes no flow must not be told its rewrite failed discovery.
- *
- * @since 0.1.0
- */
+/** Guarded migration editing and mapping, through the agent's public catalog. */
 import * as NodeServices from "@effect/platform-node/NodeServices"
 import { describe, expect, it } from "@effect/vitest"
+import * as AgentAction from "@smthrs/agent/AgentAction"
+import * as ScriptedJudge from "@smthrs/agent/ScriptedJudge"
 import * as Cell from "@smthrs/harness/Cell"
 import type * as FlowBinding from "@smthrs/harness/FlowBinding"
 import * as Checkpoint from "@smthrs/migrate/flow/Checkpoint"
@@ -22,13 +14,12 @@ import * as Mapping from "@smthrs/migrate/Mapping"
 import * as Scan from "@smthrs/migrate/Scan"
 import type * as Descriptor from "@smthrs/registry/Descriptor"
 import * as Effect from "effect/Effect"
+import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import type * as Schema from "effect/Schema"
 import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { copyFixture } from "../fixtures/helpers.ts"
-
-const commands: Contract.Commands = { typecheck: [], flowsDir: "flows" }
 
 const call = (flowName: string, input: Schema.Json): Cell.Call =>
   new Cell.Call({
@@ -50,38 +41,35 @@ const call = (flowName: string, input: Schema.Json): Cell.Call =>
 /** Runs one bound flow the way a cell's `ctx.call` reaches it. */
 const ask = (root: string, flowName: string, input: Schema.Json) =>
   Effect.gen(function*() {
-    const source = yield* Transform.bindings({ root, commands })
+    const source = yield* Transform.bindings()
     const bindings: ReadonlyArray<FlowBinding.Binding> = yield* source.bindings()
     const binding = bindings.find((entry) => entry.descriptor.name === flowName)
     if (binding === undefined) throw new Error(`no binding named ${flowName}`)
     return yield* binding.run(call(flowName, input))
   }).pipe(Effect.provide(NodeServices.layer))
 
-describe("Transform.bindings: migrate/verify", () => {
-  it.effect("fails discovery when a unit that owes a flow has not written one", () =>
+describe("Transform.bindings", () => {
+  it.effect("publishes guarded editing tools without shell or verification", () =>
     Effect.gen(function*() {
-      const root = copyFixture("jsx-single")
-
-      const result = yield* ask(root, "migrate/verify", {})
-
-      expect(result.outcome).toBe("success")
-      expect((result.value as { verdict: string }).verdict).toBe("fail")
-      expect((result.value as { failures: ReadonlyArray<string> }).failures.join("\n")).toContain("discovery")
-    }))
-
-  it.effect("skips discovery when the caller says this unit writes no flow", () =>
+      const host = yield* AgentAction.Host
+      const bindings = yield* Effect.forEach(host.flows ?? [], (source) => source.bindings())
+      const names = bindings.flat().map((binding) => binding.descriptor.name)
+      expect(names).toContain("write")
+      expect(names).toContain("migrate/mapping")
+      expect(names).not.toContain("bash")
+      expect(names).not.toContain("migrate/verify")
+      expect(host.supervisor?.stance).toBe("paranoid")
+    }).pipe(Effect.provide(
+      Transform.hostLayer({ environment: { SMITHERS_SUPERVISOR_STANCE: "paranoid" } })
+        .pipe(Layer.provide([NodeServices.layer, ScriptedJudge.layerAll]))
+    )))
+  it.effect("offers mapping without agent verification", () =>
     Effect.gen(function*() {
-      const root = copyFixture("jsx-single")
-
-      // The dependencies unit adds packages and creates no `flows/` directory.
-      // Before this input existed the agent's own self-check reported a failure
-      // for work that was going correctly, while the Verify step the flow runs
-      // afterwards, which is told the same thing, reported a pass.
-      const result = yield* ask(root, "migrate/verify", { expectFlows: false })
-
-      expect(result.outcome).toBe("success")
-      expect((result.value as { verdict: string }).verdict).toBe("pass")
-      expect((result.value as { failures: ReadonlyArray<string> }).failures).toEqual([])
+      const source = yield* Transform.bindings()
+      const bindings = yield* source.bindings()
+      expect(bindings.map((binding) => binding.descriptor.name)).toEqual(["migrate/mapping"])
+      expect(Transform.envelope()).not.toContain("proc:spawn:*")
+      expect(Transform.envelope()).toContain("model:call:typesafe-ai/jev")
     }))
 })
 
