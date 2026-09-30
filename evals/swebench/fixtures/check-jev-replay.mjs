@@ -306,8 +306,8 @@ try {
   }
 
   // The live inequalities, at their thresholds: `judge` crosses at exactly
-  // 0.5 on every trigger, so the replay does too, and a context trigger
-  // crosses on its own.
+  // 0.5 on every trigger, so the replay does too. A context trigger compacts
+  // the run's context instead of nudging it, so it fires without crossing.
   for (
     const [at, signal] of [
       [reading(0.5, 0.9), "thrashing"],
@@ -319,7 +319,8 @@ try {
   ) {
     const edge = rowOf(scoreboard([{ id: "g", label: "unresolved", readings: [at] }]))
     assert.equal(edge(signal, "last").tp, 1, `${signal} fires at its threshold`)
-    assert.equal(edge("crossed", "last").tp, 1, `${signal} alone crosses`)
+    const compacts = signal === "outdated_context" || signal === "irrelevant_context"
+    assert.equal(edge("crossed", "last").tp, compacts ? 0 : 1, compacts ? `${signal} alone compacts, it does not cross` : `${signal} alone crosses`)
   }
   const below = rowOf(scoreboard([{ id: "h", label: "unresolved", readings: [reading(0.49, 0.51)] }]))
   assert.equal(below("crossed", "last").tp, 0, "just inside every threshold crosses nothing")
