@@ -34,17 +34,6 @@
       "failureDigest": "sha256:974737c115dd9de7e5c58489135524f6ad926513c58e2e300de9e567bf43153e"
     },
     {
-      "label": "//packages/smithers/flows/platform-bun:test",
-      "platforms": [
-        "win32"
-      ],
-      "owner": "will",
-      "reason": "Red on windows-latest in CI run 36275726412 (2026-09-26): the host filesystem refuses artifact operations (fsync on a directory). Windows is an advisory lane.",
-      "issue": "https://github.com/smithersai/smithers/issues/1974",
-      "expires": "2026-10-10",
-      "failureDigest": "sha256:ffb732802b11ecd6b860cdad7c3d01f8fd529f507cf2b259b1361a304fa42f55"
-    },
-    {
       "label": "//packages/smithers/mcp:test",
       "platforms": [
         "win32"
