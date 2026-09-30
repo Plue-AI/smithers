@@ -394,6 +394,14 @@ export const makeCli = (config: Bridge.Runtime = {}): ReturnType<typeof makeBuil
   // the mounted subtree directly so registration uses Agents.addMcp as documented.
   const serve = cli.serve.bind(cli)
   cli.serve = async (argv = process.argv.slice(2), serveOptions) => {
+    // Incur's document selector reads the spaced spelling before command
+    // parsing. Preserve the public inline spelling and keep literal tails opaque.
+    const separator = argv.indexOf("--")
+    argv = argv.flatMap((argument, index) =>
+      (separator < 0 || index < separator) && argument.startsWith("--format=")
+        ? ["--format", argument.slice("--format=".length)]
+        : [argument]
+    )
     const parsed = Argv.parse(argv)
     let offset = 0
     // Argv retains document switches and --ui in rest; use its parsed option

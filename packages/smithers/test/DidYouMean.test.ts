@@ -11,6 +11,11 @@
 import * as Evaluator from "@smthrs/model/Evaluator"
 import { Effect, type Layer } from "effect"
 import { Cli as Incur } from "incur"
+import { spawnSync } from "node:child_process"
+import { mkdtempSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
 import { makeCli } from "../src/Cli.ts"
 import { cli as compatibility } from "../src/Command.ts"
@@ -171,7 +176,7 @@ describe("the unknown verb the parser refuses", { timeout: 120_000 }, () => {
     expect(codes).toEqual([])
   })
 
-  it.for([{ format: ["--json"] }, { format: ["--format", "json"] }])(
+  it.for([{ format: ["--json"] }, { format: ["--format", "json"] }, { format: ["--format=json"] }])(
     "retains a parseable parser refusal with %j",
     async ({ format }) => {
       const { codes, stdout } = await invoke([...format, "stauts"])
@@ -182,7 +187,7 @@ describe("the unknown verb the parser refuses", { timeout: 120_000 }, () => {
     }
   )
 
-  it.for([["--json"], ["--format", "json"]])(
+  it.for([["--json"], ["--format", "json"], ["--format=json"]])(
     "retains a parseable parser refusal with %j after the verb",
     async (format) => {
       const { codes, stdout } = await invoke(["stauts", ...format])
@@ -200,4 +205,42 @@ describe("the unknown verb the parser refuses", { timeout: 120_000 }, () => {
     expect(stdout).not.toContain("Jev")
     expect(codes).toEqual([1])
   })
+
+  it.each(["yaml", "toon", "md", "jsonl"])("preserves an inline %s document", async (format) => {
+    const spaced = await invoke(["stauts", "--format", format])
+    const inline = await invoke(["stauts", `--format=${format}`])
+
+    expect(inline.stdout).toBe(spaced.stdout)
+    expect(inline.stdout).not.toContain("Jev")
+    expect(inline.codes).toEqual([1])
+  })
+
+  it("keeps a format-looking literal tail out of document selection", async () => {
+    const { codes, stdout } = await invoke(["stauts", "--", "--format=json"])
+    expect(stdout).toContain("COMMAND_NOT_FOUND")
+    expect(stdout.trimEnd().endsWith("Could not ask Jev for a suggestion: unconfigured")).toBe(true)
+    expect(codes).toEqual([1])
+  })
+
+  it.for([["--json"], ["--format", "json"], ["--format=json"]])(
+    "prints one JSON refusal from the actual executable with %j",
+    (format) => {
+      const cwd = mkdtempSync(join(tmpdir(), "smithers-parser-format-"))
+      try {
+        const result = spawnSync(process.execPath, [
+          "--no-warnings",
+          fileURLToPath(new URL("../src/bin.ts", import.meta.url)),
+          "stauts",
+          ...format
+        ], { cwd, encoding: "utf8", timeout: 60_000, env: { PATH: process.env.PATH, HOME: cwd } })
+        expect(result.error).toBeUndefined()
+        expect(result.status).toBe(1)
+        expect(JSON.parse(result.stdout)).toMatchObject({ code: "COMMAND_NOT_FOUND" })
+        expect(result.stdout).not.toContain("Jev")
+        expect(result.stderr).toBe("")
+      } finally {
+        rmSync(cwd, { recursive: true, force: true })
+      }
+    }
+  )
 })
