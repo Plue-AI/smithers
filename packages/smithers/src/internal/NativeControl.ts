@@ -708,6 +708,11 @@ export const make = (
         flows: descriptor.flows,
         budget: Descriptor.budgetOf(descriptor)
       },
+      ...(executable?.input === undefined ? {} : {
+        decode: (input: unknown) => Schema.decodeUnknownEffect(executable.input!)(input).pipe(
+          Effect.mapError((cause) => new ControlError.InvalidInput({ issue: String(cause) }))
+        )
+      }),
       ...(executable === undefined ? {} : { plan: planExecutable(executable, root) })
     }
   }

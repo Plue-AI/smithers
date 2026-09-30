@@ -170,4 +170,23 @@ describe("the unknown verb the parser refuses", { timeout: 120_000 }, () => {
     expect(stdout).not.toContain("Jev")
     expect(codes).toEqual([])
   })
+
+  it.each([["--json"], ["--format", "json"], ["--format=json"]])(
+    "retains a parseable parser refusal with %j",
+    async (format) => {
+      const { codes, stdout } = await invoke(["stauts", ...format])
+
+      expect(JSON.parse(stdout)).toMatchObject({ code: "COMMAND_NOT_FOUND" })
+      expect(stdout).not.toContain("Jev")
+      expect(codes).toEqual([1])
+    }
+  )
+
+  it.each(["yaml", "toon", "md", "jsonl"])("preserves the requested %s document", async (format) => {
+    const { codes, stdout } = await invoke(["stauts", "--format", format])
+
+    expect(stdout).toContain("COMMAND_NOT_FOUND")
+    expect(stdout).not.toContain("Jev")
+    expect(codes).toEqual([1])
+  })
 })

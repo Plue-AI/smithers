@@ -425,9 +425,8 @@ export const makeCli = (config: Bridge.Runtime = {}): ReturnType<typeof makeBuil
     // The parser decides what a verb is, and it has already refused by the
     // time its sentence is written: asking Jev beforehand would question every
     // command that runs, and the bare-label form means a token this module
-    // does not recognise can still be a target. So the suggestion is appended
-    // to the refusal, on the same stream, after the parser has set the exit
-    // code and run nothing.
+    // does not recognise can still be a target. Human prose can append a
+    // suggestion after refusal; structured output must remain one document.
     const write = serveOptions?.stdout ?? ((text: string) => void process.stdout.write(text))
     let refused = false
     await serve(argv, {
@@ -437,7 +436,7 @@ export const makeCli = (config: Bridge.Runtime = {}): ReturnType<typeof makeBuil
         write(text)
       }
     })
-    if (!refused) return
+    if (!refused || parsed.json || parsed.format !== undefined || config.presentation?.structured) return
     const suggestion = await Effect.runPromise(
       DidYouMean.didYouMean(typed, parsed.rest.slice(offset + 1), DidYouMean.commands(cli)).pipe(
         Effect.provide(evaluator(config.environment ?? process.env))
