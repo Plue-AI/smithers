@@ -97,6 +97,7 @@ if (["observe", "stall", "cancel", "recover"].includes(mode!)) {
     await writeFile(join(root, "observer-close"), "close")
     await observerExited
     assert.equal(observer.exitCode, 0, observerOutput)
+    await new Promise((resolve) => setTimeout(resolve, 1_000))
     assert.equal(alive(first.pid), true, "Closing an observation host must not terminate the worker")
     assert.deepEqual(await workers(root), [first])
     await poll(() => rows(root).some((row) => row.status === "suspended"), "real engine parent park")
