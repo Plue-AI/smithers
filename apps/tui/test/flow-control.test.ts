@@ -177,6 +177,15 @@ it("plans, starts and settles a run from the watch", async () => {
   expect(await port.resume(runId)).toEqual({ kind: "done", answer: "hi" })
 }, 120_000)
 
+it("approves a payload the control plane published, and refuses one it did not", async () => {
+  const card = await port.plan("echo", { text: "approved" })
+  const approval = (card.raw as { approval: unknown }).approval
+  // The payload goes back unchanged, as a parked run's budget raise does.
+  expect(await port.approve!(approval)).toBeUndefined()
+  const refused = await port.approve!({ target: { _tag: "Node" } }).catch((error: unknown) => error)
+  expect(refused).toBeInstanceOf(FlowError)
+}, 120_000)
+
 it("lists runs started outside the TUI without opening the flow host", async () => {
   const runId = await port.start(await port.plan("echo", { text: "listed" }))
   await port.watch(runId, () => {}).done

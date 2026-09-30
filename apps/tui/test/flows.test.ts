@@ -47,7 +47,9 @@ const pending = <A>(): Pending<A> => {
 }
 
 /** Every method records its call; the test resolves each promise or leaves it pending. */
-const fake = (options: { listed?: ReadonlyArray<Listed>; schema?: Schema.Top; refuseCancel?: boolean } = {}) => {
+const fake = (
+  options: { listed?: ReadonlyArray<Listed>; schema?: Schema.Top; refuseCancel?: boolean; refuseApprove?: boolean } = {}
+) => {
   const calls: Array<string> = []
   const inputs: Array<Pending<Schema.Top | undefined>> = []
   const plans: Array<Pending<Card>> = []
@@ -85,6 +87,10 @@ const fake = (options: { listed?: ReadonlyArray<Listed>; schema?: Schema.Top; re
       starts.push(next)
       if (auto.start) next.resolve(`run-${starts.length}`)
       return next.promise
+    },
+    approve: async (approval) => {
+      calls.push(`approve:${(approval as { target: { requestId: string } }).target.requestId}`)
+      if (options.refuseApprove === true) throw new FlowError("control", "Approval refused")
     },
     resume: (runId) => {
       calls.push(`resume:${runId}`)
@@ -274,6 +280,67 @@ describe("flow runs", () => {
     f.watches[0]!.emit(call("control.run.running", 5))
     expect(f.runs.get("r1")?.status).toBe("running")
     expect(f.runs.get("r1")?.message).toBeUndefined()
+  })
+
+  describe("a run parked on a budget raise", () => {
+    const question = "Raise the USD budget from $1.00 to $2.20?"
+    const target = {
+      _tag: "Node",
+      runId: "run-1",
+      requestId: "budget/run-1/usd",
+      digest: "d",
+      envelope: { capabilities: [], flows: [], budget: { usd: 2.2, onExceeded: "park" } }
+    }
+    const requested = (sequence: number) => ({
+      ...call("control.approval.requested", sequence),
+      payload: {
+        runId: "run-1",
+        requestId: target.requestId,
+        question,
+        payload: { target, scope: "once", idempotencyKey: "approve:budget" }
+      }
+    })
+    const parkedOnBudget = async (options: Parameters<typeof setup>[0] = {}) => {
+      const f = setup(options)
+      f.runs.request({ id: "r1", flow: "review", input: {}, by: "user" })
+      await tick()
+      f.watches[0]!.emit(requested(1))
+      f.watches[0]!.emit(call("control.run.parked", 2))
+      return f
+    }
+
+    it("shows the raise it asks, and Retry approves it before resuming", async () => {
+      const f = await parkedOnBudget()
+      expect(f.runs.get("r1")?.status).toBe("parked")
+      expect(f.runs.panel("r1").summary).toBe(question)
+
+      expect(f.runs.retry("r1")).toEqual({ id: "r1", status: "running" })
+      await tick()
+      expect(f.calls.slice(-2)).toEqual([`approve:${target.requestId}`, "resume:run-1"])
+    })
+
+    it("resumes without approving once the request was decided elsewhere", async () => {
+      const f = await parkedOnBudget()
+      f.watches[0]!.emit({
+        ...call("control.approval.approved", 3),
+        payload: { factVersion: 1, tokenId: target.requestId, approvalTarget: target }
+      })
+      expect(f.runs.panel("r1").summary).toBe("Parked.")
+
+      f.runs.retry("r1")
+      await tick()
+      expect(f.calls.some((entry) => entry.startsWith("approve:"))).toBe(false)
+      expect(f.calls.at(-1)).toBe("resume:run-1")
+    })
+
+    it("fails the retry without resuming when the approval is refused", async () => {
+      const f = await parkedOnBudget({ refuseApprove: true })
+
+      f.runs.retry("r1")
+      await tick()
+      expect(f.calls).not.toContain("resume:run-1")
+      expect(f.runs.get("r1")?.status).toBe("failed")
+    })
   })
 
   it("queues a parked resume with its durable run ID and ignores a replaced watch", async () => {

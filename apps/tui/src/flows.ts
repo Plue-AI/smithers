@@ -72,6 +72,8 @@ export interface Port {
   /** Approves and launches. A signal interrupts approval only; an admitted launch still returns its receipt. */
   readonly start: (card: Card, source?: string, signal?: AbortSignal) => Promise<string>
   readonly resume: (runId: string) => Promise<{ readonly runId: string } | Settled>
+  /** Approves an open {@link Gate}'s payload, unchanged, before the run resumes. */
+  readonly approve?: (approval: unknown) => Promise<void>
   readonly watch: (runId: string, onEvent: (event: ControlEvent) => void) => Watch
   readonly events: (runId: string) => Promise<ReadonlyArray<ControlEvent>>
   /** The newest runs in this directory's store, whoever started them; never imports a flow module. */
@@ -162,6 +164,40 @@ export interface Request {
 }
 
 export const interrupted = "Interrupted; retry to continue."
+
+/** An approval a run is parked on: what it asks, and the payload that decides it. */
+export interface Gate {
+  readonly requestId: string
+  readonly question: string
+  readonly approval: unknown
+}
+
+const fields = (value: unknown): Record<string, unknown> =>
+  value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}
+
+/**
+ * The newest approval request in a run's events that no decision answered: a
+ * budget raise, for one. Retry on the parked run approves it.
+ */
+export const openGate = (events: ReadonlyArray<ControlEvent>): Gate | undefined => {
+  const decided = new Set<string>()
+  for (const event of events) {
+    if (event.kind !== "control.approval.approved" && event.kind !== "control.approval.denied") continue
+    const payload = fields(event.payload)
+    const target = fields(payload["approvalTarget"])
+    for (const id of [payload["tokenId"], target["requestId"]]) if (typeof id === "string") decided.add(id)
+  }
+  for (let index = events.length - 1; index >= 0; index--) {
+    const event = events[index]!
+    if (event.kind !== "control.approval.requested") continue
+    const payload = fields(event.payload)
+    const { question, requestId } = payload
+    if (typeof requestId !== "string" || typeof question !== "string" || decided.has(requestId)) continue
+    if (payload["payload"] === undefined) continue
+    return { requestId, question, approval: payload["payload"] }
+  }
+  return undefined
+}
 /** Concurrent flow runs; later requests wait FIFO in `queued` and start when one settles. */
 export const seats = 3
 /** Events the watch settles on; they never move a parked run back to running. */
@@ -472,6 +508,11 @@ export class FlowRuns {
       run.status === "requested" ? "launch" : undefined
     )
     try {
+      // Retry on a parked run is Continue: it approves the open request, such as a budget raise.
+      const gate = openGate(this.events.get(id) ?? [])
+      if (gate !== undefined && this.options.port!.approve !== undefined) {
+        await this.options.port!.approve(gate.approval)
+      }
       const receipt = await this.options.port!.resume(run.runId)
       if ("runId" in receipt) {
         if (this.closed) {
@@ -660,7 +701,7 @@ export class FlowRuns {
         : run.status === "waiting"
         ? "Waiting."
         : run.status === "parked"
-        ? "Parked."
+        ? openGate(this.events.get(id) ?? [])?.question ?? "Parked."
         : "Running.")
     const nodes = NodeOutput.project(this.events.get(id) ?? []).map((node) => ({
       id: node.nodeId,

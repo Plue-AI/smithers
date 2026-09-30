@@ -5,13 +5,13 @@
  */
 import * as BunControl from "@smthrs/cli/BunControl"
 import * as NodeControl from "@smthrs/cli/NodeControl"
-import { Control, type ControlSchema } from "@smthrs/control"
+import { Control, ControlSchema } from "@smthrs/control"
 import * as Diagnosis from "@smthrs/gateway/Diagnosis"
 import * as RequestExecutor from "@smthrs/model/RequestExecutor"
 import { executionDigest } from "@smthrs/registry/Descriptor"
 import * as Executable from "@smthrs/registry/Executable"
 import * as Registry from "@smthrs/registry/Registry"
-import { Cause, Context, Effect, Exit, Fiber, Layer, ManagedRuntime, Stream } from "effect"
+import { Cause, Context, Effect, Exit, Fiber, Layer, ManagedRuntime, Schema, Stream } from "effect"
 import { FetchHttpClient } from "effect/unstable/http"
 import { existsSync } from "node:fs"
 import { join } from "node:path"
@@ -242,6 +242,15 @@ export const make = (options: {
         })
       )
     },
+    approve: (approval) =>
+      control((service) =>
+        Schema.decodeUnknownEffect(ControlSchema.ApprovalPayload)(approval).pipe(
+          Effect.flatMap((payload) => service.approve(payload)),
+          Effect.flatMap((receipt) =>
+            receipt._tag === "Conflict" ? Effect.fail(new FlowError("control", receipt.message)) : Effect.void
+          )
+        )
+      ),
     resume: async (runId): Promise<{ runId: string } | Settled> => {
       const receipt = await control((service) =>
         service.resume({ runId, idempotencyKey: `tui:resume:${runId}:${Date.now()}` })
