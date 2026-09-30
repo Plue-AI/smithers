@@ -62,7 +62,7 @@ export default Flow.make("test/envelope", {
   description: "Over-claims its effect envelope five ways, on purpose.",
   payload: {},
   success: Schema.Number,
-  capabilities: ["fs:read"],
+  capabilities: ["fs:read:**"],
   effects: { reads: ["src/**"], writes: ["dist/**"], mode: "hermetic", onConflict: "serialize", tier: "compensable" },
   body: () =>
     Node.all({

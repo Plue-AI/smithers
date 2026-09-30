@@ -74,6 +74,11 @@ describe("the file-flow path enforces the effect envelope", () => {
   it.effect("records a callee requiring a capability the flow does not hold", () =>
     Effect.map(built, ({ graph }) => {
       expect(refusalFor(graph, "capability_outside_grant", "privileged")?.path).toEqual(["net"])
+      // The flow's own `fs:read:**` is a well-formed grant, so the only
+      // capability refusal is the callee that asks for what it does not hold:
+      // a malformed pattern such as `fs:read` grants nothing, and would refuse
+      // the flow against itself.
+      expect(Graph.diagnostics(graph).filter((one) => one.code === "capability_outside_grant")).toHaveLength(1)
     }))
 
   it.effect("refuses a write beneath a sealed flow", () =>
