@@ -643,6 +643,7 @@ export const definitions = {
     args: z.object({ "title": z.string().describe("TODO title") }),
     options: z.object({
       "body": z.string().describe("TODO body").default(""),
+      "request": z.string().describe("Request id: sending it again returns the TODO already filed").optional(),
       "repo": z.string().describe("Repository (OWNER/REPO)").optional()
     })
   },

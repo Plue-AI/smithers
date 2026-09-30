@@ -471,7 +471,7 @@ describe("the factory from the terminal, over a local HTTP server", () => {
     }
   })
 
-  it("files a TODO for the factory and prints its queued item", async () => {
+  it("files a TODO under a request id, and resends the given id so a retry files it once", async () => {
     const f = await serve((req, res) => {
       if (req.method === "POST" && req.url === "/api/repos/owner/repo/mythical/todos") {
         return json(
@@ -486,10 +486,17 @@ describe("the factory from the terminal, over a local HTTP server", () => {
       const filed = await f.run(["history", "todo", "Add dark mode", "--body", "Follow the system theme"])
       expect(filed.code, filed.error).toBe(0)
       expect(filed.output).toContain("#40 Add dark mode · queued")
+      expect((await f.run(["history", "todo", "Add dark mode", "--request", "abc-1"])).code).toBe(0)
+      expect((await f.run(["history", "todo", "Add dark mode", "--request", "abc-1"])).code).toBe(0)
       expect((await f.run(["history", "todo", "  "])).code).toBe(2)
-      expect(f.requests.map((r) => `${r.method} ${r.url} ${r.body}`)).toEqual([
-        `POST /api/repos/owner/repo/mythical/todos {"title":"Add dark mode","body":"Follow the system theme"}`
-      ])
+      expect((await f.run(["history", "todo", "x", "--request", "bad id!"])).code).toBe(2)
+      const sent = f.requests.map((r) => JSON.parse(r.body ?? "{}") as { title: string; body: string; request: string })
+      expect(f.requests.every((r) => r.method === "POST" && r.url === "/api/repos/owner/repo/mythical/todos")).toBe(true)
+      expect(sent).toHaveLength(3)
+      expect(sent[0]).toMatchObject({ title: "Add dark mode", body: "Follow the system theme" })
+      expect(sent[0]!.request).toMatch(/^[0-9a-f-]{36}$/)
+      expect(sent[1]!.request).toBe("abc-1")
+      expect(sent[2]!.request).toBe("abc-1")
     } finally {
       await f.close()
     }

@@ -4969,6 +4969,10 @@
               "type": "string",
               "description": "TODO body"
             },
+            "request": {
+              "type": "string",
+              "description": "Request id: sending it again returns the TODO already filed"
+            },
             "repo": {
               "type": "string",
               "description": "Repository (OWNER/REPO)"
