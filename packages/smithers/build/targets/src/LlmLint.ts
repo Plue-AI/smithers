@@ -553,7 +553,8 @@ export interface CredentialDiscovery {
 class CredentialMask {
   readonly values = new Map<string, string>()
   readonly locations: Array<{ file: string; line: number; name: string; placeholder: string }> = []
-  scan(file: string, contents: string): string {
+  /** Masks credential values in `contents`; `file` records their locations, `undefined` only masks them. */
+  scan(file: string | undefined, contents: string): string {
     const patterns: ReadonlyArray<readonly [string, RegExp]> = [
       ["github-token", /\b(?:gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,})\b/g],
       ["aws-access-key", /\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/g],
@@ -563,26 +564,33 @@ class CredentialMask {
         /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----[\s\S]*?-----END (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/g
       ]
     ]
-    const found: Array<{ value: string; name: string; offset: number }> = []
+    const found: Array<{ value: string; name: string; offset: number; report: boolean }> = []
+    // A zero-width match at every position, so an assignment whose value swallows
+    // a nested `name: value` pair never hides that pair from the scan.
     const named =
-      /(?:["'`]([A-Za-z_][A-Za-z0-9_-]*)["'`]|\b([A-Za-z_][A-Za-z0-9_]*))\s*[:=]\s*(?:"([^"\r\n]+)"|'([^'\r\n]+)'|`([^`\r\n]+)`|((?![{[("'`])[^\s,;#}]+))/g
+      /(?=((?:["'`]([A-Za-z_][A-Za-z0-9_-]*)["'`]|\b([A-Za-z_][A-Za-z0-9_]*))\s*[:=]\s*(?:"([^"\r\n]+)"|'([^'\r\n]+)'|`([^`\r\n]+)`|((?![{[("'`])[^\s,;#}]+))))/g
     for (const match of contents.matchAll(named)) {
-      const name = (match[1] ?? match[2])!
+      const name = (match[2] ?? match[3])!
       if (
         !/(?:token|secret|password|api[_-]?key|private[_-]?key|credential)/i.test(name) ||
         /(?:url|uri|header|path|env|name|pattern)$/i.test(name)
       ) continue
-      const value = (match[3] ?? match[4] ?? match[5] ?? match[6])!
+      const value = (match[4] ?? match[5] ?? match[6] ?? match[7])!
       if (
-        /^(?:example|placeholder|replace|dummy|test|your)[-_ ]/i.test(value) ||
-        /^(?:[/{]|https?:\/\/)/.test(value) ||
-        (match[6] !== undefined && file.endsWith(".ts") &&
-          /^(?:process\.|[A-Za-z_$][\w$]*[.(]|true$|false$|null$|undefined$)/.test(value))
+        match[7] !== undefined && file?.endsWith(".ts") === true &&
+        /^(?:process\.|[A-Za-z_$][\w$]*[.(]|true$|false$|null$|undefined$)/.test(value)
       ) continue
-      found.push({ value, name, offset: match.index + match[0].indexOf(value) })
+      // Placeholder-like values are still masked, but only reported when they
+      // cannot be a sample; short ones would mask unrelated text.
+      const sample = /^(?:example|placeholder|replace|dummy|test|your)[-_ ]/i.test(value) ||
+        /^(?:[/{$]|https?:\/\/)/.test(value)
+      if (sample && value.length < 8) continue
+      found.push({ value, name, offset: match.index + match[1]!.indexOf(value), report: !sample })
     }
     for (const [name, pattern] of patterns) {
-      for (const match of contents.matchAll(pattern)) found.push({ value: match[0], name, offset: match.index })
+      for (const match of contents.matchAll(pattern)) {
+        found.push({ value: match[0], name, offset: match.index, report: true })
+      }
     }
     for (const item of found) {
       if (!this.values.has(item.value)) {
@@ -591,6 +599,7 @@ class CredentialMask {
           `<credential:${item.name.toLowerCase().replaceAll("_", "-")}:${this.values.size + 1}>`
         )
       }
+      if (file === undefined || !item.report) continue
       const line = contents.slice(0, item.offset).split("\n").length
       const placeholder = this.values.get(item.value)!
       if (
@@ -1676,6 +1685,9 @@ export const review = (
       loadedBatches.push(batch)
       for (const file of batch) mask.scan(file.path, file.contents)
     }
+    // Review instructions reach the provider too; mask them without reporting a file.
+    mask.scan(undefined, payload.prompt)
+    mask.scan(undefined, payload.rubric)
     if (mask.locations.length > maximumFindings) {
       return yield* Effect.fail(new LlmReviewError({ phase: "review", message: "Too many credential discoveries" }))
     }
