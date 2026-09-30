@@ -95,6 +95,38 @@
     },
     {
       "name": "@smthrs/journal",
+      "subpath": "./Consensus",
+      "development": "./src/Consensus.ts",
+      "published": {
+        "import": {
+          "types": "./dist/esm/Consensus.d.ts",
+          "default": "./dist/esm/Consensus.js"
+        },
+        "require": {
+          "types": "./dist/cjs/Consensus.d.ts",
+          "default": "./dist/cjs/Consensus.js"
+        }
+      },
+      "reason": "The injectable journal ownership strategy introduced in 3ff0127860c48343447492e2601715e88e43794f (#2055) owns exclusive claims, exact activation grants, monotone heartbeats, evidence-bound stale takeover and commit-time fences; run-store Ownership delegates to this service while preserving its existing API. The public barrel and owner-fence guide intentionally expose the strategy for deployments and browser/local embedding; reviewed under #3183 with shared consensus conformance and fenced journal boundary tests."
+    },
+    {
+      "name": "@smthrs/journal",
+      "subpath": "./SqlConsensus",
+      "development": "./src/SqlConsensus.ts",
+      "published": {
+        "import": {
+          "types": "./dist/esm/SqlConsensus.d.ts",
+          "default": "./dist/esm/SqlConsensus.js"
+        },
+        "require": {
+          "types": "./dist/cjs/SqlConsensus.d.ts",
+          "default": "./dist/cjs/SqlConsensus.js"
+        }
+      },
+      "reason": "The default SQL implementation of journal Consensus introduced in 3ff0127860c48343447492e2601715e88e43794f (#2055) arbitrates the private flows_consensus_leases table through DurableWriter and participates in commit-time journal fences. The public barrel and owner-fence guide intentionally expose make/layer for host composition; reviewed under #3183 with real database conformance, displaced-writer refusal and persistence-failure tests; existing journal exports remain recorded."
+    },
+    {
+      "name": "@smthrs/journal",
       "subpath": "./EngineEvent",
       "development": "./src/EngineEvent.ts",
       "published": {

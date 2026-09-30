@@ -51,6 +51,23 @@ const claim = Leases.hold
 const reclaim = Leases.hold
 
 describe("SqlJournal durable fencing", () => {
+  it.effect("refuses an unreadable consensus lease as sink_failed without appending", () =>
+    withStack(Effect.gen(function*() {
+      const journal = yield* Journal
+      const sql = yield* Effect.service(SqlClient.SqlClient)
+      const run = runId("fenced-unreadable")
+      yield* claim(sql, run, owner)
+      yield* sql`DROP TABLE flows_consensus_leases`
+
+      const failure = yield* Effect.flip(journal.emitDurable(input(run, sourceId("driver"), 0), owner))
+
+      expect(failure.code).toBe("sink_failed")
+      expect(failure.cause).toMatchObject({ code: "persistence_failed" })
+      expect((failure.cause as { cause?: unknown }).cause).toBeDefined()
+      const rows = yield* sql<{ readonly count: number }>`SELECT COUNT(*) AS count FROM flows_journal_events`
+      expect(Number(rows[0]!.count)).toBe(0)
+    })))
+
   it.effect("commits a fenced append while the supplied owner still holds the run", () =>
     Effect.gen(function*() {
       const receipt = yield* withStack(Effect.gen(function*() {

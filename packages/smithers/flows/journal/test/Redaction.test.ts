@@ -135,6 +135,15 @@ const assertHazardFailures = (channel: "durable" | "lossy"): Effect.Effect<void,
   })
 
 describe("Redaction", () => {
+  it.each(["(foo token=hidden)", "{ nested_token: hidden }"])(
+    "redacts a credential container and its suffix before the next assignment: %s",
+    (value) => {
+      expect(Redaction.redact(`api_key=${value}tail ordinary=visible`)).toBe(
+        `api_key=${Redaction.placeholder} ordinary=visible`
+      )
+    }
+  )
+
   it("redacts credential-named fields wholesale", () => {
     expect(
       Redaction.redact({ apiKey: "sk-ant-api03-abcdefgh", nested: { "x-api-key": "abc", safe: 7 } })
