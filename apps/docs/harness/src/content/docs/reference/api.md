@@ -361,7 +361,7 @@ frame counts before the first write.
 `readOnlyCap` is the one budget that defaults to disarmed (0), because a run
 that is only meant to read, a question or a review, has nothing to be capped
 at. `approvalChannel` defaults to `false`: a park is durable waiting, and a
-run with nobody to answer it refuses the transition in-frame.
+run with nobody to answer it fails with `approval_unavailable`, carrying the question.
 
 `State` is a schema class carrying the controller's view of the run across
 frames: the panel of realm names, the call ledger, the checks and failures
@@ -720,7 +720,7 @@ Turn-boundary steering values and their source contract. Human steering
 reaches a run only at safe turn boundaries.
 
 Every frame exit records its steering decision, including rejected and raised
-cells, refused parks, and completions. A completion promotes a queued follow-up
+cells, answerable parks, and completions. A completion promotes a queued follow-up
 and continues when delivery has work for the next frame. At an exhausted frame
 limit, the decision is empty and notifications remain pending at the source;
 they are never acknowledged without a frame available to consume them.
@@ -1049,7 +1049,7 @@ export class HarnessError extends Schema.TaggedError<HarnessError>()("/harness/H
 }) {}
 ```
 
-`HarnessErrorCode` is `assembly_failed`, `incompatible_journal`,
+`HarnessErrorCode` is `assembly_failed`, `approval_unavailable`, `incompatible_journal`,
 `render_failed`, `model_failed`, `engine_failed`, `read_only_cap`,
 `completion_unjudged`, `completion_incomplete`, `claim_unproven`, or `suspended`. The set is closed to codes this package and `@smthrs/agent`
 actually raise, and `test/Contracts.test.ts` pins every member to a

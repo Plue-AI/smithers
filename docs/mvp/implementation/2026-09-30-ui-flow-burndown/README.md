@@ -37,10 +37,11 @@ failures (`3162-unrelated-composer-baseline.log`). The final scoped run is
 production PTY scenarios pass, including the two pre-existing ask/cap cases.
 Typecheck, scoped source ESLint, formatting and diff checks pass.
 
-Required fresh Fable review remains blocked. `claude -p --model fable` returned
+Historical Fable review attempts were blocked. `claude -p --model fable` returned
 `Credit balance is too low`; the subscription route with the two Anthropic auth
 variables unset returned `You've hit your session limit`. Both exact failures
-are retained. No review approval is claimed.
+are retained. The user removed the stale Fable requirement on 2026-09-30.
+The orchestrator reviewed the change and executed evidence.
 
 ## #3136: installed default app template
 

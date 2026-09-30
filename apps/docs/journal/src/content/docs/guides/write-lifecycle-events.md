@@ -12,9 +12,10 @@ fenced, so the write also proves the process still owns the run.
 
 ## Before you start
 
-The fence reads `flows_runs`, a table [`@smthrs/run-store`](https://run-store.smithers.sh/reference/api/)
-owns. Install its migration set alongside the journal's, or every fenced write
-fails `sink_failed` with `no such table: flows_runs`. See
+The fence is the journal's `Consensus` strategy: a fenced write commits only
+while the strategy records the owner as holding the run, so the run must have
+been claimed and activated first. [`@smthrs/run-store`](https://run-store.smithers.sh/reference/api/) drives
+that for a durable run. See
 [Installation](/installation/#what-a-fenced-write-needs).
 
 ## Emit the entry

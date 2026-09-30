@@ -28,28 +28,32 @@ one incarnation of that process from the next. The nonce is what makes a
 restarted process a different owner from its predecessor, and what lets two
 engines composed inside one process tell each other apart.
 
-Nothing is locked. Every owned write carries the complete triple into its
-`WHERE` clause, so the mutation and the ownership check are one statement:
+Nothing is locked. Every owned write asks the injected `Consensus` strategy
+whether the complete triple still holds the run inside the same serialized
+write transaction as the mutation, and the run row is updated only after the
+strategy answers:
 
-```sql
-UPDATE flows_runs
-SET heartbeat_at_ms = MAX(heartbeat_at_ms, :nowMs)
-WHERE run_id = :runId
-  AND status = 'running'
-  AND owner_host_id = :hostId
-  AND owner_pid = :pid
-  AND owner_nonce = :nonce
+```ts
+const held = yield * consensus.guard(runId, owner) // fails fence_lost otherwise
+yield * sql`UPDATE flows_runs SET ... WHERE run_id = ${runId}`
 ```
 
-There is no window between checking who owns the run and writing to it, so a
-displaced owner's late write fails instead of racing.
+The durable writer serializes write transactions, so there is no window
+between checking who owns the run and writing to it, and a displaced owner's
+late write fails instead of racing. `RunStore.layer` arbitrates through the
+journal's database-backed `SqlConsensus`, whose lease lives in
+`flows_consensus_leases`; `RunStore.layerWith` takes any strategy, and the
+journal must be built over the same instance so both agree on who holds the
+run.
 
 ## The snapshot is the compare-and-swap
 
 `RunSnapshot` is the exact triple a claim guards: `status`, `owner`, and
 `heartbeatAtMs`. You read the row, restate those three fields, and hand them
 back with your write. The store admits the write only while the row still
-matches.
+matches, and then only if the strategy grants the claim: the row admits, the
+lease decides, and a refusal is reported from the row exactly as a failed
+compare-and-swap always was.
 
 ```ts
 import type { RunRow, RunSnapshot } from "@smthrs/run-store/RunStore"
@@ -90,6 +94,8 @@ successful steal writes the claim columns of a stale running row, and the
 caller follows with `activate`. That is why the takeover path and the ordinary
 claim path converge on the same second step.
 
+Heartbeats renew the strategy's lease and never enter the journal.
+
 ## Competition is a value, failure is an error
 
 Every operation splits its answers into two channels, and the split is the
@@ -121,10 +127,11 @@ what happens to the ownership columns:
   `finished_at_ms`. A terminal row is never claimed, activated, or reopened.
 - `pending` is refused with `invalid_run`. A run does not go back to unstarted.
 
-A transition may also carry a `TransitionGuard`, an extra predicate compiled
-into the same `UPDATE`. `{ cancelRequested: "absent" }` is the "do not finalize
-a run somebody asked to cancel" rule, expressed as SQL rather than as a
-read-then-write race. See [Cancel a run](/guides/cancel-a-run/).
+A transition may also carry a `TransitionGuard`, an extra predicate evaluated
+in the same write transaction as the fence check. `{ cancelRequested:
+"absent" }` is the "do not finalize a run somebody asked to cancel" rule,
+expressed inside the serialized transaction rather than as a read-then-write
+race. See [Cancel a run](/guides/cancel-a-run/).
 
 ## Attempts inherit the run's fence
 

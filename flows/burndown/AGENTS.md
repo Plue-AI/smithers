@@ -29,7 +29,7 @@ current main bytes during historical extraction; refuse uncommitted owned edits
 and conflicting prepared local work. Complete retained mappings qualify against
 the artifact alone without touching shared paths.
 
-A pushed change is separate from issue completion. Final exact-revision Fable
+A pushed change is separate from issue completion. Final exact-revision
 review assesses the entire current issue against executed evidence and emits one
 typed disposition per issue. Complete closes only satisfied acceptance; landed
 prerequisites stay open with concrete issue-backed remaining requirements.

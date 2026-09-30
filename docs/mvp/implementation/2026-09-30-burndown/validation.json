@@ -1,0 +1,83 @@
+{
+  "schema_version": 1,
+  "created_at": "2026-09-30T12:54:41.820093+00:00",
+  "review": {
+    "sol_implementation": true,
+    "orchestrator_review": true,
+    "fable_required": false,
+    "reason": "User removed stale mandatory Fable instruction on 2026-09-30; archived attempts are historical."
+  },
+  "limitations": [
+    "Existing native helper/FFI reused; no fresh native rebuild claim.",
+    "Known full-suite typed completion failures belong to actively claimed #2898. No thresholds lowered."
+  ],
+  "archives": {
+    "api-validation.tar.gz": {
+      "sha256": "7c4e6df7111c1c3aaf4df07ae71a7bb554fc3b75703ba98d7d860c130e95972c",
+      "bytes": 123889
+    },
+    "runtime-validation.tar.gz": {
+      "sha256": "8b2bd390ed6bc3fd5196a62c0ca5960541cdb9385f866280672f979ac8974754",
+      "bytes": 16547
+    }
+  },
+  "service_validation": {
+    "schema_version": 1,
+    "observed_at": "2026-09-30T13:02:18.566576+00:00",
+    "head": "1c30c7d780db14cee27b2a332adf85697124267d",
+    "upstream_base": "cc5ea68bc5",
+    "upstream_repair": "6d0a4a8368",
+    "status": {
+      "3125": "ready; all required scoped backend service, real database/worker/HTTP recovery and dispatcher policy tests passed",
+      "3079": "existing fix verified; parent reports issue closed"
+    },
+    "latest_changed_files": {
+      "packages/backend/flowdispatch/handler.go": "4ab1cfdeb6eea672544bf4622931ff22042c0e83769343898903c691e8759020",
+      "packages/backend/flowdispatch/admission_unit_test.go": "b8e1d2ff065a4e251dad0b8e00be6841274db0893293ccaa96ddee4e6e66294f"
+    },
+    "regression_caught": "First actual services run reproduced premature terminal settlement of bare /health404 because bridge uses health_refused. Fixed only pre-run status404 classification; preserved other HTTP/auth/input verdicts.",
+    "checks": [
+      {
+        "command": "SMITHERS_TEST_DATABASE_URL='postgres://williamcory@127.0.0.1:55491/postgres?sslmode=disable' SMITHERS_REQUIRE_DATABASE_TESTS=1 go test ./packages/backend/internal/services ./packages/backend/flowdispatch -run 'TestRepositorySetup|TestSetupPreRun|TestEnsure.*NoCapacity|TestPreRunRuntimeFailure|TestResolverPreservesFailureClassification' -count=1 -v",
+        "exit_code": 0,
+        "services_seconds": 4.974,
+        "dispatcher_seconds": 0.482,
+        "receipt": "repaired-services-after-fix.log"
+      },
+      {
+        "command": "SMITHERS_TEST_DATABASE_URL='postgres://williamcory@127.0.0.1:55491/postgres?sslmode=disable' SMITHERS_REQUIRE_DATABASE_TESTS=1 go test ./packages/backend/internal/services -run 'TestEnsure(WorkspaceRunning|ExistingWorkspaceRunning|RuntimeWorkspaceRunning)_NoCapacityKeepsTheBox' -count=1 -v",
+        "exit_code": 0,
+        "seconds": 1.386,
+        "receipt": "capacity-3079.log"
+      }
+    ],
+    "setup_boundaries": "Real PostgreSQL product schema, shared jobs admission and two-capacity worker, actual TCP HTTP404 runtime bridge; successful Flow runtime fixture is an injected implementation of the canonical port, not hosted execution evidence.",
+    "setup_assertions": [
+      "same accepted request and pinned workspace survive raw worker404 and lost lease",
+      "retry recovers to running/completed same request with one launch",
+      "confirmed deleted workspace settles only its owned request",
+      "repeated Request joins; Read/Recover/reload do not admit duplicate jobs",
+      "cross-user/repository requests refused",
+      "raw provider/credential detail excluded from safe observation",
+      "legacy checkpoint timestamps become a positive current observation time",
+      "running clears blocked observation",
+      "projection rejects foreign/missing completion identities"
+    ],
+    "capacity_boundaries": "Existing meaningful unit fault injection with recording state store; suspended/running runtime rows retain identity and park while typed503/no_capacity/faultinfra/product sentence assertions pass. No live hosted full-pool claim.",
+    "review": {
+      "fable_required": false,
+      "reason": "Explicit user override"
+    },
+    "blockers": [],
+    "source_frozen": true,
+    "no_git_or_issue_writes_by_agent": true,
+    "coverage": "No global coverage claim; no lowered thresholds, overlays or test exclusions.",
+    "artifacts_sha256": {
+      "repaired-services.log": "d3aaf14ee49da6d599612150aee6174ae1f89e099cb043102e6824b5400444ba",
+      "repaired-services-after-fix.log": "83cbe60b391e499257b3efdf085488b9cb71132b3ac8d739b5ded7874bf1d53a",
+      "capacity-3079.log": "8d38472473a01558301d4971364f6b0f162dfb1f9f3f2b6fcf4ce63c5b7929e1",
+      "final-source-sha256.json": "ed9861407670766dc3ca5a28413b6687c7893d5a8e568fec5bab87c47d910390",
+      "health404-followup.patch": "31509ec012a8de5d7225e09b841928fac17b00fb34eff11950020ec339c0d485"
+    }
+  }
+}

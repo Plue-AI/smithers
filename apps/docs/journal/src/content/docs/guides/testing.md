@@ -42,9 +42,10 @@ const strict = TestJournal.layer({
 
 The defaults are `capacity: 1024` and `overflow: "reject"`.
 
-Fenced writes still need `flows_runs`, which this bundle does not create. A
-suite that exercises `emitDurable`, `checkpoint`, or `compact` either creates
-the columns the fence reads as a fixture, or takes the whole engine bundle
+Fenced writes need the run claimed and activated through the journal's
+`Consensus` strategy. This bundle fences through `SqlConsensus`, so a suite
+that exercises `emitDurable`, `checkpoint`, or `compact` takes the run through
+`Consensus.claim` and `activate` first, or takes the whole engine bundle
 instead.
 
 ## Get every store over one database
