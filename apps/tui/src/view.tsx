@@ -942,6 +942,7 @@ export function Approval(
     readonly choices: ReadonlyArray<Approvals.Offer>
     /** Request viewport and decision row, bounded before the composer. */
     readonly maxHeight?: number
+    readonly scrollRef?: RefObject<ScrollBoxRenderable | null>
     /** Keys show exactly when they answer; see `Approvals.ready`. */
     readonly armed: boolean
     /** Agent composers reserve plain letters for typing. */
@@ -982,6 +983,7 @@ export function Approval(
       }}
     >
       <scrollbox
+        ref={props.scrollRef}
         scrollX={false}
         scrollY
         style={{

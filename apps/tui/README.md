@@ -188,6 +188,8 @@ the only help key.
 ## Commands
 
 The `?` key popup scrolls with PageUp/PageDown or the mouse wheel.
+With an empty editor, PageUp/PageDown scroll a pending approval; Home/End
+jump to its start/end.
 
 `/model [query]`, `/new`, `/resume`, `/conversation`, `/compact`,
 `/name <name>`, `/copy`, `/summary`, `/chat`, `/filter`,

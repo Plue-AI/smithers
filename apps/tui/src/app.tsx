@@ -312,6 +312,7 @@ export function App(props: AppProps) {
   const [whichKey, setWhichKey] = useState(false)
   const whichKeyRef = useRef(false)
   const keyScroll = useRef<ScrollBoxRenderable | null>(null)
+  const approvalScroll = useRef<ScrollBoxRenderable | null>(null)
   const setWhichKeyOpen = useCallback((open: boolean) => {
     whichKeyRef.current = open
     setWhichKey(open)
@@ -2154,6 +2155,19 @@ export function App(props: AppProps) {
       }
       changeForm(undefined)
     }
+    if (
+      live.current.approvals.length > 0 && text === "" && open === undefined && liveForm.current === undefined &&
+      !key.ctrl && !key.meta && !key.option && ["pageup", "pagedown", "home", "end"].includes(key.name)
+    ) {
+      key.preventDefault()
+      const box = approvalScroll.current
+      if (box !== null) {
+        if (key.name === "home") box.scrollTo(0)
+        else if (key.name === "end") box.scrollTop = box.scrollHeight
+        else box.scrollBy(key.name === "pageup" ? -1 : 1, "viewport")
+      }
+      return
+    }
     const choice = Approvals.key(key.name, {
       draft: text,
       shift: key.shift,
@@ -2725,6 +2739,21 @@ export function App(props: AppProps) {
   const toastWidth = Math.min(60, mainWidth - 2)
   const toastHeight = Math.min(Math.floor(dimensions.height / 2), Math.max(1, toastRows.length * 3))
   const toastLimit = Math.max(1, Math.floor(chatHeight / 4))
+  const completionRows = short || approvals.length > 0 ? Math.max(1, Math.floor(chatHeight / 4)) : 8
+  const completionHeight = menu === undefined || panelFocus || form !== undefined || reviewTab !== undefined
+    ? 0
+    : 1 + Math.min(completionRows, Math.max(1, menu.items.length))
+  // Reserve both controls together, including their margins, the largest composer,
+  // model/footer, tabs/status, and queued prompts/toasts.
+  const approvalHeight = Math.max(
+    2,
+    Math.min(
+      Math.floor(chatHeight / 2),
+      chatHeight - completionHeight - (short ? Math.floor(chatHeight / 4) : Math.floor(chatHeight / 3)) - 7 -
+        Math.min(toastLimit, View.toastStackRows(toastRows, mainWidth, short)) -
+        (shownQueue.length === 0 ? 0 : (short ? 3 : shownQueue.length + 2))
+    )
+  )
   const formHeight = Math.max(
     3,
     chatHeight - (short ? 2 : 4) -
@@ -3040,7 +3069,7 @@ export function App(props: AppProps) {
                 menu={menu}
                 selected={menuIndex}
                 seat={seat}
-                rows={short ? Math.max(1, Math.floor(chatHeight / 4)) : undefined}
+                rows={completionRows}
               />
             )}
           {sideChat ?
@@ -3049,7 +3078,9 @@ export function App(props: AppProps) {
           {approvals[0] === undefined ? null : (
             <View.Approval
               width={width}
-              maxHeight={Math.max(2, Math.min(Math.floor(chatHeight / 2), chatHeight - 4))}
+              maxHeight={approvalHeight}
+              key={approvals[0].requestId}
+              scrollRef={approvalScroll}
               request={approvals[0]}
               choices={offered}
               alt={workerTab !== undefined}

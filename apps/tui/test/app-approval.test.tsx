@@ -474,3 +474,79 @@ test.each([[80, 24], [60, 18]])(
     expect(replies).toEqual([])
   }
 )
+
+test("keyboard inspection reveals the entire pending subject before approval", async () => {
+  const oversized = {
+    ...request,
+    requestId: "keyboard",
+    subject: Array.from({ length: 100 }, (_, i) => `node /repository/a-very-long-directory/check-${i}.mjs`).join(" ") +
+      " FINAL_ARGUMENT"
+  }
+  pending = [oversized]
+  await act(async () => setup!.renderer.resize(80, 24))
+  await waitFor(() => frame().includes("very-long-directory") && frame().includes("y allow"))
+  expect(frame()).not.toContain("FINAL_ARGUMENT")
+  const firstPage = frame()
+  await press("\x1b[6~")
+  expect(frame()).not.toBe(firstPage)
+  expect(frame()).not.toContain("check-0.mjs")
+  expect(replies).toEqual([])
+  await press("END")
+  expect(frame()).toContain("FINAL_ARGUMENT")
+  expect(frame()).toContain("y allow  n deny")
+  await press("HOME")
+  expect(frame()).toContain("? bash node")
+  expect(frame()).not.toContain("FINAL_ARGUMENT")
+  await press("END")
+  await press("\x1b[5~")
+  expect(frame()).not.toContain("FINAL_ARGUMENT")
+  await press("END")
+  expect(frame()).toContain("FINAL_ARGUMENT")
+  await press("y")
+  expect(replies).toEqual([{ request: oversized, choice: "once" }])
+}, 15000)
+
+test("completion menu and oversized approval share the 80x24 control budget", async () => {
+  pending = [{
+    ...request,
+    requestId: "combined",
+    subject: "node /repository/a-very-long-directory/check.mjs ".repeat(100) + "FINAL_ARGUMENT"
+  }]
+  await act(async () => setup!.renderer.resize(80, 24))
+  await waitFor(() => frame().includes("very-long-directory") && frame().includes("y allow"))
+  await type("/")
+  expect(frame()).toContain("/model")
+  expect(frame()).toContain("very-long-directory")
+  expect(frame()).toContain("Replay")
+  expect(frame().split("\n")[23]).toContain("esc Close")
+  expect(replies).toEqual([])
+  await press("c", true)
+  await waitFor(() => frame().includes("y allow"))
+  await press("END")
+  expect(frame()).toContain("FINAL_ARGUMENT")
+}, 15000)
+
+test("replacing a scrolled approval reveals the new request from its beginning", async () => {
+  pending = [{
+    ...request,
+    requestId: "first-scrolled",
+    subject: "node /repository/a-very-long-directory/check.mjs ".repeat(100) + "FIRST_END"
+  }]
+  await act(async () => setup!.renderer.resize(80, 24))
+  await waitFor(() => frame().includes("very-long-directory") && frame().includes("y allow"))
+  await press("END")
+  expect(frame()).toContain("FIRST_END")
+  const replacement = {
+    ...request,
+    requestId: "replacement-scrolled",
+    subject: "SECOND_BEGIN " + "node /repository/a-very-long-directory/check.mjs ".repeat(100) + "SECOND_END"
+  }
+  pending = [replacement]
+  await waitFor(() => frame().includes("SECOND_BEGIN") && frame().includes("y allow"))
+  expect(frame()).not.toContain("SECOND_END")
+  expect(frame()).not.toContain("FIRST_END")
+  await press("END")
+  expect(frame()).toContain("SECOND_END")
+  await press("n")
+  expect(replies).toEqual([{ request: replacement, choice: "deny" }])
+}, 15000)
