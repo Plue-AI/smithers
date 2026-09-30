@@ -1181,6 +1181,12 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
       ...(cursor === undefined ? {} : { cursor })
     })
   },
+  "egress.allow": (args) => {
+    const [host, repo, ...rest] = tokensOf(args)
+    if (host === undefined) return no("egress.allow needs a host")
+    if (rest.length > 0) return no("egress.allow takes a host and optionally an owner/repo")
+    return ok({ host, ...(repo === undefined ? {} : { repo }) })
+  },
   "egress.session": (args) => {
     const [sessionId, repo, cursor, ...rest] = tokensOf(args)
     if (sessionId === undefined) return no("egress.session needs an agent session id")

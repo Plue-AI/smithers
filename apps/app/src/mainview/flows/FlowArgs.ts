@@ -51,6 +51,7 @@ export interface FlowInput {
 
   readonly "box.open": { readonly bookmark?: string; readonly repo: string; readonly kind?: "container" | "vm" | "desktop" }
   readonly "box.egress": { readonly workspaceId: string; readonly cursor?: string }
+  readonly "egress.allow": { readonly host: string; readonly repo: string }
   readonly "box.session.destroy": { readonly sessionId: string; readonly workspaceId: string }
   readonly "box.delete": { readonly workspaceId: string; readonly confirmName: string }
   readonly "box.select": { readonly workspaceId?: string; readonly repo: string; readonly flow: string; readonly args?: string }
@@ -240,6 +241,7 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
 
   "box.open": payload => JSON.stringify(payload),
   "box.egress": payload => line(token(payload, "workspaceId"), token(payload, "cursor")),
+  "egress.allow": payload => line(token(payload, "host"), token(payload, "repo")),
   "box.session.destroy": payload => line(token(payload, "sessionId"), token(payload, "workspaceId")),
   "box.delete": payload => line(token(payload, "workspaceId"), token(payload, "confirmName")),
   "box.select": payload => JSON.stringify(payload),

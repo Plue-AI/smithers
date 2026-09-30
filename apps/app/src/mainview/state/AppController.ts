@@ -632,6 +632,8 @@ export interface AppController extends IssueFlowsController, RepositorySetupCont
   readonly activeRepository: () => string | null
   readonly listEnvironmentImages: WorkspaceSeam["listEnvironmentImages"]
   readonly listSessionEgress: EgressSeam["listSessionEgress"]
+  /** `egress.allow`: add a host to the repository's egress allowlist (#2653). */
+  readonly allowEgressHost: EgressSeam["allowEgressHost"]
   /*
    * The cloud agent sessions (UI-COVERAGE-GAPS.md "agents · Cloud agent
    * sessions"): a Codex/Claude/Smithers agent run by Smithers Cloud in a
@@ -972,7 +974,7 @@ export const createAppController = (
   const searchSeam = actors.pair(seamCtx, (context, select) =>
     createSearchSeam(context, { registry: () => commands, refreshWorkspaces: select(workspaceSeam.refreshWorkspaces), readStack: select(stackSeam).readStack,
       heldStack: select(stackSeam).heldStack }))
-  const egressSeam = actors.pair(seamCtx, (context) => createEgressSeam(context))
+  const egressSeam = actors.pair(seamCtx, (context) => createEgressSeam(context, withToast))
   ctx.onDispose(workspaceSeam.dispose)
   ctx.onDispose(agentSessionSeam.dispose)
   /* Lane change: the change/diff cards and their acts. */
@@ -1944,6 +1946,7 @@ export const createAppController = (
     activeRepository: () => activeRepositoryId(store),
     listEnvironmentImages: workspaceSeam.listEnvironmentImages,
     listSessionEgress: egressSeam.listSessionEgress,
+    allowEgressHost: egressSeam.allowEgressHost,
     /* The cloud agent sessions (the `agent.session.*` flows' seam). */
     newAgentSession: agentSessionSeam.newSession,
     listAgentSessions: agentSessionSeam.listSessions,

@@ -5,12 +5,19 @@ import {
   agentSessionEgressPath,
   createEgressSeam,
   DEGRADED_EGRESS_REFUSAL,
+  egressHost,
   egressLine,
+  egressPolicyPath,
   loadEgressPage,
   nextEgressCursor,
+  parseAllowDomains,
   parseEgressRow,
+  staleReloads,
+  UNREADABLE_ALLOWLIST,
   workspaceEgressPath
 } from "./EgressSeam"
+import type { FailureController } from "../controller/failures"
+import { TOAST_SUPERSEDED } from "../controller/failures"
 import type { SeamContext } from "./SeamContext"
 import { createWorkspaceSeam } from "./WorkspaceSeam"
 
@@ -58,7 +65,15 @@ const malformedPayloads = [
   ["a scalar", '"not an audit"']
 ] as const
 
-type Route = Response | ((url: URL) => Response | Promise<Response>)
+type Route = Response | ((url: URL, init?: RequestInit) => Response | Promise<Response>)
+
+/** Each background write the seam hands the shared toast stack, and how it settled. */
+interface ToastRun {
+  readonly key: string
+  readonly title: string
+  readonly doneTitle: string
+  outcome?: unknown
+}
 
 const harness = async (
   routes: Record<string, Route>,
@@ -74,7 +89,7 @@ const harness = async (
       urls.push(`${init?.method ?? "GET"} ${path}${url.search}`)
       const route = routes[path]
       if (route === undefined) return json(404, { message: `no route ${path}` })
-      return typeof route === "function" ? route(url) : route
+      return typeof route === "function" ? route(url, init) : route
     },
     baseUrl: "",
     store,
@@ -99,7 +114,16 @@ const harness = async (
       { id: "will/smithers", org: "will", ownerKind: "user", name: "smithers", head: null }
     ]
   })
-  return { store, ctx, seam: createEgressSeam(ctx), urls }
+  const toasts: Array<ToastRun> = []
+  const settled: Array<Promise<unknown>> = []
+  const withToast = (async (key, title, doneTitle, work) => {
+    const run: ToastRun = { key, title, doneTitle }
+    toasts.push(run)
+    const done = work().then((outcome) => (run.outcome = outcome))
+    settled.push(done)
+    return done
+  }) as FailureController["withToast"]
+  return { store, ctx, seam: createEgressSeam(ctx, withToast), urls, toasts, idle: () => Promise.all(settled) }
 }
 
 const messagesOf = (store: Awaited<ReturnType<typeof harness>>["store"]) =>
@@ -302,6 +326,174 @@ describe("workspace egress payload failures", () => {
       expect(retained.payload.egress).toEqual(card.payload.egress)
       expect(retained.payload.egressCursor).toBe("older")
       expect(retained.payload.error).toBe(UNREADABLE_PAYLOAD)
+    }
+  })
+})
+
+describe("allowing a blocked host (#2653)", () => {
+  const POLICY = "api/repos/will/smithers/egress-policy"
+  const settle = async (h: { readonly idle: () => Promise<unknown> }) => {
+    for (let tick = 0; tick < 10; tick++) {
+      await h.idle()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    }
+  }
+  /** plue's route: GET answers the list, PUT stores it sorted and answers each running sandbox's reload. */
+  const policy = (initial: ReadonlyArray<string>, gate?: Promise<void>) => {
+    let domains = [...initial]
+    const writes: Array<unknown> = []
+    const route: Route = async (_url, init) => {
+      if (init?.method === "PUT") {
+        const body = JSON.parse(String(init.body)) as { allow_domains: Array<string> }
+        writes.push(body)
+        domains = [...body.allow_domains].sort()
+        return json(200, { allow_domains: domains, reloads: [{ sandbox_id: "sb-1", reloaded: true }] })
+      }
+      await gate
+      return json(200, { allow_domains: domains })
+    }
+    return { route, writes, domains: () => domains }
+  }
+
+  test("the host, the path and the list read as plue writes them", () => {
+    expect(egressPolicyPath("will/smithers")).toBe("/repos/will/smithers/egress-policy")
+    expect(egressPolicyPath("a b/c#d")).toBe("/repos/a%20b/c%23d/egress-policy")
+    expect(egressHost("  API.Example.COM. ")).toBe("api.example.com")
+    expect(egressHost(" . ")).toBe("")
+    expect(parseAllowDomains({ allow_domains: ["a.example.com"] })).toEqual(["a.example.com"])
+    expect(parseAllowDomains({ allow_domains: [] })).toEqual([])
+    for (const body of [null, [], {}, { allow_domains: "a" }, { allow_domains: [1] }]) {
+      expect(parseAllowDomains(body)).toBeNull()
+    }
+  })
+
+  test("acknowledges before the write finishes, and the toast settles only with it", async () => {
+    let open = (): void => undefined
+    const gate = new Promise<void>((resolve) => void (open = resolve))
+    const cloud = policy(["registry.npmjs.org"], gate)
+    const h = await harness({ [POLICY]: cloud.route })
+    expect(await h.seam.allowEgressHost("API.Example.com.")).toEqual({ value: "Allowing api.example.com for will/smithers." })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(h.toasts).toEqual([{ key: "egress-allow:will/smithers:api.example.com", title: "Allowing api.example.com…", doneTitle: "api.example.com allowed" }])
+    expect(cloud.writes).toEqual([])
+    open()
+    await settle(h)
+    expect(h.toasts[0]?.outcome).toBe(true)
+    expect(cloud.writes).toEqual([{ allow_domains: ["registry.npmjs.org", "api.example.com"] }])
+    expect(h.urls).toEqual([`GET ${POLICY}`, `PUT ${POLICY}`])
+  })
+
+  test("a repeated request for the same host while one runs sends one write", async () => {
+    let open = (): void => undefined
+    const gate = new Promise<void>((resolve) => void (open = resolve))
+    const cloud = policy([], gate)
+    const h = await harness({ [POLICY]: cloud.route })
+    const first = await h.seam.allowEgressHost("api.example.com", "will/smithers")
+    expect(await h.seam.allowEgressHost("API.example.com")).toEqual(first)
+    open()
+    await settle(h)
+    expect(h.toasts).toHaveLength(1)
+    expect(cloud.writes).toEqual([{ allow_domains: ["api.example.com"] }])
+  })
+
+  test("two hosts in a row both land: the second write reads the list the first wrote", async () => {
+    const cloud = policy(["a.example.com"])
+    const h = await harness({ [POLICY]: cloud.route })
+    await h.seam.allowEgressHost("b.example.com")
+    await h.seam.allowEgressHost("c.example.com")
+    await settle(h)
+    expect(cloud.writes).toEqual([
+      { allow_domains: ["a.example.com", "b.example.com"] },
+      { allow_domains: ["a.example.com", "b.example.com", "c.example.com"] }
+    ])
+    expect(cloud.domains()).toEqual(["a.example.com", "b.example.com", "c.example.com"])
+  })
+
+  test("a host already allowed is written again unchanged, so the running sandboxes reload it", async () => {
+    const cloud = policy(["*.example.com"])
+    const h = await harness({ [POLICY]: cloud.route })
+    await h.seam.allowEgressHost("*.EXAMPLE.com")
+    await settle(h)
+    expect(h.toasts[0]?.outcome).toBe(true)
+    expect(cloud.writes).toEqual([{ allow_domains: ["*.example.com"] }])
+  })
+
+  test("a sandbox the write did not reload fails the toast, and asking again writes again", async () => {
+    const writes: Array<unknown> = []
+    const h = await harness({
+      [POLICY]: (_url, init) => {
+        if (init?.method !== "PUT") return json(200, { allow_domains: [] })
+        writes.push(JSON.parse(String(init.body)))
+        return json(200, {
+          allow_domains: ["api.example.com"],
+          reloads: [
+            { sandbox_id: "sb-1", reloaded: true },
+            { sandbox_id: "sb-2", reloaded: false, error: "live reload unsupported; applies on next start" }
+          ]
+        })
+      }
+    })
+    await h.seam.allowEgressHost("api.example.com")
+    await settle(h)
+    expect(h.toasts[0]?.outcome).toBe("api.example.com allowed; 1 running box gets it on restart.")
+    await h.seam.allowEgressHost("api.example.com")
+    await settle(h)
+    expect(writes).toHaveLength(2)
+    expect(staleReloads({ reloads: [{ reloaded: false }, "x", { reloaded: true }, { reloaded: false }] })).toBe(3)
+    expect(staleReloads({ reloads: [] })).toBe(0)
+    expect(staleReloads(null)).toBe(0)
+  })
+
+  test("work whose account signed out while it waited never writes", async () => {
+    let open = (): void => undefined
+    const gate = new Promise<void>((resolve) => void (open = resolve))
+    const cloud = policy([], gate)
+    const h = await harness({ [POLICY]: cloud.route })
+    await h.seam.allowEgressHost("api.example.com")
+    await h.seam.allowEgressHost("b.example.com")
+    await h.store.dispatch({ type: "cloud.session.loaded", actor: "system", state: "signed-out", username: null, expiresAt: null, scopes: null })
+    open()
+    await settle(h)
+    expect(h.toasts.map((toast) => toast.outcome)).toEqual([TOAST_SUPERSEDED, TOAST_SUPERSEDED])
+    expect(cloud.writes).toEqual([])
+    expect(h.urls).toEqual([`GET ${POLICY}`])
+  })
+
+  test("a refused write fails the toast with plue's words, and the host can be asked for again", async () => {
+    const h = await harness({ [POLICY]: json(403, { message: "repository owner access required" }) })
+    await h.seam.allowEgressHost("api.example.com")
+    await settle(h)
+    expect(h.toasts[0]?.outcome).toEqual(expect.stringContaining("repository owner access required"))
+    await h.seam.allowEgressHost("api.example.com")
+    await settle(h)
+    expect(h.toasts).toHaveLength(2)
+  })
+
+  test("a PUT refusal and an unreadable list both fail the toast", async () => {
+    const refused = await harness({
+      [POLICY]: (_url, init) => init?.method === "PUT" ? json(400, { message: "egress domain \"*\" would allow every host" }) : json(200, { allow_domains: [] })
+    })
+    await refused.seam.allowEgressHost("api.example.com")
+    await settle(refused)
+    expect(refused.toasts[0]?.outcome).toEqual(expect.stringContaining("would allow every host"))
+    const unreadable = await harness({ [POLICY]: json(200, { domains: [] }) })
+    await unreadable.seam.allowEgressHost("api.example.com")
+    await settle(unreadable)
+    expect(unreadable.toasts[0]?.outcome).toBe(UNREADABLE_ALLOWLIST)
+    expect(unreadable.urls).toEqual([`GET ${POLICY}`])
+  })
+
+  test("refuses without a request when signed out, degraded, unnamed or aimed at a malformed repository", async () => {
+    const signedOut = await harness({}, { signedIn: false })
+    expect(await signedOut.seam.allowEgressHost("api.example.com")).toBe("Sign in to Smithers Cloud to continue.")
+    const degraded = await harness({}, { degraded: true })
+    expect(await degraded.seam.allowEgressHost("api.example.com")).toBe(DEGRADED_EGRESS_REFUSAL)
+    const h = await harness({})
+    expect(await h.seam.allowEgressHost("  ")).toBe("Name a host to allow.")
+    expect(await h.seam.allowEgressHost("api.example.com", "not a repo")).toBe("\"not a repo\" is not an owner/repo name")
+    for (const run of [signedOut, degraded, h]) {
+      expect(run.urls).toEqual([])
+      expect(run.toasts).toEqual([])
     }
   })
 })

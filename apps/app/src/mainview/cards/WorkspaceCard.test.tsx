@@ -507,6 +507,25 @@ describe("the workspace card", () => {
     host.remove()
   })
 
+  test("a blocked call offers one Allow for its host, aimed at the box's repository; an allowed call offers none", () => {
+    const row = { occurredAt: "2026-09-02T08:00:00Z", method: "GET", path: "/", status: 403, swappedSecretNames: [] }
+    const { host, commands } = render(
+      workspaceCard({
+        facet: "egress",
+        egress: [
+          { ...row, host: "api.github.com", allowed: true, status: 200 },
+          { ...row, host: "registry.npmjs.org", allowed: false }
+        ],
+        egressCursor: null
+      })
+    )
+    const allows = [...host.querySelectorAll("button")].filter((button) => button.textContent === "Allow")
+    expect(allows.map((button) => button.getAttribute("aria-label"))).toEqual(["Allow registry.npmjs.org"])
+    allows[0]?.click()
+    expect(commands).toEqual([{ name: "egress.allow", args: "registry.npmjs.org will/smithers" }])
+    host.remove()
+  })
+
   test("an exhausted audit offers no older page, and an empty one says the computer called nothing", () => {
     const { host } = render(workspaceCard({ facet: "egress", egress: [], egressCursor: null }))
     expect(host.textContent).toContain("review made no recorded calls.")

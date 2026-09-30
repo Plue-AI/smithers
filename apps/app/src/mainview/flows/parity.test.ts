@@ -411,7 +411,7 @@ describe("launch-law parity: every affordance is a command", () => {
        * box whose image predates the desktop tools, where a Retry is a door
        * onto a wall.
        */
-      "../cards/WorkspaceCard.tsx": 16,
+      "../cards/WorkspaceCard.tsx": 17,
       /* The trace owns selection, views, filters and child navigation.
        * The extracted strip selects recorded sequences; summary actions reuse
        * approvals.open and runs.resume; goals reuse runs.coding.select. */

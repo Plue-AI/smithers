@@ -410,6 +410,19 @@ const WorkspaceFacetBody = ({
                 {row.swappedSecretNames.length === 0 ?
                   null :
                   <span className="world-card-path">secrets {row.swappedSecretNames.join(", ")}</span>}
+                {/* #2653: a blocked host joins the repository's allowlist; running sandboxes reload it. */}
+                {row.allowed ?
+                  null :
+                  (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      aria-label={`Allow ${row.host}`}
+                      {...flowAction(onRunCommand, "egress.allow", flowArgs("egress.allow", { host: row.host, repo: payload.repo }))}
+                    >
+                      Allow
+                    </Button>
+                  )}
               </li>
             ))}
         </ul>

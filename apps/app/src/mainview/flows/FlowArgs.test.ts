@@ -302,6 +302,7 @@ test("card configuration args round-trip through their production grammars", () 
     ["box.open", { repo: "owner/repo" }],
     ["box.delete", { workspaceId: "w1", confirmName: "My workspace" }],
     ["box.egress", { workspaceId: "w1", cursor: "next" }],
+    ["egress.allow", { host: "*.example.com", repo: "owner/repo" }],
     ["box.session.destroy", { workspaceId: "w1", sessionId: "s1" }],
     ["review.request", { changeId: "c1", reviewer: "alice" }],
     ["review.unrequest", { changeId: "c1", requestId: 7 }],
@@ -315,6 +316,12 @@ test("card configuration args round-trip through their production grammars", () 
   for (const [name, input] of cases) expect(payloadFor(name, flowArgs(name, input))).toEqual({ payload: input })
 })
 
+
+test("egress.allow takes a host and an optional repository, and nothing more", () => {
+  expect(payloadFor("egress.allow", "api.example.com")).toEqual({ payload: { host: "api.example.com" } })
+  expect(payloadFor("egress.allow", undefined)).toEqual({ error: "egress.allow needs a host" })
+  expect(payloadFor("egress.allow", "a.example.com owner/repo extra")).toEqual({ error: "egress.allow takes a host and optionally an owner/repo" })
+})
 
 test("wiki selection preserves paths with spaces and signup preserves typed whitespace", () => {
   const selection = { cardId: "wiki-1", documentId: 'docs/My "Notes".md' }
