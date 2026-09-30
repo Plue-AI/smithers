@@ -39,7 +39,7 @@ export type CardOf<K extends Card["kind"]> = Extract<Card, { kind: K }>
 
 /** The exact collection subscriptions used by card decoration joins. */
 export interface CardProjectionAuthority {
-  readonly collections: Pick<AppStore["collections"], "starredTargets" | "repositoryNotifications" | "notificationReceipts" | "runtimeRuns" | "runtimeApprovals" | "models"> & Partial<Pick<AppStore["collections"], "cards" | "sessions" | "billingAccounts" | "identitySessions" | "cloudSessions">>
+  readonly collections: Pick<AppStore["collections"], "starredTargets" | "repositoryNotifications" | "notificationReceipts" | "savedRepositoryUpdates" | "runtimeRuns" | "runtimeApprovals" | "models"> & Partial<Pick<AppStore["collections"], "cards" | "sessions" | "billingAccounts" | "identitySessions" | "cloudSessions">>
 }
 
 /**
@@ -95,6 +95,8 @@ export interface CardActions {
   readonly admin?: boolean
   /** Which frame the body is mounted in. Absent in static previews, which read as embedded. */
   readonly presentation?: "embedded" | "maximized"
+  /** The displayed activity snapshot is being replaced by an uncommitted read. */
+  readonly repositoryUpdatePending?: boolean
 }
 
 /** How one card kind renders and which pill it wears. */

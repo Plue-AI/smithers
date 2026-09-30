@@ -181,7 +181,13 @@ const ProjectedRepositoryUpdateBody = ({ card, actions, store }: {
   readonly actions: CardActions
   readonly store: CardProjectionAuthority
 }) => {
+  const { data: saved } = useLiveQuery(store.collections.savedRepositoryUpdates)
   const { data: notifications } = useLiveQuery(store.collections.repositoryNotifications)
   const { data: receipts } = useLiveQuery(store.collections.notificationReceipts)
-  return cardRenderer("repo-update").render(projectRepositoryUpdate(card, notifications, receipts), actions)
+  const committed = saved.find(update => update.id === card.id)
+  // A completed activity body must survive reload. While a refresh saves,
+  // continue showing the last committed update, including its source refusals.
+  return committed === undefined ? null : cardRenderer("repo-update").render(projectRepositoryUpdate(committed, notifications, receipts), {
+    ...actions, repositoryUpdatePending: JSON.stringify(card.payload) !== JSON.stringify(committed.payload)
+  })
 }

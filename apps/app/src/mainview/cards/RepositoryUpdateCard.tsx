@@ -93,7 +93,7 @@ export const repositoryUpdateCardFamily: CardFamily<"repo-update"> = {
           <Button size="sm" variant="outline" {...flowProps("repo.overview")} onClick={() => actions.onRunCommand("repo.overview", repo)}>
             <RefreshCw size={14} aria-hidden="true" /> Refresh
           </Button>
-          {unread > 0 && <Button size="sm" {...flowProps("notifications.read-update")}
+          {unread > 0 && <Button size="sm" disabled={actions.repositoryUpdatePending} {...flowProps("notifications.read-update")}
             onClick={() => actions.onRunCommand("notifications.read-update", card.id)}>
             <Octicon name="check" /> Mark all read
           </Button>}

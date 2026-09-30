@@ -123,6 +123,7 @@ import { HeldBrowserStorageError, StorageWriteFailedError } from "./StorageRecov
 import { WIKI_RECOVERY_STORAGE_KEY,clearWikiRecovery,readWikiRecovery,writeWikiRecovery } from "./WikiRecovery"
 import { createWorkspaceViews } from "./WorkspaceViews"
 import { createSavedSignInPrompts } from "./SavedSignInPrompts"
+import { createSavedRepositoryUpdates } from "./SavedRepositoryUpdates"
 
 export { MAX_TRANSITION_PAYLOAD_BYTES,journalPayload } from "./TransitionDiagnostics"
 
@@ -676,7 +677,10 @@ export type StoredCollections = {
 }
 
 type PrivateCollectionName = "approvalRequests" | "appEvents" | "appEventHeads" | "appEventCheckpoints" | "appEventRetirements"
-type ReadableCollections = Omit<StoredCollections, "cards" | "workingCopies" | PrivateCollectionName> & ReturnType<typeof createWorkspaceViews> & { savedSignInPrompts: ReturnType<typeof createSavedSignInPrompts>["collection"] }
+type ReadableCollections = Omit<StoredCollections, "cards" | "workingCopies" | PrivateCollectionName> & ReturnType<typeof createWorkspaceViews> & {
+  savedSignInPrompts: ReturnType<typeof createSavedSignInPrompts>["collection"]
+  savedRepositoryUpdates: ReturnType<typeof createSavedRepositoryUpdates>["collection"]
+}
 /** Keep TanStack's collection identity for queries, while forbidding writes at the public boundary. */
 type ReadOnlyCollection<C extends { readonly utils: object }> = C & {
   readonly insert: never
@@ -1329,6 +1333,7 @@ const initializeAppStore = async (
 
   let committed = initial.state
   const savedSignInPrompts = createSavedSignInPrompts(committed.snapshot.messages)
+  const savedRepositoryUpdates = createSavedRepositoryUpdates(committed.snapshot.cards)
   let optimistic = committed
   let committedCheckpoint: AppEventCheckpoint = structuredClone(storedRow(collections.appEventCheckpoints.get("current")!))
   let committedEvents: AppEventRecord[] = [...collections.appEvents.values()].map(event => structuredClone(storedRow(event)))
@@ -1363,6 +1368,7 @@ const initializeAppStore = async (
       await persist(transaction, write.state.head)
       committed = write.state
       savedSignInPrompts.publish(committed.snapshot.messages)
+      savedRepositoryUpdates.publish(committed.snapshot.cards)
       if (write.clearEvents) { committedEvents = []; committedEventBytes = 0 }
       if (write.event !== undefined) { committedEvents.push(write.event); committedEventBytes += eventBytes(write.event) }
       if (write.checkpoint !== undefined) committedCheckpoint = write.checkpoint
@@ -1394,7 +1400,8 @@ const initializeAppStore = async (
     }
   }
 
-  const views = { ...createWorkspaceViews(collections), savedSignInPrompts: savedSignInPrompts.collection }
+  const views = { ...createWorkspaceViews(collections), savedSignInPrompts: savedSignInPrompts.collection,
+    savedRepositoryUpdates: savedRepositoryUpdates.collection }
   await Promise.all(Object.values(views).map((view) => view.preload()))
   if (resolvedBackend.kind === "opfs") await resolvedBackend.flush()
   applyTheme(collections.sessions.get(SESSION_ID)?.theme ?? "light")
