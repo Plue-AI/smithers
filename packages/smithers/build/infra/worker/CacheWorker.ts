@@ -18,6 +18,8 @@ interface CacheWorkerEnv {
   readonly CACHE_REQUEST_BUDGET: RateLimit
   /** Counts `findMissing` probes per credential digest at this location. */
   readonly CACHE_FIND_MISSING_BUDGET: RateLimit
+  /** The stage name both budgets key under, so stages sharing a namespace never share a counter. */
+  readonly CACHE_BUDGET_SCOPE: string
   /** SHA-256 of the pull credential every job may hold, trusted or not. */
   readonly CACHE_READ_TOKEN: string
   readonly CACHE_READ_NAMESPACE_PREFIX?: string
@@ -99,7 +101,8 @@ const handlerFor = (env: CacheWorkerEnv): CacheHandler => {
     env.CACHE_READ_NAMESPACE_PREFIX,
     env.CACHE_WRITE_TOKEN,
     env.CACHE_REQUEST_BUDGET,
-    env.CACHE_FIND_MISSING_BUDGET
+    env.CACHE_FIND_MISSING_BUDGET,
+    env.CACHE_BUDGET_SCOPE
   ]
   if (isolateHandler !== null && bindings.every((value, index) => value === capturedBindings[index])) {
     return isolateHandler
@@ -110,7 +113,11 @@ const handlerFor = (env: CacheWorkerEnv): CacheHandler => {
     readTokenHash: env.CACHE_READ_TOKEN,
     readNamespacePrefix: env.CACHE_READ_NAMESPACE_PREFIX ?? "",
     writeTokenHash: env.CACHE_WRITE_TOKEN,
-    credentialBudget: makeCredentialBudget(env.CACHE_REQUEST_BUDGET, env.CACHE_FIND_MISSING_BUDGET),
+    credentialBudget: makeCredentialBudget(
+      env.CACHE_REQUEST_BUDGET,
+      env.CACHE_FIND_MISSING_BUDGET,
+      env.CACHE_BUDGET_SCOPE
+    ),
     health: makeHealth(env.CACHE_DATABASE, env.CACHE_BUCKET)
   }, admission)
   capturedBindings = bindings

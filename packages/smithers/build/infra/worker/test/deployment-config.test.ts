@@ -33,6 +33,7 @@ import {
   workerStageOptions
 } from "../../deployment.ts"
 import { readTouchDays } from "../D1ActionCache.ts"
+import { makeCredentialBudget } from "../RateLimitCredentialBudget.ts"
 import { retentionDays } from "../RetentionSweep.ts"
 
 const readToken = "SMITHERS_CACHE_READ_TOKEN"
@@ -239,6 +240,61 @@ describe("cache credential verification", () => {
     }
   })
 
+  /**
+   * Cloudflare shares a counter between every binding in one account that
+   * names the same namespace and key. The namespace pair is a finite hash of
+   * the stage name, so this simulates that sharing and proves the stage in the
+   * key keeps colliding stages apart while one stage keeps its own counter.
+   */
+  it("keeps colliding development stages on separate counters under one credential", async () => {
+    const counters = new Map<string, number>()
+    const resources = {
+      database: "the-database",
+      bucket: "the-bucket",
+      rateLimit: (_name: string, props: { readonly namespaceId: number; readonly simple: { readonly limit: number } }) =>
+        ({
+          limit: async ({ key }: { readonly key: string }) => {
+            const counter = `${props.namespaceId}:${key}`
+            const used = (counters.get(counter) ?? 0) + 1
+            counters.set(counter, used)
+            return { success: used <= props.simple.limit }
+          }
+        }) as RateLimit,
+      metrics: (name: string) => ({ name })
+    }
+    const budgetFor = (stage: string) => {
+      const { env } = cacheWorkerOptions(resources)({ stage })
+      return {
+        env,
+        budget: makeCredentialBudget(env.CACHE_REQUEST_BUDGET, env.CACHE_FIND_MISSING_BUDGET, env.CACHE_BUDGET_SCOPE)
+      }
+    }
+    const spend = async (budget: ReturnType<typeof budgetFor>["budget"], count: number) => {
+      for (let index = 0; index < count; index += 1) await budget.charge(digestOf("shared-credential"), "findMissing")
+    }
+
+    // The exact collision from #2670: two stage names, one namespace pair.
+    expect(budgetNamespaces("dev_review_6219")).toEqual({ request: 86827832, findMissing: 86827833 })
+    expect(budgetNamespaces("dev_review_61384")).toEqual(budgetNamespaces("dev_review_6219"))
+    const first = budgetFor("dev_review_6219")
+    const second = budgetFor("dev_review_61384")
+    expect(first.env.CACHE_FIND_MISSING_BUDGET).not.toBe(second.env.CACHE_FIND_MISSING_BUDGET)
+
+    await spend(first.budget, findMissingBudget.simple.limit)
+    expect(await first.budget.charge(digestOf("shared-credential"), "findMissing")).toBe(false)
+    expect(await second.budget.charge(digestOf("shared-credential"), "findMissing")).toBe(true)
+    expect(await second.budget.charge(digestOf("shared-credential"), "request")).toBe(true)
+
+    // The same stage redeployed keys the same counter, so its spent budget stays spent.
+    expect(await budgetFor("dev_review_6219").budget.charge(digestOf("shared-credential"), "findMissing")).toBe(false)
+
+    // Production keeps its reserved pair and its own counters.
+    const production = budgetFor("prod")
+    expect(budgetNamespaces("prod")).toEqual({ request: 1001, findMissing: 1002 })
+    expect(await production.budget.charge(digestOf("shared-credential"), "findMissing")).toBe(true)
+    expect([...counters.keys()].every((key) => key.includes(`/${digestOf("shared-credential")}`))).toBe(true)
+  })
+
   it("documents what a leaked read credential can cost with the deployed budgets", async () => {
     const guide = await Fs.readFile(NodePath.join(infraRoot, "CACHE-TRUST.md"), "utf8")
 
@@ -303,6 +359,7 @@ describe("cache credential verification", () => {
         CACHE_BUCKET: "the-bucket",
         CACHE_REQUEST_BUDGET: { name: "CACHE_REQUEST_BUDGET", namespaceId: 1001, ...credentialRequestBudget },
         CACHE_FIND_MISSING_BUDGET: { name: "CACHE_FIND_MISSING_BUDGET", namespaceId: 1002, ...findMissingBudget },
+        CACHE_BUDGET_SCOPE: "prod",
         CACHE_REQUEST_METRICS: { name: "CacheRequestMetrics", dataset: "smithers_build_cache_requests_prod" },
         CACHE_READ_NAMESPACE_PREFIX: expect.any(Object),
         CACHE_READ_TOKEN: cacheCredentialBindings.CACHE_READ_TOKEN,
@@ -331,6 +388,7 @@ describe("cache credential verification", () => {
         namespaceId: developmentNamespaces.findMissing,
         ...findMissingBudget
       },
+      CACHE_BUDGET_SCOPE: "dev_alice",
       CACHE_REQUEST_METRICS: { name: "CacheRequestMetrics", dataset: "smithers_build_cache_requests_dev_alice" }
     })
     expect(development.main).toBe(production.main)

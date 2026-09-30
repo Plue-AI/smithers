@@ -229,12 +229,12 @@ describe("Rate Limiting bindings", () => {
   it("charges the request binding and the findMissing binding under the credential digest", async () => {
     const requests = binding(true)
     const probes = binding(false)
-    const budget = makeCredentialBudget(requests, probes)
+    const budget = makeCredentialBudget(requests, probes, "dev_alice")
 
     expect(await budget.charge("digest-1", "request")).toBe(true)
     expect(await budget.charge("digest-2", "findMissing")).toBe(false)
 
-    expect(requests.keys).toEqual(["digest-1"])
-    expect(probes.keys).toEqual(["digest-2"])
+    expect(requests.keys).toEqual(["dev_alice/digest-1"])
+    expect(probes.keys).toEqual(["dev_alice/digest-2"])
   })
 })

@@ -47,6 +47,7 @@ describe("worker entry point", () => {
       CACHE_WRITE_TOKEN: writeTokenHash,
       CACHE_REQUEST_BUDGET: budget().binding,
       CACHE_FIND_MISSING_BUDGET: budget().binding,
+      CACHE_BUDGET_SCOPE: "entry-stage",
       ...overrides
     }) as never
 
@@ -149,10 +150,10 @@ describe("worker entry point", () => {
 
     expect(read.status).toBe(404)
     expect(probe.status).toBe(429)
-    // The key is the digest the Worker already computes to classify the
-    // credential, never the bearer value itself.
-    expect(requests.keys).toEqual([readTokenHash, readTokenHash])
-    expect(probes.keys).toEqual([readTokenHash])
+    // The key is the stage and the digest the Worker already computes to
+    // classify the credential, never the bearer value itself.
+    expect(requests.keys).toEqual([`entry-stage/${readTokenHash}`, `entry-stage/${readTokenHash}`])
+    expect(probes.keys).toEqual([`entry-stage/${readTokenHash}`])
   })
 
   it("writes one metrics datapoint per request, classified by route", async () => {

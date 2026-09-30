@@ -325,7 +325,9 @@ export const findMissingBudget = {
  * spend production's per-credential budget from its own traffic, and the
  * reverse. Production keeps the namespaces it was deployed with; every other
  * stage derives a pair from its name, above production's and never equal to
- * it.
+ * it. The derivation is a finite hash, so two development stages can share a
+ * pair; the Worker keys every charge by its stage (`CACHE_BUDGET_SCOPE`) as
+ * well, so shared namespaces never share a counter.
  *
  * @category constructors
  * @since 0.1.0
@@ -456,7 +458,7 @@ export interface CacheWorkerResources<Database, Bucket, Budget, Metrics> {
  * Builds the Worker's configuration for the stage a stack is deploying.
  *
  * Every rule the resource graph used to encode inline lives here: the entry
- * module, the compatibility date, the retention trigger, the eight bindings,
+ * module, the compatibility date, the retention trigger, the nine bindings,
  * and the stage's public address. `alchemy.run.ts` hands the result to
  * `Cloudflare.Worker` unchanged, so the suite executes what the deployment
  * applies.
@@ -485,6 +487,7 @@ export const cacheWorkerOptions =
           namespaceId: namespaces.findMissing,
           ...findMissingBudget
         }),
+        CACHE_BUDGET_SCOPE: stack.stage,
         CACHE_REQUEST_METRICS: resources.metrics("CacheRequestMetrics", { dataset: metricsDataset(stack.stage) }),
         CACHE_READ_NAMESPACE_PREFIX: Config.String("SMITHERS_CACHE_READ_NAMESPACE_PREFIX").pipe(
           Config.withDefault(""),

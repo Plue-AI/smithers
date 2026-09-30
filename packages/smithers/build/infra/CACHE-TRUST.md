@@ -236,8 +236,9 @@ cost over time: Cloudflare scales isolates per location. The budget is
 therefore per credential. `alchemy.run.ts` declares two Cloudflare Rate
 Limiting bindings from the constants in `deployment.ts`, and
 `worker/protocol.ts` charges every admitted request to the SHA-256 of the
-credential that presented it, after the credential is classified and the
-method authorized, and before any store is touched:
+credential that presented it, keyed under the deployment stage so stages whose
+namespaces collide never share a counter, after the credential is classified
+and the method authorized, and before any store is touched:
 
 | Budget                  | Binding                     | Per credential, per minute, per Cloudflare location |
 | ----------------------- | --------------------------- | --------------------------------------------------- |
