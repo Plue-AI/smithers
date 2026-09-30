@@ -1,0 +1,2325 @@
+{
+  "upstream_revision": "d10fb61a14f9719774c3520c5763068b28ef5546",
+  "method": "Task-card vm fields and literal judge/API markers in task Python sources; static inventory, not executed grading or a complete transitive dependency audit. Windows inferred from explicit OS or ALE cpu/gpu free/license snapshots without Ubuntu suffix.",
+  "tasks": [
+    {
+      "task_path": "agriculture_env/crop_rotation_d02",
+      "docker_subset": false,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free",
+        "timeout": 7200
+      },
+      "windows": true,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "f16e4871cbee6eeba84abea90ccc7a055fa9d12de0aaf53383c8634b59c6e680"
+    },
+    {
+      "task_path": "agriculture_env/ndvi_zonal_statistics_d02",
+      "docker_subset": false,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free",
+        "timeout": 7200
+      },
+      "windows": true,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "b92332cbf25bbb5cd7dc8efa44de93110526786d891c5e2f82e4cbf770b57dbc"
+    },
+    {
+      "task_path": "business_finance/american_option_pricing_ls",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "42ec319438d86549c774df4b5175aecdbf2bb8865095958940286f3efca3d4b4"
+    },
+    {
+      "task_path": "business_finance/ar_full_1500",
+      "docker_subset": false,
+      "vm": {
+        "machineType": "c4-highmem-4",
+        "snapshot": "cpu-free",
+        "timeout": 7200
+      },
+      "windows": true,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "f26f0bfe083b93f47ad929fb5347d0daf544aec602aed35383c7e2a571624353"
+    },
+    {
+      "task_path": "business_finance/ar_full_300",
+      "docker_subset": false,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free",
+        "timeout": 7200
+      },
+      "windows": true,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "b7604977818d8343ed0912992eca31a180b76ac5f181feec096f9bdb40d08748"
+    },
+    {
+      "task_path": "business_finance/basel_operational_risk_bia_cn",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "12fc06bae8b701cbf1c9985783e823f28f3df98e1d415605da246375f993870a"
+    },
+    {
+      "task_path": "business_finance/bpmn_category_governance_restructuring_l3",
+      "docker_subset": false,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "d28d7ce6c419127f627c85afc2c481b4f0896dff7f2460d79cae4af2d1ce9804"
+    },
+    {
+      "task_path": "business_finance/bpmn_supply_disruption_l3",
+      "docker_subset": false,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "0949a346de10a600e9a8a318fefcbe8104b7e6d1885cc20740ecd6f655c3a4fe"
+    },
+    {
+      "task_path": "business_finance/digital_marketing_ab_test_analysis_1",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "88a4108f5d592d97d90a2f907bc994671e53d07a6e52e44782348b1345b5f03c"
+    },
+    {
+      "task_path": "business_finance/digital_marketing_audience_segmentation_1",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "7b5b2d874a50cf2f018c0982e12f93113bee2b9799e86cc227d02fa9a35422c3"
+    },
+    {
+      "task_path": "business_finance/equity_research_summary",
+      "docker_subset": false,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free",
+        "timeout": 7200
+      },
+      "windows": true,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "ea42700cb7534475616d0f3ab9f6325b4b7cbb439f903e85ba31a6293d054a38"
+    },
+    {
+      "task_path": "business_finance/ff5_public_reconstruction",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "0566a1bb0848659c168a9bf2d89d0b78ff56978481d925719be7a4005f3e0617"
+    },
+    {
+      "task_path": "business_finance/financial_stmt_reconstruction_aapl_fy2024",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "e761effc79aef969284fd71e884388ec46f7906030e3073abf2c41d012b46e4f"
+    },
+    {
+      "task_path": "business_finance/internal_employee_agent_instance_1",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "2acb122dbb914ccbddf8b6b2fe98351e67710f78e97e8e25072526a99fd6f75f"
+    },
+    {
+      "task_path": "business_finance/legal_ma_consistency_audit_01",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "4f92942e9ba1bbc66cddabcf0ad57c8b7e3c1230826b589224f745b2b21e1e34"
+    },
+    {
+      "task_path": "business_finance/llm_ecosystem_privacy_audit_realdata_1",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "c915c9b7b1c5f4a476f0a348282f4d953d2680a135ad1d65102f068727a4b488"
+    },
+    {
+      "task_path": "business_finance/metabase_bi_dashboard_01",
+      "docker_subset": false,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free",
+        "timeout": 7200
+      },
+      "windows": true,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "7c95b5d676888c037bb2a01c14e52f0d118b74a5ee1be8994eff2b2418b034d8"
+    },
+    {
+      "task_path": "business_finance/odoo",
+      "docker_subset": false,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free",
+        "timeout": 7200
+      },
+      "windows": true,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "dea9769e5b4127c8b94e31bbc7d561dd2ca10dce487da4ccbcc253f42a622387"
+    },
+    {
+      "task_path": "business_finance/pe_screening_memo_1",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [
+        {
+          "path": "tasks/business_finance/pe_screening_memo_1/scripts/score_screening_memo.py",
+          "line": 8
+        },
+        {
+          "path": "tasks/business_finance/pe_screening_memo_1/scripts/score_screening_memo.py",
+          "line": 33
+        },
+        {
+          "path": "tasks/business_finance/pe_screening_memo_1/scripts/score_screening_memo.py",
+          "line": 226
+        },
+        {
+          "path": "tasks/business_finance/pe_screening_memo_1/scripts/score_screening_memo.py",
+          "line": 229
+        },
+        {
+          "path": "tasks/business_finance/pe_screening_memo_1/scripts/score_screening_memo.py",
+          "line": 231
+        }
+      ],
+      "card_sha256": "d8fc34dbe051a2922c47c84fc61f7f8ed69a08c809bc90ca362ca1a8d62d78bc"
+    },
+    {
+      "task_path": "business_finance/saas_onepager_brand_refresh_instance_1",
+      "docker_subset": false,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free",
+        "timeout": 7200
+      },
+      "windows": true,
+      "gpu": false,
+      "judge_source_evidence": [
+        {
+          "path": "tasks/business_finance/saas_onepager_brand_refresh_instance_1/main.py",
+          "line": 22
+        },
+        {
+          "path": "tasks/business_finance/saas_onepager_brand_refresh_instance_1/main.py",
+          "line": 314
+        },
+        {
+          "path": "tasks/business_finance/saas_onepager_brand_refresh_instance_1/scripts/score_onepager_v2.py",
+          "line": 206
+        },
+        {
+          "path": "tasks/business_finance/saas_onepager_brand_refresh_instance_1/scripts/score_onepager_v2.py",
+          "line": 615
+        }
+      ],
+      "card_sha256": "32bdc5240dc5792e6515628d83ee71dc0cc19009d1437ae0feff75c093781711"
+    },
+    {
+      "task_path": "business_finance/sec_10k_financial_parsing",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-highmem-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "ebaa26be4c1f29b9faba670714e5906bd60300ea10f24f6b74643feb57d294d2"
+    },
+    {
+      "task_path": "business_finance/sse_northbound_programmatic_trading_01",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "e87d6d1d9fa8e9d4b539a13d1453935edff2743ec43881ee2d021e40ada52420"
+    },
+    {
+      "task_path": "business_finance/taxform_4_1",
+      "docker_subset": false,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free",
+        "timeout": 7200
+      },
+      "windows": true,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "34a0a1ff9ccd841f1d9ba0123c7520164f3a4f817aa446a2f0be42bf8efa5102"
+    },
+    {
+      "task_path": "computing_math/branch_bound_atsp",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 14400
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "7f9c518c3441a8b98dc584d2beed999e82c50933f507ddf4a25b5cb05afa028e"
+    },
+    {
+      "task_path": "computing_math/cfr_game_theory_equilibrium",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "e3d569c36a09655846a0fa7ddd0b29bb0e4e5bbc023e8f933985eda92456e3d6"
+    },
+    {
+      "task_path": "computing_math/clustered_cyclic_code_circuit_level_simulation",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "8a6c11cd48de64020faa156471fb6405df3256c4ddc2cc076863049ded501a02"
+    },
+    {
+      "task_path": "computing_math/cost_optimization_1",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "50da0d005c88db9d9668ce098b7b2de967898ee7c699f2d40b32c69302f2df30"
+    },
+    {
+      "task_path": "computing_math/cp_test_gen_1",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "b8de69cf74713dceffdf69096277898431540937f110dad0c6e9d3ca61219647"
+    },
+    {
+      "task_path": "computing_math/data_pipeline_etl_instance_1",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "8235d03fa1316b4b8a5b1722926fc491422a6a85b3a7e7cb230e795ce2a037f6"
+    },
+    {
+      "task_path": "computing_math/dit_pipeline_cfg_alignment_fid_256_001",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "a7f27d7ca92db1a62081a676b80ac73f9ffe30dbf02023dbab30acfa35dd53d8"
+    },
+    {
+      "task_path": "computing_math/ghidra_malware_config_extraction_01",
+      "docker_subset": false,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free",
+        "timeout": 7200
+      },
+      "windows": true,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "91d524300c824dded5ec112d5f0dff43acd1ce91f93b90c5b2dc1ab9d579d1a9"
+    },
+    {
+      "task_path": "computing_math/go_game_reconstruction_1",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200,
+        "network": {
+          "mode": "off"
+        }
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "fad6612ea87c89ab2530af6477ef09348eb521ec281bafe24752fda804a09a61"
+    },
+    {
+      "task_path": "computing_math/ising_post_measurement_1",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "0a485844947001a224f74967c62e95cf977c9c2548e8acd89a84f0d58aaf8db9"
+    },
+    {
+      "task_path": "computing_math/k3_abelian_extensions",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "8c131954076556141b2ef5bc5c195fdec57183df4dec16cee345d2bf2f6b66cb"
+    },
+    {
+      "task_path": "computing_math/k8s_migration_1",
+      "docker_subset": false,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "2e188aeba761fac85ad72c9d24e2692b4d7d56a421bc14081489a53fdc4cc214"
+    },
+    {
+      "task_path": "computing_math/k8s_payment_api_root_cause_analysis",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "95d117507f2861d330bccdf6986810888602b5399af7ad987a993a002f18c9b3"
+    },
+    {
+      "task_path": "computing_math/mp_checkpoint_consolidation_v2",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "os": "linux",
+        "project": "sunblaze-4",
+        "zone": "us-west2-a",
+        "name": "agenthle-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "bc81285da06f63592c45a922d77259744d93276ca7b7ee665d0b8669062d17b2"
+    },
+    {
+      "task_path": "computing_math/newyear_keygen2",
+      "docker_subset": false,
+      "vm": {
+        "machineType": "c4-highmem-4",
+        "snapshot": "cpu-free",
+        "timeout": 7200
+      },
+      "windows": true,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "03e0046f3fdb8ebdb765a6952b92dcec9e8b1a85d8c475f5a4dcf555463e145c"
+    },
+    {
+      "task_path": "computing_math/os_log_permission_guard_v1",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "15937a50bc04240dfed8aa1be1791bed06d3b2bd2470a6d5dce0a8bf701820e0"
+    },
+    {
+      "task_path": "computing_math/paper_reproduction_instance_1",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "9bc4d1099dfc1a9647a2cc15611f5a9ad6070e08adc60a9457386bf0680af5c3"
+    },
+    {
+      "task_path": "computing_math/particle_filter_nonlinear_tracking",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "532ae1d98c3dac90dfaaa2fced9495cf41c7834326959cc3a77f19e7b81ac8f4"
+    },
+    {
+      "task_path": "computing_math/pcap_enterprise_triage_01",
+      "docker_subset": false,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free",
+        "timeout": 7200
+      },
+      "windows": true,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "f81d13a0161ca57690e8d811fe68f4c99f08d0e1a730efced2f6b32e78cb7d0d"
+    },
+    {
+      "task_path": "computing_math/ranking_node_feature_parity_recovery_instance_1",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "cf242ba1b004735da02ab81e5adad04b88dced981252262128e48a7b54be529b"
+    },
+    {
+      "task_path": "computing_math/recsys_cold_start_instance_1",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "d1a28ad328ad6c3ce1eae960968fb321b31c09f90bec152d9469c0e0b3c1f48d"
+    },
+    {
+      "task_path": "computing_math/synthetic_causal_structure_inference",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "0b3832a718118dfb1be26e3e34b5c006d43fba87d1a0f9b6e0626251e43940a9"
+    },
+    {
+      "task_path": "computing_math/tris_crackme",
+      "docker_subset": false,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free",
+        "timeout": 7200
+      },
+      "windows": true,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "3bba2279b94bdb102024446747dc2dd35fe9a50a7200f7cc5658d9b4153dd670"
+    },
+    {
+      "task_path": "demo/apply_patch_win",
+      "docker_subset": false,
+      "vm": {
+        "snapshot": "cpu-free",
+        "vcpus": 4,
+        "memory_gb": 16,
+        "disk_gb": 200,
+        "timeout_s": 1800
+      },
+      "windows": true,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "f4b75aaa0ae8c9a3fc70c8766b0f42a6656a2efcd680bfb23b73cae45da35858"
+    },
+    {
+      "task_path": "demo/hello",
+      "docker_subset": false,
+      "vm": {
+        "snapshot": "cpu-free-ubuntu",
+        "vcpus": 4,
+        "memory_gb": 16,
+        "disk_gb": 200,
+        "timeout_s": 1800
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "0ff63f8ff1be7047ad0eb2a1e0948f3269fb97980b18f367e91d7193c2692b1e"
+    },
+    {
+      "task_path": "demo/hello_win",
+      "docker_subset": false,
+      "vm": {
+        "snapshot": "cpu-free",
+        "vcpus": 4,
+        "memory_gb": 16,
+        "disk_gb": 200,
+        "timeout_s": 1800
+      },
+      "windows": true,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "698a55c3713b9ac693523f773e75b120e50ecd222d7750f2a5435ff8ff7e4feb"
+    },
+    {
+      "task_path": "demo/readfile_secret",
+      "docker_subset": false,
+      "vm": {
+        "snapshot": "cpu-free-ubuntu",
+        "vcpus": 4,
+        "memory_gb": 16,
+        "disk_gb": 200,
+        "timeout_s": 1800
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "ad4c17737e0592731963c3e8789db628e0bad80327b73727ae6ff4fcd6457ac4"
+    },
+    {
+      "task_path": "demo/seecheck",
+      "docker_subset": false,
+      "vm": {
+        "snapshot": "cpu-free-ubuntu",
+        "vcpus": 4,
+        "memory_gb": 16,
+        "disk_gb": 200,
+        "timeout_s": 600
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "5448f55ce9c455aedde2411cad8d3cc940c4ebb16a9578640ea2f22d24f1c0da"
+    },
+    {
+      "task_path": "demo/seecheck_win",
+      "docker_subset": false,
+      "vm": {
+        "snapshot": "cpu-free",
+        "vcpus": 4,
+        "memory_gb": 16,
+        "disk_gb": 200,
+        "timeout_s": 600
+      },
+      "windows": true,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "ab52bf232627b42d73c35bae566f8ac0d331f4dea5456d4bac920c93b8173ecd"
+    },
+    {
+      "task_path": "demo/tool_smoke",
+      "docker_subset": false,
+      "vm": {
+        "snapshot": "cpu-free-ubuntu",
+        "vcpus": 4,
+        "memory_gb": 16,
+        "disk_gb": 200,
+        "timeout_s": 1800
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "32279faed56a0ca07bf1a574d17abccbd8a982d4577d6962d3c881fefc1428d5"
+    },
+    {
+      "task_path": "demo/tool_smoke_win",
+      "docker_subset": false,
+      "vm": {
+        "snapshot": "cpu-free",
+        "vcpus": 4,
+        "memory_gb": 16,
+        "disk_gb": 200,
+        "timeout_s": 1800
+      },
+      "windows": true,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "3b2329dc056e81bab2eaa2d8abfc5b45c466f728b7e3e7b542a9fe9b6c999180"
+    },
+    {
+      "task_path": "education_info/homework_grading_numerical_pdes_instance_02",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "os": "linux",
+        "project": "sunblaze-4",
+        "zone": "us-west2-a",
+        "name": "agenthle-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "30fb4e1d9e496523de3d68b2d9c1c86ccee95df6cb93f3ab86da31cd2493e55c"
+    },
+    {
+      "task_path": "education_info/marc_remediation_folio_overlay",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "ca6485a4bfc3dc2a85277c7cb2b6552ce3af3520882cdccb13049a77b068e2a4"
+    },
+    {
+      "task_path": "education_info/moodle_gradebook_closeout_reconciliation",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "d11fd11c477749905f88c18fa974841628a48933912a6cbd3ac8f4bb990e1d08"
+    },
+    {
+      "task_path": "education_info/yi_manuscript_translation_1",
+      "docker_subset": false,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free",
+        "timeout": 7200
+      },
+      "windows": true,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "476bde109fb2f54dc128ff6232e3f7593a878acf7b643d5203b1b24580a9a158"
+    },
+    {
+      "task_path": "engineering/2d_drawings_to_3d_bridge_model",
+      "docker_subset": false,
+      "vm": {
+        "snapshot": "gpu-license",
+        "machineType": "g2-standard-16",
+        "project": "agenthle-488519",
+        "zone": "us-east1-c",
+        "name": "agenthle-dev-gpu-licensed",
+        "osType": "windows"
+      },
+      "windows": true,
+      "gpu": true,
+      "judge_source_evidence": [],
+      "card_sha256": "525375a0f5d5f41e5ef9763c65e723d7d528b9d17c487c2927879fe7e7a1c028"
+    },
+    {
+      "task_path": "engineering/2d_drawings_to_3d_building_model",
+      "docker_subset": false,
+      "vm": {
+        "snapshot": "gpu-license",
+        "machineType": "g2-standard-16",
+        "project": "agenthle-488519",
+        "zone": "us-east1-c",
+        "name": "agenthle-dev-gpu-licensed",
+        "osType": "windows"
+      },
+      "windows": true,
+      "gpu": true,
+      "judge_source_evidence": [],
+      "card_sha256": "eba4ac35eb76d456afa52070fce61a5ad1517036205804dc3f9e1e2e29524bb2"
+    },
+    {
+      "task_path": "engineering/Analog_Active",
+      "docker_subset": false,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free",
+        "timeout": 7200
+      },
+      "windows": true,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "c34e209ea2db96f86e29405cae6e65a7f47626cac0c7ade7a8031a982abe1b16"
+    },
+    {
+      "task_path": "engineering/abb_irb6700_asset_to_urdf_instance_1",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200,
+        "network": {
+          "mode": "off"
+        }
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "d575032663787532c82438737c35bb1742dcd6e0c501d05bdc4e1ee85e6598ef"
+    },
+    {
+      "task_path": "engineering/aerospace_low_thrust_trajectory",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 28800
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "00241ef16b842c95067d3125acd1bcf6b8873a85314795386b4bbb166a6a8917"
+    },
+    {
+      "task_path": "engineering/cailian_road_highway_alignment_2",
+      "docker_subset": false,
+      "vm": {
+        "machineType": "g2-standard-8",
+        "snapshot": "gpu-license",
+        "timeout": 7200
+      },
+      "windows": true,
+      "gpu": true,
+      "judge_source_evidence": [],
+      "card_sha256": "362662b24d0261e8f45dac6b3329741f696522e0e50cd988deaf29cd9d3de72b"
+    },
+    {
+      "task_path": "engineering/chisel_verilog_alignment_seq_1",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "df48c725cc7a73a06dbd11a0794596654cb365a141b6a1ff11cb4d3d9b1300c5"
+    },
+    {
+      "task_path": "engineering/gcode",
+      "docker_subset": false,
+      "vm": {
+        "machineType": "g2-standard-8",
+        "snapshot": "gpu-license",
+        "timeout": 7200
+      },
+      "windows": true,
+      "gpu": true,
+      "judge_source_evidence": [],
+      "card_sha256": "6167a3f20d41424aecc3eacf2834f3a07885a5d787cb32108c8fd47aee807cf8"
+    },
+    {
+      "task_path": "engineering/humanoid_velocity_tracking_policy",
+      "docker_subset": false,
+      "vm": {
+        "machineType": "g2-standard-16",
+        "snapshot": "gpu-free",
+        "timeout": 7200
+      },
+      "windows": true,
+      "gpu": true,
+      "judge_source_evidence": [],
+      "card_sha256": "8b6449ee9340d353f2c22dc1153c91d300a8ca2fc576966ac9d8366f17480b37"
+    },
+    {
+      "task_path": "engineering/humanoid_wbc_policy_evaluation",
+      "docker_subset": true,
+      "vm": {
+        "snapshot": "cpu-free-ubuntu",
+        "machineType": "c4-standard-4"
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "e5c679bde2c3d56651779000e5d216075dd4ece37ed0bd5a4b5888d95b5ce820"
+    },
+    {
+      "task_path": "engineering/inner_support_elevation_optimization",
+      "docker_subset": false,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-license",
+        "timeout": 7200
+      },
+      "windows": true,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "e3c54a34502c057449165fc3c206a7e9fcb99f5e7d1b8fdb0e37f7bde8bbe820"
+    },
+    {
+      "task_path": "engineering/kicad_navswitch_library_integration_release_002",
+      "docker_subset": false,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free",
+        "timeout": 7200
+      },
+      "windows": true,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "7d5652f68133e3718cc48b86c8da96e5868cdfaa42bc3030a4e8780dd85c1dc7"
+    },
+    {
+      "task_path": "engineering/mold-flow",
+      "docker_subset": false,
+      "vm": {
+        "machineType": "g2-standard-8",
+        "snapshot": "gpu-license",
+        "timeout": 7200
+      },
+      "windows": true,
+      "gpu": true,
+      "judge_source_evidence": [],
+      "card_sha256": "13e278e7a6bda1ba21e8349784af31e2730f43755bca39b733cc25f336cdea08"
+    },
+    {
+      "task_path": "engineering/mpc_control_building_v1",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "fa361a9b33e0baba7bba8d2b84e57e98c6ae0c32feedb07fd980239fa7c3fdee"
+    },
+    {
+      "task_path": "engineering/openroad_sky130_ibex_pnr_signoff",
+      "docker_subset": false,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "os": "linux",
+        "project": "sunblaze-4",
+        "zone": "us-west2-a",
+        "name": "agenthle-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "0fd00979a43535c8c658edb49d0b7d1cb95f65271c4c3ba2a358c60930540d21"
+    },
+    {
+      "task_path": "engineering/pcb_layout_kicad_1",
+      "docker_subset": false,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free",
+        "timeout": 7200
+      },
+      "windows": true,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "a257a2cc1daba7fd756c2f867f75f8647dae2bf27ff97e5952b9eb3ea2333228"
+    },
+    {
+      "task_path": "engineering/power_10kv_feeder_reliability_001",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "6280ab945ee723432abbe1dab242829113fae5d3825fe6777b136e0faba7f760"
+    },
+    {
+      "task_path": "engineering/robotics_blender_tabletop_reconstruction",
+      "docker_subset": false,
+      "vm": {
+        "machineType": "c4-standard-8",
+        "snapshot": "cpu-free",
+        "timeout": 7200
+      },
+      "windows": true,
+      "gpu": false,
+      "judge_source_evidence": [
+        {
+          "path": "tasks/engineering/robotics_blender_tabletop_reconstruction/main.py",
+          "line": 13
+        },
+        {
+          "path": "tasks/engineering/robotics_blender_tabletop_reconstruction/main.py",
+          "line": 213
+        },
+        {
+          "path": "tasks/engineering/robotics_blender_tabletop_reconstruction/main.py",
+          "line": 219
+        },
+        {
+          "path": "tasks/engineering/robotics_blender_tabletop_reconstruction/main.py",
+          "line": 221
+        },
+        {
+          "path": "tasks/engineering/robotics_blender_tabletop_reconstruction/main.py",
+          "line": 225
+        }
+      ],
+      "card_sha256": "88d4f09aa12bc5e709b09eb823b67bc11b020e498dc5177d2f4465fbe8874d2f"
+    },
+    {
+      "task_path": "engineering/sanding_performance_scoring_instance_1",
+      "docker_subset": false,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free",
+        "timeout": 7200
+      },
+      "windows": true,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "e89888c80ae7291f8288395f3ba3a15d3c922189f7eb7fd553a0f147c510bee0"
+    },
+    {
+      "task_path": "engineering/sumo_urban_am_peak_calibration",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "30a7c03e0310d8d273c654f8ec09ad9f35ab51303a8d8468dcff13f1b45806b9"
+    },
+    {
+      "task_path": "health_medicine/Clinical_Variant_Annotation",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "74f3979cb9daf96cdc53c18c8860c3ea0159ae97367ea4636a66b386a70ce17b"
+    },
+    {
+      "task_path": "health_medicine/causal_ihdp_ite_estimation_6a_v1",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "ff33593502c33c0f38c7a2045383f1d04025ed752f744a9aa7b2ef37c9e5f498"
+    },
+    {
+      "task_path": "health_medicine/crf_sdtm_mapping_1",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "d65d4e320f8d6b17bc1ed8e179105bf22c32183f1e080bad577567f056456566"
+    },
+    {
+      "task_path": "health_medicine/crf_sdtm_mapping_4",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "eccf87504b343f05ee0f02e3132fd288f74fc5a0713274f341e3be42c36ad0be"
+    },
+    {
+      "task_path": "health_medicine/ct_geometry_calibration_catphan",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "635df80eeaf0d8cd3bb42d4f357c7592148247ce41b81328c23bc0a31ceae678"
+    },
+    {
+      "task_path": "health_medicine/ecg_rhythm_conduction_ptbxl",
+      "docker_subset": false,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free",
+        "timeout": 7200
+      },
+      "windows": true,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "679fa5a35c49bf6faee9b748c1be4d6891bd4a4581103cb7505202a6d47a15c2"
+    },
+    {
+      "task_path": "health_medicine/ecg_superclass_ptbxl",
+      "docker_subset": false,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free",
+        "timeout": 7200
+      },
+      "windows": true,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "2871443684199afb59c8493507d2e96a860ba6058b5ba4f16c0f2aacf3d17e4a"
+    },
+    {
+      "task_path": "health_medicine/epidemiology_forecast",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "e2495e51091491a01f89c8bd54024b35d23e8c66eec5e0f9c88467e8259cd4ef"
+    },
+    {
+      "task_path": "health_medicine/flusight_offline_hosp_forecast_2024_12_14",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "e82fc33f4b0d3b3e9fa26238e0b5d31325fb00789a8aef8b0a1a531a9db6b6dc"
+    },
+    {
+      "task_path": "health_medicine/healthcare_bias_audit_27a_public_replication_v1",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "fd7a78733bd88563b0612f60b93dd39be4ed764c033c046f51c11c2831862d31"
+    },
+    {
+      "task_path": "health_medicine/healthcare_sap_group_sequential_nsclc",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "ae8faeedb4ea5473ae68e1a02b4ed74369cdf6f88431be291fe8a25292776e95"
+    },
+    {
+      "task_path": "health_medicine/healthcare_tcga_luad_survival_kras",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "c845a33efbf483fb2cf02f700b199cb17ac60b1308cd9180490a9421618b4b72"
+    },
+    {
+      "task_path": "health_medicine/healthcare_variant_annotation_pipeline",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "aba460ba41a0fbd09fa7222e5ead2f79797f0ec6315a5dc8e5ce8c66eb30e886"
+    },
+    {
+      "task_path": "health_medicine/limited_angle_ct_dps_reconstruction",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-16",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "447b1a106c5d20b79657d5582af1a56cc35f1987ed1a2800e437178cbcf1eec7"
+    },
+    {
+      "task_path": "health_medicine/ltmle_targeted_bootstrap_simulation_study",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "7df296e4881da66fc219bde394f18182d9102c341655594e4ebf17365f7affb7"
+    },
+    {
+      "task_path": "health_medicine/microdicom_nih_cxr_reader_adjudication",
+      "docker_subset": false,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free",
+        "timeout": 7200
+      },
+      "windows": true,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "a77fa8f55c70defdf33bc84e9e28a248752e0cea2f6c152307dd0b7ab4d4af9a"
+    },
+    {
+      "task_path": "health_medicine/nhanes_confounder_sensitivity_analysis",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "f9bd30cd728c8f4624546cbdefcc1386ee53dc60cb6d0232f3717694c1b0ef64"
+    },
+    {
+      "task_path": "health_medicine/nsclc_radiomics_cox_signature_v1",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "84c67845b202d0ce5f8bb81e3ac97da27392fe3f000493cdebdacfe1b7085867"
+    },
+    {
+      "task_path": "health_medicine/obermeyer_bias_reproduction",
+      "docker_subset": true,
+      "vm": {
+        "snapshot": "cpu-free-ubuntu",
+        "os": "linux",
+        "project": "sunblaze-4",
+        "zone": "us-west2-a",
+        "name": "agenthle-ubuntu",
+        "machineType": "c4-standard-4",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "87002a1df48da49a88a5402e34d09e1f313cdd88f59e43a7e7d7445f237c0165"
+    },
+    {
+      "task_path": "health_medicine/prostate_imrt_matrad_reproduction",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "os": "linux",
+        "project": "sunblaze-4",
+        "zone": "us-west2-a",
+        "name": "agenthle-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "c1ddb11b028744a32629bbfe5a4acf8fa31cf77d9afcfb51273b95b838900b68"
+    },
+    {
+      "task_path": "health_medicine/public_health_mask_mandate_ratio",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "c301f7707d9dd66c6f7ed8bb0a015dbd03b719838633a4e2dc0b9abf6973df96"
+    },
+    {
+      "task_path": "health_medicine/replicate_paper_1",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "b3036bcf6415b33aa307dfe18a644b00f434983eee2197f276f966381a4ae7ff"
+    },
+    {
+      "task_path": "health_medicine/sa_aki_phenotyping",
+      "docker_subset": false,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free",
+        "timeout": 7200
+      },
+      "windows": true,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "c8fcc8de636c4d21798af4aecb9ea41e8d3728630525359eeba7d5a1ab90abd7"
+    },
+    {
+      "task_path": "health_medicine/scene3_skullstrip_qc",
+      "docker_subset": false,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "83f93359f7e844f9de6bd45bff72440f7b09e4b8cf67e21276dd154d836d74a4"
+    },
+    {
+      "task_path": "health_medicine/simglucose_safe_basal_control_instance_1",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "5c6a8fddf4179fe72f4227dc6c12aabfd8a54b6b2d74f9029f83ed28772f7fa8"
+    },
+    {
+      "task_path": "health_medicine/wsi_tumor_localization_1",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200,
+        "network": {
+          "mode": "off"
+        }
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "a9895aa958fb0d38373fe6dec3205bbdbd2f152bdba2d3fdb28b4d7a223a28f3"
+    },
+    {
+      "task_path": "legal/agora_governance_classify_instance_1",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "97a104377347faeafe7fdfdff96ca2cc06ff6565a69074a9bc28fe00f7a294a1"
+    },
+    {
+      "task_path": "legal/legal_dr_fees_01",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "865a42c0f251823ba3ef7ad0c38eeadde9ea1f8efe70d4f19a1a409d66ff7a39"
+    },
+    {
+      "task_path": "life_sciences/WGS_Variant_Calling",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "ce209c22d10d5bca9c07a2d7cf31607b45866f0a48e787c00b9193d945c89653"
+    },
+    {
+      "task_path": "life_sciences/amber_minimization_script_prep_instance_1",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "a34af1887437fd41bdf08f42d90c37d6a2985b944b1f24293f2179946a719cb8"
+    },
+    {
+      "task_path": "life_sciences/amber_three_stage_mmgbsa_workflow_instance_1",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "66b125c3983eba9c1cc70edfad4f6fc048a4fcc70da6adf85c82c52b76cf7451"
+    },
+    {
+      "task_path": "life_sciences/cell_tracking_instance_1",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "fbf3ed1370da80ddd46e5b3241949592d42cff4b78a386a0de4f53d9920a4e98"
+    },
+    {
+      "task_path": "life_sciences/cell_translocation_analysis",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "os": "linux",
+        "project": "sunblaze-4",
+        "zone": "us-west2-a",
+        "name": "agenthle-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "6cf979f132ce335a7cc5c73376271fef29a2233548b0f5bd89cd39eb9deaf57e"
+    },
+    {
+      "task_path": "life_sciences/gene_expression_differential_analysis_functional_enrichment_analysis_1",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "30343199b887ca7a6534991fa901d0151170cec223de1c33e84d24b123cc9445"
+    },
+    {
+      "task_path": "life_sciences/genomic_interval_processing_1",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "a90bac254fe1902cb6a379480edfed372278bf5d4957cf5c2b1d64d70923e74d"
+    },
+    {
+      "task_path": "life_sciences/hg002_chr22_germline_variant_pipeline",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "9712dd113ca5ca81d847d2f6d33d40862708017d967b3d96d26518107702884c"
+    },
+    {
+      "task_path": "life_sciences/idp_ensemble_scoring",
+      "docker_subset": true,
+      "vm": {
+        "snapshot": "cpu-free-ubuntu",
+        "machineType": "c4-standard-16",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "cdb10c1ed7bf9ca48555b2ca289d3363999ccc1416f52519f7f7e5a22ffa0a85"
+    },
+    {
+      "task_path": "life_sciences/merfish_image_decoding_segmentation_1",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "03deadbb2b2bdf8c019c8ca909b29e12d810b0b7bd5710d6ede75b0a3d0137b1"
+    },
+    {
+      "task_path": "life_sciences/protein_function_annotation_instance_1",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "800d562c26de0529d413f51e685ae757543b3153e3b11507cc58b9d7a67fe7b2"
+    },
+    {
+      "task_path": "life_sciences/pseudotime_de",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "d72387bed7580476844b5046c99c5910944dcccae34a23a1315133cbe9f96d6c"
+    },
+    {
+      "task_path": "life_sciences/rgi_mcr1_colistin_v2",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "0fed89dfa60ce25373a237feb27851bd1cad2ba0c0e02c38e0dfa0bea2eb60dc"
+    },
+    {
+      "task_path": "life_sciences/spatial_transcriptomics_spatial_domain_identification",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "os": "linux",
+        "project": "sunblaze-4",
+        "zone": "us-west2-a",
+        "name": "agenthle-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "c0eaa89fbe957c3ae51404cee0373c95352de04b394d4023a74fe4f89667a94c"
+    },
+    {
+      "task_path": "life_sciences/tcga_brca_deg_analysis",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "c45b602c6fe91485796437acfd368445c5ad4f7d0d657d3ed27b957c9f57f9d7"
+    },
+    {
+      "task_path": "life_sciences/tms_marrow_cell_type_annotation_instance_1",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200,
+        "network": {
+          "mode": "off"
+        }
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "fbc461bf9146dde49fdf383fc4a78e821930ff2c408e9f62e513b8f9c188af38"
+    },
+    {
+      "task_path": "life_sciences/tp53_locus_variant_histone_browser_svg",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "b370e458c58bd8e0e381f4389f13583211eb01afd926da11623efa41971ef5ad"
+    },
+    {
+      "task_path": "life_sciences/yeast_colony_detection",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "7dd7d282c8fa7239a422cddf926c16d7c4da4f6d532b48621943b7b7a648c945"
+    },
+    {
+      "task_path": "life_sciences/zdock_hiv_dimer_interface_scoring_v1",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "320c86acc1dd416463f1a7bebd612253a867473b22496a98e478461321b8f18d"
+    },
+    {
+      "task_path": "other/aerobics_wc2026_portugal_trio_difficulty_scoring",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "6310492ee6d3798f03aa3019178d1ae832836cac162d50b393557c957b5a647f"
+    },
+    {
+      "task_path": "other/mota_exploration",
+      "docker_subset": false,
+      "vm": {
+        "machineType": "g2-standard-8",
+        "snapshot": "cpu-free",
+        "timeout": 7200
+      },
+      "windows": true,
+      "gpu": true,
+      "judge_source_evidence": [],
+      "card_sha256": "f3f7c984319e92a23622213eee78ee0d2f0c0d8de32a4329e461d8175f47c8f4"
+    },
+    {
+      "task_path": "physical_sciences/adapt_vqe_molecular_energy",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "64b096a7405e3b2c7076bbc1b106cba17fe8f6f9b1fdace4887da5694f62198c"
+    },
+    {
+      "task_path": "physical_sciences/climate_prediction",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "1d0b2d87e6c69372440cb3c27841a2acd62b8520a71b98ff02885e8a04242d51"
+    },
+    {
+      "task_path": "physical_sciences/computational_materials_science",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-8",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 14400
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "eb64b3df8d6041c3283710accbc509c4738291e50474f8f79af585a6f5a3ad1b"
+    },
+    {
+      "task_path": "physical_sciences/egt710_table1_smiles_extraction",
+      "docker_subset": false,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free",
+        "timeout": 7200
+      },
+      "windows": true,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "cb8b08a1a0476952f1d9fdc021759cba3325ac612026145bf02f3a82d28fdbc3"
+    },
+    {
+      "task_path": "physical_sciences/exact_diag_heisenberg_j1j2",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "29c7894cb1f85f2783a3a6c3d3653ca8e627e88614ad23707f869d6be8affa27"
+    },
+    {
+      "task_path": "physical_sciences/gillespie_gene_regulatory_network",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 28800
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "12577bef87708b5840928b91b6cd77072ed9a1ce42dac58e07c22830d86b519c"
+    },
+    {
+      "task_path": "physical_sciences/glm_lake_calibration",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "722ab60b98d13b105c845871abc9070e17a03d3d28cec11b94dca05d50276c4d"
+    },
+    {
+      "task_path": "physical_sciences/hst_acs_wfc_visit_reduction",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "5f53762ce09c96d93afc39aba61a217318c41d6727b42a3634a6d5748f7f4314"
+    },
+    {
+      "task_path": "physical_sciences/ketcher_smiles_reproduction",
+      "docker_subset": false,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free",
+        "timeout": 7200,
+        "network": {
+          "mode": "off"
+        }
+      },
+      "windows": true,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "f3960af1fa12fd1946e695aba128838ba8e1cfa07701d8bc735802b2af33495c"
+    },
+    {
+      "task_path": "physical_sciences/lenacapavir_sar_table2_extraction",
+      "docker_subset": false,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free",
+        "timeout": 7200
+      },
+      "windows": true,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "5ced2c4317c0734f67404390d3a994bd7a48ea7365ed0464948e58f9f87e5208"
+    },
+    {
+      "task_path": "physical_sciences/molecular_structure_plausibility",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "b6008821df35375abef8926052c5cdc3eecfce5dcecf08034e7c1125cce74d25"
+    },
+    {
+      "task_path": "physical_sciences/mose2_bse_absorption_soc",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-16",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 14400
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "65ca9c2ac1bbf2205ce1395d25aab0f53f2d31e4bf89c08fe5580c01c0335274"
+    },
+    {
+      "task_path": "physical_sciences/phonon_dispersion_thermodynamics",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "50eb1257341ed713bc2fa8c24c2888f7912d62ea92402104f76ee899f6d0cfc2"
+    },
+    {
+      "task_path": "physical_sciences/qm9_mmff94_forcefield_survey_1",
+      "docker_subset": false,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free",
+        "timeout": 7200
+      },
+      "windows": true,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "288253bcddd816196d8f13b7ecd264230df4ac859554e01e59f9c6b9eb4d6bfd"
+    },
+    {
+      "task_path": "physical_sciences/silicon_bse_absorption",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "c04c2c6c5157c59e4534a83a1e8566418d87ddd71000dd5baac92382a8418c2c"
+    },
+    {
+      "task_path": "psychology_neuro/celegans_neuron_tracking",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "816d73666d7ee59f55abb504b850225fb05916c3f73dd57a03a70f611803b2bd"
+    },
+    {
+      "task_path": "psychology_neuro/reddit_ai_post_codebook_boolean_coding",
+      "docker_subset": false,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free",
+        "timeout": 7200
+      },
+      "windows": true,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "67fe4ff2f23e1a4eaaa6feaa7e5879d3c1502e68da3f663d6751ae3b2067422f"
+    },
+    {
+      "task_path": "psychology_neuro/scene2_resample",
+      "docker_subset": false,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "27f91d86210a60b698d5e0205a484daa34fb0a87c14631e8ff724c9b4e5647eb"
+    },
+    {
+      "task_path": "social_sciences/atwood_2022_measles_vaccine_reproduction",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "63da881d1cda435cdff87d28dab482d0b912a25ef7b3164df83a8ae7e03b0129"
+    },
+    {
+      "task_path": "transport_safety/abm_hangzhou_metro",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "4e92a62dc29b847c7106389d569f3e8f48ea003313e6268f98149675599798db"
+    },
+    {
+      "task_path": "transport_safety/capacitated_vehicle_routing_problems",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "0811ce31c0069a29f8d72f52a2163580042f31473431b41807d6b761ff6fc761"
+    },
+    {
+      "task_path": "transport_safety/fds_single_compartment_detector_reconstruction",
+      "docker_subset": true,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free-ubuntu",
+        "timeout": 7200
+      },
+      "windows": false,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "3b1486cf7157d063af7c29b1aae3e3db9cc12a645d261eb2f61dc3bdf23781b7"
+    },
+    {
+      "task_path": "visual_media/atlas_outpost_graybox_navigation",
+      "docker_subset": false,
+      "vm": {
+        "machineType": "c4-standard-8",
+        "snapshot": "cpu-free",
+        "os": "windows",
+        "timeout": 7200
+      },
+      "windows": true,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "4b4027f8125256990998b0ffba4665b5486cf49fa7f7984e9a3037ec0ed1ae5e"
+    },
+    {
+      "task_path": "visual_media/blender_character_reconstruction_from_multiview_01",
+      "docker_subset": false,
+      "vm": {
+        "machineType": "c4-standard-8",
+        "snapshot": "cpu-free",
+        "timeout": 7200
+      },
+      "windows": true,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "a52c4effff45b8273dffc654021ee8c3e8912399e90e110da063809cf0045214"
+    },
+    {
+      "task_path": "visual_media/butterfly_flap_animation",
+      "docker_subset": false,
+      "vm": {
+        "machineType": "g2-standard-8",
+        "snapshot": "gpu-free",
+        "timeout": 7200
+      },
+      "windows": true,
+      "gpu": true,
+      "judge_source_evidence": [],
+      "card_sha256": "7476f05b54f904ef17b53c71ade51c844196808f58d14b6f94a50b1f3d2de7ef"
+    },
+    {
+      "task_path": "visual_media/chroma_key_from_reference",
+      "docker_subset": false,
+      "vm": {
+        "machineType": "g2-standard-8",
+        "snapshot": "gpu-free",
+        "timeout": 7200
+      },
+      "windows": true,
+      "gpu": true,
+      "judge_source_evidence": [],
+      "card_sha256": "40732dc2900f84d5f7974aa8ef225c29d01be6261945f1dcb77276ed11627aff"
+    },
+    {
+      "task_path": "visual_media/compress_3dgs_scene_ply",
+      "docker_subset": false,
+      "vm": {
+        "machineType": "g2-standard-8",
+        "snapshot": "gpu-free",
+        "timeout": 7200
+      },
+      "windows": true,
+      "gpu": true,
+      "judge_source_evidence": [],
+      "card_sha256": "0fefb1d399ebd3846704781fd4f8798370974217ca0c8d347fc39965d07396a9"
+    },
+    {
+      "task_path": "visual_media/high_to_low_modeling",
+      "docker_subset": false,
+      "vm": {
+        "machineType": "g2-standard-8",
+        "snapshot": "gpu-license",
+        "timeout": 7200
+      },
+      "windows": true,
+      "gpu": true,
+      "judge_source_evidence": [
+        {
+          "path": "tasks/visual_media/high_to_low_modeling/main.py",
+          "line": 252
+        }
+      ],
+      "card_sha256": "358bf2a5c4aa7ad1f9fed57db58f0e2fb7a4c96192d9435cb6825a21202a1756"
+    },
+    {
+      "task_path": "visual_media/human_mesh_animation_reproduction",
+      "docker_subset": false,
+      "vm": {
+        "machineType": "c4-standard-8",
+        "snapshot": "cpu-free",
+        "timeout": 7200
+      },
+      "windows": true,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "4183b60d6533ba2e56b8dc406f2d5f93c50b2e204ef50fc09e0a94b25bf31593"
+    },
+    {
+      "task_path": "visual_media/inkscape_cultural_poster_design",
+      "docker_subset": false,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free",
+        "timeout": 7200
+      },
+      "windows": true,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "d7a1ffb94b8480c0f9781bcc5790d947896fdb834cc07a9deecff5e2e1e52755"
+    },
+    {
+      "task_path": "visual_media/mota_reproduction",
+      "docker_subset": false,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "gpu-license",
+        "timeout": 7200,
+        "project": "sunblaze-4",
+        "zone": "us-east1-c",
+        "name": "agenthle-dev-gpu-licensed",
+        "osType": "windows"
+      },
+      "windows": true,
+      "gpu": true,
+      "judge_source_evidence": [],
+      "card_sha256": "91a608340c19068e4d4d17b6b982cac5c462abc37ed1b5f95e2cff0798415888"
+    },
+    {
+      "task_path": "visual_media/music_transcription",
+      "docker_subset": false,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-license",
+        "timeout": 7200
+      },
+      "windows": true,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "49be941e148931738ad02228eb6c33c000ef28cc677d3aa9f006ad9e3f9850ed"
+    },
+    {
+      "task_path": "visual_media/object_generation",
+      "docker_subset": false,
+      "vm": {
+        "machineType": "g2-standard-8",
+        "snapshot": "gpu-license",
+        "timeout": 7200
+      },
+      "windows": true,
+      "gpu": true,
+      "judge_source_evidence": [
+        {
+          "path": "tasks/visual_media/object_generation/scripts/local_soft_eval.py",
+          "line": 17
+        },
+        {
+          "path": "tasks/visual_media/object_generation/scripts/local_soft_eval.py",
+          "line": 25
+        }
+      ],
+      "card_sha256": "eb16e9d070d2b86e4ab19306986166954ff541cac11a9b345acb04b6404618df"
+    },
+    {
+      "task_path": "visual_media/project_migration",
+      "docker_subset": false,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-license",
+        "timeout": 7200
+      },
+      "windows": true,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "a37c995cb4dea01807cba6203d137d947f9d28664c3aacbb54f17eb9b065f939"
+    },
+    {
+      "task_path": "visual_media/scene_restoration",
+      "docker_subset": false,
+      "vm": {
+        "machineType": "g2-standard-8",
+        "snapshot": "gpu-license",
+        "os": "windows",
+        "timeout": 10800
+      },
+      "windows": true,
+      "gpu": true,
+      "judge_source_evidence": [
+        {
+          "path": "tasks/visual_media/scene_restoration/scripts/local_render_eval.py",
+          "line": 21
+        },
+        {
+          "path": "tasks/visual_media/scene_restoration/scripts/local_render_eval.py",
+          "line": 30
+        }
+      ],
+      "card_sha256": "442fdc47d539d3e19ff36b1ead3c9026da961fbc42e5f9d6a826e60d3de81542"
+    },
+    {
+      "task_path": "visual_media/skeletal_animation_reproduction",
+      "docker_subset": false,
+      "vm": {
+        "machineType": "g2-standard-8",
+        "snapshot": "gpu-free",
+        "timeout": 7200
+      },
+      "windows": true,
+      "gpu": true,
+      "judge_source_evidence": [
+        {
+          "path": "tasks/visual_media/skeletal_animation_reproduction/main.py",
+          "line": 637
+        },
+        {
+          "path": "tasks/visual_media/skeletal_animation_reproduction/scripts/local_soft_eval.py",
+          "line": 22
+        }
+      ],
+      "card_sha256": "4ad0e499c84cb1d20f11fea5fd03979d35662a18d1f80aa9faf50d625f96e0fc"
+    },
+    {
+      "task_path": "visual_media/uv_reproduction",
+      "docker_subset": false,
+      "vm": {
+        "machineType": "c4-standard-8",
+        "snapshot": "cpu-free",
+        "timeout": 7200
+      },
+      "windows": true,
+      "gpu": false,
+      "judge_source_evidence": [
+        {
+          "path": "tasks/visual_media/uv_reproduction/scripts/local_soft_eval.py",
+          "line": 17
+        },
+        {
+          "path": "tasks/visual_media/uv_reproduction/scripts/local_soft_eval.py",
+          "line": 25
+        },
+        {
+          "path": "tasks/visual_media/uv_reproduction/scripts/local_soft_eval.py",
+          "line": 69
+        }
+      ],
+      "card_sha256": "d2b8296eed6c22543b1d72bbbc13753c05376d019cb8e2ef9ff5d93426c1e163"
+    },
+    {
+      "task_path": "visual_media/video_storyboard_001",
+      "docker_subset": false,
+      "vm": {
+        "machineType": "c4-standard-4",
+        "snapshot": "cpu-free",
+        "timeout": 7200
+      },
+      "windows": true,
+      "gpu": false,
+      "judge_source_evidence": [],
+      "card_sha256": "138850904ca7e97a8ea156ccbd58a0a9c93a728f2d29466be6462ced014daf5c"
+    }
+  ]
+}

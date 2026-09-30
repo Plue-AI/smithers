@@ -1,0 +1,9 @@
+# Load with Smithers on PYTHONPATH, alongside the pinned ALE checkout.
+class: evals.ale.deployer.SmithersDeployer
+id: smithers
+executor: local
+model: openai/gpt-6-sol
+config:
+  root: ${env:SMITHERS_ROOT}
+  account_pool_url: ${env:SMITHERS_ACCOUNT_POOL_URL}
+  reasoning_effort: max

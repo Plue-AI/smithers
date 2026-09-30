@@ -25731,6 +25731,37 @@
     }
   },
   {
+    "label": "//evals/ale:offline",
+    "package": "evals/ale",
+    "name": "offline",
+    "rule": "Shell.Test",
+    "kinds": [
+      "test"
+    ],
+    "summary": "Reject incomplete ALE oracle and paired evidence; check adapter syntax without a model or task data.",
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "evals/ale/verify.sh"
+      },
+      {
+        "kind": "glob",
+        "pattern": "evals/ale/**",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/src/internal/NativeEquipment.ts"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "evals/ale/PACKAGE.ts"
+    }
+  },
+  {
     "label": "//evals/authoring:check",
     "package": "evals/authoring",
     "name": "check",

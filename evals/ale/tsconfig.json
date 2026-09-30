@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "allowJs": true,
+    "checkJs": true,
+    "paths": { "@smthrs/agent/*": ["../../packages/smithers/agent/src/*.ts"] },
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "inlineSources": false,
+    "sourceMap": false
+  },
+  "include": ["runtime.mjs", "fixtures/cli_trace.ts"],
+  "exclude": ["PACKAGE.ts"]
+}
