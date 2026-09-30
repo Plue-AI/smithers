@@ -277,6 +277,21 @@ describe("TrustedReview Git boundary", () => {
     expect(limited.snapshot.map(({ path }) => path)).not.toContain("private/notes.md")
   })
 
+  it("masks credential-bearing paths in the receipt", async () => {
+    const { root } = await fixture()
+    const token = `ghp_${"P".repeat(36)}`
+    await write(root, `src/${token}.ts`, "export const leaked = 1\n")
+    git(root, "add", ".")
+    git(root, "commit", "-qm", "credential file name")
+    const trusted = git(root, "rev-parse", "HEAD")
+    git(root, "rm", "-q", `src/${token}.ts`)
+    git(root, "commit", "-qm", "remove it")
+    const plan = await run(options(root, trusted, git(root, "rev-parse", "HEAD")))
+    if (!plan.planned) throw new Error("expected a planned review")
+    expect(plan.deletedFiles).toEqual(["src/<credential:github-token:1>.ts"])
+    expect(JSON.stringify(plan)).not.toContain(token)
+  })
+
   it("fails closed when the trusted index omits review policy data", async () => {
     const { root, trusted } = await fixture(null)
     await expect(prepare(options(root, trusted))).rejects.toThrow("Trusted revision has no review policy")

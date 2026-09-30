@@ -69,8 +69,12 @@ export const read = (directory: string, name: string): unknown => {
   if (collection(directory, NodePath.dirname(name)) === undefined) return undefined
   let descriptor: number
   try {
-    // O_NOFOLLOW refuses a final-component link at open time, so a swap after a check cannot redirect the read.
-    descriptor = NodeFs.openSync(path, NodeFs.constants.O_RDONLY | NodeFs.constants.O_NOFOLLOW)
+    // O_NOFOLLOW refuses a final-component link at open time and O_NONBLOCK never waits on a FIFO;
+    // fstat then refuses anything but a regular file.
+    descriptor = NodeFs.openSync(
+      path,
+      NodeFs.constants.O_RDONLY | NodeFs.constants.O_NOFOLLOW | NodeFs.constants.O_NONBLOCK
+    )
   } catch (cause) {
     if ((cause as NodeJS.ErrnoException).code === "ENOENT") return undefined
     throw new Error(`Review finding store record is not a regular file: ${name}`, { cause })

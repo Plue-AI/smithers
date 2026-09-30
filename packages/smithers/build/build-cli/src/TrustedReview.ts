@@ -420,7 +420,7 @@ export const restrictError = (error: LlmLint.LlmReviewError | LlmLint.ModelCliMi
     phase: error.phase,
     message: error.phase === "parse"
       ? "The review response could not be used; see the private run record"
-      : error.message,
+      : LlmLint.redactCredentials(error.message),
     ...(error.attempts === undefined ? {} : { attempts: restrictAttempts(error.attempts) })
   }
 
@@ -443,9 +443,10 @@ export const run = async (options: Options) => {
   const receipt = {
     policyRevision: prepared.policyRevision,
     revision: prepared.revision,
-    policyChanges: prepared.policyChanges,
+    // Paths can name credentials; the receipt carries them masked.
+    policyChanges: prepared.policyChanges.map(LlmLint.redactCredentials),
     required: options.required === true,
-    deletedFiles: prepared.snapshot.filter((file) => file.deleted).map((file) => file.path),
+    deletedFiles: prepared.snapshot.filter((file) => file.deleted).map((file) => LlmLint.redactCredentials(file.path)),
     labels: prepared.policies.map(({ label }) => label)
   }
   if (options.plan) {
@@ -453,7 +454,7 @@ export const run = async (options: Options) => {
       ...receipt,
       ok: true,
       planned: true as const,
-      files: prepared.snapshot.map(({ path }) => path)
+      files: prepared.snapshot.map(({ path }) => LlmLint.redactCredentials(path))
     }
   }
   const restricted = <A extends Restrictable>(value: A) => restrictFindings(findingsStore, value)

@@ -134,6 +134,11 @@ describe("review finding output", () => {
       phase: "review",
       message: "Review requires ANTHROPIC_API_KEY"
     })
+    const token = `ghp_${"S".repeat(36)}`
+    const read = restrictError(
+      new LlmLint.LlmReviewError({ phase: "read", message: `unusable path "src/${token}\\n.ts"` })
+    )
+    expect(JSON.stringify(read)).not.toContain(token)
     const missing = new LlmLint.ModelCliMissing({ engine: "claude", executable: "claude", message: "missing" })
     expect(restrictError(missing)).toBe(missing)
   })

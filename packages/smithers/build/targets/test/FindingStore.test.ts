@@ -418,3 +418,53 @@ describe("LlmLint.review review hardening", () => {
     )
   })
 })
+
+describe("LlmLint.review containment follow-up", () => {
+  it("scans paths as text, never as source expressions", async () => {
+    const executable = Path.join(root, "paths.mjs")
+    const prompts = Path.join(root, "paths.log")
+    await Fs.writeFile(
+      executable,
+      "#!/usr/bin/env node\nimport { appendFileSync } from \"node:fs\"\nlet prompt = \"\"\n" +
+        "for await (const chunk of process.stdin) prompt += chunk\n" +
+        `appendFileSync(${JSON.stringify(prompts)}, prompt)\n` +
+        "process.stdout.write(JSON.stringify({ result: \"[]\" }))\n",
+      { mode: 0o755 }
+    )
+    const failure = await Effect.runPromise(Effect.flip(LlmLint.review({
+      workspaceRoot: root,
+      executable,
+      snapshot: [{ path: "src/password=MiXeD42.ts", contents: "export const harmless = 1\n", changed: true }]
+    }, payload())))
+    expect(failure).toBeInstanceOf(LlmLint.FindingsError)
+    expect(await Fs.readFile(prompts, "utf8")).not.toContain("MiXeD42")
+    expect(JSON.stringify(failure)).not.toContain("MiXeD42")
+    expect(LlmLint.redactCredentials(`src/ghp_${"R".repeat(36)}.ts`)).toBe("src/<credential:github-token:1>.ts")
+  })
+
+  it("records spend and elapsed time on failure and charges both on resume", async () => {
+    const failing = await engine({ fail: ["src/a.ts"] })
+    const first = await Effect.runPromise(Effect.flip(review(failing.executable, { budget: { modelCalls: 1 } })))
+    expect(first.message).toContain("exited 3")
+    const [failed] = await runs()
+    expect(failed!.usage.modelCalls).toBe(1)
+    const again = await Effect.runPromise(Effect.flip(review(failing.executable, { budget: { modelCalls: 1 } })))
+    expect(again.message).toBe("Review budget exhausted: 1 model calls")
+    expect(await failing.calls()).toEqual(["src/a.ts"])
+
+    const name = Path.join(store, "runs", `${failed!.run}.json`)
+    const record = JSON.parse(await Fs.readFile(name, "utf8")) as LlmLint.RunRecord
+    await Fs.writeFile(name, JSON.stringify({ ...record, usage: { ...record.usage, elapsedMs: 60_000 } }))
+    const late = await Effect.runPromise(Effect.flip(review(failing.executable, { budget: { wallMs: 60_000 } })))
+    expect(late.message).toBe("Review budget exhausted: 60000 ms")
+  })
+
+  it("refuses a FIFO record without waiting for a writer", async () => {
+    const cli = await engine({ findings: { "src/a.ts": [danger] } })
+    await Effect.runPromise(review(cli.executable))
+    execFileSync("mkfifo", [Path.join(store, "findings", `${"e".repeat(64)}.json`)])
+    expect((await Effect.runPromise(Effect.flip(LlmLint.storedFindings(store)))).message).toContain(
+      "not a regular file"
+    )
+  })
+})

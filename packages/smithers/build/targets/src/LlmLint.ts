@@ -474,7 +474,7 @@ export const RunRecord = Schema.Struct({
     attempts: Schema.Array(ReviewAttempt)
   })),
   /** Model calls and estimated prompt tokens spent across every invocation of this run. */
-  usage: Schema.Struct({ modelCalls: Schema.Int, promptTokens: Schema.Int }),
+  usage: Schema.Struct({ modelCalls: Schema.Int, promptTokens: Schema.Int, elapsedMs: Schema.Int }),
   error: Schema.optional(Schema.String),
   startedAt: Schema.String,
   updatedAt: Schema.String
@@ -913,8 +913,11 @@ const codeFile = /\.(?:[cm]?[jt]sx?|py|go|rs|java|kt|rb|swift)$/
 class CredentialMask {
   readonly values = new Map<string, string>()
   readonly locations: Array<{ file: string; line: number; name: string; placeholder: string }> = []
-  /** Masks credential values in `contents`; `file` records their locations, `undefined` only masks them. */
-  scan(file: string | undefined, contents: string): string {
+  /**
+   * Masks credential values in `contents`; `file` records their locations, `undefined` only masks them.
+   * `code` is false for text that is never source, such as a path, so no value is read as an expression.
+   */
+  scan(file: string | undefined, contents: string, code = true): string {
     const found: Array<{ value: string; name: string; offset: number; report: boolean }> = []
     for (const match of contents.matchAll(namedCredential)) {
       const name = (match[2] ?? match[3])!
@@ -926,7 +929,7 @@ class CredentialMask {
         /^[-+]?\d{1,7}(?:\.\d+)?$/.test(value) ||
         // References such as `{smthrs:bun}`, `${TOKEN}`, `{{ secrets.TOKEN }}` or `$TOKEN` hold no value.
         /^(?:\$?\{[^{}]*\}|\{\{[^{}]*\}\}|\$[A-Z_][A-Z0-9_]*)$/.test(value) ||
-        (match[7] !== undefined && file !== undefined && codeFile.test(file) &&
+        (code && match[7] !== undefined && file !== undefined && codeFile.test(file) &&
           /^[A-Za-z_$][\w$]*(?:[.([]|$)/.test(value))
       ) continue
       // Sample-like values are masked but not reported.
@@ -986,6 +989,15 @@ class CredentialMask {
     )
   }
 }
+
+/**
+ * Masks credentials a standalone text reveals, such as a path or diagnostic
+ * that never passed through a review's scan. Values become typed placeholders.
+ *
+ * @category execution
+ * @since 1.0.0
+ */
+export const redactCredentials = (text: string): string => new CredentialMask().scan(undefined, text, false)
 
 /** Spawns git in the workspace and model CLIs in an isolated home, never through a shell. */
 const spawnText = (
@@ -1898,7 +1910,7 @@ const budgetExhausted = "Review budget exhausted"
 /** The aggregate spend of one review against its declared budget. */
 interface Spend {
   readonly budget: ReviewBudget | undefined
-  readonly started: number
+  started: number
   modelCalls: number
   promptTokens: number
 }
@@ -1913,7 +1925,8 @@ const charge = (spend: Spend, tokens: number, timeoutMs: number): number => {
     throw new Error(`${budgetExhausted}: ${budget.promptTokens} prompt tokens`)
   }
   const remaining = budget?.wallMs === undefined ? timeoutMs : budget.wallMs - (Date.now() - spend.started)
-  if (remaining < 1) throw new Error(`${budgetExhausted}: ${budget!.wallMs} ms`)
+  // A call never starts with under a second of the wall-clock budget left.
+  if (remaining < 1_000) throw new Error(`${budgetExhausted}: ${budget!.wallMs} ms`)
   spend.modelCalls += 1
   spend.promptTokens += tokens
   return Math.min(timeoutMs, remaining)
@@ -2395,7 +2408,7 @@ export const review = (
     // carry part of a credential, and every later identity (prompt, finding, manifest, store) is masked.
     const mask = new CredentialMask()
     const everything = [...rawContext, ...rawChanged, ...raw.files.values()]
-    for (const file of everything) mask.scan(file.path, file.path)
+    for (const file of everything) mask.scan(file.path, file.path, false)
     for (const file of everything) mask.scan(file.path, file.contents)
     // Review instructions reach the provider too; mask them without reporting a file.
     mask.scan(undefined, payload.prompt)
@@ -2530,6 +2543,7 @@ export const review = (
     // A resumed run keeps spending its declared budget; completed batches are never free.
     spend.modelCalls = resumed?.usage.modelCalls ?? 0
     spend.promptTokens = resumed?.usage.promptTokens ?? 0
+    spend.started = Date.now() - (resumed?.usage.elapsedMs ?? 0)
     let run: RunRecord = {
       run: runKey,
       manifest,
@@ -2537,7 +2551,7 @@ export const review = (
       status: "running",
       total: loadedBatches.length,
       batches: resumed?.batches ?? [],
-      usage: resumed?.usage ?? { modelCalls: 0, promptTokens: 0 },
+      usage: resumed?.usage ?? { modelCalls: 0, promptTokens: 0, elapsedMs: 0 },
       startedAt: now(),
       updatedAt: now()
     }
@@ -2546,7 +2560,17 @@ export const review = (
       storeRoot === undefined ? Effect.void : Effect.try({
         try: () => {
           const { error: _error, ...current } = run
-          run = { ...current, ...update, updatedAt: now() }
+          // Every write, a failure's included, records what the run has spent so far.
+          run = {
+            ...current,
+            ...update,
+            usage: {
+              modelCalls: spend.modelCalls,
+              promptTokens: spend.promptTokens,
+              elapsedMs: Date.now() - spend.started
+            },
+            updatedAt: now()
+          }
           PrivateStore.write(storeRoot, runName, run)
         },
         catch: storeError
@@ -2638,8 +2662,7 @@ export const review = (
               files,
               findings: batchFindings,
               attempts: attempts.slice(before)
-            }],
-            usage: { modelCalls: spend.modelCalls, promptTokens: spend.promptTokens }
+            }]
           })
           yield* record(batchFindings)
         }

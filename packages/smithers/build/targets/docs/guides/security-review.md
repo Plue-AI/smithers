@@ -192,8 +192,10 @@ and parse failures fail every security review.
 
 `budget` bounds the whole review: `modelCalls` counts every attempt,
 `promptTokens` sums the estimated tokens sent, and `wallMs` limits wall-clock
-time, each call's timeout shrinking to what remains. A resumed run keeps
-counting the calls and tokens its earlier invocations spent. A call that would exceed a
+time, each call's timeout shrinking to what remains; no call starts with
+under a second left. A resumed run keeps
+counting the calls, tokens and time its earlier invocations spent, failed
+calls included. A call that would exceed a
 bound is not sent, is never retried, and fails the review. A budgeted report
 includes its `usage`. Interrupting a review stops its model calls.
 
