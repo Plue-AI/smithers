@@ -176,6 +176,24 @@ describe("LlmLint.review aggregate budget", () => {
     expect(spent.message).toBe("Review budget exhausted: 1 ms")
   })
 
+  it("never reads a sub-second call timeout without a wall budget as budget exhaustion", async () => {
+    await write("src/a.ts", "export const a = 2\n")
+    const cli = await engine("[]")
+    // Without a wall budget the call is attempted and only its own timeout can end it.
+    const outcome = await Effect.runPromise(Effect.result(
+      LlmLint.review({ workspaceRoot: root, executable: cli.executable, timeoutMs: 900 }, payload())
+    ))
+    if (outcome._tag === "Success") expect(outcome.success.files).toEqual(["src/a.ts"])
+    else expect(outcome.failure.message).toMatch(/subprocess timed out after 900ms/)
+    const budgeted = await Effect.runPromise(Effect.flip(
+      LlmLint.review(
+        { workspaceRoot: root, executable: cli.executable, timeoutMs: 900 },
+        payload({ budget: { wallMs: 900 } })
+      )
+    ))
+    expect(budgeted.message).toBe("Review budget exhausted: 900 ms")
+  })
+
   it("never retries a security attempt the budget refused", async () => {
     await write("src/a.ts", "export const a = 2\n")
     const cli = await engine(completed)

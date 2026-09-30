@@ -1925,8 +1925,8 @@ const charge = (spend: Spend, tokens: number, timeoutMs: number): number => {
     throw new Error(`${budgetExhausted}: ${budget.promptTokens} prompt tokens`)
   }
   const remaining = budget?.wallMs === undefined ? timeoutMs : budget.wallMs - (Date.now() - spend.started)
-  // A call never starts with under a second of the wall-clock budget left.
-  if (remaining < 1_000) throw new Error(`${budgetExhausted}: ${budget!.wallMs} ms`)
+  // A call never starts with under a second of the wall-clock budget left; without one, the call timeout alone applies.
+  if (budget?.wallMs !== undefined && remaining < 1_000) throw new Error(`${budgetExhausted}: ${budget.wallMs} ms`)
   spend.modelCalls += 1
   spend.promptTokens += tokens
   return Math.min(timeoutMs, remaining)
