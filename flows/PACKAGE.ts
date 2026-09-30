@@ -1,7 +1,6 @@
 /** Repository flows, release workflows, and the retained migration fixtures. */
 import { Smithers } from "@smthrs/targets"
 import codingProject from "../.smithers/coding-project.json" with { type: "json" }
-import workspacePackage from "../package.json" with { type: "json" }
 
 const pack = Smithers.NodeTest({
   runner: Smithers.testRunner([Smithers.file("//flows/pack.test.mjs")]),
@@ -193,41 +192,6 @@ const codingProjectInputs = [
 const node = Smithers.Runtime.Node({ version: ">=26.4.0" })
 const bun = Smithers.Runtime.Bun({ version: ">=1.4.0" })
 
-// The burndown flow, its Cloud handoff, monitor and round.
-const burndown = Smithers.NodeTest({
-  runtime: node,
-  runner: Smithers.testRunner([
-    Smithers.file("//flows/burndown/test/acceptance-program.test.ts"),
-    Smithers.file("//flows/burndown/test/acceptance.test.ts"),
-    Smithers.file("//flows/burndown/test/accounts.test.ts"),
-    Smithers.file("//flows/burndown/test/brief.test.ts"),
-    Smithers.file("//flows/burndown/test/closed-guard.test.ts"),
-    Smithers.file("//flows/burndown/test/cloud-export.test.ts"),
-    Smithers.file("//flows/burndown/test/cloud-placement.test.ts"),
-    Smithers.file("//flows/burndown/test/cloud-symlink.test.ts"),
-    Smithers.file("//flows/burndown/test/dashboard.test.ts"),
-    Smithers.file("//flows/burndown/test/issues.test.ts"),
-    Smithers.file("//flows/burndown/test/land.test.ts"),
-    Smithers.file("//flows/burndown/test/landing-receipt.test.ts"),
-    Smithers.file("//flows/burndown/test/local-scratch.test.ts"),
-    Smithers.file("//flows/burndown/test/pacing.test.ts"),
-    Smithers.file("//flows/burndown/test/run-agent.test.ts"),
-    Smithers.file("//flows/test/burndown-cloud-handoff.test.ts"),
-    Smithers.file("//flows/test/burndown-monitor.test.ts"),
-    Smithers.file("//flows/test/burndown-round.test.ts"),
-    Smithers.file("//flows/test/burndown-selection.test.ts")
-  ]),
-  // The shipped-transform qualification invokes the deployment builder. It
-  // reads every workspace manifest and embeds the existing built-in prompts.
-  srcs: [
-    ...codingSources,
-    Smithers.file("//package.json"),
-    ...workspacePackage.workspaces.map((pattern) => Smithers.glob(`//${pattern}/package.json`)),
-    Smithers.file("//pnpm-workspace.yaml")
-  ],
-  deps: codingDependencies,
-  cwd
-})
 // Existing policy integration uses actual JJ and the Node SQLite fixture.
 const coding = Smithers.NodeTest({
   runtime: node,
@@ -687,7 +651,6 @@ export const Package = Smithers.Package({
     codingConfigBun,
     codingNative,
     testCoverage,
-    burndown,
     codingNativeBun,
     codingBundle,
     codingBundleBun,

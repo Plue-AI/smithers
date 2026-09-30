@@ -221,6 +221,29 @@ describe("PackageDiscovery.discover boundaries", () => {
     expect(discovery.pruned).toEqual(["lanes/jj", "scratch/worktree", "vendor/clone"])
   })
 
+  it("never enters the root checkout's own .git or .jj, however large their stores grow", async () => {
+    const root = await temporaryWorkspace()
+    const canonical = await Fs.realpath(root)
+    // jj's operation index grows without bound; a small listing limit stands in for the 100,000 entry cap.
+    for (let index = 0; index < 4; index += 1) {
+      await write(root, `.jj/repo/index/op_links/${index}`, "x\n")
+      await write(root, `.git/objects/${index}/object`, "x\n")
+    }
+    await write(root, ".jj/repo/store/PACKAGE.ts", "export const Package = 1\n")
+    const listed: Array<string> = []
+    const io: SafeFs.Io = {
+      ...SafeFs.defaultIo,
+      readdir: (path) => {
+        const relative = NodePath.relative(canonical, path)
+        listed.push(relative)
+        return SafeFs.defaultIo.readdir(path, relative === "" ? undefined : 3)
+      }
+    }
+    const discovery = await PackageDiscovery.discover(root, { io })
+    expect(discovery.packageFiles).toEqual(["PACKAGE.ts"])
+    expect(listed.filter((path) => /^\.(git|jj)(\/|$)/.test(path))).toEqual([])
+  })
+
   it("never enters a declared discovery.prune path and reports it", async () => {
     const root = await temporaryWorkspace()
     await write(root, "WORKSPACE.ts", workspaceModule(`discovery: { prune: ["./scratch", "deep/store/"] },`))

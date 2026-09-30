@@ -2,41 +2,6 @@
   "summary": "How smithersai/smithers develops itself.",
   "flows": [
     {
-      "id": "review",
-      "description": "Reviews the uncommitted change in this repository and returns a verdict with the reasons behind it.",
-      "summary": "Review the working-copy change and return a verdict with the reasons behind it.",
-      "featured": true,
-      "kind": "mdx",
-      "path": "flows/review/flow.mdx",
-      "capabilities": [
-        "fs:read:**",
-        "proc:spawn:*"
-      ],
-      "model": "sol",
-      "modelInvocable": true,
-      "inputSchema": {
-        "dialect": "draft-2020-12",
-        "schema": {
-          "type": "object",
-          "properties": {
-            "args": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "args"
-          ],
-          "additionalProperties": true
-        },
-        "definitions": {}
-      },
-      "flows": [],
-      "budget": {
-        "tokens": 200000,
-        "milliseconds": 600000
-      }
-    },
-    {
       "id": "lint",
       "description": "Lints the files you name against this repository's own conventions and fixes what it finds.",
       "summary": "Lint the files you name against this repository's conventions and fix what it finds.",
@@ -182,63 +147,6 @@
         "tokens": 250000,
         "milliseconds": 600000
       }
-    },
-    {
-      "id": "burndown",
-      "description": "Burns down every open issue in the named repositories with paced coding agents and a merge queue.",
-      "summary": null,
-      "featured": false,
-      "kind": "ts",
-      "path": "flows/burndown/flow.ts",
-      "capabilities": [
-        "fs:read:**",
-        "fs:write:**",
-        "proc:spawn:*",
-        "net:get:*",
-        "net:post:*",
-        "model:call:*"
-      ],
-      "model": null,
-      "modelInvocable": false,
-      "flows": []
-    },
-    {
-      "id": "burndown/monitor",
-      "description": "Watches a burndown run on a schedule and reports whether it is healthy.",
-      "summary": null,
-      "featured": false,
-      "kind": "ts",
-      "path": "flows/burndown/monitor/flow.ts",
-      "capabilities": [
-        "fs:read:**",
-        "fs:write:**",
-        "proc:spawn:*",
-        "net:get:*",
-        "net:post:*",
-        "model:call:*"
-      ],
-      "model": null,
-      "modelInvocable": false,
-      "flows": []
-    },
-    {
-      "id": "burndown/worker",
-      "description": "Works one issue bundle end to end with one coding agent on one subscription account.",
-      "summary": null,
-      "featured": false,
-      "kind": "ts",
-      "path": "flows/burndown/worker/flow.ts",
-      "capabilities": [
-        "fs:read:**",
-        "fs:write:**",
-        "proc:spawn:*",
-        "net:get:*",
-        "net:post:*",
-        "model:call:*"
-      ],
-      "model": null,
-      "modelInvocable": false,
-      "flows": []
     },
     {
       "id": "checks/affected-lint",
@@ -1310,6 +1218,41 @@
       "flows": []
     },
     {
+      "id": "review",
+      "description": "Reviews the uncommitted change in this repository and returns a verdict with the reasons behind it.",
+      "summary": null,
+      "featured": false,
+      "kind": "mdx",
+      "path": "flows/review/flow.mdx",
+      "capabilities": [
+        "fs:read:**",
+        "proc:spawn:*"
+      ],
+      "model": "sol",
+      "modelInvocable": true,
+      "inputSchema": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "args": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "args"
+          ],
+          "additionalProperties": true
+        },
+        "definitions": {}
+      },
+      "flows": [],
+      "budget": {
+        "tokens": 200000,
+        "milliseconds": 600000
+      }
+    },
+    {
       "id": "review/change",
       "description": "Reviews one pull request's change the stack proposes and returns a verdict on its first line.",
       "summary": null,
@@ -1355,6 +1298,15 @@
       ],
       "model": null,
       "modelInvocable": false,
+      "inputSchema": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "not": {
+            "type": "null"
+          }
+        },
+        "definitions": {}
+      },
       "flows": []
     },
     {

@@ -145,8 +145,12 @@ interface Walk {
   entries: number
 }
 
-/** Directory names skipped at any depth before any I/O on them. */
-const skippedNames: ReadonlySet<string> = new Set([".git", "node_modules", "dist"])
+/**
+ * Directory names skipped at any depth before any I/O on them. The root
+ * checkout's own version-control stores (`.git`, `.jj`) are never workspace
+ * content, and jj's operation index grows without bound.
+ */
+const skippedNames: ReadonlySet<string> = new Set([".git", ".jj", "node_modules", "dist"])
 
 /**
  * Entries whose presence in a directory's own listing marks the whole

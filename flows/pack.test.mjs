@@ -590,7 +590,7 @@ describe("discovery over the project flows directory", () => {
     // Every module declaration under flows/. Each one but `checks/wiki` IS its
     // own `@smthrs/flow` flow: one file, no `flows:` list, and no delegate name
     // registered on a host to join a second declaration to it.
-    const modules = ["burndown", "burndown/monitor", "burndown/worker", "coding", "coding/dispatch", "coding/implementation", "coding/prototype", "coding/request", "coding/verify", "coding/vibe", "coding/wiki", "memory/calibrate", "memory/mine", "notes/calendar-events", "notes/telegram", "notes/traction", "register-repository", "register-repository/setup", "release", "release-content", "rollout", "wiki", "wrapped"];
+    const modules = ["coding", "coding/dispatch", "coding/implementation", "coding/prototype", "coding/request", "coding/verify", "coding/vibe", "coding/wiki", "memory/calibrate", "memory/mine", "notes/calendar-events", "notes/telegram", "notes/traction", "register-repository", "register-repository/setup", "release", "release-content", "rollout", "wiki", "wrapped"];
     // `checks/wiki` still delegates, and its own file says why: the host binds
     // its reviewer policy to a descriptor by the `flows:` list, and the capture
     // action requires that descriptor's delegate to be the flow this host
@@ -603,7 +603,7 @@ describe("discovery over the project flows directory", () => {
     const hostBound = { "memory/mine": "missing_service memory/mine/Binding" };
     // The runners, schedules and registration steps are the host's to start,
     // never a model's tool.
-    const hiddenModules = ["burndown", "burndown/monitor", "burndown/worker", "memory/mine", "notes/calendar-events", "notes/telegram", "notes/traction", "register-repository", "register-repository/setup", "rollout"];
+    const hiddenModules = ["memory/mine", "notes/calendar-events", "notes/telegram", "notes/traction", "register-repository", "register-repository/setup", "rollout"];
     assert.deepEqual(
       scan.warnings.map((warning) => `${warning.code} at ${relative(flowsRoot, warning.path).split("\\").join("/")}: ${warning.message}`).sort(),
       [
