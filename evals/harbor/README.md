@@ -16,19 +16,19 @@ adapter's own logic and is the only thing here CI runs.
 
 ## Layout
 
-| Path                      | What it is                                                             |
-| ------------------------- | ---------------------------------------------------------------------- |
-| `smithers_agent.py`       | `SmithersAgent`, the Harbor/Pier `BaseAgent` that drives the harness   |
-| `plue_env.py`             | `PlueEnvironment` / `PluePierEnvironment`: the task on a Smithers Cloud workspace, public CLI only |
-| `outcome.py`              | Which finished trials are scored (graded, agent outcome) and which are infra, re-run |
-| `health.py`, `requeue.py` | Mid-run health rule; move infra trials aside for `harbor jobs resume` |
-| `plue_docker.py`          | The `docker` the harness calls on Smithers Cloud: `exec` becomes `smithers workspace exec` |
-| `accounts.py`             | Round-robin over every logged-in Codex subscription, one per trial     |
-| `codex_pool.py`           | Harbor's stock Codex CLI agent drawing its `auth.json` from that pool  |
-| `prompt.md`               | The one flow file every task runs; the instruction is pasted verbatim  |
+| Path                      | What it is                                                                                                        |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `smithers_agent.py`       | `SmithersAgent`, the Harbor/Pier `BaseAgent` that drives the harness                                              |
+| `plue_env.py`             | `PlueEnvironment` / `PluePierEnvironment`: the task on a Smithers Cloud workspace, public CLI only                |
+| `outcome.py`              | Which finished trials are scored (graded, agent outcome) and which are infra, re-run                              |
+| `health.py`, `requeue.py` | Mid-run health rule; move infra trials aside for `harbor jobs resume`                                             |
+| `plue_docker.py`          | The `docker` the harness calls on Smithers Cloud: `exec` becomes `smithers workspace exec`                        |
+| `accounts.py`             | Round-robin over every logged-in Codex subscription, one per trial                                                |
+| `codex_pool.py`           | Harbor's stock Codex CLI agent drawing its `auth.json` from that pool                                             |
+| `prompt.md`               | The one flow file every task runs; the instruction is pasted verbatim                                             |
 | `audit_host_calls.py`     | Per-trial audit of `bash` calls that ran on the host, not the task container: clean / host-calls-benign / TAINTED |
-| `verify.sh`               | Offline check: prompt, environment, journal fold, trajectory, names    |
-| `fixtures/check_agent.py` | What `verify.sh` runs                                                  |
+| `verify.sh`               | Offline checks for the adapter, containment, ownership, resources and health                                      |
+| `fixtures/check_*.py`     | Behavioral fixtures run by `verify.sh`                                                                            |
 
 ## Prerequisites
 
@@ -71,6 +71,7 @@ and what the Terminal-Bench leaderboard's Codex entries ran at; the journal's
 ### On Smithers Cloud
 
 See [workspace cleanup](docs/cleanup.md) for durable creation receipts and recovery.
+See [benchmark health](docs/health.md) for complete trial counts and placement refusals.
 
 Add `-e evals.harbor.plue_env:PlueEnvironment` and the task runs in a plue
 workspace through the public `smithers` CLI (`SMITHERS_CLI`, `PLUE_REPO`,
@@ -195,12 +196,12 @@ model to commit and the adapter commits whatever is left afterwards
 
 Under the trial's `agent/` directory:
 
-| File                | Contents                                                                                     |
-| ------------------- | -------------------------------------------------------------------------------------------- |
+| File                | Contents                                                                                                                       |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
 | `smithers-run.json` | seat, auth mode, route bindings off the journal, harness revision, subject fingerprint, wall clock, tokens, exit status, phase |
-| `trajectory.json`   | ATIF-v1.8 trajectory folded from the harness journal; Harbor reads the token totals off it   |
-| `smithers-run.log`  | the CLI's stdout and stderr                                                                  |
-| `workspace/`        | the flow file and `.flows/engine.db`, the journal itself                                     |
+| `trajectory.json`   | ATIF-v1.8 trajectory folded from the harness journal; Harbor reads the token totals off it                                     |
+| `smithers-run.log`  | the CLI's stdout and stderr                                                                                                    |
+| `workspace/`        | the flow file and `.flows/engine.db`, the journal itself                                                                       |
 
 Runs on the ChatGPT subscription are subscription-billed: `cost_usd` is left
 unset rather than priced. `evals/swebench/prices.ts` carries the API list

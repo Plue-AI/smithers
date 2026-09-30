@@ -86,6 +86,7 @@ def main(argv: list[str]) -> int:
         kinds = Counter(r["kind"] for r in rows)
         scored = [r for r in rows if outcome.is_healthy(r["kind"])]
         solved = [r for r in scored if r["reward"] == 1.0]
+        unplaceable = [r for r in rows if r["kind"] == "unplaceable"]
         recent = [r for r in rows + retried if r["finished_at"] and r["finished_at"].timestamp() >= horizon]
         # CancelledError means the harness process was stopped (a pause, a
         # restart, a crash the liveness check catches). It is retried like any
@@ -101,10 +102,13 @@ def main(argv: list[str]) -> int:
             trips.append(f"{name}: {len(broken)} scored trials look broken (reward 0 under 60 s, or no container command)")
         lines += [f"## {name}", "",
                   f"- trials {len(rows)}: {dict(kinds)}",
-                  f"- scored {len(scored)} ({len({r['task'] for r in scored})} tasks), solved {len(solved)}"
-                  + (f", {len(solved) / len(scored):.1%}" if scored else ""),
+                  f"- solved {len(solved)} of {len(rows)} retained current trials",
+                  f"- scored subset {len(scored)} trials ({len({r['task'] for r in scored})} tasks): "
+                  f"{kinds['graded']} graded, {kinds['agent']} agent outcomes",
                   f"- infra last hour: {len(recent_infra)} of {len(recent)} finished ({rate:.0%}); attempts kept aside: {len(retried)}",
-                  f"- unplaceable: {sorted({r['task'] for r in rows if r['kind'] == 'unplaceable'})}"]
+                  f"- unplaceable: {len(unplaceable)} trials ({len({r['task'] for r in unplaceable})} tasks)"]
+        for r in unplaceable:
+            lines.append(f"  - unplaceable {r['trial']} (task {r['task']}): {r['exception']} {r['message']}")
         for r in rows:
             if r["kind"] == "infra":
                 lines.append(f"  - infra {r['trial']}: {r['exception']} {r['message']}")
