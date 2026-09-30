@@ -207,3 +207,6 @@ __pycache__/
 /dispatch/claims/
 /apps/app/tsconfig.qual-*.json
 /packages/smithers/agent/model/model
+
+# Local review diffs
+.review-diff*.patch
