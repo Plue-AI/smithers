@@ -9,10 +9,17 @@ import type * as Evaluator from "@smthrs/model/Evaluator"
 import { Effect, type FileSystem, Layer, Option, Path, Stream } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import { RepositoryRemote } from "../repository/remote.ts"
-import { cleanup, isSource } from "./cleanup.ts"
+import { cleanup } from "./cleanup.ts"
 import Register from "./flow.ts"
 import { agentShare, churn, commitGraph, contributors, LOG_FORMAT, parseLog } from "./history.ts"
-import { checksClassifier, choose, classifyPulls, licenseClassifier, nameClassifier } from "./jev.ts"
+import {
+  checksClassifier,
+  choose,
+  classifyPulls,
+  estimateAgentShare,
+  licenseClassifier,
+  nameClassifier
+} from "./jev.ts"
 import { canonicalRepo } from "./link.ts"
 import {
   affectedPackages,
@@ -31,6 +38,7 @@ import {
   checkCommands,
   checkRunners,
   installCommand,
+  isSource,
   LICENSE_FILES,
   licenseCandidates,
   licenseOptions,
@@ -535,21 +543,23 @@ export const stepLayers = (options: HostOptions) => {
     CleanupStep.toLayer(({ clone }) =>
       soft(
         "cleanup",
-        Effect.gen(function*() {
+        withJev(Effect.gen(function*() {
           const { tree, sourceLines } = yield* readTree(options, clone.commit)
           const { commits, now } = yield* history(options, clone.commit)
-          return cleanup(tree, sourceLines, churn(commits, now))
-        })
+          return yield* cleanup(tree, sourceLines, churn(commits, now))
+        }))
       )
     ),
     AgentShareStep.toLayer(({ clone }) =>
       soft(
         "agent-share",
-        Effect.gen(function*() {
+        withJev(Effect.gen(function*() {
           const { tree } = yield* readTree(options, clone.commit)
           const { commits, now } = yield* history(options, clone.commit)
-          return agentShare(commits, now, tree.paths)
-        })
+          const share = agentShare(commits, now, tree.paths)
+          const estimate = yield* estimateAgentShare(commits, now)
+          return estimate === undefined ? share : { ...share, estimate }
+        }))
       )
     ),
     CommitsStep.toLayer(({ clone }) =>

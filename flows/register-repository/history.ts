@@ -65,26 +65,67 @@ const person = (commit: Commit) => !/\[bot\]/.test(commit.name) && !/\[bot\]@/.t
 export const lastYear = (commits: ReadonlyArray<Commit>, now: number) =>
   commits.filter((commit) => commit.time > now - 365 * DAY && commit.time <= now)
 
-/** A burst: more than 500 added lines over ten or more files within ten minutes of the author's previous commit. */
-export const bursts = (commits: ReadonlyArray<Commit>): number => {
+/** Seconds since the same author's previous commit, by sha; absent for an author's first commit. */
+const gaps = (commits: ReadonlyArray<Commit>): ReadonlyMap<string, number> => {
   const byAuthor = new Map<string, Array<Commit>>()
   for (const commit of commits) {
     const own = byAuthor.get(commit.email)
     if (own === undefined) byAuthor.set(commit.email, [commit])
     else own.push(commit)
   }
-  let count = 0
+  const found = new Map<string, number>()
   for (const own of byAuthor.values()) {
     const sorted = [...own].sort((a, b) => a.time - b.time)
     sorted.forEach((commit, index) => {
-      const added = commit.files.reduce((sum, file) => sum + file.added, 0)
       const previous = sorted[index - 1]
-      if (added > 500 && commit.files.length >= 10 && previous !== undefined && commit.time - previous.time < 600) {
-        count += 1
-      }
+      if (previous !== undefined) found.set(commit.sha, commit.time - previous.time)
     })
   }
-  return count
+  return found
+}
+
+const addedLines = (commit: Commit) => commit.files.reduce((sum, file) => sum + file.added, 0)
+
+/** A burst: more than 500 added lines over ten or more files within ten minutes of the author's previous commit. */
+const isBurst = (commit: Commit, gap: number | undefined) =>
+  addedLines(commit) > 500 && commit.files.length >= 10 && gap !== undefined && gap < 600
+
+export const bursts = (commits: ReadonlyArray<Commit>): number => {
+  const gap = gaps(commits)
+  return commits.filter((commit) => isBurst(commit, gap.get(commit.sha))).length
+}
+
+/** What Jev reads about one untraced commit: its subject and shape, never its author. */
+export interface CommitShape {
+  readonly subject: string
+  readonly files: number
+  readonly added: number
+  readonly deleted: number
+  readonly burst: boolean
+  readonly minutesSincePrevious: number | null
+}
+
+/**
+ * The twelve months' commit count, traced count, and a sample of at most `limit` untraced commits
+ * stratified by size (evenly spaced from smallest to largest), so a replay samples the same ones.
+ */
+export const untracedSample = (commits: ReadonlyArray<Commit>, now: number, limit = 30) => {
+  const year = lastYear(commits, now)
+  const gap = gaps(year)
+  const untraced = year.filter((commit) => agentTrace(commit) === undefined)
+    .sort((a, b) => addedLines(a) - addedLines(b) || a.sha.localeCompare(b.sha))
+  const picked = untraced.length <= limit
+    ? untraced
+    : Array.from({ length: limit }, (_, index) => untraced[Math.floor((index * untraced.length) / limit)]!)
+  const sample: ReadonlyArray<CommitShape> = picked.map((commit) => ({
+    subject: commit.subject.slice(0, 200),
+    files: commit.files.length,
+    added: addedLines(commit),
+    deleted: commit.files.reduce((sum, file) => sum + file.deleted, 0),
+    burst: isBurst(commit, gap.get(commit.sha)),
+    minutesSincePrevious: gap.has(commit.sha) ? Math.round(gap.get(commit.sha)! / 60) : null
+  }))
+  return { total: year.length, traced: year.length - untraced.length, untraced: untraced.length, sample }
 }
 
 export const commitGraph = (commits: ReadonlyArray<Commit>, now: number): Commits => {

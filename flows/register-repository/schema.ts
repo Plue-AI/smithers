@@ -74,12 +74,29 @@ export const Readiness = Schema.TaggedStruct("readiness", {
 })
 export type Readiness = typeof Readiness.Type
 
-export const SignalId = Schema.Literals(["duplicates", "churn", "lexicon", "stubs", "dead-code"])
+/** S1-S5 are deterministic; S6-S10 are candidates Jev judged. */
+export const SignalId = Schema.Literals([
+  "duplicates",
+  "churn",
+  "lexicon",
+  "stubs",
+  "dead-code",
+  "comments",
+  "defensive",
+  "abstraction",
+  "drift",
+  "test-theater"
+])
 export type SignalId = typeof SignalId.Type
 export const Location = Schema.Struct({ path: Schema.String, line: Schema.Int })
 export const Cause = Schema.Struct({ signal: SignalId, count: Schema.Int, location: Schema.NullOr(Location) })
 export type Cause = typeof Cause.Type
-/** Cleanup opportunities. Only the deterministic signals are scored until the calibration corpus exists. */
+/**
+ * Cleanup opportunities. `hybrid-v0` scores all ten signals with provisional anchors until the
+ * calibration corpus exists (#3150); `deterministic-v0` is a run where Jev could not judge a
+ * signal that had candidates, or one recorded before they shipped. A signal with no candidates is a
+ * measured zero without Jev.
+ */
 export const Cleanup = Schema.TaggedStruct("cleanup", {
   status: Schema.Literals(["scored", "insufficient"]),
   coverage: Schema.Number,
@@ -87,7 +104,7 @@ export const Cleanup = Schema.TaggedStruct("cleanup", {
   low: Schema.Int,
   high: Schema.Int,
   causes: Schema.Array(Cause),
-  method: Schema.Literal("deterministic-v0")
+  method: Schema.Literals(["deterministic-v0", "hybrid-v0"])
 })
 export type Cleanup = typeof Cleanup.Type
 
@@ -99,11 +116,16 @@ export const Commits = Schema.TaggedStruct("commits", {
 })
 export type Commits = typeof Commits.Type
 
-/** Evidence floor of agent-written work over twelve months. Never a per-file or per-person claim. */
+/**
+ * Agent-written work over twelve months: the traced evidence floor, and a Jev-estimated range in
+ * percent of commits that includes the floor. Absent when Jev judged no commit. Never a per-file
+ * or per-person claim.
+ */
 export const AgentShare = Schema.TaggedStruct("agent-share", {
   commits: Schema.Int,
   traced: Schema.Int,
-  markers: Schema.Array(Schema.String)
+  markers: Schema.Array(Schema.String),
+  estimate: Schema.optionalKey(Schema.Struct({ low: Schema.Int, high: Schema.Int, sampled: Schema.Int }))
 })
 export type AgentShare = typeof AgentShare.Type
 

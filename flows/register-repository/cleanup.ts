@@ -1,16 +1,17 @@
 /**
- * Cleanup opportunities, deterministic signals S1-S5 of registration-scores.md section 2.
+ * Cleanup opportunities, the ten signals of registration-scores.md section 2: deterministic S1-S5
+ * here, Jev-judged S6-S10 in `judged.ts`.
  *
- * Normalization anchors are provisional (`deterministic-v0`) until the calibration corpus exists
- * (#2160); the 80% interval comes from a seeded bootstrap over files, so a replay yields the same
- * range. Scores are about code quality, whoever wrote it.
+ * Normalization anchors are provisional (`hybrid-v0`; `deterministic-v0` when Jev could not judge
+ * a judged signal that had candidates) until the calibration corpus exists (#3150). The range comes from a seeded bootstrap over files
+ * plus each judged signal's confident and unclear share, so a replay yields the same range. Scores
+ * are about code quality, whoever wrote it.
  */
+import type * as Evaluator from "@smthrs/model/Evaluator"
+import { Effect } from "effect"
+import { candidates, JUDGEABLE, judgeCandidates, JUDGED, type JudgedId, type Judgment } from "./judged.ts"
 import type { Cause, Cleanup, SignalId } from "./schema.ts"
-import type { SourceFile, Tree } from "./tree.ts"
-
-const SOURCE = /\.(ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|kt|rb|php|cs|c|cc|cpp|h|hpp|swift|scala|sh)$/
-const EXCLUDED =
-  /(^|\/)(node_modules|dist|build|out|vendor|third_party|\.git|coverage|__snapshots__|__generated__|generated)\/|\.min\.js$|\.pb\.go$|_pb2\.py$|\.d\.ts$|_generated\.\w+$/
+import { isSource, type SourceFile, type Tree } from "./tree.ts"
 
 /** Weight and the value treated as the 90th percentile of human code (provisional). */
 export const SIGNALS: Record<SignalId, { readonly weight: number; readonly p90: number }> = {
@@ -18,10 +19,17 @@ export const SIGNALS: Record<SignalId, { readonly weight: number; readonly p90: 
   churn: { weight: 10, p90: 0.25 },
   lexicon: { weight: 10, p90: 2 },
   stubs: { weight: 10, p90: 1.5 },
-  "dead-code": { weight: 10, p90: 0.2 }
+  "dead-code": { weight: 10, p90: 0.2 },
+  // Judged signals: estimated findings per thousand lines.
+  comments: { weight: 10, p90: 2 },
+  defensive: { weight: 10, p90: 1.5 },
+  abstraction: { weight: 10, p90: 1 },
+  drift: { weight: 10, p90: 0.5 },
+  "test-theater": { weight: 5, p90: 1 }
 }
 
-export const isSource = (path: string) => SOURCE.test(path) && !EXCLUDED.test(path)
+/** Normalizable signal values; an absent or undefined one was not measured. */
+type Values = Partial<Record<SignalId, number | undefined>>
 
 const COMMENT = /^\s*(\/\/|#|\*|\/\*|--)/
 const LEXICON =
@@ -88,7 +96,8 @@ const scan = (file: SourceFile): FileSignals => {
 
 /** A small seeded generator, so the bootstrap interval is the same on every replay. */
 const random = (seed: number) => () => {
-  seed = (seed * 1_103_515_245 + 12_345) % 2_147_483_648
+  // 32-bit arithmetic: a float product past 2^53 would round away the low bits.
+  seed = (Math.imul(seed, 1_103_515_245) + 12_345) & 0x7fff_ffff
   return seed / 2_147_483_648
 }
 
@@ -133,7 +142,7 @@ const measure = (
   const unused = files.flatMap((file) =>
     (unusedByFile.get(file.path) ?? []).map(([, line]) => ({ path: file.path, line }))
   )
-  const values: Record<SignalId, number | undefined> = {
+  const values: Values = {
     duplicates: duplicates.length / kloc,
     churn,
     lexicon: files.reduce((sum, file) => sum + file.lexicon.length, 0) / kloc,
@@ -141,7 +150,7 @@ const measure = (
     "dead-code": exported < 20 ? undefined : unused.length / exported
   }
   const first = (list: ReadonlyArray<{ path: string; line: number }>) => list[0] ?? null
-  const locations: Record<SignalId, { count: number; location: { path: string; line: number } | null }> = {
+  const locations: Partial<Record<SignalId, { count: number; location: { path: string; line: number } | null }>> = {
     duplicates: { count: duplicates.length, location: first(duplicates.map(([path, line]) => ({ path, line }))) },
     churn: { count: Math.round(churn * 100), location: null },
     lexicon: {
@@ -157,61 +166,112 @@ const measure = (
   return { values, locations }
 }
 
-const scoreOf = (values: Record<SignalId, number | undefined>) => {
+const scoreOf = (values: Values) => {
   const present = (Object.keys(SIGNALS) as ReadonlyArray<SignalId>).filter((id) => values[id] !== undefined)
   const weight = present.reduce((sum, id) => sum + SIGNALS[id].weight, 0)
   const raw = present.reduce((sum, id) => sum + SIGNALS[id].weight * Math.min(1, values[id]! / SIGNALS[id].p90), 0)
   return { score: weight === 0 ? 0 : Math.round((raw / weight) * 100), weight }
 }
 
+/** The source files in a language the S6-S10 pre-filter reads. */
+const judgeable = (corpus: ReadonlyArray<SourceFile>) => corpus.filter((file) => JUDGEABLE.test(file.path))
+
+/** Every S6-S10 candidate the deterministic pre-filter finds, before Jev judges any. */
+export const cleanupCandidates = (tree: Tree) =>
+  candidates(tree, judgeable(tree.files.filter((file) => isSource(file.path))))
+
+type Ends = { readonly low: number; readonly high: number }
+/** A judged signal's estimated findings: confident yes only, and yes plus unclear. */
+const ends = (judgment: Judgment): Ends =>
+  judgment.sampled === 0 ? { low: 0, high: 0 } : {
+    low: (judgment.candidates * judgment.yes) / judgment.sampled,
+    high: (judgment.candidates * (judgment.yes + judgment.unclear)) / judgment.sampled
+  }
+
 /**
  * `tree.files` are the readable files; `sourceLines` is the line count of every source file,
  * readable or not, so coverage is honest about what was skipped.
  */
-export const cleanup = (tree: Tree, sourceLines: number, churn: number): Cleanup => {
-  const corpus = tree.files.filter((file) => isSource(file.path))
-  const files = corpus.map(scan)
-  const analyzed = files.reduce((sum, file) => sum + file.lines, 0)
-  const coverage = sourceLines === 0 ? 0 : Math.min(1, analyzed / sourceLines)
-  if (coverage < 0.6 || files.length === 0) {
-    return {
-      _tag: "cleanup",
-      status: "insufficient",
-      coverage,
-      score: 0,
-      low: 0,
-      high: 0,
-      causes: [],
-      method: "deterministic-v0"
+export const cleanup = (
+  tree: Tree,
+  sourceLines: number,
+  churn: number
+): Effect.Effect<Cleanup, never, Evaluator.Evaluator> =>
+  Effect.gen(function*() {
+    const corpus = tree.files.filter((file) => isSource(file.path))
+    const files = corpus.map(scan)
+    const analyzed = files.reduce((sum, file) => sum + file.lines, 0)
+    const coverage = sourceLines === 0 ? 0 : Math.min(1, analyzed / sourceLines)
+    if (coverage < 0.6 || files.length === 0) {
+      return {
+        _tag: "cleanup" as const,
+        status: "insufficient" as const,
+        coverage,
+        score: 0,
+        low: 0,
+        high: 0,
+        causes: [],
+        method: "deterministic-v0" as const
+      }
     }
-  }
-  const unused = unusedExports(files, corpus), duplicated = duplicateLines(files)
-  const { values, locations } = measure(files, unused, duplicated, churn)
-  const { score, weight } = scoreOf(values)
-  const next = random(files.length * 7919 + analyzed)
-  const samples: Array<number> = []
-  for (let round = 0; round < 40; round++) {
-    // Subsample without replacement: a file drawn twice would count as its own duplicate.
-    const sample = files.filter(() => next() < 0.8)
-    if (sample.length > 0) samples.push(scoreOf(measure(sample, unused, duplicated, churn).values).score)
-  }
-  samples.sort((a, b) => a - b)
-  // The unmeasured hybrid and Jev signals (45 of 100 points) widen the interval until #2160.
-  const spread = Math.round(((100 - weight) / 100) * 10)
-  const causes: ReadonlyArray<Cause> = (Object.keys(SIGNALS) as ReadonlyArray<SignalId>)
-    .filter((id) => values[id] !== undefined && locations[id].count > 0)
-    .map((id) => ({ id, contribution: SIGNALS[id].weight * Math.min(1, values[id]! / SIGNALS[id].p90) }))
-    .sort((a, b) => b.contribution - a.contribution)
-    .slice(0, 3)
-    .map(({ id }) => ({ signal: id, count: locations[id].count, location: locations[id].location }))
-  return {
-    _tag: "cleanup",
-    status: "scored",
-    coverage: Math.round(coverage * 100) / 100,
-    score,
-    low: Math.max(0, Math.min(score, samples[Math.floor(samples.length * 0.1)] ?? score) - spread),
-    high: Math.min(100, Math.max(score, samples[Math.floor(samples.length * 0.9)] ?? score) + spread),
-    causes,
-    method: "deterministic-v0"
-  }
-}
+    // Judged signals are densities over the files the pre-filter reads; with none, they stay
+    // unmeasured rather than a zero no evidence supports.
+    const readable = judgeable(corpus)
+    const judged = readable.length === 0 ? {} : yield* judgeCandidates(candidates(tree, readable))
+    const unused = unusedExports(files, corpus), duplicated = duplicateLines(files)
+    const { values, locations } = measure(files, unused, duplicated, churn)
+    const kloc = Math.max(
+      1,
+      files.filter((file) => JUDGEABLE.test(file.path)).reduce((sum, file) => sum + file.lines, 0) / 1000
+    )
+    const judgedIds = Object.keys(judged) as ReadonlyArray<JudgedId>
+    const withJudged = (pick: (range: Ends) => number, base: Values) => ({
+      ...base,
+      ...Object.fromEntries(judgedIds.map((id) => [id, pick(ends(judged[id]!)) / kloc]))
+    })
+    const middle = (range: Ends) => (range.low + range.high) / 2
+    const all = withJudged(middle, values)
+    const { score, weight } = scoreOf(all)
+    // Each end bootstraps the deterministic signals over files with the judged signals at that end.
+    const bootstrap = (pick: (range: Ends) => number) => {
+      const next = random(files.length * 7919 + analyzed)
+      const samples: Array<number> = []
+      for (let round = 0; round < 40; round++) {
+        // Subsample without replacement: a file drawn twice would count as its own duplicate.
+        const sample = files.filter(() => next() < 0.8)
+        if (sample.length > 0) {
+          samples.push(scoreOf(withJudged(pick, measure(sample, unused, duplicated, churn).values)).score)
+        }
+      }
+      return samples.sort((a, b) => a - b)
+    }
+    const lows = bootstrap((range) => range.low), highs = bootstrap((range) => range.high)
+    const lowest = scoreOf(withJudged((range) => range.low, values)).score
+    const highest = scoreOf(withJudged((range) => range.high, values)).score
+    // Unmeasured signals widen the interval: points no evidence could score.
+    const spread = Math.round(((100 - weight) / 100) * 10)
+    const found: Partial<Record<SignalId, { count: number; location: { path: string; line: number } | null }>> = {
+      ...locations,
+      ...Object.fromEntries(judgedIds.map((id) => [id, {
+        count: Math.round(ends(judged[id]!).low),
+        location: judged[id]!.location
+      }]))
+    }
+    const causes: ReadonlyArray<Cause> = (Object.keys(SIGNALS) as ReadonlyArray<SignalId>)
+      .filter((id) => all[id] !== undefined && (found[id]?.count ?? 0) > 0)
+      .map((id) => ({ id, contribution: SIGNALS[id].weight * Math.min(1, all[id]! / SIGNALS[id].p90) }))
+      .sort((a, b) => b.contribution - a.contribution)
+      .slice(0, 3)
+      .map(({ id }) => ({ signal: id, count: found[id]!.count, location: found[id]!.location }))
+    return {
+      _tag: "cleanup" as const,
+      status: "scored" as const,
+      coverage: Math.round(coverage * 100) / 100,
+      score,
+      low: Math.max(0, Math.min(score, lowest, lows[Math.floor(lows.length * 0.1)] ?? score) - spread),
+      high: Math.min(100, Math.max(score, highest, highs[Math.floor(highs.length * 0.9)] ?? score) + spread),
+      causes,
+      // Only a run that measured every judged signal claims the hybrid method.
+      method: judgedIds.length === JUDGED.length ? "hybrid-v0" as const : "deterministic-v0" as const
+    }
+  })

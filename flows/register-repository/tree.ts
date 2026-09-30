@@ -1,6 +1,13 @@
 /** What one exported source tree says about itself. Pure over paths and file texts. */
 import type { CheckCommand } from "./schema.ts"
 
+const SOURCE = /\.(ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|kt|rb|php|cs|c|cc|cpp|h|hpp|swift|scala|sh)$/
+/** Vendored, generated and build output: never the owner's code or docs. */
+export const EXCLUDED =
+  /(^|\/)(node_modules|dist|build|out|vendor|third_party|\.git|coverage|__snapshots__|__generated__|generated)\/|\.min\.js$|\.pb\.go$|_pb2\.py$|\.d\.ts$|_generated\.\w+$/
+
+export const isSource = (path: string) => SOURCE.test(path) && !EXCLUDED.test(path)
+
 export interface SourceFile {
   readonly path: string
   readonly text: string

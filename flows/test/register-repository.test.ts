@@ -15,7 +15,7 @@ import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { test, type TestContext } from "node:test"
 import { CodingError } from "../coding/schema.ts"
-import { cleanup } from "../register-repository/cleanup.ts"
+import { cleanup, cleanupCandidates } from "../register-repository/cleanup.ts"
 import Register, { APPROVE, DECLINE, DECLINE_NOTE, REVIEW } from "../register-repository/flow.ts"
 import {
   agentShare,
@@ -29,6 +29,7 @@ import {
   parseLog
 } from "../register-repository/history.ts"
 import { registration } from "../register-repository/host.ts"
+import { estimateAgentShare } from "../register-repository/jev.ts"
 import { canonicalRepo } from "../register-repository/link.ts"
 import {
   affectedPackages,
@@ -243,20 +244,272 @@ test("readiness counts what ran, leaves out what the sandbox could not start, an
   assert.equal(failing.level, 2)
 })
 
-test("cleanup scores deterministic signals as a range with file links, or says insufficient data", () => {
+/** Jev for cleanup and commit judgments: `answer` decides each finding's probability of yes. */
+const judgeWith = (answer: (state: { path: string; line: number; note: string; snippet: string }) => number) => {
+  const calls: Array<string> = []
+  const layer = Evaluator.layerScripted((request) => {
+    if ("finding" in request.questions) {
+      const state = request.state as { path: string; line: number; note: string; snippet: string }
+      calls.push(`${state.path}:${state.line}`)
+      const yes = answer(state)
+      return { finding: { choice: yes >= 0.5 ? "yes" : "no", probabilities: { yes, no: 1 - yes } } }
+    }
+    const state = request.state as { subject: string }
+    const agent = /comprehensive/i.test(state.subject)
+    const unclear = /unclear/i.test(state.subject)
+    return {
+      author: {
+        choice: agent || unclear ? "agent" : "human",
+        probabilities: unclear
+          ? { agent: 0.5, human: 0.4, unclear: 0.1 }
+          : { agent: agent ? 0.9 : 0.05, human: agent ? 0.05 : 0.9, unclear: 0.05 }
+      }
+    }
+  })
+  return { calls, layer }
+}
+const judged = <A>(effect: Effect.Effect<A, never, Evaluator.Evaluator>, layer: Layer.Layer<Evaluator.Evaluator>) =>
+  Effect.runPromise(Effect.provide(effect, layer))
+
+test("cleanup scores deterministic signals as a range with file links, or says insufficient data", async () => {
   const block = Array.from({ length: 8 }, (_, index) => `  const value${index} = compute(${index}, input)`).join("\n")
   const files: Record<string, string> = {
     "src/a.ts": `export function a() {\n${block}\n}\n// for now this should work\n`,
     "src/b.ts": `export function b() {\n${block}\n}\ntry { x() } catch {}\n`,
     "src/c.py": "def f():\n    pass\n"
   }
-  const scored = cleanup(tree(files), 30, 0)
+  const jev = judgeWith(() => 0.9)
+  const scored = await judged(cleanup(tree(files), 30, 0), jev.layer)
   assert.equal(scored.status, "scored")
   assert.ok(scored.low <= scored.score && scored.score <= scored.high)
   assert.deepEqual(scored.causes.map((cause) => cause.signal).sort(), ["duplicates", "lexicon", "stubs"])
   assert.deepEqual(scored.causes.find((cause) => cause.signal === "lexicon")!.location, { path: "src/a.ts", line: 11 })
-  assert.deepEqual(cleanup(tree(files), 30, 0), scored, "the interval is the same on replay")
-  assert.equal(cleanup(tree(files), 1000, 0.1).status, "insufficient", "under 60% coverage gives no number")
+  assert.equal(scored.method, "hybrid-v0", "no candidates is a measured zero, not a missing signal")
+  assert.deepEqual(jev.calls, [], "Jev is asked only about candidates")
+  assert.deepEqual(await judged(cleanup(tree(files), 30, 0), jev.layer), scored, "the interval is the same on replay")
+  const insufficient = await judged(cleanup(tree(files), 1000, 0.1), jev.layer)
+  assert.equal(insufficient.status, "insufficient", "under 60% coverage gives no number")
+})
+
+/** One candidate for each Jev-judged signal, S6-S10. */
+const judgedTree = () =>
+  tree({
+    "src/user.ts": [
+      "import { save } from \"./store.ts\"",
+      "import { gone } from \"./gone.js\"",
+      "// Gets the user",
+      "export function getUser(id: string) {",
+      "  return save(id)",
+      "}",
+      "export function load(id: string) {",
+      "  try {",
+      "    return save(id)",
+      "  } catch (error) {",
+      "    console.error(error)",
+      "    throw error",
+      "  }",
+      "}",
+      "export const same = gone"
+    ].join("\n"),
+    "src/store.ts": [
+      "export interface Store {",
+      "  put(id: string): string",
+      "}",
+      "export class MemoryStore implements Store {",
+      "  put(id: string) { return id }",
+      "}",
+      "export const save = (id: string) => new MemoryStore().put(id)"
+    ].join("\n"),
+    "test/user.test.ts": [
+      "import { getUser } from \"../src/user.ts\"",
+      "test(\"getUser should work\", () => { getUser(\"a\") })",
+      "test(\"load\", () => {",
+      "  assert.equal(getUser(\"b\"), \"b\")",
+      "})"
+    ].join("\n"),
+    "README.md": "# Users\n\nCall `frobnicate()` to reset and `getUser()` to read.\n"
+  })
+
+test("cleanup finds Jev-judged signals S6-S10 from deterministic candidates", () => {
+  const found = cleanupCandidates(judgedTree())
+  const at = (id: keyof typeof found) => found[id].map((candidate) => `${candidate.path}:${candidate.line}`)
+  assert.deepEqual(at("comments"), ["src/user.ts:3"], "a comment that repeats the function's name")
+  assert.deepEqual(at("defensive"), ["src/user.ts:10"], "catch, log, rethrow")
+  assert.deepEqual(at("abstraction"), ["src/user.ts:4", "src/store.ts:1"], "one implementation; one-call wrapper")
+  assert.deepEqual(at("drift"), ["src/user.ts:2", "README.md:3"], "an unresolved import; a documented call no code has")
+  assert.deepEqual(at("test-theater"), ["test/user.test.ts:2"], "a test without an assertion, even named should")
+})
+
+test("the pre-filter reads block doc comments and subclasses, and never reads vendored or partial docs", () => {
+  const files = {
+    "src/shape.ts": [
+      "export abstract class Shape {",
+      "  abstract area(): number",
+      "}",
+      "export class Square extends Shape {",
+      "  area() { return 1 }",
+      "}",
+      "/**",
+      " * Gets the area.",
+      " * @param shape the shape",
+      " */",
+      "export function getArea(shape: Shape) {",
+      "  if (shape !== null && shape !== undefined) console.log(shape)",
+      "  return shape.area()",
+      "}"
+    ].join("\n"),
+    "lib/app.ex": "def configure(), do: :ok\n",
+    "vendor/lib/README.md": "Call `vendoredOnly()`.\n",
+    "README.md": "Call `configure()` or `missing()`.\n"
+  }
+  const found = cleanupCandidates(tree(files))
+  const at = (id: keyof typeof found) => found[id].map((candidate) => `${candidate.path}:${candidate.line}`)
+  assert.deepEqual(at("comments"), ["src/shape.ts:7"], "a block doc comment, tags aside, that repeats the name")
+  assert.deepEqual(at("abstraction"), ["src/shape.ts:1"], "an abstract class with one subclass")
+  assert.deepEqual(at("defensive"), ["src/shape.ts:12"], "not null and not undefined")
+  assert.deepEqual(at("drift"), ["README.md:1"], "any readable file defines a name; vendored docs are not the owner's")
+  const partial = cleanupCandidates(tree(files, ["src/large.ts"]))
+  assert.deepEqual(partial.drift, [], "an unreadable source file could define the documented call")
+})
+
+test("the pre-filter skips comments, declaration files, build output and lone typeof checks", () => {
+  const found = cleanupCandidates(tree({
+    "src/types.d.ts": "export interface User { id: string }\n",
+    "src/notes.txt": "notes\n",
+    "src/user.ts": [
+      "import type { User } from \"./types\"",
+      "import { client } from \"./generated/client.js\"",
+      "import notes from \"./notes.txt?raw\"",
+      "export const ready = typeof window === \"undefined\"",
+      "export const user = (id: string): User => client(id)"
+    ].join("\n"),
+    "test/user.test.ts": [
+      "test(\"commented\", () => {",
+      "  // expect(user(\"a\")).toBe(1)",
+      "  user(\"a\")",
+      "})",
+      "test(\"braces in a comment\", () => {",
+      "  // }}",
+      "  expect(user(\"b\").id).toBe(\"b\")",
+      "})"
+    ].join("\n")
+  }))
+  assert.deepEqual(
+    found.drift,
+    [],
+    "a declaration file answers; a bundler query names the same file; build output is untracked"
+  )
+  assert.deepEqual(found.defensive, [], "typeof alone is how code asks about a global")
+  assert.deepEqual(
+    found["test-theater"].map((candidate) => `${candidate.path}:${candidate.line}`),
+    ["test/user.test.ts:1"],
+    "a commented-out assertion asserts nothing; a commented brace ends nothing"
+  )
+})
+
+test("a repository in languages the pre-filter cannot read leaves the judged signals unmeasured", async () => {
+  const java = tree({
+    "src/User.java": "class User {\n  // Gets the user\n  public User getUser() { return this; }\n}\n"
+  })
+  const jev = judgeWith(() => 0.9)
+  const offline = await judged(cleanup(java, 4, 0), jev.layer)
+  assert.equal(offline.status, "scored")
+  assert.equal(offline.method, "deterministic-v0", "no zero without evidence")
+  assert.deepEqual(jev.calls, [])
+  const read = await judged(cleanup(tree({ "src/user.ts": "export const user = 1\n" }), 1, 0), jev.layer)
+  assert.equal(read.method, "hybrid-v0")
+  assert.ok(offline.high - offline.low > read.high - read.low, "unmeasured signals widen the range")
+})
+
+test("test theater reads each test's own body, however long", () => {
+  const found = cleanupCandidates(tree({
+    "src/run.ts": "export const run = (n: number) => n\n",
+    "test/run.test.ts": [
+      "test(\"empty\", () => { run(1) })",
+      "function check() { expect(run(2)).toBe(2) }",
+      "test(\"long\", () => {",
+      ...Array.from({ length: 70 }, (_, index) => `  run(${index})`),
+      "  expect(run(3)).toBe(3)",
+      "})"
+    ].join("\n"),
+    "test/test_run.py": [
+      "def test_empty():",
+      "    run(1)",
+      "",
+      "def helper():",
+      "    assert run(2) == 2"
+    ].join("\n")
+  }))
+  assert.deepEqual(
+    found["test-theater"].map((candidate) => `${candidate.path}:${candidate.line}`),
+    ["test/run.test.ts:1", "test/test_run.py:1"],
+    "a helper's assertion after a test is not the test's; an assertion 70 lines in is"
+  )
+  assert.equal(found["test-theater"][0]!.snippet, "test(\"empty\", () => { run(1) })", "Jev reads the test itself")
+})
+
+test("cleanup finds test theater with Jev and stops labeling itself deterministic-v0", async () => {
+  const theater = tree({
+    "src/a.ts": "export const a = (n: number) => n + 1\n",
+    "test/a.test.ts": "import { a } from \"../src/a.ts\"\ntest(\"a works\", () => { a(1) })\n"
+  })
+  const confirmed = await judged(cleanup(theater, 3, 0), judgeWith(() => 0.95).layer)
+  assert.equal(confirmed.method, "hybrid-v0")
+  assert.deepEqual(confirmed.causes.find((cause) => cause.signal === "test-theater"), {
+    signal: "test-theater",
+    count: 1,
+    location: { path: "test/a.test.ts", line: 2 }
+  })
+  const rejected = await judged(cleanup(theater, 3, 0), judgeWith(() => 0.05).layer)
+  assert.equal(rejected.causes.some((cause) => cause.signal === "test-theater"), false, "Jev said no")
+  assert.ok(rejected.score < confirmed.score)
+  const unsure = await judged(cleanup(theater, 3, 0), judgeWith(() => 0.55).layer)
+  assert.equal(unsure.causes.some((cause) => cause.signal === "test-theater"), false, "unclear is no finding")
+  assert.ok(unsure.high > rejected.high && unsure.low === rejected.low, "unclear widens only the high end")
+  const offline = await judged(cleanup(theater, 3, 0), Evaluator.layerUnavailable())
+  assert.equal(offline.method, "deterministic-v0", "without Jev the judged signals stay unmeasured")
+  assert.ok(offline.high - offline.low > rejected.high - rejected.low, "an unmeasured signal widens the range")
+})
+
+test("cleanup samples at most eight candidates per signal and scales the judged share", async () => {
+  const tests = Array.from({ length: 20 }, (_, index) => `test("t${index}", () => { run(${index}) })`).join("\n")
+  const many = tree({ "src/run.ts": "export const run = (n: number) => n\n", "test/run.test.ts": tests })
+  const jev = judgeWith((state) => state.line >= 11 ? 0.9 : 0.1)
+  const result = await judged(cleanup(many, 21, 0), jev.layer)
+  assert.equal(jev.calls.length, 8)
+  assert.deepEqual(jev.calls, [1, 3, 6, 8, 11, 13, 16, 18].map((line) => `test/run.test.ts:${line}`))
+  const theater = result.causes.find((cause) => cause.signal === "test-theater")
+  assert.equal(theater?.count, 10, "four of eight sampled scale to ten of twenty")
+  assert.deepEqual(theater?.location, { path: "test/run.test.ts", line: 11 })
+})
+
+test("the agent-written estimate is a Jev range over sampled untraced commits beside the traced floor", async () => {
+  const commits = parseLog(log([
+    { subject: "feat: one", age: 1, trailer: "Claude <noreply@anthropic.com>" },
+    { subject: "feat: Add comprehensive widget system", age: 2 },
+    { subject: "fix typo", age: 3 },
+    { subject: "unclear change", age: 4 },
+    { subject: "bump", age: 5 },
+    { subject: "old", age: 400 }
+  ]))
+  const estimate = await judged(estimateAgentShare(commits, NOW), judgeWith(() => 0).layer)
+  assert.deepEqual(estimate, { low: 40, high: 60, sampled: 4 }, "1 traced + 1 agent of 5; one unclear")
+  assert.equal(await judged(estimateAgentShare(commits, NOW), Evaluator.layerUnavailable()), undefined)
+  assert.equal(await judged(estimateAgentShare([], NOW), judgeWith(() => 0).layer), undefined)
+  const traced = parseLog(log([{ subject: "a", age: 1, trailer: "Claude <noreply@anthropic.com>" }]))
+  assert.deepEqual(await judged(estimateAgentShare(traced, NOW), Evaluator.layerUnavailable()), {
+    low: 100,
+    high: 100,
+    sampled: 0
+  })
+  const contradicted = Evaluator.layerScripted(() => ({
+    author: { choice: "agent", probabilities: { agent: 0.1, human: 0.85, unclear: 0.05 } }
+  }))
+  assert.deepEqual(
+    await judged(estimateAgentShare(commits, NOW), contradicted),
+    { low: 20, high: 100, sampled: 4 },
+    "a choice its own probabilities contradict is unclear, not a confident agent"
+  )
 })
 
 test("intake, affected packages and the CI estimate read GitHub rows", () => {
@@ -384,11 +637,15 @@ const checkout = async (t: TestContext) => {
   return { root, repo }
 }
 
-/** Jev: the first candidate, lint for pull requests about exports, and a count of every call. */
+/** Jev: the first candidate, lint for pull requests about exports, every cleanup finding, human commits, and a count of every call. */
 const jev = () => {
   const calls = { count: 0 }
   const layer = Evaluator.layerScripted((request) => {
     calls.count++
+    if ("finding" in request.questions) return { finding: { choice: "yes", probabilities: { yes: 0.9, no: 0.1 } } }
+    if ("author" in request.questions) {
+      return { author: { choice: "human", probabilities: { agent: 0.05, human: 0.9, unclear: 0.05 } } }
+    }
     if ("kind" in request.questions) {
       const state = request.state as { title: string }
       const kind = /export/i.test(state.title) ? "lint" : "neither"
@@ -571,6 +828,8 @@ test(
       ])
     }
     assert.equal(report.agentShare._tag === "agent-share" && report.agentShare.traced, 1)
+    assert.ok(report.agentShare._tag === "agent-share" && report.agentShare.estimate !== undefined, "Jev estimated")
+    assert.equal(report.cleanup._tag === "cleanup" && report.cleanup.method, "hybrid-v0")
     assert.equal(report.workflows._tag === "workflows" && report.workflows.lintRules[0]?.pr, 12)
     assert.equal(report.intake._tag, "unavailable", "no GitHub, no intake tile")
     assert.equal(report.ci._tag, "unavailable")

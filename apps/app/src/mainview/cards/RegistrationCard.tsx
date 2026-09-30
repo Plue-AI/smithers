@@ -111,7 +111,7 @@ const Fixes = ({ items, mono, prompt, repo, onRunCommand }: {
 
 const percent = (value: number) => `${Math.round(value * 100)}%`
 
-const Tiles = ({ report, repo, stagger, onRunCommand }: {
+export const Tiles = ({ report, repo, stagger, onRunCommand }: {
   readonly report: Report
   readonly repo: string
   readonly stagger: boolean
@@ -134,6 +134,19 @@ const Tiles = ({ report, repo, stagger, onRunCommand }: {
         <div className="registration-legend">
           <span>People</span>
           <span className="registration-legend-ai">With agents</span>
+        </div>
+      </Tile>
+    )
+  }
+  const share = report["agent-share"]
+  if (share !== undefined && share.commits > 0) {
+    tiles.push(
+      <Tile key="agent-share" label="Agent-written" index={next()}>
+        <div className="registration-big">≥{percent(share.traced / share.commits)}</div>
+        <div className="registration-sub">
+          traced{share.estimate === undefined
+            ? ""
+            : ` · ${share.estimate.low === share.estimate.high ? "" : `${share.estimate.low}–`}${share.estimate.high}% est.`}
         </div>
       </Tile>
     )

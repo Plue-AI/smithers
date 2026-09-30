@@ -57,10 +57,11 @@ Each step writes a typed result that the report card renders.
 
 Score method and sources: [research/registration-scores.md](research/registration-scores.md).
 Build order: agent readiness, deterministic cleanup signals, agent-written
-share, then Jev-judged signals once the calibration corpus exists. No
-per-file authorship classifier. Wording never insults the owner: "slop" stays
-internal, agent use is a strength, every finding has a fix, no claims about
-individual people, results private by default.
+share, Jev-judged signals with provisional anchors, then fitted anchors from
+the calibration corpus (#3150). No per-file authorship classifier. Wording
+never insults the owner: "slop" stays internal, agent use is a strength,
+every finding has a fix, no claims about individual people, results private by
+default.
 
 ## Implementation (#2153)
 
@@ -77,10 +78,21 @@ individual people, results private by default.
   the evidence does not settle it (several names, conflicting license texts,
   several check runners) and classifies merged pull requests as lint rule,
   chore or neither.
-- **Cleanup.** Deterministic signals S1-S5 only, labeled `deterministic-v0`,
-  with provisional anchors and a seeded interval widened for the unmeasured
-  45 points; S6-S10 and the agent-written estimate wait on the calibration
-  corpus (#2160).
+- **Cleanup.** All ten signals with provisional anchors, labeled `hybrid-v0`
+  (`cleanup.ts`, `judged.ts`). S1-S5 are deterministic. For S6-S10 a
+  deterministic pre-filter finds every candidate, Jev judges an evenly spaced
+  sample of at most eight per signal, and the judged share scales the
+  candidate count: confident yes sets the low end, yes plus unclear the high
+  end. A signal with no candidates is a measured zero without Jev. A signal
+  whose candidates Jev could not judge stays unmeasured, widens the interval,
+  and labels the run `deterministic-v0`. The pre-filter reads JavaScript,
+  TypeScript, Python and Go; with none of them, S6-S10 stay unmeasured.
+  Documentation drift is checked only when every source file was readable.
+  Fitted anchors wait on the calibration corpus (#3150).
+- **Agent-written share.** The traced floor, plus a Jev range: Jev reads the
+  subject and shape (size, spread, timing) of up to 30 untraced commits,
+  stratified by size; confident agent counts toward both ends, unclear only
+  toward the high end. The card shows "≥18% traced · 30–50% est.".
 - **Review.** A durable `select` (Approve / Decline), then a note on decline.
   Approval runs `register-repository/setup` as a child flow in the same
   workspace. The admin's approvals inbox includes other accounts' reviews
