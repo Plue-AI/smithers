@@ -1548,6 +1548,48 @@ describe("a status filter over an executor's observation", () => {
     expect(items(observed.unfiltered)).toContain("run-3")
   })
 
+  it("bounds observation by limit only when no status filter is applied", async () => {
+    const calls: Array<string> = []
+    const executor = ControlExecutor.makeNoop({
+      readExecution: (runId) =>
+        Effect.sync(() => {
+          calls.push(runId)
+          return runId === "run-3"
+            ? { _tag: "Observed", status: "waiting-approval", waitingReason: "event" } as const
+            : { _tag: "Observed", status: "running" } as const
+        })
+    })
+    const observed = await Effect.runPromise(
+      Effect.gen(function*() {
+        const control = yield* Control
+        for (const suite of ["bound-a", "bound-b", "bound-c"]) yield* start("system/test", suite)
+        calls.length = 0
+        const unfiltered = yield* control.list({ _tag: "runs", limit: 1 })
+        const unfilteredCalls = [...calls]
+        calls.length = 0
+        const filtered = yield* control.list({ _tag: "runs", filters: { status: "waiting-approval" }, limit: 1 })
+        const filteredCalls = [...calls]
+        calls.length = 0
+        const terminalPage = yield* control.list({ _tag: "runs", filters: { terminal: true }, limit: 1 })
+        return { unfiltered, unfilteredCalls, filtered, filteredCalls, terminalPage, terminalCalls: [...calls] }
+      }).pipe(
+        Effect.provide(live({ runtime: memoryRuntime({ flows }), executor })),
+        Effect.scoped,
+        Effect.orDie
+      )
+    )
+
+    // Without a status filter, only the selected page is observed.
+    expect(items(observed.unfiltered)).toEqual(["run-1"])
+    expect(observed.unfilteredCalls).toEqual(["run-1"])
+    // A status filter walks the source past rows it observes and drops, so the
+    // page size bounds the returned rows and not the observations.
+    expect(items(observed.filtered)).toEqual(["run-3"])
+    expect(observed.filteredCalls).toEqual(["run-1", "run-2", "run-3"])
+    expect(items(observed.terminalPage)).toEqual([])
+    expect(observed.terminalCalls).toEqual(["run-1", "run-2", "run-3"])
+  })
+
   it("answers an exhausted source with no rows and no cursor", async () => {
     const observed = await Effect.runPromise(
       Effect.gen(function*() {

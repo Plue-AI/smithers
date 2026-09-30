@@ -42,7 +42,8 @@ Six filters are supported, and they combine:
 
 Filtering on `runId` is one read. Other queries filter before decoding the
 selected page. An executor that supplies observed status is post-filtered to
-keep the returned status consistent.
+keep the returned status consistent: a `status` or `terminal` page walks the
+source until it is full, so it can observe more runs than `limit`.
 
 Use `order: "newest"` to order by creation time descending, with stable
 sequence/id tie breakers. Omission preserves the historical order. A cursor
