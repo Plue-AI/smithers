@@ -321,12 +321,20 @@ describe("DaytonaSandbox", () => {
       }
     }))
 
-  it.effect("leaves a reattached sandbox's network alone when no policy is set", () =>
+  it.effect("blocks all egress on create when no policy is set", () =>
+    Effect.gen(function*() {
+      const fake = fakeSdk()
+      yield* acquired(DaytonaSandbox.make({ sdk: fake.sdk }), Effect.succeed)
+      expect(fake.recorded.creates).toEqual([{ name: `smthrs-${sessionSlug("run-1")}`, networkBlockAll: true }])
+      expect(fake.recorded.networkUpdates).toEqual([])
+    }))
+
+  it.effect("blocks all egress on a reattached sandbox when no policy is set", () =>
     Effect.gen(function*() {
       const fake = fakeSdk()
       fake.seed(`smthrs-${sessionSlug("run-1")}`)
       yield* acquired(DaytonaSandbox.make({ sdk: fake.sdk }), Effect.succeed)
-      expect(fake.recorded.networkUpdates).toEqual([])
+      expect(fake.recorded.networkUpdates).toEqual([{ settings: { networkBlockAll: true }, executedBefore: 0 }])
     }))
 
   it.effect("fails a reattach whose network update is refused, runs nothing, and deletes it", () =>
@@ -393,7 +401,11 @@ describe("DaytonaSandbox", () => {
     Effect.gen(function*() {
       const fake = fakeSdk()
       yield* acquired(DaytonaSandbox.make({ sdk: fake.sdk, limits: { timeoutSecs: 5400 } }), Effect.succeed)
-      expect(fake.recorded.creates).toEqual([{ name: `smthrs-${sessionSlug("run-1")}`, ttlMinutes: 90 }])
+      expect(fake.recorded.creates).toEqual([{
+        name: `smthrs-${sessionSlug("run-1")}`,
+        networkBlockAll: true,
+        ttlMinutes: 90
+      }])
     }))
 
   it("refuses cpu, memory, and part-minute lifetimes at construction, before touching its dependencies", () => {

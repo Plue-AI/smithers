@@ -51,7 +51,7 @@ export interface VercelSandboxOptions extends Credentials {
   /**
    * The guest network, enforced by Vercel's egress firewall: `"none"` and
    * an empty list are `deny-all`, `{ allow }` its domain allowlist, `"open"` is
-   * `allow-all`, which also lifts a resumed sandbox's earlier policy. Default: Vercel's own, full internet access.
+   * `allow-all`, which also lifts a resumed sandbox's earlier policy. Default: `"none"`; Vercel's own full internet access needs `"open"`.
    */
   readonly network?: NetworkPolicy | undefined
   /**
@@ -177,9 +177,7 @@ const resolveCredentials = (
  * @since 0.1.0
  */
 export const make = (options: VercelSandboxOptions): Provider => {
-  const networkPolicy = options.network === undefined
-    ? undefined
-    : vendorPolicy(validateNetworkPolicy("vercel-sandbox", options.network))
+  const networkPolicy = vendorPolicy(validateNetworkPolicy("vercel-sandbox", options.network ?? "none"))
   const limits = options.limits === undefined ? {} : validateResourceLimits("vercel-sandbox", options.limits)
   if (limits.timeoutSecs !== undefined && options.timeoutMs !== undefined) {
     throw new TypeError("vercel-sandbox: timeoutMs and limits.timeoutSecs are exclusive; name one")
@@ -227,7 +225,7 @@ export const make = (options: VercelSandboxOptions): Provider => {
                 resume: true,
                 ...options.runtime === undefined ? {} : { runtime: options.runtime },
                 ...vcpus === undefined ? {} : { resources: { vcpus } },
-                ...networkPolicy === undefined ? {} : { networkPolicy }
+                networkPolicy
               }),
             "unavailable",
             `could not acquire ${name}`
@@ -272,13 +270,11 @@ export const make = (options: VercelSandboxOptions): Provider => {
         // `getOrCreate` applies a policy only when it creates; a resumed
         // sandbox keeps its own until updated, so the policy is set again
         // before any guest command runs.
-        if (networkPolicy !== undefined) {
-          yield* attempt(
-            () => sandbox.update({ networkPolicy }),
-            "unavailable",
-            `could not apply the network policy to ${name}`
-          )
-        }
+        yield* attempt(
+          () => sandbox.update({ networkPolicy }),
+          "unavailable",
+          `could not apply the network policy to ${name}`
+        )
         const extension = expiresAt === undefined ? desiredMs - createMs : deadline - expiresAt
         if (desiredMs > createMs && extension > 0) {
           yield* attempt(

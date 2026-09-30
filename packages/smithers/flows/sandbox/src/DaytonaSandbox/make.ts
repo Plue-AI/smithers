@@ -38,7 +38,7 @@ export interface DaytonaSandboxOptions {
    * `networkBlockAll`; `{ allow }` sends `domainAllowList`. A reattached
    * sandbox gets the same settings through `updateNetworkSettings` before any
    * guest command. `"open"` sends `networkBlockAll: false`, which also lifts a
-   * reattached sandbox's block. Default: Daytona's own network.
+   * reattached sandbox's block. Default: `"none"`; Daytona's own network needs `"open"`.
    */
   readonly network?: NetworkPolicy | undefined
   /**
@@ -87,8 +87,7 @@ const missingFile = (cause: unknown): boolean => field(cause, "code") === "FILE_
 const attempt = attemptIn("daytona-sandbox")
 
 const networkSettings = (network: NetworkPolicy | undefined) => {
-  if (network === undefined) return undefined
-  const policy = validateNetworkPolicy("daytona-sandbox", network)
+  const policy = validateNetworkPolicy("daytona-sandbox", network ?? "none")
   if (policy === "open") return { networkBlockAll: false }
   return policy === "none" || policy.allow.length === 0
     ? { networkBlockAll: true }
@@ -213,13 +212,11 @@ export const make = (options: DaytonaSandboxOptions): Provider => {
           )
           // A reattached sandbox keeps the network it was created with until
           // told otherwise; the runner applies these to the running container.
-          if (network !== undefined) {
-            yield* attempt(
-              () => held.sandbox.updateNetworkSettings(network),
-              "unavailable",
-              `could not apply the network policy to ${name}`
-            )
-          }
+          yield* attempt(
+            () => held.sandbox.updateNetworkSettings(network),
+            "unavailable",
+            `could not apply the network policy to ${name}`
+          )
         }
         const discovered = options.workdir === undefined
           ? yield* attempt(() => held.sandbox.getWorkDir(), "unavailable", `could not discover ${name}'s workdir`)
