@@ -705,3 +705,47 @@ test("a first-run-target park is inert to the readiness controller", async () =>
     expect([...h.store.collections.cards.values()]).toEqual([])
   } finally { await h.close() }
 })
+
+const invalidSavedRequests = [
+  ["removed.command", '{"repo":"alpha/one"}', "The saved repository command is unavailable."],
+  ["files.list", "{", "The saved repository request could not be read. Run the command again."],
+  ["files.list", null, "The saved repository request could not be read. Run the command again."],
+  ["files.list", "null", "The saved repository request has no target. Run the command again."],
+  ["files.list", "{}", "The saved repository request has no target. Run the command again."],
+  ["files.list", '{"repo":4}', "The saved repository request has no target. Run the command again."],
+  ["files.list", '{"repo":"beta/two"}', "Repository changed. Run the command again."]
+] as const
+for (const [name, args, error] of invalidSavedRequests) test(`saved ${name} request ${String(args)} refuses without executing or replacing the draft`, async () => {
+  const hits: string[] = []
+  const h = await setup(undefined, async input => { hits.push(String(input)); return json(200, []) })
+  try {
+    h.controller.changeDraft("Unsaved chat remains mine")
+    await h.store.dispatch({ type: "command.deferred", actor: "user", name, args, requirement: "repository-ready" }).isPersisted.promise
+    const pending = h.store.session().pendingCommand
+    // Boot identity admission reconnects the saved request through the real controller subscription.
+    await h.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, allowlisted: false, admin: false, scopesPlain: null }).isPersisted.promise
+    await until(() => [...h.store.collections.toasts.values()].some(toast => toast.status === "failed"))
+    expect([...h.store.collections.toasts.values()].filter(toast => toast.status === "failed").map(toast => toast.detail)).toEqual([error])
+    expect(hits).toEqual([])
+    expect((await h.store.eventHistory()).events.filter(event => event.type === "command.ran")).toEqual([])
+    expect(h.store.session().pendingCommand).toEqual(args === '{"repo":"beta/two"}' ? null : pending)
+    expect(h.store.session().draft).toBe("Unsaved chat remains mine")
+    h.controller.changeDraft("I can still edit chat")
+    expect(h.store.session().draft).toBe("I can still edit chat")
+  } finally { await h.close() }
+})
+for (const error of [undefined, "Catalog remains unavailable"] as const) test(`a failed route reports ${error === undefined ? "the fallback" : "its saved failure"} without reading contents`, async () => {
+  const hits: string[] = []
+  const h = await setup(undefined, async input => { hits.push(String(input)); return json(200, []) })
+  try {
+    h.controller.changeDraft("Continue chatting")
+    expect(await h.controller.commands.run("files.list", `docs ${repo}`)).toEqual({ status: "executed", value: "Requested" })
+    await h.store.dispatch({ type: "repository.entry.changed", actor: "system", entry: { ...h.store.session().repositoryEntry!, phase: "failed", failureKind: "unavailable", ...(error === undefined ? {} : { error }) } }).isPersisted.promise
+    await until(() => [...h.store.collections.toasts.values()].some(toast => toast.status === "failed"))
+    expect([...h.store.collections.toasts.values()].filter(toast => toast.status === "failed").map(toast => toast.detail)).toEqual([error ?? "The repository could not be opened. Try again."])
+    expect(h.store.session().pendingCommand).toBeNull()
+    expect(h.store.session().draft).toBe("Continue chatting")
+    expect(hits).toEqual([])
+    expect((await h.store.eventHistory()).events.filter(event => event.type === "command.ran")).toEqual([])
+  } finally { await h.close() }
+})
