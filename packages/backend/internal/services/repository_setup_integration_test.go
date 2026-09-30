@@ -151,6 +151,74 @@ func TestRepositorySetupDurableAdmissionAndRuntimeCompletion(t *testing.T) {
 	require.True(t, row.Terminal)
 }
 
+func TestRepositorySetupReadShowsSafePreRunRetryWithoutChangingAdmission(t *testing.T) {
+	pool := newProductTestPool(t)
+	ctx := context.Background()
+	product := NewRepositorySetupService(pool, NewRepositoryJobService(db.New(pool), nil, pool), nil)
+	store, err := jobs.NewStore(pool)
+	require.NoError(t, err)
+	dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: store, Projector: product, Resolver: flowruntime.ResolverFunc(func(context.Context, flowruntime.Target) (flowruntime.Runtime, error) {
+		t.Fatal("reading setup must not launch a host")
+		return nil, nil
+	})})
+	require.NoError(t, err)
+	product.SetFlowDispatcher(dispatcher)
+	request := func() SetupRecord {
+		userID, repoID := setupTestUserAndRepo(t, pool)
+		input := setupFixtureInput(t)
+		input.RequestID = uuid.NewString()
+		require.NoError(t, pool.QueryRow(ctx, `SELECT u.username||'/'||r.name FROM repositories r JOIN users u ON u.id=r.user_id WHERE r.id=$1`, repoID).Scan(&input.Repo))
+		input.Digest = setupCandidateDigest(input, false)
+		input.WorkspaceID = uuid.NewString()
+		_, err := pool.Exec(ctx, `INSERT INTO workspaces(id,repository_id,user_id,status) VALUES($1,$2,$3,'running')`, input.WorkspaceID, repoID, userID)
+		require.NoError(t, err)
+		record, err := product.Request(ctx, repoID, userID, input)
+		require.NoError(t, err)
+		return record
+	}
+	blocked, other := request(), request()
+	read := func(record SetupRecord) SetupRecord {
+		observed, err := product.Read(ctx, record.RepositoryID, record.UserID, record.Input.Repo, record.Input.Job, record.Input.RequestID)
+		require.NoError(t, err)
+		return observed
+	}
+	require.Empty(t, read(blocked).Response.Receipt.Error)
+	_, err = pool.Exec(ctx, `UPDATE product_job_dispatches SET attempt=1,status='ready',last_error='provider token=private-value',updated_at=clock_timestamp() WHERE operation_id=$1`, blocked.OperationID)
+	require.NoError(t, err)
+	observed := read(blocked)
+	require.Equal(t, "queued", observed.Response.Receipt.Phase)
+	require.Equal(t, "Retrying", observed.Response.Receipt.Error)
+	require.NotContains(t, observed.Response.Receipt.Error, "private-value")
+	require.Equal(t, blocked.Response.Receipt.UpdatedAt, observed.Response.Receipt.UpdatedAt)
+	require.Equal(t, blocked.OperationID, observed.OperationID)
+	require.Equal(t, blocked.WorkspaceID, observed.WorkspaceID)
+	require.False(t, observed.Terminal)
+	recovered, err := product.Recover(ctx, blocked.RepositoryID, blocked.UserID, "owner", blocked.Input.Repo, blocked.Input.Job)
+	require.NoError(t, err)
+	require.Equal(t, observed.Response.Receipt, recovered.Setup.Result.Receipt)
+	require.Empty(t, read(other).Response.Receipt.Error)
+	_, err = product.Read(ctx, blocked.RepositoryID, other.UserID, blocked.Input.Repo, blocked.Input.Job, blocked.Input.RequestID)
+	require.Error(t, err)
+	_, err = pool.Exec(ctx, `UPDATE product_job_dispatches SET status='claimed',claim_token=$2,worker_id='test-worker',claimed_at=clock_timestamp(),lease_expires_at=clock_timestamp()+interval '1 minute' WHERE operation_id=$1`, blocked.OperationID, uuid.NewString())
+	require.NoError(t, err)
+	require.Equal(t, "Retrying", read(blocked).Response.Receipt.Error)
+	_, err = pool.Exec(ctx, `UPDATE product_job_dispatches SET status='ready',claim_token=NULL,worker_id=NULL,claimed_at=NULL,lease_expires_at=NULL,last_error='' WHERE operation_id=$1`, blocked.OperationID)
+	require.NoError(t, err)
+	require.Empty(t, read(blocked).Response.Receipt.Error, "the retry label is a read projection, not persisted setup state")
+	_, err = pool.Exec(ctx, `DELETE FROM product_job_dispatches WHERE operation_id=$1`, other.OperationID)
+	require.NoError(t, err)
+	require.Empty(t, read(other).Response.Receipt.Error, "an old queued receipt without a dispatch row remains readable")
+	projection, err := json.Marshal(map[string]string{"kind": repositorySetupBinding, "id": blocked.ID})
+	require.NoError(t, err)
+	scope := repositoryJobFlowScope(blocked.RepositoryID, blocked.UserID)
+	require.NoError(t, product.ProjectFlowRuntime(ctx, flowdispatch.ProjectionUpdate{OperationID: blocked.OperationID, Scope: scope, State: jobs.StateAccepted,
+		Checkpoint: flowdispatch.RuntimeCheckpoint{Target: flowruntime.Target{TenantID: scope.TenantID, PrincipalID: scope.PrincipalID, BindingKind: repositorySetupBinding, BindingID: blocked.ID, WorkspaceID: blocked.Input.WorkspaceID}, FlowID: "repository/setup", Projection: projection, RunID: "run-recovered"}}))
+	started := read(blocked)
+	require.Equal(t, "running", started.Response.Receipt.Phase)
+	require.Equal(t, "run-recovered", started.Response.Receipt.RunID)
+	require.Empty(t, started.Response.Receipt.Error)
+}
+
 func TestRepositorySetupDeletionRemovesOnlyOwnedReceipts(t *testing.T) {
 	pool := newProductTestPool(t)
 	ctx := context.Background()

@@ -167,7 +167,48 @@ func (s *RepositorySetupService) Read(ctx context.Context, repoID, userID int64,
 	if errors.Is(err, pgx.ErrNoRows) || err == nil && record.Input.Repo != repo {
 		return SetupRecord{}, pkgerrors.NotFound("Setup request not found")
 	}
-	return record, err
+	if err != nil {
+		return SetupRecord{}, err
+	}
+	return s.observeSetupRetry(ctx, record), nil
+}
+
+// A launch can be retried before a repository/setup run exists. Keep the
+// accepted queued receipt and its pinned workspace, but show a safe delay
+// reason from the durable dispatch state. The dispatcher's last_error can
+// contain provider details and must never enter a product response.
+func (s *RepositorySetupService) observeSetupRetry(ctx context.Context, record SetupRecord) SetupRecord {
+	receipt := record.Response.Receipt
+	if record.OperationID == "" || record.Terminal || receipt == nil || receipt.Phase != "queued" || receipt.RunID != "" {
+		return record
+	}
+	scope := repositoryJobFlowScope(record.RepositoryID, record.UserID)
+	var attempt int
+	var status string
+	var failedBefore bool
+	err := s.pool.QueryRow(ctx, `SELECT d.attempt,d.status,COALESCE(d.last_error,'')<>''
+		FROM product_job_dispatches d JOIN product_job_requests r ON r.id=d.operation_id
+		WHERE r.id=$1 AND r.tenant_id=$2 AND r.principal_id=$3 AND r.operation=$4`,
+		record.OperationID, scope.TenantID, scope.PrincipalID, flowdispatch.OperationLaunch).
+		Scan(&attempt, &status, &failedBefore)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return record
+	}
+	if err != nil {
+		if record.ObservationError == "" {
+			record.ObservationError = "Setup status is temporarily unavailable"
+		}
+		return record
+	}
+	if attempt == 0 || !failedBefore || (status != "ready" && status != "claimed") {
+		return record
+	}
+	response := record.Response
+	observed := *receipt
+	observed.Error = "Retrying"
+	response.Receipt = &observed
+	record.Response = response
+	return record
 }
 func (s *RepositorySetupService) latest(ctx context.Context, repoID, userID int64, job string) (SetupRecord, error) {
 	return scanSetup(s.pool.QueryRow(ctx, "SELECT "+setupColumns+" FROM repository_setup_requests WHERE user_id=$1 AND repository_id=$2 AND job=$3 ORDER BY created_at DESC,id DESC LIMIT 1", userID, repoID, job))
@@ -439,7 +480,8 @@ func (s *RepositorySetupService) Recover(ctx context.Context, repoID, userID int
 	} else if err != nil || record.Input.Repo != repo {
 		result.Setup = SetupRecoveryState{State: "unavailable", Error: "Setup recovery storage is unavailable"}
 	} else {
-		result.Setup = SetupRecoveryState{State: "found", Input: &record.Input, Result: &record.Response, ObservationError: record.ObservationError}
+		observed := s.observeSetupRetry(ctx, record)
+		result.Setup = SetupRecoveryState{State: "found", Input: &observed.Input, Result: &observed.Response, ObservationError: observed.ObservationError}
 	}
 	return result, nil
 }

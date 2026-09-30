@@ -182,6 +182,7 @@ export function RepositorySetupCard({ card, onRunCommand, signedOut, ciConfigure
     <footer className="setup-actions" aria-live="polite">
       {preview ? <button type="button" {...flowAction(onRunCommand, "auth.prompt")}>Sign in</button> : <>
         {pending && <span>{recovering ? "Requested" : receipt?.phase === "waiting" ? "Waiting" : receipt?.phase === "running" ? "Running" : receipt?.phase === "queued" ? "Queued" : "Requested"}</span>}
+        {pending && receipt?.phase === "queued" && receipt.error && <span className="setup-gate">{receipt.error}</span>}
         {owned && !unknown && state.active?.enabled && <button type="button" disabled={pending} {...flowAction(onRunCommand, "setup.run", flowArgs("setup.run", { cardId: card.id, operation: "pause" }))}>Pause</button>}
         {drafted && <button type="button" disabled={pending} {...flowAction(onRunCommand, "setup.discard", card.id)}>Discard draft</button>}
         <button type="button" disabled={pending || unknown || !owned || gate.length > 0 || (state.active?.enabled && state.active.revision === state.revision)} {...flowAction(onRunCommand, "setup.run", flowArgs("setup.run", { cardId: card.id, operation: "apply" }))}>{state.active?.enabled ? labels.update : labels.enable}</button>

@@ -236,6 +236,51 @@ test("only a real scoped run enables Run; waiting alone never claims an approval
   } finally { t.close() }
 })
 
+test("a queued setup retry explains the delay without claiming a run or offering another launch", () => {
+  const card = makeCard("review"), digest = setupCandidate(card.payload)
+  card.payload.workspaceId = "de29f26b-e593-4ec2-99fc-583d4711f20a"
+  card.payload.request = { id: "accepted", operation: "evaluate", revision: 1, digest, state: "running", observeOnly: true }
+  card.payload.receipt = { requestId: "accepted", operation: "evaluate", revision: 1, digest, phase: "queued", updatedAt: 1, results: [], evidence: [] }
+  card.payload.recovery = { id: "recover", baseRevision: 1, baseDigest: digest, state: "requested", registrationState: "unknown" }
+  const t = mount(card)
+  try {
+    const recovered: SetupRecoveryResponse = { owner: "maintainer", repo: card.payload.repo, job: card.payload.job,
+      registration: { state: "known" },
+      setup: { state: "found", input: { requestId: "accepted", repo: card.payload.repo, job: card.payload.job, revision: 1,
+        digest, draft: card.payload.draft, workspaceId: card.payload.workspaceId, operation: "evaluate" },
+      result: { requestId: "accepted", revision: 1, digest, workspaceId: card.payload.workspaceId,
+        receipt: { ...card.payload.receipt!, error: "Retrying" } } } }
+    const cold = projectRecoveredSetup({ ...card.payload, request: undefined, receipt: undefined }, recovered, new Set([card.payload.workspaceId]))
+    expect(cold.workspaceId).toBe(card.payload.workspaceId)
+    expect(cold.request).toMatchObject({ id: "accepted", state: "running", observeOnly: true })
+    expect(cold.receipt).toMatchObject({ requestId: "accepted", phase: "queued", error: "Retrying" })
+    t.render({ ...card, payload: cold })
+    expect(t.host.textContent).toContain("Queued")
+    expect(t.host.textContent).toContain("Retrying")
+    expect(t.button("Retry")).toBeUndefined()
+    const projected = projectRecoveredSetup(card.payload, recovered, new Set([card.payload.workspaceId]))
+    expect(projected.request).toMatchObject({ id: "accepted", state: "running", observeOnly: true })
+    expect(projected.receipt).toMatchObject({ requestId: "accepted", phase: "queued", updatedAt: 1 })
+    t.render({ ...card, payload: projected })
+    expect(t.host.textContent).toContain("Queued")
+    expect(t.host.textContent).toContain("Retrying")
+    expect(t.button("Enable PR reviews")?.disabled).toBe(true)
+    expect(t.button("Run")).toBeUndefined()
+    expect(t.button("Retry")).toBeUndefined()
+    expect(t.calls).toEqual([])
+    if (recovered.setup.state !== "found") throw Error("fixture")
+    const running: SetupRecoveryResponse = { ...recovered, setup: { ...recovered.setup,
+      result: { ...recovered.setup.result, receipt: { ...recovered.setup.result.receipt!, phase: "running", runId: "run-accepted", error: undefined } } } }
+    const started = projectRecoveredSetup(projected, running, new Set([card.payload.workspaceId]))
+    t.render({ ...card, payload: started })
+    expect(started.request).toMatchObject({ id: "accepted", state: "running", observeOnly: true })
+    expect(started.receipt).toMatchObject({ requestId: "accepted", phase: "running", runId: "run-accepted", updatedAt: 1 })
+    expect(t.host.textContent).not.toContain("Retrying")
+    expect(t.button("Run")).toBeDefined()
+    expect(t.calls).toEqual([])
+  } finally { t.close() }
+})
+
 test("a paused job keeps its way back on the card, through the flow every door runs", () => {
   const card = makeCard("feature")
   const digest = setupCandidate(card.payload)
