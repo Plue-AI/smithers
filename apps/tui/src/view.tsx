@@ -376,7 +376,7 @@ export function RunCard(props: {
         {...(props.focused === true ? { backgroundColor: color.surface } : {})}
         {...(props.onOpen === undefined ? {} : { onMouseDown: props.onOpen })}
       >
-        <text>
+        <text wrapMode="none">
           <span fg={runTone(run?.status)}>{run === undefined ? "· " : flowGlyph(run.status)}</span>
           <strong fg={color.text}>{props.title}</strong>
           {said.clock === undefined ? null : <span fg={color.muted}>{` · ${said.clock}`}</span>}
