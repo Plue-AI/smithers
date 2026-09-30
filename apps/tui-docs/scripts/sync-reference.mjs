@@ -27,6 +27,8 @@ const guides = {
   grep: "/docs/tui/views/",
   ui: "/docs/tui/extend/",
   smithers: "/docs/learn/run-a-flow/",
+  todo: "/docs/learn/issue-to-main/#file-a-todo",
+  devtools: "/docs/learn/devtools/",
   flows: "/docs/learn/run-a-flow/",
   flow: "/docs/learn/run-a-flow/",
   agent: "/docs/how-it-works/agents/",
@@ -37,6 +39,7 @@ const guides = {
   hotkeys: "/docs/tui/keys/",
   quit: "/docs/tui/cli/"
 }
+for (const c of commands) if (!guides[c.name]) throw new Error(`No guide page for /${c.name}`)
 const inventory = commands.map((c) =>
   `| \`/${c.name}${c.args ? " " + c.args.replaceAll("|", "\\|") : ""}\` | ${c.description}. | [Guide](${
     guides[c.name]
