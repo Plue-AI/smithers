@@ -1401,6 +1401,13 @@ const FIXTURES: Record<Card["kind"], KindFixtures> = {
         commentBody: "reproduced",
         createdAt: "2026-09-05T09:00:00Z"
       }],
+      lastComment: {
+        commenter: "will",
+        persona: "Reviewer",
+        excerpt: "reproduced",
+        origin: "slack",
+        createdAt: "2026-09-05T09:00:00Z"
+      },
       createdAt: "2026-09-04T08:00:00Z",
       assignees: [{ login: "ada", avatar: "https://avatars.githubusercontent.com/u/1" }],
       labelColors: { ci: "0e8a16", flaky: "d93f0b" },
@@ -1499,9 +1506,18 @@ const FIXTURES: Record<Card["kind"], KindFixtures> = {
     minimal: { repo: "smithersai/smithers", failure: null },
     full: {
       repo: "smithersai/smithers",
-      failure: { act: "todo", message: "Refused", args: "{\"title\":\"Fix the footer\",\"repo\":\"smithersai/smithers\"}" },
+      failure: {
+        act: "todo",
+        message: "Refused",
+        args: "{\"title\":\"Fix the footer\",\"repo\":\"smithersai/smithers\"}"
+      },
       bootstrap: { requestedAt: 1 },
-      todos: [{ key: "0a1b2c3d", title: "Fix the footer", body: "", requestedAt: 1, item: "item-9" }, { key: "4e5f6a7b", title: "Add a link", body: "In the footer.", requestedAt: 2 }],
+      todos: [{ key: "0a1b2c3d", title: "Fix the footer", body: "", requestedAt: 1, item: "item-9" }, {
+        key: "4e5f6a7b",
+        title: "Add a link",
+        body: "In the footer.",
+        requestedAt: 2
+      }],
       view: "metrics"
     }
   },
