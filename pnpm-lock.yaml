@@ -3518,16 +3518,28 @@ importers:
       '@smthrs/journal':
         specifier: 1.0.0-rc.1
         version: link:../../flows/journal
+      '@smthrs/sandbox':
+        specifier: 1.0.0-rc.1
+        version: link:../../flows/sandbox
     devDependencies:
       '@effect/language-service':
         specifier: 0.87.2
         version: 0.87.2
+      '@effect/platform-node':
+        specifier: 4.0.0-rc.115
+        version: 4.0.0-rc.115(effect@4.0.0-rc.115)(redis@6.2.1(@opentelemetry/api@1.9.1))
       '@effect/vitest':
         specifier: 4.0.0-rc.115
         version: 4.0.0-rc.115(effect@4.0.0-rc.115)(vitest@5.0.0)
       '@eslint/js':
         specifier: 9.39.5
         version: 9.39.5
+      '@smthrs/kernel':
+        specifier: 1.0.0-rc.1
+        version: link:../../flows/kernel
+      '@smthrs/platform-node':
+        specifier: 1.0.0-rc.1
+        version: link:../../flows/platform-node
       '@types/node':
         specifier: 26.4.1
         version: 26.4.1

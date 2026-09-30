@@ -1477,6 +1477,22 @@
         }
       },
       "reason": "The DevTools projection of one run (#2931, 28e0fcf2a9): a pure view over the RunTrace fold of run-events, so the app pane, the terminal's /devtools and smthrs runs devtools inspect a run the same way with no second node model or data source."
+    },
+    {
+      "name": "@smthrs/scorers",
+      "subpath": "./Scorers",
+      "development": "./src/Scorers.ts",
+      "published": {
+        "import": {
+          "types": "./dist/esm/Scorers.d.ts",
+          "default": "./dist/esm/Scorers.js"
+        },
+        "require": {
+          "types": "./dist/cjs/Scorers.d.ts",
+          "default": "./dist/cjs/Scorers.js"
+        }
+      },
+      "reason": "Built-in deterministic scoring required by #1849: normalized equality/containment, sandbox command exit verdicts with inconclusive launch failures, and unified-diff line/file budgets. Uses existing scorer identities, durable runner observations and sandbox Session; rubric delegates to the existing Rubric contract."
     }
   ],
   "removed": [

@@ -2,6 +2,8 @@ import { execFileSync } from "node:child_process"
 import { readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
+import { Scorers } from "../src/index.ts"
+import * as Builtins from "../src/Scorers.ts"
 
 const packageRoot = fileURLToPath(new URL("../", import.meta.url))
 
@@ -15,6 +17,23 @@ const namespaces = (): ReadonlyArray<readonly [string, string]> =>
 // Migration step modules are applied through the root `Migrations` namespace;
 // the step bodies themselves are sealed implementation detail.
 describe("package exports", () => {
+  it("exports all built-in scorers through the root namespace and public subpath", () => {
+    expect(Scorers).toBe(Builtins)
+    expect(Object.keys(Scorers).sort()).toEqual([
+      "contains",
+      "diffSize",
+      "exact",
+      "rubric",
+      "testsPass",
+      "touchedFiles"
+    ])
+    const manifest = JSON.parse(read("../package.json"))
+    expect(manifest.exports["./Scorers"]).toBe("./src/Scorers.ts")
+    expect(manifest.publishConfig.exports["./Scorers"]).toEqual({
+      import: { types: "./dist/esm/Scorers.d.ts", default: "./dist/esm/Scorers.js" },
+      require: { types: "./dist/cjs/Scorers.d.ts", default: "./dist/cjs/Scorers.js" }
+    })
+  })
   // `index.ts` carries no implementation: it names sibling modules and nothing
   // else. A re-export with a path segment puts a concept in a directory's
   // `index.ts` instead of its own named file, and every reader of the barrel

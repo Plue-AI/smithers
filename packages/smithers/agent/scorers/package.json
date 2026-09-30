@@ -49,7 +49,8 @@
     "./Scorer": "./src/Scorer.ts",
     "./ScorerError": "./src/ScorerError.ts",
     "./SqlScoreStore": "./src/SqlScoreStore.ts",
-    "./index": "./src/index.ts"
+    "./index": "./src/index.ts",
+    "./Scorers": "./src/Scorers.ts"
   },
   "files": [
     "src/**/*.ts",
@@ -200,6 +201,16 @@
           "types": "./dist/cjs/index.d.ts",
           "default": "./dist/cjs/index.js"
         }
+      },
+      "./Scorers": {
+        "import": {
+          "types": "./dist/esm/Scorers.d.ts",
+          "default": "./dist/esm/Scorers.js"
+        },
+        "require": {
+          "types": "./dist/cjs/Scorers.d.ts",
+          "default": "./dist/cjs/Scorers.js"
+        }
       }
     }
   },
@@ -216,7 +227,8 @@
   "dependencies": {
     "@smthrs/core": "1.0.0-rc.1",
     "@smthrs/database": "1.0.0-rc.1",
-    "@smthrs/journal": "1.0.0-rc.1"
+    "@smthrs/journal": "1.0.0-rc.1",
+    "@smthrs/sandbox": "1.0.0-rc.1"
   },
   "peerDependencies": {
     "effect": "4.0.0-rc.115"
@@ -238,6 +250,9 @@
     "madge": "8.0.0",
     "typescript": "5.9.3",
     "typescript-eslint": "8.69.0",
-    "vitest": "5.0.0"
+    "vitest": "5.0.0",
+    "@effect/platform-node": "4.0.0-rc.115",
+    "@smthrs/kernel": "1.0.0-rc.1",
+    "@smthrs/platform-node": "1.0.0-rc.1"
   }
 }

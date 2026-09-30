@@ -101,6 +101,8 @@ subpaths are blocked, so the migrations are reachable only through the root
 | `Checks`        | Pure text and action checks, and a scorer over a list of them.                                        |
 | `Rubric`        | A model-agnostic LLM rubric judge declared as a scorer, and judge calibration.                        |
 
+| `Scorers` | Built-in normalized equality, containment, sandbox test verdicts, diff budgets and rubric. |
+
 Every export, with signatures and bounds, is in the
 [API reference](https://scorers.smithers.sh/reference/api/).
 
