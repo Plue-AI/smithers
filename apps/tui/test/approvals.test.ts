@@ -481,6 +481,8 @@ describe("read-only declarations", () => {
       "tree -L 2",
       "head -5 a",
       "jq '.a' x.json",
+      "git log HEAD~1 -1",
+      "cat '~/x' \\~/y",
       ""
     ], "reads")
   })
@@ -499,6 +501,9 @@ describe("read-only declarations", () => {
       "pnpm test src",
       "yarn test",
       "node --test",
+      "node --test check.mjs scripts/claim.mjs",
+      "bun test .",
+      "python3 -m pytest scripts",
       "python3 -m pytest",
       "git status && node check.mjs"
     ], "runs")
@@ -520,8 +525,32 @@ describe("read-only declarations", () => {
       "{ rm x; }",
       "echo $(rm -rf x)",
       "echo `rm -rf x`",
-      "cat <(rm x)"
+      "cat <(rm x)",
+      "cat ~/.zshrc",
+      "node ~/check.mjs",
+      "node --test ~",
+      "bun test ~/x.test.ts",
+      "grep --file=~/x a",
+      "ls a:~/b"
     ], false)
+  })
+
+  it("refuses a test runner given a path outside the workspace, which could be code from anywhere", () => {
+    const root = workspace()
+    const parent = join(root, "..")
+    reads(root, [
+      `node --test ${parent}/outside.mjs`,
+      "node --test ../outside.mjs",
+      "node --test link.mjs",
+      `bun test ${parent}/outside.mjs`,
+      "python3 -m pytest /tmp",
+      "python3 -m unittest ..",
+      "npm test /tmp",
+      "pnpm test scripts/../../outside.mjs",
+      "yarn test /"
+    ], false)
+    expect(Approvals.readOnly("node --test ../check.mjs", root, join(root, "scripts"))).toBe("runs")
+    expect(Approvals.readOnly("node --test ../../outside.mjs", root, join(root, "scripts"))).toBe(false)
   })
 
   it("refuses code that is not a script file inside the workspace, or reaches it through its input", () => {

@@ -652,12 +652,18 @@ const runners: Readonly<Record<string, ReadonlyArray<ReadonlyArray<string>>>> = 
  */
 export type Reading = "reads" | "runs" | false
 
+/** The real path `word` names from `base`, when it is `root` or inside it. */
+const inside = (word: string, root: string, base: string): string | undefined => {
+  const target = real(isAbsolute(word) ? word : join(base, word))
+  const path = relative(root, target)
+  return path.startsWith("..") || isAbsolute(path) ? undefined : target
+}
+
 /** Whether `word` names a regular file inside `root`, from `base`. */
 const within = (word: string, root: string, base: string): boolean => {
-  const target = real(isAbsolute(word) ? word : join(base, word))
-  const inside = relative(root, target)
+  const target = inside(word, root, base)
   try {
-    return inside !== "" && !inside.startsWith("..") && !isAbsolute(inside) && statSync(target).isFile()
+    return target !== undefined && statSync(target).isFile()
   } catch {
     return false
   }
@@ -666,7 +672,8 @@ const within = (word: string, root: string, base: string): boolean => {
 /**
  * One command. A program is found by its bare name only, never a path to
  * one. A script or test runner never takes piped or redirected input, which
- * could be code, and a runner takes no options, which could load some.
+ * could be code. A runner takes no options, which could load some, and no
+ * path outside `root`, which could be code from anywhere.
  */
 const reading = (command: Words, root: string, base: string): Reading => {
   const [program, ...rest] = command.words
@@ -674,7 +681,9 @@ const reading = (command: Words, root: string, base: string): Reading => {
   if (program.includes("/")) return false
   const runner = runners[program]?.find((prefix) => prefix.every((word, at) => rest[at] === word))
   if (runner !== undefined) {
-    return !command.fed && rest.slice(runner.length).every((word) => !word.startsWith("-")) && "runs"
+    const words = rest.slice(runner.length)
+    return !command.fed && words.every((word) => !word.startsWith("-") && inside(word, root, base) !== undefined) &&
+      "runs"
   }
   const script = scripts[program]
   if (script !== undefined) {
@@ -705,7 +714,11 @@ interface Parsed {
   readonly commands: ReadonlyArray<Words>
   /** An unquoted `>` other than `N>&M` or to `/dev/null`, or a here-document. */
   readonly redirects: boolean
-  /** Text the shell rewrites before it runs: `$` outside single quotes, or an unquoted `*`, `?`, `[` or `{`. */
+  /**
+   * Text the shell rewrites before it runs: `$` outside single quotes, an
+   * unquoted `~` starting a word or following `=` or `:`, or an unquoted `*`,
+   * `?`, `[` or `{`.
+   */
   readonly expands: boolean
 }
 
@@ -757,7 +770,7 @@ const parse = (shell: string): Parsed => {
       found.push({ words: [], fed: char === "|" && shell[at - 1] !== "|" && shell[at + 1] !== "|" })
     } else if (/\s/.test(char)) end()
     else {
-      expands ||= /[$*?[]/.test(char)
+      expands ||= /[$*?[]/.test(char) || (char === "~" && (word === undefined || /[=:]$/.test(word)))
       word = (word ?? "") + char
     }
   }
