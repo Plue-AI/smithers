@@ -6,7 +6,8 @@
  */
 import { describe, expect, it } from "@effect/vitest"
 import { Action, DurableDeferred, Flow, type FlowRuntime, Interpreter } from "@smthrs/flow"
-import { Cause, Context, Effect, Exit, Layer, Option, Schema } from "effect"
+import { Node } from "@smthrs/plan"
+import { Cause, Clock, Context, Effect, Exit, Fiber, Layer, Option, Schema } from "effect"
 import type * as Crypto from "effect/Crypto"
 import type * as Duration from "effect/Duration"
 import { TestClock } from "effect/testing"
@@ -120,4 +121,79 @@ describe("Flow deadline", () => {
     const Note = Context.Service<string>("RunDeadline/Note")
     expect(flow.annotate(Note, "kept").deadline).toEqual(flow.deadline)
   })
+})
+
+const Step = Action.make("RunDeadline/step", { payload: { value: Schema.Number }, success: Schema.Number })
+
+/** A lineage that counts to `target` one round at a time, each round taking a step. */
+type Counter = Flow.Flow<
+  string,
+  Schema.Struct<{ value: typeof Schema.Number; target: typeof Schema.Number }>,
+  typeof Schema.Number,
+  typeof Schema.Never,
+  Action.Requirement<"RunDeadline/step">
+>
+const lineages = new Map<string, Counter>()
+const counter = (tag: string, next: string, deadline?: Duration.Input): Counter => {
+  const flow: Counter = Flow.make(tag, {
+    payload: { value: Schema.Number, target: Schema.Number },
+    success: Schema.Number,
+    ...(deadline === undefined ? {} : { deadline }),
+    body: ({ target, value }: { readonly value: number; readonly target: number }) =>
+      Step.call({ value }).pipe(
+        Node.branch({
+          if: (reached) => reached >= target,
+          then: (reached) => Flow.done(reached),
+          else: (reached) => lineages.get(next)!.to({ value: reached, target })
+        })
+      )
+  })
+  lineages.set(tag, flow)
+  return flow
+}
+// The originator declares the hour; the round it hands to declares a longer one
+// and the round after that none, and all of them run under the originator's.
+const Originator = counter("RunDeadline/lineage", "RunDeadline/lineage-next", "1 hour")
+const Successor = counter("RunDeadline/lineage-next", "RunDeadline/lineage-last", "1 day")
+const Last = counter("RunDeadline/lineage-last", "RunDeadline/lineage-last")
+
+const lineageLayer = (stepFor: Duration.Input) =>
+  Layer.mergeAll(Interpreter.layer(Originator), Interpreter.layer(Successor), Interpreter.layer(Last)).pipe(
+    Layer.provideMerge(Step.toLayer(({ value }) => Effect.as(Effect.sleep(stepFor), value + 1))),
+    Layer.provideMerge(Action.layerImplementations),
+    Layer.provideMerge(FlowEngine.layerMemory)
+  )
+
+/** Follows the lineage to its answer, advancing the clock in `step`s. */
+const follow = (payload: { readonly value: number; readonly target: number }, step: Duration.Input) =>
+  Effect.gen(function*() {
+    const fiber = yield* Effect.forkChild(Effect.exit(Originator.execute(payload)))
+    for (let i = 0; i < 200 && fiber.pollUnsafe() === undefined; i++) {
+      yield* Effect.yieldNow
+      yield* TestClock.adjust(step)
+    }
+    return yield* Fiber.join(fiber)
+  })
+
+describe("Flow deadline across trampoline rounds", () => {
+  effect(
+    "every round of a lineage expires at the originator's first start plus its deadline",
+    () =>
+      Effect.gen(function*() {
+        // Four 25-minute rounds: no single round reaches an hour, the lineage does.
+        const exit = yield* follow({ value: 0, target: 4 }, "5 minutes")
+        expect(Exit.isFailure(exit)).toBe(true)
+        const expired = Exit.isFailure(exit) ? Cause.squash(exit.cause) : undefined
+        expect(expired).toBeInstanceOf(Flow.DeadlineExceeded)
+        expect(expired).toMatchObject({ deadlineMs: 3_600_000, startedAtMs: 0 })
+        // The third round expired, under the originator's hour and not its own day.
+        expect((expired as Flow.DeadlineExceeded).flowName).toBe("RunDeadline/lineage-last")
+        expect(yield* Clock.currentTimeMillis).toBeLessThanOrEqual(65 * 60_000)
+      }).pipe(Effect.provide(lineageLayer("25 minutes")))
+  )
+
+  effect("a lineage that settles within the originator's deadline answers its value", () =>
+    Effect.gen(function*() {
+      expect(yield* follow({ value: 0, target: 4 }, "5 minutes")).toEqual(Exit.succeed(4))
+    }).pipe(Effect.provide(lineageLayer("10 minutes"))))
 })

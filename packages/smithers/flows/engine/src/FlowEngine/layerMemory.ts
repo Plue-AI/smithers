@@ -361,7 +361,11 @@ export const layerMemory: Layer.Layer<FlowRuntime.FlowRuntime> = Layer.effect(Fl
       // the same posture for a run that wakes where its flow is unknown.
       const entry = flows.get(state.instance.flow._tag)?.at(-1)
       if (entry === undefined) return
-      const instance = makeInstance(state.instance.flow, state.instance.executionId)
+      const instance = makeInstance(
+        state.instance.flow,
+        state.instance.executionId,
+        state.instance.lineageDeadline
+      )
       instance.interrupted = state.instance.interrupted
       state.instance = instance
       state.fiber = yield* snapshot(instance.flow, state.payload).pipe(
@@ -504,7 +508,7 @@ export const layerMemory: Layer.Layer<FlowRuntime.FlowRuntime> = Layer.effect(Fl
             if (!state) {
               const storedPayload = yield* snapshot(flow, options.payload)
               const rootExecutionId = options.round.rootExecutionId
-              const instance = makeInstance(flow, options.executionId)
+              const instance = makeInstance(flow, options.executionId, options.lineageDeadline)
               const parent = options.parent
               instance.interrupted = cancelledLineages.has(rootExecutionId) ||
                 (parent !== undefined && (parent.interrupted ||

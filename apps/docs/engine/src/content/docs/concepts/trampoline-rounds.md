@@ -35,7 +35,9 @@ Two consequences follow from resolving the target by tag:
   durable, so the lineage is not lost; what is wrong is the caller's wiring.
 - The budget belongs to the lineage originator. A handoff to a flow with a
   different `maxRounds` cannot reset or replace the bound the lineage started
-  with.
+  with. The deadline is the originator's too: a round after a handoff runs
+  under the lineage deadline the previous round stamped on its `Flow.Handoff`,
+  which a durable store persists with the round it opens.
 
 ## The next round's id is derived, not allocated
 

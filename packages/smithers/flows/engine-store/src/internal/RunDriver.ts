@@ -1694,7 +1694,8 @@ export const make = (
             ? {}
             : { parentExecutionId: seam.state.parentExecutionId }),
           ...(seam.state.onParentExit === undefined ? {} : { onParentExit: seam.state.onParentExit }),
-          ...(seam.state.maxRounds === undefined ? {} : { maxRounds: seam.state.maxRounds })
+          ...(seam.state.maxRounds === undefined ? {} : { maxRounds: seam.state.maxRounds }),
+          ...(seam.handoff.deadline === undefined ? {} : { deadline: seam.handoff.deadline })
         })
         const settledStateJson = yield* encodeState({
           ...seam.state,
@@ -1993,7 +1994,8 @@ export const make = (
           yield* releaseRetainedScope(executionId, Exit.void)
           const instance = FlowEngine.makeInstance(
             registration.flow,
-            executionId
+            executionId,
+            activeState.deadline
           )
           round = { flow: registration.flow, instance }
           const flowEngine = yield* dependencies.engine

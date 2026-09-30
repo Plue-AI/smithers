@@ -113,6 +113,15 @@ defect recorded in the execution result. It is not a typed `execute` failure,
 because a lineage that ran away is a declaration bug rather than an outcome a
 caller was told to expect.
 
+## The lineage deadline
+
+A lineage is one run, so `Flow.make`'s `deadline` bounds the whole lineage, not
+each round. The originating round journals its first start; each round that
+hands off stamps that start and the bound on its `Flow.Handoff`, and the next
+round runs under the stamp whatever it declares. Every round therefore expires
+at the originator's start plus the originator's deadline, and settles with
+`Flow.DeadlineExceeded` when it passes.
+
 ## Recognizing an outcome
 
 `Flow.isOutcome` does not work by shape. Ordinary success data may carry the same
