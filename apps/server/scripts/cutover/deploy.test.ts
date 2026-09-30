@@ -35,7 +35,7 @@ const world = async () => {
     const loopback = fake.serve(parent, (method, path) => drop?.(method, path) ? "drop-after" : undefined)
     try {
       const child = Bun.spawn(["bun", "--preload", loopback.preload, join(import.meta.dir, "deploy.ts"), mode, dir], {
-        stdout: "pipe", stderr: "pipe", env: { ...process.env, CLOUDFLARE_API_TOKEN: "fake-control-plane-token", SMITHERS_EXPORT_TARGET: "web" }
+        stdout: "pipe", stderr: "pipe", env: { ...process.env, CLOUDFLARE_API_TOKEN: "fake-control-plane-token" }
       })
       const [stdout, stderr] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text()])
       return { exitCode: await child.exited, stdout, stderr }

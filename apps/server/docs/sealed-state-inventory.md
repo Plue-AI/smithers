@@ -111,60 +111,8 @@ Object enumeration is eventually consistent; empty-at-listing objects are
 counted separately. A final drain and re-export must occur before authority
 changes, including explicit reconciliation of billing reservations/metering.
 
-Identity/billing Workers are outside these six namespaces. Their verified
-numeric identity rows and ledger/metering reconciliation still require their
-own sealed inventory and migration. This tool reports zero verified canonical
-identity mappings until that evidence exists. It adds no anonymous account,
-permanent history endpoint, fallback, or dual write.
-
-## Fixed legacy identity inventory
-
-`SMITHERS_EXPORT_TARGET=identity` selects only `smithers-cloud-identity`, its
-`identity.smithers.sh` domain and its original `IDENTITY` /
-`IdentityDurableObject` namespace. Other target values refuse. The web target
-remains the default. The normal Worker entry/configuration is unchanged.
-Every prepare/apply/restore/export command must use the same selected target;
-plans bind that target and the live deployment version explicitly.
-
-The legacy identity deployment has no source annotation. Its existing official
-`workers/identity/deploy-receipts` record must name the exact live version and
-immutable source revision. That label alone is insufficient: reproduce every
-downloaded module from the immutable source with the recorded deploy script's
-pinned Wrangler, and require exact byte hashes. Put the reviewed proof in the
-private key directory as owner-only `source-proof.json`:
-
-```json
-{
-  "receipt": {
-    "worker": "smithers-cloud-identity",
-    "source": "workers/identity",
-    "dryRun": false,
-    "gitSha": "40-digit immutable source revision",
-    "timestamp": "ISO deployment time",
-    "wranglerVersionId": "exact live version UUID"
-  },
-  "modules": [{"name":"index.js","file":"reproduced-index.js","sha256":"exact downloaded/reproduced digest"}]
-}
-```
-
-Copy the reproduced module into the named owner-only file beside this proof.
-Prepare validates the official receipt's identity/version, exact module set,
-each actual reproduced file digest and each downloaded live digest, then retains
-the proof with the prepared artifact. A source/bundle discrepancy blocks this
-path. Original identity annotations/settings are restored exactly; the operator
-does not invent a new production source annotation.
-
-Use a new recipient/directory and run the existing sequence with
-`SMITHERS_EXPORT_TARGET=identity` on every command. Snapshots go into
-`identity-snapshots`. Original OAuth/session/token methods, native RPC hooks,
-alarms and bindings remain intact. Only the temporary authenticated export fetch
-path changes. No token is used, refreshed, reset or printed by inventory.
-
-The offline classifier requires a positive safe numeric GitHub ID in both the
-`account:<id>` key and row, a verified binding timestamp, and the matching
-current `loginid:<login>` back-reference. Duplicate accounts/aliases or multiple
-account rows retaining the same login refuse a legacy ownership binding. Only
-aggregate counts are reported. These are verified legacy provider bindings;
-canonical identity mappings remain zero until a separate authorized canonical
-provider-ID join and migration validates them. This does not assign anonymous
-history or authorize an account from matching usernames alone.
+The identity, billing and chat Workers are outside these six namespaces. Their
+data is not migrated and is deleted with them (`shared-edge-cutover.md`,
+"Sibling Worker retirement"), so this tool reports zero verified canonical
+identity mappings. It adds no anonymous account, permanent history endpoint,
+fallback, or dual write.

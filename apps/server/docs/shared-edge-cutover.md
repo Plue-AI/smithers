@@ -63,14 +63,35 @@ Nothing in the tables above was exported, imported, drained or deleted. The
 legacy Durable Object state stays under its unchanged namespace identities: the
 six classes in `retainedDurableObjects.ts` keep the storage, return 410 and do
 no alarm work. No `deleted_classes` migration exists. The retained secrets stay
-bound (`keep_bindings`). The sibling identity, billing and chat Workers keep
-their own storage until their retirement has a recorded disposition (#2103).
+bound (`keep_bindings`). The sibling identity, billing and chat Workers are
+retired below.
 
 If an export is ever needed, the sealed-inventory and paged-export tooling in
 `../scripts/cutover/` reads the retained namespaces
 ([bounded export protocol](../scripts/cutover/PAGED-EXPORT.md),
 `sealed-state-inventory.md`). That is a later, separately decided operation,
 not part of the activation.
+
+## Sibling Worker retirement (#3124)
+
+Disposition, decided 2026-09-30 under the owner's no-users ruling
+(smithersai/plue#531): the identity, billing and chat Workers' stored data is
+**not migrated and is deleted with the Workers**. The shared backend is the
+only authority for accounts, sessions, GitHub tokens, balances and chat turns;
+none of it reads legacy state.
+
+| Worker | Hostnames | Stored data | Disposition |
+| --- | --- | --- | --- |
+| `smithers-cloud-identity` | `identity.smithers.sh`, `smithers-cloud-identity.willcory10.workers.dev` | `IdentityDurableObject`: 1 object (accounts, allowlist, stored GitHub and cloud tokens) | deleted with the Worker; no token is carried forward |
+| `smithers-cloud-billing` | `billing.smithers.sh` | `AccountDurableObject`: 22 objects; `BILLING` KV: 3 keys | deleted with the Worker; no balance or grant is carried forward |
+| `smithers-cloud-chat` | `chat.smithers.sh` | `ChatHistory`, `PushSubscriptions`; the metering queue | deleted with the Worker |
+| `smithers-cloud-chat-canary` | `smithers-cloud-chat-canary.willcory10.workers.dev` | `ChatHistory`, `PushSubscriptions`: 0 objects each | deleted with the Worker |
+
+Counts are the 2026-09-24 observation above. The operator records content-free
+object counts immediately before deletion, then deletes each Worker with its
+Durable Object namespaces, removes any remaining route or DNS record for its
+hostnames, and deletes the retired `IDENTITY_SERVICE_TOKEN` repository secret.
+The exact commands and their receipts are on #3124.
 
 ## Client and backend contracts
 

@@ -4,7 +4,6 @@ import { resolve } from "node:path"
 import { EXPORT_PATH } from "../../src/MaintenanceExport"
 import type { SealedSnapshot } from "../../src/SealedSnapshot"
 import { target } from "./targets"
-import { IdentityInventory } from "./identity"
 import { api, listObjects, scriptPath, validateBindings, type Settings } from "./cloudflare"
 import { Inventory } from "./inventory"
 import { openSnapshot, type SnapshotPayload } from "./sealed"
@@ -38,7 +37,6 @@ const destinationStat = lstatSync(destination)
 if (destinationStat.isSymbolicLink() || !destinationStat.isDirectory() || (destinationStat.mode & 0o077) !== 0) throw new Error("Snapshot destination must be owner-only")
 if (existsSync(resolve(destination, "manifest.json"))) throw new Error("Snapshot already completed; existing archive is immutable")
 const inventory = new Inventory()
-const identity = new IdentityInventory()
 const manifest: Array<{ binding: string; objectId: string; capturedAt: string; sha256: string; bytes: number; file?: string; format?: "paged" }> = []
 let emptyAtListing = 0
 const vaultRecovery = { objectsWithKey: 0, objectsWithoutKey: 0, sealedEntries: 0, decryptVerified: 0, decryptFailed: 0, unclassified: 0 }
@@ -49,8 +47,7 @@ const include = async (binding: string, payload: SnapshotPayload, capturedAt: st
     if (firstPage) vaultRecovery[recovery.keyAvailable ? "objectsWithKey" : "objectsWithoutKey"]++
     for (const name of ["sealedEntries", "decryptVerified", "decryptFailed", "unclassified"] as const) vaultRecovery[name] += recovery[name]
   }
-  if (target.kind === "identity") identity.include(payload, firstPage)
-  else inventory.include(binding, payload, capturedAt, firstPage)
+  inventory.include(binding, payload, capturedAt, firstPage)
 }
 for (const namespace of namespaces) {
   const objects = await listObjects(namespace.namespace_id!)
@@ -102,7 +99,7 @@ for (const namespace of namespaces) {
 await guardVersion()
 const report = { migrationId: recipient.migrationId, sourceRevision: plan.sourceRevision, sourceVersion: plan.sourceVersion, startedAt, finishedAt: new Date().toISOString(),
   completeForListedStoredObjects: true, globallyQuiescent: false, scanConsistency: "unfenced-not-atomic", credentialMigrationReady: false, verifiedCanonicalIdentityMappings: 0,
-  emptyObjectsSkippedAtListing: emptyAtListing, counts: target.kind === "identity" ? identity.summary() : inventory.summary(), vaultRecovery }
+  emptyObjectsSkippedAtListing: emptyAtListing, counts: inventory.summary(), vaultRecovery }
 writeFileSync(resolve(destination, "manifest.json"), JSON.stringify({ report, objects: manifest }, null, 2), { mode: 0o600, flag: "wx" })
 writeFileSync(resolve(destination, "counts.json"), JSON.stringify(report, null, 2), { mode: 0o600, flag: "wx" })
 console.log(JSON.stringify(report))

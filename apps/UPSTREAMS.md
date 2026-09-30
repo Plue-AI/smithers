@@ -9,18 +9,19 @@ chat turns and repository reads all resolve there.
 The edge activation (#1795) retired the sibling Cloudflare Workers the legacy
 Worker proxied. They live under `workers/` in `github.com/smithersai/ui`, a
 separate repository, and are no longer upstreams of `apps/server`. Their
-retirement (repointing or deleting `identity.smithers.sh` and the personal
-`workers.dev` hostnames) is an operator step tracked in #2103; do not delete
-their data before it has a recorded disposition.
+stored data is not migrated and is deleted with them
+(`apps/server/docs/shared-edge-cutover.md`, "Sibling Worker retirement"); the
+operator steps that delete the Workers, their `*.smithers.sh` hostnames and
+their personal `workers.dev` hostnames are tracked in #3124.
 
 ## The inventory
 
 | Seam | Worker env var (`apps/server/wrangler.jsonc`) | Cloudflare Worker | Source | Status |
 | --- | --- | --- | --- | --- |
 | Smithers backend — every `/api/*` route | `SMITHERS_BACKEND_ORIGIN` | _(not a Worker)_ | `packages/backend`, composed by `../plue` | active, `api.jjhub.tech` |
-| Identity — GitHub OAuth, sessions, the allowlist, the watched-repos chooser | _(retired: `IDENTITY_UPSTREAM_URL`)_ | `smithers-cloud-identity` | `smithersai/ui`, `workers/identity` | retired upstream, `identity.smithers.sh` |
-| Billing — balances, grants, the admin grant surface | _(retired: `BILLING_UPSTREAM_URL`)_ | `smithers-cloud-billing` | `smithersai/ui`, `workers/billing` | retired upstream, `billing.smithers.sh` |
-| Chat — the metered turn upstream | _(retired: `SMITHERS_CHAT_URL`)_ | `smithers-cloud-chat` | `smithersai/ui`, `workers/chat` | retired upstream, `chat.smithers.sh` |
+| Identity — GitHub OAuth, sessions, the allowlist, the watched-repos chooser | _(retired: `IDENTITY_UPSTREAM_URL`)_ | `smithers-cloud-identity` | `smithersai/ui`, `workers/identity` | retired, deleted by #3124; `identity.smithers.sh` |
+| Billing — balances, grants, the admin grant surface | _(retired: `BILLING_UPSTREAM_URL`)_ | `smithers-cloud-billing` | `smithersai/ui`, `workers/billing` | retired, deleted by #3124; `billing.smithers.sh` |
+| Chat — the metered turn upstream | _(retired: `SMITHERS_CHAT_URL`)_ | `smithers-cloud-chat` | `smithersai/ui`, `workers/chat` | retired, deleted by #3124; `chat.smithers.sh` |
 
 The recommendations worker (`smithers-cloud-reco`, `reco.smithers.sh`) was
 deleted on 2026-08-24. Five more workers exist in that tree and this product

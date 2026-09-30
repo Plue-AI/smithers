@@ -4,7 +4,6 @@ import { existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from "n
 import { resolve } from "node:path"
 import { accountURL, api, scriptPath, validateBindings, type Settings } from "./cloudflare"
 import { target } from "./targets"
-import { verifyReproducedSource, type ReproducedSourceProof } from "./provenance"
 import { maintenanceNames, metadataFor, stable, uploadModuleType, uploadedVersion, wrapperFor } from "./deployment"
 
 interface Deployment { id: string; annotations?: Record<string, string>; versions: Array<{ version_id: string; percentage: number }> }
@@ -26,10 +25,10 @@ const settings = (await api<Settings>(scriptPath + "/settings")).result
 validateBindings(settings)
 if (mode === "prepare") {
   const deployment = await current()
-  let sourceRevision = deployment.annotations?.["workers/message"]?.match(/^([a-f0-9]{40})\b/)?.[1]
-  if (!sourceRevision && target.kind !== "identity") throw new Error("Live deployment has no immutable source revision")
+  const sourceRevision = deployment.annotations?.["workers/message"]?.match(/^([a-f0-9]{40})\b/)?.[1]
+  if (!sourceRevision) throw new Error("Live deployment has no immutable source revision")
   const originalMessage = (settings.annotations as Record<string, unknown> | undefined)?.["workers/message"]
-  if (sourceRevision && (typeof originalMessage !== "string" || !originalMessage.startsWith(sourceRevision))) throw new Error("Original source annotation differs from live deployment")
+  if (typeof originalMessage !== "string" || !originalMessage.startsWith(sourceRevision)) throw new Error("Original source annotation differs from live deployment")
   mkdirSync(folder, { mode: 0o700 })
   const response = await fetch(accountURL + scriptPath + "/content/v2", { redirect: "error", signal: AbortSignal.timeout(60_000),
     headers: { authorization: `Bearer ${process.env.CLOUDFLARE_API_TOKEN}` } })
@@ -47,13 +46,6 @@ if (mode === "prepare") {
     modules.push({ name, file: local, type: uploadModuleType(name, file.type, entry), sha256: hash(content) })
   }
   if (!modules.some(module => module.name === entry)) throw new Error("Original entry module is missing")
-  if (!sourceRevision) {
-    const proofPath = resolve(directory, "source-proof.json"), proofStat = lstatSync(proofPath)
-    if (!proofStat.isFile() || proofStat.isSymbolicLink() || proofStat.size > 65536 || (proofStat.mode & 0o077) !== 0) throw new Error("Source proof must be an owner-only file")
-    const proofBytes = readFileSync(proofPath)
-    sourceRevision = verifyReproducedSource(target, deployment.versions[0]!.version_id, modules, JSON.parse(proofBytes.toString()) as ReproducedSourceProof, directory)
-    save("verified-source-proof.json", proofBytes)
-  }
   if ((await current()).id !== deployment.id) throw new Error("Live deployment changed during prepare")
   const built = await Bun.build({ entrypoints: [resolve(import.meta.dir, "../../src/MaintenanceExport.ts")], target: "browser", format: "esm", minify: true })
   if (!built.success || built.outputs.length !== 1) throw new Error("Exporter helper bundle failed")

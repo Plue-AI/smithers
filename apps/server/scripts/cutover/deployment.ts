@@ -1,4 +1,4 @@
-import { target, type ExportTarget } from "./targets"
+import { target } from "./targets"
 import { validateBindings, type Settings } from "./cloudflare"
 
 export const maintenanceNames = ["SMITHERS_EXPORT_TOKEN", "SMITHERS_EXPORT_RECIPIENT", "SMITHERS_EXPORT_EXPIRES_AT", "SMITHERS_EXPORT_SOURCE_REVISION", "SMITHERS_EXPORT_SOURCE_VERSION"] as const
@@ -42,12 +42,12 @@ export const metadataFor = (settings: Settings, main: string, additions: Record<
       : annotations
   }
 }
-export const wrapperFor = (entry: string, selected: ExportTarget = target): string => {
+export const wrapperFor = (entry: string): string => {
   if (!/^[a-zA-Z0-9_.-]+\.js$/.test(entry)) throw new Error("Live entrypoint requires manual review")
-  return `import legacy, { ${selected.durableObjects.map(item => `${item.className} as Legacy${item.className}`).join(", ")} } from ${JSON.stringify("./" + entry)};
+  return `import legacy, { ${target.durableObjects.map(item => `${item.className} as Legacy${item.className}`).join(", ")} } from ${JSON.stringify("./" + entry)};
 export * from ${JSON.stringify("./" + entry)};
 import { EXPORT_PATH, maintenanceExport, withSealedExport } from "./sealed-export-helper.js";
-${selected.durableObjects.map(item => `export class ${item.className} extends withSealedExport(Legacy${item.className}, ${JSON.stringify(item.binding)}) {}`).join("\n")}
+${target.durableObjects.map(item => `export class ${item.className} extends withSealedExport(Legacy${item.className}, ${JSON.stringify(item.binding)}) {}`).join("\n")}
 export default { ...legacy, fetch(request, env, ctx) { return new URL(request.url).pathname === EXPORT_PATH ? maintenanceExport(request, env) : legacy.fetch(request, env, ctx); } };
 `
 }
