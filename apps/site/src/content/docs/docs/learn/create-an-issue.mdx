@@ -124,7 +124,7 @@ curl -X PATCH "$SMITHERS_API/api/repos/acme/app/issues/42" \
 
 Verifying your own fix fails with `self_verification`. Verifying an issue that is not `fixed` fails with `invalid_transition`.
 
-`owner` (a username), `due` (`YYYY-MM-DD`), `priority` (`0`–`3`) and `parent` (an issue number in the same repository) are set the same way; `null` clears one. A parent that would loop fails with `cycle`. An unknown field fails with `400`.
+`owner` (a username), `due` (`YYYY-MM-DD`), `priority` (`0` to `3`) and `parent` (an issue number in the same repository) are set the same way; `null` clears one. A parent that would loop fails with `cycle`. An unknown field fails with `400`.
 
 </TabItem>
 </Tabs>
