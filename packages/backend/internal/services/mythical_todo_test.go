@@ -1870,3 +1870,74 @@ func requireMythicalConflict(t *testing.T, err error) {
 	require.ErrorAs(t, err, &apiErr)
 	require.Equal(t, http.StatusConflict, apiErr.Status, apiErr.Message)
 }
+
+// An outage retry runs the same attempt again on the lane the TODO holds;
+// an infrastructure outage (possibly the lane's own box) and a plan's
+// failure each open a fresh lane and retire the old one (#2791).
+func TestMythicalOutageRetryReusesTheLane(t *testing.T) {
+	for i, tc := range []struct {
+		name       string
+		fault, tag string
+		reuse      bool
+	}{
+		{name: "provider quota", fault: "wait", tag: "flows/model/ModelError/quota_exceeded", reuse: true},
+		{name: "dependency down", fault: "dependency", tag: "coding/Error/unavailable", reuse: true},
+		{name: "infrastructure", fault: "", tag: "", reuse: false},
+		{name: "plan failed", fault: "factory", tag: "coding/Error/fast_gate", reuse: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			o := newMythicalOrchestration(t)
+			ctx := context.Background()
+			number := int64(830 + i)
+			require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: number, Title: "Lane", State: "open", TextByMaintainer: true,
+				Labels: []string{"todo"}}, maintainerTodo))
+			o.wake()
+			first := o.item(number)
+			require.Equal(t, "running", first.State)
+			require.NotEmpty(t, first.WorkspaceID)
+			require.Len(t, o.lanes.created, 1)
+			o.fail(o.launcher.last("coding/request"), "run-lane-1", tc.fault, tc.tag, "")
+			o.wake()
+			require.Equal(t, "retrying", o.item(number).State)
+			_, err := o.pool.Exec(ctx, `UPDATE mythical_items SET next_attempt_at = NOW() - INTERVAL '1 minute' WHERE repository_id = $1`, o.repoID)
+			require.NoError(t, err)
+			o.wake()
+			second := o.item(number)
+			require.Equal(t, "running", second.State, second.Reason)
+			require.Len(t, o.launcher.byFlow("coding/request"), 2)
+			assert.Equal(t, first.Generation+1, second.Generation, "the retry is a new launch")
+			if tc.reuse {
+				assert.Equal(t, first.WorkspaceID, second.WorkspaceID, "the held lane runs the attempt again")
+				assert.Len(t, o.lanes.created, 1, "no workspace is provisioned")
+				assert.NotContains(t, o.lanes.deleted, first.WorkspaceID)
+				assert.Equal(t, first.Lane, second.Lane)
+			} else {
+				assert.NotEqual(t, first.WorkspaceID, second.WorkspaceID)
+				assert.Len(t, o.lanes.created, 2)
+				assert.Contains(t, o.lanes.deleted, first.WorkspaceID, "the old lane is retired")
+			}
+		})
+	}
+}
+
+// A lane retired while its TODO waited out an outage is never reused: the
+// retry provisions a fresh one (#2791).
+func TestMythicalOutageRetryProvisionsWhenTheLaneIsGone(t *testing.T) {
+	o := newMythicalOrchestration(t)
+	ctx := context.Background()
+	require.NoError(t, o.service.ObserveIssue(ctx, o.repoID, mythicalIssue{Number: 840, Title: "Gone", State: "open", TextByMaintainer: true,
+		Labels: []string{"todo"}}, maintainerTodo))
+	o.wake()
+	first := o.item(840)
+	o.fail(o.launcher.last("coding/request"), "run-gone-1", "wait", "flows/model/ModelError/quota_exceeded", "")
+	o.wake()
+	_, err := o.pool.Exec(ctx, `UPDATE mythical_lanes SET retired_at = NOW() WHERE workspace_id = $1`, first.WorkspaceID)
+	require.NoError(t, err)
+	_, err = o.pool.Exec(ctx, `UPDATE mythical_items SET next_attempt_at = NOW() - INTERVAL '1 minute' WHERE repository_id = $1`, o.repoID)
+	require.NoError(t, err)
+	o.wake()
+	second := o.item(840)
+	require.Equal(t, "running", second.State, second.Reason)
+	assert.NotEqual(t, first.WorkspaceID, second.WorkspaceID)
+	assert.Len(t, o.lanes.created, 2)
+}

@@ -1536,7 +1536,10 @@ func (s *MythicalService) sweepLanes(ctx context.Context, r *mythicalRun) {
 }
 
 // start opens a lane for a new attempt: a fresh workspace on the stack, the
-// tip retained into its source ref, and coding/request launched on it.
+// tip retained into its source ref, and coding/request launched on it. An
+// outage retry runs the same attempt again on the lane it already holds
+// (reusesLane): the request starts a fresh working change on the tip
+// there, so nothing the failed run left is its base.
 func (st *mythicalItemStep) start(ctx context.Context, item db.MythicalItem) (*db.MythicalItem, bool, error) {
 	s, r := st.s, st.r
 	if item.Source != "issue" {
@@ -1550,7 +1553,11 @@ func (st *mythicalItemStep) start(ctx context.Context, item db.MythicalItem) (*d
 	if hold := st.launchable(ctx, item); hold != nil {
 		return hold, false, nil
 	}
-	if item.WorkspaceID != "" {
+	reuse, err := s.reusesLane(ctx, r, item)
+	if err != nil {
+		return mythicalInfraOutage(item, "launch", "the lane could not be read: "+err.Error(), st.now), false, nil
+	}
+	if item.WorkspaceID != "" && !reuse {
 		// The previous attempt's lane is retired before a new one opens.
 		if err := s.retireLane(ctx, r, item.WorkspaceID); err != nil {
 			return mythicalInfraOutage(item, "launch", "the previous lane could not be retired: "+err.Error(), st.now), false, nil
@@ -1561,9 +1568,12 @@ func (st *mythicalItemStep) start(ctx context.Context, item db.MythicalItem) (*d
 	next.RequestOutcome, next.VibeOutcome, next.VerifyOutcome = "", "", ""
 	next.RequestRunID, next.VibeRunID, next.VerifyRunID = "", "", ""
 	next.CandidateBase, next.CandidateHead, next.CandidateVerified = "", "", false
-	workspaceID, err := st.lane(ctx, item, fmt.Sprintf("mythical #%d attempt %d g%d", item.IssueNumber.Int64, next.Attempt, next.Generation))
-	if err != nil {
-		return mythicalInfraOutage(item, "launch", "no lane workspace: "+err.Error(), st.now), false, nil
+	workspaceID := item.WorkspaceID
+	if !reuse {
+		workspaceID, err = st.lane(ctx, item, fmt.Sprintf("mythical #%d attempt %d g%d", item.IssueNumber.Int64, next.Attempt, next.Generation))
+		if err != nil {
+			return mythicalInfraOutage(item, "launch", "no lane workspace: "+err.Error(), st.now), false, nil
+		}
 	}
 	next.WorkspaceID, next.BaseCommit = workspaceID, r.row.TipCommit
 	next.Lane = pgtype.Int4{Int32: st.freeLane(item.ID), Valid: true}
@@ -1592,6 +1602,26 @@ func (st *mythicalItemStep) start(ctx context.Context, item db.MythicalItem) (*d
 		return mythicalInfraOutage(item, "launch", "the request could not be launched: "+err.Error(), st.now), false, nil
 	}
 	return &saved, true, nil
+}
+
+// reusesLane reports whether an item retrying after an outage runs
+// its attempt again on the lane it holds instead of provisioning a new one:
+// the lane must still be bound to it, and the outage must not be the
+// infrastructure's (class infra), which may be the lane's own box. A retry
+// after a plan's failure, a stop or a resume always opens a fresh lane.
+func (s *MythicalService) reusesLane(ctx context.Context, r *mythicalRun, item db.MythicalItem) (bool, error) {
+	checks := mythicalChecksOf(item)
+	if item.State != "retrying" || item.WorkspaceID == "" || checks.Outages == 0 || checks.Fault == nil || checks.Fault.Class == "infra" {
+		return false, nil
+	}
+	bound, err := s.queries().GetMythicalLane(ctx, item.WorkspaceID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return !bound.RetiredAt.Valid && bound.RepositoryID == r.row.RepositoryID && bound.ItemID == item.ID, nil
 }
 
 // prompt is the pinned issue as the planner reads it, with the retry
