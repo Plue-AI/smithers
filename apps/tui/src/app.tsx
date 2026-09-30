@@ -11,7 +11,7 @@ import * as Log from "./log.ts"
  * cell harness has the same idea; `editor.ts` lists them. `view.tsx` draws.
  */
 import type { KeyEvent, ScrollBoxRenderable } from "@opentui/core"
-import { flushSync, useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/react"
+import { flushSync, useKeyboard, usePaste, useRenderer, useTerminalDimensions } from "@opentui/react"
 import * as CloudSession from "@smthrs/cli/CloudSession"
 import * as FailureCopy from "@smthrs/model/FailureCopy"
 import * as Form from "@smthrs/ui/flow-form"
@@ -2498,6 +2498,16 @@ export function App(props: AppProps) {
   }
 
   useKeyboard(handleKey)
+  usePaste(() => {
+    if (
+      workerTab !== undefined && panelFocus && live.current.picker === undefined && liveForm.current === undefined &&
+      activeInspection === undefined && !whichKeyRef.current
+    ) {
+      // Global paste handlers run before native delivery. Commit focus now so
+      // this paste and later bytes in the same terminal read reach the composer.
+      flushSync(() => setPanelFocus(false))
+    }
+  })
 
   const working = turn !== undefined
   const bashMode = draft.startsWith("!")
