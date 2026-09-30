@@ -71,7 +71,7 @@ import * as RunCatalog from "@smthrs/sync/RunCatalog"
 import * as SyncAuth from "@smthrs/sync/SyncAuth"
 import * as SyncServer from "@smthrs/sync/SyncServer"
 import * as WorkspaceShare from "@smthrs/sync/WorkspaceShare"
-import { Cause, Clock, Context, Effect, Fiber, FileSystem, Layer, Option, Schema, Scope } from "effect"
+import { Cause, Clock, Context, Effect, Fiber, FileSystem, Layer, Option, SchemaIssue, Scope } from "effect"
 import type { Crypto, Path } from "effect"
 import * as Deferred from "effect/Deferred"
 import { SqlClient } from "effect/unstable/sql/SqlClient"
@@ -87,6 +87,7 @@ import * as AuthoredRebuild from "./AuthoredRebuild.ts"
 
 import * as ControlAffinity from "./ControlAffinity.ts"
 import * as ControlDatabasePath from "./ControlDatabasePath.ts"
+import * as DatabaseLocation from "./DatabaseLocation.ts"
 import * as EngineJournalSupervisor from "./EngineJournalSupervisor.ts"
 import * as ExecutionDatabasePath from "./ExecutionDatabasePath.ts"
 import * as Failure from "./Failure.ts"
@@ -199,6 +200,8 @@ export interface ExecutorOptions {
    * required and `launch` and `resumeRun` are unreachable.
    */
   readonly startsRuns?: boolean | undefined
+  /** Planning imports authored modules without enabling launches or resumes. */
+  readonly plansFlows?: boolean | undefined
   /** A human can answer this executor's in-run waits. */
   readonly approvalChannel?: boolean | undefined
   /**
@@ -229,6 +232,8 @@ export interface Platform {
   readonly host: Layer.Layer<NodeServices.NodeServices>
   readonly crypto: Layer.Layer<Crypto.Crypto>
   readonly database: (filename: string) => Layer.Layer<DurableWriter.DurableWriter | SqlClient>
+  /** Opens an existing store read-only: no directory, migration, schema object or write lock. */
+  readonly observe: (filename: string) => Layer.Layer<DurableWriter.DurableWriter | SqlClient>
   readonly runtime: typeof NodeFlowsRuntime.layer
   readonly jj: (root: string) => Layer.Layer<KernelJj.Jj, JjError, KernelChildProcessSpawner.ChildProcessSpawner>
   /** Private deployment policy around the already guarded standard file tools. */
@@ -698,8 +703,6 @@ export const make = (
     // that has since built its catalog offers the hook, and one that never
     // builds a catalog keeps planning exactly as it did, with no nodes.
     const executable = hostCatalog?.executables.find((entry) => entry.descriptor.name === descriptor.name)
-    // The service map is intentionally empty; unavailable codec services become InvalidInput.
-    const planningContext = Context.makeUnsafe<unknown>(new Map())
     return {
       flowId: descriptor.name,
       description: descriptor.description,
@@ -711,15 +714,16 @@ export const make = (
         budget: Descriptor.budgetOf(descriptor)
       },
       ...(executable?.input === undefined ? {} : {
-        decode: (input: unknown) =>
-          Schema.decodeUnknownEffect(executable.input!)(input).pipe(
-            Effect.provideContext(planningContext),
-            Effect.catchCause((cause) =>
-              Cause.hasInterruptsOnly(cause)
-                ? Effect.interrupt
-                : Effect.fail(new ControlError.InvalidInput({ issue: Cause.pretty(cause) }))
-            )
-          )
+        // The module adapter constructs this same typed payload with .make
+        // at dispatch. Validate that contract before recording an approval.
+        decode: (input: unknown) => Effect.try({
+          try: () => executable.input!.make(input),
+          catch: (cause) => new ControlError.InvalidInput({
+            issue: cause instanceof Error && SchemaIssue.isIssue(cause.cause)
+              ? SchemaIssue.makeFormatterDefault()(cause.cause).split("\n").slice(0, 4).join("\n").slice(0, 800)
+              : Failure.operatorSentence(cause)
+          })
+        })
       }),
       ...(executable === undefined ? {} : { plan: planExecutable(executable, root) })
     }
@@ -978,7 +982,7 @@ export const make = (
     } = options
     // Observing commands keep discovery metadata-only. A run-capable local
     // host registers file modules after its engine and agent services exist.
-    const modules = suppliedModules ?? (options.startsRuns === false
+    const modules = suppliedModules ?? (options.startsRuns === false && options.plansFlows !== true
       ? undefined
       : Executable.layer({ delegates: [] }).pipe(Layer.orDie))
     // Same separation `engineDurable` makes for `control.db`: `engine.db` and
@@ -1508,6 +1512,7 @@ export const make = (
         environment: process.env,
         evaluator: config.evaluator,
         startsRuns: config.startsRuns,
+        plansFlows: config.plansFlows,
         expectedSourceRevision: config.expectedSourceRevision,
         approvalChannel: config.approvalChannel,
         mcpServers: config.mcpServers ?? [],
@@ -1607,6 +1612,48 @@ export const make = (
       return Layer.mergeAll(control, layerGatewayHost(engine, control), layerMemory(root, engine), native.host)
     }))
   }
+  /**
+   * Observes a project's existing stores and changes nothing.
+   *
+   * Both databases open read-only through {@link Platform.observe}: no
+   * directory, file, migration or schema object is created, no sweeper,
+   * recovery or reaper starts, and every transaction is a read snapshot that a
+   * peer holding the writer does not block. The executor only reads
+   * `engine.db`; a project that has none is observed from `control.db` alone.
+   * Anything that would drive or change a run is a composition defect here.
+   *
+   * @category layers
+   * @since 1.0.0
+   */
+  const layerObserve = (config: Application.Config, registry: Layer.Layer<Registry.Registry>) => {
+    const stateRoot = config.stateRoot ?? config.root ?? process.cwd()
+    const stores = Layer.mergeAll(SqlJournal.layer({ capacity: 1024, overflow: "reject" }), Layer.fresh(RunStore.layer))
+      .pipe(Layer.provideMerge(native.observe(databasePath(stateRoot))), Layer.orDie)
+    const runtime = SqlControlRuntime.layer({
+      approvalAuthority: config.approvalAuthority ?? ApprovalAuthority.local,
+      principal: config.principal,
+      engineVersion: packageVersion
+    }).pipe(Layer.provide([stores, native.crypto]), Layer.orDie)
+    const engineFile = executionDatabasePath(stateRoot)
+    const executor = Layer.effect(ControlExecutor.ControlExecutor)(Effect.gen(function*() {
+      const engine = DatabaseLocation.exists(engineFile)
+        ? yield* Layer.build(
+          Layer.mergeAll(Layer.fresh(RunStore.layer), DurableEngineState.layer).pipe(
+            Layer.provide(native.observe(engineFile))
+          )
+        )
+        : undefined
+      return ControlExecutor.makeReadOnly(
+        engine === undefined
+          ? undefined
+          : (runId) => AgentSession.readExecution(runId).pipe(Effect.provideContext(engine))
+      )
+    }))
+    return Layer.unwrap(Effect.map(
+      materializeEngine({ runtime, journal: stores, stores }),
+      (engine) => LocalControl.layer(registry, engine, executor, undefined, false)
+    ))
+  }
   return {
     evaluatorFor,
     projectSources,
@@ -1623,6 +1670,7 @@ export const make = (
     layerExecutor,
     layerControlFromEngine,
     layerControl,
+    layerObserve,
     layerGateway,
     layerGatewayHost,
     layerMemory,
