@@ -46,7 +46,7 @@
           },
           {
             "type": "text",
-            "text": "## Required output shape\n\nFinish by calling `ctx.done(output)`. The `output` you pass must be a string\nholding exactly ONE JSON document that validates against this JSON Schema. No\nprose, no explanation, and no code fence around it.\n\n```json\n{\n  \"type\": \"object\",\n  \"properties\": {\n    \"answer\": {\n      \"type\": \"string\",\n      \"description\": \"The prose answer; cards carry the data, so keep it short\"\n    },\n    \"cards\": {\n      \"type\": \"array\",\n      \"items\": {\n        \"type\": \"string\"\n      },\n      \"description\": \"Card ids emitted this turn, in order\"\n    }\n  },\n  \"required\": [\n    \"answer\",\n    \"cards\"\n  ],\n  \"additionalProperties\": false\n}\n```"
+            "text": "## Required output shape\n\nFinish by calling `ctx.done(output)` with the value itself: a JavaScript\nvalue that validates against this JSON Schema, such as\n`ctx.done({ ...fields })`. Do not stringify it, and add no prose around it.\n\n```json\n{\n  \"type\": \"object\",\n  \"properties\": {\n    \"answer\": {\n      \"type\": \"string\",\n      \"description\": \"The prose answer; cards carry the data, so keep it short\"\n    },\n    \"cards\": {\n      \"type\": \"array\",\n      \"items\": {\n        \"type\": \"string\"\n      },\n      \"description\": \"Card ids emitted this turn, in order\"\n    }\n  },\n  \"required\": [\n    \"answer\",\n    \"cards\"\n  ],\n  \"additionalProperties\": false\n}\n```"
           },
           {
             "type": "text",
@@ -925,7 +925,7 @@
           },
           {
             "type": "text",
-            "text": "## Required output shape\n\nFinish by calling `ctx.done(output)`. The `output` you pass must be a string\nholding exactly ONE JSON document that validates against this JSON Schema. No\nprose, no explanation, and no code fence around it.\n\n```json\n{\n  \"type\": \"object\",\n  \"properties\": {\n    \"answer\": {\n      \"type\": \"string\",\n      \"description\": \"The prose answer; cards carry the data, so keep it short\"\n    },\n    \"cards\": {\n      \"type\": \"array\",\n      \"items\": {\n        \"type\": \"string\"\n      },\n      \"description\": \"Card ids emitted this turn, in order\"\n    }\n  },\n  \"required\": [\n    \"answer\",\n    \"cards\"\n  ],\n  \"additionalProperties\": false\n}\n```"
+            "text": "## Required output shape\n\nFinish by calling `ctx.done(output)` with the value itself: a JavaScript\nvalue that validates against this JSON Schema, such as\n`ctx.done({ ...fields })`. Do not stringify it, and add no prose around it.\n\n```json\n{\n  \"type\": \"object\",\n  \"properties\": {\n    \"answer\": {\n      \"type\": \"string\",\n      \"description\": \"The prose answer; cards carry the data, so keep it short\"\n    },\n    \"cards\": {\n      \"type\": \"array\",\n      \"items\": {\n        \"type\": \"string\"\n      },\n      \"description\": \"Card ids emitted this turn, in order\"\n    }\n  },\n  \"required\": [\n    \"answer\",\n    \"cards\"\n  ],\n  \"additionalProperties\": false\n}\n```"
           },
           {
             "type": "text",
