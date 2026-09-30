@@ -5,7 +5,9 @@
  * as `AGENTS.md` are items. {@link judge} asks Jev one question about each:
  * is it unnecessary for the task as stated? An item is withheld only when Jev
  * says so with probability at or above {@link withholdAt}; everything else is
- * kept. A reading that cannot be judged keeps everything, and the caller
+ * kept. An item longer than {@link itemBytes} is sent head-kept and always
+ * kept: Jev cannot be confident about text it was not shown. A reading that
+ * cannot be judged keeps everything, and the caller
  * journals `decision-unjudged` for it: keeping is the rule, withholding is
  * the exception Jev must be confident of.
  *
@@ -173,7 +175,8 @@ export interface Reading {
 
 /**
  * Asks Jev which of `items` the run does not need. Each item's text is sent
- * head-kept to {@link itemBytes}. No items ask nothing.
+ * head-kept to {@link itemBytes}, and an item that was cut is never withheld.
+ * No items ask nothing.
  *
  * @category constructors
  * @since 1.0.0-rc.0
@@ -188,7 +191,8 @@ export const judge = (context: Context, items: ReadonlyArray<Item>): Effect.Effe
         item,
         digest: Digest.digest(item.text),
         p: answer.probability,
-        withheld: Option.getOrElse(Classifier.confident(answer, confidentAt), () => false)
+        withheld: bytes.size(item.text) <= itemBytes &&
+          Option.getOrElse(Classifier.confident(answer, confidentAt), () => false)
       }
     })
     const usages = read.asked.flatMap((asked) => asked.usage === undefined ? [] : [asked.usage])

@@ -1521,7 +1521,9 @@ reading with classifier `relevance/unnecessary` and one boolean
 `unnecessary_<i>` per item), whether each item is unnecessary for
 `context.task`. An item is withheld only at a probability at or above
 `withholdAt` (0.9); everything else is kept. Each item's text is sent
-head-kept to `itemBytes` (1,024). The `Reading` holds a `Verdict` per item in
+head-kept to `itemBytes` (1,024), and an item that was cut is always kept:
+Jev cannot be confident about text it was not shown. The `Reading` holds a
+`Verdict` per item in
 input order (`p`, `withheld`, and the digest of the whole text), every
 request's `Asked`, `latencyMs` and summed `usage`. It fails as
 `Judgement.Unjudged`, and the caller then keeps every item and journals

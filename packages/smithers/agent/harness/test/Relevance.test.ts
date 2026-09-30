@@ -103,6 +103,25 @@ describe("judge", () => {
     expect(sent.startsWith("HEADxxx")).toBe(true)
     expect(sent).toContain("the rest is not shown")
     expect(reading.verdicts[0]!.digest).toBe(Digest.digest(text))
+    // Jev saw only the head, so however sure it is, the whole item is kept.
+    expect(reading.verdicts[0]!.p).toBe(0.95)
+    expect(reading.verdicts[0]!.withheld).toBe(false)
+  })
+
+  it("withholds an item of exactly itemBytes and keeps one a byte longer", async () => {
+    const jev = scripted(() => 0.99)
+    const fits = "z".repeat(Relevance.itemBytes)
+    const reading = await Effect.runPromise(
+      Relevance.judge(context, [item("fits", fits), item("over", `${fits}z`), item("multibyte", "é".repeat(513))]).pipe(
+        Effect.provide(jev.layer)
+      )
+    )
+    expect(reading.verdicts.map(({ item, withheld }) => [item.id, withheld])).toEqual([
+      ["fits", true],
+      ["over", false],
+      // 513 two-byte characters are 1026 bytes, so the reading saw a head only.
+      ["multibyte", false]
+    ])
   })
 
   it("asks nothing about no items", async () => {
