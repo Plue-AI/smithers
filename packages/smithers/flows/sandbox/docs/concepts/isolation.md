@@ -179,10 +179,35 @@ Without `limits`, a machine gets the provider's defaults. No provider bounds
 disk through this option, and a body that fills the disk of a
 `DirectorySandbox` fills your disk.
 
-**Conformance does not check isolation.** Both suites state contract behavior:
-output, exit codes, standard input, files, the workdir, environment delivery,
-liveness, and signalling. No check asserts that a command failed to reach the
-host, and a passing suite says nothing about confinement.
+**Conformance checks isolation only when you ask, and only one observation at
+a time.** By default both suites state contract behavior: output, exit codes,
+standard input, files, the workdir, environment delivery, liveness, and
+signalling. No default check asserts that a command failed to reach the host.
+`SandboxConformance.check` adds two isolation checks when you supply what each
+is judged against:
+
+- `isolation.hostSentinel` is an absolute path that exists on the host running
+  the suite. `hides-host-paths` requires the session's `readFile` to answer
+  `not_found` for it and a guest `test -e` of it to exit 1.
+- `isolation.egressProbe` is a guest command that exits 0 when it reaches the
+  network. `refuses-egress` requires it to exit non-zero; an exit of 126 or 127
+  means the probe could not run, and the check reports egress as unproven.
+
+```ts
+// A path created on the host for this run, so no guest image can hold it too.
+const sentinel = join(mkdtempSync(join(tmpdir(), "sentinel-")), "host-only")
+writeFileSync(sentinel, "")
+const violations = await Effect.runPromise(SandboxConformance.check(provider, {
+  isolation: {
+    hostSentinel: sentinel,
+    egressProbe: "wget -q -T 5 -O /dev/null https://example.com"
+  }
+}))
+```
+
+A pass is one observation: that sentinel was hidden and that probe failed. It
+does not prove the machine is confined from everything else on the host or the
+network, and a suite run without these options says nothing about confinement.
 
 **Some backends change a command's output bytes.** Output is byte-exact
 through `DirectorySandbox`, `ContainerSandbox`, `KubernetesSandbox`,
