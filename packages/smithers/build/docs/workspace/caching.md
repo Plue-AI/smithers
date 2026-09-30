@@ -161,8 +161,11 @@ plan. Vitest uses the same runtime override selection as execution.
 These action-backed rules accept absolute launcher paths or bare names on an
 absolute `PATH`. Relative launcher paths and relative or empty `PATH` entries
 refuse planning: package-directory probes and workspace-directory services can
-otherwise select different executable bytes. Use an absolute launcher or
-absolute lookup directories.
+otherwise select different executable bytes. The `smthrs` process entry
+resolves relative `PATH` entries against the launch directory and drops empty
+ones before planning, so `pnpm exec smthrs` works with its `./node_modules/.bin`
+entry. A host that embeds the CLI with its own environment passes an absolute
+launcher or absolute lookup directories.
 
 Default caching requires complete installed-tool and output contracts, tracked in
 [#1871](https://github.com/smithersai/smithers/issues/1871):

@@ -78,6 +78,12 @@ const terminal = (): Reporter.Terminal & { readonly text: () => string } => {
  * before it is invoked. A Map-backed fake cannot tell the two apart, which is
  * why the surrendered-signal defect was invisible here.
  */
+/** The inherited search path without the launcher's own relative entries. */
+const absolutePath = (): string =>
+  (process.env["PATH"] ?? "").split(NodePath.delimiter).filter((entry) => NodePath.isAbsolute(entry)).join(
+    NodePath.delimiter
+  )
+
 const host = (argv: ReadonlyArray<string>, env: Record<string, string | undefined>) => {
   const signals = new NodeEvents.EventEmitter()
   const codes: Array<number> = []
@@ -119,6 +125,34 @@ describe("Entry.main", () => {
     expect(fake.stdout.text()).toContain("ok: true")
     expect(fake.stderr.text()).not.toContain("//:good  ran")
     expect(fake.stderr.text()).not.toContain("\u001b[")
+  })
+
+  it("anchors relative PATH entries to the launch directory before planning", async () => {
+    // `pnpm exec` prepends `./node_modules/.bin`; a trailing `:` adds an empty entry.
+    const root = await fixture()
+    const inherited = absolutePath()
+    const env = {
+      ...process.env,
+      PATH: ["./node_modules/.bin", "", "tools", inherited].join(NodePath.delimiter)
+    }
+    const fake = host(["//:good", "--workspace", root, "--ui", "plain"], env)
+    await Entry.main({ ...fake.value, cwd: root })
+    expect(env.PATH).toBe(
+      [NodePath.join(root, "node_modules", ".bin"), NodePath.join(root, "tools"), inherited].join(NodePath.delimiter)
+    )
+    expect(fake.codes).toEqual([])
+    expect(fake.stdout.text()).toContain("ok: true")
+  })
+
+  it("leaves an absolute PATH and a missing PATH unchanged", async () => {
+    const root = await fixture()
+    const absolute = { ...process.env, PATH: `${root}${NodePath.sep}${NodePath.delimiter}${absolutePath()}` }
+    const expected = absolute.PATH
+    await Entry.main({ ...host(["//:good", "--workspace", root, "--ui", "plain"], absolute).value, cwd: root })
+    expect(absolute.PATH).toBe(expected)
+    const missing: Record<string, string | undefined> = { HOME: process.env["HOME"] }
+    await Entry.main({ ...host(["--help"], missing).value, cwd: root })
+    expect("PATH" in missing).toBe(false)
   })
 
   it("records the exit code of a failed command", async () => {

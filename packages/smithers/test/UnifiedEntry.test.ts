@@ -1,5 +1,6 @@
 import type { RuntimeConfig } from "@smthrs/build-cli/Cli"
 import { EventEmitter } from "node:events"
+import { delimiter, join, resolve } from "node:path"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { type Host, main } from "../src/cli/Entry.ts"
 
@@ -67,6 +68,24 @@ describe("unified process entry", () => {
     expect(serve.mock.calls[0]![0]).toContain("--workspace")
     expect(serve.mock.calls[0]![0]).not.toContain("--root")
     expect(result).toEqual({ stdout: "result\n", stderr: "", codes: [0] })
+    clean(signals)
+  })
+
+  it("anchors relative PATH entries to the launch directory before constructing commands", async () => {
+    // `pnpm exec` prepends `./node_modules/.bin`; action-backed targets refuse a relative entry.
+    const launch = resolve("/launch")
+    const absolute = resolve("/usr/bin")
+    const env = { PATH: ["./node_modules/.bin", "", absolute].join(delimiter) }
+    const { host, signals } = fixture(["targets", "--json"], env)
+    let planned: string | undefined
+    makeCli.mockImplementation((runtime: RuntimeConfig) => {
+      planned = runtime.environment?.["PATH"]
+      return { serve }
+    })
+    await main({ ...host, cwd: launch })
+    const anchored = [join(launch, "node_modules", ".bin"), absolute].join(delimiter)
+    expect(planned).toBe(anchored)
+    expect(env.PATH).toBe(anchored)
     clean(signals)
   })
 

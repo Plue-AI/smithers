@@ -5,6 +5,7 @@
 
 import * as Audience from "@smthrs/build-cli/Audience"
 import type { Host as BuildHost } from "@smthrs/build-cli/Entry"
+import * as Environment from "@smthrs/build-cli/Environment"
 import * as Redaction from "@smthrs/journal/Redaction"
 import { makeCli } from "../Cli.ts"
 import * as Failure from "../internal/Failure.ts"
@@ -30,10 +31,12 @@ export interface Host extends BuildHost {
 
 /**
  * Runs one invocation; help and validation do not construct a durable runtime.
+ * Relative `PATH` entries are fixed to the launch directory first.
  * @category constructors
  * @since 1.0.0
  */
 export const main = async (host: Host): Promise<void> => {
+  Environment.anchorSearchPath(host.env, host.cwd ?? process.cwd())
   const cacheUrl = host.env["SMITHERS_CACHE_URL"]
   const cacheToken = host.env["SMITHERS_CACHE_TOKEN"]
   delete host.env["SMITHERS_CACHE_URL"]

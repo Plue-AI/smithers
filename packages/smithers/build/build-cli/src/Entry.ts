@@ -12,6 +12,7 @@
 
 import * as Audience from "./Audience.ts"
 import { makeCli, normalizeArgv } from "./Cli.ts"
+import * as Environment from "./Environment.ts"
 import type * as Reporter from "./Reporter.ts"
 
 /**
@@ -23,6 +24,8 @@ import type * as Reporter from "./Reporter.ts"
 export interface Host {
   readonly argv: ReadonlyArray<string>
   readonly env: Record<string, string | undefined>
+  /** The launch directory relative `PATH` entries resolve against; defaults to `process.cwd()`. */
+  readonly cwd?: string | undefined
   readonly stdin?: { readonly isTTY?: boolean | undefined } | undefined
   readonly stdout: Reporter.Terminal
   readonly stderr: Reporter.Terminal
@@ -46,13 +49,15 @@ export interface Host {
 /**
  * Runs one invocation against a host. The cache URL and token are read once
  * and removed from the host environment before any declaration evaluates, so no
- * workspace module can read them. A signal aborts every running target and
- * the process exits 1 whatever the command was about to report.
+ * workspace module can read them. Relative `PATH` entries are fixed to the
+ * launch directory first. A signal aborts every running target and the
+ * process exits 1 whatever the command was about to report.
  *
  * @category execution
  * @since 0.1.0
  */
 export const main = async (host: Host): Promise<void> => {
+  Environment.anchorSearchPath(host.env, host.cwd ?? process.cwd())
   const presentation = Audience.fromArguments(host.argv, {
     env: host.env,
     stdin: host.stdin?.isTTY === true,
