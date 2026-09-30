@@ -82,6 +82,33 @@ describe("CloudSession.signedIn", () => {
     })
   })
 
+  it("POSTs a JSON body as the signed-in person, and refuses a path off the origin or a refusal by status", async () => {
+    const seen: Array<{ method?: string; type?: string; auth?: string; body: string }> = []
+    const server = createServer((request, response) => {
+      let body = ""
+      request.on("data", (chunk) => (body += chunk))
+      request.on("end", () => {
+        seen.push({ method: request.method, type: request.headers["content-type"], auth: request.headers.authorization, body })
+        response.writeHead(request.url === "/api/no" ? 403 : 201, { "content-type": "application/json" })
+        response.end(JSON.stringify({ ok: true }))
+      })
+    })
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
+    servers.push(() => server.close())
+    const at = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+    const cloud = await CloudSession.signedIn({
+      HOME: home(),
+      XDG_CONFIG_HOME: home(),
+      SMITHERS_API_ORIGIN: at,
+      SMITHERS_TOKEN: "tok_2"
+    })
+    expect(await cloud!.post("/api/x", { title: "T", request: "r-1" })).toEqual({ ok: true })
+    expect(seen).toEqual([{ method: "POST", type: "application/json", auth: "token tok_2", body: '{"title":"T","request":"r-1"}' }])
+    await expect(cloud!.post("/api/no", {})).rejects.toMatchObject({ fault: "user", message: "/api/no: HTTP 403" })
+    await expect(cloud!.post("//evil.example/x", {})).rejects.toThrow("Not a Cloud API path")
+    expect(seen).toHaveLength(2)
+  })
+
   it("never sends the token to another host, and refuses redirects", async () => {
     const at = await origin((path) => ({ status: 200, body: { path } }))
     const cloud = await CloudSession.signedIn({

@@ -29,6 +29,9 @@ const signIn: Panels.Row = {
   details: []
 }
 
+/** The factory's first row: the composer command that files a TODO. */
+const fileTodo: Panels.Row = { id: "factory:todo", label: "File a TODO", details: text("/todo <title>") }
+
 export const panel = (
   listed: ReadonlyArray<Listed>,
   runs: ReadonlyArray<Run>,
@@ -51,7 +54,7 @@ export const panel = (
       ? factory.metrics
       : `${apps.length === 0 ? "" : `${apps.length} apps · `}${listed.length} flows · ${active.length} active`,
     rows: [
-      ...input === "signed-out" ? [signIn] : factory?.rows ?? [],
+      ...input === "signed-out" ? [signIn] : factory === undefined ? [] : [fileTodo, ...factory.rows],
       // The apps the homepage declares (home.ts): the same list the app home shows as tiles. A row runs its flow when this directory discovers it.
       ...apps.map((app) => ({
         id: `app:${app.flow}`,

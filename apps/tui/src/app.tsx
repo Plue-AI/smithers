@@ -570,6 +570,9 @@ export function App(props: AppProps) {
   // The factory's issue list, read from Cloud as the signed-in person while the Smithers tab shows.
   const [factory, setFactory] = useState<Smithers.Factory | "signed-out" | undefined>()
   const factoryRepo = useMemo(() => Factory.repository(props.host.cwd, process.env), [props.host.cwd])
+  // `/todo` files through the session it resolves; the filer keeps a request id per unanswered TODO.
+  const todoCloud = useRef<CloudSession.Cloud | undefined>(undefined)
+  const todoFiler = useRef(Factory.filer((path, body, signal) => todoCloud.current!.post(path, body, signal)))
   const smithersShown = surface === `ui:${Smithers.id}`
   useEffect(() => {
     if (!smithersShown) return
@@ -1331,6 +1334,32 @@ export function App(props: AppProps) {
         runs.refresh()
         showTab(`ui:${Smithers.id}`)
         return true
+      case "todo": {
+        const title = argument.trim()
+        if (title === "" || factoryRepo === undefined) {
+          setStatus(title === "" ? "Usage: /todo <title>" : "No repository for this directory", "warning")
+          return true
+        }
+        // Acknowledged at once; the filing settles the status when Cloud answers.
+        setStatus("TODO requested")
+        void (async () => {
+          try {
+            const cloud = await CloudSession.signedIn(process.env)
+            if (cloud === undefined) return setStatus("Sign in to file a TODO: smthrs auth login", "warning")
+            todoCloud.current = cloud
+            const filed = await todoFiler.current(factoryRepo, title)
+            if (filed.ok) {
+              setStatus(`TODO ${filed.item.issue === undefined ? "" : `#${filed.item.issue.number} `}queued`)
+            } else {
+              setStatus(`TODO not filed: ${filed.detail}${filed.settled ? "" : " · /todo again retries it"}`, "warning")
+            }
+          } catch (error) {
+            Log.write("factory.todo", error)
+            setStatus(Failures.line("flow", error), "warning")
+          }
+        })()
+        return true
+      }
       case "tabs":
         showTab(snapshot.tabs[0] === undefined ? "summary" : `tab:${snapshot.tabs[0].id}`)
         return true
@@ -1551,7 +1580,7 @@ export function App(props: AppProps) {
         setStatus(`Unknown command /${verb}`, "warning")
         return true
     }
-  }, [transcript, name, newSession, quit, switchSeat, setStatus, setText, props.host.cwd, workspace, runs, revision])
+  }, [transcript, name, newSession, quit, switchSeat, setStatus, setText, props.host.cwd, workspace, runs, revision, factoryRepo])
 
   /** A prompt for the agent, taken literally: never a `!` shell line or a `/` command. */
   const send = useCallback((text: string, followUp = false) => {

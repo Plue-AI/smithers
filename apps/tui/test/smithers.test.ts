@@ -95,3 +95,12 @@ it("says how to see the factory's issues when the person is not signed in to Clo
   expect(panel.summary).toBe("2 flows · 0 active")
   expect(panel.rows.slice(1).map((row) => row.id)).toEqual(["flow:review", "flow:release"])
 })
+
+it("leads the factory's issues with the row that names how to file a TODO", () => {
+  const panel = Smithers.panel(listed, [], [], { metrics: "1 landed", rows: [{ id: "issue:x", label: "#1 T", details: [] }] })
+  expect(Panels.decode(panel)).toEqual(panel)
+  expect(panel.rows.slice(0, 2)).toEqual([
+    { id: "factory:todo", label: "File a TODO", details: [{ kind: "text", text: "/todo <title>" }] },
+    { id: "issue:x", label: "#1 T", details: [] }
+  ])
+})
