@@ -175,3 +175,28 @@ test("undone receipts keep Diff and Open while removing Undo", async () => {
   expect(setup!.captureCharFrame()).toContain("enter Open")
   expect(setup!.captureCharFrame()).not.toContain("u Undo")
 })
+
+test.each([
+  { title: "report-" + "x".repeat(70), status: "done" as const },
+  { title: "report-" + "x".repeat(70), status: "failed" as const },
+  { title: "report-" + "界".repeat(70), status: "done" as const },
+  { title: "report-" + "界".repeat(70), status: "failed" as const }
+])("a long $status flow title preserves its outcome in a 78-column card", async ({ title, status }) => {
+  const card = RunCard.flow({
+    id: "long",
+    flow: title,
+    by: "user",
+    input: {},
+    requested: "{}",
+    startedAt: 0,
+    endedAt: 40,
+    status,
+    ...(status === "done" ? { answer: "5" } : { failure: "Check exited 7." })
+  }, 90_000)
+  await mount(card, 78, 24, { onOpen: () => {} })
+  const rows = setup!.captureCharFrame().split("\n").filter((row) => row.trim() !== "")
+  expect(rows[0]).toContain(status === "done" ? "→ 5" : "Check exited 7.")
+  expect(rows[0]).toContain("report-")
+  expect(stringWidth(rows[0]!)).toBeLessThanOrEqual(78)
+  if (status === "done") expect(rows).toHaveLength(1)
+})

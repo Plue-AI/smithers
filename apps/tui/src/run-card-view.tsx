@@ -1,4 +1,5 @@
 import * as SubagentCard from "@smthrs/rpc/SubagentCard"
+import stringWidth from "string-width"
 import type * as RunCard from "./run-card.ts"
 import { summary } from "./run-card.ts"
 import { color } from "./theme.ts"
@@ -22,17 +23,26 @@ export function RunCardView(props: {
     : card.outcome === "done" || card.outcome === "working" || card.failure !== undefined
     ? card.duration
     : `${card.outcome} · ${card.duration}`
+  const metadata = ` · ${aside}${card.undone ? " · undone" : ""}`
+  const outcome = card.failure !== undefined ?
+    ` · ${card.failure}` :
+    card.result !== undefined
+    ? ` → ${card.result}`
+    : ""
+  // Reserve the outcome first, with room for a recognizable title and the clock.
+  const tail = SubagentCard.clip(
+    outcome,
+    Math.max(1, room - stringWidth(metadata) - Math.min(16, stringWidth(card.title)))
+  )
+  const title = SubagentCard.clip(card.title, Math.max(1, room - stringWidth(metadata) - stringWidth(tail)))
   return (
     <box id={props.id} style={{ marginBottom: 1, flexShrink: 0 }}>
       <box {...(props.focused ? { backgroundColor: color.selected } : {})}>
         <text wrapMode="none" onMouseDown={props.onOpen}>
           <span fg={card.tone}>{card.glyph}{" "}</span>
-          <strong fg={color.text}>{SubagentCard.clip(card.title, Math.max(1, room - aside.length - 3))}</strong>
-          <span fg={color.faint}>{` · ${aside}`}{card.undone ? " · undone" : ""}</span>
-          {card.failure === undefined ? null : <span fg={color.text}>{` · ${card.failure}`}</span>}
-          {card.result === undefined
-            ? null
-            : <span fg={color.text}>{` → ${SubagentCard.clip(card.result, room)}`}</span>}
+          <strong fg={color.text}>{title}</strong>
+          <span fg={color.faint}>{metadata}</span>
+          {tail === "" ? null : <span fg={color.text}>{tail}</span>}
         </text>
       </box>
       {card.steps.length === 0 && card.answer === undefined && card.receipts.length === 0 &&
