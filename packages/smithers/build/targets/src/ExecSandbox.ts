@@ -826,6 +826,55 @@ const credentialPaths = (hostFacts: Host): ReadonlyArray<string> => {
 }
 
 /**
+ * The program a bubblewrap run execs, made reachable inside its empty root.
+ *
+ * Bubblewrap resolves a bare program name with `execvp` against `PATH` inside
+ * the new root, and that root holds only the runtime paths and the declared
+ * sets. A package manager installed outside them — pnpm under the
+ * `pnpm/action-setup` prefix on a CI runner, a `.bin` link into a
+ * `node_modules` tree — is on the host `PATH` and absent from the sandbox, so
+ * the run died with `bwrap: execvp pnpm` before the tool started (#3140).
+ *
+ * A bare name is resolved on the tool's `PATH` (the host's when none is
+ * given). A program already inside a granted path is left exactly as spelled,
+ * so a multi-call binary keeps the name it dispatches on, and so is one inside
+ * the workspace, whose reads only the declaration may open. Otherwise the run
+ * execs the program's real file, and the nearest package directory holding it
+ * (its `package.json`, at most three levels up, never the home or the root)
+ * is bound read-only, because a script like `pnpm.cjs` loads its siblings.
+ * With no package directory only the real file is bound. A name that resolves
+ * nowhere is left for `execvp` to report.
+ */
+const launcher = (
+  program: string,
+  searchPath: string | undefined,
+  granted: ReadonlyArray<string>,
+  workspaceRoot: string,
+  hostFacts: Host
+): { readonly program: string; readonly reads: ReadonlyArray<string> } => {
+  const unchanged = { program, reads: [] }
+  if (program.includes("/") && !NodePath.isAbsolute(program)) return unchanged
+  const found = NodePath.isAbsolute(program)
+    ? hostFacts.executable(program)
+    : searchPath === undefined
+    ? hostFacts.executable(program)
+    : searchPath.split(":").filter((entry) => NodePath.isAbsolute(entry))
+      .map((entry) => hostFacts.executable(NodePath.join(entry, program)))
+      .find((candidate) => candidate !== undefined)
+  if (found === undefined || granted.some((parent) => insideRoot(parent, found))) return unchanged
+  const real = hostFacts.realpath?.(found) ?? found
+  if (insideRoot(workspaceRoot, found) || insideRoot(workspaceRoot, real)) return unchanged
+  if (granted.some((parent) => insideRoot(parent, real))) return { program: real, reads: [] }
+  let directory = NodePath.dirname(real)
+  for (let level = 0; level < 3; level++) {
+    if (directory === NodePath.dirname(directory) || directory === hostFacts.home) break
+    if (hostFacts.exists(NodePath.join(directory, "package.json"))) return { program: real, reads: [directory] }
+    directory = NodePath.dirname(directory)
+  }
+  return { program: real, reads: [real] }
+}
+
+/**
  * The bubblewrap argv for a plan.
  *
  * Order matters: bubblewrap applies operations in argument order, so the
@@ -841,7 +890,8 @@ const credentialPaths = (hostFacts: Host): ReadonlyArray<string> => {
 export const bubblewrap = (
   confinement: Plan,
   argv: ReadonlyArray<string>,
-  hostFacts: Host = host()
+  hostFacts: Host = host(),
+  searchPath?: string | undefined
 ): ReadonlyArray<string> => {
   if (confinement.mechanism._tag !== "bubblewrap") throw new Error("bubblewrap argv needs a bubblewrap plan")
   validateWrites(confinement, hostFacts)
@@ -873,6 +923,15 @@ export const bubblewrap = (
   // link a declared read then binds resolves to the same bytes the host sees
   // even when `/tmp` above the target has just become a private tmpfs.
   for (const real of confinement.externalReads) out.push("--ro-bind", real, real)
+  const [program, ...args] = argv
+  const launch = program === undefined ? undefined : launcher(
+    program,
+    searchPath,
+    [...runtime, ...confinement.reads, ...confinement.writes, ...confinement.externalReads],
+    confinement.workspaceRoot,
+    hostFacts
+  )
+  for (const read of launch?.reads ?? []) out.push("--ro-bind", read, read)
   for (const read of confinement.reads) out.push("--ro-bind", read, read)
   for (const write of confinement.writes) out.push("--bind", write, write)
   for (const closed of confinement.readOnly) {
@@ -880,7 +939,13 @@ export const bubblewrap = (
       out.push("--ro-bind-try", closed, closed)
     }
   }
-  const granted = [...runtime, ...confinement.reads, ...confinement.writes, ...confinement.externalReads]
+  const granted = [
+    ...runtime,
+    ...(launch?.reads ?? []),
+    ...confinement.reads,
+    ...confinement.writes,
+    ...confinement.externalReads
+  ]
   for (const path of credentialPaths(hostFacts)) {
     if (!hostFacts.exists(path) || !granted.some((parent) => insideRoot(parent, path))) continue
     // An explicit external read can name a credential or a file inside it.
@@ -909,7 +974,7 @@ export const bubblewrap = (
     throw new Error("bubblewrap cannot render loopback-only networking")
   }
   if (confinement.network === "open") out.push("--share-net")
-  out.push("--", ...argv)
+  out.push("--", ...(launch === undefined ? argv : [launch.program, ...args]))
   return out
 }
 
@@ -1089,7 +1154,7 @@ export const wrap = (
   const extra = environment(confinement)
   switch (confinement.mechanism._tag) {
     case "bubblewrap":
-      return { argv: bubblewrap(confinement, argv, hostFacts), env: extra }
+      return { argv: bubblewrap(confinement, argv, hostFacts, env["PATH"]), env: extra }
     case "seatbelt": {
       const profile = seatbelt(confinement, hostFacts)
       return { argv: [confinement.mechanism.executable, "-p", profile, ...argv], env: extra }

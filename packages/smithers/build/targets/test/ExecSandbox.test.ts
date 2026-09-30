@@ -1332,3 +1332,165 @@ describe("host", () => {
     expect(real.realpath?.("/definitely/not/a/real/path")).toBeUndefined()
   })
 })
+
+describe("bubblewrap launcher (#3140)", () => {
+  // pnpm as `pnpm/action-setup` installs it: a `.bin` link on PATH into a package outside every grant.
+  const setup = "/home/runner/setup-pnpm/node_modules"
+  const onPath = `${setup}/.bin/pnpm`
+  const real = `${setup}/pnpm/bin/pnpm.cjs`
+  const runner = (overrides: Partial<ExecSandbox.Host> = {}): ExecSandbox.Host => {
+    const base: ExecSandbox.Host = {
+      ...host("linux", { [onPath]: onPath }, [`${setup}/pnpm/package.json`]),
+      home: "/home/runner",
+      realpath: (path) => path === onPath ? real : path,
+      ...overrides
+    }
+    return { ...base, executable: (name) => name === "bwrap" ? "/usr/bin/bwrap" : base.executable(name) }
+  }
+  const tail = (argv: ReadonlyArray<string>) => argv.slice(argv.indexOf("--") + 1)
+
+  it("execs a bare package manager outside every grant by its real file and binds its package read-only", () => {
+    const facts = runner()
+    const argv = ExecSandbox.bubblewrap(planned(facts), ["pnpm", "exec", "vitest"], facts, `/usr/bin:${setup}/.bin`)
+    expect(tail(argv)).toEqual([real, "exec", "vitest"])
+    expect(argv.join(" ")).toContain(`--ro-bind ${setup}/pnpm ${setup}/pnpm`)
+    expect(argv.join(" ")).not.toContain(`--ro-bind ${setup} `)
+    // Bound before the read-only remounts, so the program is inside the root it runs in.
+    expect(argv.indexOf(`${setup}/pnpm`)).toBeLessThan(argv.indexOf("--remount-ro"))
+  })
+
+  it("resolves on the tool PATH in order and falls back to the host lookup without one", () => {
+    const facts = runner({ executable: (name) => name === "pnpm" ? onPath : name === onPath ? onPath : undefined })
+    expect(tail(ExecSandbox.bubblewrap(planned(facts), ["pnpm"], facts))).toEqual([real])
+    expect(tail(ExecSandbox.bubblewrap(planned(facts), ["pnpm"], facts, "relative:/nowhere"))).toEqual(["pnpm"])
+  })
+
+  it("leaves a program inside a granted path spelled as declared, binding nothing more", () => {
+    const facts = runner({
+      executable: (name) => name === "/usr/bin/busybox" ? name : undefined,
+      exists: (path) => path === "/usr"
+    })
+    const argv = ExecSandbox.bubblewrap(planned(facts), ["busybox", "true"], facts, "/usr/bin")
+    expect(tail(argv)).toEqual(["busybox", "true"])
+    const inside = runner({
+      executable: (name) => name === "/usr/local/bin/pnpm" ? name : undefined,
+      exists: (path) => path === "/usr",
+      realpath: (path) => path === "/usr/local/bin/pnpm" ? "/usr/lib/node_modules/pnpm/bin/pnpm.cjs" : path
+    })
+    const linked = ExecSandbox.bubblewrap(planned(inside), ["pnpm"], inside, "/usr/local/bin")
+    expect(tail(linked)).toEqual(["pnpm"])
+  })
+
+  it("follows a link out of the grants to its real file, binding nothing when that file is granted", () => {
+    const facts = runner({
+      executable: (name) => name === "/opt/tools/pnpm" ? name : undefined,
+      exists: (path) => path === "/usr",
+      realpath: (path) => path === "/opt/tools/pnpm" ? "/usr/lib/pnpm.cjs" : path
+    })
+    const argv = ExecSandbox.bubblewrap(planned(facts), ["pnpm"], facts, "/opt/tools")
+    expect(tail(argv)).toEqual(["/usr/lib/pnpm.cjs"])
+    expect(argv.join(" ")).not.toContain("/opt/tools")
+  })
+
+  it("never binds a program inside the workspace, which only the declaration may open", () => {
+    const local = `${root}/node_modules/.bin/pnpm`
+    const facts = runner({
+      executable: (name) => name === local ? name : undefined,
+      realpath: (path) => path === local ? `${root}/node_modules/pnpm/bin/pnpm.cjs` : path
+    })
+    const argv = ExecSandbox.bubblewrap(planned(facts, { reads: [] }), ["pnpm"], facts, `${root}/node_modules/.bin`)
+    expect(tail(argv)).toEqual(["pnpm"])
+    expect(argv.join(" ")).not.toContain("node_modules/pnpm")
+  })
+
+  it("binds only the real file when no package holds it, and never the home or the root", () => {
+    const loose = "/home/runner/bin/tool"
+    const facts = runner({
+      executable: (name) => name === loose ? name : undefined,
+      exists: (path) => path === "/home/runner/package.json" || path === "/package.json",
+      realpath: (path) => path
+    })
+    const argv = ExecSandbox.bubblewrap(planned(facts), ["tool", "--flag"], facts, "/home/runner/bin")
+    expect(tail(argv)).toEqual([loose, "--flag"])
+    expect(argv.join(" ")).toContain(`--ro-bind ${loose} ${loose}`)
+    expect(argv.join(" ")).not.toContain("--ro-bind /home/runner /home/runner")
+    const top = runner({
+      executable: (name) => name === "/tool" ? name : undefined,
+      exists: (path) => path === "/package.json",
+      realpath: (path) => path
+    })
+    expect(ExecSandbox.bubblewrap(planned(top), ["tool"], top, "/").join(" ")).toContain("--ro-bind /tool /tool")
+  })
+
+  it("leaves a name that resolves nowhere, and a workspace-relative program, for execvp to report", () => {
+    const facts = runner()
+    expect(tail(ExecSandbox.bubblewrap(planned(facts), ["missing"], facts, "/usr/bin"))).toEqual(["missing"])
+    expect(tail(ExecSandbox.bubblewrap(planned(facts), ["./run.sh"], facts, `${setup}/.bin`))).toEqual(["./run.sh"])
+  })
+
+  it("stops the package search at the home, binding only the real file", () => {
+    const facts = runner({
+      exists: (path) => path === `${setup}/pnpm/package.json`,
+      home: `${setup}/pnpm`
+    })
+    const argv = ExecSandbox.bubblewrap(planned(facts), ["pnpm"], facts, `${setup}/.bin`).join(" ")
+    expect(argv).toContain(`--ro-bind ${real} ${real}`)
+    expect(argv).not.toContain(`--ro-bind ${setup}/pnpm ${setup}/pnpm`)
+  })
+
+  it("wrap resolves the bubblewrap program on the tool environment's PATH", () => {
+    const facts = runner()
+    const wrapped = ExecSandbox.wrap(planned(facts), ["pnpm", "--version"], { PATH: `${setup}/.bin` }, facts)
+    expect(tail(wrapped.argv)).toEqual([real, "--version"])
+  })
+
+  const bwrap = process.platform === "linux" ? ExecSandbox.host().executable("bwrap") : undefined
+  // Linux only: bubblewrap exists nowhere else, so macOS and Windows skip this and ubuntu CI is its evidence.
+  it.skipIf(bwrap === undefined)("runs a confined package-manager script that lives outside every grant", () => {
+    const { base, workspaceRoot, outside } = writeFixture()
+    try {
+      const pkg = NodePath.join(outside, "node_modules/fake-pm")
+      const bin = NodePath.join(outside, "node_modules/.bin")
+      NodeFs.mkdirSync(NodePath.join(pkg, "bin"), { recursive: true })
+      NodeFs.mkdirSync(bin, { recursive: true })
+      NodeFs.writeFileSync(NodePath.join(pkg, "package.json"), "{\"name\":\"fake-pm\"}")
+      NodeFs.writeFileSync(NodePath.join(pkg, "lib.cjs"), "module.exports = \"fake-pm-ok\"\n")
+      NodeFs.writeFileSync(
+        NodePath.join(pkg, "bin/fake-pm.cjs"),
+        "#!/usr/bin/env node\nprocess.stdout.write(require(\"../lib.cjs\"))\n",
+        { mode: 0o755 }
+      )
+      NodeFs.symlinkSync("../fake-pm/bin/fake-pm.cjs", NodePath.join(bin, "fake-pm"))
+      const tmp = NodePath.join(workspaceRoot, ".tmp")
+      NodeFs.mkdirSync(NodePath.join(tmp, "home"), { recursive: true })
+      const hostFacts = ExecSandbox.host()
+      const run = (command: ReadonlyArray<string>, path: string) => {
+        const result = ExecSandbox.plan(
+          { policy: {}, reads: [], writes: [] },
+          { workspaceRoot, cwd: workspaceRoot, tmp },
+          hostFacts
+        )
+        if (result === undefined || ExecSandbox.isUnenforceable(result)) throw new Error("bubblewrap unavailable")
+        const wrapped = ExecSandbox.wrap(result, command, { PATH: path }, hostFacts)
+        return spawnSync(wrapped.argv[0]!, wrapped.argv.slice(1), {
+          encoding: "utf8",
+          timeout: 20_000,
+          env: { ...process.env, PATH: path, ...wrapped.env }
+        })
+      }
+      const path = [bin, NodePath.dirname(process.execPath), ...(process.env["PATH"] ?? "").split(":")].join(":")
+      const fake = run(["fake-pm"], path)
+      expect(fake.status, fake.stderr).toBe(0)
+      expect(fake.stdout).toBe("fake-pm-ok")
+      const pnpm = hostFacts.executable("pnpm")
+      if (pnpm !== undefined) {
+        const real = run(["pnpm", "--version"], path)
+        expect(real.stderr).not.toContain("execvp")
+        expect(real.status, real.stderr).toBe(0)
+        expect(real.stdout.trim()).toMatch(/^\d+\.\d+\.\d+/)
+      }
+    } finally {
+      NodeFs.rmSync(base, { recursive: true, force: true })
+    }
+  })
+})

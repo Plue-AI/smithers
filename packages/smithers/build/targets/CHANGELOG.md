@@ -64,6 +64,10 @@ of it.
 
 ### Fixed
 
+- A bubblewrap-confined target that execs a package manager installed outside
+  every grant (pnpm under `pnpm/action-setup`) no longer dies with
+  `bwrap: execvp pnpm`: the program is resolved on the tool `PATH`, run by its
+  real file, and its package directory is bound read-only (#3140).
 - The secret-destination proxy path now seeds its request boundary with the
   resolved URL, its origin, and its request target, so an upstream that echoes
   the request back cannot hand the credential to the child.
