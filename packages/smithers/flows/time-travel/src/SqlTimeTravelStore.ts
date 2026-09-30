@@ -977,8 +977,8 @@ export const make: Effect.Effect<
                * derived no state at the frame, and fell back to the parent's
                * LATEST `state_json` - the "state NOW" bug the fold above exists
                * to fix - while writing a marker row that claims a frame nobody
-               * can address. Frame zero stays addressable by definition
-               * (`Frame`): it is the state before the run wrote anything. A
+               * can address. Frame zero stays addressable without an exact
+               * record, so an empty parent forks with nothing to copy. A
                * record carrying no lineage is compatible with every frame, the
                * same rule `prefix` reads by.
                */

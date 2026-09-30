@@ -22,9 +22,11 @@ import * as Schema from "effect/Schema"
  * A point in one lineage's history: the journal sequence number `seq` within
  * lineage `lineageId`.
  *
- * `seq` counts journal records, so frame `n` means "after the first `n`
- * records were durable". Frame `0` is the state before the run wrote
- * anything, which makes it the only frame that is always addressable.
+ * `seq` is the zero-based journal sequence of the last record the frame
+ * includes: frame `n` covers every record with `seq <= n`, so frame `0` is the
+ * state after the first record. `replay` and `inspect` refuse any frame of an
+ * empty history `not_found`; `rewind` accepts frame `0` there, with nothing to
+ * truncate.
  *
  * @since 0.1.0
  * @category schemas

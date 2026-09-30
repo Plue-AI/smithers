@@ -465,8 +465,8 @@ export const validate = (options: {
     )
     const tail = scanned.tail
     if (tail === undefined) {
-      // Frame zero is the state before the run wrote anything, so it is the
-      // one frame an empty journal can still address.
+      // Frame zero is the one frame an empty journal can still address: the
+      // rewind has nothing to truncate.
       if (options.frame.seq === 0) return { tail: undefined, generation }
       return yield* Effect.fail(
         error("not_found", `frame ${coordinate} is beyond the journal tail of ${options.runId}`)
