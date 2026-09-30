@@ -1,219 +1,217 @@
 table,target_owner,status
-users,product,product baseline; transitional copy also present
-alpha_whitelist_entries,product,product baseline; transitional copy also present
-alpha_waitlist_entries,product,product baseline; transitional copy also present
-organizations,product,product baseline; transitional copy also present
-owner_namespaces,product,product baseline; transitional copy also present
-auth_sessions,product,product baseline; transitional copy also present
-auth_nonces,product,product baseline; transitional copy also present
-oauth_states,product,product baseline; transitional copy also present
-linear_oauth_setups,product,product baseline; transitional copy also present
-email_addresses,product,product baseline; transitional copy also present
-email_verification_tokens,product,product baseline; transitional copy also present
-oauth_accounts,product,product baseline; transitional copy also present
-ssh_keys,product,product baseline; transitional copy also present
-access_tokens,product,product baseline; transitional copy also present
-user_ai_keys,product,product baseline; transitional copy also present
-repositories,product,product baseline; transitional copy also present
+users,product,product baseline
+alpha_whitelist_entries,product,product baseline
+alpha_waitlist_entries,product,product baseline
+organizations,product,product baseline
+owner_namespaces,product,product baseline
+auth_sessions,product,product baseline
+auth_nonces,product,product baseline
+oauth_states,product,product baseline
+linear_oauth_setups,product,product baseline
+email_addresses,product,product baseline
+email_verification_tokens,product,product baseline
+oauth_accounts,product,product baseline
+ssh_keys,product,product baseline
+access_tokens,product,product baseline
+user_ai_keys,product,product baseline
+repositories,product,product baseline
 repository_storage_operations,product,product migration 0007; neutral repository recovery journal
-legacy_mutation_fence_control,private,Plue-owned table; moves to Plue (smithersai/smithers#1655)
-repo_storage_sets,private,Plue-owned table; moves to Plue (smithersai/smithers#1655)
-repo_storage_nodes,private,Plue-owned table; moves to Plue (smithersai/smithers#1655)
-repo_replicas,private,Plue-owned table; moves to Plue (smithersai/smithers#1655)
-repo_write_locks,private,Plue-owned table; moves to Plue (smithersai/smithers#1655)
-repo_replication_jobs,private,Plue-owned table; moves to Plue (smithersai/smithers#1655)
-deploy_keys,product,product baseline; transitional copy also present
-lfs_objects,product,product baseline; transitional copy also present
-lfs_upload_reservations,product,product baseline; transitional copy also present
-storage_legacy_capability_horizons,private,Plue-owned table; moves to Plue (smithersai/smithers#1655)
-storage_deletion_queue,private,Plue-owned table; moves to Plue (smithersai/smithers#1655)
-lfs_locks,product,product baseline; transitional copy also present
-lfs_meta_objects,product,product baseline; transitional copy also present
-code_search_documents,product,product baseline; transitional copy also present
-search_rate_limits,product,product baseline; transitional copy also present
-org_members,product,product baseline; transitional copy also present
-teams,product,product baseline; transitional copy also present
-team_members,product,product baseline; transitional copy also present
-team_repos,product,product baseline; transitional copy also present
-collaborators,product,product baseline; transitional copy also present
-milestones,product,product baseline; transitional copy also present
-issues,product,product baseline; transitional copy also present
-issue_comments,product,product baseline; transitional copy also present
-labels,product,product baseline; transitional copy also present
-issue_labels,product,product baseline; transitional copy also present
-issue_assignees,product,product baseline; transitional copy also present
-issue_state_journals,product,product baseline; transitional copy also present
-issue_state_facts,product,product baseline; transitional copy also present
-issue_events,product,product baseline; transitional copy also present
-issue_dependencies,product,product baseline; transitional copy also present
-pinned_issues,product,product baseline; transitional copy also present
-landing_requests,product,product baseline; transitional copy also present
-landing_tasks,product,product baseline; transitional copy also present
-landing_request_changes,product,product baseline; transitional copy also present
-landing_review_requests,product,product baseline; transitional copy also present
-landing_request_reviews,product,product baseline; transitional copy also present
-landing_request_comments,product,product baseline; transitional copy also present
-stacks,product,product baseline; transitional copy also present
-stack_changes,product,product baseline; transitional copy also present
-bookmarks,product,product baseline; transitional copy also present
-changes,product,product baseline; transitional copy also present
-change_revisions,product,product baseline; transitional copy also present
-issue_change_links,product,product baseline; transitional copy also present
-analyzer_runs,product,product baseline; transitional copy also present
-findings,product,product baseline; transitional copy also present
-finding_feedback,product,product baseline; transitional copy also present
-change_walkthroughs,product,product baseline; transitional copy also present
-conflicts,product,product baseline; transitional copy also present
-protected_bookmarks,product,product baseline; transitional copy also present
-jj_operations,product,product baseline; transitional copy also present
-reactions,product,product baseline; transitional copy also present
-mentions,product,product baseline; transitional copy also present
-workflow_definitions,product,product baseline; transitional copy also present
-workflow_triggers,product,product baseline; transitional copy also present
-workflow_schedule_specs,product,product baseline; transitional copy also present
-workflow_runs,product,product baseline; transitional copy also present
-workflow_log_budget_initializations,product,product baseline; transitional copy also present
-workflow_sandbox_claims,private,Plue-owned table; moves to Plue (smithersai/smithers#1655)
-workflow_steps,product,product baseline; transitional copy also present
-workflow_tasks,product,product baseline; transitional copy also present
-workflow_logs,product,product baseline; transitional copy also present
-workflow_run_logs,product,product baseline; transitional copy also present
-github_proxy_audit_log,private,Plue-owned table; moves to Plue (smithersai/smithers#1655)
-commit_statuses,product,product baseline; transitional copy also present
-runner_pool,private,Plue-owned table; moves to Plue (smithersai/smithers#1655)
-agent_sessions,product,product baseline; transitional copy also present
-agent_messages,product,product baseline; transitional copy also present
-agent_parts,product,product baseline; transitional copy also present
-notifications,product,product baseline; transitional copy also present
-notification_journals,product,product baseline; transitional copy also present
-notification_facts,product,product baseline; transitional copy also present
-user_notification_preferences,product,product baseline; transitional copy also present
-user_devices,product,product baseline; transitional copy also present
-stars,product,product baseline; transitional copy also present
-watches,product,product baseline; transitional copy also present
-webhooks,product,product baseline; transitional copy also present
-webhook_deliveries,product,product baseline; transitional copy also present
-github_app_installations,product,product baseline; transitional copy also present
-github_app_installation_repositories,product,product baseline; transitional copy also present
-github_webhook_jobs,product,product baseline; transitional copy also present
-repo_connections,product,product baseline; transitional copy also present
-import_jobs,product,product baseline; transitional copy also present
-wiki_pages,product,product baseline; transitional copy also present
-workspaces,product,product baseline; transitional copy also present
+legacy_mutation_fence_control,private,Plue private migration 000001; dropped by Plue private migration 000023
+repo_storage_sets,private,Plue private migration 000001; dropped by Plue private migration 000023
+repo_storage_nodes,private,Plue private migration 000001; dropped by Plue private migration 000023
+repo_replicas,private,Plue private migration 000001; dropped by Plue private migration 000023
+repo_write_locks,private,Plue private migration 000001; dropped by Plue private migration 000023
+repo_replication_jobs,private,Plue private migration 000001; dropped by Plue private migration 000023
+deploy_keys,product,product baseline
+lfs_objects,product,product baseline
+lfs_upload_reservations,product,product baseline
+storage_legacy_capability_horizons,private,Plue private migration 000001
+storage_deletion_queue,private,Plue private migration 000001
+lfs_locks,product,product baseline
+lfs_meta_objects,product,product baseline
+code_search_documents,product,product baseline
+search_rate_limits,product,product baseline
+org_members,product,product baseline
+teams,product,product baseline
+team_members,product,product baseline
+team_repos,product,product baseline
+collaborators,product,product baseline
+milestones,product,product baseline
+issues,product,product baseline
+issue_comments,product,product baseline
+labels,product,product baseline
+issue_labels,product,product baseline
+issue_assignees,product,product baseline
+issue_state_journals,product,product baseline
+issue_state_facts,product,product baseline
+issue_events,product,product baseline
+issue_dependencies,product,product baseline
+pinned_issues,product,product baseline
+landing_requests,product,product baseline
+landing_tasks,product,product baseline
+landing_request_changes,product,product baseline
+landing_review_requests,product,product baseline
+landing_request_reviews,product,product baseline
+landing_request_comments,product,product baseline
+stacks,product,product baseline
+stack_changes,product,product baseline
+bookmarks,product,product baseline
+changes,product,product baseline
+change_revisions,product,product baseline
+issue_change_links,product,product baseline
+analyzer_runs,product,product baseline
+findings,product,product baseline
+finding_feedback,product,product baseline
+change_walkthroughs,product,product baseline
+conflicts,product,product baseline
+protected_bookmarks,product,product baseline
+jj_operations,product,product baseline
+reactions,product,product baseline
+mentions,product,product baseline
+workflow_definitions,product,product baseline
+workflow_triggers,product,product baseline
+workflow_schedule_specs,product,product baseline
+workflow_runs,product,product baseline
+workflow_log_budget_initializations,product,product baseline
+workflow_sandbox_claims,private,Plue private migration 000001
+workflow_steps,product,product baseline
+workflow_tasks,product,product baseline
+workflow_logs,product,product baseline
+workflow_run_logs,product,product baseline
+github_proxy_audit_log,private,Plue private migration 000001; dropped by Plue private migration 000023
+commit_statuses,product,product baseline
+runner_pool,private,Plue private migration 000001; dropped by Plue private migration 000024
+agent_sessions,product,product baseline
+agent_messages,product,product baseline
+agent_parts,product,product baseline
+notifications,product,product baseline
+notification_journals,product,product baseline
+notification_facts,product,product baseline
+user_notification_preferences,product,product baseline
+user_devices,product,product baseline
+stars,product,product baseline
+watches,product,product baseline
+webhooks,product,product baseline
+webhook_deliveries,product,product baseline
+github_app_installations,product,product baseline
+github_app_installation_repositories,product,product baseline
+github_webhook_jobs,product,product baseline
+repo_connections,product,product baseline
+import_jobs,product,product baseline
+wiki_pages,product,product baseline
+workspaces,product,product baseline
 workflow_run_coding_hosts,product,Canonical coding Flow receipt for both self-host and Plue
-workspace_snapshots,product,product baseline; transitional copy also present
-workspace_sessions,product,product baseline; transitional copy also present
-workspace_shares,product,product baseline; transitional copy also present
-repository_secrets,product,product baseline; transitional copy also present
-repository_variables,product,product baseline; transitional copy also present
-repository_agent_environments,product,product baseline; transitional copy also present
-repository_agent_environment_secrets,product,product baseline; transitional copy also present
-organization_secrets,product,product baseline; transitional copy also present
-organization_variables,product,product baseline; transitional copy also present
-audit_log,product,product baseline; transitional copy also present
-oauth2_applications,product,product baseline; transitional copy also present
-oauth2_authorization_codes,product,product baseline; transitional copy also present
-oauth2_access_tokens,product,product baseline; transitional copy also present
-oauth2_refresh_tokens,product,product baseline; transitional copy also present
-workflow_caches,product,product baseline; transitional copy also present
-workflow_artifacts,product,product baseline; transitional copy also present
-releases,product,product baseline; transitional copy also present
-release_assets,product,product baseline; transitional copy also present
-release_deletion_intents,product,product baseline; transitional copy also present
-release_deletion_tag_tombstones,product,product baseline; transitional copy also present
-billing_accounts,product,product baseline; transitional copy also present
-billing_subscriptions,product,product baseline; transitional copy also present
-billing_entitlements,product,product baseline; transitional copy also present
-billing_usage_counters,product,product baseline; transitional copy also present
-billing_credit_ledger,product,product baseline; transitional copy also present
-billing_credit_balances,product,product baseline; carried into credit_grants and dropped by product migration 0027
-stripe_processed_events,product,product baseline; transitional copy also present
-linear_integrations,product,product baseline; transitional copy also present
-linear_issue_map,product,product baseline; transitional copy also present
-linear_comment_map,product,product baseline; transitional copy also present
-linear_sync_runs,product,product baseline; transitional copy also present
-linear_sync_ops,product,product baseline; transitional copy also present
-canary_results,private,Plue-owned table; moves to Plue (smithersai/smithers#1655)
-sse_tickets,product,product baseline; transitional copy also present
-issue_artifacts,product,product baseline; transitional copy also present
-sandbox_access_tokens,private,Plue-owned table; moves to Plue (smithersai/smithers#1655)
+workspace_snapshots,product,product baseline
+workspace_sessions,product,product baseline
+workspace_shares,product,product baseline
+repository_secrets,product,product baseline
+repository_variables,product,product baseline
+repository_agent_environments,product,product baseline
+repository_agent_environment_secrets,product,product baseline
+organization_secrets,product,product baseline
+organization_variables,product,product baseline
+audit_log,product,product baseline
+oauth2_applications,product,product baseline
+oauth2_authorization_codes,product,product baseline
+oauth2_access_tokens,product,product baseline
+oauth2_refresh_tokens,product,product baseline
+workflow_caches,product,product baseline
+workflow_artifacts,product,product baseline
+releases,product,product baseline
+release_assets,product,product baseline
+release_deletion_intents,product,product baseline
+release_deletion_tag_tombstones,product,product baseline
+billing_accounts,product,product baseline
+billing_subscriptions,product,product baseline
+billing_entitlements,product,product baseline
+billing_usage_counters,product,product baseline
+billing_credit_ledger,product,product baseline
+stripe_processed_events,product,product baseline
+linear_integrations,product,product baseline
+linear_issue_map,product,product baseline
+linear_comment_map,product,product baseline
+linear_sync_runs,product,product baseline
+linear_sync_ops,product,product baseline
+canary_results,private,Plue private migration 000001; dropped by Plue private migration 000023
+sse_tickets,product,product baseline
+issue_artifacts,product,product baseline
+sandbox_access_tokens,private,Plue private migration 000001; dropped by Plue private migration 000023
 _sync_queue,retired,excluded from product baseline; historical Plue data retained
 _id_remap,retired,excluded from product baseline; historical Plue data retained
-devtools_snapshots,product,product baseline; transitional copy also present
-approvals,product,product baseline; transitional copy also present
-pair_state,product,product baseline; transitional copy also present
-pair_share_links,product,product baseline; transitional copy also present
-alert_incidents,private,Plue-owned table; moves to Plue (smithersai/smithers#1655)
-alert_incident_deliveries,private,Plue-owned table; moves to Plue (smithersai/smithers#1655)
-alert_remediation_jobs,private,Plue-owned table; moves to Plue (smithersai/smithers#1655)
-repo_gateways,private,Plue-owned table; moves to Plue (smithersai/smithers#1655)
-github_repo_listings,product,product baseline; transitional copy also present
-pair_sessions,product,product baseline; transitional copy also present
-pair_session_members,product,product baseline; transitional copy also present
-pair_prompt_queue,product,product baseline; transitional copy also present
-pair_session_invites,product,product baseline; transitional copy also present
-pair_session_draft,product,product baseline; transitional copy also present
-pair_session_links,product,product baseline; transitional copy also present
-sandbox_golden_snapshots,private,Plue-owned table; moves to Plue (smithersai/smithers#1655)
-sandbox_environment_images,private,Plue-owned table; moves to Plue (smithersai/smithers#1655)
-file_drafts,product,product baseline; transitional copy also present
-app_timelines,product,product baseline; transitional copy also present
-app_timeline_members,product,product baseline; transitional copy also present
-app_timeline_events,product,product baseline; transitional copy also present
-app_timeline_branches,product,product baseline; transitional copy also present
-app_timeline_snapshots,product,product baseline; transitional copy also present
-anon_sandboxes,product,product baseline; transitional copy also present
-repository_provisioning_control,private,Plue-owned table; moves to Plue (smithersai/smithers#1655)
-repository_provisioning_operations,private,Plue-owned table; moves to Plue (smithersai/smithers#1655)
+devtools_snapshots,product,product baseline
+approvals,product,product baseline
+pair_state,product,product baseline
+pair_share_links,product,product baseline
+alert_incidents,private,Plue private migration 000001; dropped by Plue private migration 000023
+alert_incident_deliveries,private,Plue private migration 000001; dropped by Plue private migration 000023
+alert_remediation_jobs,private,Plue private migration 000001; dropped by Plue private migration 000023
+repo_gateways,private,Plue private migration 000001
+github_repo_listings,product,product baseline
+pair_sessions,product,product baseline
+pair_session_members,product,product baseline
+pair_prompt_queue,product,product baseline
+pair_session_invites,product,product baseline
+pair_session_draft,product,product baseline
+pair_session_links,product,product baseline
+sandbox_golden_snapshots,private,Plue private migration 000001
+sandbox_environment_images,private,Plue private migration 000001
+file_drafts,product,product baseline
+app_timelines,product,product baseline
+app_timeline_members,product,product baseline
+app_timeline_events,product,product baseline
+app_timeline_branches,product,product baseline
+app_timeline_snapshots,product,product baseline
+anon_sandboxes,product,product baseline
+repository_provisioning_control,private,Plue private migration 000001; dropped by Plue private migration 000023
+repository_provisioning_operations,private,Plue private migration 000001
 repository_creation_jobs,product,additive product migration 0003
-sandbox_hosts,private,Plue-owned table; moves to Plue (smithersai/smithers#1655)
-sandbox_instances,private,Plue-owned table; moves to Plue (smithersai/smithers#1655)
-sandbox_egress_audit,private,Plue-owned table; moves to Plue (smithersai/smithers#1655)
-sandbox_operations,private,Plue-owned table; moves to Plue (smithersai/smithers#1655)
-sandbox_snapshots,private,Plue-owned table; moves to Plue (smithersai/smithers#1655)
-sandbox_volumes,private,Plue-owned table; moves to Plue (smithersai/smithers#1655)
-sandbox_access_identities,private,Plue-owned table; moves to Plue (smithersai/smithers#1655)
-sandbox_access_permissions,private,Plue-owned table; moves to Plue (smithersai/smithers#1655)
-sandbox_access_grants,private,Plue-owned table; moves to Plue (smithersai/smithers#1655)
-sandbox_domain_mappings,private,Plue-owned table; moves to Plue (smithersai/smithers#1655)
-sandbox_orphans,private,Plue-owned table; moves to Plue (smithersai/smithers#1655)
-memory_provisioning_tasks,private,Plue-owned table; moves to Plue (smithersai/smithers#1655)
-memory_promotion_tasks,private,Plue-owned table; moves to Plue (smithersai/smithers#1655)
-memory_promotion_items,private,Plue-owned table; moves to Plue (smithersai/smithers#1655)
-memory_ingest_cursors,private,Plue-owned table; moves to Plue (smithersai/smithers#1655)
-memory_maintenance_cursors,private,Plue-owned table; moves to Plue (smithersai/smithers#1655)
-memory_ingest_batches,private,Plue-owned table; moves to Plue (smithersai/smithers#1655)
-memory_cleanup_tasks,private,Plue-owned table; moves to Plue (smithersai/smithers#1655)
-memory_cleanup_items,private,Plue-owned table; moves to Plue (smithersai/smithers#1655)
-memory_write_freezes,private,Plue-owned table; moves to Plue (smithersai/smithers#1655)
-memory_restore_manifests,private,Plue-owned table; moves to Plue (smithersai/smithers#1655)
-branch_locks,product,product baseline; transitional copy also present
-branch_lock_join_requests,product,product baseline; transitional copy also present
-github_synced_repos,product,product baseline; transitional copy also present
-github_synced_issues,product,product baseline; transitional copy also present
-github_synced_issue_comments,product,product baseline; transitional copy also present
-github_mirror_sync_runs,product,product baseline; transitional copy also present
-github_mirror_sync_ref_results,product,product baseline; transitional copy also present
-share_listings,product,product baseline; transitional copy also present
-share_listing_event_cooldowns,product,product baseline; transitional copy also present
-changesets,product,product baseline; transitional copy also present
-changeset_members,product,product baseline; transitional copy also present
-build_cache_entries,product,product baseline; transitional copy also present
-build_cache_artifacts,product,product baseline; transitional copy also present
-build_cache_entry_artifacts,product,product baseline; transitional copy also present
-build_cache_read_tokens,product,product baseline; transitional copy also present
-revocation_events,product,product baseline; transitional copy also present
-provider_connections,product,product baseline; transitional copy also present
-provider_connection_grants,product,product baseline; transitional copy also present
-wiki_page_revisions,product,product baseline; transitional copy also present
-code_search_index_state,product,product baseline; transitional copy also present
-sandbox_usage_intervals,product,product baseline; transitional copy also present
-repository_job_registrations,product,product baseline; transitional copy also present
-repository_job_events,product,product baseline; transitional copy also present
-repository_job_dispatches,product,product baseline; transitional copy also present
-repository_job_trials,product,product baseline; transitional copy also present
-repository_job_comments,product,product baseline; transitional copy also present
-workspace_capability_bindings,product,product baseline; transitional copy also present; dropped by product migration 0050
+sandbox_hosts,private,Plue private migration 000001
+sandbox_instances,private,Plue private migration 000001
+sandbox_egress_audit,private,Plue private migration 000001
+sandbox_operations,private,Plue private migration 000001
+sandbox_snapshots,private,Plue private migration 000001
+sandbox_volumes,private,Plue private migration 000001; dropped by Plue private migration 000023
+sandbox_access_identities,private,Plue private migration 000001
+sandbox_access_permissions,private,Plue private migration 000001
+sandbox_access_grants,private,Plue private migration 000001
+sandbox_domain_mappings,private,Plue private migration 000001
+sandbox_orphans,private,Plue private migration 000001
+memory_provisioning_tasks,private,Plue private migration 000001; dropped by Plue private migration 000023
+memory_promotion_tasks,private,Plue private migration 000001; dropped by Plue private migration 000023
+memory_promotion_items,private,Plue private migration 000001; dropped by Plue private migration 000023
+memory_ingest_cursors,private,Plue private migration 000001; dropped by Plue private migration 000023
+memory_maintenance_cursors,private,Plue private migration 000001; dropped by Plue private migration 000023
+memory_ingest_batches,private,Plue private migration 000001; dropped by Plue private migration 000023
+memory_cleanup_tasks,private,Plue private migration 000001; dropped by Plue private migration 000023
+memory_cleanup_items,private,Plue private migration 000001; dropped by Plue private migration 000023
+memory_write_freezes,private,Plue private migration 000001; dropped by Plue private migration 000023
+memory_restore_manifests,private,Plue private migration 000001; dropped by Plue private migration 000023
+branch_locks,product,product baseline
+branch_lock_join_requests,product,product baseline
+github_synced_repos,product,product baseline
+github_synced_issues,product,product baseline
+github_synced_issue_comments,product,product baseline
+github_mirror_sync_runs,product,product baseline
+github_mirror_sync_ref_results,product,product baseline
+share_listings,product,product baseline
+share_listing_event_cooldowns,product,product baseline
+changesets,product,product baseline
+changeset_members,product,product baseline
+build_cache_entries,product,product baseline
+build_cache_artifacts,product,product baseline
+build_cache_entry_artifacts,product,product baseline
+build_cache_read_tokens,product,product baseline
+revocation_events,product,product baseline
+provider_connections,product,product baseline
+provider_connection_grants,product,product baseline
+wiki_page_revisions,product,product baseline
+code_search_index_state,product,product baseline
+sandbox_usage_intervals,product,product baseline
+repository_job_registrations,product,product baseline
+repository_job_events,product,product baseline
+repository_job_dispatches,product,product baseline
+repository_job_trials,product,product baseline
+repository_job_comments,product,product baseline
 repository_job_approvals,product,product baseline
 repository_ci_check_receipts,product,product baseline
 self_host_owners,product,product migration 0004
@@ -225,10 +223,10 @@ product_job_events,product,product migration 0005
 chat_turns,product,product migration 0007
 chat_turn_batches,product,product migration 0007
 flow_runtime_host_bindings,product,product migration 0008
-storage_sets,private,Plue placement migration 0001
-storage_nodes,private,Plue placement migration 0001
-repository_placements,private,Plue placement migration 0002
-workflow_run_coding_reconciliations,private,Plue coding reconciliation state
+storage_sets,private,Plue private migration 000002
+storage_nodes,private,Plue private migration 000002
+repository_placements,private,Plue private migration 000003
+workflow_run_coding_reconciliations,private,Plue private migration 000001; dropped by Plue private migration 000023
 owner_model_credentials,product,product migration 0009
 owner_model_defaults,product,product migration 0009
 owner_model_credential_receipts,product,product migration 0009
@@ -244,7 +242,7 @@ mythical_changes,product,product migration 0026
 mythical_items,product,product migration 0026
 mythical_lanes,product,product migration 0026
 mythical_wikis,product,product migration 0036
-billing_model_usage,private,Plue model usage metering migration 0012; superseded by product model_usage (migration 0030)
+billing_model_usage,private,Plue private migration 000012; dropped by Plue private migration 000023
 credit_accounts,product,product migration 0027
 credit_grants,product,product migration 0027
 credit_reservations,product,product migration 0027
@@ -264,3 +262,21 @@ issue_sync_deliveries,product,issue chat routing and durable receipts
 issue_external_reactions,product,issue chat routing and durable receipts
 issue_comment_keys,product,durable issue comment request identities
 github_mirror_refreshes,product,GitHub import mirror refresh cooldown
+smithers_product_migrations,product,product migration ledger
+chat_turn_erasures,product,product migration 0013
+recommendation_logs,product,product migration 0014
+github_synced_repo_read_grants,product,product migration 0015
+repository_setup_requests,product,product migration 0020
+wiki_spaces,product,product migration 0043
+landing_source_workspaces,product,product migration 0045
+outsider_workspaces,product,product migration 0045
+stored_subscription_token_scan,product,product migration 0046
+workspace_service_previews,product,product migration 0071
+email_recipient_rate_limits,product,product migration 0072
+build_cache_repository_usage,product,product migration 0074
+sandbox_egress_daily_usage,product,product migration 0076
+sandbox_egress_usage,product,product migration 0076
+repository_transfer_requests,product,product migration 0077
+billing_plan_grants,product,product migration 0078
+workspace_child_batches,product,product migration 0089
+workspace_children,product,product migration 0089
