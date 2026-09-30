@@ -68,22 +68,26 @@ if (["observe", "stall", "cancel", "recover"].includes(mode!)) {
     observerOutput += String(chunk)
   })
   const observerExited = new Promise<void>((resolve) => observer.on("exit", () => resolve()))
-  await poll(async () => {
-    if (observer.exitCode !== null) throw new Error(`Observer exited: ${observerOutput}`)
-    return access(join(root, "observer-ready")).then(() => true, () => false)
-  }, "peer registration before launch")
-  const original = spawn(process.execPath, ["--experimental-strip-types", fixture, "original", root], {
-    stdio: ["ignore", "pipe", "pipe"]
-  })
+  let owner: ReturnType<typeof spawn> | undefined
+  let exited: Promise<void> = Promise.resolve()
   let stderr = ""
-  original.stdout?.on("data", (chunk) => {
-    stderr += String(chunk)
-  })
-  original.stderr?.on("data", (chunk) => {
-    stderr += String(chunk)
-  })
-  const exited = new Promise<void>((resolve) => original.on("exit", () => resolve()))
+  let resumeTimer: ReturnType<typeof setTimeout> | undefined
   try {
+    await poll(async () => {
+      if (observer.exitCode !== null) throw new Error(`Observer exited: ${observerOutput}`)
+      return access(join(root, "observer-ready")).then(() => true, () => false)
+    }, "peer registration before launch")
+    const original = spawn(process.execPath, ["--experimental-strip-types", fixture, "original", root], {
+      stdio: ["ignore", "pipe", "pipe"]
+    })
+    original.stdout?.on("data", (chunk) => {
+      stderr += String(chunk)
+    })
+    original.stderr?.on("data", (chunk) => {
+      stderr += String(chunk)
+    })
+    owner = original
+    exited = new Promise<void>((resolve) => original.on("exit", () => resolve()))
     await poll(async () => {
       if (original.exitCode !== null) throw new Error(`Owner exited: ${stderr}`)
       if (rows(root).some((row) => row.status === "failed")) {
@@ -107,10 +111,13 @@ if (["observe", "stall", "cancel", "recover"].includes(mode!)) {
       // Expire the real lease by elapsed time; neither store is mutated.
       await new Promise((resolve) => setTimeout(resolve, 31_000))
     }
-    if (mode === "stall") original.kill("SIGSTOP")
     await Effect.runPromise(
       Effect.gen(function*() {
         const control = yield* Control.Control
+        if (mode === "stall") {
+          original.kill("SIGSTOP")
+          resumeTimer = setTimeout(() => original.kill("SIGCONT"), 20_000)
+        }
         if (mode === "cancel") {
           yield* control.cancel({ runId, idempotencyKey: "cancel-peer" })
           yield* Effect.promise(() =>
@@ -138,7 +145,6 @@ if (["observe", "stall", "cancel", "recover"].includes(mode!)) {
           assert.equal(alive(first.pid), true)
           assert.equal(rows(root).every((row) => row.cancel_requested_at_ms === null), true)
           yield* Effect.sleep("1 second")
-          if (mode === "stall" && tick === 19) original.kill("SIGCONT")
         }
         yield* Effect.promise(() => writeFile(join(root, "release"), "finish"))
         yield* Effect.promise(() =>
@@ -155,8 +161,9 @@ if (["observe", "stall", "cancel", "recover"].includes(mode!)) {
   } finally {
     observer.kill("SIGKILL")
     await observerExited
-    original.kill("SIGCONT")
-    original.kill("SIGKILL")
+    clearTimeout(resumeTimer)
+    owner?.kill("SIGCONT")
+    owner?.kill("SIGKILL")
     await exited
     for (const worker of await workers(root)) {
       try {
@@ -165,5 +172,6 @@ if (["observe", "stall", "cancel", "recover"].includes(mode!)) {
     }
     await rm(root, { recursive: true, force: true, maxRetries: 5 })
   }
+  process.stdout.write(`Original host:\n${stderr}\nObserver host:\n${observerOutput}\n`)
   process.stdout.write(JSON.stringify({ mode, passed: true }) + "\n")
 }

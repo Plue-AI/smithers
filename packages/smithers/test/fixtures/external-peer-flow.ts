@@ -17,10 +17,10 @@ const workLayer = Work.toLayer(({ root, token }) =>
         spawn(process.execPath, [
           "-e",
           `
-const fs = require('node:fs'); const path = require('node:path'); const root = process.argv[1];
-fs.appendFileSync(path.join(root, 'spawns'), JSON.stringify({ pid: process.pid, owner: process.ppid }) + '\\n');
+const fs = require('node:fs'); const path = require('node:path'); const root = process.argv[1]; const owner = process.ppid;
+fs.appendFileSync(path.join(root, 'spawns'), JSON.stringify({ pid: process.pid, owner }) + '\\n');
 setInterval(() => {
-  try { process.kill(process.ppid, 0); } catch { process.exit(1); }
+  try { process.kill(owner, 0); } catch { process.exit(1); }
   if (fs.existsSync(path.join(root, 'release'))) process.exit(0);
 }, 20);
 `,

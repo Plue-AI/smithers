@@ -698,7 +698,8 @@ export const make = (
     // that has since built its catalog offers the hook, and one that never
     // builds a catalog keeps planning exactly as it did, with no nodes.
     const executable = hostCatalog?.executables.find((entry) => entry.descriptor.name === descriptor.name)
-    const planningContext: Context.Context<unknown> = Context.empty()
+    // The service map is intentionally empty; unavailable codec services become InvalidInput.
+    const planningContext = Context.makeUnsafe<unknown>(new Map())
     return {
       flowId: descriptor.name,
       description: descriptor.description,
@@ -710,8 +711,6 @@ export const make = (
         budget: Descriptor.budgetOf(descriptor)
       },
       ...(executable?.input === undefined ? {} : {
-        // Planning has no implementation services. A payload codec that needs
-        // one refuses input here rather than escaping as an untyped defect.
         decode: (input: unknown) => Schema.decodeUnknownEffect(executable.input!)(input).pipe(
           Effect.provideContext(planningContext),
           Effect.catchCause((cause) => Cause.hasInterruptsOnly(cause)

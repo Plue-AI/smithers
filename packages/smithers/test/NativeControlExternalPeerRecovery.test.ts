@@ -18,6 +18,7 @@ for (
       timeout: 180_000,
       maxBuffer: 1024 * 1024
     })
+    process.stdout.write(stdout)
     const receipt = stdout.trim().split("\n").findLast((line) => line.startsWith("{\"mode\":"))
     expect(receipt).toBeDefined()
     expect(JSON.parse(receipt!)).toEqual({ mode, passed: true })
