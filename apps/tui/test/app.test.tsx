@@ -286,7 +286,7 @@ test("failed turn remains visible and the next submitted prompt can recover", as
   await type("Run checks")
   await enter()
   await settle(0, { _tag: "failed", message: "Checks refused", detail: "Fixture failure" })
-  expect(await draw()).toContain("✗ Worker stopped unexpectedly")
+  expect(await draw()).toContain("✗ failed: Worker stopped unexpectedly")
   expect(records().filter((record) => record.type === "outcome").map((record) => record.outcome._tag)).toEqual([
     "failed"
   ])

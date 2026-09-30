@@ -40,6 +40,13 @@ export const frameMs = 150
 export const still = "●"
 
 /**
+ * The glyph of a subagent a person stopped: never the {@link still} of done work.
+ * @since 1.0.0
+ * @category constants
+ */
+export const stopped = "■"
+
+/**
  * The spinner frame at `now`, so every running glyph turns together.
  * @since 1.0.0
  * @category glyphs
@@ -67,9 +74,18 @@ export const glyph = (status: Status, now: number): { readonly glyph: string; re
     case "failed":
       return { glyph: still, tone: "failed" }
     case "cancelled":
-      return { glyph: still, tone: "stopped" }
+      return { glyph: stopped, tone: "stopped" }
   }
 }
+
+/**
+ * The one word a run's outcome reads in every surface: live work is `working`,
+ * then `done`, `failed` or `stopped`.
+ * @since 1.0.0
+ * @category glyphs
+ */
+export const outcome = (status: Status): "working" | "done" | "failed" | "stopped" =>
+  status === "done" ? "done" : status === "failed" ? "failed" : status === "cancelled" ? "stopped" : "working"
 
 /**
  * A tool's two verbs: while it runs, and once it has run (success or error).
@@ -472,13 +488,13 @@ export interface Header {
   /** The spinner while any subagent is live; empty once all settle. */
   readonly glyph: string
   readonly tone: Tone
-  /** `Running 3 subagents`, then `Ran 3 subagents`. */
+  /** `Running 3 subagents`, then `Ran 3 subagents`; one settled subagent reads `docs · stopped at 6s`. */
   readonly text: string
   /** `(1/3)` settled of total while live; empty once all settle. */
   readonly count: string
-  /** `✓` when all are done, `✗` when any failed, else `■` when any stopped; empty while live. */
+  /** Once all settle: `✓` when every one is done, `✗` when any failed, else `■`; empty while live. */
   readonly mark: "" | "✓" | "✗" | "■"
-  /** One cell per subagent, settled first. */
+  /** One cell per subagent, settled first; empty for one settled subagent. */
   readonly bar: ReadonlyArray<"done" | "pending">
 }
 
@@ -490,11 +506,16 @@ export interface Header {
 export const barGlyph = "▰"
 
 /**
- * The header for a batch's statuses at `now`.
+ * The header for a batch's statuses at `now`. Given `only`, a batch of one
+ * settled subagent is headed by its outcome: `■ docs · stopped at 6s`.
  * @since 1.0.0
  * @category header
  */
-export const header = (statuses: ReadonlyArray<Status>, now: number): Header => {
+export const header = (
+  statuses: ReadonlyArray<Status>,
+  now: number,
+  only?: Pick<Subagent, "title" | "startedAt" | "endedAt">
+): Header => {
   const total = statuses.length
   const settled = statuses.filter((status) => !live(status)).length
   const noun = total === 1 ? "subagent" : "subagents"
@@ -509,16 +530,27 @@ export const header = (statuses: ReadonlyArray<Status>, now: number): Header => 
       bar
     }
   }
-  const outcome = statuses.includes("failed")
-    ? { tone: "failed" as const, mark: "✗" as const }
-    : statuses.includes("cancelled")
-    ? { tone: "stopped" as const, mark: "■" as const }
-    : { tone: "done" as const, mark: "✓" as const }
-  return { glyph: "", ...outcome, text: `Ran ${total} ${noun}`, count: "", bar }
+  const failed = statuses.includes("failed")
+  const halted = !failed && statuses.some((status) => status !== "done")
+  const tone: Tone = failed ? "failed" : halted ? "stopped" : "done"
+  const mark = failed ? "✗" : halted ? stopped : "✓"
+  if (only !== undefined && total === 1) {
+    const clock = duration((only.endedAt ?? now) - only.startedAt)
+    return {
+      glyph: mark,
+      tone,
+      text: `${only.title} · ${outcome(statuses[0]!)} at ${clock}`,
+      count: "",
+      mark: "",
+      bar: []
+    }
+  }
+  return { glyph: "", tone, text: `Ran ${total} ${noun}`, count: "", mark, bar }
 }
 
 /**
- * A header as one line without its bar: `◐ Running 3 subagents (1/3)`, `Ran 3 subagents ✓`.
+ * A header as one line without its bar: `◐ Running 3 subagents (1/3)`, `Ran 3 subagents ✓`,
+ * `■ docs · stopped at 6s`.
  * @since 1.0.0
  * @category header
  */
@@ -550,19 +582,20 @@ export const earlierBatches = <A>(batches: ReadonlyArray<A>, open = false): Read
 export const earlierLine = (count: number): string => `${count} earlier subagent ${count === 1 ? "batch" : "batches"}`
 
 /**
- * The inline parent row when a background subagent settles: `◉ {title} finished`,
- * `◉ {title} failed` or `◉ {title} stopped`.
+ * The inline parent row when a background subagent settles: `◉ {title} done`,
+ * or the host's fuller outcome such as `failed: Model call failed`.
  * @since 1.0.0
  * @category cards
  */
 export const finished = (
   title: string,
-  status: Status = "done"
+  status: Status = "done",
+  said: string = outcome(status)
 ): { readonly glyph: "◉"; readonly tone: Tone; readonly title: string; readonly line: string } => ({
   glyph: "◉",
   tone: glyph(status, 0).tone,
   title,
-  line: `◉ ${title} ${status === "failed" ? "failed" : status === "cancelled" ? "stopped" : "finished"}`
+  line: `◉ ${title} ${said}`
 })
 
 /**

@@ -466,6 +466,55 @@ describe("custom agents", () => {
     restored.workspace.dispose()
   })
 
+  it("settles a completion no judge could check as done · unchecked, never failed, across a reload", async () => {
+    const first = setup()
+    first.workspace.request({ id: "fix", title: "Fix", prompt: "Fix the failing test." })
+    await tick()
+    first.finishes[0]!({ _tag: "done", answer: "Fixed src/cart.js.", unchecked: true })
+    await tick()
+    expect(first.workspace.snapshot().tabs[0]).toMatchObject({
+      status: "done",
+      answer: "Fixed src/cart.js.",
+      unchecked: true
+    })
+    expect(first.workspace.snapshot().tabs[0]).not.toHaveProperty("failure")
+    const items = first.workspace.transcript("fix").items
+    expect(items.at(-1)).toMatchObject({ kind: "answer", text: "Fixed src/cart.js." })
+    expect(items.some((item) => item.kind === "error")).toBe(false)
+    expect(first.workspace.transcript("fix").activity?.status).toBe("completed")
+    const restored = setup({ cwd: first.host.cwd, restored: first.workspace.snapshot() })
+    expect(restored.workspace.snapshot().tabs[0]).toMatchObject({ status: "done", unchecked: true })
+    expect(restored.workspace.transcript("fix").items.at(-1)).toMatchObject({
+      kind: "answer",
+      text: "Fixed src/cart.js."
+    })
+    // A follow-up is a new run: nothing about it is unchecked yet.
+    restored.workspace.continue("fix", "Also cover the empty cart.")
+    await tick()
+    expect(restored.workspace.snapshot().tabs[0]).not.toHaveProperty("unchecked")
+    first.workspace.dispose()
+    restored.workspace.dispose()
+  })
+
+  it("keeps a judge's setup instructions off a failed worker's card", async () => {
+    const f = setup()
+    f.workspace.request({ id: "fix", title: "Fix", prompt: "Fix it." })
+    await tick()
+    const error = {
+      _tag: "@smthrs/agent/Seat/SeatUnresolved",
+      seat: "anthropic:opus",
+      message: "Set ANTHROPIC_API_KEY."
+    }
+    f.finishes[0]!({ _tag: "failed", message: "Set ANTHROPIC_API_KEY.", detail: "", error })
+    await tick()
+    expect(f.workspace.snapshot().tabs[0]).toMatchObject({
+      status: "failed",
+      failure: { headline: "Model sign-in required", line: "The worker stopped before finishing." },
+      message: "Set ANTHROPIC_API_KEY."
+    })
+    f.workspace.dispose()
+  })
+
   it("refuses to continue a missing, busy or blank worker without changing its run", async () => {
     const f = setup()
     expect(() => f.workspace.continue("missing", "More.")).toThrow("Unknown tab")

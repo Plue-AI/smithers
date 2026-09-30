@@ -48,8 +48,11 @@ it("summarizes real cells, their code, failures and the answer without dumping s
   expect(summary.rows.some((row) => /Updated math.js/.test(row.label))).toBe(true)
   expect(summary.rows.some((row) => row.label.includes("ctx.call"))).toBe(false)
   expect(Summary.panel(Transcript.failure(transcript, "Provider unavailable", 99)).summary).toBe(
-    "Stopped: Provider unavailable"
+    "failed: Provider unavailable"
   )
+  const stopped = Summary.panel(Transcript.stopped(transcript, 99))
+  expect(stopped.summary).toBe("stopped")
+  expect(stopped.rows.at(-1)).toMatchObject({ label: "stopped", status: "cancelled" })
   expect(Summary.panel(Transcript.user(transcript, "Now fix subtraction")).summary).toBe(
     "Requested: Now fix subtraction"
   )

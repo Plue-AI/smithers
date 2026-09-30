@@ -67,7 +67,7 @@ describe("worker status", () => {
     expect(Tabs.style("waiting", 0).tone).toBe(color.warning)
     expect(Tabs.style("failed", 0)).toEqual({ glyph: "●", tone: color.danger })
     expect(Tabs.style("done", 0)).toEqual({ glyph: "●", tone: color.success })
-    expect(Tabs.style("cancelled", 0)).toEqual({ glyph: "●", tone: color.faint })
+    expect(Tabs.style("cancelled", 0)).toEqual({ glyph: "■", tone: color.faint })
   })
 
   it("names the model by its delegate alias, its label, then its id", () => {
@@ -233,6 +233,41 @@ describe("WorkerList", () => {
     expect(opened).toEqual(["tab:b"])
   })
 })
+
+/** A worker's transcript through its settlement, as `Workspace` folds it. */
+const settled = (end: (transcript: Transcript.Transcript) => Transcript.Transcript): Transcript.Transcript => {
+  const identity = { session: "s", frame: 1, cell: 1, ordinal: 0 }
+  const steps = [
+    (value: Transcript.Transcript) => Transcript.apply(value, { _tag: "model-requested" } as never, 1_100),
+    (value: Transcript.Transcript) =>
+      Transcript.apply(
+        value,
+        { _tag: "model-delta", delta: { type: "text-delta", text: "```js\nx\n```" } } as never,
+        1_200
+      ),
+    (value: Transcript.Transcript) =>
+      Transcript.apply(value, {
+        _tag: "cell-call-started",
+        call: { flowName: "bash", input: { command: "npm test" }, identity }
+      } as never, 1_300),
+    (value: Transcript.Transcript) =>
+      Transcript.apply(value, {
+        _tag: "cell-call-settled",
+        flowName: "bash",
+        identity,
+        result: { outcome: "success", value: { exitCode: 0 } }
+      } as never, 1_400),
+    // The command's receipt: its captured change to the tree.
+    (value: Transcript.Transcript) =>
+      Transcript.patched(value, {
+        call: (value.items.find((item) => item.kind === "cell") as Extract<Transcript.Item, { kind: "cell" }>)
+          .calls[0]!.identity!,
+        patches: [{ path: "src/cart.js", patch: "@@ -1 +1 @@\n-a\n+b" }]
+      }),
+    end
+  ]
+  return steps.reduce((value, step) => step(value), Transcript.empty)
+}
 
 /** What WorkerView needs beyond its tab: the way back and its children's cards. */
 const chrome = {
@@ -401,12 +436,70 @@ describe("WorkerView", () => {
       30
     )
     const frame = captureCharFrame()
-    expect(frame).toContain("Ran 1 subagent ✓")
+    expect(frame).toContain("✓ Check docs · done at 2s")
     expect(frame).toContain("● Check docs")
     expect(frame).toContain("Done 2s · sol")
-    expect(frame).toContain("◉ Check docs finished")
-    expect(frame.indexOf("Split the review.")).toBeLessThan(frame.indexOf("Ran 1 subagent"))
-    expect(frame.indexOf("Ran 1 subagent")).toBeLessThan(frame.indexOf("◉ Check docs finished"))
+    expect(frame).toContain("◉ Check docs done")
+    expect(frame.indexOf("Split the review.")).toBeLessThan(frame.indexOf("✓ Check docs · done"))
+    expect(frame.indexOf("✓ Check docs · done")).toBeLessThan(frame.indexOf("◉ Check docs done"))
+  })
+
+  it("shows a run no judge could check as done · unchecked with its evidence, and nothing red", async () => {
+    const { captureCharFrame, captureSpans } = await mount(
+      <WorkerView
+        tab={tab("a", "done", { title: "Fix the failing test", endedAt: 39_000, unchecked: true, answer: "Fixed." })}
+        transcript={settled((value) => Transcript.unchecked(value, "Fixed the cart total.", 39_000))}
+        models={models}
+        now={99_000}
+        tick="⠋"
+        tone={color.info}
+        width={100}
+        expanded={false}
+        onAction={() => {}}
+        {...chrome}
+      />,
+      100,
+      30
+    )
+    const frame = captureCharFrame()
+    expect(frame).toContain("● Fix the failing test")
+    expect(frame).toMatch(/^\s*┃? *done · unchecked\s*$/m)
+    expect(frame).toContain("✓ npm test  exit 0")
+    expect(frame).toContain("✓ Fix the failing test · 38s · src/cart.js +1 −1 · npm test exit 0 · unchecked")
+    for (const word of ["Failed", "failed", "could not be checked", "AI_GATEWAY_API_KEY", "r Resume"]) {
+      expect(frame).not.toContain(word)
+    }
+    // `unchecked` is dim, never the danger color.
+    const unchecked = captureSpans().lines.flatMap((line) => line.spans).filter((span) =>
+      span.text.includes("unchecked")
+    )
+    expect(unchecked.length).toBeGreaterThan(0)
+    for (const span of unchecked) expect(span.fg.toString()).not.toBe(color.danger)
+  })
+
+  it("shows a stopped run as stopped, never as a failure", async () => {
+    const { captureCharFrame } = await mount(
+      <WorkerView
+        tab={tab("a", "cancelled", { endedAt: 7_000 })}
+        transcript={settled((value) => Transcript.stopped(value, 7_000))}
+        models={models}
+        now={99_000}
+        tick="⠋"
+        tone={color.info}
+        width={90}
+        expanded={false}
+        onAction={() => {}}
+        {...chrome}
+      />,
+      90,
+      24
+    )
+    const frame = captureCharFrame()
+    expect(frame).toContain("■ Worker a")
+    expect(frame).toContain("■ stopped")
+    expect(frame).toContain("r Resume")
+    expect(frame).not.toContain("✗")
+    expect(frame).not.toContain("failed")
   })
 
   it("shows a failure and runs an action from its button", async () => {
@@ -438,7 +531,8 @@ describe("WorkerView", () => {
     )
     const frame = captureCharFrame()
     expect(frame).toContain("● Worker a")
-    expect(frame).toContain("Seat quota exhausted")
+    expect(frame).toContain("failed: Seat quota exhausted")
+    expect(frame).not.toContain("not your fault")
     expect(frame).toContain("1.0s")
     const retry = find(frame, "r Resume")
     await mockMouse.click(retry.x + 2, retry.y)

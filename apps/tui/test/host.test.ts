@@ -1091,13 +1091,13 @@ describe("Host.run without a judge (#2163)", () => {
   })
 })
 
-describe("Host.run judge failure copy", () => {
+describe("Host.run when no judge can check the answer", () => {
   test.each(
     [
-      ["missing gateway key and Luna opt-in", false, "Luna is not opted in."],
-      ["missing Codex login after opt-in", true, "Luna needs a ChatGPT login."]
+      ["no gateway key and no Luna opt-in", false],
+      ["Luna opted in without a Codex login", true]
     ] as const
-  )("shows %s on the worker failure card", async (_, optIn, expected) => {
+  )("settles the worker done · unchecked with its answer when there is %s", async (_, optIn) => {
     const cwd = mkdtempSync(join(tmpdir(), "smithers-tui-judge-failure-"))
     roots.push(cwd)
     const codexHome = join(cwd, "codex")
@@ -1126,24 +1126,16 @@ describe("Host.run judge failure copy", () => {
         history: [],
         onEvent: () => {}
       }).done
-      expect(outcome._tag).toBe("failed")
-      if (outcome._tag !== "failed") return
-      const card = FailureCopy.describe(outcome.error)
-      expect(card.fault).toBe("policy")
-      expect(card.line).toContain(expected)
-      expect(card.line).toContain("AI_GATEWAY_API_KEY")
-      expect(card.line).toContain("codex login")
-      expect(card.line).not.toContain("did not answer")
-      expect(card.line).not.toContain("provider-key-must-not-judge")
+      // Never failed, and nothing a person reads names a key, a login or a seat.
+      expect(outcome).toEqual({ _tag: "done", answer: "ok", unchecked: true })
     } finally {
       await host.dispose()
     }
   })
 
-  test("shows a subscription usage limit with its reset on the worker failure card", async () => {
+  test("settles the worker done · unchecked when the judge's subscription is at its limit", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "smithers-tui-judge-limit-"))
     roots.push(cwd)
-    const resetAtEpochMillis = Date.UTC(2026, 8, 30, 21)
     const judge = Evaluator.layerFromSeat({
       modelId: "fixture/judge",
       model: Model.make({
@@ -1151,7 +1143,7 @@ describe("Host.run judge failure copy", () => {
           Stream.fail(
             new ModelError({
               code: "rate_limited",
-              resetAtEpochMillis,
+              resetAtEpochMillis: Date.UTC(2026, 8, 30, 21),
               message: "private account diagnostic"
             })
           )
@@ -1166,13 +1158,7 @@ describe("Host.run judge failure copy", () => {
         history: [],
         onEvent: () => {}
       }).done
-      expect(outcome._tag).toBe("failed")
-      if (outcome._tag !== "failed") return
-      const card = FailureCopy.describe(outcome.error)
-      expect(card.line).toContain("usage limit")
-      expect(card.line).toContain("2026-09-30T21:00:00.000Z")
-      expect(card.line).not.toContain("private account diagnostic")
-      expect(card.line).not.toContain("did not answer")
+      expect(outcome).toEqual({ _tag: "done", answer: "ok", unchecked: true })
     } finally {
       await host.dispose()
     }

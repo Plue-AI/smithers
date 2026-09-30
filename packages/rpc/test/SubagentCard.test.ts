@@ -19,7 +19,7 @@ describe("status glyph", () => {
     expect(SubagentCard.spinner(-10)).toBe("◐")
   })
 
-  test("spins moving work and shows ● for held or settled work", () => {
+  test("spins moving work, shows ● for held or settled work and ■ for stopped work", () => {
     const at = 150
     expect(Object.fromEntries(statuses.map((status) => [status, SubagentCard.glyph(status, at)]))).toEqual({
       requested: { glyph: "◓", tone: "waiting" },
@@ -29,7 +29,20 @@ describe("status glyph", () => {
       parked: { glyph: "●", tone: "waiting" },
       done: { glyph: "●", tone: "done" },
       failed: { glyph: "●", tone: "failed" },
-      cancelled: { glyph: "●", tone: "stopped" }
+      cancelled: { glyph: "■", tone: "stopped" }
+    })
+  })
+
+  test("names every run's outcome with one word", () => {
+    expect(Object.fromEntries(statuses.map((status) => [status, SubagentCard.outcome(status)]))).toEqual({
+      requested: "working",
+      queued: "working",
+      running: "working",
+      waiting: "working",
+      parked: "working",
+      done: "done",
+      failed: "failed",
+      cancelled: "stopped"
     })
   })
 })
@@ -204,19 +217,35 @@ describe("batch header", () => {
     expect(SubagentCard.headerLine(SubagentCard.header(["running"], 150))).toBe("◓ Running 1 subagent (0/1)")
   })
 
-  test("says Ran with ✓ when all are done, ✗ when any failed, ■ when any stopped", () => {
+  test("says Ran with ✓ only when every one is done, ✗ when any failed, else ■", () => {
     const ran = SubagentCard.header(["done", "done", "done"], 0)
     expect(SubagentCard.headerLine(ran)).toBe("Ran 3 subagents ✓")
     expect(ran.tone).toBe("done")
     expect(ran.bar).toEqual(["done", "done", "done"])
-    const stopped = SubagentCard.header(["done", "cancelled"], 0)
-    expect(SubagentCard.headerLine(stopped)).toBe("Ran 2 subagents ■")
+    const stopped = SubagentCard.header(["done", "cancelled", "done"], 0)
+    expect(SubagentCard.headerLine(stopped)).toBe("Ran 3 subagents ■")
     expect(stopped.tone).toBe("stopped")
-    expect(SubagentCard.headerLine(SubagentCard.header(["cancelled", "failed"], 0))).toBe("Ran 2 subagents ✗")
-    const failed = SubagentCard.header(["done", "failed"], 0)
-    expect(SubagentCard.headerLine(failed)).toBe("Ran 2 subagents ✗")
+    const failed = SubagentCard.header(["done", "failed", "cancelled"], 0)
+    expect(SubagentCard.headerLine(failed)).toBe("Ran 3 subagents ✗")
     expect(failed.tone).toBe("failed")
     expect(SubagentCard.barGlyph).toBe("▰")
+  })
+
+  test("heads one settled subagent with its outcome and stopped clock", () => {
+    const docs = { title: "Add JSDoc", startedAt: 1_000, endedAt: 7_400 }
+    expect(SubagentCard.header(["cancelled"], 99_000, docs)).toEqual({
+      glyph: "■",
+      tone: "stopped",
+      text: "Add JSDoc · stopped at 6s",
+      count: "",
+      mark: "",
+      bar: []
+    })
+    expect(SubagentCard.headerLine(SubagentCard.header(["done"], 99_000, docs))).toBe("✓ Add JSDoc · done at 6s")
+    expect(SubagentCard.headerLine(SubagentCard.header(["failed"], 99_000, docs))).toBe("✗ Add JSDoc · failed at 6s")
+    // Live, or more than one, it keeps the batch words.
+    expect(SubagentCard.headerLine(SubagentCard.header(["running"], 150, docs))).toBe("◓ Running 1 subagent (0/1)")
+    expect(SubagentCard.headerLine(SubagentCard.header(["done", "done"], 0, docs))).toBe("Ran 2 subagents ✓")
   })
 })
 
@@ -286,10 +315,15 @@ describe("card", () => {
       glyph: "◉",
       tone: "done",
       title: "docs",
-      line: "◉ docs finished"
+      line: "◉ docs done"
     })
     expect(SubagentCard.finished("db", "failed")).toMatchObject({ tone: "failed", line: "◉ db failed" })
-    expect(SubagentCard.finished("lint", "cancelled")).toMatchObject({ tone: "stopped", line: "◉ lint stopped" })
+    expect(SubagentCard.finished("db", "cancelled")).toMatchObject({ tone: "stopped", line: "◉ db stopped" })
+    expect(SubagentCard.finished("db", "failed", "failed: Model call failed").line).toBe(
+      "◉ db failed: Model call failed"
+    )
+    expect(SubagentCard.toast({ title: "db", status: "cancelled", startedAt: 0, endedAt: 3_000 }, 9_000).line)
+      .toBe("■ db · Stopped 3s")
   })
 })
 

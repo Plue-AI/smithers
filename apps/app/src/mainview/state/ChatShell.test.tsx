@@ -307,7 +307,7 @@ test("subagents are one card grid in the transcript, opened, filtered and left b
   expect([...one.querySelectorAll(".subagent-activity-row")].map(row => row.textContent)).toEqual(["├ Read auth/login.ts✓", "└ second row"])
   expect(one.querySelector(".subagent-stop")?.getAttribute("data-flow")).toBe("agent.session.stop")
   expect(view.host.querySelector("[data-testid=subagent-agent-session-two] .subagent-stop")).toBeNull()
-  expect(view.host.querySelector(".subagent-finished")?.textContent).toBe("◉ Docs finished")
+  expect(view.host.querySelector(".subagent-finished")?.textContent).toBe("◉ Docs done")
   const key = (name: string, init: KeyboardEventInit = {}) =>
     document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { key: name, bubbles: true, ...init }))
   // Arrows move between cards; Enter opens the cloud session's own tab, which wears the breadcrumb.

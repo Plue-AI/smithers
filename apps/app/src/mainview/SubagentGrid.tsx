@@ -162,7 +162,7 @@ export const SubagentEarlier = ({ batches, onOpen }: { readonly batches: number;
   <button type="button" className="subagent-earlier-batches" aria-expanded={false} onClick={onOpen}>{SubagentCard.earlierLine(batches)}</button>
 )
 
-/** `◉ {title} finished` in the parent, once the subagent settles. */
+/** `◉ {title} done` in the parent, once the subagent settles. */
 export const SubagentFinished = ({ subagent, color }: { readonly subagent: SubagentCard.Subagent; readonly color: number }) => {
   const row = SubagentCard.finished(subagent.title, subagent.status)
   return (

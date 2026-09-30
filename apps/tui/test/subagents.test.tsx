@@ -29,7 +29,7 @@ const cell = (
   at: number,
   prose: string,
   calls: ReadonlyArray<
-    { flow: string; input: unknown; outcome?: "success" | "failure" | "running"; exitCode?: number }
+    { flow: string; input: unknown; outcome?: "success" | "failure" | "running"; exitCode?: number; value?: unknown }
   >
 ): Transcript.Transcript => {
   let next = Transcript.apply(transcript, event({ _tag: "model-requested" }), at)
@@ -55,7 +55,7 @@ const cell = (
         identity,
         result: call.outcome === "failure"
           ? { outcome: "failure", message: "exit 1" }
-          : { outcome: "success", value: call.exitCode === undefined ? {} : { exitCode: call.exitCode } }
+          : { outcome: "success", value: call.value ?? (call.exitCode === undefined ? {} : { exitCode: call.exitCode }) }
       }),
       at + index + 1
     )
@@ -92,6 +92,47 @@ describe("the card adapter", () => {
       "├ Ran node check.mjs  exit 1 ✗",
       "└ Ran node check.mjs  exit 0 ✓"
     ])
+  })
+
+  it("marks a command by its exit status, not by the call settling", () => {
+    const worker = cell(Transcript.empty, 10, "", [
+      { flow: "bash", input: { command: "node check.mjs" }, value: { exitCode: 1, stdout: "add is wrong" } },
+      { flow: "edit", input: { path: "math.js", oldString: "a - b", newString: "a + b" } },
+      { flow: "bash", input: { command: "node check.mjs" }, value: { exitCode: 0, stdout: "ok" } }
+    ])
+    const card = SubagentCard.card(Subagents.subagent(tab("w", "done", { endedAt: 1 }), worker, models), 42_000)
+    expect(card.activity.rows.map((row) => SubagentCard.line(row))).toEqual([
+      "├ Ran node check.mjs ✗",
+      "├ Edited math.js +1 -1 ✓",
+      "└ Ran node check.mjs ✓"
+    ])
+  })
+
+  it("sums a worker's result: files per path without undone changes, and its last command's exit", () => {
+    const worker = cell(Transcript.empty, 10, "", [
+      { flow: "bash", input: { command: "npm test" }, value: { exitCode: 1 } },
+      { flow: "edit", input: { path: "src/cart.js", oldString: "a", newString: "b" } },
+      { flow: "bash", input: { command: "npm test\n# again" }, value: { exitCode: 0 } },
+      // Showing the work is not checking it.
+      { flow: "bash", input: { command: "git status --porcelain; git diff" }, value: { exitCode: 0 } },
+      { flow: "bash", input: { command: "jj st" }, value: { exitCode: 0 } }
+    ])
+    const [edit] = (worker.items.find((item) => item.kind === "cell") as Extract<Transcript.Item, { kind: "cell" }>)
+      .calls.filter((call) => call.flow === "edit")
+    const patched = Transcript.patched(worker, {
+      call: edit!.identity!,
+      patches: [{ path: "src/cart.js", patch: "@@ -1 +1 @@\n-a\n+b" }, {
+        path: "src/cart.js",
+        patch: "@@ -2,0 +2 @@\n+c"
+      }]
+    })
+    expect(Subagents.result(patched)).toEqual({
+      files: [{ path: "src/cart.js", added: 2, removed: 1 }],
+      check: { command: "npm test", exit: 0 }
+    })
+    const undone = Transcript.undone(patched, [edit!.identity!], ["src/cart.js"], 20)
+    expect(Subagents.result(undone).files).toEqual([])
+    expect(Subagents.result(Transcript.empty)).toEqual({ files: [] })
   })
 
   it("prefers the flow's own verbs and takes counts from captured patches", () => {
@@ -325,9 +366,73 @@ describe("the card grid", () => {
     expect(lines.some((line) => /^▌◐ db-migrate/.test(line))).toBe(true)
   })
 
-  it("writes the finished row", async () => {
-    const { captureCharFrame } = await mount(<SubagentView.Finished tab={tabs[2]!} tone={color.info} />, 40, 2)
-    expect(captureCharFrame()).toContain("◉ docs finished")
+  it("heads one settled worker with its outcome and no bar", async () => {
+    const stopped = tab("jsdoc", "cancelled", { title: "Add JSDoc to math.js", startedAt: 1_000, endedAt: 7_400 })
+    const { captureCharFrame } = await mount(
+      <SubagentView.Batch
+        batch={{ key: "batch:jsdoc", anchor: undefined, at: 0, tabs: [stopped] }}
+        width={60}
+        cards={cards()}
+      />,
+      60,
+      6
+    )
+    const lines = captureCharFrame().split("\n")
+    expect(lines[0]?.trimEnd()).toBe("■ Add JSDoc to math.js · stopped at 6s")
+    expect(lines[1]).toMatch(/^▌■ Add JSDoc to math.js/)
+    expect(captureCharFrame()).not.toContain("✓")
+  })
+
+  it("heads a settled batch with ✓ only when every worker is done", async () => {
+    const settled = [tab("a", "done", { endedAt: 1 }), tab("b", "cancelled", { endedAt: 1 })]
+    const { captureCharFrame } = await mount(
+      <SubagentView.Batch
+        batch={{ key: "batch:a", anchor: undefined, at: 0, tabs: settled }}
+        width={80}
+        cards={cards()}
+      />,
+      80,
+      6
+    )
+    expect(captureCharFrame().split("\n")[0]).toMatch(/^Ran 2 subagents ■ {2}▰▰/)
+  })
+
+  it("writes each settled worker's outcome where it ended", async () => {
+    const said = async (worker: Tab) => {
+      const { captureCharFrame } = await mount(
+        <SubagentView.Finished tab={worker} tone={color.info} onAction={() => {}} />,
+        60,
+        2
+      )
+      return captureCharFrame().split("\n")[0]!.trimEnd()
+    }
+    expect(await said(tabs[2]!)).toBe("◉ docs done")
+    expect(await said(tab("fix", "done", { endedAt: 1, unchecked: true }))).toBe("◉ fix done · unchecked")
+    expect(
+      await said(tab("db", "failed", {
+        endedAt: 1,
+        failure: { headline: "Model call failed", fault: "dependency", line: "", actions: ["resume"] }
+      }))
+    ).toBe("◉ db failed: Model call failed")
+  })
+
+  it("offers r Resume where a stopped worker ended, and resumes it on click", async () => {
+    const stopped = tab("jsdoc", "cancelled", { endedAt: 1 })
+    const pressed: Array<string> = []
+    const mounted = await mount(
+      <SubagentView.Finished
+        tab={stopped}
+        tone={color.info}
+        onAction={(worker, action) => pressed.push(`${worker.id}:${action}`)}
+      />,
+      40,
+      2
+    )
+    const row = mounted.captureCharFrame().split("\n")[0]!
+    expect(row.trim()).toBe("r Resume")
+    expect(row).not.toContain("finished")
+    await act(() => mounted.mockMouse.click(2, 0))
+    expect(pressed).toEqual(["jsdoc:retry"])
   })
 })
 

@@ -1201,7 +1201,7 @@ export function App(props: AppProps) {
       estimator.settle(estimate, { ms: at - startedAt, ...(tokens === undefined ? {} : { tokens }) }, outcome._tag, at)
       if (outcome._tag === "done") entries.current.push({ kind: "exchange", user: said, answer: outcome.answer })
       if (headline !== undefined) setTranscript((current) => Transcript.failure(current, headline, at))
-      if (outcome._tag === "cancelled") setTranscript((current) => Transcript.failure(current, "Stopped", at))
+      if (outcome._tag === "cancelled") setTranscript((current) => Transcript.stopped(current, at))
       live.current.turn = undefined
       setTurn(undefined)
       if (outcome._tag === "cancelled") return

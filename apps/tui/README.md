@@ -180,11 +180,12 @@ work, custom views, and Claude Code or Codex workers are in Ctrl+K.
 Night Owl dark surfaces from the Smithers app (`apps/app/.../tokens.css`),
 layered page, panel, element. Your messages keep the composer's shape, a
 brand bar on a filled panel. A cell shows one row per flow call (`→ read`,
-`$ ran node check.mjs  exit 1`, `← edited`), and an edit draws its diff; a
+`✗ node check.mjs  exit 1`, `✓ node check.mjs  exit 0`, `✓ edited math.js +1 −1`), and an edit draws its diff; a
 cell with no such row, only `agent.delegate`, `ui.publish`, `tab.read`,
 `tab.list`, `smithers.run` or `monitor.*` calls, or a rejected cell shows
 nothing. Ctrl+O, or selecting a step, draws the whole cell as a left bar
 colored by status: code, printed output and each call's duration.
+A turn ends `✗ failed: <cause>` or `■ stopped`.
 The Summary view keeps cell code behind expandable rows. Panels, dialogs, and the
 completion menu follow opencode's shapes; fuzzy matching is pi's.
 
@@ -208,13 +209,15 @@ the journal up to the selected event, so later results do not appear early.
 Restoring a session reconstructs the same timeline from its saved events.
 Worker tabs show `queued` (waiting for a pool seat), `requested`, `running`,
 `waiting` for children, `parked` (with a reset time), `done`, `failed`, or
-`cancelled`. Running, waiting, and parked workers auto-relaunch from their
+`stopped`. Every surface names a run's outcome in one word: `working`, `done`,
+`failed: <cause>`, or `stopped`. Running, waiting, and parked workers auto-relaunch from their
 recorded steps when the TUI restarts. Queued workers keep the chat context
 captured with their request. A worker refused by a rate limit or quota parks
 until the provider's reset or retry-after, then runs again; after 8 parks in a
 row with no model answer it fails as "usage limit reached · still limited after
-8 waits". A failed worker shows a short failure card; Ctrl+O reveals the raw
-error and stack.
+8 waits". A failed worker shows a short failure card, `failed: <cause>` and its
+progress; seat, key and sign-in instructions stay out of it, and Ctrl+O reveals
+the raw error and stack.
 
 ## Context and sessions
 
@@ -239,8 +242,9 @@ If session storage is inside the project, its exact session subtree and log
 are excluded from workspace mutation accounting. Other project files remain
 observed, including files beside that storage.
 
-The completion judge uses a connected subscription. Missing seats or invalid
-verdicts fail closed; no gateway key is required.
+The completion judge uses a connected subscription; no gateway key is required.
+A worker whose completion no judge could check settles `done · unchecked`
+(dim) with its answer, never failed and never under Needs you.
 
 ## Review and undo
 
@@ -336,12 +340,14 @@ independent requests should name disjoint files. Worker transcripts persist in
 separate session files. The chat shows the workers a cell delegated as
 subagent cards after that cell (`@smthrs/rpc/SubagentCard`, shared with the
 GUI): `◐ Running 3 subagents (1/3)` and a `▰` bar, then equal-height cards,
+settling to `Ran 3 subagents ✓` only when every one is done (`✗` when any
+failed, else `■`); one settled worker heads its card `■ <title> · stopped at 6s`,
 one column below 69 columns, up to four across. A card has its lane-colored
 `▌` rail, glyph and title, `… +N earlier`, its last five steps (`├ Read x ✓`,
 `├ Ran node check.mjs  exit 1 ✗`, `└ Editing x…`), `▸ 2 files +31 -6` when it changed files, and `42s · sol` or
 `Done 1m 04s · sol`. A focused card shows its worker keys (`[x Stop] [s Steer]`).
-A worker tab's own children show the same way. `◉ <worker> finished`,
-`failed` or `stopped` marks where a worker settled; a settled batch reads `Ran 3 subagents` with `✓` when all
+A worker tab's own children show the same way. `◉ <worker> done`,
+`failed: <cause>` or `stopped` marks where a worker settled; a settled batch reads `Ran 3 subagents` with `✓` when all
 are done, `✗` when any failed, else `■` when any stopped. `/filter` shows or hides each kind of row;
 `/grep <text>` keeps rows containing the text and `/grep` alone clears it. Chat receives every unsettled worker and the newest
 five settled answers (1,500 characters each) as context, and remains usable
@@ -351,7 +357,8 @@ every worker's tree.
 
 Each worker's tab, and its row in the list beside the chat at 100 columns or
 wider, shows the status glyph subagent cards share (`@smthrs/rpc/SubagentCard`):
-`◐◓◑◒` turning while requested, running or waiting on children, else `●`, in
+`◐◓◑◒` turning while requested, running or waiting on children, `■` once
+stopped, else `●`, in
 the color of its state (running, waiting for queued, parked or children, done,
 failed, stopped), its model and its clock. Tabs are
 never shortened: when they overflow, `‹ n` and `n ›` count and open the hidden

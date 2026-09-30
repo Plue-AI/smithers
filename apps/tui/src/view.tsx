@@ -6,7 +6,7 @@
  * instead of a boxed border, and a selected row filled with the brand color.
  */
 import { RGBA, type ScrollBoxRenderable } from "@opentui/core"
-import { clip } from "@smthrs/rpc/SubagentCard"
+import { clip, diffCounts } from "@smthrs/rpc/SubagentCard"
 import type { UserFailure } from "@smthrs/rpc/UserFailure"
 import { memo, type ReactNode, type RefObject, useState } from "react"
 import stringWidth from "string-width"
@@ -232,10 +232,12 @@ function EntryView(props: EntryProps) {
       return (
         <box
           style={{ border: ["left"], paddingLeft: 1, marginBottom: 1 }}
-          borderColor={color.danger}
+          borderColor={item.stopped === true ? color.faint : color.danger}
           customBorderChars={bar}
         >
-          <text fg={color.danger}>✗ {item.text}</text>
+          {item.stopped === true
+            ? <text fg={color.faint}>■ stopped</text>
+            : <text fg={color.danger}>✗ {item.background === true ? "" : "failed: "}{item.text}</text>}
         </box>
       )
     case "note":
@@ -586,6 +588,30 @@ export const plumbing = (flow: string): boolean =>
   ["agent.delegate", "ui.publish", "tab.read", "tab.list", "smithers.run"].includes(flow) ||
   flow.startsWith("monitor.")
 
+/**
+ * What a settled call's glyph says: a command's exit status (`✓` only for
+ * exit 0), a failed call's `✗`, a change's `✓`, else the flow's own icon.
+ */
+export const callMark = (
+  call: Transcript.Call
+): { readonly glyph: string; readonly tone: "success" | "danger" | "muted" } =>
+  call.status === "failed" || (call.exit !== undefined && call.exit !== 0)
+    ? { glyph: "✗", tone: "danger" }
+    : call.exit !== undefined || call.change !== undefined || (call.patches?.length ?? 0) > 0
+    ? { glyph: "✓", tone: "success" }
+    : { glyph: icons[call.flow] ?? "⚙", tone: "muted" }
+
+/** A change's line counts, `+1 −1`, from its receipts or its own edit. */
+const changeCounts = (call: Transcript.Call): { readonly added: number; readonly removed: number } | undefined => {
+  const diffs = (call.patches ?? []).map((each) => each.patch)
+  const all = diffs.length > 0 ? diffs : call.change === undefined ? [] : [Transcript.unified(call.change)]
+  if (all.length === 0) return undefined
+  return all.map(diffCounts).reduce((sum, each) => ({
+    added: sum.added + each.added,
+    removed: sum.removed + each.removed
+  }))
+}
+
 function CallView(
   props: {
     readonly call: Transcript.Call
@@ -597,7 +623,9 @@ function CallView(
   }
 ) {
   const { call } = props
-  const tone = call.status === "running" ? color.info : call.status === "ok" ? color.muted : color.danger
+  const mark = callMark(call)
+  // A command reads as itself and its exit status; the verb adds nothing.
+  const command = call.exit !== undefined
   const verb = call.verb === undefined
     ? call.flow
     : call.status === "running"
@@ -608,19 +636,28 @@ function CallView(
   const subject = call.subject.split("\n")[0]!
   const diff = call.change === undefined || call.status === "failed" ? undefined : Transcript.unified(call.change)
   const diffRows = diff === undefined ? 0 : diff.split("\n").length - 3
+  const counts = call.status === "ok" && !command ? changeCounts(call) : undefined
   return (
     <box>
       <box style={{ flexDirection: "row", justifyContent: "space-between" }}>
         <text style={{ flexShrink: 1 }} wrapMode="none">
-          <span fg={call.status === "running" ? color.info : tone}>
-            {call.status === "running" ? props.tick : icons[call.flow] ?? "⚙"}
+          <span fg={call.status === "running" ? color.info : color[mark.tone]}>
+            {call.status === "running" ? props.tick : mark.glyph}
             {" "}
           </span>
-          <span fg={call.status === "failed" ? color.danger : color.text}>{verb}{" "}</span>
+          {command ? null : <span fg={call.status === "failed" ? color.danger : color.text}>{verb}{" "}</span>}
           <span fg={color.muted}>{subject}</span>
-          {call.exit === undefined
-            ? null
-            : <span fg={call.exit === 0 ? color.muted : color.warning}>{"  "}exit {call.exit}</span>}
+          {command
+            ? <span fg={call.exit === 0 ? color.faint : color.danger}>{"  "}exit {call.exit}</span>
+            : null}
+          {counts === undefined ? null : (
+            <>
+              {"  "}
+              {counts.added > 0 ? <span fg={color.success}>+{counts.added}</span> : null}
+              {counts.added > 0 && counts.removed > 0 ? " " : null}
+              {counts.removed > 0 ? <span fg={color.danger}>−{counts.removed}</span> : null}
+            </>
+          )}
         </text>
         {props.timed === false ? null : (
           <text fg={color.faint} style={{ flexShrink: 0 }}>

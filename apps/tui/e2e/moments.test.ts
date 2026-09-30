@@ -35,11 +35,11 @@ it("offers Raise cap on a capped worker's toast, and the button opens its cap fo
     await tui.press(key.ctrlS)
     await tui.until((screen) => screen.includes("Needs you 1"), 5_000, "overview")
     await tui.press(" ")
-    // The peek names the stop by its headline alone.
+    // The peek names the outcome and its cause (tabs.ts outcome).
     await tui.until(
-      (screen) => screen.includes("Token budget reached") && !screen.includes("Token budget reached ·"),
+      (screen) => screen.includes("failed: Token budget reached"),
       5_000,
-      "the headline in the peek"
+      "the outcome in the peek"
     )
   } finally {
     await tui?.stop()

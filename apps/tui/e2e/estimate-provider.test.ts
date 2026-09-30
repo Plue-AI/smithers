@@ -39,7 +39,7 @@ const start = async (env: Readonly<Record<string, string>>) => {
   // A finished worker is the history a class estimate needs.
   await tui.type("delegate fix")
   await tui.press(key.enter)
-  await tui.until((screen) => screen.includes("Fixer finished"), 10_000, "worker done")
+  await tui.until((screen) => screen.includes("Fixer done"), 10_000, "worker done")
   await tui.type("investigate")
   await tui.press(key.enter)
   await tui.until((screen) => screen.includes("Requested the investigation."), 10_000, "worker requested")

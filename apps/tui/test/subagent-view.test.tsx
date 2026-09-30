@@ -178,10 +178,10 @@ it("keeps parent rows, completed worker grids and settlement markers in supplied
   const frame = mounted.captureCharFrame()
   expect(rows).toEqual([row])
   expect(rows[0]).toBe(row)
-  expect(frame).toContain("Ran 1 subagent ✓")
-  expect(frame).toContain("◉ Completed audit finished")
-  expect(frame.indexOf("Parent receipt")).toBeLessThan(frame.indexOf("Ran 1 subagent ✓"))
-  expect(frame.indexOf("Ran 1 subagent ✓")).toBeLessThan(frame.indexOf("◉ Completed audit finished"))
+  expect(frame).toContain("✓ Completed audit · done at 1m 04s")
+  expect(frame).toContain("◉ Completed audit done")
+  expect(frame.indexOf("Parent receipt")).toBeLessThan(frame.indexOf("✓ Completed audit · done"))
+  expect(frame.indexOf("✓ Completed audit · done")).toBeLessThan(frame.indexOf("◉ Completed audit done"))
 })
 
 it("summarizes earlier activity and retains a failed tool's visible result", async () => {

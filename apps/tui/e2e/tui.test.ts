@@ -574,7 +574,7 @@ describe("esc", () => {
       "running turn"
     )
     await tui.press(key.escape)
-    const screen = await tui.until((screen) => screen.includes("✗ Stopped") && idle(screen), 5_000, "stopped turn")
+    const screen = await tui.until((screen) => screen.includes("■ stopped") && idle(screen), 5_000, "stopped turn")
     expect(screen).toContain("Ask Smithers to change this repository")
   }, 60_000)
 
@@ -959,7 +959,7 @@ describe("turns", () => {
       "second turn"
     )
     await tui.press(key.escape)
-    await tui.until((screen) => screen.includes("✗ Stopped") && idle(screen), 10_000, "second turn stopped")
+    await tui.until((screen) => screen.includes("■ stopped") && idle(screen), 10_000, "second turn stopped")
   }, 120_000)
 
   it("recalls the previous prompt with up", async () => {
@@ -1804,7 +1804,7 @@ console.log("reverted");`,
     await tui.type("delegate fix")
     await tui.press(key.enter)
     await tui.until(
-      (screen) => screen.includes("Fixer finished") && /Done \d+s · worker/.test(screen),
+      (screen) => screen.includes("Fixer done") && /Done \d+s · worker/.test(screen),
       10_000,
       "worker done"
     )
@@ -1852,7 +1852,7 @@ console.log("reverted");`,
       await tui.type("delegate fix")
       await tui.press(key.enter)
       await tui.until(
-        (screen) => screen.includes("Fixer finished") && /Done \d+s · worker/.test(screen),
+        (screen) => screen.includes("Fixer done") && /Done \d+s · worker/.test(screen),
         10_000,
         "worker done"
       )
@@ -1888,7 +1888,7 @@ console.log("reverted");`,
     await tui.type("delegate fix")
     await tui.press(key.enter)
     await tui.until((screen) =>
-      screen.includes("Requested the fix.") && screen.includes("Fixer finished") && /Done \d+s · worker/.test(screen)
+      screen.includes("Requested the fix.") && screen.includes("Fixer done") && /Done \d+s · worker/.test(screen)
     )
     await tui.type("/flow review title=x")
     await tui.press(key.enter)
@@ -1940,7 +1940,7 @@ console.log("reverted");`,
     await tui.type("delegate fix")
     await tui.press(key.enter)
     await tui.until(
-      (screen) => screen.includes("Fixer finished") && /Done \d+s · worker/.test(screen),
+      (screen) => screen.includes("Fixer done") && /Done \d+s · worker/.test(screen),
       10_000,
       "worker done"
     )
@@ -2385,7 +2385,7 @@ describe("custom agents", () => {
     await tui.until((screen) => screen.includes("x Stop"), 5_000, "agent tab")
     await tui.type("x")
     await tui.until(
-      (screen) => screen.includes("✗ Stopped") && screen.includes("r Resume") && !screen.includes("x Stop"),
+      (screen) => screen.includes("■ stopped") && screen.includes("r Resume") && !screen.includes("x Stop"),
       20_000,
       "stopped from the real outcome"
     )

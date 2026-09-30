@@ -1,6 +1,6 @@
 /**
  * Subagent cards as the terminal draws them: a batch's header and equal-height
- * card grid in a parent transcript, the `◉ title finished` row, a worker tab's
+ * card grid in a parent transcript, the `◉ title done` row, a worker tab's
  * breadcrumb, and the Summary overview. What each says comes from
  * `@smthrs/rpc/SubagentCard`, shared with the GUI; this file only colors it.
  */
@@ -178,11 +178,19 @@ export function Grid(props: { readonly tabs: ReadonlyArray<Tab>; readonly width:
   )
 }
 
-/** A batch in its parent's transcript: `◐ Running 3 subagents (1/3)`, the ▰ bar, then its cards. */
+/**
+ * A batch in its parent's transcript: `◐ Running 3 subagents (1/3)`, the ▰ bar, then its cards.
+ * One settled worker is headed by its outcome: `■ Add JSDoc · stopped at 6s`.
+ */
 export function Batch(
   props: { readonly batch: Subagents.Batch; readonly width: number; readonly cards: Cards }
 ) {
-  const header = SubagentCard.header(props.batch.tabs.map((tab) => tab.status), props.cards.now)
+  const only = props.batch.tabs.length === 1 ? props.batch.tabs[0]! : undefined
+  const header = SubagentCard.header(
+    props.batch.tabs.map((tab) => tab.status),
+    props.cards.now,
+    only === undefined ? undefined : { title: tabTitle(only), startedAt: only.startedAt, endedAt: only.endedAt }
+  )
   const tone = Tabs.toneColor(header.tone)
   return (
     <box id={props.batch.key} style={{ marginBottom: 1 }}>
@@ -200,9 +208,32 @@ export function Batch(
   )
 }
 
-/** `◉ title finished`, where a worker settled. */
-export function Finished(props: { readonly tab: Tab; readonly tone: string }) {
-  const row = SubagentCard.finished(tabTitle(props.tab), props.tab.status)
+/**
+ * Where a worker settled: `◉ title done`, `◉ title failed: <cause>`; a stopped
+ * worker offers `r Resume` instead.
+ */
+export function Finished(
+  props: { readonly tab: Tab; readonly tone: string; readonly onAction: (tab: Tab, action: Tabs.ActionId) => void }
+) {
+  if (props.tab.status === "cancelled") {
+    const resume = Tabs.actions(props.tab).find((action) => action.id === "retry")
+    if (resume === undefined) return null
+    return (
+      <box style={{ flexDirection: "row", marginBottom: 1 }}>
+        <box
+          style={{ paddingLeft: 1, paddingRight: 1, flexShrink: 0 }}
+          backgroundColor={color.element}
+          onMouseDown={() => props.onAction(props.tab, "retry")}
+        >
+          <text wrapMode="none">
+            <span fg={color.text}>{resume.keys[0]}</span>
+            <span fg={color.muted}>{" "}{resume.label}</span>
+          </text>
+        </box>
+      </box>
+    )
+  }
+  const row = SubagentCard.finished(tabTitle(props.tab), props.tab.status, Tabs.outcome(props.tab))
   return (
     <text wrapMode="none" style={{ marginBottom: 1 }}>
       <span fg={Tabs.toneColor(row.tone)}>{row.glyph}</span> <span fg={props.tone}>{row.title}</span>
@@ -211,7 +242,7 @@ export function Finished(props: { readonly tab: Tab; readonly tone: string }) {
   )
 }
 
-/** A parent transcript's own rows with its workers' grids and finished rows between them. */
+/** A parent transcript's own rows with its workers' grids and outcome rows between them. */
 export function Lines(props: {
   readonly lines: ReadonlyArray<Subagents.Line>
   readonly width: number
@@ -225,7 +256,14 @@ export function Lines(props: {
           ? props.row(line)
           : line.kind === "grid"
           ? <Batch key={line.key} batch={line.batch} width={props.width} cards={props.cards} />
-          : <Finished key={line.key} tab={line.tab} tone={props.cards.lane(line.tab.id)} />
+          : (
+            <Finished
+              key={line.key}
+              tab={line.tab}
+              tone={props.cards.lane(line.tab.id)}
+              onAction={props.cards.onAction}
+            />
+          )
       )}
     </>
   )

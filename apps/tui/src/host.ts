@@ -68,7 +68,8 @@ export type { Box } from "./box.ts"
 
 /** How a turn ended. */
 export type Outcome =
-  | { readonly _tag: "done"; readonly answer: string }
+  /** `unchecked`: the run finished but no judge could check `answer`. */
+  | { readonly _tag: "done"; readonly answer: string; readonly unchecked?: true }
   | { readonly _tag: "failed"; readonly message: string; readonly detail: string; readonly error?: unknown }
   | { readonly _tag: "cancelled" }
 
@@ -719,6 +720,9 @@ export const make = (options: {
         if (Cause.hasInterruptsOnly(exit.cause)) return resolve({ _tag: "cancelled" })
         const detail = Cause.pretty(exit.cause)
         Log.write("host.turn", detail)
+        // No judge could check the answer: the run is done, unchecked, never failed.
+        const answer = uncheckedAnswer(Cause.squash(exit.cause))
+        if (answer !== undefined) return resolve({ _tag: "done", answer, unchecked: true })
         const notice = capNotice(Cause.squash(exit.cause), `${input.role ?? "coordinator"} ${executionId}`)
         // A panel's runs are the tab's; only the tab names its cap.
         if (notice !== undefined && input.budget === undefined) Log.alert("host.cap", notice)
@@ -918,6 +922,31 @@ export const capNotice = (error: unknown, run: string): string | undefined => {
         : undefined
     }
     current = record.cause
+  }
+  return undefined
+}
+
+/** Where an unjudged completion's message quotes the answer it refused (`CompletionClaim.unjudged`). */
+const refusedClaim = "The completion this refused, word for word:\n\n"
+
+/**
+ * The answer of a run whose completion no judge could check: the harness fails
+ * it closed as `completion_unjudged`, quoting the answer. Undefined for any
+ * other failure.
+ */
+export const uncheckedAnswer = (error: unknown): string | undefined => {
+  const seen = new Set<unknown>()
+  for (let current = error; typeof current === "object" && current !== null && !seen.has(current);) {
+    seen.add(current)
+    const record = current as { readonly _tag?: unknown; readonly code?: unknown; readonly message?: unknown }
+    if (
+      record._tag === "/harness/HarnessError" && record.code === "completion_unjudged" &&
+      typeof record.message === "string"
+    ) {
+      const at = record.message.indexOf(refusedClaim)
+      return at < 0 ? undefined : record.message.slice(at + refusedClaim.length).trim()
+    }
+    current = (current as { readonly cause?: unknown }).cause
   }
   return undefined
 }

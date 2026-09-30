@@ -130,8 +130,8 @@ export const panel = (transcript: Transcript.Transcript, id = "summary", title =
     } else if (item.kind === "error") {
       rows.push({
         id: item.id,
-        label: sentence(item.text),
-        status: "failed",
+        label: item.stopped === true ? "stopped" : sentence(item.text),
+        status: item.stopped === true ? "cancelled" : "failed",
         details: [{ kind: "text", text: item.text }]
       })
     } else if (item.kind === "shell") {
@@ -161,7 +161,9 @@ export const panel = (transcript: Transcript.Transcript, id = "summary", title =
   const summary = transcript.items.at(-1)?.kind === "user"
     ? `Requested: ${sentence((transcript.items.at(-1) as Extract<Transcript.Item, { kind: "user" }>).text)}`
     : last?.status === "failed"
-    ? `Stopped: ${last.label}`
+    ? `failed: ${last.label}`
+    : last?.status === "cancelled"
+    ? last.label
     : last?.status === "running"
     ? last.label
     : refused.length > 0

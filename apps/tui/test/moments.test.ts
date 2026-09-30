@@ -76,7 +76,7 @@ it("peeks at a park with its reset and count, a backup seat, and a failure by it
       () => Transcript.empty
     )
   )
-    .toEqual(["Token budget reached", "200 of 200 tokens used."])
+    .toEqual(["failed: Token budget reached", "200 of 200 tokens used."])
 })
 
 it("offers Raise cap on a worker stopped at its run cap, and nowhere else", () => {

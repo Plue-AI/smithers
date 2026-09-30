@@ -182,7 +182,7 @@ describe("follow-up queue and interrupted turns across a restart", () => {
     expect(kept.map((record) => record.type)).toEqual(["user", "queued", "outcome", "dequeued", "user"])
     expect(pending(file!)).toEqual([])
     await screen.press(key.escape)
-    await screen.until((text) => text.includes("✗ Stopped") && idle(text), 10_000, "stopped")
+    await screen.until((text) => text.includes("■ stopped") && idle(text), 10_000, "stopped")
   }, 120_000)
 })
 

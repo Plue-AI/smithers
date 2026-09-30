@@ -1,7 +1,7 @@
 /**
  * Workers as subagent cards: the adapter from a tab and its transcript into
  * `@smthrs/rpc/SubagentCard`, the batches a parent transcript shows as card
- * grids at the call that delegated them, the `◉ title finished` rows, and
+ * grids at the call that delegated them, the `◉ title done` rows, and
  * how arrows move between cards. Every glyph, string and layout number comes
  * from `SubagentCard`; nothing here draws.
  */
@@ -34,7 +34,8 @@ export const entry = (call: Transcript.Call): SubagentCard.Entry => {
   return {
     kind: "tool",
     tool: call.flow,
-    state: states[call.status],
+    // A command that exited nonzero failed, however the call itself settled.
+    state: call.exit !== undefined && call.exit !== 0 ? "error" : states[call.status],
     target: call.subject,
     ...(call.verb === undefined ? {} : { verb: { pending: call.verb.pending, done: call.verb.success } }),
     ...(lines === undefined ? {} : { added: lines.added, removed: lines.removed }),
@@ -66,6 +67,42 @@ export const subagent = (
       )
     )
   }
+}
+
+/** A settled worker's evidence in one line: each changed file's counts, and its last command's exit status. */
+export interface Result {
+  readonly files: ReadonlyArray<SubagentCard.File>
+  readonly check?: { readonly command: string; readonly exit: number }
+}
+
+/** A command that shows version control's state (`git diff`, `jj st`) checks nothing about the work. */
+const inspects = (command: string): boolean => /^\s*(?:git|jj)\b/.test(command)
+
+/**
+ * A worker's result from its transcript: files summed per path in first-seen order, undone changes left
+ * out, and its last command that checked the work.
+ */
+export const result = (transcript: Transcript.Transcript): Result => {
+  const byPath = new Map<string, SubagentCard.File>()
+  let check: Result["check"]
+  for (const item of transcript.items) {
+    if (item.kind !== "cell") continue
+    for (const call of item.calls) {
+      const command = call.subject.split("\n")[0]!
+      if (call.exit !== undefined && !inspects(command)) check = { command, exit: call.exit }
+      if (call.undone === true) continue
+      for (const patch of call.patches ?? []) {
+        const counts = SubagentCard.diffCounts(patch.patch)
+        const seen = byPath.get(patch.path)
+        byPath.set(patch.path, {
+          path: patch.path,
+          added: (seen?.added ?? 0) + counts.added,
+          removed: (seen?.removed ?? 0) + counts.removed
+        })
+      }
+    }
+  }
+  return { files: [...byPath.values()], ...(check === undefined ? {} : { check }) }
 }
 
 /** Workers one parent requested between the same two rows of its transcript. */
@@ -115,7 +152,7 @@ export const batches = (
   }))
 }
 
-/** What a transcript view draws, in order: its own rows, card grids and finished rows. */
+/** What a transcript view draws, in order: its own rows, card grids and outcome rows. */
 export type Line =
   | { readonly kind: "row"; readonly key: string; readonly row: Timeline.Row }
   | { readonly kind: "grid"; readonly key: string; readonly batch: Batch }
@@ -123,7 +160,7 @@ export type Line =
 
 /**
  * `rows` with each batch's grid after its anchor row (or the last row before
- * it when the anchor is filtered out), and a `◉ title finished` row where
+ * it when the anchor is filtered out), and a `◉ title done` row where
  * each settled worker ended, never above its own grid.
  */
 export const lines = (rows: ReadonlyArray<Timeline.Row>, groups: ReadonlyArray<Batch>): ReadonlyArray<Line> => {

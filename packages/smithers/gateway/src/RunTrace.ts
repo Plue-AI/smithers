@@ -1061,7 +1061,8 @@ const disciplineStep = (state: DisciplineState, record: JournalRecord): void => 
       case "control.run.failed":
       case "control.run.cancelled": {
         const verdict = kind.slice("control.run.".length)
-        pin(seq, at, verdict, verdict === "completed" ? "good" : "bad")
+        // A person's stop reads as the product word every surface uses.
+        pin(seq, at, verdict === "cancelled" ? "stopped" : verdict, verdict === "completed" ? "good" : "bad")
         break
       }
       default:

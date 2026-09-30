@@ -25,7 +25,7 @@ test.each(
     status,
     details: [{ kind: "code", code: "check", language: "bash" }, { kind: "text", text: "diagnostic\n" }]
   }])
-  expect(result.summary).toBe(status === "failed" ? `Stopped: ${label}` : label)
+  expect(result.summary).toBe(status === "failed" ? `failed: ${label}` : label)
 })
 
 test("a live shell remains running with its accumulated output", () => {

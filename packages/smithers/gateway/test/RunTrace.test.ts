@@ -719,6 +719,12 @@ describe("what the frame was doing", () => {
       at(4, "control.run.failed", {}, 4)
     ])
     expect(refused.milestones).toEqual([{ seq: 4, at: 4, label: "failed", tone: "bad", spanId: "frame-1" }])
+    // A person's stop pins the product word, never the journal's `cancelled`.
+    const stopped = traceFromJournal(RUN, [
+      at(1, "control.agent.turn-opened", {}, 1),
+      at(2, "control.run.cancelled", {}, 2)
+    ])
+    expect(stopped.milestones.map((milestone) => milestone.label)).toEqual(["stopped"])
     expect(refused.lines).toEqual([
       {
         spanId: "frame-1",

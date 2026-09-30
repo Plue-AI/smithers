@@ -67,14 +67,15 @@ describe("replaying a recorded run", () => {
     expect(cells(replay())[0]!.startedAt).toBe(requested.at)
   })
 
-  it("records a command's exit on its call", () => {
+  it("records every command's exit status on its call, zero included", () => {
     const calls = cells(replay()).flatMap((cell) => cell.calls)
-    const failing = recorded.filter(({ event }) =>
+    const exited = recorded.filter(({ event }) =>
       event._tag === "cell-call-settled" && typeof event.result.value?.exitCode === "number"
     )
-    expect(failing.some(({ event }) => event.result.value.exitCode !== 0)).toBe(true)
+    expect(exited.some(({ event }) => event.result.value.exitCode !== 0)).toBe(true)
+    expect(exited.some(({ event }) => event.result.value.exitCode === 0)).toBe(true)
     expect(calls.filter((call) => call.exit !== undefined).map((call) => call.exit)).toEqual(
-      failing.map(({ event }) => event.result.value.exitCode)
+      exited.map(({ event }) => event.result.value.exitCode)
     )
   })
 })

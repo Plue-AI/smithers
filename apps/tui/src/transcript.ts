@@ -25,7 +25,7 @@ export interface Call {
   readonly subject: string
   readonly status: "running" | "ok" | "failed"
   readonly message?: string
-  /** A command's exit status; the call itself succeeded even when it is nonzero. */
+  /** A command's exit status; a nonzero one is a failed command even though the call succeeded. */
   readonly exit?: number
   /** The flow's own words for the call: `reading`, `read`, `failed to read`. */
   readonly verb?: { readonly pending: string; readonly success: string; readonly failure: string }
@@ -89,6 +89,8 @@ export type Item =
       readonly text: string
       /** Raised by background work such as a monitor; it ends no turn. */
       readonly background?: true
+      /** A person stopped the turn: it ended, and nothing failed. */
+      readonly stopped?: true
     }
     | { readonly kind: "note"; readonly id: string; readonly text: string }
     /** A panel published with `placement: "card"`: one item per panel id, updated in place. */
@@ -214,21 +216,36 @@ export const card = (transcript: Transcript, panel: Panels.Panel, at?: number): 
 }
 
 /** Ends the turn: nothing streams or waits on a model after it. */
+const end = (transcript: Transcript, status: "failed" | "cancelled", text: string, at: number): Transcript => ({
+  ...settleOpen(transcript, at, "failed"),
+  streaming: "",
+  thinking: false,
+  requestedAt: undefined,
+  activity: Activity.finish(transcript.activity ?? Activity.empty, status, at, text)
+})
+
+/** The turn failed; `text` is its cause. */
 export const failure = (transcript: Transcript, text: string, at: number): Transcript =>
+  withId(end(transcript, "failed", text, at), { kind: "error", text }, at)
+
+/** A person stopped the turn. */
+export const stopped = (transcript: Transcript, at: number): Transcript =>
+  withId(end(transcript, "cancelled", "Stopped", at), { kind: "error", text: "stopped", stopped: true }, at)
+
+/**
+ * The turn finished with `answer`, but no judge could check it: done, never
+ * failed. The answer stands as a finished turn's does.
+ */
+export const unchecked = (transcript: Transcript, answer: string, at: number): Transcript =>
   withId(
     {
-      ...settleOpen(transcript, at, "failed"),
+      ...settleOpen(transcript, at, "done"),
       streaming: "",
       thinking: false,
       requestedAt: undefined,
-      activity: Activity.finish(
-        transcript.activity ?? Activity.empty,
-        text === "Stopped" ? "cancelled" : "failed",
-        at,
-        text
-      )
+      activity: Activity.finish(transcript.activity ?? Activity.empty, "completed", at, "")
     },
-    { kind: "error", text },
+    { kind: "answer", text: answer },
     at
   )
 

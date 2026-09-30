@@ -67,7 +67,7 @@ describe("worker failure card", () => {
     expect(frame).not.toContain("secret stack")
   })
 
-  it("shows the headline alone, with no fault suffix", async () => {
+  it("says failed and its cause, never whose fault it is", async () => {
     for (const fault of ["policy", "factory", "user", "wait", "infra", "dependency", "bug"] as const) {
       setup = await testRender(
         <FailureCard
@@ -79,9 +79,11 @@ describe("worker failure card", () => {
       )
       await setup.renderOnce()
       const frame = setup.captureCharFrame()
-      expect(frame).toContain("ChatGPT usage limit reached")
-      expect(frame).not.toContain("not your fault")
-      expect(frame).not.toContain("ChatGPT usage limit reached  ·")
+      expect(frame.split("\n")[0]?.trim()).toBe("failed: ChatGPT usage limit reached")
+      expect(frame).not.toContain("fault")
+      expect(frame).not.toContain("cap reached")
+      expect(frame).not.toContain("needs you")
+      expect(frame).not.toMatch(new RegExp(`· ${fault}\\b`))
       setup.renderer.destroy()
       setup = undefined
     }
@@ -235,7 +237,7 @@ describe("worker failure card", () => {
     )
     await setup.renderOnce()
     const frame = setup.captureCharFrame()
-    expect(frame).toContain("Model call timed out")
+    expect(frame).toContain("failed: Model call timed out")
     expect(frame).not.toContain("·  wait")
   })
 })

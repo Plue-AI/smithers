@@ -33,6 +33,17 @@ export const style = (status: Status, now: number): { readonly glyph: string; re
   return { glyph, tone: toneColor(tone) }
 }
 
+/**
+ * A run's outcome in the words every surface uses: `working`, `done`,
+ * `done · unchecked`, `failed: <cause>` or `stopped`. Whose fault it was and
+ * how to set up a model stay out of it.
+ */
+export const outcome = (tab: Pick<Tab, "status" | "failure" | "unchecked">): string => {
+  const word = SubagentCard.outcome(tab.status)
+  if (word === "failed") return `failed: ${tab.failure?.headline ?? "Worker stopped unexpectedly"}`
+  return word === "done" && tab.unchecked === true ? "done · unchecked" : word
+}
+
 /** A worker's glyph: `⇄` in the needs color while the person drives it, else its status glyph. */
 export const styleOf = (
   tab: Pick<Tab, "status" | "driver">,

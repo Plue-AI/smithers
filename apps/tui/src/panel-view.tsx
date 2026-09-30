@@ -24,7 +24,7 @@ export function FailureCard(
     : [message, tab.detail].filter((part) => part !== undefined && part !== "").join("\n")
   return (
     <box style={{ flexShrink: 0, paddingLeft: 1, marginBottom: 1 }}>
-      <text fg={color.danger}>{failure.headline}</text>
+      <text fg={color.danger}>{Tabs.outcome(tab)}</text>
       <text fg={color.muted}>{Workspace.failureLine(tab, transcript)}</text>
       {hints
         ? (

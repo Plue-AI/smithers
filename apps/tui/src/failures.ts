@@ -14,6 +14,7 @@ import type * as Permission from "@smthrs/capability/Permission"
 import type { Refused as CliRefused } from "@smthrs/cli/CliError"
 import type * as Cell from "@smthrs/harness/Cell"
 import * as Evaluator from "@smthrs/model/Evaluator"
+import * as FailureCopy from "@smthrs/model/FailureCopy"
 import type { PlueFault } from "@smthrs/rpc/PlueFailureCodes"
 import {
   presentUserFailure,
@@ -313,3 +314,28 @@ export const callFailure = (call: { readonly denied?: true; readonly message: st
   call.denied === true
     ? { fault: "user", sentence: "Not approved.", actions: [], tag: "denied", detail: call.message }
     : { ...step("bug", "This action failed."), tag: null, detail: call.message }
+
+/** Whether a failure's copy quotes a host's own setup text: a seat to sign in to, a key to set, a judge to opt in to. */
+const instructs = (error: unknown): boolean => {
+  const seen = new Set<unknown>()
+  for (let current = error; typeof current === "object" && current !== null && !seen.has(current);) {
+    seen.add(current)
+    const record = current as { readonly _tag?: unknown; readonly reason?: unknown }
+    if (
+      record._tag === "@smthrs/agent/Seat/SeatUnresolved" || record._tag === "flows/model/EvaluatorError" ||
+      record._tag === "flows/model/ClassifierError" ||
+      (record._tag === "@smthrs/agent/Seat/SeatUnrouted" && record.reason !== "no_candidates" &&
+        record.reason !== "interrupted")
+    ) return true
+    current = (current as { readonly cause?: unknown }).cause
+  }
+  return false
+}
+
+/**
+ * A worker failure's copy as its result card says it. Setup instructions
+ * (seats, environment variables, sign-in commands) stay in details (Ctrl+O)
+ * and in the help a parent is asked for, never on the card.
+ */
+export const onCard = (error: unknown, described: FailureCopy.Description): FailureCopy.Description =>
+  instructs(error) ? { ...described, line: FailureCopy.describe(undefined).line } : described

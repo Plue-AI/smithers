@@ -91,6 +91,8 @@ export type Record =
     readonly outcome: {
       readonly _tag: string
       readonly answer?: string
+      /** A done run no judge could check. */
+      readonly unchecked?: true
       readonly message?: string
       readonly headline?: string
       /** The typed failure copy, so a restored session never re-reads the message. */
@@ -732,12 +734,14 @@ export const restore = (records: ReadonlyArray<Record>): {
       case "outcome":
         if (record.outcome._tag === "done") {
           entries.push({ kind: "exchange", user: record.prompt, answer: record.outcome.answer ?? "" })
-        } else {
+          if (record.outcome.unchecked === true) {
+            transcript = Transcript.unchecked(transcript, record.outcome.answer ?? "", record.at)
+          }
+        } else if (record.outcome._tag === "cancelled") transcript = Transcript.stopped(transcript, record.at)
+        else {
           transcript = Transcript.failure(
             transcript,
-            record.outcome._tag === "cancelled"
-              ? "Stopped"
-              : record.outcome.headline ?? record.outcome.message ?? "Failed",
+            record.outcome.headline ?? record.outcome.message ?? "Failed",
             record.at
           )
         }

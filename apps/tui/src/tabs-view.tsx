@@ -6,6 +6,7 @@
  * A worker's transcript renders with the chat's own cells.
  */
 import type { ScrollBoxRenderable } from "@opentui/core"
+import * as SubagentCard from "@smthrs/rpc/SubagentCard"
 import { type RefObject, useEffect, useRef } from "react"
 import * as Editor from "./editor.ts"
 import type { Model } from "./models.ts"
@@ -163,6 +164,41 @@ function Button(props: { readonly keys: string; readonly label: string; readonly
   )
 }
 
+/**
+ * A done worker no judge could check: `✓ title · 38s · src/cart.js +1 −1 · npm test exit 0 · unchecked`,
+ * with `unchecked` dim. It is done; nothing about it is red but a removed line's count.
+ */
+function Unchecked(props: { readonly tab: Tab; readonly transcript: Transcript.Transcript }) {
+  const { files, check } = Subagents.result(props.transcript)
+  return (
+    <box
+      style={{ border: ["left"], paddingLeft: 1, marginLeft: 2, marginBottom: 1 }}
+      borderColor={color.faint}
+      customBorderChars={View.bar}
+    >
+      <text>
+        <span fg={color.success}>✓</span>
+        <span fg={color.text}>
+          {" "}
+          {props.tab.title} · {SubagentCard.duration(Tabs.elapsed(props.tab, props.tab.endedAt ?? 0))}
+        </span>
+        {files.map((file) => (
+          <span key={file.path}>
+            <span fg={color.text}>{" · "}{file.path}</span>
+            {file.added > 0 ? <span fg={color.success}>{" +"}{file.added}</span> : null}
+            {file.removed > 0 ? <span fg={color.danger}>{" −"}{file.removed}</span> : null}
+          </span>
+        ))}
+        {check === undefined
+          ? null
+          : <span fg={color.text}>{" · "}{check.command} exit {check.exit}</span>}
+        <span fg={color.text}>{" · "}</span>
+        <span fg={color.faint}>unchecked</span>
+      </text>
+    </box>
+  )
+}
+
 /** `14:02`, local time. */
 const clock = (at: number): string => {
   const date = new Date(at)
@@ -236,6 +272,16 @@ export function WorkerView(props: {
         {tab.status === "failed"
           ? <FailureCard tab={tab} transcript={transcript} details={props.expanded} hints={false} />
           : null}
+        {tab.status === "done" && tab.unchecked === true
+          ? (
+            <box style={{ paddingLeft: 1 }}>
+              <text wrapMode="none">
+                <span fg={color.success}>done</span>
+                <span fg={color.faint}>{" · unchecked"}</span>
+              </text>
+            </box>
+          )
+          : null}
         <box style={{ flexDirection: "row", marginTop: 1 }}>
           {Tabs.actions(tab).map((action) => (
             <Button
@@ -275,6 +321,7 @@ export function WorkerView(props: {
           }}
         />
         {transcript.thinking ? <text fg={color.muted} style={{ paddingLeft: 2 }}>{props.tick} thinking</text> : null}
+        {tab.status === "done" && tab.unchecked === true ? <Unchecked tab={tab} transcript={transcript} /> : null}
       </scrollbox>
     </box>
   )

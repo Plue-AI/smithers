@@ -82,7 +82,12 @@ export const frames = (activity: Activity): number => frameAt(activity, Infinity
 export const openings = (activity: Activity): ReadonlyArray<number> =>
   activity.records.flatMap((record) => record.kind === opened ? [record.sequence!] : [])
 
-export const finish = (activity: Activity, status: "failed" | "cancelled", at: number, message: string): Activity => {
+export const finish = (
+  activity: Activity,
+  status: "completed" | "failed" | "cancelled",
+  at: number,
+  message: string
+): Activity => {
   if (activity.status === status) return activity
   return {
     status,
@@ -90,7 +95,7 @@ export const finish = (activity: Activity, status: "failed" | "cancelled", at: n
       sequence: activity.records.length + 1,
       kind: `control.run.${status}`,
       occurredAt: at,
-      payload: { cause: message }
+      payload: status === "completed" ? {} : { cause: message }
     }]
   }
 }

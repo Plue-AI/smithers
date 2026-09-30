@@ -64,6 +64,8 @@ export interface Tab {
   readonly endedAt?: number
   readonly message?: string
   readonly answer?: string
+  /** Done, but no judge could check the answer: `done · unchecked`, never failed. */
+  readonly unchecked?: true
   /** The delegate model asked for; retry keeps it. */
   readonly model?: DelegateModel
   /** The custom agent this tab runs; `digest` is recorded once its body is read. */
@@ -261,7 +263,13 @@ export class Workspace {
         settled = receipt === undefined || outcome === undefined
           ? tab
           : outcome._tag === "done"
-          ? { ...tab, status: "done", answer: outcome.answer ?? "", endedAt: receipt.at }
+          ? {
+            ...tab,
+            status: "done",
+            answer: outcome.answer ?? "",
+            ...(outcome.unchecked === true ? { unchecked: true as const } : {}),
+            endedAt: receipt.at
+          }
           : outcome._tag === "cancelled"
           ? { ...tab, status: "cancelled", endedAt: receipt.at }
           : {
@@ -650,6 +658,7 @@ export class Workspace {
           endedAt: undefined,
           launchedAt: undefined,
           answer: undefined,
+          unchecked: undefined,
           message: undefined,
           detail: undefined,
           failure: undefined,
@@ -970,9 +979,12 @@ export class Workspace {
           ? FailureCopy.describe(outcome.error ?? outcome.message, this.tabs.get(tab.id)?.activeSeat ?? tab.seat)
           : undefined
         const parks = current?.parks ?? 0
-        const failure = described?.fault === "wait" && parks >= QuotaPolicy.defaultMaxParks
+        const told = described?.fault === "wait" && parks >= QuotaPolicy.defaultMaxParks
           ? { ...described, line: `Still limited after ${parks} waits.` }
           : described
+        const failure = told === undefined || outcome._tag !== "failed"
+          ? undefined
+          : Failures.onCard(outcome.error ?? outcome.message, told)
         let transcript = this.transcript(tab.id)
         const undelivered = steering.take()
         if (undelivered.length > 0) {
@@ -984,22 +996,26 @@ export class Workspace {
           at,
           prompt: tab.prompt,
           outcome: outcome._tag === "done"
-            ? { _tag: "done", answer: outcome.answer }
+            ? { _tag: "done", answer: outcome.answer, ...(outcome.unchecked === true ? { unchecked: true } : {}) }
             : outcome._tag === "failed"
             ? { _tag: "failed", message: outcome.message, headline: failure!.headline, failure: failure! }
             : { _tag: "cancelled" }
         })
-        if (outcome._tag !== "done") {
-          transcript = Transcript.failure(transcript, outcome._tag === "failed" ? failure!.headline : "Stopped", at)
+        if (outcome._tag !== "done" || outcome.unchecked === true) {
+          transcript = outcome._tag === "failed"
+            ? Transcript.failure(transcript, failure!.headline, at)
+            : outcome._tag === "done"
+            ? Transcript.unchecked(transcript, outcome.answer, at)
+            : Transcript.stopped(transcript, at)
           this.transcripts.set(tab.id, transcript)
         }
         // Opened before the worker settles, so a parent already in agent.wait gets it with the failure.
-        if (outcome._tag === "failed") this.askForHelp(tab.id, outcome.error, failure!)
+        if (outcome._tag === "failed") this.askForHelp(tab.id, outcome.error, told!)
         this.tabs.move({
           ...ended(this.tabs.get(tab.id) ?? tab, at),
           endedAt: at,
           ...(outcome._tag === "done"
-            ? { answer: outcome.answer }
+            ? { answer: outcome.answer, ...(outcome.unchecked === true ? { unchecked: true as const } : {}) }
             : outcome._tag === "failed"
             ? { message: outcome.message, detail: outcome.detail, failure, wakeAt: resetAt(outcome.error) }
             : {})
@@ -1168,7 +1184,7 @@ export class Workspace {
     this.cancelRequested.delete(tab.id)
     const at = Date.now()
     const message = String(error)
-    const failure = FailureCopy.describe(error, this.tabs.get(tab.id)?.activeSeat ?? tab.seat)
+    const failure = Failures.onCard(error, FailureCopy.describe(error, this.tabs.get(tab.id)?.activeSeat ?? tab.seat))
     try {
       writer.append({
         type: "outcome",
@@ -1493,6 +1509,7 @@ export class Workspace {
       endedAt: _endedAt,
       launchedAt: _launchedAt,
       answer: _answer,
+      unchecked: _unchecked,
       message: _message,
       detail: _detail,
       failure: _failure,

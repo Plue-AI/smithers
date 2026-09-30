@@ -86,5 +86,5 @@ it("an invalid agent effort fails before execution, exposes its refusal, and ret
     { prompt: "Check one file", outcome: { _tag: "done", answer: "pong" } }
   ])
   expect(readFileSync(failed.file, "utf8")).toBe(firstBytes)
-  await tui.until((screen) => screen.includes("review: Check one file finished"), 5_000, "visible settlement")
+  await tui.until((screen) => screen.includes("review: Check one file done"), 5_000, "visible settlement")
 }, 60_000)
