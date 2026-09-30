@@ -87,10 +87,12 @@ interface ListTasksInput {
   readonly cluster: string
   readonly startedBy: string
   readonly desiredStatus?: "RUNNING" | "PENDING" | "STOPPED" | undefined
+  readonly nextToken?: string | undefined
 }
 
 interface ListTasksOutput {
   readonly taskArns?: ReadonlyArray<string> | undefined
+  readonly nextToken?: string | undefined
 }
 
 interface DescribeTasksOutput {

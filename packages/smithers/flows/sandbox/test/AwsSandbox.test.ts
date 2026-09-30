@@ -70,6 +70,10 @@ interface FakeEcs {
   describeFault?: Fault | undefined
   listFault?: Fault | undefined
   listWithoutArns?: boolean | undefined
+  /** Tasks per ListTasks page; AWS returns up to 100 when `maxResults` is omitted. */
+  listPageSize?: number | undefined
+  /** Hands back the same page token forever instead of advancing. */
+  listRepeatsToken?: boolean | undefined
   stopFault?: Fault | undefined
   registerFault?: Fault | undefined
   deregisterFault?: Fault | undefined
@@ -184,10 +188,15 @@ const sdkOf = (fake: FakeEcs): AwsSandbox.Sdk => ({
     if (fault !== undefined) throw fault
     if (fake.listWithoutArns === true) return {}
     const desiredStatus = input.desiredStatus ?? "RUNNING"
+    const all = fake.running
+      .filter((task) => task.startedBy === input.startedBy && task.desiredStatus === desiredStatus)
+      .map((task) => task.arn)
+    const size = fake.listPageSize ?? 100
+    const start = input.nextToken === undefined ? 0 : Number(input.nextToken.replace("page-", ""))
+    const end = start + size
     return {
-      taskArns: fake.running
-        .filter((task) => task.startedBy === input.startedBy && task.desiredStatus === desiredStatus)
-        .map((task) => task.arn)
+      taskArns: all.slice(start, end),
+      ...end < all.length ? { nextToken: fake.listRepeatsToken === true ? "page-0" : `page-${end}` } : {}
     }
   },
   async describeTasks(input): Promise<DescribeTasksOutput> {
@@ -195,6 +204,7 @@ const sdkOf = (fake: FakeEcs): AwsSandbox.Sdk => ({
     fake.events.push("describe")
     const fault = takeFault(fake, "describeFault")
     if (fault !== undefined) throw fault
+    if (input.tasks.length > 100) throw new Error("InvalidParameterException: tasks can have at most 100 items")
     const step = fake.describeSteps.shift() ?? "ready"
     if (step === "missing") return { failures: [{ arn: input.tasks[0], reason: "MISSING" }] }
     if (step === "empty") return { tasks: [] }
@@ -1425,6 +1435,92 @@ describe("AwsSandbox", () => {
       })
       yield* Scope.close(leakedThrice, Exit.void)
     }), 60_000)
+
+  it.effect(
+    "reads every ListTasks page before adopting, stopping duplicates, or refusing a foreign task",
+    () =>
+      Effect.gen(function*() {
+        /** A crash leaves the first acquire's task; `count` more share its key, tags, and definition. */
+        const crashLeft = (fake: FakeEcs, provider: ReturnType<typeof transportProvider>, key: string, count: number) =>
+          Effect.gen(function*() {
+            const leaked = yield* Scope.make()
+            yield* Effect.provideService(provider.acquire(key), Scope.Scope, leaked)
+            const run = fake.runInputs[0]!
+            for (let index = 0; index < count; index++) {
+              fake.running.push({
+                arn: `arn:aws:ecs:us-west-2:123456789012:task/cluster/leftover-${String(index).padStart(3, "0")}`,
+                tags: run.tags,
+                taskDefinition: run.taskDefinition,
+                startedBy: run.startedBy,
+                lastStatus: "RUNNING",
+                desiredStatus: "RUNNING"
+              })
+            }
+            return { leaked, startedBy: run.startedBy }
+          })
+
+        // 100 and 101 leftovers beside the crashed task: one page and exactly
+        // one more. Every one is verified, the lowest ARN adopted, the rest
+        // stopped, and closing the adopting scope leaves nothing running.
+        for (const count of [100, 101]) {
+          const fake = fakeEcs()
+          const provider = transportProvider(fake, fakeCli())
+          const key = `aws/pages-${count}`
+          const { leaked, startedBy } = yield* crashLeft(fake, provider, key, count)
+          fake.listInputs.length = 0
+          const adopted = yield* acquired(provider, (session) => Effect.succeed(session.remoteId), key)
+          expect(adopted).toBe("arn:aws:ecs:us-west-2:123456789012:task/cluster/leftover-000")
+          expect(fake.runInputs).toHaveLength(1)
+          // With the crashed task that is 101 or 102 tasks: always a second page.
+          expect(fake.listInputs.map(({ nextToken }) => nextToken)).toEqual([undefined, "page-100"])
+          const leftovers = fake.describeInputs.slice(-2)
+          expect(leftovers.map(({ tasks }) => tasks.length)).toEqual([100, count - 99])
+          expect(fake.running.filter((task) => task.startedBy === startedBy)).toEqual([])
+          expect(new Set(fake.stopInputs.map(({ task }) => task)).size).toBe(count + 1)
+          yield* Scope.close(leaked, Exit.void)
+        }
+
+        // A foreign task on a later page refuses the key before anything is
+        // stopped or started: an unverified resource is never deleted.
+        const foreign = fakeEcs()
+        foreign.listPageSize = 2
+        const foreignProvider = transportProvider(foreign, fakeCli())
+        const crashed = yield* crashLeft(foreign, foreignProvider, "aws/foreign", 3)
+        const intruder = "arn:aws:ecs:us-west-2:123456789012:task/cluster/zz-foreign"
+        foreign.running.push({
+          arn: intruder,
+          tags: [],
+          taskDefinition: foreign.runInputs[0]!.taskDefinition,
+          startedBy: crashed.startedBy,
+          lastStatus: "RUNNING",
+          desiredStatus: "RUNNING"
+        })
+        foreign.listInputs.length = 0
+        const refused = yield* Effect.flip(acquired(foreignProvider, () => Effect.void, "aws/foreign"))
+        expect(refused).toMatchObject({ code: "unavailable", message: expect.stringContaining(intruder) })
+        expect(foreign.listInputs.map(({ nextToken }) => nextToken)).toEqual([undefined, "page-2", "page-4"])
+        expect(foreign.stopInputs).toEqual([])
+        expect(foreign.runInputs).toHaveLength(1)
+        yield* Scope.close(crashed.leaked, Exit.void)
+
+        // A list that hands back a page token it already gave cannot be read
+        // to its end, so nothing is adopted, stopped, or started.
+        const looping = fakeEcs()
+        looping.listPageSize = 1
+        const loopingProvider = transportProvider(looping, fakeCli())
+        const stuck = yield* crashLeft(looping, loopingProvider, "aws/looping", 2)
+        looping.listRepeatsToken = true
+        const repeated = yield* Effect.flip(acquired(loopingProvider, () => Effect.void, "aws/looping"))
+        expect(repeated).toMatchObject({
+          code: "unavailable",
+          message: expect.stringContaining("repeated a page token")
+        })
+        expect(looping.stopInputs).toEqual([])
+        expect(looping.runInputs).toHaveLength(1)
+        yield* Scope.close(stuck.leaked, Exit.void)
+      }),
+    60_000
+  )
 
   it.effect(
     "signals the guest when a spawn scope closes on a live command, and not on an ended one",

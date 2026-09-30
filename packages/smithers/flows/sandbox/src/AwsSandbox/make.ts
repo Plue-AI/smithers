@@ -155,6 +155,44 @@ interface Leftover {
   readonly ready: boolean
 }
 
+/** The most tasks one `DescribeTasks` call accepts. */
+const describeBatch = 100
+
+/** Every task ARN `startedBy` lists, following `nextToken` through every page. */
+const listedTaskArns = (
+  options: AwsSandboxOptions,
+  startedBy: string
+): Effect.Effect<ReadonlyArray<string>, ProviderError> =>
+  Effect.gen(function*() {
+    const arns: Array<string> = []
+    const seen = new Set<string>()
+    let nextToken: string | undefined
+    do {
+      const token = nextToken
+      const page = yield* attempt(
+        () =>
+          options.sdk.listTasks({
+            cluster: options.cluster,
+            startedBy,
+            ...token === undefined ? {} : { nextToken: token }
+          }),
+        "unavailable",
+        `could not list tasks started by ${startedBy}`
+      )
+      arns.push(...page.taskArns ?? [])
+      nextToken = page.nextToken
+      if (nextToken !== undefined) {
+        if (seen.has(nextToken)) {
+          return yield* Effect.fail(
+            failure("unavailable", `the task list for ${startedBy} repeated a page token; it cannot be read to its end`)
+          )
+        }
+        seen.add(nextToken)
+      }
+    } while (nextToken !== undefined)
+    return arns
+  })
+
 const definitionFamilyOf = (arn: string): string => arn.slice(arn.lastIndexOf("/") + 1).replace(/:\d+$/, "")
 
 /**
@@ -172,9 +210,11 @@ const definitionFamilyOf = (arn: string): string => arn.slice(arn.lastIndexOf("/
  * status is RUNNING, which recovers a crash-left task whose desired status is
  * RUNNING even while its `lastStatus` is still PENDING.
  *
- * The list is ordered by ARN so two racing acquires adopt the same one, and
- * everything after the first is `stale`: a duplicate the caller stops before
- * provisioning, so a key never accumulates machines.
+ * Every page of the list is read, following `nextToken`, and described in
+ * batches of at most 100. The whole list is ordered by ARN so two racing
+ * acquires adopt the same one, and everything after the first is `stale`: a
+ * duplicate the caller stops before provisioning, so a key never accumulates
+ * machines.
  */
 const leftoverTasks = (
   options: AwsSandboxOptions,
@@ -183,22 +223,23 @@ const leftoverTasks = (
   fingerprint: string
 ): Effect.Effect<{ readonly adopt: Leftover | undefined; readonly stale: ReadonlyArray<string> }, ProviderError> =>
   Effect.gen(function*() {
-    const listed = yield* attempt(
-      () => options.sdk.listTasks({ cluster: options.cluster, startedBy }),
-      "unavailable",
-      `could not list tasks started by ${startedBy}`
-    )
-    const unique = [...new Set(listed.taskArns ?? [])].sort()
+    const unique = [...new Set(yield* listedTaskArns(options, startedBy))].sort()
     if (unique.length === 0) return { adopt: undefined, stale: [] }
-    const described = yield* attempt(
-      () => options.sdk.describeTasks({ cluster: options.cluster, tasks: unique, include: ["TAGS"] }),
-      "unavailable",
-      `could not describe the tasks started by ${startedBy}`
-    )
-    // Verify every candidate before registering finalizers or stopping duplicates.
+    const batches: Array<Array<string>> = []
+    for (let start = 0; start < unique.length; start += describeBatch) {
+      batches.push(unique.slice(start, start + describeBatch))
+    }
+    const described = (yield* Effect.forEach(batches, (tasks) =>
+      attempt(
+        () => options.sdk.describeTasks({ cluster: options.cluster, tasks, include: ["TAGS"] }),
+        "unavailable",
+        `could not describe the tasks started by ${startedBy}`
+      ))).flatMap((output) => output.tasks ?? [])
+    // Verify every candidate on every page before registering finalizers or
+    // stopping duplicates: one foreign task anywhere refuses the whole key.
     const live: Array<Leftover> = []
     for (const arn of unique) {
-      const task = described.tasks?.find((task) => task.taskArn === arn)
+      const task = described.find((task) => task.taskArn === arn)
       if (task?.lastStatus === "STOPPED") continue
       const definition = options.taskDefinition
       if (
