@@ -1,15 +1,13 @@
-smthrs history — history
+smthrs history todo — File a TODO for the factory
 
-Usage: smthrs history <command>
+Usage: smthrs history todo <title> [options]
 
-Commands:
-  backfill   Admit every open issue to the history now
-  bootstrap  Create the history from main's commits
-  parallel   Set how many lanes work at once
-  retry      Give a blocked, rejected or declined issue a fresh set of attempts
-  show       Show the history: each issue's lane, checks and pull request
-  todo       File a TODO for the factory
-  watch      Follow one issue until its pull request is open or it stops
+Arguments:
+  title  TODO title
+
+Options:
+  --body <string>       (default: )
+  --repo, -R <string>
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

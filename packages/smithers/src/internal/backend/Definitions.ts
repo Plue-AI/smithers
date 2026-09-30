@@ -638,6 +638,14 @@ export const definitions = {
     args: z.object({}),
     options: z.object({ "repo": z.string().describe("Repository (OWNER/REPO)").optional() })
   },
+  "history todo": {
+    description: "File a TODO for the factory",
+    args: z.object({ "title": z.string().describe("TODO title") }),
+    options: z.object({
+      "body": z.string().describe("TODO body").default(""),
+      "repo": z.string().describe("Repository (OWNER/REPO)").optional()
+    })
+  },
   "history watch": {
     description: "Follow one issue until its pull request is open or it stops",
     args: z.object({ "issue": z.string().describe("Issue number (12 or #12) or item id") }),

@@ -1,10 +1,11 @@
 /**
  * The repository history from the terminal: the coding factory's stack as the
- * app's History card reads it (`GET …/mythical`, D-20), its writes, and a
- * watch that follows one issue through the lanes. The server sends hints on
- * `…/mythical/events`; every hint (or, without one, every poll) re-reads the
- * snapshot, which is authoritative. Writes are acknowledged at once; the
- * stack does the work.
+ * app's History card reads it (`GET …/mythical`, D-20), its writes, a TODO
+ * filed for the factory, and a watch that follows one issue through the
+ * lanes. The watch reads the one item (`GET …/mythical/items/{id|issue}`,
+ * which finds it however many items the snapshot's bound leaves out) on
+ * every hint from `…/mythical/events`, or on a poll without one. Writes are
+ * acknowledged at once; the stack does the work.
  *
  * The words and groups mirror `@smthrs/rpc/StackView` and
  * `@smthrs/rpc/StackIssues`, which this published package cannot depend on;
@@ -14,7 +15,7 @@
 
 import { clean } from "../../cli/Presentation.ts"
 import { Refused, UsageError } from "../../CliError.ts"
-import { chunksOf, type Client, esc, list, object, str, type Values } from "./Client.ts"
+import { APIError, chunksOf, type Client, esc, list, object, str, type Values } from "./Client.ts"
 import type { Handler } from "./Resources.ts"
 
 /** Nothing more happens without a person or a new issue event (`isSettledItemState`). */
@@ -144,21 +145,25 @@ export const render = (value: unknown, now = Date.now()): string => {
 const stackPath = (c: Client, o: Values, suffix = "") => `${c.repoPath(o.repo)}/mythical${suffix}`
 const read = async (c: Client, o: Values): Promise<Values> => object(await c.request("GET", stackPath(c, o)))
 
-type Target = { readonly id: string } | { readonly issue: number }
-/** `12`, `#12`, or an item id. */
-const target = (value: unknown): Target => {
+/** `12`, `#12`, or an item id, as the item route names it. */
+const target = (value: unknown): string => {
   const raw = str(value).trim()
-  if (UUID.test(raw)) return { id: raw.toLowerCase() }
+  if (UUID.test(raw)) return raw.toLowerCase()
   if (!/^#?\d{1,15}$/.test(raw) || Number(raw.replace("#", "")) <= 0) {
     throw new UsageError({ message: "Expected an issue number (12 or #12) or an item id" })
   }
-  return { issue: Number(raw.replace("#", "")) }
+  return String(Number(raw.replace("#", "")))
 }
-const named = (wanted: Target): string => "id" in wanted ? wanted.id : `#${wanted.issue}`
-const find = (stack: Values, wanted: Target): Values | undefined =>
-  list(stack.items).map(object).find((item) =>
-    "id" in wanted ? str(item.id).toLowerCase() === wanted.id : Number(object(item.issue).number) === wanted.issue
-  )
+const named = (ref: string): string => UUID.test(ref) ? ref : `#${ref}`
+/** One item by id or issue number, however many the history holds; undefined while it holds none. */
+const one = async (c: Client, o: Values, ref: string): Promise<Values | undefined> => {
+  try {
+    return object(await c.request("GET", stackPath(c, o, `/items/${esc(ref)}`)))
+  } catch (error) {
+    if (error instanceof APIError && error.status === 404) return undefined
+    throw error
+  }
+}
 
 /**
  * Hints from `…/mythical/events`: `next` resolves on the next event, or after
@@ -223,16 +228,13 @@ const hints = (c: Client, path: string) => {
 export const history: Record<string, Handler> = {
   "history show": (c, _a, o) => read(c, o),
   "history watch": async (c, a, o) => {
-    const wanted = target(a.issue)
+    const ref = target(a.issue)
     const stream = hints(c, stackPath(c, o, "/events"))
     let last = ""
     try {
       for (;;) {
-        const stack = await read(c, o)
-        const item = find(stack, wanted)
-        const line = item === undefined
-          ? `${named(wanted)} · not in the history yet`
-          : itemLine(item, list(stack.changes))
+        const item = await one(c, o, ref)
+        const line = item === undefined ? `${named(ref)} · not in the history yet` : itemLine(item)
         if (line !== last) c.write(`${line}\n`)
         last = line
         if (item !== undefined && outOfLanes(item)) {
@@ -249,16 +251,17 @@ export const history: Record<string, Handler> = {
     }
   },
   "history retry": async (c, a, o) => {
-    const wanted = target(a.issue)
-    let id = "id" in wanted ? wanted.id : undefined
-    if (id === undefined) {
-      const item = find(await read(c, o), wanted)
-      if (item === undefined) {
-        throw new Refused({ fault: "user", code: "not_found", message: `${named(wanted)} is not in the history` })
-      }
-      id = str(item.id)
+    const ref = target(a.issue)
+    const item = UUID.test(ref) ? { id: ref } : await one(c, o, ref)
+    if (item === undefined) {
+      throw new Refused({ fault: "user", code: "not_found", message: `${named(ref)} is not in the history` })
     }
-    return c.request("POST", stackPath(c, o, `/items/${esc(id)}/retry`), {})
+    return c.request("POST", stackPath(c, o, `/items/${esc(str(item.id))}/retry`), {})
+  },
+  "history todo": (c, a, o) => {
+    const title = str(a.title).trim()
+    if (!title) throw new UsageError({ message: "A TODO needs a title" })
+    return c.request("POST", stackPath(c, o, "/todos"), { title, body: str(o.body) })
   },
   "history backfill": (c, _a, o) => c.request("POST", stackPath(c, o, "/backfill"), {}),
   "history bootstrap": (c, _a, o) => c.request("POST", stackPath(c, o, "/bootstrap"), {}),
@@ -278,6 +281,7 @@ export const humans: Record<string, (value: unknown) => string> = {
   "history show": (value) => render(value),
   "history watch": (value) => itemLine(object(value)),
   "history retry": (value) => itemLine(object(value)),
+  "history todo": (value) => itemLine(object(value)),
   "history backfill": (value) => render(value),
   "history bootstrap": (value) => render(value),
   "history parallel": (value) => render(value)

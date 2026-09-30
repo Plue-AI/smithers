@@ -210,17 +210,27 @@ const json = (res: ServerResponse, value: unknown, status = 200) => {
   res.end(JSON.stringify(value))
 }
 
+/** Answers the item route as the backend does: by id or issue number, else 404. */
+const items = (req: IncomingMessage, res: ServerResponse, rows: Array<ReturnType<typeof item>>): boolean => {
+  const match = /^\/api\/repos\/owner\/repo\/mythical\/items\/([^/]+)$/.exec(req.url ?? "")
+  if (req.method !== "GET" || match === null) return false
+  const found = rows.find((row) => row.id === match[1] || String(row.issue?.number) === match[1])
+  if (found === undefined) json(res, { message: "item not found" }, 404)
+  else json(res, found)
+  return true
+}
+
 describe("the factory from the terminal, over a local HTTP server", () => {
   it("files an issue, then watches the factory take it to an open pull request with its check receipt", async () => {
-    const snapshots = [
-      stack([]),
-      stack([item("running", { lane: 0 })]),
-      stack([item("verifying", { lane: 0, checks: { state: "pending", failed: [] } })]),
-      stack([item("proposed", {
+    const moves: Array<Array<ReturnType<typeof item>>> = [
+      [],
+      [item("running", { lane: 0 })],
+      [item("verifying", { lane: 0, checks: { state: "pending", failed: [] } })],
+      [item("proposed", {
         checks: { state: "passed", failed: [] },
         runs: { verify: "run-verify-1" },
         pullRequest: { number: 5, url: "https://github.com/owner/repo/pull/5", state: "open" }
-      })])
+      })]
     ]
     let read = 0
     let events: ServerResponse | undefined
@@ -232,8 +242,8 @@ describe("the factory from the terminal, over a local HTTP server", () => {
         events = res
         return
       }
-      if (req.url === "/api/repos/owner/repo/mythical") {
-        json(res, snapshots[Math.min(read++, snapshots.length - 1)])
+      if (items(req, res, moves[Math.min(read, moves.length - 1)]!)) {
+        read++
         // Each read is followed by the stack's next move and its hint.
         // Two hints in one write: the second waits as pending for the next wait.
         const hint = `event: mythical\ndata: {"generation":${read},"kind":"item"}\n\n`
@@ -257,7 +267,7 @@ describe("the factory from the terminal, over a local HTTP server", () => {
         "#12 Fix login · PR open · checks passed · https://github.com/owner/repo/pull/5"
       ])
       expect(watched.output).toContain("#12 Fix login · PR open · checks passed")
-      expect(f.requests.filter((r) => r.url === "/api/repos/owner/repo/mythical")).toHaveLength(4)
+      expect(f.requests.filter((r) => r.url === "/api/repos/owner/repo/mythical/items/12")).toHaveLength(4)
       expect(JSON.parse(f.requests[0]!.body)).toMatchObject({ title: "Fix login" })
     } finally {
       await f.close()
@@ -267,10 +277,9 @@ describe("the factory from the terminal, over a local HTTP server", () => {
   it("exits non-zero when the watched issue stops, and keeps reading when the hint stream is unavailable", async () => {
     const f = await serve((req, res) => {
       if (req.url?.endsWith("/mythical/events")) return json(res, { message: "event streaming is not configured" }, 500)
-      json(
-        res,
-        stack([item("blocked", { reason: "out of attempts", checks: { state: "failed", failed: ["ci/test"] } })])
-      )
+      items(req, res, [
+        item("blocked", { reason: "out of attempts", checks: { state: "failed", failed: ["ci/test"] } })
+      ])
     })
     try {
       const watched = await f.run(["history", "watch", "#12"])
@@ -287,7 +296,7 @@ describe("the factory from the terminal, over a local HTTP server", () => {
         res.writeHead(200, { "content-type": "text/event-stream" })
         return void res.write(": connected\n\n")
       }
-      json(res, stack([item("running", { lane: 0 })]))
+      items(req, res, [item("running", { lane: 0 })])
     })
     try {
       const watched = await f.run(
@@ -296,7 +305,8 @@ describe("the factory from the terminal, over a local HTTP server", () => {
       )
       expect(watched.code).not.toBe(0)
       expect(watched.error).toContain("#12 Fix login · implementing")
-      expect(f.requests.filter((r) => r.url === "/api/repos/owner/repo/mythical").length).toBeLessThanOrEqual(2)
+      expect(f.requests.filter((r) => r.url === `/api/repos/owner/repo/mythical/items/${ID}`).length)
+        .toBeLessThanOrEqual(2)
     } finally {
       await f.close()
     }
@@ -323,7 +333,7 @@ describe("the factory from the terminal, over a local HTTP server", () => {
   it("retries by issue number or item id through the retry route", async () => {
     const f = await serve((req, res) => {
       if (req.method === "POST") return json(res, item("queued"), 202)
-      json(res, stack([item("blocked")]))
+      items(req, res, [item("blocked")])
     })
     try {
       const byIssue = await f.run(["history", "retry", "#12"])
@@ -332,7 +342,7 @@ describe("the factory from the terminal, over a local HTTP server", () => {
       const byId = await f.run(["history", "retry", ID.toUpperCase()])
       expect(byId.code, byId.error).toBe(0)
       expect(f.requests.map((r) => `${r.method} ${r.url} ${r.body}`)).toEqual([
-        "GET /api/repos/owner/repo/mythical ",
+        "GET /api/repos/owner/repo/mythical/items/12 ",
         `POST /api/repos/owner/repo/mythical/items/${ID}/retry {}`,
         `POST /api/repos/owner/repo/mythical/items/${ID}/retry {}`
       ])
@@ -352,7 +362,7 @@ describe("the factory from the terminal, over a local HTTP server", () => {
     })
     const f = await serve((req, res) => {
       if (req.method === "POST") return json(res, item("queued"), 202)
-      json(res, stack([blocked, model]))
+      if (!items(req, res, [blocked, model])) json(res, stack([blocked, model]))
     })
     try {
       const shown = await f.run(["history", "show"])
@@ -379,7 +389,8 @@ describe("the factory from the terminal, over a local HTTP server", () => {
           message: "only a blocked, rejected or declined item, or a TODO held on its review, is retried"
         }, 409)
       }
-      json(res, stack([item("running")]))
+      if (req.url?.endsWith("/items/13")) return json(res, { message: "internal" }, 500)
+      items(req, res, [item("running")])
     })
     try {
       const missing = await f.run(["history", "retry", "99"])
@@ -392,7 +403,34 @@ describe("the factory from the terminal, over a local HTTP server", () => {
       const conflict = await f.run(["history", "retry", "12"])
       expect(conflict.code).not.toBe(0)
       expect(conflict.output + conflict.error).toContain("only a blocked, rejected or declined item")
+      const failed = await f.run(["history", "retry", "13"])
+      expect(failed.code).not.toBe(0)
+      expect(failed.output + failed.error).not.toContain("is not in the history")
       expect(f.requests.filter((r) => r.method === "POST")).toHaveLength(1)
+    } finally {
+      await f.close()
+    }
+  })
+
+  it("files a TODO for the factory and prints its queued item", async () => {
+    const f = await serve((req, res) => {
+      if (req.method === "POST" && req.url === "/api/repos/owner/repo/mythical/todos") {
+        return json(
+          res,
+          item("queued", { issue: { number: 40, title: "Add dark mode", url: "https://x.test/40" } }),
+          201
+        )
+      }
+      json(res, { message: "only a maintainer the factory's policy names files a TODO" }, 403)
+    })
+    try {
+      const filed = await f.run(["history", "todo", "Add dark mode", "--body", "Follow the system theme"])
+      expect(filed.code, filed.error).toBe(0)
+      expect(filed.output).toContain("#40 Add dark mode · queued")
+      expect((await f.run(["history", "todo", "  "])).code).toBe(2)
+      expect(f.requests.map((r) => `${r.method} ${r.url} ${r.body}`)).toEqual([
+        `POST /api/repos/owner/repo/mythical/todos {"title":"Add dark mode","body":"Follow the system theme"}`
+      ])
     } finally {
       await f.close()
     }

@@ -62,8 +62,7 @@ transfer.
 | Commands | Backend behavior |
 | --- | --- |
 | `issue create/list/view/edit/close/reopen/comment` | Issues, cursor pagination (`--all`), additive labels and assignees. |
-| `history show/watch/retry/backfill/bootstrap/parallel` | The repository history: each issue's lane, checks and pull request. `watch <issue>` follows one issue until its pull request is open or it stops. |
-| `history show/watch/retry/backfill/bootstrap/parallel` | The repository history: each issue's lane, checks and pull request. `watch <issue>` follows one issue until its pull request is open or it stops. |
+| `history show/watch/retry/todo/backfill/bootstrap/parallel` | The repository history: each issue's lane, checks and pull request. `todo <title>` files a TODO for the factory; `watch <issue>` follows one issue until its pull request is open or it stops. |
 | `wiki list/search/view/create/edit/delete/revisions/index/history` | Wiki pages, public/private selection and revision checks. |
 | `repo create/list/view/clone/fork/transfer/edit/archive/unarchive/delete` | Repository administration and cloning. |
 | `repo home [OWNER/REPO]` | List remote homepage blocks in server order with the saved login. |
