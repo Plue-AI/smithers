@@ -122,6 +122,21 @@ describe("activity rows", () => {
     expect(SubagentCard.counts(44)).toBe(" +44")
     expect(SubagentCard.counts(0, 3)).toBe(" -3")
   })
+
+  test("counts changed lines that begin with ++ or -- inside hunks", () => {
+    const header = "diff --git a/x.c b/x.c\n--- a/x.c\n+++ b/x.c\n"
+    expect(SubagentCard.diffCounts(`${header}@@ -1 +1 @@\n---counter;\n+++counter;`)).toEqual({ added: 1, removed: 1 })
+    expect(SubagentCard.diffCounts(`${header}@@ -1,2 +1,2 @@\n keep\n---x\n+++x`)).toEqual({ added: 1, removed: 1 })
+    expect(SubagentCard.diffCounts(`${header}@@ -1 +1 @@\n-a\n\\ No newline at end of file\n+b`)).toEqual({
+      added: 1,
+      removed: 1
+    })
+  })
+
+  test("a second file's headers after a hunk are still headers", () => {
+    const diff = "--- a/a\n+++ b/a\n@@ -1 +1 @@\n-a\n+b\n--- a/b\n+++ b/b\n@@ -1,0 +1 @@\n+c"
+    expect(SubagentCard.diffCounts(diff)).toEqual({ added: 2, removed: 1 })
+  })
 })
 
 describe("files line", () => {

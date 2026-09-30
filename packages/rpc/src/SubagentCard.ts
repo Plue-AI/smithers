@@ -173,14 +173,44 @@ export const counts = (added = 0, removed = 0): string =>
   `${added > 0 ? ` +${added}` : ""}${removed > 0 ? ` -${removed}` : ""}`
 
 /**
- * Added and removed lines in a unified diff, headers excluded.
+ * Added and removed lines in a unified diff, headers excluded. Hunk headers
+ * delimit content, so a changed line such as `++n;` still counts.
  * @since 1.0.0
  * @category activity
  */
 export const diffCounts = (diff: string): { readonly added: number; readonly removed: number } => {
   let added = 0
   let removed = 0
+  // Lines still owed to the current hunk, from its `@@ -a,b +c,d @@` header.
+  let oldLeft = 0
+  let newLeft = 0
   for (const line of diff.split("\n")) {
+    if (oldLeft > 0 || newLeft > 0) {
+      if (line.startsWith("+")) {
+        added++
+        newLeft--
+        continue
+      }
+      if (line.startsWith("-")) {
+        removed++
+        oldLeft--
+        continue
+      }
+      if (line.startsWith(" ") || line === "") {
+        oldLeft--
+        newLeft--
+        continue
+      }
+      if (line.startsWith("\\")) continue
+      oldLeft = 0
+      newLeft = 0
+    }
+    const hunk = /^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@/.exec(line)
+    if (hunk !== null) {
+      oldLeft = hunk[1] === undefined ? 1 : Number(hunk[1])
+      newLeft = hunk[2] === undefined ? 1 : Number(hunk[2])
+      continue
+    }
     if (line.startsWith("+++") || line.startsWith("---")) continue
     if (line.startsWith("+")) added++
     else if (line.startsWith("-")) removed++
