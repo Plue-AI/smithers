@@ -53,9 +53,14 @@ async function fixture(t: test.TestContext, paths: Record<string, string>) {
       )
     },
     async commands() {
-      return (await readFile(commandLog, "utf8").catch(() => "")).trim().split("\n").filter(Boolean).map((line) =>
-        JSON.parse(line)
-      )
+      let contents: string
+      try {
+        contents = await readFile(commandLog, "utf8")
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return []
+        throw error
+      }
+      return contents.trim().split("\n").filter(Boolean).map((line) => JSON.parse(line))
     }
   }
 }
@@ -445,8 +450,14 @@ test("cancellation kills the active check group and cleans its snapshot", async 
   let output = ""
   const ready = await new Promise<{ pid: number; cwd: string; ci: string }>((accept, reject) => {
     const timer = setTimeout(() => reject(new Error("check never started")), 10_000)
-    child.once("error", (error) => { clearTimeout(timer); reject(error) })
-    child.once("close", (code) => { clearTimeout(timer); reject(new Error(`check exited before readiness: ${code}`)) })
+    child.once("error", (error) => {
+      clearTimeout(timer)
+      reject(error)
+    })
+    child.once("close", (code) => {
+      clearTimeout(timer)
+      reject(new Error(`check exited before readiness: ${code}`))
+    })
     child.stdout.on("data", (data) => {
       output += data
       const match = /READY (.+)\n/.exec(output)
@@ -618,13 +629,33 @@ test("landing cancellation rescans descendants omitted from its first process sn
   const pidPath = join(f.root, "descendant.pid")
   const scans = join(f.root, "scans")
   // A stale first ps snapshot models a detached child born during discovery.
-  await f.put("bin/ps", `#!${process.execPath}\nconst fs = require('node:fs'); const {execFileSync} = require('node:child_process'); const count = Number(fs.existsSync(${JSON.stringify(scans)}) ? fs.readFileSync(${JSON.stringify(scans)}, 'utf8') : 0); fs.writeFileSync(${JSON.stringify(scans)}, String(count + 1)); const hidden = Number(fs.readFileSync(${JSON.stringify(pidPath)}, 'utf8')); const rows = execFileSync('/bin/ps', process.argv.slice(2), {encoding:'utf8'}); process.stdout.write(count === 0 ? rows.split('\\n').filter(row => Number(row.trim().split(/\\s+/)[0]) !== hidden).join('\\n') : rows);\n`)
+  await f.put(
+    "bin/ps",
+    `#!${process.execPath}\nconst fs = require('node:fs'); const {execFileSync} = require('node:child_process'); const count = Number(fs.existsSync(${
+      JSON.stringify(scans)
+    }) ? fs.readFileSync(${JSON.stringify(scans)}, 'utf8') : 0); fs.writeFileSync(${
+      JSON.stringify(scans)
+    }, String(count + 1)); const hidden = Number(fs.readFileSync(${
+      JSON.stringify(pidPath)
+    }, 'utf8')); const rows = execFileSync('/bin/ps', process.argv.slice(2), {encoding:'utf8'}); process.stdout.write(count === 0 ? rows.split('\\n').filter(row => Number(row.trim().split(/\\s+/)[0]) !== hidden).join('\\n') : rows);\n`
+  )
   await chmod(join(f.bin, "ps"), 0o755)
   const originalPath = process.env.PATH
   process.env.PATH = `${f.bin}:${originalPath}`
-  t.after(() => { process.env.PATH = originalPath })
-  const descendant = `require('node:fs').writeFileSync(${JSON.stringify(pidPath)}, String(process.pid)); setTimeout(() => require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'pushed'), 1200)`
-  const program = `require('node:child_process').spawn(process.execPath, ['-e', ${JSON.stringify(descendant)}], {detached:true, stdio:'ignore'}); setInterval(() => {}, 1000);`
+  t.after(() => {
+    process.env.PATH = originalPath
+  })
+  const descendant = `require('node:fs').writeFileSync(${
+    JSON.stringify(pidPath)
+  }, String(process.pid)); setTimeout(() => require('node:fs').writeFileSync(${
+    JSON.stringify(marker)
+  }, 'pushed'), 1200)`
+  const parent = `require('node:child_process').spawn(process.execPath, ['-e', ${
+    JSON.stringify(descendant)
+  }], {detached:true, stdio:'ignore'}); setInterval(() => {}, 1000);`
+  const program = `require('node:child_process').spawn(process.execPath, ['-e', ${
+    JSON.stringify(parent)
+  }], {detached:true, stdio:'ignore'}); setInterval(() => {}, 1000);`
   await assert.rejects(runLandingProcess(process.execPath, ["-e", program], { timeout: 500 }), /TIMEOUT|timeout/i)
   await new Promise((accept) => setTimeout(accept, 1500))
   await assert.rejects(readFile(marker), { code: "ENOENT" })

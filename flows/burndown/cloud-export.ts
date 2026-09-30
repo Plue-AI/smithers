@@ -129,7 +129,12 @@ export const exportCloudCommits = (
         "Cloud handoff metadata is oversized"
       )
       const raw = yield* Effect.try({
-        try: () => decodeBytes(encodedMetadata, "Cloud handoff metadata is invalid").toString("utf8"),
+        try: () => {
+          const bytes = decodeBytes(encodedMetadata, "Cloud handoff metadata is invalid")
+          const text = bytes.toString("utf8")
+          if (!Buffer.from(text).equals(bytes)) throw new Error("invalid commit metadata encoding")
+          return text
+        },
         catch: () => "Cloud handoff metadata is invalid"
       })
       const metadata = yield* Effect.try({

@@ -477,3 +477,14 @@ test("Cloud export transports exact metadata and binary bytes through the real V
     after: { type: "file", mode: "755", data: "AQD/" }
   })
 })
+
+test("Cloud export rejects non-UTF8 commit message bytes before any tree reads", async () => {
+  const encoded = Buffer.concat([Buffer.from(`${sha}\0${parent}\0message `), Buffer.from([255])]).toString("base64")
+  let reads = 0
+  const result = await failure(() => {
+    reads++
+    return Effect.succeed(encoded)
+  })
+  assert.match(result, /Cloud handoff metadata is invalid/)
+  assert.equal(reads, 1)
+})
