@@ -8,6 +8,7 @@ import {
   encodeWikiState,
   makeCloudWikiTransport,
   mergeWikiState,
+  wikiAttachmentSlug,
   wikiContentPath,
   wikiFolderOf,
   wikiPagePath,
@@ -155,5 +156,19 @@ describe("the wiki spaces transport (#1922)", () => {
     const result = await Effect.runPromise(Effect.result(transport.patch("owner/repo", "public", "home", { path: "Other.md", expected_revision: 1 })))
     expect(result._tag).toBe("Failure")
     if (result._tag === "Failure") expect((result.failure as { status?: number }).status).toBe(409)
+  })
+})
+
+describe("wikiAttachmentSlug", () => {
+  const hello = new TextEncoder().encode("hello") // SHA-256 2cf24dba5fb0a30e...
+
+  test("is the path's slug and the first 12 hex digits of the bytes' SHA-256, as the server requires", async () => {
+    expect(await wikiAttachmentSlug("assets/Logo v2.png", hello)).toBe("assets-logo-v2-png-2cf24dba5fb0")
+    expect(await wikiAttachmentSlug("  a//..__b.png ", hello)).toBe("a-b-png-2cf24dba5fb0")
+  })
+
+  test("falls back to attachment when the path has no slug characters, and bytes distinguish equal paths", async () => {
+    expect(await wikiAttachmentSlug("日本語", hello)).toBe("attachment-2cf24dba5fb0")
+    expect(await wikiAttachmentSlug("a.png", hello)).not.toBe(await wikiAttachmentSlug("a.png", new Uint8Array([1])))
   })
 })

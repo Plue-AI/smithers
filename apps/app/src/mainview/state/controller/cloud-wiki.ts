@@ -7,6 +7,7 @@ import {
   editWikiState,
   makeCloudWikiTransport,
   mergeWikiState,
+  wikiAttachmentSlug,
   wikiDocumentId,
   wikiDocumentPath,
   wikiPagePath,
@@ -862,12 +863,13 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
   }
 
   /**
-   * `wiki.attach <slug> <path> [owner/repo]`: the bytes the human's file
-   * dialog chose (the gesture), put under the slug at the path. Revision 0
-   * creates; a later put names the current revision, so a stale one is
-   * refused rather than overwritten.
+   * `wiki.attach [path] [owner/repo]`: the bytes the human's file
+   * dialog chose (the gesture), put at the path. The attachment the space's
+   * index lists at that path is replaced at its current revision, so a stale
+   * one is refused rather than overwritten; otherwise revision 0 creates it
+   * under the slug of its path and bytes, the one slug the server accepts.
    */
-  const attachCloudWiki = async (slug: string, path: string, repoArg: string | undefined, gesture?: CommandGesture): Promise<string | void | { value: string }> => {
+  const attachCloudWiki = async (path: string, repoArg: string | undefined, gesture?: CommandGesture): Promise<string | void | { value: string }> => {
     const repo = targetRepo(repoArg)
     if (typeof repo !== "string") return repo.error
     if (shared.login() === null) return `Sign in to write the repository ${WIKI_DISPLAY_NAME}.`
@@ -877,15 +879,16 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
     const target = path.trim() || file.name
     if (target === "" || /\.md$/i.test(target) || target.startsWith("/") || target.split("/").some((part) => part === "" || part === "." || part === "..")) return "An attachment path is a relative file path, not a Markdown page."
     const space = shared.space()
-    const existing = pageOf(repo, space, slug)
+    const existing = shared.wikiIndexes.get(repo, space)?.pages.find((page) => page.path.toLowerCase() === target.toLowerCase())
     const expectedRevision = existing?.revision ?? 0
     const mediaType = file.type || "application/octet-stream"
-    const outcome = await ctx.withToast(`wiki.attach.${repo}.${space}.${slug}`, `Attaching ${target}…`, `${target} attached`, async () => {
+    const outcome = await ctx.withToast(`wiki.attach.${repo}.${space}.${target.toLowerCase()}`, `Attaching ${target}…`, `${target} attached`, async () => {
       const answer = await shared.run(Effect.gen(function*() {
         const bytes = yield* Effect.tryPromise({
           try: async () => new Uint8Array(await file.arrayBuffer()),
           catch: () => new CloudWikiError({ sentence: "The attachment could not be read. Choose the file again." })
         })
+        const slug = existing?.slug ?? (yield* Effect.promise(() => wikiAttachmentSlug(target, bytes)))
         const api = yield* CloudWikiTransport
         return yield* api.attach(repo, space, slug, { path: target, mediaType, expectedRevision, bytes })
       }).pipe(Effect.catch((error: CloudWikiError) =>

@@ -96,6 +96,15 @@ describe("slash payload argument counts", () => {
  * Lane runs — the run inbox and its acts. The filters take any order, the
  * signal's JSON keeps its spacing, and every id-scoped act refuses a blank.
  */
+describe("the wiki.attach grammar", () => {
+  test("takes an optional path and repo, never a slug", () => {
+    expect(payloadFor("wiki.attach", "")).toEqual({ payload: {} })
+    expect(payloadFor("wiki.attach", "assets/Logo v2.png")).toEqual({ payload: { path: "assets/Logo v2.png" } })
+    expect(payloadFor("wiki.attach", "assets/logo.png will/flows")).toEqual({ payload: { path: "assets/logo.png", repo: "will/flows" } })
+    expect(payloadFor("wiki.attach", "will/flows")).toEqual({ payload: { repo: "will/flows" } })
+  })
+})
+
 describe("the runs grammar", () => {
   test("runs.list takes its filters in any order, positionals last", () => {
     expect(payloadFor("runs.list", "")).toEqual({ payload: {} })

@@ -729,13 +729,23 @@ describe("wiki spaces", () => {
     expect(f.requests.find((request) => request.method === "DELETE")?.url).toBe("/api/repos/owner/repo/wiki/home?visibility=public")
     expect(f.store.collections.worldDocuments.get(wikiDocumentId(repo, 1))?.cloud?.phase).toBe("deleted")
     const file = new File([new Uint8Array([1, 2, 3])], "diagram.png", { type: "image/png" })
-    expect(await f.wiki.attachCloudWiki("home-diagram-png", "assets/diagram.png", repo, { name: "wiki.attach", takeFile: () => file, release: () => {} }))
+    expect(await f.wiki.attachCloudWiki("assets/diagram.png", repo, { name: "wiki.attach", takeFile: () => file, release: () => {} }))
       .toEqual({ value: "Attached assets/diagram.png (image/png, revision 1) to the public Wiki of owner/repo." })
     const put = f.requests.find((request) => request.method === "PUT")!
-    expect(put.url).toBe("/api/repos/owner/repo/wiki/attachments/home-diagram-png?path=assets%2Fdiagram.png&expected_revision=0&visibility=public")
+    expect(put.url).toBe("/api/repos/owner/repo/wiki/attachments/assets-diagram-png-039058c6f2c0?path=assets%2Fdiagram.png&expected_revision=0&visibility=public")
     expect(put.type).toBe("image/png")
-    expect(await f.wiki.attachCloudWiki("home", "", repo)).toBe("Choose a file to attach.")
-    expect(await f.wiki.attachCloudWiki("home", "Notes.md", repo, { name: "wiki.attach", takeFile: () => file, release: () => {} })).toBe("An attachment path is a relative file path, not a Markdown page.")
+    expect(await f.wiki.attachCloudWiki("", repo)).toBe("Choose a file to attach.")
+    expect(await f.wiki.attachCloudWiki("Notes.md", repo, { name: "wiki.attach", takeFile: () => file, release: () => {} })).toBe("An attachment path is a relative file path, not a Markdown page.")
+  })
+
+  test("a file at the path of an indexed attachment replaces it under its own slug at its current revision", async () => {
+    const f = await space()
+    await f.wiki.setWikiSpace("public", repo)
+    await until(() => f.wiki.wikiIndexes.get("owner/repo", "public") !== undefined)
+    const file = new File([new Uint8Array([1, 2, 3])], "Logo.png", { type: "image/png" })
+    await f.wiki.attachCloudWiki("assets/LOGO.png", repo, { name: "wiki.attach", takeFile: () => file, release: () => {} })
+    expect(f.requests.find((request) => request.method === "PUT")!.url)
+      .toBe("/api/repos/owner/repo/wiki/attachments/logo?path=assets%2FLOGO.png&expected_revision=1&visibility=public")
   })
 })
 
@@ -784,7 +794,7 @@ describe("attachment bytes read under one account", () => {
     const wiki = createCloudWikiController(ctx, () => 1)
     cleanup.push(() => ctx.dispose())
     const file = () => new DeferredFile([bytes], "diagram.png", { type: "image/png" })
-    const attach = (chosen: File) => wiki.attachCloudWiki("diagram", "assets/diagram.png", repo, { name: "wiki.attach", takeFile: () => chosen, release: () => {} })
+    const attach = (chosen: File) => wiki.attachCloudWiki("assets/diagram.png", repo, { name: "wiki.attach", takeFile: () => chosen, release: () => {} })
     const uploads = () => requests.filter((request) => request.method === "PUT")
     return { store, ctx, wiki, requests, file, attach, uploads }
   }
@@ -799,7 +809,7 @@ describe("attachment bytes read under one account", () => {
     expect(await attaching).toEqual({ value: "Attached assets/diagram.png (image/png, revision 1) to the public Wiki of owner/repo." })
     expect(f.uploads()).toHaveLength(1)
     expect(f.uploads()[0]!.body).toEqual(bytes)
-    expect(f.uploads()[0]!.url).toBe("/api/repos/owner/repo/wiki/attachments/diagram?path=assets%2Fdiagram.png&expected_revision=0&visibility=public")
+    expect(f.uploads()[0]!.url).toBe("/api/repos/owner/repo/wiki/attachments/assets-diagram-png-0150a92bb121?path=assets%2Fdiagram.png&expected_revision=0&visibility=public")
   })
 
   test("a persisted account change while the real File read is pending retires the gesture before upload", async () => {

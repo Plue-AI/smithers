@@ -190,7 +190,7 @@ export function WorldSurface({ documents }: { readonly documents: ReadonlyArray<
                         event.currentTarget.value = ""
                         if (file === undefined) return
                         const gesture = fileGesture("wiki.attach", file)
-                        void controller.submitCommand({ name: "wiki.attach", payload: { slug: `${slug}-${file.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "")}`, path: `assets/${file.name}`, repo }, actor: "user", gesture }).finally(gesture.release)
+                        void controller.submitCommand({ name: "wiki.attach", payload: { path: `assets/${file.name}`, repo }, actor: "user", gesture }).finally(gesture.release)
                       }} />
                       <Button variant="ghost" size="icon" aria-label="Attach a file" title="Attach" {...flowProps("wiki.attach")} onClick={() => fileInput.current?.click()}><Paperclip size={13} /></Button>
                       <Button variant="ghost" size="icon" aria-label={`History of ${selected.title}`} title="History" data-testid="wiki-page-history"

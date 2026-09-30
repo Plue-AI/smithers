@@ -240,7 +240,7 @@ export interface AppController extends IssueFlowsController, RepositorySetupCont
   readonly createCloudWikiPage: (title: string, repo?: string) => Promise<string | void | { value: string }>
   readonly renameCloudWikiPage: (slug: string, path: string, repo?: string) => Promise<string | void>
   readonly deleteCloudWikiPage: (slug: string, repo?: string) => Promise<string | void>
-  readonly attachCloudWiki: (slug: string, path: string, repo: string | undefined, gesture?: CommandGesture) => Promise<string | void | { value: string }>
+  readonly attachCloudWiki: (path: string, repo: string | undefined, gesture?: CommandGesture) => Promise<string | void | { value: string }>
   /** Ephemeral authenticated attachment handles shared by Wiki views. */
   readonly wikiAttachments: WikiAttachmentStore
   /** The live wiki navigation indexes the Wiki views read (#1922), one per repository and space; never an act. */

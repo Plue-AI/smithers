@@ -52,6 +52,6 @@ export const wikiFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =>
       slug === undefined || slug === "" ? "Choose a page to rename." : actions.renameCloudWikiPage(slug, path, repo),
     "wiki.cloud.delete": ({ slug, repo }) => actions.deleteCloudWikiPage(slug, repo),
     "wiki.history": ({ slug, repo, page, space }) => actions.showWikiHistory(slug, repo, page, space),
-    "wiki.attach": ({ slug, path, repo }, _signal, _call, gesture) => actions.attachCloudWiki(slug, path ?? "", repo, gesture),
+    "wiki.attach": ({ path, repo }, _signal, _call, gesture) => actions.attachCloudWiki(path ?? "", repo, gesture),
     "wiki.pane": () => actions.showWikiPane()
   })

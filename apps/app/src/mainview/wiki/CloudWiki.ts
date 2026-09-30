@@ -117,6 +117,18 @@ export const withSpace = (path: string, space: WikiSpace): string => `${path}${p
 export const wikiContentPath = (repo: string, space: WikiSpace, pageId: number, revision: number): string =>
   withSpace(`${wikiRootPath(repo)}/history/${pageId}/${revision}/content`, space)
 
+/**
+ * The slug the server requires of a new attachment: its path's slug (lowercase
+ * ASCII letters and digits, every other run one "-"), then "-" and the first
+ * 12 hex digits of its bytes' SHA-256 (`assets/Logo v2.png` becomes
+ * `assets-logo-v2-png-3f2a9c1b0d4e`). An existing attachment keeps its slug.
+ */
+export const wikiAttachmentSlug = async (path: string, bytes: Uint8Array<ArrayBuffer>): Promise<string> => {
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))
+  const hex = Array.from(digest.subarray(0, 6), (byte) => byte.toString(16).padStart(2, "0")).join("")
+  return `${path.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "attachment"}-${hex}`
+}
+
 /** A Markdown path's folder (`Guides/Start.md` → `Guides`), or "" at the root. */
 export const wikiFolderOf = (path: string): string => path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : ""
 
@@ -220,7 +232,7 @@ export class CloudWikiTransport extends Context.Service<CloudWikiTransport, {
   /** Rename or retitle a page against the revision the person saw; a stale revision is a 409 refusal. */
   readonly patch: (repo: string, space: WikiSpace, slug: string, input: { readonly title?: string; readonly path?: string; readonly expected_revision: number }) => Effect.Effect<z.infer<typeof CloudWikiPage>, CloudWikiError>
   readonly remove: (repo: string, space: WikiSpace, slug: string) => Effect.Effect<void, CloudWikiError>
-  /** Put an attachment's bytes under a slug: revision 0 creates, a later write names the exact current revision. */
+  /** Put an attachment's bytes under its slug: revision 0 creates (the slug is then {@link wikiAttachmentSlug} of the path), a later write names the exact current revision. */
   readonly attach: (repo: string, space: WikiSpace, slug: string, input: { readonly path: string; readonly mediaType: string; readonly expectedRevision: number; readonly bytes: Uint8Array }) => Effect.Effect<z.infer<typeof CloudWikiPage>, CloudWikiError>
 }>()("smithers-ui/CloudWikiTransport") {}
 

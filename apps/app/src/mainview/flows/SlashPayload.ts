@@ -775,9 +775,8 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
   },
   "wiki.attach": (args) => {
     const { rest, repo } = splitTrailingRepo(args)
-    const [slug, ...path] = tokensOf(rest)
-    if (slug === undefined) return no("wiki.attach takes a page slug and the attachment's path.")
-    return ok({ slug, ...(path.length === 0 ? {} : { path: path.join(" ") }), ...(repo === undefined ? {} : { repo }) })
+    const path = tokensOf(rest)
+    return ok({ ...(path.length === 0 ? {} : { path: path.join(" ") }), ...(repo === undefined ? {} : { repo }) })
   },
   "wiki.sync": (args) => required("documentId", args, "wiki.sync needs the document id"),
   "wiki.card.select": (args) => {
