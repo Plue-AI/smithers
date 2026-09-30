@@ -9,7 +9,7 @@
 # hours per push: run 11697 (2026-09-15) still had 4 tasks running and 35
 # queued after 20 minutes.
 #
-# So .smithers/workflows/ci.tsx batches the gates (48 as of 2026-09-26) into 6 tasks, and each
+# So .smithers/workflows/ci.tsx batches the gates (52 as of 2026-09-29) into 7 tasks, and each
 # task calls the group mode here:
 #
 #   bash scripts/ci/cloud.sh <gate>                  # one gate (unchanged)
@@ -423,6 +423,11 @@ gate_tools() {
     workflow-drift) echo 'js' ;;
     factory-drift) echo 'js' ;;
     target-index) echo 'js' ;;
+    fmt) echo 'js' ;;
+    openapi-bundle) echo 'js' ;;
+    docs-drift) echo 'js' ;;
+    api-baseline) echo 'js' ;;
+    drift-ci) echo 'js' ;;
     ui-check) echo 'js jj' ;;
     ui-tests) echo 'js jj' ;;
     ui-conformance) echo 'js jj' ;;
@@ -486,7 +491,8 @@ bootstrap_for() {
   done
 }
 
-# Gate commands below are copied from .github/workflows/ci.yml. Remote cache
+# Gate commands below are copied from .github/workflows/ci.yml, and the drift
+# gates from .github/workflows/drift.yml (fmt through drift-ci). Remote cache
 # credentials are optional for checks; no task receives publishing credentials.
 # Docker integration cases retain their existing no-daemon skip behavior.
 # Omitted: credentialed cache publishing/model reviews, the macOS/Windows
@@ -609,6 +615,21 @@ run_gate() {
         pnpm exec smthrs target '//:targetIndex' --write --verbose
       fi
       pnpm exec smthrs lint '//:targetIndex' --known-red '.github/ci-known-red.json' --verbose
+      ;;
+    fmt)
+      pnpm exec smthrs lint '//...:fmt' --known-red '.github/ci-known-red.json' --verbose
+      ;;
+    openapi-bundle)
+      pnpm exec smthrs lint '//:openapiBundle' --known-red '.github/ci-known-red.json' --verbose
+      ;;
+    docs-drift)
+      pnpm exec smthrs lint '//scripts:docsDrift' --known-red '.github/ci-known-red.json' --verbose
+      ;;
+    api-baseline)
+      pnpm exec smthrs build '//scripts:apiBaseline' --known-red '.github/ci-known-red.json' --verbose
+      ;;
+    drift-ci)
+      pnpm exec smthrs lint '//:driftCi' --known-red '.github/ci-known-red.json' --verbose
       ;;
     ui-check)
       pnpm exec smthrs build '//apps/app:check' --known-red '.github/ci-known-red.json' --verbose

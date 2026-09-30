@@ -7,6 +7,9 @@ const root = fileURLToPath(new URL("../../", import.meta.url))
 const workflow = readFileSync(new URL("../../.smithers/workflows/ci.tsx", import.meta.url), "utf8")
 const shell = readFileSync(new URL("cloud.sh", import.meta.url), "utf8")
 const github = readFileSync(new URL("../../.github/workflows/ci.yml", import.meta.url), "utf8")
+// The per-commit drift workflow GitHub keeps beside ci.yml (#2484).
+const drift = readFileSync(new URL("../../.github/workflows/drift.yml", import.meta.url), "utf8")
+const runs = (yaml: string) => Array.from(yaml.matchAll(/run: "(pnpm exec [^"]+)"/g), ([, command]) => command!)
 const nodeVersion = readFileSync(new URL("../../.node-version", import.meta.url), "utf8")
 const section = (from: string, to: string) => shell.slice(shell.indexOf(from), shell.indexOf(to))
 const toolsBlock = section("gate_tools() {", "bootstrap_for() {")
@@ -85,11 +88,11 @@ describe("Smithers Cloud CI", () => {
         for (const command of cloudOnly) expect(all).toContain(command)
         const commands = all.filter(command => command !== repair && !cloudOnly.includes(command))
         expect(commands.length).toBe(1)
-        expect(github).toContain(`run: "${commands[0]}"`)
+        expect([...runs(github), ...runs(drift)]).toContain(commands[0])
       }
     }
     for (const toolchain of tools.values()) {
-      for (const tool of toolchain) expect(["js", "jj", "foundry", "rust", "postgres"]).toContain(tool)
+      for (const tool of toolchain) expect(["js", "jj", "foundry", "rust", "postgres", "sshd"]).toContain(tool)
     }
     expect(shell).toContain('require("./package.json").packageManager')
     expect(shell).toContain('"$package_manager" --ignore-scripts')
@@ -103,10 +106,32 @@ describe("Smithers Cloud CI", () => {
       "pnpm exec smthrs review '//...' --known-red '.github/ci-known-red.json' --verbose",
       "pnpm exec smthrs test '//crates/flows-jj:wasmReproducibility' --known-red '.github/ci-known-red.json' --verbose"
     ])
-    const commands = Array.from(github.matchAll(/run: "(pnpm exec [^"]+)"/g), ([, command]) => command!)
+    const commands = [...runs(github), ...runs(drift)]
     for (const command of new Set(commands)) {
       if (!excluded.has(command)) expect(dispatch).toContain(command)
     }
+  })
+
+  test("runs drift.yml's per-commit drift gates, in its order, as one task of their own", () => {
+    const task = groups.find(({ id }) => id === "drift")
+    expect(task).toBeDefined()
+    // First in the Parallel, so it is scheduled in the first runner wave.
+    expect(groups[0]!.id).toBe("drift")
+    const commandOf = (name: string) => {
+      const body = gates.find((gate) => gate.name === name)?.body ?? ""
+      // target-index's off-Cloud repair write is not a drift check.
+      return Array.from(body.matchAll(/^ {6,8}(pnpm exec .+)$/gm), ([, command]) => command!)
+        .filter((command) => !command.includes("--write"))
+    }
+    const expected = runs(drift)
+    expect(expected.length).toBeGreaterThan(0)
+    for (const pattern of ["//...:fmt", "//scripts:docsDrift", "//scripts:apiBaseline"]) {
+      expect(expected.some((command) => command.includes(`'${pattern}'`))).toBe(true)
+    }
+    expect(task!.gates!.flatMap(commandOf)).toEqual(expected)
+    // Drift gates are cheap: js only, and no test, ci or docs verb.
+    for (const name of task!.gates!) expect(tools.get(name)).toEqual(["js"])
+    for (const command of expected) expect(command).not.toMatch(/smthrs (ci|test|docs)\b/)
   })
 
   test("gives jj and git a CI identity, because a Cloud sandbox configures none", () => {
