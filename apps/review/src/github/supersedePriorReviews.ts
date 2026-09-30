@@ -21,8 +21,9 @@ const MAX_UPDATED_BODY = 64_000;
  * the way to GitHub can never leave the PR carrying only superseded notes. The
  * list read after the POST contains the replacement, and its author is the
  * identity that posted it, so no `GET /user` is needed. That endpoint answers
- * 403 to the action's installation token. The replacement is excluded from the
- * sweep so it never supersedes itself.
+ * 403 to the action's installation token. Only reviews created before the
+ * replacement (smaller ids) are swept, so it never supersedes itself or a
+ * newer review from an overlapping run.
  *
  * Best-effort by design: any failure returns 0 and the posted review stands.
  */
@@ -53,7 +54,10 @@ export async function supersedePriorReviews(
     let superseded = 0;
     for (const review of reviews) {
       if (typeof review.id !== "number" || typeof review.body !== "string") continue;
-      if (review.id === newReviewId) continue;
+      // Only predecessors: GitHub review ids grow with creation, so a review
+      // with a larger id was posted after this one by an overlapping run and
+      // must stay current even if this sweep finishes last.
+      if (review.id >= newReviewId) continue;
       if (review.login !== login) continue;
       if (!review.body.includes(MARKER) || review.body.startsWith(SUPERSEDED_PREFIX)) continue;
       const updated = `${SUPERSEDED_PREFIX}\n\n${review.body}`.slice(0, MAX_UPDATED_BODY);
