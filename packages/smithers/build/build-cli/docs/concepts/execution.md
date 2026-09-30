@@ -20,11 +20,15 @@ stamps are checked after resolution, before their push starts. Tags follow the
 letter, digit or underscore.
 
 The plan contains one `docker push <reference>` command per tag, in declaration
-order. Before them the executor loads the `image` dependency's OCI archive with
-`docker load` and runs `docker tag` from that loaded image to each reference, so
-a push publishes the image the build produced, never a same-named image already
-in the daemon. The executor stops after the first failed command and reports
-success only after every command succeeds.
+order. Before them the executor loads the `image` dependency's archive with
+`docker load`, adding the `manifest.json` that buildx's OCI exporter omits, and
+checks the daemon loaded that archive's image. Each push tags that image, then
+reads the pushed manifest back with `docker buildx imagetools inspect` and fails
+unless its config digest is the built one. The executor stops after the first
+failed command and reports success only after every command succeeds.
+
+The daemon holds one platform per reference, so a push refuses a multi-platform
+build archive rather than publish part of it.
 
 A target declaring `approval: "required"`, which `Docker.Push` must, runs only
 once its current revision is approved: `smthrs approvals grant <target>`. The

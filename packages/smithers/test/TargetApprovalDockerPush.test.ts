@@ -63,6 +63,30 @@ const tags = async (): Promise<ReadonlyArray<string>> => {
   return ((await response.json()) as { readonly tags?: ReadonlyArray<string> | null }).tags ?? []
 }
 
+const pushedConfig = async (tag: string): Promise<unknown> => {
+  const response = await fetch(`http://${registry}/v2/${name}/manifests/${tag}`, {
+    headers: {
+      accept: "application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json"
+    }
+  })
+  return ((await response.json()) as { readonly config?: { readonly digest?: unknown } }).config?.digest
+}
+
+/** The config digest of the single image in the build's OCI archive. */
+const builtConfig = (): unknown => {
+  const archive = join(root, "docker-image", "image.tar")
+  const read = (entry: string) => {
+    const result = spawnSync("tar", ["-xOf", archive, entry], { encoding: "utf8" })
+    expect(result.status, result.stderr).toBe(0)
+    return JSON.parse(result.stdout) as {
+      readonly manifests?: ReadonlyArray<{ readonly digest: string }>
+      readonly config?: { readonly digest: string }
+    }
+  }
+  const manifest = read("index.json").manifests?.[0]?.digest ?? ""
+  return read(`blobs/sha256/${manifest.slice("sha256:".length)}`).config?.digest
+}
+
 const declare = (declared: ReadonlyArray<string>) =>
   writeFileSync(
     join(root, "PACKAGE.ts"),
@@ -145,6 +169,10 @@ describe("Docker.Push through the public CLI", () => {
       const ran = await smthrs(root, ["target", "//:push"])
       expect(ran.status, ran.output).toBe(0)
       expect([...await tags()].sort()).toEqual(["one", "three", "two"])
+      // Every tag holds the image Docker.Build wrote into its archive.
+      const built = builtConfig()
+      expect(built).toMatch(/^sha256:[0-9a-f]{64}$/)
+      for (const tag of ["one", "two", "three"]) expect(await pushedConfig(tag)).toBe(built)
 
       // A new image is a new revision: the earlier grant does not cover it.
       writeFileSync(join(root, "hello.txt"), "edited\n")

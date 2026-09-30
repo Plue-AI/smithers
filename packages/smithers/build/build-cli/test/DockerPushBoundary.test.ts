@@ -7,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import * as DockerExec from "../src/DockerExec.ts"
 import type * as HostProbes from "../src/internal/HostProbes.ts"
 import * as PackageTree from "../src/PackageTree.ts"
+import { imageArchive, tar } from "./helpers/OciArchive.ts"
 import { serve } from "./helpers/ServeCli.ts"
 
 const directories: Array<string> = []
@@ -168,20 +169,186 @@ esac
 })
 
 describe("Docker push image archive", () => {
+  const archivePath = async (bytes: Buffer): Promise<string> => {
+    const directory = await Fs.mkdtemp(Path.join(Os.tmpdir(), "smthrs-push-archive-"))
+    directories.push(directory)
+    const path = Path.join(directory, "image.tar")
+    await Fs.writeFile(path, bytes)
+    return path
+  }
+  const read = async (options: Parameters<typeof imageArchive>[0]) => {
+    const archive = imageArchive(options)
+    return { read: await DockerExec.readImageArchive(await archivePath(archive.bytes)), images: archive.images }
+  }
+
   it("names the archive a build writes into its output directory", () => {
     expect(DockerExec.imageArchive("images/docker-image")).toBe("images/docker-image/image.tar")
   })
   for (
+    const options of [
+      {},
+      { attestation: true },
+      { nested: true },
+      { nested: true, attestation: true },
+      { pax: true },
+      { dockerManifest: true }
+    ]
+  ) {
+    it(`reads the one image of ${JSON.stringify(options)}`, async () => {
+      const { images, read: image } = await read(options)
+      expect(image).toMatchObject({
+        manifest: images[0]!.manifest,
+        config: images[0]!.config,
+        layers: images[0]!.layers,
+        loadable: options.dockerManifest === true
+      })
+    })
+  }
+  it("reads the ustar prefix, PAX size, directory, legacy type and ./ layouts tar writers use", async () => {
+    const good = imageArchive()
+    const image = good.images[0]!
+    const hex = (digest: string) => digest.slice("sha256:".length)
+    const entries = tar([
+      { name: "blobs/", body: "", type: "5" },
+      { name: "./oci-layout", body: "{}" },
+      {
+        name: "index.json",
+        body: JSON.stringify({
+          manifests: [
+            { mediaType: "application/vnd.oci.image.manifest.v1+json", digest: image.manifest },
+            { mediaType: "application/vnd.oci.image.manifest.v1+json", digest: image.manifest },
+            { digest: image.manifest }
+          ]
+        }),
+        type: "\0"
+      },
+      {
+        name: hex(image.manifest),
+        prefix: "blobs/sha256",
+        body: JSON.stringify({ config: { digest: image.config }, layers: image.layers.map((digest) => ({ digest })) })
+      },
+      { name: `./blobs/sha256/${hex(image.config)}`, body: "{}", paxSize: true },
+      { name: `blobs/sha256/${hex(image.layers[0]!)}`, body: "layer", pax: true, paxSize: true }
+    ])
+    expect(await DockerExec.readImageArchive(await archivePath(entries))).toMatchObject({
+      manifest: image.manifest,
+      config: image.config,
+      layers: image.layers,
+      loadable: false,
+      end: entries.length - 1024
+    })
+  })
+  it("refuses a multi-platform archive rather than pushing one platform of it", async () => {
+    for (const nested of [false, true]) {
+      const { read: image } = await read({ platforms: ["linux/amd64", "linux/arm64"], nested })
+      expect(image).toEqual({ error: "Docker.Push publishes one platform image, but the build archive holds 2" })
+    }
+  })
+  it("refuses archives without exactly one well-formed, present image", async () => {
+    const index = (manifests: unknown) => JSON.stringify({ schemaVersion: 2, manifests })
+    const good = imageArchive()
+    const manifest = {
+      mediaType: "application/vnd.oci.image.manifest.v1+json",
+      digest: good.images[0]!.manifest
+    }
+    const cases: ReadonlyArray<readonly [Buffer, string]> = [
+      [tar([]), "no index.json"],
+      [tar([{ name: "index.json", body: index([]) }]), "holds no image"],
+      [tar([{ name: "index.json", body: "null" }]), "holds no image"],
+      [tar([{ name: "index.json", body: "{}" }]), "holds no image"],
+      [
+        (() => {
+          const bytes = tar([{ name: "index.json", body: "{}" }])
+          bytes.write("zzzzzzzzzzz", 124, "ascii")
+          return bytes
+        })(),
+        "not a complete tar archive"
+      ],
+      [tar([{ name: "index.json", body: index([{ ...manifest, digest: "sha256:short" }]) }]), "malformed digest"],
+      [tar([{ name: "index.json", body: index([manifest]) }]), `no blobs/sha256/${manifest.digest.slice(7)}`],
+      [
+        tar([
+          { name: "index.json", body: index([manifest]) },
+          { name: `blobs/sha256/${manifest.digest.slice(7)}`, body: "{\"config\":{\"digest\":\"sha256:0\"}}" }
+        ]),
+        "image manifest has a malformed digest"
+      ],
+      [
+        tar([
+          { name: "index.json", body: index([manifest]) },
+          {
+            name: `blobs/sha256/${manifest.digest.slice(7)}`,
+            body: JSON.stringify({ config: { digest: good.images[0]!.config }, layers: [] })
+          }
+        ]),
+        `no blob ${good.images[0]!.config}`
+      ],
+      [good.bytes.subarray(0, good.bytes.length - 1024 - 512), "not a complete tar archive"],
+      [tar([{ name: "index.json", body: "{" }]), "JSON"]
+    ]
+    for (const [bytes, message] of cases) {
+      const image = await DockerExec.readImageArchive(await archivePath(bytes))
+      expect.soft(image, message).toEqual({ error: expect.stringContaining(message) })
+    }
+  })
+  it("appends the manifest.json docker load reads, keeping every OCI entry", async () => {
+    const archive = imageArchive({ attestation: true, pax: true })
+    const source = await archivePath(archive.bytes)
+    const image = await DockerExec.readImageArchive(source)
+    if ("error" in image) throw new Error(image.error)
+    const destination = `${source}.loadable.tar`
+    await DockerExec.writeLoadableArchive(source, destination, image)
+    expect(await Fs.readFile(source)).toEqual(archive.bytes)
+    const loadable = await DockerExec.readImageArchive(destination)
+    expect(loadable).toMatchObject({ manifest: image.manifest, config: image.config, loadable: true })
+    const listed = spawnSync("tar", ["-xOf", destination, "manifest.json"], { encoding: "utf8" })
+    expect(listed.status, listed.stderr).toBe(0)
+    expect(JSON.parse(listed.stdout)).toEqual([{
+      Config: `blobs/sha256/${image.config.slice(7)}`,
+      RepoTags: null,
+      Layers: image.layers.map((layer) => `blobs/sha256/${layer.slice(7)}`)
+    }])
+    const names = spawnSync("tar", ["-tf", destination], { encoding: "utf8" }).stdout.trim().split("\n")
+    expect(names).toContain("index.json")
+    expect(names).toContain(`blobs/sha256/${image.layers[0]!.slice(7)}`)
+  })
+  for (
     const [output, expected] of [
-      ["Loaded image ID: sha256:abc123\n", "sha256:abc123"],
-      ["Loaded image: registry.invalid/unit:one\n", "registry.invalid/unit:one"],
-      ["Loaded image: a:1\r\nLoaded image ID: sha256:def\r\n", "sha256:def"],
-      ["", undefined],
-      ["Loading layer 1/2\n", undefined]
+      ["Loaded image ID: sha256:abc123\n", ["sha256:abc123"]],
+      ["Loaded image: registry.invalid/unit:one\n", []],
+      ["Loaded image: a:1\r\nLoaded image ID: sha256:def\r\nLoaded image ID: sha256:0\n", ["sha256:def", "sha256:0"]],
+      ["", []],
+      ["Loading layer 1/2\n", []]
     ] as const
   ) {
-    it(`reads the loaded image from ${JSON.stringify(output)}`, () => {
-      expect(DockerExec.loadedImage(output)).toBe(expected)
+    it(`reads the loaded image IDs from ${JSON.stringify(output)}`, () => {
+      expect(DockerExec.loadedImageIds(output)).toEqual(expected)
+    })
+  }
+  const hex = "a".repeat(64)
+  for (
+    const [output, expected] of [
+      [`one: digest: sha256:${hex} size: 523\n`, `sha256:${hex}`],
+      [`Pushed\none: digest: sha256:${"b".repeat(64)} size: 1\ntwo: digest: sha256:${hex} size: 9\n`, `sha256:${hex}`],
+      ["one: digest: sha256:abc size: 1\n", undefined],
+      ["", undefined]
+    ] as const
+  ) {
+    it(`reads the pushed digest from ${JSON.stringify(output)}`, () => {
+      expect(DockerExec.pushedDigest(output)).toBe(expected)
+    })
+  }
+  for (
+    const [raw, expected] of [
+      [JSON.stringify({ config: { digest: `sha256:${hex}` } }), `sha256:${hex}`],
+      [JSON.stringify({ manifests: [] }), undefined],
+      [JSON.stringify({ config: { digest: "sha256:short" } }), undefined],
+      ["null", undefined],
+      ["not json", undefined]
+    ] as const
+  ) {
+    it(`reads a registry manifest's config from ${raw}`, () => {
+      expect(DockerExec.manifestConfig(raw)).toBe(expected)
     })
   }
 })

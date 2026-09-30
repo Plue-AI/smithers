@@ -2646,9 +2646,8 @@ export const executeEffect = (
             }
             case "Docker.Push": {
               if (node.lane?.kind !== "docker-push") return fail("docker push planned no commands")
-              // The build only writes an OCI archive; load that archive and tag
-              // exactly the loaded image so the push publishes what the image
-              // dependency built, never a same-named image already in the daemon.
+              // Push exactly the image the dependency built: load its archive,
+              // tag the loaded image, and check the registry holds that image.
               const build = node.dependencies.map((label) => planned.nodes.get(label)).find((dependency) =>
                 dependency?.rule === "Docker.Build" || dependency?.rule === "Docker.Bake"
               )
@@ -2658,15 +2657,54 @@ export const executeEffect = (
               const docker = node.lane.commands[0]?.slice(0, -2)
               if (docker === undefined) return fail("docker push planned no commands")
               const archive = NodePath.join(root, ...DockerExec.imageArchive(outDir).split("/"))
-              const loaded = yield* spawnNode(node, root, [...docker, "load", "--input", archive], [], true)
+              const image = yield* joined(() => DockerExec.readImageArchive(archive))
+              if ("error" in image) return fail(`${DockerExec.imageArchive(outDir)}: ${image.error}`)
+              // buildx's OCI exporter writes no manifest.json, which `docker load` needs.
+              const temporary = NodePath.join(root, ...cacheDirectory.split("/"), "tmp")
+              const loadable = image.loadable
+                ? archive
+                : NodePath.join(temporary, `docker-load-${randomUUID()}.tar`)
+              const loaded = yield* Effect.ensuring(
+                Effect.gen(function*() {
+                  if (!image.loadable) {
+                    yield* joined(() => Fs.mkdir(temporary, { recursive: true }))
+                    yield* joined(() => DockerExec.writeLoadableArchive(archive, loadable, image))
+                  }
+                  return yield* spawnNode(node, root, [...docker, "load", "--input", loadable], [], true)
+                }),
+                image.loadable ? Effect.void : Effect.promise(() => Fs.rm(loadable, { force: true }))
+              )
               if (!loaded.ok) return fail(loaded.error ?? "docker load failed")
-              const image = DockerExec.loadedImage(loaded.result?.stdout ?? "")
-              if (image === undefined) return fail(`docker load reported no image for ${outDir}/image.tar`)
+              // The classic image store names an image by its config digest,
+              // the containerd store by its manifest digest.
+              const id = DockerExec.loadedImageIds(loaded.result?.stdout ?? "").find((loadedId) =>
+                loadedId === image.config || loadedId === image.manifest
+              )
+              if (id === undefined) return fail(`docker load did not load ${image.config} from ${outDir}/image.tar`)
+              const attrs = Target.metadata(node.declaration).attrs as (typeof Docker.PushAttrs)["Type"]
+              const repository = `${attrs.registry}/${attrs.name}`
               for (const command of node.lane.commands) {
-                const tagged = yield* spawnNode(node, root, [...docker, "tag", image, command.at(-1)!])
+                const reference = command.at(-1)!
+                const tagged = yield* spawnNode(node, root, [...docker, "tag", id, reference])
                 if (!tagged.ok) return fail(tagged.error ?? "docker tag failed")
                 const spawned = yield* spawnNode(node, root, command)
                 if (!spawned.ok) return fail(spawned.error ?? "docker push failed")
+                const digest = DockerExec.pushedDigest(spawned.result?.stdout ?? "")
+                if (digest === undefined) return fail(`docker push reported no digest for ${reference}`)
+                const inspected = yield* spawnNode(
+                  node,
+                  root,
+                  [...docker, "buildx", "imagetools", "inspect", "--raw", `${repository}@${digest}`],
+                  [],
+                  true
+                )
+                if (!inspected.ok) return fail(inspected.error ?? "docker buildx imagetools inspect failed")
+                const pushedConfig = DockerExec.manifestConfig(inspected.result?.stdout ?? "")
+                if (pushedConfig !== image.config) {
+                  return fail(
+                    `${repository}@${digest} holds config ${pushedConfig ?? "(none)"}, not the built ${image.config}`
+                  )
+                }
               }
               return green("ran")
             }

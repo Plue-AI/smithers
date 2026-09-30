@@ -9,6 +9,7 @@ import * as PackageExec from "../src/PackageExec.ts"
 import { PackageIndex } from "../src/PackageIndex.ts"
 import * as PackageLoader from "../src/PackageLoader.ts"
 import * as StampExec from "../src/StampExec.ts"
+import { writeImageArchive } from "./helpers/OciArchive.ts"
 
 const directories: Array<string> = []
 const bounded = async (waiting: Promise<void>): Promise<void> => {
@@ -37,7 +38,9 @@ const fixture = async (
   mode: "failure" | "hold",
   tags = ["one", "two", "three"],
   prefix = "registry.invalid/unit:",
-  imageRule: "Docker.Build" | "Shell.Run" = "Docker.Build"
+  imageRule: "Docker.Build" | "Shell.Run" = "Docker.Build",
+  archive: Parameters<typeof writeImageArchive>[1] | "missing" = {},
+  daemon: { readonly loads?: "config" | "manifest" | "other"; readonly registry?: "built" | "other" | "fail" } = {}
 ) => {
   const root = await Fs.realpath(await Fs.mkdtemp(Path.join(Os.tmpdir(), "smthrs-push-unit-")))
   directories.push(root)
@@ -58,14 +61,32 @@ export const Package = S.Package({ targets: {
   const loads = Path.join(control, "loads.jsonl")
   const pids = Path.join(control, "pids.jsonl")
   const exits = Path.join(control, "exits.jsonl")
+  await Fs.mkdir(Path.join(root, "docker-image"))
+  const images = archive === "missing"
+    ? []
+    : await writeImageArchive(Path.join(root, "docker-image", "image.tar"), archive)
+  const built = images[0]
+  const loadedId = daemon.loads === "manifest"
+    ? built?.manifest
+    : daemon.loads === "other"
+    ? `sha256:${"0".repeat(64)}`
+    : built?.config
+  const registryConfig = daemon.registry === "other" ? `sha256:${"1".repeat(64)}` : built?.config
   await Fs.writeFile(
     script,
     `import { appendFileSync, existsSync } from "node:fs";
 const verb = process.argv[2];
 if (verb === "build") process.exit(0);
-if (verb === "load" || verb === "tag") {
+if (verb === "load" || verb === "tag" || verb === "buildx") {
   appendFileSync(${JSON.stringify(loads)}, JSON.stringify(process.argv.slice(2)) + "\\n");
-  if (verb === "load") console.log("Loaded image ID: sha256:built");
+  if (verb === "load") {
+    if (!existsSync(process.argv.at(-1))) process.exit(31);
+    console.log("Loaded image ID: " + ${JSON.stringify(loadedId)});
+  }
+  if (verb === "buildx") {
+    if (${JSON.stringify(daemon.registry)} === "fail") process.exit(41);
+    console.log(JSON.stringify({ config: { digest: ${JSON.stringify(registryConfig)} } }));
+  }
   process.exit(0);
 }
 const image = process.argv[3];
@@ -73,6 +94,8 @@ appendFileSync(${JSON.stringify(pids)}, JSON.stringify(process.pid) + "\\n");
 process.on("exit", () => appendFileSync(${JSON.stringify(exits)}, JSON.stringify(process.pid) + "\\n"));
 process.on("SIGTERM", () => process.exit(143));
 appendFileSync(${JSON.stringify(calls)}, JSON.stringify(process.argv.slice(2)) + "\\n");
+if (${JSON.stringify(mode)} === "failure" && image.endsWith(":nodigest")) process.exit(0);
+console.log(image.slice(image.lastIndexOf(":") + 1) + ": digest: sha256:${"c".repeat(64)} size: 1");
 if (image.endsWith(":two")) {
   if (${JSON.stringify(mode)} === "failure") process.exit(23);
   if (${JSON.stringify(mode)} === "hold") {
@@ -150,6 +173,7 @@ if (image.endsWith(":two")) {
     observed,
     loads: () => readLines(loads),
     root,
+    built,
     release,
     waiting,
     childPids: () => readLines(pids),
@@ -198,20 +222,83 @@ describe("Docker push executor unit boundary", () => {
     expect(summary.ok).toBe(true)
     expect(await host.observed()).toEqual([["push", "registry.invalid/unit:release_1.0-rc"]])
   })
-  it("loads the build's archive and pushes that exact image under each tag", async () => {
+  const loadInput = (loads: ReadonlyArray<unknown>): string => (loads[0] as ReadonlyArray<string>)[2]!
+  it("loads the build's archive, pushes that exact image under each tag, and checks the registry", async () => {
     const host = await fixture("failure", ["one", "three"])
     const summary = await PackageExec.execute(host.planned, { ...host.options, log: () => {} })
-    expect(summary.ok).toBe(true)
-    expect(await host.loads()).toEqual([
-      ["load", "--input", Path.join(host.root, "docker-image", "image.tar")],
-      ["tag", "sha256:built", "registry.invalid/unit:one"],
-      ["tag", "sha256:built", "registry.invalid/unit:three"]
+    expect(summary.ok, pushResult(summary)?.error).toBe(true)
+    const loads = await host.loads()
+    // The OCI archive has no manifest.json, so a loadable copy is loaded and removed.
+    expect(loadInput(loads)).toMatch(/[/\\]\.flows[/\\]tmp[/\\]docker-load-[0-9a-f-]+\.tar$/)
+    await expect(Fs.stat(loadInput(loads))).rejects.toMatchObject({ code: "ENOENT" })
+    const config = host.built!.config
+    const pushed = `sha256:${"c".repeat(64)}`
+    expect(loads).toEqual([
+      ["load", "--input", loadInput(loads)],
+      ["tag", config, "registry.invalid/unit:one"],
+      ["buildx", "imagetools", "inspect", "--raw", `registry.invalid/unit@${pushed}`],
+      ["tag", config, "registry.invalid/unit:three"],
+      ["buildx", "imagetools", "inspect", "--raw", `registry.invalid/unit@${pushed}`]
     ])
     expect(await host.observed()).toEqual([
       ["push", "registry.invalid/unit:one"],
       ["push", "registry.invalid/unit:three"]
     ])
   })
+  it("loads an archive that already carries manifest.json in place", async () => {
+    const host = await fixture("failure", ["one"], undefined, undefined, { dockerManifest: true })
+    const summary = await PackageExec.execute(host.planned, { ...host.options, log: () => {} })
+    expect(summary.ok, pushResult(summary)?.error).toBe(true)
+    expect(loadInput(await host.loads())).toBe(Path.join(host.root, "docker-image", "image.tar"))
+  })
+  it("tags the manifest digest a containerd image store reports", async () => {
+    const host = await fixture("failure", ["one"], undefined, undefined, {}, { loads: "manifest" })
+    const summary = await PackageExec.execute(host.planned, { ...host.options, log: () => {} })
+    expect(summary.ok, pushResult(summary)?.error).toBe(true)
+    expect((await host.loads())[1]).toEqual(["tag", host.built!.manifest, "registry.invalid/unit:one"])
+  })
+  const refusals: ReadonlyArray<
+    readonly [
+      string,
+      Parameters<typeof fixture>[4],
+      Parameters<typeof fixture>[5],
+      ReadonlyArray<string>,
+      string,
+      ReadonlyArray<ReadonlyArray<string>>
+    ]
+  > = [
+    ["a missing archive", "missing", {}, ["one"], "ENOENT", []],
+    [
+      "a multi-platform archive",
+      { platforms: ["linux/amd64", "linux/arm64"] },
+      {},
+      ["one"],
+      "holds 2",
+      []
+    ],
+    ["a load of some other image", {}, { loads: "other" }, ["one"], "docker load did not load", []],
+    ["a push that reports no digest", {}, {}, ["nodigest", "two"], "reported no digest", [[
+      "push",
+      "registry.invalid/unit:nodigest"
+    ]]],
+    ["a registry that cannot be inspected", {}, { registry: "fail" }, ["one", "two"], "41", [[
+      "push",
+      "registry.invalid/unit:one"
+    ]]],
+    ["a registry holding another image", {}, { registry: "other" }, ["one", "two"], "not the built", [[
+      "push",
+      "registry.invalid/unit:one"
+    ]]]
+  ]
+  for (const [name, archive, daemon, tags, message, pushes] of refusals) {
+    it(`fails on ${name} and pushes no later tag`, async () => {
+      const host = await fixture("failure", [...tags], undefined, undefined, archive, daemon)
+      const summary = await PackageExec.execute(host.planned, { ...host.options, log: () => {} })
+      expect(summary.ok).toBe(false)
+      expect(pushResult(summary)?.error).toContain(message)
+      expect(await host.observed()).toEqual(pushes)
+    })
+  }
   it("refuses a push whose image dependency is not a build", async () => {
     const host = await fixture("failure", ["one"], undefined, "Shell.Run")
     const summary = await PackageExec.execute(host.planned, { ...host.options, log: () => {} })

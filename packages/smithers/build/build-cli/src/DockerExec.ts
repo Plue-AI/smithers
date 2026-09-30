@@ -129,22 +129,252 @@ export const pushTagRefusal = (tag: string): string | undefined =>
  */
 export const imageArchive = (outDir: string): string => `${outDir}/image.tar`
 
+const digestPattern = /^sha256:[0-9a-f]{64}$/
+
 /**
- * Reads the image reference `docker load` reports for an archive: the
- * `Loaded image ID:` or `Loaded image:` line, last one wins. A push tags this
- * exact image, so it publishes what the build produced and never whatever
- * else the daemon holds under the destination reference.
+ * The single image a build archive holds: its manifest and config digests,
+ * its layer blobs, and where a synthesized `manifest.json` may be appended.
+ *
+ * @category models
+ * @since 1.0.0
+ */
+export interface ArchiveImage {
+  readonly manifest: string
+  readonly config: string
+  readonly layers: ReadonlyArray<string>
+  /** Whether the archive already carries the `manifest.json` `docker load` reads. */
+  readonly loadable: boolean
+  /** Byte offset of the archive's end-of-archive marker. */
+  readonly end: number
+}
+
+interface TarEntry {
+  readonly offset: number
+  readonly size: number
+}
+
+const block = 512
+
+const tarString = (bytes: Buffer, start: number, length: number): string =>
+  bytes.subarray(start, start + length).toString("utf8").replace(/\0[\s\S]*$/, "")
+
+/** The value of the last `key` record of a PAX extended header. */
+const paxRecord = (records: string, key: string): string | undefined =>
+  [...records.matchAll(new RegExp(`^\\d+ ${key}=(.*)$`, "gm"))].at(-1)?.[1]
+
+/**
+ * Indexes a tar archive's regular files by normalized path. It reads the
+ * ustar layout Go's `archive/tar` (and so BuildKit) writes: names split into
+ * prefix and name, and PAX extended headers for longer paths or sizes.
+ */
+const tarIndex = async (
+  handle: Fs.FileHandle
+): Promise<{ readonly files: Map<string, TarEntry>; readonly end: number }> => {
+  const { size: length } = await handle.stat()
+  const files = new Map<string, TarEntry>()
+  const header = Buffer.alloc(block)
+  let offset = 0
+  let pax = ""
+  while (offset + block <= length) {
+    await handle.read(header, 0, block, offset)
+    if (header.every((byte) => byte === 0)) return { files, end: offset }
+    const size = Number(paxRecord(pax, "size") ?? Number.parseInt(tarString(header, 124, 12).trim(), 8))
+    const data = offset + block
+    if (!Number.isSafeInteger(size) || data + size > length) break
+    const type = tarString(header, 156, 1)
+    if (type === "x") {
+      const body = Buffer.alloc(size)
+      await handle.read(body, 0, size, data)
+      pax = body.toString("utf8")
+    } else {
+      const prefix = tarString(header, 345, 155)
+      const name = paxRecord(pax, "path") ?? `${prefix}${prefix === "" ? "" : "/"}${tarString(header, 0, 100)}`
+      pax = ""
+      if (type === "0" || type === "") files.set(name.replace(/^(\.\/)+/, ""), { offset: data, size })
+    }
+    offset = data + Math.ceil(size / block) * block
+  }
+  throw new Error("the image archive is not a complete tar archive")
+}
+
+const readEntry = async (handle: Fs.FileHandle, entry: TarEntry): Promise<Buffer> => {
+  const body = Buffer.alloc(entry.size)
+  await handle.read(body, 0, entry.size, entry.offset)
+  return body
+}
+
+const indexTypes = new Set([
+  "application/vnd.oci.image.index.v1+json",
+  "application/vnd.docker.distribution.manifest.list.v2+json"
+])
+
+const manifestTypes = new Set([
+  "application/vnd.oci.image.manifest.v1+json",
+  "application/vnd.docker.distribution.manifest.v2+json"
+])
+
+/** BuildKit marks attestation manifests, which are not images, with this annotation. */
+const referenceType = "vnd.docker.reference.type"
+
+interface Descriptor {
+  readonly mediaType?: unknown
+  readonly digest?: unknown
+  readonly annotations?: Readonly<Record<string, unknown>> | undefined
+}
+
+const descriptors = (document: unknown): ReadonlyArray<Descriptor> => {
+  const manifests = (document as { readonly manifests?: unknown } | null)?.manifests
+  return Array.isArray(manifests) ? manifests as ReadonlyArray<Descriptor> : []
+}
+
+/**
+ * Reads the one image a `Docker.Build` or `Docker.Bake` archive holds from its
+ * OCI layout. Attestation manifests are not images. An archive holding several
+ * platform images is refused: the Docker daemon holds one platform per
+ * reference, so pushing through it could publish only part of the build.
  *
  * @category execution
  * @since 1.0.0
  */
-export const loadedImage = (stdout: string): string | undefined => {
-  let loaded: string | undefined
-  for (const line of stdout.split(/\r?\n/)) {
-    const match = /^Loaded image(?: ID)?: (\S+)\s*$/.exec(line)
-    if (match !== null) loaded = match[1]
+export const readImageArchive = async (path: string): Promise<ArchiveImage | { readonly error: string }> => {
+  const handle = await Fs.open(path, "r")
+  try {
+    const { files, end } = await tarIndex(handle)
+    const json = async (name: string): Promise<unknown> => {
+      const entry = files.get(name)
+      if (entry === undefined) throw new Error(`the image archive has no ${name}`)
+      return JSON.parse((await readEntry(handle, entry)).toString("utf8"))
+    }
+    const blob = (digest: string) => `blobs/sha256/${digest.slice("sha256:".length)}`
+    const images: Array<string> = []
+    const visit = async (list: ReadonlyArray<Descriptor>): Promise<void> => {
+      for (const descriptor of list) {
+        const digest = descriptor.digest
+        if (typeof digest !== "string" || !digestPattern.test(digest)) {
+          throw new Error("the image archive has a malformed digest")
+        }
+        const mediaType = String(descriptor.mediaType)
+        // Content addressing rules out cycles: an index cannot name its own digest.
+        if (indexTypes.has(mediaType)) await visit(descriptors(await json(blob(digest))))
+        else if (manifestTypes.has(mediaType) && descriptor.annotations?.[referenceType] === undefined) {
+          if (!images.includes(digest)) images.push(digest)
+        }
+      }
+    }
+    await visit(descriptors(await json("index.json")))
+    if (images.length !== 1) {
+      return {
+        error: images.length === 0
+          ? "the image archive holds no image"
+          : `Docker.Push publishes one platform image, but the build archive holds ${images.length}`
+      }
+    }
+    const manifest = await json(blob(images[0]!)) as {
+      readonly config?: { readonly digest?: unknown }
+      readonly layers?: ReadonlyArray<{ readonly digest?: unknown }>
+    }
+    const config = manifest.config?.digest
+    const layers = (manifest.layers ?? []).map((layer) => layer.digest)
+    const digests = [config, ...layers]
+    if (!digests.every((digest): digest is string => typeof digest === "string" && digestPattern.test(digest))) {
+      return { error: "the image manifest has a malformed digest" }
+    }
+    const missing = digests.find((digest) => !files.has(blob(digest)))
+    if (missing !== undefined) return { error: `the image archive has no blob ${missing}` }
+    return {
+      manifest: images[0]!,
+      config: config as string,
+      layers: layers as ReadonlyArray<string>,
+      loadable: files.has("manifest.json"),
+      end
+    }
+  } catch (error) {
+    return { error: (error as Error).message }
+  } finally {
+    await handle.close()
   }
-  return loaded
+}
+
+const tarHeader = (name: string, size: number): Buffer => {
+  const header = Buffer.alloc(block)
+  header.write(name, 0, 100, "utf8")
+  header.write("0000444\0", 100, "ascii")
+  header.write("0000000\0", 108, "ascii")
+  header.write("0000000\0", 116, "ascii")
+  header.write(`${size.toString(8).padStart(11, "0")}\0`, 124, "ascii")
+  header.write("00000000000\0", 136, "ascii")
+  header.write("        ", 148, "ascii")
+  header.write("0", 156, "ascii")
+  header.write("ustar\u000000", 257, "ascii")
+  let sum = 0
+  for (const byte of header) sum += byte
+  header.write(`${sum.toString(8).padStart(6, "0")}\0 `, 148, "ascii")
+  return header
+}
+
+/**
+ * Writes a copy of an OCI-layout archive that `docker load` accepts: the same
+ * entries plus the `manifest.json` naming the image's config and layer blobs.
+ * Docker's exporter writes this file itself; buildx's OCI exporter does not.
+ *
+ * @category execution
+ * @since 1.0.0
+ */
+export const writeLoadableArchive = async (source: string, destination: string, image: ArchiveImage): Promise<void> => {
+  const blob = (digest: string) => `blobs/sha256/${digest.slice("sha256:".length)}`
+  const manifest = Buffer.from(
+    JSON.stringify([{ Config: blob(image.config), RepoTags: null, Layers: image.layers.map(blob) }]),
+    "utf8"
+  )
+  await Fs.copyFile(source, destination)
+  const handle = await Fs.open(destination, "r+")
+  try {
+    const padded = Math.ceil(manifest.length / block) * block
+    const tail = Buffer.alloc(block + padded + 2 * block)
+    tarHeader("manifest.json", manifest.length).copy(tail, 0)
+    manifest.copy(tail, block)
+    await handle.write(tail, 0, tail.length, image.end)
+    await handle.truncate(image.end + tail.length)
+  } finally {
+    await handle.close()
+  }
+}
+
+/**
+ * The image IDs `docker load` reports, in order.
+ *
+ * @category execution
+ * @since 1.0.0
+ */
+export const loadedImageIds = (stdout: string): ReadonlyArray<string> =>
+  [...stdout.matchAll(/^Loaded image ID: (\S+)\s*$/gm)].map((match) => match[1]!)
+
+/**
+ * The manifest digest `docker push` reports for the reference it published.
+ *
+ * @category execution
+ * @since 1.0.0
+ */
+export const pushedDigest = (stdout: string): string | undefined => {
+  let digest: string | undefined
+  for (const match of stdout.matchAll(/: digest: (sha256:[0-9a-f]{64}) size: \d+/g)) digest = match[1]
+  return digest
+}
+
+/**
+ * The config digest of a raw registry image manifest, or undefined when the
+ * document is not a single image manifest.
+ *
+ * @category execution
+ * @since 1.0.0
+ */
+export const manifestConfig = (raw: string): string | undefined => {
+  try {
+    const digest = (JSON.parse(raw) as { readonly config?: { readonly digest?: unknown } } | null)?.config?.digest
+    return typeof digest === "string" && digestPattern.test(digest) ? digest : undefined
+  } catch {
+    return undefined
+  }
 }
 
 /**

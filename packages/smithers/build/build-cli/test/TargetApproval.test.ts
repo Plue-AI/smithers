@@ -11,6 +11,7 @@ import * as Path from "node:path"
 import { afterAll, describe, expect, it } from "vitest"
 import { approvalRevision } from "../src/Cli.ts"
 import type * as PackageExec from "../src/PackageExec.ts"
+import { writeImageArchive } from "./helpers/OciArchive.ts"
 import { serve } from "./helpers/ServeCli.ts"
 
 const directories: Array<string> = []
@@ -20,6 +21,7 @@ afterAll(async () => {
 
 interface Fixture {
   readonly root: string
+  readonly config: string
   readonly calls: () => Promise<ReadonlyArray<string>>
   readonly environment: Record<string, string | undefined>
   readonly setTags: (tags: ReadonlyArray<string>) => Promise<void>
@@ -75,6 +77,8 @@ export const Workspace = S.Workspace("approval-fixture", {
   const bin = Path.join(root, ".fake-bin")
   await Fs.mkdir(bin)
   const log = Path.join(bin, "calls.txt")
+  const archive = Path.join(bin, "image.tar")
+  const [built] = await writeImageArchive(archive)
   const failing = (options.failing ?? []).map((tag) => `*:${tag}) exit 23;;`).join("\n  ")
   await Fs.writeFile(
     Path.join(bin, "docker"),
@@ -85,16 +89,17 @@ case "$1" in
 buildx)
   if [ "$2" = "build" ]; then
     for arg in "$@"; do
-      case "$arg" in type=oci,dest=*) dest="\${arg#type=oci,dest=}"; mkdir -p "$(dirname "$dest")"; echo image > "$dest";; esac
+      case "$arg" in type=oci,dest=*) dest="\${arg#type=oci,dest=}"; mkdir -p "$(dirname "$dest")"; cp '${archive}' "$dest";; esac
     done
   fi
+  if [ "$2" = "imagetools" ]; then echo '{"config":{"digest":"${built!.config}"}}'; exit 0; fi
   echo 'fixture engine';;
-load) echo 'Loaded image ID: sha256:built';;
+load) echo 'Loaded image ID: ${built!.config}';;
 tag) ;;
 push)
   case "$2" in
   ${failing}
-  *) ;;
+  *) echo "\${2##*:}: digest: sha256:${"d".repeat(64)} size: 1";;
   esac;;
 *) exit 97;;
 esac
@@ -104,6 +109,7 @@ esac
   return {
     root,
     environment: { ...process.env, PATH: `${bin}${Path.delimiter}${process.env["PATH"] ?? ""}` },
+    config: built!.config,
     calls: async () =>
       (await Fs.readFile(log, "utf8").catch((error: NodeJS.ErrnoException) => {
         if (error.code === "ENOENT") return ""
@@ -185,17 +191,20 @@ describe("approval: \"required\" through the public CLI", { timeout: 60_000 }, (
       "push 127.0.0.1:5999/fixture:three"
     ])
     // The push publishes the image the build produced: load its archive, then
-    // tag that loaded image before each push.
+    // tag that loaded image before each push and check the registry holds it.
     const calls = await workspace.calls()
     expect(calls, calls.join("\n")).toContainEqual(expect.stringMatching(/^load --input /))
     expect(calls.filter((line) => line.startsWith("tag ") || line.startsWith("push "))).toEqual([
-      "tag sha256:built 127.0.0.1:5999/fixture:one",
+      `tag ${workspace.config} 127.0.0.1:5999/fixture:one`,
       "push 127.0.0.1:5999/fixture:one",
-      "tag sha256:built 127.0.0.1:5999/fixture:two",
+      `tag ${workspace.config} 127.0.0.1:5999/fixture:two`,
       "push 127.0.0.1:5999/fixture:two",
-      "tag sha256:built 127.0.0.1:5999/fixture:three",
+      `tag ${workspace.config} 127.0.0.1:5999/fixture:three`,
       "push 127.0.0.1:5999/fixture:three"
     ])
+    expect(calls.filter((line) => line.startsWith("buildx imagetools"))).toEqual(
+      Array.from({ length: 3 }, () => `buildx imagetools inspect --raw 127.0.0.1:5999/fixture@sha256:${"d".repeat(64)}`)
+    )
   })
 
   it("stops at the first failed push under the run verb and reports failure", async () => {
