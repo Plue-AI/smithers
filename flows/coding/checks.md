@@ -182,6 +182,13 @@ impact). A change with no reviewable path fails; a change no policy governs
 passes with no review; a review that cannot finish (an unavailable seat, an
 exhausted budget) fails as an outage.
 
+`coding/SecurityAudit` runs the audit reviews its body names
+(`flows/security-audit/flow.mdx`: `//...:securityAudit`) the same way over every
+included file of the commit the host's working copy sits on, with that commit's
+own policy. It returns the audited commit, the public summaries and a status.
+An audit that selects no file fails; an audit past its batch limit resumes from
+the store on its next run.
+
 ## Check only the affected targets
 
 The command receives the Change's written paths in `SMITHERS_CHECK_FILES`,

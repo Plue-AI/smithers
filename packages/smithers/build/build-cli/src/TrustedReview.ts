@@ -507,7 +507,8 @@ type Attempts = ReadonlyArray<typeof LlmLint.ReviewAttempt.Type> | undefined
  * Runs every prepared policy against its snapshot. Findings persist in the
  * private `findingsStore`; the result carries only their public summaries.
  * `transport` sends the reviews through a trusted host's model seats instead
- * of tool-free provider requests.
+ * of tool-free provider requests. Aborting `signal` interrupts the running
+ * review, whose completed batches stay in the store, and starts no other.
  * @category execution
  * @since 1.0.0
  */
@@ -517,21 +518,26 @@ export const reviewPrepared = async (
     readonly root: string
     readonly findingsStore: string
     readonly transport?: LlmLint.ReviewTransport | undefined
+    readonly signal?: AbortSignal | undefined
   }
 ) => {
   const restricted = <A extends Restrictable>(value: A) => restrictFindings(options.findingsStore, value)
   const reviews = []
   for (const { label, payload, snapshot } of prepared.policies) {
-    const result = await Effect.runPromise(Effect.result(
-      LlmLint.review({
-        workspaceRoot: options.root,
-        ...(options.transport === undefined ? {} : { transport: options.transport }),
-        store: { directory: options.findingsStore, owner: label },
-        revisions: { base: prepared.policyRevision, head: prepared.revision },
-        snapshot: snapshot ??
-          prepared.snapshot.filter(({ path }) => matches(path, payload.include) || matches(path, payload.context))
-      }, payload)
-    ))
+    options.signal?.throwIfAborted()
+    const result = await Effect.runPromise(
+      Effect.result(
+        LlmLint.review({
+          workspaceRoot: options.root,
+          ...(options.transport === undefined ? {} : { transport: options.transport }),
+          store: { directory: options.findingsStore, owner: label },
+          revisions: { base: prepared.policyRevision, head: prepared.revision },
+          snapshot: snapshot ??
+            prepared.snapshot.filter(({ path }) => matches(path, payload.include) || matches(path, payload.context))
+        }, payload)
+      ),
+      options.signal === undefined ? undefined : { signal: options.signal }
+    )
     reviews.push({
       label,
       ...(label === "//:proposed-review-index" ? { representation: "review-policy-changes" } : {}),

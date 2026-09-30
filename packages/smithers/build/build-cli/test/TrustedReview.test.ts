@@ -672,6 +672,37 @@ describe("TrustedReview on another host's immutable source", () => {
       }]
     })
 
+    const aborted = new AbortController()
+    aborted.abort()
+    const unasked: Array<LlmLint.ReviewSeat> = []
+    await expect(
+      reviewPrepared(prepared, {
+        root,
+        findingsStore: store,
+        transport: seat(() => "[]", unasked),
+        signal: aborted.signal
+      })
+    ).rejects.toThrow()
+    expect(unasked).toEqual([])
+    // Aborting during a model request interrupts it; no later review starts.
+    const running = new AbortController()
+    const hung: Array<LlmLint.ReviewSeat> = []
+    const hanging: LlmLint.ReviewTransport = (requested) =>
+      Effect.succeed({
+        modelId: requested.model,
+        model: {
+          stream: () =>
+            Stream.suspend(() => {
+              hung.push(requested)
+              running.abort()
+              return Stream.never
+            })
+        }
+      })
+    await expect(reviewPrepared(prepared, { root, findingsStore: store, transport: hanging, signal: running.signal }))
+      .rejects.toThrow()
+    expect(hung).toHaveLength(1)
+
     const clean = await reviewPrepared(prepared, { root, findingsStore: store, transport: seat(() => "[]", []) })
     expect(clean).toMatchObject({ ok: true, reviews: [{ label: "//:security", status: "completed", findings: [] }] })
   })

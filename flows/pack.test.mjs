@@ -74,6 +74,7 @@ const EXPECTED_FLOWS = [
   "release-notes",
   "review",
   "review/change",
+  "security-audit",
 ];
 
 const FIXTURE = "migrate-smithers-v1/test/fixtures/smithers-0x-hello";

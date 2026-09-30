@@ -59,7 +59,11 @@ import { prototypeRegistration } from "./prototype.ts"
 import { registration } from "./registration.ts"
 import { requestRegistration } from "./request.ts"
 import { reviewCheckDelegate, reviewCheckLayers, ReviewLens, reviewRole } from "./review-check.ts"
-import { securityReviewCheckDelegate, securityReviewCheckLayers } from "./security-review-check.ts"
+import {
+  securityAuditDelegate,
+  securityReviewCheckDelegate,
+  securityReviewCheckLayers
+} from "./security-review-check.ts"
 import * as Snapshots from "./snapshots.ts"
 import { sourceAdmission } from "./source-admission.ts"
 import { stackBaseLayer } from "./stack.ts"
@@ -590,6 +594,7 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
             jevCheckDelegate,
             reviewCheckDelegate,
             securityReviewCheckDelegate,
+            securityAuditDelegate,
             RunSetup,
             RunJob,
             RunTrigger,

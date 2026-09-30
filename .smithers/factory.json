@@ -1342,6 +1342,42 @@
       "flows": []
     },
     {
+      "id": "security-audit",
+      "description": "Audit every package's security boundary at the workspace's commit on subscription seats and return only public finding summaries.",
+      "summary": null,
+      "featured": false,
+      "kind": "mdx",
+      "path": "flows/security-audit/flow.mdx",
+      "capabilities": [
+        "fs:read:**"
+      ],
+      "model": null,
+      "modelInvocable": true,
+      "inputSchema": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "args": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "args"
+          ],
+          "additionalProperties": true
+        },
+        "definitions": {}
+      },
+      "flows": [
+        "coding/SecurityAudit"
+      ],
+      "budget": {
+        "tokens": 20000000,
+        "milliseconds": 14400000
+      }
+    },
+    {
       "id": "wiki",
       "description": "Capture declared public source dependencies, independently review each engineering wiki page against its code, and write a provenance-bearing snapshot without modifying human intent.",
       "summary": null,

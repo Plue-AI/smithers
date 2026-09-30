@@ -1,0 +1,9 @@
+---
+description: Audit every package's security boundary at the workspace's commit on subscription seats and return only public finding summaries.
+flows: [coding/SecurityAudit]
+capabilities: ["fs:read:**"]
+budget:
+  tokens: 20000000
+  milliseconds: 14400000
+---
+{"patterns":["//...:securityAudit"]}

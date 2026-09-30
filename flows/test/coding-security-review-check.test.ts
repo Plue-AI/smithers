@@ -12,12 +12,16 @@ import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { after, test } from "node:test"
+import { NativeCoding } from "../coding/native.ts"
 import type { Check, Implementation, Receipt, Revision } from "../coding/schema.ts"
 import {
+  auditSecurity,
+  emptyAudit,
   emptyChange,
   reviewBase,
   ReviewSecurity,
   reviewSecurity,
+  securityAuditDelegate,
   securityReviewCheckDelegate,
   securityReviewCheckLayers,
   type SecurityReviewEvidence,
@@ -28,31 +32,39 @@ const temporary = await mkdtemp(join(tmpdir(), "security-review-check-"))
 after(() => rm(temporary, { recursive: true, force: true }))
 const fs = await Effect.runPromise(FileSystem.FileSystem.pipe(Effect.provide(NodeServices.layer)))
 
-const policy = JSON.stringify(
-  Target.metadata(LlmLint.LlmLint({
-    changes: Input.gitDiff("HEAD"),
-    include: [Input.glob("//src/**")],
-    deps: [],
-    prompt: "Inspect the selected source for security flaws.",
-    rubric: "Report exploitable flaws.",
-    model: "claude-opus-5-5",
-    batchSize: 4,
-    securityChecks: ["general"]
-  })).attrs
-)
-const index = JSON.stringify([{
-  label: "//:security",
+const policy = (overrides: { include?: string; scope?: "all"; manual?: true } = {}) =>
+  JSON.stringify(
+    Target.metadata(LlmLint.LlmLint({
+      changes: Input.gitDiff("HEAD"),
+      include: [Input.glob(overrides.include ?? "//src/**")],
+      deps: [],
+      prompt: "Inspect the selected source for security flaws.",
+      rubric: "Report exploitable flaws.",
+      model: "claude-opus-5-5",
+      batchSize: 4,
+      securityChecks: ["general"],
+      ...(overrides.scope === undefined ? {} : { scope: overrides.scope }),
+      ...(overrides.manual === undefined ? {} : { manual: overrides.manual })
+    })).attrs
+  )
+const row = (name: string, reviewPolicy: string) => ({
+  label: `//:${name}`,
   package: "",
-  name: "security",
+  name,
   rule: "LlmLint",
-  reviewPolicy: policy,
+  reviewPolicy,
   kinds: ["review"],
   cacheable: false,
   inputs: [],
   outputs: [],
   dependencies: [],
   source: { file: "PACKAGE.ts" }
-}])
+})
+const index = JSON.stringify([
+  row("security", policy()),
+  row("securityAudit", policy({ scope: "all", manual: true })),
+  row("libraryAudit", policy({ include: "//lib/**", scope: "all", manual: true }))
+])
 const baseFiles: Record<string, string> = {
   ".smithers/target-index.json": index,
   "src/auth.ts": "export const allowed = (user: string) => user === 'admin'\n",
@@ -351,6 +363,7 @@ test("the check body names at least one review label", async () => {
 
 test("the delegate is the registered coding/SecurityReviewCheck over one durable review action", async () => {
   assert.equal(securityReviewCheckDelegate._tag, "coding/SecurityReviewCheck")
+  assert.equal(securityAuditDelegate._tag, "coding/SecurityAudit")
   assert.equal(ReviewSecurity.name, "coding/review-security")
   const { options } = await fixture({ b: baseFiles })
   assert.ok(Layer.isLayer(securityReviewCheckLayers(options)))
@@ -359,4 +372,82 @@ test("the delegate is the registered coding/SecurityReviewCheck over one durable
 test("review seats map to the subscription CLIs", () => {
   assert.equal(subscriptionSeat({ engine: "claude", model: "claude-opus-5-5" }), "claude-code:claude-opus-5-5")
   assert.equal(subscriptionSeat({ engine: "codex", model: "gpt-6-sol" }), "codex:gpt-6-sol")
+})
+
+/** The host's working copy: an empty change on `parents`. */
+const workspace = (parents: ReadonlyArray<string>) =>
+  ({
+    read: () =>
+      Effect.succeed({
+        status: "read",
+        operationId: "0".repeat(128),
+        head: {
+          kind: "resolved",
+          changeId: "k".repeat(32),
+          commitId: "f".repeat(40),
+          treeId: "e".repeat(40),
+          operationId: "0".repeat(128),
+          parentCommitIds: parents
+        },
+        revisions: []
+      })
+  }) as never
+
+const audit = (
+  options: Awaited<ReturnType<typeof fixture>>["options"],
+  parents: ReadonlyArray<string>,
+  answer: string | undefined,
+  patterns = ["//...:securityAudit"],
+  resolved: Array<string> = []
+) =>
+  Effect.runPromise(
+    Effect.result(auditSecurity(options, { ...invocation(undefined as never, { patterns }), input: {} as never })).pipe(
+      Effect.provideService(NativeCoding, workspace(parents)),
+      Effect.provide(seats(answer, resolved)),
+      Effect.provide(NodeServices.layer)
+    )
+  )
+
+test("a scheduled audit reviews every included file of the workspace's commit on subscription seats", async () => {
+  const { revisions, options } = await fixture({ b: baseFiles })
+  const resolved: Array<string> = []
+  const result = await audit(options, [revisions.b!.commitId], completion(), undefined, resolved)
+  assert.equal(result._tag, "Success", result._tag === "Failure" ? result.failure.message : "")
+  const report = (result as { success: { status: string; commitId: string; evidence: string; findings: unknown } })
+    .success
+  assert.equal(report.status, "passed")
+  assert.equal(report.commitId, revisions.b!.commitId)
+  assert.deepEqual(report.findings, [])
+  assert.deepEqual(JSON.parse(report.evidence), {
+    kind: "coding/security-review-check/v1",
+    policyRevision: revisions.b!.commitId,
+    revision: revisions.b!.commitId,
+    changed: 0,
+    reviews: [{ label: "//:securityAudit", status: "completed", findings: [] }]
+  })
+  assert.ok(resolved.length > 0 && resolved.every((seat) => /^(claude-code|codex):/.test(seat)))
+})
+
+test("an audit that selects no file fails, and one with no audit policy cannot run", async () => {
+  const { revisions, options } = await fixture({ b: baseFiles })
+  const empty = await audit(options, [revisions.b!.commitId], completion(), ["//...:libraryAudit"])
+  assert.equal(empty._tag, "Success")
+  const report = (empty as { success: { status: string; findings: unknown } }).success
+  assert.equal(report.status, "failed")
+  assert.deepEqual(report.findings, [emptyAudit])
+  const unknown = await audit(options, [revisions.b!.commitId], completion(), ["//...:noSuchAudit"])
+  assert.equal(unknown._tag, "Failure")
+  assert.match((unknown as { failure: Error }).failure.message, /No trusted review policies match/)
+})
+
+test("an audit needs a working copy on exactly one commit", async () => {
+  const { revisions, options } = await fixture({ b: baseFiles })
+  const merged = await audit(options, [revisions.b!.commitId, "c".repeat(40)], completion())
+  assert.equal(merged._tag, "Failure")
+  assert.match((merged as { failure: Error }).failure.message, /one commit the workspace is on/)
+  const exported = await audit({ ...options, exporterPath: join(temporary, "no-such-exporter") }, [
+    revisions.b!.commitId
+  ], completion())
+  assert.equal(exported._tag, "Failure")
+  assert.match((exported as { failure: Error }).failure.message, /export/)
 })
