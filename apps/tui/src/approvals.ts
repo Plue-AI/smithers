@@ -1049,9 +1049,14 @@ const touches = (shell: Command, path: string): "names" | "may" | undefined => {
   let may = false
   for (const { words } of parse(shell.text).commands) {
     for (const argument of words) {
-      // An option's attached value names the same path as a separate argument.
-      const equal = argument.startsWith("-") ? argument.indexOf("=") : -1
-      for (const word of equal === -1 ? [argument] : [argument, argument.slice(equal + 1)]) {
+      // Attached values name paths too. Unknown short-option clusters ask.
+      const equal = argument.indexOf("=")
+      const candidates = equal === -1 ? [argument] : [argument, argument.slice(equal + 1)]
+      if (argument.startsWith("-") && !argument.startsWith("--") && argument.length > 2) {
+        candidates.push(argument.slice(2))
+        may = true
+      }
+      for (const word of candidates) {
         if (word === "") continue
         const resolved = isAbsolute(word) ? word : `${shell.base}/${word}`
         const target = key(real(resolved))

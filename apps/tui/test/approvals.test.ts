@@ -982,7 +982,14 @@ describe("a run remembers what the person decided", () => {
       { command: `git diff --output=${join(root, "NOTES.md")}` },
       { command: "git diff --output=alias.txt" },
       { command: "git diff --output=deep/../../NOTES.md" },
-      { command: "git diff --output=../NOTES.md", cwd: "sub" }
+      { command: "git diff --output=../NOTES.md", cwd: "sub" },
+      { command: "dd of=NOTES.md" },
+      { command: "dd of='NOTES.md'" },
+      { command: "dd 'of=NOTES.md'" },
+      { command: "sort -oNOTES.md" },
+      { command: "sort '-oNOTES.md'" },
+      { command: "sort -oalias.txt" },
+      { command: "sort -odeep/../../NOTES.md" }
     ]
     const result = await withStore("ask", (grants) =>
       Effect.gen(function*() {
@@ -998,11 +1005,21 @@ describe("a run remembers what the person decided", () => {
         for (const input of calls) messages.push(exitMessage(yield* Effect.exit(authorize(callOf("bash", input)))))
         yield* authorize(callOf("bash", { command: "git diff --output=NOTES.mdx" }))
         yield* authorize(callOf("bash", { command: "git diff --output=check.mjs" }))
-        return { messages, pending: (yield* grants.list).length }
+        yield* authorize(callOf("bash", { command: "dd of=OTHER.md" }))
+        yield* authorize(callOf("bash", { command: "sort -n check.mjs" }))
+        const ambiguous = ["sort -uoNOTES.md", "sort -oOTHER.md", "sort -rn check.mjs"]
+        const asked: Array<string> = []
+        for (const command of ambiguous) {
+          const fiber = yield* Effect.forkChild(authorize(callOf("bash", { command })))
+          asked.push((yield* settledPending(grants, 1))[0]!.subject)
+          yield* Fiber.interrupt(fiber)
+        }
+        return { messages, pending: (yield* grants.list).length, asked, ambiguous }
       }), root)
     expect(result.messages).toHaveLength(calls.length)
     for (const message of result.messages) expect(message).toStartWith(Approvals.deniedPrefix)
     expect(result.pending).toBe(0)
+    expect(result.asked).toEqual(result.ambiguous)
   })
 
   it("denies declared writes through symlink prefixes while preserving their wildcard suffixes", async () => {
