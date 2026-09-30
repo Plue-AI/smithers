@@ -181,6 +181,40 @@ export const ConnectOptionsSchema = Schema.Struct({
   maxCatalogPages: Schema.optional(PositiveInteger)
 })
 
+/** An absolute `http:` or `https:` URL without credentials: userinfo would put a secret in the file. */
+const isEndpoint = (url: string): boolean => {
+  if (!URL.canParse(url)) return false
+  const parsed = new URL(url)
+  return (parsed.protocol === "http:" || parsed.protocol === "https:") && parsed.username === "" &&
+    parsed.password === ""
+}
+
+/**
+ * Authoritative decoder for a persisted Streamable HTTP MCP server entry.
+ *
+ * The schema requires a non-empty server name, an absolute `http:` or
+ * `https:` `url` without userinfo, and positive-integer limits. A bearer
+ * credential is never stored in the entry: `bearerTokenEnv` names the
+ * environment variable the host reads it from and turns into an
+ * {@link AuthProvider}.
+ *
+ * @category schemas
+ * @since 1.0.0-rc.1
+ */
+export const HttpConnectOptionsSchema = Schema.Struct({
+  server: Schema.NonEmptyString,
+  url: Schema.String.check(Schema.makeFilter(isEndpoint, { expected: "an http: or https: URL without credentials" })),
+  bearerTokenEnv: Schema.optionalKey(Schema.String.check(Schema.isPattern(/^[A-Za-z_][A-Za-z0-9_]*$/))),
+  handshakeTimeoutMs: Schema.optional(PositiveInteger),
+  requestTimeoutMs: Schema.optional(PositiveInteger),
+  maxFrameBytes: Schema.optional(PositiveInteger),
+  maxOutboundFrameBytes: Schema.optional(PositiveInteger),
+  maxTools: Schema.optional(PositiveInteger),
+  maxToolNameBytes: Schema.optional(PositiveInteger),
+  maxToolDocumentBytes: Schema.optional(PositiveInteger),
+  maxCatalogPages: Schema.optional(PositiveInteger)
+})
+
 /**
  * Frozen identity disclosed to every MCP server during initialization.
  *

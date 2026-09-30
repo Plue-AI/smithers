@@ -1240,3 +1240,36 @@ describe("McpClient.ConnectOptionsSchema", () => {
     expect(() => Schema.decodeUnknownSync(McpClient.ConnectOptionsSchema)(entry)).toThrow()
   })
 })
+
+describe("McpClient.HttpConnectOptionsSchema", () => {
+  it("decodes every supported persisted Streamable HTTP option", () => {
+    const entry = {
+      server: "remote",
+      url: "https://mcp.example.test/mcp",
+      bearerTokenEnv: "REMOTE_MCP_TOKEN",
+      handshakeTimeoutMs: 1,
+      requestTimeoutMs: 2,
+      maxFrameBytes: 3,
+      maxOutboundFrameBytes: 4,
+      maxTools: 5,
+      maxToolNameBytes: 6,
+      maxToolDocumentBytes: 7,
+      maxCatalogPages: 8
+    }
+    expect(Schema.decodeUnknownSync(McpClient.HttpConnectOptionsSchema)(entry)).toEqual(entry)
+    expect(Schema.decodeUnknownSync(McpClient.HttpConnectOptionsSchema)({ server: "open", url: "http://127.0.0.1:9/" }))
+      .toEqual({ server: "open", url: "http://127.0.0.1:9/" })
+  })
+
+  it.each([
+    ["a relative url", { server: "remote", url: "/mcp" }],
+    ["a non-http scheme", { server: "remote", url: "ws://mcp.example.test/mcp" }],
+    ["a url with a password", { server: "remote", url: "https://user:secret@mcp.example.test/" }],
+    ["a url with a username", { server: "remote", url: "https://token@mcp.example.test/" }],
+    ["an empty server", { server: "", url: "https://mcp.example.test/" }],
+    ["a credential variable that is not a name", { server: "remote", url: "https://mcp.example.test/", bearerTokenEnv: "A B" }],
+    ["a zero limit", { server: "remote", url: "https://mcp.example.test/", maxTools: 0 }]
+  ])("rejects %s", (_label, entry) => {
+    expect(() => Schema.decodeUnknownSync(McpClient.HttpConnectOptionsSchema)(entry)).toThrow()
+  })
+})

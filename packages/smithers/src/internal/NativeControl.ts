@@ -180,10 +180,11 @@ export interface ExecutorOptions {
   /**
    * MCP servers to connect at startup, each projected into the run's flow
    * catalog by `@smthrs/mcp/McpFlows`, one more source alongside filesystem,
-   * shell, and memory. Empty by default: a host that names none behaves
-   * exactly as it always has.
+   * shell, and memory. A stdio server spawns through the guarded spawner; a
+   * Streamable HTTP server is reached through the guarded egress `HttpClient`.
+   * Empty by default: a host that names none behaves exactly as it always has.
    */
-  readonly mcpServers?: ReadonlyArray<McpClient.StdioConnectOptions> | undefined
+  readonly mcpServers?: ReadonlyArray<McpClient.ConnectOptions> | undefined
   /** The store the guarded filesystem and the spawner must both ask. */
   readonly grants?: Layer.Layer<GrantStore.GrantStore> | undefined
   readonly requestExecutor?: Layer.Layer<RequestExecutor.RequestExecutor> | undefined

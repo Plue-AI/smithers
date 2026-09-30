@@ -19,7 +19,7 @@ import type { NotificationQueue } from "@smthrs/notifications"
 
 import type * as Registry from "@smthrs/registry/Registry"
 
-import { Effect, Layer, Result, Schema } from "effect"
+import { Effect, Layer, Redacted, Result, Schema } from "effect"
 
 import { HttpRouter } from "effect/unstable/http"
 
@@ -84,14 +84,34 @@ export type ServerOptions = ListenOptions & {
   readonly listen?: boolean | undefined
 }
 
+/** `include`, `exclude` and `namePrefix`, consumed by `McpFlows.connected`, not the connection schemas. */
+const projectionFields = {
+  include: Schema.optional(Schema.Array(Schema.String)),
+  exclude: Schema.optional(Schema.Array(Schema.String)),
+  namePrefix: Schema.optional(Schema.String)
+}
+
+/**
+ * One `--mcp-config` entry: a stdio server (`command`) or a Streamable HTTP
+ * server (`url`), never both, so a mixed entry cannot silently drop a field.
+ */
+const McpServerEntry = Schema.Union([
+  Schema.Struct({ ...McpClient.ConnectOptionsSchema.fields, ...projectionFields, url: Schema.optionalKey(Schema.Never) }),
+  Schema.Struct({ ...McpClient.HttpConnectOptionsSchema.fields, ...projectionFields, command: Schema.optionalKey(Schema.Never) })
+])
+
 /**
  * Reads and validates the MCP servers named by `--mcp-config`/`SMITHERS_MCP_CONFIG`.
  *
- * The file is a JSON array decoded with `McpClient.ConnectOptionsSchema`.
- * Projection fields are preserved for `McpFlows.connected` to check and apply.
- * Omitting the setting configures no MCP servers. Missing, unreadable, malformed,
- * or incorrectly shaped files raise a flag-specific usage error rather than
- * silently changing the executor's tool catalog.
+ * The file is a JSON array of `McpClient.ConnectOptionsSchema` (stdio) and
+ * `McpClient.HttpConnectOptionsSchema` (Streamable HTTP) entries. An HTTP
+ * entry's `bearerTokenEnv` is read from the environment here, so an unset
+ * credential is a usage error before any layer is built; the token itself is
+ * only ever held as a `Redacted` value. Projection fields are preserved for
+ * `McpFlows.connected` to check and apply. Omitting the setting configures no
+ * MCP servers. Missing, unreadable, malformed, or incorrectly shaped files
+ * raise a flag-specific usage error rather than silently changing the
+ * executor's tool catalog.
  *
  * @category constructors
  * @since 0.1.0
@@ -99,7 +119,7 @@ export type ServerOptions = ListenOptions & {
 const mcpServersFromArguments = (
   globals: Argv.Globals,
   environment: Environment
-): ReadonlyArray<McpClient.StdioConnectOptions> | undefined => {
+): ReadonlyArray<McpClient.ConnectOptions> | undefined => {
   const path = globals.mcpConfig ?? Environment_.read(environment, "SMITHERS_MCP_CONFIG")
   if (path === undefined) return undefined
   if (!existsSync(path)) {
@@ -120,19 +140,23 @@ const mcpServersFromArguments = (
   } catch {
     throw new CliError.UsageError({ message: `--mcp-config ${path} is not valid JSON` })
   }
-  // Projection options are consumed by McpFlows.connected, not the connection schema.
-  const decoded = Schema.decodeUnknownResult(Schema.Array(Schema.Struct({
-    ...McpClient.ConnectOptionsSchema.fields,
-    include: Schema.optional(Schema.Array(Schema.String)),
-    exclude: Schema.optional(Schema.Array(Schema.String)),
-    namePrefix: Schema.optional(Schema.String)
-  })))(parsed)
+  const decoded = Schema.decodeUnknownResult(Schema.Array(McpServerEntry))(parsed)
   if (Result.isFailure(decoded)) {
     throw new CliError.UsageError({
       message: `--mcp-config ${path} must contain a JSON array of MCP server entries`
     })
   }
-  return decoded.success
+  return decoded.success.map((entry): McpClient.ConnectOptions => {
+    if (!("bearerTokenEnv" in entry)) return entry
+    const { bearerTokenEnv, ...http } = entry
+    const token = Environment_.read(environment, bearerTokenEnv)
+    if (token === undefined) {
+      throw new CliError.UsageError({
+        message: `--mcp-config ${path}: server "${entry.server}" needs ${bearerTokenEnv} set to its bearer token`
+      })
+    }
+    return { ...http, authProvider: { token: Effect.succeed(Redacted.make(token)) } }
+  })
 }
 
 /**

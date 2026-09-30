@@ -176,10 +176,29 @@ const ConnectOptionsSchema = Schema.Struct({
 })
 ```
 
-The authoritative decoder for a persisted MCP server entry. It requires
+The authoritative decoder for a persisted stdio MCP server entry. It requires
 non-empty `server` and `command` strings, string `args`, an optional
 string-valued `env` record, and positive integers for every limit. Use it
 wherever connection options arrive from a file or a database.
+
+### McpClient.HttpConnectOptionsSchema
+
+```ts
+const HttpConnectOptionsSchema = Schema.Struct({
+  server: Schema.NonEmptyString,
+  url: Schema.String, // absolute http: or https:, no userinfo
+  bearerTokenEnv: Schema.optionalKey(Schema.String), // an environment variable name
+  // every limit HttpConnectOptions accepts, each a positive integer
+  requestTimeoutMs: Schema.optional(PositiveInteger)
+  // ...
+})
+```
+
+The authoritative decoder for a persisted Streamable HTTP server entry. It
+requires a non-empty `server`, an absolute `http:` or `https:` `url` without
+a user or password, and positive integers for every limit. The entry never
+holds a credential: `bearerTokenEnv` names the environment variable the host
+reads the bearer token from and supplies as `authProvider`.
 
 ### McpClient.clientInfo
 

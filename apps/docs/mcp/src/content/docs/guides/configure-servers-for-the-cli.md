@@ -33,8 +33,8 @@ server's `env`. This server reads `GITHUB_PERSONAL_ACCESS_TOKEN`.
 
 ## The file
 
-A JSON array. Each entry accepts `McpClient.ConnectOptions` and
-`McpFlows.ProjectionOptions`:
+A JSON array. Each entry is a stdio server (`command`) or a Streamable HTTP
+server (`url`), never both, plus `McpFlows.ProjectionOptions`:
 
 ```json
 [
@@ -59,10 +59,37 @@ A JSON array. Each entry accepts `McpClient.ConnectOptions` and
 By default, tools arrive as flows named `mcp/<server>/<tool>`. With the custom
 `namePrefix` above, GitHub tools arrive as `github/<tool>`.
 
+## Remote servers
+
+A remote server takes a `url` instead of a `command`. Its bearer token is
+never written in the file: `bearerTokenEnv` names the environment variable the
+CLI reads it from.
+
+```json
+[
+  {
+    "server": "tracker",
+    "url": "https://mcp.tracker.example/mcp",
+    "bearerTokenEnv": "TRACKER_MCP_TOKEN",
+    "namePrefix": "tracker"
+  }
+]
+```
+
+Export `TRACKER_MCP_TOKEN` from your secret store in the shell that runs
+`smthrs`; never type the token on the command line.
+
+Requests go through the host's egress client, so its proxy settings and
+capability grants apply. A grant that denies `net:post` to the server's origin
+stops the executor before the first request is sent.
+
 ## What the flag validates
 
-The CLI decodes every connection field with `McpClient.ConnectOptionsSchema`
-before any layer is built. A bad file is a usage error naming the flag and path.
+The CLI decodes every stdio entry with `McpClient.ConnectOptionsSchema` and
+every HTTP entry with `McpClient.HttpConnectOptionsSchema` before any layer is
+built. A bad file is a usage error naming the flag and path.
+
+A stdio entry:
 
 | Field                                                               | Requirement                       |
 | ------------------------------------------------------------------- | --------------------------------- |
@@ -75,9 +102,22 @@ before any layer is built. A bad file is a usage error naming the flag and path.
 | `maxStderrBytes`, `maxTools`, `maxToolNameBytes`, `maxCatalogPages` | Optional positive integers.       |
 | `maxToolDocumentBytes`                                              | Optional positive integer.        |
 
+An HTTP entry:
+
+| Field                                                                      | Requirement                                                         |
+| -------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| `server`                                                                   | Required non-empty string.                                          |
+| `url`                                                                      | Required absolute `http:` or `https:` URL without user or password. |
+| `bearerTokenEnv`                                                           | Optional environment variable name, set and non-empty at startup.   |
+| `handshakeTimeoutMs`, `requestTimeoutMs`, `maxFrameBytes`                  | Optional positive integers.                                         |
+| `maxOutboundFrameBytes`, `maxTools`, `maxToolNameBytes`, `maxCatalogPages` | Optional positive integers.                                         |
+| `maxToolDocumentBytes`                                                     | Optional positive integer.                                          |
+
 Four failures are usage errors that name the path: the file is missing, it
 cannot be read, it is not valid JSON, or it is not an array of entries accepted
-by the schema. For example, `maxTools: 0` fails here before connecting a server.
+by the schemas. For example, `maxTools: 0` fails here before connecting a server.
+An unset `bearerTokenEnv` variable is a usage error naming the server and the
+variable.
 
 ## Select and name tools
 
@@ -97,9 +137,10 @@ projection errors, separate from the connection schema's file validation.
 ## When a bad server fails
 
 Every configured server is connected when the executor starts, because naming it
-in the file is an operator opting into it. A server that fails to spawn or
-refuses the handshake takes the executor down loudly rather than leaving a run
-silently short of the tools it was configured to have.
+in the file is an operator opting into it. A server that fails to spawn, is
+denied by the egress grants, or refuses the handshake takes the executor down
+loudly rather than leaving a run silently short of the tools it was configured
+to have.
 
 That is the right trade for a configured dependency and the wrong one for an
 experiment. Try a new server in a scratch config before adding it to the one a

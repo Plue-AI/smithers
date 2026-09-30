@@ -103,7 +103,7 @@ export interface Config {
    * meaningless when `remote` is set — a remote composition's executor is not
    * this process's to configure.
    */
-  readonly mcpServers?: ReadonlyArray<McpClient.StdioConnectOptions> | undefined
+  readonly mcpServers?: ReadonlyArray<McpClient.ConnectOptions> | undefined
   /**
    * The project root every durable layer is built over: the `.flows/`
    * directory, the `flows/` registry sources, and the detached run logs all

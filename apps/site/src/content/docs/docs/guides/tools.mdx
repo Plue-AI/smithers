@@ -86,6 +86,8 @@ An external MCP server's tools project into a run's flow catalog, one flow per t
 
 The configuration shape is `{server, command, args, cwd?, env?, handshakeTimeoutMs?, requestTimeoutMs?, queueCapacity?, maxFrameBytes?}`: `server` and `command` are strings, `args` is an array of strings, `cwd` is an optional string, and `env` is an optional object of string values that merges into the inherited child environment, so a spawned server still receives `PATH` and `HOME`. The four numeric options are positive integers defaulting to a 10-second handshake, a 120-second call deadline, 64 queued outbound frames, and a 1 MiB inbound frame.
 
+A remote server over MCP Streamable HTTP takes `{server, url, bearerTokenEnv?}` instead: `url` is an absolute `http:` or `https:` URL without a user or password, and `bearerTokenEnv` names the environment variable holding its bearer token, so the token never sits in the file. Requests go through the host's egress client and its grants. See [Configure servers for the CLI](https://mcp.smithers.sh/guides/configure-servers-for-the-cli/).
+
 Pass the file when starting the flow:
 
 ```bash
