@@ -180,12 +180,8 @@ type mockSecretService struct {
 	deleteSecretFn func(ctx context.Context, actor *db.User, owner, repo, name string) error
 }
 
-func (m *mockSecretService) SetSecretBinding(_ context.Context, _ *db.User, _, _, name string, binding services.SecretBinding) (services.SecretResponse, error) {
-	return services.SecretResponse{Name: name, Hosts: binding.Hosts, MatchHeaders: binding.MatchHeaders}, nil
-}
-
-func (m *mockSecretService) SetSecretMainOnly(_ context.Context, _ *db.User, _, _, name string, mainOnly bool) (services.SecretResponse, error) {
-	return services.SecretResponse{Name: name, MainOnly: mainOnly}, nil
+func (m *mockSecretService) UpdateSecret(_ context.Context, _ *db.User, _, _, name string, mainOnly *bool, _ *services.SecretBinding) (services.SecretResponse, error) {
+	return services.SecretResponse{Name: name, MainOnly: mainOnly != nil && *mainOnly}, nil
 }
 
 func (m *mockSecretService) SetSecret(ctx context.Context, actor *db.User, owner, repo, name, value string, _ *bool, _ *services.SecretBinding) (services.SecretResponse, error) {

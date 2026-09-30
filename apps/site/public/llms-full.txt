@@ -2427,7 +2427,7 @@ A CI job receives a repository or organization secret only through its box's egr
 
 **GUI**
 
-**Available now.** `/secrets.bind NPM_TOKEN` opens the form: hosts and headers, comma-separated. Leave both empty to unbind.
+**Available now.** `/secrets.bind NPM_TOKEN` opens the form: hosts and headers, comma-separated. Unbind with the CLI or the API.
 
 **TUI**
 
@@ -2445,7 +2445,7 @@ smithers secret bind NPM_TOKEN
 
 **API**
 
-**Available now**, admin only. `hosts` and `match_headers` in `POST /api/repos/{owner}/{repo}/secrets` or `POST /api/orgs/{org}/secrets`, both or neither, or `PATCH /api/repos/{owner}/{repo}/secrets/{name}` with `{"hosts": ["registry.npmjs.org"], "match_headers": ["authorization"]}`; empty lists unbind. The lists show `hosts` and `match_headers`.
+**Available now**, admin only. `hosts` and `match_headers` in `POST /api/repos/{owner}/{repo}/secrets` or `POST /api/orgs/{org}/secrets`, both or neither, or `PATCH /api/repos/{owner}/{repo}/secrets/{name}` with `{"hosts": ["registry.npmjs.org"], "match_headers": ["authorization"]}`, which may also carry `main_only`; two empty lists unbind, and one list without the other is refused. The lists show `hosts` and `match_headers`.
 
 ## Next
 

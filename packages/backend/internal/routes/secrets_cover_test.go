@@ -25,12 +25,8 @@ type secretsCovService struct {
 	deleteOrgSecretFn func(context.Context, *db.User, string, string) error
 }
 
-func (s secretsCovService) SetSecretBinding(_ context.Context, _ *db.User, _, _, name string, binding services.SecretBinding) (services.SecretResponse, error) {
-	return services.SecretResponse{Name: name, Hosts: binding.Hosts, MatchHeaders: binding.MatchHeaders}, nil
-}
-
-func (s secretsCovService) SetSecretMainOnly(_ context.Context, _ *db.User, _, _, name string, mainOnly bool) (services.SecretResponse, error) {
-	return services.SecretResponse{Name: name, MainOnly: mainOnly}, nil
+func (s secretsCovService) UpdateSecret(_ context.Context, _ *db.User, _, _, name string, mainOnly *bool, _ *services.SecretBinding) (services.SecretResponse, error) {
+	return services.SecretResponse{Name: name, MainOnly: mainOnly != nil && *mainOnly}, nil
 }
 
 func (s secretsCovService) SetSecret(ctx context.Context, actor *db.User, owner, repo, name, value string, _ *bool, _ *services.SecretBinding) (services.SecretResponse, error) {

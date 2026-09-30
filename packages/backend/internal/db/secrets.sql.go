@@ -365,60 +365,34 @@ func (q *Queries) ListSecrets(ctx context.Context, repositoryID int64) ([]ListSe
 	return items, nil
 }
 
-const setSecretBinding = `-- name: SetSecretBinding :one
+const updateSecretSettings = `-- name: UpdateSecretSettings :one
 UPDATE repository_secrets
-SET hosts = $1::text[], match_headers = $2::text[], updated_at = NOW()
-WHERE repository_id = $3 AND name = $4
+SET main_only = COALESCE($1::boolean, main_only),
+    hosts = COALESCE($2::text[], hosts),
+    match_headers = COALESCE($3::text[], match_headers),
+    updated_at = NOW()
+WHERE repository_id = $4 AND name = $5
 RETURNING id, repository_id, name, value_encrypted, created_at, updated_at, subscription_token_flagged_at, main_only, hosts, match_headers
 `
 
-type SetSecretBindingParams struct {
-	Hosts        []string `json:"hosts"`
-	MatchHeaders []string `json:"match_headers"`
-	RepositoryID int64    `json:"repository_id"`
-	Name         string   `json:"name"`
+type UpdateSecretSettingsParams struct {
+	MainOnly     pgtype.Bool `json:"main_only"`
+	Hosts        []string    `json:"hosts"`
+	MatchHeaders []string    `json:"match_headers"`
+	RepositoryID int64       `json:"repository_id"`
+	Name         string      `json:"name"`
 }
 
-// The hosts and request headers a secret may be sent to, without its value.
-// Empty on both sides unbinds it.
-func (q *Queries) SetSecretBinding(ctx context.Context, arg SetSecretBindingParams) (RepositorySecret, error) {
-	row := q.db.QueryRow(ctx, setSecretBinding,
+// A secret's main-only mark and egress binding, without its value, in one
+// write: NULL keeps a setting. Empty lists unbind it.
+func (q *Queries) UpdateSecretSettings(ctx context.Context, arg UpdateSecretSettingsParams) (RepositorySecret, error) {
+	row := q.db.QueryRow(ctx, updateSecretSettings,
+		arg.MainOnly,
 		arg.Hosts,
 		arg.MatchHeaders,
 		arg.RepositoryID,
 		arg.Name,
 	)
-	var i RepositorySecret
-	err := row.Scan(
-		&i.ID,
-		&i.RepositoryID,
-		&i.Name,
-		&i.ValueEncrypted,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.SubscriptionTokenFlaggedAt,
-		&i.MainOnly,
-		&i.Hosts,
-		&i.MatchHeaders,
-	)
-	return i, err
-}
-
-const setSecretMainOnly = `-- name: SetSecretMainOnly :one
-UPDATE repository_secrets
-SET main_only = $1, updated_at = NOW()
-WHERE repository_id = $2 AND name = $3
-RETURNING id, repository_id, name, value_encrypted, created_at, updated_at, subscription_token_flagged_at, main_only, hosts, match_headers
-`
-
-type SetSecretMainOnlyParams struct {
-	MainOnly     bool   `json:"main_only"`
-	RepositoryID int64  `json:"repository_id"`
-	Name         string `json:"name"`
-}
-
-func (q *Queries) SetSecretMainOnly(ctx context.Context, arg SetSecretMainOnlyParams) (RepositorySecret, error) {
-	row := q.db.QueryRow(ctx, setSecretMainOnly, arg.MainOnly, arg.RepositoryID, arg.Name)
 	var i RepositorySecret
 	err := row.Scan(
 		&i.ID,

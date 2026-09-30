@@ -149,6 +149,14 @@ func TestResolveChatModelCredentialSources(t *testing.T) {
 	require.Equal(t, "owner-key", binding.CredentialValue)
 	_, err = f.pool.Exec(ctx, `UPDATE repository_secrets SET main_only = false WHERE repository_id = $1 AND name = 'OPENAI_API_KEY'`, f.repo)
 	require.NoError(t, err)
+	// Nor does one bound to hosts (#3175): only an egress proxy carries it.
+	_, err = f.pool.Exec(ctx, `UPDATE repository_secrets SET hosts = '{api.openai.com}', match_headers = '{authorization}' WHERE repository_id = $1 AND name = 'OPENAI_API_KEY'`, f.repo)
+	require.NoError(t, err)
+	binding, err = resolver.ResolveChatModel(ctx, f.owner, f.repo, request("OPENAI_API_KEY"))
+	require.NoError(t, err)
+	require.Equal(t, "owner-key", binding.CredentialValue)
+	_, err = f.pool.Exec(ctx, `UPDATE repository_secrets SET hosts = '{}', match_headers = '{}' WHERE repository_id = $1 AND name = 'OPENAI_API_KEY'`, f.repo)
+	require.NoError(t, err)
 
 	// A custom credential is pinned to its enrolled origin.
 	require.Equal(t, true, f.credential(t, "enroll", "enroll-1002", "CUSTOM_KEY", "https://models.example", "custom-key")["ok"])

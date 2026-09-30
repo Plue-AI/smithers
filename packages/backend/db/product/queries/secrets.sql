@@ -12,17 +12,14 @@ DO UPDATE SET value_encrypted = EXCLUDED.value_encrypted, subscription_token_fla
     updated_at = NOW()
 RETURNING *;
 
--- name: SetSecretMainOnly :one
+-- name: UpdateSecretSettings :one
+-- A secret's main-only mark and egress binding, without its value, in one
+-- write: NULL keeps a setting. Empty lists unbind it.
 UPDATE repository_secrets
-SET main_only = sqlc.arg(main_only), updated_at = NOW()
-WHERE repository_id = sqlc.arg(repository_id) AND name = sqlc.arg(name)
-RETURNING *;
-
--- name: SetSecretBinding :one
--- The hosts and request headers a secret may be sent to, without its value.
--- Empty on both sides unbinds it.
-UPDATE repository_secrets
-SET hosts = sqlc.arg(hosts)::text[], match_headers = sqlc.arg(match_headers)::text[], updated_at = NOW()
+SET main_only = COALESCE(sqlc.narg(main_only)::boolean, main_only),
+    hosts = COALESCE(sqlc.narg(hosts)::text[], hosts),
+    match_headers = COALESCE(sqlc.narg(match_headers)::text[], match_headers),
+    updated_at = NOW()
 WHERE repository_id = sqlc.arg(repository_id) AND name = sqlc.arg(name)
 RETURNING *;
 

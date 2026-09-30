@@ -84,7 +84,7 @@ export interface SecretsSeam {
   readonly listSecrets: ViewAction<[repo?: string]>
   /** Mark a repository secret main-only (D-24), or give it to every run again. */
   readonly scopeSecret: (name: string, scope: "main-only" | "all", repo?: string) => Promise<{ readonly value: string } | string>
-  /** Set or clear the hosts and headers a repository secret may be sent to (#3175); CI receives only bound secrets. */
+  /** Set the hosts and headers a repository secret may be sent to (#3175); CI receives only bound secrets. */
   readonly bindSecret: (input: SecretInput) => Promise<{ readonly value: string } | string>
   readonly connectCodingProvider: (gesture?: CommandGesture) => Promise<{ readonly value: string } | string>
   readonly connectCodex: () => Promise<{ readonly value: string } | string>
@@ -762,8 +762,9 @@ export const createSecretsSeam = (ctx: SeamContext, withToast: FailureController
   }
 
   /*
-   * A repository secret's egress binding, without its value. Both lists empty
-   * unbind it. The reply names the stored binding.
+   * A repository secret's egress binding, without its value. Both lists are
+   * required: an omitted field never clears a stored binding. The reply names
+   * the stored hosts.
    */
   const bindSecret: SecretsSeam["bindSecret"] = async (input) => {
     const target = resolveTargetRepo(ctx.store, input.repo)
@@ -772,7 +773,7 @@ export const createSecretsSeam = (ctx: SeamContext, withToast: FailureController
     if (!SECRET_NAME.test(name)) return "Use letters, digits and _ for the name."
     const hosts = listOf(input.hosts)
     const headers = listOf(input.headers)
-    if ((hosts.length === 0) !== (headers.length === 0)) return "Give both hosts and headers, or neither."
+    if (hosts.length === 0 || headers.length === 0) return "Give both hosts and headers."
     const [owner = "", repoName = ""] = target.repo.split("/")
     let response: Response
     try {
@@ -786,7 +787,7 @@ export const createSecretsSeam = (ctx: SeamContext, withToast: FailureController
     if (!response.ok) return readErrorMessage(response, `${name} couldn't be changed in ${target.repo} (HTTP ${response.status}).`)
     const stored = await response.json().catch(() => undefined) as { hosts?: unknown } | undefined
     const bound = Array.isArray(stored?.hosts) ? stored.hosts.filter((host): host is string => typeof host === "string") : []
-    return { value: bound.length === 0 ? `${name}: unbound` : `${name}: ${bound.join(", ")}` }
+    return { value: `${name}: ${bound.join(", ")}` }
   }
 
   return {

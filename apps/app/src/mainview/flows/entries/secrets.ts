@@ -74,19 +74,24 @@ export const secretsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> 
     args: "<NAME> [owner/repo]",
     requires: ["signed-in"],
     input: Schema.Struct({
-      name: Schema.String, hosts: Schema.optional(Schema.String), headers: Schema.optional(Schema.String), repo: Schema.optional(Schema.String)
+      name: Schema.String, hosts: Schema.String, headers: Schema.String, repo: Schema.optional(Schema.String)
     }),
     form: {
       submitLabel: "Save",
       fields: {
         name: { label: "Name", placeholder: "NPM_TOKEN", kind: "text" },
-        hosts: { label: "Hosts", placeholder: "registry.npmjs.org", kind: "text" },
-        headers: { label: "Headers", placeholder: "authorization", kind: "text" },
+        hosts: { label: "Hosts", placeholder: "registry.npmjs.org", kind: "text", required: true },
+        headers: { label: "Headers", placeholder: "authorization", kind: "text", required: true },
         repo: { label: "Repository", optionsFrom: "cloud-repos", kind: "text" }
       }
     },
     /* A binding chooses where a secret's value may be sent, so the agent may only ask. */
     confirm: payload => `bind secret ${String(payload["name"])} in ${scopeRepo(actions, payload) ?? "the selected repository"}`,
+    /* The confirmation carries the repository named at ask time, so switching repositories cannot retarget it. */
+    confirmArgs: payload => {
+      const repo = scopeRepo(actions, payload)
+      return repo === undefined ? undefined : JSON.stringify({ name: payload["name"], hosts: payload["hosts"], headers: payload["headers"], repo })
+    },
     handler: ({ name, hosts, headers, repo }) => actions.bindSecret({ name, hosts, headers, repo })
   }),
   flow({

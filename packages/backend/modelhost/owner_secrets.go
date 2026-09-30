@@ -98,10 +98,11 @@ func (resolver *OwnerSecretResolver) ResolveChatModel(ctx context.Context, owner
 	read := func(name string) (string, error) {
 		var encrypted []byte
 		if input.RepositoryID > 0 {
-			// A chat turn is an agent's: a main-only secret never reaches it.
+			// A chat turn is an agent's: a main-only secret never reaches it,
+			// nor one bound to hosts, which only an egress proxy may carry.
 			err := pool.QueryRow(ctx, `SELECT s.value_encrypted FROM repository_secrets s
 				JOIN repositories r ON r.id=s.repository_id
-				WHERE r.id=$1 AND r.user_id=$2 AND s.name=$3 AND NOT s.main_only`, input.RepositoryID, ownerID, name).Scan(&encrypted)
+				WHERE r.id=$1 AND r.user_id=$2 AND s.name=$3 AND NOT s.main_only AND cardinality(s.hosts) = 0`, input.RepositoryID, ownerID, name).Scan(&encrypted)
 			if err == nil {
 				return codec.DecryptString(string(encrypted))
 			}

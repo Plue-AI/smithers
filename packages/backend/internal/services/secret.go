@@ -34,8 +34,7 @@ type SecretQuerier interface {
 	GetCollaboratorPermissionForRepoUser(ctx context.Context, arg db.GetCollaboratorPermissionForRepoUserParams) (string, error)
 
 	CreateOrUpdateSecret(ctx context.Context, arg db.CreateOrUpdateSecretParams) (db.RepositorySecret, error)
-	SetSecretMainOnly(ctx context.Context, arg db.SetSecretMainOnlyParams) (db.RepositorySecret, error)
-	SetSecretBinding(ctx context.Context, arg db.SetSecretBindingParams) (db.RepositorySecret, error)
+	UpdateSecretSettings(ctx context.Context, arg db.UpdateSecretSettingsParams) (db.RepositorySecret, error)
 	ListSecrets(ctx context.Context, repositoryID int64) ([]db.ListSecretsRow, error)
 	ListSecretValuesForRepo(ctx context.Context, repositoryID int64) ([]db.ListSecretValuesForRepoRow, error)
 	DeleteSecret(ctx context.Context, arg db.DeleteSecretParams) error
@@ -117,6 +116,13 @@ type SecretBinding struct {
 
 // normalize validates the binding and returns it in stored form.
 func (b SecretBinding) normalize() (SecretBinding, error) {
+	// A blank entry would normalise away and could turn a binding into an
+	// unbind; only two explicitly empty lists unbind.
+	for _, entry := range append(append([]string(nil), b.Hosts...), b.MatchHeaders...) {
+		if strings.TrimSpace(entry) == "" {
+			return SecretBinding{}, pkgerrors.BadRequest("secret binding entries must not be blank")
+		}
+	}
 	hosts, matchHeaders, err := validateSecretBinding(b.Hosts, b.MatchHeaders)
 	if err != nil {
 		return SecretBinding{}, err
@@ -217,44 +223,16 @@ func repositorySecretResponse(secret db.RepositorySecret) SecretResponse {
 	}
 }
 
-// SetSecretMainOnly marks a repository secret main-only, or clears the mark,
-// without its value. Only an administrator (a person: a run credential is
-// never one) changes it.
-func (s *SecretService) SetSecretMainOnly(ctx context.Context, actor *db.User, owner, repo, name string, mainOnly bool) (SecretResponse, error) {
-	if actor == nil {
-		return SecretResponse{}, pkgerrors.Unauthorized("authentication required")
-	}
-	trimmedName := strings.TrimSpace(name)
-	if !IsInjectedSecretName(trimmedName) {
-		return SecretResponse{}, pkgerrors.ValidationFailed(pkgerrors.FieldError{Resource: "Secret", Field: "name", Code: "invalid"})
-	}
-	repository, err := s.resolveRepoByOwnerAndName(ctx, owner, repo)
-	if err != nil {
-		return SecretResponse{}, err
-	}
-	if err := s.requireAdminAccess(ctx, repository, actor); err != nil {
-		return SecretResponse{}, err
-	}
-	var updated db.RepositorySecret
-	if err := guardedRepoWrite(ctx, s.ownershipGuard, repository, func() error {
-		var werr error
-		updated, werr = s.queries.SetSecretMainOnly(ctx, db.SetSecretMainOnlyParams{MainOnly: mainOnly, RepositoryID: repository.ID, Name: trimmedName})
-		if stdErrors.Is(werr, pgx.ErrNoRows) {
-			return pkgerrors.NotFound("secret not found")
-		}
-		if werr != nil {
-			return pkgerrors.Internal("failed to set secret scope").WithCause(werr)
-		}
-		return nil
-	}); err != nil {
-		return SecretResponse{}, err
-	}
-	return repositorySecretResponse(updated), nil
+// SetSecretBinding sets or clears a repository secret's egress binding
+// without its value (UpdateSecret).
+func (s *SecretService) SetSecretBinding(ctx context.Context, actor *db.User, owner, repo, name string, binding SecretBinding) (SecretResponse, error) {
+	return s.UpdateSecret(ctx, actor, owner, repo, name, nil, &binding)
 }
 
-// SetSecretBinding sets or clears a repository secret's egress binding
-// without its value. Only an administrator changes it.
-func (s *SecretService) SetSecretBinding(ctx context.Context, actor *db.User, owner, repo, name string, binding SecretBinding) (SecretResponse, error) {
+// UpdateSecret changes a repository secret's main-only mark and egress
+// binding without its value, in one write; nil keeps a setting. Only an
+// administrator (a person: a run credential is never one) changes them.
+func (s *SecretService) UpdateSecret(ctx context.Context, actor *db.User, owner, repo, name string, mainOnly *bool, binding *SecretBinding) (SecretResponse, error) {
 	if actor == nil {
 		return SecretResponse{}, pkgerrors.Unauthorized("authentication required")
 	}
@@ -262,9 +240,19 @@ func (s *SecretService) SetSecretBinding(ctx context.Context, actor *db.User, ow
 	if !IsInjectedSecretName(trimmedName) {
 		return SecretResponse{}, pkgerrors.ValidationFailed(pkgerrors.FieldError{Resource: "Secret", Field: "name", Code: "invalid"})
 	}
-	normalized, err := binding.normalize()
-	if err != nil {
-		return SecretResponse{}, err
+	if mainOnly == nil && binding == nil {
+		return SecretResponse{}, pkgerrors.BadRequest("main_only or a binding is required")
+	}
+	params := db.UpdateSecretSettingsParams{Name: trimmedName}
+	if mainOnly != nil {
+		params.MainOnly = pgtype.Bool{Bool: *mainOnly, Valid: true}
+	}
+	if binding != nil {
+		normalized, err := binding.normalize()
+		if err != nil {
+			return SecretResponse{}, err
+		}
+		params.Hosts, params.MatchHeaders = normalized.Hosts, normalized.MatchHeaders
 	}
 	repository, err := s.resolveRepoByOwnerAndName(ctx, owner, repo)
 	if err != nil {
@@ -273,17 +261,16 @@ func (s *SecretService) SetSecretBinding(ctx context.Context, actor *db.User, ow
 	if err := s.requireAdminAccess(ctx, repository, actor); err != nil {
 		return SecretResponse{}, err
 	}
+	params.RepositoryID = repository.ID
 	var updated db.RepositorySecret
 	if err := guardedRepoWrite(ctx, s.ownershipGuard, repository, func() error {
 		var werr error
-		updated, werr = s.queries.SetSecretBinding(ctx, db.SetSecretBindingParams{
-			Hosts: normalized.Hosts, MatchHeaders: normalized.MatchHeaders, RepositoryID: repository.ID, Name: trimmedName,
-		})
+		updated, werr = s.queries.UpdateSecretSettings(ctx, params)
 		if stdErrors.Is(werr, pgx.ErrNoRows) {
 			return pkgerrors.NotFound("secret not found")
 		}
 		if werr != nil {
-			return pkgerrors.Internal("failed to set secret binding").WithCause(werr)
+			return pkgerrors.Internal("failed to update secret").WithCause(werr)
 		}
 		return nil
 	}); err != nil {

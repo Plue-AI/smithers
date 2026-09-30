@@ -12,8 +12,7 @@ import (
 
 type SecretRouteService interface {
 	SetSecret(ctx context.Context, actor *db.User, owner, repo, name, value string, mainOnly *bool, binding *services.SecretBinding) (services.SecretResponse, error)
-	SetSecretMainOnly(ctx context.Context, actor *db.User, owner, repo, name string, mainOnly bool) (services.SecretResponse, error)
-	SetSecretBinding(ctx context.Context, actor *db.User, owner, repo, name string, binding services.SecretBinding) (services.SecretResponse, error)
+	UpdateSecret(ctx context.Context, actor *db.User, owner, repo, name string, mainOnly *bool, binding *services.SecretBinding) (services.SecretResponse, error)
 	ListSecrets(ctx context.Context, actor *db.User, owner, repo string) ([]services.SecretResponse, error)
 	DeleteSecret(ctx context.Context, actor *db.User, owner, repo, name string) error
 	SetOrgSecret(ctx context.Context, actor *db.User, orgName, name, value string, binding *services.SecretBinding) (services.SecretResponse, error)
@@ -44,18 +43,17 @@ type secretBindingRequest struct {
 	MatchHeaders *[]string `json:"match_headers"`
 }
 
-func (b secretBindingRequest) binding() *services.SecretBinding {
+// binding is the write's binding, nil when it names none. hosts and
+// match_headers go together: one without the other is refused, so a
+// half-written binding can never clear a stored one.
+func (b secretBindingRequest) binding() (*services.SecretBinding, *errors.APIError) {
 	if b.Hosts == nil && b.MatchHeaders == nil {
-		return nil
+		return nil, nil
 	}
-	binding := services.SecretBinding{}
-	if b.Hosts != nil {
-		binding.Hosts = *b.Hosts
+	if b.Hosts == nil || b.MatchHeaders == nil {
+		return nil, errors.BadRequest("hosts and match_headers go together")
 	}
-	if b.MatchHeaders != nil {
-		binding.MatchHeaders = *b.MatchHeaders
-	}
-	return &binding
+	return &services.SecretBinding{Hosts: *b.Hosts, MatchHeaders: *b.MatchHeaders}, nil
 }
 
 type setSecretScopeRequest struct {
@@ -107,7 +105,12 @@ func (h *SecretHandler) SetSecret(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	secret, err := h.Service.SetSecret(r.Context(), actor, owner, repo, req.Name, req.Value, req.MainOnly, req.binding())
+	binding, apiErr := req.binding()
+	if apiErr != nil {
+		errors.WriteError(w, apiErr)
+		return
+	}
+	secret, err := h.Service.SetSecret(r.Context(), actor, owner, repo, req.Name, req.Value, req.MainOnly, binding)
 	if err != nil {
 		writeRouteError(w, r, err)
 		return
@@ -142,23 +145,19 @@ func (h *SecretHandler) SetSecretScope(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSONBodyWithMessage(w, r, &req, "main_only or a binding is required") {
 		return
 	}
-	binding := req.binding()
+	binding, apiErr := req.binding()
+	if apiErr != nil {
+		errors.WriteError(w, apiErr)
+		return
+	}
 	if req.MainOnly == nil && binding == nil {
 		errors.WriteError(w, errors.BadRequest("main_only or a binding is required"))
 		return
 	}
-	var secret services.SecretResponse
-	if binding != nil {
-		if secret, err = h.Service.SetSecretBinding(r.Context(), actor, owner, repo, name, *binding); err != nil {
-			writeRouteError(w, r, err)
-			return
-		}
-	}
-	if req.MainOnly != nil {
-		if secret, err = h.Service.SetSecretMainOnly(r.Context(), actor, owner, repo, name, *req.MainOnly); err != nil {
-			writeRouteError(w, r, err)
-			return
-		}
+	secret, err := h.Service.UpdateSecret(r.Context(), actor, owner, repo, name, req.MainOnly, binding)
+	if err != nil {
+		writeRouteError(w, r, err)
+		return
 	}
 	errors.WriteJSON(w, http.StatusOK, secret)
 }
@@ -235,7 +234,12 @@ func (h *SecretHandler) SetOrgSecret(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	secret, err := h.Service.SetOrgSecret(r.Context(), actor, orgName, req.Name, req.Value, req.binding())
+	binding, apiErr := req.binding()
+	if apiErr != nil {
+		errors.WriteError(w, apiErr)
+		return
+	}
+	secret, err := h.Service.SetOrgSecret(r.Context(), actor, orgName, req.Name, req.Value, binding)
 	if err != nil {
 		writeRouteError(w, r, err)
 		return

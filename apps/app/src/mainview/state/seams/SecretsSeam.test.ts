@@ -305,7 +305,7 @@ describe("secrets seam — secrets.scope", () => {
 })
 
 describe("secrets seam — secrets.bind", () => {
-  test("binds a repository secret to hosts and headers, unbinds it, and refuses a one-sided binding", async () => {
+  test("binds a repository secret to hosts and headers and never sends an omitted binding", async () => {
     const requests: Array<{ readonly method: string; readonly url: string; readonly body: unknown }> = []
     const services: AppServices = {
       fetchImpl: async (input, init) => {
@@ -325,18 +325,22 @@ describe("secrets seam — secrets.bind", () => {
       .toMatchObject({ status: "executed", value: "NPM_TOKEN: registry.npmjs.org, npm.example.com" })
     expect(requests[0]).toMatchObject({ method: "PATCH", body: { hosts: ["registry.npmjs.org", "npm.example.com"], match_headers: ["authorization"] } })
     expect(requests[0]!.url).toEndWith("/api/repos/will/flows/secrets/NPM_TOKEN")
-    expect(await bind({ name: "NPM_TOKEN" })).toMatchObject({ status: "executed", value: "NPM_TOKEN: unbound" })
-    expect(requests[1]).toMatchObject({ body: { hosts: [], match_headers: [] } })
-    expect(JSON.stringify(await bind({ name: "NPM_TOKEN", hosts: "registry.npmjs.org" }))).toContain("both hosts and headers")
+    // A bare name opens the form; it never unbinds.
+    expect(await bind({ name: "NPM_TOKEN" })).toMatchObject({ status: "form" })
+    expect(await controller.commands.run("secrets.bind", "NPM_TOKEN")).toMatchObject({ status: "form" })
+    expect(JSON.stringify(await bind({ name: "NPM_TOKEN", hosts: "registry.npmjs.org", headers: " , " }))).toContain("both hosts and headers")
     expect(JSON.stringify(await bind({ name: "bad name", hosts: "a.example.com", headers: "authorization" }))).toContain("letters, digits")
-    expect(requests).toHaveLength(2)
+    expect(requests).toHaveLength(1)
     expect(JSON.stringify(await bind({ name: "MISSING", hosts: "a.example.com", headers: "authorization" }))).toContain("secret not found")
     // A binding chooses where a value may go: the agent only asks, a human confirms.
+    await store.dispatch({ type: "repo.selected", actor: "user", id: "will/flows" }).isPersisted.promise
     const before = requests.length
     expect(await controller.commands.runForAgent("secrets.bind", JSON.stringify({ name: "NPM_TOKEN", hosts: "evil.example.com", headers: "authorization" })))
       .toMatchObject({ status: "executed" })
     expect(requests.length).toBe(before)
-    expect([...store.collections.messages.values()].some(message => message.action?.flow === "secrets.bind")).toBe(true)
+    const confirmation = [...store.collections.messages.values()].find(message => message.action?.flow === "secrets.bind")
+    // The confirmation pins the repository named at ask time.
+    expect(JSON.parse(String(confirmation?.action?.args))).toEqual({ name: "NPM_TOKEN", hosts: "evil.example.com", headers: "authorization", repo: "will/flows" })
   })
 })
 

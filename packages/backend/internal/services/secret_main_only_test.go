@@ -88,15 +88,15 @@ func TestMainOnlySecretsReachOnlyTrustedMainRunsPostgres(t *testing.T) {
 
 	// The mark changes without the value; a run credential cannot change it.
 	runCtx := middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: owner, IsTokenAuth: true, TokenSystemIssued: true, RawScopes: "admin:repository"})
-	_, err = service.SetSecretMainOnly(runCtx, owner, owner.Username, repoName, "DEPLOY_TOKEN", false)
+	_, err = service.UpdateSecret(runCtx, owner, owner.Username, repoName, "DEPLOY_TOKEN", boolPtr(false), nil)
 	require.Error(t, err)
 	assert.Equal(t, 403, apiStatus(t, err))
-	cleared, err := service.SetSecretMainOnly(ctx, owner, owner.Username, repoName, "DEPLOY_TOKEN", false)
+	cleared, err := service.UpdateSecret(ctx, owner, owner.Username, repoName, "DEPLOY_TOKEN", boolPtr(false), nil)
 	require.NoError(t, err)
 	assert.False(t, cleared.MainOnly)
 	agent, err = service.ListDecryptedSecretsForRepo(ctx, repositoryID)
 	require.NoError(t, err)
 	assert.Equal(t, "deploy-2", agent["DEPLOY_TOKEN"])
-	_, err = service.SetSecretMainOnly(ctx, owner, owner.Username, repoName, "MISSING", true)
+	_, err = service.UpdateSecret(ctx, owner, owner.Username, repoName, "MISSING", boolPtr(true), nil)
 	assert.Equal(t, 404, apiStatus(t, err))
 }

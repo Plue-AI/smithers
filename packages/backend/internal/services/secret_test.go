@@ -74,12 +74,8 @@ func (m *mockSecretQuerier) GetCollaboratorPermissionForRepoUser(ctx context.Con
 	return "", nil
 }
 
-func (m *mockSecretQuerier) SetSecretBinding(_ context.Context, arg db.SetSecretBindingParams) (db.RepositorySecret, error) {
-	return db.RepositorySecret{Name: arg.Name, Hosts: arg.Hosts, MatchHeaders: arg.MatchHeaders}, nil
-}
-
-func (m *mockSecretQuerier) SetSecretMainOnly(_ context.Context, arg db.SetSecretMainOnlyParams) (db.RepositorySecret, error) {
-	return db.RepositorySecret{Name: arg.Name, MainOnly: arg.MainOnly}, nil
+func (m *mockSecretQuerier) UpdateSecretSettings(_ context.Context, arg db.UpdateSecretSettingsParams) (db.RepositorySecret, error) {
+	return db.RepositorySecret{Name: arg.Name, MainOnly: arg.MainOnly.Bool, Hosts: arg.Hosts, MatchHeaders: arg.MatchHeaders}, nil
 }
 
 func (m *mockSecretQuerier) CreateOrUpdateSecret(ctx context.Context, arg db.CreateOrUpdateSecretParams) (db.RepositorySecret, error) {

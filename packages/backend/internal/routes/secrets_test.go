@@ -25,13 +25,16 @@ type mockSecretRouteService struct {
 	orgBinding     *services.SecretBinding
 }
 
-func (m *mockSecretRouteService) SetSecretBinding(_ context.Context, _ *db.User, _, _, name string, binding services.SecretBinding) (services.SecretResponse, error) {
-	m.binding = &binding
-	return services.SecretResponse{Name: name, Hosts: binding.Hosts, MatchHeaders: binding.MatchHeaders}, nil
-}
-
-func (m *mockSecretRouteService) SetSecretMainOnly(_ context.Context, _ *db.User, _, _, name string, mainOnly bool) (services.SecretResponse, error) {
-	return services.SecretResponse{Name: name, MainOnly: mainOnly}, nil
+func (m *mockSecretRouteService) UpdateSecret(_ context.Context, _ *db.User, _, _, name string, mainOnly *bool, binding *services.SecretBinding) (services.SecretResponse, error) {
+	m.mainOnly, m.binding = mainOnly, binding
+	response := services.SecretResponse{Name: name}
+	if mainOnly != nil {
+		response.MainOnly = *mainOnly
+	}
+	if binding != nil {
+		response.Hosts, response.MatchHeaders = binding.Hosts, binding.MatchHeaders
+	}
+	return response, nil
 }
 
 func (m *mockSecretRouteService) SetSecret(ctx context.Context, actor *db.User, owner, repo, name, value string, mainOnly *bool, binding *services.SecretBinding) (services.SecretResponse, error) {
@@ -250,10 +253,24 @@ func TestSecretHandler_HostBinding(t *testing.T) {
 	rec = serve(http.MethodPost, `{"name":"NPM_TOKEN","value":"v"}`, repo, h.SetSecret)
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
 	assert.Nil(t, service.binding, "an omitted binding keeps the stored one")
-	rec = serve(http.MethodPost, `{"name":"NPM_TOKEN","value":"v","hosts":[],"match_headers":null}`, repo, h.SetSecret)
+	rec = serve(http.MethodPost, `{"name":"NPM_TOKEN","value":"v","hosts":[],"match_headers":[]}`, repo, h.SetSecret)
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
 	require.NotNil(t, service.binding)
-	assert.Equal(t, services.SecretBinding{Hosts: []string{}}, *service.binding, "an empty list unbinds")
+	assert.Equal(t, services.SecretBinding{Hosts: []string{}, MatchHeaders: []string{}}, *service.binding, "two empty lists unbind")
+	service.binding = nil
+	for _, body := range []string{
+		`{"name":"NPM_TOKEN","value":"v","hosts":[]}`,
+		`{"name":"NPM_TOKEN","value":"v","hosts":[],"match_headers":null}`,
+		`{"name":"NPM_TOKEN","value":"v","match_headers":["authorization"]}`,
+	} {
+		rec = serve(http.MethodPost, body, repo, h.SetSecret)
+		assert.Equal(t, http.StatusBadRequest, rec.Code, body)
+		rec = serve(http.MethodPatch, body, repo, h.SetSecretScope)
+		assert.Equal(t, http.StatusBadRequest, rec.Code, body)
+		rec = serve(http.MethodPost, body, map[string]string{"org": "acme"}, h.SetOrgSecret)
+		assert.Equal(t, http.StatusBadRequest, rec.Code, body)
+	}
+	assert.Nil(t, service.binding, "a half-written binding reaches no service")
 
 	service.binding = nil
 	rec = serve(http.MethodPatch, `{"hosts":["api.example.com"],"match_headers":["x-api-key"]}`, repo, h.SetSecretScope)
@@ -264,7 +281,9 @@ func TestSecretHandler_HostBinding(t *testing.T) {
 	rec = serve(http.MethodPatch, `{"hosts":["api.example.com"],"match_headers":["x-api-key"],"main_only":true}`, repo, h.SetSecretScope)
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
-	assert.True(t, got.MainOnly, "one request may change the scope and the binding")
+	assert.True(t, got.MainOnly, "one request changes the scope and the binding, in one service write")
+	require.NotNil(t, service.mainOnly)
+	require.NotNil(t, service.binding)
 
 	org := map[string]string{"org": "acme"}
 	rec = serve(http.MethodPost, `{"name":"ORG_KEY","value":"v","hosts":["deploy.example.com"],"match_headers":["authorization"]}`, org, h.SetOrgSecret)
