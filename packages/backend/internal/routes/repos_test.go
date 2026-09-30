@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -104,10 +105,16 @@ func TestRepositoryHomeMissingStorage(t *testing.T) {
 type pagedRepoRouteService struct{ mockRepoRouteService }
 
 func (pagedRepoRouteService) ListRepoContentsPage(_ context.Context, _ *db.User, _, _, _, path, after string, limit int) ([]services.RepoContent, string, string, error) {
-	if path != "" || after != "README.md" || limit != 1 {
+	if path != "" || limit != 1 {
 		return nil, "", "", pkgerrors.BadRequest("unexpected page query")
 	}
-	return []services.RepoContent{{Name: "apps", Path: "apps", Type: "dir"}}, "apps", "0123456789012345678901234567890123456789", nil
+	switch after {
+	case "README.md":
+		return []services.RepoContent{{Name: "apps", Path: "apps", Type: "dir"}}, "apps", "0123456789012345678901234567890123456789", nil
+	case "apps":
+		return []services.RepoContent{{Name: " report ", Path: " report ", Type: "file"}}, " report /a%b+c", "0123456789012345678901234567890123456789", nil
+	}
+	return nil, "", "", pkgerrors.BadRequest("unexpected page query")
 }
 
 func TestRepoHandler_GetRepoContentsPage(t *testing.T) {
@@ -122,6 +129,15 @@ func TestRepoHandler_GetRepoContentsPage(t *testing.T) {
 	var entries []services.RepoContent
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &entries))
 	assert.Equal(t, "apps", entries[0].Path)
+	spaced := httptest.NewRequest(http.MethodGet, "/api/repos/alice/demo/contents?limit=1&after=apps", nil)
+	spaced = withRouteParams(spaced, map[string]string{"owner": "alice", "repo": "demo"})
+	spacedRec := httptest.NewRecorder()
+	h.GetRepoContents(spacedRec, spaced)
+	require.Equal(t, http.StatusOK, spacedRec.Code)
+	assert.Equal(t, "%20report%20%2Fa%25b+c", spacedRec.Header().Get("X-Next-Cursor"))
+	decoded, err := url.PathUnescape(spacedRec.Header().Get("X-Next-Cursor"))
+	require.NoError(t, err)
+	assert.Equal(t, " report /a%b+c", decoded)
 	invalid := httptest.NewRequest(http.MethodGet, "/api/repos/alice/demo/contents?limit=1001", nil)
 	invalid = withRouteParams(invalid, map[string]string{"owner": "alice", "repo": "demo"})
 	bad := httptest.NewRecorder()

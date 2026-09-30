@@ -118,12 +118,21 @@ export const paginationCursor = (headers: Headers, current: URL): string => {
     next = url.searchParams.get("cursor")!
     if (!next) throw invalid()
   }
-  const legacy = headers.get("x-next-cursor")
+  // X-Next-Cursor is percent-encoded so a path cursor keeps its edge whitespace.
+  const header = headers.get("x-next-cursor")
+  let legacy: string | null = null
+  if (header !== null) {
+    try {
+      legacy = decodeURIComponent(header)
+    } catch {
+      throw invalid()
+    }
+  }
   if (next !== undefined && legacy !== null && legacy !== next) throw invalid()
   const cursor = next ?? legacy ?? ""
-  // Whitespace and C0/DEL control characters never belong in a cursor.
+  // C0/DEL control characters never belong in a cursor; spaces may, as in a path.
   const control = [...cursor].some((char) => char <= "\u001f" || char === "\u007f")
-  if (cursor.length > 4096 || /\s/.test(cursor) || control) throw invalid()
+  if (cursor.length > 4096 || control) throw invalid()
   return cursor
 }
 /**

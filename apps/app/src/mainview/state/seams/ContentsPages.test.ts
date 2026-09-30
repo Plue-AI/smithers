@@ -21,6 +21,16 @@ describe("public contents pages", () => {
     expect(result).toEqual({ kind: "error", error: "Directory listing cursor did not advance." })
   })
 
+  test("refuses a cursor that is not valid percent-encoding", async () => {
+    let calls = 0
+    const result = await readContentsPages(async () => {
+      calls++
+      return Response.json([{ name: "first" }], { headers: { "X-Next-Cursor": "%E0%A4%A", "X-Contents-Commit": COMMIT } })
+    }, "/api/repos/a/b/contents")
+    expect(result).toEqual({ kind: "error", error: "Directory listing returned an invalid page." })
+    expect(calls).toBe(1)
+  })
+
   test("refuses a moving commit on a later page", async () => {
     let calls = 0
     const requests: string[] = []
@@ -65,9 +75,9 @@ test.each([
   const last = Response.json([{ name: "second" }], { headers: { "X-Contents-Commit": revision } })
   const result = await readContentsPages(async url => {
     seen.push(url)
-    return seen.length === 1 ? Response.json([{ name: "first" }], { headers: { "X-Next-Cursor": "a b/%&c", "X-Contents-Commit": revision } }) : last
+    return seen.length === 1 ? Response.json([{ name: "first" }], { headers: { "X-Next-Cursor": "%20a%20b%2F%25%26c+%20", "X-Contents-Commit": revision } }) : last
   }, url)
-  expect(seen).toEqual([url, `/contents?ref=${revision}&${query}after=a+b%2F%25%26c`])
+  expect(seen).toEqual([url, `/contents?ref=${revision}&${query}after=+a+b%2F%25%26c%2B+`])
   expect(result).toEqual({ kind: "response", response: last, body: [{ name: "first" }, { name: "second" }] })
   if (result.kind === "response") expect(result.response).toBe(last)
 })

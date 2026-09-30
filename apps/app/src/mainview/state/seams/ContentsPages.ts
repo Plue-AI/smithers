@@ -40,8 +40,15 @@ export const readContentsPages = async (http: SeamFetch, url: string): Promise<C
     if (cursor !== "" && pageCommit !== commit) {
       return { kind: "error", error: "Directory changed while listing." }
     }
-    const next = response.headers.get("X-Next-Cursor") ?? ""
-    if (next === "") return { kind: "response", response, body: entries }
+    const header = response.headers.get("X-Next-Cursor") ?? ""
+    if (header === "") return { kind: "response", response, body: entries }
+    // The backend percent-encodes the cursor so edge whitespace survives the header.
+    let next: string
+    try {
+      next = decodeURIComponent(header)
+    } catch {
+      return { kind: "error", error: "Directory listing returned an invalid page." }
+    }
     if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(pageCommit)) {
       return { kind: "error", error: "Directory listing has no revision." }
     }

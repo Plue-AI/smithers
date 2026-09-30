@@ -121,6 +121,26 @@ func TestContentsWhitespacePathsIntegration(t *testing.T) {
 		require.NotEmpty(t, cursor)
 	})
 
+	t.Run("directory_cursor_round_trips_whitespace_edged_names", func(t *testing.T) {
+		var names []string
+		query := url.Values{"limit": {"1"}}
+		for page := 0; ; page++ {
+			require.Less(t, page, 10, "cursor did not advance")
+			entries, next := list("", query.Encode())
+			require.Len(t, entries, 1)
+			names = append(names, entries[0].Name)
+			if next == "" {
+				break
+			}
+			require.Equal(t, strings.TrimSpace(next), next, "header value must not rely on edge whitespace")
+			after, err := url.PathUnescape(next)
+			require.NoError(t, err)
+			require.Equal(t, entries[0].Path, after)
+			query.Set("after", after)
+		}
+		require.ElementsMatch(t, []string{"  ", "   ", " dir ", " report ", "dir", "report"}, names)
+	})
+
 	t.Run("listed_paths_open_the_listed_item", func(t *testing.T) {
 		root, _ := list("", "")
 		names := make([]string, 0, len(root))

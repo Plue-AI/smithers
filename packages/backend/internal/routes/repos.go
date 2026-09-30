@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -438,7 +439,9 @@ func (h *RepoHandler) listContentsPage(w http.ResponseWriter, r *http.Request, o
 			w.Header().Set("X-Contents-Commit", commit)
 		}
 		if next != "" {
-			w.Header().Set("X-Next-Cursor", next)
+			// Header values lose leading and trailing whitespace, and a path may
+			// start or end with it; percent-encode the cursor so it round-trips.
+			w.Header().Set("X-Next-Cursor", url.PathEscape(next))
 		}
 		return entries, err
 	}

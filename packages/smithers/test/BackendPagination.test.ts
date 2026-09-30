@@ -8,6 +8,9 @@ describe("pagination metadata", () => {
     [
       [{}, ""],
       [{ "x-next-cursor": "legacy" }, "legacy"],
+      [{ "x-next-cursor": "%20report%20%2Fa%25b+c" }, " report /a%b+c"],
+      [{ link: "<?cursor=has%20space>; rel=\"next\"" }, "has space"],
+      [{ link: "<?cursor=%20a%20>; rel=\"next\"", "x-next-cursor": "%20a%20" }, " a "],
       [{ link: "</api/repos/owner/repo/issues?limit=1>; rel=\"first\"" }, ""],
       [{ link: "</api/repos/owner/repo/issues?cursor=Mg>; rel=\"next\"" }, "Mg"],
       [{ link: "<https://api.example.test/api/repos/owner/repo/issues?cursor=next>; rel=next" }, "next"],
@@ -31,8 +34,7 @@ describe("pagination metadata", () => {
     "malformed",
     "<?cursor=%0A>; rel=\"next\"",
     "<?cursor=a%01b>; rel=\"next\"",
-    "<?cursor=a%7Fb>; rel=\"next\"",
-    "<?cursor=has%20space>; rel=\"next\""
+    "<?cursor=a%7Fb>; rel=\"next\""
   ])("refuses invalid Link pagination %s", (link) => {
     expect(() => paginationCursor(new Headers({ link }), url)).toThrow("invalid pagination")
   })
@@ -42,6 +44,13 @@ describe("pagination metadata", () => {
     expect(() => paginationCursor(new Headers({ "x-next-cursor": "x".repeat(4097) }), url)).toThrow(
       "invalid pagination"
     )
+    expect(() => paginationCursor(new Headers({ "x-next-cursor": "%20".repeat(4097) }), url)).toThrow(
+      "invalid pagination"
+    )
+    expect(paginationCursor(new Headers({ "x-next-cursor": "%20".repeat(4096) }), url)).toBe(" ".repeat(4096))
+  })
+  it.each(["%E0%A4%A", "%", "a%0Ab", "%7F"])("refuses a malformed or control X-Next-Cursor %s", (header) => {
+    expect(() => paginationCursor(new Headers({ "x-next-cursor": header }), url)).toThrow("invalid pagination")
   })
 })
 
