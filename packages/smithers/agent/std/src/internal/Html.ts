@@ -47,7 +47,8 @@ const decode = (value: string): string =>
         ? String.fromCodePoint(number)
         : match
     }
-    return entities[entity.toLowerCase()] ?? match
+    const key = entity.toLowerCase()
+    return Object.hasOwn(entities, key) ? entities[key]! : match
   })
 
 const source = (html: string): string => dropSkipped(html.replace(comments, ""))

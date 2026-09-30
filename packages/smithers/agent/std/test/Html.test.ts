@@ -13,6 +13,13 @@ describe("Html", () => {
     expect(toText(html)).toBe("Visible & 😀 'quoted'")
   })
 
+  it("preserves unknown and inherited-property entities in text and Markdown", () => {
+    const html = "<p>ordinary &amp; &unknown; &constructor; &toString; &__proto__; &AMP;</p>"
+    const expected = "ordinary & &unknown; &constructor; &toString; &__proto__; &"
+    expect(toText(html)).toBe(expected)
+    expect(toMarkdown(html)).toBe(expected)
+  })
+
   it("renders headings, emphasis, links, and list items in Markdown", () => {
     const markdown = toMarkdown(
       "<h2>Guide</h2><p><a href=\"https://example.test\">Read &amp; learn</a> <strong>today</strong></p>" +
