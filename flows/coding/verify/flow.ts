@@ -10,7 +10,8 @@ import { RunCheck } from "../workflow.ts"
  * The stack service runs this on a lane when it had to rebase a candidate
  * onto a newer tip: the lane's own checks measured the old commits, so the
  * rebased tree is checked again before it is proposed. Each receipt binds
- * the exact commit and tree, like every other coding check.
+ * the exact commit and tree, like every other coding check, and carries the
+ * paths the candidate changed so an affected check selects their targets.
  */
 export default Flow.make("coding/Verify", {
   description: "Run the project's required checks on one retained commit of the repository's mythical stack.",
@@ -37,7 +38,7 @@ export default Flow.make("coding/Verify", {
                       atoms: [head],
                       head,
                       reads: [],
-                      writes: []
+                      writes: input.writes
                     },
                     check
                   })
@@ -49,7 +50,11 @@ export default Flow.make("coding/Verify", {
           Node.map((
             { head, receipts }: { head: typeof Revision.Type; receipts: Readonly<Record<string, typeof Receipt.Type>> }
           ) => {
-            const result = verifySummary(input.checks, verifyImplementation(head), Object.values(receipts))
+            const result = verifySummary(
+              input.checks,
+              verifyImplementation(head, input.writes),
+              Object.values(receipts)
+            )
             return result instanceof CodingError ? { outage: result, result: null } : { outage: null, result }
           }),
           Node.branch({

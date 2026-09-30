@@ -262,7 +262,11 @@ A stack request starts on the tip: `coding/request` with
 imports that commit and creates an empty working change on it before planning
 (`stack.ts`), so the plan's native history is the stack. `coding/verify`
 (`verify/flow.ts`) imports one retained commit and runs the required checks on
-its immutable export; it passes only when every required check passed.
+its immutable export; it passes only when every required check passed. Its
+payload's `writes` are the paths the rebased candidate changes on the tip, so
+an affected check selects their targets; each receipt's input digest binds
+them. The stack service keeps the receipts of the run that measured the
+current candidate on its item, where the stack view shows them.
 
 ## Separate product states
 

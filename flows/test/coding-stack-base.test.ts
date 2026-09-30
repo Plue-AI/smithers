@@ -109,7 +109,7 @@ test("the working change is accepted only on the tip", async () => {
 })
 
 test(
-  "coding/verify runs every check on the imported commit and fails on a failed required one",
+  "coding/verify runs every check on the imported commit with its changed paths and fails on a failed required one",
   { timeout: 60_000 },
   async (t) => {
     const { NodeCrypto } = await import("@effect/platform-node")
@@ -147,7 +147,16 @@ test(
         required: false
       }
     ]
+    const admitted = {
+      changeId: head.changeId,
+      commitId: head.commitId,
+      treeId: "e".repeat(40),
+      operationId: op("1"),
+      parentCommitIds: [...head.parentCommitIds]
+    }
     const ran: string[] = []
+    const handed: Array<ReadonlyArray<string>> = []
+    const writes = ["flows/coding/verify.ts", "packages/rpc/src/Mythical.ts"]
     let failing = ["slow"]
     let outages: string[] = []
     const layer = Layer.mergeAll(
@@ -156,17 +165,12 @@ test(
         const refusal = verifyChecksRefusal(checks)
         return refusal !== undefined ?
           Effect.fail(refusal) :
-          Effect.succeed({
-            changeId: head.changeId,
-            commitId: head.commitId,
-            treeId: "e".repeat(40),
-            operationId: op("1"),
-            parentCommitIds: [...head.parentCommitIds]
-          })
+          Effect.succeed(admitted)
       }),
       RunCheck.toLayer(({ implementation, check }) =>
         Effect.sync(() => {
           ran.push(`${check.id}@${implementation.head.commitId.slice(0, 4)}`)
+          handed.push(implementation.writes)
           return {
             checkId: check.id,
             target: check.target,
@@ -189,31 +193,47 @@ test(
     )
     const host = ManagedRuntime.make(layer)
     t.after(() => host.dispose())
-    const result = await host.runPromise(Verify.execute({ source: base, checks }, { executionId: "verify" }))
+    const result = await host.runPromise(Verify.execute({ source: base, checks, writes }, { executionId: "verify" }))
     assert.deepEqual([...ran].sort(), ["fast@aaaa", "lint@aaaa", "slow@aaaa"])
+    // Every check sees the candidate's changed paths, so an affected check
+    // selects their targets instead of passing on an empty change.
+    assert.deepEqual(handed, [writes, writes, writes])
     assert.equal(result.status, "failed")
     assert.deepEqual(result.failed, ["slow"])
+    // Each receipt's input digest binds those paths: the same commit checked
+    // for different paths is different evidence.
+    const { verifyImplementation } = await import("../coding/verify-schema.ts")
+    const verified = verifyImplementation(admitted, writes)
+    for (const receipt of result.receipts) {
+      const check = checks.find((value) => value.id === receipt.checkId)!
+      assert.equal(receipt.inputDigest, checkInputDigest(verified, check))
+      assert.notEqual(receipt.inputDigest, checkInputDigest({ ...verified, writes: [] }, check))
+    }
+    // A candidate that changed nothing still runs every check, with no paths.
+    handed.length = 0
+    await host.runPromise(Verify.execute({ source: base, checks, writes: [] }, { executionId: "verify-empty" }))
+    assert.deepEqual(handed, [[], [], []])
     // An optional check failing does not fail the verification.
     failing = ["lint"]
     assert.equal(
-      (await host.runPromise(Verify.execute({ source: base, checks }, { executionId: "verify-2" }))).status,
+      (await host.runPromise(Verify.execute({ source: base, checks, writes }, { executionId: "verify-2" }))).status,
       "passed"
     )
     outages = ["lint"]
     const optionalOutage = await host.runPromise(
-      Effect.flip(Verify.execute({ source: base, checks }, { executionId: "verify-infra-optional" }))
+      Effect.flip(Verify.execute({ source: base, checks, writes }, { executionId: "verify-infra-optional" }))
     )
     assert.ok(optionalOutage instanceof CodingError)
     assert.equal(optionalOutage.code, "check_infra", "an optional check outage is not a passing verification")
     failing = ["slow", "lint"]
     const mixedOutage = await host.runPromise(
-      Effect.flip(Verify.execute({ source: base, checks }, { executionId: "verify-infra-after-red" }))
+      Effect.flip(Verify.execute({ source: base, checks, writes }, { executionId: "verify-infra-after-red" }))
     )
     assert.ok(mixedOutage instanceof CodingError)
     assert.equal(mixedOutage.code, "check_infra", "infrastructure outranks a real red earlier in the check list")
     outages = []
     const realRed = await host.runPromise(
-      Verify.execute({ source: base, checks }, { executionId: "verify-real-red" })
+      Verify.execute({ source: base, checks, writes }, { executionId: "verify-real-red" })
     )
     assert.equal(realRed.status, "failed")
     assert.deepEqual(realRed.failed, ["slow"])
@@ -221,12 +241,14 @@ test(
     const before = ran.length
     const repeated = await host.runPromise(
       Effect.flip(
-        Verify.execute({ source: base, checks: [checks[0]!, checks[0]!, checks[1]!] }, { executionId: "verify-3" })
+        Verify.execute({ source: base, checks: [checks[0]!, checks[0]!, checks[1]!], writes }, {
+          executionId: "verify-3"
+        })
       )
     )
     assert.match(JSON.stringify(repeated), /repeat an id/)
     const fastOnly = await host.runPromise(
-      Effect.flip(Verify.execute({ source: base, checks: [checks[0]!] }, { executionId: "verify-4" }))
+      Effect.flip(Verify.execute({ source: base, checks: [checks[0]!], writes }, { executionId: "verify-4" }))
     )
     assert.match(JSON.stringify(fastOnly), /required slow check/)
     assert.equal(ran.length, before)

@@ -152,4 +152,5 @@ pass them to `smthrs affected` through `scripts/ci/coding-check.sh affected
 Change whose affected target is newly red fails its gate, so `FastGate` stops
 the next Change and correction feeds the failure back to the owning one. A
 target already on the known-red list is reported but does not fail the check.
-A Change that wrote nothing affects no target and passes.
+A Change that wrote nothing affects no target and passes. `coding/verify`
+hands a rebased stack candidate's changed paths to the same checks.

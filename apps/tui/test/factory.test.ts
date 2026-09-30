@@ -85,6 +85,36 @@ it("uses the outcome word for Working and Done, with the reason in details", () 
   }])
 })
 
+it("shows each check receipt on the candidate in details, and nothing without receipts", () => {
+  const commit = "1a2b3c4d".padEnd(40, "0")
+  const value = {
+    ...stack,
+    items: [
+      item("2402", "retrying", {
+        reason: "failed: affected-test",
+        checks: {
+          state: "failed",
+          failed: ["affected-test"],
+          receipts: [
+            { check: "affected-lint", tier: "fast", status: "passed", commit },
+            { check: "affected-test", tier: "slow", status: "failed", commit }
+          ]
+        }
+      }),
+      item("2403", "proposed", { checks: { state: "passed", failed: [] } })
+    ]
+  } as unknown as MythicalStack
+  const rows = Factory.rows(value, now)
+  expect(rows.find((row) => row.label.includes("#2402"))?.details).toEqual([{
+    kind: "text",
+    text: "failed: affected-test\n✓ affected-lint 1a2b3c4 · ✗ affected-test 1a2b3c4\nhttps://github.com/o/r/issues/2402"
+  }])
+  expect(rows.find((row) => row.label.includes("#2403"))?.details).toEqual([{
+    kind: "text",
+    text: "https://github.com/o/r/issues/2403"
+  }])
+})
+
 it("names the repository from SMITHERS_REPO, else the checkout's remote", () => {
   expect(Factory.repository("/nowhere", { SMITHERS_REPO: "smithersai/smithers" })).toBe("smithersai/smithers")
   expect(Factory.repository("/nowhere", {})).toBeUndefined()

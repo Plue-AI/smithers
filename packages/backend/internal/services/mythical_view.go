@@ -106,24 +106,54 @@ type MythicalItemView struct {
 	CreatedAt string `json:"createdAt,omitempty"`
 }
 
-// MythicalChecksView is the verification of an item's candidate.
+// MythicalChecksView is the verification of an item's candidate, with the
+// receipts of the run that measured it.
 type MythicalChecksView struct {
-	State  string   `json:"state"`
-	Failed []string `json:"failed"`
+	State    string                `json:"state"`
+	Failed   []string              `json:"failed"`
+	Receipts []MythicalReceiptView `json:"receipts,omitempty"`
+}
+
+// MythicalReceiptView is one check's receipt on the candidate's commit.
+type MythicalReceiptView struct {
+	Check  string `json:"check"`
+	Tier   string `json:"tier"`
+	Status string `json:"status"`
+	Fault  string `json:"fault,omitempty"`
+	Commit string `json:"commit"`
 }
 
 // mythicalChecksView reads the candidate's verification from the item's
 // verify outcome; nil while nothing was verified.
 func mythicalChecksView(item db.MythicalItem) *MythicalChecksView {
+	var view *MythicalChecksView
 	switch outcome := item.VerifyOutcome; {
 	case outcome == "passed" || outcome == "" && item.CandidateVerified:
-		return &MythicalChecksView{State: "passed", Failed: []string{}}
+		view = &MythicalChecksView{State: "passed", Failed: []string{}}
 	case strings.HasPrefix(outcome, "failed: "):
-		return &MythicalChecksView{State: "failed", Failed: strings.Split(strings.TrimPrefix(outcome, "failed: "), ", ")}
+		view = &MythicalChecksView{State: "failed", Failed: strings.Split(strings.TrimPrefix(outcome, "failed: "), ", ")}
 	case outcome == "" && item.State == "verifying":
-		return &MythicalChecksView{State: "pending", Failed: []string{}}
+		view = &MythicalChecksView{State: "pending", Failed: []string{}}
+	default:
+		return nil
 	}
-	return nil
+	view.Receipts = mythicalReceiptsView(item)
+	return view
+}
+
+// mythicalReceiptsView is the kept receipts when they measured the item's
+// current candidate; an earlier candidate's receipts are not its evidence.
+// Nil when there are none.
+func mythicalReceiptsView(item db.MythicalItem) []MythicalReceiptView {
+	stored := mythicalChecksOf(item).Receipts
+	if !stored.measures(item.CandidateHead) {
+		return nil
+	}
+	views := make([]MythicalReceiptView, 0, len(stored.Checks))
+	for _, receipt := range stored.Checks {
+		views = append(views, MythicalReceiptView(receipt))
+	}
+	return views
 }
 
 // MythicalTodoView is a TODO's progress for display: the replans so far

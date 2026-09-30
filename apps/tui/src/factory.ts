@@ -50,9 +50,16 @@ export const metrics = (stack: MythicalStack): string =>
 /** Rows a group lists before `… N more`: a panel holds 500 rows, and a queue can be longer. */
 export const perGroup = 60
 
+/** Each check receipt on the candidate: `✓ affected-lint 1a2b3c4`. */
+const receipts = (item: MythicalItem): string | undefined =>
+  item.checks?.receipts?.map((receipt) =>
+    `${receipt.status === "passed" ? "✓" : "✗"} ${receipt.check} ${receipt.commit.slice(0, 7)}`
+  ).join(" · ") || undefined
+
 const detail = (stack: MythicalStack, item: MythicalItem): ReadonlyArray<Panels.Block> => {
   const lines = [
     itemReason(item),
+    receipts(item),
     item.pullRequest === undefined ? undefined : item.pullRequest.url,
     item.issue === undefined ? undefined : item.issue.url
   ].filter((line): line is string => line !== undefined && line !== "")

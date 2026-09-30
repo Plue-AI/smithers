@@ -262,14 +262,39 @@ export const MythicalIntegrationSchema = z.object({
 export type MythicalIntegration = z.infer<typeof MythicalIntegrationSchema>
 
 /**
- * The required checks on the item's rebased candidate. `failed` lists check ids.
+ * One check's receipt on the candidate's commit: the check id, its tier, how
+ * it ended and, for an outage, whose fault it was.
+ *
+ * @since 1.0.0
+ * @category schemas
+ */
+export const MythicalReceiptSchema = z.object({
+  check: z.string(),
+  tier: z.enum(["fast", "slow", "delivery"]),
+  status: z.enum(["passed", "failed"]),
+  fault: z.enum(["infra", "factory"]).optional(),
+  commit: z.string()
+})
+
+/**
+ * The decoded value accepted by {@link MythicalReceiptSchema}.
+ *
+ * @since 1.0.0
+ * @category models
+ */
+export type MythicalReceipt = z.infer<typeof MythicalReceiptSchema>
+
+/**
+ * The required checks on the item's candidate. `failed` lists check ids;
+ * `receipts` are those of the run that measured the current candidate.
  *
  * @since 1.0.0
  * @category schemas
  */
 export const MythicalChecksSchema = z.object({
   state: z.enum(["pending", "passed", "failed"]),
-  failed: z.array(z.string())
+  failed: z.array(z.string()),
+  receipts: z.array(MythicalReceiptSchema).optional()
 })
 
 /**

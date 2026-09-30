@@ -618,13 +618,14 @@ func (g mythicalGit) writeNotes(ctx context.Context, notes map[string]string, st
 }
 
 // changedPaths lists every path whose content differs between two commits,
-// with renames split into both sides so a moved file names its origin.
+// with renames split into both sides so a moved file names its origin;
+// empty, never nil, when none does.
 func (g mythicalGit) changedPaths(ctx context.Context, base, head string) ([]string, error) {
 	out, err := g.command(ctx, nil, "diff-tree", "-r", "-z", "--no-renames", "--name-only", base, head)
 	if err != nil {
 		return nil, err
 	}
-	var paths []string
+	paths := []string{}
 	for _, path := range strings.Split(string(out), "\x00") {
 		if path != "" {
 			paths = append(paths, path)

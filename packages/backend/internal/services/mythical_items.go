@@ -614,6 +614,7 @@ func (s *MythicalService) ProjectFlowRuntime(ctx context.Context, update flowdis
 				// A request that failed before Jev routed it carries none.
 				checks := mythicalChecksOf(item)
 				checks.Route = mythicalRoute(update)
+				checks.Receipts = mythicalKeepReceipts(item.CandidateHead, checks.Receipts, mythicalRunReceipts(projection.Phase, next.RequestRunID, update))
 				next.Checks = checks.encode()
 			}
 		case "vibe":
@@ -623,12 +624,23 @@ func (s *MythicalService) ProjectFlowRuntime(ctx context.Context, update flowdis
 			if outcome != "" && item.VibeOutcome == "" {
 				next.VibeOutcome = outcome
 			}
+			// The delivery hands its result to the stack before it ends, so
+			// its outcome is often already "submitted"; its cleanup's
+			// rechecks are still the evidence for the cleaned candidate.
+			if outcome != "" {
+				checks := mythicalChecksOf(item)
+				checks.Receipts = mythicalKeepReceipts(item.CandidateHead, checks.Receipts, mythicalRunReceipts(projection.Phase, next.VibeRunID, update))
+				next.Checks = checks.encode()
+			}
 		case "verify":
 			if runID != "" {
 				next.VerifyRunID = runID
 			}
 			if outcome != "" && item.VerifyOutcome == "" {
 				next.VerifyOutcome = outcome
+				checks := mythicalChecksOf(item)
+				checks.Receipts = mythicalKeepReceipts(item.CandidateHead, checks.Receipts, mythicalRunReceipts(projection.Phase, next.VerifyRunID, update))
+				next.Checks = checks.encode()
 			}
 		case "review":
 			checks := mythicalChecksOf(item)
@@ -1776,6 +1788,12 @@ func (st *mythicalItemStep) integrate(ctx context.Context, item db.MythicalItem)
 		}
 		return mythicalRetry(item, "the rebased result has no checks to run; re-planning on the new tip", nil, st.now), false, nil
 	}
+	// Every path the rebased candidate changes on the tip, so an affected
+	// check (checks/affected-*) selects the targets those paths reach.
+	writes, err := r.g.changedPaths(ctx, r.row.TipCommit, rebased)
+	if err != nil {
+		return mythicalInfraOutage(item, "launch", "the rebased candidate's paths could not be read: "+err.Error(), st.now), false, nil
+	}
 	if err := s.pin(ctx, r, rebased); err != nil {
 		return mythicalInfraOutage(item, "launch", err.Error(), st.now), false, nil
 	}
@@ -1805,7 +1823,7 @@ func (st *mythicalItemStep) integrate(ctx context.Context, item db.MythicalItem)
 	next.CandidateBase, next.CandidateHead, next.CandidateVerified, next.VerifyOutcome, next.VerifyRunID = r.row.TipCommit, rebased, false, "", ""
 	integration, _ := json.Marshal(map[string]any{"kind": "rebased"})
 	next.Integration, next.State, next.Reason = integration, "verifying", ""
-	payload, _ := json.Marshal(map[string]any{"source": map[string]string{"commitId": rebased, "ref": ref}, "checks": plan.Checks})
+	payload, _ := json.Marshal(map[string]any{"source": map[string]string{"commitId": rebased, "ref": ref}, "checks": plan.Checks, "writes": writes})
 	saved, err := st.commit(ctx, next, "verify", "coding/verify", payload)
 	if err != nil {
 		return mythicalInfraOutage(item, "launch", "verification could not be launched: "+err.Error(), st.now), false, nil
@@ -3032,6 +3050,9 @@ type mythicalChecks struct {
 	// Filed is the digest of the text a maintainer person filed through
 	// Smithers (FileTodo): that text, and only that text, is theirs.
 	Filed string `json:"filed,omitempty"`
+	// Receipts are the check receipts of the run that last measured the
+	// candidate (mythicalRunReceipts).
+	Receipts *mythicalReceipts `json:"receipts,omitempty"`
 }
 
 // mythicalCIWait is the approved head whose CI the stack waits for, since

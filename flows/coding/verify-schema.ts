@@ -18,7 +18,10 @@ import {
 } from "./schema.ts"
 export const VerifyInput = Schema.Struct({
   source: StackBase,
-  checks: Schema.Array(Check).check(Schema.isMinLength(1), Schema.isMaxLength(64))
+  checks: Schema.Array(Check).check(Schema.isMinLength(1), Schema.isMaxLength(64)),
+  // Every path the candidate changed against the tip it was rebased onto, so
+  // an affected check selects the targets those paths reach.
+  writes: Schema.Array(Schema.NonEmptyString)
 })
 export const VerifyResult = Schema.Struct({
   status: Schema.Literals(["passed", "failed"]),
@@ -35,14 +38,20 @@ export const AdmitVerifySource = Action.make("coding/admit-verify-source", {
   nondeterministic: true
 })
 
-/** The implementation every verify receipt is bound to: the one retained commit. */
-export const verifyImplementation = (head: typeof Revision.Type): typeof Implementation.Type => ({
+/**
+ * The implementation every verify receipt is bound to: the one retained commit
+ * and the paths it changed, which the receipt's input digest binds too.
+ */
+export const verifyImplementation = (
+  head: typeof Revision.Type,
+  writes: ReadonlyArray<string>
+): typeof Implementation.Type => ({
   change: "mythical-candidate",
   parent: head,
   atoms: [head],
   head,
   reads: [],
-  writes: []
+  writes: [...writes]
 })
 
 /** Why a check set cannot verify anything (repeated ids, no required fast and slow check), or undefined. */
