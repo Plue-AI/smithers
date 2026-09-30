@@ -25,6 +25,29 @@ const fixture = async () => {
 }
 
 describe("environment CLI process boundary", () => {
+  it("reports missing commands and execution directories as actionable launch failures", async () => {
+    const { root, cli } = await fixture()
+    expect(cli(["environment", "add", "local", "--local", "--directory", root]).status).toBe(0)
+    const missing = cli(["environment", "exec", "local", "--", "absent-smithers-release-audit-command"])
+    expect(missing.status).toBe(1)
+    expect(missing.stdout).toContain("environment_command_not_found")
+    expect(missing.stdout).toContain("absent-smithers-release-audit-command")
+    expect(missing.stdout).toContain("on PATH")
+    expect(missing.stdout).not.toContain("Not your fault")
+    const absent = join(root, "absent-directory")
+    expect(cli(["environment", "add", "missing", "--local", "--directory", absent]).status).toBe(0)
+    const missingDirectory = cli(["environment", "exec", "missing", "--", process.execPath, "--version"])
+    expect(missingDirectory.status).toBe(1)
+    expect(missingDirectory.stdout).toContain("environment_directory_not_found")
+    expect(missingDirectory.stdout).toContain(absent)
+    const plain = join(root, "not-executable")
+    await writeFile(plain, "#!/bin/sh\n")
+    const denied = cli(["environment", "exec", "local", "--", plain])
+    expect(denied.status).toBe(1)
+    expect(denied.stdout).toContain("environment_command_permission_denied")
+    expect(denied.stdout).toContain(plain)
+  })
+
   it("adds, views, lists and removes a local environment across processes", async () => {
     const { root, cli } = await fixture()
     const added = cli(["environment", "add", "dev", "--local", "--directory", root])

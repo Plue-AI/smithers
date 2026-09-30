@@ -7,7 +7,7 @@
 
 import { spawn } from "node:child_process"
 import { randomUUID } from "node:crypto"
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
+import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises"
 import { constants, homedir } from "node:os"
 import { isAbsolute, join } from "node:path"
 import * as CliError from "./CliError.ts"
@@ -294,6 +294,38 @@ export const plan = async (
 }
 
 /**
+ * Names what a failed launch could not find, so the operator can act: the
+ * execution directory when it is missing, otherwise the executable with a PATH
+ * hint. Failures with another cause pass through unchanged.
+ */
+const launchFailure = async (error: Error, target: { readonly command: string; readonly cwd?: string | undefined }): Promise<unknown> => {
+  const code = (error as NodeJS.ErrnoException).code
+  const directory = target.cwd ?? process.cwd()
+  if (code === "ENOENT" || code === "ENOTDIR") {
+    const directoryUsable = await stat(directory).then((entry) => entry.isDirectory(), () => false)
+    return directoryUsable
+      ? new CliError.Refused({
+        fault: "user",
+        code: "environment_command_not_found",
+        message: `Command not found: ${target.command}. Check that it is installed and on PATH`
+      })
+      : new CliError.Refused({
+        fault: "user",
+        code: "environment_directory_not_found",
+        message: `Execution directory not found: ${directory}`
+      })
+  }
+  if (code === "EACCES") {
+    return new CliError.Refused({
+      fault: "user",
+      code: "environment_command_permission_denied",
+      message: `Permission denied starting ${target.command} in ${directory}`
+    })
+  }
+  return error
+}
+
+/**
  * Execute with inherited terminal I/O. Cancellation stops the local process
  * group; a remote command has SSH's connection lifecycle, not a durable receipt.
  * @category constructors
@@ -333,7 +365,7 @@ export const run = async (
     }
     child.once("error", (error) => {
       cleanup()
-      reject(error)
+      void launchFailure(error, target).then(reject)
     })
     child.once("exit", (code, signal) => {
       // A resistant descendant can outlive its parent. Kill the group before
