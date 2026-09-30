@@ -16,13 +16,16 @@ const createAppController = scopedControllers()
 
 const controllers: AppController[] = []
 const stores: AppStore[] = []
+const releaseGates: Array<() => void> = []
 afterEach(async () => {
+  for (const release of releaseGates.splice(0)) release()
   for (const controller of controllers.splice(0)) await Promise.resolve(controller.dispose()).catch(() => {})
   for (const store of stores.splice(0)) await Promise.resolve(store.dispose?.()).catch(() => {})
 })
 const deferred = () => {
   let resolve!: () => void
   const promise = new Promise<void>(done => { resolve = done })
+  releaseGates.push(resolve)
   return { resolve, promise }
 }
 const open = async (storage: StorageApi = memoryStorage()) => {

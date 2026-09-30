@@ -7,7 +7,7 @@ import { createAppStore } from "./AppStore"
 import { composeAgentInstructions } from "@smthrs/rpc/AgentContext"
 import type { AgentRuntimeContext } from "@smthrs/rpc/AgentContext"
 import { initialSetup, REPOSITORY_JOB_TITLES, type RepositoryJob } from "@smthrs/rpc/RepositorySetup"
-import { CHAT_INSTRUCTIONS_CAP_BYTES, CODE_INTEL_LINE, INSTRUCTIONS_BUDGET_BYTES, INSTRUCTIONS_HEADROOM_BYTES, instructionStageOf, smithersInstructions } from "./Instructions"
+import { CHAT_INSTRUCTIONS_CAP_BYTES, CODE_INTEL_LINE, INSTRUCTIONS_BUDGET_BYTES, INSTRUCTIONS_HEADROOM_BYTES, instructionStageOf, smithersInstructions, type InstructionHonesty } from "./Instructions"
 import { WORLD_BODY_BUDGET, WORLD_BODY_PER_DOCUMENT } from "./WorldContext"
 import { addWorldNote } from "./TestFixtures"
 
@@ -286,7 +286,7 @@ describe("the instructions budget", () => {
    * fixture simply fell through to stage 2.
    */
   test("a catalog that fits only once the argument grammars go lands in stage 1, keeping every summary", () => {
-    const honesty = { github: { connected: false, login: null, repositories: null }, localRepositories: [], localRepositoriesAvailable: true } as never
+    const honesty: InstructionHonesty = { host: "native", github: { connected: false, login: null, repositories: null }, localRepositories: [], localRepositoriesAvailable: true }
     const catalog = Array.from({ length: 40 }, (_entry, index) => ({
       name: `ns${index % 4}.command-${index}`,
       summary: `Does the ${index}th thing, in a sentence long enough to be worth keeping`,
@@ -310,7 +310,7 @@ describe("the instructions budget", () => {
   })
 
   test("a catalog too large for the budget degrades in stages and never drops a command's name", () => {
-    const honesty = { github: { connected: false, login: null, repositories: null }, localRepositories: [], localRepositoriesAvailable: true } as never
+    const honesty: InstructionHonesty = { host: "native", github: { connected: false, login: null, repositories: null }, localRepositories: [], localRepositoriesAvailable: true }
     const many = Array.from({ length: 400 }, (_entry, index) => ({
       name: `ns${index % 12}.command-${index}`,
       summary: `Does the ${index}th thing, at length, so that the catalog alone outgrows the budget many times over`,

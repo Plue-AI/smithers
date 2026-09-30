@@ -318,7 +318,7 @@ describe("wave 11 — the full journey: make me a workflow", () => {
 
     // The gateway was provisioned BEFORE anything was launched, and the
     // launch is the stock create-flow with the description as its input.
-    const order = double.calls.map((call) => call.path)
+    const order = double.calls.filter(call => !(call.method === "GET" && call.path.split("?")[0] === "/api/repository-setup/state")).map((call) => call.path)
     expect(order[0]).toBe("/api/workflow/provision")
     expect(double.state.launched).toEqual([
       { workflow: "create-flow", input: { args: "a workflow that summarizes my open issues" } }

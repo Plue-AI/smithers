@@ -1,10 +1,32 @@
-import { expect, test } from "bun:test"
-import { createAppStore } from "./AppStore"
+import { afterEach, expect, test } from "bun:test"
+import { createAppStore as openAppStore, type AppStore } from "./AppStore"
 import { memoryStorage, repositoryHttpFixture } from "./TestFixtures"
+import { disposePreparedViews } from "./PreparedView"
 import { createIssuesSeam } from "./seams/IssuesSeam"
 import { createLandingsSeam } from "./seams/LandingsSeam"
 const REPO = "owner/repo"
 import type { SeamContext } from "./seams/SeamContext"
+
+// Controlled boundary units: real dispatcher/journal over Map storage and an HTTP fixture.
+// These reload receipts do not qualify SQLite or a real repository backend.
+const closeStore = async (store: AppStore): Promise<void> => {
+  if (store.dispose === undefined) throw new Error("Fixture store has no disposal contract")
+  await store.dispose()
+}
+const stores = new Set<AppStore>()
+const createAppStore: typeof openAppStore = async (...args) => {
+  const store = await openAppStore(...args)
+  stores.add(store)
+  return store
+}
+afterEach(async () => {
+  const errors: unknown[] = []
+  for (const store of stores) {
+    try { disposePreparedViews(store); await closeStore(store) } catch (error) { errors.push(error) }
+  }
+  stores.clear()
+  if (errors.length) throw new AggregateError(errors, "Embedded-history fixture cleanup failed")
+})
 
 test("issue navigation stays in one durable frame, supports back/forward, and forks forward history", async () => {
   const storage = memoryStorage()
@@ -25,7 +47,7 @@ test("issue navigation stays in one durable frame, supports back/forward, and fo
   expect(store.collections.cardHistories.get(before.id)?.entries).toHaveLength(2)
   await store.dispatch({ type: "card.history.moved", actor: "user", id: before.id, delta: -1 }).isPersisted.promise
   expect(store.collections.cards.get(before.id)?.kind).toBe("issue-list")
-  await store.dispose?.()
+  await closeStore(store)
   const restored = await createAppStore({ kind: "localStorage", storage })
   expect(restored.collections.cards.get(before.id)?.kind).toBe("issue-list")
   await restored.dispatch({ type: "card.history.moved", actor: "user", id: before.id, delta: 1 }).isPersisted.promise
@@ -46,5 +68,5 @@ test("issue navigation stays in one durable frame, supports back/forward, and fo
   await createLandingsSeam(ctx).viewLanding(4, REPO)
   expect(store.collections.cards.size).toBe(1)
   expect(store.collections.cards.get(before.id)?.kind).toBe("pr")
-  await store.dispose?.()
+  await closeStore(store)
 })

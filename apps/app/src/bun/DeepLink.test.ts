@@ -39,4 +39,44 @@ describe("deepLinkPath", () => {
       "file:///etc/passwd"
     ]) expect({ url, path: deepLinkPath(url) }).toEqual({ url, path: null })
   })
+
+  test.each([
+    { url: "SMITHERS://open/Some-Owner/Repo", path: "/Some-Owner/Repo" },
+    { url: "SmItHeRs://open/Some-Owner/Repo", path: "/Some-Owner/Repo" },
+    { url: "smithers://open/owner_2/repo-3.4", path: "/owner_2/repo-3.4" },
+    { url: "smithers://open/a/b", path: "/a/b" },
+    { url: "smithers://open/owner/repo.git", path: "/owner/repo.git" }
+  ])("$url preserves the repository spelling in its literal renderer path", ({ url, path }) => {
+    expect(deepLinkPath(url)).toBe(path)
+  })
+
+  // The producer (smthrs open) and renderer repository grammar use ASCII
+  // word characters, dots, and hyphens. URL encoding cannot add Unicode names.
+  test.each([
+    { url: "smithers://open/café/repo" },
+    { url: "smithers://open/owner/café" },
+    { url: "smithers://open/cafe\u0301/repo" },
+    { url: "smithers://open/owner/cafe\u0301" },
+    { url: "smithers://open/𐐀/repo" },
+    { url: "smithers://open/owner/𐐀" },
+    { url: "smithers://open/中文/repo" },
+    { url: "smithers://open/owner/中文" },
+    { url: "smithers://open/caf%C3%A9/repo" }
+  ])("$url cannot name a repository outside the shared segment grammar", ({ url }) => {
+    expect(deepLinkPath(url)).toBeNull()
+  })
+
+  test.each([
+    { url: "smithers://user@open/owner/repo" },
+    { url: "smithers://:password@open/owner/repo" },
+    { url: "smithers://open:0/owner/repo" },
+    { url: "smithers://open:abc/owner/repo" },
+    { url: "smithers://[broken/owner/repo" },
+    { url: "smithers:///owner/repo" },
+    { url: "smithers://open/owner/repo.name?" },
+    { url: "smithers://open/owner/repo.name#" },
+    { url: "smithers://open/aPi/repo" }
+  ])("$url is refused without throwing or returning a renderer route", ({ url }) => {
+    expect(deepLinkPath(url)).toBeNull()
+  })
 })

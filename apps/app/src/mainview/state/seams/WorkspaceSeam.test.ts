@@ -1,11 +1,12 @@
 import type { StorageApi } from "@tanstack/db"
-import { describe, expect, test } from "bun:test"
+import { afterEach, describe, expect, test } from "bun:test"
 import { createAppStore } from "../AppStore"
 import { createActorBindings } from "../ActorBindings"
 import type { AppStore } from "../AppStore"
 import type { CloudWorkspaceInput } from "../AppState"
 import { dropDesktopStream, readDesktopStream } from "./DesktopStream"
-import { createWorkspaceSeam, DEGRADED_WORKSPACE_REFUSAL, desktopBoxWait, desktopSessionRetry, terminalSessionRetry } from "./WorkspaceSeam"
+import { createWorkspaceSeam as makeWorkspaceSeam, DEGRADED_WORKSPACE_REFUSAL, desktopBoxWait, desktopSessionRetry, terminalSessionRetry } from "./WorkspaceSeam"
+import type { WorkspaceSeam } from "./WorkspaceSeam"
 import type { SeamContext } from "./SeamContext"
 import { INFRA_NOT_YOUR_FAULT } from "@smthrs/rpc/RefusalCopy"
 import { USER_WORKSPACE_ROW } from "./fixtures/UserWorkspaceRow"
@@ -17,7 +18,8 @@ import { USER_WORKSPACE_ROW } from "./fixtures/UserWorkspaceRow"
  * session create-and-settle into a workspace tab. Every route is a double
  * in plue's own wire shape (a bare array from the list routes, the
  * UserWorkspaceRow from the per-user one, the cursor envelope from
- * bookmarks); nothing is faked — an unread auxiliary is an absent field, a
+ * bookmarks). These are controlled HTTP boundary units with actual MapStorage
+ * persistence, not real backend integration. An unread auxiliary is an absent field, a
  * 404 mid-watch re-reads the repository's list.
  */
 
@@ -37,7 +39,7 @@ const memoryStorage = (): StorageApi & { readonly written: () => string } => {
 }
 
 const json = (status: number, body: unknown, headers: Record<string, string> = {}): Response =>
-  new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", ...headers } })
+  new Response(status === 204 ? null : JSON.stringify(body), { status, headers: { "content-type": "application/json", ...headers } })
 
 /** plue's WorkspaceResponse (the per-repo list, get, create, act answers). */
 const WS_RUNNING = {
@@ -142,12 +144,91 @@ const wsRow: CloudWorkspaceInput = {
 
 type Route = Response | ((url: URL) => Response | Promise<Response>)
 
+const ownedStores = new Set<AppStore>()
+const ownedSeams = new Set<WorkspaceSeam>()
+const heldReleases = new Set<() => void>()
+const pendingWork = new Set<Promise<unknown>>()
+const unexpectedRequests: Array<string> = []
+const observe = <T>(promise: Promise<T>): Promise<T> => {
+  pendingWork.add(promise)
+  void promise.then(() => pendingWork.delete(promise), () => pendingWork.delete(promise))
+  return promise
+}
+const checkpoint = (): Promise<void> => new Promise(resolve => setImmediate(resolve))
+const bounded = async <T>(promise: Promise<T>): Promise<T> => {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([promise, new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error("Workspace operation did not settle")), 3_000)
+    })])
+  } finally { clearTimeout(timer) }
+}
+const drainWork = async (): Promise<void> => {
+  while (pendingWork.size > 0) await Promise.allSettled([...pendingWork])
+  await checkpoint()
+}
+
+// Track public operation promises as well as HTTP: disposing the seam fences
+// publication synchronously, but its owned Effect runtime closes asynchronously.
+const createWorkspaceSeam: typeof makeWorkspaceSeam = (...args) => {
+  const seam = makeWorkspaceSeam(...args)
+  ownedSeams.add(seam)
+  return {
+    ...seam,
+    listWorkspaces: (...args) => observe(seam.listWorkspaces(...args)),
+    refreshWorkspaces: (...args) => observe(seam.refreshWorkspaces(...args)),
+    openWorkspace: (...args) => observe(seam.openWorkspace(...args)),
+    viewWorkspace: (...args) => observe(seam.viewWorkspace(...args)),
+    openTerminal: (...args) => observe(seam.openTerminal(...args)),
+    suspendWorkspace: (...args) => observe(seam.suspendWorkspace(...args)),
+    resumeWorkspace: (...args) => observe(seam.resumeWorkspace(...args)),
+    listSessions: (...args) => observe(seam.listSessions(...args)),
+    destroySession: (...args) => observe(seam.destroySession(...args)),
+    deleteWorkspace: (...args) => observe(seam.deleteWorkspace(...args)),
+    listFiles: (...args) => observe(seam.listFiles(...args)),
+    readFile: (...args) => observe(seam.readFile(...args)),
+    listServices: (...args) => observe(seam.listServices(...args)),
+    listEgress: (...args) => observe(seam.listEgress(...args)),
+    openDesktop: (...args) => observe(seam.openDesktop(...args)),
+    rotateDesktop: (...args) => observe(seam.rotateDesktop(...args)),
+    openDesktopBox: (...args) => observe(seam.openDesktopBox(...args)),
+    stopDesktopWait: (...args) => observe(seam.stopDesktopWait(...args)),
+    listEnvironmentImages: (...args) => observe(seam.listEnvironmentImages(...args)),
+    setFacet: Object.assign((...args: Parameters<WorkspaceSeam["setFacet"]>) => observe(seam.setFacet(...args)), seam.setFacet)
+  }
+}
+
+afterEach(async () => {
+  const errors: Array<unknown> = []
+  for (const seam of ownedSeams) {
+    try { seam.dispose() } catch (error) { errors.push(error) }
+  }
+  ownedSeams.clear()
+  for (const release of heldReleases) {
+    try { release() } catch (error) { errors.push(error) }
+  }
+  heldReleases.clear()
+  try { await bounded(drainWork()) } catch (error) { errors.push(error) }
+  for (const store of ownedStores) {
+    try {
+      if (store.dispose === undefined) throw new Error("Workspace fixture requires store.dispose")
+      await store.dispose()
+    } catch (error) { errors.push(error) }
+  }
+  ownedStores.clear()
+  dropDesktopStream()
+  if (unexpectedRequests.length > 0) errors.push(new Error(`Unexpected Workspace HTTP: ${unexpectedRequests.join(", ")}`))
+  unexpectedRequests.length = 0
+  if (errors.length > 0) throw new AggregateError(errors, "Workspace fixture cleanup failed")
+})
+
 const harness = async (
   routes: Record<string, Route>,
   options: { readonly signedIn?: boolean; readonly degraded?: boolean; readonly desktopWaitMs?: number } = {}
 ) => {
   const storage = memoryStorage()
   const store = await createAppStore({ kind: "localStorage", storage })
+  ownedStores.add(store)
   /** `METHOD path` per request, the query string dropped. */
   const requests: Array<string> = []
   const signals: Array<AbortSignal | null | undefined> = []
@@ -158,7 +239,7 @@ const harness = async (
   /** The store as each of the seam's dispatches left it: what one transition did, before the next. */
   const dispatched: Array<{ readonly type: string; readonly tabs: Array<string>; readonly attached: string | undefined; toast?: unknown }> = []
   const ctx: SeamContext = {
-    http: async (input, init) => {
+    http: (input, init) => observe((async () => {
       const method = init?.method ?? "GET"
       const stripped = input.startsWith("/") ? input.slice(1) : input
       const url = new URL(stripped, "https://cloud.invalid/")
@@ -169,9 +250,12 @@ const harness = async (
       urls.push(`${key}${url.search}`)
       if (typeof init?.body === "string") bodies.push({ key, body: JSON.parse(init.body) })
       const route = routes[key] ?? routes[path]
-      if (route === undefined) return json(404, { message: `no route ${key}` })
-      return typeof route === "function" ? route(url) : route
-    },
+      if (route === undefined) {
+        unexpectedRequests.push(key)
+        throw new Error(`Unexpected Workspace HTTP: ${key}`)
+      }
+      return typeof route === "function" ? route(url) : route.clone()
+    })()),
     baseUrl: "",
     store,
     dispatch: (transition) => {
@@ -190,7 +274,7 @@ const harness = async (
       username: "will",
       expiresAt: null,
       scopes: options.degraded === true ? "degraded" : null
-    })
+    }).isPersisted.promise
   }
   await store.dispatch({
     type: "repositories.loaded",
@@ -204,7 +288,7 @@ const harness = async (
         head: { bookmark: "main", changeId: "qupxosqw", commitId: "c0ffee1" }
       }
     ]
-  })
+  }).isPersisted.promise
   return {
     ctx,
     store,
@@ -219,7 +303,7 @@ const harness = async (
 }
 
 const seedWorkspace = async (store: AppStore, workspace: CloudWorkspaceInput = wsRow): Promise<void> => {
-  await store.dispatch({ type: "workspace.updated", actor: "system", workspace })
+  await store.dispatch({ type: "workspace.updated", actor: "system", workspace }).isPersisted.promise
 }
 
 const seedCard = async (store: AppStore, terminalSessionId?: string): Promise<void> => {
@@ -246,7 +330,7 @@ const seedCard = async (store: AppStore, terminalSessionId?: string): Promise<vo
         ...(terminalSessionId === undefined ? {} : { terminalSessionId })
       }
     }
-  })
+  }).isPersisted.promise
 }
 
 const cardOf = (store: AppStore, workspaceId = "ws-1") => store.collections.cards.get(`workspace-${workspaceId}`)
@@ -372,7 +456,7 @@ describe("workspace seam list", () => {
       type: "workspace.updated",
       actor: "system",
       workspace: { ...wsRow, id: "ws-other", repoId: "plue/plue", name: "other" }
-    })
+    }).isPersisted.promise
     const result = await seam.listWorkspaces("will/smithers")
     expect(typeof result).toBe("object")
     expect(urls[0]).toBe("GET api/repos/will/smithers/workspaces?limit=100")
@@ -579,7 +663,7 @@ describe("workspace seam open", () => {
         { id: "a/a", org: "a", ownerKind: "user", name: "a", head: null },
         { id: "b/b", org: "b", ownerKind: "user", name: "b", head: null }
       ]
-    })
+    }).isPersisted.promise
     const refusal = await seam.openWorkspace()
     expect(typeof refusal).toBe("string")
     expect(refusal).toContain("name one as owner/repo")
@@ -617,7 +701,7 @@ describe("workspace seam acts", () => {
     })
     await seedWorkspace(store)
     await seedWorkspace(store, { ...wsRow, id: "ws-2", name: "bench" })
-    await store.dispatch({ type: "repo.selected", actor: "user", id: "will/smithers#workspace:ws-1" })
+    await store.dispatch({ type: "repo.selected", actor: "user", id: "will/smithers#workspace:ws-1" }).isPersisted.promise
     const result = await seam.suspendWorkspace()
     expect(typeof result).toBe("object")
     expect(workspacesOf(store).find((row) => row.id === "ws-1")?.status).toBe("suspended")
@@ -914,7 +998,7 @@ describe("workspace seam terminal", () => {
             sessions: []
           }
         }
-      })
+      }).isPersisted.promise
     }
 
     const result = await seam.destroySession("sess-0", "ws-0")
@@ -955,7 +1039,7 @@ describe("workspace seam watch", () => {
     })
     await seam.openWorkspace()
     await wait(10)
-    await store.dispatch({ type: "cloud.session.loaded", actor: "system", state: "signed-out", username: null, expiresAt: null, scopes: null })
+    await store.dispatch({ type: "cloud.session.loaded", actor: "system", state: "signed-out", username: null, expiresAt: null, scopes: null }).isPersisted.promise
     await wait(5)
     const polls = requests.filter((key) => key === "GET api/repos/will/smithers/workspaces/ws-1").length
     await wait(30)
@@ -1780,7 +1864,7 @@ describe("workspace seam desktop session", () => {
   test("a human facet change cancels a desktop mint started by the agent", async () => {
     dropDesktopStream()
     let release!: () => void
-    const pendingMint = new Promise<void>((resolve) => { release = resolve })
+    const pendingMint = new Promise<void>((resolve) => { release = resolve; heldReleases.add(() => resolve()) })
     let started!: () => void
     const mintStarted = new Promise<void>((resolve) => { started = resolve })
     const { ctx, store, seam } = await harness({
@@ -1810,9 +1894,12 @@ describe("workspace seam desktop session", () => {
 
   test("human and agent views share one settling workspace poll", async () => {
     let release!: () => void
-    const gate = new Promise<void>((resolve) => { release = resolve })
+    const gate = new Promise<void>((resolve) => { release = resolve; heldReleases.add(() => resolve()) })
     let reads = 0
     const { ctx, store, seam } = await harness({
+      // This scenario deliberately has no readable auxiliary metadata.
+      "GET api/repos/will/smithers/bookmarks": json(404, { message: "bookmarks unavailable" }),
+      "GET api/repos/will/smithers/workspace/sessions": json(404, { message: "sessions unavailable" }),
       "api/repos/will/smithers/workspaces/ws-1": async () => {
         reads += 1
         // The first view starts a held poll; the second view only rereads its DTO.
@@ -1829,7 +1916,7 @@ describe("workspace seam desktop session", () => {
       await actors.select(user).viewWorkspace("ws-1")
       expect(reads).toBe(3)
       release()
-      await new Promise((resolve) => setTimeout(resolve, 0))
+      await checkpoint()
     } finally {
       release()
       for (const dispose of disposers) dispose()
@@ -2225,16 +2312,17 @@ describe("workspace seam create refusals", () => {
 })
 
 describe("workspace seam lifecycle cancellation", () => {
-  const deferred = <T>() => {
+  const deferred = <T>(fallback: T) => {
     let resolve!: (value: T) => void
     const promise = new Promise<T>((done) => { resolve = done })
+    heldReleases.add(() => resolve(fallback))
     return { promise, resolve }
   }
 
   for (const outcome of ["response", "error", "body", "list"] as const) {
     test(`dispose fences a watch awaiting its ${outcome}`, async () => {
-      const entered = deferred<void>()
-      const release = deferred<void>()
+      const entered = deferred<void>(undefined)
+      const release = deferred<void>(undefined)
       const { ctx, seam, requests, dispatched, signals } = await harness({
         "POST api/repos/will/smithers/workspaces": json(201, { ...WS_RUNNING, status: "pending" }),
         "api/repos/will/smithers/bookmarks": json(200, []),
@@ -2244,11 +2332,11 @@ describe("workspace seam lifecycle cancellation", () => {
           if (outcome === "list") return json(404, {})
           if (outcome === "body") {
             const response = json(200, {})
-            response.json = async () => {
+            response.json = () => observe((async () => {
               entered.resolve()
               await release.promise
               return { ...WS_RUNNING, status: "pending" }
-            }
+            })())
             return response
           }
           entered.resolve()
@@ -2273,7 +2361,7 @@ describe("workspace seam lifecycle cancellation", () => {
         const dispatchCount = dispatched.length
         const requestCount = requests.length
         release.resolve()
-        await wait(25)
+        await drainWork()
         expect(dispatched.length).toBe(dispatchCount)
         expect(requests.length).toBe(requestCount)
       } finally {
@@ -2286,12 +2374,18 @@ describe("workspace seam lifecycle cancellation", () => {
   for (const operation of ["terminal retry", "desktop retry", "terminal settle", "both retries"] as const) {
     for (const cancellation of ["dispose", "delete"] as const) {
       test(`${cancellation} settles a pending ${operation} sleep`, async () => {
+        const entered = deferred<void>(undefined)
         const { ctx, store, seam: unused, dispatched } = await harness({
-          "POST api/repos/will/smithers/workspace/sessions": () => operation === "terminal settle"
-            ? json(201, { id: "sess-old", status: "pending", workspace_id: "ws-1" })
-            : json(503, { code: "guest_not_ready" }, { "retry-after": "60" }),
-          "POST api/repos/will/smithers/workspaces/ws-1/desktop/session": () =>
-            json(503, { code: "desktop_not_ready" }, { "retry-after": "60" }),
+          "POST api/repos/will/smithers/workspace/sessions": () => {
+            entered.resolve()
+            return operation === "terminal settle"
+              ? json(201, { id: "sess-old", status: "pending", workspace_id: "ws-1" })
+              : json(503, { code: "guest_not_ready" }, { "retry-after": "60" })
+          },
+          "POST api/repos/will/smithers/workspaces/ws-1/desktop/session": () => {
+            entered.resolve()
+            return json(503, { code: "desktop_not_ready" }, { "retry-after": "60" })
+          },
           "DELETE api/repos/will/smithers/workspaces/ws-1": json(204, null),
           "api/repos/will/smithers/workspaces": json(200, [])
         })
@@ -2301,11 +2395,12 @@ describe("workspace seam lifecycle cancellation", () => {
           ? Promise.all([seam.openDesktop("ws-1"), seam.openTerminal("ws-1")])
           : operation === "desktop retry" ? seam.openDesktop("ws-1") : seam.openTerminal("ws-1")
         try {
-          await wait(10)
+          await entered.promise
+          await checkpoint()
           if (cancellation === "dispose") seam.dispose()
           else await seam.deleteWorkspace("ws-1", "review")
           const count = dispatched.length
-          expect(await Promise.race([pending.then(() => "settled"), wait(100).then(() => "pending")])).toBe("settled")
+          await bounded<unknown>(pending)
           expect(dispatched.length).toBe(count)
         } finally {
           seam.dispose()
@@ -2318,8 +2413,8 @@ describe("workspace seam lifecycle cancellation", () => {
   for (const boundary of ["settling GET", "attached GET", "session list"] as const) {
     for (const cancellation of ["delete", "second open", "sign-out", "sign-in again", "dispose"] as const) {
       test(`${cancellation} fences a terminal awaiting its ${boundary}`, async () => {
-        const entered = deferred<void>()
-        const release = deferred<Response>()
+        const entered = deferred<void>(undefined)
+        const release = deferred<Response>(json(503, { message: "fixture retired" }))
         let posts = boundary === "attached GET" ? 1 : 0
         let gets = 0
         let lists = 0
@@ -2349,10 +2444,10 @@ describe("workspace seam lifecycle cancellation", () => {
           if (cancellation === "second open") await seam.openTerminal("ws-1")
           if (cancellation === "sign-out" || cancellation === "sign-in again") await store.dispatch({
             type: "cloud.session.loaded", actor: "system", state: "signed-out", username: null, expiresAt: null, scopes: null
-          })
+          }).isPersisted.promise
           if (cancellation === "sign-in again") await store.dispatch({
             type: "cloud.session.loaded", actor: "system", state: "signed-in", username: "will", expiresAt: null, scopes: null
-          })
+          }).isPersisted.promise
           if (cancellation === "dispose") seam.dispose()
           const count = dispatched.length
           release.resolve(json(200, { id: "sess-old", status: "running", workspace_id: "ws-1" }))
@@ -2605,9 +2700,12 @@ describe("the one-command desktop open", () => {
   test("a pending mint keeps the toast running; Stop prevents its late answer from settling it", async () => {
     let release!: (response: Response) => void
     let entered!: () => void
-    const pending = new Promise<Response>(resolve => { release = resolve })
+    const pending = new Promise<Response>(resolve => { release = resolve; heldReleases.add(() => resolve(json(503, { message: "fixture retired" }))) })
     const mintEntered = new Promise<void>(resolve => { entered = resolve })
     const { seam, store, dispatched } = await harness({
+      // This scenario deliberately has no readable auxiliary metadata.
+      "GET api/repos/will/smithers/bookmarks": json(404, { message: "bookmarks unavailable" }),
+      "GET api/repos/will/smithers/workspace/sessions": json(404, { message: "sessions unavailable" }),
       "POST api/repos/will/smithers/workspaces": json(200, desktopBox("running", true)),
       "POST api/repos/will/smithers/workspaces/ws-1/desktop/session": () => { entered(); return pending }
     })
@@ -2633,10 +2731,13 @@ describe("the one-command desktop open", () => {
   test("a later open owns the one toast and a superseded poll cannot change it", async () => {
     let release!: (response: Response) => void
     let entered!: () => void
-    const pending = new Promise<Response>(resolve => { release = resolve })
+    const pending = new Promise<Response>(resolve => { release = resolve; heldReleases.add(() => resolve(json(503, { message: "fixture retired" }))) })
     const pollEntered = new Promise<void>(resolve => { entered = resolve })
     let creates = 0
     const { seam, store, dispatched } = await harness({
+      // This scenario deliberately has no readable auxiliary metadata.
+      "GET api/repos/will/smithers/bookmarks": json(404, { message: "bookmarks unavailable" }),
+      "GET api/repos/will/smithers/workspace/sessions": json(404, { message: "sessions unavailable" }),
       "POST api/repos/will/smithers/workspaces": () => json(200, desktopBox(++creates === 1 ? "starting" : "running", true)),
       "GET api/repos/will/smithers/workspaces/ws-1": () => { entered(); return pending },
       "POST api/repos/will/smithers/workspaces/ws-1/desktop/session": json(201, DESKTOP_MINT)
@@ -2656,6 +2757,9 @@ describe("the one-command desktop open", () => {
 
   test("a terminal mint refusal fails the toast with a retry door and clears progress", async () => {
     const { seam, store } = await harness({
+      // This scenario deliberately has no readable auxiliary metadata.
+      "GET api/repos/will/smithers/bookmarks": json(404, { message: "bookmarks unavailable" }),
+      "GET api/repos/will/smithers/workspace/sessions": json(404, { message: "sessions unavailable" }),
       "POST api/repos/will/smithers/workspaces": json(200, desktopBox("running", true)),
       "POST api/repos/will/smithers/workspaces/ws-1/desktop/session": json(409, { message: "The box has stopped." })
     })
@@ -2718,8 +2822,11 @@ describe("workspace account fences", () => {
     let release!: (response: Response) => void
     let requested!: () => void
     const started = new Promise<void>(resolve => { requested = resolve })
-    const held = new Promise<Response>(resolve => { release = resolve })
+    const held = new Promise<Response>(resolve => { release = resolve; heldReleases.add(() => resolve(json(503, { message: "fixture retired" }))) })
     const { store, seam } = await harness({
+      // This scenario deliberately has no readable auxiliary metadata.
+      "GET api/repos/will/smithers/bookmarks": json(404, { message: "bookmarks unavailable" }),
+      "GET api/repos/will/smithers/workspace/sessions": json(404, { message: "sessions unavailable" }),
       "GET api/repos/will/smithers/workspaces/ws-1": () => { requested(); return held }
     })
     const identity = { type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", allowlisted: true, admin: false, scopesPlain: null } as const
@@ -2740,7 +2847,7 @@ describe("workspace account fences", () => {
     let release!: (response: Response) => void
     let requested!: () => void
     const started = new Promise<void>(resolve => { requested = resolve })
-    const held = new Promise<Response>(resolve => { release = resolve })
+    const held = new Promise<Response>(resolve => { release = resolve; heldReleases.add(() => resolve(json(503, { message: "fixture retired" }))) })
     const { store, seam, storage } = await harness({
       "GET api/repos/will/smithers/workspaces/ws-1": () => { requested(); return held }
     })
@@ -2759,7 +2866,7 @@ describe("workspace account fences", () => {
     let release!: (response: Response) => void
     let requested!: () => void
     const started = new Promise<void>(resolve => { requested = resolve })
-    const held = new Promise<Response>(resolve => { release = resolve })
+    const held = new Promise<Response>(resolve => { release = resolve; heldReleases.add(() => resolve(json(503, { message: "fixture retired" }))) })
     const { store, seam } = await harness({
       "GET api/repos/will/smithers/workspaces/ws-1": () => { requested(); return held }
     })
@@ -2779,7 +2886,7 @@ describe("workspace account fences", () => {
     let release!: (response: Response) => void
     let requested!: () => void
     const started = new Promise<void>(resolve => { requested = resolve })
-    const held = new Promise<Response>(resolve => { release = resolve })
+    const held = new Promise<Response>(resolve => { release = resolve; heldReleases.add(() => resolve(json(503, { message: "fixture retired" }))) })
     const { store, seam } = await harness({
       "GET api/repos/will/smithers/workspaces/ws-1/files": () => { requested(); return held }
     })
@@ -2797,7 +2904,7 @@ test("disposing a workspace seam retires a held view", async () => {
   let release!: (response: Response) => void
   let requested!: () => void
   const started = new Promise<void>(resolve => { requested = resolve })
-  const held = new Promise<Response>(resolve => { release = resolve })
+  const held = new Promise<Response>(resolve => { release = resolve; heldReleases.add(() => resolve(json(503, { message: "fixture retired" }))) })
   const { store, seam } = await harness({
     "GET api/repos/will/smithers/workspaces/ws-1": () => { requested(); return held }
   })
@@ -2815,7 +2922,7 @@ test("a held workspace mutation cannot publish its old owner's result", async ()
   let release!: (response: Response) => void
   let requested!: () => void
   const started = new Promise<void>(resolve => { requested = resolve })
-  const held = new Promise<Response>(resolve => { release = resolve })
+  const held = new Promise<Response>(resolve => { release = resolve; heldReleases.add(() => resolve(json(503, { message: "fixture retired" }))) })
   const { store, seam } = await harness({
     "POST api/repos/will/smithers/workspaces/ws-1/suspend": () => { requested(); return held }
   })
@@ -2833,7 +2940,7 @@ test("a held workspace inventory cannot restore rows after sign-out", async () =
   let release!: (response: Response) => void
   let requested!: () => void
   const started = new Promise<void>(resolve => { requested = resolve })
-  const held = new Promise<Response>(resolve => { release = resolve })
+  const held = new Promise<Response>(resolve => { release = resolve; heldReleases.add(() => resolve(json(503, { message: "fixture retired" }))) })
   const { store, seam } = await harness({
     "GET api/user/workspaces": () => { requested(); return held }
   })
@@ -2844,4 +2951,120 @@ test("a held workspace inventory cannot restore rows after sign-out", async () =
   await pending
   expect(store.collections.cloudWorkspaces.get("ws-1")).toBeUndefined()
   expect([...store.collections.messages.values()].some(row => row.text?.includes("will/smithers"))).toBe(false)
+})
+
+// Public operations share authorization before resolving a target or reading HTTP.
+describe("workspace authorization and transition receipts", () => {
+  for (const condition of ["signed-out", "degraded", "disposed"] as const) {
+    test(`${condition} refuses read and mutation doors without changing loaded state`, async () => {
+      const { seam, store, requests } = await harness({}, {
+        signedIn: condition !== "signed-out",
+        degraded: condition === "degraded"
+      })
+      await seedWorkspace(store)
+      await seedCard(store)
+      const before = {
+        workspaces: [...store.collections.cloudWorkspaces.values()],
+        cards: [...store.collections.cards.values()],
+        messages: [...store.collections.messages.values()]
+      }
+      if (condition === "disposed") seam.dispose()
+      const refusal = condition === "signed-out" ? "Sign in to Smithers Cloud to continue."
+        : condition === "degraded" ? DEGRADED_WORKSPACE_REFUSAL : "The workspace controller is disposed."
+      const outcomes = await Promise.all([
+        seam.viewWorkspace("ws-1"), seam.suspendWorkspace("ws-1"),
+        seam.resumeWorkspace("ws-1"), seam.listSessions("ws-1"), seam.destroySession("session-1", "ws-1"),
+        seam.deleteWorkspace("ws-1", "review"), seam.listFiles("src", "ws-1"), seam.readFile("README.md", "ws-1"),
+        seam.listServices("ws-1"), seam.listEgress("ws-1"), seam.listEnvironmentImages("will/smithers"),
+        seam.openDesktopBox(), seam.stopDesktopWait("ws-1")
+      ])
+      expect([...outcomes]).toEqual(Array.from({ length: 13 }, () => refusal))
+      expect(requests).toEqual([])
+      expect({
+        workspaces: [...store.collections.cloudWorkspaces.values()],
+        cards: [...store.collections.cards.values()],
+        messages: [...store.collections.messages.values()]
+      }).toEqual(before)
+    })
+  }
+
+  for (const verb of ["suspend", "resume"] as const) {
+    for (const receipt of ["readable", "refused", "malformed"] as const) {
+      test(`${verb} without an updated DTO uses the real ${receipt} reread receipt`, async () => {
+        const { seam, store, requests } = await harness({
+          [`POST api/repos/will/smithers/workspaces/ws-1/${verb}`]: json(200, {}),
+          "GET api/repos/will/smithers/workspaces/ws-1": receipt === "readable"
+            ? json(200, { ...WS_RUNNING, status: "suspended", name: "observed state" })
+            : receipt === "refused" ? json(503, { message: "temporarily unavailable" }) : json(200, { status: "suspended" }),
+          "GET api/repos/will/smithers/workspaces": json(200, [WS_RUNNING])
+        })
+        await seedWorkspace(store)
+        await seedCard(store)
+        const result = verb === "suspend" ? await seam.suspendWorkspace("ws-1") : await seam.resumeWorkspace("ws-1")
+        if (receipt === "readable") {
+          // A resume acknowledgment does not invent 'running': the reread says suspended.
+          expect(result).toEqual({ value: 'Box "observed state" (ws-1) is suspended.' })
+          expect(requests).toEqual([
+            `POST api/repos/will/smithers/workspaces/ws-1/${verb}`, "GET api/repos/will/smithers/workspaces/ws-1"
+          ])
+          expect(workspacesOf(store)[0]?.status).toBe("suspended")
+          expect(payloadOf(store)?.status).toBe("suspended")
+          expect(payloadOf(store)?.name).toBe("observed state")
+        } else {
+          expect(result).toBe(receipt === "refused"
+            ? `Box "review" (ws-1) ${verb}ed, but its new state could not be read — the list was refreshed.`
+            : `Box "review" (ws-1) ${verb}ed, but its answer was malformed — the list was refreshed.`)
+          expect(requests).toEqual([
+            `POST api/repos/will/smithers/workspaces/ws-1/${verb}`, "GET api/repos/will/smithers/workspaces/ws-1",
+            "GET api/repos/will/smithers/workspaces"
+          ])
+          expect(workspacesOf(store)[0]?.status).toBe("running")
+          expect(payloadOf(store)?.status).toBe("running")
+          expect(payloadOf(store)?.name).toBe("review")
+        }
+      })
+    }
+  }
+
+  for (const verb of ["suspend", "resume"] as const) {
+    test(`${verb} retires an unreadable acknowledgment's held reread after sign-out`, async () => {
+      let resolve!: (response: Response) => void
+      let entered!: () => void
+      const started = new Promise<void>(done => { entered = done })
+      const reread = new Promise<Response>(done => {
+        resolve = done
+        heldReleases.add(() => done(json(503, { message: "fixture retired" })))
+      })
+      const { seam, store, requests, storage } = await harness({
+        [`POST api/repos/will/smithers/workspaces/ws-1/${verb}`]: json(200, {}),
+        "GET api/repos/will/smithers/workspaces/ws-1": () => { entered(); return reread }
+      })
+      await seedWorkspace(store)
+      await seedCard(store)
+      const operation = verb === "suspend" ? seam.suspendWorkspace("ws-1") : seam.resumeWorkspace("ws-1")
+      await bounded(started)
+      await store.dispatch({ type: "identity.session.cleared", actor: "user" }).isPersisted.promise
+      const durableAtRetirement = storage.written()
+      resolve(json(200, { ...WS_RUNNING, name: "old private state", status: "suspended" }))
+      expect(await bounded(operation)).toBe("Sign in to Smithers Cloud to continue.")
+      await drainWork()
+      expect(requests).toEqual([
+        `POST api/repos/will/smithers/workspaces/ws-1/${verb}`, "GET api/repos/will/smithers/workspaces/ws-1"
+      ])
+      expect(workspacesOf(store)).toEqual([])
+      expect(cardOf(store)).toBeUndefined()
+      expect(storage.written()).toBe(durableAtRetirement)
+    })
+  }
+
+  test("workspace and directory names remain separate encoded route parameters", async () => {
+    const { seam, store, urls } = await harness({
+      "GET api/repos/team%20name/repo%23x/workspaces/box%2F%CE%B1/files": json(200, [{ name: "hi.txt", path: "src & notes/hi.txt", type: "file", size: 2 }])
+    })
+    await seedWorkspace(store, { ...wsRow, id: "box/α", repoId: "team name/repo#x", name: "encoded box" })
+    expect(await seam.listFiles("src & notes", "box/α")).toEqual({ value: 'src & notes in "encoded box" (box/α):\nhi.txt' })
+    expect(urls).toEqual(["GET api/repos/team%20name/repo%23x/workspaces/box%2F%CE%B1/files?path=src%20%26%20notes"])
+    expect(payloadOf(store, "box/α")?.filesPath).toBe("src & notes")
+    expect(payloadOf(store, "box/α")?.files).toEqual([{ name: "hi.txt", path: "src & notes/hi.txt", type: "file", size: 2 }])
+  })
 })

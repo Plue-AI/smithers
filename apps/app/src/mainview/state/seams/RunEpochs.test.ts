@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+import { createActorBindings } from "../ActorBindings"
 import { createRunEpochs } from "./RunEpochs"
 
 /*
@@ -42,4 +43,35 @@ describe("createRunEpochs", () => {
     expect(epochs.isLive("will/flows", 1)).toBe(false)
     expect(epochs.isLive("will/smithers", 2)).toBe(true)
   })
+})
+
+test("user and agent projections fence the same key while contexts and names remain isolated", () => {
+  const context = {}
+  const bindings = createActorBindings(() => {})
+  const user = bindings.pair(context, ctx => createRunEpochs(ctx, "shared"))
+  const agentStart = bindings.select(user.start)
+  expect(user.start("repo")).toBe(1)
+  expect(agentStart("repo")).toBe(2)
+  expect(user.isLive("repo", 1)).toBe(false)
+  expect(user.isLive("repo", 2)).toBe(true)
+  expect(createRunEpochs(context, "shared").isLive("repo", 2)).toBe(true)
+  expect(createRunEpochs(context, "other").start("repo")).toBe(1)
+  expect(createRunEpochs({}, "shared").start("repo")).toBe(1)
+  expect(user.isLive("repo", 2)).toBe(true)
+})
+
+test("cancellation never reissues an epoch or lets a retired settlement cancel its replacement", () => {
+  const epochs = createRunEpochs({}, "cancel")
+  expect(epochs.isLive("missing", 1)).toBe(false)
+  epochs.cancel("missing")
+  const old = epochs.start("repo")
+  epochs.cancel("repo")
+  expect(epochs.isLive("repo", old)).toBe(false)
+  const current = epochs.start("repo")
+  expect(current).toBe(2)
+  epochs.settle("repo", old)
+  expect(epochs.isLive("repo", current)).toBe(true)
+  epochs.settle("repo", current)
+  expect(epochs.isLive("repo", current)).toBe(false)
+  expect(epochs.start("repo")).toBe(3)
 })

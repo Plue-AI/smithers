@@ -1,13 +1,64 @@
-import { describe, expect, test } from "bun:test"
+import { afterEach, describe, expect, test } from "bun:test"
 import { inspect } from "node:util"
-import { createAppStore } from "./AppStore"
+import { createAppStore as openAppStore } from "./AppStore"
 import type { AppStore } from "./AppStore"
 import { scopedControllers } from "./ControllerTestScope"
 import { parseDiagnosticQuery, readDiagnostics } from "./Diagnostics"
 import { SMITHERS_INSTRUCTIONS } from "./Instructions"
 import { memoryStorage, silentAgent } from "./TestFixtures"
 
-const createAppController = scopedControllers()
+// Pure read/query tests below are independent of these controlled controller boundaries.
+// Map storage, silent AgentPort and explicit HTTP doubles do not qualify real backend integration.
+const closeStore = async (store: AppStore): Promise<void> => {
+  if (store.dispose === undefined) throw new Error("Fixture store has no disposal contract")
+  await store.dispose()
+}
+const stores = new Set<AppStore>()
+const releaseRequests: Array<() => void> = []
+const pendingRequests: Array<Promise<unknown>> = []
+const unexpectedRequests: string[] = []
+// Release held HTTP before shared controller cleanup; controllers close before
+// the later hook drains the request and disposes every original/reopened store.
+afterEach(() => { for (const release of releaseRequests.splice(0)) release() })
+const openAppController = scopedControllers()
+const bounded = async <T>(promise: Promise<T>): Promise<T> => {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([promise, new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error("Diagnostic fixture did not settle")), 3000)
+    })])
+  } finally { clearTimeout(timer) }
+}
+const createAppStore: typeof openAppStore = async (...args) => {
+  const store = await openAppStore(...args)
+  stores.add(store)
+  return store
+}
+const createAppController: typeof openAppController = (store, agent, services) => {
+  return openAppController(store, agent, {
+    ...services,
+    fetchImpl: services?.fetchImpl ?? (async input => {
+      unexpectedRequests.push(String(input))
+      throw new Error("Unexpected diagnostic fixture request")
+    })
+  })
+}
+afterEach(async () => {
+  const errors: unknown[] = []
+  try {
+    const results = await bounded(Promise.allSettled(pendingRequests.splice(0)))
+    for (const result of results) if (result.status === "rejected") errors.push(result.reason)
+  } catch (error) { errors.push(error) }
+  finally {
+    for (const store of stores) {
+      try { await closeStore(store) } catch (error) { errors.push(error) }
+    }
+    stores.clear()
+  }
+  const requests = unexpectedRequests.splice(0)
+  if (requests.length) errors.push(new Error(`Unexpected fixture HTTP requests: ${requests.join(", ")}`))
+  if (errors.length) throw new AggregateError(errors, "Diagnostic fixture cleanup failed")
+})
 const toast = async (store: AppStore, detail: string, key = "billing.refresh") => {
   await store.dispatch({ type: "toast.shown", actor: "system", key, title: "Refreshing balance" }).isPersisted.promise
   await store.dispatch({ type: "toast.resolved", actor: "system", key, status: "failed", detail }).isPersisted.promise
@@ -106,16 +157,24 @@ describe("app diagnostics without a repository", () => {
     const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
     const identity = (login: string | null) => store.dispatch({ type: "identity.session.loaded", actor: "system", state: login ? "signed-in" : "signed-out", login, allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
     await identity("alice")
-    let release!: (response: Response) => void
+    const late = Promise.withResolvers<Response>()
+    const entered = Promise.withResolvers<void>()
+    releaseRequests.push(() => late.resolve(new Response("", { status: 500 })))
     const controller = createAppController(store, silentAgent, {
-      fetchImpl: async input => String(input).includes("late") ? new Promise<Response>(resolve => { release = resolve }) : new Response("", { status: 500 })
+      fetchImpl: async input => {
+        if (!String(input).includes("late")) return new Response("", { status: 500 })
+        entered.resolve()
+        return late.promise
+      }
     })
     await toast(store, "Alice's failure")
     await controller.tappedFetch("/alice/private")
     const pending = controller.tappedFetch("/alice/late")
+    pendingRequests.push(pending)
+    await bounded(entered.promise)
     await identity(null)
     await identity("bob")
-    release(new Response("", { status: 500 }))
+    late.resolve(new Response("", { status: 500 }))
     await pending
     const result = await read(controller)
     expect(JSON.stringify(result)).not.toContain("alice")

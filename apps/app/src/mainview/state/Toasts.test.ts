@@ -1,9 +1,15 @@
-import { describe,expect,test } from "bun:test"
+import { afterEach,describe,expect,test } from "bun:test"
 import { createAppStore } from "./AppStore"
 import { scopedControllers } from "./ControllerTestScope"
 import { memoryStorage, settled, silentAgent } from "./TestFixtures"
 
 const createAppController = scopedControllers()
+
+const pendingResponses: Array<(response: Response) => void> = []
+afterEach(() => {
+  // A failed intermediate assertion must still release every transport gate.
+  for (const resolve of pendingResponses.splice(0)) resolve(new Response(null, { status: 503 }))
+})
 
 /*
  * The 300ms toast law (2026-08-09): background work not settled within 300ms
@@ -42,6 +48,7 @@ describe("the 300ms toast law", () => {
       fetchImpl: () =>
         new Promise<Response>((resolve) => {
           release = resolve
+          pendingResponses.push(resolve)
         }),
       toastDebounceMs: 0
     })
@@ -65,6 +72,7 @@ describe("the 300ms toast law", () => {
       fetchImpl: () =>
         new Promise<Response>((resolve) => {
           release = resolve
+          pendingResponses.push(resolve)
         }),
       toastDebounceMs: 0
     })
@@ -94,6 +102,7 @@ describe("the 300ms toast law", () => {
       fetchImpl: () =>
         new Promise<Response>((resolve) => {
           release = resolve
+          pendingResponses.push(resolve)
         }),
       toastDebounceMs: 0,
       toastAutoDismissMs: 10_000
@@ -118,6 +127,7 @@ describe("the 300ms toast law", () => {
       fetchImpl: () =>
         new Promise<Response>((resolve) => {
           release = resolve
+          pendingResponses.push(resolve)
         }),
       toastDebounceMs: 0,
       toastAutoDismissMs: 20
@@ -147,15 +157,18 @@ describe("the 300ms toast law", () => {
       fetchImpl: () =>
         new Promise<Response>((resolve) => {
           release = resolve
+          pendingResponses.push(resolve)
         }),
       toastDebounceMs: 0
     })
     const pending = controller.refreshBalance()
     await settled()
     expect(store.collections.toasts.get("toast-billing.balance.refresh")?.status).toBe("running")
-    // An answer that isn't a Response at all: the flow reports its own honest
-    // failure, and the toast still settles instead of hanging on "running".
-    release({ ok: false } as unknown as Response)
+    // A real Response can fail while its body is read at the transport boundary.
+    // The toast must still settle instead of hanging on "running".
+    release(new Response(new ReadableStream({
+      start(stream) { stream.error(new Error("transport body read refused")) }
+    }), { status: 503 }))
     await pending
     await settled()
     const toast = store.collections.toasts.get("toast-billing.balance.refresh")
@@ -193,7 +206,7 @@ describe("a late balance reply after dispose", () => {
       const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
       let resolve!: (response: Response) => void
       let reject!: (error: Error) => void
-      const held = new Promise<Response>((yes, no) => { resolve = yes; reject = no })
+      const held = new Promise<Response>((yes, no) => { resolve = yes; reject = no; pendingResponses.push(yes) })
       const controller = createAppController(store, silentAgent, {
         fetchImpl: () => held,
         toastDebounceMs: 0

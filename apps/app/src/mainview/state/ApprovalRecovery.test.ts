@@ -1,14 +1,37 @@
 import { releaseInterruptedApproval } from "./ApprovalRecovery"
-import { describe, expect, test } from "bun:test"
+import { afterEach, describe, expect, test } from "bun:test"
 import type { ApprovalRow } from "@smthrs/gateway/GatewayProjection"
 import type { Card } from "./AppState"
 import { approvalActionId, parseApprovalActionId } from "./ApprovalReference"
-import { createAppStore, type AppStore } from "./AppStore"
-import { memoryStorage } from "./TestFixtures"
+import { createAppStore as openAppStore, type AppStore } from "./AppStore"
+import { memoryStorage, silentAgent } from "./TestFixtures"
 import { runtimeApprovalKey } from "./RuntimeProjection"
 import { reconcileRunApprovals } from "./controller/approval-reconciliation"
 import { createWorkflowPumpController } from "./controller/workflow-pump"
-import type { ControllerContext } from "./controller/context"
+import { createControllerContext, type ControllerContext } from "./controller/context"
+
+const stores = new Set<AppStore>()
+const contexts = new Set<ControllerContext>()
+const createAppStore: typeof openAppStore = async (...args) => {
+  const store = await openAppStore(...args)
+  stores.add(store)
+  return store
+}
+afterEach(async () => {
+  const errors: unknown[] = []
+  for (const context of contexts) {
+    try { await context.dispose() } catch (error) { errors.push(error) }
+  }
+  contexts.clear()
+  for (const store of stores) {
+    try {
+      if (store.dispose === undefined) throw new Error("Fixture store has no disposal contract")
+      await store.dispose()
+    } catch (error) { errors.push(error) }
+  }
+  stores.clear()
+  if (errors.length) throw new AggregateError(errors, "Approval recovery fixture cleanup failed")
+})
 
 const repo = "owner/repo"
 const workspaceA = "83e75ae5-0920-4000-8000-000000000001"
@@ -21,13 +44,13 @@ const row = (runId = "run", requestId = "deploy", status: ApprovalRow["status"] 
 const card = (id: string, workspaceId: string, request = row()): Extract<Card, { kind: "approval" }> => ({
   id, kind: "approval", status: "active", title: request.title, createdAt: 1, ordinal: 1,
   payload: { repo, workspaceId, gatewayBindingVersion: 1, runId: request.runId, requestId: request.requestId,
-    approval: request.payload as unknown as Record<string, unknown>, capability: request.title }
+    approval: { ...request.payload }, capability: request.title }
 })
 const inbox = (id: string, workspaceId: string): Extract<Card, { kind: "approvals-inbox" }> => ({
   id, kind: "approvals-inbox", status: "active", title: "Approvals", createdAt: 1, ordinal: 2,
   payload: { repo, workspaceId, gatewayBindingVersion: 1, approvals: [row("run-a"), row("run-b")].map((request) => ({
     runId: request.runId, requestId: request.requestId, title: request.title, requestedAt: request.requestedAt,
-    approval: request.payload as unknown as Record<string, unknown>, pending: true
+    approval: { ...request.payload }, pending: true
   })) }
 })
 const read = (store: AppStore, id: string) => {
@@ -170,8 +193,16 @@ describe("approval observation recovery", () => {
         phase: "waiting-approval", steps: [], result: null, lastSeq: 0 }
     } }).isPersisted.promise
     let reads = 0
-    const ctx = { store, services: {}, workflowPollMs: 1, unref: () => {},
-      runPumps: new Map(), pumpPokes: new Map(), finishTutorialChange: async () => {}, gateway: {
+    const unexpectedRequests: string[] = []
+    const ctx = createControllerContext(store, silentAgent, {
+      workflowPollMs: 1,
+      fetchImpl: async input => {
+        unexpectedRequests.push(String(input))
+        throw new Error("Unexpected approval fixture HTTP request")
+      }
+    })
+    contexts.add(ctx)
+    Object.assign(ctx.gateway, {
         run: async () => ({ status: "ok", value: { runId: "run", flowId: "test", status: "completed", createdAt: 1, updatedAt: 2, turns: 1, calls: 1, callsFailed: 0, verdict: "done", diagnosis: "done", editsAttempted: 0, editsSucceeded: 0, inputTokens: 0, outputTokens: 0 } }),
         approvals: async (actualRepo: string, actualRun: string, binding: unknown) => {
           expect([actualRepo, actualRun, binding]).toEqual([repo, "run", { workspaceId: workspaceA }])
@@ -179,11 +210,13 @@ describe("approval observation recovery", () => {
           return { status: "ok", value: [row("run", "deploy", "denied")] }
         },
         runEvents: async () => ({ status: "ok", value: [] })
-      } } as unknown as ControllerContext
+      } satisfies Pick<typeof ctx.gateway, "run" | "approvals" | "runEvents">)
     await createWorkflowPumpController(ctx, () => 4).pumpWorkflowRun("trace")
     expect(reads).toBe(1)
     expect(read(store, "a").payload.decision).toBe("denied")
     expect(store.collections.cards.get("trace")?.status).toBe("acted")
+    expect(unexpectedRequests).toEqual([])
+    await ctx.dispose()
     await store.dispose?.()
   })
 })
@@ -201,3 +234,59 @@ test("a failed inbox forward releases only that request and retains other pendin
     expect(current.payload.approvals[1]?.pending).toBe(true)
   } finally { await store.dispose?.() }
 })
+
+for (const kind of ["missing", "status", "idle", "acted"] as const) {
+  test(`${kind} approval release has no journal or card effect`, async () => {
+    const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+    const value: Card | undefined = kind === "missing" ? undefined : kind === "status"
+      ? { id: "status", kind: "status", status: "active", title: "Status", createdAt: 1, ordinal: 0,
+        payload: { note: "Unrelated work" } }
+      : { ...card("approval", workspaceA), status: kind === "acted" ? "acted" : "active",
+        payload: { ...card("approval", workspaceA).payload, ...(kind === "acted" ? { pending: true } : {}) } }
+    if (value) await store.dispatch({ type: "card.upsert", actor: "system", card: value }).isPersisted.promise
+    const selected = value ? store.collections.cards.get(value.id) : undefined
+    if (kind === "acted") expect(selected).toMatchObject({ status: "acted", payload: { pending: true } })
+    const beforeHistory = await store.eventHistory(), beforeCards = structuredClone([...store.collections.cards.values()])
+    await releaseInterruptedApproval(store, selected, "Decision response lost.")
+    expect(await store.eventHistory()).toEqual(beforeHistory)
+    expect([...store.collections.cards.values()]).toEqual(beforeCards)
+  })
+}
+
+test("an interrupted standalone decision retains the exact reviewed request and becomes retryable", async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  await store.dispatch({ type: "card.upsert", actor: "system", card: card("approval", workspaceA) }).isPersisted.promise
+  await store.dispatch({ type: "card.approval.decision.pending", actor: "user", id: "approval" }).isPersisted.promise
+  const request = structuredClone(store.approvalRequest("approval"))
+  await releaseInterruptedApproval(store, read(store, "approval"), "Decision response lost.")
+  expect(read(store, "approval")).toMatchObject({ status: "error", payload: { pending: false, error: "Decision response lost." } })
+  expect(store.approvalRequest("approval")).toEqual(request)
+  expect(read(store, "approval").payload.decision).toBeUndefined()
+})
+
+for (const [selection, target, affected] of [
+  ["all", undefined, ["run-a:deploy", "run-b:deploy", "run-a:review"]],
+  ["request", { requestId: "deploy" }, ["run-a:deploy", "run-b:deploy"]],
+  ["run and request", { requestId: "deploy", runId: "run-b" }, ["run-b:deploy"]],
+  ["unmatched", { requestId: "missing", runId: "run-a" }, []]
+] as const) {
+  test(`inbox release ${selection} changes exactly the selected pending requests`, async () => {
+    const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+    const value = inbox("inbox", workspaceA)
+    const requests = [row("run-a", "deploy"), row("run-b", "deploy"), row("run-a", "review"), row("run-c", "deploy")]
+    const approvals = requests.map((request, index) => ({ runId: request.runId, requestId: request.requestId,
+      title: request.title, requestedAt: request.requestedAt, approval: { ...request.payload }, pending: index !== 3 }))
+    await store.dispatch({ type: "card.upsert", actor: "system", card: { ...value, payload: { ...value.payload, approvals } } }).isPersisted.promise
+    const before = structuredClone(readInbox(store, "inbox").payload.approvals), history = await store.eventHistory()
+    await releaseInterruptedApproval(store, readInbox(store, "inbox"), "Decision response lost.", target)
+    const after = readInbox(store, "inbox").payload.approvals
+    expect(after.filter(entry => entry.decisionError === "Decision response lost.").map(entry => `${entry.runId}:${entry.requestId}`)).toEqual([...affected])
+    for (let index = 0; index < before.length; index++) {
+      const prior = before[index]!
+      const key = `${prior.runId}:${prior.requestId}`
+      if (affected.some(id => id === key)) expect(after[index]).toEqual({ ...prior, pending: undefined, decisionError: "Decision response lost." })
+      else expect(after[index]).toEqual(prior)
+    }
+    if (selection === "unmatched") expect(await store.eventHistory()).toEqual(history)
+  })
+}

@@ -1,9 +1,9 @@
 import type { StorageApi } from "@tanstack/db"
-import { describe, expect, test } from "bun:test"
+import { afterEach, describe, expect, test } from "bun:test"
 import type { AgentPort } from "../../runtime/AgentPort"
-import { createAppController } from "../AppController"
+import { scopedControllers } from "../ControllerTestScope"
 import type { AppServices } from "../AppController"
-import { createAppStore } from "../AppStore"
+import { createAppStore as openAppStore } from "../AppStore"
 import type { AppStore } from "../AppStore"
 
 /*
@@ -13,6 +13,120 @@ import type { AppStore } from "../AppStore"
  * sends themselves belong to the chat = issues seam (#2111).
  */
 
+// One fixture lifetime owns transport, body readers and controller disposal.
+const bareStores = new Set<AppStore>()
+const retireOwners = new Set<() => void>()
+const releases = new Set<() => void>()
+const work = new Set<Promise<unknown>>()
+const unexpectedHttp: string[] = []
+const cleanupErrors: unknown[] = []
+let collectingDisposalFailures = false
+const settleStore = async (store: AppStore): Promise<void> => {
+  if (store.settled === undefined) throw new Error("Issues fixture requires persistence settlement")
+  await store.settled()
+}
+const closeBareStore = async (store: AppStore): Promise<void> => {
+  if (store.dispose === undefined) throw new Error("Issues fixture requires store disposal")
+  await store.dispose()
+}
+const checkpoint = (): Promise<void> => new Promise(resolve => setImmediate(resolve))
+const bounded = async <A>(promise: Promise<A>): Promise<A> => {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([promise, new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error("Issues fixture work did not settle")), 5_000)
+    })])
+  } finally { if (timer !== undefined) clearTimeout(timer) }
+}
+const observe = <A>(promise: Promise<A>): Promise<A> => {
+  work.add(promise)
+  const complete = () => { work.delete(promise) }
+  void promise.then(complete, complete)
+  return promise
+}
+const drain = async (): Promise<void> => {
+  do {
+    await Promise.allSettled([...work])
+    await checkpoint()
+  } while (work.size !== 0)
+}
+const flushStore = async (store: AppStore): Promise<void> => {
+  await bounded(drain())
+  await settleStore(store)
+  await checkpoint()
+}
+const waitUntil = async (condition: () => boolean): Promise<void> => {
+  let stopped = false
+  try {
+    await bounded((async () => { while (!stopped && !condition()) await checkpoint() })())
+  } finally { stopped = true }
+}
+const trackResponse = (response: Response): Response => {
+  const json = response.json.bind(response), text = response.text.bind(response), clone = response.clone.bind(response)
+  response.json = () => observe(json())
+  response.text = () => observe(text())
+  response.clone = () => trackResponse(clone())
+  return response
+}
+const createAppStore: typeof openAppStore = async (...args) => {
+  const store = await openAppStore(...args)
+  bareStores.add(store)
+  return store
+}
+// Abort the public page lifetime before releasing IO; stale work must not publish
+// while cleanup drains. The controller remains the sole normal store-close owner.
+afterEach(async () => {
+  collectingDisposalFailures = true
+  const errors: unknown[] = []
+  for (const retire of retireOwners) { try { retire() } catch (error) { errors.push(error) } }
+  retireOwners.clear()
+  for (const release of releases) { try { release() } catch (error) { errors.push(error) } }
+  releases.clear()
+  try { await bounded(drain()) } catch (error) { errors.push(error) }
+  for (const store of bareStores) {
+    try { await settleStore(store) } catch (error) { errors.push(error) }
+    try { await closeBareStore(store) } catch (error) { errors.push(error) }
+  }
+  bareStores.clear()
+  cleanupErrors.push(...errors)
+  // Bun stops later afterEach hooks when one rejects. Delay reporting these
+  // failures until scopedControllers has attempted every controller finalizer.
+})
+const scopedController = scopedControllers()
+const controllerLifetimes = new WeakMap<ReturnType<typeof scopedController>, AbortController>()
+const createAppController: typeof scopedController = (store, agent, services) => {
+  const lifetime = new AbortController()
+  retireOwners.add(() => lifetime.abort())
+  const controller = scopedController(store, agent, { ...services, pageLifetime: lifetime.signal })
+  bareStores.delete(store)
+  controllerLifetimes.set(controller, lifetime)
+  const dispose = controller.dispose
+  Object.defineProperty(controller, "dispose", { value: async () => {
+    try { await dispose() }
+    catch (error) {
+      // Preserve explicit test-time rejection. During teardown, postpone it
+      // until scopedControllers has attempted every registered controller.
+      if (!collectingDisposalFailures) throw error
+      cleanupErrors.push(error)
+    }
+  } })
+  return controller
+}
+const disposeFixture = async (controller: ReturnType<typeof scopedController>, store: AppStore): Promise<void> => {
+  controllerLifetimes.get(controller)?.abort()
+  const errors: unknown[] = []
+  try { await flushStore(store) } catch (error) { errors.push(error) }
+  try { await controller.dispose() } catch (error) { errors.push(error) }
+  if (errors.length) throw new AggregateError(errors, "Issues fixture disposal failed")
+}
+afterEach(async () => {
+  const errors = cleanupErrors.splice(0)
+  const unexpected = unexpectedHttp.splice(0)
+  collectingDisposalFailures = false
+  if (unexpected.length) errors.push(new Error(`Unplanned issue HTTP: ${unexpected.join(", ")}`))
+  if (errors.length) throw new AggregateError(errors, "Issues store cleanup failed")
+})
+
 const memoryStorage = (): StorageApi => {
   const data = new Map<string, string>()
   return { getItem: (key) => data.get(key) ?? null, setItem: (key, value) => void data.set(key, value), removeItem: (key) => void data.delete(key) }
@@ -20,8 +134,24 @@ const memoryStorage = (): StorageApi => {
 const unavailableAgent: AgentPort = { available: false, startTurn: async () => ({ status: "error", message: "unavailable" }), cancelTurn: async () => {}, subscribe: () => () => {} }
 const json = (status: number, body: unknown): Response => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } })
 type RouteAnswer = Response | ((request: Request) => Response | Promise<Response>)
+// Explicit absent optional/startup resources for these repositories. No other
+// request is silently converted to a valid fixture refusal.
+const absentRoutes = new Set([
+  "GET /api/repository-setup/state",
+  "GET /api/repos/will/flows/contents/.smithers/factory.json",
+  "GET /api/repos/will/flows/home",
+  "GET /api/repos/smithersai/smithers/contents/.smithers/factory.json",
+  "GET /api/repos/smithersai/smithers/home",
+  "GET /api/user/github-repos/will/flows/issues",
+  "GET /api/repos/will/flows/issues/8/sync",
+  "GET /api/repos/will/flows/issues/10/sync",
+  "GET /api/repos/will/flows/issues/8/comments/31/reactions",
+  "GET /api/repos/will/flows/issues/8/comments/32/reactions",
+  "GET /api/repos/will/flows/issues/8/comments/41/reactions",
+  "GET /api/repos/will/flows/issues/8/comments/42/reactions"
+])
 const backend = (routes: Record<string, RouteAnswer>, calls: Array<{ line: string; body?: unknown }> = []): AppServices => ({
-  fetchImpl: async (input, init) => {
+  fetchImpl: (input, init) => observe((async () => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url
     const absolute = new URL(url, "https://app.test")
     const method = (init?.method ?? "GET").toUpperCase()
@@ -30,15 +160,16 @@ const backend = (routes: Record<string, RouteAnswer>, calls: Array<{ line: strin
     for (const [route, answer] of Object.entries(routes)) {
       const space = route.indexOf(" ")
       if (route.slice(0, space) !== method || absolute.pathname !== route.slice(space + 1)) continue
-      return typeof answer === "function" ? answer(new Request(absolute.toString(), init)) : answer.clone()
+      return trackResponse(typeof answer === "function" ? await answer(new Request(absolute.toString(), init)) : answer.clone())
     }
-    return json(404, { status: "error", message: `no stub for ${method} ${absolute.pathname}` })
-  }
+    if (!absentRoutes.has(`${method} ${absolute.pathname}`)) unexpectedHttp.push(`${method} ${absolute.pathname}`)
+    return trackResponse(json(404, { status: "error", message: `no stub for ${method} ${absolute.pathname}` }))
+  })())
 })
-const settled = () => new Promise((resolve) => setTimeout(resolve, 0))
+const settled = checkpoint
 const signedIn = async (store: AppStore): Promise<void> => {
-  store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", allowlisted: true, admin: false, scopesPlain: null })
-  store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: "will/flows", org: "will", ownerKind: "user", name: "flows", head: null }] })
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
+  await store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: "will/flows", org: "will", ownerKind: "user", name: "flows", head: null }] }).isPersisted.promise
   await settled()
 }
 const REPO = "will/flows"
@@ -74,7 +205,7 @@ describe("conversations and issues through the issues seam", () => {
     expect(created.status).toBe("executed")
     const post = calls.find((call) => call.line === "POST /api/repos/will/flows/issues")!
     expect(post.body).toMatchObject({ title: "Ask the assistant", kind: "chat" })
-    await controller.dispose()
+    await disposeFixture(controller, store)
   })
 })
 
@@ -127,16 +258,16 @@ describe("a conversation on the chat = issues contract", () => {
     // A message: acknowledged at once, posted with its request id as the idempotency key; the refusal keeps the row failed with what failed and whose fault it was, never the server's words.
     expect(await controller.commentOnIssue(7, "Ship it.", REPO)).toEqual({ value: "Requested" })
     await settled()
-    for (let attempt = 0; attempt < 40 && !calls.some((call) => call.line === "POST /api/repos/will/flows/issues/7/comments"); attempt++) await settled()
+    await waitUntil(() => calls.some((call) => call.line === "POST /api/repos/will/flows/issues/7/comments"))
     const post = calls.find((call) => call.line === "POST /api/repos/will/flows/issues/7/comments")
     expect(post?.body).toMatchObject({ body: "Ship it." })
     const key = (post?.body as { idempotency_key?: string } | undefined)?.idempotency_key
     expect(typeof key).toBe("string")
-    for (let attempt = 0; attempt < 40; attempt++) {
-      const live = store.collections.cards.get(`issue-${REPO}-7`)
-      if (live?.kind === "issue" && live.payload.pendingComments?.[0]?.status === "failed") break
-      await settled()
-    }
+    await waitUntil(() => {
+      const current = store.collections.cards.get(`issue-${REPO}-7`)
+      return current?.kind === "issue" && current.payload.pendingComments?.[0]?.status === "failed"
+    })
+    await flushStore(store)
     const live = store.collections.cards.get(`issue-${REPO}-7`)
     if (live?.kind !== "issue") throw new Error("the conversation card is absent")
     expect(live.payload.pendingComments).toMatchObject([{ id: key, text: "Ship it.", status: "failed", error: "Posting the message failed (503). Something on Smithers' side failed. Not your fault, and nothing your request could have changed." }])

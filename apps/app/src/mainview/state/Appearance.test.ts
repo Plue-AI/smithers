@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { PALETTE_MIRROR_KEY, rememberAppearance, THEME_MIRROR_KEY } from "./Appearance"
-import { createAppStore } from "./AppStore"
+import { createAppStore, type AppStore } from "./AppStore"
 import { memoryStorage } from "./TestFixtures"
 
 /*
@@ -21,6 +21,14 @@ import { memoryStorage } from "./TestFixtures"
  */
 
 const html = readFileSync(fileURLToPath(new URL("../index.html", import.meta.url)), "utf8")
+const closeStore = async (store: AppStore): Promise<void> => {
+  if (store.dispose === undefined) throw new Error("Fixture store has no disposal contract")
+  await store.dispose()
+}
+const restoreStorage = (prior: PropertyDescriptor | undefined): void => {
+  if (prior === undefined) Reflect.deleteProperty(globalThis, "localStorage")
+  else Object.defineProperty(globalThis, "localStorage", prior)
+}
 
 /** The one inline (non-module) script the document carries. */
 const bootstrapSource = (): string => {
@@ -81,8 +89,7 @@ describe("appearance mirroring when the storage accessor refuses access", () => 
   })
 
   afterEach(() => {
-    if (originalStorage === undefined) delete (globalThis as { localStorage?: unknown }).localStorage
-    else Object.defineProperty(globalThis, "localStorage", originalStorage)
+    restoreStorage(originalStorage)
   })
 
   test("rememberAppearance returns when resolving localStorage throws", () => {
@@ -100,12 +107,20 @@ describe("appearance mirroring when the storage accessor refuses access", () => 
       expect(store.session().theme).toBe("dark")
       expect(store.session().palette).toBe("solarized")
     } finally {
-      await store.dispose?.()
+      await closeStore(store)
     }
   })
 })
 
 describe("the appearance bootstrap stamps the document before first paint", () => {
+  for (const theme of ["light", "dark"] as const) {
+    for (const prefersDark of [false, true]) test(`the saved ${theme} choice overrides OS dark=${prefersDark}`, () => {
+      const root = runBootstrap({ stored: { [THEME_MIRROR_KEY]: theme }, prefersDark })
+      expect(root.attributes.get("data-theme")).toBe(theme)
+      expect(root.attributes.has("data-palette")).toBe(false)
+    })
+  }
+
   test("the mirrored theme and palette are stamped from storage", () => {
     const root = runBootstrap({
       stored: { [THEME_MIRROR_KEY]: "dark", [PALETTE_MIRROR_KEY]: "rose-pine" }
@@ -136,15 +151,17 @@ describe("the appearance bootstrap stamps the document before first paint", () =
     // The mirror is written by AppStore's own apply step, so the value the
     // bootstrap finds is by construction the value the app last painted.
     const written = new Map<string, string>()
-    ;(globalThis as { localStorage?: unknown }).localStorage = {
+    const prior = Object.getOwnPropertyDescriptor(globalThis, "localStorage")
+    let store: AppStore | undefined
+    Object.defineProperty(globalThis, "localStorage", { configurable: true, value: {
       getItem: (key: string) => written.get(key) ?? null,
       setItem: (key: string, value: string) => void written.set(key, value),
       removeItem: (key: string) => void written.delete(key)
-    }
+    } })
     try {
-      const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
-      store.dispatch({ type: "theme.changed", actor: "user", theme: "dark" })
-      store.dispatch({ type: "palette.changed", actor: "user", palette: "solarized" })
+      store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+      await store.dispatch({ type: "theme.changed", actor: "user", theme: "dark" }).isPersisted.promise
+      await store.dispatch({ type: "palette.changed", actor: "user", palette: "solarized" }).isPersisted.promise
       expect(written.get(THEME_MIRROR_KEY)).toBe("dark")
       expect(written.get(PALETTE_MIRROR_KEY)).toBe("solarized")
       const root = runBootstrap({
@@ -153,7 +170,7 @@ describe("the appearance bootstrap stamps the document before first paint", () =
       expect(root.attributes.get("data-theme")).toBe("dark")
       expect(root.attributes.get("data-palette")).toBe("solarized")
     } finally {
-      delete (globalThis as { localStorage?: unknown }).localStorage
+      try { if (store) await closeStore(store) } finally { restoreStorage(prior) }
     }
   })
 
@@ -163,4 +180,26 @@ describe("the appearance bootstrap stamps the document before first paint", () =
     expect(html.indexOf("<script>")).toBeLessThan(html.indexOf("<script type=\"module\""))
     expect(html.indexOf("</head>")).toBeGreaterThan(html.indexOf("<script>"))
   })
+})
+
+describe("appearance mirrors remain best effort", () => {
+  for (const [key, value, expectedKey] of [
+    [THEME_MIRROR_KEY, "dark", "smithers-mvp.theme"],
+    [PALETTE_MIRROR_KEY, "rose-pine", "smithers-mvp.palette"]
+  ] as const) {
+    for (const refuses of [false, true]) test(`mirror ${expectedKey} tolerates write refusal=${refuses}`, () => {
+      const prior = Object.getOwnPropertyDescriptor(globalThis, "localStorage")
+      const writes: Array<[string, string]> = []
+      Object.defineProperty(globalThis, "localStorage", { configurable: true, value: {
+        setItem: (actualKey: string, actualValue: string) => {
+          writes.push([actualKey, actualValue])
+          if (refuses) throw new DOMException("fixture quota refused", "QuotaExceededError")
+        }
+      } })
+      try {
+        expect(rememberAppearance(key, value)).toBeUndefined()
+        expect(writes).toEqual([[expectedKey, value]])
+      } finally { restoreStorage(prior) }
+    })
+  }
 })

@@ -1,9 +1,12 @@
 import { describe, expect, test } from "bun:test"
-import { active, all, entryId, merge, subagentsFromCards, toggle, type MainEntry } from "./ChatTimeline"
-import type { Card, Message } from "./AppState"
+import { active, all, entryId, merge, subagentsFromCards, text, toggle, type MainEntry } from "./ChatTimeline"
+import type { Card } from "./AppState"
+import { initMessage } from "../Onboarding"
 
-const message = (id: string, at: number): MainEntry => ({ kind: "message", message: { id, ordinal: at, createdAt: at, text: id } as Message })
-const cloud = (id: string, createdAt: number, state: string, text = "working"): Extract<Card, { kind: "agent" }> => ({
+const message = (id: string, at: number): MainEntry => ({ kind: "message", message: { id, ordinal: at, createdAt: at, text: id, role: "user", status: "complete" } })
+type AgentCard = Extract<Card, { kind: "agent" }>
+type CloudCard = Omit<AgentCard, "payload"> & { payload: Extract<AgentCard["payload"], { cloud: true }> }
+const cloud = (id: string, createdAt: number, state: string, text = "working"): CloudCard => ({
   id, kind: "agent", title: id, status: "active", createdAt, ordinal: createdAt, payload: {
     cloud: true, displayName: id, sessionId: id, repo: "owner/repo", provider: "codex", workspaceId: null, state,
     transcript: [{ id: 1, sequence: 1, role: "assistant", createdAt: "2026-09-14T09:00:00Z", parts: [{ type: "text", text }] }]
@@ -52,11 +55,45 @@ describe("chat timeline", () => {
   })
 
   test("a run card is an ordinary card, never a subagent of the chat", () => {
-    const run = { id: "run", kind: "run-trace", title: "Build", createdAt: 51, ordinal: 51, status: "active", payload: {
+    const run: Extract<Card, { kind: "run-trace" }> = { id: "run", kind: "run-trace", title: "Build", createdAt: 51, ordinal: 51, status: "active", payload: {
       repo: "owner/repo", runId: "run-1", workflow: "build", phase: "running", steps: [], result: null, lastSeq: 0,
       transcriptRows: [{ sequence: 1, at: 60, kind: "answer", text: "built" }]
-    } } as Card
+    } }
     expect(subagentsFromCards([run])).toEqual([])
     expect(keys(merge([card(run)], []))).toEqual(["run"])
+  })
+
+  test("filtering a chat separator groups visible workers without leaking finished rows for hidden workers", () => {
+    const one = cloud("one", 1, "active"), two = cloud("two", 3, "completed")
+    const main = [card(one), message("separator", 2), card(two)]
+    const before = structuredClone(main)
+    const workers = subagentsFromCards([one, two])
+    expect(keys(merge(main, workers, { sources: ["chat"], kinds: [], query: "" }))).toEqual(["subagents:one", "finished:two"])
+    expect(keys(merge(main, workers, { sources: ["two"], kinds: [], query: "" }))).toEqual(["subagents:one", "separator"])
+    expect(main).toEqual(before)
+  })
+
+  test("tool target and card body searches keep their owning rows and preserve the filter draft", () => {
+    const worker = cloud("worker", 1, "active", "unrelated output")
+    worker.payload.transcript = [{ id: 1, sequence: 1, role: "assistant", createdAt: null,
+      parts: [{ type: "tool_call", text: '{"name":"Read","arguments":{"path":"Needle.ts"}}' }] }]
+    const ordinary: Extract<Card, { kind: "status" }> = { id: "ordinary", kind: "status", title: "Build", body: "Needle result", status: "active", createdAt: 2, ordinal: 2, payload: {} }
+    const filter = { sources: [], kinds: [], query: "nEeDlE" }
+    const main = [card(worker), card(ordinary), message("unrelated", 3)]
+    const workers = subagentsFromCards([worker])
+    expect(keys(merge(main, workers, filter))).toEqual(["subagents:worker", "ordinary"])
+    expect(filter).toEqual({ sources: [], kinds: [], query: "nEeDlE" })
+    expect(text(merge(main, workers)[0]!)).toBe("worker\nread Needle.ts")
+    expect(text(card(ordinary))).toBe("Build\nNeedle result")
+    const init = initMessage({ bootstrap: undefined, flowCount: 0, connectors: [], repositories: [] })
+    expect(entryId({ kind: "init", message: init })).toBe("init-state")
+    expect(text({ kind: "init", message: init })).toBe("**Smithers here.**\n**Smithers initialized successfully**\n\n- Host: unknown\n- Capabilities: none\n- Flows registered: 0\n- Repositories: none open")
+  })
+
+  test("lane colors wrap after six workers without sorting or mutating the caller's cards", () => {
+    const cards = [local("g", 7), local("f", 6), local("e", 5), local("d", 4), local("c", 3), local("b", 2), local("a", 1)]
+    const before = structuredClone(cards)
+    expect(subagentsFromCards(cards).map(each => [each.id, each.color])).toEqual([["a", 0], ["b", 1], ["c", 2], ["d", 3], ["e", 4], ["f", 5], ["g", 0]])
+    expect(cards).toEqual(before)
   })
 })

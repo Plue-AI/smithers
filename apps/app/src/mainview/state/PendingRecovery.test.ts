@@ -1,18 +1,96 @@
-import { expect, test } from "bun:test"
-import { admitsPendingRecovery, pendingRecoveryScope, type PendingRecoveryAuthority } from "./PendingRecovery"
-import { createAppStore } from "./AppStore"
+import { afterEach, expect, test } from "bun:test"
+import { admitsPendingRecovery, pendingRecoveryScope, sameRecoveryScope, type PendingRecoveryAuthority } from "./PendingRecovery"
+import { createAppStore as openAppStore, type AppStore } from "./AppStore"
 import { memoryStorage } from "./TestFixtures"
 import { writeEntityRecovery, readEntityRecoveries, clearEntityRecovery, ENTITY_RECOVERY_STORAGE_KEY } from "./EntityRecovery"
 import { writeWikiRecovery, WIKI_RECOVERY_STORAGE_KEY } from "./WikiRecovery"
 import { writeDraftRecovery, DRAFT_RECOVERY_STORAGE_KEY } from "./DraftRecovery"
 import type { Card } from "./AppState"
 
-const card: Card = { id: "form", kind: "flow-form", title: "Form", status: "active", createdAt: 1, ordinal: 1,
+const stores = new Set<AppStore>()
+const createAppStore: typeof openAppStore = async (...args) => {
+  const store = await openAppStore(...args)
+  stores.add(store)
+  return store
+}
+const closeStores = async (): Promise<void> => {
+  const errors: unknown[] = []
+  for (const store of stores) {
+    try {
+      if (store.dispose === undefined) throw new Error("Fixture store has no disposal contract")
+      await store.dispose()
+    } catch (error) { errors.push(error) }
+  }
+  stores.clear()
+  if (errors.length) throw new AggregateError(errors, "Pending recovery fixture cleanup failed")
+}
+afterEach(closeStores)
+
+const card: Extract<Card, { kind: "flow-form" }> = { id: "form", kind: "flow-form", title: "Form", status: "active", createdAt: 1, ordinal: 1,
   payload: { flow: "wiki.open", via: "user", fields: [], draft: { path: "Pending.md" }, given: {} } }
 const document = { id: "world-home", title: "World", path: "World.md", body: "Pending Wiki", links: [], tags: [], sources: ["user:world-editor"], confidence: 1 }
 const bind = (head: Awaited<ReturnType<Awaited<ReturnType<typeof createAppStore>>["eventHistory"]>>["head"], scope: ReturnType<typeof pendingRecoveryScope>, intentId = "input"): PendingRecoveryAuthority => ({
   ...scope, streamId: head.streamId, baseSequence: head.sequence, baseEventHash: head.eventHash, actor: "user", intentId
 })
+
+test("recovery scope preserves all three owning identities, including the absence of a conversation tab", () => {
+  const original = { workspaceId: "workspace-a", branchId: "branch-a", conversationTabId: null }
+  expect(sameRecoveryScope(original, { ...original })).toBe(true)
+  expect(sameRecoveryScope(original, { ...original, workspaceId: "workspace-b" })).toBe(false)
+  expect(sameRecoveryScope(original, { ...original, branchId: "branch-b" })).toBe(false)
+  expect(sameRecoveryScope(original, { ...original, conversationTabId: "chat-a" })).toBe(false)
+  expect(sameRecoveryScope({ ...original, conversationTabId: "chat-a" }, { ...original, conversationTabId: "chat-a" })).toBe(true)
+  expect(sameRecoveryScope({ ...original, conversationTabId: "chat-a" }, { ...original, conversationTabId: "chat-b" })).toBe(false)
+})
+
+for (const kind of ["form", "signup"] as const) {
+  for (const actor of ["user", "smithers", "system"] as const) {
+    for (const settled of [false, true]) {
+      test(`${kind} prepared input admits ${actor} acceptance with settled=${settled} only while human-owned and pending`, async () => {
+        const recovery = memoryStorage(), storage = memoryStorage(), prior = Object.getOwnPropertyDescriptor(globalThis, "window")
+        Object.defineProperty(globalThis, "window", { configurable: true, value: { localStorage: recovery, matchMedia: () => ({ matches: false }) } })
+        try {
+          const store = await createAppStore({ kind: "localStorage", storage })
+          if (kind === "form") {
+            const form: typeof card = { ...card, payload: { ...card.payload, fields: [{ name: "path", label: "Path", kind: "text", required: true }] } }
+            await store.dispatch({ type: "card.upsert", actor: "user", card: form }).isPersisted.promise
+            expect(store.stagePendingCardInput(form.id, { ...form, payload: { ...form.payload, draft: { path: "Recovered.md" } } }, "prepared-input", "path")).toBeDefined()
+          } else {
+            await store.dispatch({ type: "signup.changed", actor: "user", patch: { stage: "account", draft: { name: "Committed name" } } }).isPersisted.promise
+            expect(store.stagePendingSignupInput("name", "Recovered name", "prepared-input")).toBeDefined()
+          }
+          const pending = readEntityRecoveries(recovery)
+          expect(pending).toHaveLength(1)
+          expect(pending[0]?.preparedCommandId).toBe("prepared-input")
+          expect(pending[0]?.authority?.actor).toBe("user")
+          await store.dispatch({ type: "command.intent.accepted", actor, id: "prepared-input", name: kind === "signup" ? "signup.set" : "form.set", source: "command" }).isPersisted.promise
+          if (settled) await store.dispatch({ type: "command.intent.settled", actor, id: "prepared-input", outcome: "failed" }).isPersisted.promise
+          await store.dispose?.()
+          const restored = await createAppStore({ kind: "localStorage", storage })
+          const accepted = actor === "user" && !settled
+          if (kind === "form") expect(restored.collections.cards.get(card.id)).toMatchObject({ payload: { draft: { path: accepted ? "Recovered.md" : "Pending.md" } } })
+          else expect(restored.session().signup?.draft).toEqual({ name: accepted ? "Recovered name" : "Committed name" })
+          expect(readEntityRecoveries(recovery)).toEqual([])
+          expect((await restored.verifyState()).valid).toBe(true)
+        } finally {
+          try { await closeStores() } finally {
+            if (prior) Object.defineProperty(globalThis, "window", prior); else Reflect.deleteProperty(globalThis, "window")
+          }
+        }
+      })
+    }
+  }
+}
+
+for (const kind of ["form", "signup"] as const) {
+  test(`${kind} prepared input refuses an accepted command for the other editing door`, async () => {
+    const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+    const boundary = await store.eventHistory(), authority = bind(boundary.head, pendingRecoveryScope(store.session()), "wrong-door")
+    await store.dispatch({ type: "command.intent.accepted", actor: "user", id: "wrong-door", name: kind === "signup" ? "form.set" : "signup.set", source: "command" }).isPersisted.promise
+    expect(admitsPendingRecovery({ revision: boundary.head.revision + 1, authority, preparedCommandId: "wrong-door",
+      value: { kind: kind === "signup" ? "signup" : "card" } }, { ...await store.eventHistory(), commands: [...store.collections.commandIntents.values()] })).toBe(false)
+  })
+}
 
 test("all pending recovery admission uses the same verified ancestor, not the moving replay revision", async () => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
@@ -69,7 +147,9 @@ test("pending card, Wiki and composer inputs retain their inactive branch withou
     expect((await reopened.verifyState()).valid).toBe(true)
     await reopened.dispose?.()
   } finally {
-    if (prior) Object.defineProperty(globalThis, "window", prior); else Reflect.deleteProperty(globalThis, "window")
+    try { await closeStores() } finally {
+      if (prior) Object.defineProperty(globalThis, "window", prior); else Reflect.deleteProperty(globalThis, "window")
+    }
   }
 })
 
@@ -88,7 +168,11 @@ for (const reset of [false, true]) test(`${reset ? "reset" : "account retirement
     await store.dispatch(reset ? { type: "app.reset", actor: "user" } : { type: "identity.session.cleared", actor: "user" }).isPersisted.promise
     for (const key of [ENTITY_RECOVERY_STORAGE_KEY, WIKI_RECOVERY_STORAGE_KEY, DRAFT_RECOVERY_STORAGE_KEY]) expect(recovery.getItem(key)).toBeNull()
     await store.dispose?.()
-  } finally { if (prior) Object.defineProperty(globalThis, "window", prior); else Reflect.deleteProperty(globalThis, "window") }
+  } finally {
+    try { await closeStores() } finally {
+      if (prior) Object.defineProperty(globalThis, "window", prior); else Reflect.deleteProperty(globalThis, "window")
+    }
+  }
 })
 
 test("prepared form input can survive missing acceptance but never a settled or foreign command", async () => {
@@ -122,7 +206,11 @@ test("a cleared form field replaces pending text without mutating accepted draft
     expect(store.collections.cards.get(form.id)).toMatchObject({ payload: { draft: {} } })
     expect(store.stagePendingCardInput(form.id, { ...form, payload: { ...form.payload, draft: { path: "forged", title: "unrelated" } } }, "forged", "path")).toBeUndefined()
     await store.dispose?.()
-  } finally { if (prior) Object.defineProperty(globalThis, "window", prior); else Reflect.deleteProperty(globalThis, "window") }
+  } finally {
+    try { await closeStores() } finally {
+      if (prior) Object.defineProperty(globalThis, "window", prior); else Reflect.deleteProperty(globalThis, "window")
+    }
+  }
 })
 
 for (const compact of [false, true]) test(`a prepared edit of an errored form survives reload${compact ? " with explicit compaction deferred" : ""}`, async () => {
@@ -156,7 +244,11 @@ for (const compact of [false, true]) test(`a prepared edit of an errored form su
     await reopened.compactEvents()
     expect((await reopened.verifyState()).valid).toBe(true)
     await reopened.dispose?.()
-  } finally { if (prior) Object.defineProperty(globalThis, "window", prior); else Reflect.deleteProperty(globalThis, "window") }
+  } finally {
+    try { await closeStores() } finally {
+      if (prior) Object.defineProperty(globalThis, "window", prior); else Reflect.deleteProperty(globalThis, "window")
+    }
+  }
 })
 
 test("an invalid prepared prefix cannot be rebound by a later field edit or hide a current recovery write", async () => {
@@ -186,7 +278,11 @@ test("an invalid prepared prefix cannot be rebound by a later field edit or hide
     await transaction.isPersisted.promise
     expect(readEntityRecoveries(recovery)).toEqual([])
     await store.dispose?.()
-  } finally { if (prior) Object.defineProperty(globalThis, "window", prior); else Reflect.deleteProperty(globalThis, "window") }
+  } finally {
+    try { await closeStores() } finally {
+      if (prior) Object.defineProperty(globalThis, "window", prior); else Reflect.deleteProperty(globalThis, "window")
+    }
+  }
 })
 
 /* A persisted unsaved Wiki note edit is replayed on the next load. */
@@ -204,6 +300,8 @@ test("a persisted Wiki edit is replayed", async () => {
     expect((await reopened.verifyState()).valid).toBe(true)
     await reopened.dispose?.()
   } finally {
-    if (prior) Object.defineProperty(globalThis, "window", prior); else Reflect.deleteProperty(globalThis, "window")
+    try { await closeStores() } finally {
+      if (prior) Object.defineProperty(globalThis, "window", prior); else Reflect.deleteProperty(globalThis, "window")
+    }
   }
 })

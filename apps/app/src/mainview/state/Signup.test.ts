@@ -1,7 +1,12 @@
 import { describe, expect, test } from "bun:test"
-import { createAppStore } from "./AppStore"
-import { accountSlug, initialSignup, SIGNUP_QUESTIONS, signupActive, signupAfterIdentity, signupOpening, validAccountName } from "./Signup"
+import { createAppStore, type AppStore } from "./AppStore"
+import { accountSlug, initialSignup, SIGNUP_QUESTIONS, signupActive, signupAfterIdentity, signupOpening, validAccountName, type Signup } from "./Signup"
 import { memoryStorage } from "./TestFixtures"
+
+const closeStore = async (store: AppStore) => {
+  if (typeof store.dispose !== "function") throw new Error("The fixture store has no disposal authority")
+  await store.dispose()
+}
 
 describe("Signup", () => {
   test("an account name is a smithers.sh path segment", () => {
@@ -64,14 +69,84 @@ describe("Signup", () => {
     const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
     try {
       expect(store.session().signup).toBeUndefined()
-      store.dispatch({ type: "signup.changed", actor: "user", patch: { draft: {} } })
+      await store.dispatch({ type: "signup.changed", actor: "user", patch: { draft: {} } }).isPersisted.promise
       expect(store.session().signup).toEqual(initialSignup())
-      store.dispatch({ type: "signup.changed", actor: "user", patch: { draft: { name: "Ada Park" } } })
+      await store.dispatch({ type: "signup.changed", actor: "user", patch: { draft: { name: "Ada Park" } } }).isPersisted.promise
       expect(store.session().signup?.stage).toBe("sign-in")
       expect(store.session().signup?.draft).toEqual({ name: "Ada Park" })
-      store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "adapark", allowlisted: true, admin: false, scopesPlain: null })
+      await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "adapark", allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
       expect(store.session().signup?.stage).toBe("account")
       expect(store.session().signup?.account).toBe("adapark")
-    } finally { await store.dispose?.() }
+    } finally { await closeStore(store) }
   })
+})
+
+
+test.each([
+  ["", false], ["a", false], ["ab", true], ["a".repeat(39), true], ["a".repeat(40), false],
+  ["a-b", true], ["a--b", true], ["01", true], ["-ab", false], ["ab-", false], ["AB", false], ["a_b", false], ["a b", false], ["雪a", false]
+])("account-name admission for %s is %s", (name, valid) => {
+  expect(validAccountName(name)).toBe(valid)
+})
+
+test("slug normalization bounds only the URL draft and fresh signup maps never share edits", () => {
+  expect(accountSlug("  Ada_雪.Park! --  ")).toBe("adapark--")
+  expect(accountSlug("A".repeat(40))).toBe("a".repeat(39))
+  const first = initialSignup(), second = initialSignup()
+  first.answers.models = ["Codex"]
+  first.draft.name = "Ada"
+  expect(second).toEqual({ stage: "sign-in", question: 0, answers: {}, draft: {} })
+  expect(initialSignup()).toEqual(second)
+  expect(first.answers).not.toBe(second.answers)
+  expect(first.draft).not.toBe(second.draft)
+})
+
+test("all unfinished stages own the transcript regardless of identity availability; done owns none", () => {
+  for (const stage of ["sign-in", "account", "poll", "ready", "done"] as const) {
+    const row: Signup = { ...initialSignup(), stage }
+    for (const identity of [undefined, "unknown", "unavailable", "signed-out", "signed-in"] as const) {
+      expect(signupActive(row, identity)).toBe(stage !== "done")
+      expect(signupOpening(row, identity, "returning-owner")).toBe(stage === "done" ? false : "full")
+    }
+  }
+  expect(signupActive(undefined, "unavailable")).toBe(false)
+  expect(signupOpening(undefined, "unavailable", null)).toBe(false)
+})
+
+const legacy: Signup = { stage: "account", question: 0, door: "github", account: "old-owner", answers: {}, draft: { account: "old-owner" } }
+const legacyEdits: Array<{ name: string; patch: Partial<Signup> }> = [
+  { name: "submitted name", patch: { name: "Ada" } },
+  { name: "selected repository", patch: { repo: "org/repo" } },
+  { name: "answered question", patch: { answers: { more: "keep this" } } },
+  { name: "advanced question", patch: { question: 1 } },
+  { name: "edited account draft", patch: { draft: { account: "my-choice" } } },
+  { name: "other edited draft", patch: { draft: { account: "old-owner", more: "typed answer" } } }
+]
+test.each(legacyEdits)("identity does not replace legacy $name", ({ patch }) => {
+  const row: Signup = { ...legacy, ...patch }
+  expect(signupAfterIdentity(row, "signed-in", "new-owner", "new-owner")).toBe(row)
+})
+
+test("empty untouched auxiliary drafts can follow a prefill, while explicit sign-in drafts survive", () => {
+  const row: Signup = { ...legacy, draft: { name: "", more: "" } }
+  expect(signupAfterIdentity(row, "signed-in", "new-owner", null)).toEqual({
+    stage: "account", question: 0, door: "github", account: "new-owner", answers: {}, draft: { name: "", more: "", account: "new-owner" }
+  })
+  expect(row.draft).toEqual({ name: "", more: "" })
+  const entered: Signup = { ...initialSignup(), account: "chosen", draft: { account: "", name: "Ada" } }
+  expect(signupAfterIdentity(entered, "signed-in", "login", null)).toEqual({
+    stage: "account", question: 0, door: "github", account: "chosen", answers: {}, draft: { account: "", name: "Ada" }
+  })
+  expect(signupAfterIdentity(entered, "signed-out", "login", null)).toBe(entered)
+  expect(signupAfterIdentity(entered, "signed-in", null, null)).toBe(entered)
+})
+
+test("a sign-in row with an explicit GitHub door advances like a legacy row with no door", () => {
+  for (const signup of [initialSignup(), { ...initialSignup(), door: "github" as const }]) {
+    const before = structuredClone(signup)
+    expect(signupAfterIdentity(signup, "signed-in", "Ada-Park", null)).toEqual({
+      stage: "account", door: "github", question: 0, account: "ada-park", answers: {}, draft: { account: "ada-park" }
+    })
+    expect(signup).toEqual(before)
+  }
 })

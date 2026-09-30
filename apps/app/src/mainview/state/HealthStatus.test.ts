@@ -6,7 +6,7 @@ import { expireStatus } from "./HealthStatus"
 import { statusPresentation } from "../StatusDetails"
 import { createHealthStatusController } from "./controller/health-status"
 import { createAppStore } from "./AppStore"
-import { memoryStorage } from "./TestFixtures"
+import { memoryStorage, waitFor } from "./TestFixtures"
 
 export const reading = (overrides: Partial<StatusRollup> = {}): StatusRollup => ({
   subjectId: "session:pty-1", state: "running", activity: "working", health: "healthy", attention: "none", freshness: "fresh",
@@ -57,32 +57,47 @@ test("one controller deadline expires offline cards durably", async () => {
   const storage = memoryStorage()
   const store = await createAppStore({ kind: "localStorage", storage })
   const finalizers: Array<() => void | Promise<void>> = []
-  createHealthStatusController({ store, onDispose: (fn) => { finalizers.push(fn) }, unref: () => {} })
-  const now = Date.now()
-  const fresh = reading({ updatedAt: now, provenance: { ...reading().provenance!, observedAt: now, expiresAt: now + 100 } })
-  await store.dispatch({ type: "card.upsert", actor: "system", card: { id: "runs", kind: "run-list", title: "Runs", status: "active", createdAt: now, ordinal: 2,
-    payload: { repo: "o/r", runs: [{ runId: "run-1", flowId: "test", status: "running", createdAt: now, turns: 0, calls: 0,
-      statusRollup: { ...fresh, subjectId: "run:run-1" } }] } } }).isPersisted.promise
-  await Bun.sleep(140)
-  const runList = store.collections.cards.get("runs")
-  expect(runList?.kind === "run-list" && runList.payload.runs[0]?.statusRollup?.freshness).toBe("stale")
-  expect([...store.collections.transitions.values()].filter((entry) => entry.type === "status.expired")).toHaveLength(1)
-  for (const finalize of finalizers) await finalize()
-  await store.dispose?.()
+  try {
+    createHealthStatusController({ store, onDispose: (fn) => { finalizers.push(fn) }, unref: () => {} })
+    const now = Date.now()
+    const fresh = reading({ updatedAt: now, provenance: { ...reading().provenance!, observedAt: now, expiresAt: now + 100 } })
+    await store.dispatch({ type: "card.upsert", actor: "system", card: {
+      id: "runs", kind: "run-list", title: "Runs", status: "active", createdAt: now, ordinal: 2,
+      payload: { repo: "o/r", runs: [{ runId: "run-1", flowId: "test", status: "running", createdAt: now, turns: 0, calls: 0,
+        statusRollup: { ...fresh, subjectId: "run:run-1" } }] }
+    } }).isPersisted.promise
+    await waitFor(() => {
+      const card = store.collections.cards.get("runs")
+      return card?.kind === "run-list" && card.payload.runs[0]?.statusRollup?.freshness === "stale"
+    })
+    const runList = store.collections.cards.get("runs")
+    expect(runList?.kind === "run-list" && runList.payload.runs[0]?.statusRollup?.freshness).toBe("stale")
+    expect([...store.collections.transitions.values()].filter((entry) => entry.type === "status.expired")).toHaveLength(1)
+  } finally {
+    try { for (const finalize of finalizers) await finalize() }
+    finally { await store.dispose?.() }
+  }
   const reopened = await createAppStore({ kind: "localStorage", storage })
-  const saved = reopened.collections.cards.get("runs")
-  expect(saved?.kind === "run-list" && saved.payload.runs[0]?.statusRollup?.freshness).toBe("stale")
-  await reopened.dispose?.()
+  try {
+    const saved = reopened.collections.cards.get("runs")
+    expect(saved?.kind === "run-list" && saved.payload.runs[0]?.statusRollup?.freshness).toBe("stale")
+  } finally { await reopened.dispose?.() }
 })
 
 test("cloud agent status does not arm a timer the local status projector cannot expire", async () => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
-  await store.dispatch({ type: "card.upsert", actor: "system", card: { id: "cloud", kind: "agent", title: "Cloud", status: "active", createdAt: 1, ordinal: 1,
-    payload: { cloud: true, displayName: "Cloud", sessionId: "cloud", repo: "o/r", provider: null, workspaceId: null, state: "active", transcript: [], statusRollup: reading() } } }).isPersisted.promise
   const finalizers: Array<() => void> = []
-  let timers = 0
-  createHealthStatusController({ store, unref: () => { timers++ }, onDispose: fn => { finalizers.push(fn) } })
-  expect(timers).toBe(0)
-  for (const finalize of finalizers) finalize()
-  await store.dispose?.()
+  try {
+    await store.dispatch({ type: "card.upsert", actor: "system", card: {
+      id: "cloud", kind: "agent", title: "Cloud", status: "active", createdAt: 1, ordinal: 1,
+      payload: { cloud: true, displayName: "Cloud", sessionId: "cloud", repo: "o/r", provider: null, workspaceId: null,
+        state: "active", transcript: [], statusRollup: reading() }
+    } }).isPersisted.promise
+    let timers = 0
+    createHealthStatusController({ store, unref: () => { timers++ }, onDispose: fn => { finalizers.push(fn) } })
+    expect(timers).toBe(0)
+  } finally {
+    try { for (const finalize of finalizers) finalize() }
+    finally { await store.dispose?.() }
+  }
 })

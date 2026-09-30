@@ -3,7 +3,7 @@
  * through the one command map, and a test the card still holds as requested is
  * launched again after identity loads, so boot cannot supersede its result.
  */
-import { expect, test } from "bun:test"
+import { afterEach, expect, test } from "bun:test"
 import { MODEL_CATALOG_PATH, MODEL_TEST_PATH } from "@smthrs/rpc/AgentApiRoutes"
 import type { ConfiguredModel, ModelCatalog, ModelTestResult } from "@smthrs/rpc/ConfiguredModel"
 import { createAppStore } from "./AppStore"
@@ -12,6 +12,8 @@ import { MODELS_CARD_ID } from "./controller/models"
 import { memoryStorage, unavailableAgent, waitFor } from "./TestFixtures"
 
 const createAppController = scopedControllers()
+const releasePending: Array<() => void> = []
+afterEach(() => { for (const release of releasePending.splice(0)) release() })
 
 const mine: ConfiguredModel = { id: "mine", protocol: "openai-chat", baseUrl: "https://api.cerebras.ai", modelId: "qwen-3-coder-480b", credential: "CEREBRAS_API_KEY" }
 const catalog: ModelCatalog = { models: [], credentials: [{ name: "CEREBRAS_API_KEY", present: true, origins: ["https://api.cerebras.ai"] }], seats: ["explainer"] }
@@ -35,10 +37,12 @@ const modelsCard = (store: Awaited<ReturnType<typeof createAppStore>>) => {
 test("the model flows run through the registry, and a requested test survives a reload", async () => {
   const storage = memoryStorage()
   const first = await createAppStore({ kind: "localStorage", storage })
-  // A host that never answers the test: the request is all the first session leaves behind.
+  // A host held through disposal: the request is all the first session leaves behind.
+  const held = Promise.withResolvers<Response>()
+  releasePending.push(() => held.resolve(Response.json(passed)))
   const silent = createAppController(first, unavailableAgent, {
     fetchImpl: (input) => new URL(input instanceof Request ? input.url : String(input), "http://local.test").pathname === MODEL_TEST_PATH
-      ? new Promise<Response>(() => {})
+      ? held.promise
       : Promise.resolve(Response.json(catalog))
   })
   expect(await silent.commands.run("model.save", "--name mine --protocol openai-chat --model qwen-3-coder-480b --credential CEREBRAS_API_KEY --url https://api.cerebras.ai")).toEqual({ status: "executed", value: "saved mine" })

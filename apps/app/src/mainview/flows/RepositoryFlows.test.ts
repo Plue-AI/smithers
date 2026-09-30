@@ -231,7 +231,7 @@ describe("the repository's flows are slash leaves", () => {
   test("/review dispatches exactly what /flow.run review does: the same doors, the same wire, this repository as the target", async () => {
     const seen: Array<Seen> = []
     const { store, controller } = await ready(backend({ [PROJECTION]: projectionDocument(CATALOG) }, seen))
-    const walked = (): Array<Seen> => seen.filter((call) => call.path !== PROJECTION && call.path !== `/api/repos/${REPO}/home`)
+    const walked = (): Array<Seen> => seen.filter((call) => call.path !== PROJECTION && call.path !== `/api/repos/${REPO}/home` && !(call.method === "GET" && call.path.split("?")[0] === "/api/repository-setup/state"))
     const viaLeaf = await controller.commands.run("review")
     const leafCalls = walked()
     seen.length = 0

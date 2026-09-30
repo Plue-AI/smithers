@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import type { AppTransition, WorldDocument } from "./AppState"
-import { conversationNotes } from "./ConversationArchive"
+import { archiveNotice, conversationNotes } from "./ConversationArchive"
 
 /*
  * conversationNotes turns a model's chosen note titles into wiki records, and
@@ -32,6 +32,38 @@ const sweep = (notes: Notes, existing: ReadonlyArray<WorldDocument> = []): World
   conversationNotes(notes, existing, "branch-old", 7, "branch-new", 8, 1_700_000_000_000)
 
 describe("conversation notes", () => {
+  for (const [kept, permanent] of [
+    [0, "Started a new conversation. [Open the archived conversation](/previous)."],
+    [1, "Saved 1 new note to Wiki and started a new conversation. [Open the archived conversation](/previous)."],
+    [2, "Saved 2 new notes to Wiki and started a new conversation. [Open the archived conversation](/previous)."]
+  ] as const) {
+    for (const temporary of [false, true]) test(`archive notice keeps ${kept} notes with temporary=${temporary}`, () => {
+      const expected = temporary
+        ? `${permanent} This archive is only available until this session closes; local storage is unavailable.`
+        : permanent
+      expect(archiveNotice(kept, "/previous", temporary)).toBe(expected)
+    })
+  }
+
+  test("links keep first-seen targets and authored bytes without mutating notes or existing documents", () => {
+    const notes = [note("Links", "[[Deploy notes]] then [[Other]] and [[Deploy notes|again]]")]
+    const existing = [document("old", "Other.md")]
+    const beforeNotes = structuredClone(notes), beforeExisting = structuredClone(existing)
+    const written = sweep(notes, existing)
+    expect(written[0]?.links).toEqual(["Deploy notes", "Other"])
+    expect(written[0]).toMatchObject({ body: "[[Deploy notes]] then [[Other]] and [[Deploy notes|again]]", confidence: 0.9,
+      updatedAt: 1_700_000_000_000, revision: 8 })
+    expect(notes).toEqual(beforeNotes)
+    expect(existing).toEqual(beforeExisting)
+    expect(sweep([], existing)).toEqual([])
+  })
+
+  test("existing numbered paths reserve every suffix before the next free name", () => {
+    expect(sweep([note("Deploy")], [document("a", "Chat notes/Note - Deploy.md"),
+      document("b", "Chat notes/Note - Deploy (2).md"), document("c", "Chat notes/Note - Deploy (3).md")])[0]?.path)
+      .toBe("Chat notes/Note - Deploy (4).md")
+  })
+
   test("titles repeated inside one sweep take (2), (3) instead of overwriting each other", () => {
     const written = sweep([note("Deploy notes"), note("Deploy notes"), note("Deploy notes")])
     expect(written.map((record) => record.path)).toEqual([
