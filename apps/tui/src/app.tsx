@@ -2545,6 +2545,7 @@ export function App(props: AppProps) {
           {form === undefined ? null : (
             <FlowFormView
               form={form}
+              width={width}
               height={formHeight}
               compact={short}
               onField={(field, text) => {

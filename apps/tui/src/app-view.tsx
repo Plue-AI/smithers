@@ -3,6 +3,8 @@
  * form, the completion menu, the dialog, and the status line. They draw
  * what they are given; state and keys stay with the app.
  */
+import { TextBuffer, TextBufferView } from "@opentui/core"
+import { useRenderer } from "@opentui/react"
 import { usd } from "@smthrs/gateway/Diagnosis"
 import { basename } from "node:path"
 import type { ReactNode } from "react"
@@ -43,11 +45,39 @@ const menuRows = 8
 export function FlowFormView(props: {
   readonly form: FlowForm
   readonly height: number
+  readonly width?: number
   readonly compact: boolean
   readonly onField: (name: string, text: string) => void
 }) {
   const { form } = props
-  const rows = Math.max(1, props.height - (props.compact ? 1 : 4) - (form.error === undefined ? 0 : 1))
+  const renderer = useRenderer()
+  const question = form.id.startsWith("ask:")
+  const available = props.height - (props.compact ? 0 : 3) - (form.error === undefined ? 0 : 1)
+  const measure = (title: string) => {
+    if (!question) return 1
+    // Use the renderer's wrapping and cell widths, including wide glyphs and tabs.
+    const buffer = TextBuffer.create(renderer.widthMethod)
+    const view = TextBufferView.create(buffer)
+    try {
+      buffer.setText(title)
+      view.setWrapMode("word")
+      return Math.max(
+        1,
+        Math.min(
+          available - 1,
+          view.measureForDimensions(Math.max(1, (props.width ?? renderer.width) - 5), props.height)?.lineCount ?? 1
+        )
+      )
+    } finally {
+      view.destroy()
+      buffer.destroy()
+    }
+  }
+  let titleRows = measure(form.flow)
+  let rows = Math.max(1, available - titleRows)
+  const title = `${form.flow}${form.fields.length > rows ? `  ${form.focus + 1}/${form.fields.length}` : ""}`
+  titleRows = measure(title)
+  rows = Math.max(1, available - titleRows)
   const start = Math.min(Math.max(0, form.focus - Math.floor(rows / 2)), Math.max(0, form.fields.length - rows))
   return (
     <box
@@ -64,9 +94,8 @@ export function FlowFormView(props: {
         }}
         backgroundColor={color.element}
       >
-        <text fg={color.text} wrapMode="none">
-          {form.flow}
-          {form.fields.length > rows ? `  ${form.focus + 1}/${form.fields.length}` : ""}
+        <text fg={color.text} wrapMode={question ? "word" : "none"} style={{ height: titleRows, flexShrink: 0 }}>
+          {title}
         </text>
         {form.fields.slice(start, start + rows).map((field, offset) => {
           const index = start + offset

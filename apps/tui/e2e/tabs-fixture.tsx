@@ -126,7 +126,7 @@ const host: Host.Host = {
       if (id === "api") {
         return {
           done: input.runtime!.ask!({
-            question: "Session cookie or bearer header?",
+            question: process.env.SMITHERS_TUI_ASK_QUESTION ?? "Session cookie or bearer header?",
             options: ["Session cookie", "Bearer header"]
           }).then(({ answer }) => ({ _tag: "done", answer: `Using: ${answer}` })),
           cancel: () => {}

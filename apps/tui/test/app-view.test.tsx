@@ -221,6 +221,78 @@ const form: FlowForm = {
   ],
   draft: { project: "smithers", count: 2, enabled: false }
 }
+test("an ask at 80x24 reserves its wrapped question before the focused answer and composer", async () => {
+  const question =
+    "◆ implement/api asks: Before implementing authentication, should the request carry the existing session cookie, or should it carry a bearer header for the remote workspace?"
+  const frame = await draw(
+    <box style={{ width: 80, height: 24 }}>
+      <box style={{ flexGrow: 1 }} />
+      <AppView.FlowFormView
+        form={{ ...form, id: "ask:wrapped", flow: question, focus: 2 }}
+        width={80}
+        height={8}
+        compact={false}
+        onField={() => {}}
+      />
+      <text wrapMode="none">Composer</text>
+      <text wrapMode="none">Status</text>
+    </box>
+  )
+  expect(frame).toContain("implement/api asks:")
+  expect(frame).toContain("remote workspace?")
+  expect(frame).toContain("Enabled")
+  expect(frame).toContain("3/3")
+  expect(frame).not.toContain("Project")
+  expect(frame).toContain("Composer")
+  expect(frame).toContain("Status")
+})
+test.each([
+  {
+    terminal: 24,
+    height: 8,
+    compact: false,
+    question:
+      "Before implementing authentication, should the request carry the existing session cookie, or should it carry a bearer header for the remote workspace?"
+  },
+  { terminal: 12, height: 6, compact: true, question: "First line\nSecond line with 界界 and 👩‍💻\nWhich workspace?" },
+  { terminal: 12, height: 6, compact: true, question: "Which workspace? ".repeat(80) }
+])(
+  "wrapped ask keeps its text cursor and error at terminal height $terminal",
+  async ({ terminal, height, compact, question }) => {
+    const changes: Array<[string, string]> = []
+    const frame = await draw(
+      <box style={{ width: 80, height: terminal }}>
+        <box style={{ flexGrow: 1 }} />
+        <AppView.FlowFormView
+          form={{
+            id: "ask:text",
+            flow: question,
+            focus: 0,
+            fields: [{ name: "answer", label: "Answer", kind: "text", required: true }],
+            draft: { answer: "east" },
+            error: "Choose a workspace"
+          }}
+          width={80}
+          height={height}
+          compact={compact}
+          onField={(name, value) => changes.push([name, value])}
+        />
+        <text wrapMode="none">Composer</text>
+        <text wrapMode="none">Status</text>
+      </box>,
+      terminal
+    )
+    expect(frame).toContain("Answer")
+    expect(frame).toContain("east")
+    expect(frame).toContain("Choose a workspace")
+    expect(frame).toContain("Composer")
+    expect(frame).toContain("Status")
+    await act(async () => {
+      await setup!.mockInput.typeText("!")
+    })
+    expect(changes).toEqual([["answer", "east!"]])
+  }
+)
 test.each([false, true])("form compact=%s preserves error and focused number callback", async (compact) => {
   const changes: Array<[string, string]> = []
   const frame = await draw(
