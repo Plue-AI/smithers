@@ -302,3 +302,17 @@ accepts `?days=1..90` (default 30).
 
 Review seats use their configured provider credentials, including verification.
 `AI_GATEWAY_API_KEY` is not read by this app.
+
+## Release checklist
+
+The reusable workflow on main runs the action at `@main`. A consumer-facing
+release is a `review-v<x.y.z>` tag (never `v*`, which publishes npm) on a
+commit that pins the action to the tested revision.
+
+1. Pick a tested main revision (green `//apps/review/...`).
+2. `node apps/review/scripts/review-release.mjs <x.y.z> <sha>` tags the pinned
+   release commit locally and changes nothing else.
+3. `git push origin refs/tags/review-v<x.y.z>` (maintainer).
+4. Add `smithersai/smithers/.github/workflows/review.yml@refs/tags/review-v<x.y.z>`
+   to the registration's `allowedWorkflowRefs` (admin API).
+5. Run the fixture repository's workflow at the tag and keep the run URL.
