@@ -46,6 +46,7 @@ import * as Supervisor from "../Supervisor.ts"
 import * as UnmovedTree from "../UnmovedTree.ts"
 import * as compactionMarks from "./compactionMarks.ts"
 import type * as Frame from "./frame.ts"
+import { paidUsage } from "./paidUsage.ts"
 
 const eventType = AgentEvent.eventType
 
@@ -322,6 +323,14 @@ export const open = (input: {
           name: "supervisor",
           identity: { session, frame: offer.frame, boundary: `supervisor:${offer.digest}` },
           success: Recorded,
+          // The monitors' reading, then each relevance and marks request: every
+          // reading the boundary took is one the run paid for.
+          usage: (record) =>
+            paidUsage([
+              record.settled?.usage,
+              ...record.memoryDecisions.map((settled) => settled.usage),
+              ...record.marksDecisions.map((settled) => settled.usage)
+            ]),
           execute: Effect.gen(function*() {
             // The task does not change between frames, so the store ranks the
             // same rows first each time: it is asked past every row already

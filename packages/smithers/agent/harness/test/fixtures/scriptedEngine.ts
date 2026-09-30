@@ -1,5 +1,5 @@
 import { Permission } from "@smthrs/kernel"
-import { Model } from "@smthrs/model"
+import { Model, type ModelEvent } from "@smthrs/model"
 import { Effect, Layer, Option, Schema, Stream } from "effect"
 import * as Cell from "../../src/Cell.ts"
 import * as EngineLike from "../../src/EngineLike.ts"
@@ -42,6 +42,8 @@ export interface Recorder {
   readonly splice: Array<Plan.Batch>
   readonly calls: Array<Cell.Call>
   readonly records: Array<EngineLike.RecordBoundary<unknown>>
+  /** What each executed boundary's recorded value says it paid a model for. */
+  readonly paid: Array<{ readonly name: string; readonly usage: ModelEvent.Usage | undefined }>
   /** Every checkpoint the run asked this host to pin, with the tree it held. */
   readonly captures: Array<{ readonly id: string; readonly tree: string | undefined }>
   readonly suspend: Array<EngineLike.SuspendReason>
@@ -99,6 +101,7 @@ export const make = (
     splice: [],
     calls: [],
     records: [],
+    paid: [],
     captures: [],
     suspend: [],
     walks: []
@@ -148,7 +151,11 @@ export const make = (
     // `@smthrs/agent`.
     record: (boundary) => {
       recorder.records.push(boundary)
-      return boundary.execute
+      // Read the way a budgeted engine reads it: off the recorded value.
+      return Effect.tap(boundary.execute, (value) =>
+        Effect.sync(() => {
+          recorder.paid.push({ name: boundary.name, usage: boundary.usage?.(value) })
+        }))
     },
     observe: Effect.suspend(() => {
       recorder.walks.push(workspace.value)

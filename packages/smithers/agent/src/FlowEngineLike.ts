@@ -597,6 +597,9 @@ const boundaryActivityName = (name: string): string => `harness/boundary/${name}
 const engineFailed = (message: string, cause: unknown): HarnessError.HarnessError =>
   new HarnessError.HarnessError({ code: "engine_failed", message, cause })
 
+/** The ledger key prefix for the usage a recorded boundary paid for. */
+const boundaryUsagePrefix = "boundary-usage/"
+
 /**
  * Reports a budget that could not account this run.
  *
@@ -1177,7 +1180,7 @@ export const make = (
         // content-addressable and cannot be undone, only recorded — so the
         // boundary is journaled under its run-scoped key and a replayed frame
         // is served the recorded value instead of reading the world again.
-        return yield* Action.make({
+        const value = yield* Action.make({
           name: boundaryActivityName(boundary.name),
           success: boundary.success,
           error: HarnessError.HarnessError,
@@ -1191,6 +1194,16 @@ export const make = (
           }),
           execute: boundary.execute
         })
+        // What a boundary paid a model for, such as a completion judge's
+        // reading, is the run's spend like any sealed step's (#2681). It is
+        // read off the recorded value and accounted under the boundary's own
+        // key after the record settles, live or replayed, so the ledger holds
+        // it exactly once and the next paid call is admitted against it.
+        const paid = boundary.usage?.(value)
+        if (paid !== undefined) {
+          yield* budget.record(`${boundaryUsagePrefix}${key}`, paid).pipe(Effect.mapError(accountingFailed))
+        }
+        return value
       }).pipe(Effect.provide(context))
 
     // Resolved once, at construction, and asked nothing further. A composition

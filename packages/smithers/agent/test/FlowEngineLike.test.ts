@@ -1289,6 +1289,47 @@ describe("FlowEngineLike.record", () => {
     expect(completed(outcome)).toEqual(Option.some(new EngineLike.Snapshot({ id: "cp-0-0", ref: "tree-1" })))
   })
 
+  it("charges what a boundary's record says it paid once, across a park and its replay (#2681)", async () => {
+    const readings: Array<string> = []
+    let park = true
+    const outcome = await drive(
+      Effect.gen(function*() {
+        const port = yield* FlowEngineLike.make({ model: countingModel([]), route: staticRoute() })
+        const judged = Schema.Struct({
+          usage: Schema.NullOr(Schema.Struct({ inputTokens: Schema.Number, outputTokens: Schema.Number }))
+        })
+        const paying = (
+          boundary: string,
+          usage: { readonly inputTokens: number; readonly outputTokens: number } | null
+        ) =>
+          port.record({
+            name: "completion-judgement",
+            identity: { session: "session-1", frame: 0, boundary },
+            success: judged,
+            usage: (value) => value.usage ?? undefined,
+            execute: Effect.sync(() => {
+              readings.push(boundary)
+              return { usage }
+            })
+          })
+        yield* paying("metered", { inputTokens: 90, outputTokens: 10 })
+        yield* paying("unmetered", null)
+        if (park) {
+          park = false
+          yield* port.suspend(new EngineLike.SuspendReason({ code: "engine", message: "killed" }))
+        }
+        const budget = yield* Budget.Budget
+        return yield* budget.usage
+      }).pipe(Effect.provide(Budget.layer({ tokens: { max: 1_000 } }))),
+      { resume: true }
+    )
+
+    // Each reading ran once; the replay was served the record and charged
+    // nothing more for it.
+    expect(readings).toEqual(["metered", "unmetered"])
+    expect((completed(outcome) as Budget.Usage).tokens).toBe(100)
+  })
+
   it("reports a boundary whose identity has no canonical form as a typed harness failure", async () => {
     const drains: Array<string> = []
     // A lone surrogate has no UTF-8 encoding, so the boundary identity has no

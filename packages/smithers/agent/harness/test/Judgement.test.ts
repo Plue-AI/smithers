@@ -323,6 +323,32 @@ describe("recorded", () => {
     await Effect.runPromise(Judgement.emitRecorded(emit, { value: true, decisions: [row], unjudged: null }))
     expect(emitted.map((event) => event._tag)).toEqual(["decision-settled"])
   })
+
+  it("names the usage its readings were metered for, off the recorded value (#2681)", async () => {
+    const paid: Array<unknown> = []
+    const engine = EngineLike.makeNoop({
+      record: <A>(boundary: EngineLike.RecordBoundary<A>) =>
+        Effect.tap(boundary.execute, (value) => Effect.sync(() => void paid.push(boundary.usage?.(value))))
+    })
+    const metered = Layer.succeed(Evaluator.Evaluator)(Evaluator.Evaluator.of({
+      evaluate: () =>
+        Effect.succeed({
+          answers: { yes: { type: "boolean", probability: 0.8 }, pick: { type: "choice", choice: "a" } },
+          latencyMs: 0,
+          usage: { inputTokens: 40, outputTokens: 2 }
+        })
+    }))
+    const twice = Effect.gen(function*() {
+      const first = yield* Judgement.read(one, { n: 1 })
+      const second = yield* Judgement.read(one, { n: 2 })
+      return { value: true, asked: [first.asked, second.asked], acted: false }
+    })
+    await Effect.runPromise(Judgement.recorded(engine, boundary, twice).pipe(Effect.provide(metered)))
+    // Unmetered, and a reading that never happened, name no spend at all.
+    await Effect.runPromise(Judgement.recorded(engine, boundary, execute).pipe(Effect.provide(answered().layer)))
+    await Effect.runPromise(Judgement.recorded(engine, boundary, execute))
+    expect(paid).toEqual([{ inputTokens: 80, outputTokens: 4 }, undefined, undefined])
+  })
 })
 
 describe("task", () => {

@@ -41,6 +41,7 @@ import * as compactionMarks from "./internal/compactionMarks.ts"
 import * as elide from "./internal/elide.ts"
 import * as Frame from "./internal/frame.ts"
 import { NonNegativeSafeInt } from "./internal/nonNegativeSafeInt.ts"
+import { paidUsage } from "./internal/paidUsage.ts"
 import { printsObservation } from "./internal/printsObservation.ts"
 import { limitOf, refusal } from "./internal/refusal.ts"
 import * as Supervision from "./internal/supervision.ts"
@@ -3891,6 +3892,14 @@ const frame = (
           boundary: `completion-judgement:${cell.digest}`
         },
         success: RecordedCompletion,
+        // The claim brake's reading, whole and by sentence, is paid model
+        // work: the run's budget accounts it like any sealed step (#2681). A
+        // bounce carries the reading as its demand and leaves `observed` empty.
+        usage: (judgement) =>
+          paidUsage([
+            (judgement.observed ?? (judgement.demand?.event._tag === "claim-demanded" ? judgement.demand.event : null))
+              ?.usage
+          ]),
         // A replay uses the entire original decision. Re-evaluating even an
         // accepted claim can invent a demand and execute additional work.
         execute: Frame.judgeCompletion(

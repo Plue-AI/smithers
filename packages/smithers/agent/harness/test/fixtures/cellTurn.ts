@@ -232,25 +232,34 @@ const recordKey = (boundary: EngineLike.RecordBoundary<unknown>): string =>
  * `record` over a journal that replays what it holds and keeps what it
  * executes; every boundary is also listed in `seen`, replayed or not.
  */
+/** A replayed boundary reports what its record says it paid, as a live one does. */
+const reportPaid = <A>(recorder: ScriptedEngine.Recorder, boundary: EngineLike.RecordBoundary<A>) => (value: A) =>
+  Effect.sync(() => {
+    recorder.paid.push({ name: boundary.name, usage: boundary.usage?.(value) })
+  })
+
 const journaled = (
   records: Map<string, unknown>,
-  seen: Array<EngineLike.RecordBoundary<unknown>>
+  recorder: ScriptedEngine.Recorder
 ): EngineLike.EngineLike["record"] =>
 (boundary) => {
-  seen.push(boundary)
+  recorder.records.push(boundary)
+  const paid = reportPaid(recorder, boundary)
   const held = records.get(recordKey(boundary))
   if (held !== undefined) {
     return Effect.fromResult(Schema.decodeUnknownResult(boundary.success)(held)).pipe(
       Effect.mapError((cause) =>
         new HarnessError({ code: "engine_failed", message: `Boundary ${boundary.name} did not decode`, cause })
-      )
+      ),
+      Effect.tap(paid)
     )
   }
   const encode = Schema.encodeUnknownSync(
     boundary.success as unknown as Schema.Schema<unknown> & { readonly "EncodingServices": never }
   )
   return boundary.execute.pipe(
-    Effect.tap((value) => Effect.sync(() => records.set(recordKey(boundary), encode(value))))
+    Effect.tap((value) => Effect.sync(() => records.set(recordKey(boundary), encode(value)))),
+    Effect.tap(paid)
   )
 }
 
@@ -326,7 +335,7 @@ export const run = async (options: Options): Promise<Run> => {
         : EngineLike.layer({
           ...engine.engine,
           ...(options.resolve === undefined ? {} : { resolve: options.resolve }),
-          ...(options.records === undefined ? {} : { record: journaled(options.records, engine.recorder.records) })
+          ...(options.records === undefined ? {} : { record: journaled(options.records, engine.recorder) })
         })
     ),
     Effect.provide(QuickJSSandbox.layer),

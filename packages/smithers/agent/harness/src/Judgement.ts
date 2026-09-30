@@ -37,6 +37,7 @@ import type * as EngineLike from "./EngineLike.ts"
 import type { HarnessError } from "./HarnessError.ts"
 import * as bytes from "./internal/bytes.ts"
 import * as elide from "./internal/elide.ts"
+import { paidUsage } from "./internal/paidUsage.ts"
 
 /**
  * Why a reading could not be judged, and what went wrong in words safe to
@@ -447,6 +448,8 @@ export const recorded = <A>(
     name: boundary.name,
     identity: boundary.identity,
     success: Recorded(boundary.value),
+    // Each settled request is one metered reading; see `EngineLike.RecordBoundary.usage`.
+    usage: (record) => paidUsage(record.decisions.map((settled) => settled.usage)),
     execute: Effect.match(execute, {
       onFailure: (unjudged): Recorded<A> => ({
         value: null,

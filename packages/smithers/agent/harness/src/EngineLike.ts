@@ -143,6 +143,18 @@ export interface RecordBoundary<A> {
   readonly execute: Effect.Effect<A, HarnessError>
   /** Exact call whose delivered result this existing cell-call boundary records. */
   readonly call?: Cell.Call | undefined
+  /**
+   * The model usage the recorded value says this boundary paid for, such as
+   * an evaluator reading taken inside `execute`.
+   *
+   * Read off the recorded value, never off the live call, so a replayed frame
+   * reports the same spend the original attempt paid. An implementation that
+   * keeps a run budget accounts it once under this boundary's key, on the
+   * live pass and on replay alike, so the next paid call is admitted against
+   * it. Absent, or `undefined` from it, is a boundary that paid for nothing.
+   */
+  // A method, so a boundary over a narrower value is still a `RecordBoundary<unknown>`.
+  usage?(value: A): ModelEvent.Usage | undefined
 }
 
 /**
