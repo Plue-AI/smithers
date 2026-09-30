@@ -42,6 +42,13 @@ const waitFor = async (condition: () => boolean) => {
   }
   if (!condition()) throw new Error(`Did not settle:\n${frame()}`)
 }
+/** Past the moment an ask, or its answer form, takes keys. */
+const settle = async () => {
+  await act(async () => {
+    await setTimeout(450)
+  })
+  await render()
+}
 /** The chat delegates `ids`; each worker's turn is `turns[n]`. */
 const delegate = async (...ids: ReadonlyArray<string>) => {
   await act(async () => {
@@ -126,6 +133,8 @@ test("shows the one ask beside Summary and on its card, and a answers it from th
   expect(frame()).toContain("  other…")
   expect(frame()).toContain("enter Answer  esc Back")
   expect(frame()).not.toContain("enter Run")
+  // The card above no longer offers what the form now does.
+  expect(frame()).not.toContain("a Answer  enter Open")
   await key("ARROW_DOWN")
   expect(frame()).toContain("> plus")
   await key("RETURN")
@@ -167,6 +176,7 @@ test("a free-text ask shows its whole question and answers with what was typed",
   await render()
   await type("a")
   expect(frame().replace(/[\s┃]+/g, "")).toContain(`◆${question}`.replace(/\s+/g, ""))
+  await settle()
   await type("addAll")
   await key("RETURN")
   expect(await answered()).toMatchObject({ answer: "addAll" })
@@ -197,4 +207,38 @@ test("a started message keeps its a", async () => {
   await type("Rename a")
   expect(frame()).not.toContain("enter Answer")
   expect(frame()).toContain("Rename a")
+})
+
+test("a chat message typed straight after a stays typed in the form and answers nothing", async () => {
+  await delegate("add")
+  const answered = await ask(1, "Session cookie or bearer header?", ["Session cookie", "Bearer header"])
+  let settled = false
+  void answered().then(() => {
+    settled = true
+  })
+  await waitFor(() => frame().includes("Summary ◆1"))
+  await settle()
+  await type("and x")
+  await key("RETURN")
+  await setImmediate()
+  expect(settled).toBe(false)
+  expect(frame()).toContain("Summary ◆1")
+  expect(frame()).toContain("> and x")
+  expect(frame()).toContain("enter Answer  esc Back")
+  // Once the person has seen it, enter sends what is typed.
+  await settle()
+  await key("RETURN")
+  expect(await answered()).toMatchObject({ answer: "and x" })
+})
+
+test("a number picks its choice in the answer form", async () => {
+  await delegate("add")
+  const answered = await ask(1, "Session cookie or bearer header?", ["Session cookie", "Bearer header"])
+  await waitFor(() => frame().includes("Summary ◆1"))
+  await settle()
+  await type("a")
+  await settle()
+  await type("2")
+  expect(await answered()).toMatchObject({ answer: "Bearer header" })
+  await waitFor(() => !frame().includes("◆1"))
 })

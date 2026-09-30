@@ -36,6 +36,12 @@ export interface AskChoices {
   readonly options: ReadonlyArray<string>
   /** Index into `options`; `options.length` is `other…`, where the answer is typed. */
   readonly choice: number
+  /** Until then enter and numbers wait unless the cursor moved: keys typed ahead are not an answer. */
+  readonly armedAt: number
+  /** An arrow or tab moved the cursor. */
+  readonly moved?: true
+  /** The chat key that opened the form; typing ahead keeps it at the front of the typed answer. */
+  readonly lead?: string
 }
 
 /** The answer form's lines under the question: the options, then `other…`; none when the answer is typed. */
@@ -381,17 +387,20 @@ export const checklistKey = (key: KeyEvent, state: { readonly rows: number }, ac
 }
 
 /**
- * Keys in an ask's answer form: arrows or tab move the cursor, enter answers, esc goes
- * back and leaves the ask open. A typed answer's input takes every other key.
+ * Keys in an ask's answer form: arrows or tab move the cursor, a number picks
+ * its option, enter answers, esc goes back and leaves the ask open. Other
+ * typing goes to `other…`. Until `armedAt`, unless the cursor moved, enter and
+ * numbers wait, so a chat message typed after `a` never answers the ask.
  */
 const askKey = (key: KeyEvent, open: FlowForm, ask: AskChoices, act: {
   readonly change: (next: FlowForm | undefined) => void
   readonly fill: (id: string, payload: Record<string, unknown>) => void
 }) => {
   const lines = choices(ask).length
+  const armed = ask.moved === true || Date.now() >= ask.armedAt
   const choose = (choice: number) => {
     key.preventDefault()
-    act.change({ ...open, ask: { ...ask, choice }, error: undefined })
+    act.change({ ...open, ask: { ...ask, choice, moved: true }, error: undefined })
   }
   if (key.name === "escape") {
     key.preventDefault()
@@ -400,9 +409,32 @@ const askKey = (key: KeyEvent, open: FlowForm, ask: AskChoices, act: {
   if (key.name === "return" || key.name === "kpenter") {
     key.preventDefault()
     const answer = answerOf(ask, open.draft)
-    if (answer === undefined) return
+    if (answer === undefined || !armed) return
     act.change(undefined)
     return act.fill(open.id, { answer })
+  }
+  const char = typing(key)
+  if (char !== undefined) {
+    const picked = /^[1-9]$/.test(char) && armed && !typed(ask)
+      ? ask.options[Number(char) - 1]
+      : undefined
+    if (picked !== undefined) {
+      key.preventDefault()
+      act.change(undefined)
+      return act.fill(open.id, { answer: picked })
+    }
+    const draft = String(open.draft.answer ?? "")
+    const lead = draft === "" && !armed ? ask.lead ?? "" : ""
+    // The focused input takes the rest.
+    if (typed(ask) && lead === "") return
+    key.preventDefault()
+    const { lead: _lead, ...rest } = ask
+    return act.change({
+      ...open,
+      draft: { ...open.draft, answer: `${draft}${lead}${char}` },
+      ask: { ...rest, choice: ask.options.length },
+      error: undefined
+    })
   }
   if (lines === 0) return
   if ((key.name === "tab" && !key.shift) || key.name === "down") return choose(Math.min(lines - 1, ask.choice + 1))

@@ -1245,18 +1245,22 @@ test("a in a worker tab opens the form for that worker's ask", () => {
   expect(calls).toEqual([["answer", "worker"]])
 })
 
+/** An ask form; `extra` of `{ armedAt: later }` is one that opened a moment ago. */
 const askForm = (
   choice: number,
   options: ReadonlyArray<string> = ["sum", "plus"],
-  answer?: string
+  answer?: string,
+  extra: Partial<Dispatch.AskChoices> = {}
 ): Dispatch.FlowForm & { readonly ask: Dispatch.AskChoices } => ({
   id: "ask:1",
   flow: "Rename add()",
   fields: [],
   draft: answer === undefined ? {} : { answer },
   focus: 0,
-  ask: { question: "New name for add()?", options, choice }
+  ask: { question: "New name for add()?", options, choice, armedAt: 0, ...extra }
 })
+/** Far enough ahead that no test outlives it. */
+const later = () => Date.now() + 60_000
 const askAct = () => {
   const seen: { changed: Array<Dispatch.FlowForm | undefined>; filled: Array<Record<string, unknown>> } = {
     changed: [],
@@ -1288,8 +1292,103 @@ test.each(
   const event = key(name, { shift })
   Dispatch.formKey(event, askForm(from), act)
   expect(seen.changed.map((form) => form?.ask?.choice)).toEqual([to])
+  expect(seen.changed.map((form) => form?.ask?.moved)).toEqual([true])
   expect(seen.filled).toEqual([])
   expect(event.defaultPrevented).toBe(true)
+})
+
+test("a fresh ask form waits for enter until the cursor moves or it has been on screen long enough", () => {
+  const cases: ReadonlyArray<[Dispatch.FlowForm, Array<Record<string, unknown>>]> = [
+    [askForm(0, ["sum", "plus"], undefined, { armedAt: later() }), []],
+    [askForm(2, ["sum", "plus"], "total", { armedAt: later() }), []],
+    [askForm(0, [], "addAll", { armedAt: later() }), []],
+    [askForm(1, ["sum", "plus"], undefined, { armedAt: later(), moved: true }), [{ answer: "plus" }]],
+    [askForm(0, ["sum", "plus"], undefined, { armedAt: Date.now() }), [{ answer: "sum" }]]
+  ]
+  for (const [form, filled] of cases) {
+    const { seen, act } = askAct()
+    const event = key("return")
+    Dispatch.formKey(event, form, act)
+    expect(seen.filled).toEqual(filled)
+    expect(seen.changed).toEqual(filled.length === 0 ? [] : [undefined])
+    expect(event.defaultPrevented).toBe(true)
+  }
+})
+
+test.each(
+  [
+    ["2 picks its option once armed", askForm(0), "2", { filled: [{ answer: "plus" }] }],
+    ["1 picks its option once armed", askForm(1), "1", { filled: [{ answer: "sum" }] }],
+    ["a number past the options types", askForm(0), "3", { choice: 2, answer: "3" }],
+    ["a number before arming types", askForm(0, ["sum", "plus"], undefined, { armedAt: later() }), "2", {
+      choice: 2,
+      answer: "2"
+    }],
+    ["a letter types under other…", askForm(0), "x", { choice: 2, answer: "x" }],
+    ["typing adds to a kept answer", askForm(1, ["sum", "plus"], "to"), "t", { choice: 2, answer: "tot" }],
+    ["typing ahead keeps the chat key", askForm(0, ["sum", "plus"], undefined, { armedAt: later(), lead: "a" }), "n", {
+      choice: 2,
+      answer: "an"
+    }],
+    ["a free-text ask keeps the chat key", askForm(0, [], undefined, { armedAt: later(), lead: "a" }), "n", {
+      choice: 0,
+      answer: "an"
+    }],
+    ["an armed form drops the chat key", askForm(0, ["sum"], undefined, { lead: "a" }), "n", {
+      choice: 1,
+      answer: "n"
+    }],
+    [
+      "a moved cursor drops the chat key",
+      askForm(0, ["sum"], undefined, { armedAt: later(), moved: true, lead: "a" }),
+      "n",
+      {
+        choice: 1,
+        answer: "n"
+      }
+    ],
+    [
+      "a moved cursor lets a number pick",
+      askForm(1, ["sum", "plus"], undefined, { armedAt: later(), moved: true }),
+      "1",
+      {
+        filled: [{ answer: "sum" }]
+      }
+    ]
+  ] as const
+)("ask form: %s", (_, form, typed, expected) => {
+  const { seen, act } = askAct()
+  const event = key(typed)
+  Dispatch.formKey(event, form, act)
+  expect(event.defaultPrevented).toBe(true)
+  if ("filled" in expected) {
+    expect(seen).toEqual({ changed: [undefined], filled: [...expected.filled] })
+    return
+  }
+  expect(seen.filled).toEqual([])
+  expect(seen.changed).toHaveLength(1)
+  expect(seen.changed[0]?.ask?.choice).toBe(expected.choice)
+  expect(seen.changed[0]?.ask?.lead).toBeUndefined()
+  expect(seen.changed[0]?.draft).toEqual({ answer: expected.answer })
+})
+
+test("while typing under other… the input takes letters and numbers", () => {
+  for (
+    const form of [
+      askForm(2, ["sum", "plus"], "to"),
+      askForm(0, [], "to"),
+      askForm(0, [], undefined, { lead: "a" }),
+      askForm(2, ["sum", "plus"], "to", { armedAt: later(), lead: "a" })
+    ]
+  ) {
+    for (const typed of ["t", "1", " "]) {
+      const { seen, act } = askAct()
+      const event = key(typed)
+      Dispatch.formKey(event, form, act)
+      expect(seen).toEqual({ changed: [], filled: [] })
+      expect(event.defaultPrevented).toBe(false)
+    }
+  }
 })
 
 test("an ask form answers the chosen option, a typed other…, and nothing blank; esc keeps the ask", () => {

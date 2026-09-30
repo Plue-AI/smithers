@@ -392,8 +392,11 @@ export function App(props: AppProps) {
     formReturn.current = undefined
     if (from === surface) setPanelFocus(true)
   }, [form, surface, setPanelFocus])
-  /** Opens the answer form for a worker's ask the person holds: the whole question, then its choices. */
-  const openAsk = useCallback((tabId: string) => {
+  /**
+   * Opens the answer form for a worker's ask the person holds: the whole question, then its choices.
+   * `lead` is the chat key that opened it.
+   */
+  const openAsk = useCallback((tabId: string, lead?: string) => {
     const ask = workspace.asks.fromPerson(tabId)
     if (ask === undefined) return
     const title = workspace.snapshot().tabs.find((tab) => tab.id === tabId)?.title ?? tabId
@@ -406,7 +409,13 @@ export function App(props: AppProps) {
       draft: {},
       focus: 0,
       // A choice starts on its first option, so Enter alone answers it.
-      ask: { question: ask.question, options: ask.options ?? [], choice: 0 }
+      ask: {
+        question: ask.question,
+        options: ask.options ?? [],
+        choice: 0,
+        armedAt: Date.now() + Approvals.armMs,
+        ...(lead === undefined ? {} : { lead })
+      }
     })
   }, [workspace, changeForm, panelFocus, surface])
   /** What the cap form offers a worker stopped at its run cap, and its schema; undefined for any other worker. */
@@ -2182,7 +2191,7 @@ export function App(props: AppProps) {
       Date.now() - soleAsk.askedAt >= Approvals.armMs
     ) {
       key.preventDefault()
-      return flushSync(() => openAsk(soleAsk.from))
+      return flushSync(() => openAsk(soleAsk.from, "a"))
     }
     if (overviewKeys && open === undefined && !key.ctrl && !key.meta && !key.option) {
       const ids = [SubagentView.chat, ...inboxKeys]
@@ -2546,7 +2555,7 @@ export function App(props: AppProps) {
     onFiles: toggleFiles,
     onAction: workerAction,
     ask: (id) => workspace.asks.fromPerson(id),
-    ...(soleAsk === undefined ? {} : { answers: soleAsk.from })
+    ...(soleAsk === undefined || form !== undefined ? {} : { answers: soleAsk.from })
   }
   /** Titles from the chat down to a worker's parent, for its breadcrumb. */
   const path = (tab: Tab): ReadonlyArray<string> => {
