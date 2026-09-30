@@ -11,12 +11,13 @@ import * as QuotaPolicy from "@smthrs/agent/QuotaPolicy"
 import { LaunchFailed } from "@smthrs/control/ControlError"
 import { ControlRuntime } from "@smthrs/control/ControlRuntime"
 import * as DurableEngineState from "@smthrs/engine-store/DurableEngineState"
+import { EventTypes } from "@smthrs/engine-store/EventTypes"
 import * as RunState from "@smthrs/engine-store/RunState"
 import { FlowRuntime } from "@smthrs/flow"
 import { HarnessError } from "@smthrs/harness/HarnessError"
 import * as Notifications from "@smthrs/harness/Notifications"
 import * as Steering from "@smthrs/harness/Steering"
-import { Journal } from "@smthrs/journal"
+import { Journal, JournalEvent } from "@smthrs/journal"
 import * as CapabilitySet from "@smthrs/kernel/CapabilitySet"
 import { NotificationQueue } from "@smthrs/notifications"
 import * as Descriptor from "@smthrs/registry/Descriptor"
@@ -56,7 +57,46 @@ export const make = (
     const notifications = yield* NotificationQueue.NotificationQueue
     const refuse = (runId: string, message: string) => Effect.die(new LaunchFailed({ runId, message }))
 
-    const owner = (executionId: string) =>
+    /**
+     * Whether the engine ever released this execution by interrupting it: a
+     * lease lapse or a host shutdown stopped it mid-flight, so entering it
+     * again retries whatever effect it had started.
+     */
+    const released = (executionId: string) =>
+      Effect.gen(function*() {
+        let after: Journal.EntriesOptions["after"]
+        for (;;) {
+          const page = yield* journal.entries({
+            runId: JournalEvent.RunId.make(executionId),
+            eventTypes: [EventTypes.runDecision],
+            limit: 1_000,
+            ...(after === undefined ? {} : { after })
+          }).pipe(Effect.orDie)
+          if (
+            page.entries.some((entry) =>
+              (entry.payload as { readonly decision?: unknown } | null)?.decision === "interrupt-released"
+            )
+          ) return true
+          const last = page.entries.at(-1)
+          if (last === undefined || !page.hasMore) return false
+          after = last.seq
+        }
+      })
+
+    /**
+     * The approved authority an execution runs under, refusing one it may not.
+     *
+     * A completed control run still admits the detached descendants it
+     * launched: their first drive can land after the root settled, and their
+     * later rounds (a wake after a park) follow it. The outcome is the same
+     * whichever finishes first (#3209). What a completed root does not admit
+     * is a retry of an execution the engine released mid-flight: nothing
+     * supervises that work any more, so its interrupted effect never runs a
+     * second time (#3072). A cancelled or failed root admits nothing.
+     * `admission` is false for a caller that already admitted a descendant and
+     * only reads the root's authority again.
+     */
+    const owner = (executionId: string, admission = true) =>
       Effect.gen(function*() {
         const pending = [executionId]
         const visited = new Set<string>()
@@ -104,9 +144,12 @@ export const make = (
         if (roots.size !== 1) return yield* refuse(executionId, "Module execution has ambiguous control authority")
         const rootId = [...roots][0]!
         const run = yield* control.getRun(rootId).pipe(Effect.orDie)
+        if (run.planId === undefined || run.status === "cancelled" || run.status === "failed") {
+          return yield* refuse(executionId, "The owning control run is not active")
+        }
         if (
-          run.planId === undefined || run.status === "cancelled" || run.status === "failed" ||
-          run.status === "completed"
+          run.status === "completed" && admission &&
+          (executionId === rootId || (yield* released(executionId)))
         ) {
           return yield* refuse(executionId, "The owning control run is not active")
         }
@@ -153,7 +196,7 @@ export const make = (
     const budgets = yield* RcMap.make({
       lookup: (rootId: string) =>
         Effect.gen(function*() {
-          const { envelope } = yield* owner(rootId)
+          const { envelope } = yield* owner(rootId, false)
           const spending = yield* AgentSession.approvedEnvelope(budgetHost.controlJournal, rootId, envelope)
             .pipe(Effect.orDie)
           const budget = yield* Budget.make(Budget.policyFromEnvelope(spending, { weights: budgetHost.weights }))
