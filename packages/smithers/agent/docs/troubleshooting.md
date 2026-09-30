@@ -32,6 +32,16 @@ rather than left pending. The refusal message says to add the line and run
 A flow with a module body is a different case: it stays `pending`, because only
 prompt flows run on the agent.
 
+## LaunchFailed: selected sandbox unavailable
+
+**What happened.** This host cannot execute the selected sandbox provider.
+`AgentSession` refuses the run before loading its body or resolving a seat,
+including when an existing accepted run resumes.
+
+**What to change.** Named-provider execution is tracked in
+[#1790](https://github.com/smithersai/smithers/issues/1790). Keep the sandbox
+selection while waiting for that support.
+
 ## StructuredOutputFailure
 
 **What happened.** The model answered, and the answer did not fit the declared

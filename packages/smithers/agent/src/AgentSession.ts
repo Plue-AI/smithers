@@ -52,7 +52,7 @@
 import * as Capability from "@smthrs/capability/Capability"
 import * as Permission from "@smthrs/capability/Permission"
 import { ControlFacts } from "@smthrs/control"
-import { EnvelopeMismatch, LaunchFailed, PersistenceError } from "@smthrs/control/ControlError"
+import { EnvelopeMismatch, LaunchFailed, PersistenceError, Unavailable } from "@smthrs/control/ControlError"
 import * as ControlExecutor from "@smthrs/control/ControlExecutor"
 import { ControlRuntime, type PendingResume } from "@smthrs/control/ControlRuntime"
 import { Envelope, type PlanCard, type RunStatus } from "@smthrs/control/ControlSchema"
@@ -2898,6 +2898,26 @@ export const make = (
           })
         )
 
+    const ensureSandboxAvailable = (
+      runId: string,
+      descriptor: Descriptor.FlowDescriptor
+    ): Effect.Effect<void, LaunchFailed> =>
+      Effect.suspend(() =>
+        descriptor.sandbox === undefined
+          ? Effect.void
+          : Effect.fail(
+            new LaunchFailed({
+              runId,
+              message: `Flow ${descriptor.name} selects sandbox provider ${descriptor.sandbox.provider}, ` +
+                "which this agent host cannot execute",
+              cause: new Unavailable({
+                feature: `Sandbox provider ${descriptor.sandbox.provider}`,
+                ticket: "https://github.com/smithersai/smithers/issues/1790"
+              })
+            })
+          )
+      )
+
     const approvedExecution = (
       runId: string,
       card: PlanCard,
@@ -3039,6 +3059,7 @@ export const make = (
           Effect.orElseSucceed(() => undefined)
         )
         const executionDigest = yield* approvedExecution(payload.runId, card, descriptor, recorded)
+        yield* ensureSandboxAvailable(payload.runId, descriptor)
         // The launch already validated the seat and body; re-validation here
         // guards a registry that changed between acceptance and execution.
         const flowBody = yield* registry.loadBody(card.flowId, executionDigest)
@@ -3965,6 +3986,7 @@ export const make = (
           // nothing here runs it, and something else still might.
           return "pending" as const
         }
+        yield* ensureSandboxAvailable(input.run.runId, descriptor.value)
         const flowBody = yield* registry.loadBody(flowId, input.plan.card.executionDigest).pipe(
           Effect.mapError(
             (cause) =>
