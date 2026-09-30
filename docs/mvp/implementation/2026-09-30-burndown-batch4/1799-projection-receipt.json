@@ -1,0 +1,30 @@
+{
+  "issue": 1799,
+  "generatedBy": [
+    "pnpm run docs:sync",
+    "pnpm --filter @smithers/site run sync:docs"
+  ],
+  "checkedBy": [
+    "pnpm run docs:check",
+    "pnpm --filter @smithers/site run check:docs"
+  ],
+  "exitCodes": [
+    0,
+    0,
+    0,
+    0
+  ],
+  "generatedFiles": {
+    "apps/docs/core/src/content/docs/concepts/effects.md": "fc1549a0b32480055144bc2ebf4b09aef8c6134f6c79577024e299b333068c77",
+    "apps/docs/core/src/content/docs/guides/declare-a-flow.md": "2524385997f9e15fd45b9f1f26d836d640d29e16938994efda9ae3e1445f7695",
+    "apps/docs/core/src/content/docs/guides/declare-reads-and-writes.md": "0c04a5ded2c0b59f5675767680d3f3675cd7c7d634263c10f915889a3d94f968",
+    "apps/docs/core/src/content/docs/index.md": "50d48f4b469c39bfe7e3b5c82187e41f548df46fc50b2e9340359c99aff40dfb",
+    "apps/docs/core/src/content/docs/installation.md": "dbc59ba73c618f6b717a8f8956252686ed8d61627279d638c17d92e973e3666a",
+    "apps/docs/core/src/content/docs/quickstart.md": "c5ff8d540778f14fbec99b9b90d9a221ba05b472b0364d67c288c611bc833375",
+    "apps/docs/core/src/content/docs/reference/api.md": "130d492f0094476cfbb7fbe416f9ae1c22d0b0bdf7f6f65b9b910c93d27fc304",
+    "apps/docs/core/src/content/docs/troubleshooting.md": "ac73a15a3db4fd5e03f71fa25f8c1635418fdc020ad671297d7d84542025a6ae",
+    "apps/site/public/llms-full.txt": "236b3c6b8807385339c537d13cbd1be941ab01fd39e79851813fc4e62d00fa17",
+    "apps/site/src/content/docs/docs/reference/api/core.mdx": "b9ed17db38ead97edfbabeee334f0200da688a5172dbcd2997aac597b2e5a0bf"
+  },
+  "limits": "Canonical target inventory remains separately blocked by foreign claimed3276 as retained incheckpoint16;1799 changes no test membership or target registration. No API baseline/declaration or packed cohort qualification claimed."
+}

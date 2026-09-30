@@ -1,16 +1,13 @@
 ---
 title: "@smthrs/core"
-description: "Schema-first signatures over @smthrs/flow: one options object that lowers to the action a host implements and the flow an engine drives, plus the metadata projections a catalog, a decorator, and a harness read."
+description: "Metadata and compatibility adapters over canonical @smthrs/flow declarations."
 ---
 
-`@smthrs/core` describes agent work without running it. You declare a signature,
-which is a name, an input schema, an output schema, and optionally a body that
-composes nodes. `Flow.make` lowers that declaration onto the two values
-[`@smthrs/flow`](/api/flow) executes: an action a host supplies an
-implementation for, and the flow that calls it. Recording a call executes
-nothing: it constructs a node. `Graph.build` turns the declaration into a graph
-you can read, listing the steps, the dependencies between them, what each step
-reads and writes, and where it should run.
+`@smthrs/core` provides metadata and compatibility adapters over
+[`@smthrs/flow`](/api/flow). New declarations use that package's tagged
+`Flow.make(tag, { payload, success, body })`; the Core options-object constructor
+is deprecated. A call constructs a node, and `Graph.build` describes its steps,
+dependencies, effect claims, and placement without executing those steps.
 
 JavaScript and TypeScript declarations and all planning callbacks must be
 trusted. `Graph.build` executes flow bodies, continuation builders, recovery
@@ -53,18 +50,16 @@ same build runs in Node, in Bun, in a browser, and in a Cloudflare Worker.
 
 ## Declare a step before it runs
 
-A signature carries one `name`, and that name is the tag of everything it
-lowers to:
+An action has a required tag and a struct payload:
 
 ```ts
-import { Effects, Flow, Graph } from "@smthrs/core"
+import { Effects, Graph } from "@smthrs/core"
+import { Action } from "@smthrs/flow"
 import { Effect, Schema } from "effect"
 
-const review = Flow.make({
-  name: "review/file",
-  description: "Reviews one file.",
-  input: Schema.Struct({ path: Schema.String }),
-  output: Schema.String,
+const review = Action.make("review/file", {
+  payload: Schema.Struct({ path: Schema.String }),
+  success: Schema.String,
   capabilities: ["fs"],
   effects: Effects.make({
     reads: ["src/**"],
@@ -75,21 +70,20 @@ const review = Flow.make({
 })
 
 // What a host attaches the implementation to.
-const layer = review.action!.toLayer(({ path }) => Effect.succeed(`reviewed ${path}`))
+const layer = review.toLayer(({ path }) => Effect.succeed(`reviewed ${path}`))
 
 // What a caller records, and what a planner reads.
 const graph = Graph.build(review.call({ path: "src/api.ts" }))
 ```
 
-The graph holds the call the author wrote and, beneath it, the action dispatch
-it splices to. The capability ceiling, the effect envelope, and the placement
+The graph holds the explicit action call the author wrote. The capability ceiling, the effect envelope, and the placement
 travel as annotations on both, which is how a planner orders two writers of one
 path and how a reviewer sees what a step will touch before a model is called.
 `@smthrs/flow` owns that analysis and documents its refusals.
 
 ## How this fits with @smthrs/flows
 
-`@smthrs/core` is the authoring surface. [`@smthrs/flow`](/api/flow) owns the
+`@smthrs/flow` is the canonical authoring surface. [`@smthrs/flow`](/api/flow) owns the
 flow, the action, the node calls, and the graph builder a signature lowers to,
 and [`@smthrs/flows`](/api/flows) is the barrel over the durable engine that
 runs them: the journal, the run store, the step cache, the plan store, and
@@ -97,8 +91,8 @@ sandboxing. `@smthrs/plan` compiles a graph's key material into step keys,
 substituting each dependency's digest for the graph-local reference. That key is
 how a resumed run recognizes a step it already finished.
 
-The split is a dependency direction rather than a diagram. This package adds one
-options object, the metadata projections above, and Markdown lowering; it holds
+The split is a dependency direction rather than a diagram. This package retains a deprecated options-object adapter, the metadata
+projections above, and Markdown lowering; it holds
 no second node model, no second graph builder, and no evaluator of its own.
 Unlike the engine packages, `@smthrs/core` is not re-exported by
 `@smthrs/flows`: install it directly, even when you already depend on the

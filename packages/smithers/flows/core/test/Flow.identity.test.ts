@@ -1,9 +1,69 @@
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
 import { FlowEngine } from "@smthrs/engine"
-import { Interpreter } from "@smthrs/flow"
+import { Flow as Canonical, Interpreter } from "@smthrs/flow"
 import { Effect, Layer, Schema } from "effect"
+import * as Result from "effect/Result"
 import { expect, it } from "vitest"
 import { Flow, Graph, Node } from "../src/index.ts"
+
+it("executes canonical and compatibility declarations with the same payload, errors and metadata", async () => {
+  const Input = Schema.Struct({ text: Schema.String })
+  const Failure = Schema.Struct({ _tag: Schema.Literal("Rejected"), text: Schema.String })
+  const body = Node.capture(
+    {},
+    ({ text }: typeof Input.Type) =>
+      text === "reject" ? Node.fail({ _tag: "Rejected" as const, text }) : Node.succeed(text.toUpperCase())
+  )
+  const signature = Flow.make({
+    name: "identity/parity-adapter",
+    description: "Public compatibility",
+    input: Input,
+    output: Schema.String,
+    error: Failure,
+    capabilities: [],
+    model: "smart",
+    flows: ["helper"],
+    prompt: "Retained metadata",
+    body
+  })
+  const canonical = Canonical.make("identity/parity-canonical", {
+    description: signature.description,
+    payload: Input,
+    success: Schema.String,
+    error: Failure,
+    capabilities: [],
+    body
+  })
+  expect(Canonical.isFlow(signature.flow)).toBe(true)
+  expect(signature.flow.body).toBe(canonical.body)
+  expect(signature.flow.payloadSchema).toBe(canonical.payloadSchema)
+  expect(signature.flow.successSchema).toBe(canonical.successSchema)
+  expect(signature.flow.errorSchema).toBe(canonical.errorSchema)
+  expect(signature.flow.description).toBe(canonical.description)
+  expect(signature.model).toBe("smart")
+  expect(signature.flows).toEqual(["helper"])
+  expect(signature.prompt).toBe("Retained metadata")
+  for (const flow of [signature.flow, canonical]) {
+    const runtime = Interpreter.layerWithImplementations(flow, Layer.empty).pipe(
+      Layer.provideMerge(FlowEngine.layerMemory),
+      Layer.provideMerge(NodeCrypto.layer)
+    )
+    const results = await Effect.runPromise(
+      Effect.gen(function*() {
+        const success = yield* flow.execute({ text: "accepted" }, { executionId: `${flow._tag}/success` })
+        const failure = yield* flow.execute({ text: "reject" }, { executionId: `${flow._tag}/failure` }).pipe(
+          Effect.result
+        )
+        return { success, failure }
+      }).pipe(Effect.provide(runtime), Effect.scoped)
+    )
+    expect(results.success).toBe("ACCEPTED")
+    expect(Result.isFailure(results.failure)).toBe(true)
+    if (Result.isFailure(results.failure)) {
+      expect(results.failure.failure).toEqual({ _tag: "Rejected", text: "reject" })
+    }
+  }
+})
 
 it("executes a captured struct body under the canonical interpreter policy", async () => {
   const body = Node.capture({}, ({ text }: { readonly text: string }) => Node.succeed(text))

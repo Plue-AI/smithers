@@ -414,6 +414,10 @@ export const isFlow = (value: unknown): value is Any => Predicate.hasProperty(va
  * calls it once, and a host attaches the implementation with
  * `flow.action.toLayer(...)`.
  *
+ * @deprecated Use `Flow.make(tag, { payload, success, error, body })` from
+ * `@smthrs/flow`. This compatibility adapter delegates to that constructor;
+ * its `flow` property is the canonical executable declaration.
+ *
  * @category constructors
  * @since 0.0.0
  * @slop

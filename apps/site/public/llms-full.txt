@@ -21818,7 +21818,7 @@ executes: a declared action, which is what a host supplies an implementation
 for, and a flow whose body is one call to that action. A signature that
 declares its own `body` keeps the body and needs no action.
 
-### Flow.make
+### Flow.make (deprecated)
 
 ```ts
 const make: <
@@ -21829,24 +21829,26 @@ const make: <
 >(config: MakeOptions<I, O, Err, Requires>) => Flow<I, O, Err, Requires>
 ```
 
-Builds one signature. `name` is required and is the tag the flow, the action,
+Deprecated compatibility adapter. Author new declarations with the tagged
+`Flow.make` from `@smthrs/flow`; the adapter's `flow` property is that same
+canonical model. Existing metadata and primitive input wrapping are retained.
+
+For existing callers, `name` is required and is the tag the flow, the action,
 and every plan that records a call carry; `Flow.make` throws `TypeError`
 without one rather than minting an empty tag. A declaration loaded from a file
 takes the name its loader derives from the path.
 
 ```ts
-import { Flow } from "@smthrs/core"
+import { Action } from "@smthrs/flow"
 import { Effect, Schema } from "effect"
 
-const read = Flow.make({
-  name: "std/read",
-  description: "Reads one file.",
-  input: Schema.Struct({ path: Schema.String }),
-  output: Schema.String,
+const read = Action.make("std/read", {
+  payload: Schema.Struct({ path: Schema.String }),
+  success: Schema.String,
   capabilities: ["fs"]
 })
 
-const layer = read.action!.toLayer(({ path }) => Effect.succeed(path))
+const layer = read.toLayer(({ path }) => Effect.succeed(path))
 ```
 
 ### Flow.MakeOptions
@@ -22101,17 +22103,17 @@ the drafts a plan is compiled from, and the refusals it recorded rather than
 threw.
 
 ```ts
-import { Flow, Graph, Node } from "@smthrs/core"
+import { Graph, Node } from "@smthrs/core"
+import { Flow } from "@smthrs/flow"
 import { Schema } from "effect"
 
-const greeting = Flow.make({
-  name: "greeting",
-  input: Schema.Struct({ name: Schema.String }),
-  output: Schema.String,
+const greeting = Flow.make("greeting", {
+  payload: Schema.Struct({ name: Schema.String }),
+  success: Schema.String,
   body: ({ name }) => Node.succeed(`Hello, ${name}`)
 })
 
-const graph = Graph.build(greeting.flow, { name: "world" })
+const graph = Graph.build(greeting, { name: "world" })
 ```
 
 `build`, `nodes`, `edges`, `drafts`, `diagnostics`, `maximumGraphDepth`, and

@@ -23,25 +23,24 @@ an output schema, and a body that returns a node. The body is a plain function,
 and this package never calls it for its value.
 
 ```ts
-import { Flow, Graph, Node } from "@smthrs/core"
+import { Graph, Node } from "@smthrs/core"
+import { Flow } from "@smthrs/flow"
 import * as Schema from "effect/Schema"
 
-const Review = Flow.make({
-  name: "review",
-  input: Schema.Struct({ path: Schema.String }),
-  output: Schema.Struct({ approved: Schema.Boolean, notes: Schema.String }),
+const Review = Flow.make("review", {
+  payload: Schema.Struct({ path: Schema.String }),
+  success: Schema.Struct({ approved: Schema.Boolean, notes: Schema.String }),
   body: ({ path }) => Node.succeed({ approved: true, notes: `reviewed ${path}` })
 })
 
-const Report = Flow.make({
-  name: "report",
-  input: Schema.Struct({ notes: Schema.String }),
-  output: Schema.Struct({ published: Schema.Boolean, notes: Schema.String }),
+const Report = Flow.make("report", {
+  payload: Schema.Struct({ notes: Schema.String }),
+  success: Schema.Struct({ published: Schema.Boolean, notes: Schema.String }),
   body: ({ notes }) => Node.succeed({ published: true, notes })
 })
 ```
 
-The `name` is required: it is the tag the flow, the action, and every plan that
+The first argument is the required tag: it is the tag the flow, the action, and every plan that
 records a call carry. `Review.call({ path: "src/api.ts" })` does not run the
 body. It returns a node that records the call.
 
@@ -133,26 +132,26 @@ plan the builder called invalid.
 
 ## Declare work this package does not implement
 
-A signature without a `body` is a declaration of work someone else implements.
-It carries the action a host attaches the implementation to, and a flow whose
-whole body is one call to that action:
+An action declares work a host implements. Its call returns the same node model
+a flow body composes:
 
 ```ts
+import { Action } from "@smthrs/flow"
 import { Effect } from "effect"
 
-const Fetch = Flow.make({
-  name: "fetch",
-  input: Schema.Struct({ url: Schema.String }),
-  output: Schema.String,
-  capabilities: ["net"]
+const Fetch = Action.make("fetch", {
+  payload: Schema.Struct({ url: Schema.String }),
+  success: Schema.String,
+  capabilities: ["net"],
+  tier: "irreversible"
 })
 
-const layer = Fetch.action!.toLayer(({ url }) => Effect.succeed(`body of ${url}`))
+const layer = Fetch.toLayer(({ url }) => Effect.succeed(`body of ${url}`))
 ```
 
 `Fetch.call({ url })` plans the same way `Review.call` does. What changes is
-where the work comes from: the body is code this package planned, and the action
-is code a host supplied, which is why one is a field and the other is a layer.
+where the work comes from: a flow body composes nodes, and an action is code a
+host supplies through a layer.
 
 ## What just happened
 

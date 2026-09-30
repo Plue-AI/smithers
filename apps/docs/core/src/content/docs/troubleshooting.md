@@ -10,7 +10,7 @@ reviewer should see the whole plan and its objections at once.
 
 ## Failures that throw
 
-### Flow.make requires a name
+### Deprecated Core adapter requires a name
 
 ```text
 TypeError: Flow.make requires a name
@@ -169,7 +169,7 @@ A called flow declares a capability the calling flow's grant does not include.
 keys, and the inner flow's effective grant is the intersection, so the
 capability is dropped rather than smuggled through.
 
-Add the capability to the outer flow with `Flow.withCapabilities`, or remove it
+Add the capability to the outer flow's `capabilities` option, or remove it
 from the inner one.
 
 ### duplicate_node

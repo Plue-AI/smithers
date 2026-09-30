@@ -17,13 +17,13 @@ A signature's declaration is the envelope for everything beneath it: its body,
 and every call that body makes.
 
 ```ts
-import { Effects, Flow } from "@smthrs/core"
+import { Effects } from "@smthrs/core"
+import { Action, Flow } from "@smthrs/flow"
 import * as Schema from "effect/Schema"
 
-const Write = Flow.make({
-  name: "write",
-  input: Schema.Struct({ path: Schema.String }),
-  output: Schema.Void,
+const Write = Action.make("write", {
+  payload: Schema.Struct({ path: Schema.String }),
+  success: Schema.Void,
   effects: Effects.make({
     reads: ["src/index.ts"],
     writes: ["out/report.json"],
@@ -32,8 +32,9 @@ const Write = Flow.make({
   })
 })
 
-const Publish = Flow.make({
-  name: "publish",
+const Publish = Flow.make("publish", {
+  payload: {},
+  success: Schema.Void,
   effects: Effects.make({
     reads: ["src/**"],
     writes: ["out/**"],
@@ -75,33 +76,32 @@ drafts until you fix the declaration.
 ```ts
 import { Graph } from "@smthrs/core"
 
-const Escaping = Flow.make({
-  name: "escaping",
+const Escaping = Flow.make("escaping", {
+  payload: {},
+  success: Schema.Void,
   effects: Effects.make({ reads: ["src/**"], writes: ["public/**"], mode: "expected", onConflict: "serialize" }),
   body: () => Write.call({ path: "out/report.json" })
 })
 
-const graph = Graph.build(Escaping.flow, { input: undefined })
+const graph = Graph.build(Escaping, {})
 
 console.dir(Graph.diagnostics(graph).map(({ code, node, path }) => ({ code, node, path })))
 ```
 
 ```text
 [
-  { code: 'effect_outside_envelope', node: 'root.flow', path: [ 'out/report.json' ] },
-  { code: 'effect_outside_envelope', node: 'root.flow.flow', path: [ 'out/report.json' ] }
+  { code: 'effect_outside_envelope', node: 'root.flow', path: [ 'out/report.json' ] }
 ]
 ```
 
 Here `Write` declares `out/report.json` and `Escaping` granted only `public/**`, so the
-call and the action dispatch beneath it are both refused. `node` names the node
+action call is refused. `node` names the node
 whose declaration was refused, so you can find it in your source by its
 structural position. The declaration is static: changing the call's `path`
 payload alone does not change its declared effect paths.
 
-The payload is `{ input: undefined }` rather than `undefined`: `Escaping`
-declared no `input`, so its input schema is `Schema.Void`, and a non-struct
-input travels as the one field `input`.
+An empty payload is `{}`. Primitive values belong in a named field of the
+struct payload, so both the declaration and every call use the same shape.
 
 ## Two writers of one path
 
@@ -112,40 +112,9 @@ The stricter declaration decides: `fail` beats `lane`, and `lane` beats
 `serialize`, so one careful step can refuse to share a path with a careless
 one. Its reference documents each strategy and the diagnostics it records.
 
-## Seal a signature
+## Declare a sealed envelope
 
-`Flow.sealed()` returns a copy whose declaration is `hermetic` and `sealed`. A
-signature that had no declaration gets an empty one with those two values, which
-is the strictest possible claim: this step touches nothing. A signature that
-declares no envelope at all dispatches as `irreversible` instead, so an
-undeclared tier never content-shares another run's result.
-
-```ts
-const Locked = Publish.pipe(Flow.sealed())
-```
-
-## Find the overlap between two declarations
-
-`Effects.overlaps` returns the concrete or narrower write paths two
-declarations share, sorted and duplicate-free. It is the primitive the conflict
-pass uses, and it is useful on its own when you are deciding whether two
-signatures can run together:
-
-```ts
-const left = Effects.make({ reads: [], writes: ["out/**"], mode: "expected", onConflict: "serialize" })
-const right = Effects.make({ reads: [], writes: ["out/report.json"], mode: "expected", onConflict: "serialize" })
-
-Effects.overlaps(left, right) // [ 'out/report.json' ]
-```
-
-It is stricter than `Effects.covers` about unnormalized paths: two writers
-naming the same literal path always overlap, even a path with a `.` or `..`
-segment that `covers` refuses to match. An unnormalized path escapes no
-envelope, and two writers of it are still writing the same resource.
-
-## Where to go next
-
-- [Effect envelopes](/concepts/effects/): the model, including the full
-  coverage grammar.
-- [Declare a flow](/guides/declare-a-flow/): where a signature states its envelope,
-  its capabilities, and its tier.
+Set `mode: "hermetic"` and `tier: "sealed"` in the flow's explicit `effects`
+option. Keep its complete reads, writes, and conflict policy. Sealed mode does
+not establish a content cache contract for an action: an explicit idempotency
+key and implementation version are still required for content sharing.

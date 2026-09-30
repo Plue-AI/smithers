@@ -40,7 +40,8 @@ Five runtime dependencies install with it:
 The root entry point re-exports every module as a namespace:
 
 ```ts
-import { Effects, Flow, Graph, Markdown, Node, Placement } from "@smthrs/core"
+import { Effects, Graph, Markdown, Node, Placement } from "@smthrs/core"
+import { Flow } from "@smthrs/flow"
 ```
 
 Each module is also importable from its own subpath, which is the form this
@@ -48,10 +49,11 @@ package's consumers use and the form the API reference uses in its examples:
 
 ```ts
 import * as Digest from "@smthrs/core/Digest"
-import * as Flow from "@smthrs/core/Flow"
+import * as Flow from "@smthrs/flow/Flow"
 ```
 
-Both forms resolve to the same module. Prefer the subpath form when you import
+Core namespaces remain available at both root and subpath imports. New flow
+declarations use `@smthrs/flow`; Core's options-object constructor is deprecated. Prefer the subpath form when you import
 one or two modules into a large file, because it keeps the namespace name in
 the import specifier where a reader can see it.
 

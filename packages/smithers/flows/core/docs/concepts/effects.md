@@ -88,11 +88,10 @@ mode and tier. A declaration that is absent inherits the preceding envelope.
 All three are fatal: a step that claimed more than it was granted is not a step
 a host will be allowed to key and cache.
 
-`Flow.sealed()` is the shorthand at the strict end. It returns a copy of the
-signature whose declaration is `hermetic` and `sealed`, and a signature with no
-declaration gets an empty one with those two values. A signature that declares
-no envelope at all dispatches as `irreversible`, so it never content-shares
-another run's result by accident.
+A canonical flow states its envelope in the `effects` option. Declare
+`mode: "hermetic"` and `tier: "sealed"` explicitly when those bounds are
+justified; preserve its complete reads, writes, and conflict policy. An action
+needs its own cache contract before results can be shared across runs.
 
 ## Two writers of the same path
 

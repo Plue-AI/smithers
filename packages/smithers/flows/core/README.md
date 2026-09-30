@@ -8,7 +8,7 @@ all Smithers packages share one Effect runtime.
 
 **Documentation:** https://core.smithers.sh
 
-Schema-first sugar and metadata over `@smthrs/flow`. `Flow.make` takes one options object and lowers it onto the values that package executes: a declared action a host implements, and the flow that calls it. Beside that it publishes the metadata projections the registry and execution layers read: annotations, effects, placement, key material, digests, and Markdown lowering. The node model is `@smthrs/plan`'s and the graph builder is `@smthrs/flow`'s; `Node` and `Graph` here are the names this package's consumers reach them through.
+Metadata and compatibility adapters over `@smthrs/flow`. Author flows with its canonical `Flow.make(tag, { payload, success, body })`. The options-object constructor in `@smthrs/core/Flow` is deprecated and delegates to that same flow model. Beside that it publishes the metadata projections the registry and execution layers read: annotations, effects, placement, key material, digests, and Markdown lowering. The node model is `@smthrs/plan`'s and the graph builder is `@smthrs/flow`'s; `Node` and `Graph` here are the names this package's consumers reach them through.
 
 JavaScript and TypeScript declarations and all planning callbacks must be trusted. `Graph.build` executes flow bodies, `Node.andThen` builders, `Node.catch` recovery callbacks, and an optional `resolveLayers` callback in the caller process with ambient process authority. Purity is a caller obligation, not an enforced boundary. Placement, capability, and effect metadata does not sandbox planning, including sandbox placement, empty capability grants, and sealed effects.
 
@@ -35,48 +35,42 @@ The root entry point exports these namespaces; each is also importable from `@sm
 | `Placement`   | `Options`, `Placement`, `local`, `client`, `sandbox`, `remote`                                                                                                                                                                                                                                                                                                                                     | Creates serializable host-placement declarations.                                  |
 
 ```ts
-import { Flow, Graph, Node, Placement } from "@smthrs/core"
+import { Graph, Node, Placement } from "@smthrs/core"
+import { Flow } from "@smthrs/flow"
 import { Schema } from "effect"
 
-const greeting = Flow.make({
-  name: "greeting",
-  input: Schema.Struct({ name: Schema.String }),
-  output: Schema.String,
+const greeting = Flow.make("greeting", {
+  payload: Schema.Struct({ name: Schema.String }),
+  success: Schema.String,
   body: ({ name }) => Node.succeed(`Hello, ${name}`)
-}).pipe(Flow.within(Placement.sandbox()))
+}).annotate(Flow.Placement, Placement.sandbox())
 
-const graph = Graph.build(greeting.flow, { name: "world" })
+const graph = Graph.build(greeting, { name: "world" })
 ```
 
 `@smthrs/core/package.json` is also exported. `internal/*` and nested `*/index` subpaths are not public.
 
-## What a signature lowers to
+## Canonical flows and actions
 
-A signature carries one `name`, which is the tag of everything it lowers to.
-
-With a `body`, `Flow.make` returns a value whose `flow` is a `@smthrs/flow` flow with that body: its nodes are the nodes the body returns, and `Graph.build` splices them into the caller's plan.
-
-Without a body, it returns a value that also carries an `action`. The flow's whole body is one call to that action, which is the shape a declared capability ceiling is read off, and the action is what a host attaches the implementation to:
+A flow has a required tag, a struct payload schema, a success schema, and a body returning a node. Work a host implements is an explicit action:
 
 ```ts
-import { Flow } from "@smthrs/core"
+import { Action } from "@smthrs/flow"
 import { Effect, Schema } from "effect"
 
-const read = Flow.make({
-  name: "std/read",
-  input: Schema.Struct({ path: Schema.String }),
-  output: Schema.String,
-  capabilities: ["fs"]
+const read = Action.make("std/read", {
+  payload: Schema.Struct({ path: Schema.String }),
+  success: Schema.String,
+  capabilities: ["fs"],
+  tier: "irreversible"
 })
 
-const layer = read.action!.toLayer(({ path }) => Effect.succeed(path))
+const layer = read.toLayer(({ path }) => Effect.succeed(path))
 ```
 
-An input schema that is not a struct travels as the one field `input`, because `@smthrs/flow` requires a struct payload. `Flow.Payload<I>` names the wrapped schema, and `signature.call(value)` takes the declared shape and wraps it, so an author never writes the wrapper.
+The deprecated Core constructor preserves existing signature metadata, implicit actions, and primitive input adaptation. Its `flow` property is the canonical executable declaration. New declarations make a primitive input explicit as a struct field, such as `{ input: Schema.String }`, and name the action directly. A declared action without an explicit idempotency key uses invocation identity; tier alone does not enable content sharing.
 
-A signature that declares no effect envelope dispatches as `irreversible`. `Flow.sealed` changes its tier to `sealed`, but its generated action remains keyless and uses invocation identity; the tier alone does not enable content sharing across runs. Use the native `Action.make` contract for explicit idempotency keys and implementation versions.
-
-Struct schemas, including `Schema.Class`, pass through as the native payload schema. Calls accept the schema's constructor input, so class schemas accept inert field data without requiring a class instance in a planned payload.
+Struct schemas, including `Schema.Class`, can be the canonical payload schema. Calls accept their constructor input.
 
 ## Identity and caching
 
@@ -103,7 +97,7 @@ Construction failures throw; declaration failures are recorded.
 
 | Surface                                                                           | Failure                                                                                                                                                                                                                                                                                                                           |
 | --------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Flow.make` with no `name`                                                        | throws `TypeError`: the tag is what a host binds an implementation to and what a plan records                                                                                                                                                                                                                                     |
+| deprecated Core `Flow.make` with no `name`                                        | throws `TypeError`: the tag is what a host binds an implementation to and what a plan records                                                                                                                                                                                                                                     |
 | `Node.capture` on a non-function operation or non-inert capture data              | throws `TypeError`; a capture-data failure names the offending path in its `Node.capture:`-prefixed message                                                                                                                                                                                                                       |
 | `Markdown.parseSkill`, `Markdown.lowerSkill`, `Markdown.validateSkillFrontmatter` | returns `Result.fail(MarkdownError)` with code `skill_missing_frontmatter`, `skill_invalid_frontmatter`, `skill_missing_name`, `skill_invalid_name`, `skill_missing_description`, `skill_invalid_description`, `skill_invalid_allowed_tools`, `skill_invalid_compatibility`, `skill_invalid_metadata`, or `skill_invalid_license` |
 | `Graph.build` on an invalid declaration                                           | records a `GraphBuildError` in `Graph.diagnostics`; `@smthrs/flow` documents the codes and which of them are fatal                                                                                                                                                                                                                |
@@ -112,6 +106,6 @@ Construction failures throw; declaration failures are recorded.
 
 ## Mutability
 
-A signature is immutable: every combinator returns a fresh one built from the same declaration, and the original keeps the capabilities, annotations, and collaborators it was made with. A collaborator array handed to `Flow.make` or `Flow.withFlows` is copied, so mutating it afterwards changes nothing.
+A compatibility signature is immutable: every combinator returns a fresh one built from the same declaration, and the original keeps the capabilities, annotations, and collaborators it was made with. A collaborator array handed to `Flow.make` or `Flow.withFlows` is copied, so mutating it afterwards changes nothing.
 
 Plan values are not copied. `Node.succeed`, `Node.fail`, and a call retain the caller's value by reference and read it when the graph is built, so mutating one between construction and `Graph.build` changes the recorded identity.

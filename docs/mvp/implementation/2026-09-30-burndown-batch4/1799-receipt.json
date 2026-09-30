@@ -1,0 +1,89 @@
+{
+  "issue": 1799,
+  "ready": true,
+  "frozen": true,
+  "head": "5902c823879c9d7cb5ce1d23609d986a95ffae7c",
+  "files": [
+    "packages/smithers/flows/core/README.md",
+    "packages/smithers/flows/core/docs/README.md",
+    "packages/smithers/flows/core/docs/api.md",
+    "packages/smithers/flows/core/docs/concepts/effects.md",
+    "packages/smithers/flows/core/docs/guides/declare-a-flow.md",
+    "packages/smithers/flows/core/docs/guides/declare-reads-and-writes.md",
+    "packages/smithers/flows/core/docs/installation.md",
+    "packages/smithers/flows/core/docs/quickstart.md",
+    "packages/smithers/flows/core/docs/troubleshooting.md",
+    "packages/smithers/flows/core/src/Flow.ts",
+    "packages/smithers/flows/core/test/Flow.identity.test.ts",
+    "packages/smithers/flows/core/test/Flow.types.test.ts",
+    "packages/smithers/flows/core/test/README.test.ts"
+  ],
+  "sha256": {
+    "packages/smithers/flows/core/README.md": "2bac906d1ebe3dbfd5eceae1b75b2256f9ae6dfcffc77a1c7be38f2ae01f28f9",
+    "packages/smithers/flows/core/docs/README.md": "505be019d4733561cb0762739a64c6d885542eadec24d6f21d48c7d53bf3b35e",
+    "packages/smithers/flows/core/docs/api.md": "7801502c95219b4245de4d2cf057e71c79568d8a88d2b853b09826a641bdc3ca",
+    "packages/smithers/flows/core/docs/concepts/effects.md": "2a1a34165407933cd5253ff6e56aebbac16adcd75ce2ae1757431ba5e37099df",
+    "packages/smithers/flows/core/docs/guides/declare-a-flow.md": "6cf2b3cef2fb1d74f91e17d8add36dc68bd42ee3368b222de3f789109239d108",
+    "packages/smithers/flows/core/docs/guides/declare-reads-and-writes.md": "42cd6c44115722ca51e629716ffeea59f855833ccb6d8495dea74b4b1f4401fe",
+    "packages/smithers/flows/core/docs/installation.md": "09dea4ad837b26e537567a72a5f20328c37d38b80a58fd92851c9430a9ce8c32",
+    "packages/smithers/flows/core/docs/quickstart.md": "f3e29713815fe0b4e270e27ce1afdbde0adfdeab0d2d8844803a7e1997b072fd",
+    "packages/smithers/flows/core/docs/troubleshooting.md": "e5ffc83716283a6f3f318af49025535d107c4bb7a414a1d44751240eb18f8351",
+    "packages/smithers/flows/core/src/Flow.ts": "511c4db32a657c67f9ef75914339de7f4034a288d6663618ab34bf8e7231346f",
+    "packages/smithers/flows/core/test/Flow.identity.test.ts": "d5dc8494737a72c2759fd08909e23a10b357f072e76f116af6c63210b144e461",
+    "packages/smithers/flows/core/test/Flow.types.test.ts": "5f09021833e6115ae5e3c9471cbfee2b306a45ce9d151de02d269310d5621d01",
+    "packages/smithers/flows/core/test/README.test.ts": "1aeb0e9b0e78421bb55069e1a50694c514c4c56c1b71de9be1f494e30c9487b5"
+  },
+  "change": "Deprecate existing Core options-object thin adapter; migrate owning authored examples to canonical tagged @smthrs/flow Flow.make with explicit Action.make for host work. Preserve compatibility metadata, primitive wrapping, canonical lowering and all existing behavior.",
+  "checks": [
+    {
+      "log": "1799-core-full-final.log",
+      "exit": 0,
+      "files": 16,
+      "tests": 123,
+      "coverage": {
+        "statements": "190/190",
+        "branches": "137/137",
+        "functions": "42/42",
+        "lines": "178/178"
+      },
+      "thresholds": "unchanged100% src/**"
+    },
+    {
+      "log": "1799-source-types.log",
+      "exit": 0
+    },
+    {
+      "log": "1799-test-types-final.log",
+      "exit": 0
+    },
+    {
+      "log": "1799-lint.log",
+      "exit": 0
+    },
+    {
+      "log": "1799-format.log",
+      "exit": 0
+    },
+    {
+      "log": "1799-doc-types-final.log",
+      "exit": 0
+    },
+    {
+      "log": "1799-doc-runtime-final.log",
+      "exit": 0,
+      "programs": 6,
+      "boundary": "Actual authored snippets extracted and concatenated with only duplicate import merging, public package modules linked to current workspace; real Node26.5 processes perform planning and action layer construction. Quickstart exact eight-node/eight-edge output and effects refusal match documented output."
+    }
+  ],
+  "tests": "Public type equivalence includes canonical underlying Flow, call node, execute signature, typed failure/action requirement and struct/scalar payload shape with negative input controls. Actual canonical interpreter/engine tests execute both struct declarations success and typed failure, preserve metadata and existing captured scalar/struct/bodyless action integration tests. Docs invariant rejects old object constructors and retired wrapper helpers in authoring examples.",
+  "red": "1799-contract-red-green.json binds original six docs/14 object constructors and missing @deprecated to final canonical/deprecated contract; earlier own fixture/snippet setup errors retained.",
+  "limits": [
+    "Compatibility wrapper object stays distinct by design; its flow is the canonical executable model. Legacy tag widens string, explicitly retained; no literal-tag equivalence claim or unsafe new cast.",
+    "create-app defineFlow already removed upstream; existing docs canonical and no change required.",
+    "No release/install/browser/live Cloud qualification claimed; root owns fresh3184/3093 cohort and generated docs projection.",
+    "The complete core suite/type/format gates precede only removal of unsupported description fields from two new Action docs examples. All final six extracted programs then pass types+realNode runtime; no production or test bytes changed after configured core qualification."
+  ],
+  "sourceArchive": "1799-source.tar.gz",
+  "diff": "1799-final.diff",
+  "reproducibleDocQualifier": "1799-qualify-docs.py"
+}

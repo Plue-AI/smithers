@@ -1,5 +1,5 @@
 import * as Flow from "@smthrs/core/Flow"
-import type { Action } from "@smthrs/flow"
+import { Action, Flow as Canonical } from "@smthrs/flow"
 import * as Schema from "effect/Schema"
 import { describe, expectTypeOf, it } from "vitest"
 import * as Node from "../src/Node.ts"
@@ -11,6 +11,57 @@ interface BodyError {
 const BodyFailure = Schema.Struct({ _tag: Schema.Literal("BodyError") })
 
 describe("Flow types", () => {
+  it("exposes the same canonical flow type through the deprecated adapter", () => {
+    // The adapter historically widens its tag. Compare like-for-like rather
+    // than promising that it preserves a literal tag it never retained.
+    const tag: string = "types/canonical-parity"
+    const Input = Schema.Struct({ text: Schema.String })
+    const action = Action.make("types/parity-action", {
+      payload: Input,
+      success: Schema.Number,
+      error: BodyFailure
+    })
+    const adapted = Flow.make({
+      name: tag,
+      input: Input,
+      output: Schema.Number,
+      error: BodyFailure,
+      body: (payload) => action.call(payload)
+    })
+    const canonical = Canonical.make(tag, {
+      payload: adapted.flow.payloadSchema,
+      success: Schema.Number,
+      error: BodyFailure,
+      body: (payload) => action.call(payload)
+    })
+    expectTypeOf(adapted.flow).toEqualTypeOf<typeof canonical>()
+    expectTypeOf(adapted.call({ text: "input" })).toEqualTypeOf<ReturnType<typeof canonical.call>>()
+    expectTypeOf(adapted.flow.execute).toEqualTypeOf<typeof canonical.execute>()
+    expectTypeOf(adapted.flow.payloadSchema.Type).toEqualTypeOf<typeof Input.Type>()
+    expectTypeOf(adapted.call({ text: "input" })).toEqualTypeOf<
+      Node.Node<number, BodyError, Action.Requirement<"types/parity-action">>
+    >()
+
+    const scalar = Flow.make({
+      name: tag,
+      input: Schema.String,
+      output: Schema.Number,
+      body: (text) => Node.succeed(text.length)
+    })
+    const scalarCanonical = Canonical.make(tag, {
+      payload: scalar.flow.payloadSchema,
+      success: Schema.Number,
+      body: ({ input }) => Node.succeed(input.length)
+    })
+    expectTypeOf(scalar.flow).toEqualTypeOf<typeof scalarCanonical>()
+    expectTypeOf(scalar.call("input")).toEqualTypeOf<ReturnType<typeof scalarCanonical.call>>()
+    expectTypeOf(scalar.flow.payloadSchema.Type).toEqualTypeOf<{ readonly input: string }>()
+    // @ts-expect-error the adapter still accepts its declared primitive shape
+    scalar.call({ input: "input" })
+    // @ts-expect-error the canonical declaration requires its struct payload
+    scalarCanonical.call("input")
+  })
+
   it("exports consumer-nameable make options from the public Flow module", () => {
     const options: Flow.MakeOptions<typeof Schema.String, typeof Schema.Number, typeof BodyFailure, never> = {
       name: "types/options",
