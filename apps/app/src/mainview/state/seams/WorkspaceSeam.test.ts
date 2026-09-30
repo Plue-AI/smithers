@@ -1279,6 +1279,7 @@ describe("workspace seam files and services (plue#449)", () => {
         kind: "file",
         payload: expect.objectContaining({
           repo: "will/smithers",
+          workspaceId: "ws-1",
           path: "README.md",
           content: "# hi",
           binary: false,

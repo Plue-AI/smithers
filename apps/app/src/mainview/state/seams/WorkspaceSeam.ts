@@ -1512,6 +1512,7 @@ export const createWorkspaceSeam = (ctx: SeamContext, deps: WorkspaceSeamDeps = 
         ordinal: existing?.ordinal ?? ctx.nextOrdinal(),
         payload: {
           repo: workspace.repoId,
+          workspaceId: workspace.id,
           path,
           content: text,
           truncated,

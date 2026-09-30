@@ -630,8 +630,10 @@ a re-seed when the host switches documents. `loadEditor`
 a host with its own build drives the rich path. `escapeTabOrder` defaults to
 true so Tab moves focus out rather than trapping a keyboard user. `fallback`
 forces the textarea or the rich editor, overriding the
-`supportsRichTextEditing` probe. `MarkdownEditorHandle` exposes `getMarkdown`
-and the imperative seams.
+`supportsRichTextEditing` probe. `onLinkClick` receives a clicked link's
+`href` as written in the markdown; returning true stops the browser from
+following it, which is how a host opens a document's relative links itself.
+`MarkdownEditorHandle` exposes `getMarkdown` and the imperative seams.
 
 `MarkdownEditorStyles` ships the Crepe theme through the library's style seam.
 `MarkdownEditorError` carries a `code` and the original `cause`; both codes are

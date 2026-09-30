@@ -15,7 +15,8 @@ export function MarkdownEditorSurface({
   label,
   readOnly = false,
   onChange,
-  onEditor
+  onEditor,
+  onLinkClick
 }: {
   readonly value: string
   readonly resetKey: string
@@ -24,6 +25,8 @@ export function MarkdownEditorSurface({
   readonly onChange?: (value: string) => void
   /** The editor's imperative handle on mount, null on unmount (the Wiki pane registers it for `wiki.heading`). */
   readonly onEditor?: (editor: MarkdownEditorHandle | null) => void
+  /** A rendered link was clicked; true when the caller opened it (see MarkdownEditorProps.onLinkClick). */
+  readonly onLinkClick?: (href: string) => boolean
 }) {
   const controller = useController()
   const { data: sessions } = useLiveQuery(q => q.from({ session: controller.store.collections.sessions }).select(({ session }) => ({ id: session.id, inputMode: session.inputMode })))
@@ -54,6 +57,7 @@ export function MarkdownEditorSurface({
         readOnly={readOnly}
         onChange={onChange ?? (() => {})}
         ref={onEditor}
+        onLinkClick={onLinkClick}
       />
     </>
   )

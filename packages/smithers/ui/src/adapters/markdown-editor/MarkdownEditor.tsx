@@ -8,6 +8,7 @@ import {
   useState,
   useSyncExternalStore,
   type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
 } from "react";
 import { crepeThemeCss } from "./crepeTheme.generated";
 
@@ -143,6 +144,14 @@ export type MarkdownEditorProps = {
    * for reporting, not for recovery.
    */
   onError?: (error: MarkdownEditorError) => void;
+  /**
+   * Called with a rendered link's source `href` (as written in the markdown,
+   * not resolved against the page) when it is clicked. Return true when the
+   * host handled it: the browser then never follows it. A document's relative
+   * links name its own files, which only the host can open; followed by the
+   * browser they resolve against the app's URL instead.
+   */
+  onLinkClick?: (href: string) => boolean;
 };
 
 /** Marker attribute on the injected Crepe theme `<style>` (deduped on it). */
@@ -331,6 +340,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     fallback,
     loadEditor,
     onError,
+    onLinkClick,
   },
   ref,
 ) {
@@ -545,6 +555,13 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resetKey, readOnly, useFallback]);
 
+  const followLink = (event: ReactMouseEvent<HTMLDivElement>): void => {
+    if (!onLinkClick || !(event.target instanceof Element)) return;
+    const anchor = event.target.closest("a[href]");
+    if (anchor === null || !event.currentTarget.contains(anchor)) return;
+    if (onLinkClick(anchor.getAttribute("href") ?? "")) event.preventDefault();
+  };
+
   const onFallbackInput = (next: string) => {
     if (next === lastMarkdownRef.current) return;
     lastMarkdownRef.current = next;
@@ -586,6 +603,8 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       aria-label={ariaLabel}
       ref={hostRef}
       onKeyDownCapture={escapeTabOrder ? releaseTab : undefined}
+      onClick={followLink}
+      onAuxClick={followLink}
     />
   );
 });

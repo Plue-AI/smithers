@@ -12,7 +12,7 @@ import type { AgentPort } from "../runtime/AgentPort"
 import { createAppController } from "../state/AppController"
 import type { Card } from "../state/AppState"
 import { createAppStore } from "../state/AppStore"
-import { contentKey, FileCardAddressLine, FileCardBody, FileListCardBody, isMarkdownPath } from "./FileCards"
+import { contentKey, FileCardAddressLine, FileCardBody, FileListCardBody, followMarkdownLink, isMarkdownPath } from "./FileCards"
 
 /*
  * The file card's two renderings (will, 2026-09-01): a markdown file goes
@@ -553,4 +553,37 @@ test("a listing refresh uses its host's flow and scope", () => {
   expect(button.dataset.flowArgs).toBe('/ "workspace with spaces"')
   button.click()
   expect(commands).toEqual([{ name: "box.files", args: '/ "workspace with spaces"' }])
+})
+
+describe("a markdown file card's links (#3132)", () => {
+  const follow = (payload: Extract<Card, { kind: "file" }>["payload"], href: string) => {
+    const commands: Array<{ name: string; args?: string }> = []
+    const scrolled: Array<number> = []
+    const editor = { getMarkdown: () => payload.content, setMarkdown: () => {}, scrollToLine: (line: number) => { scrolled.push(line); return true } }
+    const handled = followMarkdownLink(payload, href, (name, args) => commands.push({ name, args }), editor)
+    return { handled, commands, scrolled }
+  }
+  const repoReadme = fileCard("docs/README.md", "# Guide\n\n## Install\n", { repo: "alpha/one", ref: "abc123" }).payload
+  const boxReadme = fileCard("README.md", "[LICENSE](LICENSE)", { repo: "smithersai/jjhub", workspaceId: "ws 1" }).payload
+
+  test("a relative link reads the file from the card's own repository and revision, not the page's", () => {
+    expect(follow(repoReadme, "../LICENSE")).toEqual({ handled: true, commands: [{ name: "files.read", args: "LICENSE alpha/one --ref abc123" }], scrolled: [] })
+    expect(follow(repoReadme, "api/")).toEqual({ handled: true, commands: [{ name: "files.list", args: "docs/api alpha/one" }], scrolled: [] })
+    expect(follow({ ...repoReadme, localRepoId: "local-7" }, "setup.md#run").commands).toEqual([{ name: "files.read", args: "docs/setup.md local-7 --ref abc123" }])
+  })
+
+  test("a box's markdown opens the box's own files", () => {
+    expect(follow(boxReadme, "LICENSE").commands).toEqual([{ name: "box.file", args: 'LICENSE "ws 1"' }])
+    expect(follow(boxReadme, "./").commands).toEqual([{ name: "box.files", args: '/ "ws 1"' }])
+  })
+
+  test("a same-document anchor scrolls to its heading; an unknown one stays put", () => {
+    expect(follow(repoReadme, "#install")).toEqual({ handled: true, commands: [], scrolled: [3] })
+    expect(follow(repoReadme, "#missing")).toEqual({ handled: true, commands: [], scrolled: [] })
+  })
+
+  test("web links stay the browser's; unsafe schemes and escapes above the root go nowhere", () => {
+    expect(follow(repoReadme, "https://example.com").handled).toBe(false)
+    for (const href of ["javascript:alert(1)", "../../etc/passwd"]) expect(follow(repoReadme, href)).toEqual({ handled: true, commands: [], scrolled: [] })
+  })
 })

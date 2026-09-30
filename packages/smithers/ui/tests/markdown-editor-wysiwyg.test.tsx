@@ -458,3 +458,39 @@ describe("MarkdownEditor failure reporting", () => {
     expect(stub.created).toEqual(["document 1"]);
   });
 });
+
+describe("MarkdownEditor links", () => {
+  /** Render a rendered-document link inside the editor host, as Crepe's link mark does. */
+  const renderedLink = (href: string): HTMLAnchorElement => {
+    const anchor = document.createElement("a");
+    anchor.setAttribute("href", href);
+    anchor.textContent = href;
+    host().firstElementChild!.append(anchor);
+    return anchor;
+  };
+  const click = (anchor: HTMLAnchorElement, init: MouseEventInit = {}): MouseEvent => {
+    const event = new MouseEvent("click", { bubbles: true, cancelable: true, ...init });
+    anchor.dispatchEvent(event);
+    return event;
+  };
+
+  test("a link the host claims reaches onLinkClick with its source href and never navigates", async () => {
+    const stub = stubEditor();
+    const opened: string[] = [];
+    await render(<MarkdownEditor value="[LICENSE](LICENSE)" readOnly fallback={false} loadEditor={stub.load}
+      onLinkClick={(href) => { opened.push(href); return true; }} />);
+
+    const event = click(renderedLink("LICENSE"));
+    expect(opened).toEqual(["LICENSE"]);
+    expect(event.defaultPrevented).toBe(true);
+    // A modified click would open the same app-relative URL in a new tab.
+    expect(click(renderedLink("docs/"), { metaKey: true }).defaultPrevented).toBe(true);
+    expect(opened).toEqual(["LICENSE", "docs/"]);
+  });
+
+  test("a link the host declines keeps the browser's own behavior", async () => {
+    const stub = stubEditor();
+    await render(<MarkdownEditor value="x" readOnly fallback={false} loadEditor={stub.load} onLinkClick={() => false} />);
+    expect(click(renderedLink("https://example.com")).defaultPrevented).toBe(false);
+  });
+});

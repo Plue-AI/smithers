@@ -2,6 +2,8 @@ import { ViewSkeleton } from "../ViewSkeleton"
 import { MarkdownEditorSurface, CodeSurface } from "../ViewModules"
 import { flowAction } from "../flows/FlowAction"
 import { fileArgs } from "../flows/FileArgs"
+import { flowArgs } from "../flows/FlowArgs"
+import { headingLine, resolveMarkdownLink } from "./MarkdownLinks"
 /*
  * The repo file cards: a directory listing ("file-list") whose rows open
  * /files.list or /files.read, and a file view ("file") rendered as a fenced
@@ -11,8 +13,9 @@ import { fileArgs } from "../flows/FileArgs"
  */
 import { Button } from "@smthrs/ui"
 import { FileText, Folder } from "lucide-react"
-import { Component, Suspense, useContext } from "react"
+import { Component, Suspense, useContext, useRef } from "react"
 import type { ReactNode } from "react"
+import type { MarkdownEditorHandle } from "@smthrs/ui/adapters/markdown-editor"
 import { useLiveQuery } from "@tanstack/react-db"
 import type { Card } from "../state/AppState"
 import { shortId } from "../state/ids"
@@ -325,6 +328,38 @@ export const FileListCardBody = ({
   )
 }
 
+/*
+ * A click on a link in a markdown file card (#3132). A relative link opens
+ * its target from the same source the card was read from: the box's files for
+ * a box read, else the repository (the same working copy and revision). A
+ * `#anchor` scrolls to its heading in this document. Web links stay the
+ * browser's (false); everything else is handled here, even when it goes
+ * nowhere, so the app never navigates to its own 404.
+ */
+export const followMarkdownLink = (
+  payload: Extract<Card, { kind: "file" }>["payload"],
+  href: string,
+  onRunCommand: RunCommand,
+  editor: MarkdownEditorHandle | null
+): boolean => {
+  const link = resolveMarkdownLink(payload.path, href)
+  if (link.kind === "external") return false
+  if (link.kind === "fragment") {
+    const line = headingLine(payload.content, link.fragment)
+    if (line !== undefined) editor?.scrollToLine(line)
+  } else if (link.kind === "file" || link.kind === "directory") {
+    const scope = payload.localRepoId ?? payload.repo
+    const at = link.path === "" ? "/" : link.path
+    if (payload.workspaceId !== undefined) {
+      if (link.kind === "file") onRunCommand("box.file", fileArgs(link.path, payload.workspaceId))
+      else onRunCommand("box.files", fileArgs(at, payload.workspaceId))
+    } else if (link.kind === "file") {
+      onRunCommand("files.read", flowArgs("files.read", { path: link.path, repo: scope, ...(payload.ref === undefined ? {} : { ref: payload.ref }) }))
+    } else onRunCommand("files.list", fileArgs(at, scope))
+  }
+  return true
+}
+
 export const FileCardBody = ({
   card,
   onRunCommand
@@ -340,6 +375,7 @@ export const FileCardBody = ({
   const controller = useContext(ControllerContext)
   const codeIntel = controller === null || controller.commands.find("code.hover") !== undefined
   const intel = card.payload.intel
+  const editor = useRef<MarkdownEditorHandle | null>(null)
   return (
     /*
      * Ask 6 (will, 2026-09-02): the body is a PANEL — capped height, its own
@@ -386,6 +422,8 @@ export const FileCardBody = ({
                   resetKey={`${card.id}:${contentKey(card.payload.content)}`}
                   label={`${card.payload.path} in ${card.payload.repo}`}
                   readOnly
+                  onEditor={(handle) => { editor.current = handle }}
+                  onLinkClick={(href) => followMarkdownLink(card.payload, href, onRunCommand, editor.current)}
                 />
               </Suspense>
             </LazyViewerBoundary>

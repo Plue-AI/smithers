@@ -2124,6 +2124,8 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
       repo: z.string(),
       /** Exact local working copy; retained by refresh and code-intelligence actions. */
       localRepoId: z.string().optional(),
+      /** The box the bytes were read from (`box.file`); its markdown links open that box's files. */
+      workspaceId: z.string().optional(),
       path: z.string(),
       content: z.string(),
       /** True when the read was cut at the card cap; the full file stays upstream. */
