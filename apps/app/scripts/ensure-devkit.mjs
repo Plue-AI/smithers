@@ -13,7 +13,9 @@
  * web server, the T2 launcher). It is a no-op when the projection matches the
  * installed electrobun version. Plain ESM so node and bun both run it.
  * On a fresh machine the first `prepare` downloads Hutch and the Electrobun
- * release into ~/.hutch, which needs the network.
+ * release into ~/.hutch, which needs the network. electrobun fetches Hutch with
+ * `node:https`, which ignores HTTPS_PROXY unless NODE_USE_ENV_PROXY is set, so
+ * a host whose only egress is a proxy (a Cloud guest) could not prepare.
  */
 import { spawnSync } from "node:child_process"
 import { existsSync, readFileSync } from "node:fs"
@@ -57,7 +59,11 @@ if (!devkitIsFresh()) {
   console.log("ensure-devkit: projecting .hutch/devkit (electrobun prepare)")
   // The shim is a node script (`#!/usr/bin/env node`); keep it on node even when this file runs under bun.
   const node = process.versions.bun === undefined ? process.execPath : "node"
-  const result = spawnSync(node, [ELECTROBUN_BIN, "prepare"], { cwd: UI_DIR, stdio: "inherit" })
+  const result = spawnSync(node, [ELECTROBUN_BIN, "prepare"], {
+    cwd: UI_DIR,
+    stdio: "inherit",
+    env: { ...process.env, NODE_USE_ENV_PROXY: "1" }
+  })
   if (result.error) report(`electrobun prepare failed to start: ${result.error.message}`)
   if (result.status !== 0) report(`electrobun prepare exited ${result.status ?? "by signal"}`)
   if (!devkitIsFresh()) report("electrobun prepare finished but .hutch/devkit is still incomplete")
