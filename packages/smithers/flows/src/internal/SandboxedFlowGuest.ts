@@ -21,6 +21,14 @@
  * the migration ladder, and a `Jj` stub to every bundle without changing the
  * durability the parent can observe.
  *
+ * The request carries the caller's effective capability ceiling. The guest
+ * runs the flow under that ceiling intersected with its own default, which is
+ * unrestricted, so the guest can only narrow what the caller held, never widen
+ * it. It echoes the ceiling it enforced in the result, and the host refuses a
+ * result whose echo differs from what it sent. A capability the ceiling
+ * refuses comes back as the kernel's own `PermissionDenied`, so the host
+ * fails with the same typed error a local run would.
+ *
  * Failures split two ways on purpose. A flow that fails, a payload the schema
  * refuses, and an entry module that exports no flow of the requested tag are
  * all outcomes the protocol can state, so they are written as a `failed`
@@ -32,6 +40,9 @@
  * @since 1.0.0
  */
 
+import { Capability, CapabilityPattern } from "@smthrs/capability/Capability"
+import * as CapabilitySet from "@smthrs/capability/CapabilitySet"
+import { isPermissionError, PermissionDenied } from "@smthrs/capability/Permission"
 import { FlowEngine } from "@smthrs/engine"
 import { Action, type Flow, Interpreter } from "@smthrs/flow"
 import * as RedactedLogger from "@smthrs/journal/RedactedLogger"
@@ -47,11 +58,23 @@ import * as Schema from "effect/Schema"
 import { readFile, writeFile } from "node:fs/promises"
 
 /**
+ * A capability ceiling on the wire: the normalized any-of groups of a
+ * `CapabilitySet`. No groups is unrestricted authority; an empty group denies
+ * every capability. A pattern that does not decode refuses the whole request.
+ *
+ * @category schemas
+ * @since 1.0.0
+ */
+export const Ceiling = Schema.Array(Schema.Array(CapabilityPattern))
+
+/**
  * The request the host writes for the guest.
  *
  * `payload` is the flow payload encoded through `Schema.toCodecJson` of the
  * flow's payload schema, so the guest decodes it through the same codec: a
  * schema round-trip on both sides of the machine boundary, never a cast.
+ * `capabilityCeiling` is the caller's effective authority, which the guest
+ * only ever intersects with.
  *
  * @category schemas
  * @since 1.0.0
@@ -60,19 +83,33 @@ export const Request = Schema.Struct({
   attempt: Schema.String,
   flow: Schema.String,
   executionId: Schema.String,
+  capabilityCeiling: Ceiling,
   payload: Schema.Unknown
 })
 
 /**
  * What the guest writes back: the flow's success value encoded through its
- * success schema's JSON codec, or the reason it did not produce one.
+ * success schema's JSON codec, or the reason it did not produce one. Both
+ * echo the ceiling the guest enforced; a failure a capability refusal caused
+ * also carries that refusal as `denied`.
  *
  * @category schemas
  * @since 1.0.0
  */
 export const Result = Schema.Union([
-  Schema.Struct({ attempt: Schema.String, status: Schema.Literal("succeeded"), output: Schema.Unknown }),
-  Schema.Struct({ attempt: Schema.String, status: Schema.Literal("failed"), error: Schema.String })
+  Schema.Struct({
+    attempt: Schema.String,
+    capabilityCeiling: Ceiling,
+    status: Schema.Literal("succeeded"),
+    output: Schema.Unknown
+  }),
+  Schema.Struct({
+    attempt: Schema.String,
+    capabilityCeiling: Ceiling,
+    status: Schema.Literal("failed"),
+    error: Schema.String,
+    denied: Schema.optionalKey(PermissionDenied)
+  })
 ])
 
 /**
@@ -187,6 +224,38 @@ const describe = (failure: unknown): string => {
   return `${tag}${message}${own === undefined ? "" : ` ${own}`}`
 }
 
+/**
+ * The kernel's capability refusal behind a failure: a `PermissionDenied`
+ * itself, or a guarded host service's `PlatformError` whose reason carries
+ * one. Rebuilt from its checked plain fields so the class identity of the
+ * copy that raised it does not matter.
+ */
+const deniedBy = (failure: unknown): PermissionDenied | undefined => {
+  const candidate = Predicate.hasProperty(failure, "reason") && Predicate.hasProperty(failure.reason, "_tag") &&
+      failure.reason._tag === "PermissionDenied" && Predicate.hasProperty(failure.reason, "cause")
+    ? failure.reason.cause
+    : failure
+  return isPermissionError(candidate) && candidate._tag === "@smthrs/capability/PermissionDenied"
+    ? new PermissionDenied({
+      capability: new Capability({ action: candidate.capability.action, resource: candidate.capability.resource }),
+      reason: candidate.reason
+    })
+    : undefined
+}
+
+/** The first capability refusal among the cause's failures and defects. */
+const deniedIn = (cause: Cause.Cause<unknown>): PermissionDenied | undefined => {
+  for (const reason of cause.reasons) {
+    const denied = Cause.isFailReason(reason)
+      ? deniedBy(reason.error)
+      : Cause.isDieReason(reason)
+      ? deniedBy(reason.defect)
+      : undefined
+    if (denied !== undefined) return denied
+  }
+  return undefined
+}
+
 /** Every reason the cause carries, one line each. */
 const describeCause = (cause: Cause.Cause<unknown>): string =>
   cause.reasons.map((reason) =>
@@ -215,7 +284,11 @@ export const run = async (entry: Readonly<Record<string, unknown>>, environment:
   const result = await Effect.runPromise(execute(entry, request))
   await writeFile(
     resultPath,
-    JSON.stringify(result.status === "failed" ? { ...result, error: String(redact(result.error)) } : result)
+    JSON.stringify(
+      Schema.encodeSync(Result)(
+        result.status === "failed" ? { ...result, error: String(redact(result.error)) } : result
+      )
+    )
   )
 }
 
@@ -224,10 +297,15 @@ const execute = (
   request: typeof Request.Type
 ): Effect.Effect<typeof Result.Type> =>
   Effect.gen(function*() {
+    // The guest starts unrestricted, the identity of intersection, so the
+    // enforced ceiling is exactly the one the caller sent, normalized.
+    const within = CapabilitySet.attenuateGroups(request.capabilityCeiling)
+    const capabilityCeiling = (yield* within(CapabilitySet.current)).groups
     const flow = Object.values(entry).find((value) => isFlowTagged(value, request.flow))
     if (flow === undefined) {
       return {
         attempt: request.attempt,
+        capabilityCeiling,
         status: "failed",
         error: `the entry module exports no flow tagged "${request.flow}"; export the flow the host was asked to run`
       } as const
@@ -247,10 +325,19 @@ const execute = (
       Schema.decodeUnknownEffect(payloadCodec)(request.payload).pipe(
         Effect.flatMap((payload) => flow.execute(payload, { executionId: request.executionId })),
         Effect.flatMap((value) => Schema.encodeEffect(successCodec)(value)),
+        within,
         Effect.provide(runtime)
       ) as Effect.Effect<unknown, unknown>
     )
-    return Exit.isSuccess(exit)
-      ? { attempt: request.attempt, status: "succeeded", output: exit.value } as const
-      : { attempt: request.attempt, status: "failed", error: describeCause(exit.cause) } as const
+    if (Exit.isSuccess(exit)) {
+      return { attempt: request.attempt, capabilityCeiling, status: "succeeded", output: exit.value } as const
+    }
+    const denied = deniedIn(exit.cause)
+    return {
+      attempt: request.attempt,
+      capabilityCeiling,
+      status: "failed",
+      error: describeCause(exit.cause),
+      ...(denied === undefined ? {} : { denied })
+    } as const
   })

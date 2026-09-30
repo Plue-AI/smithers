@@ -21,18 +21,25 @@
  *    `.smithers-sandbox/bundle.mjs` under the session's workdir, together with
  *    a small main that imports the entry and hands its exports to the guest
  *    runner in `internal/SandboxedFlowGuest.ts`.
- * 2. `.smithers-sandbox/request.json` carries `{ attempt, flow, executionId, payload }`,
- *    the payload encoded through `Schema.toCodecJson` of the flow's payload
- *    schema. `attempt` is a fresh nonce for each execution of the effect.
+ * 2. `.smithers-sandbox/request.json` carries
+ *    `{ attempt, flow, executionId, capabilityCeiling, payload }`, the payload
+ *    encoded through `Schema.toCodecJson` of the flow's payload schema.
+ *    `attempt` is a fresh nonce for each execution of the effect, and
+ *    `capabilityCeiling` is the caller's effective authority intersected with
+ *    the flow's own declaration.
  * 3. The guest runtime, `node` unless {@link ExecuteOptions.runtime} says
  *    otherwise, runs the bundle with the workdir as its working directory and
  *    the two env variables set. The runner finds the flow by tag among the
  *    entry's exports, decodes the payload, runs the flow under an in-memory
  *    engine, and writes `.smithers-sandbox/result.json`: either
- *    `{ attempt, status: "succeeded", output }` with the success value encoded through
- *    the success schema's JSON codec, or `{ attempt, status: "failed", error }`.
+ *    `{ attempt, capabilityCeiling, status: "succeeded", output }` with the
+ *    success value encoded through the success schema's JSON codec, or
+ *    `{ attempt, capabilityCeiling, status: "failed", error, denied? }`. The
+ *    guest runs the flow under the ceiling it was sent and echoes it.
  * 4. The host reads the result back, refuses a non-zero exit, an unparseable
- *    file, or a result the limits reject, decodes `output` through the same
+ *    file, a result for another attempt, a ceiling echo that differs from the
+ *    one it sent, or a result the limits reject, fails with the guest's
+ *    `PermissionDenied` when a capability refusal failed the child, decodes `output` through the same
  *    codec, and, when {@link ExecuteOptions.collectDiff} is set, reads the
  *    files the guest created or changed in the workspace and returns them,
  *    with the paths it deleted, as data beside the output.
@@ -49,7 +56,10 @@
  * @since 1.0.0
  */
 
-import { Action, type Flow, FlowRuntime } from "@smthrs/flow"
+import type { CapabilityPattern } from "@smthrs/capability/Capability"
+import * as CapabilitySet from "@smthrs/capability/CapabilitySet"
+import { PermissionDenied } from "@smthrs/capability/Permission"
+import { Action, Flow, FlowRuntime } from "@smthrs/flow"
 import * as RedactedLogger from "@smthrs/journal/RedactedLogger"
 import * as Redaction from "@smthrs/journal/Redaction"
 import * as CommandLine from "@smthrs/kernel/CommandLine"
@@ -78,7 +88,8 @@ import * as Guest from "./internal/SandboxedFlowGuest.ts"
  *   runtime the image does not contain.
  * - `flow_failed`: the child flow ran and reported a failure.
  * - `result_unreadable`: the guest exited 0 but wrote no result, or wrote one
- *   that is not the protocol's JSON or does not match the current attempt.
+ *   that is not the protocol's JSON, does not match the current attempt, or
+ *   does not echo the capability ceiling the host sent.
  * - `result_invalid`: the result's `output` does not decode through the flow's
  *   success schema.
  * - `result_overflow`: the result file exceeds {@link Limits.resultBytes}.
@@ -111,6 +122,25 @@ export class SandboxedFlowError extends Schema.TaggedError<SandboxedFlowError>()
     cause: Schema.optional(Schema.Defect())
   }
 ) {}
+
+/**
+ * Every typed failure of a sandboxed execution: a {@link SandboxedFlowError},
+ * or the kernel's `PermissionDenied` when the child needed a capability the
+ * caller's ceiling does not hold. The refusal is the same typed error a local
+ * run of the child would fail with.
+ *
+ * @category errors
+ * @since 1.0.0
+ */
+export const ExecuteError = Schema.Union([SandboxedFlowError, PermissionDenied])
+
+/**
+ * The type of {@link ExecuteError}.
+ *
+ * @category errors
+ * @since 1.0.0
+ */
+export type ExecuteError = typeof ExecuteError.Type
 
 /**
  * Bounds on what comes back from the guest.
@@ -229,6 +259,11 @@ export interface Result<A> {
   readonly diff: ReadonlyArray<DiffEntry>
   /** Workspace-relative paths that existed before the guest ran and were gone after. */
   readonly deleted: ReadonlyArray<string>
+  /**
+   * The ceiling the guest enforced, as normalized any-of groups: the receipt
+   * the parent journals. No groups is unrestricted authority.
+   */
+  readonly capabilityCeiling: ReadonlyArray<ReadonlyArray<CapabilityPattern>>
 }
 
 /**
@@ -258,6 +293,16 @@ export const Diff = Schema.Array(DiffEntry)
 export const Deleted = Schema.Array(Schema.String).pipe(Schema.withDecodingDefaultKey(Effect.succeed([])))
 
 /**
+ * The schema of a {@link Result}'s `capabilityCeiling`. A result recorded
+ * before ceilings crossed the machine boundary ran unrestricted and decodes
+ * with no groups.
+ *
+ * @category schemas
+ * @since 1.0.0
+ */
+export const EnforcedCeiling = Guest.Ceiling.pipe(Schema.withDecodingDefaultKey(Effect.succeed([])))
+
+/**
  * The schema of a {@link Result} over a flow's success schema.
  *
  * @category schemas
@@ -267,6 +312,7 @@ export type ResultSchema<Success extends Schema.Top> = Schema.Struct<{
   readonly output: Success
   readonly diff: typeof Diff
   readonly deleted: typeof Deleted
+  readonly capabilityCeiling: typeof EnforcedCeiling
 }>
 
 /**
@@ -276,7 +322,7 @@ export type ResultSchema<Success extends Schema.Top> = Schema.Struct<{
  * @since 1.0.0
  */
 export const resultSchema = <Success extends Schema.Top>(success: Success): ResultSchema<Success> =>
-  Schema.Struct({ output: success, diff: Diff, deleted: Deleted })
+  Schema.Struct({ output: success, diff: Diff, deleted: Deleted, capabilityCeiling: EnforcedCeiling })
 
 /** The workspace-relative directory the runner protocol's files live in. */
 const controlDirectory = ".smithers-sandbox"
@@ -692,10 +738,23 @@ const collect = (
   })
 
 /** The result file, checked against the size limit and the protocol's shape. */
+/** Whether two normalized ceilings name the same groups of the same patterns. */
+const sameCeiling = (
+  left: ReadonlyArray<ReadonlyArray<CapabilityPattern>>,
+  right: ReadonlyArray<ReadonlyArray<CapabilityPattern>>
+): boolean =>
+  left.length === right.length &&
+  left.every((group, index) => {
+    const other = right[index]!
+    return group.length === other.length &&
+      group.every((pattern, at) => pattern.action === other[at]!.action && pattern.resource === other[at]!.resource)
+  })
+
 const readResult = (
   session: Sandbox.Session,
   resultPath: string,
   attempt: string,
+  capabilityCeiling: ReadonlyArray<ReadonlyArray<CapabilityPattern>>,
   limits: ResolvedLimits,
   run: { readonly code: number; readonly stdout: string; readonly stderr: string }
 ): Effect.Effect<typeof Guest.Result.Type, SandboxedFlowError> =>
@@ -728,6 +787,16 @@ const readResult = (
     if (result.attempt !== attempt) {
       return yield* Effect.fail(
         failure("result_unreadable", `the guest wrote a result for a different attempt; ${outputs}`)
+      )
+    }
+    // A runner that dropped or rewrote the ceiling may have run the child
+    // with more authority than the caller holds; nothing it reports is used.
+    if (!sameCeiling(result.capabilityCeiling, capabilityCeiling)) {
+      return yield* Effect.fail(
+        failure(
+          "result_unreadable",
+          `the guest enforced a capability ceiling other than the one the host sent; ${outputs}`
+        )
       )
     }
     return result
@@ -769,9 +838,15 @@ export const execute = <
   flow: Flow.Flow<Tag, Payload, Success, Error, Requires>,
   payload: Payload["Type"],
   options: ExecuteOptions
-): Effect.Effect<Result<Success["Type"]>, SandboxedFlowError> =>
+): Effect.Effect<Result<Success["Type"]>, ExecuteError> =>
   Effect.gen(function*() {
     const attempt = randomUUID()
+    // The caller's ambient authority intersected with the child's own
+    // declaration, exactly what a local run of the child would hold. The
+    // guest only ever intersects with it.
+    const capabilityCeiling = (yield* Flow.attenuateCapabilities(Flow.capabilityCeilings(flow.annotations))(
+      CapabilitySet.current
+    )).groups
     const limits = resolveLimits(options.limits)
     const runtime = options.runtime ?? "node"
     // The wire codecs of a flow's schemas are service-free for the same reason
@@ -801,12 +876,16 @@ export const execute = <
             attempt,
             flow: flow._tag,
             executionId: options.session,
+            capabilityCeiling,
             payload: encodedPayload
           }
           yield* session.writeFile(bundlePath, built).pipe(
             Effect.mapError(sessionFailure("the bundle could not be written into the workspace"))
           )
-          yield* session.writeFile(requestPath, new TextEncoder().encode(JSON.stringify(request))).pipe(
+          yield* session.writeFile(
+            requestPath,
+            new TextEncoder().encode(JSON.stringify(Schema.encodeSync(Guest.Request)(request)))
+          ).pipe(
             Effect.mapError(sessionFailure("the request could not be written into the workspace"))
           )
           yield* files.remove(resultPath, { force: true }).pipe(
@@ -845,7 +924,10 @@ export const execute = <
               failure("guest_failed", `${reason}; stderr: ${tail(run.stderr).trim() || "(empty)"}`)
             )
           }
-          const result = yield* readResult(session, resultPath, attempt, limits, run)
+          const result = yield* readResult(session, resultPath, attempt, capabilityCeiling, limits, run)
+          if (result.status === "failed" && result.denied !== undefined) {
+            return yield* Effect.fail(result.denied)
+          }
           if (result.status === "failed") {
             return yield* Effect.fail(
               failure(
@@ -877,7 +959,12 @@ export const execute = <
               limits
             )
             : { diff: [], deleted: [] }
-          return { output, diff: changes.diff, deleted: changes.deleted }
+          return {
+            output,
+            diff: changes.diff,
+            deleted: changes.deleted,
+            capabilityCeiling
+          }
         })
       ),
       expired(options.timeout ?? Duration.minutes(10))
@@ -888,7 +975,7 @@ export const execute = <
  * A durable action whose implementation is one sandboxed execution of `flow`.
  *
  * Its payload schema is the flow's, its success schema is {@link resultSchema}
- * over the flow's, and its error schema is {@link SandboxedFlowError}. The
+ * over the flow's, and its error schema is {@link ExecuteError}. The
  * parent flow's body calls it like any other action; {@link toLayer} supplies
  * the implementation.
  *
@@ -899,7 +986,7 @@ export type SandboxedAction<
   Tag extends string,
   Payload extends Flow.AnyStructSchema,
   Success extends Schema.Top
-> = Action.Declared<Tag, Payload, ResultSchema<Success>, typeof SandboxedFlowError>
+> = Action.Declared<Tag, Payload, ResultSchema<Success>, typeof ExecuteError>
 
 /**
  * Declares the durable action a parent flow calls to run `flow` in a sandbox.
@@ -952,7 +1039,7 @@ export function action<
   return Action.make(options.name ?? `${flow._tag}/sandboxed`, {
     payload: flow.payloadSchema,
     success: resultSchema(flow.successSchema),
-    error: SandboxedFlowError
+    error: ExecuteError
   }) as unknown as SandboxedAction<string, Payload, Success>
 }
 

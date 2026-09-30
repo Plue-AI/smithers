@@ -25,7 +25,8 @@ const securityReview = Smithers.SecurityReview({
         "A guest result accepted without the per-execution attempt nonce matching, or without decoding output through the flow's success schema.",
         "A DiffEntry.path or deleted path taken from the guest listing that can contain '..', an absolute path, or a backslash once normalized, and is returned without rejection.",
         "A symlink the guest plants in the workdir that stat follows so collect reads a guest file outside the workdir into the diff.",
-        "Code or docs treating the attempt nonce as proof of honesty, although request.json holding it is readable by the guest; it only rejects stale results."
+        "Code or docs treating the attempt nonce as proof of honesty, although request.json holding it is readable by the guest; it only rejects stale results.",
+        "A request whose capabilityCeiling is not the caller's current authority intersected with the flow's declaration, a guest that runs the child under anything wider than the ceiling it decoded, or a result accepted whose capabilityCeiling echo differs from the one sent."
       ],
       paths: ["src/SandboxedFlow.ts", "src/internal/SandboxedFlowGuest.ts"]
     },

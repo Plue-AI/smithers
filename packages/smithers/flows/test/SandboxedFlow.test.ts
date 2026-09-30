@@ -13,6 +13,8 @@
  */
 import { NodeCrypto, NodeFileSystem } from "@effect/platform-node"
 import { afterAll, describe, expect, it } from "@effect/vitest"
+import { Capability, CapabilityPattern } from "@smthrs/capability/Capability"
+import { PermissionDenied, permissionDenied, toPlatformError } from "@smthrs/capability/Permission"
 import * as Redaction from "@smthrs/journal/Redaction"
 import * as ProcessLedger from "@smthrs/kernel/ProcessLedger"
 import * as Node from "@smthrs/plan/Node"
@@ -32,7 +34,16 @@ import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import { spawnSync } from "node:child_process"
-import { mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
+import {
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync
+} from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { inspect } from "node:util"
@@ -148,8 +159,14 @@ const recording = (base: Sandbox.Provider, keys: Array<string>): Sandbox.Provide
 })
 
 const failureOf = <A>(
-  effect: Effect.Effect<A, SandboxedFlow.SandboxedFlowError>
-): Effect.Effect<SandboxedFlow.SandboxedFlowError, A> => Effect.flip(effect)
+  effect: Effect.Effect<A, SandboxedFlow.ExecuteError>
+): Effect.Effect<SandboxedFlow.SandboxedFlowError, A> =>
+  Effect.flip(effect).pipe(
+    Effect.map((failure) => {
+      if (failure instanceof SandboxedFlow.SandboxedFlowError) return failure
+      throw new Error(`expected a SandboxedFlowError, got ${failure._tag}`)
+    })
+  )
 
 const bunInstalled = spawnSync("bun", ["--version"], { stdio: "ignore" }).status === 0
 
@@ -181,7 +198,7 @@ describe("SandboxedFlow.execute on a scratch machine", () => {
         session: "sum",
         entry
       })
-      expect(result).toEqual({ output: 42, diff: [], deleted: [] })
+      expect(result).toEqual({ output: 42, diff: [], deleted: [], capabilityCeiling: [] })
       // A normal completion releases the session, which removes the workspace.
       expect(readdirSync(root)).toEqual([])
     }), 60_000)
@@ -272,7 +289,9 @@ describe("SandboxedFlow.execute on a scratch machine", () => {
           const earlier = yield* directory.acquire("stale-result")
           yield* earlier.writeFile(
             `${earlier.workdir}/.smithers-sandbox/result.json`,
-            new TextEncoder().encode(JSON.stringify({ attempt: "earlier-attempt", status: "succeeded", output: 17 }))
+            new TextEncoder().encode(
+              JSON.stringify({ attempt: "earlier-attempt", capabilityCeiling: [], status: "succeeded", output: 17 })
+            )
           )
           const failure = yield* failureOf(SandboxedFlow.execute(Sum, { n: 99 }, {
             provider: directory,
@@ -438,6 +457,7 @@ const limitedGuest = (options: {
     /** Every path a workspace walk statted, and how many stats overlapped. */
     const walk = { paths: [] as Array<string>, live: 0, peak: 0 }
     let attempt = ""
+    let capabilityCeiling: unknown = []
     const nativeStream: FileSystem.FileSystem["stream"] = (path, settings) => {
       streamed.push({ path, bytesToRead: settings?.bytesToRead })
       return fs.stream(path, settings)
@@ -447,7 +467,9 @@ const limitedGuest = (options: {
         Effect.map(directory.acquire(key), (session) => ({
           ...session,
           writeFile: (path, bytes) => {
-            if (path.endsWith("request.json")) attempt = JSON.parse(new TextDecoder().decode(bytes)).attempt
+            if (path.endsWith("request.json")) {
+              ;({ attempt, capabilityCeiling } = JSON.parse(new TextDecoder().decode(bytes)))
+            }
             return session.writeFile(path, bytes)
           },
           readFile: (path) => {
@@ -507,8 +529,8 @@ const limitedGuest = (options: {
                 new TextEncoder().encode(
                   JSON.stringify(
                     options.failure === undefined ?
-                      { attempt, status: "succeeded", output: options.output ?? "ok" }
-                      : { attempt, status: "failed", error: options.failure }
+                      { attempt, capabilityCeiling, status: "succeeded", output: options.output ?? "ok" }
+                      : { attempt, capabilityCeiling, status: "failed", error: options.failure }
                   )
                 )
               )
@@ -598,6 +620,7 @@ describe("sandbox limit boundaries", () => {
   const resultSize = (output: string) =>
     new TextEncoder().encode(JSON.stringify({
       attempt: "x".repeat(36),
+      capabilityCeiling: [],
       status: "succeeded",
       output
     })).length
@@ -1128,7 +1151,7 @@ describe("SandboxedFlow.execute failures", () => {
           `printf '%s' '${chatter}'`,
           `printf '%s' '${chatter}' >&2`,
           mode === "failed"
-            ? `node -e 'const fs = require("node:fs"); const { attempt } = JSON.parse(fs.readFileSync(process.env.SMITHERS_SANDBOX_REQUEST_PATH, "utf8")); fs.writeFileSync(process.env.SMITHERS_SANDBOX_RESULT_PATH, JSON.stringify({ ...${result}, attempt }));'`
+            ? `node -e 'const fs = require("node:fs"); const { attempt, capabilityCeiling } = JSON.parse(fs.readFileSync(process.env.SMITHERS_SANDBOX_REQUEST_PATH, "utf8")); fs.writeFileSync(process.env.SMITHERS_SANDBOX_RESULT_PATH, JSON.stringify({ ...${result}, attempt, capabilityCeiling }));'`
             : "",
           mode === "invalid" ? `printf garbage > "$SMITHERS_SANDBOX_RESULT_PATH"` : "",
           mode === "nonzero" ? "exit 1" : ""
@@ -1172,7 +1195,7 @@ describe("SandboxedFlow.execute failures", () => {
       Effect.gen(function*() {
         const result = status === "missing-attempt"
           ? { status: "succeeded", output: 17 }
-          : { attempt: "earlier-attempt", status, output: 17, error: "earlier failure" }
+          : { attempt: "earlier-attempt", capabilityCeiling: [], status, output: 17, error: "earlier failure" }
         const failure = yield* run(Sum, { n: 99 }, {
           runtime: guestRuntime(
             `replayed-${status}`,
@@ -1435,7 +1458,7 @@ describe("SandboxedFlow.action on an engine", () => {
   const Parent = Flow.make("flows/SandboxedFlow/test/Parent", {
     payload: { n: Schema.Number },
     success: SandboxedFlow.resultSchema(Schema.Number),
-    error: SandboxedFlow.SandboxedFlowError,
+    error: SandboxedFlow.ExecuteError,
     body: (payload) => RunSum.call(payload)
   })
 
@@ -1450,7 +1473,7 @@ describe("SandboxedFlow.action on an engine", () => {
     expect(RunSum.name).toBe("flows/SandboxedFlow/fixtures/Sum/sandboxed")
     expect(SandboxedFlow.action(Sum, { name: "custom/RunSum" }).name).toBe("custom/RunSum")
     expect(RunSum.payloadSchema).toBe(Sum.payloadSchema)
-    expect(RunSum.errorSchema).toBe(SandboxedFlow.SandboxedFlowError)
+    expect(RunSum.errorSchema).toBe(SandboxedFlow.ExecuteError)
   })
 
   it("keeps distinct implementation requirements for default and custom names", () => {
@@ -1458,11 +1481,11 @@ describe("SandboxedFlow.action on an engine", () => {
     const Both = Flow.make("flows/SandboxedFlow/test/Both", {
       payload: { n: Schema.Number },
       success: Schema.Struct({ first: RunSum.successSchema, second: Other.successSchema }),
-      error: SandboxedFlow.SandboxedFlowError,
+      error: SandboxedFlow.ExecuteError,
       body: (payload) => Node.all({ first: RunSum.call(payload), second: Other.call(payload) })
     })
-    const first = RunSum.toLayer(() => Effect.succeed({ output: 1, diff: [], deleted: [] }))
-    const second = Other.toLayer(() => Effect.succeed({ output: 2, diff: [], deleted: [] }))
+    const first = RunSum.toLayer(() => Effect.succeed({ output: 1, diff: [], deleted: [], capabilityCeiling: [] }))
+    const second = Other.toLayer(() => Effect.succeed({ output: 2, diff: [], deleted: [], capabilityCeiling: [] }))
     const partial = Layer.mergeAll(first, Interpreter.layer(Both)).pipe(
       Layer.provideMerge(Action.layerImplementations),
       Layer.provideMerge(Engine.FlowEngine.layerMemory),
@@ -1519,7 +1542,7 @@ describe("SandboxedFlow.action on an engine", () => {
         const Parallel = Flow.make("flows/SandboxedFlow/test/Parallel", {
           payload: { n: Schema.Number },
           success: Schema.Struct({ first: RunSum.successSchema, second: RunSum.successSchema }),
-          error: SandboxedFlow.SandboxedFlowError,
+          error: SandboxedFlow.ExecuteError,
           body: (payload) => Node.all({ first: RunSum.call(payload), second: RunSum.call(payload) })
         })
         const implementation = SandboxedFlow.toLayer(RunSum, Sum, ({ executionId, callId }) => ({
@@ -1543,8 +1566,8 @@ describe("SandboxedFlow.action on an engine", () => {
         expect(peakPerKey).toBe(1)
         expect([...active.values()]).toEqual([0, 0])
         expect(Exit.isSuccess(exit) && exit.value).toEqual({
-          first: { output: 16, diff: [], deleted: [] },
-          second: { output: 16, diff: [], deleted: [] }
+          first: { output: 16, diff: [], deleted: [], capabilityCeiling: [] },
+          second: { output: 16, diff: [], deleted: [], capabilityCeiling: [] }
         })
       }),
     60_000
@@ -1559,13 +1582,13 @@ describe("SandboxedFlow.action on an engine", () => {
         const Recover = Action.make(`flows/SandboxedFlow/test/${recovery}/action`, {
           payload: Sum.payloadSchema,
           success: RunSum.successSchema,
-          error: SandboxedFlow.SandboxedFlowError,
+          error: SandboxedFlow.ExecuteError,
           retryPolicy: RetryPolicy.make({ initialMs: 1, factor: 1, maxMs: 1, maxAttempts: 2 })
         })
         const Recovering = Flow.make(`flows/SandboxedFlow/test/${recovery}`, {
           payload: Sum.payloadSchema,
           success: RunSum.successSchema,
-          error: SandboxedFlow.SandboxedFlowError,
+          error: SandboxedFlow.ExecuteError,
           body: (payload) => Recover.call(payload)
         })
         const interrupted: Sandbox.Provider = {
@@ -1605,7 +1628,7 @@ describe("SandboxedFlow.action on an engine", () => {
           }
           return yield* Recovering.execute({ n: 5 }, { executionId })
         }).pipe(Effect.provide(layers))
-        expect(result).toEqual({ output: 16, diff: [], deleted: [] })
+        expect(result).toEqual({ output: 16, diff: [], deleted: [], capabilityCeiling: [] })
         expect(callIds).toHaveLength(2)
         expect(callIds[0]).toEqual(expect.any(String))
         expect(callIds[0]!.length).toBeGreaterThan(0)
@@ -1651,7 +1674,7 @@ describe("SandboxedFlow.action on an engine", () => {
           engine(SandboxedFlow.toLayer(RunSum, Sum, { provider: directory, session: "action-static", entry }))
         )
       )
-      expect(result).toEqual({ output: 42, diff: [], deleted: [] })
+      expect(result).toEqual({ output: 42, diff: [], deleted: [], capabilityCeiling: [] })
     }), 60_000)
 
   it.live("derives the placement from the call and the parent execution", () =>
@@ -1697,9 +1720,15 @@ describe("the result schema", () => {
     const encoded = Schema.encodeSync(Schema.toCodecJson(SandboxedFlow.resultSchema(Schema.Number)))({
       output: 42,
       diff: [{ path: "a.bin", bytes: new Uint8Array([1, 2, 3]) }],
-      deleted: ["gone.txt"]
+      deleted: ["gone.txt"],
+      capabilityCeiling: [[new CapabilityPattern({ action: "fs:read", resource: "**" })]]
     })
-    expect(encoded).toEqual({ output: 42, diff: [{ path: "a.bin", bytes: "AQID" }], deleted: ["gone.txt"] })
+    expect(encoded).toEqual({
+      output: 42,
+      diff: [{ path: "a.bin", bytes: "AQID" }],
+      deleted: ["gone.txt"],
+      capabilityCeiling: [[{ action: "fs:read", resource: "**" }]]
+    })
   })
 
   it("decodes a result journaled before deleted existed with no deletions", () => {
@@ -1707,7 +1736,7 @@ describe("the result schema", () => {
       output: 42,
       diff: []
     })
-    expect(decoded).toEqual({ output: 42, diff: [], deleted: [] })
+    expect(decoded).toEqual({ output: 42, diff: [], deleted: [], capabilityCeiling: [] })
   })
 
   it("carries the 0.x bundle limits as its defaults", () => {
@@ -1735,9 +1764,12 @@ describe("the guest runner in process", () => {
   const scratch = mkdtempSync(join(tmpdir(), "flows-sandboxed-guest-"))
   afterAll(() => rmSync(scratch, { recursive: true, force: true }))
 
-  const request = (name: string, body: Omit<typeof Guest.Request.Type, "attempt">): Guest.Environment => {
+  const request = (
+    name: string,
+    body: Omit<typeof Guest.Request.Type, "attempt" | "capabilityCeiling">
+  ): Guest.Environment => {
     const requestPath = join(scratch, `${name}.request.json`)
-    writeFileSync(requestPath, JSON.stringify({ ...body, attempt: name }))
+    writeFileSync(requestPath, JSON.stringify({ ...body, attempt: name, capabilityCeiling: [] }))
     return {
       SMITHERS_SANDBOX_REQUEST_PATH: requestPath,
       SMITHERS_SANDBOX_RESULT_PATH: join(scratch, `${name}.result.json`)
@@ -1761,7 +1793,115 @@ describe("the guest runner in process", () => {
   it("writes the encoded success of the flow the request names", async () => {
     const environment = request("sum", { flow: Sum._tag, executionId: "in-process", payload: { n: 1 } })
     await Guest.run(childEntry, environment)
-    expect(resultOf(environment)).toEqual({ attempt: "sum", status: "succeeded", output: 12 })
+    expect(resultOf(environment)).toEqual({ attempt: "sum", capabilityCeiling: [], status: "succeeded", output: 12 })
+  })
+
+  for (
+    const [label, ceiling] of [
+      ["no capability ceiling", undefined],
+      ["a ceiling pattern that does not parse", [[{ action: "fs:everything", resource: "**" }]]],
+      ["a ceiling that is not a list of groups", [{ action: "fs:read", resource: "**" }]]
+    ] as const
+  ) {
+    it(`refuses to run a request with ${label}`, async () => {
+      const requestPath = join(scratch, `ceiling-${label.length}.request.json`)
+      writeFileSync(
+        requestPath,
+        JSON.stringify({
+          attempt: "ceiling",
+          flow: Sum._tag,
+          executionId: "ceiling",
+          payload: { n: 1 },
+          ...(ceiling === undefined ? {} : { capabilityCeiling: ceiling })
+        })
+      )
+      const resultPath = join(scratch, `ceiling-${label.length}.result.json`)
+      await expect(
+        Guest.run(childEntry, { SMITHERS_SANDBOX_REQUEST_PATH: requestPath, SMITHERS_SANDBOX_RESULT_PATH: resultPath })
+      ).rejects.toThrow()
+      expect(existsSync(resultPath)).toBe(false)
+    })
+  }
+
+  const denial = permissionDenied(
+    new Capability({ action: "fs:write", resource: "/workspace/out.txt" }),
+    "outside capability ceiling"
+  )
+  const refusing = (name: string, raise: () => Effect.Effect<never>) => {
+    const Refuse = Action.make(`guest/ceiling/${name}/action`, { payload: {}, success: Schema.Void })
+    const Child = Flow.make(`guest/ceiling/${name}`, {
+      payload: {},
+      success: Schema.Void,
+      body: () => Refuse.call({})
+    })
+    return { Child, layer: Refuse.toLayer(raise) }
+  }
+
+  for (
+    const [label, raise] of [
+      ["dies with the kernel's refusal", () => Effect.die(denial)],
+      [
+        "dies with a guarded service's PlatformError",
+        () => Effect.die(toPlatformError({ module: "FileSystem", method: "write", error: denial }))
+      ]
+    ] as const
+  ) {
+    it(`carries the capability refusal of a child that ${label}`, async () => {
+      const environment = request(`denied-${label.length}`, {
+        flow: `guest/ceiling/${label.length}`,
+        executionId: "denied",
+        payload: {}
+      })
+      await Guest.run(refusing(String(label.length), raise), environment)
+      const result = resultOf(environment)
+      expect(result.status).toBe("failed")
+      const denied = result.status === "failed" ? result.denied : undefined
+      expect(denied).toBeInstanceOf(PermissionDenied)
+      expect(denied?.reason).toBe("outside capability ceiling")
+      expect(denied?.capability).toMatchObject({ action: "fs:write", resource: "/workspace/out.txt" })
+    })
+  }
+
+  it("carries no refusal for a PlatformError that is not a capability refusal", async () => {
+    const environment = request("not-denied", { flow: "guest/ceiling/plain", executionId: "plain", payload: {} })
+    await Guest.run(
+      refusing(
+        "plain",
+        () => Effect.die(PlatformError.systemError({ _tag: "PermissionDenied", module: "FileSystem", method: "write" }))
+      ),
+      environment
+    )
+    const result = resultOf(environment)
+    expect(result.status).toBe("failed")
+    expect("denied" in result).toBe(false)
+  })
+
+  it("echoes the ceiling it ran the child under, normalized", async () => {
+    const requestPath = join(scratch, "echo.request.json")
+    const resultPath = join(scratch, "echo.result.json")
+    writeFileSync(
+      requestPath,
+      JSON.stringify({
+        attempt: "echo",
+        flow: Sum._tag,
+        executionId: "echo",
+        payload: { n: 1 },
+        capabilityCeiling: [
+          [{ action: "fs:write", resource: "b/**" }, { action: "fs:read", resource: "a/**" }],
+          [{ action: "fs:read", resource: "a/**" }, { action: "fs:write", resource: "b/**" }]
+        ]
+      })
+    )
+    await Guest.run(childEntry, {
+      SMITHERS_SANDBOX_REQUEST_PATH: requestPath,
+      SMITHERS_SANDBOX_RESULT_PATH: resultPath
+    })
+    expect(JSON.parse(readFileSync(resultPath, "utf8"))).toEqual({
+      attempt: "echo",
+      capabilityCeiling: [[{ action: "fs:read", resource: "a/**" }, { action: "fs:write", resource: "b/**" }]],
+      status: "succeeded",
+      output: 12
+    })
   })
 
   it("writes the failure of a flow that failed", async () => {
@@ -1868,7 +2008,12 @@ describe("the guest runner in process", () => {
       payload: { value: "still here" }
     })
     await Guest.run(pureEntry, environment)
-    expect(resultOf(environment)).toEqual({ attempt: "pure", status: "succeeded", output: "still here" })
+    expect(resultOf(environment)).toEqual({
+      attempt: "pure",
+      capabilityCeiling: [],
+      status: "succeeded",
+      output: "still here"
+    })
   })
 
   it("drives a child boundary the entry registered beside its flow", async () => {
@@ -1878,7 +2023,7 @@ describe("the guest runner in process", () => {
       payload: { n: 4 }
     })
     await Guest.run(childEntry, environment)
-    expect(resultOf(environment)).toEqual({ attempt: "nested", status: "succeeded", output: 15 })
+    expect(resultOf(environment)).toEqual({ attempt: "nested", capabilityCeiling: [], status: "succeeded", output: 15 })
   })
 
   it("describes a defect by its name and message", async () => {
@@ -1915,7 +2060,12 @@ describe("the guest runner in process", () => {
     const layer = Crash.toLayer(() => Effect.die({ count: 1n, password: "synthetic-bigint-credential" }))
     const environment = request("bigint", { flow: Child._tag, executionId: "bigint", payload: {} })
     await Guest.run({ Child, layer }, environment)
-    expect(resultOf(environment)).toEqual({ attempt: "bigint", status: "failed", error: "defect failure" })
+    expect(resultOf(environment)).toEqual({
+      attempt: "bigint",
+      capabilityCeiling: [],
+      status: "failed",
+      error: "defect failure"
+    })
   })
 
   it("describes a bare failure value as itself", async () => {
