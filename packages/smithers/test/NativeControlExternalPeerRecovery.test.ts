@@ -12,7 +12,8 @@ for (
     ["cancel", "cancels the external worker from another host"],
     ["recover", "recovers a genuinely dead owner and settles the parent"],
     ["recover-released", "recovers a gracefully released worker after the owner exits"],
-    ["recover-running", "releases a still-running root on graceful shutdown for peer recovery"]
+    ["recover-running", "releases a still-running root on graceful shutdown for peer recovery"],
+    ["detached-stall", "never respawns a detached worker of a completed root after its lease lapses"]
   ]
 ) {
   const timeout = mode === "recover-released" || mode === "recover-running" ? 300_000 : 180_000

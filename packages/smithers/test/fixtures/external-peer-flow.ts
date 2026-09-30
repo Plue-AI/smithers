@@ -69,7 +69,21 @@ const Hold = Action.make("external-peer/Hold", {
   success: Schema.Void,
   error: Schema.Unknown
 })
+/** Completes the root once its detached worker is running (#3072). */
+const Done = Action.make("external-peer/Done", {
+  payload: { root: Schema.String },
+  success: Schema.Number,
+  error: Schema.Unknown
+})
 export const layer = Layer.mergeAll(
+  Done.toLayer(({ root }) =>
+    Effect.gen(function*() {
+      while (!(yield* Effect.promise(() => access(join(root, "spawns")).then(() => true, () => false)))) {
+        yield* Effect.sleep("20 millis")
+      }
+      return 0
+    })
+  ),
   Interpreter.layer(Worker),
   workLayer,
   Start.toLayer(({ root }) =>
@@ -95,11 +109,17 @@ export default Flow.make("external-peer", {
   payload: { root: Schema.String },
   success: Schema.Number,
   error: Schema.Unknown,
-  // EXTERNAL_PEER_ROOT=running keeps the root executing instead of parking (#3073).
+  // EXTERNAL_PEER_ROOT=running keeps the root executing instead of parking (#3073);
+  // EXTERNAL_PEER_ROOT=detached completes it while the worker runs on (#3072).
   body: process.env.EXTERNAL_PEER_ROOT === "running"
     ? Node.capture(
       { start: Start.name, hold: Hold.name, wait: Wait.name, implementationVersion: "external-peer/v1" },
       ({ root }) => Node.andThen(Start.call({ root }), Node.andThen(Hold.call({ root }), Wait.call({})))
+    )
+    : process.env.EXTERNAL_PEER_ROOT === "detached"
+    ? Node.capture(
+      { start: Start.name, done: Done.name, implementationVersion: "external-peer/v1" },
+      ({ root }) => Node.andThen(Start.call({ root }), Done.call({ root }))
     )
     : Node.capture(
       { start: Start.name, wait: Wait.name, implementationVersion: "external-peer/v1" },

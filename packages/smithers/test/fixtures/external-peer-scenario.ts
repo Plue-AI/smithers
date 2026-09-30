@@ -55,7 +55,10 @@ const mode = process.argv[2]
 // A graceful owner exit must release, not fail, a root that is still running (#3073).
 const releasing = mode === "recover-released" || mode === "recover-running"
 if (mode === "recover-running") process.env.EXTERNAL_PEER_ROOT = "running"
-if (["observe", "stall", "cancel", "recover", "recover-released", "recover-running"].includes(mode!)) {
+if (mode === "detached-stall") process.env.EXTERNAL_PEER_ROOT = "detached"
+if (
+  ["observe", "stall", "cancel", "recover", "recover-released", "recover-running", "detached-stall"].includes(mode!)
+) {
   const root = await mkdtemp(join(tmpdir(), "smithers-external-peer-"))
   await symlink(fileURLToPath(new URL("../../../../node_modules", import.meta.url)), join(root, "node_modules"), "dir")
   await mkdir(join(root, "flows", "external-peer"), { recursive: true })
@@ -146,6 +149,13 @@ if (["observe", "stall", "cancel", "recover", "recover-released", "recover-runni
       const running = rows(root).find((row) => row.run_id === runId)
       assert.equal(running?.status, "running", JSON.stringify(rows(root)))
       assert.equal(running?.owner_pid, original.pid)
+    } else if (mode === "detached-stall") {
+      enter("control root completed with its detached worker running")
+      await poll(
+        () => rows(root).find((row) => row.run_id === runId)?.status === "completed",
+        "control root completion"
+      )
+      assert.equal(alive(first.pid), true)
     } else {
       enter("real engine root park")
       await poll(() => rows(root).find((row) => row.run_id === runId)?.status === "suspended", "real engine root park")
@@ -192,7 +202,7 @@ if (["observe", "stall", "cancel", "recover", "recover-released", "recover-runni
           process.stderr.write(`Control status after graceful exit: ${status}\n`)
           assert.notEqual(status, "failed", stderr)
         }
-        if (mode === "stall") {
+        if (mode === "stall" || mode === "detached-stall") {
           enter("original stopped for 20 seconds")
           original.kill("SIGSTOP")
           resumeTimer = setTimeout(() => {
@@ -228,7 +238,7 @@ if (["observe", "stall", "cancel", "recover", "recover-released", "recover-runni
         for (let tick = 0; tick < 40; tick++) {
           yield* control.list({ _tag: "runs", filters: { runId } })
           assert.deepEqual(yield* Effect.promise(() => workers(root)), [first])
-          if (mode !== "stall") assert.equal(alive(first.pid), true)
+          if (mode !== "stall" && mode !== "detached-stall") assert.equal(alive(first.pid), true)
           assert.equal(rows(root).every((row) => row.cancel_requested_at_ms === null), true)
           yield* Effect.sleep("1 second")
         }
@@ -247,6 +257,29 @@ if (["observe", "stall", "cancel", "recover", "recover-released", "recover-runni
           yield* Effect.promise(() =>
             poll(async () => (await workers(root)).length === 2, "explicit public retry starts external worker")
           )
+        }
+        if (mode === "detached-stall") {
+          // The live owner's lease guard stops its own worker. Its released row is
+          // re-admitted under the completed root, and control refuses a launch
+          // under an inactive run: the child settles instead of spawning again.
+          yield* Effect.promise(() => poll(() => !alive(first.pid), "expired lease worker stopped"))
+          yield* Effect.promise(() =>
+            poll(
+              () => rows(root).some((row) => row.run_id.endsWith("/worker") && row.status === "failed"),
+              "detached worker settles under the completed root"
+            )
+          )
+          enter("original owner death; no replacement")
+          original.kill("SIGKILL")
+          yield* Effect.promise(() => exited)
+          for (let tick = 0; tick < 10; tick++) {
+            yield* control.list({ _tag: "runs", filters: {} })
+            assert.deepEqual(yield* Effect.promise(() => workers(root)), [first])
+            yield* Effect.sleep("1 second")
+          }
+          const page = yield* control.list({ _tag: "runs", filters: { runId } })
+          assert.equal(page._tag === "runs" && page.items[0]?.status, "completed")
+          return
         }
         enter("release gate; parent settlement")
         yield* Effect.promise(() => writeFile(join(root, "release"), "finish"))
