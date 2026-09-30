@@ -1,0 +1,23 @@
+{
+  "issue": 1803,
+  "qualifiedHead": "6a97d099a531d0090e3ff7d242ded4d3b06137fc",
+  "preRebaseCandidate": "f656918adef6e062631b8c370ed8f578f717d3ea",
+  "incomingBase": "d31d331cea4322cf5dfe767a0fda2d10ae0838d9",
+  "ownedFiles": {
+    "packages/smithers/flows/engine/src/FlowEngine/layerMemory.ts": "5626a5d1344e4bc9abf63ba822652bf4c7692eb0c3fe5c1cfc2b855b8b521146",
+    "packages/smithers/flows/engine/test/RunDeadline.test.ts": "964a26239b2842c50fe01534c7362bb2ed502654c35398d65e3221652faad529",
+    "packages/smithers/flows/engine-store/test/RunDeadline.test.ts": "65bc0e84911f3d6af0fd219ebf24bc702f61d9661163d070af2c1c2ba0a461b2"
+  },
+  "ownedBytesUnchanged": true,
+  "incomingDiffPathsChecked": [
+    "packages/smithers/flows",
+    "packages/smithers/agent/kernel",
+    "packages/smithers/capability",
+    "pnpm-lock.yaml",
+    "pnpm-workspace.yaml",
+    "package.json"
+  ],
+  "incomingChangesWithinCheckedPaths": [],
+  "qualification": "Existing504-test100% memory coverage, final13/29 memory tests and5SQLite/5realPG recovery tests retained. All deadline source/tests byte-identical after rebase; incoming commits do not change flow/engine/storage/kernel/capability inputs or workspace toolchain/lock. No additional test execution claimed.",
+  "priorEvidence": "1803-receipt.json and1803-validation.tar.gz"
+}
