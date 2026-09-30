@@ -1111,6 +1111,8 @@ export const key = (
     readonly shift: boolean
     readonly ctrl: boolean
     readonly meta: boolean
+    /** Agent composers keep plain letters as text and use Alt chords instead. */
+    readonly alt?: boolean
     /** See `armed`. */
     readonly armed: boolean
     readonly pending: ReadonlyArray<Pending>
@@ -1119,7 +1121,10 @@ export const key = (
   }
 ): Choice | undefined => {
   const first = state.pending[0]
-  if (first === undefined || !state.armed || state.draft !== "" || state.shift || state.ctrl || state.meta) {
+  if (
+    first === undefined || !state.armed || state.draft !== "" || state.shift || state.ctrl ||
+    state.meta !== (state.alt === true)
+  ) {
     return undefined
   }
   if (state.reserved?.includes(name) === true) return undefined

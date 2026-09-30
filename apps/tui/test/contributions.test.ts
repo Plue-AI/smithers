@@ -28,6 +28,7 @@ const key = (id: string, value: string, context?: "global" | "panel"): Extension
 
 describe("contributions store", () => {
   it("replaces every repo contribution atomically on each listing", () => {
+    expect(Keys.taken("alt+q", "global")).toBeUndefined()
     const contributions = store()
     let changes = 0
     contributions.subscribe(() => changes++)
@@ -38,12 +39,12 @@ describe("contributions store", () => {
     expect(contributions.snapshot().keys.map((each) => each.key.key)).toEqual(["alt+z", "alt+l"])
     expect(contributions.snapshot().cards).toEqual(["review"])
     expect(contributions.snapshot().watched).toEqual(["review"])
-    contributions.repo([Extension.declared(agent("release", { keys: [{ key: "alt+n", label: "Release" }] }))])
-    expect(contributions.snapshot().keys.map((each) => `${each.owner} ${each.key.key}`)).toEqual(["repo:release alt+n"])
+    contributions.repo([Extension.declared(agent("release", { keys: [{ key: "alt+q", label: "Release" }] }))])
+    expect(contributions.snapshot().keys.map((each) => `${each.owner} ${each.key.key}`)).toEqual(["repo:release alt+q"])
     expect(contributions.snapshot().cards).toEqual([])
     // An identical listing changes nothing, so a subscriber that re-lists cannot loop.
     const before = changes
-    contributions.repo([Extension.declared(agent("release", { keys: [{ key: "alt+n", label: "Release" }] }))])
+    contributions.repo([Extension.declared(agent("release", { keys: [{ key: "alt+q", label: "Release" }] }))])
     expect(changes).toBe(before)
   })
 
@@ -86,6 +87,22 @@ describe("contributions store", () => {
     contributions.repo([Extension.declared(agent("review", { keys: [{ key: "alt+z", label: "Review" }] }))])
     expect(refused(key("mine", "alt+z"))).toEqual({ code: "collision", message: "alt+z is taken by repo:review" })
     expect(contributions.snapshot().problems).toEqual([])
+  })
+
+  it.each([
+    { chord: "alt+y", label: "Allow" },
+    { chord: "alt+n", label: "Deny" },
+    { chord: "alt+a", label: "Action" }
+  ])("refuses a global extension shadowing worker approval $chord", ({ chord, label }) => {
+    const contributions = store()
+    contributions.runtime("runtime:chat", key("retained", "alt+q"))
+    expect(() => contributions.runtime("runtime:chat", key("shadow", chord))).toThrow(
+      `${chord} is the built-in ${label} key`
+    )
+    expect(contributions.snapshot().keys.map((each) => each.key.key)).toEqual(["alt+q"])
+    contributions.repo([Extension.declared(agent("shadow", { keys: [{ key: chord, label: "Shadow" }] }))])
+    expect(contributions.snapshot().problems).toEqual([`shadow: ${chord} is the built-in ${label} key`])
+    expect(contributions.snapshot().keys.map((each) => each.key.key)).toEqual(["alt+q"])
   })
 
   it("collects repo problems: a bad manifest, a built-in key and a key two flows declare", () => {

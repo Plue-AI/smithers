@@ -928,6 +928,8 @@ export function Approval(
     readonly choices: ReadonlyArray<Approvals.Offer>
     /** Keys show exactly when they answer; see `Approvals.ready`. */
     readonly armed: boolean
+    /** Agent composers reserve plain letters for typing. */
+    readonly alt?: boolean
     readonly more: number
     readonly worker?: string
     /** The most changed lines the row shows. */
@@ -941,7 +943,8 @@ export function Approval(
     props.request.subject.replace(/\s+/g, " ").replace(/\p{Cc}/gu, "\ufffd")
   }`
   const more = props.more > 0 ? ` +${props.more}` : ""
-  const keys = props.choices.map((choice) => `${choice.key} ${choice.label}`).join("  ")
+  const alt = props.alt === true ? "alt+" : ""
+  const keys = props.choices.map((choice) => `${alt}${choice.key} ${choice.label}`).join("  ")
   // Keys beside the request only when both fit whole: a wrapped command reads as another one.
   const column = preview !== undefined || stringWidth(`${head}${more}  ${keys}`) > props.width - 2
   return (
@@ -977,7 +980,7 @@ export function Approval(
           <text wrapMode="word" style={{ flexShrink: 0, marginLeft: column ? 0 : 2 }}>
             {props.choices.map((choice, index) => (
               <span key={choice.key}>
-                <span fg={color.text}>{`${index === 0 ? "" : "  "}${choice.key}`}</span>
+                <span fg={color.text}>{`${index === 0 ? "" : "  "}${alt}${choice.key}`}</span>
                 <span fg={color.faint}>{` ${choice.label}`}</span>
               </span>
             ))}

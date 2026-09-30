@@ -1,3 +1,4 @@
+import { type Renderable, TextareaRenderable } from "@opentui/core"
 import { testRender } from "@opentui/react/test-utils"
 import { afterEach, beforeEach, expect, test } from "bun:test"
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs"
@@ -20,6 +21,7 @@ let replies: Array<{ request: Approvals.Pending; choice: Approvals.Choice }> = [
 let answer: NonNullable<Host.Host["approvals"]>["reply"]
 let readPending: NonNullable<Host.Host["approvals"]>["pending"]
 let pendingReads = 0
+let inputs: Host.TurnInput[] = []
 const request: Approvals.Pending = {
   requestId: "owned-approval",
   flow: "bash",
@@ -32,9 +34,17 @@ const request: Approvals.Pending = {
   always: true
 }
 const frame = () => setup!.captureCharFrame()
-const press = async (name: string, ctrl = false) => {
+const textarea = (node: Renderable): TextareaRenderable | undefined => {
+  if (node instanceof TextareaRenderable) return node
+  for (const child of node.getChildren()) {
+    const found = textarea(child)
+    if (found !== undefined) return found
+  }
+  return undefined
+}
+const press = async (name: string, ctrl = false, meta = false) => {
   await act(async () => {
-    setup!.mockInput.pressKey(name, { ctrl })
+    setup!.mockInput.pressKey(name, { ctrl, meta })
     await setImmediate()
   })
   await setup!.renderOnce()
@@ -63,6 +73,7 @@ beforeEach(async () => {
   gate = Promise.withResolvers<Host.Outcome>()
   pending = [request]
   pendingReads = 0
+  inputs = []
   readPending = async () => pending
   replies = []
   answer = async () => {
@@ -72,7 +83,10 @@ beforeEach(async () => {
   const host: Host.Host = {
     cwd: join(root, "workspace"),
     judged: false,
-    run: () => ({ done: gate.promise, cancel: () => gate.resolve({ _tag: "cancelled" }) }),
+    run: (input) => {
+      inputs.push(input)
+      return { done: gate.promise, cancel: () => gate.resolve({ _tag: "cancelled" }) }
+    },
     dispose: async () => {},
     approvals: {
       mode: "ask",
@@ -275,3 +289,54 @@ test("a long changed line marks its omission at 80×24 while the composer and de
   expect(replies).toEqual([{ request: edit, choice: "deny" }])
   await waitFor(() => !frame().includes("? edit math.js"))
 }, 15000)
+
+test.each(
+  [
+    { key: "y", choice: "once", rows: false },
+    { key: "n", choice: "deny", rows: false },
+    { key: "a", choice: "run", rows: false },
+    { key: "a", choice: "run", rows: true }
+  ] as const
+)(
+  "worker approval Alt+$key answers its owned request while printable keys remain a draft, rows=$rows",
+  async ({ key, choice, rows }) => {
+    const workerRequest: Approvals.Pending = { ...request, requestId: "worker-approval", source: "approval-worker" }
+    await act(async () => {
+      pending = [workerRequest]
+      inputs[0]!.runtime!.delegate!({ id: "approval-worker", title: "Approval worker", prompt: "Run worker checks" })
+      await setImmediate()
+    })
+    await press("ARROW_RIGHT", true)
+    await press("ARROW_RIGHT", true)
+    await waitFor(() => frame().includes("Subagent · Approval worker") && frame().includes("alt+y Allow once"))
+    expect(frame()).toContain("alt+n Deny")
+    expect(frame()).toContain("alt+a Allow commands this run")
+    expect(frame()).not.toContain(" y Allow once")
+    if (key === "y") {
+      await press("?")
+      expect(frame()).toContain("Approval")
+      expect(frame()).toContain("Global")
+      expect(frame()).toContain("alt+y")
+      expect(frame()).toContain("alt+n")
+      expect(frame()).toContain("alt+a")
+      expect(replies).toEqual([])
+      await press("?")
+      await waitFor(() => frame().includes("alt+y Allow once"))
+    }
+    for (const printable of ["y", "n", "a"]) await press(printable)
+    expect(replies).toEqual([])
+    const composer = textarea(setup!.renderer.root)!
+    expect(composer.plainText).toBe("yna")
+    await press(key, false, true)
+    expect(replies).toEqual([])
+    expect(composer.plainText).toBe("yna")
+    await press("c", true)
+    await waitFor(() => frame().includes("alt+y Allow once"))
+    if (rows) await press("TAB")
+    await press(key, false, true)
+    expect(replies).toEqual([{ request: workerRequest, choice }])
+    expect(replies[0]!.request).toBe(workerRequest)
+    await waitFor(() => !frame().includes("? bash run checks"))
+  },
+  15000
+)

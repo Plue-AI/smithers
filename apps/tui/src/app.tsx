@@ -785,6 +785,9 @@ export function App(props: AppProps) {
   const summaryAction = () =>
     Surfaces.summaryKey({ surface, main: focusMain, from: summaryFrom.current, strip: surfaces })
   const merged = Keys.bindings(extensions.keys, summaryAction()).flatMap((binding): Array<Keys.Binding> => {
+    if (binding.context === "approval") {
+      return [{ ...binding, keys: binding.keys.filter((key) => key.startsWith("alt+") === (workerTab !== undefined)) }]
+    }
     if (workerTab === undefined || binding.owner !== undefined) return [binding]
     if (binding.id === "cards") return [{ ...binding, label: "Rows" }]
     if (binding.context !== "panel") return [binding]
@@ -798,7 +801,7 @@ export function App(props: AppProps) {
    * Approval keys the focused panel acts on: its `a` runs the selected row's action, opens a flow's form,
    * or answers the overview's or a worker tab's question, never an approval's "allow all".
    */
-  const panelKeys = panelFocus && panel !== undefined &&
+  const panelKeys = workerTab === undefined && panelFocus && panel !== undefined &&
       (surface.startsWith("flow:") || surface.startsWith("tab:") || surface === "summary" ||
         panel.rows[Math.min(navigation.selected, panel.rows.length - 1)]?.action !== undefined)
     ? ["a"]
@@ -1914,7 +1917,7 @@ export function App(props: AppProps) {
       review: reviewTab !== undefined,
       inspecting: activeInspection !== undefined,
       form: liveForm.current !== undefined,
-      approvals: live.current.approvals.length > 0,
+      approvals: Approvals.armed(arming.current, live.current.approvals[0]?.requestId, live.current.now),
       empty: composer.current?.plainText === "",
       panel: panelFocus && panel !== undefined,
       overview: overviewKeys,
@@ -2118,6 +2121,37 @@ export function App(props: AppProps) {
       }
       changeForm(undefined)
     }
+    const choice = Approvals.key(key.name, {
+      draft: text,
+      shift: key.shift,
+      ctrl: key.ctrl,
+      meta: key.meta || key.option,
+      alt: workerTab !== undefined,
+      armed: open === undefined && activeInspection === undefined &&
+        Approvals.armed(arming.current, live.current.approvals[0]?.requestId, live.current.now),
+      pending: live.current.approvals,
+      reserved: panelKeys
+    })
+    if (choice !== undefined && props.host.approvals !== undefined) {
+      key.preventDefault()
+      const [first, ...rest] = live.current.approvals
+      const requestId = first!.requestId
+      answered.current.add(requestId)
+      arming.current = Approvals.answered(requestId)
+      live.current.approvals = rest
+      setApprovals(rest)
+      // A refused answer leaves the call waiting: show its row again.
+      const retry = (failure: unknown) => {
+        answered.current.delete(requestId)
+        arming.current = Approvals.failed(arming.current, requestId)
+        setStatus(Failures.line("approval", failure), "warning")
+      }
+      props.host.approvals.reply(first!, choice).then(
+        (code) => code === undefined ? undefined : retry(Failures.grantRefusal(code)),
+        (error) => retry(error)
+      )
+      return
+    }
     if (workerTab !== undefined && open === undefined && activeInspection === undefined && reviewTab === undefined) {
       // A row selection never turns printable input into an agent command.
       if (Dispatch.typing(key) !== undefined) {
@@ -2239,36 +2273,6 @@ export function App(props: AppProps) {
     ) {
       key.preventDefault()
       return perform(contributed.action)
-    }
-    const choice = Approvals.key(key.name, {
-      draft: text,
-      shift: key.shift,
-      ctrl: key.ctrl,
-      meta: key.meta || key.option,
-      armed: open === undefined &&
-        Approvals.armed(arming.current, live.current.approvals[0]?.requestId, live.current.now),
-      pending: live.current.approvals,
-      reserved: panelKeys
-    })
-    if (choice !== undefined && props.host.approvals !== undefined) {
-      key.preventDefault()
-      const [first, ...rest] = live.current.approvals
-      const requestId = first!.requestId
-      answered.current.add(requestId)
-      arming.current = Approvals.answered(requestId)
-      live.current.approvals = rest
-      setApprovals(rest)
-      // A refused answer leaves the call waiting: show its row again.
-      const retry = (failure: unknown) => {
-        answered.current.delete(requestId)
-        arming.current = Approvals.failed(arming.current, requestId)
-        setStatus(Failures.line("approval", failure), "warning")
-      }
-      props.host.approvals.reply(first!, choice).then(
-        (code) => code === undefined ? undefined : retry(Failures.grantRefusal(code)),
-        (error) => retry(error)
-      )
-      return
     }
     if (reviewTab !== undefined && open === undefined && !key.ctrl && !key.meta && !key.option) {
       return Dispatch.reviewKey(key, {
@@ -2511,7 +2515,7 @@ export function App(props: AppProps) {
   // The front row's keys, as the row and the footer both offer them.
   const offered = approvals[0] === undefined ? [] : Approvals.choices(approvals[0], !panelKeys.includes("a"))
   const approvalReady = approvals[0] !== undefined && picker === undefined && form === undefined &&
-    Approvals.ready(arming.current, approvals[0].requestId, now, draft)
+    activeInspection === undefined && Approvals.ready(arming.current, approvals[0].requestId, now, draft)
   /** A worker action's registry binding, as a footer hint. */
   const actionHints = (tab: Tab) =>
     Tabs.actions(tab).flatMap((action) =>
@@ -2532,8 +2536,14 @@ export function App(props: AppProps) {
     ]
     : undefined
   // A worker's own actions are buttons in its view; the footer carries the rest.
-  const footerHints =
-    driven !== undefined && !panelFocus && picker === undefined && form === undefined && activeInspection === undefined
+  const footerHints = footerContext === "approval"
+    ? approvalReady
+      ? offered.flatMap((offer) =>
+        merged.filter((binding) => binding.id === offer.id).map((binding) => ({ ...binding, label: offer.label }))
+      )
+      : []
+    : driven !== undefined && !panelFocus && picker === undefined && form === undefined &&
+        activeInspection === undefined
     ? [
       ...cardHint("send"),
       ...cardHint("parent").map((binding) => ({ ...binding, label: "Release" }))
@@ -2615,15 +2625,6 @@ export function App(props: AppProps) {
           !["overview-graph", "overview-open", "overview-pane"].includes(binding.id))
       )
     ]
-    : footerContext === "approval"
-    ? approvalReady
-      ? offered.flatMap((offer) =>
-        Keys.registry.filter((binding) => binding.id === offer.id).map((binding) => ({
-          ...binding,
-          label: offer.label
-        }))
-      )
-      : []
     // `a Answer` follows Summary while the chat's `a` answers the one ask waiting.
     : Keys.hintsFor(footerContext, merged).flatMap((binding) =>
       binding.id === "summary" && footerContext === "composer" && soleAsk !== undefined && surface === "chat" &&
@@ -2991,6 +2992,7 @@ export function App(props: AppProps) {
               width={width}
               request={approvals[0]}
               choices={offered}
+              alt={workerTab !== undefined}
               armed={approvalReady}
               more={approvals.length - 1}
               lines={short ? 2 : Math.max(2, Math.min(8, Math.floor(dimensions.height / 6)))}
