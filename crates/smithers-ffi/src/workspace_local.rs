@@ -3,9 +3,11 @@ use base64::prelude::{Engine as _, BASE64_STANDARD};
 use std::path::Path;
 use std::process::Command;
 
+use futures::StreamExt;
 use jj_lib::backend::CommitId;
 use jj_lib::object_id::ObjectId;
 use jj_lib::repo::Repo;
+use pollster::FutureExt as _;
 use serde_json::{json, Value};
 use smithers_ffi::jj_core::{create_settings, load_repo_at_head, UserConfig};
 
@@ -481,7 +483,6 @@ fn verify_file_snapshot(
     patch: &FilePatch,
     result: &Value,
 ) -> Result<()> {
-    let at = field(result, "operationId")?;
     let before = field(&input["target"], "commitId")?;
     let after = field(&result["revision"], "commitId")?;
     if result["revision"]["changeId"] != input["target"]["changeId"]
@@ -492,14 +493,13 @@ fn verify_file_snapshot(
                 .with_recovery(patch.recovery()),
         );
     }
-    let summary = jj_at(
-        repo,
-        at,
-        &["diff", "--summary", "--from", before, "--to", after],
-    )?;
-    let changed: std::collections::HashSet<_> =
-        summary.lines().filter_map(|line| line.get(2..)).collect();
-    if changed != patch.paths() {
+    let changed = changed_paths(repo, before, after)?;
+    if changed
+        .iter()
+        .map(String::as_str)
+        .collect::<std::collections::HashSet<_>>()
+        != patch.paths()
+    {
         return Err(Failure::new(
             "file_conflict",
             "native snapshot includes other files or omits proposed files",
@@ -507,6 +507,38 @@ fn verify_file_snapshot(
         .with_recovery(patch.recovery()));
     }
     Ok(())
+}
+
+/// Paths whose tree entries differ between two immutable commits. Compares
+/// native tree entries, so a rename is its source and target paths rather
+/// than one rendered `{old => new}` row.
+fn changed_paths(
+    repo: &Path,
+    before: &str,
+    after: &str,
+) -> Result<std::collections::HashSet<String>> {
+    let settings = create_settings(&UserConfig::default());
+    let (_, loaded) = load_repo_at_head(repo, &settings)
+        .map_err(|_| Failure::new("unsupported_jj", "native repository is unavailable"))?;
+    let tree = |value: &str| {
+        let commit_id = CommitId::try_from_hex(value)
+            .ok_or_else(|| Failure::new("revision_conflict", "invalid native commit ID"))?;
+        loaded
+            .store()
+            .get_commit(&commit_id)
+            .map(|stored| stored.tree())
+            .map_err(|_| Failure::new("revision_conflict", "native commit is unavailable"))
+    };
+    let (from, to) = (tree(before)?, tree(after)?);
+    let mut stream = from.diff_stream(&to, &jj_lib::matchers::EverythingMatcher);
+    let mut changed = std::collections::HashSet::new();
+    while let Some(entry) = stream.next().block_on() {
+        entry
+            .values
+            .map_err(|_| Failure::new("unsupported_jj", "native tree diff is unavailable"))?;
+        changed.insert(entry.path.as_internal_file_string().to_owned());
+    }
+    Ok(changed)
 }
 
 fn mutation_result(repo: &Path, input: &Value, receipt: &Value, replayed: bool) -> Result<Value> {
@@ -855,6 +887,94 @@ mod tests {
         assert!(replay["recovery"]["files"][0]["proposed"]
             .as_str()
             .is_some());
+    }
+
+    fn snapshot_seeded(files: &[(&str, &str)]) -> tempfile::TempDir {
+        let dir = tempdir().unwrap();
+        let output = Command::new("jj")
+            .args(["git", "init", dir.path().to_str().unwrap()])
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        for (path, content) in files {
+            let path = dir.path().join(path);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, content).unwrap();
+        }
+        super::super::workspace_engine::run(
+            serde_json::to_string(&json!({
+                "operation":"snapshot", "repositoryPath":dir.path()
+            }))
+            .unwrap()
+            .as_bytes(),
+        )
+        .unwrap();
+        dir
+    }
+
+    #[test]
+    fn apply_files_rename_returns_and_replays_native_receipt() {
+        // JJ renders delete plus same-bytes create as one `R {old => new}`
+        // summary row; the receipt must still verify against both paths.
+        for (index, (old, new)) in [("old.txt", "new.txt"), ("old.txt", "moved/deep/new.txt")]
+            .into_iter()
+            .enumerate()
+        {
+            let dir = snapshot_seeded(&[(old, "before\n"), ("keep.txt", "keep\n")]);
+            let read = run(serde_json::to_string(
+                &json!({"operation":"read", "repositoryPath":dir.path()}),
+            )
+            .unwrap()
+            .as_bytes())
+            .unwrap();
+            let request = json!({"operation":"apply_files", "repositoryPath":dir.path(),
+                "requestId":format!("88888888-8888-4888-8888-88888888888{index}"),
+                "expectedOperationId":read["operationId"], "target":read["head"],
+                "files":[
+                    {"path":old, "beforeDigest":super::super::workspace_files::hash(b"before\n"), "content":null},
+                    {"path":new, "beforeDigest":null, "content":"before\n"}]});
+            let applied = run(serde_json::to_string(&request).unwrap().as_bytes()).unwrap();
+            assert_eq!(applied["status"], "accepted");
+            assert_eq!(applied["replayed"], false);
+            assert!(!dir.path().join(old).exists());
+            assert_eq!(
+                std::fs::read_to_string(dir.path().join(new)).unwrap(),
+                "before\n"
+            );
+            let replay = run(serde_json::to_string(&request).unwrap().as_bytes()).unwrap();
+            assert_eq!(replay["status"], "accepted");
+            assert_eq!(replay["replayed"], true);
+            assert_eq!(replay["operationId"], applied["operationId"]);
+            assert_eq!(replay["revision"], applied["revision"]);
+        }
+    }
+
+    #[test]
+    fn changed_paths_lists_rename_endpoints_and_unrelated_files() {
+        let dir = snapshot_seeded(&[("old.txt", "before\n"), ("keep.txt", "keep\n")]);
+        let before = commit(dir.path(), "@").unwrap();
+        std::fs::remove_file(dir.path().join("old.txt")).unwrap();
+        std::fs::create_dir_all(dir.path().join("a")).unwrap();
+        std::fs::write(dir.path().join("a/new.txt"), "before\n").unwrap();
+        std::fs::write(dir.path().join("keep.txt"), "changed\n").unwrap();
+        jj(dir.path(), &["status"], true).unwrap();
+        let after = commit(dir.path(), "@").unwrap();
+        let changed = changed_paths(dir.path(), id(&before).unwrap(), id(&after).unwrap()).unwrap();
+        // An unrelated edit stays visible, so verification still refuses a
+        // snapshot that includes other files.
+        assert_eq!(
+            changed,
+            ["old.txt", "a/new.txt", "keep.txt"]
+                .into_iter()
+                .map(str::to_owned)
+                .collect()
+        );
+        assert_eq!(
+            changed_paths(dir.path(), "zz", id(&after).unwrap())
+                .unwrap_err()
+                .code,
+            "revision_conflict"
+        );
     }
 
     #[test]
