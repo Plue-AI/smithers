@@ -232,12 +232,16 @@ describe("the shipped Node executor's supervisor memory", () => {
   it("offers memory and opens with workspace files only on an unsealed host", async () => {
     // One run per host: the flow's task names a workspace file, and its first
     // frame asks `memory` for that file by path.
-    const probe = async (environment: Record<string, string>) => {
+    const probe = async (environment: Record<string, string>, processOnly = false) => {
       const root = await realpath(await mkdtemp(join(tmpdir(), "smithers-native-memory-sealed-")))
       roots.add(root)
       await mkdir(join(root, "flows", "probe"), { recursive: true })
       await mkdir(join(root, "notes"))
       await writeFile(join(root, "notes", "secret.txt"), "host-only-secret\n")
+      if (processOnly) {
+        await mkdir(join(root, ".smithers"))
+        await writeFile(join(root, ".smithers", "memory-thresholds.json"), "{\"version\":1}")
+      }
       await writeFile(
         join(root, "flows", "probe", "flow.mdx"),
         [
@@ -245,6 +249,7 @@ describe("the shipped Node executor's supervisor memory", () => {
           "name: probe",
           "description: Reads notes/secret.txt.",
           "model: openai:gpt-4o-mini",
+          ...(processOnly ? ["capabilities:", "  - proc:spawn:*"] : []),
           "---",
           "",
           "Summarize notes/secret.txt.",
@@ -260,7 +265,12 @@ describe("the shipped Node executor's supervisor memory", () => {
         (request) => {
           requests.push(new TextDecoder().decode(request.body as Uint8Array))
           return sse(
-            requests.length === 1
+            requests.length === 1 && processOnly
+              ? cell([
+                "const output = await ctx.call(\"bash\", { command: \"printf PROCESS_ONLY_OK\" })",
+                "console.log(\"REAL-PROCESS \" + output.stdout)"
+              ].join("\n"))
+              : requests.length === 1
               ? cell([
                 "try {",
                 "  const m = await ctx.call(\"memory\", { task: \"read it\", paths: [\"notes/secret.txt\"] })",
@@ -307,6 +317,7 @@ describe("the shipped Node executor's supervisor memory", () => {
         Effect.gen(function*() {
           const control = yield* Control.Control
           const card = yield* control.plan({ flowId: "probe", input: {} })
+          if (processOnly) expect(card.envelope.capabilities).toEqual(["proc:spawn:*"])
           yield* control.approve(card.approval)
           const receipt = yield* control.run({
             _tag: "Plan",
@@ -336,6 +347,7 @@ describe("the shipped Node executor's supervisor memory", () => {
         .filter((event) => event.kind === "control.agent.relevance-settled")
         .map((event) => event.payload as unknown as Settled)
         .find((payload) => payload.frame === 0 && payload.source === "run")
+      expect(events.at(-1)?.kind).toBe("control.run.completed")
       return { requests, settled }
     }
 
@@ -357,5 +369,11 @@ describe("the shipped Node executor's supervisor memory", () => {
     expect(sealed.requests[1]).toContain("MEMORY-REFUSED")
     // A sealed host opens with no workspace rows to judge.
     expect(sealed.settled!.kept.filter((item) => item.kind === "memory")).toEqual([])
+
+    const processOnly = await probe({}, true)
+    expect(processOnly.requests.length).toBeGreaterThan(1)
+    expect(processOnly.requests.join("\n")).not.toContain("host-only-secret")
+    expect(processOnly.requests[1]).toContain("REAL-PROCESS PROCESS_ONLY_OK")
+    expect(processOnly.settled!.kept.filter((item) => item.kind === "memory")).toEqual([])
   }, 60_000)
 })

@@ -22,7 +22,10 @@ import { HarnessError } from "@smthrs/harness/HarnessError"
 import * as Monitor from "@smthrs/harness/Monitor"
 import type * as Relevance from "@smthrs/harness/Relevance"
 import * as Supervisor from "@smthrs/harness/Supervisor"
+import * as CapabilitySet from "@smthrs/kernel/CapabilitySet"
 import * as ChildProcessSpawner from "@smthrs/kernel/ChildProcessSpawner"
+import * as GrantStore from "@smthrs/kernel/GrantStore"
+import * as Workspace from "@smthrs/kernel/Workspace"
 import * as MemoryError from "@smthrs/memory/MemoryError"
 import * as MemoryStore from "@smthrs/memory/MemoryStore"
 import * as Recall from "@smthrs/memory/Recall"
@@ -50,6 +53,7 @@ import {
   Deferred,
   Effect,
   Exit,
+  Fiber,
   FileSystem,
   Layer,
   Logger,
@@ -1525,6 +1529,131 @@ describe("the run-start relevance reading through Agent.run", () => {
 })
 
 describe("Agent.run", () => {
+  const pattern = (action: Capability.CapabilityPattern["action"]) =>
+    new Capability.CapabilityPattern({ action, resource: "*" })
+
+  it.each([
+    { mode: "process-only", envelope: [pattern("proc:spawn")], ambient: [pattern("*")], read: false, spawn: true },
+    { mode: "read-authorized", envelope: [pattern("fs:read")], ambient: [pattern("*")], read: true, spawn: false },
+    { mode: "empty", envelope: [], ambient: [pattern("*")], read: false, spawn: false },
+    {
+      mode: "ambient-narrower",
+      envelope: [pattern("fs:read")],
+      ambient: [pattern("proc:spawn")],
+      read: false,
+      spawn: false
+    },
+    { mode: "host-ambient", envelope: undefined, ambient: [pattern("fs:read")], read: true, spawn: false }
+  ])("resolves source bindings within the run's authority ($mode)", async (sample) => {
+    const read = Capability.make("fs:read", "/workspace/notes.txt")
+    const spawn = Capability.make("proc:spawn", "printf")
+    const resolved: Array<{ readonly read: boolean; readonly spawn: boolean }> = []
+    const requests: Array<string> = []
+    const outcome = await drive(
+      Effect.gen(function*() {
+        const before = yield* CapabilitySet.current
+        const events = yield* collect({
+          registry: registryOf([]),
+          model: recordedCells(requests, ["ctx.done('done')"]),
+          capabilityEnvelope: sample.envelope,
+          flows: [{
+            name: "authority-probe",
+            bindings: () =>
+              Effect.map(CapabilitySet.current, (ceiling) => {
+                resolved.push({
+                  read: CapabilitySet.allows(ceiling, read),
+                  spawn: CapabilitySet.allows(ceiling, spawn)
+                })
+                return []
+              })
+          }]
+        })
+        const after = yield* CapabilitySet.current
+        expect(CapabilitySet.equals(after, before)).toBe(true)
+        return events
+      }).pipe(CapabilitySet.attenuate(sample.ambient))
+    )
+    expect(outcome._tag).toBe("completed")
+    expect(requests).toHaveLength(1)
+    expect(resolved).toEqual([{ read: sample.read, spawn: sample.spawn }])
+  })
+
+  it.each([false, true])(
+    "preserves binding permission refusal and releases assembly resources (read: %s)",
+    async (allowed) => {
+      const order: Array<string> = []
+      const requests: Array<string> = []
+      const outcome = await drive(
+        Effect.gen(function*() {
+          const store = yield* GrantStore.make({
+            rules: [new Permission.Rule({ effect: "allow", pattern: pattern("*") })]
+          }).pipe(Effect.provide(Workspace.layer("/workspace")))
+          return yield* collect({
+            registry: registryOf([]),
+            model: recordedCells(requests, ["ctx.done('done')"]),
+            capabilityEnvelope: [pattern(allowed ? "fs:read" : "proc:spawn")],
+            flows: [{
+              name: "protected-source",
+              bindings: () =>
+                Effect.acquireUseRelease(
+                  Effect.sync(() => order.push("opened")),
+                  () =>
+                    store.check(Capability.make("fs:read", "/workspace/notes.txt")).pipe(
+                      Effect.as([]),
+                      Effect.mapError((cause) =>
+                        new HarnessError({ code: "assembly_failed", message: cause.message, cause })
+                      )
+                    ),
+                  () => Effect.sync(() => order.push("released"))
+                )
+            }]
+          })
+        }).pipe(Effect.scoped)
+      )
+      expect(order).toEqual(["opened", "released"])
+      expect(requests).toHaveLength(allowed ? 1 : 0)
+      expect(outcome._tag).toBe(allowed ? "completed" : "failed")
+      if (!allowed && outcome._tag === "failed") {
+        expect(outcome.error).toMatchObject({
+          code: "assembly_failed",
+          cause: { code: "permission_denied", capability: { action: "fs:read", resource: "/workspace/notes.txt" } }
+        })
+      }
+    }
+  )
+
+  it("cancels source assembly before contacting the model and awaits its resource cleanup", async () => {
+    const order: Array<string> = []
+    const requests: Array<string> = []
+    const outcome = await drive(
+      Effect.gen(function*() {
+        const started = yield* Deferred.make<void>()
+        const running = yield* collect({
+          registry: registryOf([]),
+          model: recordedCells(requests, ["ctx.done('done')"]),
+          capabilityEnvelope: [pattern("proc:spawn")],
+          flows: [{
+            name: "waiting-source",
+            bindings: () =>
+              Effect.acquireUseRelease(
+                Effect.sync(() => order.push("opened")),
+                () => Deferred.succeed(started, undefined).pipe(Effect.andThen(Effect.never)),
+                () => Effect.sync(() => order.push("released"))
+              )
+          }]
+        }).pipe(Effect.forkChild({ startImmediately: true }))
+        yield* Deferred.await(started)
+        yield* Fiber.interrupt(running)
+        const interrupted = yield* Fiber.await(running)
+        expect(Exit.isFailure(interrupted) && Cause.hasInterruptsOnly(interrupted.cause)).toBe(true)
+        order.push("cancelled")
+      })
+    )
+    expect(outcome._tag).toBe("completed")
+    expect(order).toEqual(["opened", "released", "cancelled"])
+    expect(requests).toEqual([])
+  })
+
   it.each([false, true])(
     "uses the resolved provider model id for an opaque seat alias (compaction: %s)",
     async (compact) => {

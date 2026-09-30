@@ -1,0 +1,50 @@
+{
+  "issue": 3104,
+  "scope": "issue fix",
+  "candidateBase": "b00abe0e088febd9db19acd2706206dd247ed3cc",
+  "manifestSha256": "73787d2887fc12f7e2758f09cdb7238726853d80143a6b2de8782bc2b53e76b3",
+  "sourceSha256": {
+    "packages/smithers/agent/src/Agent.ts": "8d56b08f1bbfb9eacb1977707fd83dcd064ce6ef2ced3b47bf551f45b4d2aa0a",
+    "packages/smithers/agent/test/Agent.test.ts": "cc1a30f05da17a4229535a0eaecdcf906f11b5a62b08a69130e414da9e9140cf",
+    "packages/smithers/test/NativeControlSupervisorMemory.test.ts": "b8380ffc893e1744b3e5da92e32755a99a10ce006c7867ddaf0f67fcdd8dabe0"
+  },
+  "generatedSha256": {},
+  "archiveSha256": "fb4800684d32c33e11f30be2196d3332b03450e7b0a4e7b7cdb2de90da54dd76",
+  "rawReceipts": {
+    "3104-Agent-coverage.json": "0f1d4bbd7a1e4d1b08cd819c0435cf7b64b3f0cb2909bfb1bf5bd0b4d6ed3a33",
+    "3104-agent-authority-red.log": "dcce80b240441a39ff08f6bb93b9b1e91a575d81b3de6abdde0a9849ae1059e2",
+    "3104-agent-focused-final.log": "0993b8a73a78a3ce2898f31c15922e8738533b3af57169c31c363c7f4a5ca75b",
+    "3104-agent-format.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3104-agent-full-coverage.log": "07ab305e8a90489de135d80bf685e657e2bc661177a02091aff150dbedf15a2a",
+    "3104-agent-lint-final.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3104-agent-owned-types-final.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3104-agent-owned-types.log": "22d754e33e5e414d820e237c9e477c81ec8db495c45ab51f7665351a89a3c783",
+    "3104-agent-source-types.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3104-agent-test-types-final.log": "a7b3fde28a9f0ddbe4c2c05571b50308aeec47982501ed351d5df8798c716b29",
+    "3104-cli-test-types.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3104-full-coverage-final.json.gz": "fee3c77a8a7183c941849fe1d630c25848ee516fc4d6dc31dd1a337699f4befa",
+    "3104-native-process-only-green.log": "7cee25a99acb3c4a758440b2f7b7abb0f93de9601219aae3d510ed0af0951dca",
+    "3104-native-process-only.log": "867d05a14b0640ffccfbf3e6f49c04ce2a5286d9b38ff42a5535ca7b9e8e846d",
+    "3104-readiness.json": "73787d2887fc12f7e2758f09cdb7238726853d80143a6b2de8782bc2b53e76b3",
+    "3104-upstream-baseline.log": "d96cbca0350dbb5e3fe1e9fe67c25f9933b2f6e806def493eb84cc06556ae835"
+  },
+  "qualification": {
+    "focused_agent": "176/176 PASS; full Agent78 + Memory/MemorySnapshotRecorder/MemoryCalibration98",
+    "native_control": "24/24 PASS; native supervisor2 + ceiling13 + supervisor9",
+    "source_types": "PASS",
+    "cli_test_types": "PASS",
+    "agent_test_types": "BLOCKED five unchanged AgentSession generic-schema errors 801/1772/1883/1981/2033; owned error removed",
+    "lint": "PASS source",
+    "format": "PASS",
+    "full_agent_coverage": "COMPLETED exit1: 1444pass/23fail,72files,473.80s; policy100% unchanged; aggregate99.8%statements99%branches99.76%functions99.83%lines. Edited Agent.ts219/219 statements78/78 functions153/153 branches100%; no whole-package green claim.",
+    "provider": "Undici recorded OpenAI Responses + scripted evaluator, no live model claim",
+    "baseline": "Exact committed Agent relocated externally reproduces CellFlows trail and both StepKeyGolden failures independently",
+    "owned_agent_types": "PASS actual full production src plus owned Agent.test with same compiler options; whole test-types retains5 unchanged AgentSession generic-schema errors"
+  },
+  "limitations": [
+    "Recorded provider plus scripted judge; real production durable SQLite/tool/guard boundaries executed, no live-provider claim.",
+    "Full agent gate and full agent test types remain blocked by unrelated baseline failures; exact failures retained, no threshold weakening or fixture relaxation.",
+    "Future release consumer/API qualification needs a fresh cohort binding this Agent source; parent owns3184/3093."
+  ],
+  "targetIndex": null
+}

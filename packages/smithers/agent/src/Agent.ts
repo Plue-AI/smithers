@@ -853,7 +853,16 @@ const runProductionUnmeasured: Service["run"] = (options) =>
           // and, for a pinned source, the names the relevance reading skips.
           const sources = yield* Effect.forEach(
             options.flows ?? [],
-            (source) => Effect.map(source.bindings(), (bindings) => ({ name: source.name, bindings }))
+            (source) =>
+              Effect.map(
+                // Assembly may read host resources too. Apply the configured
+                // launch ceiling before a source resolves those resources.
+                // A direct host without an envelope retains its ambient ceiling.
+                options.capabilityEnvelope === undefined
+                  ? source.bindings()
+                  : source.bindings().pipe(CapabilitySet.attenuate(options.capabilityEnvelope)),
+                (bindings) => ({ name: source.name, bindings })
+              )
           )
           const composed = yield* Effect.fromResult(
             FlowBinding.catalogResult(sources.flatMap((source) => source.bindings))
