@@ -29,7 +29,7 @@ test("inspectRun reads the selected host and preserves failed inspections", asyn
     `#!${process.execPath}
 const fs = require('node:fs')
 const args = process.argv.slice(2)
-if (JSON.stringify(args) !== JSON.stringify(['runs','show','watched-run','--json','--root',process.cwd()])) {
+if (![ ['runs','show','watched-run','--json','--root',process.cwd()], ['runs','list','--limit','40','--json','--root',process.cwd()] ].some(expected => JSON.stringify(args) === JSON.stringify(expected))) {
   process.stderr.write('wrong inspection argv'); process.exit(23)
 }
 if (['SMITHERS_REMOTE','SMITHERS_TOKEN','SMITHERS_BACKEND','DATABASE_URL'].some(key => process.env[key] !== undefined)) process.exit(24)
@@ -261,9 +261,17 @@ for (const failure of ["inspection", "diagnosis"] as const) {
       })),
       Interpreter.layer(Loop)
     ))
-    const result = await Effect.runPromise(Loop.execute({
+    const input = {
       runId: "watched-run", hostRoot: "/watched/host", reportRoot: "/watched/reports",
       seat: "fixture", everyMinutes: 1
+    }
+    const result = await Effect.runPromise(Effect.gen(function*() {
+      const next = yield* Loop.execute(input, { executionId: "monitor-first-round" })
+      assert.equal(typeof next, "object")
+      assert.equal((next as { _tag: string })._tag, "Handoff")
+      assert.equal(reports.length, 1, "unhealthy round must report before handing off")
+      assert.ok(events.includes("sleep"), "next round must wait for its scheduled interval")
+      return yield* Loop.execute((next as { payload: typeof input }).payload, { executionId: "monitor-next-round" })
     }).pipe(Effect.provide(layers.pipe(Layer.provideMerge(NodeCrypto.layer)))))
     assert.equal(result, "burndown run watched-run settled")
     assert.equal(reports.length, 2)

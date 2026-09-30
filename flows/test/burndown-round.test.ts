@@ -22,6 +22,7 @@ if (!process.execArgv.includes("--experimental-test-module-mocks")) {
   const claims: Array<Array<string>> = []
   let ownership = { mine: true, holder: { host: hostname() } }
   const starts: Array<{ assignment: unknown; options: unknown }> = []
+  let accountReadings: Array<unknown> = []
   const queue: Array<{ results: unknown; workers: unknown }> = []
   // GitHub claims and detached workers are external boundaries: fixtures avoid
   // spending subscriptions or changing live claims while exercising host policy.
@@ -56,7 +57,7 @@ if (!process.execArgv.includes("--experimental-test-module-mocks")) {
   mock.module("../burndown/accounts.ts", {
     namedExports: {
       discoverAccounts: async () => ({ accounts: [] }),
-      readAccounts: async () => []
+      readAccounts: async () => accountReadings
     }
   })
   mock.module("../burndown/issues.ts", {
@@ -430,5 +431,56 @@ if (!process.execArgv.includes("--experimental-test-module-mocks")) {
     assert.doesNotThrow(() =>
       Schema.decodeUnknownSync(Burndown.payloadSchema)({ repos: [assignment.repo], ready: [ready] })
     )
+  })
+
+  for (const priorUsed of [10, 99]) {
+    test(`unavailable current usage preserves a prior ${priorUsed}% receipt without authorizing launch or declaring exhaustion`, async () => {
+      const account = {
+        id: assignment.account,
+        tool: assignment.tool,
+        email: "fixture@example.test",
+        directory: "fixture",
+        aliases: []
+      }
+      const now = Date.now()
+      const prior = {
+        account,
+        error: null,
+        observedAt: now - 1000,
+        usage: {
+          limitReached: priorUsed >= 97,
+          windows: [{ name: "primary", used: priorUsed, resetsAt: now + 3_600_000, durationHours: 5 }]
+        }
+      }
+      const unavailable = {
+        account,
+        error: { _tag: "UsageUnavailable", accountId: account.id, message: "retry later" },
+        usage: null,
+        observedAt: now
+      }
+      accountReadings = [unavailable]
+      try {
+        const observed = await invoke(Observe.name, {
+          state: { ...initial(), readings: { at: now - 1000, readings: [prior] } }
+        }) as { capacity: Array<{ slots: number; problem: string | null }>; exhausted: boolean }
+        assert.equal(observed.capacity[0]!.slots, 0)
+        assert.match(observed.capacity[0]!.problem!, /UsageUnavailable/)
+        assert.equal(observed.exhausted, false)
+      } finally {
+        accountReadings = []
+      }
+    })
+  }
+
+  test("failed worker receipts never release claims held on another host", async () => {
+    ownership = { mine: true, holder: { host: "another-host" } }
+    claims.length = 0
+    const state = { ...initial(), inFlight: [{ assignment, executionId: "ended", startedAt: 0 }] }
+    try {
+      await settle(state, { ...observation(), finished: [{ ...result, status: "failed", commits: [] }] } as never)
+      assert.equal(claims.filter((args) => args[1] === "release").length, 0)
+    } finally {
+      ownership = { mine: true, holder: { host: hostname() } }
+    }
   })
 }

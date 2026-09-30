@@ -107,8 +107,9 @@ export const Loop: MonitorFlow = Flow.make("burndown/monitor/loop", {
     ({ everyMinutes, runId, seat, hostRoot, reportRoot }: MonitorInput) =>
       Inspect.call({ runId, hostRoot, reportRoot }).pipe(
         Node.catch({
-          onFailure: Node.capture({ version }, () =>
-            Node.succeed<Snapshot>({ healthy: false, now: 0, evidence: "Monitor inspection failed" })
+          onFailure: Node.capture(
+            { version },
+            () => Node.succeed<Snapshot>({ healthy: false, now: 0, evidence: "Monitor inspection failed" })
           )
         }),
         Node.bindPlanned(
@@ -123,8 +124,7 @@ export const Loop: MonitorFlow = Flow.make("burndown/monitor/loop", {
                       healthy: false,
                       findings: ["Monitor diagnosis failed"],
                       actions: ["Retry diagnosis on the next round"]
-                    })
-                  )
+                    }))
                 }),
                 Node.bindPlanned(
                   Node.capture(
