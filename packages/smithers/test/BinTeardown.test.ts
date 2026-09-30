@@ -195,7 +195,7 @@ describe("smithers entrypoint", () => {
     expect(written).toEqual([
       "NoMatchingWait: no wait matched\n",
       "unsupported_runtime: the durable engine requires Node.js >=26.4.0\n",
-      "a bare string\n"
+      "Something went wrong on our side. Not your fault.\n"
     ])
   })
 
@@ -207,12 +207,12 @@ describe("smithers entrypoint", () => {
     })
     try {
       status(entrypoint, failure(new Error("sshpass -p ZqSynthetic7Secret4Value9 ssh host")))
-      status(entrypoint, failure("Authorization: Token ZqSynthetic7Secret4Value9"))
+      status(entrypoint, failure(new Error("Authorization: Token ZqSynthetic7Secret4Value9")))
     } finally {
       stderr.mockRestore()
     }
     expect(written.join("")).not.toContain("ZqSynthetic7Secret4Value9")
-    expect(written).toEqual(["Error: sshpass -p [REDACTED] ssh host\n", "Authorization: [REDACTED]\n"])
+    expect(written).toEqual(["Error: sshpass -p [REDACTED] ssh host\n", "Error: Authorization: [REDACTED]\n"])
   })
 
   it.each([

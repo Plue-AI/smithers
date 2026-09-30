@@ -88,7 +88,11 @@ describe("unified process entry", () => {
       serve.mockRejectedValue(failure)
       await main(host)
       expect(result.codes.at(-1)).toBe(1)
-      expect(result.stderr).toBe("Authorization: Bearer [REDACTED_TOKEN]\n")
+      expect(result.stderr).toBe(
+        failure instanceof Error
+          ? "Authorization: Bearer [REDACTED_TOKEN]\n"
+          : "Something went wrong on our side. Not your fault.\n"
+      )
       expect(result.stderr).not.toContain("fixture-private-token")
       clean(signals)
     }
@@ -103,6 +107,19 @@ describe("unified process entry", () => {
     await main(host)
     expect(result.stderr).toContain("[REDACTED]")
     expect(result.stderr).not.toContain("ZqSynthetic7Secret4Value9")
+    expect(result.codes.at(-1)).toBe(1)
+    clean(signals)
+  })
+
+  it.each([false, true])("keeps generic defaults and redacts explicit verbose diagnostics (%s)", async (verbose) => {
+    const { host, signals, result } = fixture(verbose ? ["--help", "--verbose"] : ["--help"])
+    serve.mockRejectedValue(new TypeError("sshpass -p ZqSynthetic7Secret4Value9 ssh host"))
+    await main(host)
+    expect(result.stderr).toContain("Something went wrong on our side. Not your fault.")
+    expect(result.stderr).not.toContain("ZqSynthetic7Secret4Value9")
+    if (verbose) expect(result.stderr).toContain("sshpass -p [REDACTED] ssh host")
+    else expect(result.stderr).not.toContain("sshpass")
+    expect(result.codes.at(-1)).toBe(1)
     clean(signals)
   })
 
