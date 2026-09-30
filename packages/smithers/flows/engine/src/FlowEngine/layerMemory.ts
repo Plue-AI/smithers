@@ -34,12 +34,56 @@ export class ExecutionIdentityConflict extends Schema.TaggedError<ExecutionIdent
       Schema.withConstructorDefault(Effect.succeed("execution_identity_conflict"))
     ),
     executionId: Schema.String,
-    field: Schema.Literals(["flow", "payload", "lineage", "round", "parent"]),
+    field: Schema.Literals(["flow", "payload", "capabilities", "lineage", "round", "parent"]),
     expected: Schema.String,
     actual: Schema.String,
     message: Schema.String
   }
 ) {}
+
+/**
+ * Whether a request under `requested` authority may join an execution of
+ * `flow` admitted under `admitted`: a join answers the result the admitted
+ * authority produced, so that authority must be provably within what the
+ * caller could have run itself. A wider caller may join a narrower run; a
+ * narrower caller never reads what a wider run produced.
+ *
+ * Both sides are compared as the flow runs them, narrowed by the flow's own
+ * declaration: a round a handoff opened persists only the authority it
+ * inherited, while a caller's request already carries the declaration. A flow
+ * this process does not declare compares only the persisted authority.
+ *
+ * @category predicates
+ * @since 1.0.0
+ */
+export const joinable = (
+  flow: Flow.Any | undefined,
+  admitted: CapabilitySet.CapabilitySet["groups"],
+  requested: CapabilitySet.CapabilitySet["groups"]
+): boolean => {
+  const declared = flow === undefined ? [] : Flow.parseCapabilityCeilings(Flow.capabilityCeilings(flow.annotations))
+  return CapabilitySet.within(
+    CapabilitySet.fromGroups([...admitted, ...declared]),
+    CapabilitySet.fromGroups([...requested, ...declared])
+  )
+}
+
+/**
+ * The refusal of a join whose caller's capability ceiling does not cover the
+ * one the execution was admitted with. Both drivers raise the same value.
+ *
+ * @category errors
+ * @since 1.0.0
+ */
+export const capabilityConflict = (executionId: string): ExecutionIdentityConflict =>
+  new ExecutionIdentityConflict({
+    executionId,
+    field: "capabilities",
+    expected: "a capability ceiling covering the one the execution was admitted with",
+    actual: "a capability ceiling that does not cover it",
+    message: `execution ${executionId} was admitted under authority this caller's capability ceiling ` +
+      "does not cover; it cannot be joined under this one"
+  })
 
 /**
  * Layer that provides an in-memory `FlowRuntime`.
@@ -441,6 +485,11 @@ export const layerMemory: Layer.Layer<FlowRuntime.FlowRuntime> = Layer.effect(Fl
                 })
               )
             }
+            // The authority this request would admit the run under: the
+            // caller's ceiling, narrowed by the flow's own declaration.
+            const requestedCeilings =
+              (yield* Flow.attenuateCapabilities(Flow.capabilityCeilings(flow.annotations))(CapabilitySet.current))
+                .groups
             if (state !== undefined) {
               const requestedPayload = yield* snapshot(flow, options.payload)
               if (!(yield* samePayload(flow, state.payload, requestedPayload))) {
@@ -454,6 +503,10 @@ export const layerMemory: Layer.Layer<FlowRuntime.FlowRuntime> = Layer.effect(Fl
                       "it cannot be reused for a different payload"
                   })
                 )
+              }
+              // A join answers the result the run's admitted authority produced.
+              if (!joinable(flow, state.capabilityCeilings, requestedCeilings)) {
+                return yield* Effect.die(capabilityConflict(options.executionId))
               }
             }
             if (options.parent !== undefined) {
@@ -483,9 +536,7 @@ export const layerMemory: Layer.Layer<FlowRuntime.FlowRuntime> = Layer.effect(Fl
                 // rebuilds its own copy, so caller and handler mutation cannot
                 // alter a replay.
                 payload: storedPayload,
-                capabilityCeilings:
-                  (yield* Flow.attenuateCapabilities(Flow.capabilityCeilings(flow.annotations))(CapabilitySet.current))
-                    .groups,
+                capabilityCeilings: requestedCeilings,
                 instance,
                 rootExecutionId,
                 fiber: undefined,

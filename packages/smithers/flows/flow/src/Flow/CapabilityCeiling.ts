@@ -15,14 +15,23 @@ import { Capabilities } from "./Annotations.ts"
 export const capabilityCeilings = (annotations: Context.Context<never>): ReadonlyArray<ReadonlyArray<string>> =>
   annotations.mapUnsafe.has(Capabilities.key) ? [Context.get(annotations, Capabilities)] : []
 
+/** Parses declaration patterns into ceiling groups. Invalid patterns are dropped, so they deny.
+ * @category constructors
+ * @since 1.0.0
+ */
+export const parseCapabilityCeilings = (
+  groups: ReadonlyArray<ReadonlyArray<string>>
+): ReadonlyArray<ReadonlyArray<Capability.CapabilityPattern>> =>
+  groups.map((group) =>
+    group.flatMap((text) => {
+      const parsed = Capability.parsePattern(text)
+      return Option.isSome(parsed) ? [parsed.value] : []
+    })
+  )
+
 /** Applies declaration patterns as an exact conjunction. Invalid patterns deny.
  * @category combinators
  * @since 1.0.0
  */
 export const attenuateCapabilities = (groups: ReadonlyArray<ReadonlyArray<string>>) =>
-  CapabilitySet.attenuateGroups(groups.map((group) =>
-    group.flatMap((text) => {
-      const parsed = Capability.parsePattern(text)
-      return Option.isSome(parsed) ? [parsed.value] : []
-    })
-  ))
+  CapabilitySet.attenuateGroups(parseCapabilityCeilings(groups))

@@ -53,6 +53,13 @@ describe("flow capability ceilings", () => {
       expect(CapabilitySet.allows(mixed, other)).toBe(false)
     }))
 
+  it("parses declared ceilings into groups, dropping invalid patterns", () => {
+    expect(Flow.parseCapabilityCeilings([])).toEqual([])
+    expect(Flow.parseCapabilityCeilings([[]])).toEqual([[]])
+    const [group] = Flow.parseCapabilityCeilings([["fs:read", "*", "fs:read:src/**"]])
+    expect(group?.map(({ action, resource }) => `${action} ${resource}`)).toEqual(["* **", "fs:read src/**"])
+  })
+
   it.effect("intersects multiple groups exactly, including wildcard languages", () =>
     Effect.gen(function*() {
       const set = yield* Flow.attenuateCapabilities([

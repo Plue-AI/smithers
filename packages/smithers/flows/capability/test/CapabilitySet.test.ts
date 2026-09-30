@@ -351,6 +351,57 @@ describe("CapabilitySet", () => {
     expect(CapabilitySets.equals(scoped, CapabilitySets.none)).toBe(true)
   })
 
+  it("fromGroups normalizes transported groups exactly as intersect does", () => {
+    const read = new CapabilityPattern({ action: "fs:read", resource: "src/**" })
+    const get = new CapabilityPattern({ action: "net:get", resource: "*.example.com" })
+    const intersected = CapabilitySets.intersect(
+      CapabilitySets.fromPatterns([get, read]),
+      CapabilitySets.fromPatterns([read])
+    )
+    const transported = CapabilitySets.fromGroups([[read], [read, get], [read]])
+    expect(CapabilitySets.equals(transported, intersected)).toBe(true)
+    expect(CapabilitySets.equals(CapabilitySets.fromGroups([]), unrestricted)).toBe(true)
+    expect(CapabilitySets.equals(CapabilitySets.fromGroups([[read], []]), CapabilitySets.none)).toBe(true)
+    check([setArbitrary], (set) => CapabilitySets.equals(CapabilitySets.fromGroups(set.groups), set))
+  })
+
+  it("within proves containment and never proves a wider inner authority", () => {
+    const universal = new CapabilityPattern({ action: "*", resource: "**" })
+    const read = new CapabilityPattern({ action: "fs:read", resource: "src/**" })
+    const readAll = new CapabilityPattern({ action: "fs:read", resource: "**" })
+    const write = new CapabilityPattern({ action: "fs:write", resource: "src/**" })
+    const readSrc = CapabilitySets.fromPatterns([read])
+    const declared = CapabilitySets.fromPatterns([universal])
+    // Omitted and declared `*` are both the whole authority.
+    expect(CapabilitySets.within(declared, unrestricted)).toBe(true)
+    expect(CapabilitySets.within(unrestricted, declared)).toBe(true)
+    // Narrower within wider, not the reverse.
+    expect(CapabilitySets.within(readSrc, CapabilitySets.fromPatterns([readAll]))).toBe(true)
+    expect(CapabilitySets.within(CapabilitySets.fromPatterns([readAll]), readSrc)).toBe(false)
+    expect(CapabilitySets.within(readSrc, unrestricted)).toBe(true)
+    expect(CapabilitySets.within(unrestricted, readSrc)).toBe(false)
+    // Empty authority is within everything; nothing wider is within it.
+    expect(CapabilitySets.within(CapabilitySets.none, readSrc)).toBe(true)
+    expect(CapabilitySets.within(readSrc, CapabilitySets.none)).toBe(false)
+    // Any one inner group may prove a group of outer; every outer group must be proven.
+    const both = CapabilitySets.intersect(readSrc, CapabilitySets.fromPatterns([read, write]))
+    expect(CapabilitySets.within(both, readSrc)).toBe(true)
+    expect(CapabilitySets.within(CapabilitySets.fromPatterns([read, write]), readSrc)).toBe(false)
+    expect(CapabilitySets.within(readSrc, CapabilitySets.intersect(readSrc, CapabilitySets.fromPatterns([write]))))
+      .toBe(false)
+    // An unprovable glob relationship is refused rather than guessed.
+    const star = CapabilitySets.fromPatterns([new CapabilityPattern({ action: "fs:read", resource: "src/*.ts" })])
+    expect(CapabilitySets.within(readSrc, star)).toBe(false)
+    check([setArbitrary], (set) => CapabilitySets.within(set, set))
+    // Soundness: a proven containment never admits a capability outer rejects.
+    check(
+      [setArbitrary, setArbitrary, capabilityArbitrary],
+      (inner, outer, capability) =>
+        !CapabilitySets.within(inner, outer) || !CapabilitySets.allows(inner, capability) ||
+        CapabilitySets.allows(outer, capability)
+    )
+  })
+
   it("exports no authority-widening API", () => {
     expect(Object.keys(CapabilitySets).sort()).toEqual([
       "allows",
@@ -358,9 +409,11 @@ describe("CapabilitySet", () => {
       "attenuateGroups",
       "current",
       "equals",
+      "fromGroups",
       "fromPatterns",
       "intersect",
-      "none"
+      "none",
+      "within"
     ])
   })
 })

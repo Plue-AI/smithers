@@ -108,7 +108,9 @@ host services, not arbitrary JavaScript or unguarded services.
 
 Actions, inline calls, child runs, and handoffs keep these ceilings. Admission
 records authority for replay and recovery; an execution ID retains its first
-admission ceiling, and resuming from a broader host cannot widen it. Existing
+admission ceiling, and resuming from a broader host cannot widen it. A caller
+joins an existing execution ID only when its ceiling covers the admitted one;
+otherwise the join dies with `ExecutionIdentityConflict` on field `capabilities`. Existing
 durable runs without recorded authority refuse further dispatch: re-keying an
 old action could repeat a completed effect. Inspect existing effects before
 starting replacement work with a new execution ID.
@@ -119,7 +121,8 @@ until the remote protocol can preserve their ceilings; local execution remains
 available and remote cancellation still works.
 
 `Flow.capabilityCeilings(annotations)` reads explicitly declared groups, preserving
-omission. `Flow.attenuateCapabilities(groups)(effect)` applies their parsed patterns
+omission. `Flow.parseCapabilityCeilings(groups)` parses them, dropping invalid
+patterns. `Flow.attenuateCapabilities(groups)(effect)` applies the parsed patterns
 to the shared kernel authority without widening it.
 
 | Export                                                                           | Purpose                                                                                                                                                                                                                                                                                      |

@@ -1498,6 +1498,9 @@ export const make = (
       readonly lineageId: string
       readonly roundOrdinal: number
       readonly parentRunId?: string | undefined
+      /** The declaration being admitted, and the authority the new row would persist. */
+      readonly flow: Flow.Any | undefined
+      readonly capabilityCeilings: NonNullable<RunState["capabilityCeilings"]>
       readonly onCreated: Effect.Effect<void, never, never>
     }): Effect.Effect<void, never, never> =>
       Effect.gen(function*() {
@@ -1541,6 +1544,21 @@ export const make = (
             field: "payload" as const,
             expected: "the encoded payload the execution was admitted with",
             actual: "a different encoded payload"
+          }
+          : !FlowEngine.joinable(
+              // A handoff target this process does not run has no declaration
+              // here; its row then compares only the authority it persisted.
+              options.flow,
+              // A row with no persisted authority ran unrestricted, and is
+              // refused further dispatch; only an unrestricted caller joins it.
+              persisted.capabilityCeilings ?? [],
+              options.capabilityCeilings
+            )
+          ? {
+            // A join answers the result the admitted authority produced.
+            field: "capabilities" as const,
+            expected: "a capability ceiling covering the one the execution was admitted with",
+            actual: "a capability ceiling that does not cover it"
           }
           : existing.lineageId !== options.lineageId
           ? {
@@ -1658,15 +1676,16 @@ export const make = (
         const payload = target === undefined
           ? seam.handoff.payload
           : yield* normalizePayload(target.flow, seam.handoff.payload)
+        const nextCeilings = [
+          // The execution guard rejects missing persisted authority before a handler can hand off.
+          ...seam.state.capabilityCeilings!,
+          ...(seam.handoff.capabilityCeilings ?? [[]])
+        ]
         const nextStateJson = yield* encodeState({
           version: 1,
           flowName: seam.handoff.flow,
           payload,
-          capabilityCeilings: [
-            // The execution guard rejects missing persisted authority before a handler can hand off.
-            ...seam.state.capabilityCeilings!,
-            ...(seam.handoff.capabilityCeilings ?? [[]])
-          ],
+          capabilityCeilings: nextCeilings,
           ...(seam.state.parentExecutionId === undefined
             ? {}
             : { parentExecutionId: seam.state.parentExecutionId }),
@@ -1693,6 +1712,8 @@ export const make = (
               lineageId: advanced.round.rootExecutionId,
               roundOrdinal: advanced.round.ordinal,
               parentRunId: seam.executionId,
+              flow: target?.flow,
+              capabilityCeilings: nextCeilings,
               onCreated: emitDecision(advanced.executionId, {
                 decision: "created",
                 state: JSON.parse(nextStateJson),
@@ -2481,6 +2502,8 @@ export const make = (
           const createdStateJson = yield* encodeState(state)
           yield* ensureCreatedRun({
             flowName: flow._tag,
+            flow,
+            capabilityCeilings: state.capabilityCeilings!,
             executionId: options.executionId,
             stateJson: createdStateJson,
             payload,

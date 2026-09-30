@@ -10,7 +10,7 @@
  */
 
 import { Context, Effect } from "effect"
-import { type Capability, CapabilityPattern, matches } from "./Capability.ts"
+import { type Capability, CapabilityPattern, matches, subsumes } from "./Capability.ts"
 
 const CapabilitySetTypeId: unique symbol = Symbol.for("@smthrs/kernel/CapabilitySet")
 
@@ -164,6 +164,40 @@ export const equals = (
   }
   return true
 }
+
+/**
+ * Creates authority from normalized or transported groups, normalized exactly
+ * as {@link intersect} normalizes its result. Each inner group is an any-of
+ * alternative and the groups intersect.
+ *
+ * @category constructors
+ * @since 1.0.0
+ */
+export const fromGroups = (
+  groups: ReadonlyArray<ReadonlyArray<CapabilityPattern>>
+): CapabilitySet => make(groups)
+
+const isUniversalGroup = (group: ReadonlyArray<CapabilityPattern>): boolean =>
+  group.some((pattern) => pattern.action === "*" && pattern.resource === "**")
+
+/**
+ * Conservatively proves that every capability `inner` allows is also allowed
+ * by `outer`: each group of `outer` either admits everything or covers, by
+ * `subsumes`, every pattern of some group of `inner`. It returns `false` for
+ * any containment its syntactic checks cannot prove, so a `true` never lets
+ * `inner` stand for authority `outer` lacks.
+ *
+ * @category predicates
+ * @since 1.0.0
+ */
+export const within = (
+  inner: CapabilitySet,
+  outer: CapabilitySet
+): boolean =>
+  outer.groups.every((group) =>
+    isUniversalGroup(group) ||
+    inner.groups.some((candidate) => candidate.every((pattern) => group.some((cover) => subsumes(cover, pattern))))
+  )
 
 /**
  * The ambient ceiling, defaulting to {@link unrestricted} — a fiber that never
