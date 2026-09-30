@@ -105,6 +105,26 @@ export const window = ContextWindow.make({
 })
 
 /**
+ * The opening window plus the task, where `Agent` puts it. The completion
+ * brake reads the task, so a suite that needs a judged completion starts here.
+ *
+ * @category fixtures
+ * @since 0.1.0
+ */
+export const tasked = ContextWindow.make({
+  modelId: "test-model",
+  segments: [
+    { kind: "system", zone: "prefix", content: [ModelRequest.SystemPart.make({ text: "cell contract" })] },
+    {
+      kind: "instructions",
+      zone: "prefix",
+      content: [ModelRequest.SystemPart.make({ text: "The task for this run:\n\nKeep the query string." })]
+    },
+    { kind: "transcript", zone: "tail", content: [ModelRequest.Message.user("start")] }
+  ]
+})
+
+/**
  * Parses a declared `action:verb:resource` capability into an envelope entry.
  *
  * @category fixtures

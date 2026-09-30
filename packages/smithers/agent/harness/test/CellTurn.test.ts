@@ -40,6 +40,7 @@ import {
   pattern,
   prose,
   run as runCellTurn,
+  tasked,
   window
 } from "./fixtures/cellTurn.ts"
 import { entry } from "./fixtures/journal.ts"
@@ -2901,7 +2902,7 @@ describe("CellTurn vacuous verification, unwired", () => {
   const running = (
     cells: ReadonlyArray<string>,
     calls: ReadonlyArray<ScriptedEngine.CallStep>,
-    overrides: { readonly unmovedCap?: number } = {}
+    overrides: { readonly unmovedCap?: number; readonly evaluator?: Layer.Layer<Evaluator.Evaluator> } = {}
   ) =>
     run({
       state: CellTurn.make({
@@ -2911,7 +2912,7 @@ describe("CellTurn vacuous verification, unwired", () => {
         layers: ["layer-a"],
         capabilityEnvelope: ["fs:write:**", "proc:spawn:*"].map(pattern),
         placement: Option.none(),
-        contextWindow: window,
+        contextWindow: tasked,
         maxFrames: cells.length,
         repeatCap: 0,
         narrowingCap: 0,
@@ -2921,7 +2922,8 @@ describe("CellTurn vacuous verification, unwired", () => {
       flows: [shell, editor],
       script: cells.map(emits),
       calls,
-      tree: "a.py=base"
+      tree: "a.py=base",
+      ...(overrides.evaluator === undefined ? {} : { evaluator: overrides.evaluator })
     })
 
   it("says nothing to a run whose stored proof was already green", async () => {
@@ -2948,7 +2950,16 @@ describe("CellTurn vacuous verification, unwired", () => {
         `ctx.done("done anyway")`
       ],
       [exits(0)],
-      { unmovedCap: 1 }
+      {
+        unmovedCap: 1,
+        // The unmoved tree hands a completion back only when the claim brake
+        // reads it as unsupported (#2937).
+        evaluator: Evaluator.layerScripted(() => ({
+          complete: { probability: 0.4 },
+          overclaims: { probability: 0.9 },
+          invented: { probability: 0.6 }
+        }))
+      }
     )
 
     expect(of(events, "vacuous-verification-observed")).toEqual([])
@@ -3770,7 +3781,7 @@ describe("CellTurn unmoved workspace", () => {
         layers: ["layer-a"],
         capabilityEnvelope: ["fs:write:**", "proc:spawn:*"].map(pattern),
         placement: Option.none(),
-        contextWindow: window,
+        contextWindow: tasked,
         maxFrames: overrides.maxFrames ?? cells.length,
         repeatCap: 0,
         readOnlyCap: overrides.readOnlyCap ?? 0,
@@ -4741,20 +4752,6 @@ describe("CellTurn context ordering", () => {
  */
 describe("CellTurn unsupported claim", () => {
   const shell = descriptor("bash", { capabilities: ["proc:spawn:*"], tier: "irreversible" })
-
-  /** The fixture window plus the task, where `Agent` puts it. */
-  const tasked = ContextWindow.make({
-    modelId: "test-model",
-    segments: [
-      { kind: "system", zone: "prefix", content: [ModelRequest.SystemPart.make({ text: "cell contract" })] },
-      {
-        kind: "instructions",
-        zone: "prefix",
-        content: [ModelRequest.SystemPart.make({ text: "The task for this run:\n\nKeep the query string." })]
-      },
-      { kind: "transcript", zone: "tail", content: [ModelRequest.Message.user("start")] }
-    ]
-  })
 
   const claiming = (
     cells: ReadonlyArray<string>,
