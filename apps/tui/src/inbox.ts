@@ -58,6 +58,8 @@ export interface Row {
   readonly cache?: number
   /** The worker's ask the person holds. */
   readonly ask?: Asks.Ask
+  /** Pending asks, approvals and forms represented by this row. */
+  readonly pending?: number
 }
 
 export interface Section {
@@ -123,6 +125,7 @@ export const rows = (input: {
   readonly approvals?: ReadonlyArray<string>
 }): ReadonlyArray<Section> => {
   const asking = (tab: Tab) => input.asks?.find((ask) => ask.from === tab.id && ask.holder === Asks.person)
+  const approvalCount = (key: string) => input.approvals?.filter((source) => source === key).length ?? 0
   const approving = (key: string) => input.approvals?.includes(key) === true
   const needs = (tab: Tab) =>
     asking(tab) !== undefined || approving(tab.id) || (tab.driver !== undefined && tab.status === "waiting")
@@ -149,7 +152,16 @@ export const rows = (input: {
         ? ""
         : SubagentCard.duration(Tabs.elapsed(tab, input.now)),
       ...usage(input.transcript(tab.id).usage, input.contextWindow(seat)),
-      ...(ask === undefined ? {} : { ask })
+      ...(ask === undefined ? {} : { ask }),
+      ...(group === "needs" ?
+        {
+          pending: Math.max(
+            1,
+            (input.asks?.filter((each) => each.from === tab.id && each.holder === Asks.person).length ?? 0) +
+              approvalCount(tab.id)
+          )
+        } :
+        {})
     }
   }
   const flow = (run: Flows.Run, group: Group): Row => ({
@@ -160,7 +172,8 @@ export const rows = (input: {
     status: run.status,
     name: run.flow,
     seat: "",
-    clock: run.status === "queued" ? "" : SubagentCard.duration((run.endedAt ?? input.now) - run.startedAt)
+    clock: run.status === "queued" ? "" : SubagentCard.duration((run.endedAt ?? input.now) - run.startedAt),
+    ...(group === "needs" ? { pending: Number(run.status === "input") + approvalCount(`flow:${run.id}`) } : {})
   })
   const byId = new Map(input.tabs.map((tab) => [tab.id, tab]))
   const needing: Array<Row> = input.tabs.filter(needs).map((tab) => worker(tab, "needs", 0))
@@ -221,9 +234,10 @@ export const rows = (input: {
     .map(([group, list]) => ({ group, rows: list }))
 }
 
-/** How many things the person can answer now: the Needs you rows, and approvals no row shows. */
+/** How many things the person can answer now, including multiple asks on one worker. */
 export const count = (sections: ReadonlyArray<Section>, unlisted = 0): number =>
-  (sections.find((section) => section.group === "needs")?.rows.length ?? 0) + unlisted
+  (sections.find((section) => section.group === "needs")?.rows.reduce((sum, row) => sum + (row.pending ?? 1), 0) ?? 0) +
+  unlisted
 
 const ancestors = (tabs: ReadonlyArray<Tab>, tab: Tab): ReadonlySet<string> => {
   const found = new Set<string>()

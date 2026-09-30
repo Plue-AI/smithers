@@ -133,6 +133,60 @@ describe("the overview inbox", () => {
     expect(Inbox.superseded(tab("x", "done"), [tab("y", "done")])).toBe(false)
   })
 
+  it("counts concurrent person-held asks on one worker separately, preventing the sole-ask shortcut", () => {
+    const ask: Asks.Ask = {
+      id: "first",
+      from: "worker",
+      question: "Which name?",
+      holder: Asks.person,
+      trail: [Asks.person],
+      askedAt: now,
+      frames: 0,
+      returned: false
+    }
+    const input = {
+      tabs: [tab("worker", "running")],
+      runs: [],
+      transcript: () => Transcript.empty,
+      contextWindow: () => 200_000,
+      models: [],
+      now
+    }
+    const sections = Inbox.rows({
+      ...input,
+      asks: [ask, { ...ask, id: "second" }, { ...ask, id: "peer", holder: "other" }]
+    })
+    expect(shape(sections)).toEqual([["needs", ["worker"]]])
+    expect(Inbox.count(sections)).toBe(2)
+    expect(Inbox.count(sections) === 1).toBe(false)
+    expect(Inbox.count(Inbox.rows({ ...input, asks: [ask] }))).toBe(1)
+    expect(Inbox.count(Inbox.rows({ ...input, asks: [{ ...ask, holder: "other" }] }))).toBe(0)
+  })
+
+  it("counts each approval and form even when they share a row with another request", () => {
+    const sections = Inbox.rows({
+      tabs: [tab("worker", "running")],
+      runs: [run("form", "input")],
+      transcript: () => Transcript.empty,
+      contextWindow: () => 200_000,
+      models: [],
+      now,
+      asks: [{
+        id: "ask",
+        from: "worker",
+        question: "Which name?",
+        holder: Asks.person,
+        trail: [Asks.person],
+        askedAt: now,
+        frames: 0,
+        returned: false
+      }],
+      approvals: ["worker", "worker", "flow:form"]
+    })
+    expect(shape(sections)).toEqual([["needs", ["worker", "flow:form"]]])
+    expect(Inbox.count(sections, 1)).toBe(6)
+  })
+
   it("keeps a failed worker that a later worker with the same title but another prompt finished", () => {
     const sections = rows([
       tab("root", "running", { startedAt: now - 60_000 }),
