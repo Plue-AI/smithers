@@ -961,7 +961,7 @@ A conversation syncs with one Slack thread or one Telegram chat or topic. A mess
 
 **GUI**
 
-**Available now.** Enter `/integrations.list` for the Connect card: the Slack channels admitted for the repository and the Linear team it syncs with. A service this server has no route for reads Unavailable. **Planned:** admitting a channel from the card.
+**Available now.** Enter `/integrations.list` for the Connect card: the Slack channels admitted for the repository and the Linear team it syncs with. A service this server has no route for reads Unavailable. A disconnected Slack row has a Connect button: it asks for the connection, workspace and channel ids (and optionally a user id), or enter `/integrations.admit <connection> <workspace> <channel>`. The card shows the channel once the server lists it.
 
 ![The Connect card: a Smithers Cloud repository row with Import, Slack connected to two channels, and Linear connected to the ENG team.](/images/learn/app-connect.png)
 
@@ -1780,6 +1780,59 @@ If the request is too broad or targets the wrong repository, deny it and tell Sm
 
 ---
 
+# Inspect a run with DevTools
+https://smithers.sh/docs/learn/devtools/
+
+A run is a tree of nodes: the run, each of its turns, the cells a turn ran, the flows a cell called, and the executions the engine recorded. DevTools shows that tree beside one node's evidence and keeps both current while the run is live.
+
+Every surface reads one projection over the run's journal (`@smthrs/gateway` `RunDevTools`), so the tree the app draws is the tree the terminal and the CLI print.
+
+## What a node shows
+
+| Fact | Where it comes from |
+| --- | --- |
+| State | The node's status word: running, waiting, completed, failed, denied, or the engine's `recorded`. |
+| Timing | When it started and how long it ran; an open node is measured to the newest record. |
+| Input and output | A call's journaled input and settled value; a model turn's text; a cell's script and what it printed. |
+| Failure | The message the settlement carried. |
+| Fields | Every other field of the record that opened the node. |
+| Frames | The journal records written while the node was open, newest last. The run itself owns the whole journal. |
+
+Nothing is inferred. A fact the journal did not record is absent.
+
+## Open DevTools
+
+**GUI**
+
+**Available now.** Open the run's card and select **DevTools** in the timeline bar, or enter `/runs.trace.view <run> devtools`. Select a node to inspect it; select it again to return to the run. The pane follows the newest turn until you select a node, and it keeps updating from the run's subscription either way. Select **Timeline** to return.
+
+**TUI**
+
+**Available now.** `/devtools` prints this conversation's run. `/devtools <tab>` prints a flow tab's run, and `/devtools <tab> <node>` inspects one of its nodes by the id the tree shows.
+
+**CLI**
+
+**Available now.**
+
+```sh
+smthrs runs devtools <run>
+smthrs runs devtools <run> <node>
+smthrs runs devtools <run> <node> --frames 20 --json
+```
+
+The tree comes first, the selected node marked with `>`, then the node's facts. `--json` prints the projection: `nodes`, `counts`, `wallMs` and `inspection`.
+
+**API**
+
+**Available now.** `Projection.Snapshot` or `Projection.Subscribe` with selector `run-events` returns the journal; fold it with `RunTrace.traceFromJournal` and read `RunDevTools.devTools(model)` for the tree and `RunDevTools.inspect(model, nodeId)` for one node. MCP: `runs_devtools`.
+
+## Next
+
+- [Watch an agent work](/docs/learn/watch-an-agent/): the timeline, steps and flags.
+- [Answer an approval](/docs/learn/approvals/): unblock a waiting node.
+
+---
+
 # Review a change
 https://smithers.sh/docs/learn/review-a-change/
 
@@ -2565,6 +2618,7 @@ Type `/` to browse commands. Up/Down choose, Tab completes, Enter runs, Esc clos
 | `/grep [text]` | Show only rows containing text. | [Guide](/docs/tui/views/) |
 | `/ui [id]` | Open a custom view. | [Guide](/docs/tui/extend/) |
 | `/smithers` | Flows and runs. | [Guide](/docs/learn/run-a-flow/) |
+| `/devtools [id] [node]` | Inspect a run's nodes. | [Guide](/docs/learn/devtools/) |
 | `/flows` | Run a flow. | [Guide](/docs/learn/run-a-flow/) |
 | `/flow <name> [json\|key=value]` | Run a flow. | [Guide](/docs/learn/run-a-flow/) |
 | `/agent [name] [prompt]` | Run a custom agent. | [Guide](/docs/how-it-works/agents/) |
@@ -5651,7 +5705,7 @@ smthrs flow start greeting --data '{"name":"Ada"}'
 
 The local CLI and TUI supply `FileSystem`, `Path`, `ChildProcessSpawner`, `HttpClient`, and the agent services required by `AgentAction.layer`, including the host's `SeatResolver`. Implementations use the host's guarded platform and existing engine. Supply other services inside the exported layer. A service required during layer construction that the host cannot supply is refused as `ExecutableError` with code `missing_service`, the flow name, and service key. An invalid export is `invalid_layer`; another construction failure is `layer_failed`.
 
-Acquire extra handler dependencies while constructing the layer, for example with `Layer.unwrap(Effect.map(MyService, service => Greet.toLayer(...)))`, so the loader can validate them. Effect erases the types of services requested only inside a deferred handler; those requests cannot be checked without executing the action. [Flow discovery](/docs/guides/flow-discovery/) describes the catalog rules.
+Acquire extra handler dependencies while constructing the layer, for example with `Layer.unwrap(Effect.map(MyService, service => Greet.toLayer(...)))`, so the loader can validate them. No action runs during loading, so a service requested only inside a handler is refused with the same `missing_service` error when that action first runs. [Flow discovery](/docs/guides/flow-discovery/) describes the catalog rules.
 
 ## Verify failures
 
@@ -6327,6 +6381,8 @@ An external MCP server's tools project into a run's flow catalog, one flow per t
 ```
 
 The configuration shape is `{server, command, args, cwd?, env?, handshakeTimeoutMs?, requestTimeoutMs?, queueCapacity?, maxFrameBytes?}`: `server` and `command` are strings, `args` is an array of strings, `cwd` is an optional string, and `env` is an optional object of string values that merges into the inherited child environment, so a spawned server still receives `PATH` and `HOME`. The four numeric options are positive integers defaulting to a 10-second handshake, a 120-second call deadline, 64 queued outbound frames, and a 1 MiB inbound frame.
+
+A remote server over MCP Streamable HTTP takes `{server, url, bearerTokenEnv?}` instead: `url` is an absolute `http:` or `https:` URL without a user or password, and `bearerTokenEnv` names the environment variable holding its bearer token, so the token never sits in the file. Requests go through the host's egress client and its grants. See [Configure servers for the CLI](https://mcp.smithers.sh/guides/configure-servers-for-the-cli/).
 
 Pass the file when starting the flow:
 
@@ -7436,7 +7492,7 @@ const following = sync.subscribe({
 
 `upsertReadModel` stands for your projection: any effect that folds one entry into your own tables.
 
-Compaction is the one case where a cursor names history that no longer exists. The client fails closed: without an explicit `onResync` handler, it propagates the server's `compacted` error without advancing the cursor. The handler must restore the missing state and return the actual restored `RunCursor` for that run, with `afterSeq` at or above `resync.checkpointSeq`. Only then does the client advance the cursor and restart the subscription. An invalid receipt fails with `invalid_request`; a failed restore leaves the cursor unchanged.
+Compaction is the one case where a cursor names history that no longer exists. The client fails closed: without an explicit `onResync` handler, it propagates the server's `compacted` error without advancing the cursor. The handler must restore the missing state and return the actual restored `RunCursor` for that run, with `afterSeq` at or above `resync.checkpointSeq`. A cursor returned without a `generation` is bound to `resync.generation`, the run's history after any rewinds. Only then does the client advance the cursor and restart the subscription. An invalid receipt fails with `invalid_request`; a failed restore leaves the cursor unchanged.
 
 Use `sync.snapshot(...)`, the client path to `Sync.Snapshot`, to fetch an explicitly public projection. The host must configure `SyncServer.SnapshotSource` for the requested run, lineage, projection and schema version. Fetching a snapshot alone does not apply state or advance a cursor.
 
@@ -9350,6 +9406,7 @@ https://smithers.sh/docs/reference/cli/runs/
 | `runs list [--flow <id>] [--status <status>]` | Matching durable runs. |
 | `runs show <run>` | Current run state and an event-derived diagnosis. |
 | `runs output <run> [node]` | Recorded node outputs; `result` selects the final assistant output. |
+| `runs devtools <run> [node]` | The run's node tree with state and timings, and one node's inputs, outputs and journal frames; see [Inspect a run with DevTools](/docs/learn/devtools/). |
 | `runs logs <run>` | Recorded events, optionally followed live. |
 
 A successful read does not imply that the run succeeded. Read its status field. `runs show` prints a diagnosis card: `Verdict`, `Run`, `Activity`, `Tokens`, up to three `Refusals`, then `Cause`, `Output`, and `Unblock` when they apply, and a `Next` line. Use `--format json` for structured state and `--format jsonl` for event streams.
@@ -10418,6 +10475,13 @@ One execution's state: `executionId`, `lineageId`, `flow`, a `scope` closed only
 
 The result of atomically completing a deferred only while its run is parked.
 
+### `FlowRuntime.ResumeOptions`
+
+- **Type:** `interface ResumeOptions { readonly delegated?: boolean | undefined }`
+- **Since:** `1.0.0`
+
+How a caller asks `resume` to re-drive a suspended execution. Without options, `resume` is the operator's own request, which is consent to recover a quarantined execution. `delegated: true` marks a background resume a host takes up for someone else, such as an approval decision or a saved request. A durable engine refuses it for a quarantined execution in the same transaction that reads the park, so a peer that quarantines the run after the host checked it cannot turn the delegation into recovery consent.
+
 ### `FlowRuntime.FlowRuntime`
 
 - **Type:** `Context.Service` keyed `"@smthrs/flow/FlowRuntime"`
@@ -10779,7 +10843,7 @@ Gives an answer the caller's own type. The schema here and the question's own sc
 - **Type:** `Schema.TaggedError` with fields `code`, `flow: string`, `node: string`, and `message: string`
 - **Since:** `0.1.0`
 
-A graph the interpreter refuses to drive. The `code` is one of `incomplete_graph`, `duplicate_node_id`, `unresolved_action`, `implementation_version_mismatch`, `missing_implementation_version`, `unresolved_reference`, `unsupported_call`, `missing_operation`, `node_record_too_large`, or `join_mismatch` (a race, any, or quorum journaled members its plan can no longer reproduce).
+A graph the interpreter refuses to drive. The `code` is one of `incomplete_graph`, `duplicate_node_id`, `unresolved_action`, `implementation_version_mismatch`, `missing_implementation_version`, `unresolved_reference`, `unsupported_call`, `missing_operation`, `node_record_too_large`, or `join_mismatch` (a race, any, or quorum journaled members, or a losing child boundary, its plan can no longer reproduce).
 
 ### `Interpreter.Interpretation`
 
@@ -14293,18 +14357,19 @@ decodes the run's final answer with the declared output schema, spending
 
 ### AgentAction.Options
 
-| Field         | Type                                              | What it decides                                                                                                                                                                       |
-| ------------- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `payload`     | `Schema.Struct.Fields \| Flow.AnyStructSchema`    | The step's typed input, exactly as `Action.make` takes it. Required.                                                                                                                  |
-| `output`      | `Schema.Top`                                      | The schema the answer must satisfy. Rendered into the prompt and enforced. Required.                                                                                                  |
-| `seat`        | `ModelSelection \| ((payload) => ModelSelection)` | One seat or a non-empty ordered list. The first seat is primary, the rest are fallbacks. A callback is evaluated once per execution. Required.                                        |
-| `phase`       | `SeatRouter.Phase`                                | The phase of work a `Seat.auto` seat routes as. Jev classifies it when absent. A panel route runs the members in parallel, then the merger on the answers of those that did not fail. |
-| `prompt`      | `(payload) => string`                             | The task, built from the decoded payload. Required.                                                                                                                                   |
-| `system`      | `ReadonlyArray<string>`                           | Stable system teaching for this step, after the host's and before the schema's.                                                                                                       |
-| `corrections` | `number`                                          | How many times a decode miss may be corrected, in the same session or a fresh one. Falls back to `Host.defaultCorrections`, then to one. Zero declares a first miss terminal.         |
-| `repair`      | `Repair<Payload>`                                 | One bounded repair ask made after the correction budget is spent, decoded by the same schema.                                                                                         |
-| `modelParams` | `ModelRequest.GenerationParams`                   | Generation parameters for the step's model calls.                                                                                                                                     |
-| `maxFrames`   | `number`                                          | The cell-loop bound for this step, ahead of the host's.                                                                                                                               |
+| Field         | Type                                               | What it decides                                                                                                                                                                                        |
+| ------------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `payload`     | `Schema.Struct.Fields \| Flow.AnyStructSchema`     | The step's typed input, exactly as `Action.make` takes it. Required.                                                                                                                                   |
+| `output`      | `Schema.Top`                                       | The schema the answer must satisfy. Rendered into the prompt and enforced. Required.                                                                                                                   |
+| `seat`        | `ModelSelection \| ((payload) => ModelSelection)`  | One seat or a non-empty ordered list. The first seat is primary, the rest are fallbacks. A callback is evaluated once per execution. Required.                                                         |
+| `phase`       | `SeatRouter.Phase`                                 | The phase of work a `Seat.auto` seat routes as. Jev classifies it when absent. A panel route runs the members in parallel, then the merger on the answers of those that did not fail.                  |
+| `prompt`      | `(payload) => string`                              | The task, built from the decoded payload. Required.                                                                                                                                                    |
+| `system`      | `ReadonlyArray<string>`                            | Stable system teaching for this step, after the host's and before the schema's.                                                                                                                        |
+| `corrections` | `number`                                           | How many times a decode miss may be corrected, in the same session or a fresh one. Falls back to `Host.defaultCorrections`, then to one. Zero declares a first miss terminal.                          |
+| `repair`      | `Repair<Payload>`                                  | One bounded repair ask made after the correction budget is spent, decoded by the same schema.                                                                                                          |
+| `modelParams` | `ModelRequest.GenerationParams`                    | Generation parameters for the step's model calls.                                                                                                                                                      |
+| `maxFrames`   | `number`                                           | The cell-loop bound for this step, ahead of the host's.                                                                                                                                                |
+| `memory`      | `(payload) => ReadonlyArray<SnapshotRecorder.Row>` | Opening memory rows for this step. A judged step's run-start relevance reading withholds the rows Jev is confident the task does not need and journals `relevance-settled`. Keep them out of `prompt`. |
 
 ### AgentAction.Repair
 
@@ -14956,19 +15021,25 @@ spent it. Enforcement sits at the model boundary in `FlowEngineLike`, which
 every model call passes through, so a step that assembles its own loop cannot
 evade a budget declared for the run.
 
-### Budget.Policy, Budget.TokenBudget, Budget.LatencyBudget, Budget.OnExceeded
+### Budget.Policy, Budget.TokenBudget, Budget.UsdBudget, Budget.LatencyBudget, Budget.OnExceeded
 
 ```ts
 const OnExceeded = Schema.Literals(["fail", "warn", "skip-remaining", "park"])
 
 interface Policy {
   readonly tokens?: TokenBudget | undefined
+  readonly usd?: UsdBudget | undefined
   readonly latency?: LatencyBudget | undefined
 }
 
 interface TokenBudget {
   readonly max: number
   readonly onExceeded?: OnExceeded | undefined
+}
+
+interface UsdBudget {
+  readonly max: number
+  readonly onExceeded?: Exclude<OnExceeded, "park"> | undefined
 }
 
 interface LatencyBudget {
@@ -14986,6 +15057,14 @@ whole interval again. The ceiling counts active time only: time the run spends
 suspended on an approval, a question, or a budget raise is recorded durably and
 subtracted, including across a process restart. That includes a native module
 execution suspended on a `HumanTask`, an approval, or a timer.
+
+A USD budget admits calls as a token budget does, in dollars: each call costs
+its `Pricing.cost`, the provider's reported charge or its usage at the rate
+card with `Policy.prices` rows over it, and the largest call so far is the next
+one's forecast. A call whose model has no price leaves the run's spend unknown,
+so the next admission fails with `AccountingUnavailable` rather than counting
+it free. It cannot `park`, because an approval envelope carries no USD ceiling
+to raise; `Budget.make` rejects that as a `ConfigurationError`.
 
 `onExceeded` decides what running out means, and defaults to `fail`:
 
@@ -15006,7 +15085,12 @@ sets it for one run with `--on-exceeded`, beside `--budget-tokens` and
 interface Service {
   readonly check: (stepKey: string | undefined) => Effect.Effect<Verdict, AccountingUnavailable>
   readonly reserve: (stepKey: string) => Effect.Effect<Verdict, AccountingUnavailable, Scope.Scope>
-  readonly record: (stepKey: string, usage: ModelEvent.Usage) => Effect.Effect<void, AccountingUnavailable>
+  readonly admitReading: (stepKey: string) => Effect.Effect<Verdict, AccountingUnavailable>
+  readonly record: (
+    stepKey: string,
+    usage: ModelEvent.Usage,
+    modelId?: string
+  ) => Effect.Effect<void, AccountingUnavailable>
   readonly usage: Effect.Effect<Usage, AccountingUnavailable>
   readonly usageOf: (runId: string) => Effect.Effect<Usage, AccountingUnavailable>
   readonly suspend: Effect.Effect<void, AccountingUnavailable>
@@ -15024,8 +15108,12 @@ class Budget extends Context.Service<Budget, Service>()("@smthrs/agent/Budget")
   exit. Dispatch through this method, not a separate check-then-call sequence.
   All concurrent calls of a run must share one budget instance. Token
   forecasts are soft, not hard provider billing limits.
+- `admitReading` admits a paid evaluator reading without a forecast: it
+  refuses only once the ceiling is already spent (tokens at or past the
+  maximum, latency or the UTC day exhausted, or a latch), under the same
+  `onExceeded` policy, and reserves nothing. A counted key proceeds.
 - `record` accounts finite non-negative usage, idempotently in its step key,
-  and replaces its reservation's estimate. Failed/uncommitted writes remain
+  priced under `modelId` when given, and replaces its reservation's estimate. Failed/uncommitted writes remain
   retryable and block uncounted steps; retries must supply the same cost.
 - `usage` is what the current run has spent.
 - `usageOf` reads one named run's spend, from its live accumulator when this
@@ -15281,6 +15369,10 @@ class Timeout extends Schema.TaggedError<Timeout>()("flows/agent/Timeout", {
 type Incident = typeof ControlFacts.GuardIncident.Type
 const incident: (tripped: BudgetExceeded | Timeout, raised?: number) => Incident
 const stopped: (facts: Incident) => HarnessError.HarnessError
+const layerFlowLimit: (
+  flowName: string,
+  limitMillis: number
+) => Layer.Layer<FlowRuntime.FlowRuntime, never, FlowRuntime.FlowRuntime>
 ```
 
 A run whose envelope budget sets `onExceeded: park` parks on every guard for
@@ -15292,6 +15384,7 @@ an operator's Continue or Stop, through `Budget.Parking`:
 | A model call past `modelCallMs`, after its one overrun retry                             | `Stuck`        | `model-call`        |
 | A tool call past its call limit, a command's own timeout, or a child await still running | `Stuck`        | `tool-call`         |
 | A cell past its wall-clock limit                                                         | `Stuck`        | `cell`              |
+| One drive of a flow bounded by `layerFlowLimit`, past its limit                          | `Stuck`        | `tool-call`         |
 
 Each park is one `budget/` approval request, with waiting reason `budget`,
 whose `control.approval.requested` fact carries the exact `incident` facts
@@ -15309,6 +15402,18 @@ Denying is Stop: the resumed run fails with `stopped` before the operation
 runs again, without calling the provider. A run whose budget does not park
 keeps each timeout's own behavior: an exhausted model call fails the run, and
 the cell reads a tool or cell timeout as a `timeout` call failure.
+
+`layerFlowLimit` bounds a module flow a host runs as a step, which is not a
+cell call and so is reached by neither the sandbox's call limit nor the
+`tool-call` trip. Provided to the layer that registers the flow named
+`flowName`, it admits each drive of an execution through `Budget.Parking` and
+runs it under `limitMillis`; a drive past it parks the run with subject
+`<flowName>:<executionId>`. Continue drives it again under a fresh limit with
+its settled steps replayed, and Stop fails it before it runs again. A drive is
+bounded, not the execution: time suspended on a person, an approval or a timer
+is not charged. Under a budget that does not park, the flow runs unbounded.
+The configured coding host bounds `coding/PreparePlan` by its project's
+`limits.toolMs`.
 
 ## EventSink
 
@@ -16096,6 +16201,29 @@ lookup, decoding, attenuation, and placement; the port owns only durability.
 is journaled, so a permission requirement raised from inside one would replay
 forever and no later grant could unblock it. A `WorkspaceCallRunner` may also
 touch the workspace it runs inside; a plain `CallRunner` satisfies it too.
+
+### FlowEngineLike.CallReadings, FlowEngineLike.metered
+
+```ts
+class CallReadings extends Context.Service<CallReadings, {
+  readonly admit: Effect.Effect<void, Evaluator.EvaluatorError>
+  readonly paid: (usage: Evaluator.Usage) => Effect.Effect<void>
+}>()("@smthrs/agent/FlowEngineLike/CallReadings")
+
+const metered: <R>(
+  services: Context.Context<R | Evaluator.Evaluator>
+) => Context.Context<R | Evaluator.Evaluator>
+```
+
+A flow a cell calls may ask the host's judge itself (`jev`, memory relevance,
+test failure attribution). The port provides `CallReadings` around each call,
+and `metered` wraps the judge those flows are handed: each reading is admitted
+with `Budget.admitReading`, failing `refused` without asking once the run's
+budget is spent, and what it paid, taken or failed, is charged to the run
+under the model it names when the call's execution ends, under a receipt of
+that execution's own. A replayed call pays nothing again. Outside a call the
+metered judge is the judge unchanged. `StandardFlows.jev`, `memory`, `tests`
+and `Memory.binding` meter their judge already.
 
 ### FlowEngineLike.sandboxed
 
@@ -20254,15 +20382,15 @@ Readiness as one report.
 Read-only projections of a run's events. Nothing here opens a database, so
 `--remote` renders exactly what a local run renders.
 
-| Export             | Signature                 | Meaning                                                                                                                  |
-| ------------------ | ------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `Refusal`          | `{ message, count }`      | One refused flow call, aggregated by message.                                                                            |
-| `Digest`           | interface                 | Status, cause, seat, turns, calls, refusals, duplicate calls, edits, tokens, flow counts, parked approval, final output. |
-| `digest`           | `(events) => Digest`      | Computes it. Missing or malformed fields become optional or zero values rather than failing.                             |
-| `renderDiagnosis`  | `(run, digest) => string` | The diagnosis card: verdict, activity, refusals, cause, and the exact next commands.                                     |
-| `eventLine`        | `(event) => string`       | One follow-mode line.                                                                                                    |
-| `renderTranscript` | `(events) => string`      | The turn-by-turn transcript `smthrs runs logs` prints.                                                                   |
-| `shellQuote`       | `(value) => string`       | Quotes a value for the card's copy-paste commands.                                                                       |
+| Export             | Signature                 | Meaning                                                                                                                                                                   |
+| ------------------ | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Refusal`          | `{ message, count }`      | One refused flow call, aggregated by message.                                                                                                                             |
+| `Digest`           | interface                 | Status, cause, seat, turns, calls, refusals, duplicate calls, edits, tokens, flow counts, parked approval, final output, and the memory the run was brought and withheld. |
+| `digest`           | `(events) => Digest`      | Computes it. Missing or malformed fields become optional or zero values rather than failing.                                                                              |
+| `renderDiagnosis`  | `(run, digest) => string` | The diagnosis card: verdict, activity, refusals, memory, cause, and the exact next commands.                                                                              |
+| `eventLine`        | `(event) => string`       | One follow-mode line.                                                                                                                                                     |
+| `renderTranscript` | `(events) => string`      | The turn-by-turn transcript `smthrs runs logs` prints.                                                                                                                    |
+| `shellQuote`       | `(value) => string`       | Quotes a value for the card's copy-paste commands.                                                                                                                        |
 
 ## NodeOutput
 
@@ -20366,6 +20494,7 @@ Which seats this machine can run.
 | `Chosen`, `chooseSeat`                            |                                                                    | The seat picked, and why.                                                                                                                                                                                                                                                                                                                       |
 | `compatible`, `compatibleKey`                     |                                                                    | The provider compatibility table and its lookup.                                                                                                                                                                                                                                                                                                |
 | `defaultSeat`                                     | `Record<Candidate, string>`                                        | The seat string each candidate resolves to.                                                                                                                                                                                                                                                                                                     |
+| `SeatDescription`, `seatDescriptions`, `describeSeat` | `(seat) => SeatDescription \| undefined`                           | Every seat's display label, one strength line, and its relative cost tier (`low`, `mid`, `high`) from the committed rate card.                                                                                                                                                                                                                  |
 | `starterSeats`                                    | `ReadonlyArray<readonly [variable: string, seat: string]>`         | Ordered credential-variable and model-seat pairs used by scaffolding, aligned with the executor's supported provider routes.                                                                                                                                                                                                                    |
 | `NoSeatError`, `SeatSyntaxError`, `noSeatMessage` |                                                                    | The two refusals, and the sentence that names what to set.                                                                                                                                                                                                                                                                                      |
 
@@ -20993,9 +21122,12 @@ The schema-backed RPC projection of the service.
 | `ControlRpcs`         | group     | Ten procedures: `Plan`, `Run`, `Approve`, `Deny`, `Steer`, `Signal`, `Cancel`, `Resume`, `List`, and the streaming `Watch`. Carries the `ControlAuth` middleware. |
 | `ControlPrincipal`    | class     | The authenticated principal, provided to every handler. Key `/control/ControlPrincipal`.                                                                          |
 | `ControlAuth`         | class     | The middleware boundary. Key `/control/ControlAuth`, error `Unauthorized`.                                                                                        |
-| `Authenticator`       | interface | `{ authenticate: (headers: Record<string, string>) => Effect<Principal, Unauthorized> }`                                                                          |
+| `Call`                | interface | `{ rpc: string; payload: unknown }`: the frame a boundary is authenticating, absent at a transport edge.                                                          |
+| `Authenticator`       | interface | `{ authenticate: (headers: Record<string, string>, call?: Call) => Effect<Principal, Unauthorized> }`                                                             |
 | `BearerAuthOptions`   | interface | `{ token: string; principal: Omit<Principal, "stampedAt">; now?: () => number }`                                                                                  |
+| `bearerCredential`    | function  | `(headers) => string \| undefined`. The bearer a request carries, or nothing.                                                                                     |
 | `bearerAuthenticator` | function  | `(options: BearerAuthOptions) => Authenticator`. Constant-time comparison; missing, malformed, empty, and incorrect credentials all fail closed identically.      |
+| `anyAuthenticator`    | function  | `(authenticators: ReadonlyArray<Authenticator>) => Authenticator`. The first to accept answers; none accepting fails with the last refusal.                       |
 | `layerAuth`           | layer     | `(authenticator: Authenticator) => Layer<ControlAuth>`                                                                                                            |
 | `layerBearerAuth`     | layer     | `(options: BearerAuthOptions) => Layer<ControlAuth>`                                                                                                              |
 | `layerNoopAuth`       | layer     | `(principal?: Principal) => Layer<ControlAuth>`. Authenticates nothing.                                                                                           |
@@ -21012,6 +21144,26 @@ the server logs them through `ControlServer.logDefect`. A string defect passes
 unchanged, so a payload that fails to decode still answers with the request
 decoder's own sentence. The encoded shape is the one `Schema.Defect()` decodes,
 so older clients and servers read each other's defects.
+
+## ScopedToken
+
+Scoped, expiring tokens minted under a gateway's bearer credential: an
+HMAC-SHA256 grant of named procedures, optionally confined to one run or flow,
+that the gateway verifies with the credential it already holds. The wire form
+is `smt1.<claims>.<signature>`. `smthrs token mint` is the command over it.
+
+| Export            | Kind     | Meaning                                                                                                                                      |
+| ----------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `scopes`, `Scope` | constant | `read:runs`, `write:runs`, and `approve:runs`, each naming the procedures it grants across `ControlRpcs` and the gateway's `GatewayRpcs`.    |
+| `scopeNames`      | constant | The scope names in declaration order.                                                                                                        |
+| `Claims`          | schema   | `{ v: 1; id; procedures; runId?; flowId?; iat; exp }`, milliseconds since the epoch.                                                         |
+| `mint`            | function | `(options: MintOptions) => Effect<Minted>`. Dies on an empty key, no scopes, or a non-positive lifetime.                                     |
+| `verify`          | function | `(key, token, now) => Effect<Claims, Unauthorized>`. Signature and expiry; every malformation is the same refusal.                           |
+| `authorizes`      | function | `(claims, call) => boolean`. The procedure must be named; a confined token authorizes only calls naming its run or flow.                     |
+| `authenticator`   | function | `(options: AuthenticatorOptions) => Authenticator`. Signature and expiry always; procedure and confinement when the boundary knows the call. |
+| `isScopedToken`   | function | `(credential) => boolean`.                                                                                                                   |
+| `procedures`      | function | `(scopes) => ReadonlyArray<string>`, each once.                                                                                              |
+| `prefix`          | constant | `"smt1"`.                                                                                                                                    |
 
 ## ControlServer
 
@@ -21227,14 +21379,14 @@ The credential boundary. Only a `CredentialRef` crosses it. See
 | `makeNoop`      | function          | `() => Credential`. Every operation fails `Unavailable`.                                                                                 |
 | `layerNoop`     | layer             | `Layer<Credential>`                                                                                                                      |
 
-| Operation | Signature                                                                                                                          |
-| --------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `list`    | `() => Effect<ReadonlyArray<CredentialRef>, Unavailable \| Unauthorized>`                                                          |
-| `get`     | `(id: string) => Effect<CredentialRef, Unavailable \| Unauthorized>`                                                               |
-| `create`  | `({ id, name, secret: Redacted<string> }) => Effect<CredentialRef, Unavailable \| Unauthorized \| CredentialConflict>`             |
-| `resolve` | `(reference: CredentialRef) => Effect<Redacted<string>, Unavailable \| Unauthorized \| PersistenceError>`                          |
-| `rotate`  | `(reference: CredentialRef, secret: Redacted<string>) => Effect<CredentialRef, Unavailable \| Unauthorized \| CredentialConflict>` |
-| `revoke`  | `(reference: CredentialRef) => Effect<void, Unavailable \| Unauthorized>`                                                          |
+| Operation | Signature                                                                                                                                                                       |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `list`    | `() => Effect<ReadonlyArray<CredentialRef>, Unavailable \| Unauthorized>`                                                                                                       |
+| `get`     | `(id: string) => Effect<CredentialRef, Unavailable \| Unauthorized>`                                                                                                            |
+| `create`  | `({ id, name, secret: Redacted<string> }) => Effect<CredentialRef, Unavailable \| Unauthorized \| CredentialConflict>`                                                          |
+| `resolve` | `(reference: CredentialRef) => Effect<Redacted<string>, Unavailable \| Unauthorized \| PersistenceError>`                                                                       |
+| `rotate`  | `(reference: CredentialRef, secret: Redacted<string>, options?: { expected? }) => Effect<CredentialRef, Unavailable \| Unauthorized \| CredentialConflict \| PersistenceError>` |
+| `revoke`  | `(reference: CredentialRef) => Effect<void, Unavailable \| Unauthorized>`                                                                                                       |
 
 `authorize` defaults to allowing every operation, which is correct for a
 single-principal local process. A reference is authenticated on every
@@ -27081,6 +27233,18 @@ JSON routes.
 | `POST /runtime/v1/command` | JSON               | Versioned launch and Control mutations (optional)    |
 | `POST /runtime/v1/observe` | JSON               | Bounded journal replay and run projection (optional) |
 
+### Scoped tokens
+
+A credentialed gateway also accepts a token minted under its credential with
+`@smthrs/control` `ScopedToken` (`smthrs token mint`). The edge admits it on
+its signature and expiry alone, and only toward `NodeGateway.scopedTokenPaths`
+(`/rpc`, `/projections`, their sockets, and `/auth/ticket`); every RPC frame is
+then judged in band against the procedures, run, or flow it names, and it
+stamps `NodeGateway.scopedPrincipal` (`gateway/scoped`), which no delegation to
+`gateway/bearer` covers. Journal sync and the runtime bridge accept the bearer
+alone, and a ticket issued against a scoped token opens only what the token
+could open.
+
 ### Runtime observation cursors
 
 `POST /runtime/v1/observe` returns `nextCursor`; pass it back unchanged as
@@ -27096,18 +27260,22 @@ retryability without exposing backend message text.
 
 ### Types and constants
 
-| Export                       | Signature                                                                                            | Meaning                                                                                                         |
-| ---------------------------- | ---------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `Health`                     | `Schema.Struct` and its type                                                                         | What `GET /health` answers: gateway identity, package version, and optional non-secret runtime bridge identity. |
-| `LayerOptions`               | `{ heartbeatMillis?; ingress?; runtimeBridge? }`                                                     | How an assembled gateway is configured. `runtimeBridge` opts into the versioned Go adapter.                     |
-| `IngressOptions`             | `{ maxRequestBodyBytes?: number; loopbackOnly?: boolean; authorize?: (headers) => Effect<boolean> }` | The ingress policy the RPC mounts run behind.                                                                   |
-| `rpcPaths`                   | `ReadonlyArray<string>`                                                                              | `["/rpc", "/projections", "/sync"]`: the `POST` mounts that carry RPC request messages.                         |
-| `boundedPostPaths`           | `ReadonlyArray<string>`                                                                              | RPC mounts plus both runtime bridge routes; every body is bounded before a handler reads it.                    |
-| `protectedPaths`             | `ReadonlyArray<string>`                                                                              | Projection, sync, WebSocket, and runtime bridge paths that pass edge authentication.                            |
-| `defaultMaxRequestBodyBytes` | `number`                                                                                             | 1,048,576. The default maximum request body accepted by an RPC mount.                                           |
-| `loopbackHostNames`          | `ReadonlyArray<string>`                                                                              | `["127.0.0.1", "localhost", "::1"]`: the names that mean this machine only, as a bind address is spelled.       |
-| `loopbackHostHeaderNames`    | `ReadonlyArray<string>`                                                                              | `["127.0.0.1", "localhost", "[::1]"]`: the same names as a Host header spells them; the default `allowedHosts`. |
-| `watchHeartbeatKind`         | `"control.gateway.heartbeat"`                                                                        | The `ControlEvent` kind a `Watch` keepalive carries.                                                            |
+| Export                       | Signature                                                                                                                         | Meaning                                                                                                         |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `Health`                     | `Schema.Struct` and its type                                                                                                      | What `GET /health` answers: gateway identity, package version, and optional non-secret runtime bridge identity. |
+| `LayerOptions`               | `{ heartbeatMillis?; ingress?; runtimeBridge? }`                                                                                  | How an assembled gateway is configured. `runtimeBridge` opts into the versioned Go adapter.                     |
+| `IngressOptions`             | `{ maxRequestBodyBytes?: number; loopbackOnly?: boolean; authorize?: (headers, path) => Effect<boolean>; ticketMillis?: number }` | The ingress policy the RPC mounts run behind.                                                                   |
+| `Ticket`                     | `Schema.Struct` and its type                                                                                                      | What `POST /auth/ticket` answers: `{ ticket, expiresInMs }`, a single-use key that opens one protected socket.  |
+| `ticketPath`                 | `"/auth/ticket"`                                                                                                                  | Exchanges an accepted bearer for a `Ticket`. Served only when `authorize` is set.                               |
+| `ticketPaths`                | `ReadonlyArray<string>`                                                                                                           | `["/rpc/ws", "/projections/ws", "/sync/ws"]`: the sockets a ticket opens as `<mount>?ticket=<ticket>`.          |
+| `defaultTicketMillis`        | `number`                                                                                                                          | 30,000. How long an unredeemed ticket stays valid.                                                              |
+| `rpcPaths`                   | `ReadonlyArray<string>`                                                                                                           | `["/rpc", "/projections", "/sync"]`: the `POST` mounts that carry RPC request messages.                         |
+| `boundedPostPaths`           | `ReadonlyArray<string>`                                                                                                           | RPC mounts plus both runtime bridge routes; every body is bounded before a handler reads it.                    |
+| `protectedPaths`             | `ReadonlyArray<string>`                                                                                                           | Projection, sync, WebSocket, and runtime bridge paths that pass edge authentication.                            |
+| `defaultMaxRequestBodyBytes` | `number`                                                                                                                          | 1,048,576. The default maximum request body accepted by an RPC mount.                                           |
+| `loopbackHostNames`          | `ReadonlyArray<string>`                                                                                                           | `["127.0.0.1", "localhost", "::1"]`: the names that mean this machine only, as a bind address is spelled.       |
+| `loopbackHostHeaderNames`    | `ReadonlyArray<string>`                                                                                                           | `["127.0.0.1", "localhost", "[::1]"]`: the same names as a Host header spells them; the default `allowedHosts`. |
+| `watchHeartbeatKind`         | `"control.gateway.heartbeat"`                                                                                                     | The `ControlEvent` kind a `Watch` keepalive carries.                                                            |
 
 `POST /rpc` is deliberately not in `protectedPaths`, and `GET /health` is
 deliberately unauthenticated. Both decisions, and the alias handling behind
@@ -27153,8 +27321,10 @@ The Node host: bind policy, credential policy, and the socket.
 | `bindRefusal`          | `(options: ServerOptions) => GatewayError \| undefined`                                                                                               | The typed `bind_failed` refusal a requested bind earns, or `undefined` when it is allowed.                                |
 | `listenOptions`        | `(options: ServerOptions) => Effect<ListenOptions, GatewayError>`                                                                                     | The admitted `node:net` options, with this module's own fields removed, or that refusal in the error channel.             |
 | `ingressOptions`       | `(options: ServerOptions) => GatewayServer.IngressOptions`                                                                                            | The Host policy for a bind: the loopback names, `allowedHosts`, and the concrete bind host; a wildcard bind adds nothing. |
-| `layerAuth`            | `(options: ServerOptions) => Layer<ControlRpcs.ControlAuth>`                                                                                          | Bearer authentication when a credential is configured, and the loopback-only local operator when none is.                 |
+| `layerAuth`            | `(options: ServerOptions) => Layer<ControlRpcs.ControlAuth>`                                                                                          | The bearer or a scoped token minted under it when a credential is configured; the loopback-only local operator otherwise. |
 | `bearerPrincipal`      | `Readonly<{ id: string; kind: string }>`                                                                                                              | The frozen `{ id: "gateway", kind: "bearer" }` identity stamped by shared-bearer authentication.                          |
+| `scopedPrincipal`      | `Readonly<{ id: string; kind: string }>`                                                                                                              | The frozen `{ id: "gateway", kind: "scoped" }` identity a verified scoped token stamps.                                   |
+| `scopedTokenPaths`     | `ReadonlyArray<string>`                                                                                                                               | The protected mounts a scoped token may reach at the edge: `/rpc`, `/projections`, their sockets, and `/auth/ticket`.     |
 | `layer`                | `(health: GatewayServer.Health, options?: ServerOptions) => Layer<..., GatewayError, Control \| SyncAuth \| SyncServer \| Projections>`               | The assembled gateway on a Node HTTP server.                                                                              |
 
 `layer` supplies the bind policy, the shared-credential authentication both RPC
@@ -27378,7 +27548,8 @@ or clipping.
 | `resolvedOutput` | `(value: Pick<Digest, "finalOutput" \| "nativeResolution">) => string \| undefined` | Assistant output first, otherwise a committed native result matching the host's root binding.                                                                     |
 | `verdict`        | `(value: Digest) => string`                                                         | One line: the status plus the reason that most explains it.                                                                                                       |
 | `duration`       | `(span: Pick<Digest, "startedAt" \| "endedAt">) => string`                          | The wall-clock span the handled events cover, as `12s` or `3m 04s`.                                                                                               |
-| `render`         | `(subject: Subject, value: Digest) => string`                                       | The whole card: verdict, activity evidence, tokens, refusals, cause, and output.                                                                                  |
+| `usd`            | `(value: number) => string`                                                         | A USD amount: `$12.34` from one dollar, `$0.0042` below it.                                                                                                       |
+| `render`         | `(subject: Subject, value: Digest) => string`                                       | The whole card: verdict, activity evidence, tokens, cost, refusals, cause, and output.                                                                            |
 | `asRecord`       | `(value: unknown) => Record<string, unknown>`                                       | A wire payload as a record, or an empty record when it is not one.                                                                                                |
 | `asString`       | `(value: unknown) => string \| undefined`                                           | A payload field as a string, or nothing.                                                                                                                          |
 | `asNumber`       | `(value: unknown) => number \| undefined`                                           | A payload field as a number, or nothing.                                                                                                                          |
@@ -27458,6 +27629,10 @@ evidence do not acquire invented phases, successful checks, or file changes.
   status)` returns the model `traceFromJournal` would build for the same records.
   A record out of sequence order, or a native fact that supersedes earlier
   telemetry, refolds the journal. `TraceFold` types the handle.
+- `runMemoryOf(records)` folds the `relevance-settled` rows into the memory a
+  run was brought and the memory Jev withheld, by id and relevance, most
+  relevant first; undefined when Jev never read. `RunMemory` and `MemoryItem`
+  type it. `smthrs status` prints the same fold.
 - `turnNarratives(model)` derives concise recorded turn text. `spanPath(model,
   id)` finds recorded ancestry. `durationWords(ms)` formats elapsed time.
 - `waterfallGeometry`, `phaseExtent`, and `phaseBandGeometry` calculate layout
@@ -27472,6 +27647,21 @@ evidence do not acquire invented phases, successful checks, or file changes.
   `TraceOwner`, `FrameLine`, `TraceNote`, and `TurnNarrative` describe the
   projection. `TraceBuilder` is the mutable draft used while folding, never a
   persisted graph or a second execution model.
+
+## `RunDevTools`
+
+`@smthrs/gateway/RunDevTools` is the DevTools projection: a run inspected
+like a component tree, as a view over the `RunTrace` model the run card, the
+terminal and `smthrs runs devtools` already fold. `devTools(model)` is the tree
+(`DevToolsModel`: one `DevToolsNode` per span with its measured timing, the
+run's counts and wall time); `inspect(model, id?, options?)` is one node's
+`DevToolsInspection` (recorded input, output, script, printed text, failure,
+seat, tokens, child run, opening event, remaining fields, and the newest
+`DevToolsFrame` records written while it was open, bounded by
+`DevToolsOptions.frames`, `defaultFrameLimit` by default); `framesOf(model,
+span)` is that frame rule alone; `lines(model, selected?, options?)` renders
+the tree and the inspection as text for a terminal. Pure: no server, no
+filesystem, no clock.
 
 ## `EngineTrace`
 
@@ -28455,7 +28645,9 @@ Jev's other readings write these:
   `decidedBy` is `jev`; rows written before the routing graph may say `only`
   and carry `confidence`.
 - `DecisionUnjudged`: a reading nobody could judge, with `UnjudgedReason`
-  (shared with `SupervisorUnjudged`) and the `items` it covered.
+  (shared with `SupervisorUnjudged`), the `items` it covered, and, on both,
+  the `usage` each request paid when the provider metered it before the
+  reading failed. Every evaluator `usage` names its `modelId` when known.
 
 Fields later writers add to existing events are optional, so older journals
 decode unchanged: `DecisionSettled.usage`; `CompactionSettled.kept`, `marks`
@@ -29007,7 +29199,9 @@ reading with classifier `relevance/unnecessary` and one boolean
 `unnecessary_<i>` per item), whether each item is unnecessary for
 `context.task`. An item is withheld only at a probability at or above
 `withholdAt` (0.9); everything else is kept. Each item's text is sent
-head-kept to `itemBytes` (1,024). The `Reading` holds a `Verdict` per item in
+head-kept to `itemBytes` (1,024), and an item that was cut is always kept:
+Jev cannot be confident about text it was not shown. The `Reading` holds a
+`Verdict` per item in
 input order (`p`, `withheld`, and the digest of the whole text), every
 request's `Asked`, `latencyMs` and summed `usage`. It fails as
 `Judgement.Unjudged`, and the caller then keeps every item and journals
@@ -29141,8 +29335,11 @@ id, an id each reading adds itself (`skill_*`, `use_jev`),
 `lint()` is the supervisor's legacy nudge: it crosses exactly when
 `Supervisor.crosses` does and says `Supervisor.nudge`, with no streak,
 cooldown or limit. `moods()` are the stance monitors `paranoid`, `careful`,
-`step_back` and `clarify` over the emotions and help the reading already
-holds, saying `paranoidText`, `carefulText`, `stepBackText` and `clarifyText`.
+`step_back` and `clarify`, saying `paranoidText`, `carefulText`,
+`stepBackText` and `clarifyText`. `paranoid` crosses on a signal the lint
+does not own — a frame whose transition is `complete` in the snapshot is a
+bounced completion, a demand counter increasing — held with strong
+confidence; the rest read the emotions and help the reading already holds.
 `defaults()` is both, and what `CellTurn.Input.monitors` takes when omitted.
 
 Every reading adds two more. `skills(snapshot)` is one `skill` monitor per
@@ -30345,6 +30542,12 @@ CLI calls therefore cannot interleave with another state operation. A caller
 records lock owners as `hostname-pid-random` and reclaims only an owner on the
 same host whose process is dead. Permission-denied probes count as alive;
 foreign-host and legacy owner markers require operator cleanup.
+
+`workspaceAdd`, `workspaceForget`, and `opRestore` also hold one permit per
+repository store, shared by every workspace of the repository in a process and
+by an exclusive `smithers.lock` inside the store (`.jj/repo`) across processes.
+A restore therefore either sees an added workspace and refuses with `conflict`,
+or completes before the add runs.
 
 Snapshot messages are opaque strings on both browser and CLI layers, including
 empty strings, leading `-`, quotes, and newlines. Node and Bun never pass them
@@ -33048,10 +33251,29 @@ const ConnectOptionsSchema = Schema.Struct({
 })
 ```
 
-The authoritative decoder for a persisted MCP server entry. It requires
+The authoritative decoder for a persisted stdio MCP server entry. It requires
 non-empty `server` and `command` strings, string `args`, an optional
 string-valued `env` record, and positive integers for every limit. Use it
 wherever connection options arrive from a file or a database.
+
+### McpClient.HttpConnectOptionsSchema
+
+```ts
+const HttpConnectOptionsSchema = Schema.Struct({
+  server: Schema.NonEmptyString,
+  url: Schema.String, // absolute http: or https:, no userinfo
+  bearerTokenEnv: Schema.optionalKey(Schema.String), // an environment variable name
+  // every limit HttpConnectOptions accepts, each a positive integer
+  requestTimeoutMs: Schema.optional(PositiveInteger)
+  // ...
+})
+```
+
+The authoritative decoder for a persisted Streamable HTTP server entry. It
+requires a non-empty `server`, an absolute `http:` or `https:` `url` without
+a user or password, and positive integers for every limit. The entry never
+holds a credential: `bearerTokenEnv` names the environment variable the host
+reads the bearer token from and supplies as `authProvider`.
 
 ### McpClient.clientInfo
 
@@ -33782,6 +34004,7 @@ When memory shares a database with the engine or control plane, compose all requ
 | `make`     | `(options?: { capacity?: number }) => Source`                                                            | Constructs a memoizing source. `capacity` defaults to 1,024 identities and must be a positive safe integer. Beyond it the least recently used identity is evicted and its next read refetches unless a `SnapshotRecorder` is in context. A failed read is neither memoized nor recorded. |
 | `source`   | `Source`                                                                                                 | The default source value.                                                                                                                                                                                                                                                                |
 | `declared` | `(source: Source, input: Input) => Effect<Declared, MemoryError \| TimeoutError, MemoryStore \| Recall>` | Reads the frozen snapshot once per `(lineageId, iteration)` and digests its render.                                                                                                                                                                                                      |
+| `ofRows`   | `(rows: ReadonlyArray<Row>) => Declared`                                                                 | Declares rows a host already holds, digesting their render. It does not bound them.                                                                                                                                                                                                      |
 
 ### `@smthrs/memory/SnapshotRecorder`
 
@@ -35938,12 +36161,12 @@ route; every other route sends it.
 
 Replay-safe policy for native deferred provider tool loading.
 
-| Export                                  | Kind      | Behavior                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| --------------------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `ProtocolId`                            | type      | `"anthropic-messages" \| "openai-responses" \| "openai-responses-chatgpt"`.                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| `Resolution`                            | interface | `{ immediate, deferred, activatedNames }`: the tool partition derived from a sealed request.                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| Export                                  | Kind      | Behavior                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| --------------------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ProtocolId`                            | type      | `"anthropic-messages" \| "openai-responses" \| "openai-responses-chatgpt"`.                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `Resolution`                            | interface | `{ immediate, deferred, activatedNames }`: the tool partition derived from a sealed request.                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `supportsDeferred(protocolId, modelId)` | predicate | Answers from explicit per-protocol allowlists, matched case-insensitively. GPT-6 Sol, GPT-6.1 Sol, and Luna answer `true` on both OpenAI protocols, from OpenAI's tool search guide and a live probe recorded 2026-09-24 in `test/fixtures/gpt6-deferred-probe.json`. An unlisted model, including a family released after this code, answers `false` and receives every tool through the portable lowering, because native deferral changes the wire body and an unverified body must not ship without a release. |
-| `resolve(request, native)`              | operation | Derives the partition from declared `deferred` annotations and the chronological transcript only: tool calls made, and `addedToolNames` activations. No process-local state is consulted, so replay produces the identical partition.                                                                                                                                                                                                                                                                        |
+| `resolve(request, native)`              | operation | Derives the partition from declared `deferred` annotations and the chronological transcript only: tool calls made, and `addedToolNames` activations. No process-local state is consulted, so replay produces the identical partition.                                                                                                                                                                                                                                                                              |
 
 Without native support, deferred tools arrive as ordinary definitions once
 activated or once used before their activation. With native support, lazy
@@ -36030,7 +36253,7 @@ const live = Evaluator.layerVercelGateway({ apiKey: Config.Redacted("AI_GATEWAY_
 | `confident(answer, floor)`                    | getter      | `Option` of the answer's value when `confidence(answer) >= floor`.                                                                                                                                                                                                                                                                         |
 | `decodeAnswers(questions, raw)`               | decoding    | `Effect<AnswersOf<questions>, ClassifierError>`. Shared by the typed path and the ad-hoc path.                                                                                                                                                                                                                                             |
 | `Question`, `Answer`                          | schemas     | Effect Schemas for the ad-hoc path: a model-authored question is decoded with `Question` (the same value as `Evaluator.Question`, construction limits included) before it reaches the transport, and a decoded answer in any of the three shapes matches `Answer`.                                                                         |
-| `ClassifierError`                             | error       | `{ code, status?, resetAtEpochMillis?, message }` with `code` from `Evaluator.EvaluatorErrorCode`. Typed, never thrown.                                                                                                                                                                                                                    |
+| `ClassifierError`                             | error       | `{ code, status?, resetAtEpochMillis?, message, usage? }` with `code` from `Evaluator.EvaluatorErrorCode`; `usage` is what the reading paid, kept from the transport's failure or from an answer the classifier could not decode. Typed, never thrown.                                                                                     |
 
 Decoding is strict. Every question needs an answer of its own type; a
 boolean's probability and every distribution entry lie in `[0, 1]`; a choice
@@ -36064,14 +36287,14 @@ selected by a flow host or used as a subscription fallback.
 
 | Export                                                                                                                                                   | Kind                      | Behavior                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Evaluator`                                                                                                                                              | service interface and tag | `evaluate({ state, questions }) => Effect<{ answers, confidence?, usage?, latencyMs }, EvaluatorError>`. `confidence` is the provider's own number per question, read from `providerMetadata.typesafe.confidence` and absent when the transport sent none. Tag id `/model/Evaluator`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `Evaluator`                                                                                                                                              | service interface and tag | `evaluate({ state, questions }) => Effect<{ answers, confidence?, usage?, latencyMs }, EvaluatorError>`. `confidence` is the provider's own number per question, read from `providerMetadata.typesafe.confidence` and absent when the transport sent none. `usage` is `{ inputTokens, outputTokens, modelId? }`; `modelId` names the model that read, which prices it. Tag id `/model/Evaluator`.                                                                                                                                                                                                                                                                                                                                                                                               |
 | `layerVercelGateway(options)`                                                                                                                            | layer                     | Jev through the Vercel AI Gateway over the kernel `HttpClient`. One deadline over the whole evaluation; a 429, 502, 503 or 504, or a connection that failed before any status, is asked again after a doubling pause from `retryBackoffMs` (100 ms), and one shed on every attempt fails `refused`. Options: `apiKey` (a `Redacted` or a `Config` read at construction), `model` (`typesafe-ai/jev`), `timeoutMs` (3000), `attempts` (3), `zeroDataRetention` (true), `baseUrl` (`https://ai-gateway.vercel.sh/v4/ai/evaluation-model`, validated by `Endpoint.make` before the key is signed onto it; an invalid one fails `unreachable` without a request). A 200 body is read up to `maxResponseBytes` (1 MiB) and fails `empty` past it. Every request runs as a `model:call` on the model. |
 | `layerScripted(script)`                                                                                                                                  | layer                     | Answers from `(request) => answers` or `(request) => Effect<answers, EvaluatorError>`. A scripted answer may omit its `type`; the layer fills it from the question and decodes the result like a gateway body, so a script answering the wrong shape fails as `invalid_answer`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `layerFromSeat(seat, { timeoutMs? })`                                                                                                                    | layer                     | Judges through an existing resolved seat's model and credentials. Accepts `{ modelId, model }`, including subscription seats. No gateway key or alternative auth path. Invalid, missing, out-of-range and truncated verdicts fail closed. Rate and quota limits become `refused` with `status: 429` and the reset time when known; provider diagnostics stay redacted. The default deadline is 120 seconds.                                                                                                                                                                                                                                                                                                                                                                                     |
 | `layerUnavailable()`                                                                                                                                     | layer                     | Fails every request as `unreachable`; a classifier outage fixture, and the binding for a host composed to drive no run, never a completion-capable host's default.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `Question`, `RawAnswer`, `RawAnswers`                                                                                                                    | schemas                   | The wire shapes. A boolean answer is `{ type: "boolean", probability }`, a choice `{ type: "choice", choice, probabilities? }`, a score `{ type: "score", score, probabilities? }`. The question schema enforces 2 to 255 choice options and at least 2 distinct score rungs.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `EvaluatorErrorCode`                                                                                                                                     | schema                    | `unconfigured` (missing credentials or subscription opt-in, a policy fault), `unreachable` (no response), `refused` (a status other than 200, 400 or 422, kept in `status`), `empty` (a 200 whose body carried no answers or could not be read), `timeout` (this call's deadline), `invalid_answer`, `invalid_question` (a 400 or 422, or a rejected question).                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| `EvaluatorError`                                                                                                                                         | error                     | `{ code, status?, resetAtEpochMillis?, message }`. Evaluation failures, including missing subscriptions, are typed.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `EvaluatorError`                                                                                                                                         | error                     | `{ code, status?, resetAtEpochMillis?, message, usage? }`. Evaluation failures, including missing subscriptions, are typed. `usage` is what a reading that failed after it was metered paid.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `defaultBaseUrl`, `defaultModel`, `defaultTimeoutMs`, `defaultAttempts`, `retryBackoffMs`, `maxResponseBytes`, `protocolVersion`, `specificationVersion` | constants                 | The gateway defaults, the 1 MiB answer cap, and the protocol versions sent as `ai-gateway-protocol-version` (`0.0.1`) and `ai-evaluation-model-specification-version` (`4`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 
 The wire protocol is the AI SDK gateway provider's own, as recorded on
@@ -41946,19 +42169,26 @@ to. `agent` renames the fallback delegate for a host that calls its driver
 something other than `agent`.
 
 `load` receives the resolved filesystem path (or the original `file:` URL),
-the verified entry bytes, and their SHA-256 `contentDigest`. Custom loaders
-must evaluate those bytes and key any evaluation cache by both source path
-and digest. Reopening the original path or caching only by path violates the
-integrity and refresh contract. Existing one-argument loaders remain assignable
-but must adopt this contract to support edited modules safely.
+the verified entry bytes, their SHA-256 `contentDigest`, and `modules`: the
+verified bytes of the entry and of every module it reaches through static
+relative imports, keyed by absolute path, with the static specifiers that name
+another module of that closure. Custom loaders must evaluate those bytes and
+key any evaluation cache by both source path and digest. Reopening the
+original paths or caching only by path violates the integrity and refresh
+contract. Existing one-argument loaders remain assignable but must adopt this
+contract to support edited modules safely.
 
-The default loader writes the verified bytes to an exclusively created,
-owner-readable sibling file whose unique name includes the digest. Each load
-gets a fresh module identity. Relative imports and package resolution retain
-the original directory; `import.meta.url` names the temporary sibling. The
-source directory must be writable. Temporary files are removed when loading
-settles or is interrupted. Imported dependencies retain the host's normal
-module cache and are outside the entry digest.
+The default loader writes each module of the closure to an exclusively
+created, owner-readable sibling of its original whose unique name includes the
+entry digest, and rewrites each linked static specifier to name its target's
+sibling. Each load evaluates the measured bytes of the whole closure under
+fresh module identities, so an edited helper is adopted after a refresh and
+import cycles stay cycles. Relative imports and package resolution retain each
+module's directory; `import.meta.url` names the temporary sibling. Source
+directories must be writable. Temporary files are removed when loading settles
+or is interrupted. `import()` and `require()` calls, and bare specifiers other
+than a package.json `imports` key naming one file, load through the host's
+normal module cache.
 
 `loadTimeoutMs` bounds each `catalog` entry, including custom loaders, and
 defaults to 30,000 milliseconds. Supply a positive finite number. Expiry becomes
@@ -45789,9 +46019,10 @@ never passes `SyncError.is`.
 Compaction deletes a run's entries below a checkpoint, so a cursor under that
 floor names history that no longer exists. The server maps the journal's
 `compacted` failure onto its own code with the run id the read was issued for,
-and `SyncError.resync` carries `{ runId, checkpointSeq }`. The client fails closed
-unless `onResync` restores a snapshot and returns its `{ runId, afterSeq }`.
-It validates that receipt before advancing to the actual restored sequence. A
+and `SyncError.resync` carries `{ runId, checkpointSeq, generation }`. The client
+fails closed unless `onResync` restores a snapshot and returns its
+`{ runId, afterSeq }`. It validates that receipt before advancing to the actual
+restored sequence, in the refusal's generation unless the receipt names its own. A
 checkpoint at or below what the subscription already covers cannot move the
 cursor forward, so it stays a failure rather than a retry of the same refusal.
 
@@ -50042,7 +50273,7 @@ Nested CLI commands appear with underscore-separated names. The available schema
 | --- | --- |
 | List or plan flows | `flow_list`, `flow_plan` |
 | Execute a separately approved payload | `flow_execute` |
-| Inspect a run or its output | `runs_show`, `runs_logs`, `runs_output` |
+| Inspect a run or its output | `runs_show`, `runs_devtools`, `runs_logs`, `runs_output` |
 | Resume or cancel a run | `runs_resume`, `runs_cancel` |
 | Inspect or change historical state | `runs_inspect`, `runs_replay`, `runs_fork`, `runs_rewind` |
 | Read approvals | `approvals_list` |
@@ -50097,7 +50328,7 @@ A Smithers workspace holds target declarations and flow sources. Runtime state l
 
 `.smithers/WORKSPACE.ts` declares workspace-wide runtime, package-manager, and cache settings. A root `WORKSPACE.ts` is also supported. A `PACKAGE.ts` declares targets for its directory; exported target keys become labels such as `//apps/site:build`.
 
-`.smithers/FACTORY.ts` declares the factory beside the workspace: `export const factory = Smithers.Factory({ summary, flows, on, github })` names the flows the repository features (`Smithers.Flow` declarations under `flows`), the Dispatcher table (`on`, event key to the flow or flows it starts), and the GitHub policy (`Smithers.Github.Policy({ mirror, issues, changes, protectedPaths, reviewerAgents, agentIssueSources, maintainers, todoSince, dailyTokens })`, where `protectedPaths` adds to the configuration paths, the root install files, and the code main's workflows run with secrets or write permissions (with the workspace packages that code depends on), that work started from a non-maintainer's issue never changes; `reviewerAgents` names the agent accounts whose LGTM counts toward a protected bookmark's required agent LGTM; and `agentIssueSources` (`run`, `linear`, `trial`) lets issues those agents file start work without a maintainer's `smithers` label; `maintainers` names the GitHub logins whose `todo` and `automerge` labels count, and whose own issues written from `todoSince` on become TODOs without the label; `dailyTokens` bounds what the factory spends per day); `export const home = Smithers.Factory.Home({ blocks })` is the home pane. The file may import `WORKSPACE.ts` and never imports a `PACKAGE.ts`: a target it needs is named by label, `Smithers.label("//:ci")`. A repository without the file declares no factory.
+`.smithers/FACTORY.ts` declares the factory beside the workspace: `export const factory = Smithers.Factory({ summary, flows, on, github })` names the flows the repository features (`Smithers.Flow` declarations under `flows`), the Dispatcher table (`on`, event key to the flow or flows it starts), and the GitHub policy (`Smithers.Github.Policy({ mirror, issues, changes, protectedPaths, reviewerAgents, agentIssueSources, maintainers, todoSince, dailyTokens })`, where `protectedPaths` adds to the configuration paths, the root install files, and the code main's workflows run with secrets or write permissions (with the workspace packages that code depends on), that work started from a non-maintainer's issue never changes; `reviewerAgents` names the agent accounts whose LGTM counts toward a protected bookmark's required agent LGTM; and `agentIssueSources` (`run`, `linear`, `trial`) lets issues those agents file start work without a maintainer's `smithers` label; `maintainers` names the GitHub logins whose `todo` and `automerge` labels count, and whose own issues written from `todoSince` on become TODOs without the label; `dailyTokens` bounds what the factory spends per day), and optionally `machine: { vcpus, memoryMiB, tools }`, the machine the factory's TODOs need: a TODO runs only on a lane booted from the repository's own `.smithers/environment.nix` image when that file exists, with at least the declared vCPUs and memory, and `tools` requires that environment; when no lane machine matches, the TODO stops with the reason and the item records the machine it was placed on or the refusal; `export const home = Smithers.Factory.Home({ blocks })` is the home pane. The file may import `WORKSPACE.ts` and never imports a `PACKAGE.ts`: a target it needs is named by label, `Smithers.label("//:ci")`. A repository without the file declares no factory.
 
 These are source files to commit. Their presence does not make `.flows/` state part of the source tree. The [CLI reference](/docs/reference/cli/) distinguishes target execution from durable flow commands.
 
@@ -50110,7 +50341,7 @@ One directory per flow; discovery reads these rules.
 - An entry file directly under `flows/` is refused: path-named sources cannot contain a root-level entry.
 - `smthrs init <name>` scaffolds `flows/<name>/flow.mdx`; the name is one path segment of letters, digits, `-`, and `_`.
 - Ids that start with `system/` are reserved for the control plane: `smthrs flow plan` and `smthrs flow start` refuse them, and `smthrs flow list` does not list them.
-- `.smithers/factory.json` is generated, not authored. A root `PACKAGE.ts` that declares `Smithers.FactoryProjection()` renders it from `.smithers/FACTORY.ts`: `summary`; `flows`, one row per discovered flow with its id, description, path, kind, capabilities, and model, plus the `summary` and `featured` flag the factory declares, featured rows first; `on`, the Dispatcher table flattened to rows of `event`, `flow`, and the `description` the card shows; and `github`, the policy. `smithers-build target //:factoryProjection --write` regenerates it and `ci` fails on drift. See [Featured flows](/docs/reference/flow-mdx/#featured-flows).
+- `.smithers/factory.json` is generated, not authored. A root `PACKAGE.ts` that declares `Smithers.FactoryProjection()` renders it from `.smithers/FACTORY.ts`: `summary`; `flows`, one row per discovered flow with its id, description, path, kind, capabilities, and model, plus the `summary` and `featured` flag the factory declares, featured rows first; `on`, the Dispatcher table flattened to rows of `event`, `flow`, and the `description` the card shows; `github`, the policy; and `machine` when declared. `smithers-build target //:factoryProjection --write` regenerates it and `ci` fails on drift. See [Featured flows](/docs/reference/flow-mdx/#featured-flows).
 - `.smithers/home.json` is generated by the same target from `export const home = Smithers.Factory.Home({ blocks })` in `.smithers/FACTORY.ts`. Its typed blocks are `Smithers.Home.Prompt({ title, placeholder })` (the heading and the composer), `Smithers.Home.App({ flow, title, picture })` (an app: a featured flow shown as a picture tile; opening it gives one input, one button, then the run card), `Smithers.Home.Flows()` (featured rows from `factory.json`), `Smithers.Home.Markdown({ path: "README.md" })`, `Smithers.Home.Text({ text })`, `Smithers.Home.Links({ links })`, and `Smithers.Home.Stack()` (the repository's live mythical stack). The server resolves Markdown files from the repository at `main`. When no homepage is declared, the workspace chat shows `README.md` if present. A string carrying raw HTML in a plain text block fails the declaration; the chat strips raw HTML from Markdown.
 
 ## .flows/
@@ -55290,6 +55521,244 @@ Global Options:
 
 ---
 
+# smthrs history
+https://smithers.sh/docs/reference/cli/history/
+
+```text
+smthrs history — history
+
+Usage: smthrs history <command>
+
+Commands:
+  backfill   Admit every open issue to the history now
+  bootstrap  Create the history from main's commits
+  parallel   Set how many lanes work at once
+  retry      Give a blocked, rejected or declined issue a fresh set of attempts
+  show       Show the history: each issue's lane, checks and pull request
+  todo       File a TODO for the factory
+  watch      Follow one issue until its pull request is open or it stops
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
+
+## history backfill
+
+```text
+smthrs history backfill — Admit every open issue to the history now
+
+Usage: smthrs history backfill [options]
+
+Options:
+  --repo, -R <string>
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
+
+## history bootstrap
+
+```text
+smthrs history bootstrap — Create the history from main's commits
+
+Usage: smthrs history bootstrap [options]
+
+Options:
+  --repo, -R <string>
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
+
+## history parallel
+
+```text
+smthrs history parallel — Set how many lanes work at once
+
+Usage: smthrs history parallel <lanes> [options]
+
+Arguments:
+  lanes  Lanes, 1 to 8
+
+Options:
+  --repo, -R <string>
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
+
+## history retry
+
+```text
+smthrs history retry — Give a blocked, rejected or declined issue a fresh set of attempts
+
+Usage: smthrs history retry <issue> [options]
+
+Arguments:
+  issue  Issue number (12 or #12) or item id
+
+Options:
+  --repo, -R <string>
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
+
+## history show
+
+```text
+smthrs history show — Show the history: each issue's lane, checks and pull request
+
+Usage: smthrs history show [options]
+
+Options:
+  --repo, -R <string>
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
+
+## history todo
+
+```text
+smthrs history todo — File a TODO for the factory
+
+Usage: smthrs history todo <title> [options]
+
+Arguments:
+  title  TODO title
+
+Options:
+  --body <string>       (default: )
+  --repo, -R <string>
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
+
+## history watch
+
+```text
+smthrs history watch — Follow one issue until its pull request is open or it stops
+
+Usage: smthrs history watch <issue> [options]
+
+Arguments:
+  issue  Issue number (12 or #12) or item id
+
+Options:
+  --repo, -R <string>
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
+
+---
+
 # smthrs index
 https://smithers.sh/docs/reference/cli/index-command/
 
@@ -57964,6 +58433,8 @@ Options:
   --policy-revision <string>  Full approved commit SHA containing the trusted review index
   --revision <string>         Committed source revision: HEAD or a full commit SHA (default: HEAD)
   --plan                      Show pinned policy and source selection without inference
+  --required                  Fail every selected review that selects no files or cannot run instead of passing it
+  --findings-store <string>   Absolute private directory for review runs and findings (default: the Git directory)
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -59035,6 +59506,66 @@ Options:
   --include-exclusive       Include exclusive targets in wildcard ci/test selections; explicit labels already include them
   --cache                   Consult the result cache before running; --no-cache bypasses reads (default: true)
   --known-red <string>      JSON list of targets already red, with owner and expiry; their failures are reported but fail only when newly red
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
+
+---
+
+# smthrs token
+https://smithers.sh/docs/reference/cli/token/
+
+```text
+smthrs token — Mint scoped, expiring gateway tokens from SMITHERS_TOKEN
+
+Usage: smthrs token <command>
+
+Commands:
+  mint  Mint a token limited to the named scopes, an optional run or flow, and a lifetime
+
+Custom Global Options:
+  --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
+  --silent                       Suppress progress; retain the result and actionable failures
+  --ui <auto|tty|stream|plain>   Terminal renderer: tty draws in place, stream colours without cursor motion, plain prints bare lines; auto shows live human progress; agent, --silent, pipe and dumb-terminal policies take precedence (default: auto)
+
+Global Options:
+  --filter-output <keys>              Filter output by key paths (e.g. foo,bar.baz,a[0,3])
+  --format <toon|json|yaml|md|jsonl>  Output format
+  --full-output                       Show full output envelope
+  --help                              Show help
+  --llms, --llms-full                 Print LLM-readable manifest
+  --schema                            Show JSON Schema for command
+  --token-count                       Print token count of output (instead of output)
+  --token-limit <n>                   Limit output to n tokens
+  --token-offset <n>                  Skip first n tokens of output
+```
+
+## token mint
+
+```text
+smthrs token mint — Mint a token limited to the named scopes, an optional run or flow, and a lifetime
+
+Usage: smthrs token mint [options]
+
+Options:
+  --scope <array>  Repeatable: read:runs, write:runs, or approve:runs
+  --ttl <string>   Lifetime such as 30s, 15m, 1h, or 2d (default: 1h)
+  --run <string>   Confine every call to this run id
+  --flow <string>  Confine every call to this flow id
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
@@ -60622,6 +61153,7 @@ flow is a durable program built with `Flow.make`, and a run is a persisted flow 
 | [`generate`](/docs/reference/cli/generate/) | Scaffold apps, flows, packages, and CI configuration |
 | [`git-hooks`](/docs/reference/cli/git-hooks/) | Check the WORKSPACE.ts gitHooks scripts against .git/hooks, or install them with --write |
 | [`graph`](/docs/reference/cli/graph/) | Print the target graph without executing it |
+| [`history`](/docs/reference/cli/history/) | history |
 | [`index`](/docs/reference/cli/index-command/) | List every target a pattern selects as its declaration states it: rule, kinds, inputs, outputs, dependencies, and the declaring file |
 | [`info`](/docs/reference/cli/info/) | Report workspace and host configuration for diagnosis |
 | [`init`](/docs/reference/cli/init/) | Initialize workspace and target declarations plus a starter flow, preserving existing files |
@@ -60654,6 +61186,7 @@ flow is a durable program built with `Flow.make`, and a run is a persisted flow 
 | [`target`](/docs/reference/cli/target/) | Execute PACKAGE.ts labels with their flavor-implied verbs (the bare-label form) |
 | [`targets`](/docs/reference/cli/targets/) | List available targets with their kinds and summaries |
 | [`test`](/docs/reference/cli/test/) | Execute test targets; wildcards omit exclusive tiers unless --include-exclusive is set |
+| [`token`](/docs/reference/cli/token/) | Mint scoped, expiring gateway tokens from SMITHERS_TOKEN |
 | [`triggers`](/docs/reference/cli/triggers/) | Manage durable schedules and manually queued occurrences |
 | [`tui`](/docs/reference/cli/tui/) | Open the terminal coding agent |
 | [`update`](/docs/reference/cli/update/) | Check the registry for newer CLI versions; does not install them |
@@ -61370,10 +61903,6 @@ Every 0.x verb and flag that 1.0.0-rc.0 removed fails with exit 1 and a sentence
 ### openapi
 
 **Reason:** Moved to the plugins repository or deferred. **Removed:** `smthrs openapi list` and `smthrs openapi generate`. **1.0 path:** no replacement ships in rc.0.
-
-### token
-
-**Reason:** Moved to the plugins repository or deferred. **Removed:** `smthrs token issue`, `smthrs token exec`, and `smthrs token revoke`. **1.0 path:** no replacement ships in rc.0.
 
 ### cron
 

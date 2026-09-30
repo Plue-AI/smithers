@@ -1,9 +1,8 @@
-smthrs runs list — List durable runs
+smthrs runs count — Count durable runs
 
-Usage: smthrs runs list [options]
+Usage: smthrs runs count [options]
 
 Options:
-  --repo, -R <string>
   --root <string>                                                                 Project directory; defaults to the nearest Smithers project
   --remote <string>                                                               Remote control plane URL; defaults to SMITHERS_REMOTE
   --mcp-config <string>                                                           Path to the configured MCP servers
@@ -15,9 +14,6 @@ Options:
   --sort <newest|oldest>                                                          Order by creation time
   --parent <string>                                                               Only runs branched from this run
   --trigger <string>                                                              Only runs this trigger started
-  --limit <number>                                                                Runs per page (default 100)
-  --cursor <string>                                                               Continue from the nextCursor a previous page printed
-  --cloud                                                                         Use repository flows and runs on the backend
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

@@ -36,6 +36,7 @@
 - [Choose a model](https://smithers.sh/docs/learn/models/): Pick the model for chat, for background work, and for each agent, and set its reasoning effort.
 - [Watch an agent work](https://smithers.sh/docs/learn/watch-an-agent/): Find an agent's runs, open one, and read its timeline: what started it, each step, and whether it is stuck, blocked, or waiting on you.
 - [Answer an approval](https://smithers.sh/docs/learn/approvals/): When an agent asks before acting, read the request and approve or deny it from the app, the terminal, a script, or the API.
+- [Inspect a run with DevTools](https://smithers.sh/docs/learn/devtools/): Open a run's node tree the way React DevTools opens a component tree: every node with its state and timing, and the selected node's inputs, outputs and journal frames, live.
 - [Review a change](https://smithers.sh/docs/learn/review-a-change/): Read a change's diff, checks, and reviews, answer feedback, and land it.
 - [Use the wiki](https://smithers.sh/docs/learn/wiki/): Read and edit the repository's wiki in its public and private parts: follow links, see backlinks and history, attach files, and generate pages from the code.
 - [Open a repository](https://smithers.sh/docs/learn/open-a-repository/): Open a repository in Smithers, read its guide files, and register your own.
@@ -216,6 +217,7 @@
 - [smthrs generate](https://smithers.sh/docs/reference/cli/generate/): Scaffold apps, flows, packages, and CI configuration
 - [smthrs git-hooks](https://smithers.sh/docs/reference/cli/git-hooks/): Check the WORKSPACE.ts gitHooks scripts against .git/hooks, or install them with --write
 - [smthrs graph](https://smithers.sh/docs/reference/cli/graph/): Print the target graph without executing it
+- [smthrs history](https://smithers.sh/docs/reference/cli/history/): history
 - [smthrs index](https://smithers.sh/docs/reference/cli/index-command/): List every target a pattern selects as its declaration states it: rule, kinds, inputs, outputs, dependencies, and the declaring file
 - [smthrs info](https://smithers.sh/docs/reference/cli/info/): Report workspace and host configuration for diagnosis
 - [smthrs init](https://smithers.sh/docs/reference/cli/init/): Initialize target declarations and a starter durable flow while preserving existing files.
@@ -247,6 +249,7 @@
 - [smthrs target](https://smithers.sh/docs/reference/cli/target/): Execute PACKAGE.ts labels with their flavor-implied verbs (the bare-label form)
 - [smthrs targets](https://smithers.sh/docs/reference/cli/targets/): List available targets with their kinds and summaries
 - [smthrs test](https://smithers.sh/docs/reference/cli/test/): Execute test targets; wildcards omit exclusive tiers unless --include-exclusive is set
+- [smthrs token](https://smithers.sh/docs/reference/cli/token/): Mint scoped, expiring gateway tokens from SMITHERS_TOKEN
 - [smthrs triggers](https://smithers.sh/docs/reference/cli/triggers/): Manage durable schedules and manually queued occurrences
 - [smthrs tui](https://smithers.sh/docs/reference/cli/tui/): Open the terminal coding agent
 - [smthrs update](https://smithers.sh/docs/reference/cli/update/): Check npm for a newer @smthrs/cli

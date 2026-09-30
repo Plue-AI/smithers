@@ -1,18 +1,17 @@
-smthrs review — Review committed source using policy from an approved commit
+smthrs runs devtools — Inspect a run's node tree: state, timings, inputs, outputs and journal frames
 
-Usage: smthrs review <patterns...> [options]
+Usage: smthrs runs devtools <run> [node] [options]
 
 Arguments:
-  patterns  Bazel labels or recursive patterns; the verb runs their union
+  run   Durable run ID
+  node  A trace node id; the run itself when omitted
 
 Options:
-  --workspace, -w <string>    Directory inside a workspace containing WORKSPACE.ts (default: <cwd>)
-  --cache-dir <string>        Workspace-relative cache directory; overrides the WORKSPACE.ts declaration
-  --policy-revision <string>  Full approved commit SHA containing the trusted review index
-  --revision <string>         Committed source revision: HEAD or a full commit SHA (default: HEAD)
-  --plan                      Show pinned policy and source selection without inference
-  --required                  Fail every selected review that selects no files or cannot run instead of passing it
-  --findings-store <string>   Absolute private directory for review runs and findings (default: the Git directory)
+  --root <string>        Project directory; defaults to the nearest Smithers project
+  --remote <string>      Remote control plane URL; defaults to SMITHERS_REMOTE
+  --mcp-config <string>  Path to the configured MCP servers
+  --quiet                Suppress progress messages
+  --frames <number>      Newest journal frames kept on the inspection; 100 by default
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

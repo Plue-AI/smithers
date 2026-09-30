@@ -48,18 +48,21 @@ honest. `Registry.loadBody` and `Executable.fromDescriptor` rehash the bytes
 they read and refuse with `body_unavailable` when the file changed after
 discovery or `contentDigest` is absent. Older journaled descriptors still decode
 and can be listed, but their unmeasured bodies cannot be loaded or run. Refresh
-the registry to measure the current bytes before loading them. The default
-executable loader evaluates those verified entry bytes under a fresh,
-digest-qualified module identity, so refresh adopts edited priority, cache,
-and placement annotations even after an earlier load in the same process.
-The entry digest does not cover imported dependencies; those retain the host's
-normal module cache.
+the registry to measure the current bytes before loading them. A module
+body also records the digest of every module it reaches through static
+relative imports, and `Executable.fromDescriptor` refuses when any of them
+changed. The default executable loader evaluates the verified bytes of that
+whole closure under fresh module identities, so refresh adopts an edited
+entry or helper, including its priority, cache, and placement annotations,
+even after an earlier load in the same process. `import()` and `require()`
+calls still load through the host's own module cache.
 
 Body paths may be filesystem paths or `file:` URLs. Verification decodes file
 URLs, including percent-encoded filenames, through the host `Path` service.
-Custom module loaders receive the original URL plus the verified bytes and
-digest. The default loader imports a private temporary sibling of the source,
-preserving its directory for relative imports. See
+Custom module loaders receive the original URL plus the verified bytes, their
+digest, and the verified closure. The default loader imports private temporary
+siblings of the entry and each module it reaches, preserving every directory
+for relative imports and package resolution. See
 [Executable.Options](/reference/api/#executableoptions) for loader requirements and
 catalog deadlines.
 

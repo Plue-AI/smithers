@@ -1049,7 +1049,7 @@ The static filesystem declaration vocabulary shared by planning and execution: a
 ### The declaration types
 
 ```ts
-const Pattern: Schema.String // workspace-relative, with `*` and `**`
+const Pattern: Schema.String // workspace-relative; `*` and `**` match only inside a Glob
 const Glob: Schema.TaggedStruct<"Glob", { include: NonEmptyArray<Pattern>; exclude?: Array<Pattern> }>
 const TreeArtifact: Schema.TaggedStruct<"TreeArtifact", { path: Pattern }>
 const Filegroup: Schema.TaggedStruct<"Filegroup", { name: NonEmptyString; entries: Array<Entry> }>
@@ -1133,7 +1133,7 @@ segment pair once, without regex backtracking.
 const overlaps: (left: Entry, right: Entry) => boolean
 ```
 
-Conservative static overlap. Exact paths, wildcard strings, and tree roots compare in `folded` form: canonical separator, NFC, and case-insensitive. A glob against an exact path folds both its `include` and `exclude` patterns. Two globs always overlap, and so do a glob and a tree artifact. A tree artifact overlaps any path beneath it. A glob tests the path bytes it is handed, so canonicalizing a measured path before matching is the caller's decision.
+Conservative static overlap. A plain string is a literal path, even one containing `*` or `**`, as it is at execution. Exact paths and tree roots compare in `folded` form: canonical separator, NFC, and case-insensitive. A glob against an exact path folds both its `include` and `exclude` patterns. Two globs always overlap, and so do a glob and a tree artifact. A tree artifact overlaps any path beneath it. A glob tests the path bytes it is handed, so canonicalizing a measured path before matching is the caller's decision.
 
 ## Effects
 
