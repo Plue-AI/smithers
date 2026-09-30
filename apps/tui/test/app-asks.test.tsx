@@ -277,3 +277,20 @@ test("a number picks its choice in the answer form", async () => {
   expect(await answered()).toMatchObject({ answer: "Bearer header" })
   await waitFor(() => !frame().includes("◆1"))
 })
+
+test("bracketed paste selects other and preserves the complete answer instead of submitting the default choice", async () => {
+  await delegate("add")
+  const answered = await ask(1, "New name?", ["sum", "plus"])
+  await waitFor(() => frame().includes("Summary ◆1"))
+  await settle()
+  await type("a")
+  await settle()
+  await act(async () => {
+    await setup!.mockInput.pasteBracketedText("total λ and 2")
+  })
+  await render()
+  expect(frame()).toContain("> total λ and 2")
+  await key("RETURN")
+  expect(await answered()).toMatchObject({ answer: "total λ and 2" })
+})
+

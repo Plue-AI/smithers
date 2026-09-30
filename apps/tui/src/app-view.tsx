@@ -6,6 +6,7 @@
 import { TextBuffer, TextBufferView } from "@opentui/core"
 import { useRenderer } from "@opentui/react"
 import { usd } from "@smthrs/gateway/Diagnosis"
+import { usePaste } from "@opentui/react"
 import { basename } from "node:path"
 import type { ReactNode } from "react"
 import stringWidth from "string-width"
@@ -187,6 +188,11 @@ function AskFormView(props: {
   const { ask } = props
   const lines = Dispatch.choices(ask)
   const typing = Dispatch.typed(ask)
+  usePaste((event) => {
+    if (typing) return
+    event.preventDefault()
+    props.onField("answer", `${String(props.form.draft.answer ?? "")}${new TextDecoder().decode(event.bytes)}`)
+  })
   const input = (
     <input
       selectionOccupancy="boundary"

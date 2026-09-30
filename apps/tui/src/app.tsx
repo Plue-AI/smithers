@@ -2845,7 +2845,14 @@ export function App(props: AppProps) {
               onField={(field, text) => {
                 const current = liveForm.current
                 if (current !== undefined) {
-                  changeForm({ ...current, draft: { ...current.draft, [field]: text }, error: undefined })
+                  changeForm({
+                    ...current,
+                    draft: { ...current.draft, [field]: text },
+                    ...(current.ask === undefined ? {} : {
+                      ask: { ...current.ask, choice: current.ask.options.length, moved: true }
+                    }),
+                    error: undefined
+                  })
                 }
               }}
             />
