@@ -248,6 +248,15 @@ test("a settled verdict never reaches a person as its phase and code", () => {
   expect(setupFailureSentence("failed — brand_new_code: Something the engine wrote")).toBe(INFRA)
 })
 
+test("an evicted candidate reads as factory work on the setup card and run, with the lander detail only in Details", () => {
+  const verdict = "failed — evicted: The cleaned tip conflicts with main: private/path.ts"
+  const lead = REFUSAL_COPY.factory.lead
+  expect(setupVerdict(verdict)).toEqual({ fault: "factory", message: lead })
+  expect(setupFailureSentence(verdict)).toBe(lead)
+  expect(runFailureOf({ workflow: "repository/setup", error: verdict, events: journal("evicted: The cleaned tip conflicts with main: private/path.ts") }))
+    .toEqual({ fault: "factory", message: lead, detail: verdict })
+})
+
 test("every receipt code the setup flows can raise is answered here", () => {
   const schema = readFileSync(fileURLToPath(new URL("../../../../../flows/coding/schema.ts", import.meta.url)), "utf8")
   const declared = /export class CodingError[\s\S]*?code: Schema\.Literals\(\[([\s\S]*?)\]\)/.exec(schema)?.[1] ?? ""
@@ -312,7 +321,8 @@ const setupCodes = [
   { code: "execution", fault: "infra", message: INFRA },
   { code: "source_missing", fault: "user" }, { code: "source_changed", fault: "user" }, { code: "source_refused", fault: "user" },
   { code: "source_unavailable", fault: "dependency", message: "Something Smithers depends on failed. Not your doing." },
-  { code: "declined", fault: "user" }, { code: "stalled", fault: "user" }
+  { code: "declined", fault: "user" }, { code: "stalled", fault: "user" },
+  { code: "evicted", fault: "factory", message: "Smithers could not finish this one. Not your fault." }
 ] as const
 
 test("setup receipt codes have literal blame and copy on both settled and journalled surfaces", () => {
