@@ -1541,6 +1541,86 @@
         }
       },
       "reason": "Built-in deterministic scoring required by #1849: normalized equality/containment, sandbox command exit verdicts with inconclusive launch failures, and unified-diff line/file budgets. Uses existing scorer identities, durable runner observations and sandbox Session; rubric delegates to the existing Rubric contract."
+    },
+    {
+      "name": "@smthrs/registry",
+      "subpath": "./Prompt",
+      "development": "./src/Prompt.ts",
+      "published": {
+        "import": {
+          "types": "./dist/esm/Prompt.d.ts",
+          "default": "./dist/esm/Prompt.js"
+        },
+        "require": {
+          "types": "./dist/cjs/Prompt.d.ts",
+          "default": "./dist/cjs/Prompt.js"
+        }
+      },
+      "reason": "Typed MDX prompt compiler and concrete Component<Props>/Content authoring contract; compilation parses without evaluating expressions. Existing captured-module loader retains content checks and authority. Reviewed upstream 3017c54ddf (#2271), public Node/Bun rendering and concrete-prop consumer controls; admitted under #3184 without changing the original 48-package surface."
+    },
+    {
+      "name": "@smthrs/registry",
+      "subpath": "./Prompt/jsx-runtime",
+      "development": "./src/Prompt/jsx-runtime.ts",
+      "published": {
+        "import": {
+          "types": "./dist/esm/Prompt/jsx-runtime.d.ts",
+          "default": "./dist/esm/Prompt/jsx-runtime.js"
+        },
+        "require": {
+          "types": "./dist/cjs/Prompt/jsx-runtime.d.ts",
+          "default": "./dist/cjs/Prompt/jsx-runtime.js"
+        }
+      },
+      "reason": "Text JSX runtime explicitly required by compiled typed MDX prompts; Fragment/jsx/jsxs/render produce Markdown, with no second flow or host model. Reviewed upstream 3017c54ddf (#2271), public Node/Bun rendering and concrete-prop consumer controls; admitted under #3184 without changing the original 48-package surface."
+    },
+    {
+      "name": "@smthrs/kernel",
+      "subpath": "./ProcessConfinement",
+      "development": "./src/ProcessConfinement.ts",
+      "published": {
+        "import": {
+          "types": "./dist/esm/ProcessConfinement.d.ts",
+          "default": "./dist/esm/ProcessConfinement.js"
+        },
+        "require": {
+          "types": "./dist/cjs/ProcessConfinement.d.ts",
+          "default": "./dist/cjs/ProcessConfinement.js"
+        }
+      },
+      "reason": "Kernel host confinement service and conservative effective-grant Profile derivation. makeNoop/layerNoop explicitly opt out; missing service refuses guarded spawning, with no implied native confinement. Reviewed upstream 6490adb4c2 (#3140/#1790/#3234), source/docs, public import/type controls and owning native tests under #3184; original 48-package history retained."
+    },
+    {
+      "name": "@smthrs/platform-node",
+      "subpath": "./ProcessConfinement",
+      "development": "./src/ProcessConfinement.ts",
+      "published": {
+        "import": {
+          "types": "./dist/esm/ProcessConfinement.d.ts",
+          "default": "./dist/esm/ProcessConfinement.js"
+        },
+        "require": {
+          "types": "./dist/cjs/ProcessConfinement.d.ts",
+          "default": "./dist/cjs/ProcessConfinement.js"
+        }
+      },
+      "reason": "Node host implementation of the kernel seam: default missing-mechanism refusal, explicit warned unconfined option, scoped temporary lifecycle and shell/pipeline wrapping; no second execution model. Reviewed upstream 6490adb4c2 (#3140/#1790/#3234), source/docs, public import/type controls and owning native tests under #3184; original 48-package history retained."
+    },
+    {
+      "name": "@smthrs/platform-node",
+      "subpath": "./ProcessSandbox",
+      "development": "./src/ProcessSandbox.ts",
+      "published": {
+        "import": {
+          "types": "./dist/esm/ProcessSandbox.d.ts",
+          "default": "./dist/esm/ProcessSandbox.js"
+        },
+        "require": {
+          "types": "./dist/cjs/ProcessSandbox.d.ts",
+          "default": "./dist/cjs/ProcessSandbox.js"
+        }
+      },
+      "reason": "Shared native mechanism selection/planning/wrapping for declared build inputs and guarded agent profiles; concrete refusal types and host probes preserve enforced-or-refused behavior. Reviewed upstream 6490adb4c2 (#3140/#1790/#3234), source/docs, public import/type controls and owning native tests under #3184; original 48-package history retained."
     }
   ],
   "removed": [

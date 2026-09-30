@@ -1,0 +1,53 @@
+{
+  "issue": 3184,
+  "scope": "Reviewed public export admission prerequisite only; canonical fresh declaration baseline/build still pending stable committed candidate.",
+  "candidateBase": "b00abe0e088febd9db19acd2706206dd247ed3cc",
+  "manifestSha256": "b2fe9d8c74b44457a50c85ef04178aad0a4b4dd7720617237d3cf688afa928f0",
+  "sourceSha256": {
+    "scripts/fixtures/public-export-surface.json": "9112cfabe99d4138562a0f81c728e3780e235066ab874e9a189b543f0d5c598e",
+    "scripts/repo-contract/public-export-maps.test.mjs": "2eb2a8b2552eb321edd013cd21ec9425d6abcda0b357135b585382c605215cd9"
+  },
+  "generatedSha256": {},
+  "archiveSha256": "1df856d58d8ac6435c1772c582ab7a7ebb06356912389a7a0bb2739feb23b132",
+  "rawReceipts": {
+    "3184-admissions-ready.json": "b2fe9d8c74b44457a50c85ef04178aad0a4b4dd7720617237d3cf688afa928f0",
+    "3184-confinement-contract-coverage.json": "2df92deaf9b124d39bc64c62a9750786a25ec8dbfc3316e1fd455c5313e9f0bd",
+    "3184-confinement-kernel-tests.log": "93eab81d7f61dd7e82387465fc0252287fdc281919d3768357122bbfb9b5a5e4",
+    "3184-confinement-platform-tests.log": "92e6e801305a544ae9728e99a4f2cf02f8767f98629df7a48919872dfe923ba6",
+    "3184-confinement-public-consumer-results.json": "95ca60a504159953a99e76b8463ba5837ba1c688a8fb51b7cc0e398ffd86ef4a",
+    "3184-confinement-public-consumer-setup-red.json": "b78b5e8393d8c9d6320c319e38eab2d35eecf7506a9d08ff9d376e929e1b2753",
+    "3184-confinement-public-consumer-setup-red.log": "151d31edf8b087cde8e8a19bd68807f97e474acfe095b2b29e910af67c22bcc0",
+    "3184-confinement-public-consumer.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3184-confinement-public-consumer.py": "9e1f0a73b0ebe0aba10cea84b7699eb08581ca33df56f00744252c1e1f7b9f6e",
+    "3184-confinement-public-consumer.ts": "f3b1b7c12f6633429a8af7b1a11a7c18ab5e216820cfc5cf1dc4b50718a92606",
+    "3184-five-admissions-full-map.log": "d2c30165044f5ae9199e3f42788ad6e1ff0558449f09d7142ce1e1ff080368f0",
+    "3184-platform-coverage-final.json.gz": "d6edcd910fc5c0c0674308c60d1dd949b863210c83a46d611655d242a82abd43",
+    "3184-platform-coverage-unexecuted.json": "2837d3bd5aff30968e275efa5294a8add0a1b5c5ba2b13ab1ea9af0e380d3e84",
+    "3184-prompt-export-green.log": "dbfc43552280ec3653dbcfc89ca7fa95b5eead511085e80d52a8163cd53171b6",
+    "3184-prompt-export-red.log": "bdef714a2c76ab88774bfe831d090bf0c852967785e7dd9fbb7f1d34c6981ef9",
+    "3184-prompt-following-map-drift.json": "885626c47f24cc94b4f5a634f669ad823798d9a5e4d33bb22ee0c3118d4f4e71",
+    "3184-prompt-original-surface.sha256": "749b11d3fbe6c89ff05093de46dd8e4971e2ef996016c9f752358b573d664a10",
+    "3184-prompt-public-consumer-0.log": "b3fcdde34cc6598c4d21e2a8e030a70f092f1ff7ab4c9cf9b81c95c69d849626",
+    "3184-prompt-public-consumer-1.log": "b3fcdde34cc6598c4d21e2a8e030a70f092f1ff7ab4c9cf9b81c95c69d849626",
+    "3184-prompt-public-consumer-2.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3184-prompt-public-consumer-results.json": "acda2caf90de285b998532b47b1a58b68c6797554b649c834ee705b935c2caca",
+    "3184-prompt-public-consumer.mjs": "57a6041032f93eb1cd236e6c9935cd42b27b16d05bbf6acb2ace6506f25bd2d5",
+    "3184-prompt-public-consumer.py": "c49992c0c9d07c60a001a6d525d0c76ba830fa316d93f1cae12fcfaeeef4e07a",
+    "3184-prompt-public-consumer.ts": "27c692d0916839671b0396723cb5cd0ff3d3c864a6acb7711be70f80cfce38a6",
+    "3184-prompt-public-node.log": "16d354ef2a340c45a03302761e4e1cb65c8771ccdf9542ac5447b3b126f47f71",
+    "3184-prompt-qualified-full-map.log": "868e9ec68b0c37e0811c4c5dc5610269f423135317aa5ac0d064079356ae680a",
+    "3184-prompt-registry-tests.log": "7cfa449eafea3f2a713fdb989a7886d1087373a2e313457eacfaf635347b51b8",
+    "3184-prompt-registry-types.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "qualification": {
+    "exports": "39/39 full public export gate PASS,37original+2public boundary controls. Exact5row additions/development+published branches; no original surface resnapshot.",
+    "registry": "917/917 PASS,100%2291statements/1737branches/404functions/2103lines; source/test typesPASS; actual public Node+Bun compile/render and strict concrete prop consumerPASS.",
+    "kernel": "820/820 PASS;100%1767statements/1045branches/579functions/1609lines. Public service/profile and explicit opt-out definitions reviewed.",
+    "platformNode": "885pass/3skipped of888,47files all behavioral assertionsPASS; unchanged100%gate exits1 only AtomicFileSystem.ts:318 unexecuted resolveHelper function+statement (2187/2188statements,451/452functions). Branches1569/1569,lines1919/1919. Raw coverage retained. Three admitted confinement modules all statements/functions/branches100% separately derived from unchanged full-suite counters.",
+    "native": "Existing real native ProcessConfinement suite executes macOS mechanism, filesystem permission/refusal/env/lifecycle tests as part full platform-node suite. Linux/Docker enforcement not claimed. Existing absolute configured helper retained, no fresh native artifact build claim. Noop tests prove identity only, not OS confinement.",
+    "publicTypes": "Strict actual public source imports kernel/platform-node; service/layer/profile/options/network/path type controlsPASS. SetupmissingNode types fixture red retained; consumer explicitly suppliesexisting installed @types/node.",
+    "format": "git diff --checkPASS; additions JSON retains owning indent2 and existing audit conventions."
+  },
+  "limitations": [],
+  "targetIndex": null
+}

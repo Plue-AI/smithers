@@ -179,7 +179,7 @@ process.stdout.write(JSON.stringify([
 
   it("admits only explicitly reviewed additions without rewriting the original surface", () => {
     assert.deepEqual(baseline.added.map(({ name, subpath }) => `${name}${subpath.slice(1)}`).sort(), [
-      "@smthrs/agent/Memory", "@smthrs/agent/MemoryCalibration", "@smthrs/agent/MemoryMine", "@smthrs/agent/RunawayGuard", "@smthrs/agent/ScriptedJudge", "@smthrs/agent/SeatRouter", "@smthrs/agent/SmithersPlugin", "@smthrs/artifacts/FileLease", "@smthrs/build-cli/KnownRed", "@smthrs/build-cli/Positionals", "@smthrs/build-cli/TargetIndex", "@smthrs/canonical/BoundedJson", "@smthrs/canonical/IssuePath", "@smthrs/canonical/ReadonlyMap", "@smthrs/canonical/Record", "@smthrs/canonical/Serializer", "@smthrs/capability/CapabilitySet", "@smthrs/cli/BunControl", "@smthrs/cli/CloudSandbox", "@smthrs/cli/CloudSession", "@smthrs/cli/ExecutionEnvironment", "@smthrs/cli/cli/EnvironmentCommands", "@smthrs/cli/cli/TokenCommands", "@smthrs/cli/tui-native", "@smthrs/control/ApprovalAuthority", "@smthrs/control/DispatchReader", "@smthrs/control/Health", "@smthrs/control/ScopedToken", "@smthrs/create-app/http", "@smthrs/create-app/worker", "@smthrs/crypto/Identity", "@smthrs/database/Dialect", "@smthrs/database/bun/BunDatabase", "@smthrs/database/postgres/PostgresDatabase", "@smthrs/engine-store/DeferredClockFold", "@smthrs/engine-store/EventTypes", "@smthrs/engine-store/ExecutionSnapshot", "@smthrs/engine-store/PlanInputStore", "@smthrs/engine-store/PlanMergeStore", "@smthrs/engine-store/ReplayOnly", "@smthrs/engine-store/RunChangeFeed", "@smthrs/engine-store/StepCacheFold", "@smthrs/engine/Hosts", "@smthrs/engine/PlacedAction", "@smthrs/evals/Trials", "@smthrs/flow/Deadline", "@smthrs/flow/Fault", "@smthrs/flow/Stall", "@smthrs/flows/BunRuntime", "@smthrs/flows/Runtime", "@smthrs/gateway/EngineTrace", "@smthrs/gateway/RunDevTools", "@smthrs/gateway/RunHistory", "@smthrs/gateway/RunTrace", "@smthrs/gateway/RuntimeBridge", "@smthrs/gateway/bun/BunGateway", "@smthrs/harness/CompletionClaim", "@smthrs/harness/FailedCall", "@smthrs/harness/Judgement", "@smthrs/harness/Monitor", "@smthrs/harness/Relevance", "@smthrs/harness/Supervisor", "@smthrs/integrations/core/AccessToken", "@smthrs/integrations/core/Connection", "@smthrs/integrations/core/IssueSync", "@smthrs/integrations/core/OAuthToken", "@smthrs/integrations/core/Source", "@smthrs/integrations/core/SourceRecord", "@smthrs/integrations/core/SourceStore", "@smthrs/integrations/core/Sync", "@smthrs/integrations/github/Sync", "@smthrs/integrations/gmail", "@smthrs/integrations/gmail/Actions", "@smthrs/integrations/gmail/Capabilities", "@smthrs/integrations/gmail/Config", "@smthrs/integrations/gmail/GmailClient", "@smthrs/integrations/gmail/Mime", "@smthrs/integrations/gmail/Reconcile", "@smthrs/integrations/gmail/Records", "@smthrs/integrations/gmail/Sync", "@smthrs/integrations/googlecalendar", "@smthrs/integrations/googlecalendar/Actions", "@smthrs/integrations/googlecalendar/CalendarClient", "@smthrs/integrations/googlecalendar/Config", "@smthrs/integrations/googlecalendar/Event", "@smthrs/integrations/googlecalendar/EventId", "@smthrs/integrations/googlecalendar/Sync", "@smthrs/integrations/slack", "@smthrs/integrations/slack/Actions", "@smthrs/integrations/slack/Approval", "@smthrs/integrations/slack/Config", "@smthrs/integrations/slack/Connections", "@smthrs/integrations/slack/IssueSync", "@smthrs/integrations/slack/Payload", "@smthrs/integrations/slack/SlackClient", "@smthrs/integrations/slack/SocketSource", "@smthrs/integrations/slack/Sync", "@smthrs/integrations/slack/Webhook", "@smthrs/integrations/telegram/IssueSync", "@smthrs/integrations/x", "@smthrs/integrations/x/Capabilities", "@smthrs/integrations/x/Config", "@smthrs/integrations/x/Records", "@smthrs/integrations/x/Sync", "@smthrs/integrations/x/XClient", "@smthrs/journal/Consensus", "@smthrs/journal/EngineEvent", "@smthrs/journal/JournalGeneration", "@smthrs/journal/SqlConsensus", "@smthrs/kernel/ChildProcessEnvironment", "@smthrs/kernel/Rooted", "@smthrs/memory/Migrations", "@smthrs/model/Classifier", "@smthrs/model/Evaluator", "@smthrs/model/EvaluatorBackup", "@smthrs/model/FailureCopy", "@smthrs/model/ModelCatalog", "@smthrs/model/Pricing", "@smthrs/plan/CachePolicy", "@smthrs/plan/Effects", "@smthrs/plan/Placement", "@smthrs/plan/Repetition", "@smthrs/plan/Scheduling", "@smthrs/plan/test/PlanFixtures", "@smthrs/platform-node/EgressHttpClient", "@smthrs/platform-node/ScopedProcess", "@smthrs/sandbox/CommandSandbox", "@smthrs/sandbox/CommandSandbox/*", "@smthrs/scorers/Checks", "@smthrs/scorers/Rubric", "@smthrs/scorers/ScoreGate", "@smthrs/scorers/Scorers", "@smthrs/std/Relocate", "@smthrs/std/TreeFingerprint", "@smthrs/testing/ProcessTable", "@smthrs/triggers/DispatchReader"
+      "@smthrs/agent/Memory", "@smthrs/agent/MemoryCalibration", "@smthrs/agent/MemoryMine", "@smthrs/agent/RunawayGuard", "@smthrs/agent/ScriptedJudge", "@smthrs/agent/SeatRouter", "@smthrs/agent/SmithersPlugin", "@smthrs/artifacts/FileLease", "@smthrs/build-cli/KnownRed", "@smthrs/build-cli/Positionals", "@smthrs/build-cli/TargetIndex", "@smthrs/canonical/BoundedJson", "@smthrs/canonical/IssuePath", "@smthrs/canonical/ReadonlyMap", "@smthrs/canonical/Record", "@smthrs/canonical/Serializer", "@smthrs/capability/CapabilitySet", "@smthrs/cli/BunControl", "@smthrs/cli/CloudSandbox", "@smthrs/cli/CloudSession", "@smthrs/cli/ExecutionEnvironment", "@smthrs/cli/cli/EnvironmentCommands", "@smthrs/cli/cli/TokenCommands", "@smthrs/cli/tui-native", "@smthrs/control/ApprovalAuthority", "@smthrs/control/DispatchReader", "@smthrs/control/Health", "@smthrs/control/ScopedToken", "@smthrs/create-app/http", "@smthrs/create-app/worker", "@smthrs/crypto/Identity", "@smthrs/database/Dialect", "@smthrs/database/bun/BunDatabase", "@smthrs/database/postgres/PostgresDatabase", "@smthrs/engine-store/DeferredClockFold", "@smthrs/engine-store/EventTypes", "@smthrs/engine-store/ExecutionSnapshot", "@smthrs/engine-store/PlanInputStore", "@smthrs/engine-store/PlanMergeStore", "@smthrs/engine-store/ReplayOnly", "@smthrs/engine-store/RunChangeFeed", "@smthrs/engine-store/StepCacheFold", "@smthrs/engine/Hosts", "@smthrs/engine/PlacedAction", "@smthrs/evals/Trials", "@smthrs/flow/Deadline", "@smthrs/flow/Fault", "@smthrs/flow/Stall", "@smthrs/flows/BunRuntime", "@smthrs/flows/Runtime", "@smthrs/gateway/EngineTrace", "@smthrs/gateway/RunDevTools", "@smthrs/gateway/RunHistory", "@smthrs/gateway/RunTrace", "@smthrs/gateway/RuntimeBridge", "@smthrs/gateway/bun/BunGateway", "@smthrs/harness/CompletionClaim", "@smthrs/harness/FailedCall", "@smthrs/harness/Judgement", "@smthrs/harness/Monitor", "@smthrs/harness/Relevance", "@smthrs/harness/Supervisor", "@smthrs/integrations/core/AccessToken", "@smthrs/integrations/core/Connection", "@smthrs/integrations/core/IssueSync", "@smthrs/integrations/core/OAuthToken", "@smthrs/integrations/core/Source", "@smthrs/integrations/core/SourceRecord", "@smthrs/integrations/core/SourceStore", "@smthrs/integrations/core/Sync", "@smthrs/integrations/github/Sync", "@smthrs/integrations/gmail", "@smthrs/integrations/gmail/Actions", "@smthrs/integrations/gmail/Capabilities", "@smthrs/integrations/gmail/Config", "@smthrs/integrations/gmail/GmailClient", "@smthrs/integrations/gmail/Mime", "@smthrs/integrations/gmail/Reconcile", "@smthrs/integrations/gmail/Records", "@smthrs/integrations/gmail/Sync", "@smthrs/integrations/googlecalendar", "@smthrs/integrations/googlecalendar/Actions", "@smthrs/integrations/googlecalendar/CalendarClient", "@smthrs/integrations/googlecalendar/Config", "@smthrs/integrations/googlecalendar/Event", "@smthrs/integrations/googlecalendar/EventId", "@smthrs/integrations/googlecalendar/Sync", "@smthrs/integrations/slack", "@smthrs/integrations/slack/Actions", "@smthrs/integrations/slack/Approval", "@smthrs/integrations/slack/Config", "@smthrs/integrations/slack/Connections", "@smthrs/integrations/slack/IssueSync", "@smthrs/integrations/slack/Payload", "@smthrs/integrations/slack/SlackClient", "@smthrs/integrations/slack/SocketSource", "@smthrs/integrations/slack/Sync", "@smthrs/integrations/slack/Webhook", "@smthrs/integrations/telegram/IssueSync", "@smthrs/integrations/x", "@smthrs/integrations/x/Capabilities", "@smthrs/integrations/x/Config", "@smthrs/integrations/x/Records", "@smthrs/integrations/x/Sync", "@smthrs/integrations/x/XClient", "@smthrs/journal/Consensus", "@smthrs/journal/EngineEvent", "@smthrs/journal/JournalGeneration", "@smthrs/journal/SqlConsensus", "@smthrs/kernel/ChildProcessEnvironment", "@smthrs/kernel/ProcessConfinement", "@smthrs/kernel/Rooted", "@smthrs/memory/Migrations", "@smthrs/model/Classifier", "@smthrs/model/Evaluator", "@smthrs/model/EvaluatorBackup", "@smthrs/model/FailureCopy", "@smthrs/model/ModelCatalog", "@smthrs/model/Pricing", "@smthrs/plan/CachePolicy", "@smthrs/plan/Effects", "@smthrs/plan/Placement", "@smthrs/plan/Repetition", "@smthrs/plan/Scheduling", "@smthrs/plan/test/PlanFixtures", "@smthrs/platform-node/EgressHttpClient", "@smthrs/platform-node/ProcessConfinement", "@smthrs/platform-node/ProcessSandbox", "@smthrs/platform-node/ScopedProcess", "@smthrs/registry/Prompt", "@smthrs/registry/Prompt/jsx-runtime", "@smthrs/sandbox/CommandSandbox", "@smthrs/sandbox/CommandSandbox/*", "@smthrs/scorers/Checks", "@smthrs/scorers/Rubric", "@smthrs/scorers/ScoreGate", "@smthrs/scorers/Scorers", "@smthrs/std/Relocate", "@smthrs/std/TreeFingerprint", "@smthrs/testing/ProcessTable", "@smthrs/triggers/DispatchReader"
     ])
     for (const entry of baseline.added) {
       const manifest = current.get(entry.name).manifest
@@ -209,6 +209,84 @@ process.stdout.write(JSON.stringify([
       }
       const original = baseline.packages.find(({ name }) => name === entry.name)
       assert.ok(!original.subpaths.includes(entry.subpath), "an addition must not rewrite a prior entry")
+    }
+  })
+
+  it("public typed MDX Prompt entries compile without evaluation and render through their explicit text runtime", () => {
+    const directory = join(repoRoot, current.get("@smthrs/registry").dir)
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "smithers-public-mdx-consumer-")))
+    try {
+      mkdirSync(join(root, "node_modules", "@smthrs"), { recursive: true })
+      symlinkSync(directory, join(root, "node_modules", "@smthrs", "registry"), "dir")
+      writeFileSync(join(root, "package.json"), JSON.stringify({ type: "module" }))
+      writeFileSync(join(root, "consumer.mjs"), `
+import assert from 'node:assert/strict';
+import {writeFileSync} from 'node:fs';
+import {compile} from '@smthrs/registry/Prompt';
+import {Fragment,jsx,jsxs,render} from '@smthrs/registry/Prompt/jsx-runtime';
+globalThis.__publicPromptCalls = 0;
+const program = compile('# Hello {props.name}\\n\\n{++globalThis.__publicPromptCalls}');
+assert.equal(globalThis.__publicPromptCalls, 0);
+assert.ok(program.includes('@smthrs/registry/Prompt/jsx-runtime'));
+writeFileSync(new URL('./compiled.mjs', import.meta.url), program);
+const {default:Prompt} = await import('./compiled.mjs');
+assert.equal(globalThis.__publicPromptCalls, 0);
+assert.equal(Prompt({name:'Ada'}), '# Hello Ada\\n\\n1');
+assert.equal(globalThis.__publicPromptCalls, 1);
+assert.equal(jsxs, jsx);
+assert.equal(render(jsx(Fragment, {children:[jsx('strong',{children:'evidence'}), null, false, 42]})), '**evidence**42');
+assert.throws(() => compile('<Unclosed>'));
+await assert.rejects(import('@smthrs/registry/Prompt/private'), {code:'ERR_PACKAGE_PATH_NOT_EXPORTED'});
+process.stdout.write(JSON.stringify({assertions:'passed'}));
+`)
+      const result = spawnSync(process.execPath, [join(root, "consumer.mjs")], {
+        cwd: root, encoding: "utf8", timeout: 30_000
+      })
+      assert.equal(result.status, 0, result.stderr)
+      assert.deepEqual(JSON.parse(result.stdout), { assertions: "passed" })
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it("public confinement entries share the kernel service and refuse an unavailable mechanism", () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "smithers-public-confinement-consumer-")))
+    try {
+      mkdirSync(join(root, "node_modules", "@smthrs"), { recursive: true })
+      for (const name of ["kernel", "platform-node"]) {
+        symlinkSync(join(repoRoot, current.get("@smthrs/" + name).dir), join(root, "node_modules", "@smthrs", name), "dir")
+      }
+      symlinkSync(join(repoRoot, current.get("@smthrs/platform-node").dir, "node_modules/effect"), join(root, "node_modules/effect"), "dir")
+      writeFileSync(join(root, "package.json"), JSON.stringify({ type: "module" }))
+      writeFileSync(join(root, "consumer.mjs"), `
+import assert from 'node:assert/strict';
+import * as Kernel from '@smthrs/kernel/ProcessConfinement';
+import * as Native from '@smthrs/platform-node/ProcessConfinement';
+import * as Sandbox from '@smthrs/platform-node/ProcessSandbox';
+import {Effect} from 'effect';
+import * as ChildProcess from 'effect/unstable/process/ChildProcess';
+const command=ChildProcess.make('fixture',[]);
+const profile={workspaceRoot:process.cwd(),reads:[],writes:[],readOnly:[],network:'none'};
+// Noop is an explicit opt-out, tested solely for command identity.
+assert.equal(await Effect.runPromise(Effect.scoped(Kernel.makeNoop.confine(command,profile))),command);
+// Injecting unavailable host facts makes this public-import control portable;
+// the owning native integration suite qualifies actual OS enforcement.
+const host={...Sandbox.host(),platform:'win32',executable:()=>undefined};
+const failure=await Effect.runPromise(Effect.scoped(Effect.flip(Native.make({host}).confine(command,profile))));
+assert.equal(failure.reason._tag,'NotFound');
+assert.match(failure.reason.description,/refuses to spawn unconfined/);
+assert.equal(Sandbox.isUnenforceable(Sandbox.select({network:'none'},host)),true);
+assert.equal(typeof Native.layer,'function');
+assert.equal(typeof Kernel.profile,'function');
+process.stdout.write(JSON.stringify({assertions:'passed'}));
+`)
+      const result = spawnSync(process.execPath, [join(root, "consumer.mjs")], {
+        cwd: root, encoding: "utf8", timeout: 30_000
+      })
+      assert.equal(result.status, 0, result.stderr)
+      assert.deepEqual(JSON.parse(result.stdout), { assertions: "passed" })
+    } finally {
+      rmSync(root, { recursive: true, force: true })
     }
   })
 
