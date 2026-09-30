@@ -235,7 +235,7 @@ describe("a worker routed to a panel", () => {
         seat: "fable",
         panel: {
           seats: [
-            { seat: "opus", backups: ["sol"] },
+            { seat: "opus", backups: [] },
             { seat: "fable", backups: [] },
             { seat: "sol", backups: [] }
           ],
@@ -311,7 +311,7 @@ describe("a worker routed to a panel", () => {
       f.workspace.request({ id: "panel", title: "Review", prompt: review })
       const tab = await f.settled()
       expect(tab).toMatchObject({ status: "done", answer: "merged view" })
-      expect(tab.answered?.map(([seat]) => seat).sort()).toEqual(["sol", "fable", "opus"])
+      expect(tab.answered?.map(([seat]) => seat).sort()).toEqual(["fable", "opus", "sol"])
       const runs = f.runs()
       const first = runs.findIndex(({ text }) => text.includes("Independent answers"))
       // The merger was refused, parked and asked again; no member was asked after it first was.

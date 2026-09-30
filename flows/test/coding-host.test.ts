@@ -196,12 +196,12 @@ test("repository seats win for the roles they name and add roles its flows decla
   }
   const roles = roleResolver(base, "test:implementation", {
     planningModel: "test:planning",
-    seats: { "coding/implement": "luna", "coding/plan": "sol", triage: "luna", review: "astra" }
+    seats: { "coding/implement": "luna", "coding/plan": "sol", triage: "luna", review: "opus" }
   })
   for (const id of ["coding/implement", "coding/plan", "coding/poc", "triage", "review", "repository/author"]) {
     assert.equal((await Effect.runPromise(roles.resolve(id))).id, id)
   }
-  assert.deepEqual(resolved, ["luna", "sol", "test:implementation", "luna", "astra", "test:implementation"])
+  assert.deepEqual(resolved, ["luna", "sol", "test:implementation", "luna", "opus", "test:implementation"])
 })
 
 test("an undeclared or auto flow routes by the graph over the host's seats, and a declared role is kept", async () => {
@@ -253,7 +253,7 @@ test("an undeclared or auto flow routes by the graph over the host's seats, and 
   // AgentSession routes a flow with no `model:` exactly as `model: auto`.
   const undeclared = await routed(Seat.auto, "Rename one variable")
   assert.equal(undeclared.decision.decidedBy, "jev")
-  assert.deepEqual(undeclared.decision.candidates, ["luna", "sol", "astra", "opus", "fable", "sonnet"])
+  assert.deepEqual(undeclared.decision.candidates, ["luna", "sol", "opus", "fable", "sonnet"])
   assert.deepEqual([undeclared.decision.seat, undeclared.decision.backups], ["sonnet", []])
   assert.equal(undeclared.seat.modelId, "sonnet")
   const auto = await routed(Seat.auto, "Summarize the Anthropic thread")

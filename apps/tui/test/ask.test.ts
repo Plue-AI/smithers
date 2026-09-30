@@ -30,7 +30,7 @@ function runAsk(
     seat: options.seat,
     defaultSeat: options.defaultSeat === undefined ? "test:default" : options.defaultSeat,
     expectedSeat: options.expectedSeat ?? options.seat ?? (options.defaultSeat === null
-      ? "openai:gpt-6-sol"
+      ? "openai:gpt-6.1-sol"
       : options.defaultSeat ?? "test:default"),
     record: options.record ?? true,
     asyncEvents: options.asyncEvents ?? false,
@@ -41,7 +41,8 @@ function runAsk(
     import { mock } from "bun:test"
     const config = ${JSON.stringify(config)}
     mock.module(${JSON.stringify(join(source, "models.ts"))}, () => ({
-      detect: async () => ({ environment: {}, defaultSeat: config.defaultSeat })
+      detect: async () => ({ environment: {}, defaultSeat: config.defaultSeat }),
+      delegateModels: { sol: "openai:gpt-6.1-sol" }
     }))
     mock.module(${JSON.stringify(join(source, "approvals.ts"))}, () => ({ mode: () => config.approval }))
     mock.module(${JSON.stringify(join(source, "budget.ts"))}, () => ({ policy: () => config.budget }))

@@ -11,7 +11,7 @@ const tab = (id: string, status: Tab["status"], extra: Partial<Tab> = {}): Tab =
   title: id,
   prompt: id,
   depth: extra.parent === undefined ? 1 : 2,
-  seat: "openai:gpt-6-sol",
+  seat: "openai:gpt-6.1-sol",
   file: `/tmp/${id}.jsonl`,
   status,
   startedAt: now - 60_000,

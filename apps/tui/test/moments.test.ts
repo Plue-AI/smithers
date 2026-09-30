@@ -12,7 +12,7 @@ const tab = (id: string, status: Tab["status"], extra: Partial<Tab> = {}): Tab =
   title: id,
   prompt: id,
   depth: 1,
-  seat: "openai:gpt-6-sol",
+  seat: "openai:gpt-6.1-sol",
   file: `/tmp/${id}.jsonl`,
   status,
   startedAt: now - 60_000,
@@ -59,13 +59,13 @@ it("peeks at a park with its reset and count, a backup seat, and a failure with 
         tab("p", "parked", {
           wakeAt: new Date(2026, 8, 28, 14, 5).getTime(),
           parks: 3,
-          activeSeat: "openai:gpt-6.1-sol"
+          activeSeat: "openai:gpt-6-luna"
         })
       ),
       () => Transcript.empty
     )
   )
-    .toEqual(["parked · resets 14:05 · 3/8", "sol → sol"])
+    .toEqual(["parked · resets 14:05 · 3/8", "sol → luna"])
   expect(
     Inbox.peek(
       row(

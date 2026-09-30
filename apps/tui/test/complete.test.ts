@@ -18,7 +18,7 @@ describe("fuzzy", () => {
   it("matches letters in order and ranks runs and word starts first", () => {
     expect(Fuzzy.score("xyz", "model")).toBeUndefined()
     expect(Fuzzy.filter(["session", "resume", "new"], "se", (each) => each)).toEqual(["session", "resume"])
-    expect(Fuzzy.filter(["GPT-6.1 Sol", "GPT-6 Sol"], "sol", (each) => each)).toEqual(["GPT-6 Sol"])
+    expect(Fuzzy.filter(["GPT-6 Luna", "GPT-6 Sol"], "sol", (each) => each)).toEqual(["GPT-6 Sol"])
   })
 
   it("requires every space-separated token", () => {

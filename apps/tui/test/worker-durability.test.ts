@@ -45,21 +45,21 @@ describe("worker durability", () => {
   it("fails a worker over to the routing graph's backups that run here, and honors the override", () => {
     const available = {
       models: [
-        { seat: "openai:gpt-6-sol", provider: "ChatGPT", label: "Sol" },
+        { seat: "openai:gpt-6.1-sol", provider: "ChatGPT", label: "Sol" },
         { seat: "anthropic:claude-opus-5-5", provider: "Anthropic", label: "Opus" },
         { seat: "cerebras:qwen", provider: "Cerebras", label: "Qwen" }
       ],
-      defaultSeat: "openai:gpt-6-sol",
-      workerSeat: "openai:gpt-6-sol",
+      defaultSeat: "openai:gpt-6.1-sol",
+      workerSeat: "openai:gpt-6.1-sol",
       environment: {}
     }
     expect(workerFallbackSeats("anthropic:claude-opus-5-5", available, {})).toEqual(["sol"])
     expect(workerFallbackSeats("claude-code:fable", available, {})).toEqual(["sol"])
     // Kimi, Sol's backup, does not run here; a seat off the graph has none.
-    expect(workerFallbackSeats("openai:gpt-6-sol", available, {})).toEqual([])
+    expect(workerFallbackSeats("openai:gpt-6.1-sol", available, {})).toEqual([])
     expect(workerFallbackSeats("cerebras:qwen", available, {})).toEqual([])
     expect(
-      workerFallbackSeats("openai:gpt-6-sol", available, { SMITHERS_TUI_WORKER_SEATS: "other:a,anthropic:claude" })
+      workerFallbackSeats("openai:gpt-6.1-sol", available, { SMITHERS_TUI_WORKER_SEATS: "other:a,anthropic:claude" })
     )
       .toEqual(["other:a", "anthropic:claude"])
     // A routed worker fails over along its route, and the operator's order still wins.
@@ -83,7 +83,7 @@ describe("worker durability", () => {
       inputs[0]!.onEvent(
         new AgentEvent.ModelParked({
           eventType: "flows.harness.model-parked.v1",
-          seat: "openai:gpt-6-sol",
+          seat: "openai:gpt-6.1-sol",
           wakeAt,
           source: "retry-after",
           code: "rate_limited"
@@ -132,7 +132,7 @@ describe("worker durability", () => {
               input.onEvent(
                 new AgentEvent.ModelParked({
                   eventType: "flows.harness.model-parked.v1",
-                  seat: "openai:gpt-6-sol",
+                  seat: "openai:gpt-6.1-sol",
                   wakeAt: Date.now() + 60_000,
                   source: "retry-after",
                   code: "rate_limited"
@@ -177,7 +177,7 @@ describe("worker durability", () => {
     input!.onEvent(
       new AgentEvent.ModelParked({
         eventType: "flows.harness.model-parked.v1",
-        seat: "openai:gpt-6-sol",
+        seat: "openai:gpt-6.1-sol",
         wakeAt: Date.now() + 1,
         source: "reset",
         code: "rate_limited"
@@ -186,7 +186,7 @@ describe("worker durability", () => {
     input!.onEvent(
       new AgentEvent.ModelUnparked({
         eventType: "flows.harness.model-unparked.v1",
-        seat: "openai:gpt-6-sol",
+        seat: "openai:gpt-6.1-sol",
         at: Date.now()
       })
     )
@@ -213,7 +213,7 @@ describe("worker durability", () => {
     input!.onEvent(
       new AgentEvent.ModelParked({
         eventType: "flows.harness.model-parked.v1",
-        seat: "openai:gpt-6-sol",
+        seat: "openai:gpt-6.1-sol",
         wakeAt: Date.UTC(2026, 8, 30, 21),
         source: "reset",
         code: "rate_limited"
@@ -227,7 +227,7 @@ describe("worker durability", () => {
     input!.onEvent(
       new AgentEvent.ModelUnparked({
         eventType: "flows.harness.model-unparked.v1",
-        seat: "openai:gpt-6-sol",
+        seat: "openai:gpt-6.1-sol",
         at: Date.UTC(2026, 8, 30, 21)
       })
     )
@@ -235,7 +235,7 @@ describe("worker durability", () => {
     input!.onEvent(
       new AgentEvent.SeatFailedOver({
         eventType: "flows.harness.seat-failed-over.v1",
-        from: "openai:gpt-6-sol",
+        from: "openai:gpt-6.1-sol",
         to: "anthropic:claude",
         code: "rate_limited"
       })
@@ -268,7 +268,7 @@ describe("worker durability", () => {
     inputs[0]!.onEvent(
       new AgentEvent.ModelParked({
         eventType: "flows.harness.model-parked.v1",
-        seat: "openai:gpt-6-sol",
+        seat: "openai:gpt-6.1-sol",
         wakeAt: Date.now() + 80,
         source: "reset",
         code: "rate_limited"
@@ -296,7 +296,7 @@ describe("worker durability", () => {
     inputs.get("worker-0")!.onEvent(
       new AgentEvent.ModelParked({
         eventType: "flows.harness.model-parked.v1",
-        seat: "openai:gpt-6-sol",
+        seat: "openai:gpt-6.1-sol",
         wakeAt: Date.now() + 60_000,
         source: "reset",
         code: "rate_limited"
@@ -335,7 +335,7 @@ describe("worker durability", () => {
     append(5, { _tag: "cell-printed", text: "one" })
     f.workspace.retry(request.id)
     await tick()
-    expect(inputs[1]?.seat).toBe("openai:gpt-6-sol")
+    expect(inputs[1]?.seat).toBe("openai:gpt-6.1-sol")
     expect(
       inputs[1]?.history.some((entry) => entry.kind === "exchange" && entry.answer.includes("raw provider response"))
     ).toBe(true)
@@ -376,7 +376,7 @@ describe("worker durability", () => {
     firstInput!.onEvent(
       new AgentEvent.ModelParked({
         eventType: "flows.harness.model-parked.v1",
-        seat: "openai:gpt-6-sol",
+        seat: "openai:gpt-6.1-sol",
         wakeAt: Date.now() + 80,
         source: "reset",
         code: "rate_limited"
@@ -391,7 +391,7 @@ describe("worker durability", () => {
     expect(restored.workspace.snapshot().tabs[0]?.status).toBe("parked")
     expect(relaunched).toBeUndefined()
     await new Promise((resolve) => setTimeout(resolve, 110))
-    expect(relaunched?.seat).toBe("openai:gpt-6-sol")
+    expect(relaunched?.seat).toBe("openai:gpt-6.1-sol")
     expect(relaunched?.history.some((entry) => entry.kind === "exchange" && entry.user === request.prompt)).toBe(true)
     expect(restored.workspace.snapshot().tabs[0]?.status).toBe("running")
   })
@@ -422,7 +422,7 @@ describe("worker durability", () => {
     expect(f.workspace.snapshot().tabs[0]?.status).toBe("parked")
     await new Promise((resolve) => setTimeout(resolve, 110))
     expect(inputs).toHaveLength(2)
-    expect(inputs[1]?.seat).toBe("openai:gpt-6-sol")
+    expect(inputs[1]?.seat).toBe("openai:gpt-6.1-sol")
     expect(f.workspace.snapshot().tabs[0]?.status).toBe("running")
   })
 
@@ -543,7 +543,7 @@ describe("worker durability", () => {
     inputs[0]!.onEvent(
       new AgentEvent.ModelParked({
         eventType: "flows.harness.model-parked.v1",
-        seat: "openai:gpt-6-sol",
+        seat: "openai:gpt-6.1-sol",
         wakeAt: Date.now() + 60_000,
         source: "reset",
         code: "rate_limited"
@@ -592,7 +592,7 @@ describe("worker durability", () => {
     inputs.get("worker-0")!.onEvent(
       new AgentEvent.ModelParked({
         eventType: "flows.harness.model-parked.v1",
-        seat: "openai:gpt-6-sol",
+        seat: "openai:gpt-6.1-sol",
         wakeAt: Date.now() + 1,
         source: "reset",
         code: "rate_limited"
@@ -603,7 +603,7 @@ describe("worker durability", () => {
     const resumed = inputs.get("worker-0")!.onEvent(
       new AgentEvent.ModelUnparked({
         eventType: "flows.harness.model-unparked.v1",
-        seat: "openai:gpt-6-sol",
+        seat: "openai:gpt-6.1-sol",
         at: Date.now()
       })
     )

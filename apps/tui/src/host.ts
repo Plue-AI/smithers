@@ -826,7 +826,7 @@ export const turnOptions = (
   const allowed = agent === undefined || agent.flows.length === 0 ? undefined : new Set(agent.flows)
   const reasoningEffort = input.thinking ?? agent?.thinking ??
     (input.role === "coordinator" &&
-        (input.seat.startsWith("cerebras:") || input.seat === "openai:gpt-6-sol") ?
+        (input.seat.startsWith("cerebras:") || input.seat === delegateModels.sol) ?
       "low" :
       undefined)
   const asker = input.runtime?.ask

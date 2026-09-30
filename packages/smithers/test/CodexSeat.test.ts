@@ -494,11 +494,11 @@ exit "$(/bin/cat "\${0%/*}/exit")"
     const first = Providers.codexLogin(codex.environment)
     expect(Providers.codexLogin({ ...codex.environment })).toBe(first)
     const seats = await Promise.all(
-      ["codex:sol", "codex:astra", "codex:luna"].map((seat) =>
+      ["codex:sol", "codex:luna"].map((seat) =>
         Effect.runPromise(resolve({ ...codex.environment }, seat))
       )
     )
-    expect(seats.map((seat) => seat.id)).toEqual(["codex:sol", "codex:astra", "codex:luna"])
+    expect(seats.map((seat) => seat.id)).toEqual(["codex:sol", "codex:luna"])
     expect(await first).toMatchObject({ loggedIn: true })
     expect(probes(codex.root)).toHaveLength(1)
   })

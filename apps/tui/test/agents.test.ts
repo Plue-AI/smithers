@@ -71,7 +71,7 @@ describe("profile", () => {
     expect(profile).toMatchObject({
       name: "review",
       digest: body.digest,
-      seat: "openai:gpt-6-sol",
+      seat: "openai:gpt-6.1-sol",
       thinking: "high",
       flows: ["read", "bash"],
       envelope: ["fs:read:**"]

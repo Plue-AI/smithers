@@ -36,13 +36,13 @@ const tab = (id: string, status: Tabs.Status, extra: Partial<Tab> = {}): Tab =>
     id,
     title: `Worker ${id}`,
     prompt: `Do ${id}.`,
-    seat: "openai:gpt-6-sol",
+    seat: "openai:gpt-6.1-sol",
     file: `/tmp/${id}.jsonl`,
     status: status as Tab["status"],
     startedAt: 1_000,
     ...extra
   }) as Tab
-const models = [{ seat: "openai:gpt-6-sol", label: "GPT-6 Sol", provider: "openai" }]
+const models = [{ seat: "openai:gpt-6.1-sol", label: "GPT-6.1 Sol", provider: "openai" }]
 
 describe("worker status", () => {
   it("draws the shared subagent glyph in this palette", () => {
@@ -71,7 +71,7 @@ describe("worker status", () => {
   })
 
   it("names the model by its delegate alias, its label, then its id", () => {
-    expect(Tabs.model("openai:gpt-6-sol", models)).toBe("sol")
+    expect(Tabs.model("openai:gpt-6.1-sol", models)).toBe("sol")
     expect(Tabs.model("anthropic:claude-x", [{ seat: "anthropic:claude-x", label: "Claude X", provider: "anthropic" }]))
       .toBe("Claude X")
     expect(Tabs.model("test:worker", [])).toBe("worker")
@@ -472,9 +472,9 @@ describe("WorkerView", () => {
 
 describe("seat names", () => {
   it("names a wrapped worker by its vendor and any other by its model", () => {
-    const base = { seat: "openai:gpt-6-sol" }
+    const base = { seat: "openai:gpt-6.1-sol" }
     expect(Tabs.seatName(base, [])).toBe("sol")
     expect(Tabs.seatName({ ...base, harness: { vendor: "claude" } }, [])).toBe("claude")
-    expect(Tabs.seatName({ ...base, activeSeat: "openai:gpt-6.1-sol" }, [])).toBe("astra")
+    expect(Tabs.seatName({ ...base, activeSeat: "openai:gpt-6-luna" }, [])).toBe("luna")
   })
 })

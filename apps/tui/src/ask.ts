@@ -39,7 +39,7 @@ const host = Host.make({
 })
 const turn = host.run({
   prompt,
-  seat: process.argv[3] ?? available.defaultSeat ?? "openai:gpt-6-sol",
+  seat: process.argv[3] ?? available.defaultSeat ?? Models.delegateModels.sol,
   history: [],
   onEvent: (event) => {
     if (record !== undefined) appendFileSync(record, JSON.stringify({ at: Date.now(), event }) + "\n")

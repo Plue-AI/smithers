@@ -14,15 +14,14 @@ describe("seatOf", () => {
   const available: ReadonlyArray<Models.Model> = [{ seat: "test:worker", label: "Test", provider: "Test" }]
   test.each(
     [
-      ["sol", "openai:gpt-6-sol"],
-      ["astra", "openai:gpt-6.1-sol"],
+      ["sol", "openai:gpt-6.1-sol"],
       ["luna", Models.delegateModels.luna],
       // A Claude alias stays an alias: the seat resolver runs it on a key or on Claude Code.
       ["opus", "opus"],
       ["fable", "fable"],
       [" Sonnet ", "sonnet"],
       ["qwen", Models.delegateModels.cerebras],
-      [" Sol ", "openai:gpt-6-sol"],
+      [" Sol ", "openai:gpt-6.1-sol"],
       ["openai:gpt-6-sol", "openai:gpt-6-sol"],
       ["anthropic:claude-opus-5-5", "anthropic:claude-opus-5-5"],
       ["cerebras:gpt-oss-120b", "cerebras:gpt-oss-120b"],
@@ -95,7 +94,7 @@ describe("routing", () => {
 
   test("offers the routing graph's seats whose provider runs here", () => {
     const service = Models.routing(available, {}, true)!
-    expect(Effect.runSync(service.candidates)).toEqual(["luna", "sol", "astra"])
+    expect(Effect.runSync(service.candidates)).toEqual(["luna", "sol"])
   })
 
   test("offers the Claude seats on Claude Code as on an Anthropic key", () => {

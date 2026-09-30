@@ -936,7 +936,7 @@ describe("routed workers", () => {
     await tick()
     f.workspace.retry("fix")
     await tick()
-    expect(f.descriptions.map(({ seat }) => seat)).toEqual(["sol"])
+    expect(f.descriptions.map(({ seat }) => seat)).toEqual(["sol", "sol"])
     f.descriptions[1]!.resolve("Newer attempt")
     await tick()
     f.descriptions[0]!.resolve("Earlier attempt")

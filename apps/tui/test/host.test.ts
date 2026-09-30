@@ -1324,7 +1324,6 @@ describe("Host.run seat routing", () => {
     expect(routed?._tag === "seat-routed" && routed.candidates).toEqual([
       "luna",
       "sol",
-      "sol",
       "opus",
       "fable",
       "sonnet"
