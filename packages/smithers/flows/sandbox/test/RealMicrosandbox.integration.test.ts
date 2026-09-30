@@ -3,6 +3,10 @@ import { Edit, Write } from "@smthrs/std"
 import { Cause, Effect, Fiber, FileSystem, Path, Stream } from "effect"
 import * as Microsandbox from "microsandbox"
 import { accessSync, constants } from "node:fs"
+import { createServer } from "node:http"
+import type { AddressInfo } from "node:net"
+import { networkInterfaces } from "node:os"
+import { fileURLToPath } from "node:url"
 import { elapsed } from "../src/internal/deadline.ts"
 import * as MicrosandboxSandbox from "../src/MicrosandboxSandbox/index.ts"
 import type { ProviderError } from "../src/RemoteChildProcessSpawner/ProviderError.ts"
@@ -149,6 +153,133 @@ describe.skipIf(!available)("MicrosandboxSandbox against a real microVM", () => 
           provides: { ping: true, kill: true, interrupt: true, ephemeral: true }
         })
         expect(violations).toEqual([])
+      }),
+    budget
+  )
+
+  it.effect(
+    "hides host paths and the host's environment and refuses egress without a network",
+    () =>
+      Effect.gen(function*() {
+        const variable = "SMITHERS_TEST_HOST_CREDENTIAL"
+        const credential = `host-only-${session}`
+        process.env[variable] = credential
+        try {
+          const provider = machine({ network: "none" })
+          const violations = yield* SandboxConformance.check(provider, {
+            session: `${session}-isolated`,
+            checkTimeout: "240 seconds",
+            isolation: {
+              // This file exists on the host and nowhere in the image.
+              hostSentinel: fileURLToPath(import.meta.url),
+              egressProbe: `bun -e 'await fetch("https://example.com", { signal: AbortSignal.timeout(5000) })'`
+            }
+          })
+          expect(violations).toEqual([])
+          const seen = yield* Effect.scoped(Effect.flatMap(
+            provider.acquire(`${session}-environment`),
+            (live) =>
+              Effect.scoped(Effect.flatMap(
+                live.spawn(`env | grep -c '${credential}'; test -e /Users; echo users=$?`, {}),
+                (running) => Stream.mkString(Stream.decodeText(running.stdout))
+              ))
+          ))
+          expect(seen).toBe("0\nusers=1\n")
+        } finally {
+          delete process.env[variable]
+        }
+      }),
+    budget
+  )
+
+  it.live(
+    "reaches only allowlisted hosts, and never a service on the host or its network",
+    () =>
+      Effect.gen(function*() {
+        const fetches = (url: string) =>
+          `bun -e 'const r = await fetch("${url}", { signal: AbortSignal.timeout(5000) }); ` +
+          `console.log(r.status, (await r.text()).slice(0, 20))' >/dev/null 2>&1; echo $?`
+        const probe = (
+          options: Partial<MicrosandboxSandbox.MicrosandboxSandboxOptions>,
+          key: string,
+          command: string
+        ) =>
+          Effect.scoped(Effect.flatMap(
+            machine(options).acquire(`${session}-${key}`),
+            (live) =>
+              Effect.scoped(Effect.flatMap(
+                live.spawn(command, {}),
+                (running) => Stream.mkString(Stream.decodeText(running.stdout))
+              ))
+          ))
+
+        // An allowlist admits the listed host and nothing else.
+        const allowed = yield* probe(
+          { network: { allow: ["registry.npmjs.org"] } },
+          "allowlisted",
+          `${fetches("https://registry.npmjs.org/")}; ${fetches("https://example.com/")}`
+        )
+        expect(allowed).toBe("0\n1\n")
+
+        // Under the default policy the public internet answers, but a service
+        // listening on every host address does not, by loopback or by LAN.
+        const server = createServer((_request, response) => response.end("host service"))
+        yield* Effect.callback<void>((resume) => {
+          server.listen(0, "0.0.0.0", () => resume(Effect.void))
+        })
+        try {
+          const port = (server.address() as AddressInfo).port
+          const lan = Object.values(networkInterfaces()).flat()
+            .find((address) => address !== undefined && address.family === "IPv4" && !address.internal)?.address
+          const targets = [`http://127.0.0.1:${port}/`, ...lan === undefined ? [] : [`http://${lan}:${port}/`]]
+          const seen = yield* probe(
+            {},
+            "default-network",
+            [fetches("https://example.com/"), ...targets.map(fetches)].join("; ")
+          )
+          expect(seen).toBe(`0\n${targets.map(() => "1\n").join("")}`)
+        } finally {
+          server.close()
+        }
+      }),
+    budget
+  )
+
+  it.live(
+    "holds a machine to its CPU, memory, disk, and lifetime ceilings",
+    () =>
+      Effect.gen(function*() {
+        const measured = yield* Effect.scoped(Effect.flatMap(
+          machine({ limits: { cpus: 2, memoryMib: 1024 }, rootDiskMib: 1024 }).acquire(`${session}-limits`),
+          (live) =>
+            Effect.scoped(Effect.flatMap(
+              live.spawn(
+                "nproc; awk '/MemTotal/ { print $2 }' /proc/meminfo; df -m / | awk 'NR == 2 { print $2 }'; " +
+                  "bun -e 'const kept = []; for (;;) kept.push(Buffer.alloc(32 << 20, 1))' 2>/dev/null; echo $?; " +
+                  "dd if=/dev/zero of=fill bs=1M count=2048 2>/dev/null; echo $?; rm -f fill",
+                {}
+              ),
+              (running) => Stream.mkString(Stream.decodeText(running.stdout))
+            ))
+        ))
+        const [cpus, memoryKib, diskMib, allocation, fill] = measured.trim().split("\n").map(Number)
+        expect(cpus).toBe(2)
+        expect(memoryKib).toBeGreaterThan(768 * 1024)
+        expect(memoryKib).toBeLessThanOrEqual(1024 * 1024)
+        expect(diskMib).toBeLessThanOrEqual(1024)
+        // The guest kernel kills the runaway allocation; the disk refuses the fill.
+        expect(allocation).toBe(137)
+        expect(fill).not.toBe(0)
+
+        // The lifetime ceiling ends the machine under a command that outlives it.
+        const began = Date.now()
+        const ended = yield* Effect.scoped(Effect.flatMap(
+          machine({ maxDurationSecs: undefined, limits: { timeoutSecs: 20 } }).acquire(`${session}-lifetime`),
+          (live) =>
+            Effect.scoped(Effect.flatMap(live.spawn("sleep 120", {}), (running) => Effect.flip(running.exitCode)))
+        )).pipe(Effect.timeout("90 seconds"))
+        expect(ended.code).toBe("unavailable")
+        expect(Date.now() - began).toBeLessThan(90_000)
       }),
     budget
   )
