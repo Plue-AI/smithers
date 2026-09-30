@@ -1,6 +1,7 @@
 import { describe, expect, it } from "@effect/vitest"
 import { isJjError, Jj } from "@smthrs/jj"
 import * as HttpClient from "@smthrs/kernel/HttpClient"
+import * as ProcessConfinement from "@smthrs/kernel/ProcessConfinement"
 import * as BrowserFileSystem from "@smthrs/platform-browser/BrowserFileSystem"
 import { Clock, Effect, FileSystem, Random, Stream } from "effect"
 import { TestClock } from "effect/testing"
@@ -317,3 +318,21 @@ describe("TestHost scripted interpreter latency", () => {
     await expect(bash.exec("pending", { signal: controller.signal })).rejects.toThrow("scope already closed")
   })
 })
+
+it.effect("deterministic host explicitly opts out of operating-system confinement", () =>
+  Effect.scoped(
+    Effect.gen(function*() {
+      const confinement = yield* ProcessConfinement.ProcessConfinement
+      const command = ChildProcess.make("scripted")
+      expect(confinement).toBe(ProcessConfinement.makeNoop)
+      expect(
+        yield* confinement.confine(command, {
+          workspaceRoot: "/workspace",
+          reads: [],
+          writes: [],
+          readOnly: [],
+          network: "none"
+        })
+      ).toBe(command)
+    }).pipe(Effect.provide(TestHost.layer()))
+  ))
