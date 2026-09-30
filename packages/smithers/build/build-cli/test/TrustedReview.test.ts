@@ -6,7 +6,7 @@ import * as Fs from "node:fs/promises"
 import * as Os from "node:os"
 import * as NodePath from "node:path"
 import { afterAll, describe, expect, it } from "vitest"
-import { prepare, run } from "../src/TrustedReview.ts"
+import { defaultProposedBudget, prepare, run } from "../src/TrustedReview.ts"
 import { serve } from "./helpers/ServeCli.ts"
 
 const temporaryDirectories: Array<string> = []
@@ -298,7 +298,7 @@ describe("TrustedReview Git boundary", () => {
       budget: { modelCalls: 3, wallMs: 60_000 }
     })
 
-    // A proposed target with no trusted counterpart carries no budget of its own choosing either.
+    // A proposed target with no trusted counterpart runs under the trusted default budget, never its own.
     const added = await fixture()
     await write(
       added.root,
@@ -312,7 +312,8 @@ describe("TrustedReview Git boundary", () => {
     git(added.root, "commit", "-qm", "new review target with its own budget")
     const next = await prepare(options(added.root, added.trusted, git(added.root, "rev-parse", "HEAD")))
     const audit = next.policies.find(({ label }) => label === "//:audit#proposed-checks")!.payload as object
-    expect(Object.hasOwn(audit, "budget")).toBe(false)
+    expect(audit).toMatchObject({ budget: defaultProposedBudget })
+    expect(defaultProposedBudget).toEqual({ modelCalls: 128, promptTokens: 8_000_000, wallMs: 1_800_000 })
     expect(Object.hasOwn(audit, "required")).toBe(false)
   })
 

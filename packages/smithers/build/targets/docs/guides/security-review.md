@@ -215,8 +215,10 @@ A change to a review's policy in the target index also runs
 `<label>#proposed-checks`: the proposed prompt, rubric and checks over every
 file they include that a trusted policy already reviews, on the trusted engine
 and model and under the trusted policy's context window, budget and `required`
-gate. A proposal cannot widen what reaches the provider or what the review
-spends, and the active trusted policy still gates the change.
+gate. A review target the trusted index lacks, or one whose trusted policy
+declares no budget, runs under the default of 128 model calls, 8,000,000 prompt
+tokens and 30 minutes. A proposal cannot widen what reaches the provider or what
+the review spends, and the active trusted policy still gates the change.
 
 ## Cost and CI
 

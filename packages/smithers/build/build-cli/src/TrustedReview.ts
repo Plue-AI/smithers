@@ -76,6 +76,18 @@ const payloadOf = (attrs: LlmLint.Attrs, base: string): LlmLint.Payload => ({
   scope: attrs.scope
 })
 
+/**
+ * The budget a proposed-check review runs under when its trusted policy declares
+ * none, a new review target's included: a candidate never chooses its own spend.
+ * @category constants
+ * @since 1.0.0
+ */
+export const defaultProposedBudget: LlmLint.ReviewBudget = {
+  modelCalls: 128,
+  promptTokens: 8_000_000,
+  wallMs: 30 * 60_000
+}
+
 /** Whether a Git path is a normalized workspace path a review snapshot can carry. */
 const usablePath = (path: string): boolean => {
   try {
@@ -262,7 +274,7 @@ export const prepare = async (options: Options) => {
           engine: trusted?.engine ?? "claude",
           model: trusted?.model ?? SecurityReview.defaultClaudeModel,
           ...(trusted?.contextTokens === undefined ? {} : { contextTokens: trusted.contextTokens }),
-          ...(trusted?.budget === undefined ? {} : { budget: trusted.budget }),
+          budget: trusted?.budget ?? defaultProposedBudget,
           ...(trusted?.required === undefined ? {} : { required: trusted.required }),
           scope: "all"
         },
