@@ -401,7 +401,8 @@ model, clock and tokens, and buttons for the actions its status allows:
 **Alt+X** Stop, **Alt+R** Resume, **Alt+M** Switch model, **Alt+W** Wait for reset, **Alt+S**
 Steer. Its composer starts focused; typing and pasting return to it after Tab
 selects transcript rows. Its transcript is drawn with the chat's own cells;
-**Alt+V** and **Alt+U** review and undo its run. A worker's toast reads like its card
+**Alt+V** and **Alt+U** review and undo its run. Esc closes file completion
+before returning to Chat. A worker's toast reads like its card
 (`◐ title · 42s`) with Stop and Steer.
 
 Type in a finished worker's tab to continue its conversation. Wrapped workers

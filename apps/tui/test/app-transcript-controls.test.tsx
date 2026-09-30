@@ -5,7 +5,7 @@ import * as Cell from "@smthrs/harness/Cell"
 import * as ModelRequest from "@smthrs/model/ModelRequest"
 import { afterEach, beforeEach, expect, test } from "bun:test"
 import { Effect } from "effect"
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs"
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { setImmediate, setTimeout as timerPhase } from "node:timers/promises"
@@ -370,6 +370,41 @@ const drainDeferredScroll = async () => {
 const inserts = (index: number) =>
   Effect.runSync(turns[index]!.input.steering!.drain({ boundary: "worker-cell", wouldIdle: false })).inserts
     .map((message) => message.content.flatMap((part) => part.type === "text" ? [part.text] : []).join(""))
+
+test.each([24, 32])(
+  "Escape dismisses completion before leaving an agent and Enter keeps its target at 80×%i",
+  async (height) => {
+    mkdirSync(join(cwd, "src"))
+    writeFileSync(join(cwd, "src/app.ts"), "export const fixture = true\n")
+    await mount(height, 80)
+    await command("Coordinate both agents")
+    await delegate("agent-a", "Agent A")
+    await delegate("agent-b", "Agent B")
+    await key("ARROW_RIGHT", { ctrl: true })
+    await key("ARROW_RIGHT", { ctrl: true })
+    expect(frame()).toContain("Continue Agent A")
+    await type("explain @src/app")
+    await visibleRow("src/app.ts")
+    expect(frame()).toContain("tab Complete")
+    expect(frame()).toContain("enter Choose")
+    expect(frame()).not.toContain("esc Chat")
+    await key("ESCAPE")
+    await drainDeferredScroll()
+    expect(frame()).not.toContain("src/app.ts")
+    expect(frame()).not.toContain("tab Complete")
+    expect(frame()).toContain("Subagent · Agent A")
+    expect(frame()).toContain("steer ↳ Agent A")
+    expect(composer().plainText).toBe("explain @src/app")
+    expect(composer().focused).toBe(true)
+    await key("RETURN")
+    expect(inserts(1)).toEqual(["explain @src/app"])
+    expect(inserts(2)).toEqual([])
+    expect(inserts(0)).toEqual([])
+    expect(turns).toHaveLength(3)
+    expect(composer().plainText).toBe("")
+    expect(frame()).toContain("Continue Agent A")
+  }
+)
 
 test("starting inspection in a different agent returns to that agent and submits to its composer", async () => {
   await mount()

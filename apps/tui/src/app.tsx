@@ -2173,7 +2173,10 @@ export function App(props: AppProps) {
       }
       if (key.name === "escape") {
         key.preventDefault()
-        return flushSync(() => showTab("chat"))
+        return flushSync(() => {
+          if (completing !== undefined && !panelFocus) dismissMenu()
+          else showTab("chat")
+        })
       }
       if (key.name === "tab" && !key.shift && !key.ctrl && !key.meta && !key.option && completing === undefined) {
         key.preventDefault()
@@ -2565,6 +2568,8 @@ export function App(props: AppProps) {
         merged.filter((binding) => binding.id === offer.id).map((binding) => ({ ...binding, label: offer.label }))
       )
       : []
+    : footerContext === "completion"
+    ? Keys.hintsFor(footerContext, merged)
     : driven !== undefined && !panelFocus && picker === undefined && form === undefined &&
         activeInspection === undefined
     ? [
