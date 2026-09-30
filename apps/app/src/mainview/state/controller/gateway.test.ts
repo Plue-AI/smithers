@@ -586,6 +586,29 @@ describe("a flow's measured durations", () => {
   })
 })
 
+test("a USD budget park keeps its raised dollar ceiling from the inbox read to the submitted approval", async () => {
+  const target = {
+    _tag: "Node" as const, runId: "run-1", requestId: "budget/run-1/usd", digest: "d",
+    envelope: { capabilities: [], flows: [], budget: { usd: 2.2, onExceeded: "park" as const } }
+  }
+  const row = {
+    runId: "run-1", requestId: target.requestId, title: "Raise the USD budget from $1.00 to $2.20?", request: { question: "Raise the USD budget from $1.00 to $2.20?" },
+    requestedAt: 1, status: "pending" as const, payload: { target, scope: "once" as const, idempotencyKey: "approve:budget" }
+  }
+  const { seam, calls } = relay({
+    "Projection.Snapshot": rowsAnswer([row]),
+    "Approval.Submit": { ok: true, payload: { decision: { _tag: "Accepted", receiptId: "approve:budget", runId: "run-1" } } }
+  })
+  const inbox = await seam.approvalsInbox("o/r")
+  expect(inbox).toEqual({ status: "ok", value: [row] })
+  if (inbox.status !== "ok") throw new Error("expected the inbox")
+  expect(await seam.submitApproval("o/r", inbox.value[0]!.payload, "approve")).toMatchObject({ status: "ok" })
+  expect(calls[1]).toMatchObject({
+    procedure: "Approval.Submit",
+    payload: { target: { envelope: { budget: { usd: 2.2, onExceeded: "park" } } }, decision: "approve" }
+  })
+})
+
 test("registration inbox pages retain the registrant's workspace and canonical approval", async () => {
   const row = {
     runId: "run-1", requestId: "register-repository/review#1", title: "Register someone/repo?", request: { name: "register-repository/review" },

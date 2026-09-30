@@ -654,6 +654,31 @@ describe("unified control dispatch", () => {
     }])
   })
 
+  it("lists a USD budget park with its dollar question and the payload that raises it", async () => {
+    const raise = {
+      target: {
+        _tag: "Node",
+        runId: "run-1",
+        requestId: "budget/run-1/usd",
+        digest: "d",
+        envelope: { capabilities: [], flows: [], budget: { usd: 2.2, onExceeded: "park" } }
+      },
+      scope: "once",
+      idempotencyKey: "approve:budget"
+    }
+    ports.list.mockReturnValueOnce(Effect.succeed({ _tag: "runs", items: [row("run-1", "waiting-approval")] }))
+    ports.watch.mockReturnValue(Stream.fromIterable([
+      event(2, "control.approval.requested", { question: "Raise the USD budget from $1.00 to $2.20?", payload: raise })
+    ]))
+    const result = await invoke(["approvals", "list", "--json"])
+    expect(JSON.parse(result.stdout)).toEqual([{
+      runId: "run-1",
+      flowId: "demo/ship",
+      question: "Raise the USD budget from $1.00 to $2.20?",
+      approval: JSON.stringify(raise)
+    }])
+  })
+
   it("refuses a malformed pending-approval page", async () => {
     ports.list.mockReturnValue(Effect.succeed({ _tag: "flows", items: [] }))
     const result = await invoke(["approvals", "list", "--json"])

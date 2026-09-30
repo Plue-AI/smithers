@@ -455,6 +455,51 @@ describe("GatewayProjection.approvals", () => {
     }
   }
 
+  /**
+   * A USD budget park, as `AgentSession` commits it: the dollar question, the
+   * raised `usd` ceiling in the target envelope, and the frozen incident. The
+   * row is what an inbox approves, so the raise must survive the projection
+   * and the wire unchanged.
+   */
+  it("carries a USD park's dollar question and raised ceiling to the decision it submits", () => {
+    const target = {
+      _tag: "Node" as const,
+      runId: "run-1",
+      requestId: "budget/run-1/usd",
+      digest: "d",
+      envelope: { capabilities: [], flows: [], budget: { usd: 2.2, tokens: 5_000, onExceeded: "park" as const } }
+    }
+    const requested = event("control.approval.requested", {
+      runId: "run-1",
+      requestId: target.requestId,
+      question: "Raise the USD budget from $1.00 to $2.20?",
+      payload: { target, scope: "once", idempotencyKey: "approve:budget" },
+      incident: {
+        classification: "Runaway",
+        source: "usd",
+        message: "over",
+        used: 0.6,
+        max: 1,
+        next: 0.6,
+        allowance: 2.2
+      }
+    })
+
+    const [row] = GatewayProjection.approvals([requested])
+    expect(row).toMatchObject({ requestId: target.requestId, title: "Raise the USD budget from $1.00 to $2.20?" })
+    expect(row!.payload.target.envelope.budget).toEqual({ usd: 2.2, tokens: 5_000, onExceeded: "park" })
+    const wire = Schema.decodeUnknownSync(GatewayProjection.ApprovalRow)(
+      JSON.parse(JSON.stringify(Schema.encodeSync(GatewayProjection.ApprovalRow)(row!)))
+    )
+    expect(wire.payload).toEqual(row!.payload)
+    const approved = event("control.approval.approved", {
+      factVersion: 1,
+      tokenId: target.requestId,
+      approvalTarget: target
+    })
+    expect(GatewayProjection.approvals([requested, approved])[0]?.status).toBe("approved")
+  })
+
   it("lists a human wait held by a nested execution as a gate of the root run", () => {
     const rows = GatewayProjection.approvals([], { ...run, status: "waiting-approval", pendingWaits: [humanWait] })
 

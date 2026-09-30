@@ -153,6 +153,35 @@ describe("an approvals-inbox row that asks a question", () => {
   })
 })
 
+describe("an approvals-inbox row that asks to raise a USD budget", () => {
+  const park = row({
+    requestId: "budget/run-3/usd",
+    title: "Raise the USD budget from $1.00 to $2.20?",
+    approval: { target: { _tag: "Node", runId: "run-3", requestId: "budget/run-3/usd" } }
+  })
+
+  test("shows the dollar question and raises the ceiling on Approve", async () => {
+    const { calls, onDecideApproval } = recorder()
+    const host = mount(<ApprovalsInboxCardBody card={inbox([park])} onDecideApproval={onDecideApproval} />)
+
+    expect(host.textContent).toContain("Raise the USD budget from $1.00 to $2.20?")
+    // A raise is granted, not answered: no box, the two decision buttons.
+    expect(host.querySelector("[data-testid=approval-answer]")).toBeNull()
+    await click(host, "[data-decision=approve]")
+
+    expect(calls).toEqual([[approvalActionId("inbox", park), "approved", undefined]])
+  })
+
+  test("stops the run on Deny", async () => {
+    const { calls, onDecideApproval } = recorder()
+    const host = mount(<ApprovalsInboxCardBody card={inbox([park])} onDecideApproval={onDecideApproval} />)
+
+    await click(host, "[data-decision=deny]")
+
+    expect(calls).toEqual([[approvalActionId("inbox", park), "denied", undefined]])
+  })
+})
+
 describe("shaping what was typed", () => {
   test("parses a json answer and refuses one that is not json", () => {
     const question = { kind: "json", prompt: "Which services?" } as const

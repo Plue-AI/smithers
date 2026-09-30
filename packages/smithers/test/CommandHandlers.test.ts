@@ -1356,6 +1356,44 @@ describe("deciding an in-run approval from the CLI", () => {
     expect(state.runs).toBe(0)
   })
 
+  it("hands a USD budget raise to the control plane with its dollar ceiling intact", async () => {
+    const decided: Array<ControlService.ApprovalInput> = []
+    const recording = Layer.effect(
+      ControlService.Control,
+      Effect.map(ControlService.Control, (control) =>
+        ControlService.make({
+          ...control,
+          approve: (input) =>
+            Effect.sync(() => {
+              decided.push(input)
+              return { _tag: "Accepted", receiptId: input.idempotencyKey } as const
+            })
+        }))
+    ).pipe(Layer.provide(testControl))
+    const payload = {
+      target: {
+        _tag: "Node",
+        runId: "run-1",
+        requestId: "budget/run-1/usd",
+        digest: "digest-1",
+        envelope: { capabilities: [], flows: [], budget: { usd: 2.2, tokens: 5_000, onExceeded: "park" } }
+      },
+      scope: "once",
+      idempotencyKey: "approve:budget"
+    }
+    const receipt = await Effect.runPromise(
+      json(["--json", "approve", JSON.stringify(payload)]).pipe(
+        Effect.provide(ExecutorOwnership.layer(false)),
+        Effect.provide(recording),
+        Effect.provide(services),
+        Effect.provide(NodeServices.layer)
+      )
+    )
+
+    expect(receipt).toMatchObject({ _tag: "Accepted" })
+    expect(decided.map((input) => input.target)).toEqual([payload.target])
+  })
+
   it("does not wait on a decision when this process does not own the executor", async () => {
     const state = { status: "waiting-approval", runs: 0 }
     const receipt = await Effect.runPromise(
