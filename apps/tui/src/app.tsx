@@ -1574,18 +1574,22 @@ export function App(props: AppProps) {
           setPicker({ kind: "flows", query: "", selected: 0 })
           return true
         }
-        // An agent's one field is its prompt: the rest of the line, as typed.
-        const listed = runs.listed().find((each) => each.name === flow)
-        if (listed !== undefined && Extension.isAgent(listed)) {
-          startAgent(flow, rest.trim())
-          return true
+        const start = () => {
+          // An agent's one field is its prompt: the rest of the line, as typed.
+          const listed = runs.listed().find((each) => each.name === flow)
+          if (listed !== undefined && Extension.isAgent(listed)) return startAgent(flow, rest.trim())
+          const parsed = parseArgs(rest)
+          if ("error" in parsed) return setStatus(parsed.error, "warning")
+          startRun(flow, parsed.input, text.trim())
         }
-        const parsed = parseArgs(rest)
-        if ("error" in parsed) {
-          setStatus(parsed.error, "warning")
-          return true
+        // Before the first discovery settles, an agent is not told from a flow yet.
+        if (runs.known() !== undefined) start()
+        else {
+          const settle = () => {
+            if (runsRef.current === runs) start()
+          }
+          void runs.listing().then(settle, settle)
         }
-        startRun(flow, parsed.input, text.trim())
         return true
       }
       case "claude":

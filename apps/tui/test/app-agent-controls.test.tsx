@@ -232,6 +232,56 @@ test("/flow <agent> <prompt> starts the agent with the rest of the line as its p
   expect(tabs().at(-1)!.tab).toMatchObject({ prompt: "Person starts this agent", agent: { name: "manual" } })
 })
 
+// Remount with the first discovery held open, as right after launch.
+const remountUndiscovered = async () => {
+  await act(async () => {
+    setup!.renderer.destroy()
+  })
+  const gate = Promise.withResolvers<ReadonlyArray<Listed>>()
+  flows = {
+    ...flows,
+    discover: () => {
+      discoveries++
+      return gate.promise
+    }
+  }
+  discoveries = 0
+  await mount()
+  await waitFor(() => discoveries > 0)
+  return gate
+}
+
+test("/flow <agent> <prompt> typed before discovery settles waits, then starts the agent", async () => {
+  const gate = await remountUndiscovered()
+  await command("/flow review Check math.js")
+  expect(bodies).toEqual([])
+  expect(records().filter((record) => record.type === "run")).toEqual([])
+  expect(frame()).not.toMatch(/review · /)
+  await act(async () => {
+    gate.resolve(listed)
+    await setImmediate()
+  })
+  await waitFor(() => bodies.length === 1)
+  expect(tabs().at(-1)!.tab).toMatchObject({ prompt: "Check math.js", agent: { name: "review" } })
+  expect(records().filter((record) => record.type === "run")).toEqual([])
+})
+
+test("/flow typed before discovery settles waits; a failed discovery still runs it as a flow", async () => {
+  const gate = await remountUndiscovered()
+  await command("/flow module a=1")
+  expect(records().filter((record) => record.type === "run")).toEqual([])
+  await act(async () => {
+    gate.reject(new Error("scan failed"))
+    await setImmediate()
+  })
+  await waitFor(() => records().some((record) => record.type === "run"))
+  expect(records().find((record) => record.type === "run")).toMatchObject({
+    title: "module",
+    request: "/flow module a=1"
+  })
+  expect(bodies).toEqual([])
+})
+
 test("/agent is gone: it is an unknown command and starts nothing", async () => {
   await command("/agent review Check one file")
   expect(frame()).toContain("Unknown command /agent")
