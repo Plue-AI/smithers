@@ -281,12 +281,9 @@ const launch = (
             claimed.push(m.n)
             continue
           }
+          // The lead is claimed first: when it is refused nothing is held, so nothing is released.
           if (yield* Effect.promise(() => claim(candidate.repo, m.n, by))) claimed.push(m.n)
-          else if (m.n === candidate.lead.n) break
-        }
-        if (!claimed.includes(candidate.lead.n)) {
-          for (const n of claimed) yield* Effect.promise(() => release(candidate.repo, n, by, "lead claim failed"))
-          return []
+          else if (m.n === candidate.lead.n) return []
         }
         const tool = toolOf(account)
         const assignment: Assignment = {

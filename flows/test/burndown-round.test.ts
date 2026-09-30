@@ -24,6 +24,8 @@ if (!process.execArgv.includes("--experimental-test-module-mocks")) {
   const writes: Array<{ path: string; value: string }> = []
   const claims: Array<Array<string>> = []
   let ownership = { mine: true, holder: { host: hostname() } }
+  const refusedClaims = new Set<string>()
+  let ensureFails = false
   const starts: Array<{ assignment: unknown; options: unknown }> = []
   let pollResult: unknown = undefined
   let pollInterrupted = false
@@ -43,6 +45,7 @@ if (!process.execArgv.includes("--experimental-test-module-mocks")) {
       })
     }
     claims.push(args)
+    if (args[1] === "claim" && refusedClaims.has(args[2]!)) return Promise.reject(new Error("claimed elsewhere"))
     return Promise.resolve({ stdout: args[1] === "check" ? JSON.stringify(ownership) : "{}", stderr: "" })
   }
   Object.defineProperty(executeClaim, Symbol.for("nodejs.util.promisify.custom"), {
@@ -53,7 +56,7 @@ if (!process.execArgv.includes("--experimental-test-module-mocks")) {
   mock.module("../burndown/worker/flow.ts", {
     defaultExport: {
       ensure: (assignment: unknown, options: unknown) =>
-        Effect.sync(() => {
+        ensureFails ? Effect.fail(new Error("worker store unavailable")) : Effect.sync(() => {
           starts.push({ assignment, options })
           return `execution-${starts.length}`
         }),
@@ -608,6 +611,63 @@ if (!process.execArgv.includes("--experimental-test-module-mocks")) {
       assert.deepEqual((await settle(state)).next.quarantined, [quarantine])
     } finally {
       ownership = { mine: true, holder: { host: hostname() } }
+    }
+  })
+
+  const bundle = (lead: number, ...extras: Array<number>) => ({
+    ...candidate(lead),
+    extras: extras.map((n) => ({ ...assignment.lead, n }))
+  })
+  const launchOne = (c: ReturnType<typeof bundle>) =>
+    invoke(Launch.name, {
+      state: initial(),
+      observation: { ...observation(), candidates: [c], capacity: [capacity(1)] },
+      plan: { launches: [{ repo: c.repo, n: c.lead.n, account: assignment.account }], nextTarget: 4, note: "claims" }
+    }) as Promise<typeof RoundState.Type["inFlight"]>
+  const claimVerbs = () => claims.map((args) => [args[1], args[2]])
+
+  test("a refused lead claim starts nothing and never claims its companions", async () => {
+    starts.length = 0
+    claims.length = 0
+    refusedClaims.add(`${assignment.repo}#3301`)
+    try {
+      assert.deepEqual(await launchOne(bundle(3301, 3302)), [])
+      assert.equal(starts.length, 0)
+      assert.deepEqual(claimVerbs(), [["claim", `${assignment.repo}#3301`]])
+    } finally {
+      refusedClaims.clear()
+    }
+  })
+
+  test("a refused companion claim launches the lead without that companion", async () => {
+    starts.length = 0
+    claims.length = 0
+    refusedClaims.add(`${assignment.repo}#3312`)
+    try {
+      const launched = await launchOne(bundle(3311, 3312, 3313))
+      assert.equal(launched.length, 1)
+      assert.deepEqual(launched[0]!.assignment.extras.map((e) => e.n), [3313])
+      assert.equal(starts.length, 1)
+      assert.equal(claims.some((args) => args[1] === "release"), false)
+    } finally {
+      refusedClaims.clear()
+    }
+  })
+
+  test("a worker that cannot start releases every claim it took", async () => {
+    starts.length = 0
+    claims.length = 0
+    ensureFails = true
+    try {
+      assert.deepEqual(await launchOne(bundle(3321, 3322)), [])
+      assert.equal(starts.length, 0)
+      const releases = claims.filter((args) => args[1] === "release")
+      assert.deepEqual(releases.map((args) => [args[2], args[6]]), [
+        [`${assignment.repo}#3321`, "worker start failed"],
+        [`${assignment.repo}#3322`, "worker start failed"]
+      ])
+    } finally {
+      ensureFails = false
     }
   })
 
