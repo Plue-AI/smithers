@@ -79,7 +79,8 @@ const LandingResponse = Schema.Struct({
   agent_authored: Schema.Literal(true)
 })
 const QueueResponse = Schema.Struct({ ...LandingResponse.fields, task_id: boundedId })
-const Contents = Schema.Struct({ content: Schema.String, encoding: Schema.Literal("base64") })
+/** The repository contents API returns a file as UTF-8 text (backend `RepoContent`). */
+const Contents = Schema.Struct({ content: Schema.String, encoding: Schema.Literal("utf-8") })
 const Missing = Schema.Struct({ code: Schema.Literal("not_found") })
 /** Only the projected policy fields are read; the rest of the projection is not this adapter's contract. */
 const DeclaredPolicy = Schema.Struct({
@@ -270,17 +271,8 @@ export const make = (options: Options) =>
     ).pipe(Effect.flatMap((reply) =>
       "code" in reply ?
         Effect.succeed(undefined)
-        : Effect.try({
-          try: () =>
-            new TextDecoder("utf-8", { fatal: true }).decode(
-              Uint8Array.from(atob(reply.content.replace(/\s/g, "")), (c) => c.charCodeAt(0))
-            ),
-          catch: () => invalid("The declared factory projection on main is not valid UTF-8")
-        }).pipe(
-          Effect.flatMap(Schema.decodeUnknownEffect(Schema.fromJsonString(DeclaredPolicy))),
-          Effect.mapError((error) =>
-            error instanceof CodingError ? error : invalid("The declared factory projection on main is not valid JSON")
-          ),
+        : Schema.decodeUnknownEffect(Schema.fromJsonString(DeclaredPolicy))(reply.content).pipe(
+          Effect.mapError(() => invalid("The declared factory projection on main is not valid JSON")),
           Effect.map((policy) => policy.github)
         )
     ))

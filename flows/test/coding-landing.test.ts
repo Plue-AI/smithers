@@ -299,8 +299,19 @@ test("actual selected Node/Bun HTTP transport refuses redirects and replays lost
   assert.equal(attempts, 2)
   assert.equal(writes[0], writes[1], "ambiguous transport outcome retries the original immutable create body")
 })
-const factory = (value: unknown) =>
-  json({ name: "factory.json", encoding: "base64", content: Buffer.from(JSON.stringify(value)).toString("base64") })
+/** The repository contents API's real file shape (backend `RepoContent`): UTF-8 text, not base64. */
+const factory = (value: unknown) => {
+  const content = JSON.stringify(value)
+  return json({
+    name: "factory.json",
+    path: ".smithers/factory.json",
+    sha: "",
+    type: "file",
+    encoding: "utf-8",
+    content,
+    size: content.length
+  })
+}
 for (
   const [mode, reply, expected] of [
     [
@@ -321,7 +332,7 @@ for (
   })
 }
 test("delivery refuses an unreadable declared policy", async () => {
-  const { service } = await configured(() => json({ encoding: "base64", content: Buffer.from("{").toString("base64") }))
+  const { service } = await configured(() => json({ encoding: "utf-8", content: "{" }))
   await assert.rejects(Effect.runPromise(service.readDelivery), /not valid JSON/)
 })
 // A `mirror: "pull"` repository pins its base only from a fresh GitHub main pull.
