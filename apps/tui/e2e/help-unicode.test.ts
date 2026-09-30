@@ -44,18 +44,6 @@ const persisted = async (text: string): Promise<string> => {
   }
 }
 
-it.each(["?😀"])("persists Unicode %s from one PTY burst", async (text) => {
+it.each(["?😀", "?😀e\u0301👨‍👩‍👧‍👦", "😀e\u0301👨‍👩‍👧‍👦"])("persists Unicode %s from one PTY burst", async (text) => {
   expect(await persisted(text)).toBe(text)
-}, 45_000)
-
-// OpenTUI's native edit buffer puts later text in front of a combining mark
-// that arrives on its own (#2403, present in the installed @opentui/core
-// 0.5.11). These expectations pin the defect exactly: when an OpenTUI release
-// fixes it they fail, and each expectation must become its input. Today the
-// mark lands after the family emoji instead of on the "e".
-it.each([
-  ["?😀e\u0301👨‍👩‍👧‍👦", "?😀e👨‍👩‍👧‍👦\u0301"],
-  ["😀e\u0301👨‍👩‍👧‍👦", "😀e👨‍👩‍👧‍👦\u0301"]
-])("persists Unicode %s from one PTY burst as the #2403 reordering", async (text, wrong) => {
-  expect(await persisted(text)).toBe(wrong)
 }, 45_000)
