@@ -18,7 +18,9 @@ const request: Approvals.Pending = {
   flow: "bash",
   subject: "true",
   source: "chat",
+  identity: "req-1",
   action: "proc:spawn",
+  resource: "bash",
   tier: "irreversible",
   always: true
 }

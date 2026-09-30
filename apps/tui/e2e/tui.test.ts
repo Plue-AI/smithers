@@ -2300,7 +2300,7 @@ describe("approvals", () => {
     const started = await start({ cwd, approve: "ask" })
     await started.tui.type("/flow consequential")
     await started.tui.press(key.enter)
-    const asked = (screen: string) => screen.includes("fs:write:/**") && screen.includes("n deny")
+    const asked = (screen: string) => screen.includes("fs:write:/**") && screen.includes("n Deny")
     const launched = await started.tui.until(
       (screen) => asked(screen) || screen.includes("✗ consequential"),
       30_000,
@@ -2318,12 +2318,12 @@ describe("approvals", () => {
       )
     }
     await started.tui.type("draft")
-    await started.tui.until((screen) => /┃\s+draft/.test(screen) && !screen.includes("n deny"))
+    await started.tui.until((screen) => /┃\s+draft/.test(screen) && !screen.includes("n Deny"))
     await started.tui.press(key.ctrlC)
-    await started.tui.until((screen) => screen.includes("n deny"))
+    await started.tui.until((screen) => screen.includes("n Deny"))
     await started.tui.press("n")
     await started.tui.until((screen) =>
-      /✗ consequential · \d+m?s · consequential was not approved/.test(screen) && !screen.includes("n deny")
+      /✗ consequential · \d+m?s · consequential was not approved/.test(screen) && !screen.includes("n Deny")
     )
     const sessions = sessionFolder(started.sessions)
     const records = Session.load(join(sessions, readdirSync(sessions).find((name) => name.endsWith(".jsonl"))!))
@@ -2342,13 +2342,13 @@ describe("approvals", () => {
     await tui.until(drawn, 20_000)
     await tui.type("run")
     await tui.press(key.enter)
-    await tui.until((screen) => screen.includes("? bash true") && screen.includes("n deny"))
+    await tui.until((screen) => screen.includes("? run true") && screen.includes("n Deny"))
     await tui.press(key.ctrlS)
     // The approval owns the keys, so the footer advertises it over the panel.
     await tui.until((screen) => screen.includes("Asked: run") && screen.includes("n Deny"))
     await tui.press("n")
     await Bun.sleep(600)
-    expect(tui.screen()).not.toContain("? bash true")
+    expect(tui.screen()).not.toContain("? run true")
     const folder = sessionFolder(join(cwd, "sessions"))
     const file = join(folder, readdirSync(folder).find((name) => name.endsWith(".jsonl"))!)
     const outcome = Session.load(file).findLast((record) => record.type === "outcome")
@@ -2367,19 +2367,20 @@ describe("approvals", () => {
       await tui.until(drawn, 20_000)
       await tui.type("publish")
       await tui.press(key.enter)
-      await tui.until((screen) => screen.includes("Actions") && screen.includes("n deny"), 10_000, "panel and approval")
+      await tui.until((screen) => screen.includes("Actions") && screen.includes("n Deny"), 10_000, "panel and approval")
       for (let index = 0; index < 4 && !tui.screen().includes("One action."); index++) {
         await tui.press("\x1b[1;5C")
         await Bun.sleep(200)
       }
       await tui.until(
-        (screen) => screen.includes("One action.") && screen.includes("n deny") && !screen.includes("a all bash"),
+        (screen) =>
+          screen.includes("One action.") && screen.includes("n Deny") && !screen.includes("a Allow commands this run"),
         5_000,
         "panel focused"
       )
       await Bun.sleep(600)
       await tui.press("a")
-      await tui.until((screen) => screen.includes("a all bash"), 5_000, "panel released")
+      await tui.until((screen) => screen.includes("a Allow commands this run"), 5_000, "panel released")
       for (let index = 0; index < 4 && !tui.screen().includes("steering"); index++) {
         await tui.press("\x1b[1;5D")
         await Bun.sleep(200)
@@ -2397,7 +2398,7 @@ describe("approvals", () => {
   )
 
   const prompt = "node check.mjs fails. Fix it and show it passes."
-  const asking = /\? (bash|edit|write|apply_patch) .*y allow/
+  const asking = /\? (run|edit|write|apply_patch) [\s\S]*?y Allow once/
 
   /** Answers every approval with `answer` until the turn is idle. */
   const answerAll = async (tui: Tui, answer: (screen: string) => string) => {
@@ -2414,22 +2415,20 @@ describe("approvals", () => {
     throw new Error(`too many approvals; screen:\n${tui.screen()}`)
   }
 
-  it("asks before a consequential call; y lets it run", async () => {
-    const { tui, cwd } = await start({ approve: "ask" })
+  it("asks only for the edit, showing its lines; declared reads run unasked and y lets the edit run", async () => {
+    const { tui, cwd } = await start({ cwd: repository({ git: true }), approve: "ask" })
     await tui.type(prompt)
     await tui.press(key.enter)
     await tui.until((screen) => asking.test(screen), 60_000, "first approval")
     expect(readFileSync(join(cwd, "math.js"), "utf8")).toContain("a - b")
-    // `a` on the first bash covers the rest of them for the session.
-    let always = false
+    const asked: Array<string> = []
     await answerAll(tui, (screen) => {
-      if (!always && /\? bash .*a all bash/.test(screen)) {
-        always = true
-        return "a"
-      }
+      asked.push(screen.match(asking)![0].replace(/\s+/g, " "))
       return "y"
     })
-    expect(always).toBe(true)
+    expect(asked).toEqual([
+      "? edit math.js +1 −1 - export const add = (a, b) => a - b + export const add = (a, b) => a + b y Allow once"
+    ])
     expect(readFileSync(join(cwd, "math.js"), "utf8")).toContain("a + b")
   }, 240_000)
 
@@ -2468,7 +2467,7 @@ describe("approvals", () => {
     await tui.type("hy")
     const typed = await tui.until((screen) => /┃\s+hy/.test(screen), 5_000, "typed draft")
     expect(typed).not.toMatch(asking)
-    expect(typed).toContain("? bash")
+    expect(typed).toContain("? run")
     await tui.press(key.ctrlC)
     const ready = await tui.until(
       (screen) => !/┃\s+hy/.test(screen) && asking.test(screen),
@@ -2517,7 +2516,7 @@ describe("approvals", () => {
     // long enough to arm before the editor was cleared.
     await tui.type("and also")
     const typed = await tui.until((screen) => /┃\s+and also/.test(screen), 5_000, "next draft")
-    expect(typed).toContain("? bash")
+    expect(typed).toContain("? run")
     expect(typed).not.toMatch(asking)
     await tui.press(key.escape)
     await tui.until((screen) => !asking.test(screen) && idle(screen), 5_000, "dropped approval")
