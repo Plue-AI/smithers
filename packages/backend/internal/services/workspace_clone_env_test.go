@@ -14,7 +14,7 @@ import (
 func TestDeveloperCommandsPinJJConfigDirectory(t *testing.T) {
 	want := "runuser -u 'developer' -- env -u JJ_CONFIG HOME='/home/developer' XDG_CONFIG_HOME='/home/developer/.config' USER='developer' LOGNAME='developer' "
 	for name, script := range map[string]string{
-		"clone":       buildWorkspaceCloneCommand("https://api.example/o/r.git", "tok", "main", 0),
+		"clone":       buildWorkspaceCloneCommand("https://api.example/o/r.git", "tok", "main", 0, workspaceCloneSource{}),
 		"fork-switch": buildForkBookmarkSwitchCommand("tok", "main"),
 	} {
 		if !strings.Contains(script, want+"jj ") {

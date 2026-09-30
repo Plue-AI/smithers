@@ -2922,6 +2922,7 @@ type Workspace struct {
 	RebuildRequiredAt       pgtype.Timestamptz `json:"rebuild_required_at"`
 	ClientLeaseSecs         pgtype.Int4        `json:"client_lease_secs"`
 	ClientLeaseExpiresAt    pgtype.Timestamptz `json:"client_lease_expires_at"`
+	SourceCommit            string             `json:"source_commit"`
 }
 
 type WorkspaceChild struct {

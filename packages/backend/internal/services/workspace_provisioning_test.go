@@ -561,7 +561,7 @@ func TestWorkspaceService_CreateWorkspaceAsync_ReusesDerivedWorkspaceForSameBook
 func TestBuildWorkspaceCloneCommand_BindsBookmarkWithJj(t *testing.T) {
 	t.Parallel()
 
-	command := buildWorkspaceCloneCommand("https://api.smithers.sh/alice/demo.git", "smithers_token", "landing/demo-123", 0)
+	command := buildWorkspaceCloneCommand("https://api.smithers.sh/alice/demo.git", "smithers_token", "landing/demo-123", 0, workspaceCloneSource{})
 
 	// Credential rides GIT_CONFIG_* env (invisible in /proc cmdline), not argv.
 	assert.Contains(t, command, "export GIT_CONFIG_KEY_0=http.extraHeader")

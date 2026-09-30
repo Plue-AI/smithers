@@ -130,5 +130,5 @@ func TestWorkspaceArtifactForkUsesChildIdentityAndOneBootstrapPath(t *testing.T)
 	require.Equal(t, workspaceBootstrapScriptForKind("container"), stagedWorkspaceScript(client))
 	require.Contains(t, buildForkBookmarkSwitchCommand("", "main"), workspaceRuntimeReadyCommand())
 	require.NotContains(t, buildForkBookmarkSwitchCommand("", "main"), shellQuote(workspaceClaudeScriptPath))
-	require.NotContains(t, buildWorkspaceCloneCommand("https://git.test/repo", "", "main", 0), shellQuote(workspaceClaudeScriptPath))
+	require.NotContains(t, buildWorkspaceCloneCommand("https://git.test/repo", "", "main", 0, workspaceCloneSource{}), shellQuote(workspaceClaudeScriptPath))
 }

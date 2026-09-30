@@ -13,7 +13,7 @@ import (
 // A workspace clone is shallow unless the repository opted out. The window has
 // to cover the coding flows' 100-commit history read without a deepen.
 func TestBuildWorkspaceCloneCommandIsShallowByDefault(t *testing.T) {
-	command := buildWorkspaceCloneCommand("https://api.smithers.sh/alice/demo.git", "smithers_token", "main", 0)
+	command := buildWorkspaceCloneCommand("https://api.smithers.sh/alice/demo.git", "smithers_token", "main", 0, workspaceCloneSource{})
 	assert.Contains(t, command, "git clone --depth 200 --branch 'main' -- ")
 	assert.NotContains(t, command, "--filter=", "a blobless clone breaks jj: gix ignores git's promisor remote")
 }
@@ -28,7 +28,7 @@ func TestBuildWorkspaceCloneCommandHonoursTheRepositoryDepth(t *testing.T) {
 		{name: "opted out of shallow clones", depth: sandbox.FullCloneDepth, want: "git clone --branch 'main' -- "},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			command := buildWorkspaceCloneCommand("https://api.smithers.sh/alice/demo.git", "tok", "main", tc.depth)
+			command := buildWorkspaceCloneCommand("https://api.smithers.sh/alice/demo.git", "tok", "main", tc.depth, workspaceCloneSource{})
 			assert.Contains(t, command, tc.want)
 			if tc.depth == sandbox.FullCloneDepth {
 				assert.NotContains(t, command, "--depth")

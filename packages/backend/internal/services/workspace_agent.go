@@ -344,7 +344,7 @@ func (s *WorkspaceService) provisionFreshAgentWorkspace(ctx context.Context, wor
 		slog.Error("agent workspace provisioning failed", "workspace_id", workspace.ID, "step", step, "error", cause)
 		return AgentWorkspaceResult{}, cause
 	}
-	if err := s.cloneWorkspaceRepository(ctx, vm.ID, parsedCloneURL.String(), cloneToken.Plaintext, bookmark, s.workspaceCloneDepth(ctx, input.RepositoryID)); err != nil {
+	if err := s.cloneWorkspaceRepository(ctx, vm.ID, parsedCloneURL.String(), cloneToken.Plaintext, bookmark, s.workspaceCloneDepth(ctx, input.RepositoryID), workspaceCloneSource{}); err != nil {
 		return fail("clone", err)
 	}
 	if err := s.runWorkspaceAgentEnvironmentSetup(ctx, workspace, vm.ID); err != nil {

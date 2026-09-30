@@ -624,7 +624,9 @@ func (s *WorkspaceService) CreateWorkspace(ctx context.Context, input CreateWork
 	var workspace db.Workspace
 
 	if strings.TrimSpace(input.SnapshotID) == "" {
-		if bookmark == defaultBookmark {
+		if input.SourceRef != "" {
+			workspace, err = s.createUserRefWorkspace(ctx, input, bookmark, workspaceCreateMetadata{kind: kind, environment: environment})
+		} else if bookmark == defaultBookmark {
 			workspace, err = s.findOrCreatePrimaryWorkspace(ctx, input.RepositoryID, input.UserID, strings.TrimSpace(input.Name), bookmark, workspaceCreateMetadata{kind: kind, environment: environment})
 		} else {
 			workspace, err = s.findOrCreateDerivedWorkspaceForBookmark(ctx, input.RepositoryID, input.UserID, strings.TrimSpace(input.Name), bookmark, workspaceCreateMetadata{kind: kind, environment: environment})
@@ -730,7 +732,9 @@ func (s *WorkspaceService) CreateWorkspaceAsync(ctx context.Context, input Creat
 	var workspace db.Workspace
 
 	if strings.TrimSpace(input.SnapshotID) == "" {
-		if bookmark == defaultBookmark {
+		if input.SourceRef != "" {
+			workspace, err = s.createUserRefWorkspace(ctx, input, bookmark, workspaceCreateMetadata{kind: kind, environment: environment})
+		} else if bookmark == defaultBookmark {
 			workspace, err = s.findOrCreatePrimaryWorkspace(ctx, input.RepositoryID, input.UserID, strings.TrimSpace(input.Name), bookmark, workspaceCreateMetadata{kind: kind, environment: environment})
 		} else {
 			workspace, err = s.findOrCreateDerivedWorkspaceForBookmark(ctx, input.RepositoryID, input.UserID, strings.TrimSpace(input.Name), bookmark, workspaceCreateMetadata{kind: kind, environment: environment})
@@ -1655,7 +1659,7 @@ func (s *WorkspaceService) provisionWorkspaceVM(ctx context.Context, workspace d
 	s.recordResolvedWorkspaceEnvironment(ctx, workspace)
 
 	if strings.TrimSpace(cloneURL) != "" {
-		if err := s.cloneWorkspaceRepository(ctx, vm.ID, cloneURL, tempCloneToken.Plaintext, input.SourceBookmark, s.workspaceCloneDepth(ctx, workspace.RepositoryID)); err != nil {
+		if err := s.cloneWorkspaceRepository(ctx, vm.ID, cloneURL, tempCloneToken.Plaintext, input.SourceBookmark, s.workspaceCloneDepth(ctx, workspace.RepositoryID), workspaceCloneSourceOf(workspace)); err != nil {
 			s.deleteOrphanedWorkspaceVM(ctx, vm.ID)
 			s.markWorkspaceProvisionFailed(ctx, workspace, err)
 			slog.Error("workspace repository clone failed", "error", err, "type", "workspace")
@@ -1938,7 +1942,7 @@ func buildForkBookmarkSwitchCommand(token, bookmark string) string {
 	return strings.Join(lines, "\n")
 }
 
-func (s *WorkspaceService) cloneWorkspaceRepository(ctx context.Context, vmID, cloneURL, token, sourceBookmark string, depth int) error {
+func (s *WorkspaceService) cloneWorkspaceRepository(ctx context.Context, vmID, cloneURL, token, sourceBookmark string, depth int, source workspaceCloneSource) error {
 	cloneClient, ok := s.sandbox.(interface {
 		Execute(context.Context, string, sandbox.ExecRequest) (sandbox.ExecResult, error)
 	})
@@ -1953,7 +1957,7 @@ func (s *WorkspaceService) cloneWorkspaceRepository(ctx context.Context, vmID, c
 	execCtx, cancel := context.WithTimeout(ctx, workspaceCloneTimeout)
 	defer cancel()
 	resp, err := cloneClient.Execute(execCtx, vmID, sandbox.ExecRequest{
-		Command:   workspaceCloneOnce(buildWorkspaceCloneCommand(cloneURL, token, sourceBookmark, depth), workspaceCloneMarker),
+		Command:   workspaceCloneOnce(buildWorkspaceCloneCommand(cloneURL, token, sourceBookmark, depth, source), workspaceCloneMarker),
 		TimeoutMS: &timeoutMS,
 	})
 	if err != nil {
@@ -2011,7 +2015,7 @@ func (s *WorkspaceService) workspaceCloneDepth(ctx context.Context, repositoryID
 // 2026-09-15: 154.1s full against 29.1s at --depth 200. `depth` follows
 // sandbox.ResolveCloneDepth — zero is the platform default, negative is the
 // per-repository opt-out back to full history.
-func buildWorkspaceCloneCommand(cloneURL, token, sourceBookmark string, depth int) string {
+func buildWorkspaceCloneCommand(cloneURL, token, sourceBookmark string, depth int, source workspaceCloneSource) string {
 	bookmark := targetWorkspaceBookmark(sourceBookmark)
 	cloneFlags := "--branch " + shellQuote(bookmark)
 	if resolved := sandbox.ResolveCloneDepth(depth); resolved > 0 {
@@ -2033,6 +2037,22 @@ func buildWorkspaceCloneCommand(cloneURL, token, sourceBookmark string, depth in
 		"install -d -o "+shellQuote(defaultWorkspaceUser)+" -g "+shellQuote(defaultWorkspaceUser)+" "+shellQuote(defaultWorkspaceHome),
 		"rm -rf "+shellQuote(defaultWorkspaceClonePath),
 		asDev+"git clone "+cloneFlags+" -- "+shellQuote(cloneURL)+" "+shellQuote(defaultWorkspaceClonePath),
+	)
+	checkout := bookmark
+	if source.Commit != "" {
+		// A pushed-ref workspace fetches its pinned commit and checks it out;
+		// Jujutsu imports Git's HEAD when it initializes, so it sees the commit.
+		fetch := "git -C " + shellQuote(defaultWorkspaceClonePath) + " fetch"
+		if depth := workspaceSourceFetchDepth(depth); depth != "" {
+			fetch += " " + depth
+		}
+		lines = append(lines,
+			asDev+fetch+" origin "+shellQuote(source.Ref),
+			asDev+"git -C "+shellQuote(defaultWorkspaceClonePath)+" checkout --detach "+shellQuote(source.Commit),
+		)
+		checkout = source.Commit
+	}
+	lines = append(lines,
 		"command -v jj >/dev/null 2>&1",
 		// `jj git init` INITIALIZES a repo, so it must NOT be given `-R` (which
 		// addresses an already-existing jj repo) — `jj -R <path> git init`
@@ -2041,7 +2061,7 @@ func buildWorkspaceCloneCommand(cloneURL, token, sourceBookmark string, depth in
 		asDev+"jj git init --colocate "+shellQuote(defaultWorkspaceClonePath),
 		asDev+"jj -R "+shellQuote(defaultWorkspaceClonePath)+" bookmark track "+shellQuote(bookmark+"@origin"),
 		asDev+"jj -R "+shellQuote(defaultWorkspaceClonePath)+" bookmark set "+shellQuote(bookmark)+" -r "+shellQuote(bookmark+"@origin"),
-		asDev+"jj -R "+shellQuote(defaultWorkspaceClonePath)+" new "+shellQuote(bookmark),
+		asDev+"jj -R "+shellQuote(defaultWorkspaceClonePath)+" new "+shellQuote(checkout),
 	)
 	return strings.Join(lines, "\n")
 }

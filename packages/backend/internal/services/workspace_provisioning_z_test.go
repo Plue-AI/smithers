@@ -816,7 +816,7 @@ func TestWorkspaceProvisioning_Z_ForkFastPathAndCloneBranches(t *testing.T) {
 	noExec := newWorkspaceServiceForTests(&mockWorkspaceQuerier{}, WithWorkspaceSandboxClient(&workspaceZNoExecSandbox{}))
 	err := noExec.switchForkedWorkspaceBookmark(ctx, "vm", CreateWorkspaceSessionInput{UserID: 1, SourceBookmark: "feature"})
 	assert.Equal(t, http.StatusInternalServerError, apiStatus(t, err))
-	err = noExec.cloneWorkspaceRepository(ctx, "vm", "https://example.test/repo.git", "tok", "", 0)
+	err = noExec.cloneWorkspaceRepository(ctx, "vm", "https://example.test/repo.git", "tok", "", 0, workspaceCloneSource{})
 	assert.Equal(t, http.StatusInternalServerError, apiStatus(t, err))
 
 	err = newWorkspaceServiceForTests(&mockWorkspaceQuerier{createAccessTokenFn: func(context.Context, db.CreateAccessTokenParams) (db.AccessToken, error) {
@@ -844,7 +844,7 @@ func TestWorkspaceProvisioning_Z_ForkFastPathAndCloneBranches(t *testing.T) {
 		execAwaitFn: func(context.Context, string, sandbox.ExecRequest) (sandbox.ExecResult, error) {
 			return sandbox.ExecResult{}, stderrors.New("exec failed")
 		},
-	})).cloneWorkspaceRepository(ctx, "vm", "https://example.test/repo.git", "tok", "", 0)
+	})).cloneWorkspaceRepository(ctx, "vm", "https://example.test/repo.git", "tok", "", 0, workspaceCloneSource{})
 	assert.Equal(t, http.StatusInternalServerError, apiStatus(t, err))
 
 	err = newWorkspaceServiceForTests(&mockWorkspaceQuerier{}, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{
@@ -852,7 +852,7 @@ func TestWorkspaceProvisioning_Z_ForkFastPathAndCloneBranches(t *testing.T) {
 			code := int32(2)
 			return sandbox.ExecResult{StatusCode: &code, Stdout: "stdout only"}, nil
 		},
-	})).cloneWorkspaceRepository(ctx, "vm", "https://example.test/repo.git", "tok", "", 0)
+	})).cloneWorkspaceRepository(ctx, "vm", "https://example.test/repo.git", "tok", "", 0, workspaceCloneSource{})
 	assert.Equal(t, http.StatusInternalServerError, apiStatus(t, err))
 
 	err = newWorkspaceServiceForTests(&mockWorkspaceQuerier{}, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{
@@ -860,7 +860,7 @@ func TestWorkspaceProvisioning_Z_ForkFastPathAndCloneBranches(t *testing.T) {
 			code := int32(2)
 			return sandbox.ExecResult{StatusCode: &code, Stderr: "stderr detail", Stdout: "stdout detail"}, nil
 		},
-	})).cloneWorkspaceRepository(ctx, "vm", "https://example.test/repo.git", "tok", "", 0)
+	})).cloneWorkspaceRepository(ctx, "vm", "https://example.test/repo.git", "tok", "", 0, workspaceCloneSource{})
 	assert.Equal(t, http.StatusInternalServerError, apiStatus(t, err))
 	assert.Contains(t, err.Error(), "stderr detail\nstdout detail")
 
@@ -869,7 +869,7 @@ func TestWorkspaceProvisioning_Z_ForkFastPathAndCloneBranches(t *testing.T) {
 			code := int32(2)
 			return sandbox.ExecResult{StatusCode: &code}, nil
 		},
-	})).cloneWorkspaceRepository(ctx, "vm", "https://example.test/repo.git", "tok", "", 0)
+	})).cloneWorkspaceRepository(ctx, "vm", "https://example.test/repo.git", "tok", "", 0, workspaceCloneSource{})
 	assert.Equal(t, http.StatusInternalServerError, apiStatus(t, err))
 }
 

@@ -28,13 +28,16 @@ const (
 // the repository dirty. SourceRevision pins the remote bookmark observed at
 // initialization; later user edits deliberately do not rewrite it.
 type workspaceRepositoryReceipt struct {
-	Version        int       `json:"version"`
-	WorkspaceID    string    `json:"workspace_id"`
-	RepositoryID   int64     `json:"repository_id"`
-	CloneURL       string    `json:"clone_url"`
-	SourceBookmark string    `json:"source_bookmark"`
-	SourceRevision string    `json:"source_revision"`
-	InitializedAt  time.Time `json:"initialized_at"`
+	Version        int    `json:"version"`
+	WorkspaceID    string `json:"workspace_id"`
+	RepositoryID   int64  `json:"repository_id"`
+	CloneURL       string `json:"clone_url"`
+	SourceBookmark string `json:"source_bookmark"`
+	SourceRevision string `json:"source_revision"`
+	// SourceCommit is the pushed-ref commit the working copy started from
+	// (#1968); empty for a bookmark workspace.
+	SourceCommit  string    `json:"source_commit,omitempty"`
+	InitializedAt time.Time `json:"initialized_at"`
 }
 
 func (s *WorkspaceService) ensureRuntimeWorkspaceRepository(ctx context.Context, row db.Workspace, requesterID int64) error {
@@ -193,6 +196,9 @@ func (s *WorkspaceService) ensureRuntimeWorkspaceRepositoryWithReceipt(ctx conte
 		if err := s.ensureRuntimeGitHead(ctx, row, requesterID, cloneURL, bookmark, authEnvironment); err != nil {
 			return err
 		}
+		if err := s.fetchRuntimeWorkspaceSource(ctx, row, requesterID, authEnvironment); err != nil {
+			return err
+		}
 		if err := s.initializeRuntimeJujutsu(ctx, row, requesterID, bookmark); err != nil {
 			return err
 		}
@@ -219,7 +225,8 @@ func (s *WorkspaceService) ensureRuntimeWorkspaceRepositoryWithReceipt(ctx conte
 	}
 	receipt := workspaceRepositoryReceipt{
 		Version: workspaceRepositoryReceiptVersion, WorkspaceID: row.ID, RepositoryID: row.RepositoryID,
-		CloneURL: cloneURL, SourceBookmark: bookmark, SourceRevision: revision, InitializedAt: time.Now().UTC(),
+		CloneURL: cloneURL, SourceBookmark: bookmark, SourceRevision: revision, SourceCommit: row.SourceCommit,
+		InitializedAt: time.Now().UTC(),
 	}
 	return s.writeRuntimeRepositoryReceipt(ctx, row, requesterID, receipt)
 }
@@ -366,7 +373,7 @@ func (s *WorkspaceService) initializeRuntimeJujutsu(ctx context.Context, row db.
 		{step: "jj-init", args: []string{"jj", "git", "init", "--colocate", "."}},
 		{step: "jj-track", args: []string{"jj", "bookmark", "track", bookmark + "@origin"}, soft: true},
 		{step: "jj-bookmark", args: []string{"jj", "bookmark", "set", bookmark, "-r", bookmark + "@origin"}},
-		{step: "jj-working-copy", args: []string{"jj", "new", bookmark}},
+		{step: "jj-working-copy", args: []string{"jj", "new", workspaceSourceCheckout(row, bookmark)}},
 	}
 	for _, command := range commands {
 		if err := s.runRuntimeRepositoryCommand(ctx, row, requesterID, command.step, workspaceapi.Command{Args: command.args}); err != nil && !command.soft {
@@ -405,6 +412,10 @@ func validateWorkspaceRepositoryReceiptSource(receipt workspaceRepositoryReceipt
 	if receipt.Version != workspaceRepositoryReceiptVersion || receipt.RepositoryID != row.RepositoryID || receipt.SourceBookmark != bookmark ||
 		!sameWorkspaceRepositoryURL(receipt.CloneURL, cloneURL) || !isLowerHexRevision(receipt.SourceRevision) || receipt.InitializedAt.IsZero() {
 		return pkgerrors.Conflict("workspace repository receipt does not match its product repository")
+	}
+	// A pushed-ref workspace never adopts a working copy started elsewhere.
+	if row.SourceCommit != "" && receipt.SourceCommit != row.SourceCommit {
+		return pkgerrors.Conflict("workspace repository receipt does not match its pushed ref")
 	}
 	return nil
 }

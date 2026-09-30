@@ -136,7 +136,7 @@ func TestWorkspaceService_MicrosandboxOperationsHavePerCallDeadlines(t *testing.
 			},
 		}
 		svc := newWorkspaceServiceForTests(&mockWorkspaceQuerier{}, WithWorkspaceSandboxClient(vm))
-		err := svc.cloneWorkspaceRepository(context.Background(), "vm-created", "https://api.jjhub.tech/alice/demo.git", "token", "main", 0)
+		err := svc.cloneWorkspaceRepository(context.Background(), "vm-created", "https://api.jjhub.tech/alice/demo.git", "token", "main", 0, workspaceCloneSource{})
 		require.NoError(t, err)
 	})
 }

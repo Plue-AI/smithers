@@ -71,7 +71,7 @@ func TestWorkspaceProvisioning_Cov_CLIStagingBakeRequestAndCommands(t *testing.T
 	// The credential must never ride git argv (visible in /proc/<pid>/cmdline).
 	assert.NotContains(t, switchCommand, "-c http.extraHeader=")
 
-	cloneCommand := buildWorkspaceCloneCommand("https://example.test/acme/repo.git", "tok", "", 0)
+	cloneCommand := buildWorkspaceCloneCommand("https://example.test/acme/repo.git", "tok", "", 0, workspaceCloneSource{})
 	assert.Contains(t, cloneCommand, "export GIT_CONFIG_KEY_0=http.extraHeader")
 	assert.Contains(t, cloneCommand, "git clone --depth 200 --branch 'main' -- ")
 	assert.NotContains(t, cloneCommand, "-c http.extraHeader=")
@@ -398,7 +398,7 @@ func TestWorkspaceProvisioning_Cov_VMProvisioningBranches(t *testing.T) {
 	assert.Equal(t, []string{"vm-leaked"}, deleted)
 	assert.Equal(t, []string{"failed"}, failed)
 
-	err = svc.cloneWorkspaceRepository(ctx, "vm-1", "https://example.test/repo.git", " ", "", 0)
+	err = svc.cloneWorkspaceRepository(ctx, "vm-1", "https://example.test/repo.git", " ", "", 0, workspaceCloneSource{})
 	requireAPIErrorStatus(t, err, http.StatusInternalServerError)
 
 	svc = newWorkspaceServiceForTests(&mockWorkspaceQuerier{}, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{
@@ -407,7 +407,7 @@ func TestWorkspaceProvisioning_Cov_VMProvisioningBranches(t *testing.T) {
 			return sandbox.ExecResult{StatusCode: &code, Stderr: strings.Repeat("x", 1100)}, nil
 		},
 	}))
-	err = svc.cloneWorkspaceRepository(ctx, "vm-1", "https://example.test/repo.git", "tok", "", 0)
+	err = svc.cloneWorkspaceRepository(ctx, "vm-1", "https://example.test/repo.git", "tok", "", 0, workspaceCloneSource{})
 	requireAPIErrorStatus(t, err, http.StatusInternalServerError)
 	assert.Contains(t, err.Error(), "status 127")
 	assert.LessOrEqual(t, len(err.Error()), 1100)

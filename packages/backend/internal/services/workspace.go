@@ -18,6 +18,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
+	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/smithersai/smithers/packages/backend/jobs"
 	"github.com/smithersai/smithers/packages/backend/modelproxy"
 	"github.com/smithersai/smithers/packages/backend/sandbox"
@@ -219,6 +220,9 @@ type WorkspaceResponse struct {
 	FailureMessage string                      `json:"failure_message,omitempty"`
 	Kind           string                      `json:"kind"`
 	Environment    WorkspaceEnvironment        `json:"environment"`
+	// SourceCommit is the pushed-ref commit the workspace checked out, empty
+	// when it started from its bookmark (#1968).
+	SourceCommit string `json:"source_commit,omitempty"`
 	// Desktop is present only for kind=desktop workspaces.
 	Desktop *WorkspaceDesktop `json:"desktop,omitempty"`
 	Head    WorkspaceHead     `json:"head"`
@@ -434,8 +438,12 @@ type CreateWorkspaceInput struct {
 	Name           string
 	SnapshotID     string
 	SourceBookmark string
-	Kind           string
-	Environment    WorkspaceEnvironment
+	// SourceRef names one of the caller's pushed refs
+	// (refs/smithers/users/<id>/<name>); the new workspace checks out its
+	// commit instead of the bookmark (#1968).
+	SourceRef   string
+	Kind        string
+	Environment WorkspaceEnvironment
 	// ClientLeaseSeconds, when positive, leases the workspace to a client that
 	// renews it; a lapsed lease lets the abandon reaper reclaim it (#2457).
 	ClientLeaseSeconds int32
@@ -570,6 +578,7 @@ type WorkspaceService struct {
 	audit                 *AuditService
 	sourceReader          WorkspaceSourceReader
 	refDeleter            WorkspaceRefDeleter
+	userRefs              UserRefHost
 	q                     WorkspaceQuerier
 	// transactions holds each workspace's provisioning lock (a transaction-
 	// scoped advisory lock).
@@ -1246,6 +1255,7 @@ func (s *WorkspaceService) toWorkspaceResponse(workspace db.Workspace) Workspace
 			ClosureHash: workspace.EnvironmentClosureHash,
 			Image:       workspace.EnvironmentImage,
 		},
+		SourceCommit:       workspace.SourceCommit,
 		Head:               WorkspaceHead{ChangeID: workspace.HeadChangeID, CommitID: workspace.HeadCommitID},
 		Ahead:              workspace.Ahead,
 		Behind:             workspace.Behind,
@@ -1329,6 +1339,14 @@ func validateWorkspaceCreateMetadata(input CreateWorkspaceInput) error {
 	}
 	if (strings.TrimSpace(input.Environment.Revision) == "") != (strings.TrimSpace(input.Environment.ClosureHash) == "") {
 		return pkgerrors.BadRequest("environment revision and closure_hash must be provided together")
+	}
+	if input.SourceRef != "" {
+		if !repohost.ValidUserRefName(input.SourceRef) {
+			return pkgerrors.BadRequest("invalid ref name")
+		}
+		if strings.TrimSpace(input.SnapshotID) != "" {
+			return pkgerrors.BadRequest("source_ref cannot be combined with snapshot_id")
+		}
 	}
 	return validateWorkspaceClientLease(input.ClientLeaseSeconds)
 }

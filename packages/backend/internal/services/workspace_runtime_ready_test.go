@@ -56,7 +56,7 @@ func TestWorkspaceCloneWaitsForPinnedRuntime(t *testing.T) {
 			}
 		})
 	}
-	command := buildWorkspaceCloneCommand("https://forge.test/repo.git", "test-token", "main", 0)
+	command := buildWorkspaceCloneCommand("https://forge.test/repo.git", "test-token", "main", 0, workspaceCloneSource{})
 	if strings.Index(command, "smithers_runtime_ready()") > strings.Index(command, "git clone") {
 		t.Fatal("runtime gate follows clone")
 	}

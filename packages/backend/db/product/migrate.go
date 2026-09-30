@@ -130,6 +130,7 @@ var migrationRegistry = []migrationSpec{
 	{92, "migrations/0092_repository_egress_policies.sql"},
 	{93, "migrations/0093_workflow_secret_host_bindings.sql"},
 	{94, "migrations/0094_wiki_title_source.sql"},
+	{95, "migrations/0095_workspace_source_commit.sql"},
 }
 
 type migration struct {

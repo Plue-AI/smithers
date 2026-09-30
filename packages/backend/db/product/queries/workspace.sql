@@ -2,6 +2,8 @@
 
 -- name: CreateWorkspace :one
 INSERT INTO workspaces (
+    id,
+    source_commit,
     repository_id,
     user_id,
     name,
@@ -18,6 +20,8 @@ INSERT INTO workspaces (
     idle_timeout_secs
 )
 VALUES (
+    COALESCE(sqlc.narg(id)::uuid, gen_random_uuid()),
+    sqlc.arg(source_commit)::text,
     $1, $2, $3, $4, $5,
     COALESCE(NULLIF(sqlc.arg(target_bookmark)::text, ''), 'main'),
     $6,
@@ -52,13 +56,15 @@ WHERE id = sqlc.arg(id);
 
 -- name: ListRunningWorkspacesForUserRepoBookmark :many
 -- RFD-004: fork-source candidates for an agent workspace: the user's running
--- non-agent workspaces on the same bookmark, most recently active first.
+-- non-agent workspaces on the same bookmark, most recently active first. A
+-- workspace checked out from a pushed ref holds unlanded work; it is no source.
 SELECT *
 FROM workspaces
 WHERE repository_id = sqlc.arg(repository_id)
   AND user_id = sqlc.arg(user_id)
   AND target_bookmark = sqlc.arg(target_bookmark)::text
   AND kind <> 'agent'
+  AND source_commit = ''
   AND status = 'running'
   AND vm_id <> ''
   AND deleted_at IS NULL
@@ -172,6 +178,7 @@ WHERE repository_id = sqlc.arg(repository_id)
   AND parent_workspace_id IS NULL
   AND source_snapshot_id IS NULL
   AND agent_session_id IS NULL
+  AND source_commit = ''
   AND deleted_at IS NULL
   AND status IN ('pending', 'starting', 'running', 'suspended')
 LIMIT 1;
