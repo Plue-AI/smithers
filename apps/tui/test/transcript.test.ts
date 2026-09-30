@@ -80,6 +80,22 @@ describe("replaying a recorded run", () => {
   })
 })
 
+describe("usage", () => {
+  const settled = (usage: Record<string, number>, cost: Record<string, unknown> = {}) =>
+    ({ _tag: "model-settled", message: { role: "assistant", content: [] }, usage, ...cost }) as unknown as Parameters<
+      typeof Transcript.apply
+    >[1]
+
+  it("sums each priced call's USD and leaves an unpriced call at zero", () => {
+    const after = [
+      settled({ inputTokens: 100, outputTokens: 10 }, { costUsd: 0.25, costSource: "estimated" }),
+      settled({ inputTokens: 50, outputTokens: 5 }),
+      settled({ inputTokens: 20, outputTokens: 2 }, { costUsd: 0.5, costSource: "reported" })
+    ].reduce((transcript, event) => Transcript.apply(transcript, event, 0), Transcript.empty)
+    expect(after.usage).toEqual({ input: 170, output: 17, cached: 0, context: 20, usd: 0.75 })
+  })
+})
+
 describe("split", () => {
   it("separates prose from an unterminated fence while it streams", () => {
     expect(Transcript.split("Reading it.\n```cell\nconst a = 1")).toEqual({ prose: "Reading it.", code: "const a = 1" })

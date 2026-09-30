@@ -12,6 +12,7 @@
  * (claude 2.1, codex-cli 0.158) and the 0.x resume table (39d0d2380bd9).
  */
 import { codexConfigString } from "@smthrs/cli/Agents"
+import * as Pricing from "@smthrs/model/Pricing"
 import { spawn } from "node:child_process"
 import { createInterface } from "node:readline"
 import * as Log from "./log.ts"
@@ -129,8 +130,17 @@ export interface Folded {
   readonly settled?: boolean
   /** The session, once resumable: `run` sets it. */
   readonly session?: string
-  /** One model call's tokens; `call` names it, as the vendor repeats a message's usage on each of its blocks. */
-  readonly usage?: { readonly input: number; readonly output: number; readonly cached: number; readonly call?: string }
+  /**
+   * One model call's tokens and, when its model is priced, USD; `call` names it, as the vendor repeats a
+   * message's usage on each of its blocks.
+   */
+  readonly usage?: {
+    readonly input: number
+    readonly output: number
+    readonly cached: number
+    readonly usd?: number
+    readonly call?: string
+  }
   /** The run's final answer. */
   readonly answer?: string
   readonly error?: string
@@ -166,6 +176,15 @@ const claude = (event: Record<string, any>): Folded => {
   if (event.type === "system" && event.subtype === "init") return { rows: [], announce: event.session_id }
   if (event.type === "assistant") {
     const usage = event.message?.usage
+    const input = usage === undefined ?
+      0 :
+      (usage.input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0)
+    const cost = usage === undefined || typeof event.message?.model !== "string" ? undefined : Pricing.cost({
+      inputTokens: input,
+      outputTokens: usage.output_tokens ?? 0,
+      cachedInputTokens: usage.cache_read_input_tokens ?? 0,
+      cacheWriteTokens: usage.cache_creation_input_tokens ?? 0
+    }, event.message.model)
     return {
       settled: true,
       rows: list(event.message?.content).flatMap((part: Record<string, any>): Array<Row> =>
@@ -177,10 +196,10 @@ const claude = (event: Record<string, any>): Folded => {
       ),
       ...(usage === undefined ? {} : {
         usage: {
-          input: (usage.input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0) +
-            (usage.cache_creation_input_tokens ?? 0),
+          input,
           output: usage.output_tokens ?? 0,
           cached: usage.cache_read_input_tokens ?? 0,
+          ...(cost === undefined ? {} : { usd: cost.costUsd }),
           ...(typeof event.message?.id === "string" ? { call: event.message.id } : {})
         }
       })

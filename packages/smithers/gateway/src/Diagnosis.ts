@@ -114,6 +114,8 @@ export interface Digest {
   readonly refusals: ReadonlyArray<Refusal>
   readonly inputTokens: number
   readonly outputTokens: number
+  /** USD the run's priced model calls cost; zero when none was priced. */
+  readonly costUsd: number
   /** The final assistant output, when the run resolved. */
   readonly finalOutput: string | undefined
   /** Root binding and committed native result, retained across bounded windows. */
@@ -219,6 +221,7 @@ interface Accumulator {
   editsSucceeded: number
   inputTokens: number
   outputTokens: number
+  costUsd: number
   finalOutput: string | undefined
   parkedQuestion: string | undefined
 }
@@ -250,6 +253,7 @@ interface Accumulator {
  * | `turns`                         | aggregate | a turn a step opened is a turn this run opened             |
  * | `seat`                          | aggregate | the seat of the run's last opened turn, wherever it opened |
  * | `inputTokens`, `outputTokens`   | aggregate | a step spends the run's budget, so the run pays for it     |
+ * | `costUsd`                       | aggregate | the dollars of those same calls                            |
  * | `calls`, `editsAttempted`       | aggregate | a call a step made is a call this run made                 |
  * | `callsFailed`, `editsSucceeded` | aggregate | the settlement of one of those calls                       |
  * | `refusals`                      | aggregate | the messages those settlements refused with                |
@@ -285,6 +289,8 @@ const handlers: Readonly<Record<string, Handler>> = {
       const usage = asRecord(payload.usage)
       accumulator.inputTokens += asNumber(usage.inputTokens) ?? 0
       accumulator.outputTokens += asNumber(usage.outputTokens) ?? 0
+      const cost = asNumber(payload.costUsd)
+      if (cost !== undefined && Number.isFinite(cost) && cost > 0) accumulator.costUsd += cost
     }
   },
   "control.agent.cell-call-started": {
@@ -345,6 +351,7 @@ const rawDigest = (events: ReadonlyArray<ControlSchema.ControlEvent>): Digest =>
     editsSucceeded: 0,
     inputTokens: 0,
     outputTokens: 0,
+    costUsd: 0,
     finalOutput: undefined,
     parkedQuestion: undefined
   }
@@ -420,7 +427,8 @@ const counters = [
   "editsAttempted",
   "editsSucceeded",
   "inputTokens",
-  "outputTokens"
+  "outputTokens",
+  "costUsd"
 ] as const
 type ContributionValue = Partial<Pick<Digest, typeof counters[number] | "seat" | "startedAt" | "endedAt" | "refusals">>
 
@@ -599,6 +607,16 @@ export const duration = (value: Pick<Digest, "startedAt" | "endedAt">): string =
 }
 
 /**
+ * A USD amount for a reader: cents from one dollar, four places below it, so
+ * a cheap run never reads as `$0.00`.
+ *
+ * @param value dollars, finite and non-negative
+ * @since 1.0.0
+ * @category rendering
+ */
+export const usd = (value: number): string => `$${value.toFixed(value >= 1 ? 2 : 4)}`
+
+/**
  * Assistant text, or a typed module's committed result under its bound root.
  * @category projections
  * @since 1.0.0
@@ -654,7 +672,7 @@ export interface Subject {
 
 /**
  * Renders the diagnosis card for one run: verdict, activity evidence, tokens,
- * refusals, cause, and output.
+ * cost when any call was priced, refusals, cause, and output.
  *
  * @param subject the run being diagnosed
  * @param value the digest computed from its events
@@ -671,7 +689,8 @@ export const render = (subject: Subject, value: Digest): string => {
     `${
       label("Activity")
     }${value.turns} turns · ${value.calls} calls (${value.callsFailed} refused) · edits ${value.editsSucceeded}/${value.editsAttempted}`,
-    `${label("Tokens")}${value.inputTokens} in / ${value.outputTokens} out`
+    `${label("Tokens")}${value.inputTokens} in / ${value.outputTokens} out`,
+    ...(value.costUsd > 0 ? [`${label("Cost")}${usd(value.costUsd)}`] : [])
   ]
   for (const [index, refusal] of value.refusals.slice(0, 3).entries()) {
     lines.push(`${label(index === 0 ? "Refusals" : "")}${refusal.count}× ${clip(refusal.message, 110)}`)
@@ -733,6 +752,7 @@ const combinePlain = (earlier: Digest, later: Digest, writes: DigestState["write
       .sort((left, right) => right.count - left.count),
     inputTokens: earlier.inputTokens + later.inputTokens,
     outputTokens: earlier.outputTokens + later.outputTokens,
+    costUsd: earlier.costUsd + later.costUsd,
     finalOutput: writes.finalOutput ? later.finalOutput : earlier.finalOutput,
     nativeResolution: NativeResolution.combine(earlier.nativeResolution, later.nativeResolution),
     parkedQuestion: writes.parkedQuestion ? later.parkedQuestion : earlier.parkedQuestion,

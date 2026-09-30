@@ -12,8 +12,9 @@ import type { GrantStoreError, PermissionDenied, PermissionRequired } from "@smt
 import { Context, Effect, Layer, Stream } from "effect"
 import type { ModelError } from "./ModelError.ts"
 import { ModelError as ModelErrorClass } from "./ModelError.ts"
-import type { ModelEvent } from "./ModelEvent.ts"
+import type { ModelEvent, Usage } from "./ModelEvent.ts"
 import type { ModelRequest } from "./ModelRequest.ts"
+import * as Pricing from "./Pricing.ts"
 
 /**
  * Provider and kernel failures surfaced by a model stream.
@@ -87,7 +88,8 @@ export const makeNoop = (overrides: Partial<Model> = {}): Model =>
  *
  * The span is named `chat <model>` and carries `gen_ai.operation.name`,
  * `gen_ai.request.model`, the declared `gen_ai.provider.name`, the provider's `gen_ai.usage.input_tokens` and
- * `gen_ai.usage.output_tokens` as they stream in, and
+ * `gen_ai.usage.output_tokens` as they stream in, the call's USD cost so far as
+ * `gen_ai.usage.cost` when the model is priced (see {@link Pricing.cost}), and
  * `gen_ai.response.finish_reasons` from the settlement. Prompt and response
  * content never reach the span.
  *
@@ -97,32 +99,47 @@ export const makeNoop = (overrides: Partial<Model> = {}): Model =>
 export const withGenAiSpan =
   (request: ModelRequest, providerName?: string) =>
   <E, R>(stream: Stream.Stream<ModelEvent, E, R>): Stream.Stream<ModelEvent, E, R> =>
-    stream.pipe(
-      Stream.tap((event) => {
-        switch (event.type) {
-          case "usage":
-            return Effect.annotateCurrentSpan({
-              ...(event.inputTokens === undefined ? {} : { "gen_ai.usage.input_tokens": event.inputTokens }),
-              ...(event.outputTokens === undefined ? {} : { "gen_ai.usage.output_tokens": event.outputTokens })
-            })
-          case "settle":
-            return Effect.annotateCurrentSpan({
-              "gen_ai.response.finish_reasons": [event.stopReason],
-              ...(event.responseId === undefined ? {} : { "gen_ai.response.id": event.responseId })
-            })
-          default:
-            return Effect.void
-        }
-      }),
-      Stream.withSpan(`chat ${request.modelId}`, {
-        kind: "client",
-        attributes: {
-          "gen_ai.operation.name": "chat",
-          "gen_ai.request.model": request.modelId,
-          ...(providerName === undefined ? {} : { "gen_ai.provider.name": providerName })
-        }
-      })
-    )
+    Stream.suspend(() => {
+      // Usage events merge field by field, as `settledMessage` folds them, and a retry starts over.
+      let usage: Usage = {}
+      return stream.pipe(
+        Stream.tap((event) => {
+          switch (event.type) {
+            case "retry":
+              usage = {}
+              return Effect.void
+            case "usage": {
+              const { type: _, ...counters } = event
+              usage = {
+                ...usage,
+                ...Object.fromEntries(Object.entries(counters).filter(([, value]) => value !== undefined))
+              }
+              const cost = Pricing.cost(usage, request.modelId)
+              return Effect.annotateCurrentSpan({
+                ...(event.inputTokens === undefined ? {} : { "gen_ai.usage.input_tokens": event.inputTokens }),
+                ...(event.outputTokens === undefined ? {} : { "gen_ai.usage.output_tokens": event.outputTokens }),
+                ...(cost === undefined ? {} : { "gen_ai.usage.cost": cost.costUsd })
+              })
+            }
+            case "settle":
+              return Effect.annotateCurrentSpan({
+                "gen_ai.response.finish_reasons": [event.stopReason],
+                ...(event.responseId === undefined ? {} : { "gen_ai.response.id": event.responseId })
+              })
+            default:
+              return Effect.void
+          }
+        }),
+        Stream.withSpan(`chat ${request.modelId}`, {
+          kind: "client",
+          attributes: {
+            "gen_ai.operation.name": "chat",
+            "gen_ai.request.model": request.modelId,
+            ...(providerName === undefined ? {} : { "gen_ai.provider.name": providerName })
+          }
+        })
+      )
+    })
 
 /**
  * Provides {@link makeNoop}.

@@ -1101,7 +1101,8 @@ export class Workspace {
                   input: transcript.usage.input + usage.input,
                   output: transcript.usage.output + usage.output,
                   cached: transcript.usage.cached + usage.cached,
-                  context: usage.input
+                  context: usage.input,
+                  usd: transcript.usage.usd + (usage.usd ?? 0)
                 }
               })
               this.changed()

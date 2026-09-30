@@ -170,6 +170,24 @@ describe("stream fold", () => {
     expect(Wrapped.fold("claude", "not json")).toEqual({ rows: [] })
   })
 
+  it("prices a Claude Code call by the model it names, and leaves an unpriced one without USD", () => {
+    const assistant = (model: string) =>
+      Wrapped.fold(
+        "claude",
+        JSON.stringify({
+          type: "assistant",
+          message: {
+            model,
+            content: [],
+            usage: { input_tokens: 4, cache_read_input_tokens: 90, cache_creation_input_tokens: 6, output_tokens: 2 }
+          }
+        })
+      ).usage
+    // claude-sonnet-5: 4 × $2 + 90 cache reads × $0.2 + 6 cache writes × $2.5 + 2 out × $10 per million.
+    expect(assistant("claude-sonnet-5")).toEqual({ input: 100, output: 2, cached: 90, usd: 0.000061 })
+    expect(assistant("fixture-model")).toEqual({ input: 100, output: 2, cached: 90 })
+  })
+
   it("draws Codex's rows in its own glyphs and reads its thread, usage and answer", () => {
     // Codex names its thread first; only a completed turn makes it resumable.
     expect(Wrapped.fold("codex", "{\"type\":\"thread.started\",\"thread_id\":\"t-1\"}")).toEqual({
@@ -230,6 +248,8 @@ it("runs a Claude Code worker on its session with memory and the shared brief, a
   expect(notes).toContain("  ⎿ line one (+2 lines)")
   // The stopped run never reached its first call; the resumed one made two, one repeated per block.
   expect(workspace.transcript("c").usage).toMatchObject({ input: 200, cached: 180 })
+  // claude-sonnet-5 per call: 10 × $2 + 90 cached × $0.2 + 5 out × $10 per million.
+  expect(workspace.transcript("c").usage.usd).toBeCloseTo(0.000176, 12)
   const argv = readFileSync(log, "utf8").trim().split("\n")
   expect(argv[0]).toContain(`--session-id ${session}`)
   expect(argv[0]).toContain("<<< Fix the session.")

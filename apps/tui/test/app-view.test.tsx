@@ -285,7 +285,7 @@ test.each([
 ])("meter preserves context warning combination $outdated/$irrelevant", ({ outdated, irrelevant, context }) => {
   const transcript: Transcript.Transcript = {
     ...Transcript.empty,
-    usage: { input: 12, output: 4, cached: 0, context: 75 },
+    usage: { input: 12, output: 4, cached: 0, context: 75, usd: 0 },
     contextAssessment: { scope: "run", frame: 1, outdated, irrelevant }
   }
   expect(AppView.meter(transcript, 100)).toEqual({
@@ -299,7 +299,7 @@ test.each([
 test("meter has no percentage label without a known window and includes the cache share", () => {
   const transcript: Transcript.Transcript = {
     ...Transcript.empty,
-    usage: { input: 12, output: 4, cached: 3, context: 75 }
+    usage: { input: 12, output: 4, cached: 3, context: 75, usd: 0 }
   }
   expect(AppView.meter(transcript, 0)).toEqual({
     percent: 0,
@@ -313,6 +313,17 @@ test("meter has no percentage label without a known window and includes the cach
     usage: "↑12 ↓4 R3",
     window: "  75.0%/100 cache 25%"
   })
+})
+
+test("meter shows the USD of priced calls beside the tokens", () => {
+  const transcript: Transcript.Transcript = {
+    ...Transcript.empty,
+    usage: { input: 12, output: 4, cached: 3, context: 75, usd: 1.5 }
+  }
+  expect(AppView.meter(transcript, 0).usage).toBe("↑12 ↓4 R3 $1.50")
+  expect(AppView.meter({ ...transcript, usage: { ...transcript.usage, usd: 0.0042 } }, 0).usage).toBe(
+    "↑12 ↓4 R3 $0.0042"
+  )
 })
 
 test("status line renders the assessment and dispatches only the item actually clicked", async () => {

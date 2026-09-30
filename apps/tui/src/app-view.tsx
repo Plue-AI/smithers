@@ -3,6 +3,7 @@
  * form, the completion menu, the dialog, and the status line. They draw
  * what they are given; state and keys stay with the app.
  */
+import { usd } from "@smthrs/gateway/Diagnosis"
 import { basename } from "node:path"
 import type { ReactNode } from "react"
 import type * as Complete from "./complete.ts"
@@ -189,7 +190,7 @@ export function PickerDialog(props: {
   )
 }
 
-/** The status line's right end: a stale-context warning, token usage, and the context window used. */
+/** The status line's right end: a stale-context warning, token usage and USD, and the context window used. */
 export const meter = (transcript: Transcript.Transcript, window: number) => {
   const usage = transcript.usage
   const percent = window > 0 ? (usage.context / window) * 100 : 0
@@ -206,7 +207,7 @@ export const meter = (transcript: Transcript.Transcript, window: number) => {
       : "",
     usage: `↑${Editor.tokens(usage.input)} ↓${Editor.tokens(usage.output)}${
       usage.cached === 0 ? "" : ` R${Editor.tokens(usage.cached)}`
-    }`,
+    }${usage.usd > 0 ? ` ${usd(usage.usd)}` : ""}`,
     window: `${
       window > 0
         ? `  ${percent.toFixed(1)}%/${Editor.tokens(window)}`

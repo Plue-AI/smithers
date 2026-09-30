@@ -2987,6 +2987,33 @@ describe("CellTurn call latency", () => {
   })
 })
 
+describe("CellTurn call cost", () => {
+  it("journals each priced call's USD cost from the seat's rate card", async () => {
+    const { events } = await run({
+      // claude-sonnet-5: $2 in, $10 out per million tokens; each scripted call reads 8 in and 4 out.
+      state: state({
+        maxFrames: 2,
+        contextWindow: ContextWindow.make({ modelId: "claude-sonnet-5", segments: window.segments })
+      }),
+      script: [emits(`console.log("on it")`), emits(`ctx.done("done")`)]
+    })
+    expect(of(events, "model-settled").map(({ costUsd, costSource }) => ({ costUsd, costSource }))).toEqual([
+      { costUsd: 0.000056, costSource: "estimated" },
+      { costUsd: 0.000056, costSource: "estimated" }
+    ])
+  })
+
+  it("journals no cost for a model the rate card does not price", async () => {
+    const { events } = await run({
+      state: state({ maxFrames: 1 }),
+      script: [emits(`ctx.done("done")`)]
+    })
+    const [settled] = of(events, "model-settled")
+    expect(settled).not.toHaveProperty("costUsd")
+    expect(settled).not.toHaveProperty("costSource")
+  })
+})
+
 describe("CellTurn vendor session", () => {
   it("journals the session a wrapped seat answered from on its model-settled row", async () => {
     const step = (cell: string, sessionId?: string): ScriptedModel.Step => ({

@@ -23,10 +23,10 @@ fi
 pause="${FAKE_VENDOR_PAUSE:-0}"
 printf '{"type":"system","subtype":"init","session_id":"%s"}\n' "$session"
 sleep "$pause"
-printf '{"type":"assistant","message":{"id":"m1","content":[{"type":"tool_use","id":"t1","name":"Read","input":{"file_path":"src/session.ts"}}],"usage":{"input_tokens":10,"cache_read_input_tokens":90,"output_tokens":5}}}\n'
+printf '{"type":"assistant","message":{"id":"m1","model":"claude-sonnet-5","content":[{"type":"tool_use","id":"t1","name":"Read","input":{"file_path":"src/session.ts"}}],"usage":{"input_tokens":10,"cache_read_input_tokens":90,"output_tokens":5}}}\n'
 printf '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"line one\\nline two\\nline three"}]}}\n'
 sleep "$pause"
-printf '{"type":"assistant","message":{"id":"m2","content":[{"type":"text","text":"Refreshed the cookie before retry."}],"usage":{"input_tokens":10,"cache_read_input_tokens":90,"output_tokens":5}}}\n'
+printf '{"type":"assistant","message":{"id":"m2","model":"claude-sonnet-5","content":[{"type":"text","text":"Refreshed the cookie before retry."}],"usage":{"input_tokens":10,"cache_read_input_tokens":90,"output_tokens":5}}}\n'
 # The vendor repeats a call's usage on each of its content blocks.
-printf '{"type":"assistant","message":{"id":"m2","content":[],"usage":{"input_tokens":10,"cache_read_input_tokens":90,"output_tokens":5}}}\n'
+printf '{"type":"assistant","message":{"id":"m2","model":"claude-sonnet-5","content":[],"usage":{"input_tokens":10,"cache_read_input_tokens":90,"output_tokens":5}}}\n'
 printf '{"type":"result","subtype":"success","is_error":false,"result":"Refreshed the cookie before retry.","session_id":"%s"}\n' "$session"

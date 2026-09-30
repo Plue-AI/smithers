@@ -51,8 +51,10 @@ Cause     Set OPENAI_API_KEY to run the openai:gpt-6-sol seat
 Next      smthrs runs logs run-1    # turn-by-turn transcript
 ```
 
-Lines appear only when they have something to say. A run with refused flow
-calls gains a `Refusals` line, aggregated by message with a count, which is
+Lines appear only when they have something to say. A run whose model calls
+were priced gains a `Cost` line under `Tokens`: their USD total, each call at
+its provider's reported charge or else its usage at the model's rate card. A
+run with refused flow calls gains a `Refusals` line, aggregated by message with a count, which is
 usually where a stuck agent's real problem is. A run that is still waiting
 gains an `Unblock` line, and that line is the point of the card. It names
 what ends the wait:

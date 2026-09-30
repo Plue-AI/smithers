@@ -840,6 +840,9 @@ export const trace = (
         payload: {
           text: tracedField(assistantText(event.message)),
           usage: event.usage,
+          // The call's USD cost, so a status card totals spend without a rate card.
+          ...(event.costUsd === undefined ? {} : { costUsd: event.costUsd }),
+          ...(event.costSource === undefined ? {} : { costSource: event.costSource }),
           // Wall-clock for this one sealed call. A run's total time was
           // already derivable from event stamps; per-call latency was not,
           // and it is the number a speed comparison actually needs.

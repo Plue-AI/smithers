@@ -22,6 +22,7 @@ import * as Fault from "@smthrs/flow/Fault"
 import { Capability, CapabilitySet, Permission } from "@smthrs/kernel"
 import { CanonicalJson, type Model, ModelCatalog, ModelEvent, ModelRequest } from "@smthrs/model"
 import type * as Evaluator from "@smthrs/model/Evaluator"
+import * as Pricing from "@smthrs/model/Pricing"
 import { Descriptor } from "@smthrs/registry"
 import { Clock, Effect, Option, Queue, Result, Schema, Stream } from "effect"
 import * as AgentEvent from "./AgentEvent.ts"
@@ -2883,11 +2884,13 @@ const seal = (
       }
       const settled = ModelEvent.ModelEvent.settledMessage(events)
       const sessionId = events.find((event) => event.type === "settle")?.sessionId
+      const cost = Pricing.cost(settled.usage, request.modelId, { at: settledAt })
       yield* emit(
         new AgentEvent.ModelSettled({
           eventType: eventType.modelSettled,
           message: settled.message,
           usage: settled.usage,
+          ...cost,
           ...(sessionId === undefined ? {} : { sessionId }),
           durationMillis: settledAt - startedAt
         })

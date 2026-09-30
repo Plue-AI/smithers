@@ -31,7 +31,8 @@ import {
   firstLine,
   foreignVerdict,
   timeOf,
-  uniqueCallEvents
+  uniqueCallEvents,
+  usd
 } from "@smthrs/gateway/Diagnosis"
 import { causeLine, terminalSafe } from "./internal/Failure.ts"
 
@@ -81,6 +82,8 @@ export interface Digest {
   readonly refusals: ReadonlyArray<Refusal>
   readonly inputTokens: number
   readonly outputTokens: number
+  /** USD the run's priced model calls cost; zero when none was priced. */
+  readonly costUsd: number
   /** The final assistant output, when the run resolved. */
   readonly finalOutput: string | undefined
   /** The pending ask's question, when the run parked for approval. */
@@ -272,6 +275,7 @@ export const renderDiagnosis = (
   lines.push(
     `${label("Tokens")}${d.inputTokens.toLocaleString("en-US")} in / ${d.outputTokens.toLocaleString("en-US")} out`
   )
+  if (d.costUsd > 0) lines.push(`${label("Cost")}${usd(d.costUsd)}`)
   for (const [index, refusal] of d.refusals.slice(0, 3).entries()) {
     lines.push(`${label(index === 0 ? "Refusals" : "")}${refusal.count}× ${clip(refusal.message, 110)}`)
   }
@@ -421,7 +425,7 @@ export const renderTranscript = (
       duration(d)
     } · ${d.turns} turns · ${d.calls} calls (${d.callsFailed} refused) · ${
       d.inputTokens.toLocaleString("en-US")
-    } in / ${d.outputTokens.toLocaleString("en-US")} out tok`
+    } in / ${d.outputTokens.toLocaleString("en-US")} out tok${d.costUsd > 0 ? ` · ${usd(d.costUsd)}` : ""}`
   ]
   let turn = 0
   for (const event of uniqueCallEvents(events)) {

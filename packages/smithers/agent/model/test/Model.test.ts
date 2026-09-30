@@ -2,6 +2,7 @@ import { Effect, Redacted, Result, Schema, Stream, Tracer } from "effect"
 import { describe, expect, it } from "vitest"
 import * as Model from "../src/Model.ts"
 import { ModelError } from "../src/ModelError.ts"
+import type { ModelEvent } from "../src/ModelEvent.ts"
 import * as RequestExecutor from "../src/RequestExecutor.ts"
 import * as Route from "../src/Route.ts"
 
@@ -146,6 +147,50 @@ describe("Model.withGenAiSpan", () => {
       "gen_ai.response.id": "resp-1"
     })
     expect(span.status._tag).toBe("Ended")
+  })
+
+  const costOf = async (modelId: string, events: ReadonlyArray<ModelEvent>) => {
+    const { spans, tracer } = collect()
+    await Effect.runPromise(
+      Stream.runDrain(Stream.fromIterable(events).pipe(Model.withGenAiSpan({ ...request, modelId }))).pipe(
+        Effect.provideService(Tracer.Tracer, tracer)
+      )
+    )
+    return spans[0]!.attributes.get("gen_ai.usage.cost")
+  }
+
+  it("prices merged usage of a priced model as gen_ai.usage.cost", async () => {
+    // claude-sonnet-5: $2 in, $10 out per million tokens.
+    expect(
+      await costOf("anthropic:claude-sonnet-5", [
+        { type: "usage", inputTokens: 1_000 },
+        { type: "usage", outputTokens: 100 }
+      ])
+    ).toBe(0.003)
+  })
+
+  it("prices only the attempt after a retry", async () => {
+    expect(
+      await costOf("claude-sonnet-5", [
+        { type: "usage", inputTokens: 1_000, outputTokens: 100 },
+        { type: "retry", attempt: 1, code: "transport", delayMillis: 0 },
+        { type: "usage", inputTokens: 500, outputTokens: 0 }
+      ])
+    ).toBe(0.001)
+  })
+
+  it("prefers the provider's reported charge", async () => {
+    expect(await costOf("claude-sonnet-5", [{ type: "usage", inputTokens: 1_000, outputTokens: 100, costUsd: 0.5 }]))
+      .toBe(0.5)
+  })
+
+  it.each(
+    [
+      ["an unpriced model", "fixture-model", [{ type: "usage", inputTokens: 10, outputTokens: 2 }]],
+      ["usage without an output count", "claude-sonnet-5", [{ type: "usage", inputTokens: 10 }]]
+    ] as const
+  )("records no cost for %s", async (_label, modelId, events) => {
+    expect(await costOf(modelId, events)).toBeUndefined()
   })
 
   it.each(["anthropic", "openai", "gcp.gemini"])(

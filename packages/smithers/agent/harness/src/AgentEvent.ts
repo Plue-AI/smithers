@@ -10,6 +10,7 @@ import * as Evaluator from "@smthrs/model/Evaluator"
 import * as ModelError from "@smthrs/model/ModelError"
 import * as ModelEvent from "@smthrs/model/ModelEvent"
 import * as ModelRequest from "@smthrs/model/ModelRequest"
+import * as Pricing from "@smthrs/model/Pricing"
 import { Context, Effect, Schema } from "effect"
 import * as Cell from "./Cell.ts"
 import * as EngineLike from "./EngineLike.ts"
@@ -414,6 +415,13 @@ export class ModelSettled extends Schema.TaggedClass<ModelSettled>(
   eventType: Schema.Literal("flows.harness.model-settled.v1"),
   message: ModelRequest.AssistantMessage,
   usage: ModelEvent.Usage,
+  /**
+   * The call's USD cost: the provider's reported charge, or its usage priced
+   * under the model's rate card. Absent for an unpriced model.
+   */
+  costUsd: Schema.optional(Schema.Number),
+  /** Where {@link costUsd} came from. */
+  costSource: Schema.optional(Pricing.CostSource),
   /** The vendor session that answered, for a wrapped CLI seat: `claude --resume <sessionId>`. */
   sessionId: Schema.optional(Schema.String),
   /**

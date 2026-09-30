@@ -131,6 +131,8 @@ export interface Usage {
   readonly cached: number
   /** Input tokens of the latest model call: how full the context window is. */
   readonly context: number
+  /** USD of the priced model calls. */
+  readonly usd: number
 }
 
 export const empty: Transcript = {
@@ -139,7 +141,7 @@ export const empty: Transcript = {
   thinking: false,
   cells: 0,
   nextId: 0,
-  usage: { input: 0, output: 0, cached: 0, context: 0 }
+  usage: { input: 0, output: 0, cached: 0, context: 0, usd: 0 }
 }
 
 type CellItem = Extract<Item, { kind: "cell" }>
@@ -465,7 +467,8 @@ const applyEvent = (transcript: Transcript, event: Activity.Observed, at: number
           input: transcript.usage.input + (usage.inputTokens ?? 0),
           output: transcript.usage.output + (usage.outputTokens ?? 0),
           cached: transcript.usage.cached + (usage.cachedInputTokens ?? 0),
-          context: usage.inputTokens ?? transcript.usage.context
+          context: usage.inputTokens ?? transcript.usage.context,
+          usd: transcript.usage.usd + (event.costUsd ?? 0)
         }
       }
     }

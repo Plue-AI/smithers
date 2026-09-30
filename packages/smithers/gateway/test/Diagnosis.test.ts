@@ -123,6 +123,33 @@ describe("Diagnosis.digest", () => {
     expect(digest.endedAt).toBe(900)
   })
 
+  it("totals the priced calls' USD and renders it only when some call was priced", () => {
+    const priced = Diagnosis.digest([
+      event("control.agent.model-settled", { usage: { inputTokens: 10, outputTokens: 5 }, costUsd: 0.0012 }),
+      event("control.agent.model-settled", { usage: { inputTokens: 3, outputTokens: 1 }, costUsd: 0.0030 }),
+      event("control.agent.model-settled", { usage: { inputTokens: 1, outputTokens: 1 } }),
+      event("control.agent.model-settled", { costUsd: -1 }),
+      event("control.agent.model-settled", { costUsd: "0.5" }),
+      event("control.agent.model-settled", { costUsd: Number.POSITIVE_INFINITY })
+    ])
+    expect(priced.costUsd).toBeCloseTo(0.0042, 12)
+    expect(Diagnosis.render({ runId: "run-1" }, priced)).toContain("\nCost      $0.0042")
+    const unpriced = Diagnosis.digest([event("control.agent.model-settled", { usage: { inputTokens: 1 } })])
+    expect(unpriced.costUsd).toBe(0)
+    expect(Diagnosis.render({ runId: "run-1" }, unpriced)).not.toContain("Cost")
+  })
+
+  it.each([
+    [0, "$0.0000"],
+    [0.00004, "$0.0000"],
+    [0.0042, "$0.0042"],
+    [0.5, "$0.5000"],
+    [1, "$1.00"],
+    [12.3, "$12.30"]
+  ])("renders %s dollars as %s", (value, text) => {
+    expect(Diagnosis.usd(value)).toBe(text)
+  })
+
   it("keeps a failure's recorded cause and a park's question", () => {
     const digest = Diagnosis.digest([
       event("control.approval.requested", { question: "Ship it?" }),
@@ -393,12 +420,12 @@ describe("Diagnosis.combine", () => {
       event("control.agent.cell-call-settled", { flowName: "write", outcome: "failure", message: "denied" }, 120),
       event("control.agent.cell-call-settled", { outcome: "failure", message: "denied" }, 130),
       event("control.agent.cell-call-settled", { outcome: "failure", message: "timeout" }, 140),
-      event("control.agent.model-settled", { usage: { inputTokens: 10, outputTokens: 5 } }, 150)
+      event("control.agent.model-settled", { usage: { inputTokens: 10, outputTokens: 5 }, costUsd: 0.25 }, 150)
     ])
     const later = Diagnosis.digest([
       event("control.agent.turn-opened", { seat: "sonnet" }, 800),
       event("control.agent.cell-call-settled", { outcome: "failure", message: "denied" }, 810),
-      event("control.agent.model-settled", { usage: { inputTokens: 1, outputTokens: 2 } }, 820),
+      event("control.agent.model-settled", { usage: { inputTokens: 1, outputTokens: 2 }, costUsd: 0.5 }, 820),
       event("control.agent.resolved", { text: "shipped" }, 830),
       event("control.run.completed", {}, 900)
     ])
@@ -414,6 +441,7 @@ describe("Diagnosis.combine", () => {
       editsSucceeded: earlier.editsSucceeded + later.editsSucceeded,
       inputTokens: 11,
       outputTokens: 7,
+      costUsd: 0.75,
       finalOutput: "shipped"
     })
     // One message counted in both ranges is one refusal counted across them,

@@ -374,6 +374,7 @@ describe("Forensics.digest boundaries", () => {
       refusals: [],
       inputTokens: 0,
       outputTokens: 0,
+      costUsd: 0,
       finalOutput: undefined,
       parkedQuestion: undefined,
       parkedApproval: undefined,
@@ -688,6 +689,30 @@ describe("Forensics.renderDiagnosis boundaries", () => {
     ])
     expect(Forensics.renderDiagnosis({ runId: "run-1" }, d)).toContain("Tokens    1,234,567 in / 89 out")
   })
+
+  it("prints the run's USD beside its tokens once a call was priced", () => {
+    const priced = Forensics.digest([
+      event("control.agent.model-settled", { usage: { inputTokens: 1_000, outputTokens: 100 }, costUsd: 1.5 }, 1),
+      event("control.agent.model-settled", { usage: { inputTokens: 10, outputTokens: 1 }, costUsd: 0.25 }, 2)
+    ])
+    expect(Forensics.renderDiagnosis({ runId: "run-1" }, priced)).toContain(
+      "Tokens    1,010 in / 101 out\nCost      $1.75"
+    )
+    expect(
+      Forensics.renderTranscript([
+        event("control.agent.model-settled", { usage: { inputTokens: 1, outputTokens: 1 }, costUsd: 0.0042 }, 1)
+      ], "run-1").split("\n")[0]
+    ).toMatch(/1 in \/ 1 out tok · \$0\.0042$/)
+    const unpriced = Forensics.digest([
+      event("control.agent.model-settled", { usage: { inputTokens: 1, outputTokens: 1 } }, 1)
+    ])
+    expect(Forensics.renderDiagnosis({ runId: "run-1" }, unpriced)).not.toContain("Cost")
+    expect(
+      Forensics.renderTranscript([
+        event("control.agent.model-settled", { usage: { inputTokens: 1, outputTokens: 1 } }, 1)
+      ], "run-1").split("\n")[0]
+    ).toMatch(/out tok$/)
+  })
 })
 
 describe("Forensics.renderTranscript boundaries", () => {
@@ -766,7 +791,11 @@ describe("Forensics.digest against the gateway's Diagnosis.digest", () => {
   const journal: ReadonlyArray<ControlSchema.ControlEvent> = [
     event("control.run.running", { runId: "run-1" }, 1_000),
     turn(2_000),
-    event("control.agent.model-settled", { text: "t", usage: { inputTokens: 12, outputTokens: 3 } }, 3_000),
+    event(
+      "control.agent.model-settled",
+      { text: "t", usage: { inputTokens: 12, outputTokens: 3 }, costUsd: 0.01 },
+      3_000
+    ),
     call("bash", { command: "ls" }, 4_000),
     refusedCall("Flow bash failed: refused\r\nstack", 5_000),
     call("edit", { path: "a.py" }, 6_000),
@@ -791,6 +820,7 @@ describe("Forensics.digest against the gateway's Diagnosis.digest", () => {
     refusals: value.refusals,
     inputTokens: value.inputTokens,
     outputTokens: value.outputTokens,
+    costUsd: value.costUsd,
     finalOutput: value.finalOutput,
     parkedQuestion: value.parkedQuestion,
     startedAt: value.startedAt,
