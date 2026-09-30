@@ -114,12 +114,12 @@ describe("the overview inbox", () => {
 
   it("files a failure that a later run of the same work finished under Done, and keeps a newer failure", () => {
     const sections = rows([
-      tab("first", "failed", { title: "Read math.js", startedAt: now - 30_000 }),
-      tab("again", "done", { title: "Read math.js", startedAt: now - 10_000 }),
-      tab("other", "failed", { title: "Read math.js", parent: "root", startedAt: now - 5_000 }),
+      tab("first", "failed", { title: "Read math.js", prompt: "read", startedAt: now - 30_000 }),
+      tab("again", "done", { title: "Read math.js", prompt: "read", startedAt: now - 10_000 }),
+      tab("other", "failed", { title: "Read math.js", prompt: "read", parent: "root", startedAt: now - 5_000 }),
       tab("root", "running", { startedAt: now - 60_000 }),
-      tab("later", "failed", { title: "Lint", startedAt: now - 1_000 }),
-      tab("earlier", "done", { title: "Lint", startedAt: now - 20_000 })
+      tab("later", "failed", { title: "Lint", prompt: "lint", startedAt: now - 1_000 }),
+      tab("earlier", "done", { title: "Lint", prompt: "lint", startedAt: now - 20_000 })
     ], [
       run("a", "failed", { startedAt: now - 9_000 }),
       run("b", "done", { flow: "flow-a", startedAt: now - 4_000 }),
@@ -131,6 +131,20 @@ describe("the overview inbox", () => {
       ["done", ["first", "again", "earlier", "flow:a", "flow:b"]]
     ])
     expect(Inbox.superseded(tab("x", "done"), [tab("y", "done")])).toBe(false)
+  })
+
+  it("keeps a failed worker that a later worker with the same title but another prompt finished", () => {
+    const sections = rows([
+      tab("root", "running", { startedAt: now - 60_000 }),
+      tab("auth", "failed", { title: "Review", prompt: "Review auth.ts", parent: "root", startedAt: now - 9_000 }),
+      tab("login", "done", { title: "Review", prompt: "Review login.ts", parent: "root", startedAt: now - 4_000 }),
+      tab("math", "failed", { title: "Review", prompt: "Review math.ts", parent: "root", startedAt: now - 8_000 }),
+      tab("again", "done", { title: "Review", prompt: "Review math.ts", parent: "root", startedAt: now - 3_000 })
+    ])
+    expect(shape(sections)).toEqual([
+      ["working", ["root", "  login", "  math", "  again"]],
+      ["failed", ["auth"]]
+    ])
   })
 
   it("keeps a failed flow run that a later run of the same flow with other input finished", () => {

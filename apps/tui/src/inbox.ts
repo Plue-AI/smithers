@@ -89,12 +89,12 @@ export const waited = (ms: number): string => {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`
 }
 
-/** A failed tab a later run of the same work under the same parent finished. */
+/** A failed tab a later run of the same work, with the same prompt under the same parent, finished. */
 export const superseded = (tab: Tab, tabs: ReadonlyArray<Tab>): boolean =>
   tab.status === "failed" &&
   tabs.some((other) =>
     other.id !== tab.id && other.status === "done" && other.parent === tab.parent && other.title === tab.title &&
-    other.startedAt >= tab.startedAt
+    other.prompt === tab.prompt && other.startedAt >= tab.startedAt
   )
 
 /** A failed flow run a later run of the same flow with the same input, as filled, finished. */
