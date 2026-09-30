@@ -510,7 +510,8 @@ export const layer = action.layer
 export const envelope = (): ReadonlyArray<string> => [
   "fs:read:/**",
   "fs:write:/**",
-  "proc:spawn:*"
+  "proc:spawn:*",
+  "model:call:typesafe-ai/jev"
 ]
 
 /**
@@ -638,12 +639,14 @@ export const bindings = (options: {
 export const hostLayer = (options: {
   readonly root: string
   readonly commands: Contract.Commands
+  readonly environment?: Readonly<Record<string, string | undefined>> | undefined
 }): Layer.Layer<
   AgentAction.Host,
   never,
   FileSystem.FileSystem | Path.Path | ChildProcessSpawner | Evaluator.Evaluator
-> =>
-  Layer.effect(
+> => {
+  const stance = AgentAction.supervisorStance(options.environment ?? {})
+  return Layer.effect(
     AgentAction.Host,
     Effect.gen(function*() {
       const filesystem = yield* Effect.context<FileSystem.FileSystem | Path.Path>()
@@ -664,7 +667,9 @@ export const hostLayer = (options: {
         maxFrames,
         // A migration always runs with a real judge: the host refuses to
         // compose without one.
-        judged: true
+        judged: true,
+        supervisor: { stance }
       })
     })
   ).pipe(Layer.provide(Registry.layerFromDescriptors([])))
+}

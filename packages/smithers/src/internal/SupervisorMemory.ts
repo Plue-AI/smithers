@@ -11,6 +11,7 @@
  * @private
  */
 
+import * as AgentAction from "@smthrs/agent/AgentAction"
 import * as Memory from "@smthrs/agent/Memory"
 import * as Capability from "@smthrs/capability/Capability"
 import type * as DurableWriter from "@smthrs/database/DurableWriter"
@@ -19,7 +20,7 @@ import * as Maintenance from "@smthrs/memory/Maintenance"
 import * as MemoryStore from "@smthrs/memory/MemoryStore"
 import type * as Recall from "@smthrs/memory/Recall"
 import * as RecallKeyword from "@smthrs/memory/RecallKeyword"
-import { Context, Effect, Layer, Option, Schema } from "effect"
+import { Context, Effect, Layer, Option } from "effect"
 import type * as Crypto from "effect/Crypto"
 import { SqlClient } from "effect/unstable/sql/SqlClient"
 import { createHash } from "node:crypto"
@@ -84,7 +85,7 @@ export const options = (
 export const stance = (environment: Environment.Source): "careful" | "paranoid" => {
   const value = Environment.read(environment, "SMITHERS_SUPERVISOR_STANCE") ?? "careful"
   try {
-    return Schema.decodeUnknownSync(Schema.Literals(["careful", "paranoid"]))(value)
+    return AgentAction.supervisorStance({ SMITHERS_SUPERVISOR_STANCE: value })
   } catch {
     throw new CliError.UsageError({
       message: `SMITHERS_SUPERVISOR_STANCE must be careful or paranoid, not ${JSON.stringify(value)}`

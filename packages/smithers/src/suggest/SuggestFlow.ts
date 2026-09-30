@@ -28,6 +28,7 @@ import * as QuotaPolicy from "@smthrs/agent/QuotaPolicy"
 import * as ScriptedJudge from "@smthrs/agent/ScriptedJudge"
 import * as Seat from "@smthrs/agent/Seat"
 import * as SeatResolver from "@smthrs/agent/SeatResolver"
+import * as SeatRouter from "@smthrs/agent/SeatRouter"
 import * as StandardFlows from "@smthrs/agent/StandardFlows"
 import { FlowEngine } from "@smthrs/engine"
 import { Action, Flow, Interpreter } from "@smthrs/flow"
@@ -174,7 +175,7 @@ export const layer = Layer.mergeAll(implement.layer, Interpreter.layer(flow)).pi
  * @category constants
  * @since 1.0.0-rc.0
  */
-export const envelope: ReadonlyArray<string> = ["fs:read:/**", "fs:write:/**"]
+export const envelope: ReadonlyArray<string> = ["fs:read:/**", "fs:write:/**", "model:call:typesafe-ai/jev"]
 
 /**
  * The permission rules one implementation runs under: the project tree, the
@@ -220,7 +221,11 @@ export class RelativeRoot extends Data.TaggedError("/suggest/RelativeRoot")<{
 const grantsFor = (root: string): Layer.Layer<GrantStore.GrantStore> =>
   GrantStore.layer({ attended: false, rules: rules(root) }).pipe(Layer.provide(Workspace.layer(root)), Layer.orDie)
 
-const hostFor = (root: string): Layer.Layer<AgentAction.Host, never, Evaluator.Evaluator> => {
+const hostFor = (
+  root: string,
+  environment: Readonly<Record<string, string | undefined>>
+): Layer.Layer<AgentAction.Host, never, Evaluator.Evaluator> => {
+  const stance = NodeControl.supervisorStance(environment)
   const grants = grantsFor(root)
   const platform = Layer.orDie(KernelFileSystem.layer).pipe(
     Layer.provide([Workspace.layer(root), grants]),
@@ -238,7 +243,8 @@ const hostFor = (root: string): Layer.Layer<AgentAction.Host, never, Evaluator.E
         flows: [StandardFlows.filesystem(filesystem), StandardFlows.jev(judge)],
         capabilityEnvelope: AgentSession.patterns(envelope),
         maxFrames,
-        judged: true
+        judged: true,
+        supervisor: { stance }
       })
     })
   ).pipe(Layer.provide(Registry.layerFromDescriptors([])), Layer.provide(platform))
@@ -281,10 +287,12 @@ const evaluatorFrom = (
 const composed = (
   root: string,
   seats: Layer.Layer<SeatResolver.SeatResolver>,
-  evaluator: Layer.Layer<Evaluator.Evaluator>
+  evaluator: Layer.Layer<Evaluator.Evaluator>,
+  catalog: Layer.Layer<SeatRouter.Catalog>,
+  environment: Readonly<Record<string, string | undefined>>
 ) =>
   layer.pipe(
-    Layer.provideMerge(Layer.mergeAll(hostFor(root), seats, Agent.layer)),
+    Layer.provideMerge(Layer.mergeAll(hostFor(root, environment), seats, catalog, Agent.layer)),
     Layer.provideMerge(agentPolicy),
     Layer.provideMerge(Agent.layerDefaults),
     Layer.provideMerge(Action.layerImplementations),
@@ -333,7 +341,13 @@ export const layerNode = (config: NodeConfig) => {
         return SeatResolver.make({ resolve: () => resolver.resolve(config.seat) })
       })
     ).pipe(Layer.provide(executor))
-    return composed(config.root, seats, evaluator!)
+    return composed(
+      config.root,
+      seats,
+      evaluator!,
+      NodeControl.layerSeatCatalog(config.environment),
+      config.environment
+    )
   }))
 }
 
@@ -395,7 +409,11 @@ const preparedRequest = {
  * @category layers
  * @since 1.0.0-rc.0
  */
-export const layerScripted = (config: { readonly root: string; readonly script: Script }) =>
+export const layerScripted = (config: {
+  readonly root: string
+  readonly script: Script
+  readonly environment?: Readonly<Record<string, string | undefined>>
+}) =>
   Layer.unwrap(Effect.gen(function*() {
     if (!isAbsolute(config.root)) return yield* Effect.fail(new RelativeRoot(config.root))
     const model = scriptedModel(config.script)
@@ -414,7 +432,16 @@ export const layerScripted = (config: { readonly root: string; readonly script: 
     // The model is scripted, so the judge is too: this composition reaches
     // no network, and the judge answers every classifier a judged run asks,
     // reading the commands recorded for the claim.
-    return composed(config.root, seats, ScriptedJudge.layerAll)
+    return composed(
+      config.root,
+      seats,
+      ScriptedJudge.layerAll,
+      SeatRouter.layer({
+        candidates: Effect.succeed(SeatRouter.seats),
+        variants: SeatRouter.defaultVariants
+      }),
+      config.environment ?? {}
+    )
   }))
 
 /**

@@ -216,6 +216,19 @@ export const makeHost = (host: Host): Host => {
 }
 
 /**
+ * Reads the static stance shared by judged hosts. Invalid configuration is
+ * refused before acquiring host resources.
+ * @category constructors
+ * @since 1.0.0
+ */
+export const supervisorStance = (
+  environment: Readonly<Record<string, string | undefined>>
+): "careful" | "paranoid" =>
+  Schema.decodeUnknownSync(Schema.Literals(["careful", "paranoid"]))(
+    environment["SMITHERS_SUPERVISOR_STANCE"] || "careful"
+  )
+
+/**
  * Provides one host composition to every model-backed action in a run.
  *
  * @category layers

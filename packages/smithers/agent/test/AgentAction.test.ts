@@ -181,6 +181,17 @@ const run = (
   )
 
 describe("AgentAction.make", () => {
+  it("shares the host stance defaults and refuses unsupported settings", () => {
+    expect(AgentAction.supervisorStance({})).toBe("careful")
+    expect(AgentAction.supervisorStance({ SMITHERS_SUPERVISOR_STANCE: "" })).toBe("careful")
+    for (const stance of ["careful", "paranoid"] as const) {
+      expect(AgentAction.supervisorStance({ SMITHERS_SUPERVISOR_STANCE: stance })).toBe(stance)
+    }
+    for (const stance of ["relaxed", "PARANOID", " paranoid "]) {
+      expect(() => AgentAction.supervisorStance({ SMITHERS_SUPERVISOR_STANCE: stance })).toThrow()
+    }
+  })
+
   it("runs a discovered markdown child through the host prompt runner", async () => {
     const rendered: Array<string> = []
     const descriptor = new Descriptor.FlowDescriptor({

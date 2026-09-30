@@ -1,9 +1,13 @@
 /** Host composition reuses model routing and the existing runtime store. */
 import * as Agent from "@smthrs/agent/Agent"
 import * as AgentAction from "@smthrs/agent/AgentAction"
+import * as AgentSession from "@smthrs/agent/AgentSession"
 import * as Budget from "@smthrs/agent/Budget"
 import * as QuotaPolicy from "@smthrs/agent/QuotaPolicy"
 import type * as SeatResolver from "@smthrs/agent/SeatResolver"
+import type * as SeatRouter from "@smthrs/agent/SeatRouter"
+import * as StandardFlows from "@smthrs/agent/StandardFlows"
+import { layerSeatCatalog, supervisorStance } from "@smthrs/cli/NodeControl"
 import { Action, Interpreter } from "@smthrs/flow"
 import type * as Evaluator from "@smthrs/model/Evaluator"
 import * as Registry from "@smthrs/registry/Registry"
@@ -25,16 +29,26 @@ export const hostEvaluator = (
 export const agentLayers = (
   seats: Layer.Layer<SeatResolver.SeatResolver>,
   maxReviewMillis: number,
-  evaluator: Layer.Layer<Evaluator.Evaluator> = hostEvaluator(process.env)
+  evaluator: Layer.Layer<Evaluator.Evaluator> = hostEvaluator(process.env),
+  options: {
+    readonly environment?: Readonly<Record<string, string | undefined>>
+    readonly catalog?: Layer.Layer<SeatRouter.Catalog>
+  } = {}
 ) => {
+  const environment = options.environment ?? process.env
+  const catalog = options.catalog ?? layerSeatCatalog(environment)
+  const stance = supervisorStance(environment)
   const host = Layer.effect(
     AgentAction.Host,
     Effect.gen(function*() {
       const registry = yield* Registry.Registry
+      const judge = yield* Effect.context<Evaluator.Evaluator>()
       return {
         registry,
+        flows: [StandardFlows.jev(judge)],
+        supervisor: { stance },
         limits: { memoryBytes: 128 * 1024 * 1024, steps: 25_000_000, calls: 8 },
-        capabilityEnvelope: [],
+        capabilityEnvelope: AgentSession.patterns(["model:call:typesafe-ai/jev"]),
         maxFrames: 8,
         defaultCorrections: 2,
         judged: true
@@ -42,7 +56,7 @@ export const agentLayers = (
     })
   ).pipe(Layer.provide(Registry.layerFromDescriptors([])))
   return ReviewPage.layer.pipe(
-    Layer.provideMerge(Layer.mergeAll(host, seats, Agent.layer)),
+    Layer.provideMerge(Layer.mergeAll(host, seats, catalog, Agent.layer)),
     Layer.provideMerge(
       Layer.mergeAll(
         QuotaPolicy.layerDefault(),

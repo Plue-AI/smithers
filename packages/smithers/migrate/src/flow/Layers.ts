@@ -34,6 +34,7 @@ import * as QuotaPolicy from "@smthrs/agent/QuotaPolicy"
 import * as ScriptedJudge from "@smthrs/agent/ScriptedJudge"
 import * as Seat from "@smthrs/agent/Seat"
 import * as SeatResolver from "@smthrs/agent/SeatResolver"
+import * as SeatRouter from "@smthrs/agent/SeatRouter"
 import { FlowEngine } from "@smthrs/engine"
 import { Action } from "@smthrs/flow"
 import type * as FlowRuntime from "@smthrs/flow/FlowRuntime"
@@ -474,7 +475,9 @@ const hostFor = (
     Layer.provide([Workspace.layer(config.root), grants]),
     Layer.provideMerge(platform)
   )
-  return Transform.hostLayer({ root: config.root, commands: config.commands }).pipe(Layer.provide(guarded))
+  return Transform.hostLayer({ root: config.root, commands: config.commands, environment: config.environment }).pipe(
+    Layer.provide(guarded)
+  )
 }
 
 /**
@@ -536,6 +539,20 @@ const executorFor = (config: ValidatedConfig): Layer.Layer<RequestExecutor.Reque
     Effect.flatMap(EgressHttpClient.guardedTransport(config.environment ?? {}), RequestExecutor.makeWith)
   ).pipe(Layer.provide(grantsFor(config)))
 
+/** The graph seats this resolver can actually serve, checked at routing time. */
+const catalogFor = (seats: Layer.Layer<SeatResolver.SeatResolver>): Layer.Layer<SeatRouter.Catalog> =>
+  Layer.effect(
+    SeatRouter.Catalog,
+    Effect.map(SeatResolver.SeatResolver, (resolver) => ({
+      candidates: Effect.forEach(SeatRouter.seats, (id) =>
+        resolver.resolve(id).pipe(
+          Effect.map(() => [id]),
+          Effect.catchTag("@smthrs/agent/Seat/SeatUnresolved", () => Effect.succeed([]))
+        )).pipe(Effect.map((values) => values.flat())),
+      variants: SeatRouter.defaultVariants
+    }))
+  ).pipe(Layer.provide(seats))
+
 /**
  * Everything a migration needs on Node, including the credentialed half.
  *
@@ -562,7 +579,7 @@ export const layerNode = (config: NodeConfig) => {
         }))
     ).pipe(Layer.provide(executorFor(validated)))
     return MigrateFlow.layer.pipe(
-      Layer.provideMerge(Layer.mergeAll(hostFor(validated), seats, Agent.layer)),
+      Layer.provideMerge(Layer.mergeAll(hostFor(validated), seats, catalogFor(seats), Agent.layer)),
       Layer.provideMerge(agentPolicy),
       Layer.provideMerge(Agent.layerDefaults),
       Layer.provideMerge(Action.layerImplementations),
@@ -763,7 +780,7 @@ export const layerScripted = (config: NodeConfig & { readonly script: Script }) 
         )
     })
     return MigrateFlow.layer.pipe(
-      Layer.provideMerge(Layer.mergeAll(hostFor(validated), seats, Agent.layer)),
+      Layer.provideMerge(Layer.mergeAll(hostFor(validated), seats, catalogFor(seats), Agent.layer)),
       Layer.provideMerge(agentPolicy),
       Layer.provideMerge(Agent.layerDefaults),
       Layer.provideMerge(Action.layerImplementations),
