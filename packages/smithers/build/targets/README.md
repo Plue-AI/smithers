@@ -111,8 +111,8 @@ value is never a declaration field or key input.
 
 The catalog includes declaration-only APIs in this RC. `Npm.Publish`,
 `Changesets.Publish`, `Github.Release`, `Github.Pages`, `Git.Pr`, `Github.Pr`,
-and `Npm.Downstream` are unsupported by the package executor and the plan always
-refuses them.
+and `Npm.Downstream` are deferred past 1.0 ([#3163](https://github.com/smithersai/smithers/issues/3163), [#3164](https://github.com/smithersai/smithers/issues/3164), [#3165](https://github.com/smithersai/smithers/issues/3165),
+[#3166](https://github.com/smithersai/smithers/issues/3166)): the package executor's plan always refuses them.
 See [the catalog](./docs/rules.md) before selecting a publication target.
 
 ## Presentation

@@ -85,8 +85,24 @@ const pr = S.Git.Pr({
   gates: [gate],
   secrets: [S.HttpSecret(S.Secret("GITHUB_TOKEN"), ["https://api.github.com"])]
 })
+const githubPr = S.Github.Pr({
+  gates: [gate],
+  secrets: [S.HttpSecret(S.Secret("GITHUB_TOKEN"), ["https://api.github.com"])]
+})
+const release = S.Github.Release({
+  manifest,
+  notes: "notes",
+  gates: [gate],
+  secrets: [S.HttpSecret(S.Secret("GITHUB_TOKEN"), ["https://api.github.com"])]
+})
+const changesetsPublish = S.Changesets.Publish({
+  config: S.file("//changeset.json"),
+  pack,
+  gates: [gate],
+  secrets: [S.HttpSecret(S.Secret("NPM_TOKEN"), ["https://registry.npmjs.org"])]
+})
 export const Package = S.Package({ targets: {
-  ci, copy, cron, digest, digestBuild, downstream, gate, literal, markdown, overlay, overlayBuild,
+  changesetsPublish, githubPr, release, ci, copy, cron, digest, digestBuild, downstream, gate, literal, markdown, overlay, overlayBuild,
   overlayConflictBuild, overlayDownstream, overlayPack, pack, pages, pr,
   publishApproval, publishMissing, size, version
 } })
@@ -404,6 +420,9 @@ describe("Node lane package execution", () => {
       const [label, rule] of [
         ["publishMissing", "Npm.Publish"],
         ["publishApproval", "Npm.Publish"],
+        ["changesetsPublish", "Changesets.Publish"],
+        ["githubPr", "Github.Pr"],
+        ["release", "Github.Release"],
         ["pages", "Github.Pages"],
         ["pr", "Git.Pr"]
       ] as const

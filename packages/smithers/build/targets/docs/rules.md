@@ -19,7 +19,9 @@ transport. The plan refuses each one as `not implemented by this executor`, so
 `run` fails before any gate or effect. The plan also refuses `Npm.Downstream`
 as `not implemented by this executor` because the isolated remote checkout
 runner is not implemented.
-Their declarations remain available for planning; they are not working release
+Each is deferred past 1.0: `Npm.Publish` and `Changesets.Publish` in [#3163](https://github.com/smithersai/smithers/issues/3163),
+`Github.Pr` and `Git.Pr` in [#3164](https://github.com/smithersai/smithers/issues/3164), `Github.Release` and `Github.Pages` in
+[#3165](https://github.com/smithersai/smithers/issues/3165), `Npm.Downstream` in [#3166](https://github.com/smithersai/smithers/issues/3166). Their declarations remain available for planning; they are not working release
 or pull-request operations. Use an implemented publication tool or CI job.
 
 | Rule                     | Module            | Verbs              | Cacheable | Declares outputs | Route            |
