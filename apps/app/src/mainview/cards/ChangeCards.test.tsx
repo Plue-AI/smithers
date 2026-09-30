@@ -464,6 +464,39 @@ describe("the change card", () => {
     host.remove()
   })
 
+  test("a failed analyzer run keeps its raw reason in collapsed Details", () => {
+    const detail = "InternalError: /srv/private/analyzer.ts:42\nbackend stack"
+    const { host } = renderChange(liveCard({
+      facet: "findings",
+      findings: [],
+      analyzers: [{ name: "smithers-review", state: "failed", seq: 2, startedAt: null, finishedAt: null,
+        pausedBy: null, pausedReason: null, failureReason: detail }]
+    }))
+    const notice = host.querySelector('[data-testid="change-analyzer-failure"]')!
+    expect(notice.getAttribute("role")).toBeNull()
+    expect(notice.querySelector("summary")?.textContent).toBe("Details")
+    expect(notice.querySelector("details")?.open).toBe(false)
+    expect(notice.querySelector("details pre")?.textContent).toBe(detail)
+    expect(notice.querySelector("details pre")?.getAttribute("role")).toBe("region")
+    expect(notice.querySelector("details pre")?.getAttribute("aria-label")).toBe("Failure details")
+    expect(host.querySelector('[aria-label="Analyzer runs"] .world-card-path')?.textContent).toBe("failed · rev 2")
+    host.remove()
+  })
+
+  test("analyzer runs with blank reasons do not show an empty failure box", () => {
+    for (const detail of ["", " \n "]) {
+      const { host } = renderChange(liveCard({
+        facet: "findings",
+        findings: [],
+        analyzers: [{ name: "smithers-review", state: "failed", seq: 2, startedAt: null, finishedAt: null,
+          pausedBy: null, pausedReason: null, failureReason: detail }]
+      }))
+      expect(host.querySelector('[data-testid="change-analyzer-failure"]')).toBeNull()
+      expect(host.querySelector('[aria-label="Analyzer runs"] .world-card-path')?.textContent).toBe("failed · rev 2")
+      host.remove()
+    }
+  })
+
   test("unread findings say so with the reason; a read, empty list states the empty fact — never 'don't exist yet'", () => {
     const unread = renderChange(changeCard({ facet: "findings", findings: null, unread: { findings: "Reading findings failed (500)" } }))
     expect(unread.host.textContent ?? "").toContain("findings not read (Reading findings failed (500))")
@@ -728,18 +761,32 @@ describe("the change card", () => {
     landed.host.remove()
   })
 
-  test("a failed changeset renders its failure reason verbatim with Retry land", () => {
+  test("a failed changeset keeps its reason behind Details with Retry land", () => {
     const { host, commands } = renderChange(
       changeCard({ changeset: changesetOf({ state: "failed", failureReason: "bookmark moved under the land" }) })
     )
     const text = host.textContent ?? ""
-    expect(text).toContain("bookmark moved under the land")
+    const notice = host.querySelector('[data-testid="changeset-failure"]')!
+    expect(notice.getAttribute("role")).toBe("alert")
+    expect(notice.querySelector(".ghc-visually-hidden")?.textContent).toBe("Landing failed. Open Details for the reason.")
+    expect(notice.querySelector("summary")?.textContent).toBe("Details")
+    expect(notice.querySelector("details")?.open).toBe(false)
+    expect(notice.querySelector("details pre")?.textContent).toBe("bookmark moved under the land")
     expect(text).toContain("Changeset 7 → main")
     expect(landButton(host).disabled).toBe(false)
     expect(landButton(host).textContent).toContain("Retry land")
     click(host, "Land the changeset")
     expect(commands[0]).toEqual({ name: "change.land", args: "qupxosqw" })
     host.remove()
+  })
+
+  test("failed changesets with blank reasons do not announce an empty diagnostic", () => {
+    for (const detail of ["", " \n "]) {
+      const { host } = renderChange(changeCard({ changeset: changesetOf({ state: "failed", failureReason: detail }) }))
+      expect(host.querySelector('[data-testid="changeset-failure"]')).toBeNull()
+      expect(landButton(host).textContent).toContain("Retry land")
+      host.remove()
+    }
   })
 
   test("Land is disabled with the reason while a changeset is landing or landed", () => {
@@ -799,9 +846,15 @@ describe("the change card", () => {
     host.remove()
   })
 
-  test("an error the seam recorded renders on the card", () => {
-    const { host } = renderChange(changeCard({ error: "the land failed: bookmark moved" }))
-    expect(host.textContent ?? "").toContain("the land failed: bookmark moved")
+  test("a recorded change error has a safe sentence and collapsed diagnostic details", () => {
+    const detail = "InternalError: /srv/private/repository.ts:42\nbackend stack"
+    const { host } = renderChange(changeCard({ error: detail }))
+    const notice = host.querySelector('[data-testid="change-failure"]')!
+    expect(notice.querySelector("p")?.textContent).toBe("Smithers could not finish that on this change. Not your fault.")
+    expect(notice.getAttribute("role")).toBe("alert")
+    expect(notice.querySelector("details")?.open).toBe(false)
+    expect(notice.querySelector("details pre")?.textContent).toBe(detail)
+    expect(notice.querySelector("summary")?.textContent).toBe("Details")
     host.remove()
   })
 
@@ -997,6 +1050,25 @@ describe("the diff card's hunks on the code engine", () => {
 })
 
 describe("the diff card", () => {
+  test("a read, empty diff still says it has no files", () => {
+    const { host } = renderDiff(diffCard({ files: [] }))
+    expect(host.textContent ?? "").toContain("No files in this diff.")
+    host.remove()
+  })
+
+  test("a recorded diff error renders a collapsed diagnostic disclosure", () => {
+    const detail = "GET /api/private/diff failed: InternalError\n/srv/private/diff.go:9"
+    const { host } = renderDiff(diffCard({ error: detail, files: [] }))
+    const notice = host.querySelector('[data-testid="diff-failure"]')!
+    expect(notice.querySelector("p")?.textContent).toBe("Smithers could not load this diff. Not your fault.")
+    expect(notice.getAttribute("role")).toBe("alert")
+    expect(notice.querySelector("details")?.open).toBe(false)
+    expect(notice.querySelector("details pre")?.textContent).toBe(detail)
+    expect(notice.querySelector("summary")?.textContent).toBe("Details")
+    expect(host.textContent ?? "").not.toContain("No files in this diff.")
+    host.remove()
+  })
+
   test("the header names the from → to pair and the pin's commit", () => {
     const { host } = renderDiff(diffCard())
     const text = host.textContent ?? ""

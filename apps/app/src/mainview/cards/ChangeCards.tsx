@@ -25,7 +25,7 @@ import { timeLabel, durationLabel } from "../Timestamps"
 import { shortId } from "../state/ids"
 import { flowArgs } from "../flows/FlowArgs"
 import type { UserFailureCopy } from "@smthrs/rpc/UserFailure"
-import { describedFailure, FailureNotice } from "../FailureNotice"
+import { describedFailure, FailureDetails, FailureNotice } from "../FailureNotice"
 
 /* A change or diff card's recorded failure; its raw text stays behind Details. */
 export const CHANGE_FAILURES: Readonly<Record<"change" | "diff", UserFailureCopy>> = {
@@ -40,6 +40,17 @@ export interface ChangeCardActions {
 type ChangeCard = Extract<Card, { kind: "change" }>
 type DiffCard = Extract<Card, { kind: "diff" }>
 type ChangePayload = ChangeCard["payload"]
+
+/** Failed state already names the failure, so these rows need only a raw-detail disclosure. Announcement marks the one landing notice as live; analyzer lists stay quiet. */
+const RecordedFailureDetails = ({ detail, testId, announcement }: {
+  readonly detail: string
+  readonly testId: string
+  readonly announcement?: string
+}) => detail.trim() === "" ? null :
+  <div className="sui-approval-error" role={announcement === undefined ? undefined : "alert"} data-testid={testId}>
+    {announcement === undefined ? null : <span className="ghc-visually-hidden">{announcement}</span>}
+    <FailureDetails detail={detail} />
+  </div>
 
 /*
  * Code intelligence L5 (docs/code-intel/PLAN.md §7): a hunk renders through
@@ -141,7 +152,7 @@ interface LandAct {
  * The Land act's label, scope, and blocking reason from the card's own state
  * (ADR 0003: "Land (confirm; disabled with the blocking reason)"). A
  * changeset lands every member together: `landing` and `landed` block,
- * `failed` re-lands as "Retry land" under its verbatim failure_reason. A
+ * `failed` re-lands as "Retry land" with the failure reason in Details. A
  * landing request lands its WHOLE stack, so the label names the scope
  * (`Land 1 → N`), only the top change may land (a prefix land is plue#452),
  * plue lands a request only while it is open or failed, and the gate's own
@@ -409,8 +420,10 @@ const ChangeFindingsFacet = ({ card, onRunCommand }: { readonly card: ChangeCard
                   {run.state}
                   {run.seq !== null ? ` · rev ${run.seq}` : ""}
                   {run.pausedReason !== null ? ` · ${run.pausedReason}` : ""}
-                  {run.failureReason !== null ? ` · ${run.failureReason}` : ""}
                 </span>
+                {run.failureReason !== null ?
+                  <RecordedFailureDetails detail={run.failureReason} testId="change-analyzer-failure" /> :
+                  null}
               </li>
             ))}
           </ul>
@@ -1005,7 +1018,8 @@ export const ChangeCardBody = ({
               ) :
               null}
             {payload.changeset.state === "failed" && payload.changeset.failureReason !== null ?
-              <p className="sui-approval-error" role="alert">{payload.changeset.failureReason}</p> :
+              <RecordedFailureDetails detail={payload.changeset.failureReason} testId="changeset-failure"
+                announcement="Landing failed. Open Details for the reason." /> :
               null}
           </div>
         ) :
@@ -1124,7 +1138,7 @@ export const DiffCardBody = ({
         <FailureNotice className="sui-approval-error" data-testid="diff-failure" failure={describedFailure("DiffFailed", CHANGE_FAILURES.diff, payload.error)} /> :
         null}
       {payload.files.length === 0 ?
-        <p className="world-card-empty">No files in this diff.</p> :
+        payload.error === undefined ? <p className="world-card-empty">No files in this diff.</p> : null :
         (
           <ul className="world-card-list">
             {payload.files.map((file) => (

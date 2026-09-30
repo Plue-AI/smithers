@@ -47,6 +47,12 @@ export interface FailureNoticeProps {
   readonly children?: ReactNode
 }
 
+/** A raw diagnostic stays behind one keyboard-operable disclosure. */
+export function FailureDetails({ detail }: { readonly detail: string }) {
+  return detail.trim() === "" ? null :
+    <details><summary>Details</summary><pre tabIndex={0} role="region" aria-label="Failure details">{detail}</pre></details>
+}
+
 export function FailureNotice({ failure, actions = {}, role = "alert", className, children, ...rest }: FailureNoticeProps) {
   const offered = failure.actions.flatMap(action => {
     const props = actions[action]
@@ -61,9 +67,7 @@ export function FailureNotice({ failure, actions = {}, role = "alert", className
         <Button key={action} type="button" size="sm" variant="outline" {...props}>{label ?? LABELS[action]}</Button>
       ))}
       {children}
-      {detail === "" || detail === failure.sentence ? null : (
-        <details><summary>Details</summary><pre tabIndex={0}>{failure.detail}</pre></details>
-      )}
+      {detail === failure.sentence ? null : <FailureDetails detail={failure.detail} />}
     </div>
   )
 }
