@@ -24,9 +24,9 @@ Source date: 2026-09-27. Generated from [the checked-in backend rate card](https
 | gpt-5.6-luna | 0.2 | 0.02 | 0.25 | 0.25 | 1.2 | 272000 | 0.4 | 0.04 | 0.5 | 0.5 | 1.8 | - |
 | gpt-5.6-sol | 4 | 0.4 | 5 | 5 | 20 | 272000 | 8 | 0.8 | 10 | 10 | 30 | - |
 | gpt-5.6-terra | 2 | 0.2 | 2.5 | 2.5 | 12 | 272000 | 4 | 0.4 | 5 | 5 | 18 | - |
-| gpt-6-astra | 10 | 1 | 12.5 | 12.5 | 50 | 272000 | 20 | 2 | 25 | 25 | 75 | - |
 | gpt-6-luna | 0.1 | 0.01 | 0.125 | 0.125 | 0.5 | 272000 | 0.2 | 0.02 | 0.25 | 0.25 | 0.75 | - |
 | gpt-6-sol | 2 | 0.2 | 2.5 | 2.5 | 10 | 272000 | 4 | 0.4 | 5 | 5 | 15 | - |
+| gpt-6.1-sol | 2 | 0.2 | 2.5 | 2.5 | 10 | 272000 | 4 | 0.4 | 5 | 5 | 15 | - |
 | gpt-oss-120b | 0.35 | 0.35 | 0.35 | 0.35 | 0.75 | - | - | - | - | - | - | - |
 | gpt-oss-120b@openrouter | 0.35 | 0.35 | 0.35 | 0.35 | 0.75 | - | - | - | - | - | - | - |
 | qwen-3.8-27b | 0.99 | 0.99 | 0.99 | 0.99 | 1.49 | - | - | - | - | - | - | - |
@@ -628,7 +628,7 @@ with the evidence for each finding.
 | Key | What it decides |
 | --- | --- |
 | `description` | One line shown wherever the agent is listed. |
-| `model` | The model: an alias such as `sol`, `astra`, `luna`, `opus`, `fable`, or `qwen`, or `provider:modelId`. A list is a primary and fallbacks. |
+| `model` | The model: an alias such as `sol`, `luna`, `opus`, `fable`, or `qwen`, or `provider:modelId`. A list is a primary and fallbacks. |
 | `effort` | Reasoning effort, such as `low` or `high`. |
 | `capabilities` | What it may do. Anything else is refused. |
 | `budget` | The most tokens and time one run may spend. |
@@ -6000,8 +6000,7 @@ These aliases expand to a full seat; the run records the alias:
 
 | Alias | Seat |
 | --- | --- |
-| `sol` | `openai:gpt-6-sol` |
-| `astra` | `openai:gpt-6-astra` |
+| `sol` | `openai:gpt-6.1-sol` |
 | `luna` | `openai:gpt-6-luna` |
 | `opus` | `anthropic:claude-opus-5-5` |
 | `fable` | `anthropic:claude-fable-5-1` |
@@ -14539,7 +14538,7 @@ a pick with nothing available, fails as `Seat.SeatUnrouted`.
 ### SeatRouter.seats, SeatRouter.phases
 
 ```ts
-const seats: readonly ["luna", "sol", "astra", "opus", "fable", "sonnet", "kimi"]
+const seats: readonly ["luna", "sol", "opus", "fable", "sonnet", "kimi"]
 type GraphSeat = typeof seats[number]
 const phases: readonly ["plan", "implement", "review", "ui", "tool", "other"]
 type Phase = typeof phases[number]
@@ -14565,7 +14564,7 @@ const plan: (answers: Answers) => Planned
 const backupsOf: (seat: GraphSeat, phase: Phase) => ReadonlyArray<GraphSeat>
 ```
 
-`plan` is the graph; the panel is Opus, Fable, and Astra, merged by Fable.
+`plan` is the graph; the panel is Opus, Fable, and Sol, merged by Fable.
 
 | Phase       | Pick                                                                     |
 | ----------- | ------------------------------------------------------------------------ |
@@ -14577,7 +14576,7 @@ const backupsOf: (seat: GraphSeat, phase: Phase) => ReadonlyArray<GraphSeat>
 | `other`     | Opus                                                                     |
 
 Writing code never runs on Luna. `backupsOf` is the failover order: Fable to
-Astra; Opus to Sol, or Kimi then Sol for `ui`; Kimi to none; every other seat
+Sol; Opus to Sol, or Kimi then Sol for `ui`; Kimi to none; every other seat
 to Kimi.
 
 ### SeatRouter.fit, SeatRouter.Route
@@ -35857,7 +35856,7 @@ Replay-safe policy for native deferred provider tool loading.
 | --------------------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `ProtocolId`                            | type      | `"anthropic-messages" \| "openai-responses" \| "openai-responses-chatgpt"`.                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `Resolution`                            | interface | `{ immediate, deferred, activatedNames }`: the tool partition derived from a sealed request.                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| `supportsDeferred(protocolId, modelId)` | predicate | Answers from explicit per-protocol allowlists, matched case-insensitively. GPT-6 Sol, Astra, and Luna answer `true` on both OpenAI protocols, from OpenAI's tool search guide and a live probe recorded 2026-09-24 in `test/fixtures/gpt6-deferred-probe.json`. An unlisted model, including a family released after this code, answers `false` and receives every tool through the portable lowering, because native deferral changes the wire body and an unverified body must not ship without a release. |
+| `supportsDeferred(protocolId, modelId)` | predicate | Answers from explicit per-protocol allowlists, matched case-insensitively. GPT-6 Sol, GPT-6.1 Sol, and Luna answer `true` on both OpenAI protocols, from OpenAI's tool search guide and a live probe recorded 2026-09-24 in `test/fixtures/gpt6-deferred-probe.json`. An unlisted model, including a family released after this code, answers `false` and receives every tool through the portable lowering, because native deferral changes the wire body and an unverified body must not ship without a release. |
 | `resolve(request, native)`              | operation | Derives the partition from declared `deferred` annotations and the chronological transcript only: tool calls made, and `addedToolNames` activations. No process-local state is consulted, so replay produces the identical partition.                                                                                                                                                                                                                                                                        |
 
 Without native support, deferred tools arrive as ordinary definitions once

@@ -90,7 +90,7 @@ Gap specs:
 ```yaml
 ---
 description: Reviews the uncommitted change and returns a verdict.   # picker row
-model: sol                     # seat: alias (sol|astra|luna|opus|fable) or provider:modelId
+model: sol                     # seat: alias (sol|luna|opus|fable) or provider:modelId
 effort: high                   # thinking level
 capabilities: ["fs:read:**", "proc:spawn:*"]   # envelope; empty = host default
 flows: [read, grep, bash]      # ctx flows it may call; empty = host default catalog
@@ -261,7 +261,7 @@ Owns: `agents.ts`, `models.ts`, `flows.ts`, `flow-control.ts`,
 | # | File | Change | Test first (fails before) |
 | --- | --- | --- | --- |
 | 1 | `flow-control.ts`, `flows.ts` | `discover` maps `Extension.project`; `Listed = Extension.Descriptor`; `Port.body(name) => { text, baseDirectory, digest }` via `Registry.loadBody`, `FlowError("refused")` for module bodies | `test/flow-control.test.ts`: fixture `flows/review/flow.mdx` lists `kind: "markdown"`, `seat`, `tui`; `body("review")` returns the prompt; `body("echo")` refuses |
-| 2 | `models.ts` | `seatOf(declared, available)`: aliases `sol astra luna` (OpenAI), `opus fable` (Anthropic), `qwen` (Cerebras); `provider:modelId` passes through; unknown => `unknown_seat` | `test/models.test.ts` table |
+| 2 | `models.ts` | `seatOf(declared, available)`: aliases `sol luna` (OpenAI), `opus fable` (Anthropic), `qwen` (Cerebras); `provider:modelId` passes through; unknown => `unknown_seat` | `test/models.test.ts` table |
 | 3 | `agents.ts` (new) | `Profile { name, digest, system, seat, thinking?, flows, envelope }`, `AgentError`, `profile(descriptor, body, seatOf)` | `test/agents.test.ts`: every row of the failure table; empty `flows`/`capabilities` keep host defaults |
 | 4 | `host.ts` | `TurnInput.agent?: Profile`; extract `turnOptions(input)` (pure) from `run` and apply the profile there | `test/host.test.ts`: `turnOptions` has the body in `system`, the narrowed envelope, only allowlisted standard flows, `effort` as thinking |
 | 5 | `workspace.ts` | `Request.agent?`, `Tab.agent?: { name, digest }`; body read in `launch`; dedupe compares agent; `retry` keeps `agent` and `model` | `test/workspace.test.ts`: with a `body` port that never resolves, `request` returns `requested` and chat stays usable; failure is typed and retryable; duplicate id with a different agent refuses |
