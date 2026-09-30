@@ -9,6 +9,7 @@ import { Node } from "@smthrs/plan"
 import { Effect, Layer, Schema } from "effect"
 import { Learning, learningRows, maxLearnings } from "./learnings.ts"
 import { maxSources, Source } from "./planning-sources.ts"
+import { projectMemory } from "./project-memory.ts"
 import { AtomicPlan, Change, Check, CodingError, Plan, PlanningInput, Revision, validatePlan } from "./schema.ts"
 export { PlanningInput } from "./schema.ts"
 
@@ -341,9 +342,11 @@ export const finalize = (input: typeof PlanningInput.Type, context: PlanningCont
       "The plan must retain every existing descendant in native order so its checks are invalidated and rerun"
     )
   }
+  const memory = projectMemory(context)
   const plan: Plan = {
     prompt: input.prompt,
     memoryRevision: context.memoryRevision,
+    ...(memory.length === 0 ? {} : { memory }),
     base: context.history[baseIndex]!,
     observedHead: context.head,
     changes

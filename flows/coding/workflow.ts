@@ -7,6 +7,7 @@ import {
   CodingError,
   Implementation,
   Plan,
+  ProjectMemory,
   Receipt,
   receiptMatches,
   receiptOutage,
@@ -24,7 +25,12 @@ export const ValidatePlan = Action.make("coding/validate-plan", {
   error: CodingError
 })
 export const Implement = Action.make("coding/implement-change", {
-  payload: { change: Change, parent: Revision, memoryRevision: Schema.NonEmptyString },
+  payload: {
+    change: Change,
+    parent: Revision,
+    memoryRevision: Schema.NonEmptyString,
+    memory: Schema.optionalKey(ProjectMemory)
+  },
   success: Implementation,
   error: CodingError,
   nondeterministic: true
@@ -48,6 +54,12 @@ export const Assess = Action.make("coding/assess", {
   payload: { plan: Plan, changes: Schema.Array(ValidatedChange) },
   success: Result,
   error: CodingError
+})
+
+/** What an implementation step recalls from its plan: the evidence identity and, when present, its project memory. */
+export const recalled = (plan: Pick<Plan, "memoryRevision" | "memory">) => ({
+  memoryRevision: plan.memoryRevision,
+  ...(plan.memory === undefined ? {} : { memory: plan.memory })
 })
 
 /** Validate a completed check before either early feedback or final assessment. */

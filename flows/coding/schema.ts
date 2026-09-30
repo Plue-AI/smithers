@@ -42,9 +42,26 @@ export const Change = Schema.Struct({
   checks: Schema.Array(Check)
 })
 export type Change = typeof Change.Type
+/**
+ * One cited row of a coding run's project memory: `[bank/key] text` in the
+ * opening block. See `project-memory.ts`.
+ */
+export const MemoryRow = Schema.Struct({
+  origin: Schema.Literal("recall"),
+  bank: Text,
+  key: Text,
+  text: Text
+})
+export type MemoryRow = typeof MemoryRow.Type
+/** The bounded, cited block the implementation, repair and correction steps open with. */
+export const ProjectMemory = Schema.Array(MemoryRow).check(Schema.isMaxLength(64))
+export type ProjectMemory = typeof ProjectMemory.Type
 export const Plan = Schema.Struct({
   prompt: Text,
   memoryRevision: Text,
+  // The project memory the planner was given, bounded and cited, so every
+  // later step opens with the same block. Absent on plans made before it.
+  memory: Schema.optionalKey(ProjectMemory),
   base: Revision,
   // New prepared plans retain the complete source head. An amendment's base
   // can be older than the source the planner inspected. Legacy manual plans

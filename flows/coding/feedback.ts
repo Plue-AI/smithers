@@ -8,7 +8,7 @@ import { Effect, Exit, Layer, Option, Schema } from "effect"
 import * as RunLifecycle from "../../packages/smithers/flows/engine-store/src/internal/RunLifecycle.ts"
 import { EarlyFeedback } from "./feedback-schema.ts"
 import { Check, CodingError, Implementation, Plan, Receipt, receiptMatches, Result, ValidatedChange } from "./schema.ts"
-import { Assess, FastGate, Implement, receiptFindings, RunCheck, ValidatePlan } from "./workflow.ts"
+import { Assess, FastGate, Implement, recalled, receiptFindings, RunCheck, ValidatePlan } from "./workflow.ts"
 export { EarlyFeedback } from "./feedback-schema.ts"
 
 export const FeedbackError = Schema.Union([CodingError, EarlyFeedback])
@@ -106,7 +106,7 @@ type Stages = Node.Node<
 const stages = (plan: Plan, index: number, parent: Parameters<typeof Implement.call>[0]["parent"]): Stages => {
   const change = plan.changes[index]
   if (!change) return Node.succeed([])
-  return Implement.call({ change, parent, memoryRevision: plan.memoryRevision }).pipe(
+  return Implement.call({ change, parent, ...recalled(plan) }).pipe(
     Node.bindPlanned((implementation) =>
       Node.all(Object.fromEntries(
         change.checks.filter((check) => check.tier === "fast")

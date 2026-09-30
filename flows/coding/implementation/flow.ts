@@ -7,7 +7,7 @@ import { Layer, Schema } from "effect"
 // cannot also be a named const; the registration beside it reads the value
 // back through this self-import, which resolves after this module evaluates.
 import { ApplyNative, atomError as Error, EditAtom, Entry, Observe, Prepare } from "../atoms.ts"
-import { AtomicPlan, Change, CodingError, Implementation, Revision } from "../schema.ts"
+import { AtomicPlan, Change, CodingError, Implementation, ProjectMemory, Revision } from "../schema.ts"
 import ImplementAtoms from "./flow.ts"
 
 const Atom = Flow.make("coding/ImplementAtom", {
@@ -16,7 +16,8 @@ const Atom = Flow.make("coding/ImplementAtom", {
     atom: AtomicPlan,
     parent: Revision,
     ordinal: Schema.Number,
-    memoryRevision: Schema.String
+    memoryRevision: Schema.String,
+    memory: Schema.optionalKey(ProjectMemory)
   },
   success: Schema.Struct({
     revision: Revision,
@@ -24,12 +25,12 @@ const Atom = Flow.make("coding/ImplementAtom", {
     writes: Schema.Array(Schema.String)
   }),
   error: Error,
-  body: ({ change, atom, parent, ordinal, memoryRevision }) =>
+  body: ({ change, atom, parent, ordinal, memoryRevision, memory }) =>
     Entry.call({ change, atom, parent, ordinal }).pipe(
       Node.bindPlanned((operation) => ApplyNative.call({ operation })),
       Node.bindPlanned((result) => Observe.call({ result, parent, expectedChangeId: atom.changeId })),
       Node.bindPlanned((revision) =>
-        EditAtom.call({ atom, parent, revision, memoryRevision }).pipe(
+        EditAtom.call({ atom, parent, revision, memoryRevision, ...(memory === undefined ? {} : { memory }) }).pipe(
           Node.bindPlanned((report) =>
             Node.all({
               report: Node.succeed(report),
@@ -62,15 +63,15 @@ type AtomsNode = Node.Node<ReadonlyArray<AtomResult>, typeof Error.Type, Node.Se
 const atoms = (
   change: typeof Change.Type,
   parent: Parameters<typeof Atom.call>[0]["parent"],
-  memoryRevision: string,
+  recalled: { readonly memoryRevision: string; readonly memory?: ProjectMemory },
   ordinal: number
 ): AtomsNode => {
   const atom = change.atoms[ordinal]
   return atom === undefined ?
     Node.succeed([]) :
-    Atom.call({ change: change.id, atom, parent, memoryRevision, ordinal }).pipe(
+    Atom.call({ change: change.id, atom, parent, ...recalled, ordinal }).pipe(
       Node.bindPlanned((result) =>
-        Node.all({ current: Node.succeed(result), rest: atoms(change, result.revision, memoryRevision, ordinal + 1) })
+        Node.all({ current: Node.succeed(result), rest: atoms(change, result.revision, recalled, ordinal + 1) })
           .pipe(Node.map(({ current, rest }) => [current, ...rest]))
       )
     )
@@ -87,10 +88,15 @@ export default Flow.make("coding/ImplementAtoms", {
     "Implement one planned Change as native JJ atoms, preserving existing identities and recording exact revision evidence.",
   capabilities: ["*"],
   effects: { reads: ["**"], writes: ["**"], mode: "expected", onConflict: "serialize", tier: "irreversible" },
-  payload: { change: Change, parent: Revision, memoryRevision: Schema.NonEmptyString },
+  payload: {
+    change: Change,
+    parent: Revision,
+    memoryRevision: Schema.NonEmptyString,
+    memory: Schema.optionalKey(ProjectMemory)
+  },
   success: Implementation,
   error: Error,
-  body: ({ change, parent, memoryRevision }) => {
+  body: ({ change, parent, memoryRevision, memory }) => {
     if (!Array.isArray(change.atoms)) {
       throw new CodingError({
         code: "invalid_plan",
@@ -100,7 +106,7 @@ export default Flow.make("coding/ImplementAtoms", {
     return Node.all({
       change: Node.succeed(change.id),
       parent: Node.succeed(parent),
-      results: atoms(change, parent, memoryRevision, 0)
+      results: atoms(change, parent, { memoryRevision, ...(memory === undefined ? {} : { memory }) }, 0)
     }).pipe(Node.map(({ change, parent, results }) => ({
       change,
       parent,

@@ -2,7 +2,7 @@
 import { type Action, Flow } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"
 import { CodingError, Plan, Result, type ValidatedChange } from "./schema.ts"
-import { Assess, FastGate, Implement, RunCheck, ValidatePlan } from "./workflow.ts"
+import { Assess, FastGate, Implement, recalled, RunCheck, ValidatePlan } from "./workflow.ts"
 
 type Requirements = Action.Requirement<
   (typeof ValidatePlan | typeof Implement | typeof RunCheck | typeof FastGate | typeof Assess)["name"]
@@ -13,7 +13,7 @@ type Stages = Node.Node<ReadonlyArray<ValidatedChange>, CodingError, Requirement
 const stages = (plan: Plan, index: number, parent: Parameters<typeof Implement.call>[0]["parent"]): Stages => {
   const change = plan.changes[index]
   if (change === undefined) return Node.succeed([])
-  return Node.bindPlanned(Implement.call({ change, parent, memoryRevision: plan.memoryRevision }), (implementation) => {
+  return Node.bindPlanned(Implement.call({ change, parent, ...recalled(plan) }), (implementation) => {
     const fast = Object.fromEntries(
       change.checks.filter((check) => check.tier === "fast")
         .map((check) => [check.id, RunCheck.call({ implementation, check })])
