@@ -21,8 +21,8 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/runtimebridge"
-	"github.com/smithersai/smithers/packages/backend/testkit/testdb"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
+	"github.com/smithersai/smithers/packages/backend/testkit/testdb"
 	"github.com/stretchr/testify/require"
 )
 

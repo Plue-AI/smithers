@@ -59,6 +59,7 @@ func normalizeWikiAttachmentPath(value string) (string, error) {
 	}
 	return value, nil
 }
+
 // WikiAttachmentSlug is the one slug a new attachment may take: its path's
 // slug (lowercase ASCII letters and digits; every other run is one "-"), then
 // "-" and the first 12 hex digits of its bytes' SHA-256. A client derives it

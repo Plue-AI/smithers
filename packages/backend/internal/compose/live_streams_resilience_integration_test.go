@@ -414,7 +414,9 @@ func TestLiveStreamResiliencePostgres(t *testing.T) {
 			targets = append(targets, target{name: stream.name, path: func(*testing.T) string { return rig.path(stream) }, established: connected})
 		}
 		targets = append(targets,
-			target{name: "run status", path: func(*testing.T) string { return liveStreamPath(rig.f, "/api/repos/{owner}/{repo}/runs/{id}/status/stream") }, established: connected},
+			target{name: "run status", path: func(*testing.T) string {
+				return liveStreamPath(rig.f, "/api/repos/{owner}/{repo}/runs/{id}/status/stream")
+			}, established: connected},
 			target{name: "github import", path: func(t *testing.T) string { return "/api/github/import/" + rig.newImport(t) }, established: func(f sseFrame) bool { return f.event == "import_job" }},
 		)
 		for _, target := range targets {
