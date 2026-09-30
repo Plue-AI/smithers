@@ -173,7 +173,7 @@ func TestWorkspaceCloneCommandChecksOutPinnedSource(t *testing.T) {
 	require.Contains(t, command, "fetch --depth=")
 	require.Contains(t, command, " origin "+shellQuote(source.Ref))
 	require.Contains(t, command, "checkout --detach "+shellQuote(commit))
-	require.Less(t, strings.Index(command, "checkout --detach"), strings.Index(command, "jj git init"))
+	require.Less(t, strings.Index(command, "checkout --detach"), strings.LastIndex(command, "jj git init"))
 	require.True(t, strings.HasSuffix(command, " new "+shellQuote(commit)), command)
 	require.NotContains(t, command, " new 'main'")
 	full := buildWorkspaceCloneCommand("https://git.test/o/r.git", "tok", "main", -1, source)

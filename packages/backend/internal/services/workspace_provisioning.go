@@ -2046,10 +2046,28 @@ func buildWorkspaceCloneCommand(cloneURL, token, sourceBookmark string, depth in
 	// /workspace, which HOME alone does not override (jj prefers it), so pin the
 	// config dir explicitly and drop any inherited JJ_CONFIG.
 	asDev := "runuser -u " + shellQuote(defaultWorkspaceUser) + " -- env -u JJ_CONFIG HOME=" + shellQuote(defaultWorkspaceHome) + " XDG_CONFIG_HOME=" + shellQuote(defaultWorkspaceHome+"/.config") + " USER=" + shellQuote(defaultWorkspaceUser) + " LOGNAME=" + shellQuote(defaultWorkspaceUser) + " "
+	clonePath := shellQuote(defaultWorkspaceClonePath)
 	lines = append(lines,
 		"install -d -o "+shellQuote(defaultWorkspaceUser)+" -g "+shellQuote(defaultWorkspaceUser)+" "+shellQuote(defaultWorkspaceHome),
-		"rm -rf "+shellQuote(defaultWorkspaceClonePath),
-		asDev+"git clone "+cloneFlags+" -- "+shellQuote(cloneURL)+" "+shellQuote(defaultWorkspaceClonePath),
+		"rm -rf "+clonePath,
+		// A repository with no refs at all (created, never pushed) has no
+		// bookmark to clone. The authenticated advertisement tells it apart;
+		// its failure fails the clone. The unborn branch takes the bookmark's
+		// name and Jujutsu colocates without a remote bookmark to track. Refs
+		// pushed between the advertisement and the clone fall through to the
+		// ordinary checkout, which fails closed when the bookmark is missing.
+		"source_refs=\"$("+asDev+"git ls-remote -- "+shellQuote(cloneURL)+")\"",
+		"if [ -z \"$source_refs\" ]; then",
+		"  "+asDev+"git clone -- "+shellQuote(cloneURL)+" "+clonePath,
+		"  if [ -z \"$("+asDev+"git -C "+clonePath+" for-each-ref --count=1 --format='%(refname)' refs/remotes/origin/)\" ]; then",
+		"    "+asDev+"git -C "+clonePath+" symbolic-ref HEAD "+shellQuote("refs/heads/"+bookmark),
+		"    command -v jj >/dev/null 2>&1",
+		"    "+asDev+"jj git init --colocate "+clonePath,
+		"    exit 0",
+		"  fi",
+		"  rm -rf "+clonePath,
+		"fi",
+		asDev+"git clone "+cloneFlags+" -- "+shellQuote(cloneURL)+" "+clonePath,
 	)
 	checkout := bookmark
 	if source.Commit != "" {
