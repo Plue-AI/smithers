@@ -30,7 +30,7 @@ export interface PublicRepoActivity {
 }
 
 export const ACTIVITY_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
-/** The mirror's page ceiling; the walk stops early once a page is entirely older than the window. */
+/** The mirror's page ceiling. */
 const PAGE_SIZE = 100
 /** Bounds upstream traffic on a cache miss; a window that outruns the bound is reported as unavailable. */
 const MAX_COMMIT_PAGES = 20
@@ -168,10 +168,42 @@ interface CommitCount {
 }
 
 /**
+ * The count of changes reachable from `head` made inside the window, or null
+ * while that ancestry is not yet fully loaded. A change's timestamp is its
+ * author's, which Git ancestry does not order, so no old page proves the
+ * rest of the ancestry is old: only a walk that reaches every ancestor (or
+ * the end of the feed) is complete.
+ */
+const ancestryCount = (
+  head: Change,
+  byChange: ReadonlyMap<string, Change>,
+  since: number,
+  exhausted: boolean
+): number | null => {
+  let count = 0
+  const seen = new Set<string>()
+  const queue: Array<Change> = [head]
+  while (queue.length > 0) {
+    const change = queue.pop()!
+    if (seen.has(change.changeId)) continue
+    seen.add(change.changeId)
+    if (change.timestamp >= since) count++
+    for (const parent of change.parents) {
+      const next = byChange.get(parent)
+      if (next !== undefined) queue.push(next)
+      // An ancestor the feed has not reached yet may be inside the window.
+      else if (!exhausted) return null
+    }
+  }
+  return count
+}
+
+/**
  * Commits reachable from the default bookmark's head that were made inside
  * the window. The mirror's change feed is every visible change in jj index
- * order (newest first), so the pages are read until one falls entirely
- * outside the window and the bookmark's ancestry is walked inside them.
+ * order (children before parents); pages are read until the bookmark's whole
+ * ancestry is loaded or the feed ends. An ancestry the bound cannot load is
+ * unavailable, never a partial count.
  */
 const countCommits = (repo: string, origin: string, base: string, since: number): Effect.Effect<CommitCount, never, Transport> =>
   Effect.gen(function*() {
@@ -183,49 +215,34 @@ const countCommits = (repo: string, origin: string, base: string, since: number)
       ? root.body.default_bookmark
       : null
     if (bookmark === null || refs === null || !Array.isArray(refs.body)) return { count: null, bookmark }
-    const head = refs.body.find((ref) => isRecord(ref) && ref.ref === `refs/heads/${bookmark}`)
-    const sha = head !== undefined && isRecord(head) && isRecord(head.object) && typeof head.object.sha === "string" ? head.object.sha : null
+    const ref = refs.body.find((entry) => isRecord(entry) && entry.ref === `refs/heads/${bookmark}`)
+    const sha = ref !== undefined && isRecord(ref) && isRecord(ref.object) && typeof ref.object.sha === "string" ? ref.object.sha : null
     if (sha === null) return { count: null, bookmark }
 
     const byChange = new Map<string, Change>()
-    const byCommit = new Map<string, Change>()
+    let head: Change | undefined
     let cursor: string | undefined
-    let exhausted = false
     for (let page = 0; page < MAX_COMMIT_PAGES; page++) {
       const answer = yield* document(paged(`/api/repos/${repo}/changes`, cursor), origin, base)
       if (answer === null || !isRecord(answer.body) || !Array.isArray(answer.body.items)) return { count: null, bookmark }
-      let anyInWindow = false
       for (const item of answer.body.items) {
         const change = parseChange(item)
         if (change === null) return { count: null, bookmark }
         byChange.set(change.changeId, change)
-        byCommit.set(change.commitId, change)
-        if (change.timestamp >= since) anyInWindow = true
+        if (change.commitId === sha) head = change
       }
       cursor = nextCursor(answer.response)
-      if (cursor === undefined || !anyInWindow || answer.body.items.length < PAGE_SIZE) {
-        exhausted = true
-        break
+      const exhausted = cursor === undefined
+      // A head the whole feed never lists cannot be counted.
+      if (head === undefined) {
+        if (exhausted) return { count: null, bookmark }
+        continue
       }
+      const count = ancestryCount(head, byChange, since, exhausted)
+      if (count !== null) return { count, bookmark }
     }
-    if (!exhausted) return { count: null, bookmark }
-
-    let count = 0
-    const seen = new Set<string>()
-    const queue: Array<Change> = []
-    const start = byCommit.get(sha)
-    if (start !== undefined) queue.push(start)
-    while (queue.length > 0) {
-      const change = queue.pop()!
-      if (seen.has(change.changeId)) continue
-      seen.add(change.changeId)
-      if (change.timestamp >= since) count++
-      for (const parent of change.parents) {
-        const next = byChange.get(parent)
-        if (next !== undefined) queue.push(next)
-      }
-    }
-    return { count, bookmark }
+    // The ancestry outruns the bound; a partial count would be a lie.
+    return { count: null, bookmark }
   })
 
 /** The three feeds, read concurrently, as one sentence. */
