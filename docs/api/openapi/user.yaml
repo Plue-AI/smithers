@@ -938,6 +938,112 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/InternalError'
+  /api/user/github-repos/{owner}/{repo}/pulls/{number}:
+    get:
+      summary: Get one GitHub pull request
+      description: Requires read:repository and a user credential that is not repository-restricted. Reads one pull request through the signed-in user's own GitHub credential, live from GitHub, so a number that is not on the first page of the list still resolves. The repository need not be imported. The body is GitHub's pull request object passed through unchanged; the fields below are the ones clients rely on.
+      operationId: get_api_user_github_repos_owner_repo_pulls_number
+      tags:
+        - User
+      parameters:
+        - name: owner
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: repo
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: number
+          in: path
+          required: true
+          description: Pull request number, a positive integer.
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+            maximum: 9007199254740991
+      x-required-token-scope: read:repository
+      security:
+        - tokenAuth: []
+        - bearerAuth: []
+        - sessionCookie: []
+      responses:
+        '200':
+          description: GitHub pull request object.
+          headers:
+            Cache-Control:
+              description: Always `private, no-store`.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                required:
+                  - number
+                  - state
+                  - title
+                properties:
+                  number:
+                    type: integer
+                    format: int64
+                  state:
+                    type: string
+                    enum:
+                      - open
+                      - closed
+                  title:
+                    type: string
+                  body:
+                    type: string
+                    nullable: true
+                  draft:
+                    type: boolean
+                  merged:
+                    type: boolean
+                  html_url:
+                    type: string
+                    format: uri
+                  user:
+                    type: object
+                    additionalProperties: true
+                    properties:
+                      login:
+                        type: string
+                  head:
+                    type: object
+                    additionalProperties: true
+                    properties:
+                      ref:
+                        type: string
+                      sha:
+                        type: string
+                  base:
+                    type: object
+                    additionalProperties: true
+                    properties:
+                      ref:
+                        type: string
+                      sha:
+                        type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
   /api/user/github-repos/{owner}/{repo}/pulls/{number}/diff:
     get:
       summary: GET /api/user/github-repos/{owner}/{repo}/pulls/{number}/diff
