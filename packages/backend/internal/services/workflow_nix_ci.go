@@ -518,7 +518,7 @@ func (w *WorkflowSandboxSchedulerWorker) executeNixCITask(
 	task nixCITask,
 	env nixCIRunEnvironment,
 ) nixCITaskOutcome {
-	logger := w.logger.With("task_id", task.ID, "job", task.Job)
+	logger := w.logger.With("task_id", task.ID, "job", task.Job, "execution", env.Execution)
 
 	script, err := nixCITaskCommand(task)
 	if err != nil {
@@ -681,6 +681,9 @@ func (w *WorkflowSandboxSchedulerWorker) provisionNixCIGuest(
 			return nixCIGuest{}, ctx.Err()
 		}
 		createCtx := sandboxProvisionContext(ctx, "create", "workflow_task", fmt.Sprint(task.ID), env.Execution+"/attempt-"+strconv.Itoa(attempt))
+		// The key is already a digest; logging it lets a controller 409
+		// idempotency_conflict be matched to the attempt that first used it.
+		idempotencyKey, _ := sandbox.RequestIdempotencyKey(createCtx)
 		vm, err := createWorkspaceSandbox(createCtx, w.sandbox, req)
 		if err == nil {
 			return nixCIGuest{ID: vm.ID, CloneToken: cloneToken, Placeholders: placeholders}, nil
@@ -694,7 +697,9 @@ func (w *WorkflowSandboxSchedulerWorker) provisionNixCIGuest(
 			}
 		}
 		lastErr = err
-		w.logger.Warn("NixOS CI guest create failed", "task_id", task.ID, "attempt", attempt, "error", err)
+		w.logger.Warn("NixOS CI guest create failed",
+			"task_id", task.ID, "execution", env.Execution, "attempt", attempt,
+			"idempotency_key", idempotencyKey, "error", err)
 	}
 	return nixCIGuest{}, lastErr
 }
