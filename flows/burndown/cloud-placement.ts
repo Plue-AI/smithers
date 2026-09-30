@@ -1,7 +1,6 @@
 /** Cloud placement keeps local login material off declarations and command argv. */
-import { workspaceSshPrefix } from "@smthrs/cli/NodeControl"
-import { Client } from "../../packages/smithers/src/internal/backend/Client.ts"
 import * as CloudSandbox from "@smthrs/cli/CloudSandbox"
+import { workspaceSshPrefix } from "@smthrs/cli/NodeControl"
 import { Effect, Layer } from "effect"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import { execFile, spawn } from "node:child_process"
@@ -11,9 +10,17 @@ import { homedir } from "node:os"
 import { join } from "node:path"
 import { setTimeout as wait } from "node:timers/promises"
 import { promisify } from "node:util"
+import { Client } from "../../packages/smithers/src/internal/backend/Client.ts"
 import { type Account, discoverAccounts, freshAccessToken } from "./accounts.ts"
 import { cloudDiagnostic, exportCloudCommits, type ReadCommand } from "./cloud-export.ts"
-import { type CloudAttribution, type CloudHandoff, prepareCloudHandoff, type PreparedHandoff, retainCloudHandoff, retainCloudRecovery } from "./cloud-handoff.ts"
+import {
+  type CloudAttribution,
+  type CloudHandoff,
+  prepareCloudHandoff,
+  type PreparedHandoff,
+  retainCloudHandoff,
+  retainCloudRecovery
+} from "./cloud-handoff.ts"
 import { layerLocal, Placement } from "./run-agent.ts"
 import type { WorkerResult } from "./schema.ts"
 
@@ -142,8 +149,10 @@ const makeCommand = (options: CloudPlacementOptions, account: Account, script: s
         "set -e",
         // The image bakes a root-owned HOME; every tool here must write under the developer's home.
         "export HOME=/home/developer XDG_CONFIG_HOME=/home/developer/.config XDG_CACHE_HOME=/home/developer/.cache XDG_DATA_HOME=/home/developer/.local/share",
-        // The checkout arrives as plain git; agents and the export read it through jj.
-        `cd ${shellQuote(options.workdir ?? "/home/developer/workspace")} && { [ -d .jj ] || jj git init --colocate >/dev/null 2>&1; }`,
+        // The agent uses colocated jj; committed-tree export uses read-only Git plumbing.
+        `cd ${
+          shellQuote(options.workdir ?? "/home/developer/workspace")
+        } && { [ -d .jj ] || jj git init --colocate >/dev/null 2>&1; }`,
         ...options.install === false ? [] : [`node -e ${shellQuote(installer)} 2>&1`],
         `authdir=$(mktemp -d "${"${TMPDIR:-/tmp}"}/smithers-agent-XXXXXX")`,
         `cleanup() { rm -rf "$authdir"; }`,
@@ -227,7 +236,9 @@ export const makeCloudPlacement = (options: CloudPlacementOptions): Placement["S
         JSON.stringify(stateDir + "/vcs.lock")
       }, "a") as lock:\n    fcntl.flock(lock, fcntl.LOCK_EX)\n    sys.exit(subprocess.call([sys.argv[-1]], cwd=root))\n`
       const artifactDirectory = options.artifactDirectory ?? join(
-        homedir(), "Smithers-Ops/burndown/receipts", encodeURIComponent(assignment.key)
+        homedir(),
+        "Smithers-Ops/burndown/receipts",
+        encodeURIComponent(assignment.key)
       )
       const attribution = { tool: assignment.tool, model: assignment.model }
       const redactions = Object.entries(process.env).filter(([key]) => /token|secret|password|api_key/i.test(key))
@@ -238,12 +249,21 @@ export const makeCloudPlacement = (options: CloudPlacementOptions): Placement["S
       let stage = "launch"
       const recovery: Record<string, unknown> = {
         version: 1,
-        assignment: { key: assignment.key, repository: assignment.repo, ...attribution,
-          issues: [assignment.lead, ...assignment.extras].map((issue) => issue.n) },
-        workspaceId: null, phase: "launch", cleanup: "pending"
+        assignment: {
+          key: assignment.key,
+          repository: assignment.repo,
+          ...attribution,
+          issues: [assignment.lead, ...assignment.extras].map((issue) => issue.n)
+        },
+        workspaceId: null,
+        phase: "launch",
+        cleanup: "pending"
       }
       const save = () => retainCloudRecovery(artifactDirectory, recovery)
-      const evidence = Effect.tryPromise({ try: save, catch: () => "could not retain Cloud commit artifact or recovery receipt" })
+      const evidence = Effect.tryPromise({
+        try: save,
+        catch: () => "could not retain Cloud commit artifact or recovery receipt"
+      })
       // Reuse the provider's canonical control client and pinned SSH transport.
       const client = new Client({ environment: process.env })
       const control: CloudSandbox.WorkspaceApi = options.api ?? {
@@ -264,7 +284,10 @@ export const makeCloudPlacement = (options: CloudPlacementOptions): Placement["S
             const id = response.id
             if (typeof id === "string" && /^[\w-]+$/.test(id)) recovery.workspaceId = id
           }
-          if (method === "DELETE") { recovery.cleanup = "deleted"; await save() }
+          if (method === "DELETE") {
+            recovery.cleanup = "deleted"
+            await save()
+          }
           return response
         },
         sshPrefix: async (reference, signal) => {
@@ -278,7 +301,11 @@ export const makeCloudPlacement = (options: CloudPlacementOptions): Placement["S
             return prefix
           } catch (error) {
             const timeout = error instanceof Error && ["TimeoutError", "AbortError"].includes(error.name)
-            recovery.grant = { status: "failed", kind: timeout ? "timeout-or-cancelled" : "unavailable", elapsedMs: Date.now() - started }
+            recovery.grant = {
+              status: "failed",
+              kind: timeout ? "timeout-or-cancelled" : "unavailable",
+              elapsedMs: Date.now() - started
+            }
             recovery.failure = { stage: "ssh-grant", kind: timeout ? "timeout-or-cancelled" : "unavailable" }
             await save()
             throw new Error("Cloud SSH grant failed; recovery receipt retained")
@@ -331,9 +358,13 @@ export const makeCloudPlacement = (options: CloudPlacementOptions): Placement["S
         handoff: (result: WorkerResult, read: ReadCommand) =>
           Effect.gen(function*() {
             recovery.phase = "reported"
-            recovery.result = { status: result.status, commits: result.commits.slice(0, 20).map(({ issue, commit }) => ({
-              issue, commit: /^[0-9a-f]{40}$/.test(commit) ? commit : "invalid"
-            })) }
+            recovery.result = {
+              status: result.status,
+              commits: result.commits.slice(0, 20).map(({ issue, commit }) => ({
+                issue,
+                commit: /^[0-9a-f]{40}$/.test(commit) ? commit : "invalid"
+              }))
+            }
             stage = "report"
             yield* evidence
             if (result.status !== "ready") return result
@@ -351,7 +382,10 @@ export const makeCloudPlacement = (options: CloudPlacementOptions): Placement["S
             )
             yield* Effect.tryPromise({
               try: async () => {
-                const artifactPath = await retainCloudHandoff(artifact, { repository: assignment.repo, artifactDirectory })
+                const artifactPath = await retainCloudHandoff(artifact, {
+                  repository: assignment.repo,
+                  artifactDirectory
+                })
                 recovery.artifactPath = artifactPath
                 recovery.phase = "retained"
                 // Only durably retained bytes permit workspace deletion.
@@ -433,22 +467,31 @@ export const makeCloudPlacement = (options: CloudPlacementOptions): Placement["S
               })),
               notes: `${result.notes}\nCloud commit artifact: ${prepared.artifactPath}`
             }
-          }).pipe(Effect.catch((error) => Effect.gen(function*() {
-            recovery.phase = "failed"
-            recovery.failure = {
-              stage,
-              kind: error.includes("Git exit") ? "git" : error.includes("command transport failed") ? "command-transport" : "validation-or-host",
-              // Arbitrary transport messages may contain unrecognized secrets.
-              ...error.includes("Git exit") ? { diagnostic: cloudDiagnostic(error, redactions) } : {}
-            }
-            yield* evidence
-            return yield* Effect.fail(`${error}; Cloud recovery receipt: ${join(artifactDirectory, "recovery.json")}`)
-          }))),
-        command: (script: string) => makeCommand(options, account, script).pipe(Effect.tap(() => {
-          commandRequested = true
-          recovery.phase = "execution-requested"
-          return evidence
-        }))
+          }).pipe(Effect.catch((error) =>
+            Effect.gen(function*() {
+              recovery.phase = "failed"
+              const grant = recovery.grant as { status?: string } | undefined
+              recovery.failure = {
+                stage: grant?.status === "failed" ? "ssh-grant" : stage,
+                exportStage: stage,
+                kind: grant?.status === "failed" ? "ssh-grant" : error.includes("Git exit")
+                  ? "git"
+                  : error.includes("command transport failed")
+                  ? "command-transport"
+                  : "validation-or-host",
+                // Arbitrary transport messages may contain unrecognized secrets.
+                ...error.includes("Git exit") ? { diagnostic: cloudDiagnostic(error, redactions) } : {}
+              }
+              yield* evidence
+              return yield* Effect.fail(`${error}; Cloud recovery receipt: ${join(artifactDirectory, "recovery.json")}`)
+            })
+          )),
+        command: (script: string) =>
+          makeCommand(options, account, script).pipe(Effect.tap(() => {
+            commandRequested = true
+            recovery.phase = "execution-requested"
+            return evidence
+          }))
       }
     })
 })

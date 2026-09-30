@@ -14,7 +14,9 @@ After landing is enabled, successful members leave the queue. A failed landing
 retains its full assignment, result and failure evidence until a repair worker
 starts. Repair preserves the claim owner and passes that evidence to the worker,
 using a new execution identity. Refused claims or launches leave the member
-pending for a later round. Completion requires running workers, READY members,
+pending for a later round. Incomplete READY bundles stay quarantined with their original result and claims;
+they never enter landing. Missing worker executions become failed receipts with
+retained diagnostics and retry cooldown. Completion requires running workers, READY members,
 quarantined members and selected pending work to drain.
 
 Open issues skipped by dispatch filters or held by another worker remain

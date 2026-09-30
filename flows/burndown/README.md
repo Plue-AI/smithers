@@ -12,16 +12,16 @@ smthrs tui          # the run appears as a tab; it rechecks capacity while waiti
 ## Graph
 
 ```
-burndown  (Flow.make, self-handoff each round: Burndown.to(next))            flow.ts
+burndown  (Flow.make, self-handoff each round: Round.to(next))            flow.ts
  │
- ├─ Observe      Action, nondeterministic                                     observe.ts
+ ├─ Observe      Action, nondeterministic                                     host.ts
  │                open issues (gh) + triage rows + claims, in-flight workers
  │                (Worker.poll), accounts (accounts.ts) with live usage
  ├─ Pace         AgentAction seat claude-code:opus, pinned by SeatResolver     pace.ts
  │                to the Claude account with the most headroom; answers
  │                launches, each clamped to computed slot ceilings (pacing.ts)
- ├─ Launch       Action: issue-claim.mjs claim (+rollback), Worker.ensure()   launch.ts
- │                keyed repo#n@attempt, so a replayed round never double-starts
+ ├─ Launch       Action: issue-claim.mjs claim (+rollback), Worker.ensure()   host.ts
+ │                keyed by repository, issue, round and execution; repairs retain ownership
  ├─ Land         Action: MergeQueue.run over workers that finished "ready",   land.ts
  │                failurePolicy "quarantine"; member = rebase → checks →
  │                review → push main. Quarantined → relaunch as a fix.
@@ -29,7 +29,7 @@ burndown  (Flow.make, self-handoff each round: Burndown.to(next))            flo
                   is at its ceiling: Sleep until the earliest reset or ten minutes, whichever comes
                   first, then re-read usage. Unknown capacity uses the normal tick.
 
-burndown/worker  (Flow.make, one issue bundle ≤ 3 issues)                    worker.ts
+burndown/worker  (Flow.make, one issue bundle ≤ 3 issues)                    worker/flow.ts
  └─ RunAgent     Action placed on a Sandbox.layerHost(provider, {session})
                   codex exec -m gpt-6.1-sol  |  claude -p --model claude-opus-5-5
                   env pins one account (CODEX_HOME / CLAUDE_CONFIG_DIR);

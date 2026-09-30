@@ -927,6 +927,7 @@ test("Cloud export failure retains report and workspace for recovery", async () 
   const dir = await mkdtemp(join(tmpdir(), "burndown-export-recovery-"))
   const sha = "a".repeat(40)
   const calls: string[] = []
+  let guestExecuted = false
   try {
     await Effect.runPromise(
       Effect.gen(function*() {
@@ -944,7 +945,10 @@ test("Cloud export failure retains report and workspace for recovery", async () 
               calls.push(method)
               return { id: "ws-recovery", status: "running" }
             },
-            sshPrefix: async () => []
+            sshPrefix: async () => {
+              if (guestExecuted) throw Error("PRIVATE-TRANSPORT-ERROR")
+              return []
+            }
           }
         }).machine(assignment, account)
         yield* Effect.gen(function*() {
@@ -956,13 +960,17 @@ test("Cloud export failure retains report and workspace for recovery", async () 
             extendEnv: true
           }))
           assert.match(output, /READY/)
+          guestExecuted = true
           const exit = yield* Effect.exit(machine.handoff!({
             key: assignment.key,
             status: "ready",
             commits: [{ issue: 42, commit: sha }],
             notes: "PRIVATE-REPORT-NOTES",
             agentHours: 0
-          }, () => Effect.fail("PRIVATE-TRANSPORT-ERROR")))
+          }, (program, args) =>
+            guest.string(ChildProcess.make(program, [...args])).pipe(
+              Effect.mapError(() => "ssh-grant timeout; PRIVATE-TRANSPORT-ERROR")
+            )))
           assert.equal(exit._tag, "Failure")
           const raw = yield* Effect.promise(() => readFile(join(dir, "recovery.json"), "utf8"))
           assert.ok(!raw.includes("PRIVATE-REPORT-NOTES"))
@@ -970,6 +978,16 @@ test("Cloud export failure retains report and workspace for recovery", async () 
           assert.match(raw, /ws-recovery/)
           assert.match(raw, /gpt-6.1-sol/)
           assert.match(raw, new RegExp(sha))
+          const recovery = JSON.parse(raw)
+          assert.deepEqual(recovery.assignment, {
+            key: assignment.key,
+            repository: assignment.repo,
+            tool: assignment.tool,
+            model: assignment.model,
+            issues: [42]
+          })
+          assert.deepEqual(recovery.result, { status: "ready", commits: [{ issue: 42, commit: sha }] })
+          assert.equal(recovery.failure.stage, "ssh-grant")
         }).pipe(Effect.provide(Sandbox.layerHost(machine.provider, { session: assignment.key + dir })), Effect.scoped)
       }).pipe(Effect.provide(NodeServices.layer))
     )
@@ -1019,7 +1037,7 @@ for (const tool of ["codex", "claude"] as const) {
                 if (outcome === "reconstruction-failure") throw Error("reconstruction fixture failed")
                 return { artifactPath: dir, receiptPath: dir, commit: sha, commits: [{ source: sha, local: sha }] }
               }
-            }).machine({ ...assignment, tool, model }, { ...account, tool })
+            }).machine({ ...assignment, repo: "smithersai/smithers", tool, model }, { ...account, tool })
             yield* Effect.gen(function*() {
               const guest = yield* ChildProcessSpawner
               const command = yield* machine.command!("printf READY")

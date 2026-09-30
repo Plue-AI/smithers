@@ -377,7 +377,10 @@ const retainValidated = async (artifact: CloudHandoff, artifactDirectory: string
 }
 
 /** Atomic, bounded host recovery evidence. Guest logs and credentials never belong here. */
-export const retainCloudRecovery = async (directory: string, value: Readonly<Record<string, unknown>>): Promise<void> => {
+export const retainCloudRecovery = async (
+  directory: string,
+  value: Readonly<Record<string, unknown>>
+): Promise<void> => {
   if (!isAbsolute(directory)) throw new Error("recovery directory must be absolute")
   const bytes = JSON.stringify(value)
   if (Buffer.byteLength(bytes) > 16 * 1024) throw new Error("Cloud recovery receipt exceeds limit")
@@ -396,10 +399,12 @@ export const retainCloudHandoff = async (
 /** Retains host bytes before running the locked, own-path-only jj preparation. */
 export const prepareCloudHandoff = async (value: unknown, options: HandoffOptions): Promise<PreparedHandoff> => {
   const attribution = options.attribution ?? null
-  if (attribution !== null && !(
-    (attribution.tool === "codex" && attribution.model === "gpt-6.1-sol") ||
-    (attribution.tool === "claude" && attribution.model === "claude-opus-5-5")
-  )) throw new Error("invalid Cloud assignment attribution tool/model")
+  if (
+    attribution !== null && !(
+      (attribution.tool === "codex" && attribution.model === "gpt-6.1-sol") ||
+      (attribution.tool === "claude" && attribution.model === "claude-opus-5-5")
+    )
+  ) throw new Error("invalid Cloud assignment attribution tool/model")
   const artifact = validateCloudHandoff(value, options.repository)
   const artifactPath = await retainValidated(artifact, options.artifactDirectory)
   const directory = dirname(artifactPath)

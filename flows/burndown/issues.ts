@@ -40,6 +40,7 @@ export interface Candidate {
 }
 
 export interface History {
+  readonly notes?: string
   readonly attempts?: number
   readonly last?: number
   readonly retryAfter?: number

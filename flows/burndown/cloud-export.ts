@@ -17,7 +17,10 @@ export const cloudDiagnostic = (value: string, redactions: ReadonlyArray<string>
   for (const secret of redactions) if (secret) text = text.replaceAll(secret, "[redacted]")
   return text.replaceAll(/(https?:\/\/)[^\s/@]+:[^\s/@]+@/gi, "$1[redacted]@")
     .replaceAll(/((?:access_token|refresh_token|api_key|token|password|secret)=)[^&\s"']+/gi, "$1[redacted]")
-    .replaceAll(/Bearer\s+[^\s"']+|(?:gh[pousr]_|github_pat_)[A-Za-z0-9_]+|sk-[A-Za-z0-9_-]+|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/gi, "[redacted]")
+    .replaceAll(
+      /Bearer\s+[^\s"']+|(?:gh[pousr]_|github_pat_)[A-Za-z0-9_]+|sk-[A-Za-z0-9_-]+|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/gi,
+      "[redacted]"
+    )
     .replaceAll(/[\x00-\x08\x0b-\x1f\x7f]/g, "").slice(0, 2048)
 }
 type Entry = { oid: string; type: "file" | "symlink"; executable: boolean }
@@ -88,24 +91,29 @@ export const exportCloudCommits = (
     for (const sha of ids) {
       const readBytes = (stage: string, command: string, limit: number, oversized: string) =>
         Effect.gen(function*() {
-          const raw = yield* read("sh", ["-c", [
-            "set -e",
-            't=$(mktemp); e=""',
-            `trap 'rm -f "$t" "$e"' EXIT`,
-            'e=$(mktemp)',
-            "set +e",
-            `${command} > "$t" 2> "$e"`,
-            "code=$?",
-            "set -e",
-            'if [ "$code" -ne 0 ]; then',
-            `  printf '#git-error:%s:' "$code"`,
-            '  head -c 8192 "$e" | base64',
-            "  exit 0",
-            "fi",
-            `if [ "$(wc -c < "$t")" -gt ${limit} ]; then printf '#oversized'; else base64 < "$t"; fi`
-          ].join("\n")]).pipe(Effect.mapError((error) =>
-            `Cloud export ${stage} ${sha}: command transport failed: ${cloudDiagnostic(error, options.redactions)}`
-          ))
+          const raw = yield* read("sh", [
+            "-c",
+            [
+              "set -e",
+              "t=$(mktemp); e=\"\"",
+              `trap 'rm -f "$t" "$e"' EXIT`,
+              "e=$(mktemp)",
+              "set +e",
+              `${command} > "$t" 2> "$e"`,
+              "code=$?",
+              "set -e",
+              "if [ \"$code\" -ne 0 ]; then",
+              `  printf '#git-error:%s:' "$code"`,
+              "  head -c 8192 \"$e\" | base64",
+              "  exit 0",
+              "fi",
+              `if [ "$(wc -c < "$t")" -gt ${limit} ]; then printf '#oversized'; else base64 < "$t"; fi`
+            ].join("\n")
+          ]).pipe(
+            Effect.mapError((error) =>
+              `Cloud export ${stage} ${sha}: command transport failed: ${cloudDiagnostic(error, options.redactions)}`
+            )
+          )
           const failed = /^#git-error:(\d{1,3}):([A-Za-z0-9+/=\s]*)$/.exec(raw)
           if (failed !== null) {
             const diagnostic = cloudDiagnostic(Buffer.from(failed[2]!, "base64").toString("utf8"), options.redactions)

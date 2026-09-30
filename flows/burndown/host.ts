@@ -4,7 +4,7 @@
  * engine happens here.
  */
 import { FlowInstance } from "@smthrs/flow/FlowRuntime"
-import { Cause, Effect, Exit, Layer, Option } from "effect"
+import { Cause, Effect, Exit, Layer, Option, Schema } from "effect"
 import { execFile } from "node:child_process"
 import { mkdir, statfs, writeFile } from "node:fs/promises"
 import { homedir, hostname } from "node:os"
@@ -16,7 +16,15 @@ import { type History, issueKey, selectCandidates } from "./issues.ts"
 import { landAll } from "./land.ts"
 import { earliestReset, exhausted, learnRates, type Rates, slots } from "./pacing.ts"
 import { Land, Launch, Observe, Settle } from "./round.ts"
-import type { Assignment, Capacity, InFlight, Observation, Ready, RoundState, WorkerResult } from "./schema.ts"
+import {
+  type Assignment,
+  type Capacity,
+  type InFlight,
+  type Observation,
+  Ready,
+  type RoundState,
+  type WorkerResult
+} from "./schema.ts"
 import Worker from "./worker/flow.ts"
 
 const run = promisify(execFile)
@@ -72,8 +80,18 @@ const observe = (state: RoundState) =>
     const finished: Array<WorkerResult> = []
     const still: Array<InFlight> = []
     for (const item of state.inFlight) {
-      const polled = yield* Worker.poll(item.executionId).pipe(Effect.option)
-      const result = Option.flatten(polled)
+      const polled = yield* Worker.poll(item.executionId).pipe(Effect.exit)
+      if (Exit.isFailure(polled)) {
+        finished.push({
+          key: item.assignment.key,
+          status: "failed",
+          commits: [],
+          notes: Cause.pretty(polled.cause).slice(-2000),
+          agentHours: Math.max(0, now - item.startedAt) / 3_600_000
+        })
+        continue
+      }
+      const result = polled.value
       if (Option.isNone(result)) {
         still.push(item)
         continue
@@ -85,7 +103,14 @@ const observe = (state: RoundState) =>
       }
       finished.push(
         settled.exit._tag === "Success"
-          ? settled.exit.value
+          ? settled.exit.value.key === item.assignment.key ? settled.exit.value : {
+            key: item.assignment.key,
+            status: "failed",
+            commits: [],
+            notes:
+              `Worker identity mismatch: expected ${item.assignment.key}, received ${settled.exit.value.key}; ${settled.exit.value.notes}`,
+            agentHours: Math.max(0, now - item.startedAt) / 3_600_000
+          }
           : {
             key: item.assignment.key,
             status: "failed",
@@ -102,8 +127,11 @@ const observe = (state: RoundState) =>
     // Stale usage must neither authorize launches nor prove current exhaustion.
     const readings = (yield* Effect.promise(() => readAccounts(accounts))).map((reading) => {
       if (reading.error?._tag !== "UsageUnavailable") return reading
-      const last = previous.find((p) => p.account.id === reading.account.id && p.usage !== null && p.error === null)
-      return last === undefined ? reading : { ...reading, usage: last.usage }
+      const last = previous.find((p) =>
+        p.account.id === reading.account.id && p.usage !== null &&
+        (p.error === null || p.error._tag === "UsageUnavailable")
+      )
+      return last === undefined ? reading : { ...reading, usage: last.usage, observedAt: last.observedAt }
     })
     const since = (state.readings as { at?: number }).at ?? now
     const rates = learnRates(
@@ -290,13 +318,16 @@ const launch = (
   }).pipe(Effect.mapError(String))
 
 /** READY work awaiting the queue: carried from earlier rounds plus this round's. */
-const readyWork = (state: RoundState, observation: Observation): Array<Ready> => [
+const reportedReady = (state: RoundState, observation: Observation): Array<Ready> => [
   ...state.ready,
   ...observation.finished.flatMap((result) => {
     const item = state.inFlight.find((i) => i.assignment.key === result.key)
     return result.status === "ready" && item !== undefined ? [{ assignment: item.assignment, result }] : []
   })
 ]
+
+const readyWork = (state: RoundState, observation: Observation): Array<Ready> =>
+  reportedReady(state, observation).filter(Schema.is(Ready))
 
 /**
  * Lands READY work unless landing is switched off (`BURNDOWN_LAND=off`), which
@@ -310,6 +341,7 @@ const land = (state: RoundState, observation: Observation) => {
   }
   return Effect.gen(function*() {
     const owned = yield* Effect.filter(ready, (member) => Effect.promise(() => refreshOwned(member.assignment)))
+    if (owned.length === 0) return { landed: [], quarantined: [] }
     return yield* landAll(
       owned.map((r) => r.result),
       owned.map((r) => ({ assignment: r.assignment, executionId: r.assignment.key, startedAt: 0 }))
@@ -343,10 +375,17 @@ const settle = (
       }
     }
     const queue = readyWork(state, observation)
+    // A mixed READY/BLOCKED bundle is a repair receipt, not a complete queue member.
+    const invalid = reportedReady(state, observation).filter((member) => !Schema.is(Ready)(member)).map((member) => ({
+      ...member,
+      key: member.assignment.key,
+      error: `Incomplete READY bundle: ${member.result.notes}`
+    }))
     const ready = queue.filter((r) =>
       !landed.landed.includes(r.result.key) && !landed.quarantined.some((q) => q.key === r.result.key)
     )
     const quarantined = [
+      ...invalid,
       ...state.quarantined.filter((q) => !launched.some((i) => i.assignment.key === q.key)),
       ...landed.quarantined.flatMap((q) => {
         const member = queue.find((r) => r.assignment.key === q.key)
@@ -365,16 +404,16 @@ const settle = (
         const prior = history[key] ?? {}
         history[key] = result.status === "closed"
           ? { ...prior, closed: true }
-          : { ...prior, attempts: (prior.attempts ?? 0) + 1, last: now / 1000 }
+          : { ...prior, attempts: (prior.attempts ?? 0) + 1, last: now / 1000, notes: result.notes }
       }
     }
-    for (const member of landed.quarantined) {
-      const assignment = queue.find((r) => r.assignment.key === member.key)?.assignment
+    for (const member of [...landed.quarantined, ...invalid]) {
+      const assignment = reportedReady(state, observation).find((r) => r.assignment.key === member.key)?.assignment
       if (assignment === undefined) continue
       for (const issue of [assignment.lead, ...assignment.extras]) {
         const key = issueKey(assignment.repo, issue.n)
         const prior = history[key] ?? {}
-        history[key] = { ...prior, attempts: (prior.attempts ?? 0) + 1, last: now / 1000 }
+        history[key] = { ...prior, attempts: (prior.attempts ?? 0) + 1, last: now / 1000, notes: member.error }
       }
     }
     const capped = observation.candidates.length > 0 && launched.length === 0 &&
@@ -420,17 +459,17 @@ const settle = (
   })
 
 export const layer = Layer.mergeAll(
-  Observe.toLayer(({ state }) => observe(state), { implementationVersion: "burndown/observe/v3" }),
+  Observe.toLayer(({ state }) => observe(state), { implementationVersion: "burndown/observe/v4" }),
   Launch.toLayer(({ observation, plan, state }) => launch(state, observation, plan.launches), {
     implementationVersion: "burndown/launch/v3"
   }),
   Land.toLayer(({ observation, state }) => land(state, observation), {
-    implementationVersion: "burndown/land/v1"
+    implementationVersion: "burndown/land/v2"
   }),
   Settle.toLayer(
     ({ landed, launched, observation, plan, state }) => settle(state, observation, plan, launched, landed),
     {
-      implementationVersion: "burndown/settle/v3"
+      implementationVersion: "burndown/settle/v4"
     }
   )
 )

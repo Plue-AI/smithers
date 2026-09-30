@@ -5,7 +5,9 @@ recovery through the existing merge queue. A READY bundle belongs to one configu
 repository; reject inconsistent repository identities before admission. Never edit
 engine state by hand.
 READY and quarantined members retain assignment, result, and claim identity
-across rounds. Completion requires both queues to drain. Repair keeps the
+across rounds. Incomplete READY bundles enter quarantine, never landing. Missing
+worker executions retain failure diagnostics and retry cooldown. Completion
+requires both queues to drain. Repair keeps the
 original claim owner and uses a new execution key for each attempt. Refresh
 held claims only after checking ownership and hostname; never take over another
 worker's claims. Enforce computed remaining account slots at launch.

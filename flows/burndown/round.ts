@@ -12,7 +12,7 @@ import { InFlight, LandReport, Observation, PacePlan, RoundState, Settlement } f
 
 /** Reads issues, claims, worker results and live account usage. */
 export const Observe = Action.make("burndown/observe", {
-  implementationVersion: "burndown/observe/v3",
+  implementationVersion: "burndown/observe/v4",
   payload: { state: RoundState },
   success: Observation,
   error: Schema.String,
@@ -30,7 +30,7 @@ export const Launch = Action.make("burndown/launch", {
 
 /** Lands every ready worker through the merge queue. */
 export const Land = Action.make("burndown/land", {
-  implementationVersion: "burndown/land/v1",
+  implementationVersion: "burndown/land/v2",
   payload: { state: RoundState, observation: Observation },
   success: LandReport,
   error: Schema.String,
@@ -39,7 +39,7 @@ export const Land = Action.make("burndown/land", {
 
 /** Computes the next round's state, when it wakes, and whether work remains. */
 export const Settle = Action.make("burndown/settle", {
-  implementationVersion: "burndown/settle/v3",
+  implementationVersion: "burndown/settle/v4",
   payload: {
     state: RoundState,
     observation: Observation,

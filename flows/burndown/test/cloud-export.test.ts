@@ -447,7 +447,7 @@ test("Cloud diagnostics redact known token families and strip terminal control b
 
 test("Cloud export transports exact metadata and binary bytes through the real VM shell", async () => {
   const execute = promisify(execFile)
-  const commands: string[] = []
+  const commands: Array<string> = []
   const result = await Effect.runPromise(exportCloudCommits("smithersai/smithers", [sha], (program, args) => {
     assert.equal(program, "sh")
     const script = args[1]!
