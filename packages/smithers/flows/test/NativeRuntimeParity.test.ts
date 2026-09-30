@@ -42,7 +42,7 @@ it.skipIf(!bunInstalled).each([["node", "bun"], ["bun", "node"]] as const)(
         ).trim().split("\n").at(-1)!
       )
     try {
-      expect(run(first, "park")).toMatchObject({ status: "suspended", dispatches: 1 })
+      expect(run(first, "park")).toMatchObject({ status: "suspended", owner: null, dispatches: 1 })
       expect(run(second, "resume")).toMatchObject({
         status: "completed",
         dispatches: 1,

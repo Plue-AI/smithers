@@ -57,6 +57,15 @@ const result = await Effect.runPromise(
     const runs = yield* RunStore.RunStore.RunStore
     if (phase === "park") {
       yield* flow.execute({}, { executionId: "portable-run", discard: true })
+      // Discard schedules the drive; the receipt must wait for its released claim.
+      for (let attempt = 0;; attempt++) {
+        const run = yield* runs.get("portable-run")
+        if (run.status === "suspended" && run.owner === null) break
+        if (RunStore.RunStore.isTerminalRunStatus(run.status) || attempt === 200) {
+          throw new Error(`portable run did not park: ${run.status}, owner ${JSON.stringify(run.owner)}`)
+        }
+        yield* Effect.sleep("25 millis")
+      }
     } else {
       const engine = yield* FlowRuntime.FlowRuntime
       yield* engine.deferredDone(gate, {
@@ -71,10 +80,12 @@ const result = await Effect.runPromise(
       }
     }
     const output = phase === "park" ? Option.none() : yield* flow.poll("portable-run")
+    const run = yield* runs.get("portable-run")
     return {
       runtime,
       phase,
-      status: (yield* runs.get("portable-run")).status,
+      status: run.status,
+      owner: run.owner,
       dispatches: readFileSync(marker, "utf8").trim().split("\n").length,
       result: Option.isSome(output) && output.value._tag === "Complete" && Exit.isSuccess(output.value.exit)
         ? output.value.exit.value
