@@ -512,7 +512,7 @@ describe("configuration and agent conversations", () => {
     expect(await misc["config list"]!(c, {}, {})).toMatchObject({ git_protocol: "ssh" })
     const shown = await misc["config show"]!(c, {}, {})
     expect(JSON.stringify(shown)).not.toContain("session-secret")
-    expect(object(shown).env_overrides).toMatchObject({ SMITHERS_TOKEN: "(set)" })
+    expect(object(shown).env_overrides).toMatchObject({ token_set: true })
     await expect(misc["config set"]!(c, { key: "token", value: "secret" }, {})).rejects.toThrow("Unknown")
   })
   it.each(["run", "chat"])("sends %s to the existing conversation API", async (action) => {

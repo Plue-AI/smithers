@@ -20,7 +20,9 @@ misc.api = async (c, a, o) => {
     Object.fromEntries(
       list(values).map(str).map((value) => {
         const index = value.indexOf(separator)
-        if (index < 0) throw new UsageError({ message: `Expected key${separator}value` })
+        if (index < 0) {
+          throw new UsageError({ message: separator === "=" ? "Fields require an equals sign" : "Headers require a colon" })
+        }
         return [value.slice(0, index).trim(), value.slice(index + 1).trim()]
       })
     )
@@ -53,7 +55,7 @@ for (const action of ["get", "set", "list", "show"]) {
       effective,
       config_file: { path: c.session.configPath, ...config },
       env_overrides: {
-        SMITHERS_TOKEN: c.env.SMITHERS_TOKEN ? "(set)" : "(not set)",
+        token_set: !!c.env.SMITHERS_TOKEN,
         SMITHERS_API_ORIGIN: c.env.SMITHERS_API_ORIGIN || null
       }
     }

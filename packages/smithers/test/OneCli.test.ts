@@ -68,6 +68,75 @@ const fixture = async (handler: (req: IncomingMessage, res: ServerResponse, body
 }
 
 describe("one npm CLI backend contracts", () => {
+  it("follows Link cursor issue pages and exposes continuation for one page", async () => {
+    const calls: string[] = []
+    const issues = [1, 2, 3].map((number) => ({ number, title: `Issue ${number}` }))
+    const f = await fixture((req, res) => {
+      expect(req.headers.authorization).toBe("token test-session-secret")
+      calls.push(req.url!)
+      const url = new URL(req.url!, "http://localhost")
+      const index = Number(url.searchParams.get("cursor") || "0")
+      expect(url.pathname).toBe("/api/repos/owner/repo/issues")
+      expect(url.searchParams.get("limit")).toBe("1")
+      expect(url.searchParams.get("state")).toBe("open")
+      res.setHeader("Link", `</api/repos/owner/repo/issues?limit=1&state=open>; rel="first"${
+        index < 2 ? `, </api/repos/owner/repo/issues?cursor=${index + 1}&limit=1&state=open>; rel="next"` : ""
+      }`)
+      res.end(JSON.stringify([issues[index]]))
+    })
+    const single = await f.run(["issue", "list", "--repo", "owner/repo", "--limit", "1"])
+    expect(single.code, single.output).toBe(0)
+    expect(JSON.parse(single.output)).toEqual({ issues: [issues[0]], next_cursor: "1" })
+    expect(calls).toHaveLength(1)
+    calls.length = 0
+    const all = await f.run(["issue", "list", "--repo", "owner/repo", "--limit", "1", "--all"])
+    expect(all.code, all.output).toBe(0)
+    expect(JSON.parse(all.output)).toEqual(issues)
+    expect(calls.map((url) => new URL(url, f.origin).searchParams.get("cursor"))).toEqual([null, "1", "2"])
+  })
+  it("unarchives through the backend route and prints the resulting receipt", async () => {
+    let archived = true
+    const f = await fixture((req, res) => {
+      if (req.method === "POST" && req.url === "/api/repos/owner/repo/unarchive") {
+        archived = false
+        res.writeHead(204)
+        res.end()
+      } else if (req.method === "GET" && req.url === "/api/repos/owner/repo") {
+        res.end(JSON.stringify({ archived }))
+      } else {
+        res.writeHead(404)
+        res.end(JSON.stringify({ message: "route not found" }))
+      }
+    })
+    const result = await f.run(["repo", "unarchive", "owner/repo"])
+    expect(result.code, result.output).toBe(0)
+    expect(JSON.parse(result.output)).toEqual({ status: "unarchived", repo: "owner/repo" })
+    expect(JSON.parse((await f.run(["repo", "view", "owner/repo"])).output)).toEqual({ archived: false })
+  })
+  it.each([["--field", "Fields require an equals sign"], ["--header", "Headers require a colon"]])(
+    "prints usable syntax guidance for malformed %s without sending a request",
+    async (option, expected) => {
+      let requests = 0
+      const f = await fixture((_req, res) => {
+        requests++
+        res.end("{}")
+      })
+      const result = await f.run(["api", "/api/user", option, "synthetic-private-input"])
+      expect(result.code).not.toBe(0)
+      expect(result.output).toContain(expected)
+      expect(result.output).not.toContain("[REDACTED]")
+      expect(result.output).not.toContain("synthetic-private-input")
+      expect(requests).toBe(0)
+    }
+  )
+  it.each(["", "synthetic-config-token"])("prints boolean token override status for %j", async (token) => {
+    const f = await fixture((_req, res) => res.end("{}"))
+    const result = await f.run(["config", "show"], { ...f.environment, SMITHERS_TOKEN: token })
+    expect(result.code, result.output).toBe(0)
+    expect(JSON.parse(result.output).env_overrides.token_set).toBe(!!token)
+    expect(result.output).not.toContain("synthetic-config-token")
+    expect(result.output).not.toContain("[REDACTED]")
+  })
   it("uses the saved login and follows cursor pagination for issues", async () => {
     const urls: string[] = []
     const f = await fixture((req, res) => {
@@ -298,7 +367,7 @@ describe("migrated command dispatch", () => {
         "description": "Text"
       }],
       [["repo", "archive", "owner/repo"], "POST", "/api/repos/owner/repo/archive", undefined],
-      [["repo", "unarchive", "owner/repo"], "DELETE", "/api/repos/owner/repo/archive", undefined],
+      [["repo", "unarchive", "owner/repo"], "POST", "/api/repos/owner/repo/unarchive", undefined],
       [["repo", "transfer", "owner/repo", "--to", "alice"], "POST", "/api/repos/owner/repo/transfer", {
         "new_owner": "alice"
       }],

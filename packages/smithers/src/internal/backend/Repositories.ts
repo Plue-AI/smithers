@@ -49,8 +49,8 @@ for (const action of ["archive", "unarchive", "delete"]) {
     const repo = c.repo(a.repo)
     if (action === "delete") await c.confirm(o.yes, `delete repository ${repo}`)
     await c.request(
-      action === "archive" ? "POST" : "DELETE",
-      `/api/repos/${repo}${action === "delete" ? "" : "/archive"}`
+      action === "delete" ? "DELETE" : "POST",
+      `/api/repos/${repo}${action === "delete" ? "" : `/${action}`}`
     )
     return { status: action === "delete" ? "deleted" : `${action}d`, repo }
   }

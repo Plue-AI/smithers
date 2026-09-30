@@ -70,6 +70,59 @@ export const positive = (value: unknown, label = "id"): number => {
   if (!Number.isSafeInteger(n) || n <= 0) throw new UsageError({ message: `Invalid ${label}` })
   return n
 }
+/** Bounds on one `--all` collection: pages requested and items held. */
+const maximumPages = 100
+const maximumItems = 10_000
+/**
+ * Reads cursor metadata without trusting a backend-provided destination.
+ * @private
+ * @since 1.0.0
+ */
+export const paginationCursor = (headers: Headers, current: URL): string => {
+  const invalid = () => new Refused({ fault: "infra", code: "backend_protocol", message: "API returned invalid pagination" })
+  const link = headers.get("link") || ""
+  const entries: Array<string> = []
+  let start = 0, quoted = false, angle = false, escaped = false
+  for (let index = 0; index < link.length; index++) {
+    const char = link[index]
+    if (escaped) escaped = false
+    else if (quoted && char === "\\") escaped = true
+    else if (!angle && char === '"') quoted = !quoted
+    else if (!quoted && char === "<") angle = true
+    else if (!quoted && char === ">") angle = false
+    else if (!quoted && !angle && char === ",") {
+      entries.push(link.slice(start, index))
+      start = index + 1
+    }
+  }
+  if (quoted || angle || escaped) throw invalid()
+  if (link) entries.push(link.slice(start))
+  let next: string | undefined
+  for (const entry of entries) {
+    const parsed = /^\s*<([^<>]+)>\s*(.*)$/.exec(entry)
+    if (!parsed) throw invalid()
+    const rel = /(?:^|;)\s*rel\s*=\s*(?:"([^"]*)"|([^;\s]+))/i.exec(parsed[2]!)
+    if (!(rel?.[1] ?? rel?.[2] ?? "").split(/\s+/).includes("next")) continue
+    if (next !== undefined) throw invalid()
+    let url: URL
+    try {
+      url = new URL(parsed[1]!, current)
+    } catch {
+      throw invalid()
+    }
+    if (
+      url.origin !== current.origin || url.pathname !== current.pathname || url.username || url.password || url.hash ||
+      url.searchParams.getAll("cursor").length !== 1
+    ) throw invalid()
+    next = url.searchParams.get("cursor")!
+    if (!next) throw invalid()
+  }
+  const legacy = headers.get("x-next-cursor")
+  if (next !== undefined && legacy !== null && legacy !== next) throw invalid()
+  const cursor = next ?? legacy ?? ""
+  if (cursor.length > 4096 || /\s|[\u0000-\u001f\u007f]/.test(cursor)) throw invalid()
+  return cursor
+}
 /**
  * @private
  * @since 1.0.0
@@ -391,16 +444,31 @@ export class Client {
   }
   async pages(path: (cursor: string) => string, cursor = "", all = false, key = "items"): Promise<unknown> {
     const items: Array<unknown> = [], seen = new Set<string>()
+    const origin = this.session.target().api_url
     do {
       if (seen.has(cursor)) {
         throw new Refused({ fault: "infra", code: "backend_protocol", message: "API repeated a pagination cursor" })
       }
       seen.add(cursor)
-      const response = await this.response("GET", path(cursor))
+      const requestPath = path(cursor)
+      const response = await this.response("GET", requestPath, undefined, { origin })
       const data: unknown = JSON.parse(await this.text(response))
-      cursor = response.headers.get("x-next-cursor") ?? ""
+      cursor = paginationCursor(response.headers, new URL(requestPath, origin))
+      if (cursor && seen.has(cursor)) {
+        throw new Refused({ fault: "infra", code: "backend_protocol", message: "API repeated a pagination cursor" })
+      }
       if (!all) return cursor ? { [key]: data, next_cursor: cursor } : data
-      items.push(...list(data))
+      if (!Array.isArray(data)) {
+        throw new Refused({ fault: "infra", code: "backend_protocol", message: "API returned an invalid page" })
+      }
+      for (const item of data) items.push(item)
+      if (cursor && (seen.size >= maximumPages || items.length >= maximumItems)) {
+        throw new Refused({
+          fault: "user",
+          code: "pagination_limit",
+          message: `Stopped after ${items.length} items in ${seen.size} pages. Narrow the list with filters or use --limit and --cursor`
+        })
+      }
     } while (cursor)
     return items
   }
