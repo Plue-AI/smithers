@@ -37,13 +37,7 @@ import * as Extension from "./extension.ts"
 import * as External from "./external.ts"
 import * as Factory from "./factory.ts"
 import * as Files from "./files.ts"
-import {
-  actions as flowActions,
-  discoveryNotice,
-  FlowRuns,
-  type Port as FlowPort,
-  type Run as FlowRun
-} from "./flows.ts"
+import { actions as flowActions, discoveryNotice, FlowRuns, type Port as FlowPort } from "./flows.ts"
 import * as Home from "./home.ts"
 import type * as Host from "./host.ts"
 import * as Inbox from "./inbox.ts"
@@ -318,17 +312,9 @@ export function App(props: AppProps) {
     setWhichKey(open)
   }, [])
   const [filter, setFilter] = useState(Timeline.all)
-  /** Workers whose card lists its changed files. */
-  const [filesOpen, setFilesOpen] = useState<ReadonlySet<string>>(new Set())
   /** The worker whose run's diff shows full height, over the surface it was opened on. */
   const [review, setReview] = useState<{ readonly tab: string; readonly surface: string } | undefined>()
   const reviewScroll = useRef<((by: number, page: boolean) => void) | undefined>(undefined)
-  const toggleFiles = (id: string) =>
-    setFilesOpen((current) => {
-      const next = new Set(current)
-      if (!next.delete(id)) next.add(id)
-      return next
-    })
   /** The Summary overview: the tree's selection (`chat` or a worker), the pane with the keys, and the focused card. */
   const [overview, setOverview] = useState<
     {
@@ -629,21 +615,6 @@ export function App(props: AppProps) {
     sync()
     return monitors.subscribe(sync)
   }, [monitors, contributions])
-  // A run the person started here, and each run of a `metadata.tui.card` flow, shows as a live card in the chat.
-  const mountedAt = useRef(Date.now())
-  const carded = useRef(new Set<string>())
-  const cardFlows = extensions.cards.join("\n")
-  useEffect(() => {
-    for (const run of flowRuns) {
-      if (
-        run.startedAt < mountedAt.current || carded.current.has(run.id) ||
-        !(userRuns.current.has(run.id) || extensions.cards.includes(run.flow))
-      ) {
-        continue
-      }
-      showRun(run.id, run.flow)
-    }
-  }, [revision, runs, cardFlows])
   const tick = spinner[Math.floor(now / 100) % spinner.length]!
   /**
    * The Summary overview shows while work exists: Needs you, Working, Failed and Done, then the selected
@@ -859,6 +830,7 @@ export function App(props: AppProps) {
     conversation: writer.current.file,
     transcript,
     tabs: snapshot.tabs,
+    runs: flowRuns,
     worker: workspace.transcript,
     filter,
     surface,
@@ -867,7 +839,10 @@ export function App(props: AppProps) {
     panelFocus,
     width
   })
-  const settlements = useMemo(() => new Toasts.Settlements(workspace.snapshot().tabs, runs.snapshot()), [workspace, runs])
+  const settlements = useMemo(() => new Toasts.Settlements(workspace.snapshot().tabs, runs.snapshot()), [
+    workspace,
+    runs
+  ])
   const [settleNotices, setSettleNotices] = useState<ReadonlyArray<Toasts.Row>>([])
   useEffect(() => {
     const visible = new Set<string>()
@@ -879,11 +854,7 @@ export function App(props: AppProps) {
           child.y + child.height > box.viewport.y
       }
       for (const tab of snapshot.tabs) if (shown(Subagents.cardKey(tab.id))) visible.add(`tab:${tab.id}`)
-      for (const row of chatRows) {
-        if (row.item.kind === "card" && row.item.panel.id.startsWith("flow:") && shown(row.key)) {
-          visible.add(row.item.panel.id)
-        }
-      }
+      for (const run of flowRuns) if (shown(`flow:${run.id}`)) visible.add(`flow:${run.id}`)
     }
     const next = settlements.update({ tabs: snapshot.tabs, runs: flowRuns, visible, opened: surface, now })
     setSettleNotices((current) =>
@@ -1431,7 +1402,6 @@ export function App(props: AppProps) {
     formOpened.current = new Set()
     setQueue(state.queued)
     setFilter(Timeline.all)
-    setFilesOpen(new Set())
     setOverview({ pane: "tree" })
     clearInspection()
     setNavigation(Panels.initial())
@@ -1475,7 +1445,6 @@ export function App(props: AppProps) {
 
   /** Places a run a person started in the chat, with the line they typed, and keeps it on the conversation. */
   const showRun = (id: string, title: string, request?: string) => {
-    carded.current.add(id)
     const at = Date.now()
     const started = { surface: `flow:${id}`, title, ...(request === undefined ? {} : { request }) }
     writer.current.append({ type: "run", at, ...started })
@@ -2105,9 +2074,11 @@ export function App(props: AppProps) {
         inspect: (seq) => flushSync(() => inspectActivity(seq))
       })
     ) return
-    if ((key.name === "return" || key.name === "kpenter") && text === "" &&
+    if (
+      (key.name === "return" || key.name === "kpenter") && text === "" &&
       open === undefined && liveForm.current === undefined && !key.ctrl && !key.meta && !key.option &&
-      settleNotices[0]?.surface !== undefined) {
+      settleNotices[0]?.surface !== undefined
+    ) {
       key.preventDefault()
       return clickTab(settleNotices[0].surface)
     }
@@ -2122,15 +2093,13 @@ export function App(props: AppProps) {
           open: () => {
             if (focusedCard.startsWith("subagents:earlier")) return openEarlier()
             if (focusedWorker !== undefined) return clickTab(`tab:${focusedWorker.id}`)
+            if (focusedCard.startsWith("flow:")) return clickTab(focusedCard)
             const row = chatRows.find((each) => each.key === focusedCard)
             if (row?.item.kind === "run") return perform({ kind: "open", surface: row.item.surface })
             if (row?.item.kind === "card") perform({ kind: "open", surface: `ui:${row.item.panel.id}` })
           },
           worker: focusedWorker,
           workerAction,
-          files: () => {
-            if (focusedWorker !== undefined) toggleFiles(focusedWorker.id)
-          },
           diff: canDiff(focusedWorker) ? () => openReview(focusedWorker) : undefined,
           undo: canUndo(focusedWorker) ? () => undoWorker(focusedWorker) : undefined,
           // The card shows `a Answer` for the one ask waiting.
@@ -2449,14 +2418,7 @@ export function App(props: AppProps) {
             : [split.implement, split.poc]
           const order = lanes.flat()
           const keys = order.map((tab) => Subagents.cardKey(tab.id))
-          const grid = SubagentView.overviewWidths(width).grid
-          const next = Subagents.move(
-            keys,
-            lanes.map((lane) => lane.map((tab) => Subagents.cardKey(tab.id))),
-            split === undefined ? grid : SubagentView.laneWidth(grid) - 2,
-            Subagents.cardKey(overviewCard.id),
-            direction
-          )
+          const next = Subagents.move(keys, Subagents.cardKey(overviewCard.id), direction)
           setOverview((current) => ({ ...current, card: order[keys.indexOf(next)]?.id }))
         },
         open: () => {
@@ -2471,9 +2433,6 @@ export function App(props: AppProps) {
           }
           const target = overviewPane === "tree" ? overviewTab : overviewCard
           if (target !== undefined) clickTab(`tab:${target.id}`)
-        },
-        files: () => {
-          if (overviewCard !== undefined) toggleFiles(overviewCard.id)
         },
         scroll: (direction) => panelScroll.current?.(direction),
         workerAction,
@@ -2689,11 +2648,7 @@ export function App(props: AppProps) {
       ...(canUndo(focusedWorker) ? cardHint("card-undo") : []),
       ...cardHint("open-card"),
       ...cardHint("card-move"),
-      ...actionHints(focusedWorker),
-      ...((Subagents.subagent(focusedWorker, workspace.transcript(focusedWorker.id), props.models).files?.length ?? 0) >
-          0
-        ? cardHint("card-files")
-        : [])
+      ...actionHints(focusedWorker)
     ]
     : footerContext === "panel" && workerTab !== undefined
     ? [
@@ -2756,23 +2711,25 @@ export function App(props: AppProps) {
         : [binding]
     )
   const meter = AppView.meter(transcript, window)
-  /** A run card's run; while its form is open below, the form asks, so the card does not repeat it. */
-  const runCard = (surface: string): FlowRun | undefined => {
-    const run = surface.startsWith("flow:") ? runs.get(surface.slice(5)) : undefined
-    return run !== undefined && form?.id === run.id ? { ...run, message: undefined } : run
-  }
   const toastRows = Toasts.rows({ settlements: settleNotices, search, undoing, toast, now, tick })
   /** What every subagent card in the chat reads and does. */
   const cards: SubagentView.Cards = {
     transcript: workspace.transcript,
-    models: props.models,
     now,
     lane,
     focused: focusedCard,
-    open: filesOpen,
     onOpen: (id) => clickTab(`tab:${id}`),
-    onFiles: toggleFiles,
-    onAction: workerAction,
+    onRunOpen: clickTab,
+    flowSteps: (id) =>
+      runs.nodes(id).filter((node) => node.id !== "result").slice(-3).map((node) =>
+        `${node.status === "done" ? "✓" : node.status === "failed" ? "✗" : "◐"} ${node.label}`
+      ),
+    onDiff: (tab) => {
+      if (canDiff(tab)) openReview(tab)
+    },
+    onUndo: (tab) => {
+      if (canUndo(tab)) undoWorker(tab)
+    },
     ask: (id) => workspace.asks.fromPerson(id),
     ...(form !== undefined ? { answering: true } : soleAsk === undefined ? {} : { answers: soleAsk.from })
   }
@@ -2999,22 +2956,10 @@ export function App(props: AppProps) {
                     cards={cards}
                     row={({ row }) => {
                       const card = row.item.kind === "card" ? livePanel(row.item.panel) : undefined
-                      const started = row.item.kind === "run" ? row.item : undefined
                       const step = row.item.kind === "cell" ? Scrubber.step(transcript, row.item) : undefined
                       return (
                         <box key={row.key} id={row.key}>
-                          {started !== undefined
-                            ? (
-                              <View.RunCard
-                                title={started.title}
-                                request={started.request}
-                                run={runCard(started.surface)}
-                                now={now}
-                                focused={row.key === focusedCard}
-                                onOpen={() => perform({ kind: "open", surface: started.surface })}
-                              />
-                            )
-                            : card !== undefined
+                          {card !== undefined
                             ? (
                               <View.Card
                                 panel={card}

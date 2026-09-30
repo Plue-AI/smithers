@@ -11,7 +11,6 @@ import {
   FlowError,
   FlowRuns,
   interrupted,
-  line,
   type Listed,
   type Port,
   type Run,
@@ -608,7 +607,11 @@ describe("flow runs", () => {
     const f = setup()
     f.runs.request({ id: "r1", flow: "nope", input: {}, by: "user" })
     await tick()
-    expect(f.runs.get("r1")).toMatchObject({ status: "failed", message: "No flow named nope; /flows lists them." })
+    expect(f.runs.get("r1")).toMatchObject({
+      status: "failed",
+      message: "No flow named nope; /flows lists them.",
+      failure: "No flow named nope; /flows lists them."
+    })
   })
 
   it("queues a fourth run instead of refusing it, and starts it when a seat frees", async () => {
@@ -1149,48 +1152,6 @@ describe("module flow steps", () => {
       settledNode(4, "unknown", "built", "x")
     ] as unknown as Events
     expect(steps(events, "pipeline", false)).toEqual([])
-  })
-})
-
-describe("a run's one-line card", () => {
-  const run = (status: Run["status"], extra: Partial<Run> = {}): Run => ({
-    id: "sum-1",
-    flow: "sum",
-    by: "user",
-    input: {},
-    requested: "{}",
-    status,
-    startedAt: 1000,
-    ...extra
-  })
-
-  it("times the run from its launch, in milliseconds under a second, and shows the result's first line", () => {
-    expect(line(run("done", { launchedAt: 5000, endedAt: 5040, answer: "5" }), 9000)).toEqual({
-      clock: "40ms",
-      result: "5"
-    })
-    expect(line(run("done", { launchedAt: 5000, endedAt: 17_000, answer: "  first\nsecond" }), 0)).toEqual({
-      clock: "12s",
-      result: "first"
-    })
-    // An empty answer has no arrow to point at.
-    expect(line(run("done", { launchedAt: 5000, endedAt: 5001, answer: "" }), 0)).toEqual({ clock: "1ms" })
-    expect(line(run("done", { endedAt: 1500, answer: "x".repeat(100) }), 0).result).toHaveLength(80)
-  })
-
-  it("counts a running run up to now, and a run that never launched from its request", () => {
-    expect(line(run("running", { launchedAt: 5000 }), 5300)).toEqual({ clock: "300ms" })
-    expect(line(run("failed", { endedAt: 1003, message: "Restart to load sum." }), 0)).toEqual({
-      clock: "3ms",
-      message: "Restart to load sum."
-    })
-  })
-
-  it("has no clock while it waits for a seat, its input or its launch", () => {
-    expect(line(run("queued"), 9000)).toEqual({})
-    expect(line(run("input", { message: "Needs: A, B" }), 9000)).toEqual({ message: "Needs: A, B" })
-    expect(line(run("requested"), 9000)).toEqual({})
-    expect(line(run("cancelled", { launchedAt: 2000, endedAt: 3500 }), 0)).toEqual({ clock: "1s" })
   })
 })
 

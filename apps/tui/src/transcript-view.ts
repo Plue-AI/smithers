@@ -1,6 +1,6 @@
 /**
  * The chat transcript as it shows: its rows with the workers it delegated as
- * card grids between them, its scroll, the card `tab` focuses, and the
+ * host-owned cards between them, its scroll, the card `tab` focuses, and the
  * activity scrubber's selection. Moving the selection aims the scroll at the
  * step it lands on, in the chat or in the worker's own tab.
  */
@@ -8,7 +8,9 @@ import type { CliRenderer, ScrollBoxRenderable } from "@opentui/core"
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react"
 import type * as Activity from "./activity.ts"
 import * as DragScroll from "./drag-scroll.ts"
+import type { Run } from "./flows.ts"
 import type * as Panels from "./panels.ts"
+import * as RunCard from "./run-card.ts"
 import * as Scrubber from "./scrubber.ts"
 import * as Subagents from "./subagents.ts"
 import { tabTitle } from "./surfaces.ts"
@@ -33,6 +35,7 @@ export const useTranscriptView = (options: {
   /** The chat's own transcript. */
   readonly transcript: Transcript.Transcript
   readonly tabs: ReadonlyArray<Tab>
+  readonly runs?: ReadonlyArray<Run>
   /** A worker's transcript. */
   readonly worker: (id: string) => Transcript.Transcript
   readonly filter: Timeline.Filter
@@ -41,7 +44,7 @@ export const useTranscriptView = (options: {
   readonly panel: Panels.Panel | undefined
   readonly setPanelFocus: (focus: boolean) => void
   readonly panelFocus: boolean
-  /** The chat column's width, which lays out its card grids. */
+  /** The width available to the host cards. */
   readonly width: number
 }) => {
   const { renderer, transcript, tabs, worker, filter, surface, panel, setPanelFocus, panelFocus } = options
@@ -133,8 +136,9 @@ export const useTranscriptView = (options: {
   /** A worker's lane color: its card rail, its crumb and its steering accent. */
   const lane = (id: string): string => laneColor(Math.max(0, tabs.findIndex((tab) => tab.id === id)))
   const chatRows = useMemo(() => Timeline.cached(), [])
-  const rows = chatRows(transcript, filter)
-  const lines = Subagents.lines(rows, Subagents.batches(transcript, tabs), earlierOpen())
+  const projectedChat = RunCard.chat(transcript)
+  const rows = chatRows(projectedChat, filter)
+  const lines = Subagents.lines(rows, Subagents.batches(transcript, tabs, undefined, options.runs), earlierOpen())
   const workerTab = surface.startsWith("tab:") ? tabs.find((tab) => `tab:${tab.id}` === surface) : undefined
   const workerEarlier = workerTab === undefined ? undefined : Subagents.lines(
     Timeline.rows(worker(workerTab.id)),
@@ -142,16 +146,16 @@ export const useTranscriptView = (options: {
     earlierOpen(workerTab.id),
     workerTab.id
   ).find((line) => line.kind === "earlier")
-  const grids = lines.flatMap((line) =>
-    line.kind === "grid" ? [line.batch.tabs.map((tab) => Subagents.cardKey(tab.id))] : []
-  )
   /** Cards in the chat, top to bottom; `tab` on an empty composer walks them. */
   const cardKeys = surface === "chat" && panel === undefined
     ? lines.flatMap((line) =>
       line.kind === "row"
         ? line.row.item.kind === "card" || line.row.item.kind === "run" ? [line.key] : []
         : line.kind === "grid"
-        ? line.batch.tabs.map((tab) => Subagents.cardKey(tab.id))
+        ? [
+          ...line.batch.tabs.map((tab) => Subagents.cardKey(tab.id)),
+          ...line.batch.runs?.map((run) => `flow:${run.id}`) ?? []
+        ]
         : line.kind === "earlier"
         ? [line.key]
         : []
@@ -175,7 +179,7 @@ export const useTranscriptView = (options: {
     source.activity.records[0] === inspection.first
   )
   const monitored = surface === "chat" ?
-    activitySources.find((source) => source.id === chat)
+    projectedChat.activity === undefined ? undefined : activitySources.find((source) => source.id === chat)
     : surface.startsWith("tab:") ?
     activitySources.find((source) => source.id === surface.slice(4))
     : undefined
@@ -262,7 +266,7 @@ export const useTranscriptView = (options: {
     /** Moves the focused card and scrolls it into view. */
     moveCard: (direction: Subagents.Direction) => {
       if (focusedCard === undefined) return
-      const next = Subagents.move(cardKeys, grids, options.width, focusedCard, direction)
+      const next = Subagents.move(cardKeys, focusedCard, direction)
       setCardFocus(next)
       reveal(next)
     },

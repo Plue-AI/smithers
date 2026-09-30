@@ -84,28 +84,28 @@ it("Ctrl+K stop and resume settle and restart the named worker; the removed /ret
   await tui!.press("\x15")
   await submit("investigate")
   await tui!.until(
-    (screen) => screen.includes("Requested the investigation.") && /Investigation · \d+s/.test(screen),
+    (screen) => /[◐◓◑◒] Investigation · \d+m?s/.test(screen),
     10_000,
     "worker running"
   )
   const [file] = files(where)
   expect(file).toBeDefined()
   await palette("stop investigation", /Stop\s+x\s+Investigation/)
-  await tui!.until((screen) => screen.includes("Investigation · Stopped"), 5_000, "stopped worker")
+  await tui!.until((screen) => screen.includes("■ Investigation · stopped ·"), 5_000, "stopped worker")
   const statuses = () =>
     records(file!).filter((record) => record.type === "tab" && record.tab?.id === "investigation")
       .map((record) => record.tab!.status)
   expect(statuses().at(-1)).toBe("cancelled")
   await palette("resume investigation", /Resume\s+r\s+Investigation/)
   await tui!.until(
-    (screen) => /Investigation · \d+s/.test(screen) && !screen.includes("Investigation · Stopped"),
+    (screen) => /[◐◓◑◒] Investigation · \d+m?s/.test(screen) && !screen.includes("Investigation · stopped"),
     5_000,
     "retried worker"
   )
   await tui!.until(() => statuses().at(-1) === "running", 5_000, "saved retry")
   expect(statuses()).toContain("cancelled")
   await palette("stop investigation", /Stop\s+x\s+Investigation/)
-  await tui!.until((screen) => screen.includes("Investigation · Stopped"), 5_000, "retried worker stopped")
+  await tui!.until((screen) => screen.includes("■ Investigation · stopped ·"), 5_000, "retried worker stopped")
   expect(statuses().filter((status) => status === "cancelled")).toHaveLength(2)
 }, 45_000)
 

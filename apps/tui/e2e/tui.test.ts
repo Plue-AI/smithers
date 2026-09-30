@@ -1632,7 +1632,7 @@ console.log("reverted");`,
     await tui.until(drawn, 20_000, "first draw")
     await tui.type("delegate fix")
     await tui.press(key.enter)
-    await tui.until((screen) => screen.includes("Fixer finished"), 10_000, "worker done")
+    await tui.until((screen) => /✓ Fixer ·/.test(screen) && screen.includes("math.js +1 −1"), 10_000, "worker done")
     await tui.press(key.tab)
     await tui.until((screen) => screen.includes("d Diff  u Undo  enter Open"), 5_000, "card focused")
     await tui.type("d")
@@ -1652,7 +1652,7 @@ console.log("reverted");`,
     await tui.press(key.enter)
     await tui.until(
       (screen) =>
-        readFileSync(join(cwd, "math.js"), "utf8").includes("a - b") && screen.includes("Fixer · undone") &&
+        readFileSync(join(cwd, "math.js"), "utf8").includes("a - b") && /Fixer · .*undone/.test(screen) &&
         screen.includes("Undid math.js"),
       10_000,
       "undone card"
@@ -1679,7 +1679,7 @@ console.log("reverted");`,
     await tui.until(drawn, 20_000, "first draw")
     await tui.type("delegate fix")
     await tui.press(key.enter)
-    await tui.until((screen) => screen.includes("Fixer finished"), 10_000, "worker done")
+    await tui.until((screen) => /✓ Fixer ·/.test(screen) && screen.includes("math.js +1 −1"), 10_000, "worker done")
     await tui.press(key.ctrlK)
     await tui.type("diff fixer")
     await tui.until((screen) => /Diff\s+d\s+Fixer/.test(screen), 5_000, "worker diff action")
@@ -1714,7 +1714,7 @@ console.log("reverted");`,
     await tui.type("delegate fix")
     await tui.press(key.enter)
     await tui.until(
-      (screen) => screen.includes("Fixer done") && /Done \d+s · worker/.test(screen),
+      (screen) => /✓ Fixer ·/.test(screen) && screen.includes("math.js +1 −1"),
       10_000,
       "worker done"
     )
@@ -1767,12 +1767,10 @@ console.log("reverted");`,
     await tui.until(drawn, 20_000)
     await tui.type("delegate fix")
     await tui.press(key.enter)
-    await tui.until((screen) =>
-      screen.includes("Requested the fix.") && screen.includes("Fixer done") && /Done \d+s · worker/.test(screen)
-    )
+    await tui.until((screen) => /✓ Fixer ·/.test(screen) && screen.includes("math.js +1 −1"))
     await tui.type("/flow review title=x")
     await tui.press(key.enter)
-    await tui.until((screen) => /◌ review · \d+m?s/.test(screen))
+    await tui.until((screen) => /[◐◓◑◒] review · \d+m?s/.test(screen))
     await tui.type("/tabs")
     await tui.press(key.enter)
     await tui.until(
@@ -1819,7 +1817,7 @@ console.log("reverted");`,
     await tui.type("delegate fix")
     await tui.press(key.enter)
     await tui.until(
-      (screen) => screen.includes("Fixer done") && /Done \d+s · worker/.test(screen),
+      (screen) => /✓ Fixer ·/.test(screen) && screen.includes("math.js +1 −1"),
       10_000,
       "worker done"
     )
@@ -1921,7 +1919,7 @@ console.log("reverted");`,
 })
 
 it(
-  "keeps chat and navigation usable through an unresolved worker, deduplicates its tab, and settles its toast on cancellation",
+  "keeps chat usable through an unresolved worker, deduplicates its run, and settles its host card on cancellation",
   async () => {
     const cwd = repository()
     const sessions = mkdtempSync(join(tmpdir(), "tui-background-"))
@@ -1934,22 +1932,24 @@ it(
     await tui.type("investigate")
     await tui.press(key.enter)
     await tui.until(
-      (screen) => screen.includes("Requested the investigation.") && /Investigation · \d+s/.test(screen),
+      (screen) => /Investigation · \d+m?s/.test(screen),
       5_000,
-      "worker still running after chat acknowledges"
+      "worker card running"
     )
+    expect(tui.screen()).not.toContain("Requested the investigation.")
     await tui.type("hello")
     await tui.press(key.enter)
     await tui.until(
-      (screen) => screen.includes("Still here.") && /Investigation · \d+s/.test(screen),
+      (screen) => screen.includes("Still here.") && /Investigation · \d+m?s/.test(screen),
       5_000,
       "second chat turn during background work"
     )
     await tui.until(
-      (screen) => screen.includes("Running 1 subagent") && /▌. Investigation/.test(screen),
+      (screen) => /[◐◓◑◒] Investigation ·/.test(screen),
       5_000,
       "the worker's card in the chat"
     )
+    expect(tui.screen()).not.toContain("Running 1 subagent")
     await tui.type("/filter")
     await tui.press(key.enter)
     await tui.until((screen) => screen.includes("Filter chat") && screen.includes("Show all"), 5_000, "filter dialog")
@@ -1960,7 +1960,7 @@ it(
     await tui.until(
       (screen) =>
         screen.includes("filtered") && screen.includes("Still here.") && !screen.includes("investigate") &&
-        /▌. Investigation/.test(screen),
+        /[◐◓◑◒] Investigation ·/.test(screen),
       5_000,
       "messages hidden by the filter, the card kept"
     )
@@ -1988,7 +1988,7 @@ it(
     await tui.until((screen) => screen.includes("Search") && /Investigation\s+running/.test(screen), 5_000, "tab row")
     await tui.press(key.enter)
     await tui.until(
-      (screen) => screen.includes("x Stop") && /Investigation · \d+s/.test(screen),
+      (screen) => screen.includes("x Stop") && screen.includes("Subagent · Investigation"),
       5_000,
       "inspect running worker"
     )
@@ -1996,13 +1996,14 @@ it(
     await tui.until((screen) => screen.includes("Stop Investigation?"), 5_000, "stop confirmation")
     await tui.press(key.enter)
     await tui.until(
-      (screen) => screen.includes("Investigation · Stopped") && screen.includes("r Resume"),
+      (screen) => screen.includes("■ stopped") && screen.includes("r Resume"),
       5_000,
       "actual worker settlement"
     )
     await tui.press(key.escape)
     await tui.until(
-      (screen) => screen.includes("Still here.") && !screen.includes("r Resume"),
+      (screen) =>
+        screen.includes("Still here.") && /■ Investigation · stopped ·/.test(screen) && !screen.includes("r Resume"),
       5_000,
       "escape returns to chat"
     )
@@ -2026,7 +2027,7 @@ describe("worker tabs", () => {
     await tui.until(drawn, 20_000, "first draw")
     await tui.type("investigate")
     await tui.press(key.enter)
-    await tui.until((screen) => screen.includes("Requested the investigation."), 5_000, "acknowledged")
+    await tui.until((screen) => /[◐◓◑◒] Investigation ·/.test(screen), 5_000, "worker card")
     await tui.click("Investigation")
     await tui.until((screen) => screen.includes("x Stop") && screen.includes("s Steer"), 5_000, "worker tab by click")
     return tui
@@ -2064,7 +2065,7 @@ describe("worker tabs", () => {
     await tui.until((screen) => screen.includes("Subagent · Investigation"), 5_000, "breadcrumb")
     await tui.click("Back (ctrl+y)")
     await tui.until(
-      (screen) => screen.includes("Requested the investigation.") && !screen.includes("Back (ctrl+y)"),
+      (screen) => /[◐◓◑◒] Investigation ·/.test(screen) && !screen.includes("Back (ctrl+y)"),
       5_000,
       "chat"
     )
@@ -2074,12 +2075,12 @@ describe("worker tabs", () => {
     const tui = await launch()
     await tui.press("\x19")
     await tui.until(
-      (screen) => screen.includes("Requested the investigation.") && !screen.includes("Back (ctrl+y)"),
+      (screen) => /[◐◓◑◒] Investigation ·/.test(screen) && !screen.includes("Back (ctrl+y)"),
       5_000,
       "ctrl+y to the chat"
     )
     await tui.press(key.tab)
-    await tui.until((screen) => screen.includes("[alt+x Stop]") && screen.includes("enter Open"), 5_000, "focused card")
+    await tui.until((screen) => screen.includes("esc Composer") && screen.includes("enter Open"), 5_000, "focused card")
     await tui.press(key.enter)
     await tui.until((screen) => screen.includes("Subagent · Investigation"), 5_000, "enter opens the worker")
     await tui.press("\x19")
@@ -2090,9 +2091,9 @@ describe("worker tabs", () => {
       "overview"
     )
     await tui.press(key.tab)
-    await tui.until((screen) => screen.includes("[alt+x Stop]"), 5_000, "the branch's focused card")
+    await tui.until((screen) => /[◐◓◑◒] Investigation ·/.test(screen), 5_000, "the branch's card")
     await tui.press(key.escape)
-    await tui.until((screen) => screen.includes("Requested the investigation."), 5_000, "esc closes")
+    await tui.until((screen) => /[◐◓◑◒] Investigation ·/.test(screen), 5_000, "esc closes")
   }, 60_000)
 
   it("opens the Summary on the worker with ctrl+s and returns to its tab", async () => {
@@ -2100,7 +2101,7 @@ describe("worker tabs", () => {
     await tui.press(key.ctrlS)
     // The cards pane is the selected row's: the worker's, not the chat's review.
     await tui.until(
-      (screen) => screen.includes("tab Pane") && /┌─Investigation─+┐/.test(screen),
+      (screen) => screen.includes("tab Pane") && /[◐◓◑◒] Investigation ·/.test(screen),
       5_000,
       "overview on the worker"
     )
@@ -2152,7 +2153,7 @@ describe("flows", () => {
     await tui.type("x")
     await tui.press(key.enter)
     // The run reports in the chat, not in a toast.
-    await tui.until((screen) => /◌ review · \d+m?s/.test(screen), 5_000, "running card")
+    await tui.until((screen) => /[◐◓◑◒] review · \d+m?s/.test(screen), 5_000, "running card")
     expect(tui.screen()).not.toContain("review · running")
     await tui.type("hello")
     await tui.until((screen) => /┃\s+hello/.test(screen), 5_000, "composer usable while the flow runs")
@@ -2161,7 +2162,7 @@ describe("flows", () => {
     await tui.until((screen) => !screen.includes("r Resume") && screen.includes("x Stop"), 5_000, "flow tab footer")
     await tui.type("x")
     await tui.until(
-      (screen) => screen.includes("review · cancelled") && screen.includes("■ review"),
+      (screen) => screen.includes("Stopped.") && screen.includes("■ review") && screen.includes("r Resume"),
       5_000,
       "settled from the watch"
     )
@@ -2185,7 +2186,7 @@ describe("flows", () => {
     await tui.type("again")
     await tui.until((screen) => /┃\s+again/.test(screen), 5_000, "composer after Ctrl+Right")
     expect(tui.screen()).not.toContain("cancelled")
-    expect(tui.screen()).toContain("◌ review")
+    expect(tui.screen()).toMatch(/[◐◓◑◒◌] review/)
   }, 60_000)
 
   it("keeps typeahead when a flow tab reopens its input form", async () => {
@@ -2206,7 +2207,7 @@ describe("flows", () => {
     await tui.press(key.enter)
     await tui.until((screen) => /┃\s+Title/.test(screen), 5_000, "form")
     await tui.press(key.escape)
-    await tui.until((screen) => screen.includes("◌ review · Needs: Title"), 5_000, "parked card")
+    await tui.until((screen) => /[◐◓◑◒◌] review · asks/.test(screen), 5_000, "parked card")
     await tui.type("/new")
     await tui.press(key.enter)
     const screen = await tui.until(
@@ -2256,11 +2257,11 @@ describe("custom agents", () => {
     await tui.type("/flow review look at math.js")
     await tui.press(key.escape)
     await tui.press(key.enter)
-    await tui.until((screen) => /review: look at math\.js replay/.test(screen), 20_000, "agent tab")
+    await tui.until((screen) => /[◐◓◑◒] review: look at math\.js ·/.test(screen), 20_000, "agent card")
     await tui.type("still here")
     await tui.until((screen) => /┃\s+still here/.test(screen), 5_000, "composer usable while the agent runs")
-    // The toast follows the run until it really stops; Alt+x in the tab opens confirmation.
-    await tui.until((screen) => /review: look at math\.js · \d+s/.test(screen), 5_000, "running toast")
+    await tui.until((screen) => /review: look at math\.js · \d+m?s/.test(screen), 5_000, "running card")
+    expect(tui.screen()).not.toContain("review: look at math.js · running")
     await tui.press(key.ctrlBracket)
     await tui.press(key.ctrlBracket)
     await tui.until((screen) => screen.includes("x Stop"), 5_000, "agent tab")
@@ -2786,7 +2787,6 @@ export default Flow.make("${tag}", {
     "        label: Review",
     "        action: { kind: flow, flow: review }",
     "    status: true",
-    "    card: true",
     "---",
     "Review the uncommitted change.",
     ""
@@ -2815,13 +2815,13 @@ export default Flow.make("${tag}", {
   }
 
   it(
-    "a metadata.tui key requests the flow; card, status and toast settle only with the run; chat stays usable",
+    "a metadata.tui key requests one host card that settles with the run; chat stays usable",
     async () => {
       const { tui } = await open()
       await tui.until((screen) => screen.includes("alt+z Review"), 10_000, "contributed key hint")
       await tui.press(altZ)
       // One line in the chat, rewritten in place; the card says it, so no toast repeats it.
-      await tui.until((screen) => /◌ review · \d+m?s/.test(screen), 5_000, "running card")
+      await tui.until((screen) => /[◐◓◑◒] review · \d+m?s/.test(screen), 5_000, "running card")
       await tui.until((screen) => /◌ review\s+↑/.test(screen), 5_000, "status item")
       // Chat answers while the run is unresolved.
       await tui.type("hello")
@@ -2832,6 +2832,7 @@ export default Flow.make("${tag}", {
       await tui.press(key.enter)
       await tui.until((screen) => /✓ review · \d+m?s → Approved\./.test(screen), 5_000, "settled")
       await tui.until((screen) => /✓ review\s+↑/.test(screen), 5_000, "settled status item")
+      expect(tui.screen()).not.toContain("review · done")
     },
     60_000
   )
@@ -2852,7 +2853,7 @@ export default Flow.make("${tag}", {
     await tui.press(key.down)
     await tui.until((screen) => screen.includes("a Publish"), 5_000, "the row's action")
     await tui.type("a")
-    await tui.until((screen) => screen.includes("review · running"), 5_000, "row action requested the flow")
+    await tui.until((screen) => /[◐◓◑◒] review ·/.test(screen), 5_000, "row action requested the flow")
   }, 60_000)
 
   it("tab focuses the newest card from an empty composer and enter opens its view", async () => {
@@ -2913,7 +2914,7 @@ export default Flow.make("${tag}", {
     await tui.until(drawn, 20_000, "first draw")
     await tui.until((screen) => screen.includes("alt+p Ping"), 20_000, "contributed key hint")
     await tui.press("\x1bp")
-    await tui.until((screen) => /◌ ping · \d+m?s/.test(screen), 20_000, "running card")
+    await tui.until((screen) => /[◐◓◑◒] ping · \d+m?s/.test(screen), 20_000, "running card")
     await tui.until(
       (screen) => /✓ ping · \d+m?s/.test(screen) && /✓ ping\s+↑/.test(screen),
       90_000,

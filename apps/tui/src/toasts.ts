@@ -2,10 +2,10 @@ import { noticeDismissDelay, WORK_NOTICE_DELAY_MS } from "@smthrs/ui/notificatio
 /** Off-screen settles, command feedback, search and undo notices. */
 import { useCallback, useEffect, useState } from "react"
 import type { Run } from "./flows.ts"
+import * as Lifecycle from "./lifecycle.ts"
 import type { TextSearch } from "./picker.ts"
 import { flowGlyph, tabTitle } from "./surfaces.ts"
 import * as Tabs from "./tabs.ts"
-import * as Lifecycle from "./lifecycle.ts"
 import type { Tab } from "./workspace.ts"
 
 export interface Toast {
@@ -29,14 +29,24 @@ export class Settlements {
   private work(tabs: ReadonlyArray<Tab>, runs: ReadonlyArray<Run>) {
     return [
       ...tabs.map((tab) => ({
-        surface: `tab:${tab.id}`, title: tabTitle(tab), status: tab.status,
-        startedAt: tab.startedAt, endedAt: tab.endedAt,
+        surface: `tab:${tab.id}`,
+        title: tabTitle(tab),
+        status: tab.status,
+        startedAt: tab.startedAt,
+        endedAt: tab.endedAt,
         stamp: `${tab.startedAt}:${tab.endedAt}:${tab.status}`,
-        glyph: Tabs.style(tab.status, tab.endedAt ?? tab.startedAt).glyph
+        glyph: tab.status === "done"
+          ? "✓"
+          : tab.status === "failed"
+          ? "✗"
+          : Tabs.style(tab.status, tab.endedAt ?? tab.startedAt).glyph
       })),
       ...runs.map((run) => ({
-        surface: `flow:${run.id}`, title: run.flow, status: run.status,
-        startedAt: run.startedAt, endedAt: run.endedAt,
+        surface: `flow:${run.id}`,
+        title: run.flow,
+        status: run.status,
+        startedAt: run.startedAt,
+        endedAt: run.endedAt,
         stamp: `${run.startedAt}:${run.endedAt}:${run.status}`,
         glyph: flowGlyph(run.status).trim()
       }))
@@ -52,19 +62,24 @@ export class Settlements {
     const work = this.work(input.tabs, input.runs)
     for (const each of work) {
       for (const other of work) {
-        if (other.surface.startsWith(each.surface.split(":")[0]! + ":") &&
-          other.title === each.title && other.startedAt < each.startedAt) this.notices.delete(other.surface)
+        if (
+          other.surface.startsWith(each.surface.split(":")[0]! + ":") &&
+          other.title === each.title && other.startedAt < each.startedAt
+        ) this.notices.delete(other.surface)
       }
       const previous = this.observed.get(each.surface)
       if (previous !== each.stamp) {
         this.notices.delete(each.surface)
         this.observed.set(each.surface, each.stamp)
-        if (Lifecycle.settled(each.status) && each.endedAt !== undefined &&
-          !input.visible.has(each.surface) && input.opened !== each.surface) {
+        if (
+          Lifecycle.settled(each.status) && each.endedAt !== undefined &&
+          !input.visible.has(each.surface) && input.opened !== each.surface
+        ) {
           const ms = Math.max(0, each.endedAt - each.startedAt)
           const clock = ms < 1000 ? `${ms}ms` : `${Math.floor(ms / 1000)}s`
           this.notices.set(each.surface, {
-            id: each.surface, surface: each.surface,
+            id: each.surface,
+            surface: each.surface,
             text: `${each.glyph} ${each.title} · ${clock}`,
             tone: each.status === "failed" ? "danger" : "info"
           })
@@ -103,8 +118,6 @@ export const rows = (input: {
   readonly toast: Toast | undefined
   readonly now: number
   readonly tick: string
-  /** Runs whose chat card is on screen: the card already says what a toast would. */
-  readonly carded?: ReadonlySet<string>
 }): ReadonlyArray<Row> => {
   const { now, tick, search, undoing, toast } = input
   return [

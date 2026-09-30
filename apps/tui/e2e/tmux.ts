@@ -250,11 +250,10 @@ export class Tui {
   dispose(): void {
     if (this.stopped) return
     this.stopped = true
-    // The socket still identifies the whole process tree here. A pane can ignore
-    // kill-server's HUP and escape that tree once the server exits.
+    // Stop the owned process tree before closing only this test's session.
     stopDaemons(this.directory)
     try {
-      this.run(["kill-server"])
+      this.run(["kill-session", "-t", "tui"])
     } catch { /* Already exited or failed to start. */ }
     live.delete(this)
     this.terminal.dispose()

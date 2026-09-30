@@ -1,9 +1,10 @@
 import { type Renderable, ScrollBoxRenderable, TextareaRenderable } from "@opentui/core"
 import { testRender } from "@opentui/react/test-utils"
 import * as AgentEvent from "@smthrs/harness/AgentEvent"
+import * as Cell from "@smthrs/harness/Cell"
 import * as ModelRequest from "@smthrs/model/ModelRequest"
 import { afterEach, beforeEach, expect, test } from "bun:test"
-import { Effect } from "effect"
+import { Effect, Option } from "effect"
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -180,13 +181,16 @@ test("delegation persists its requested receipt before worker admission and pres
 })
 
 test("three background workers keep Chat at its original width with one strip count and no progress toasts", async () => {
-  const promptColumn = () => frame().split("\n").find((line) => line.includes("Coordinate a review"))!.indexOf("Coordinate a review")
+  const promptColumn = () =>
+    frame().split("\n").find((line) => line.includes("Coordinate a review"))!.indexOf("Coordinate a review")
   const before = promptColumn()
   await delegate(turns[0]!.input)
   await delegate(turns[0]!.input, { id: "queue", title: "Fix seat queue", prompt: "Fix the queue." })
   await delegate(turns[0]!.input, { id: "strip", title: "Refactor tab strip", prompt: "Refactor the strip." })
   // Exercise the former progress-toast delay with unresolved work.
-  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 350)) })
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 350))
+  })
   await render()
   expect(promptColumn()).toBe(before)
   expect(frame().match(/Review one file/g)).toHaveLength(1)
@@ -205,7 +209,9 @@ test("an off-screen settle reports one notice whose Enter opens the worker and c
   const notice = () => frame().split("\n").filter((line) => /Review one file ·.+enter/.test(line))
   const deadline = Date.now() + 2_000
   while (notice().length === 0 && Date.now() < deadline) {
-    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 10)) })
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    })
     await render()
   }
   expect(notice()).toHaveLength(1)
@@ -230,6 +236,72 @@ test("a settled coordinator admits the next chat while its worker remains unreso
   expect(turns[1]!.cancelled).toBe(0)
   await type("More chat draft")
   expect(frame()).toContain("More chat draft")
+})
+
+test("host settlement rewrites the request card with its worker answer while the coordinator acknowledgement stays hidden", async () => {
+  const cell = Cell.source("await ctx.call(\"agent.delegate\", request); ctx.done(\"Requested the fix.\")")
+  const identity = new Cell.CallIdentity({
+    session: "chat",
+    frame: 0,
+    cell: cell.digest,
+    ordinal: 0,
+    declaration: "delegate",
+    layers: []
+  })
+  await act(async () => {
+    turns[0]!.input.onEvent(new AgentEvent.CellProduced({ eventType: "flows.harness.cell-produced.v1", cell }))
+    turns[0]!.input.onEvent(
+      new AgentEvent.CellCallStarted({
+        eventType: "flows.harness.cell-call-started.v1",
+        call: new Cell.Call({
+          flowName: "agent.delegate",
+          input: request,
+          identity,
+          capabilities: [],
+          placement: Option.none(),
+          effects: { reads: [], writes: [], tier: "irreversible", mode: "expected", onConflict: "serialize" }
+        })
+      })
+    )
+  })
+  await delegate(turns[0]!.input)
+  await act(async () => {
+    turns[0]!.input.onEvent(
+      new AgentEvent.CellCallSettled({
+        eventType: "flows.harness.cell-call-settled.v1",
+        flowName: "agent.delegate",
+        identity,
+        result: new Cell.CallResult({ outcome: "success", value: { id: request.id, status: "requested" } })
+      })
+    )
+  })
+  await finish(0, { _tag: "done", answer: "Requested the fix." })
+  expect(frame()).not.toContain("Requested the fix.")
+  expect(frame().match(/Review one file/g)).toHaveLength(1)
+  await finish(1, { _tag: "done", answer: "The fix passes.\nOne file changed.\nThird answer line." })
+  expect(frame()).toContain("The fix passes.")
+  expect(frame()).toContain("One file changed.")
+  expect(frame()).not.toContain("Third answer line.")
+  expect(frame()).not.toContain("◉")
+  expect(frame().match(/Review one file/g)).toHaveLength(1)
+  expect(frame()).toContain("enter Open")
+  expect(
+    records().filter((record) => record.type === "outcome").some((record) =>
+      record.outcome._tag === "done" && record.outcome.answer === "Requested the fix."
+    )
+  ).toBe(true)
+  await key("TAB")
+  await key("RETURN")
+  await render()
+  expect(frame()).toContain("Subagent · Review one file")
+  const deadline = Date.now() + 2_000
+  while (!frame().includes("Third answer line.") && Date.now() < deadline) {
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    })
+    await render()
+  }
+  expect(frame()).toContain("Third answer line.")
 })
 
 test("same worker admission deduplicates while conflicting reuse refuses without another record or run", async () => {

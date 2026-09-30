@@ -1,7 +1,7 @@
 import { testRender } from "@opentui/react/test-utils"
-import * as SubagentCard from "@smthrs/rpc/SubagentCard"
 import { afterEach, describe, expect, it } from "bun:test"
 import { act } from "react"
+import * as RunCard from "../src/run-card.ts"
 import * as SubagentView from "../src/subagent-view.tsx"
 import * as Subagents from "../src/subagents.ts"
 import { color } from "../src/theme.ts"
@@ -10,7 +10,6 @@ import * as Transcript from "../src/transcript.ts"
 import * as Tree from "../src/tree.ts"
 import type { Tab } from "../src/workspace.ts"
 
-const models = [{ seat: "openai:gpt-6-sol", label: "GPT-6 Sol", provider: "openai" }]
 const tab = (id: string, status: Tab["status"], extra: Partial<Tab> = {}): Tab => ({
   id,
   depth: 0,
@@ -66,51 +65,7 @@ const cell = (
   return next
 }
 
-describe("the card adapter", () => {
-  it("turns calls into tool rows with their states, verbs and line counts", () => {
-    const worker = cell(Transcript.empty, 10, "Read then edit.", [
-      { flow: "read", input: { path: "auth/login.ts" } },
-      { flow: "edit", input: { path: "login.ts", oldString: "a\nb", newString: "a\nc\nd" } },
-      { flow: "bash", input: { command: "bun test auth" }, outcome: "failure" },
-      { flow: "edit", input: { path: "login.ts", oldString: "x", newString: "y" }, outcome: "running" }
-    ])
-    const card = SubagentCard.card(Subagents.subagent(tab("w", "running"), worker, models), 42_000)
-    expect(card.activity.rows.map((row) => SubagentCard.line(row))).toEqual([
-      "├ Read then edit.",
-      "├ Read auth/login.ts ✓",
-      "├ Edited login.ts +3 -2 ✓",
-      "├ Ran bun test auth ✗",
-      "└ Editing login.ts…"
-    ])
-    expect(card.footer.text).toBe("42s · GPT-6 Sol")
-  })
-
-  it("marks a command by its exit status", () => {
-    const worker = cell(Transcript.empty, 10, "Check.", [
-      { flow: "bash", input: { command: "node check.mjs" }, exitCode: 1 },
-      { flow: "bash", input: { command: "node check.mjs" }, exitCode: 0 }
-    ])
-    const card = SubagentCard.card(Subagents.subagent(tab("w", "done"), worker, models), 42_000)
-    expect(card.activity.rows.map((row) => SubagentCard.line(row)).slice(1)).toEqual([
-      "├ Ran node check.mjs  exit 1 ✗",
-      "└ Ran node check.mjs  exit 0 ✓"
-    ])
-  })
-
-  it("marks a command by its exit status, not by the call settling", () => {
-    const worker = cell(Transcript.empty, 10, "", [
-      { flow: "bash", input: { command: "node check.mjs" }, value: { exitCode: 1, stdout: "add is wrong" } },
-      { flow: "edit", input: { path: "math.js", oldString: "a - b", newString: "a + b" } },
-      { flow: "bash", input: { command: "node check.mjs" }, value: { exitCode: 0, stdout: "ok" } }
-    ])
-    const card = SubagentCard.card(Subagents.subagent(tab("w", "done", { endedAt: 1 }), worker, models), 42_000)
-    expect(card.activity.rows.map((row) => SubagentCard.line(row))).toEqual([
-      "├ Ran node check.mjs  exit 1 ✗",
-      "├ Edited math.js +1 -1 ✓",
-      "└ Ran node check.mjs  exit 0 ✓"
-    ])
-  })
-
+describe("run receipts", () => {
   it("sums a worker's result: files per path without undone changes, and its last command's exit", () => {
     const worker = cell(Transcript.empty, 10, "", [
       { flow: "bash", input: { command: "npm test" }, value: { exitCode: 1 } },
@@ -161,87 +116,31 @@ describe("the card adapter", () => {
     expect(Subagents.result(all)).toEqual({ files: [], check: { command: "npm test", exit: 0 } })
   })
 
-  it("prefers the flow's own verbs and takes counts from captured patches", () => {
-    const call: Transcript.Call = {
-      flow: "apply_patch",
-      subject: "src/a.ts",
-      status: "ok",
-      verb: { pending: "patching", success: "patched", failure: "failed to patch" },
-      patches: [{ path: "src/a.ts", patch: "--- a\n+++ b\n+one\n+two\n-three" }],
-      startedAt: 0
-    }
-    expect(Subagents.entry(call)).toEqual({
-      kind: "tool",
-      tool: "apply_patch",
-      state: "done",
-      target: "src/a.ts",
-      verb: { pending: "patching", done: "patched" },
-      added: 2,
-      removed: 1
-    })
-  })
-
-  const patched = (...calls: ReadonlyArray<Transcript.Call>): Transcript.Transcript => ({
-    ...Transcript.empty,
-    items: [{
-      kind: "cell",
-      id: "0",
-      index: 1,
-      prose: "",
-      source: "",
-      status: "done",
-      calls,
-      printed: "",
-      startedAt: 0
-    }]
-  })
-  const edit = (path: string, undone?: true): Transcript.Call => ({
-    flow: "edit",
-    identity: path,
-    subject: path,
-    status: "ok",
-    patches: [{ path, patch: "+a\n-b", ...(undone === undefined ? {} : { undone }) }],
-    startedAt: 0
-  })
-
-  it("lists every captured file, undone ones too, and reads undone once all are", () => {
-    const partly = Subagents.subagent(tab("w", "done"), patched(edit("kept.ts"), edit("undone.ts", true)), models)
-    expect(partly.files).toEqual([
-      { path: "kept.ts", added: 1, removed: 1 },
-      { path: "undone.ts", added: 1, removed: 1 }
-    ])
-    expect(partly.title).toBe("w")
-    const all = Subagents.subagent(tab("w", "done"), patched(edit("a.ts", true), edit("b.ts", true)), models)
-    expect(all.title).toBe("w · undone")
-    expect(all.files).toHaveLength(2)
-    expect(Subagents.subagent(tab("w", "done"), Transcript.empty, models).title).toBe("w")
-  })
-
-  it("lists changed files from captured patches", () => {
-    const patch = (path: string): Transcript.Call => ({
-      flow: "edit",
-      subject: path,
-      status: "ok",
-      patches: [{ path, patch: "+a\n-b" }],
-      startedAt: 0
-    })
+  it("keeps another file from the same call when only one file was undone", () => {
     const transcript: Transcript.Transcript = {
       ...Transcript.empty,
       items: [{
         kind: "cell",
-        id: "0",
+        id: "edit",
         index: 1,
-        prose: "",
         source: "",
+        prose: "",
         status: "done",
-        calls: [patch("kept.ts")],
+        startedAt: 0,
         printed: "",
-        startedAt: 0
+        calls: [{
+          flow: "edit",
+          subject: "two files",
+          status: "ok",
+          startedAt: 1,
+          patches: [
+            { path: "first.js", patch: "@@ -1 +1 @@\n-a\n+b", undone: true },
+            { path: "second.js", patch: "@@ -1 +1 @@\n-c\n+d" }
+          ]
+        }]
       }]
     }
-    expect(Subagents.subagent(tab("w", "done"), transcript, models).files).toEqual([
-      { path: "kept.ts", added: 1, removed: 1 }
-    ])
+    expect(Subagents.result(transcript).files).toEqual([{ path: "second.js", added: 1, removed: 1 }])
   })
 })
 
@@ -268,7 +167,7 @@ describe("batches", () => {
     expect(Subagents.batches(later, tabs, "a").map((batch) => batch.tabs.map((each) => each.id))).toEqual([["a/x"]])
   })
 
-  it("places each grid after its anchor and a finished row where its worker settled", () => {
+  it("keeps each settled card at the same request anchor", () => {
     const rows = Timeline.rows(later)
     const lines = Subagents.lines(rows, Subagents.batches(later, tabs))
     expect(lines.map((line) => line.kind === "row" ? Timeline.text(line.row.item).split("\n")[0] : line.key)).toEqual([
@@ -276,20 +175,42 @@ describe("batches", () => {
       "Three workers.",
       "batch:a",
       "Requested.",
-      "batch:c",
-      "finished:b"
+      "batch:c"
     ])
   })
 
-  it("keeps a grid whose anchor is filtered out at its time, and a finished row below its grid", () => {
+  it("keeps a flow below its request when its clock starts before the persisted anchor", () => {
+    const transcript = Transcript.run(Transcript.empty, {
+      surface: "flow:words",
+      title: "wordcount",
+      request: "/flow wordcount"
+    }, 1001)
+    const run = {
+      id: "words",
+      flow: "wordcount",
+      by: "user" as const,
+      input: {},
+      requested: "{}",
+      status: "running" as const,
+      startedAt: 1000
+    }
+    const groups = Subagents.batches(transcript, [], undefined, [run])
+    expect(groups[0]?.anchor).toBe(transcript.items[0]?.id)
+    const lines = Subagents.lines(Timeline.rows(RunCard.chat(transcript)), groups)
+    expect(lines.map((line) => line.kind === "row" ? Timeline.text(line.row.item) : line.key)).toEqual([
+      "/flow wordcount",
+      "batch:flow:words"
+    ])
+  })
+
+  it("keeps cards whose request anchor is filtered out at their request time", () => {
     const rows = Timeline.rows(later, Timeline.toggleKind(Timeline.all, "cell"))
     const lines = Subagents.lines(rows, Subagents.batches(later, tabs))
-    expect(lines.map((line) => line.key)).toEqual(["chat:0", "batch:a", "chat:2", "batch:c", "finished:b"])
+    expect(lines.map((line) => line.key)).toEqual(["chat:0", "batch:a", "chat:2", "batch:c"])
     const early = [tab("q", "done", { startedAt: 11, endedAt: 12 })]
     expect(Subagents.lines(rows, Subagents.batches(later, early)).map((line) => line.key)).toEqual([
       "chat:0",
       "batch:q",
-      "finished:q",
       "chat:2"
     ])
   })
@@ -297,19 +218,17 @@ describe("batches", () => {
 
 describe("card focus", () => {
   const order = ["panel", "agent:a", "agent:b", "agent:c", "last"]
-  const grid = ["agent:a", "agent:b", "agent:c"]
-  it("moves by column between a grid's rows, then leaves the grid", () => {
-    // 80 columns fit two cards a row: a b / c.
-    expect(Subagents.move(order, [grid], 80, "agent:b", "down")).toBe("agent:c")
-    expect(Subagents.move(order, [grid], 80, "agent:c", "up")).toBe("agent:a")
-    expect(Subagents.move(order, [grid], 80, "agent:c", "down")).toBe("last")
-    expect(Subagents.move(order, [grid], 80, "agent:a", "up")).toBe("panel")
+  it("moves in order through a vertical card stack", () => {
+    expect(Subagents.move(order, "agent:b", "down")).toBe("agent:c")
+    expect(Subagents.move(order, "agent:c", "up")).toBe("agent:b")
+    expect(Subagents.move(order, "agent:c", "down")).toBe("last")
+    expect(Subagents.move(order, "agent:a", "up")).toBe("panel")
   })
   it("steps in order sideways and with tab, wrapping around", () => {
-    expect(Subagents.move(order, [grid], 80, "agent:a", "right")).toBe("agent:b")
-    expect(Subagents.move(order, [grid], 80, "agent:a", "left")).toBe("panel")
-    expect(Subagents.move(order, [grid], 80, "last", "next")).toBe("panel")
-    expect(Subagents.move(order, [grid], 80, "panel", "previous")).toBe("last")
+    expect(Subagents.move(order, "agent:a", "right")).toBe("agent:b")
+    expect(Subagents.move(order, "agent:a", "left")).toBe("panel")
+    expect(Subagents.move(order, "last", "next")).toBe("panel")
+    expect(Subagents.move(order, "panel", "previous")).toBe("last")
   })
 })
 
@@ -362,122 +281,46 @@ describe("the card grid", () => {
   ]
   const cards = (focused?: string): SubagentView.Cards => ({
     transcript: (id) => id === "auth" ? auth : Transcript.empty,
-    models,
     now: 42_000,
     lane: () => color.info,
     focused,
-    open: new Set(),
-    onOpen: () => {},
-    onFiles: () => {},
-    onAction: () => {}
+    onOpen: () => {}
   })
   const batch: Subagents.Batch = { key: "batch:auth", anchor: undefined, at: 0, tabs }
 
-  it("heads the batch and draws equal-height cards across the width", async () => {
+  it("stacks one card per run without a batch heading or model footer", async () => {
     const { captureCharFrame } = await mount(
       <SubagentView.Batch batch={batch} width={80} cards={cards("agent:auth")} />,
       80,
-      16
+      20
     )
-    const lines = captureCharFrame().split("\n")
-    expect(lines[0]).toMatch(/^◐ Running 3 subagents \(1\/3\) {2}▰▰▰/)
-    expect(lines[1]).toMatch(/^▌◐ auth-audit +▌◐ db-migrate/)
-    expect(lines[2]).toContain("├ Read auth/login.ts ✓")
-    expect(lines[3]).toContain("└ Editing login.ts…")
-    // The rows of the shorter card pad so both footers share a line.
-    expect(lines[4]).toMatch(/▌42s · GPT-6 Sol +\[alt\+x Stop\] ▌42s · GPT-6 Sol +waiting/)
-    expect(lines[5]?.trim()).toBe("")
-    // A short last row stretches across the width.
-    expect(lines[6]).toMatch(/^▌● docs/)
-    expect(lines[7]).toContain("Done 1m 04s · GPT-6 Sol")
+    const frame = captureCharFrame()
+    const lines = frame.split("\n")
+    const auth = lines.findIndex((line) => line.includes("auth-audit"))
+    const db = lines.findIndex((line) => line.includes("db-migrate"))
+    const docs = lines.findIndex((line) => line.includes("docs"))
+    expect(auth).toBeGreaterThanOrEqual(0)
+    expect(db).toBeGreaterThan(auth)
+    expect(docs).toBeGreaterThan(db)
+    expect(frame).toContain("Read auth/login.ts")
+    expect(frame).toContain("Editing login.ts")
+    expect(frame).not.toContain("Running 3 subagents")
+    expect(frame).not.toContain("GPT-6 Sol")
+    expect(frame).not.toContain("finished")
   })
 
-  it("stacks cards in one column below two minimum widths", async () => {
+  it.each([68, 80, 110])("keeps every card in its own row at %s columns", async (width) => {
     const { captureCharFrame } = await mount(
-      <SubagentView.Grid tabs={tabs.slice(0, 2)} width={SubagentCard.gridBounds.min * 2} cards={cards()} />,
-      68,
+      <SubagentView.Grid tabs={tabs.slice(0, 2)} width={width} cards={cards()} />,
+      width,
       12
     )
     const lines = captureCharFrame().split("\n")
-    expect(lines[0]).toMatch(/^▌◐ auth-audit\s*$/)
-    expect(lines.some((line) => /^▌◐ db-migrate/.test(line))).toBe(true)
-  })
-
-  it("heads one settled worker with its outcome and no bar", async () => {
-    const stopped = tab("jsdoc", "cancelled", { title: "Add JSDoc to math.js", startedAt: 1_000, endedAt: 7_400 })
-    const { captureCharFrame } = await mount(
-      <SubagentView.Batch
-        batch={{ key: "batch:jsdoc", anchor: undefined, at: 0, tabs: [stopped] }}
-        width={60}
-        cards={cards()}
-      />,
-      60,
-      6
-    )
-    const lines = captureCharFrame().split("\n")
-    expect(lines[0]?.trimEnd()).toBe("■ Add JSDoc to math.js · stopped at 6s")
-    expect(lines[1]).toMatch(/^▌■ Add JSDoc to math.js/)
-    expect(captureCharFrame()).not.toContain("✓")
-  })
-
-  it("heads a settled batch with ✓ only when every worker is done", async () => {
-    const settled = [tab("a", "done", { endedAt: 1 }), tab("b", "cancelled", { endedAt: 1 })]
-    const { captureCharFrame } = await mount(
-      <SubagentView.Batch
-        batch={{ key: "batch:a", anchor: undefined, at: 0, tabs: settled }}
-        width={80}
-        cards={cards()}
-      />,
-      80,
-      6
-    )
-    expect(captureCharFrame().split("\n")[0]).toMatch(/^Ran 2 subagents ■ {2}▰▰/)
-  })
-
-  it("writes each settled worker's outcome where it ended", async () => {
-    const said = async (worker: Tab) => {
-      const { captureCharFrame } = await mount(
-        <SubagentView.Finished tab={worker} tone={color.info} />,
-        60,
-        2
-      )
-      return captureCharFrame().split("\n")[0]!.trimEnd()
-    }
-    expect(await said(tabs[2]!)).toBe("◉ docs done")
-    expect(await said(tab("fix", "done", { endedAt: 1, unchecked: true }))).toBe("◉ fix done · unchecked")
-    expect(
-      await said(tab("db", "failed", {
-        endedAt: 1,
-        failure: { headline: "Model call failed", fault: "dependency", line: "", actions: ["resume"] }
-      }))
-    ).toBe("◉ db failed: Model call failed")
-  })
-
-  it("names a stopped worker where it ended, and offers Resume only on its focused card", async () => {
-    const stopped = tab("jsdoc", "cancelled", { title: "Add JSDoc to math.js", endedAt: 1 })
-    const row = await mount(<SubagentView.Finished tab={stopped} tone={color.info} />, 60, 2)
-    // No bare `r Resume`: in Chat an `r` types into the composer.
-    expect(row.captureCharFrame().split("\n")[0]!.trimEnd()).toBe("◉ Add JSDoc to math.js stopped")
-    act(() => row.renderer.destroy())
-
-    const pressed: Array<string> = []
-    const focusedCards: SubagentView.Cards = {
-      transcript: () => Transcript.empty,
-      models,
-      now: 2_000,
-      lane: () => color.info,
-      focused: Subagents.cardKey(stopped.id),
-      open: new Set(),
-      onOpen: () => {},
-      onFiles: () => {},
-      onAction: (worker, action) => pressed.push(`${worker.id}:${action}`)
-    }
-    const card = await mount(<SubagentView.Grid tabs={[stopped]} width={60} cards={focusedCards} />, 60, 6)
-    const lines = card.captureCharFrame().split("\n")
-    const at = lines.findIndex((line) => line.includes("[alt+r Resume]"))
-    expect(at).toBeGreaterThanOrEqual(0)
-    await act(() => card.mockMouse.click(lines[at]!.indexOf("[alt+r Resume]") + 1, at))
-    expect(pressed).toEqual(["jsdoc:retry"])
+    const first = lines.findIndex((line) => line.includes("auth-audit"))
+    const second = lines.findIndex((line) => line.includes("db-migrate"))
+    expect(first).toBeGreaterThanOrEqual(0)
+    expect(second).toBeGreaterThan(first)
+    expect(lines[first]).not.toContain("db-migrate")
   })
 })
 
@@ -530,14 +373,10 @@ describe("the Summary overview's tree row", () => {
           width={width}
           cards={{
             transcript: () => Transcript.empty,
-            models: [],
             now: 0,
             lane: () => color.info,
             focused: undefined,
-            open: new Set(),
-            onOpen: () => {},
-            onFiles: () => {},
-            onAction: () => {}
+            onOpen: () => {}
           }}
           tabs={[]}
           onSelect={() => {}}
@@ -576,7 +415,7 @@ const manyBatches = (count: number, parent?: string) => {
 }
 
 describe("earlier subagent batches (#3033)", () => {
-  it("folds stopped, unchecked and failed outcomes together and restores their real meaning on expansion", async () => {
+  it("folds stopped, unchecked and failed outcomes together and restores their cards on expansion", () => {
     const { rows, transcript, workers } = manyBatches(13)
     const states: Partial<Tab>[] = [
       { status: "cancelled" },
@@ -594,34 +433,22 @@ describe("earlier subagent batches (#3033)", () => {
       key: Subagents.earlierKey(),
       batches: 3
     }])
-    expect(closed.filter((line) => line.kind === "finished").map((line) => line.tab.id)).toEqual(
-      changed.slice(3).map((worker) => worker.id)
-    )
+    expect(closed.filter((line) => line.kind === "grid").flatMap((line) => line.batch.tabs.map((tab) => tab.id)))
+      .toEqual(changed.slice(3).map((worker) => worker.id))
     const opened = Subagents.lines(rows, groups, true)
-    const restored = opened.filter((line) => line.kind === "finished").slice(0, 3)
-    expect(restored.map((line) => line.tab)).toEqual(changed.slice(0, 3))
-    const mounted = await mount(
-      <box>{restored.map((line) => <SubagentView.Finished key={line.key} tab={line.tab} tone={color.info} />)}</box>,
-      80,
-      4
-    )
-    expect(mounted.captureCharFrame().split("\n").map((line) => line.trimEnd()).slice(0, 3)).toEqual([
-      "◉ batch-0 stopped",
-      "◉ batch-1 done · unchecked",
-      "◉ batch-2 failed: Model call failed"
-    ])
+    const restored = opened.filter((line) => line.kind === "grid").slice(0, 3)
+    expect(restored.flatMap((line) => line.batch.tabs)).toEqual(changed.slice(0, 3))
     expect(opened.filter((line) => line.kind === "row").map((line) => line.key)).toEqual(rows.map((row) => row.key))
   })
 
-  it("shows ten batches and their finished rows without a disclosure", () => {
+  it("shows ten batches without a disclosure", () => {
     const { rows, groups } = manyBatches(10)
     const lines = Subagents.lines(rows, groups)
     expect(lines.filter((line) => line.kind === "grid")).toHaveLength(10)
-    expect(lines.filter((line) => line.kind === "finished")).toHaveLength(10)
     expect(lines.some((line) => line.kind === "earlier")).toBe(false)
   })
 
-  it("folds the eleventh's oldest grid and finished row in its original slot, preserving messages", () => {
+  it("folds the eleventh's oldest grid in its original slot, preserving messages", () => {
     const { rows, groups } = manyBatches(11)
     const lines = Subagents.lines(rows, groups)
     expect(lines.slice(0, 3).map((line) => line.key)).toEqual([rows[0]!.key, Subagents.earlierKey(), rows[1]!.key])
@@ -631,11 +458,9 @@ describe("earlier subagent batches (#3033)", () => {
       batches: 1
     }])
     expect(lines.filter((line) => line.kind === "grid")).toHaveLength(10)
-    expect(lines.filter((line) => line.kind === "finished")).toHaveLength(10)
-    expect(lines.map((line) => line.key)).not.toContain("finished:batch-0")
+    expect(lines.map((line) => line.key)).not.toContain("batch:batch-0")
     expect(lines.filter((line) => line.kind === "row").map((line) => line.key)).toEqual(rows.map((row) => row.key))
     expect(Subagents.lines(rows, groups, true).filter((line) => line.kind === "grid")).toHaveLength(11)
-    expect(Subagents.lines(rows, groups, true).filter((line) => line.kind === "finished")).toHaveLength(11)
   })
 
   it("counts multiple older batches once and selects them by time even if restored groups arrive out of order", () => {
@@ -650,11 +475,7 @@ describe("earlier subagent batches (#3033)", () => {
       groups.slice(3).map((group) => group.at)
     )
     expect(lines.filter((line) => line.kind === "row")).toHaveLength(13)
-    expect(
-      lines.some((line) =>
-        line.key === "finished:batch-0" || line.key === "finished:batch-1" || line.key === "finished:batch-2"
-      )
-    ).toBe(false)
+    expect(lines.map((line) => line.key)).not.toContain("batch:batch-0")
     const opened = Subagents.lines(rows, groups, true)
     expect(opened.filter((line) => line.kind === "grid")).toHaveLength(13)
     expect(opened.some((line) => line.kind === "earlier")).toBe(false)

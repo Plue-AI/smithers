@@ -149,8 +149,8 @@ test("empty projection has no focus or activity and accepts harmless navigation"
   expect(panelFocus).toEqual([])
 })
 
-test.each([[35, "agent:w2"], [70, "agent:w3"], [140, "chat:0"]] as const)(
-  "card down at width %s follows the visible grid to %s",
+test.each([[35, "agent:w2"], [70, "agent:w2"], [140, "agent:w2"]] as const)(
+  "card down at width %s follows the visible stack to %s",
   async (width, target) => {
     await mount({ transcript: card, tabs, width })
     expect(current().cardKeys).toEqual(["chat:0", "agent:w1", "agent:w2", "agent:w3", "agent:w4"])
@@ -215,6 +215,42 @@ test("inspection stays pinned against newer work and resets on a new turn's reco
   expect(current().activeInspection).toBeUndefined()
   expect(current().jumpTarget).toBeUndefined()
   expect(current().monitored?.id).toBe("chat")
+})
+
+test("successful request-only Chat activity gives way to the host card", async () => {
+  const original = done(100)
+  const worker = running(200)
+  const requested: Transcript.Transcript = {
+    ...original,
+    items: [...original.items, {
+      kind: "cell",
+      id: "request",
+      index: 1,
+      prose: "Requested.",
+      source: "",
+      printed: "",
+      status: "done",
+      startedAt: 101,
+      calls: [{ flow: "agent.delegate", subject: "w1", status: "ok", startedAt: 101 }]
+    }]
+  }
+  await mount({ transcript: requested, tabs: [tabs[0]!], worker: () => worker })
+  expect(current().showActivity).toBe(false)
+  expect(current().monitored).toBeUndefined()
+  for (const [flow, status] of [["read", "ok"], ["agent.delegate", "failed"], ["agent.delegate", "stopped"]] as const) {
+    await change({
+      transcript: {
+        ...requested,
+        items: requested.items.map((item) =>
+          item.id !== "request" || item.kind !== "cell"
+            ? item
+            : { ...item, calls: [{ ...item.calls[0]!, flow, status }] }
+        )
+      }
+    })
+    expect(current().showActivity).toBe(true)
+    expect(current().monitored?.id).toBe("chat")
+  }
 })
 
 test("worker inspection retains its current tab and exposes only that worker's jump target", async () => {

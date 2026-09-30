@@ -201,7 +201,7 @@ test("a flow form shows every field and its choices, with no estimate toast", as
   // The form asks; the card does not repeat it until the form closes with the run still waiting.
   expect(frame()).not.toContain("Needs:")
   await press("ESCAPE")
-  await waitFor(() => frame().includes("◌ sum · Needs: A, Unit"))
+  await waitFor(() => /[◐◓◑◒◌] sum · asks/.test(frame()))
 })
 
 test("/smithers shows only factory content, never the flows or their runs", async () => {

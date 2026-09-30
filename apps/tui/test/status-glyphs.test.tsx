@@ -8,15 +8,14 @@ import { testRender } from "@opentui/react/test-utils"
 import * as CompletionClaim from "@smthrs/harness/CompletionClaim"
 import { EvaluatorError } from "@smthrs/model/Evaluator"
 import * as FailureCopy from "@smthrs/model/FailureCopy"
-import * as SubagentCard from "@smthrs/rpc/SubagentCard"
 import { afterEach, describe, expect, it } from "bun:test"
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import { act } from "react"
 import * as Failures from "../src/failures.ts"
 import { uncheckedAnswer } from "../src/host.ts"
+import * as RunCard from "../src/run-card.ts"
 import * as Session from "../src/session.ts"
-import * as Subagents from "../src/subagents.ts"
 import * as Summary from "../src/summary.ts"
 import * as Tabs from "../src/tabs.ts"
 import { color } from "../src/theme.ts"
@@ -166,9 +165,21 @@ describe("a run's ending in its transcript", () => {
     for (const span of spans) expect(rgbToHex(span.fg)).not.toBe(color.danger)
 
     // The worker card's row and the summary say the same.
-    const card = SubagentCard.describe(Subagents.entry(stopped.calls[0]!))
-    expect(card).toMatchObject({ mark: "■", state: "stopped" })
-    expect(card.text).toMatch(/ src\/auth\.ts$/)
+    const card = RunCard.worker(
+      {
+        id: "worker",
+        title: "Worker",
+        prompt: "Read",
+        depth: 0,
+        seat: "test",
+        file: "session",
+        startedAt: 0,
+        status: "running"
+      },
+      Transcript.stopped(open, 5),
+      1_000
+    )
+    expect(card.steps).toEqual(["■ Read src/auth.ts"])
     expect(Summary.panel(Transcript.stopped(open, 5)).rows[0]).toMatchObject({ status: "cancelled" })
   })
 

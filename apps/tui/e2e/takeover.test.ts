@@ -21,7 +21,7 @@ it("takes over a worker with t, drives a frame from the composer, and releases i
     await tui.until((screen) => screen.includes("Ask Smithers"), 20_000, "first draw")
     await tui.type("drive")
     await tui.press(key.enter)
-    await tui.until((screen) => screen.includes("Requested one worker."), 5_000, "delegated")
+    await tui.until((screen) => screen.includes("implement/session ·"), 5_000, "worker card")
     await tui.press("\x1b[1;5C") // ctrl+right: Summary
     await tui.press("\x1b[1;5C") // the worker
     await tui.until(
@@ -75,7 +75,7 @@ it("takes over a worker with t from the Summary overview, where it waits under N
     await tui.until((screen) => screen.includes("Ask Smithers"), 20_000, "first draw")
     await tui.type("drive")
     await tui.press(key.enter)
-    await tui.until((screen) => screen.includes("Requested one worker."), 5_000, "delegated")
+    await tui.until((screen) => screen.includes("implement/session ·"), 5_000, "worker card")
     await tui.press(key.ctrlS)
     await tui.until((screen) => screen.includes("Working 1"), 5_000, "overview")
     await tui.press("t")

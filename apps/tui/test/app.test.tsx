@@ -422,7 +422,16 @@ test("background flow launch acknowledges durably while both launch and remote c
   expect(flowRecords().at(-1)).toMatchObject({ status: "running", runId: "remote-review" })
   await type("Chat during execution")
   await enter()
-  expect(records().filter((record) => record.type === "user").map((record) => record.text)).toEqual([
+  expect(
+    records().flatMap((record) =>
+      record.type === "user"
+        ? [record.text]
+        : record.type === "run" && record.request !== undefined
+        ? [record.request]
+        : []
+    )
+  ).toEqual([
+    "/flow review",
     "Chat during launch",
     "Chat during execution"
   ])
@@ -434,6 +443,59 @@ test("background flow launch acknowledges durably while both launch and remote c
   await waitFor(() => flowRecords().at(-1)?.status === "done")
   expect(flowRecords().at(-1)).toMatchObject({ status: "done", runId: "remote-review", answer: "Review complete" })
 })
+
+test.each(["/flow", "smithers.run", "extension key"] as const)(
+  "%s settles through the same host Chat card",
+  async (entry) => {
+    const { port, launch, remote, starts, watches } = controlledFlow(Schema.Struct({}))
+    await mount({ flows: port })
+    if (entry === "/flow") {
+      await type("/flow review")
+      await enter()
+    } else {
+      await type("Count the result")
+      await enter()
+      if (entry === "smithers.run") {
+        await act(async () => {
+          turns[0]!.input.runtime!.flows!.run({ id: "owned", flow: "review", input: {} })
+          await setImmediate()
+        })
+      } else {
+        await act(async () => {
+          turns[0]!.input.runtime!.publish({
+            kind: "key",
+            key: {
+              id: "count",
+              key: "alt+w",
+              label: "Count",
+              action: { kind: "flow", flow: "review", input: {} }
+            }
+          })
+          await setImmediate()
+        })
+        await key("w", { meta: true })
+      }
+    }
+    await waitFor(() => starts.length === 1)
+    expect(await draw()).toContain("review · requested")
+    await act(async () => {
+      launch.resolve("remote-review")
+      await setImmediate()
+    })
+    await waitFor(() => watches.length === 1)
+    await act(async () => {
+      remote.resolve({ kind: "done", answer: "5" })
+      await setImmediate()
+    })
+    await waitFor(() => setup!.captureCharFrame().includes("→ 5"))
+    const frame = await draw()
+    expect(frame.match(/review ·/g)).toHaveLength(1)
+    expect(frame).toContain("→ 5")
+    expect(frame).not.toContain("◉")
+    expect(records().filter((record) => record.type === "card" || record.type === "panel")).toEqual([])
+    expect(records().filter((record) => record.type === "flow").at(-1)?.run.answer).toBe("5")
+  }
+)
 
 test("Escape cancels the owned turn and restores queued prompts instead of launching them", async () => {
   await mount()

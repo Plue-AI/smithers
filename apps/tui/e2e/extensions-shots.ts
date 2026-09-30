@@ -33,7 +33,6 @@ const reviewFlow = [
   "        label: Review",
   "        action: { kind: flow, flow: review }",
   "    status: true",
-  "    card: true",
   "---",
   "Review the uncommitted change.",
   ""
@@ -71,7 +70,7 @@ try {
   )
   await shoot(tui, "after-card")
   await tui.press("\x1bz")
-  await tui.until((screen) => /◌ review · \d+m?s/.test(screen), 5_000, "run card")
+  await tui.until((screen) => /[◐◓◑◒] review · \d+m?s/.test(screen), 5_000, "run card")
   await shoot(tui, "after-key-run")
   await tui.type("finish")
   await tui.press(key.enter)

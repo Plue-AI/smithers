@@ -68,9 +68,8 @@ export const Panel = Schema.Struct({
 export type Panel = typeof Panel.Type
 /** Model status without a bound run has no host-owned source to settle it. */
 export const unboundStatus = (panel: Panel): boolean =>
-  panel.bind === undefined && panel.rows.every((row) =>
-    row.status !== undefined && row.details.length === 0 && row.action === undefined
-  )
+  panel.bind === undefined &&
+  panel.rows.every((row) => row.status !== undefined && row.details.length === 0 && row.action === undefined)
 /** Custom views a session keeps. */
 export const limit = 24
 

@@ -45,8 +45,23 @@ const host: Host.Host = {
     }
     if (input.prompt === "investigate") {
       const request = { id: "investigation", title: "Investigation", prompt: "Investigate the failing check." }
+      const identity = { session: "fixture", frame: 1, cell: 1, ordinal: 0 }
+      input.onEvent({ _tag: "model-requested" } as any)
+      input.onEvent({ _tag: "cell-produced", cell: { text: "await ctx.call(\"agent.delegate\")" } } as any)
+      input.onEvent(
+        { _tag: "cell-call-started", call: { flowName: "agent.delegate", input: request, identity } } as any
+      )
       const first = input.runtime!.delegate!(request)
       input.runtime!.delegate!(request)
+      input.onEvent(
+        {
+          _tag: "cell-call-settled",
+          flowName: "agent.delegate",
+          identity,
+          result: { outcome: "success", value: first }
+        } as any
+      )
+      input.onEvent({ _tag: "cell-settled", outcome: { _tag: "settled" } } as any)
       answer = `Requested the investigation.`
       if ((first as { status: string }).status !== "requested") throw new Error("Expected request receipt")
     }

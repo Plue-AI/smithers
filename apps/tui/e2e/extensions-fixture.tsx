@@ -2,7 +2,7 @@
  * Deterministic host for PTY coverage of contributed UI. Discovery is the
  * real registry over the working directory's `flows/`, so `metadata.tui` is
  * read exactly as a user's repository declares it. A run never resolves until
- * the chat says `finish`, so the toast and the card can be checked while it runs.
+ * the chat says `finish`, so its host card can be checked while it runs.
  */
 import { createCliRenderer } from "@opentui/core"
 import { createRoot } from "@opentui/react"

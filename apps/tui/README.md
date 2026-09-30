@@ -120,7 +120,7 @@ A hit is loud: the status row and the tab's failure card name the cap (**Token
 budget reached** or **Daily token cap reached**), the run, and the spend, and
 the failure is blamed on the factory, not on you. A worker stopped at
 its run cap shows under Failed; **a** there or **Alt+A** in its tab (Raise cap on its
-card and toast) offers the cap or
+card) offers the cap or
 twice it (`200M`, `400M`), and the worker resumes with its prior steps as a new
 run with that allowance, for it alone. The day's cap is never raised there. Otherwise raise the
 cap and restart, then resume the tab; a daily cap also clears at 00:00 UTC. Estimates use reported
@@ -177,8 +177,8 @@ the only help key.
 | x                                                     | On a monitor row in the Summary overview (active monitors list under Working): stop it                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | a                                                     | In a flow tab: approve or fill in                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | y, n                                                  | In the Summary overview on a build target waiting under Needs you: approve / deny that revision                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| Alt+X/S/R/M/W, f                                      | On a focused subagent card: the worker keys its status allows (shown on the card), and `f` its changed files                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| Tab/Down, Shift+Tab/Up, Space, Left/Right, Enter, Esc | In a flow form: next, previous field, toggle, choose, run, back (the run stays parked)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| Alt+X/S/R/M/W                                         | On a focused run card: the worker keys its status allows; `d` shows changed files                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| Tab/Down, Shift+Tab/Up, Space, Left/Right, Enter, Esc | In a flow form: next, previous field, toggle, choose, run, close (the run stays parked)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | Ctrl+G                                                | Edit the prompt in `$VISUAL` / `$EDITOR`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | PageUp, PageDown                                      | Scroll                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | Shift+Up, Shift+Down                                  | Scroll a line                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
@@ -376,18 +376,15 @@ requested model.
 Up to six workers can run at once (`SMITHERS_TUI_WORKERS` overrides the pool);
 later requests queue FIFO. They share the working directory, so
 independent requests should name disjoint files. Worker transcripts persist in
-separate session files. The chat shows the workers a cell delegated as
-subagent cards after that cell (`@smthrs/rpc/SubagentCard`, shared with the
-GUI): `◐ Running 3 subagents (1/3)` and a `▰` bar, then equal-height cards,
-settling to `Ran 3 subagents ✓` only when every one is done (`✗` when any
-failed, else `■`); one settled worker heads its card `■ <title> · stopped at 6s`,
-one column below 69 columns, up to four across. A card has its lane-colored
-`▌` rail, glyph and title, `… +N earlier`, its last five steps (`├ Read x ✓`,
-`├ Ran node check.mjs  exit 1 ✗`, `└ Editing x…`), `▸ 2 files +31 -6` when it changed files, and `42s · GPT-6.1 Sol` or
-`Done 1m 04s · GPT-6.1 Sol`. A failed card's title names its failure (`review · OpenAI quota exhausted`). A focused card shows its worker keys (`[x Stop] [s Steer]`).
-A worker tab's own children show the same way. `◉ <worker> done` or
-`◉ <worker> failed: <cause>` or `◉ <worker> stopped` marks where a worker
-settled; its focused card offers `[r Resume]`. `/filter` shows or hides each kind of row;
+separate session files. Chat shows one host-owned card per requested run.
+It updates in place: glyph, title and duration, up to three live steps, then
+at most two lines of the final answer, changed files with line counts, and
+the last command's exit status. **d** Diff, **u** Undo and **enter** Open use
+the run's actual receipts; Undo appears only while changes can be reversed.
+Workers and file flows use the same card. A scalar flow result fits on one
+line: `✓ wordcount · 40ms → 5`. There is no extra acknowledgement or finished
+row. A worker's children show the same cards; older batches fold into `… +N earlier`.
+`/filter` shows or hides each kind of row;
 `/grep <text>` keeps rows containing the text and `/grep` alone clears it. Chat receives every unsettled worker and the newest
 five settled answers (1,500 characters each) as context, and remains usable
 while workers run. Chat cards carry live progress; Ctrl+S shows every worker's tree.
@@ -449,7 +446,6 @@ metadata:
       - key: alt+p
         label: Plan release            # no action: runs its owner; an agent gets the label as its prompt
     status: true                        # the owner's latest run or agent tab
-    card: true                          # each run of the owner as a live card
 ```
 
 Where `metadata` must map strings to strings (`SKILL.md`), `tui` may be the
@@ -480,11 +476,11 @@ selection. `/flow <name>` is the direct call: a flow takes a JSON object or
 With declared flows, the home screen lists them with their keys; a click runs
 one. A directory without flows keeps the quiet home screen.
 
-A person's run shows in the chat as the line they typed and one line that the
-run rewrites in place: `◌ sum` until it launches, then its clock, then
-`✓ sum · 40ms → 5` (the result's first line), `✗ sum · 1s · failed: <why>` or
-`■ sum · 2s · stopped`. A key or a `metadata.tui.card` flow gets the same line. While
-that line is on screen the run shows no toast. Click it, or `tab` then `enter`
+A person’s run shows in Chat as the line they typed and a host-owned card that
+updates in place: `◌ sum` until it launches, then its clock, then
+`✓ sum · 40ms → 5` (the result's first line), `✗ sum · 1s · <why>` or
+`■ sum · 2s`. Every flow, including an extension key or `smithers.run` call, gets the same card. While
+that card is on screen the run shows no toast. Click it, or `tab` then `enter`
 from an empty composer, to open its tab. It runs through the same native
 control host as `smthrs flow start`: plan, approve for this run, run, watch.
 Missing required input opens a form built from the payload schema by

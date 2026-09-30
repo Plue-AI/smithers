@@ -157,7 +157,6 @@ test.each(
     move: (step) => calls.push(["move", step]),
     leave: () => calls.push("leave"),
     open: () => calls.push("open"),
-    files: () => calls.push("files"),
     workerAction: () => calls.push("worker")
   })).toBe(true)
   expect(calls).toEqual([["move", expected]])
@@ -545,7 +544,6 @@ test.each([["return", ["leave", "open"]], ["kpenter", ["leave", "open"]], ["esca
       move: (step) => calls.push(step),
       leave: () => calls.push("leave"),
       open: () => calls.push("open"),
-      files: () => calls.push("files"),
       workerAction: () => calls.push("worker")
     })).toBe(true)
     expect<ReadonlyArray<unknown>>(calls).toEqual(expected)
@@ -572,7 +570,6 @@ test.each(
     move: (step) => calls.push(step),
     leave: () => calls.push("leave"),
     open: () => calls.push("open"),
-    files: () => calls.push("files"),
     workerAction: (tab, action) => {
       expect(tab.id).toBe("worker")
       calls.push(action)
@@ -592,7 +589,6 @@ test.each([["cancelled", ["retry"]], ["failed", ["retry"]], ["running", []], ["d
       move: (step) => calls.push(step),
       leave: () => calls.push("leave"),
       open: () => calls.push("open"),
-      files: () => calls.push("files"),
       workerAction: (_tab, action) => calls.push(action)
     })).toBe(true)
     expect<ReadonlyArray<unknown>>(calls).toEqual(expected)
@@ -610,7 +606,6 @@ test.each([["with its ask's a Answer", true, ["leave", "answer"]], ["without one
       move: (step) => calls.push(step),
       leave: () => calls.push("leave"),
       open: () => calls.push("open"),
-      files: () => calls.push("files"),
       workerAction: (_tab, action) => calls.push(action),
       ...(answers ? { answer: () => calls.push("answer") } : {})
     })).toBe(true)
@@ -816,10 +811,8 @@ test.each(
     ["tree", "j", [["tree", 1]]],
     ["tree", "right", ["pane"]],
     ["tree", "left", []],
-    ["tree", "f", []],
     ["cards", "h", [["card", "left"]]],
     ["cards", "down", [["card", "down"]]],
-    ["cards", "f", ["files"]],
     ["cards", "return", ["open"]],
     ["tree", "escape", ["close"]],
     ["cards", "i", ["release"]],
@@ -845,7 +838,6 @@ test.each(
     graph: () => calls.push("graph"),
     card: (step) => calls.push(["card", step]),
     open: () => calls.push("open"),
-    files: () => calls.push("files"),
     scroll: (step) => calls.push(["scroll", step]),
     workerAction: () => calls.push("worker"),
     stopMonitor: (id) => calls.push(["monitor", id])
@@ -874,7 +866,6 @@ test.each(
     graph: () => calls.push("graph"),
     card: (step) => calls.push(["card", step]),
     open: () => calls.push("open"),
-    files: () => calls.push("files"),
     scroll: (step) => calls.push(["scroll", step]),
     workerAction: () => calls.push("worker"),
     stopMonitor: (id) => calls.push(["monitor", id]),
@@ -906,7 +897,6 @@ test.each(
     graph: () => calls.push("graph"),
     card: (step) => calls.push(["card", step]),
     open: () => calls.push("open"),
-    files: () => calls.push("files"),
     scroll: (step) => calls.push(["scroll", step]),
     workerAction: () => calls.push("worker"),
     stopMonitor: (id) => calls.push(["monitor", id])
@@ -935,7 +925,6 @@ test.each(
     graph: () => calls.push("graph"),
     card: (step) => calls.push(["card", step]),
     open: () => calls.push("open"),
-    files: () => calls.push("files"),
     scroll: (step) => calls.push(["scroll", step]),
     workerAction: () => calls.push("worker"),
     stopMonitor: () => calls.push("stopMonitor"),
@@ -1009,7 +998,6 @@ test.each(
     move: (step) => calls.push(step),
     leave: () => calls.push("leave"),
     open: () => calls.push("open"),
-    files: () => calls.push("files"),
     workerAction: () => calls.push("worker"),
     diff: diff ? () => calls.push("diff") : undefined,
     undo: undo ? () => calls.push("undo") : undefined

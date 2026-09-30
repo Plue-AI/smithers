@@ -319,14 +319,10 @@ const chrome = {
   tabs: [],
   cards: {
     transcript: () => Transcript.empty,
-    models,
     now: 4_000,
     lane: () => color.info,
     focused: undefined,
-    open: new Set<string>(),
-    onOpen: () => {},
-    onFiles: () => {},
-    onAction: () => {}
+    onOpen: () => {}
   }
 }
 
@@ -473,7 +469,7 @@ describe("WorkerView", () => {
     expect(events).toEqual(["release"])
   })
 
-  it("draws its own children as a card grid at the call that delegated them", async () => {
+  it("draws its own children as host run cards at the call that delegated them", async () => {
     const delegated = [
       (value: Transcript.Transcript) => Transcript.user(value, "Split the review.", false, 1_000),
       (value: Transcript.Transcript) => Transcript.apply(value, { _tag: "model-requested" } as never, 1_100),
@@ -512,12 +508,11 @@ describe("WorkerView", () => {
       30
     )
     const frame = captureCharFrame()
-    expect(frame).toContain("✓ Check docs · done at 2s")
-    expect(frame).toContain("● Check docs")
-    expect(frame).toContain("Done 2s · GPT-6.1 Sol")
-    expect(frame).toContain("◉ Check docs done")
-    expect(frame.indexOf("Split the review.")).toBeLessThan(frame.indexOf("✓ Check docs · done"))
-    expect(frame.indexOf("✓ Check docs · done")).toBeLessThan(frame.indexOf("◉ Check docs done"))
+    expect(frame).toContain("✓ Check docs")
+    expect(frame).toContain("2s")
+    expect(frame).not.toContain("Ran 1 subagent")
+    expect(frame).not.toContain("◉ Check docs finished")
+    expect(frame.indexOf("Split the review.")).toBeLessThan(frame.indexOf("Check docs"))
   })
 
   it("shows a run no judge could check as done · unchecked with its evidence, and nothing red", async () => {

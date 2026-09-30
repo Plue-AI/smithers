@@ -1,11 +1,16 @@
-/** Deterministic host with workers in every status, for the subagent cards, tab strip, worker view and sidebar. */
+/** Deterministic host with workers in every status and a real scratch-file fix. */
 import { createCliRenderer } from "@opentui/core"
 import { createRoot } from "@opentui/react"
 import { Effect } from "effect"
+import { readFile, writeFile } from "node:fs/promises"
+import { join } from "node:path"
+import { setTimeout as pause } from "node:timers/promises"
 import { App } from "../src/app.tsx"
+import * as Changes from "../src/changes.ts"
 import type * as Host from "../src/host.ts"
 
 const workers: Record<string, { title: string; prompt: string; model?: "sol" | "luna" }> = {
+  fix: { title: "Fix add in math.js", prompt: "Fix add in math.js so node check.mjs passes." },
   audit: { title: "Audit auth middleware", prompt: "Audit the auth middleware.", model: "sol" },
   flaky: { title: "Fix flaky seat queue test", prompt: "Fix the flaky seat queue test.", model: "luna" },
   strip: { title: "Refactor tab strip overflow", prompt: "Refactor the tab strip overflow." },
@@ -60,14 +65,103 @@ const stream = (input: Host.TurnInput, prose: string, code: string, flow: string
   input.onEvent(event({ _tag: "cell-settled", outcome: { _tag: "settled" } }))
 }
 const pending = new Map<string, (outcome: Host.Outcome) => void>()
+const fixtureCwd = process.env.SMITHERS_TUI_FIXTURE_CWD
 const host: Host.Host = {
-  cwd: process.cwd(),
+  cwd: fixtureCwd ?? process.cwd(),
   runCap: 200,
   judged: false,
   dispose: async () => {},
   run: (input) => {
     if (input.role === "worker") {
       const id = input.source ?? ""
+      if (id === "fix") {
+        const controller = new AbortController()
+        let command: Bun.Subprocess<"ignore", "pipe", "pipe"> | undefined
+        const done = (async (): Promise<Host.Outcome> => {
+          if (fixtureCwd === undefined) return { _tag: "failed", message: "Scratch directory required", detail: "" }
+          try {
+            input.onEvent(event({ _tag: "model-requested" }))
+            input.onEvent(event({ _tag: "cell-produced", cell: { text: "await fix()" } }))
+            const identity = (ordinal: number) => ({
+              session: "fixture-fix",
+              frame: 1,
+              cell: "fix",
+              ordinal,
+              declaration: "fixture",
+              layers: []
+            })
+            const start = (ordinal: number, flowName: string, value: Record<string, string>) =>
+              input.onEvent(event({
+                _tag: "cell-call-started",
+                call: { flowName, input: value, identity: identity(ordinal) }
+              }))
+            const settle = (ordinal: number, flowName: string, value: unknown) =>
+              input.onEvent(event({
+                _tag: "cell-call-settled",
+                flowName,
+                identity: identity(ordinal),
+                result: { outcome: "success", value }
+              }))
+            start(0, "read", { path: "math.js" })
+            await pause(1000, undefined, { signal: controller.signal })
+            const before = await readFile(join(fixtureCwd, "math.js"), "utf8")
+            settle(0, "read", { content: before })
+            start(1, "edit", { path: "math.js", oldString: "a - b", newString: "a + b" })
+            await pause(1000, undefined, { signal: controller.signal })
+            const lines = before.split("\n")
+            const at = lines.findIndex((line) => line.includes("a - b"))
+            if (at < 0) throw new Error("Scratch math.js has no subtraction to fix")
+            const after = before.replace("a - b", "a + b")
+            await writeFile(join(fixtureCwd, "math.js"), after)
+            input.onPatch?.({
+              call: Changes.identity(identity(1)),
+              patches: [{
+                path: "math.js",
+                patch: `--- a/math.js\n+++ b/math.js\n@@ -${at + 1} +${at + 1} @@\n-${lines[at]}\n+${
+                  lines[at]!.replace("a - b", "a + b")
+                }`
+              }]
+            })
+            settle(1, "edit", {})
+            start(2, "bash", { command: "node check.mjs" })
+            await pause(1000, undefined, { signal: controller.signal })
+            command = Bun.spawn(["node", "check.mjs"], {
+              cwd: fixtureCwd,
+              stdin: "ignore",
+              stdout: "pipe",
+              stderr: "pipe"
+            })
+            const [exitCode, stdout, stderr] = await Promise.all([
+              command.exited,
+              new Response(command.stdout).text(),
+              new Response(command.stderr).text()
+            ])
+            settle(2, "bash", { exitCode, stdout, stderr })
+            input.onEvent(event({ _tag: "cell-settled", outcome: { _tag: "settled" } }))
+            if (exitCode !== 0) return { _tag: "failed", message: "Check failed", detail: "" }
+            const answer = "add returned a - b; it now returns a + b."
+            input.onEvent(
+              event({
+                _tag: "resolved",
+                eventType: "flows.harness.resolved.v1",
+                message: { role: "assistant", content: [{ type: "text", text: answer }] }
+              })
+            )
+            return { _tag: "done", answer }
+          } catch (error) {
+            return controller.signal.aborted
+              ? { _tag: "cancelled" }
+              : { _tag: "failed", message: "Scratch fix failed", detail: "", error }
+          }
+        })()
+        return {
+          done,
+          cancel: () => {
+            controller.abort()
+            command?.kill()
+          }
+        }
+      }
       if (id === "flaky") {
         stream(
           input,
@@ -156,6 +250,10 @@ const host: Host.Host = {
       }
     }
     let answer = "Still here."
+    if (input.prompt === "fix" || input.prompt === workers.fix!.prompt) {
+      delegate(input, "", ["fix"])
+      answer = ""
+    }
     if (input.prompt === "delegate") {
       delegate(input, "I'll split this into three workers.", ["audit", "flaky", "strip"])
       answer = "Requested three workers."

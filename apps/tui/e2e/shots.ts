@@ -1,6 +1,6 @@
 /**
  * Color screenshots of the subagent cards, the worker breadcrumb, the Summary overview, the tab
- * strip, worker view and sidebar: `bun e2e/shots.ts <out dir>`.
+ * strip and worker view: `bun e2e/shots.ts <out dir>`.
  */
 import { spawnSync } from "node:child_process"
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs"

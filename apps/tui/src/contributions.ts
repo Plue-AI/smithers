@@ -39,8 +39,6 @@ export interface Placed {
 export interface Snapshot {
   /** Plugin panels; runtime panels live in the workspace. */
   readonly panels: ReadonlyArray<Placed>
-  /** Repository flows whose runs show as live transcript cards. */
-  readonly cards: ReadonlyArray<string>
   /** Repository flows that asked for a status item; `snapshot(live)` resolves them. */
   readonly watched: ReadonlyArray<string>
   readonly status: ReadonlyArray<{ readonly owner: string; readonly status: Extension.Status }>
@@ -131,7 +129,6 @@ export class Store {
           each.kind === "panel" ? [{ owner: `plugin:${plugin}`, placement: each.placement, panel: each.panel }] : []
         )
       ),
-      cards: this.declared.filter((each) => each.card).map((each) => name(each.owner)),
       watched,
       status: [
         ...this.pluginEntries().flatMap(({ owner, contribution }) =>

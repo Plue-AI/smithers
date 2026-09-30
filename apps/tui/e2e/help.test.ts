@@ -27,7 +27,7 @@ it.each([24, 12])("answers a wrapped question with keyboard choices at 80x%i", a
     await tui.until((screen) => screen.includes("Ask Smithers"), 20_000, "first draw")
     await tui.type("help")
     await tui.press(key.enter)
-    await tui.until((screen) => screen.includes("Requested one worker."), 5_000, "delegated")
+    await tui.until((screen) => screen.includes("implement/api ·"), 5_000, "worker card")
     await tui.press(key.ctrlS)
     await tui.until((screen) => screen.includes("Needs you 1"), 5_000, "needs you")
     await tui.press("a")
@@ -37,7 +37,11 @@ it.each([24, 12])("answers a wrapped question with keyboard choices at 80x%i", a
     await tui.press(key.down)
     await tui.until((screen) => screen.includes("> Bearer header"), 5_000, "chosen")
     await tui.press(key.enter)
-    await tui.until((screen) => screen.includes("Done 1") && !screen.includes("Needs you"), 5_000, "answered")
+    await tui.until(
+      (screen) => screen.includes("Done 1") && !screen.includes("Needs you") && screen.includes("Using: Bearer header"),
+      5_000,
+      "answered with the chosen option"
+    )
   } finally {
     await tui?.stop()
     rmSync(root, { recursive: true, force: true })
@@ -58,7 +62,7 @@ it("answers a worker's ask with a from the overview, and the worker finishes wit
     await tui.until((screen) => screen.includes("Ask Smithers"), 20_000, "first draw")
     await tui.type("help")
     await tui.press(key.enter)
-    await tui.until((screen) => screen.includes("Requested one worker."), 5_000, "delegated")
+    await tui.until((screen) => screen.includes("implement/api ·"), 5_000, "worker card")
     await tui.press(key.ctrlS)
     await tui.until(
       (screen) => screen.includes("Needs you 1") && screen.includes("◆ implement/api"),
@@ -97,7 +101,7 @@ it("raises a capped worker's token cap with a from the overview, and it resumes"
     await tui.until((screen) => screen.includes("Ask Smithers"), 20_000, "first draw")
     await tui.type("cap")
     await tui.press(key.enter)
-    await tui.until((screen) => screen.includes("Requested one worker."), 5_000, "delegated")
+    await tui.until((screen) => screen.includes("flaky seat queue ·"), 5_000, "worker card")
     await tui.press(key.ctrlS)
     // A capped worker failed: it waits under the closed Failed group, not Needs you.
     await tui.until((screen) => screen.includes("Failed 1 ›") && !screen.includes("Needs you"), 5_000, "capped")

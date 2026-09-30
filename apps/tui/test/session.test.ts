@@ -487,7 +487,12 @@ describe("credentials in a saved session", () => {
   })
 })
 
-const plan = { id: "release", title: "Release plan", summary: "Two steps left.", rows: [] }
+const plan = {
+  id: "release",
+  title: "Release plan",
+  summary: "Two steps left.",
+  rows: [{ id: "tag", label: "Tag", details: [{ kind: "text" as const, text: "v1.0.0" }] }]
+}
 
 it("restores cards in place, runtime status and keys, and a worker's card placement", () => {
   const records: Session.Record[] = [

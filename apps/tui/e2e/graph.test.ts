@@ -21,7 +21,13 @@ it("draws a worker and the agent it spawned as boxes joined by an edge, and togg
     await tui.until((screen) => screen.includes("Ask Smithers"), 20_000, "first draw")
     await tui.type("delegate")
     await tui.press(key.enter)
-    await tui.until((screen) => screen.includes("Requested three workers."), 5_000, "delegated")
+    await tui.until(
+      (screen) =>
+        screen.includes("Audit auth middleware ·") && screen.includes("Fix flaky seat queue test ·") &&
+        screen.includes("Refactor tab strip overflow ·"),
+      5_000,
+      "worker cards"
+    )
     await tui.press(key.ctrlS)
     await tui.until((screen) => screen.includes("Working"), 5_000, "overview")
     // j moves the selection while the graph shows it: stop at the audit worker, which spawned "Check the refresh path".

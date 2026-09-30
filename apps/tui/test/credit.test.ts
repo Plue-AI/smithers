@@ -21,7 +21,7 @@ import * as Credit from "../src/credit.ts"
 import * as Host from "../src/host.ts"
 import * as Models from "../src/models.ts"
 import * as Session from "../src/session.ts"
-import * as Subagents from "../src/subagents.ts"
+import * as RunCard from "../src/run-card.ts"
 import * as Tabs from "../src/tabs.ts"
 import { Workspace } from "../src/workspace.ts"
 
@@ -381,7 +381,6 @@ describe("a worker whose model has no credit", () => {
       expect(done).toMatchObject({ status: "done", activeSeat: "opus", answer: "answered on opus" })
       expect(f.switches("recover")).toEqual(["↪ switched to GPT-6.1 Sol"])
       expect(Models.seatName(done, [])).toBe("Claude Opus 5.5")
-      expect(Subagents.subagent(done, f.workspace.transcript("recover"), []).model).toBe("Claude Opus 5.5")
       expect(f.host.credit!.spent("opus")).toBe(false)
       expect(f.host.credit!.spent("sonnet")).toBe(false)
       f.host.credit!.spend(qwen)
@@ -517,9 +516,9 @@ describe("a worker whose model has no credit", () => {
       expect(Tabs.actions(failed).map((action) => action.keys[0])).toEqual(["alt+m", "alt+r"])
       expect(f.host.credit!.spent("sol")).toBe(true)
       // The chat card says what failed, and the model is named as the picker names it.
-      const card = Subagents.subagent(failed, f.workspace.transcript("first"), [])
-      expect(card.title).toBe("Review · OpenAI quota exhausted")
-      expect(card.model).toBe("GPT-6.1 Sol")
+      const card = RunCard.worker(failed, f.workspace.transcript("first"), Date.now())
+      expect(card.outcome).toBe("failed: OpenAI quota exhausted")
+      expect(Models.seatName(failed, [])).toBe("GPT-6.1 Sol")
       expect(f.calls).toEqual([sol])
 
       // The agent asks for Sol again: the run skips it and never calls it.
@@ -529,10 +528,6 @@ describe("a worker whose model has no credit", () => {
       expect(f.calls).toEqual([sol, qwen])
       const notice = "↪ GPT-6.1 Sol has no credit · using Qwen 3.8"
       expect(f.switches("second")).toEqual([notice])
-      expect(Subagents.subagent(done, f.workspace.transcript("second"), []).entries[0]).toEqual({
-        kind: "text",
-        text: notice
-      })
       // The notice is on the worker's record, so a restored session shows it too.
       expect(
         Session.restore(Session.load(done.file)).transcript.items.some((item) =>

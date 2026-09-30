@@ -93,7 +93,7 @@ describe("descriptors", () => {
 
   test("metadata.tui keys default to the owner's own action", () => {
     const declared = Extension.declared(listed({
-      tui: { keys: [{ key: "alt+z", label: "Review" }], status: true, card: true }
+      tui: { keys: [{ key: "alt+z", label: "Review" }], status: true }
     }))
     expect(declared.problems).toEqual([])
     expect(declared.owner).toBe("repo:review")
@@ -107,7 +107,6 @@ describe("descriptors", () => {
       }
     ])
     expect(declared.status).toBe(true)
-    expect(declared.card).toBe(true)
     expect(
       Extension.declared(listed({ kind: "module", tui: { keys: [{ key: "alt+z", label: "Review" }] } })).keys[0]?.action
     )
@@ -123,10 +122,10 @@ describe("descriptors", () => {
   test("reads the registry's YAML failsafe strings: flags as \"true\", and a JSON manifest string", () => {
     // The registry parses frontmatter with YAML's failsafe schema, so every scalar arrives as a string.
     const flags = Extension.declared(
-      listed({ tui: { keys: [{ key: "alt+z", label: "Review" }], status: "true", card: "false" } })
+      listed({ tui: { keys: [{ key: "alt+z", label: "Review" }], status: "true" } })
     )
     expect(flags.problems).toEqual([])
-    expect([flags.status, flags.card]).toEqual([true, false])
+    expect(flags.status).toBe(true)
     // A string-to-string `metadata` (the Agent Skills rule, and SKILL.md's) carries the manifest as JSON.
     const json = Extension.declared(
       listed({ tui: JSON.stringify({ keys: [{ key: "alt+z", label: "Review" }], status: true }) })
@@ -143,7 +142,6 @@ describe("descriptors", () => {
       owner: "repo:review",
       keys: [],
       status: false,
-      card: false,
       problems: []
     })
   })

@@ -25,7 +25,7 @@ for (const status of ["done", "failed", "stopped"] as const) {
       await tui.until((screen) => screen.includes("Ask Smithers"), 20_000, "first draw")
       await tui.type(`start ${status}`)
       await tui.press(key.enter)
-      await tui.until((screen) => screen.includes("Requested review."), 5_000, "delegated")
+      await tui.until((screen) => screen.includes("Review ·"), 5_000, "worker card")
       await tui.click("Review")
       await tui.until((screen) => screen.includes("Subagent · Review"), 5_000, "worker tab")
       if (status === "stopped") {
@@ -50,7 +50,11 @@ for (const status of ["done", "failed", "stopped"] as const) {
       expect(continued).not.toContain("Chat handled: check another case")
       await tui.type("/chat")
       await tui.press(key.enter)
-      await tui.until((screen) => screen.includes("Requested review."), 5_000, "chat tab")
+      await tui.until(
+        (screen) => screen.includes("Review ·") && !screen.includes("Subagent · Review"),
+        5_000,
+        "chat tab"
+      )
       await tui.type("chat check")
       await tui.press(key.enter)
       await tui.until((screen) => screen.includes("Chat handled: chat check"), 5_000, "chat still works")

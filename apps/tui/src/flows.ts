@@ -9,7 +9,6 @@ import * as Log from "./log.ts"
  */
 import * as NodeOutput from "@smthrs/cli/NodeOutput"
 import type { ControlSchema } from "@smthrs/control"
-import * as SubagentCard from "@smthrs/rpc/SubagentCard"
 import * as Form from "@smthrs/ui/flow-form"
 import { Data, Schema } from "effect"
 import * as Deadline from "./deadline.ts"
@@ -165,6 +164,8 @@ export interface Run {
   readonly attempt?: number
   readonly endedAt?: number
   readonly message?: string
+  /** Host-authored failure copy; raw control-plane messages never enter a Chat card. */
+  readonly failure?: string
   readonly answer?: string
   /** A stop must follow an in-flight launch through its remote receipt. */
   readonly stopRequested?: true
@@ -238,28 +239,6 @@ export const running = (run: Run): boolean =>
   run.status === "requested" || run.status === "running" || run.status === "waiting"
 /** Holds a seat: in flight, or parked here for the user's input. */
 const active = (run: Run) => running(run) || run.status === "input"
-
-/** A run's time: milliseconds under a second, then the cards' own clock. */
-export const clock = (ms: number): string => ms < 1000 ? `${Math.max(0, Math.round(ms))}ms` : SubagentCard.duration(ms)
-
-/**
- * What a run's one-line chat card says after its name: how long it ran since
- * it launched (a form, an approval or a queue is not running), then its
- * result's first line, or why it stopped.
- */
-export const line = (
-  run: Run,
-  now: number
-): { readonly clock?: string; readonly result?: string; readonly message?: string } => {
-  const waiting = run.status === "queued" || run.status === "input" ||
-    (run.status === "requested" && run.launchedAt === undefined)
-  const result = run.status === "done" ? run.answer?.trim().split("\n")[0]?.trim() : undefined
-  return {
-    ...(waiting ? {} : { clock: clock((run.endedAt ?? now) - (run.launchedAt ?? run.startedAt)) }),
-    ...(result === undefined || result === "" ? {} : { result: SubagentCard.clip(result, 80) }),
-    ...(run.status === "done" || run.message === undefined ? {} : { message: run.message })
-  }
-}
 
 /**
  * The controller, keyboard, and footer share the same action eligibility. A
@@ -393,14 +372,15 @@ export class FlowRuns {
       persist: (run) => options.persist({ type: "flow", run }),
       admit: (run) => {
         const attempt = this.attempt(run.id)
-        this.runs.move({ ...run, message: undefined }, "admit")
+        this.runs.move({ ...run, message: undefined, failure: undefined }, "admit")
         queueMicrotask(() => void this.prepare(run.id, attempt))
       }
     })
     for (const run of options.restored ?? []) {
       // Anything unsettled, including statuses older builds wrote, resumes as interrupted.
-      if (!Lifecycle.settled(run.status)) this.runs.move({ ...run, message: interrupted, endedAt: Date.now() }, "fail")
-      else this.runs.adopt(run)
+      if (!Lifecycle.settled(run.status)) {
+        this.runs.move({ ...run, message: interrupted, failure: undefined, endedAt: Date.now() }, "fail")
+      } else this.runs.adopt(run)
     }
   }
   /** Idempotent background host opening, independent of request acknowledgments. */
@@ -533,7 +513,7 @@ export class FlowRuns {
   private update(id: string, attempt: number, change: Partial<Omit<Run, "status">>, event?: Lifecycle.Event) {
     const run = this.runs.get(id)
     if (run === undefined || this.closed || this.attempts.get(id) !== attempt) return undefined
-    const next = { ...run, ...change }
+    const next = { ...run, ...(Object.hasOwn(change, "message") ? { failure: undefined } : {}), ...change }
     return event === undefined ? this.runs.put(next) : this.runs.move(next, event)
   }
   private fail(id: string, attempt: number, error: unknown) {
@@ -544,7 +524,8 @@ export class FlowRuns {
       return
     }
     Log.write("flow.run", error)
-    this.update(id, attempt, { endedAt: Date.now(), message: Failures.present("flow", error).sentence }, "fail")
+    const failure = Failures.present("flow", error).sentence
+    this.update(id, attempt, { endedAt: Date.now(), message: failure, failure }, "fail")
   }
   private attempt(id: string): number {
     const next = (this.attempts.get(id) ?? 0) + 1
@@ -644,7 +625,7 @@ export class FlowRuns {
       const run = this.runs.get(id)!
       if (this.closed) {
         // Preserve the receipt even after the UI detached; retry must target this run.
-        this.runs.move({ ...run, runId, message: interrupted, endedAt: Date.now() }, "fail")
+        this.runs.move({ ...run, runId, message: interrupted, failure: undefined, endedAt: Date.now() }, "fail")
       } else {
         if (this.update(id, attempt, { runId, message: undefined, launchedAt: Date.now() }, "launch") === undefined) {
           return
@@ -675,7 +656,13 @@ export class FlowRuns {
       if ("runId" in receipt) {
         if (this.closed) {
           const current = this.runs.get(id)!
-          this.runs.move({ ...current, runId: receipt.runId, message: interrupted, endedAt: Date.now() }, "fail")
+          this.runs.move({
+            ...current,
+            runId: receipt.runId,
+            message: interrupted,
+            failure: undefined,
+            endedAt: Date.now()
+          }, "fail")
         } else if (this.update(id, attempt, { runId: receipt.runId }) !== undefined) {
           this.follow(id, attempt, receipt.runId)
         }
@@ -778,7 +765,7 @@ export class FlowRuns {
     }
     if (this.closed) throw new TabError("closed", "Session closed")
     if (this.options.port === undefined) throw new TabError("flows_unavailable", "Flows unavailable")
-    const { endedAt: _ended, answer: _answer, launchedAt: _launched, ...previous } = run
+    const { endedAt: _ended, answer: _answer, launchedAt: _launched, failure: _failure, ...previous } = run
     // Each retry is new work with its own clock, so it is estimated and scored on its own.
     const resume = run.runId !== undefined &&
       (run.status === "parked" || run.message === interrupted || run.resumeRequested)

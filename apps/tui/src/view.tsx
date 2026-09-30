@@ -13,11 +13,9 @@ import stringWidth from "string-width"
 import * as Approvals from "./approvals.ts"
 import type * as Extension from "./extension.ts"
 import * as Failures from "./failures.ts"
-import * as Flows from "./flows.ts"
 import * as Keys from "./keys.ts"
 import type * as Panels from "./panels.ts"
 import * as Scrubber from "./scrubber.ts"
-import { flowGlyph } from "./surfaces.ts"
 import { color, mix, syntax } from "./theme.ts"
 import type * as Toasts from "./toasts.ts"
 import { TranscriptRail } from "./transcript-rail.tsx"
@@ -274,8 +272,7 @@ function EntryView(props: EntryProps) {
     case "card":
       return <Card panel={item.panel} />
     case "run":
-      // Drawn from the live run by whoever holds it (`RunCard`).
-      return <RunCard title={item.title} request={item.request} run={undefined} now={0} />
+      return item.request === undefined ? null : <UserMessage text={item.request} queued={false} tone={color.brand} />
   }
 }
 
@@ -343,63 +340,6 @@ export function Card(
         </text>
       )}
     </TranscriptRail>
-  )
-}
-
-const runTone = (status: Flows.Run["status"] | undefined): string =>
-  status === "done"
-    ? color.success
-    : status === "failed"
-    ? color.danger
-    : status === "running" || status === "waiting"
-    ? color.info
-    : color.faint
-
-/**
- * A run a person started, in the chat: what they typed, then one line,
- * `✓ sum · 40ms → 5`, rewritten in place as the run moves. Click, or `enter`
- * while focused, opens the run.
- */
-export function RunCard(props: {
-  readonly title: string
-  readonly request?: string | undefined
-  readonly run: Flows.Run | undefined
-  readonly now: number
-  readonly focused?: boolean
-  readonly onOpen?: () => void
-}) {
-  const { run } = props
-  const said = run === undefined ? {} : Flows.line(run, props.now)
-  return (
-    <box>
-      {props.request === undefined ? null : <UserMessage text={props.request} queued={false} tone={color.brand} />}
-      <box
-        style={{ paddingLeft: 1, marginBottom: 1 }}
-        {...(props.focused === true ? { backgroundColor: color.selected } : {})}
-        {...(props.onOpen === undefined ? {} : { onMouseDown: props.onOpen })}
-      >
-        <text wrapMode="none">
-          <span fg={runTone(run?.status)}>{run === undefined ? "· " : flowGlyph(run.status)}</span>
-          <strong fg={color.text}>{props.title}</strong>
-          {said.clock === undefined ? null : <span fg={color.muted}>{` · ${said.clock}`}</span>}
-          {said.result === undefined ? null : (
-            <>
-              <span fg={color.muted}>{" → "}</span>
-              <strong fg={color.text}>{said.result}</strong>
-            </>
-          )}
-          {run?.status === "cancelled"
-            ? <span fg={color.muted}>{" · stopped"}</span>
-            : said.message === undefined
-            ? null
-            : (
-              <span fg={run?.status === "failed" ? color.danger : color.muted}>
-                {` · ${run?.status === "failed" ? "failed: " : ""}${said.message}`}
-              </span>
-            )}
-        </text>
-      </box>
-    </box>
   )
 }
 
@@ -1077,9 +1017,13 @@ export function ToastStack(
         >
           <box style={{ flexDirection: "row", paddingLeft: 1, paddingRight: 2 }} backgroundColor={color.element}>
             <text fg={color.text}>{row.text}</text>
-            {row.surface === undefined ? null : (
-              <text fg={color.info} style={{ marginLeft: 2 }} onMouseDown={() => props.onOpen?.(row.surface!)}>enter</text>
-            )}
+            {row.surface === undefined ?
+              null :
+              (
+                <text fg={color.info} style={{ marginLeft: 2 }} onMouseDown={() => props.onOpen?.(row.surface!)}>
+                  enter
+                </text>
+              )}
           </box>
         </TranscriptRail>
       ))}

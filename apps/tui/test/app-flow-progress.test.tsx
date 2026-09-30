@@ -122,60 +122,51 @@ afterEach(async () => {
 const card = () => frame().split("\n").find((line) => /^\s+\S review\b/.test(line))?.trim() ?? ""
 
 test.each([
-  {
-    status: "done",
-    outcome: { kind: "done", answer: "Review finished\nsecond line" } satisfies Settled,
-    line: /^✓ review · \d+m?s → Review finished$/
-  },
-  {
-    status: "failed",
-    outcome: { kind: "failed", message: "Review refused" } satisfies Settled,
-    line: /^✗ review · \d+m?s · failed: Review refused$/
-  },
-  { status: "cancelled", outcome: { kind: "cancelled" } satisfies Settled, line: /^■ review · \d+m?s · stopped$/ }
+  { status: "done", mark: "✓", outcome: { kind: "done", answer: "Review finished\nsecond line" } satisfies Settled },
+  { status: "failed", mark: "✗", outcome: { kind: "failed", message: "Review refused" } satisfies Settled },
+  { status: "cancelled", mark: "■", outcome: { kind: "cancelled" } satisfies Settled }
 ])(
-  "a flow run reports in the chat as one line through launch and execution, then its real $status",
-  async ({ status, outcome, line }) => {
-    // The person's line and the run's card are in the chat at once, before any launch.
-    await waitFor(() => card() === "◌ review")
+  "visible flow progress stays in one host card through launch and execution, then reports $status",
+  async ({ status, mark, outcome }) => {
+    await waitFor(() => card().includes("requested"))
     expect(frame()).toContain("/flow review")
     expect(watches).toEqual([])
-    const placed = records().find((record) => record.type === "run")
-    expect(placed).toMatchObject({ type: "run", surface: expect.stringMatching(/^flow:review-/), title: "review" })
-    expect(placed).toMatchObject({ request: "/flow review" })
     await submit("Chat during launch")
     expect(chats).toEqual(["Chat during launch"])
-    // Past the 300 ms notice delay: the card says it, so no toast repeats it.
     await act(async () => {
       await setTimeout(400)
     })
     await setup!.renderOnce()
-    expect(card()).toBe("◌ review")
-    expect(frame()).not.toContain("review · requested")
+    expect(card()).toContain("requested")
+    expect(frame().split("\n").filter((line) => /^\s+\S review\b/.test(line))).toHaveLength(1)
     await act(async () => {
       launch.resolve("owned-review")
       await setImmediate()
     })
-    // Running: the card's clock starts at the launch.
-    await waitFor(() => /^◌ review · \d+m?s$/.test(card()))
+    await waitFor(() => records().filter((record) => record.type === "flow").at(-1)?.run.status === "running")
     expect(watches).toEqual(["owned-review"])
-    expect(records().filter((record) => record.type === "flow").at(-1)?.run.status).toBe("running")
     await act(async () => {
       await setup!.mockInput.typeText("Still usable")
     })
     await setup!.renderOnce()
     expect(frame()).toContain("Still usable")
-    expect(frame()).not.toContain("review · running")
     await act(async () => {
       remote.resolve(outcome)
       await setImmediate()
     })
-    await waitFor(() => line.test(card()))
-    expect(frame()).not.toContain(`review · ${status}`)
-    expect(records().filter((record) => record.type === "flow").at(-1)?.run.status).toBe(status)
+    await waitFor(() =>
+      records().filter((record) => record.type === "flow").at(-1)?.run.status === status && card().startsWith(mark) &&
+      (outcome.kind !== "done" || frame().includes("Review finished"))
+    )
+    expect(frame()).not.toContain("review · running")
     expect(frame()).toContain("Still usable")
-    // One card, rewritten in place.
-    expect(frame().split("\n").filter((each) => /^\s+\S review\b/.test(each))).toHaveLength(1)
+    expect(frame()).toContain("/flow review")
+    expect(frame().split("\n").filter((line) => /^\s+\S review\b/.test(line))).toHaveLength(1)
+    if (outcome.kind === "done") {
+      expect(frame()).toContain("Review finished")
+      expect(frame()).toContain("second line")
+      expect(frame().match(/Review finished/g)).toHaveLength(1)
+    }
   },
   15000
 )

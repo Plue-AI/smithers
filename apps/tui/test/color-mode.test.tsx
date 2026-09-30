@@ -3,10 +3,14 @@ import { testRender } from "@opentui/react/test-utils"
 import { afterEach, describe, expect, it } from "bun:test"
 import { act, type ReactNode } from "react"
 import type * as Inbox from "../src/inbox.ts"
-import { chat, Overview } from "../src/subagent-view.tsx"
+import { chat, Grid, Overview } from "../src/subagent-view.tsx"
 import { TabStrip } from "../src/tabs-view.tsx"
+import * as RunCard from "../src/run-card.ts"
+import { RunCardView } from "../src/run-card-view.tsx"
 import { applyColorMode, color, type ColorMode, colorModeOf } from "../src/theme.ts"
+import * as Transcript from "../src/transcript.ts"
 import * as View from "../src/view.tsx"
+import type { Tab } from "../src/workspace.ts"
 
 let setup: Awaited<ReturnType<typeof testRender>> | undefined
 afterEach(async () => {
@@ -125,14 +129,10 @@ describe("NO_COLOR frames", () => {
       transcript: () => {
         throw new Error("no worker rows")
       },
-      models: [],
       now: 0,
       lane: () => color.brand,
       focused: undefined,
-      open: new Set<string>(),
-      onOpen: () => {},
-      onFiles: () => {},
-      onAction: () => {}
+      onOpen: () => {}
     }
     const summary = (selected: string, pane: "tree" | "cards") => (
       <Overview
@@ -160,6 +160,29 @@ describe("NO_COLOR frames", () => {
     await act(async () => setup!.renderer.destroy())
     lines = await draw("none", summary("flow:deploy", "cards"), 80, 10)
     expect(reversed(lines, "Deploy")).toBe(false)
+  })
+
+  it("show the selected worker in reverse video", async () => {
+    const worker = (id: string) =>
+      ({ id, title: `Worker ${id}`, seat: "openai:gpt-6.1-sol", status: "running", startedAt: 0 }) as Tab
+    const lines = await draw(
+      "none",
+      <Grid
+        tabs={[worker("a"), worker("b")]}
+        width={80}
+        cards={{
+          transcript: () => Transcript.empty,
+          now: 0,
+          focused: "agent:b",
+          lane: () => color.brand,
+          onOpen: () => {}
+        }}
+      />,
+      80,
+      8
+    )
+    expect(has(spanOf(lines, "Worker b"), TextAttributes.INVERSE)).toBe(true)
+    expect(has(spanOf(lines, "Worker a"), TextAttributes.INVERSE)).toBe(false)
   })
 
   it("show the focused transcript card in reverse video", async () => {
@@ -199,12 +222,27 @@ describe("NO_COLOR frames", () => {
       endedAt: 40,
       answer: "5"
     }
+    const card = RunCard.flow(run, 40)
     const lines = await draw(
       "none",
       (
         <box>
-          <View.RunCard title="Focused run" run={run} now={40} focused />
-          <View.RunCard title="Other run" run={run} now={40} />
+          <RunCardView
+            id="flow:focused"
+            card={{ ...card, title: "Focused run" }}
+            width={40}
+            focused
+            lane={color.info}
+            onOpen={() => {}}
+          />
+          <RunCardView
+            id="flow:other"
+            card={{ ...card, title: "Other run" }}
+            width={40}
+            focused={false}
+            lane={color.info}
+            onOpen={() => {}}
+          />
         </box>
       ),
       40,

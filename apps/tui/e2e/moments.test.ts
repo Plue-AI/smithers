@@ -1,5 +1,5 @@
-/** A worker stopped at its run cap says so in its toast with Raise cap, which opens the cap form. */
-import { it } from "bun:test"
+/** A capped worker's opened run offers Raise cap. */
+import { expect, it } from "bun:test"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
@@ -7,7 +7,7 @@ import { key, Tui } from "./tmux.ts"
 
 const app = resolve(import.meta.dir, "..")
 
-it("offers Raise cap on a capped worker's toast, and the button opens its cap form", async () => {
+it("opens a capped worker's host card, then raises its cap from the worker view", async () => {
   const root = mkdtempSync(join(tmpdir(), "tui-moments-"))
   let tui: Tui | undefined
   try {
@@ -22,9 +22,16 @@ it("offers Raise cap on a capped worker's toast, and the button opens its cap fo
     await tui.type("cap")
     await tui.press(key.enter)
     await tui.until(
-      (screen) => screen.includes("flaky seat queue") && screen.includes("Raise cap"),
+      (screen) => screen.includes("flaky seat queue") && screen.includes("failed: Token budget reached"),
       10_000,
-      "the toast"
+      "the host card"
+    )
+    expect(tui.screen()).not.toContain("Raise cap")
+    await tui.click("flaky seat queue")
+    await tui.until(
+      (screen) => screen.includes("Subagent · flaky seat queue") && screen.includes("Raise cap"),
+      5_000,
+      "the worker view"
     )
     await tui.click("Raise cap")
     await tui.until(

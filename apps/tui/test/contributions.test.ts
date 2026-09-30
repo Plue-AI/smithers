@@ -33,15 +33,13 @@ describe("contributions store", () => {
     let changes = 0
     contributions.subscribe(() => changes++)
     contributions.repo([
-      Extension.declared(agent("review", { keys: [{ key: "alt+z", label: "Review" }], status: true, card: true })),
+      Extension.declared(agent("review", { keys: [{ key: "alt+z", label: "Review" }], status: true })),
       Extension.declared(agent("release", { keys: [{ key: "alt+l", label: "Release" }] }))
     ])
     expect(contributions.snapshot().keys.map((each) => each.key.key)).toEqual(["alt+z", "alt+l"])
-    expect(contributions.snapshot().cards).toEqual(["review"])
     expect(contributions.snapshot().watched).toEqual(["review"])
     contributions.repo([Extension.declared(agent("release", { keys: [{ key: "alt+q", label: "Release" }] }))])
     expect(contributions.snapshot().keys.map((each) => `${each.owner} ${each.key.key}`)).toEqual(["repo:release alt+q"])
-    expect(contributions.snapshot().cards).toEqual([])
     // An identical listing changes nothing, so a subscriber that re-lists cannot loop.
     const before = changes
     contributions.repo([Extension.declared(agent("release", { keys: [{ key: "alt+q", label: "Release" }] }))])

@@ -1,9 +1,4 @@
-/**
- * Subagent cards as the terminal draws them: a batch's header and equal-height
- * card grid in a parent transcript, the `◉ title done` row, and the Summary
- * overview. What each says comes from
- * `@smthrs/rpc/SubagentCard`, shared with the GUI; this file only colors it.
- */
+/** Host-owned run cards, worker breadcrumbs, and the Summary overview. */
 import type { ScrollBoxRenderable } from "@opentui/core"
 import * as SubagentCard from "@smthrs/rpc/SubagentCard"
 import { type ReactNode, type RefObject, useEffect, useMemo, useRef } from "react"
@@ -11,7 +6,8 @@ import stringWidth from "string-width"
 import type * as Asks from "./asks.ts"
 import * as Graph from "./graph.ts"
 import * as Inbox from "./inbox.ts"
-import type { Model } from "./models.ts"
+import { RunCardView } from "./run-card-view.tsx"
+import * as RunCard from "./run-card.ts"
 import * as Subagents from "./subagents.ts"
 import { tabTitle } from "./surfaces.ts"
 import * as Tabs from "./tabs.ts"
@@ -28,17 +24,16 @@ const rail = { ...bar, vertical: "▌" }
 /** What every card in a view reads and does. */
 export interface Cards {
   readonly transcript: (id: string) => Transcript.Transcript
-  readonly models: ReadonlyArray<Model>
   readonly now: number
   /** A worker's lane color. */
   readonly lane: (id: string) => string
   /** The focused card's key (`Subagents.cardKey`). */
   readonly focused: string | undefined
-  /** Workers whose files list is open. */
-  readonly open: ReadonlySet<string>
   readonly onOpen: (id: string) => void
-  readonly onFiles: (id: string) => void
-  readonly onAction: (tab: Tab, action: Tabs.ActionId) => void
+  readonly onDiff?: (tab: Tab) => void
+  readonly onUndo?: (tab: Tab) => void
+  readonly onRunOpen?: (surface: string) => void
+  readonly flowSteps?: (id: string) => ReadonlyArray<string>
   /** The ask the person holds from a worker: its card shows the question instead of its steps. */
   readonly ask?: (id: string) => Asks.Ask | undefined
   /** The worker whose ask `a` answers from here: the only thing waiting for the person. */
@@ -50,13 +45,6 @@ export interface Cards {
 /** An ask's numbered choices: `1 sum  2 plus  3 other`; blank without options. */
 const numbered = (ask: Asks.Ask): string =>
   (ask.options ?? []).map((option, index) => `${index + 1} ${option}`).join("  ")
-
-/** An ask's question and numbered choices on one line: `New name for add()?  1 sum  2 plus  3 other`. */
-const askLine = (ask: Asks.Ask): string => numbered(ask) === "" ? ask.question : `${ask.question}  ${numbered(ask)}`
-
-/** Rows an ask's card takes `width` wide: its title, the wrapped question, and how to answer. */
-export const askHeight = (ask: Asks.Ask, width: number): number =>
-  2 + Math.max(1, Math.ceil(stringWidth(askLine(ask)) / Math.max(1, width)))
 
 /** `New name for add()?  1 sum  2 plus  3 other`, then how to answer. */
 function AskLines(props: { readonly tab: Tab; readonly ask: Asks.Ask; readonly cards: Cards }) {
@@ -101,233 +89,67 @@ function AskTitle(props: { readonly tab: Tab; readonly ask: Asks.Ask; readonly n
   )
 }
 
-const chipText = (action: Tabs.Action): string => `[${action.keys[0]} ${action.label}]`
-
-/** The actions that fit `room` columns whole, in order. */
-const fitting = (actions: ReadonlyArray<Tabs.Action>, room: number): ReadonlyArray<Tabs.Action> => {
-  const kept: Array<Tabs.Action> = []
-  let used = 0
-  for (const action of actions) {
-    const width = stringWidth(chipText(action)) + (kept.length === 0 ? 0 : 1)
-    if (used + width > room) break
-    kept.push(action)
-    used += width
-  }
-  return kept
-}
-
-function CardView(props: {
-  readonly tab: Tab
-  readonly card: SubagentCard.Card
-  readonly width: number
-  readonly height: number
-  readonly cards: Cards
-}) {
-  const { tab, card, cards } = props
-  const inner = Math.max(1, props.width - 1)
-  const focused = cards.focused === Subagents.cardKey(tab.id)
-  const ask = cards.ask?.(tab.id)
-  if (ask !== undefined) {
-    return (
-      <box
-        id={Subagents.cardKey(tab.id)}
-        style={{ width: props.width, height: props.height, border: ["left"], flexShrink: 0 }}
-        borderColor={cards.lane(tab.id)}
-        customBorderChars={rail}
-        {...(focused ? { backgroundColor: color.element } : {})}
-        onMouseDown={() => cards.onOpen(tab.id)}
-      >
-        <AskTitle tab={tab} ask={ask} now={cards.now} width={inner} />
-        <AskLines tab={tab} ask={ask} cards={cards} />
-      </box>
-    )
-  }
-  const pad = Math.max(0, props.height - card.height)
-  const actions = focused ? Tabs.actions(tab) : []
-  const chips = fitting(actions, inner - stringWidth(card.footer.text) - 1)
-  return (
-    <TranscriptRail
-      id={Subagents.cardKey(tab.id)}
-      style={{ width: props.width, height: props.height, border: ["left"], flexShrink: 0 }}
-      borderColor={cards.lane(tab.id)}
-      customBorderChars={rail}
-      {...(focused ? { backgroundColor: color.selected } : {})}
-      onMouseDown={() => cards.onOpen(tab.id)}
-    >
-      <text wrapMode="none">
-        <span fg={Tabs.toneColor(card.tone)}>{card.glyph}</span>{" "}
-        <strong fg={color.text}>{SubagentCard.clip(card.title, inner - 2)}</strong>
-      </text>
-      {card.activity.earlier === undefined
-        ? null
-        : <text fg={color.faint} wrapMode="none">{card.activity.earlier}</text>}
-      {card.activity.rows.map((row, index) => {
-        const whole = SubagentCard.line(row, inner)
-        const mark = row.mark === "" ? "" : ` ${row.mark}`
-        const words = whole.slice(2, whole.length - mark.length)
-        const dim = row.state === "pending" || row.state === "stopped" || row.state === "text"
-        return (
-          <text key={index} wrapMode="none">
-            <span fg={color.muted}>{whole.slice(0, 2)}</span>
-            <span fg={dim ? color.faint : color.text}>{words}</span>
-            <span fg={row.mark === "✗" ? color.danger : row.mark === "■" ? color.faint : color.text}>{mark}</span>
-          </text>
-        )
-      })}
-      {pad === 0 ? null : <box style={{ height: pad, flexShrink: 0 }} />}
-      {card.files === undefined ? null : (
-        <text
-          fg={color.faint}
-          wrapMode="none"
-          onMouseDown={(event) => {
-            event.stopPropagation()
-            cards.onFiles(tab.id)
-          }}
-        >
-          {SubagentCard.clip(card.files.line, inner)}
-        </text>
-      )}
-      {card.files?.rows.map((row, index) => (
-        <text key={index} fg={color.faint} wrapMode="none">
-          {SubagentCard.clip(`${row.branch} ${row.text}`, inner)}
-        </text>
-      ))}
-      <box style={{ flexDirection: "row", justifyContent: "space-between", height: 1 }}>
-        <text fg={color.faint} wrapMode="none" style={{ flexShrink: 1 }}>{card.footer.text}</text>
-        {chips.length > 0
-          ? (
-            <box style={{ flexDirection: "row", flexShrink: 0 }}>
-              {chips.map((action, index) => (
-                <text
-                  key={action.id}
-                  wrapMode="none"
-                  fg={action.id === "stop" ? color.danger : color.info}
-                  style={{ marginLeft: index === 0 ? 0 : 1 }}
-                  onMouseDown={(event) => {
-                    event.stopPropagation()
-                    cards.onAction(tab, action.id)
-                  }}
-                >
-                  {chipText(action)}
-                </text>
-              ))}
-            </box>
-          )
-          : card.footer.aside === ""
-          ? null
-          : <text fg={color.faint} wrapMode="none" style={{ flexShrink: 0 }}>{card.footer.aside}</text>}
-      </box>
-    </TranscriptRail>
-  )
-}
-
-/** Cards across `width`, each row as tall as its tallest card; a short last row stretches. */
+/** Host-owned cards in request order; one full-width card per run. A worker the person's answer waits on shows its question. */
 export function Grid(props: { readonly tabs: ReadonlyArray<Tab>; readonly width: number; readonly cards: Cards }) {
-  const { cards } = props
-  const layout = SubagentCard.grid(props.width, props.tabs.length)
-  const shown = props.tabs.map((tab) =>
-    SubagentCard.card(Subagents.subagent(tab, cards.transcript(tab.id), cards.models), cards.now, {
-      open: cards.open.has(tab.id)
-    })
-  )
-  const heights = SubagentCard.rowHeights(
-    layout,
-    shown.map((card, index) => {
-      const ask = cards.ask?.(props.tabs[index]!.id)
-      const width = layout.flat().find((cell) => cell.index === index)?.width ?? props.width
-      return ask === undefined ? card.height : askHeight(ask, width - 1)
-    })
-  )
   return (
     <box>
-      {layout.map((row, index) => (
-        <box
-          key={index}
-          style={{ flexDirection: "row", marginBottom: index === layout.length - 1 ? 0 : 1, flexShrink: 0 }}
-        >
-          {row.map((cell, at) => (
-            <box key={props.tabs[cell.index]!.id} style={{ marginLeft: at === 0 ? 0 : SubagentCard.gridBounds.gap }}>
-              <CardView
-                tab={props.tabs[cell.index]!}
-                card={shown[cell.index]!}
-                width={cell.width}
-                height={heights[index]!}
-                cards={cards}
-              />
-            </box>
-          ))}
-        </box>
+      {props.tabs.map((tab) => {
+        const ask = props.cards.ask?.(tab.id)
+        if (ask !== undefined) {
+          return (
+            <TranscriptRail
+              key={tab.id}
+              id={Subagents.cardKey(tab.id)}
+              style={{ border: ["left"], marginBottom: 1, flexShrink: 0 }}
+              borderColor={props.cards.lane(tab.id)}
+              customBorderChars={rail}
+              {...(props.cards.focused === Subagents.cardKey(tab.id) ? { backgroundColor: color.element } : {})}
+              onMouseDown={() => props.cards.onOpen(tab.id)}
+            >
+              <AskTitle tab={tab} ask={ask} now={props.cards.now} width={Math.max(1, props.width - 1)} />
+              <AskLines tab={tab} ask={ask} cards={props.cards} />
+            </TranscriptRail>
+          )
+        }
+        const card = RunCard.worker(tab, props.cards.transcript(tab.id), props.cards.now)
+        return (
+          <RunCardView
+            key={tab.id}
+            id={Subagents.cardKey(tab.id)}
+            card={card}
+            width={props.width}
+            focused={props.cards.focused === Subagents.cardKey(tab.id)}
+            lane={props.cards.lane(tab.id)}
+            onOpen={() => props.cards.onOpen(tab.id)}
+            {...(props.cards.onDiff === undefined ? {} : { onDiff: () => props.cards.onDiff!(tab) })}
+            {...(props.cards.onUndo === undefined ? {} : { onUndo: () => props.cards.onUndo!(tab) })}
+          />
+        )
+      })}
+    </box>
+  )
+}
+
+export function Batch(props: { readonly batch: Subagents.Batch; readonly width: number; readonly cards: Cards }) {
+  return (
+    <box id={props.batch.key}>
+      <Grid tabs={props.batch.tabs} width={props.width} cards={props.cards} />
+      {(props.batch.runs ?? []).map((run) => (
+        <RunCardView
+          key={run.id}
+          id={`flow:${run.id}`}
+          card={RunCard.flow(run, props.cards.now, props.cards.flowSteps?.(run.id))}
+          width={props.width}
+          focused={props.cards.focused === `flow:${run.id}`}
+          lane={color.brand}
+          onOpen={() => props.cards.onRunOpen?.(`flow:${run.id}`)}
+        />
       ))}
     </box>
   )
 }
 
-/**
- * A batch in its parent's transcript: `◐ Running 3 subagents (1/3)`, the ▰ bar, then its cards.
- * One settled worker is headed by its outcome: `■ Add JSDoc · stopped at 6s`. A lone worker the
- * person's answer waits on reads `◆ title · waiting 0:12` over its question instead.
- */
-export function Batch(
-  props: { readonly batch: Subagents.Batch; readonly width: number; readonly cards: Cards }
-) {
-  const only = props.batch.tabs.length === 1 ? props.batch.tabs[0]! : undefined
-  const asked = only === undefined ? undefined : props.cards.ask?.(only.id)
-  if (only !== undefined && asked !== undefined) {
-    const focused = props.cards.focused === Subagents.cardKey(only.id)
-    return (
-      <box id={props.batch.key} style={{ marginBottom: 1 }}>
-        <AskTitle tab={only} ask={asked} now={props.cards.now} width={props.width} />
-        <box
-          id={Subagents.cardKey(only.id)}
-          style={{ border: ["left"], flexShrink: 0 }}
-          borderColor={props.cards.lane(only.id)}
-          customBorderChars={rail}
-          {...(focused ? { backgroundColor: color.element } : {})}
-          onMouseDown={() => props.cards.onOpen(only.id)}
-        >
-          <AskLines tab={only} ask={asked} cards={props.cards} />
-        </box>
-      </box>
-    )
-  }
-  const header = SubagentCard.header(
-    props.batch.tabs.map((tab) => tab.status),
-    props.cards.now,
-    only === undefined ? undefined : { title: tabTitle(only), startedAt: only.startedAt, endedAt: only.endedAt }
-  )
-  const tone = Tabs.toneColor(header.tone)
-  return (
-    <box id={props.batch.key} style={{ marginBottom: 1 }}>
-      <text wrapMode="none">
-        {header.glyph === "" ? null : <span fg={tone}>{header.glyph}{" "}</span>}
-        <strong fg={header.glyph === "" ? tone : color.text}>
-          {SubagentCard.headerLine({ ...header, glyph: "" })}
-        </strong>{"  "}
-        {header.bar.map((cell, index) => (
-          <span key={index} fg={cell === "done" ? color.success : color.faint}>{SubagentCard.barGlyph}</span>
-        ))}
-      </text>
-      <Grid tabs={props.batch.tabs} width={props.width} cards={props.cards} />
-    </box>
-  )
-}
-
-/**
- * Where a worker settled: `◉ title done`, `◉ title failed: <cause>`,
- * `◉ title stopped`. Its keys are on its focused card: in Chat a bare key
- * reaches the composer, and in a worker's view it acts on that worker.
- */
-export function Finished(props: { readonly tab: Tab; readonly tone: string }) {
-  const row = SubagentCard.finished(tabTitle(props.tab), props.tab.status, Tabs.outcome(props.tab))
-  return (
-    <text wrapMode="none" style={{ marginBottom: 1 }}>
-      <span fg={Tabs.toneColor(row.tone)}>{row.glyph}</span> <span fg={props.tone}>{row.title}</span>
-      <span fg={color.text}>{row.line.slice(row.glyph.length + 1 + row.title.length)}</span>
-    </text>
-  )
-}
-
-/** A parent transcript's own rows with its workers' grids and outcome rows between them. */
+/** A parent’s own rows with its workers’ host-owned cards. */
 export function Lines(props: {
   readonly lines: ReadonlyArray<Subagents.Line>
   readonly width: number
@@ -342,8 +164,7 @@ export function Lines(props: {
           ? props.row(line)
           : line.kind === "grid"
           ? <Batch key={line.key} batch={line.batch} width={props.width} cards={props.cards} />
-          : line.kind === "earlier"
-          ? (
+          : (
             <box
               key={line.key}
               id={line.key}
@@ -360,7 +181,6 @@ export function Lines(props: {
               </text>
             </box>
           )
-          : <Finished key={line.key} tab={line.tab} tone={props.cards.lane(line.tab.id)} />
       )}
     </>
   )

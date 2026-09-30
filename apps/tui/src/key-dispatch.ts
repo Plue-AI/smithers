@@ -174,7 +174,7 @@ const workerBinding = (key: KeyEvent): string | undefined => {
 /**
  * A focused chat card: enter opens it, esc leaves it, arrows and tab move
  * between cards. On a subagent card, `a` answers the ask it shows `a Answer`
- * for, `f` opens its files, `d` its run's diff, `u` undoes the run, and the
+ * for, `d` its run's diff, `u` undoes the run, and the
  * worker keys act on its worker. Anything else unfocuses it and goes on to
  * the composer; false then.
  */
@@ -185,7 +185,6 @@ export const cardKey = (key: KeyEvent, act: {
   /** The focused subagent card's worker; undefined on a panel card. */
   readonly worker: Tab | undefined
   readonly workerAction: (tab: Tab, action: Tabs.ActionId) => void
-  readonly files: () => void
   /** Present only when the worker settled with captured changes. */
   readonly diff?: (() => void) | undefined
   /** Present only when those changes can be undone now. */
@@ -216,11 +215,6 @@ export const cardKey = (key: KeyEvent, act: {
     act.leave()
     return false
   }
-  if (key.name === "f") {
-    key.preventDefault()
-    act.files()
-    return true
-  }
   const run = key.name === "d" ? act.diff : key.name === "u" ? act.undo : key.name === "a" ? act.answer : undefined
   if (run !== undefined) {
     key.preventDefault()
@@ -243,7 +237,7 @@ export const cardKey = (key: KeyEvent, act: {
  * The Summary overview: arrows or hjkl move in the pane (right leaves the
  * tree), enter opens, esc closes; `app.tsx` switches panes with tab. The
  * worker keys act on the selected worker, `x` stops a selected monitor;
- * `f` opens a card's files, `d` and `u` show and undo its run.
+ * `d` and `u` show and undo its run.
  */
 export const overviewKey = (key: KeyEvent, state: {
   readonly pane: "tree" | "cards"
@@ -264,7 +258,6 @@ export const overviewKey = (key: KeyEvent, state: {
   readonly graph: () => void
   readonly card: (direction: Subagents.Direction) => void
   readonly open: () => void
-  readonly files: () => void
   readonly scroll: (direction: number) => void
   readonly workerAction: (tab: Tab, action: Tabs.ActionId) => void
   /** `d`: the selected worker's run diff, when it settled with captured changes. */
@@ -294,7 +287,6 @@ export const overviewKey = (key: KeyEvent, state: {
     return
   }
   if (moved !== undefined) return act.card(moved)
-  if (key.name === "f" && state.pane === "cards") return act.files()
   if (state.monitor !== undefined) {
     if (Keys.bindingFor(key, "panel")?.id === "stop") act.stopMonitor(state.monitor)
     return

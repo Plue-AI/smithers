@@ -17,7 +17,7 @@ Ctrl+T opens a one-row timeline over the current view. Esc closes it. The idle c
 
 ## Filter the transcript
 
-`/filter` shows or hides kinds of row. Workers show as cards in Chat; the strip shows one live count, and Ctrl+S shows them all. There is no automatic worker rail. Off-screen settlements produce a toast: Enter opens the run and clears it. A new attempt replaces its notice; restart never restores notices. `/grep text` shows matching rows; `/grep` clears it. Filters change the view only.
+`/filter` shows or hides kinds of row. Every worker and flow has one host-owned Chat card. It updates in place with its final answer (up to two lines), file changes and last command exit. Tab focuses a card; `d` opens its diff, `u` undoes captured changes, and Enter opens the run. Scalar flow results fit on one line. The strip shows one live count, and Ctrl+S shows them all. There is no automatic worker rail. Off-screen settlements produce a toast: Enter opens the run and clears it. A new attempt replaces its notice; restart never restores notices. `/grep text` shows matching rows; `/grep` clears it. Filters change the view only.
 
 <AppScreenshot src="/images/learn/tui-transcript-filter.gif" alt="Filtering the TUI transcript by row kind and text." caption="The TUI with a scripted test model." width={880} height={480} />
 

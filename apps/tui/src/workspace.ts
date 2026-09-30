@@ -309,7 +309,9 @@ export class Workspace {
         this.scheduleResume(tab)
       }
     }
-    for (const panel of options.restored?.panels ?? []) if (!Panels.unboundStatus(panel)) Panels.keep(this.panels, panel)
+    for (const panel of options.restored?.panels ?? []) {
+      if (!Panels.unboundStatus(panel)) Panels.keep(this.panels, panel)
+    }
     for (const id of options.restored?.cards ?? []) if (this.panels.has(id)) this.cards.add(id)
     queueMicrotask(() => this.tabs.drain())
     // A holder that stops listening (parked, settled) passes its asks up at once.

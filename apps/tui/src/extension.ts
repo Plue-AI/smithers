@@ -157,9 +157,7 @@ export const Manifest = Schema.Struct({
     })).check(Schema.isMaxLength(8))
   ),
   /** Show the owner's latest run or tab as a status item. */
-  status: Schema.optional(Flag),
-  /** Show the owner's runs as live transcript cards. */
-  card: Schema.optional(Flag)
+  status: Schema.optional(Flag)
 })
 
 export interface Declared {
@@ -167,14 +165,13 @@ export interface Declared {
   readonly owner: string
   readonly keys: ReadonlyArray<Key>
   readonly status: boolean
-  readonly card: boolean
   /** One line each; a problem drops the whole manifest, never half of it. */
   readonly problems: ReadonlyArray<string>
 }
 
 export const declared = (descriptor: Descriptor): Declared => {
   const owner = `repo:${descriptor.name}`
-  const none: Declared = { owner, keys: [], status: false, card: false, problems: [] }
+  const none: Declared = { owner, keys: [], status: false, problems: [] }
   if (descriptor.tui === undefined) return none
   try {
     const manifest = Schema.decodeUnknownSync(Manifest)(
@@ -194,7 +191,7 @@ export const declared = (descriptor: Descriptor): Declared => {
         action: key.action ?? own(key.label)
       })
     )
-    return { owner, keys, status: flag(manifest.status), card: flag(manifest.card), problems: [] }
+    return { owner, keys, status: flag(manifest.status), problems: [] }
   } catch (error) {
     const message = error instanceof Error ? error.message.split("\n")[0] : String(error)
     return { ...none, problems: [`${descriptor.name}: ${message}`] }

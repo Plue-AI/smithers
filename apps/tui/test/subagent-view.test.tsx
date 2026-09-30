@@ -23,20 +23,19 @@ const tab = (id: string, extra: Partial<Tab> = {}): Tab => ({
 })
 const recorder = () => {
   const opened: string[] = []
-  const files: string[] = []
-  const actions: Array<[Tab, Parameters<View.Cards["onAction"]>[1]]> = []
+  const diffs: Tab[] = []
+  const undos: Tab[] = []
   const cards: View.Cards = {
     transcript: () => Transcript.empty,
-    models: [],
     now: 42_000,
     lane: () => color.info,
     focused: undefined,
-    open: new Set(),
     onOpen: (id) => opened.push(id),
-    onFiles: (id) => files.push(id),
-    onAction: (worker, action) => actions.push([worker, action])
+    onDiff: (worker) => diffs.push(worker),
+    onUndo: (worker) => undos.push(worker),
+    onRunOpen: (surface) => opened.push(surface)
   }
-  return { cards, opened, files, actions }
+  return { cards, opened, diffs, undos }
 }
 let setup: Awaited<ReturnType<typeof testRender>> | undefined
 afterEach(() => {
@@ -53,96 +52,61 @@ const clickText = async (text: string) => {
   const y = lines.findIndex((line) => line.includes(text))
   expect(y).toBeGreaterThanOrEqual(0)
   const x = stringWidth(lines[y]!.slice(0, lines[y]!.indexOf(text)))
-  await act(() => setup!.mockMouse.click(x + 1, y))
+  await act(async () => setup!.mockMouse.click(x + 1, y))
 }
 
 describe("card click ownership", () => {
-  it("runs action chips with the original worker without opening its parent card", async () => {
-    const worker = tab("active")
-    const { cards, actions, opened, files } = recorder()
-    const mounted = await mount(
-      <View.Grid tabs={[worker]} width={80} cards={{ ...cards, focused: "agent:active" }} />,
-      80,
-      4
-    )
-    expect(mounted.captureCharFrame()).toContain("[alt+x Stop] [alt+s Steer]")
-    await clickText("[alt+x Stop]")
-    await clickText("[alt+s Steer]")
-    expect(actions).toEqual([[worker, "stop"], [worker, "steer"]])
-    expect(actions[0]![0]).toBe(worker)
-    expect(opened).toEqual([])
-    expect(files).toEqual([])
-    await clickText("active")
-    expect(opened).toEqual(["active"])
-  })
-  it("toggles changed files without opening the worker and draws expanded patch counts", async () => {
-    const worker = tab("files")
-    const { cards, files, opened, actions } = recorder()
-    const transcript: Transcript.Transcript = {
+  it("Diff and Undo receive the original worker without opening the card", async () => {
+    const worker = tab("files", { status: "done", endedAt: 41_000 })
+    const { cards, diffs, undos, opened } = recorder()
+    const history: Transcript.Transcript = {
       ...Transcript.empty,
       items: [{
         kind: "cell",
-        id: "0",
+        id: "c",
         index: 1,
-        prose: "Updated the file",
         source: "",
+        prose: "",
         status: "done",
+        startedAt: 0,
+        printed: "",
         calls: [{
           flow: "edit",
           subject: "src/界.ts",
           status: "ok",
           startedAt: 0,
-          patches: [{ path: "src/界.ts", patch: "--- a\n+++ b\n+one\n+two\n-old" }]
-        }],
-        printed: "",
-        startedAt: 0
+          patches: [{ path: "src/界.ts", patch: "--- a/src/界.ts\n+++ b/src/界.ts\n@@ -1 +1,2 @@\n-old\n+one\n+two" }]
+        }]
       }]
     }
-    const mounted = await mount(
-      <View.Grid
-        tabs={[worker]}
-        width={70}
-        cards={{ ...cards, transcript: () => transcript, open: new Set(["files"]) }}
-      />,
-      70,
-      9
-    )
-    const frame = mounted.captureCharFrame()
-    expect(frame).toContain("src/界.ts")
-    expect(frame).toContain("+2 -1")
-    const lines = frame.split("\n")
-    const y = lines.findIndex((line) => line.includes("file") && !line.includes("Updated") && !line.includes("▌◐"))
-    expect(y).toBeGreaterThanOrEqual(0)
-    await act(() => mounted.mockMouse.click(4, y))
-    expect(files).toEqual(["files"])
+    await mount(<View.Grid tabs={[worker]} width={80} cards={{ ...cards, transcript: () => history }} />)
+    expect(setup!.captureCharFrame()).toContain("src/界.ts +2")
+    await clickText("d Diff")
+    await clickText("u Undo")
+    expect(diffs).toEqual([worker])
+    expect(undos).toEqual([worker])
+    expect(diffs[0]).toBe(worker)
     expect(opened).toEqual([])
-    expect(actions).toEqual([])
+    await clickText("enter Open")
+    expect(opened).toEqual(["files"])
   })
+
   for (const width of [18, 26, 80]) {
-    it(`fits whole action chips at ${width} columns`, async () => {
-      const { cards } = recorder()
+    it(`clips wide titles within ${width} columns while retaining duration`, async () => {
       const mounted = await mount(
-        <View.Grid
-          tabs={[tab("wide", { title: "界界界界界界界界界界" })]}
-          width={width}
-          cards={{ ...cards, focused: "agent:wide" }}
-        />,
+        <View.Grid tabs={[tab("wide", { title: "界界界界界界界界界界" })]} width={width} cards={recorder().cards} />,
         width,
         4
       )
       const frame = mounted.captureCharFrame()
-      expect(frame).toContain("42s · ")
-      if (width < 80) expect(frame).not.toContain("[alt+x")
-      else expect(frame).toContain("[alt+x Stop]")
-      if (width < 80) expect(frame).not.toContain("[alt+s")
-      else expect(frame).toContain("[alt+s Steer]")
+      expect(frame).toContain("42s")
       for (const line of frame.split("\n")) expect(stringWidth(line)).toBeLessThanOrEqual(width)
     })
   }
 })
 
-it("keeps parent rows, completed worker grids and settlement markers in supplied order", async () => {
-  const worker = tab("done", { title: "Completed audit", status: "done", endedAt: 64_000 })
+it("keeps parent rows and completed cards in their supplied request order", async () => {
+  const worker = tab("done", { title: "Completed audit", status: "done", endedAt: 64_000, answer: "Three findings." })
   const row: Extract<Subagents.Line, { kind: "row" }> = {
     kind: "row",
     key: "parent",
@@ -151,11 +115,7 @@ it("keeps parent rows, completed worker grids and settlement markers in supplied
   const rows: Array<typeof row> = []
   const mounted = await mount(
     <View.Lines
-      lines={[
-        row,
-        { kind: "grid", key: "batch", batch: { key: "batch", anchor: "parent", at: 0, tabs: [worker] } },
-        { kind: "finished", key: "settled", tab: worker }
-      ]}
+      lines={[row, { kind: "grid", key: "batch", batch: { key: "batch", anchor: "parent", at: 0, tabs: [worker] } }]}
       width={80}
       cards={recorder().cards}
       onEarlier={() => {}}
@@ -168,14 +128,15 @@ it("keeps parent rows, completed worker grids and settlement markers in supplied
   const frame = mounted.captureCharFrame()
   expect(rows).toEqual([row])
   expect(rows[0]).toBe(row)
-  expect(frame).toContain("✓ Completed audit · done at 1m 04s")
-  expect(frame).toContain("◉ Completed audit done")
-  expect(frame.indexOf("Parent receipt")).toBeLessThan(frame.indexOf("✓ Completed audit · done"))
-  expect(frame.indexOf("✓ Completed audit · done")).toBeLessThan(frame.indexOf("◉ Completed audit done"))
+  expect(frame).toContain("✓ Completed audit")
+  expect(frame).toContain("Three findings.")
+  expect(frame).not.toContain("finished")
+  expect(frame).not.toContain("Ran 1 subagent")
+  expect(frame.indexOf("Parent receipt")).toBeLessThan(frame.indexOf("Completed audit"))
 })
 
-it("summarizes earlier activity and retains a failed tool's visible result", async () => {
-  const transcript: Transcript.Transcript = {
+it("shows only recent activity and retains a failed tool's real mark", async () => {
+  const history: Transcript.Transcript = {
     ...Transcript.empty,
     items: [{
       kind: "cell",
@@ -186,23 +147,56 @@ it("summarizes earlier activity and retains a failed tool's visible result", asy
       status: "done",
       printed: "",
       startedAt: 0,
-      calls: Array.from({ length: 8 }, (_, n): Transcript.Call => ({
-        flow: "read",
-        subject: `file${n}.ts`,
-        status: n === 7 ? "failed" : "ok",
-        startedAt: n
-      }))
+      calls: Array.from(
+        { length: 8 },
+        (_, n): Transcript.Call => ({
+          flow: "read",
+          subject: `file${n}.ts`,
+          status: n === 7 ? "failed" : "ok",
+          startedAt: n
+        })
+      )
     }]
   }
   const mounted = await mount(
-    <View.Grid tabs={[tab("history")]} width={60} cards={{ ...recorder().cards, transcript: () => transcript }} />,
+    <View.Grid tabs={[tab("history")]} width={60} cards={{ ...recorder().cards, transcript: () => history }} />,
     60,
     10
   )
   const frame = mounted.captureCharFrame()
-  expect(frame).toContain("… +3 earlier")
   expect(frame).not.toContain("file0.ts")
-  expect(frame).toContain("└ Read file7.ts ✗")
+  expect(frame).toContain("file5.ts")
+  expect(frame).toContain("✗ Read file7.ts")
+})
+
+it("a flow uses the same batch and opens its own surface", async () => {
+  const { cards, opened } = recorder()
+  await mount(
+    <View.Batch
+      width={80}
+      cards={cards}
+      batch={{
+        key: "batch:words",
+        at: 0,
+        anchor: undefined,
+        tabs: [],
+        runs: [{
+          id: "words",
+          flow: "wordcount",
+          by: "user",
+          input: {},
+          requested: "{}",
+          status: "done",
+          startedAt: 0,
+          endedAt: 40,
+          answer: "5"
+        }]
+      }}
+    />
+  )
+  expect(setup!.captureCharFrame()).toContain("wordcount · 40ms → 5")
+  await clickText("wordcount")
+  expect(opened).toEqual(["flow:words"])
 })
 
 for (const width of [18, 80]) {

@@ -324,7 +324,8 @@ it("accepts seat names in the delegate flow", async () => {
 it("teaches the coordinator honest receipts and the panel block contract", () => {
   for (
     const rule of [
-      "final answer is normally ONE short sentence",
+      "For accepted background requests, end the turn with ctx.done(\"\")",
+      "the host delivers the run's progress and final answer in its Chat card",
       "Do not narrate flow names, ids, JSON",
       "console.log does not end it",
       "Never wait, retry, or re-check tab.list",
@@ -334,10 +335,10 @@ it("teaches the coordinator honest receipts and the panel block contract", () =>
       "A requested or queued receipt means only requested or queued",
       "This applies to panel details as well as replies",
       "A running task is never completed",
-      "placement:\"main\" and bind:{tree:rootId}",
       "otherwise omit agent. Default worker seat, never an agent or model value: "
     ]
   ) expect(Runtime.coordinatorTeaching).toContain(rule)
+  expect(Runtime.coordinatorTeaching).not.toContain("publish one ui.publish panel")
   for (const rule of ["kind:\"code\"", "kind:\"table\"", "Never invent actions the user did not request"]) {
     expect(Panels.teaching).toContain(rule)
   }

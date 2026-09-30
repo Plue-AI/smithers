@@ -4,7 +4,14 @@ import { rows, Settlements } from "../src/toasts.ts"
 import type { Tab } from "../src/workspace.ts"
 
 const tab: Tab = {
-  id: "worker", depth: 0, title: "Work", prompt: "Work", seat: "test", file: "session", status: "running", startedAt: 0
+  id: "worker",
+  depth: 0,
+  title: "Work",
+  prompt: "Work",
+  seat: "test",
+  file: "session",
+  status: "running",
+  startedAt: 0
 }
 const run: Run = { id: "flow", flow: "test", by: "user", input: {}, requested: "{}", status: "running", startedAt: 0 }
 const update = (
@@ -24,7 +31,11 @@ test("requested, queued, running and parked work never generates progress toasts
     expect(update(tracker, [{ ...tab, status }], [{ ...run, status }])).toEqual([])
   }
   expect(rows({
-    now: 65_000, tick: "*", search: undefined, undoing: undefined, toast: undefined
+    now: 65_000,
+    tick: "*",
+    search: undefined,
+    undoing: undefined,
+    toast: undefined
   })).toEqual([])
 })
 
@@ -37,18 +48,21 @@ test.each(["done", "failed", "cancelled"] as const)("visible %s settlements rema
   expect(update(tracker, tabs, runs)).toEqual([])
 })
 
-test.each(["done", "failed", "cancelled"] as const)("off-screen %s settlements appear once with their Open destination", (status) => {
-  const tracker = new Settlements([tab], [run])
-  const tabs = [{ ...doneTab, status }]
-  const runs = [{ ...doneRun, status }]
-  const notices = update(tracker, tabs, runs)
-  expect(notices.map((row) => row.surface)).toEqual(["tab:worker", "flow:flow"])
-  expect(notices.map((row) => row.tone)).toEqual(status === "failed" ? ["danger", "danger"] : ["info", "info"])
-  expect(notices[0]!.text).toContain("Work")
-  expect(notices[1]!.text).toContain("test")
-  expect(notices.every((row) => !("worker" in row))).toBe(true)
-  expect(update(tracker, tabs, runs)).toEqual(notices)
-})
+test.each(["done", "failed", "cancelled"] as const)(
+  "off-screen %s settlements appear once with their Open destination",
+  (status) => {
+    const tracker = new Settlements([tab], [run])
+    const tabs = [{ ...doneTab, status }]
+    const runs = [{ ...doneRun, status }]
+    const notices = update(tracker, tabs, runs)
+    expect(notices.map((row) => row.surface)).toEqual(["tab:worker", "flow:flow"])
+    expect(notices.map((row) => row.tone)).toEqual(status === "failed" ? ["danger", "danger"] : ["info", "info"])
+    expect(notices[0]!.text).toContain("Work")
+    expect(notices[1]!.text).toContain("test")
+    expect(notices.every((row) => !("worker" in row))).toBe(true)
+    expect(update(tracker, tabs, runs)).toEqual(notices)
+  }
+)
 
 test("opening or showing an outcome clears it permanently without clearing unrelated outcomes", () => {
   const tracker = new Settlements([tab], [run])
@@ -90,34 +104,12 @@ test("restored outcomes never become toasts and restored running work still repo
 test("search and undo retain their debounce and an ordinary notice remains last", () => {
   const settled = [{ id: "worker", surface: "tab:worker", text: "Work", tone: "info" as const }]
   const input = {
-    settlements: settled, tick: "*", undoing: 0,
+    settlements: settled,
+    tick: "*",
+    undoing: 0,
     search: { query: "needle", status: "running" as const, startedAt: 0, hits: [], truncated: false },
     toast: { text: "Copied", tone: "info" as const }
   }
   expect(rows({ ...input, now: 299 }).map((row) => row.id)).toEqual(["worker", "notice"])
   expect(rows({ ...input, now: 300 }).map((row) => row.id)).toEqual(["worker", "search", "undo", "notice"])
-})
-
-test("a run whose chat card is on screen gets no toast, at any status; other runs keep theirs", () => {
-  const other: Run = { ...run, id: "other" }
-  const carded = new Set(["flow"])
-  const at = (status: Run["status"], now: number) =>
-    rows({
-      tabs: [],
-      runs: [{ ...run, status, endedAt: status === "done" || status === "failed" ? 1000 : undefined }, {
-        ...other,
-        status
-      }],
-      now,
-      tick: "*",
-      search: undefined,
-      undoing: undefined,
-      toast: undefined,
-      carded
-    }).map((row) => row.id)
-  expect(at("input", 0)).toEqual(["flow:other"])
-  expect(at("running", 100000)).toEqual(["flow:other"])
-  expect(at("failed", 1001)).toEqual(["flow:other"])
-  // Off the chat, nothing is carded and both toast again.
-  expect(project([], [run, other], 300).map((row) => row.id)).toEqual(["flow:flow", "flow:other"])
 })

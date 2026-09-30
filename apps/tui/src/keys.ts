@@ -182,7 +182,6 @@ export const registry: ReadonlyArray<Binding> = [
   },
   { id: "card-diff", keys: ["d"], label: "Diff", context: "card", group: "Cards" },
   { id: "card-undo", keys: ["u"], label: "Undo", context: "card", group: "Cards" },
-  { id: "card-files", keys: ["f"], label: "Files", context: "card", group: "Cards" },
   { id: "close-card", keys: ["esc"], label: "Composer", context: "card", group: "Cards" },
 
   { id: "overview-pane", keys: ["tab"], label: "Pane", context: "overview", group: "Summary" },
@@ -200,7 +199,6 @@ export const registry: ReadonlyArray<Binding> = [
   { id: "overview-approve", keys: ["y"], label: "Approve", context: "overview", group: "Summary" },
   { id: "overview-deny", keys: ["n"], label: "Deny", context: "overview", group: "Summary" },
   { id: "overview-graph", keys: ["g"], label: "Graph", context: "overview", group: "Summary" },
-  { id: "overview-files", keys: ["f"], label: "Files", context: "overview", group: "Summary" },
   { id: "overview-diff", keys: ["d"], label: "Diff", context: "overview", group: "Summary" },
   { id: "overview-undo", keys: ["u"], label: "Undo", context: "overview", group: "Summary" },
   { id: "overview-close", keys: ["esc"], label: "Close", context: "overview", group: "Summary" },
