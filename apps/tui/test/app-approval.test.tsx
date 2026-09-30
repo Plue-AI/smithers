@@ -25,7 +25,9 @@ const request: Approvals.Pending = {
   flow: "bash",
   subject: "run checks",
   source: "chat",
+  identity: "run-checks",
   action: "proc:spawn",
+  resource: "bash",
   tier: "irreversible",
   always: true
 }
@@ -118,13 +120,13 @@ afterEach(async () => {
 test.each([{ key: "y", choice: "once" }, { key: "n", choice: "deny" }, { key: "a", choice: "run" }] as const)(
   "armed $key sends exactly the displayed owned request with $choice",
   async ({ key, choice }) => {
-    await waitFor(() => frame().includes("y allow"))
-    expect(frame()).toContain("? bash run checks")
+    await waitFor(() => frame().includes("y Allow once"))
+    expect(frame()).toContain("? run run checks")
     await press(key)
     expect(replies).toEqual([{ request, choice }])
     expect(replies[0]?.request).toBe(request)
-    await waitFor(() => !frame().includes("? bash run checks"))
-    expect(frame()).not.toContain("y allow")
+    await waitFor(() => !frame().includes("? run run checks"))
+    expect(frame()).not.toContain("y Allow once")
   },
   15000
 )
@@ -137,14 +139,14 @@ test("a pending approval counts beside Summary until it is answered", async () =
 }, 15000)
 
 test("typing a draft disarms approval keys and clearing it re-arms the visible request", async () => {
-  await waitFor(() => frame().includes("y allow"))
+  await waitFor(() => frame().includes("y Allow once"))
   await type("Draft")
-  expect(frame()).not.toContain("y allow")
+  expect(frame()).not.toContain("y Allow once")
   await press("y")
   expect(replies).toEqual([])
   expect(frame()).toContain("Drafty")
   await press("c", true)
-  await waitFor(() => frame().includes("y allow"))
+  await waitFor(() => frame().includes("y Allow once"))
   await press("y")
   expect(replies).toEqual([{ request, choice: "once" }])
 }, 15000)
@@ -157,7 +159,7 @@ test(
     const replacement: Approvals.Pending = { ...request, requestId: "replacement-approval", subject: "run formatter" }
     answer = () => reply.promise
     try {
-      await waitFor(() => frame().includes("y allow"))
+      await waitFor(() => frame().includes("y Allow once"))
       const previousReads = pendingReads
       readPending = () => stale.promise
       await press("y")
@@ -170,9 +172,9 @@ test(
         stale.resolve([request, replacement])
         await setImmediate()
       })
-      await waitFor(() => frame().includes("? bash run formatter"))
-      expect(frame()).not.toContain("? bash run checks")
-      expect(frame()).not.toContain("y allow")
+      await waitFor(() => frame().includes("? run run formatter"))
+      expect(frame()).not.toContain("? run run checks")
+      expect(frame()).not.toContain("y Allow once")
       expect(replies).toEqual([{ request, choice: "once" }])
       await press("c", true)
       await act(async () => {
@@ -182,7 +184,7 @@ test(
         await reply.promise
         await setImmediate()
       })
-      await waitFor(() => frame().includes("? bash run formatter") && frame().includes("y allow"))
+      await waitFor(() => frame().includes("? run run formatter") && frame().includes("y Allow once"))
       answer = async () => {
         pending = []
         return undefined
@@ -201,3 +203,48 @@ test(
   },
   15000
 )
+
+test("an edit's row shows its hunk, and the row and the footer offer the same keys", async () => {
+  const edit: Approvals.Pending = {
+    requestId: "edit-approval",
+    flow: "edit",
+    subject: "math.js",
+    source: "chat",
+    identity: "edit-math",
+    preview: {
+      added: 1,
+      removed: 1,
+      lines: ["-export function add(a, b) { return a - b; }", "+export function add(a, b) { return a + b; }"]
+    },
+    action: "fs:write",
+    resource: join(root, "workspace", "math.js"),
+    tier: "compensable",
+    always: true
+  }
+  pending = [edit]
+  await waitFor(() => frame().includes("? edit math.js  +1 −1"))
+  await waitFor(() => frame().includes("y Allow once"))
+  expect(frame()).toContain("- export function add(a, b) { return a - b; }")
+  expect(frame()).toContain("+ export function add(a, b) { return a + b; }")
+  expect(frame().split("y Allow once  n Deny change  a Allow edits this run")).toHaveLength(3)
+  await press("n")
+  expect(replies).toEqual([{ request: edit, choice: "deny" }])
+}, 15000)
+
+test("a row that cannot allow the run offers no a, in the row or the footer, and a is text", async () => {
+  const outside: Approvals.Pending = {
+    ...request,
+    requestId: "outside-approval",
+    flow: "write",
+    subject: "/etc/hosts",
+    action: "fs:write",
+    resource: "/etc/hosts",
+    always: false
+  }
+  pending = [outside]
+  await waitFor(() => frame().includes("? write /etc/hosts") && frame().includes("y Allow once"))
+  expect(frame().split("y Allow once  n Deny change")).toHaveLength(3)
+  expect(frame()).not.toContain("a Allow")
+  await press("a")
+  expect(replies).toEqual([])
+}, 15000)

@@ -3,6 +3,7 @@ import { testRender } from "@opentui/react/test-utils"
 import { afterEach, describe, expect, test } from "bun:test"
 import { ActivityView } from "../src/activity-view.tsx"
 import * as Activity from "../src/activity.ts"
+import * as Approvals from "../src/approvals.ts"
 import * as Scrubber from "../src/scrubber.ts"
 import * as Session from "../src/session.ts"
 import { color } from "../src/theme.ts"
@@ -272,29 +273,69 @@ describe("numbered steps", () => {
 
 test("approval subjects and keys remain separate across terminal widths", async () => {
   const subject = "node --test test/parser/quoted-arguments-and-unicode-paths-regression.test.mjs"
+  const keys = "y Allow once  n Deny  a Allow commands this run"
   for (const width of [40, 60, 80, 120]) {
     setup = await testRender(
       <box style={{ width }}>
         <View.Approval
           width={width}
-          request={{ flow: "bash", subject, always: true }}
-          scope="all bash"
+          request={{ flow: "bash", subject }}
+          choices={Approvals.choices({ action: "proc:spawn", flow: "bash", always: true })}
           armed
           more={0}
+          lines={4}
         />
       </box>,
       { width, height: 12 }
     )
     await setup.renderOnce()
     const frame = setup.captureCharFrame()
-    const lines = frame.split("\n").map((line) => line.trim())
-    expect(frame).toContain("y allow  n deny  a all bash")
-    if (width < 90) {
-      expect(lines.filter((line) => line !== "" && !line.startsWith("y allow")).join("")).toBe(`? bash ${subject}`)
-    } else {
-      expect(frame).toContain(subject + "  ")
-    }
+    const lines = frame.split("\n").map((line) => line.trim()).filter((line) => line !== "")
+    const shown = lines.slice(0, lines.findIndex((line) => line.startsWith("y Allow")))
+    expect(frame.replace(/\s+/g, " ")).toContain(keys.replace(/\s+/g, " "))
+    expect(frame).not.toContain("{")
+    if (width < 90) expect(shown.join("")).toBe(`? run ${subject}`)
+    else expect(frame).toContain("? run node --test")
     setup.renderer.destroy()
     setup = undefined
   }
+})
+
+test("an edit approval shows its changed lines, bounded, and offers the change's keys", async () => {
+  const request = {
+    flow: "edit",
+    subject: "math.js",
+    preview: {
+      added: 3,
+      removed: 1,
+      lines: [
+        "-export function add(a, b) { return a - b; }",
+        "+export function add(a, b) { return a + b; }",
+        "+// one",
+        "+// two"
+      ]
+    }
+  }
+  setup = await testRender(
+    <box style={{ width: 80 }}>
+      <View.Approval
+        width={80}
+        request={request}
+        choices={Approvals.choices({ action: "fs:write", flow: "edit", always: true })}
+        armed
+        more={0}
+        lines={2}
+      />
+    </box>,
+    { width: 80, height: 12 }
+  )
+  await setup.renderOnce()
+  const lines = setup.captureCharFrame().split("\n").map((line) => line.trim()).filter((line) => line !== "")
+  expect(lines).toEqual([
+    "? edit math.js  +3 −1",
+    "- export function add(a, b) { return a - b; }",
+    "+ export function add(a, b) { return a + b; }",
+    "…",
+    "y Allow once  n Deny change  a Allow edits this run"
+  ])
 })

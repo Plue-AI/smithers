@@ -1,11 +1,12 @@
 /**
  * Approvals: a consequential flow call waits for the person at the keyboard.
  *
- * The kernel's attended `GrantStore` is the whole model. `authorize` asks it
- * for each consequential capability a call declares, `Agent.Options.authorize`
- * runs that before the call's clock starts, and a denial reaches the cell as
+ * The kernel's attended `GrantStore` asks. `authorize` asks it for each
+ * consequential capability a call declares, `Agent.Options.authorize` runs
+ * that before the call's clock starts, and a denial reaches the cell as
  * `capability_refused` carrying the `Denied: ` message this module writes. The
- * UI polls `list` and answers with `reply`.
+ * UI polls `list` and answers with `reply`. Under `ask`, a `Memory` answers
+ * first for what this run already decided; see `Memory`.
  *
  * Consequential means the declared capability can change something the
  * workspace's VCS will not show, or reach outside the process: every
@@ -20,9 +21,11 @@ import type * as Cell from "@smthrs/harness/Cell"
 import { HarnessError } from "@smthrs/harness/HarnessError"
 import * as GrantStore from "@smthrs/kernel/GrantStore"
 import * as Workspace from "@smthrs/kernel/Workspace"
+import { structuredPatch } from "diff"
 import { Effect, Layer, Option } from "effect"
-import { lstatSync, readlinkSync } from "node:fs"
-import { dirname, isAbsolute, join, relative } from "node:path"
+import { createHash } from "node:crypto"
+import { lstatSync, readFileSync, readlinkSync, statSync } from "node:fs"
+import { basename, dirname, isAbsolute, join, relative } from "node:path"
 import * as Changes from "./changes.ts"
 import type * as Monitors from "./monitors.ts"
 
@@ -31,23 +34,50 @@ export type Mode = "ask" | "all" | "deny"
 /** The answers `GrantStore.reply` takes that the TUI offers. */
 export type Choice = "once" | "deny" | "run"
 
+/** The lines a write changes, as a row shows them: `+` or `-` first. */
+export interface Preview {
+  readonly added: number
+  readonly removed: number
+  /** At most `previewLines`, each at most `previewWidth` characters. */
+  readonly lines: ReadonlyArray<string>
+}
+
 export interface Meta {
   readonly flow: string
   readonly subject: string
   /** `chat`, or the worker tab id. */
   readonly source: string
+  /** The same for the same flow, input and capability; see `Memory`. */
+  readonly identity: string
+  readonly preview?: Preview
+}
+
+/** A shell call, as a denied path or a read-only declaration reads it. */
+export interface Command {
+  /** Every string the call runs: command, script, arguments, stdin, interpreter, environment. */
+  readonly text: string
+  /** The real directory it runs in, which its relative words resolve against. */
+  readonly base: string
+  /** Absolute patterns from a hermetic call's `writes`; `undefined` when it declared none. */
+  readonly writes: ReadonlyArray<string> | undefined
+  /** Declared `writes: []` and nothing in its text says otherwise; see `readOnly`. */
+  readonly readOnly: boolean
 }
 
 export interface Request {
   readonly capability: Capability.Capability
   readonly meta: Meta
+  readonly command?: Command
+  /** The harness call's identity (`Changes.identity`), for `Memory.changed`. */
+  readonly call?: string
 }
 
 export interface Pending extends Meta {
   readonly requestId: string
   readonly action: Capability.Action
+  readonly resource: string
   readonly tier: Capability.EffectTier
-  /** Whether the store can grant this for the rest of the session. */
+  /** Whether `a` can allow this for the rest of the run. */
   readonly always: boolean
 }
 
@@ -108,19 +138,399 @@ export const real = (path: string): string => {
   return head
 }
 
-/** Keys that never change what a call does, per flow. */
-const inert: Record<string, ReadonlyArray<string>> = { bash: ["mode", "timeoutMs"] }
+/**
+ * Keys that never change what a call does, per flow. A hermetic call's
+ * `reads` and `writes` only narrow a lexical pre-check that refuses more.
+ */
+const inert: Record<string, ReadonlyArray<string>> = { bash: ["mode", "timeoutMs", "reads", "writes"] }
+
+/** A word the shell reads as itself; anything else is single-quoted. */
+const quoted = (word: string): string => /^[\w@%+=:,./-]+$/.test(word) ? word : `'${word.replaceAll("'", "'\\''")}'`
 
 /**
- * What a row shows for a call: its lone string input as itself, otherwise the
- * whole raw input. Never a chosen key, since the flow's decoder may strip that
- * key while another one runs.
+ * A command as the shell line that runs it: `cd dir && export NAME=value; command`.
+ * The environment reads as an export because it covers the whole line. Only a
+ * call whose every other key is inert reads this way; anything more shows
+ * whole, so `y` approves exactly what runs.
+ */
+const commandLine = (input: Record<string, unknown>, keys: ReadonlyArray<string>): string | undefined => {
+  const { command, cwd, env } = input
+  if (typeof command !== "string" || !keys.every((key) => key === "command" || key === "cwd" || key === "env")) {
+    return undefined
+  }
+  if (cwd !== undefined && typeof cwd !== "string") return undefined
+  if (env !== undefined && (typeof env !== "object" || env === null || Array.isArray(env))) return undefined
+  const pairs = Object.entries((env ?? {}) as Record<string, unknown>)
+  if (!pairs.every(([name, value]) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(name) && typeof value === "string")) {
+    return undefined
+  }
+  return [
+    ...(cwd === undefined ? [] : [`cd ${quoted(cwd)} &&`]),
+    ...(pairs.length === 0
+      ? []
+      : [`export ${pairs.map(([name, value]) => `${name}=${quoted(value as string)}`).join(" ")};`]),
+    command
+  ].join(" ")
+}
+
+/**
+ * What a row shows for a call: a command as its shell line, a lone string
+ * input as itself, otherwise every key that changes what runs. Never a chosen
+ * key alone, since the flow's decoder may strip that key while another one runs.
  */
 export const shownInput = (flow: string, input: unknown): string => {
   if (typeof input !== "object" || input === null) return input === undefined ? "" : JSON.stringify(input)
   const keys = Object.keys(input).filter((key) => !(inert[flow] ?? []).includes(key))
+  const line = flow === "bash" ? commandLine(input as Record<string, unknown>, keys) : undefined
+  if (line !== undefined) return line
   const only = keys.length === 1 ? (input as Record<string, unknown>)[keys[0]!] : undefined
-  return typeof only === "string" ? only : JSON.stringify(input)
+  if (typeof only === "string") return only
+  return JSON.stringify(Object.fromEntries(keys.map((key) => [key, (input as Record<string, unknown>)[key]])))
+}
+
+/** The verb a row reads: `? run node check.mjs`, `? edit math.js`. */
+export const verb = (flow: string): string => flow === "bash" ? "run" : flow
+
+/** Row bounds, well inside the store's metadata limit. */
+export const previewLines = 24
+export const previewWidth = 240
+
+/** Text the store accepts: a lone surrogate becomes `�`. */
+export const wellFormed = (text: string): string => text.toWellFormed()
+
+/**
+ * One changed line as a row can draw it: control characters shown as `�` so
+ * no line rewrites the screen, cut by code point with `…` so it stays valid text.
+ */
+const drawable = (line: string): string => {
+  const points = [...wellFormed(line).replace(/(?!\t)\p{Cc}/gu, "\ufffd")]
+  return points.length <= previewWidth ? points.join("") : `${points.slice(0, previewWidth - 1).join("")}…`
+}
+
+/** Counts every changed line; keeps the first `previewLines`. */
+const collect = (lines: ReadonlyArray<string>): Preview => {
+  let added = 0
+  let removed = 0
+  const kept: Array<string> = []
+  for (const line of lines) {
+    if (line.startsWith("+")) added++
+    else if (line.startsWith("-")) removed++
+    else continue
+    if (kept.length < previewLines) kept.push(drawable(line))
+  }
+  return { added, removed, lines: kept }
+}
+
+const split = (text: string): ReadonlyArray<string> => text === "" ? [] : text.replace(/\n$/, "").split("\n")
+
+/** The changed lines between two texts; a diff too large to compute is every line out, then every line in. */
+export const hunk = (before: string, after: string): Preview => {
+  const patch = structuredPatch("", "", before, after, "", "", { context: 0, maxEditLength: 1_000 })
+  return collect(
+    patch === undefined
+      ? [...split(before).map((line) => `-${line}`), ...split(after).map((line) => `+${line}`)]
+      : patch.hunks.flatMap((each) => each.lines)
+  )
+}
+
+/** A text file's content; `null` when absent, `undefined` when unreadable, binary or large. */
+const text = (path: string): string | null | undefined => {
+  try {
+    const info = statSync(path)
+    if (!info.isFile() || info.size > 512_000) return undefined
+    const bytes = readFileSync(path)
+    if (bytes.includes(0)) return undefined
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes)
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code
+    return code === "ENOENT" || code === "ENOTDIR" ? null : undefined
+  }
+}
+
+interface Section {
+  readonly kind: string
+  readonly lines: Array<string>
+}
+
+/** Each file's sections of a V4A patch, keyed by every path they name; a file named twice collects both. */
+const sections = (patch: string): ReadonlyMap<string, Section> => {
+  const found = new Map<string, Section>()
+  let open: Section | undefined
+  for (const line of patch.split("\n")) {
+    const header = /^\s*\*\*\* (Add|Update|Delete) File: (.+?)\s*$/.exec(line)
+    const moved = /^\s*\*\*\* Move to: (.+?)\s*$/.exec(line)
+    if (header !== null) {
+      open = found.get(header[2]!) ?? { kind: header[1]!, lines: [] }
+      found.set(header[2]!, open)
+    } else if (moved !== null && open !== undefined) found.set(moved[1]!, open)
+    else if (/^\s*\*\*\* /.test(line)) open = line.includes("End of File") ? open : undefined
+    else if (open !== undefined && (line.startsWith("+") || line.startsWith("-"))) open.lines.push(line)
+  }
+  return found
+}
+
+/**
+ * What a write to `path` changes, for its row: the file as the edit or write
+ * leaves it against the file now, or a patch's own lines for that file.
+ * `undefined` when the file cannot be read.
+ */
+export const preview = (flow: string, input: unknown, path: string, cwd: string): Preview | undefined => {
+  if (typeof input !== "object" || input === null) return undefined
+  const value = input as Record<string, unknown>
+  const file = isAbsolute(path) ? path : join(cwd, path)
+  if (flow === "write" && typeof value.content === "string") {
+    const before = text(file)
+    return before === undefined ? undefined : hunk(before ?? "", value.content)
+  }
+  if (flow === "edit" && typeof value.newString === "string") {
+    const replacing = value.newString
+    const before = text(file)
+    if (typeof value.oldString === "string") {
+      const old = value.oldString
+      // Every occurrence `replaceAll` replaces; the anchor's own lines when the file does not hold it.
+      if (typeof before !== "string" || old === "" || !before.includes(old)) return hunk(old, replacing)
+      return hunk(
+        before,
+        value.replaceAll === true ? before.split(old).join(replacing) : before.replace(old, () => replacing)
+      )
+    }
+    const { startLine, endLine } = value
+    if (typeof startLine !== "number" || typeof endLine !== "number" || typeof before !== "string") return undefined
+    const lines = before.split("\n").slice(startLine - 1, endLine).join("\n")
+    return hunk(`${lines}\n`, replacing.endsWith("\n") ? replacing : `${replacing}\n`)
+  }
+  if (flow === "apply_patch" && typeof value.input === "string") {
+    const section = sections(value.input).get(path)
+    if (section === undefined) return undefined
+    if (section.kind !== "Delete") return collect(section.lines)
+    const before = text(file)
+    return typeof before === "string" ? hunk(before, "") : undefined
+  }
+  return undefined
+}
+
+/** Object keys sorted at every depth, so the same input always hashes the same. */
+const canonical = (value: unknown): unknown =>
+  Array.isArray(value)
+    ? value.map(canonical)
+    : typeof value === "object" && value !== null
+    ? Object.fromEntries(
+      Object.keys(value).sort().map((key) => [key, canonical((value as Record<string, unknown>)[key])])
+    )
+    : value
+
+/**
+ * See `Meta.identity`. `state` is what else decides the outcome: the file a
+ * write or a line-range edit replaces, or the plan a launch approves.
+ */
+export const identity = (
+  flow: string,
+  input: unknown,
+  capability: Capability.Capability,
+  state?: unknown
+): string =>
+  createHash("sha256").update(
+    JSON.stringify([flow, canonical(input), Capability.format(capability), state === undefined ? null : state])
+  ).digest("hex")
+
+/** What a write replaces, for its identity: `null` when nothing does. */
+const replaced = (flow: string, input: unknown, path: string, cwd: string): string | null => {
+  const value = typeof input === "object" && input !== null ? input as Record<string, unknown> : {}
+  if (flow !== "write" && !(flow === "edit" && value.oldString === undefined)) return null
+  const before = text(isAbsolute(path) ? path : join(cwd, path))
+  return typeof before === "string" ? createHash("sha256").update(before).digest("hex") : String(before)
+}
+
+/**
+ * Programs whose every use reads, plus the read-only forms of a few more.
+ * Interpreters run only a script file the call names, which the owner's
+ * `writes: []` decision trusts; inline or piped code is never pre-allowed.
+ */
+const readers = new Set([
+  "basename",
+  "bun",
+  "cat",
+  "cmp",
+  "column",
+  "cut",
+  "diff",
+  "dirname",
+  "du",
+  "echo",
+  "false",
+  "find",
+  "git",
+  "grep",
+  "head",
+  "jq",
+  "ls",
+  "md5sum",
+  "node",
+  "npm",
+  "pnpm",
+  "printf",
+  "pwd",
+  "python",
+  "python3",
+  "realpath",
+  "rg",
+  "sha256sum",
+  "shasum",
+  "sort",
+  "stat",
+  "tail",
+  "test",
+  "tr",
+  "tree",
+  "true",
+  "wc",
+  "which",
+  "yarn"
+])
+
+/** Subcommands that only read, per program with subcommands. */
+const readingSubcommands: Readonly<Record<string, ReadonlySet<string>>> = {
+  git: new Set(["status", "diff", "log", "show", "grep", "ls-files", "rev-parse", "blame"]),
+  npm: new Set(["test", "t"]),
+  pnpm: new Set(["test", "t"]),
+  yarn: new Set(["test"]),
+  bun: new Set(["test"])
+}
+
+/** Arguments that make a reader write, or run a program or inline code. */
+const writingArguments: Readonly<Record<string, RegExp>> = {
+  find: /^-(delete|exec|execdir|ok|okdir|fprint|fprint0|fprintf|fls)$/,
+  git: /^(--output|-O|--open-files-in-pager|-c$|--config-env|--exec-path)/,
+  rg: /^(--pre|--hostname-bin)/,
+  tree: /^-o/,
+  node: /^(-e|-p|-r|-i|--eval|--print|--require|--import|--loader|--experimental-loader|--interactive)/,
+  python: /^-[A-Za-z]*c/,
+  python3: /^-[A-Za-z]*c/,
+  sort: /^(-[A-Za-z]*o|--output)/
+}
+
+/** Interpreters, which must name the script file they run. */
+const interpreters = new Set(["node", "python", "python3"])
+
+/** Modules `python -m` may run: test runners, like a script file. */
+const modules = new Set(["pytest", "unittest"])
+
+/** Whether one command's words read as only reading. */
+const reading = (words: ReadonlyArray<string>): boolean => {
+  const [program, ...rest] = words
+  if (program === undefined) return true
+  // Assignments before the command set its environment, which can load code.
+  if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(program)) return false
+  const tool = basename(program)
+  if (!readers.has(tool)) return false
+  const subcommands = readingSubcommands[tool]
+  if (subcommands !== undefined && !(tool === "bun" && rest[0] !== undefined && /\.[cm]?[jt]sx?$/.test(rest[0]))) {
+    const sub = rest.find((word) => !word.startsWith("-"))
+    if (sub === undefined || !subcommands.has(sub)) return false
+  }
+  const writing = writingArguments[tool]
+  if (writing !== undefined && rest.some((word) => writing.test(word))) return false
+  if (!interpreters.has(tool)) return true
+  const module = rest.indexOf("-m")
+  if (module >= 0) return modules.has(rest[module + 1] ?? "")
+  return rest.some((word) => !word.startsWith("-")) || (tool === "node" && rest.includes("--test"))
+}
+
+/** Shell text as its commands and whether any of them writes through a redirection. */
+interface Parsed {
+  /** Each command's words, quotes and escapes removed. */
+  readonly commands: ReadonlyArray<ReadonlyArray<string>>
+  /** An unquoted `>` other than `N>&M` or to `/dev/null`, or a here-document. */
+  readonly redirects: boolean
+}
+
+/** Reads shell text as the shell splits it: separators and redirections inside quotes are text. */
+const parse = (shell: string): Parsed => {
+  const found: Array<Array<string>> = [[]]
+  let redirects = false
+  let word: string | undefined
+  let quote: string | undefined
+  const end = () => {
+    if (word !== undefined) found.at(-1)!.push(word)
+    word = undefined
+  }
+  for (let at = 0; at < shell.length; at++) {
+    const char = shell[at]!
+    if (quote !== undefined) {
+      if (char === quote) quote = undefined
+      else if (char === "\\" && quote === "\"" && at + 1 < shell.length) word = (word ?? "") + shell[++at]
+      else word = (word ?? "") + char
+    } else if (char === "'" || char === "\"") {
+      quote = char
+      word = word ?? ""
+    } else if (char === "\\" && at + 1 < shell.length) word = (word ?? "") + shell[++at]
+    else if (char === ">") {
+      // A descriptor number just before belongs to the redirection, not the command.
+      if (word !== undefined && /^[0-9]*$/.test(word)) word = undefined
+      end()
+      const rest = shell.slice(shell[at + 1] === ">" ? at + 2 : at + 1)
+      const duplicate = /^&(?:[0-9]+|-)(?=$|[\s;&|)])/.exec(rest)
+      const discarded = /^\s*\/dev\/null(?=$|[\s;&|)])/.exec(rest)
+      if (duplicate === null && discarded === null) redirects = true
+      // Past the redirection; a file target is read on as a word.
+      at = shell.length - rest.length + (duplicate?.[0].length ?? discarded?.[0].length ?? 0) - 1
+    } else if (char === "<" && shell[at + 1] === "<") {
+      redirects = true
+      end()
+    } else if (/[;&|\n(){}]/.test(char)) {
+      end()
+      found.push([])
+    } else if (/[\s<]/.test(char)) end()
+    else word = (word ?? "") + char
+  }
+  end()
+  return { commands: found, redirects }
+}
+
+/**
+ * Whether shell text reads as only reading, lexically: every command in it is
+ * a known reader in a reading form, with no command substitution, variable in
+ * command position, here-document, or output redirection except `N>&M` or to
+ * `/dev/null`. It is a check of the declaration, not a sandbox; `Memory`
+ * stops trusting declarations once one changed a file or could not be checked.
+ */
+export const readOnly = (shell: string): boolean => {
+  if (/`|\$\(|<\(|>\(/.test(shell)) return false
+  const parsed = parse(shell)
+  return !parsed.redirects && parsed.commands.every(reading)
+}
+
+/** How a shell call reads for `Memory`; see `Command`. */
+const command = (flow: string, input: unknown, cwd: string): Command | undefined => {
+  if (flow !== "bash" || typeof input !== "object" || input === null) return undefined
+  const value = input as Record<string, unknown>
+  const strings = (each: unknown): ReadonlyArray<string> =>
+    typeof each === "string"
+      ? [each]
+      : Array.isArray(each)
+      ? each.flatMap(strings)
+      : typeof each === "object" && each !== null
+      ? Object.values(each).flatMap(strings)
+      : []
+  const text = ["command", "script", "stdin", "args", "interpreter", "env"].flatMap((key) => strings(value[key])).join(
+    "\n"
+  )
+  const root = real(cwd)
+  const base = real(typeof value.cwd === "string" ? (isAbsolute(value.cwd) ? value.cwd : join(cwd, value.cwd)) : cwd)
+  const inside = base === root || base.startsWith(`${root.replace(/\/+$/, "")}/`)
+  const writes = value.mode === "hermetic" && Array.isArray(value.writes)
+    ? (value.writes as ReadonlyArray<unknown>).map((glob) =>
+      isAbsolute(String(glob)) ? String(glob) : join(base, String(glob))
+    )
+    : undefined
+  return {
+    text,
+    base,
+    writes,
+    readOnly: writes !== undefined && writes.length === 0 && typeof value.command === "string" && inside &&
+      ["container", "env", "script", "stdin", "interpreter", "args"].every((key) => value[key] === undefined) &&
+      readOnly(value.command)
+  }
 }
 
 /**
@@ -141,10 +551,18 @@ const spawns: Readonly<Record<string, (input: unknown) => string | undefined>> =
  * The request a restored shell monitor waits on before it runs again: the one
  * `monitor.create` asked, so an `a` for that flow covers both.
  */
-export const monitorRequest = (command: string, source = "chat"): Request => ({
-  capability: Capability.make("proc:spawn", "monitor.create"),
-  meta: { flow: "monitor.create", subject: command, source }
-})
+export const monitorRequest = (command: string, source = "chat"): Request => {
+  const capability = Capability.make("proc:spawn", "monitor.create")
+  return {
+    capability,
+    meta: {
+      flow: "monitor.create",
+      subject: command,
+      source,
+      identity: identity("monitor.create", command, capability)
+    }
+  }
+}
 
 /**
  * `Monitors.Ports.authorize` over a host's `authorize`: a restored shell
@@ -160,8 +578,20 @@ export const restored =
 export const requests = (call: Cell.Call, cwd: string, source: string): ReadonlyArray<Request> => {
   const found = new Map<string, Request>()
   const subject = shownInput(call.flowName, call.input)
-  const add = (capability: Capability.Capability, shown: string) =>
-    found.set(Capability.format(capability), { capability, meta: { flow: call.flowName, subject: shown, source } })
+  const shell = command(call.flowName, call.input, cwd)
+  const add = (capability: Capability.Capability, shown: string, preview?: Preview, state?: unknown) =>
+    found.set(Capability.format(capability), {
+      capability,
+      meta: {
+        flow: call.flowName,
+        subject: wellFormed(shown),
+        source,
+        identity: identity(call.flowName, call.input, capability, state),
+        ...(preview === undefined ? {} : { preview })
+      },
+      ...(shell === undefined ? {} : { command: shell }),
+      call: Changes.identity(call.identity)
+    })
   for (const declared of call.capabilities) {
     const parsed = Capability.parse(declared)
     if (Option.isNone(parsed) || !consequential(parsed.value, cwd)) continue
@@ -177,11 +607,13 @@ export const requests = (call: Cell.Call, cwd: string, source: string): Readonly
         const inside = relative(root, target)
         add(
           Capability.make("fs:write", target),
-          inside !== "" && !inside.startsWith("..") && !isAbsolute(inside) ? inside : target
+          inside !== "" && !inside.startsWith("..") && !isAbsolute(inside) ? inside : target,
+          preview(call.flowName, call.input, path, cwd),
+          replaced(call.flowName, call.input, path, cwd)
         )
       }
     } else if (capability.action === "proc:spawn") {
-      // The flow, not the command: `a` then means this flow for the session.
+      // The flow, not the command: `a` then means this flow for the run.
       const spawned = spawns[call.flowName]
       const shown = spawned === undefined ? subject : spawned(call.input)
       if (shown === undefined) continue
@@ -198,7 +630,9 @@ export const project = (
   flow: string,
   capabilities: ReadonlyArray<string>,
   cwd: string,
-  source: string
+  source: string,
+  /** The plan's digest, which covers its input: `y` allows this launch, not the next one's. */
+  digest: string
 ): ReadonlyArray<Request> => {
   const found = new Map<string, Request>()
   for (const declared of capabilities) {
@@ -222,7 +656,10 @@ export const project = (
       const capability = Capability.make(action, resource)
       if (!consequential(capability, cwd)) continue
       const subject = Capability.format(capability)
-      found.set(subject, { capability, meta: { flow, subject, source } })
+      found.set(subject, {
+        capability,
+        meta: { flow, subject, source, identity: identity(flow, subject, capability, digest) }
+      })
     }
   }
   return [...found.values()]
@@ -243,6 +680,17 @@ export const layer = (cwd: string, approvals: Mode): Layer.Layer<GrantStore.Gran
 /** Starts every denial message this host writes; the cell reads it as `capability_refused`. */
 export const deniedPrefix = "Denied: "
 
+/**
+ * The message a denied request reaches the cell with. `path` names the file
+ * whose refused change a command touches.
+ */
+export const refusal = (meta: Pick<Meta, "flow" | "subject">, path?: string): string =>
+  `${deniedPrefix}${meta.flow} ${meta.subject}. ${
+    path === undefined
+      ? "The person refused this for the rest of the run; do not do it another way."
+      : `It names ${path}, whose change the person refused for the rest of the run; do not change it another way.`
+  }`
+
 /** Whether a settled call is a denial this host wrote, not some other refusal. */
 export const denied = (result: Cell.CallResult): boolean =>
   result.outcome === "failure" && result.code === "capability_refused" &&
@@ -258,76 +706,338 @@ export const notices = () => {
   }
 }
 
-/** `Agent.Options.authorize`: waits for every consequential request, in order. */
-export const authorize =
-  (grants: GrantStore.Service, options: { readonly cwd: string; readonly source: string }) =>
-  (call: Cell.Call): Effect.Effect<void, HarnessError> => check(grants, requests(call, options.cwd, options.source))
+/** What one run (a `source`) has answered; see `Memory`. */
+interface Run {
+  /** Identities allowed with `y`. */
+  readonly allowed: Set<string>
+  /** Identities denied with `n`. */
+  readonly refused: Set<string>
+  /** Real paths whose change was denied. */
+  readonly paths: Set<string>
+  /** What `a` allowed. */
+  readonly grants: Array<Capability.CapabilityPattern>
+  /** Commands asked about, by identity, so an answer can settle the waiting ones it covers. */
+  readonly commands: Map<string, Command>
+  /** Calls that ran unasked on a read-only declaration, until their changes are captured. */
+  readonly declared: Set<string>
+  /** Of `declared`, those whose changes were captured and found none. */
+  readonly checked: Set<string>
+  /** False once a call declared read-only changed a file or could not be checked. */
+  trusted: boolean
+}
+
+/** What `Memory` answers without asking. */
+export type Decision =
+  | { readonly _tag: "allow" }
+  | { readonly _tag: "deny"; readonly path?: string }
+  /** Ask, even where an allowance covers it: it may reach a refused file. */
+  | { readonly _tag: "ask" }
+
+/**
+ * How a command touches a refused file: by a word that resolves to it, or
+ * only by one that could: its name from another directory, a directory
+ * holding it, or a glob.
+ */
+const touches = (shell: Command, path: string): "names" | "may" | undefined => {
+  const name = basename(path)
+  let may = false
+  for (const words of parse(shell.text).commands) {
+    for (const word of words) {
+      if (word === "") continue
+      const resolved = isAbsolute(word) ? word : join(shell.base, word)
+      const target = real(resolved)
+      if (basename(word) === name && target === path) return "names"
+      may ||= basename(word) === name || path.startsWith(`${target.replace(/\/+$/, "")}/`) || (/[*?[]/.test(word) &&
+        Capability.matches(
+          new Capability.CapabilityPattern({ action: "fs:write", resource: resolved }),
+          Capability.make("fs:write", path)
+        ))
+    }
+  }
+  return may ? "may" : undefined
+}
+
+/**
+ * What each run already decided, so the person is asked once per decision.
+ * A run is one `source` for one `Host.run`: `forget` starts the next.
+ *
+ * - `y` allows that identical request again in the run.
+ * - `n` denies it again, and denies the change: any later write of the same
+ *   path through edit, write or apply_patch, and any shell call with a word
+ *   that resolves to the file or a declared write that covers it. A shell
+ *   call with a word that only could reach it is asked, even under `a`.
+ * - `a` allows every request its label names for the rest of the run.
+ * - A shell call that declares `writes: []` and reads as only reading
+ *   (`readOnly`) runs unasked, while the run has refused nothing and every
+ *   such earlier call was captured changing no file.
+ *
+ * A denial wins over every allowance. The host keeps one `Memory` under
+ * `ask` only: `deny` must never meet an allowance.
+ */
+export class Memory {
+  private readonly runs = new Map<string, Run>()
+
+  constructor(
+    /** Whether a shell call's changes can be captured here; without it nothing runs on a declaration. */
+    private readonly checkable = true
+  ) {}
+
+  private run(source: string): Run {
+    let found = this.runs.get(source)
+    if (found === undefined) {
+      found = {
+        allowed: new Set(),
+        refused: new Set(),
+        paths: new Set(),
+        grants: [],
+        commands: new Map(),
+        declared: new Set(),
+        checked: new Set(),
+        trusted: true
+      }
+      this.runs.set(source, found)
+    }
+    return found
+  }
+
+  /** A new run of `source` starts with nothing decided. */
+  forget(source: string): void {
+    this.runs.delete(source)
+  }
+
+  /**
+   * What to do with `request` without asking; `ask` when the person must
+   * answer. `declared` is whether a read-only declaration may run unasked
+   * here: never where the call's changes are not captured, such as on a box.
+   */
+  decide(request: Pick<Request, "capability" | "meta" | "command" | "call">, declared = true): Decision {
+    const run = this.runs.get(request.meta.source)
+    const shell = request.command ?? run?.commands.get(request.meta.identity)
+    if (run !== undefined) {
+      if (run.refused.has(request.meta.identity)) return { _tag: "deny" }
+      if (request.capability.action === "fs:write" && run.paths.has(request.capability.resource)) {
+        return { _tag: "deny" }
+      }
+      if (shell !== undefined) {
+        let may = false
+        for (const path of run.paths) {
+          const covered = shell.writes?.some((glob) =>
+            Capability.matches(
+              new Capability.CapabilityPattern({ action: "fs:write", resource: glob }),
+              Capability.make("fs:write", path)
+            )
+          ) === true
+          const touched = touches(shell, path)
+          if (covered || touched === "names") return { _tag: "deny", path: relative(shell.base, path) || path }
+          may ||= touched === "may"
+        }
+        if (may) return this.asked(run, request, shell)
+      }
+      if (run.allowed.has(request.meta.identity)) return { _tag: "allow" }
+      if (run.grants.some((pattern) => Capability.matches(pattern, request.capability))) return { _tag: "allow" }
+    }
+    if (
+      shell?.readOnly === true && declared && this.checkable && request.call !== undefined &&
+      (run === undefined || (run.trusted && run.paths.size === 0))
+    ) {
+      this.run(request.meta.source).declared.add(request.call)
+      return { _tag: "allow" }
+    }
+    return shell === undefined ? { _tag: "ask" } : this.asked(this.run(request.meta.source), request, shell)
+  }
+
+  private asked(run: Run, request: Pick<Request, "meta">, shell: Command): Decision {
+    run.commands.set(request.meta.identity, shell)
+    return { _tag: "ask" }
+  }
+
+  /**
+   * Records an answer. A denial holds from now on, even if the store no
+   * longer lists the request; an allowance is recorded by `allowed`, once
+   * the store took it.
+   */
+  denied(request: Pending): void {
+    const run = this.run(request.source)
+    run.refused.add(request.identity)
+    if (request.action === "fs:write") run.paths.add(request.resource)
+  }
+
+  allowed(request: Pending, choice: "once" | "run", cwd: string): void {
+    const run = this.run(request.source)
+    run.allowed.add(request.identity)
+    if (choice !== "run" || !request.always) return
+    const pattern = request.action === "fs:write"
+      ? new Capability.CapabilityPattern({ action: "fs:write", resource: `${real(cwd).replace(/\/+$/, "")}/**` })
+      : Option.getOrUndefined(Capability.patternFromCapability(Capability.make(request.action, request.resource)))
+    if (pattern !== undefined) run.grants.push(pattern)
+  }
+
+  /**
+   * A shell call's changes were captured (`Changes.capture`): one that ran
+   * unasked on `writes: []` and changed a file, or could not be checked,
+   * ends that trust for the run.
+   */
+  changed(source: string, receipt: Changes.Receipt): void {
+    const run = this.runs.get(source)
+    if (run === undefined || !run.declared.has(receipt.call)) return
+    if (receipt.patches.length > 0) run.trusted = false
+    else run.checked.add(receipt.call)
+  }
+
+  /** A call settled: one that ran on a declaration with no captured changes could not be checked. */
+  settled(source: string, call: string): void {
+    const run = this.runs.get(source)
+    if (run !== undefined && run.declared.has(call) && !run.checked.has(call)) run.trusted = false
+  }
+}
+
+/**
+ * `Agent.Options.authorize`: waits for every consequential request, in order.
+ * `captured` is false where the call's changes are not captured (a box), so
+ * no declaration runs unasked there.
+ */
+export const authorize = (
+  grants: GrantStore.Service,
+  options: {
+    readonly cwd: string
+    readonly source: string
+    readonly memory?: Memory
+    readonly captured?: boolean
+  }
+) =>
+(call: Cell.Call): Effect.Effect<void, HarnessError> =>
+  check(grants, requests(call, options.cwd, options.source), options.memory, options.captured)
 
 /** Both worker calls and project launches wait on this same store. */
 export const check = (
   grants: GrantStore.Service,
-  requests: ReadonlyArray<Request>
+  requests: ReadonlyArray<Request>,
+  memory?: Memory,
+  captured = true
 ): Effect.Effect<void, HarnessError> =>
   Effect.forEach(
     requests,
-    (request) =>
-      grants.check(request.capability, { ...request.meta }).pipe(
-        Effect.mapError((cause) =>
-          cause instanceof Permission.PermissionDenied
-            ? new HarnessError({
-              code: "engine_failed",
-              message: `${deniedPrefix}${request.meta.flow} ${request.meta.subject}`,
-              cause
-            })
-            : new HarnessError({ code: "engine_failed", message: "Approval store failed", cause })
+    (request) => {
+      const decision = memory?.decide(request, captured) ?? { _tag: "ask" as const }
+      if (decision._tag === "allow") return Effect.void
+      const asked = decision._tag === "deny"
+        ? Effect.fail(
+          new Permission.PermissionDenied({ capability: request.capability, reason: "denied earlier in this run" })
         )
-      ),
+        : grants.check(request.capability, { ...request.meta })
+      return asked.pipe(
+        Effect.mapError((cause) => {
+          if (!(cause instanceof Permission.PermissionDenied)) {
+            return new HarnessError({ code: "engine_failed", message: "Approval store failed", cause })
+          }
+          // An answer to another request may have settled this one: say why.
+          const why = decision._tag === "deny" ? decision : memory?.decide(request, false)
+          return new HarnessError({
+            code: "engine_failed",
+            message: refusal(request.meta, why?._tag === "deny" ? why.path : undefined),
+            cause
+          })
+        })
+      )
+    },
     { discard: true }
   )
 
 const order = (requestId: string): number => Number(requestId.slice(requestId.lastIndexOf("-") + 1))
 
+const previewOf = (value: unknown): Preview | undefined => {
+  if (typeof value !== "object" || value === null) return undefined
+  const { added, removed, lines } = value as Record<string, unknown>
+  return typeof added === "number" && typeof removed === "number" && Array.isArray(lines) &&
+      lines.every((line) => typeof line === "string")
+    ? { added, removed, lines }
+    : undefined
+}
+
 /** The store's waiting requests, oldest first. */
 export const pending = (list: ReadonlyArray<GrantStore.PendingRequest>): ReadonlyArray<Pending> =>
-  [...list].sort((a, b) => order(a.requestId) - order(b.requestId)).map((request) => ({
-    requestId: request.requestId,
-    flow: String(request.meta.flow ?? ""),
-    subject: String(request.meta.subject ?? ""),
-    source: String(request.meta.source ?? "chat"),
-    action: request.capability.action,
-    tier: request.tier,
-    always: request.capability.action === "fs:write"
-      ? request.tier === "compensable"
-      : Option.isSome(Capability.patternFromCapability(request.capability))
-  }))
+  [...list].sort((a, b) => order(a.requestId) - order(b.requestId)).map((request) => {
+    const preview = previewOf(request.meta.preview)
+    return {
+      requestId: request.requestId,
+      flow: String(request.meta.flow ?? ""),
+      subject: String(request.meta.subject ?? ""),
+      source: String(request.meta.source ?? "chat"),
+      identity: String(request.meta.identity ?? ""),
+      ...(preview === undefined ? {} : { preview }),
+      action: request.capability.action,
+      resource: request.capability.resource,
+      tier: request.tier,
+      always: request.capability.action === "fs:write"
+        ? request.tier === "compensable"
+        : Option.isSome(Capability.patternFromCapability(request.capability))
+    }
+  })
 
+/**
+ * Answers `request` and remembers the answer for its run, then settles every
+ * other request of that run the answer now covers, so one `n` or `a` never
+ * leaves a second row asking the same thing. The store itself only ever
+ * answers once: what lasts is in `memory`. A denial is remembered first and
+ * kept; an allowance only once the store took it.
+ */
 export const reply = (
   grants: GrantStore.Service,
+  memory: Memory,
   request: Pending,
   choice: Choice,
   cwd: string
 ): Effect.Effect<void, Permission.GrantStoreError> =>
-  grants.reply(
-    request.requestId,
-    choice,
-    choice === "run" && request.action === "fs:write"
-      ? new Capability.CapabilityPattern({ action: "fs:write", resource: `${real(cwd).replace(/\/+$/, "")}/**` })
-      : undefined
-  )
+  Effect.gen(function*() {
+    if (choice === "deny") memory.denied(request)
+    yield* grants.reply(request.requestId, choice === "deny" ? "deny" : "once")
+    if (choice !== "deny") memory.allowed(request, choice, cwd)
+    for (const other of pending(yield* grants.list)) {
+      if (other.source !== request.source) continue
+      const decision = memory.decide({ capability: Capability.make(other.action, other.resource), meta: other })
+      if (decision._tag !== "ask") {
+        yield* Effect.ignore(grants.reply(other.requestId, decision._tag === "allow" ? "once" : "deny"))
+      }
+    }
+  })
 
 /** `reply`, settled: the store's error code when it refused the answer, else `undefined`. */
 export const answer = (
   grants: GrantStore.Service,
+  memory: Memory,
   request: Pending,
   choice: Choice,
   cwd: string
 ): Effect.Effect<Permission.GrantStoreError["code"] | undefined> =>
-  reply(grants, request, choice, cwd).pipe(
+  reply(grants, memory, request, choice, cwd).pipe(
     Effect.match({ onFailure: (error) => error.code, onSuccess: () => undefined })
   )
 
-/** What `a` grants for the rest of the session. */
-export const scope = (request: Pending): string => request.action === "fs:write" ? "all edits" : `all ${request.flow}`
+/** One key a row offers. */
+export interface Offer {
+  readonly id: "allow" | "deny" | "allow-all"
+  readonly key: "y" | "n" | "a"
+  readonly label: string
+}
+
+/**
+ * The keys the front row offers, as the row and the footer both show them.
+ * `all` is false while the focused panel owns `a`.
+ */
+export const choices = (request: Pick<Pending, "action" | "flow" | "always">, all = true): ReadonlyArray<Offer> => {
+  const edits = request.action === "fs:write"
+  return [
+    { id: "allow", key: "y", label: "Allow once" },
+    { id: "deny", key: "n", label: edits ? "Deny change" : "Deny" },
+    ...(request.always && all
+      ? [{
+        id: "allow-all" as const,
+        key: "a" as const,
+        label: `Allow ${edits ? "edits" : request.flow === "bash" ? "commands" : request.flow} this run`
+      }]
+      : [])
+  ]
+}
 
 /**
  * How long a row is on screen before y, n or a answers it. Rows arrive on a

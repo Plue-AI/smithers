@@ -286,6 +286,10 @@ export const make = (options: {
   readonly box?: Box.Box
 }): Host => {
   const approvalMode = options.approvals ?? "ask"
+  // What each run already answered. Only `ask` consults it: `deny` refuses everything.
+  // A declaration runs unasked only where a shell call's changes can be captured.
+  const decided = new Approvals.Memory(Context.vcs(options.cwd) !== undefined)
+  const remembered = approvalMode === "ask" ? decided : undefined
   const env = options.environment
   const available = options.available ?? detectWithoutClaude(env)
   const judge = options.judge ?? NodeControl.layerSeatEvaluator(env).pipe(Layer.provide(executor))
@@ -510,6 +514,8 @@ export const make = (options: {
 
   const run = (input: TurnInput): Turn => {
     const index = ++turns
+    // A run's answers last for that run only.
+    decided.forget(input.source ?? "chat")
     // Unique per host: the ledger outlives the process, so `tui-1` of two launches must not share spend.
     const executionId = `tui-${hostId}-${index}`
     const callMs = options.callMs ?? Sandbox.defaultLimits.callMs
@@ -613,14 +619,18 @@ export const make = (options: {
               services,
               yield* Effect.context<Evaluator.Evaluator>(),
               options.cwd,
-              input.onPatch ?? (() => {}),
+              (receipt) => {
+                decided.changed(input.source ?? "chat", receipt)
+                input.onPatch?.(receipt)
+              },
               box !== undefined
             ),
             // A flows source named `memory` is pinned (`StandardFlows.coreSources`),
             // so the run-start relevance reading never withholds it. A placed
             // worker's tree is the box's, which memory does not read.
             ...(box === undefined ? [Memory.source(memoryServices, memoryOptions)] : [])
-          ]
+          ],
+        approvalMode === "ask"
       )
       // A worker whose agent may call `memory` starts with what `memory({ task })`
       // selects. The coordinator never does: Jev would sit in front of the
@@ -682,7 +692,15 @@ export const make = (options: {
         capabilityEnvelope: turn.capabilityEnvelope,
         ...(approvalMode === "all"
           ? {}
-          : { authorize: Approvals.authorize(grants, { cwd: options.cwd, source: input.source ?? "chat" }) }),
+          : {
+            authorize: Approvals.authorize(grants, {
+              cwd: options.cwd,
+              source: input.source ?? "chat",
+              ...(remembered === undefined ? {} : { memory: remembered }),
+              // A placed worker's shell changes are not captured here.
+              captured: box === undefined
+            })
+          }),
         // The same explicit cell budget `smithers run` uses; never unlimited.
         limits: {
           memoryBytes: 256 * 1024 * 1024,
@@ -729,6 +747,9 @@ export const make = (options: {
             }
             if (event._tag === "model-settled" && requested !== undefined) credit.answered(requested)
             if (event._tag === "suspended") suspension = event.reason
+            if (event._tag === "cell-call-settled") {
+              decided.settled(input.source ?? "chat", Changes.identity(event.identity))
+            }
             if (event._tag === "resolved") answer = text(event.message.content)
             if (event._tag === "model-requested" || event._tag === "model-retried") reply = ""
             if (event._tag === "model-delta" && event.delta.type === "text-delta") reply += event.delta.text
@@ -797,16 +818,19 @@ export const make = (options: {
     authorize: (requests, signal) =>
       approvalMode === "all" ?
         Promise.resolve() :
-        runtime.runPromise(Effect.flatMap(GrantStore.GrantStore, (grants) => Approvals.check(grants, requests)), {
-          signal
-        }),
+        runtime.runPromise(
+          Effect.flatMap(GrantStore.GrantStore, (grants) => Approvals.check(grants, requests, remembered)),
+          {
+            signal
+          }
+        ),
     pending: () =>
       runtime.runPromise(Effect.gen(function*() {
         return Approvals.pending(yield* (yield* GrantStore.GrantStore).list)
       })),
     reply: (request, choice) =>
       runtime.runPromise(Effect.gen(function*() {
-        return yield* Approvals.answer(yield* GrantStore.GrantStore, request, choice, options.cwd)
+        return yield* Approvals.answer(yield* GrantStore.GrantStore, decided, request, choice, options.cwd)
       }))
   }
 
@@ -875,10 +899,19 @@ const boundedCalls = (source: FlowBinding.Source, callMs: number): FlowBinding.S
  * memory: only when its agent keeps the `memory` flow and its envelope holds
  * the grant the flow requires (`Memory.reads`).
  */
+/**
+ * Told to a worker under `--approve ask`: a command declared read-only runs
+ * unasked (`Approvals.Memory`), and a denial is final for the run.
+ */
+export const approvalTeaching =
+  "The person approves each command and edit. A command that changes no file runs without asking when you pass mode:\"hermetic\", reads:[...] and writes:[]. A denied change stays denied for this run: never make it another way."
+
 export const turnOptions = (
   input: TurnInput,
   cwd: string,
-  standard: ReadonlyArray<FlowBinding.Source>
+  standard: ReadonlyArray<FlowBinding.Source>,
+  /** Whether each command waits for the person (`--approve ask`). */
+  asks = false
 ): {
   readonly system: ReadonlyArray<string>
   readonly flows: ReadonlyArray<FlowBinding.Source>
@@ -920,7 +953,8 @@ export const turnOptions = (
           `Background tabs: ${input.background ?? "[]"}`
         ]
         : [
-          "Start each cell with a one-line purpose. Split independent work with agent.delegate, then agent.wait({ids}), and aggregate the answers. Children delegate to depth 3; depth 4 is refused. When you cannot decide alone, ask({question, options}) goes to your parent, then the person; answer a child's ask with agent.answer({id, answer}). End with one sentence and essential evidence. Never claim unobserved tests passed."
+          "Start each cell with a one-line purpose. Split independent work with agent.delegate, then agent.wait({ids}), and aggregate the answers. Children delegate to depth 3; depth 4 is refused. When you cannot decide alone, ask({question, options}) goes to your parent, then the person; answer a child's ask with agent.answer({id, answer}). End with one sentence and essential evidence. Never claim unobserved tests passed.",
+          ...(asks ? [approvalTeaching] : [])
         ]),
       ...(agent === undefined ? [] : [agent.system])
     ],

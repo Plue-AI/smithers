@@ -136,9 +136,10 @@ export const registry: ReadonlyArray<Binding> = [
   { id: "choose-field", keys: ["left", "right"], display: "←/→", label: "Choose", context: "form", group: "Form" },
   { id: "run-form", keys: ["enter"], label: "Run", context: "form", group: "Form" },
 
-  { id: "allow", keys: ["y"], label: "Allow", context: "approval", group: "Approval" },
+  // The row relabels these with what it offers; see `Approvals.choices`.
+  { id: "allow", keys: ["y"], label: "Allow once", context: "approval", group: "Approval" },
   { id: "deny", keys: ["n"], label: "Deny", context: "approval", group: "Approval" },
-  { id: "allow-all", keys: ["a"], label: "Allow all", context: "approval", group: "Approval" },
+  { id: "allow-all", keys: ["a"], label: "Allow this run", context: "approval", group: "Approval" },
 
   {
     id: "selection-move",

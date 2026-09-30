@@ -1050,6 +1050,13 @@ describe("turnOptions", () => {
     ])
     expect(options.reasoningEffort).toBeUndefined()
     expect(options.system.some((part) => part.includes("You review changes."))).toBe(false)
+    expect(options.system).not.toContain(Host.approvalTeaching)
+  })
+
+  test("a worker under ask learns how a command runs unasked and that a denial is final for the run", () => {
+    expect(Host.turnOptions(base, "/repo", standard, true).system).toContain(Host.approvalTeaching)
+    expect(Host.turnOptions({ ...base, role: "coordinator", seat: "cerebras:x" }, "/repo", [], true).system)
+      .not.toContain(Host.approvalTeaching)
   })
 
   test("a worker that can ask gets the ask flow pinned beside its runtime flows", async () => {
@@ -2324,4 +2331,95 @@ describe("Host.run memory", () => {
         .some((item) => item.kind === "note" && item.text === "→ memory unavailable")
     ).toBe(false)
   })
+})
+
+describe("Host.run approvals remember a run's answers", () => {
+  /** A git repository whose `write.mjs` writes a file while declaring it writes nothing. */
+  const repository = () => {
+    const cwd = mkdtempSync(join(tmpdir(), "smithers-tui-declared-"))
+    roots.push(cwd)
+    writeFileSync(join(cwd, "write.mjs"), "import { writeFileSync } from 'node:fs'\nwriteFileSync('made.txt', 'x')\n")
+    writeFileSync(join(cwd, "check.mjs"), "console.log('ok')\n")
+    Bun.spawnSync(["git", "init", "-q"], { cwd })
+    Bun.spawnSync(["git", "add", "."], { cwd })
+    return cwd
+  }
+  const declared = (script: string) =>
+    `await ctx.call("bash", { mode: "hermetic", reads: [], writes: [], command: "node ${script}" })`
+  const pendingOf = async (host: Host.Host) => {
+    for (let attempt = 0; attempt < 600; attempt++) {
+      const pending = await host.approvals!.pending()
+      if (pending.length > 0) return pending
+      await Bun.sleep(10)
+    }
+    throw new Error("nothing asked")
+  }
+
+  test("a declared read-only command runs unasked until one is captured changing a file", async () => {
+    const cwd = repository()
+    const host = Host.make({ cwd, environment: {}, judge: ScriptedJudge.layer, approvals: "ask" })
+    const settled: Array<string> = []
+    try {
+      const cell = `${declared("check.mjs")}; ${declared("write.mjs")}; ${declared("check.mjs")}; ctx.done("ran")`
+      const turn = host.run({
+        prompt: "check",
+        role: "worker",
+        source: "t1",
+        seat: `replay:${doneReplay(cwd, cell)}`,
+        history: [],
+        onEvent: (event) => {
+          if (event._tag === "cell-call-settled") settled.push(event.result.message ?? event.result.outcome)
+        }
+      })
+      const pending = await pendingOf(host)
+      // Both earlier commands ran without a row; the second wrote a file.
+      expect(settled).toEqual(["success", "success"])
+      expect(existsSync(join(cwd, "made.txt"))).toBe(true)
+      expect(pending).toHaveLength(1)
+      expect(pending[0]).toMatchObject({ flow: "bash", subject: "node check.mjs", source: "t1" })
+      await host.approvals!.reply(pending[0]!, "deny")
+      for (let attempt = 0; attempt < 500 && settled.length < 3; attempt++) await Bun.sleep(10)
+      expect(settled[2]).toStartWith("Denied: bash node check.mjs")
+      turn.cancel()
+      await turn.done
+    } finally {
+      await host.dispose()
+    }
+  }, 60000)
+
+  test("a denial holds for the run and not for the source's next run", async () => {
+    const cwd = repository()
+    const host = Host.make({ cwd, environment: {}, judge: ScriptedJudge.layer, approvals: "ask" })
+    const write = `ctx.call("write", { path: "NOTES.md", content: "hello" })`
+    const cell = `await ${write}; await ${write}; ctx.done("tried")`
+    try {
+      const first = host.run({
+        prompt: "write",
+        role: "worker",
+        source: "t1",
+        seat: `replay:${doneReplay(cwd, cell)}`,
+        history: [],
+        onEvent: () => {}
+      })
+      await host.approvals!.reply((await pendingOf(host))[0]!, "deny")
+      const outcome = await first.done
+      // One row was answered; the second attempt was refused without one.
+      expect(outcome).toMatchObject({ _tag: "done" })
+      expect((outcome as { answer: string }).answer.split("write failed: Denied: write NOTES.md.")).toHaveLength(3)
+      const next = host.run({
+        prompt: "write",
+        role: "worker",
+        source: "t1",
+        seat: `replay:${doneReplay(cwd, `await ${write}; ctx.done("ok")`)}`,
+        history: [],
+        onEvent: () => {}
+      })
+      const asked = await pendingOf(host)
+      expect(asked[0]).toMatchObject({ flow: "write", subject: "NOTES.md" })
+      await host.approvals!.reply(asked[0]!, "once")
+      expect(await next.done).toMatchObject({ _tag: "done" })
+    } finally {
+      await host.dispose()
+    }
+  }, 60000)
 })

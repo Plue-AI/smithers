@@ -2430,6 +2430,10 @@ export function App(props: AppProps) {
     : color.brand
   const tabsWidth = width - (focusMain ? 6 : 0)
   const footerContext = keyContext()
+  // The front row's keys, as the row and the footer both offer them.
+  const offered = approvals[0] === undefined ? [] : Approvals.choices(approvals[0], !panelKeys.includes("a"))
+  const approvalReady = approvals[0] !== undefined && picker === undefined && form === undefined &&
+    Approvals.ready(arming.current, approvals[0].requestId, now, draft)
   /** A worker action's registry binding, as a footer hint. */
   const actionHints = (tab: Tab) =>
     Tabs.actions(tab).flatMap((action) =>
@@ -2520,6 +2524,15 @@ export function App(props: AppProps) {
           !["overview-graph", "overview-open", "overview-pane"].includes(binding.id))
       )
     ]
+    : footerContext === "approval"
+    ? approvalReady
+      ? offered.flatMap((offer) =>
+        Keys.registry.filter((binding) => binding.id === offer.id).map((binding) => ({
+          ...binding,
+          label: offer.label
+        }))
+      )
+      : []
     // `a Answer` follows Summary while the chat's `a` answers the one ask waiting.
     : Keys.hintsFor(footerContext, merged).flatMap((binding) =>
       binding.id === "summary" && footerContext === "composer" && soleAsk !== undefined && surface === "chat" &&
@@ -2885,11 +2898,10 @@ export function App(props: AppProps) {
             <View.Approval
               width={dimensions.width}
               request={approvals[0]}
-              scope={Approvals.scope(approvals[0])}
-              all={!panelKeys.includes("a")}
-              armed={picker === undefined && form === undefined &&
-                Approvals.ready(arming.current, approvals[0].requestId, now, draft)}
+              choices={offered}
+              armed={approvalReady}
               more={approvals.length - 1}
+              lines={short ? 2 : Math.max(2, Math.min(8, Math.floor(dimensions.height / 6)))}
               {...(approvals[0].source === "chat"
                 ? {}
                 : {

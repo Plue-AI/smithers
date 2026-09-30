@@ -10,6 +10,7 @@ import { clip, diffCounts } from "@smthrs/rpc/SubagentCard"
 import type { UserFailure } from "@smthrs/rpc/UserFailure"
 import { memo, type ReactNode, type RefObject, useState } from "react"
 import stringWidth from "string-width"
+import * as Approvals from "./approvals.ts"
 import type * as Extension from "./extension.ts"
 import * as Failures from "./failures.ts"
 import * as Flows from "./flows.ts"
@@ -910,29 +911,36 @@ export function Dialog(props: {
   )
 }
 
-/** The oldest waiting approval, pinned above the composer. */
+/**
+ * The oldest waiting approval, pinned above the composer: what it asks, the
+ * lines a write changes, and the keys it takes.
+ */
 export function Approval(
   props: {
     readonly request: {
       readonly flow: string
       readonly subject: string
-      readonly always: boolean
+      readonly preview?: Approvals.Preview
     }
-    /** What `a` grants, from `Approvals.scope`. */
     readonly width: number
-    readonly scope: string
-    /** False while the focused panel owns `a`. */
-    readonly all?: boolean
+    /** From `Approvals.choices`. */
+    readonly choices: ReadonlyArray<Approvals.Offer>
     /** Keys show exactly when they answer; see `Approvals.ready`. */
     readonly armed: boolean
     readonly more: number
     readonly worker?: string
+    /** The most changed lines the row shows. */
+    readonly lines: number
   }
 ) {
+  const preview = props.request.preview
+  const shown = preview === undefined ? [] : preview.lines.slice(0, Math.max(1, props.lines))
+  const hidden = preview === undefined ? 0 : preview.added + preview.removed - shown.length
+  const column = preview !== undefined || props.width < 90
   return (
     <box
       style={{
-        flexDirection: props.width < 90 ? "column" : "row",
+        flexDirection: column ? "column" : "row",
         justifyContent: "space-between",
         marginTop: 1,
         paddingLeft: 2,
@@ -941,19 +949,32 @@ export function Approval(
     >
       {/* Wrapped, never clipped: `y` approves exactly the text shown. */}
       <text wrapMode="char" style={{ flexShrink: 1 }} fg={color.warning}>
-        {props.worker === undefined ? "" : `↳ ${props.worker} `}? {props.request.flow}{" "}
-        {props.request.subject.replace(/\s+/g, " ")}
+        {props.worker === undefined ? "" : `↳ ${props.worker} `}? {Approvals.verb(props.request.flow)}{" "}
+        {props.request.subject.replace(/\s+/g, " ").replace(/\p{Cc}/gu, "\ufffd")}
+        {preview === undefined ? null : <span fg={color.success}>{`  +${preview.added}`}</span>}
+        {preview === undefined ? null : <span fg={color.danger}>{` −${preview.removed}`}</span>}
         {props.more > 0 ? ` +${props.more}` : ""}
       </text>
+      {shown.map((line, index) => (
+        <text
+          key={index}
+          wrapMode="none"
+          style={{ paddingLeft: 1, flexShrink: 0 }}
+          fg={line.startsWith("+") ? color.success : color.danger}
+        >
+          {`${line[0]} ${line.slice(1).replace(/\t/g, "  ")}`}
+        </text>
+      ))}
+      {hidden > 0 ? <text fg={color.faint} style={{ paddingLeft: 1, flexShrink: 0 }}>…</text> : null}
       {props.armed
         ? (
-          <text wrapMode="word" style={{ flexShrink: 0, marginLeft: props.width < 90 ? 0 : 2 }}>
-            <span fg={color.text}>y</span>
-            <span fg={color.faint}>{" allow  "}</span>
-            <span fg={color.text}>n</span>
-            <span fg={color.faint}>{" deny"}</span>
-            {props.request.always && props.all !== false ? <span fg={color.text}>{"  a"}</span> : null}
-            {props.request.always && props.all !== false ? <span fg={color.faint}>{` ${props.scope}`}</span> : null}
+          <text wrapMode="word" style={{ flexShrink: 0, marginLeft: column ? 0 : 2 }}>
+            {props.choices.map((choice, index) => (
+              <span key={choice.key}>
+                <span fg={color.text}>{`${index === 0 ? "" : "  "}${choice.key}`}</span>
+                <span fg={color.faint}>{` ${choice.label}`}</span>
+              </span>
+            ))}
           </text>
         )
         : null}

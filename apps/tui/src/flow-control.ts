@@ -215,7 +215,7 @@ export const make = (options: {
       const raw = card.raw as ControlSchema.PlanCard
       try {
         await options.approvals.authorize(
-          Approvals.project(raw.flowId, raw.envelope.capabilities, options.cwd, source),
+          Approvals.project(raw.flowId, raw.envelope.capabilities, options.cwd, source, raw.digest),
           signal
         )
         if (signal?.aborted) throw new FlowError("stopped", "Stopped")
