@@ -23,6 +23,7 @@ import { createGenerateCli, initialize } from "./cli/Generate.ts"
 import { appendHistoryCommands } from "./cli/HistoryCommands.ts"
 import * as Presentation from "./cli/Presentation.ts"
 import { createStepCacheCli } from "./cli/StepCacheCommands.ts"
+import * as TargetApprovals from "./cli/TargetApprovals.ts"
 import { createTokenCli } from "./cli/TokenCommands.ts"
 import * as CliError from "./CliError.ts"
 import * as BugCmd from "./commands/Bug.ts"
@@ -117,7 +118,8 @@ export const makeCli = (config: Bridge.Runtime = {}): ReturnType<typeof makeBuil
       cwd: dirname(createRequire(import.meta.url).resolve("@smthrs/cli/package.json")),
       include: ["skills/*"]
     },
-    cacheSteps: createStepCacheCli()
+    cacheSteps: createStepCacheCli(),
+    approvals: config.approvals ?? TargetApprovals.store
   })
   cli.use((context, next) => Presentation.scope(context, config, next))
   cli

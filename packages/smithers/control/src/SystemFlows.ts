@@ -193,6 +193,17 @@ export const catalog = [
     plannable: true
   },
   {
+    // A build target declaring `approval: "required"`: its plan input is the
+    // target's label and revision digest, and the build planner runs it only
+    // once that plan is approved. The build executes it, never a control run.
+    verb: "target",
+    flowId: "system/target",
+    projection: "systemFlow",
+    deployClass: true,
+    planBearing: true,
+    plannable: true
+  },
+  {
     verb: "docs",
     flowId: "system/docs",
     projection: "systemFlow",

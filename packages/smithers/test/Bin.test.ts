@@ -867,7 +867,7 @@ describe("an invocation that never runs a command answers before the control pla
 })
 
 describe("reserved system flow ids", processBudget, () => {
-  // `SystemFlows.catalog` reserves 22 `system/*` ids so the control plane can
+  // `SystemFlows.catalog` reserves 23 `system/*` ids so the control plane can
   // project a verb onto a flow row. None of them has a body in rc.0, so a
   // launch parks at `accepted` and never moves: the "partial appearance"
   // the release policy forbids. They are not flows an operator may name.

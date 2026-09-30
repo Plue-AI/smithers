@@ -3,9 +3,10 @@
  * @since 1.0.0
  */
 
+import { approvalRevision } from "@smthrs/build-cli/Cli"
 import { Control, type ControlSchema } from "@smthrs/control"
-import * as RunDevTools from "@smthrs/gateway/RunDevTools"
 import * as DurableWriter from "@smthrs/database/DurableWriter"
+import * as RunDevTools from "@smthrs/gateway/RunDevTools"
 import * as RunTrace from "@smthrs/gateway/RunTrace"
 import * as Redaction from "@smthrs/journal/Redaction"
 import { BudgetOnExceeded } from "@smthrs/registry/Descriptor"
@@ -23,13 +24,14 @@ import { defaultApprovalScope } from "../internal/ApprovalScope.ts"
 import * as BoundedEvents from "../internal/BoundedEvents.ts"
 import * as Failure from "../internal/Failure.ts"
 import * as FeaturedFlows from "../internal/FeaturedFlows.ts"
-import * as NodeControl from "../NodeControl.ts"
 import * as RunListing from "../internal/RunListing.ts"
+import * as NodeControl from "../NodeControl.ts"
 import * as Project from "../Project.ts"
 import * as Bridge from "./ControlBridge.ts"
 import { prepareHistoryRun, reconcileHistory } from "./HistoryCommands.ts"
 import * as Presentation from "./Presentation.ts"
 import * as RunProgress from "./RunProgress.ts"
+import * as TargetApprovals from "./TargetApprovals.ts"
 
 /** Observe a durable row until it settles; a park is a settled wait, not a terminal run. */
 const waitForRun = async (
@@ -707,5 +709,20 @@ export const createApprovalsCli = (runtime: Bridge.Runtime = {}) =>
       run: (c) =>
         guard(c, async () => Bridge.invoke(["deny", await payload(c.args.approval)], c.options, runtime), {
           next: afterDecision
+        })
+    })
+    .command("grant", {
+      description: "Approve the current revision of a build target that declares approval: \"required\"",
+      mcp: false,
+      args: z.object({ target: z.string() }),
+      options: options.pick({ root: true, quiet: true }),
+      run: (c) =>
+        guard(c, async () => {
+          // The build reads approvals from this workspace's own control database.
+          if (Bridge.isRemote(c.options, runtime)) {
+            throw new CliError.UsageError({ message: "Build target approvals are local; unset SMITHERS_REMOTE" })
+          }
+          const request = await approvalRevision(c.args.target, { workspace: c.options.root ?? process.cwd() }, runtime)
+          return Bridge.query(TargetApprovals.grant(request), { ...c.options, root: request.root }, runtime)
         })
     })
