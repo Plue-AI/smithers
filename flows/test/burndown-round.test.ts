@@ -32,7 +32,7 @@ if (!process.execArgv.includes("--experimental-test-module-mocks")) {
   let pollDefect = false
   let pollFailure = false
   let accountReadings: Array<unknown> = []
-  const queue: Array<{ results: unknown; workers: unknown }> = []
+  const queue: Array<{ results: unknown; workers: unknown; options?: unknown }> = []
   let pushedReceipt = false
   let remoteLanded = false
   // GitHub claims and detached workers are external boundaries: fixtures avoid
@@ -73,9 +73,9 @@ if (!process.execArgv.includes("--experimental-test-module-mocks")) {
   mock.module("../burndown/land.ts", {
     namedExports: {
       hasPushedReceipt: async () => pushedReceipt,
-      landAll: (results: Array<{ key: string }>, workers: unknown) =>
+      landAll: (results: Array<{ key: string }>, workers: unknown, options?: unknown) =>
         Effect.sync(() => {
-          queue.push({ results, workers })
+          queue.push({ results, workers, options })
           return { landed: results.map((r) => r.key), quarantined: [] }
         })
     }
@@ -366,6 +366,29 @@ if (!process.execArgv.includes("--experimental-test-module-mocks")) {
     }
   })
 
+  test("durable confirmed push survives lost local receipt and unknown remote hints until locked revalidation", async () => {
+    const receipt = { version: 2, phase: "landed", landed: [{ issue: 2950, sha: "c".repeat(40) }] }
+    const saved = await settle({ ...initial(), ready: [ready] }, observation(), {
+      landed: [],
+      quarantined: [],
+      receiptsPending: [{ key: assignment.key, error: "receipt delivery interrupted", receipt }]
+    })
+    const recovered = Schema.decodeUnknownSync(RoundState)(JSON.parse(JSON.stringify(saved.next)))
+    queue.length = 0
+    claims.length = 0
+    ownership = { mine: false, holder: { host: hostname() } }
+    pushedReceipt = false
+    remoteLanded = false
+    try {
+      await invoke(Land.name, { state: recovered, observation: observation() })
+      assert.equal(queue.length, 1)
+      assert.deepEqual(queue[0]!.options, { reverify: [], expectedReceipts: [{ key: assignment.key, receipt }] })
+      assert.equal(claims.some((args) => args[1] === "claim"), false)
+    } finally {
+      ownership = { mine: true, holder: { host: hostname() } }
+    }
+  })
+
   test("receipt failure preserves READY across persisted rounds until replay finishes without repair", async () => {
     const pending = {
       landed: [assignment.key],
@@ -406,6 +429,145 @@ if (!process.execArgv.includes("--experimental-test-module-mocks")) {
     assert.deepEqual(settled.next.inFlight, [])
     assert.deepEqual(settled.next.quarantined, [])
     assert.equal(settled.next.landed, 0)
+  })
+
+  test("deterministic landed refusals exhaust three durable attempts while unrelated READY work progresses", async () => {
+    for (const reason of ["ACCEPTANCE_CHANGED", "PUSHED_RECEIPT_REMOTE_MISMATCH"]) {
+      const fact = {
+        version: 2,
+        phase: "landed",
+        landed: [{ issue: 2950, sha: "c".repeat(40) }],
+        acceptance: { original: "retained" }
+      }
+      const pending = {
+        landed: [],
+        quarantined: [],
+        receiptsPending: [{ key: assignment.key, error: reason, receipt: fact }]
+      }
+      let state: typeof RoundState.Type = { ...initial(), ready: [ready] }
+      for (const attempt of [1, 2, 3]) {
+        const settled = await settle(state, observation(), pending)
+        assert.equal(settled.done, false)
+        const saved = settled.next.receiptRetries![0]!
+        assert.equal(saved.attempts, attempt)
+        assert.equal(saved.status, attempt === 3 ? "parked" : "retry")
+        assert.deepEqual(saved.ready, ready)
+        assert.deepEqual(saved.receipt, fact)
+        assert.deepEqual(settled.next.quarantined, [])
+        state = Schema.decodeUnknownSync(RoundState)(JSON.parse(JSON.stringify(settled.next)))
+      }
+      const other = { assignment: { ...assignment, key: "other-ready" }, result: { ...result, key: "other-ready" } }
+      queue.length = 0
+      const report = await invoke(Land.name, { state: { ...state, ready: [ready, other] }, observation: observation() })
+      assert.deepEqual(queue.map((item) => item.results), [[other.result]])
+      const next = await settle(
+        { ...state, ready: [ready, other] },
+        observation(),
+        Schema.decodeUnknownSync(Land.successSchema)(report)
+      )
+      assert.deepEqual(next.next.ready, [ready])
+      assert.equal(next.next.receiptRetries![0]!.status, "parked")
+      assert.equal(next.done, false)
+      assert.ok(writes.some((item) => item.path.endsWith("parked-verification.json") && item.value.includes(reason)))
+    }
+  })
+
+  test("incomplete review parks immediately and persisted operator resume remains until actual admission", async () => {
+    const first = await settle({ ...initial(), ready: [ready] }, observation(), {
+      landed: [],
+      quarantined: [],
+      incomplete: [{ key: assignment.key, error: "REVIEW_INPUT_INCOMPLETE required_input_limit" }]
+    })
+    assert.equal(first.next.receiptRetries![0]!.status, "parked")
+    assert.equal(first.next.receiptRetries![0]!.attempts, 1)
+    const requested = Schema.decodeUnknownSync(RoundState)(JSON.parse(JSON.stringify({
+      ...first.next,
+      options: { ...first.next.options, resumeReceipts: [assignment.key] }
+    })))
+    ownership = { mine: false, holder: { host: hostname() } }
+    pushedReceipt = false
+    remoteLanded = false
+    queue.length = 0
+    const denied = await invoke(Land.name, { state: requested, observation: observation() })
+    assert.equal(queue.length, 0)
+    const retained = await settle(requested, observation(), Schema.decodeUnknownSync(Land.successSchema)(denied))
+    assert.deepEqual(retained.next.options.resumeReceipts, [assignment.key])
+    const resumed = Schema.decodeUnknownSync(RoundState)(JSON.parse(JSON.stringify(retained.next)))
+    remoteLanded = true
+    try {
+      const delivered = await invoke(Land.name, { state: resumed, observation: observation() })
+      assert.deepEqual(queue[0]!.options, { reverify: [assignment.key], expectedReceipts: [] })
+      const completed = await settle(resumed, observation(), Schema.decodeUnknownSync(Land.successSchema)(delivered))
+      assert.equal(completed.done, true)
+      assert.deepEqual(completed.next.options.resumeReceipts, [])
+      assert.deepEqual(completed.next.receiptRetries, [])
+      assert.deepEqual(completed.next.ready, [])
+    } finally {
+      remoteLanded = false
+      ownership = { mine: true, holder: { host: hostname() } }
+    }
+  })
+
+  test("terminal refusal or quarantine removes only its matching retry record and preserves its original repair identity", async () => {
+    const pending = {
+      landed: [],
+      quarantined: [],
+      receiptsPending: [{ key: assignment.key, error: "transient verification failure" }]
+    }
+    const first = await settle({ ...initial(), ready: [ready] }, observation(), pending)
+    for (const terminal of ["refused", "quarantined"] as const) {
+      const report = terminal === "refused"
+        ? {
+          landed: [],
+          quarantined: [],
+          refused: [{ key: assignment.key, reason: "issue_closed" as const, issues: [2950] }]
+        }
+        : { landed: [], quarantined: [{ key: assignment.key, error: "unsafe candidate must be repaired" }] }
+      const settled = await settle(first.next, observation(), report)
+      assert.deepEqual(settled.next.ready, [])
+      assert.deepEqual(settled.next.receiptRetries, [])
+      assert.doesNotThrow(() => Schema.decodeUnknownSync(RoundState)(JSON.parse(JSON.stringify(settled.next))))
+      if (terminal === "quarantined") {
+        assert.equal(settled.done, false)
+        assert.deepEqual(settled.next.quarantined[0]!.assignment, assignment)
+        assert.deepEqual(settled.next.quarantined[0]!.result, result)
+      } else assert.equal(settled.done, true)
+    }
+  })
+
+  test("an attempted resume consumes its token and bounds renewed failures without replacing original landed facts", async () => {
+    const original = { landed: [{ issue: 2950, sha: "c".repeat(40) }], acceptance: { original: "retained" } }
+    let state = Schema.decodeUnknownSync(RoundState)({
+      ...initial(),
+      ready: [ready],
+      receiptRetries: [{
+        key: assignment.key,
+        ready,
+        attempts: 3,
+        status: "parked",
+        error: "retry exhausted",
+        receipt: original
+      }],
+      options: { ...initial().options, resumeReceipts: [assignment.key] }
+    })
+    for (const attempts of [1, 2, 3]) {
+      const settled = await settle(state, observation(), {
+        landed: [],
+        quarantined: [],
+        receiptsPending: [{
+          key: assignment.key,
+          error: "PUSHED_RECEIPT_REMOTE_MISMATCH",
+          receipt: { landed: [{ issue: 2950, sha: "d".repeat(40) }] }
+        }],
+        ...(attempts === 1 ? { resumed: [assignment.key] } : {})
+      })
+      assert.deepEqual(settled.next.options.resumeReceipts, [])
+      assert.equal(settled.next.receiptRetries![0]!.attempts, attempts)
+      assert.equal(settled.next.receiptRetries![0]!.status, attempts === 3 ? "parked" : "retry")
+      assert.deepEqual(settled.next.receiptRetries![0]!.receipt, original)
+      assert.deepEqual(settled.next.ready, [ready])
+      state = Schema.decodeUnknownSync(RoundState)(JSON.parse(JSON.stringify(settled.next)))
+    }
   })
 
   test("mixed receipt success and pending completion remove only the completed READY member", async () => {
@@ -562,7 +724,8 @@ if (!process.execArgv.includes("--experimental-test-module-mocks")) {
       const landed = await invoke(Land.name, { state: retained.next, observation: observation() })
       assert.deepEqual(queue[0], {
         results: [result],
-        workers: [{ assignment, executionId: assignment.key, startedAt: 0 }]
+        workers: [{ assignment, executionId: assignment.key, startedAt: 0 }],
+        options: { reverify: [], expectedReceipts: [] }
       })
       assert.equal((await settle(retained.next, observation(), landed as never)).done, true)
     } finally {
@@ -812,7 +975,7 @@ if (!process.execArgv.includes("--experimental-test-module-mocks")) {
     })
   }
 
-  test("public flow drains complete READY seeds through the registered round and real interpreter", async () => {
+  test("public flow drains READY and persisted parked resume seeds through the registered round and real interpreter", async () => {
     const { FlowEngine } = await import("@smthrs/engine")
     const NodeCrypto = await import("@effect/platform-node/NodeCrypto")
     const { default: Burndown } = await import("../burndown/flow.ts")
@@ -834,14 +997,29 @@ if (!process.execArgv.includes("--experimental-test-module-mocks")) {
         Layer.provideMerge(FlowEngine.layerMemory),
         Layer.provideMerge(NodeCrypto.layer)
       )
-      const completed = await Effect.runPromise(
-        Burndown.execute({ repos: [assignment.repo], ready: [ready] }, { executionId: "public-ready-recovery" }).pipe(
-          Effect.provide(services)
+      for (const resume of [false, true]) {
+        queue.length = 0
+        const payload = resume
+          ? {
+            repos: [assignment.repo],
+            receiptRetries: [{
+              key: assignment.key,
+              ready,
+              attempts: 3,
+              status: "parked" as const,
+              error: "ACCEPTANCE_CHANGED"
+            }],
+            resumeReceipts: [assignment.key]
+          }
+          : { repos: [assignment.repo], ready: [ready] }
+        const completed = await Effect.runPromise(
+          Burndown.execute(payload, { executionId: `public-recovery-${resume}` }).pipe(Effect.provide(services))
         )
-      )
-      assert.equal(completed, "burndown finished after 1 rounds; landed 1")
-      assert.equal(queue.length, 1)
-      assert.deepEqual(queue[0]!.results, [result])
+        assert.equal(completed, "burndown finished after 1 rounds; landed 1")
+        assert.equal(queue.length, 1)
+        assert.deepEqual(queue[0]!.results, [result])
+        assert.deepEqual(queue[0]!.options, { reverify: resume ? [assignment.key] : [], expectedReceipts: [] })
+      }
     } finally {
       if (previous === undefined) delete process.env.BURNDOWN_LAND
       else process.env.BURNDOWN_LAND = previous
@@ -865,6 +1043,23 @@ if (!process.execArgv.includes("--experimental-test-module-mocks")) {
   test("canonical READY seeds are admitted for configured short repository names", async () => {
     const { default: Burndown } = await import("../burndown/flow.ts")
     assert.doesNotThrow(() => Schema.decodeUnknownSync(Burndown.payloadSchema)({ repos: ["smithers"], ready: [ready] }))
+  })
+
+  test("public parked recovery requires original identity and an existing parked resume key", async () => {
+    const { default: Burndown } = await import("../burndown/flow.ts")
+    const retry = { key: assignment.key, ready, attempts: 3, status: "parked", error: "ACCEPTANCE_CHANGED" }
+    const valid = { repos: [assignment.repo], receiptRetries: [retry], resumeReceipts: [assignment.key] }
+    assert.doesNotThrow(() => Schema.decodeUnknownSync(Burndown.payloadSchema)(valid))
+    for (
+      const invalid of [
+        { ...valid, receiptRetries: [] },
+        { ...valid, receiptRetries: [retry, retry] },
+        { ...valid, receiptRetries: [{ ...retry, status: "retry" }] },
+        { ...valid, resumeReceipts: ["foreign-key"] },
+        { ...valid, repos: ["other/repository"] },
+        { ...valid, ready: [{ ...ready, result: { ...result, notes: "rewritten identity" } }] }
+      ]
+    ) assert.throws(() => Schema.decodeUnknownSync(Burndown.payloadSchema)(invalid))
   })
 
   test("public READY seed rejects inconsistent worker identities and incomplete issue bundles", async () => {

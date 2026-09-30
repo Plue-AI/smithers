@@ -1,7 +1,8 @@
 import assert from "node:assert/strict"
 import { spawn, spawnSync } from "node:child_process"
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs"
-import { chmod, mkdir, mkdtemp, readdir, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises"
+import { createHash } from "node:crypto"
+import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs"
+import { chmod, mkdir, mkdtemp, readdir, readFile, realpath, rm, symlink, unlink, writeFile } from "node:fs/promises"
 import { homedir, hostname, tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import test from "node:test"
@@ -51,7 +52,7 @@ async function fixture(t: test.TestContext, paths: Record<string, string>) {
   for (const [path, body] of Object.entries(paths)) await put(path, body)
   await put(
     "bin/gh",
-    `#!${process.execPath}\nconst args=process.argv.slice(2); if(process.env.GH_ACCEPTANCE_MARKER) require('node:fs').writeFileSync(process.env.GH_ACCEPTANCE_MARKER,'started'); if(process.env.GH_ACCEPTANCE_DELAY) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,Number(process.env.GH_ACCEPTANCE_DELAY)); if(process.env.GH_ACCEPTANCE_FAIL) {console.error('issue provider unavailable');process.exit(1);} const number=Number(args[2]); console.log(JSON.stringify(args.at(-1)==='number'?{number}:{number,title:'Acceptance',body:'Acceptance complete.',comments:[]}));\n`
+    `#!${process.execPath}\nconst args=process.argv.slice(2); if(process.env.GH_ACCEPTANCE_MARKER) require('node:fs').writeFileSync(process.env.GH_ACCEPTANCE_MARKER,'started'); if(process.env.GH_ACCEPTANCE_DELAY) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,Number(process.env.GH_ACCEPTANCE_DELAY)); if(process.env.GH_ACCEPTANCE_FAIL) {console.error('issue provider unavailable');process.exit(1);} const number=Number(args[2]); console.log(JSON.stringify(args.at(-1)==='number'?{number}:process.env.REVIEW_ISSUE_FILE?JSON.parse(require('node:fs').readFileSync(process.env.REVIEW_ISSUE_FILE,'utf8')):{number,title:'Acceptance',body:'Acceptance complete.',comments:[]}));\n`
   )
   await chmod(join(bin, "gh"), 0o755)
   for (const command of ["jj", "pnpm", "go", "helm"]) {
@@ -59,7 +60,7 @@ async function fixture(t: test.TestContext, paths: Record<string, string>) {
       `bin/${command}`,
       `#!${process.execPath}\nconst fs = require('node:fs');\nconst args = process.argv.slice(2);\nif (${
         JSON.stringify(command)
-      } === 'jj') { process.stdout.write(process.env.CHANGED_PATHS); } else { fs.appendFileSync(process.env.COMMAND_LOG, JSON.stringify([${
+      } === 'jj') { process.stdout.write(args.includes('log') && args.includes('commit_id') ? 'b'.repeat(40) : process.env.REVIEW_DIFF_FILE ? fs.readFileSync(process.env.REVIEW_DIFF_FILE, 'utf8') : process.env.CHANGED_PATHS); } else { fs.appendFileSync(process.env.COMMAND_LOG, JSON.stringify([${
         JSON.stringify(command)
       }, ...args]) + '\\n'); if (process.env.FAIL_CHECK === args.at(-1)) { process.stdout.write('x'.repeat(5000) + 'CHECK_RED_END'); process.exit(1); } }\n`
     )
@@ -563,7 +564,7 @@ if (process.argv.includes('--output-format') && process.argv[2] !== 'auth') {
   process.on('exit', () => {
     if (response.resultRaw !== undefined) { originalWrite(response.resultRaw); return; }
     if (!process.env.ACCEPTANCE_SUPPRESS && /^VERDICT: PASS\s*$/m.test(output) && !output.includes('ACCEPTANCE ')) {
-      const member=JSON.parse(process.env.BURNDOWN_ACCEPTANCE_MEMBER);
+      const member=JSON.parse(require('node:fs').readFileSync(process.env.BURNDOWN_ACCEPTANCE_MEMBER_PATH,'utf8'));
       const receipt=JSON.parse(process.env.ACCEPTANCE_RESULT ?? JSON.stringify({version:1,repo:member.repo,revision:process.env.BURNDOWN_CHECK_REVISION,issues:member.commits.map(({issue})=>({issue,disposition:'complete',criteria:[{criterion:'Acceptance complete.',evidence:['CHECKS_PASSED']}],remaining:[]}))}));
       output=output.replace(/VERDICT: PASS\s*$/, 'ACCEPTANCE '+JSON.stringify(receipt)+'\nVERDICT: PASS');
     }
@@ -586,13 +587,17 @@ async function reviewFixture(t: test.TestContext) {
   }
   await f.put(
     "bin/claude",
-    `#!${process.execPath}\n${claudeResultEnvelope}\nconst fs = require('node:fs'); const args = process.argv.slice(2); fs.appendFileSync(process.env.COMMAND_LOG, JSON.stringify(['claude', ...args, process.env.CLAUDE_CONFIG_DIR, process.env.ANTHROPIC_API_KEY ?? '', process.env.ANTHROPIC_AUTH_TOKEN ?? '', process.env.CLAUDE_CODE_OAUTH_TOKEN ?? '']) + '\\n'); const id = require('node:path').basename(process.env.CLAUDE_CONFIG_DIR); const responses = JSON.parse(process.env.REVIEW_RESPONSES ?? '{}'); const response = responses[id] ?? {}; if (args[0] === 'auth') { if (response.identityRaw !== undefined) { console.log(response.identityRaw); process.exit(response.authExit ?? 0); } console.log(JSON.stringify({loggedIn: true, authMethod: 'claude.ai', apiProvider: 'firstParty', email: response.email ?? process.env.REVIEW_EMAIL ?? id + '@example.test'})); process.exit(response.authExit ?? 0); } else { if (process.env.REQUIRE_EMPTY_CWD && (process.cwd() === process.env.SOURCE_ROOT || fs.readdirSync(process.cwd()).length !== 0)) { console.error('UNSAFE_REVIEW_CWD'); process.exit(1); } if (process.env.REVIEW_FABLE_LIMIT && process.env.CLAUDE_CONFIG_DIR.endsWith('claude-1')) { console.log('You\\'ve reached your Fable limit. Switch to another model, or manage usage credits at claude.ai/settings/usage?from=cc_cli_limit_message, to continue.'); process.exit(Number(process.env.REVIEW_EXIT ?? 0)); } if (process.env.REVIEW_QUOTA && process.env.CLAUDE_CONFIG_DIR.endsWith('claude-1')) { console.error('quota exceeded'); process.exit(1); } if (response.signal) process.kill(process.pid, response.signal); if (response.delay) { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, response.delay); } console.log(response.output ?? process.env.REVIEW_OUTPUT ?? 'VERDICT: PASS'); if (response.stderr) console.error(response.stderr); process.exit(response.exit ?? 0); }\n`
+    `#!${process.execPath}\n${claudeResultEnvelope}\nconst fs = require('node:fs'); const args = process.argv.slice(2); fs.appendFileSync(process.env.COMMAND_LOG, JSON.stringify(['claude', ...args, process.env.CLAUDE_CONFIG_DIR, process.env.ANTHROPIC_API_KEY ?? '', process.env.ANTHROPIC_AUTH_TOKEN ?? '', process.env.CLAUDE_CODE_OAUTH_TOKEN ?? '']) + '\\n'); const id = require('node:path').basename(process.env.CLAUDE_CONFIG_DIR); const responses = JSON.parse(process.env.REVIEW_RESPONSES ?? '{}'); const response = responses[id] ?? {}; if (args[0] === 'auth') { if (response.identityRaw !== undefined) { console.log(response.identityRaw); process.exit(response.authExit ?? 0); } console.log(JSON.stringify({loggedIn: true, authMethod: 'claude.ai', apiProvider: 'firstParty', email: response.email ?? process.env.REVIEW_EMAIL ?? id + '@example.test'})); process.exit(response.authExit ?? 0); } else { if (process.env.REVIEW_INPUT_LOG) fs.writeFileSync(process.env.REVIEW_INPUT_LOG, fs.readFileSync(0,'utf8')); if (process.env.REQUIRE_EMPTY_CWD && (process.cwd() === process.env.SOURCE_ROOT || fs.readdirSync(process.cwd()).length !== 0)) { console.error('UNSAFE_REVIEW_CWD'); process.exit(1); } if (process.env.REVIEW_FABLE_LIMIT && process.env.CLAUDE_CONFIG_DIR.endsWith('claude-1')) { console.log('You\\'ve reached your Fable limit. Switch to another model, or manage usage credits at claude.ai/settings/usage?from=cc_cli_limit_message, to continue.'); process.exit(Number(process.env.REVIEW_EXIT ?? 0)); } if (process.env.REVIEW_QUOTA && process.env.CLAUDE_CONFIG_DIR.endsWith('claude-1')) { console.error('quota exceeded'); process.exit(1); } if (response.signal) process.kill(process.pid, response.signal); if (response.delay) { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, response.delay); } console.log(response.output ?? process.env.REVIEW_OUTPUT ?? 'VERDICT: PASS'); if (response.stderr) console.error(response.stderr); process.exit(response.exit ?? 0); }\n`
   )
   await chmod(join(f.bin, "claude"), 0o755)
   return {
     ...f,
     reviewHome,
     review(extra: Record<string, string> = {}, program = reviewProgram, timeout = 60_000) {
+      const memberPath = join(f.root, "review-member.json")
+      writeFileSync(memberPath, JSON.stringify({ repo: "smithersai/smithers", commits: [{ issue: 1 }] }), {
+        mode: 0o600
+      })
       return spawnSync(process.execPath, [
         "--input-type=module",
         "-e",
@@ -609,7 +614,7 @@ async function reviewFixture(t: test.TestContext) {
           BURNDOWN_REVIEW_EXCLUDED_ACCOUNTS: "",
           BURNDOWN_EXCLUDE_EMAILS: "",
           BURNDOWN_CHECK_REVISION: "a".repeat(40),
-          BURNDOWN_ACCEPTANCE_MEMBER: JSON.stringify({ repo: "smithersai/smithers", commits: [{ issue: 1 }] }),
+          BURNDOWN_ACCEPTANCE_MEMBER_PATH: memberPath,
           BURNDOWN_ACCEPTANCE_PATH: join(f.root, "acceptance.json"),
           BURNDOWN_PRECHECKS_LOG: acceptanceLog,
           BURNDOWN_CHECKS_LOG: acceptanceLog,
@@ -658,6 +663,62 @@ test("successful diff verdict without issue acceptance never permits landing rev
   assert.notEqual(result.status, 0)
   assert.match(result.stderr, /ACCEPTANCE_REVIEW_MISSING/)
   await assert.rejects(readFile(join(f.root, "acceptance.json"), "utf8"), /ENOENT/)
+})
+
+test("oversized required final-review input refuses before any model call or acceptance save", async (t) => {
+  for (const source of ["diff", "checks", "acceptance", "combined"] as const) {
+    await t.test(source, async (t) => {
+      const f = await reviewFixture(t)
+      const size = source === "combined" ? 400_000 : 1_048_577
+      const diff = join(f.root, "diff.txt")
+      const checks = join(f.root, "large-checks.log")
+      const issue = join(f.root, "issue.json")
+      await writeFile(diff, source === "diff" || source === "combined" ? "d".repeat(size) : "small diff")
+      await writeFile(
+        checks,
+        `CHECK_REVISION ${"a".repeat(40)}\nCHECKS_PASSED\n` +
+          (source === "checks" || source === "combined" ? "c".repeat(size) : "small checks")
+      )
+      await writeFile(
+        issue,
+        JSON.stringify({
+          number: 1,
+          title: "Acceptance",
+          body: "Acceptance complete." + (source === "acceptance" || source === "combined" ? "a".repeat(size) : ""),
+          comments: []
+        })
+      )
+      const result = f.review({ REVIEW_DIFF_FILE: diff, REVIEW_ISSUE_FILE: issue, BURNDOWN_CHECKS_LOG: checks })
+      assert.notEqual(result.status, 0, result.stdout + result.stderr)
+      assert.match(result.stderr, /REVIEW_INPUT_INCOMPLETE/)
+      assert.equal((await f.commands()).length, 0)
+      await assert.rejects(readFile(join(f.root, "acceptance.json")), /ENOENT/)
+    })
+  }
+})
+
+test("oversized optional comments are omitted with a receipt while whole acceptance and exact identity survive", async (t) => {
+  const f = await reviewFixture(t)
+  const issue = join(f.root, "issue.json")
+  const input = join(f.root, "review-input.txt")
+  const body = "Acceptance complete.\nWHOLE_ACCEPTANCE_SENTINEL"
+  await writeFile(
+    issue,
+    JSON.stringify({ number: 1, title: "Acceptance", body, comments: [{ body: "z".repeat(100_000) }] })
+  )
+  const result = f.review({ REVIEW_ISSUE_FILE: issue, REVIEW_INPUT_LOG: input, BURNDOWN_REVIEW_BASE: "b".repeat(40) })
+  assert.equal(result.status, 0, result.stderr)
+  const prompt = await readFile(input, "utf8")
+  assert.ok(Buffer.byteLength(prompt) <= 1_048_576)
+  assert.ok(prompt.includes(JSON.stringify(`Acceptance\n${body}`)))
+  assert.ok(prompt.includes("a".repeat(40)))
+  assert.ok(prompt.includes("b".repeat(40)))
+  assert.ok(prompt.includes("historical superset"))
+  assert.match(prompt, /optional_input_limit/)
+  assert.ok(!prompt.includes("z".repeat(100_000)))
+  assert.match(result.stdout, /REVIEW_INPUT_RECEIPT/)
+  const record = JSON.parse(await readFile(join(f.root, "acceptance.json"), "utf8"))
+  assert.equal(record.context.issues[0].body, `Acceptance\n${body}`)
 })
 
 test("acceptance existence and stale rejected-push receipts never classify an unpushed failure as delivered", async (t) => {
@@ -1118,7 +1179,7 @@ async function completeLandingFixture(t: test.TestContext) {
   )
   await f.put(
     "bin/claude",
-    `#!${process.execPath}\n${claudeResultEnvelope}\nrequire('node:fs').appendFileSync(process.env.COMMAND_LOG, JSON.stringify(['claude', ...process.argv.slice(2)]) + '\\n'); if (process.argv[2] === 'auth') console.log(JSON.stringify({loggedIn:true,authMethod:'claude.ai',apiProvider:'firstParty',email:'reviewer@example.test'})); else console.log('VERDICT: PASS');\n`
+    `#!${process.execPath}\nif(process.argv[2]!=='auth')require('node:fs').readFileSync(0);\n${claudeResultEnvelope}\nrequire('node:fs').appendFileSync(process.env.COMMAND_LOG, JSON.stringify(['claude', ...process.argv.slice(2)]) + '\\n'); if (process.argv[2] === 'auth') console.log(JSON.stringify({loggedIn:true,authMethod:'claude.ai',apiProvider:'firstParty',email:'reviewer@example.test'})); else console.log('VERDICT: PASS');\n`
   )
   await chmod(join(f.bin, "claude"), 0o755)
   await f.put(
@@ -1131,7 +1192,7 @@ async function completeLandingFixture(t: test.TestContext) {
   for (const suffix of ["prechecks", "checks", "review"]) {
     t.after(() => rm(join(receiptRoot, `${key}.${suffix}.log`), { force: true }))
   }
-  for (const suffix of ["acceptance", "pushed"]) {
+  for (const suffix of ["acceptance", "pushed", "member"]) {
     t.after(() => rm(join(receiptRoot, `${key}.${suffix}.json`), { force: true }))
   }
   return {
@@ -1157,6 +1218,201 @@ async function completeLandingFixture(t: test.TestContext) {
     }
   }
 }
+
+async function publicQueueFixture(
+  t: test.TestContext,
+  fixtures: ReadonlyArray<Awaited<ReturnType<typeof completeLandingFixture>>>
+) {
+  const routes: Record<string, { root: string; commandLog: string }> = {}
+  const first = fixtures[0]!
+  const receiptRoot = join(homedir(), "Smithers-Ops/burndown/landings")
+  for (const f of fixtures) {
+    routes[f.key] = { root: f.root, commandLog: f.commandLog }
+    await mkdir(join(f.root, "review-home/.smithers/accounts/claude-1"), { recursive: true })
+    t.after(() => rm(join(receiptRoot, `${f.key}.sh`), { force: true }))
+    const script = join(receiptRoot, `${f.key}.sh`)
+    await writeFile(script, "old readable script", { mode: 0o755 })
+    await chmod(script, 0o755)
+  }
+  // The private operations lock is outside this public checkout. Substitute
+  // that wrapper only; execute the generated landing shell and real processes.
+  await first.put(
+    "bin/python3",
+    `#!${process.execPath}
+const fs=require('node:fs'),path=require('node:path'),{spawnSync}=require('node:child_process');
+const source=process.argv.at(-1),key=path.basename(source,'.sh'),route=JSON.parse(process.env.LANDING_ROUTES)[key];
+if((fs.statSync(source).mode&0o777)!==0o700)throw new Error('LANDING_SCRIPT_NOT_PRIVATE');
+const script=fs.readFileSync(source,'utf8').replace('join(homedir(), ".smithers/accounts")',JSON.stringify(path.join(route.root,'review-home/.smithers/accounts')));
+const qualified=path.join(route.root,'qualified-landing.sh');fs.writeFileSync(qualified,script,{mode:0o600});
+const result=spawnSync('sh',[qualified],{cwd:route.root,env:{...process.env,PATH:path.join(route.root,'bin')+':'+process.env.PATH,COMMAND_LOG:route.commandLog,BURNDOWN_REVIEW_ACCOUNT:'claude-1'},stdio:'inherit'});
+process.exit(result.status??1);
+`
+  )
+  await chmod(join(first.bin, "python3"), 0o755)
+  await first.put(
+    "claim.mjs",
+    `import{appendFileSync}from'node:fs';appendFileSync(process.env.COMMAND_LOG,JSON.stringify(['claim',...process.argv.slice(2)])+'\\n');console.log(JSON.stringify(process.argv[2]==='check'?{mine:true}:{posted:true}));`
+  )
+  return (extra: Record<string, string> = {}, options: unknown = {}) => {
+    const optionsPath = join(first.root, "queue-options.json")
+    writeFileSync(optionsPath, JSON.stringify(options), { mode: 0o600 })
+    const program = `import {Effect} from ${JSON.stringify(import.meta.resolve("effect"))};
+import{landAll}from ${JSON.stringify(new URL("../land.ts", import.meta.url).href)};
+const keys=JSON.parse(process.env.QUEUE_KEYS);
+const results=keys.map(key=>({key,status:'ready',commits:[{issue:1,commit:'a'.repeat(40)}],notes:'READY',agentHours:1}));
+const workers=keys.map(key=>({assignment:{key,repo:'smithersai/smithers'},executionId:key,startedAt:0}));
+console.log(JSON.stringify(await Effect.runPromise(landAll(results,workers,JSON.parse(process.getBuiltinModule('fs').readFileSync(process.env.QUEUE_OPTIONS_FILE,'utf8'))))));`
+    return spawnSync(process.execPath, ["--input-type=module", "-e", program], {
+      cwd: first.root,
+      encoding: "utf8",
+      timeout: 60_000,
+      env: {
+        ...process.env,
+        PATH: `${first.bin}:${process.env.PATH}`,
+        COMMAND_LOG: first.commandLog,
+        BURNDOWN_ISSUE_CLAIM_SCRIPT: join(first.root, "claim.mjs"),
+        LANDING_ROUTES: JSON.stringify(routes),
+        QUEUE_KEYS: JSON.stringify(fixtures.map((f) => f.key)),
+        QUEUE_OPTIONS_FILE: optionsPath,
+        ...extra
+      }
+    })
+  }
+}
+
+test("actual queue parks oversized required checks before model/push/close while another member lands", async (t) => {
+  const large = await completeLandingFixture(t)
+  const valid = await completeLandingFixture(t)
+  await large.put(
+    "bin/pnpm",
+    `#!${process.execPath}\nif(process.argv.at(-1)==='typecheck')process.stdout.write('x'.repeat(5*1024*1024));\n`
+  )
+  const runQueue = await publicQueueFixture(t, [large, valid])
+  const result = runQueue()
+  assert.equal(result.status, 0, result.stderr)
+  const report = JSON.parse(result.stdout)
+  assert.deepEqual(report.landed, [valid.key], result.stdout + result.stderr)
+  assert.deepEqual(report.quarantined, [])
+  assert.equal(report.incomplete[0].key, large.key)
+  assert.match(report.incomplete[0].error, /REVIEW_INPUT_INCOMPLETE prechecks_input_limit/)
+  assert.equal((await large.commands()).some((args) => args.includes("push") || args[0] === "claude"), false)
+  assert.equal((await valid.commands()).filter((args) => args.includes("push")).length, 1)
+  const comments = (await large.commands()).filter((args) => args[0] === "claim" && args.includes("--close"))
+  assert.equal(comments.length, 1, "only the independently accepted member closes")
+  const retained = await readFile(join(homedir(), "Smithers-Ops/burndown/landings", `${large.key}.prechecks.log`))
+  assert.ok(retained.byteLength > 5 * 1024 * 1024, "full required evidence remains on disk")
+  for (const f of [large, valid]) {
+    assert.equal(statSync(join(homedir(), "Smithers-Ops/burndown/landings", `${f.key}.sh`)).mode & 0o777, 0o700)
+  }
+})
+
+test("multi-megabyte optional notes reach bounded review through the actual landing file transport", async (t) => {
+  const f = await completeLandingFixture(t)
+  const notes = "optional notes ".repeat(160_000)
+  const memberPath = join(homedir(), "Smithers-Ops/burndown/landings", `${f.key}.member.json`)
+  await writeFile(memberPath, "old readable member", { mode: 0o644 })
+  await chmod(memberPath, 0o644)
+  assert.equal(statSync(memberPath).mode & 0o777, 0o644)
+  const source = join(f.root, "large-notes.sh")
+  await writeFile(
+    source,
+    withReviewAccounts(
+      landingScript({
+        key: f.key,
+        repo: "smithersai/smithers",
+        commits: [{ issue: 1, commit: "a".repeat(40) }],
+        notes
+      }),
+      f.root
+    )
+  )
+  const result = spawnSync("sh", [source], {
+    cwd: f.root,
+    env: { ...process.env, PATH: `${f.bin}:${process.env.PATH}`, COMMAND_LOG: f.commandLog },
+    encoding: "utf8",
+    timeout: 60_000
+  })
+  assert.equal(result.status, 0, result.stderr)
+  const saved = JSON.parse(
+    await readFile(join(homedir(), "Smithers-Ops/burndown/landings", `${f.key}.acceptance.json`), "utf8")
+  )
+  const receipt = saved.reviewInput.optional.find((item: { field: string }) => item.field === "notes")
+  assert.equal(receipt.omission, "optional_input_limit")
+  assert.equal(receipt.includedBytes, 0)
+  assert.equal(receipt.providedBytes, Buffer.byteLength(JSON.stringify(notes)))
+  assert.equal(receipt.digest, createHash("sha256").update(JSON.stringify(notes)).digest("hex"))
+  assert.ok(saved.reviewInput.inputBytes <= 1_048_576)
+  assert.equal(statSync(memberPath).mode & 0o777, 0o600)
+  assert.equal(JSON.parse(await readFile(memberPath, "utf8")).notes, notes)
+  assert.equal((await f.commands()).filter((args) => args.includes("push")).length, 1)
+})
+
+test("explicit landed recovery revalidates changed acceptance and original SHA before any issue close", async (t) => {
+  const f = await completeLandingFixture(t)
+  await f.put(
+    "bin/pnpm",
+    `#!${process.execPath}\nif(process.argv.at(-1)==='typecheck')process.stdout.write('EXECUTED'.repeat(20_000));\n`
+  )
+  const initial = f.runLanding()
+  assert.equal(initial.status, 0, initial.stdout + initial.stderr)
+  const pushed = join(homedir(), "Smithers-Ops/burndown/landings", `${f.key}.pushed.json`)
+  const original = JSON.parse(await readFile(pushed, "utf8"))
+  assert.ok(
+    Buffer.byteLength(JSON.stringify(original)) > 128 * 1024,
+    "whole retained evidence exceeds a Linux single-argument bound"
+  )
+  const runQueue = await publicQueueFixture(t, [f])
+  const issue = join(f.root, "current-issue.json")
+  await writeFile(
+    issue,
+    JSON.stringify({ number: 1, title: "Acceptance", body: "Current acceptance changed.", comments: [] })
+  )
+  const changed = runQueue({ REVIEW_ISSUE_FILE: issue })
+  assert.equal(changed.status, 0, changed.stderr)
+  assert.match(JSON.parse(changed.stdout).receiptsPending[0].error, /ACCEPTANCE_CHANGED/)
+  assert.deepEqual(JSON.parse(await readFile(pushed, "utf8")), original)
+  const options = { reverify: [f.key], expectedReceipts: [{ key: f.key, receipt: original }] }
+  const drift = runQueue({ SHA_DRIFT_AT: "0" }, options)
+  assert.equal(drift.status, 0, drift.stderr)
+  assert.match(JSON.parse(drift.stdout).receiptsPending[0].error, /PUSHED_RECEIPT_REMOTE_MISMATCH/)
+  assert.deepEqual(JSON.parse(await readFile(pushed, "utf8")), original)
+  await unlink(pushed)
+  await unlink(f.commandLog + ".pushed")
+  const lost = runQueue({}, options)
+  assert.equal(lost.status, 0, lost.stderr)
+  assert.match(JSON.parse(lost.stdout).receiptsPending[0].error, /PUSHED_RECEIPT_REMOTE_MISMATCH/)
+  assert.deepEqual(JSON.parse(lost.stdout).receiptsPending[0].receipt, original)
+  await assert.rejects(readFile(pushed), { code: "ENOENT" })
+  assert.equal((await f.commands()).filter((args) => args.includes("push")).length, 1)
+  await writeFile(pushed, JSON.stringify(original))
+  await writeFile(f.commandLog + ".pushed", "")
+  const rejected = runQueue({ REVIEW_ISSUE_FILE: issue }, options)
+  assert.equal(rejected.status, 0, rejected.stderr)
+  assert.match(JSON.parse(rejected.stdout).receiptsPending[0].error, /ACCEPTANCE_INVALID/)
+  assert.deepEqual(JSON.parse(await readFile(pushed, "utf8")), original, "failed re-review retains original acceptance")
+  assert.equal((await f.commands()).some((args) => args[0] === "claim" && args.includes("--close")), false)
+  const acceptance = {
+    version: 1,
+    repo: "smithersai/smithers",
+    revision: "a".repeat(40),
+    issues: [{
+      issue: 1,
+      disposition: "complete",
+      criteria: [{ criterion: "Current acceptance changed.", evidence: ["CHECKS_PASSED"] }],
+      remaining: []
+    }]
+  }
+  const resumed = runQueue({ REVIEW_ISSUE_FILE: issue, ACCEPTANCE_RESULT: JSON.stringify(acceptance) }, options)
+  assert.equal(resumed.status, 0, resumed.stderr)
+  assert.deepEqual(JSON.parse(resumed.stdout).landed, [f.key], resumed.stdout + resumed.stderr)
+  assert.equal(
+    (await f.commands()).filter((args) => args.includes("push")).length,
+    1,
+    "the original push is the only push"
+  )
+  assert.equal((await f.commands()).filter((args) => args[0] === "claim" && args.includes("--close")).length, 1)
+  assert.deepEqual(JSON.parse(await readFile(pushed, "utf8")).landed, original.landed)
+})
 
 test("successful landing checks both exact candidates, reviews, pushes once, and returns the landed SHA", async (t) => {
   const f = await completeLandingFixture(t)
@@ -1417,7 +1673,12 @@ async function realLandingFixture(t: test.TestContext, advancedMain = false) {
   })
   const originalPath = process.env.PATH!
   const jj = (args: Array<string>) => {
-    const r = spawnSync("jj", args, { cwd: f.root, env: { ...process.env, PATH: originalPath }, encoding: "utf8" })
+    const r = spawnSync("jj", args, {
+      cwd: f.root,
+      env: { ...process.env, PATH: originalPath },
+      encoding: "utf8",
+      maxBuffer: 16 << 20
+    })
     assert.equal(r.status, 0, r.stderr)
     return r.stdout.trim()
   }
@@ -1476,7 +1737,9 @@ async function realLandingFixture(t: test.TestContext, advancedMain = false) {
     remote,
     run(extra: Record<string, string> = {}, candidate = member) {
       const candidateKey = candidate === member ? key : `${key}-${candidate.slice(0, 12)}`
-      for (const suffix of ["prechecks.log", "checks.log", "review.log", "acceptance.json", "pushed.json"]) {
+      for (
+        const suffix of ["prechecks.log", "checks.log", "review.log", "acceptance.json", "pushed.json", "member.json"]
+      ) {
         t.after(() => rm(join(receipts, `${candidateKey}.${suffix}`), { force: true }))
       }
       return spawnSync(
@@ -1536,6 +1799,64 @@ test("real jj post-push realignment failure recovers shared edits without anothe
   assert.equal(await readFile(join(f.root, "unrelated.txt"), "utf8"), "PRESERVE")
   assert.equal((await f.commands()).filter((args) => args.includes("push")).length, 1)
   assert.equal(f.jj(["log", "--no-graph", "-r", "mythical", "-T", "commit_id"]), f.mythical)
+})
+
+test("non-contiguous historical review retains intervening diff bytes and refuses an oversized superset", async (t) => {
+  const f = await realLandingFixture(t)
+  const base = f.jj(["log", "--no-graph", "-r", `parents(${f.member})`, "-T", "commit_id"])
+  f.jj(["rebase", "-r", "@", "-d", f.member])
+  await f.put("packages/a/intervening.txt", "INTERVENING_COMMIT_SENTINEL\n" + "x".repeat(600_000))
+  await f.put("packages/a/intervening-more.txt", "SECOND_INTERVENING_SENTINEL\n" + "y".repeat(600_000))
+  f.jj([
+    "commit",
+    "packages/a/intervening.txt",
+    "packages/a/intervening-more.txt",
+    "-m",
+    "intervening commit outside the READY member"
+  ])
+  await f.put("packages/a/final.txt", "LAST_MEMBER_SENTINEL")
+  f.jj(["commit", "packages/a/final.txt", "-m", "last READY member commit"])
+  const final = f.jj(["log", "--no-graph", "-r", "@-", "-T", "commit_id"])
+  const historical = f.jj(["diff", "--git", "--from", base, "--to", final])
+  assert.ok(historical.includes("INTERVENING_COMMIT_SENTINEL"))
+  assert.ok(historical.includes("LAST_MEMBER_SENTINEL"))
+  const checks = join(f.root, "historical-checks.log")
+  const acceptance = join(f.root, "historical-acceptance.json")
+  const memberPath = join(f.root, "historical-member.json")
+  await writeFile(
+    memberPath,
+    JSON.stringify({
+      repo: "smithersai/smithers",
+      commits: [{ issue: 1, commit: f.member }, { issue: 3, commit: final }]
+    }),
+    { mode: 0o600 }
+  )
+  await writeFile(checks, `CHECK_REVISION ${final}\nCHECKS_PASSED\n`)
+  const result = spawnSync(process.execPath, ["--input-type=module", "-e", reviewProgram], {
+    cwd: f.root,
+    encoding: "utf8",
+    timeout: 60_000,
+    env: {
+      ...process.env,
+      PATH: `${f.bin}:${process.env.PATH}`,
+      ORIGINAL_PATH: process.env.PATH,
+      COMMAND_LOG: f.commandLog,
+      BURNDOWN_CHECK_REVISION: final,
+      BURNDOWN_REVIEW_BASE: base,
+      BURNDOWN_PRECHECKS_LOG: checks,
+      BURNDOWN_CHECKS_LOG: checks,
+      BURNDOWN_ACCEPTANCE_PATH: acceptance,
+      BURNDOWN_ACCEPTANCE_MEMBER_PATH: memberPath
+    }
+  })
+  assert.notEqual(result.status, 0)
+  assert.match(result.stderr, /ReviewInputIncomplete: REVIEW_INPUT_INCOMPLETE required_input_limit/)
+  assert.ok(result.stdout.includes(base))
+  assert.ok(result.stdout.includes(final))
+  assert.match(result.stdout, /historical superset including intervening commits/)
+  assert.match(result.stdout, /REVIEW_INPUT_RECEIPT.*"status":"incomplete"/)
+  assert.equal((await f.commands()).some((args) => args[0] === "claude" || args.includes("push")), false)
+  await assert.rejects(readFile(acceptance), /ENOENT/)
 })
 
 test("landing cancellation retains process cleanup diagnostics", async (t) => {
@@ -2029,11 +2350,11 @@ test("large green check and review logs stay on disk without exceeding landing o
   const f = await completeLandingFixture(t)
   await f.put(
     "bin/pnpm",
-    `#!${process.execPath}\nconst fs=require('node:fs');const args=process.argv.slice(2);fs.appendFileSync(process.env.COMMAND_LOG,JSON.stringify(['pnpm',...args])+'\\n');if(args.at(-1)==='typecheck')process.stdout.write('C'.repeat(5*1024*1024)+'CHECK_LARGE_END\\n');\n`
+    `#!${process.execPath}\nconst fs=require('node:fs');const args=process.argv.slice(2);fs.appendFileSync(process.env.COMMAND_LOG,JSON.stringify(['pnpm',...args])+'\\n');if(args.at(-1)==='typecheck')process.stdout.write('C'.repeat(64*1024)+'CHECK_LARGE_END\\n');\n`
   )
   await f.put(
     "bin/claude",
-    `#!${process.execPath}\nif(process.argv[2]!=='auth')require('node:fs').readFileSync(0);\n${claudeResultEnvelope}\nif(process.argv[2]==='auth')console.log(JSON.stringify({loggedIn:true,authMethod:'claude.ai',apiProvider:'firstParty',email:'reviewer@example.test'}));else{const member=JSON.parse(process.env.BURNDOWN_ACCEPTANCE_MEMBER);const receipt={version:1,repo:member.repo,revision:process.env.BURNDOWN_CHECK_REVISION,issues:member.commits.map(({issue})=>({issue,disposition:'complete',criteria:[{criterion:'Acceptance complete.',evidence:['CHECKS_PASSED']}],remaining:[]}))};process.stdout.write('R'.repeat(7*1024*1024)+'REVIEW_LARGE_END\\nACCEPTANCE '+JSON.stringify(receipt)+'\\nVERDICT: PASS\\n');}\n`
+    `#!${process.execPath}\nif(process.argv[2]!=='auth')require('node:fs').readFileSync(0);\n${claudeResultEnvelope}\nif(process.argv[2]==='auth')console.log(JSON.stringify({loggedIn:true,authMethod:'claude.ai',apiProvider:'firstParty',email:'reviewer@example.test'}));else{const member=JSON.parse(require('node:fs').readFileSync(process.env.BURNDOWN_ACCEPTANCE_MEMBER_PATH,'utf8'));const receipt={version:1,repo:member.repo,revision:process.env.BURNDOWN_CHECK_REVISION,issues:member.commits.map(({issue})=>({issue,disposition:'complete',criteria:[{criterion:'Acceptance complete.',evidence:['CHECKS_PASSED']}],remaining:[]}))};process.stdout.write('R'.repeat(7*1024*1024)+'REVIEW_LARGE_END\\nACCEPTANCE '+JSON.stringify(receipt)+'\\nVERDICT: PASS\\n');}\n`
   )
   const result = await runLandingProcess("sh", [
     "-c",
@@ -2054,9 +2375,9 @@ test("large green check and review logs stay on disk without exceeding landing o
   for (const suffix of ["prechecks", "checks", "review"]) {
     const contents = await readFile(join(homedir(), "Smithers-Ops/burndown/landings", `${f.key}.${suffix}.log`))
     retained += contents.byteLength
-    assert.ok(contents.byteLength > (suffix === "review" ? 7 : 5) * 1024 * 1024)
+    assert.ok(contents.byteLength > (suffix === "review" ? 7 * 1024 * 1024 : 64 * 1024))
   }
-  assert.ok(retained > 16 * 1024 * 1024, "full successful receipts remain on disk")
+  assert.ok(retained > 7 * 1024 * 1024, "full successful receipts remain on disk")
   assert.equal((await f.commands()).filter((args) => args.includes("push")).length, 1)
 })
 

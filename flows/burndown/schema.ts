@@ -58,6 +58,17 @@ export const Ready = Schema.Struct({ assignment: Assignment, result: WorkerResul
 )
 export type Ready = typeof Ready.Type
 
+/** Durable verification attempts retain the original worker and claim identities. */
+export const ReceiptRetry = Schema.Struct({
+  key: Schema.String,
+  ready: Ready,
+  attempts: Schema.Number.check(Schema.makeFilter((value) => Number.isSafeInteger(value) && value >= 1 && value <= 3)),
+  status: Schema.Literals(["retry", "parked"]),
+  error: Schema.String,
+  receipt: Schema.optional(Schema.Json)
+}).check(Schema.makeFilter(({ key, ready }) => key === ready.assignment.key))
+export type ReceiptRetry = typeof ReceiptRetry.Type
+
 /** One account's reading: remaining slot ceiling plus the windows behind it. */
 export const Capacity = Schema.Struct({
   account: Schema.String,
@@ -113,7 +124,11 @@ export type PacePlan = typeof PacePlan.Type
 export const LandReport = Schema.Struct({
   landed: Schema.Array(Schema.String),
   quarantined: Schema.Array(Schema.Struct({ key: Schema.String, error: Schema.String })),
-  receiptsPending: Schema.optional(Schema.Array(Schema.Struct({ key: Schema.String, error: Schema.String }))),
+  receiptsPending: Schema.optional(
+    Schema.Array(Schema.Struct({ key: Schema.String, error: Schema.String, receipt: Schema.optional(Schema.Json) }))
+  ),
+  incomplete: Schema.optional(Schema.Array(Schema.Struct({ key: Schema.String, error: Schema.String }))),
+  resumed: Schema.optional(Schema.Array(Schema.String)),
   refused: Schema.optional(
     Schema.Array(
       Schema.Struct({ key: Schema.String, reason: Schema.Literal("issue_closed"), issues: Schema.Array(Schema.Number) })
@@ -127,7 +142,8 @@ export const Options = Schema.Struct({
   repos: Schema.Array(Schema.String),
   placement: Schema.Literals(["local", "cloud"]),
   maxAgents: Schema.Number,
-  tickMinutes: Schema.Number
+  tickMinutes: Schema.Number,
+  resumeReceipts: Schema.optional(Schema.Array(Schema.String))
 })
 export type Options = typeof Options.Type
 
@@ -148,11 +164,19 @@ export const RoundState = Schema.Struct({
   inFlight: Schema.Array(InFlight),
   quarantined: Schema.Array(Quarantined),
   ready: Schema.Array(Ready),
+  receiptRetries: Schema.optional(Schema.Array(ReceiptRetry)),
   readings: Schema.Json,
   rates: Schema.Json,
   history: Schema.Json,
   landed: Schema.Number
-})
+}).check(
+  Schema.makeFilter(({ ready, receiptRetries }) =>
+    new Set((receiptRetries ?? []).map((retry) => retry.key)).size === (receiptRetries ?? []).length &&
+    (receiptRetries ?? []).every((retry) =>
+      JSON.stringify(ready.find((member) => member.assignment.key === retry.key)) === JSON.stringify(retry.ready)
+    )
+  )
+)
 export type RoundState = typeof RoundState.Type
 
 export const Settlement = Schema.Struct({

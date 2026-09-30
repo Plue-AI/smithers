@@ -12,15 +12,17 @@ import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 import { discoverAccounts, readAccounts, type Reading } from "./accounts.ts"
+import { type Refusal, refuseIfClosed } from "./closed-guard.ts"
 import { type History, issueKey, selectCandidates } from "./issues.ts"
-import { refuseIfClosed, type Refusal } from "./closed-guard.ts"
 import { hasPushedReceipt, landAll } from "./land.ts"
 import { earliestReset, exhausted, learnRates, type Rates, slots } from "./pacing.ts"
+import { advanceReceiptRetries } from "./receipt-retry.ts"
 import { Land, Launch, Observe, Settle } from "./round.ts"
 import {
   type Assignment,
   type Capacity,
   type InFlight,
+  type LandReport,
   type Observation,
   Ready,
   type RoundState,
@@ -372,7 +374,11 @@ const alreadyOnRemoteMain = async (member: Ready): Promise<boolean> => {
 }
 
 const land = (state: RoundState, observation: Observation) => {
-  const ready = readyWork(state, observation)
+  const ready = readyWork(state, observation).filter((member) => {
+    const retry = state.receiptRetries?.find((item) => item.key === member.assignment.key)
+    if (retry !== undefined && JSON.stringify(retry.ready) !== JSON.stringify(member)) return false
+    return retry?.status !== "parked" || state.options.resumeReceipts?.includes(member.assignment.key)
+  })
   if (process.env.BURNDOWN_LAND === "off" || ready.length === 0) {
     return Effect.succeed({ landed: [], quarantined: [] })
   }
@@ -383,6 +389,7 @@ const land = (state: RoundState, observation: Observation) => {
       (member) =>
         Effect.promise(async () => {
           if (
+            state.receiptRetries?.some((retry) => retry.key === member.assignment.key && retry.receipt !== undefined) ||
             await hasPushedReceipt({
               key: member.result.key,
               repo: member.assignment.repo,
@@ -405,9 +412,23 @@ const land = (state: RoundState, observation: Observation) => {
     if (owned.length === 0) return { landed: [], quarantined: [], refused }
     const report = yield* landAll(
       owned.map((r) => r.result),
-      owned.map((r) => ({ assignment: r.assignment, executionId: r.assignment.key, startedAt: 0 }))
+      owned.map((r) => ({ assignment: r.assignment, executionId: r.assignment.key, startedAt: 0 })),
+      {
+        reverify: owned.filter((member) => state.options.resumeReceipts?.includes(member.assignment.key)).map((
+          member
+        ) => member.assignment.key),
+        expectedReceipts: (state.receiptRetries ?? []).flatMap((retry) =>
+          retry.receipt === undefined ? [] : [{ key: retry.key, receipt: retry.receipt }]
+        )
+      }
     )
-    return { ...report, refused }
+    return {
+      ...report,
+      refused,
+      resumed: owned.filter((member) => state.options.resumeReceipts?.includes(member.assignment.key)).map((member) =>
+        member.assignment.key
+      )
+    }
   })
 }
 
@@ -423,13 +444,7 @@ const settle = (
   observation: Observation,
   plan: { readonly nextTarget: number },
   launched: ReadonlyArray<InFlight>,
-  landed: {
-    landed: ReadonlyArray<string>
-    quarantined: ReadonlyArray<{ key: string; error: string }>
-    receiptsPending?: ReadonlyArray<{ key: string; error: string }> | undefined
-    retainedSnapshots?: ReadonlyArray<{ path: string; error: string }> | undefined
-    refused?: ReadonlyArray<Refusal> | undefined
-  }
+  landed: LandReport
 ) =>
   Effect.promise(async () => {
     const now = Date.now()
@@ -456,6 +471,7 @@ const settle = (
       !landed.quarantined.some((q) => q.key === r.result.key) &&
       !(landed.refused ?? []).some((q) => q.key === r.result.key)
     )
+    const receiptRetries = advanceReceiptRetries(state.receiptRetries ?? [], queue, landed)
     const quarantined = [
       ...invalid,
       ...state.quarantined.filter((q) => !launched.some((i) => i.assignment.key === q.key)),
@@ -510,12 +526,29 @@ const settle = (
       `${line}\n${
         [
           ...(landed.receiptsPending ?? []).map((item) => `receipts pending ${item.key}: ${item.error}`),
+          ...receiptRetries.filter((item) => item.status === "parked").map((item) =>
+            `verification parked ${item.key} after ${item.attempts} attempt(s): ${item.error}`
+          ),
           ...(landed.refused ?? []).map((item) =>
             `refused ${item.key}: ${item.reason} ${item.issues.map((n) => `#${n}`).join(" ")}`
           ),
           ...(landed.retainedSnapshots ?? []).map((item) => `snapshot retained ${item.path}: ${item.error}`)
         ].join("\n")
       }\n`
+    )
+    // A recoverable projection of canonical round data, never an authority ledger.
+    const parked = receiptRetries.filter((item) => item.status === "parked")
+    await writeFile(
+      join(opsDir, "parked-verification.json"),
+      JSON.stringify(
+        {
+          repos: state.options.repos,
+          receiptRetries: parked,
+          resumeReceipts: parked.map((item) => item.key)
+        },
+        null,
+        2
+      ) + "\n"
     )
     if (capped) {
       const reset = observation.earliestReset === null ? "unknown" : new Date(observation.earliestReset).toISOString()
@@ -540,12 +573,21 @@ const settle = (
       wakeAt,
       summary: `burndown finished after ${state.round + 1} rounds; landed ${state.landed + settledLandings}`,
       next: {
-        options: state.options,
+        options: {
+          ...state.options,
+          ...(state.options.resumeReceipts === undefined ? {} : {
+            resumeReceipts: state.options.resumeReceipts.filter((key) =>
+              !landed.resumed?.includes(key) && !landed.refused?.some((item) => item.key === key) &&
+              !landed.quarantined.some((item) => item.key === key)
+            )
+          })
+        },
         round: state.round + 1,
         target: plan.nextTarget > 0 ? Math.min(Math.round(plan.nextTarget), state.options.maxAgents) : state.target,
         inFlight,
         quarantined,
         ready,
+        receiptRetries,
         readings: observation.readings,
         rates: observation.rates,
         history: history as never,
@@ -560,12 +602,12 @@ export const layer = Layer.mergeAll(
     implementationVersion: "burndown/launch/v3"
   }),
   Land.toLayer(({ observation, state }) => land(state, observation), {
-    implementationVersion: "burndown/land/v5"
+    implementationVersion: "burndown/land/v6"
   }),
   Settle.toLayer(
     ({ landed, launched, observation, plan, state }) => settle(state, observation, plan, launched, landed),
     {
-      implementationVersion: "burndown/settle/v6"
+      implementationVersion: "burndown/settle/v7"
     }
   )
 )

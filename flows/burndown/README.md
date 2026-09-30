@@ -79,3 +79,32 @@ node --experimental-strip-types flows/burndown/accounts.ts
 
 Cloud placement, authentication, review, and commit handoff are described in
 [Cloud workers](docs/cloud-execution.md).
+
+## Final review input
+
+The assembled review is limited to 1 MiB of UTF-8 bytes. Candidate SHA, resolved
+base SHA, whole diff, current issue acceptance, and full executed checks are
+required. If they do not fit, landing parks before calling the reviewer or
+pushing. Historical receipt replay reviews the entire base-to-candidate superset,
+including intervening commits outside the READY member.
+
+Comments (32 KiB) and notes (16 KiB) are optional. Each is either included whole
+or explicitly omitted; the review receipt records its byte count and SHA-256.
+Required evidence remains in the landing logs.
+
+## Parked verification
+
+Already-pushed verification failures retain their original READY assignment,
+claim owner, landed SHAs and acceptance receipt in the existing round state.
+Three failed attempts park the member; incomplete review input parks immediately.
+Other members continue. Receipt recovery never launches a coding repair or pushes
+the landed member again.
+
+`parked-verification.json` in the report directory projects the parked records
+and their `resumeReceipts` keys. To request recovery, submit those fields with
+the configured `repos` in a new `burndown` payload. The request survives round
+handoffs until the member is admitted or terminally refused. The next admitted
+attempt consumes it and starts the same bounded retry policy. Recovery checks
+remote ancestry and original SHAs, reruns checks, and reviews
+the exact landed revision against current acceptance before issue delivery.
+Editing the report does not change an existing run.

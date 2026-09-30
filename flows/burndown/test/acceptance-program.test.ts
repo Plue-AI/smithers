@@ -1,6 +1,7 @@
 import assert from "node:assert/strict"
 import { spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
+import { writeFileSync } from "node:fs"
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -8,6 +9,7 @@ import test from "node:test"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { bundle } from "../../coding/build.mjs"
 import { acceptanceReviewPrelude, pushedReceiptProgram, verifiedReceiptProgram } from "../acceptance-program.ts"
+import { buildReviewInput, ReviewInputIncomplete } from "../review-input.ts"
 
 const revision = "a".repeat(40)
 const original = "b".repeat(40)
@@ -40,6 +42,60 @@ const partial = {
 
 const sourcePrograms = { acceptanceReviewPrelude, pushedReceiptProgram, verifiedReceiptProgram }
 
+test("assembled review preserves all required bytes at its UTF-8 boundary and refuses one byte more", () => {
+  const parts = { revision, base: original, diff: "DIFF_REQUIRED", context: "", comments: [], notes: "" }
+  const empty = buildReviewInput(parts)
+  const length = 1_048_576 - 4096 - empty.receipt.requiredBytes
+  const exact = buildReviewInput({ ...parts, context: "é".repeat(Math.floor(length / 2)) + "x".repeat(length % 2) })
+  assert.equal(exact.receipt.requiredBytes + 4096, 1_048_576)
+  assert.ok(exact.receipt.inputBytes <= 1_048_576)
+  assert.ok(exact.input.includes("DIFF_REQUIRED"))
+  assert.throws(
+    () => buildReviewInput({ ...parts, context: "é".repeat(Math.floor(length / 2)) + "x".repeat(length % 2 + 1) }),
+    (error) => {
+      assert.ok(error instanceof ReviewInputIncomplete)
+      assert.equal(error._tag, "ReviewInputIncomplete")
+      assert.equal(error.disposition, "park")
+      assert.equal(error.requiredBytes, 1_048_577)
+      return true
+    }
+  )
+})
+
+test("optional fields obey individual and remaining aggregate budgets with exact omission hashes", () => {
+  const parts = {
+    revision,
+    base: original,
+    diff: "REQUIRED_DIFF",
+    context: { acceptance: "WHOLE_ACCEPTANCE" },
+    comments: [],
+    notes: ""
+  }
+  const notes = "n".repeat(20_000)
+  const comments = [{ issue: 1, comments: [{ body: "c".repeat(40_000) }] }]
+  const omitted = buildReviewInput({ ...parts, notes, comments })
+  for (const [index, value] of [comments, notes].entries()) {
+    const receipt = omitted.receipt.optional[index]!
+    assert.equal(receipt.omission, "optional_input_limit")
+    assert.equal(receipt.includedBytes, 0)
+    assert.equal(receipt.providedBytes, Buffer.byteLength(JSON.stringify(value)))
+    assert.equal(receipt.digest, createHash("sha256").update(JSON.stringify(value)).digest("hex"))
+  }
+  assert.ok(omitted.input.includes("WHOLE_ACCEPTANCE"))
+  const baseline = buildReviewInput({ ...parts, context: "" })
+  const requiredLength = 1_048_576 - 8192 - baseline.receipt.requiredBytes
+  const combined = buildReviewInput({
+    ...parts,
+    context: "a".repeat(requiredLength),
+    comments: [{ issue: 1, comments: [{ body: "c".repeat(20_000) }] }],
+    notes: "n".repeat(10_000)
+  })
+  assert.ok(combined.receipt.inputBytes <= 1_048_576)
+  assert.ok(combined.receipt.optional.every((item) => item.omission === "aggregate_input_limit"))
+  assert.ok(combined.input.includes("a".repeat(requiredLength)))
+  assert.match(combined.input, /historical superset/)
+})
+
 async function fixture(t: test.TestContext, programs = sourcePrograms) {
   const root = await mkdtemp(join(tmpdir(), "acceptance-program-"))
   t.after(() => rm(root, { recursive: true, force: true }))
@@ -64,6 +120,7 @@ process.stdout.write(JSON.stringify(response));
   const post = join(root, "post.log")
   const path = join(root, "acceptance.json")
   const ghLog = join(root, "gh.log")
+  const memberPath = join(root, "member.json")
   await writeFile(pre, check)
   await writeFile(post, check)
   const program = `import { execFileSync } from 'node:child_process';
@@ -82,6 +139,9 @@ if (process.env.FAIL_AFTER_SAVE) throw new Error('later provider failure');
       cold = false,
       target = `${path}.pushed`
     ) {
+      writeFileSync(memberPath, JSON.stringify({ key: "retained", repo: complete.repo, commits: issues }), {
+        mode: 0o600
+      })
       return spawnSync(process.execPath, [
         "--experimental-strip-types",
         "--input-type=module",
@@ -89,7 +149,7 @@ if (process.env.FAIL_AFTER_SAVE) throw new Error('later provider failure');
         programs.pushedReceiptProgram(),
         target,
         cold ? "-" : path,
-        JSON.stringify({ key: "retained", repo: complete.repo, commits: issues }),
+        memberPath,
         revision,
         "change-one"
       ], {
@@ -100,17 +160,31 @@ if (process.env.FAIL_AFTER_SAVE) throw new Error('later provider failure');
       })
     },
     probe() {
+      writeFileSync(
+        memberPath,
+        JSON.stringify({ key: "retained", repo: complete.repo, commits: [{ issue: 3098, commit: original }] }),
+        { mode: 0o600 }
+      )
       return spawnSync(process.execPath, [
         "--input-type=module",
         "-e",
         programs.verifiedReceiptProgram(),
         `${path}.pushed`,
-        JSON.stringify({ key: "retained", repo: complete.repo, commits: [{ issue: 3098, commit: original }] })
+        memberPath
       ], { encoding: "utf8", timeout: 10_000 })
     },
     pre,
     post,
     run(report = `ACCEPTANCE ${JSON.stringify(complete)}\nVERDICT: PASS`, extra: Record<string, string> = {}) {
+      writeFileSync(
+        memberPath,
+        JSON.stringify({
+          repo: complete.repo,
+          commits: [{ issue: 3098, commit: original }],
+          notes: "READY claimed fixed"
+        }),
+        { mode: 0o600 }
+      )
       return spawnSync(process.execPath, ["--experimental-strip-types", "--input-type=module", "-e", program], {
         cwd: root,
         encoding: "utf8",
@@ -122,11 +196,7 @@ if (process.env.FAIL_AFTER_SAVE) throw new Error('later provider failure');
           ISSUE_DATA: JSON.stringify(issue),
           LINKED_NUMBER: "3097",
           REPORT: report,
-          BURNDOWN_ACCEPTANCE_MEMBER: JSON.stringify({
-            repo: complete.repo,
-            commits: [{ issue: 3098, commit: original }],
-            notes: "READY claimed fixed"
-          }),
+          BURNDOWN_ACCEPTANCE_MEMBER_PATH: memberPath,
           BURNDOWN_ACCEPTANCE_PATH: path,
           BURNDOWN_PRECHECKS_LOG: pre,
           BURNDOWN_CHECKS_LOG: post,
@@ -315,6 +385,47 @@ test("shipped host bundler preserves generated acceptance and landing validation
     assert.match(hostText, new RegExp(`function ${name}\\(`))
     assert.ok(hostText.includes("${" + name + ".toString()}"), `serialized helper binding changed: ${name}`)
   }
+  assert.match(hostText, /(?:var|let|const) ReviewInputIncomplete = class/)
+  assert.match(hostText, /function buildReviewInput\(/)
+  for (const name of ["ReviewInputIncomplete", "buildReviewInput"]) {
+    assert.ok(hostText.includes(name + ".toString()"), `serialized review input binding changed: ${name}`)
+  }
+  // Evaluate only the compiled declarations from the actual host graph. The
+  // deployed host entry itself has startup effects and must never be launched.
+  const moduleBytes = (path: string) => {
+    const marker = `// ${path}\n`
+    const start = hostText.indexOf(marker)
+    assert.notEqual(start, -1)
+    const next = hostText.indexOf("\n// ", start + marker.length)
+    const end = next === -1 ? hostText.indexOf("\nexport {", start + marker.length) : next
+    assert.notEqual(end, -1)
+    return hostText.slice(start + marker.length, end)
+  }
+  const actualHelpers = new Function(
+    "Buffer",
+    "process",
+    moduleBytes("flows/burndown/review-input.ts") +
+      "; return {ReviewInputIncomplete,buildReviewInput};"
+  )(Buffer, process)
+  const acceptance = await import("../acceptance.ts")
+  const landing = await import("../landing-receipt.ts")
+  const actualPrograms: typeof sourcePrograms = new Function(
+    "validateAcceptance",
+    "parseAcceptanceReview",
+    "validateMemberAcceptance",
+    "validateLandingReceipt",
+    "ReviewInputIncomplete",
+    "buildReviewInput",
+    moduleBytes("flows/burndown/acceptance-program.ts") +
+      ";return {acceptanceReviewPrelude,pushedReceiptProgram,verifiedReceiptProgram};"
+  )(
+    acceptance.validateAcceptance,
+    acceptance.parseAcceptanceReview,
+    landing.validateMemberAcceptance,
+    landing.validateLandingReceipt,
+    actualHelpers.ReviewInputIncomplete,
+    actualHelpers.buildReviewInput
+  )
   console.log(JSON.stringify({
     qualification: "burndown-shipped-validator-transform",
     runtime: process.version,
@@ -328,6 +439,17 @@ test("shipped host bundler preserves generated acceptance and landing validation
   assert.equal(valid.status, 0, valid.stderr)
   assert.equal(f.pushed().status, 0)
   assert.equal(f.probe().status, 0)
+  await writeFile(f.post, "x".repeat(1_048_577))
+  const tooLarge = f.run()
+  assert.notEqual(tooLarge.status, 0)
+  assert.match(tooLarge.stderr, /ReviewInputIncomplete: REVIEW_INPUT_INCOMPLETE checks_input_limit/)
+  await writeFile(f.post, check)
+  const actual = await fixture(t, actualPrograms)
+  assert.equal(actual.run().status, 0)
+  await writeFile(actual.post, "x".repeat(1_048_577))
+  const actualIncomplete = actual.run()
+  assert.notEqual(actualIncomplete.status, 0)
+  assert.match(actualIncomplete.stderr, /ReviewInputIncomplete: REVIEW_INPUT_INCOMPLETE checks_input_limit/)
   const retained = await readFile(`${f.path}.pushed`, "utf8")
   for (
     const report of [

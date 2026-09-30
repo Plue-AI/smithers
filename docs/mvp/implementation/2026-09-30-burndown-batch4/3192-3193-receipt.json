@@ -1,0 +1,155 @@
+{
+  "issues": [
+    3192,
+    3193
+  ],
+  "base": "c090f853c51d3b537e44688884fd209ca4cde3d7",
+  "sources": {
+    "flows/burndown/README.md": "56dc5136b1099be25f7a535859f65ba5e17f83ceff18a343a332b141625b6fab",
+    "flows/burndown/acceptance-program.ts": "aadb88d60bf8d4a9f658af98f0086f08f53728072c4d82311c08b86dc27bd227",
+    "flows/burndown/flow.ts": "0b1d0641d9f3c1877788a0bb0b9c14a6811ee916d0bc7669da1f4284cf6ba96c",
+    "flows/burndown/host.ts": "9e2375e26430eb30d67b3dd8767c3f31cdadd526790dca4dcb26d207c021a76c",
+    "flows/burndown/land.ts": "1309f87fb0fa646b07124672d590ecca0d94a1ad9706817e619b8e9dc5ef8ae5",
+    "flows/burndown/receipt-retry.ts": "3b1a97d2d6051e168da14d37352777e2437cc9bbd5190a6dce3305a63043e241",
+    "flows/burndown/review-input.ts": "49a32caa2c3cca97d456dabbde6cffd59c39169eee8eeb1898ce373129ea9132",
+    "flows/burndown/round.ts": "ccd8ca2ff746bae3a214feaa6a283aed29c8cfc8e12dee10a505c6b7764449d7",
+    "flows/burndown/schema.ts": "d18a0d43fcf9fc3f7d380d3a9093deaec03c9b6a8bf45d6f1e80c084f67fa8c7",
+    "flows/burndown/test/acceptance-program.test.ts": "00e86f830815f56e01f37dbf97f5a2441655276389adab0a52e2e44854e02a7e",
+    "flows/burndown/test/land.test.ts": "919676bfa5ab87413b65493d9856a219e859fa1a9ea498ce5e6f703a97d60348",
+    "flows/test/burndown-round.test.ts": "109193d4f50618112ba74878939b4cff3b02e2c65d3e2eeac73046cfcc2d3688"
+  },
+  "manifestSha256": "41a43057c80a4628cf1951bce06d97d4688ff0a3c019bdd9b379aaba3f226717",
+  "archiveSha256": "fd32bc4628c91b59b44e9c6c98e977673d36909c0c3260cb348efd5d9d9c9be1",
+  "checks": [
+    {
+      "command": "node --test flows/burndown/test/land.test.ts flows/burndown/test/acceptance-program.test.ts flows/burndown/test/acceptance.test.ts flows/burndown/test/landing-receipt.test.ts flows/test/burndown-round.test.ts",
+      "log": "3192-3193-checkpoint10-final.log",
+      "exit": 0,
+      "outerTestsPassed": 148,
+      "nestedActionTestsPassed": 52
+    },
+    {
+      "command": "node --test --test-name-pattern=boundary-controls flows/burndown/test/land.test.ts",
+      "log": "3192-3193-checkpoint10-boundary.log",
+      "exit": 0,
+      "testsPassed": 4,
+      "pattern": "multi-megabyte optional notes|explicit landed recovery|actual queue parks|non-contiguous historical"
+    },
+    {
+      "command": "pnpm exec eslint [eight owned production files] --max-warnings=0",
+      "log": "3192-3193-checkpoint10-lint.log",
+      "exit": 0
+    },
+    {
+      "command": "dprint check --config flows/dprint.json [12 owned files]",
+      "log": "3192-3193-checkpoint10-format-check.log",
+      "exit": 0
+    },
+    {
+      "command": "git diff --check -- flows/burndown flows/test/burndown-round.test.ts",
+      "exit": 0
+    },
+    {
+      "command": "pnpm exec tsc -p flows/tsconfig.json --noEmit",
+      "log": "3192-3193-checkpoint10-types.log",
+      "exit": 2,
+      "foreignBlockers": [
+        "registration-calibration.test.ts:72",
+        "History.ts:369"
+      ]
+    },
+    {
+      "command": "node --test flows/test/target-coverage.test.ts",
+      "log": "3192-3193-checkpoint10-inventory.log",
+      "exit": 1,
+      "negativeControlPassed": true,
+      "foreignBlocker": "registration-calibration-real.test.ts"
+    },
+    {
+      "command": "node --test --test-name-pattern=[transport+recovery+retained proof] flows/burndown/test/land.test.ts",
+      "log": "3193-private-land-controls.log",
+      "exit": 0,
+      "testsPassed": 4
+    },
+    {
+      "command": "node --test --experimental-test-module-mocks --test-name-pattern=[receipt failure+resume+terminal] flows/test/burndown-round.test.ts",
+      "log": "3193-private-round-controls.log",
+      "exit": 0,
+      "testsPassed": 4
+    }
+  ],
+  "shippedTransform": {
+    "qualification": "burndown-shipped-validator-transform",
+    "runtime": "v26.5.0",
+    "validatorBundleSha256": "63f067354c987379806a3e8f9962a9ebcc1fb3e1dda3e21b5e43f9ebe4fa2973",
+    "actualHostGraphSha256": "1ff29364cc61c1d0528fad9d907bda06135cdb2212e38914cf81294f39c3d170",
+    "actualHostGraphBytes": 20381348,
+    "actualHostLaunched": false
+  },
+  "limits": [
+    "Whole flows types executed and fail at foreign History.ts:369 and registration-calibration.test.ts:72; no owned diagnostics.",
+    "Exhaustive test inventory executed; only incoming registration-calibration-real.test.ts missing runner, owned by foreign #3276.",
+    "Earlier broadened618 suite616pass/1pre-existing monitor failure/1liveCloud skip; monitor independently reproduced using committed pre-change flow, foreign #3256 claimed.",
+    "No executed100% private-flow coverage claim; owning NodeTest targets have no coverage threshold. No thresholds/assertions skipped or weakened.",
+    "Provider/GitHub/process fixtures prevent live issue mutation and subscription use; real local JJ/Git dependencies exercised independently; actual shipped host compiled and declaration programs executed without launching host.",
+    "External scoped type config also pulls foreign Argv narrowing errors; that experiment is not counted as a passing gate."
+  ],
+  "sharedIssueBoundaries": {
+    "3192": {
+      "exclusiveFiles": [
+        "flows/burndown/receipt-retry.ts",
+        "flows/burndown/schema.ts",
+        "flows/burndown/flow.ts",
+        "flows/burndown/host.ts",
+        "flows/burndown/round.ts",
+        "flows/test/burndown-round.test.ts"
+      ],
+      "sharedHunks": {
+        "flows/burndown/acceptance-program.ts": "original SHA pre-write checks, original validated acceptance retention until new review succeeds",
+        "flows/burndown/land.ts": "expectedReceipt/reverify, known landed refusal before fresh push, validated original facts in failure reports, retained receipt mapping",
+        "flows/burndown/test/land.test.ts": "public actual serial queue recovery helper; changed acceptance/SHA drift/lost receipt/full expected evidence controls and exactly one original push",
+        "flows/burndown/README.md": "Parked verification section"
+      },
+      "dependsOnForArgMaxSafeFacts": 3193
+    },
+    "3193": {
+      "exclusiveFiles": [
+        "flows/burndown/review-input.ts"
+      ],
+      "sharedHunks": {
+        "flows/burndown/acceptance-program.ts": "assembled bounded prelude and file-only input readers; omission/required receipt projection",
+        "flows/burndown/land.ts": "reviewProgram bounds/base, typed incomplete disposition/classification, notes, one private member JSON file transport",
+        "flows/burndown/test/acceptance-program.test.ts": "whole UTF8 boundary/optional budget units and actual shipped class/helper transform; file-only reader fixtures",
+        "flows/burndown/test/land.test.ts": "oversize diff/acceptance/checks/combined/no-model/no-push controls, notes ARG_MAX red/green, actual historical superset, fixture input transport and stdin consumption",
+        "flows/burndown/README.md": "Final review input section"
+      },
+      "dependsOnForDurableParking": 3192
+    }
+  },
+  "review": "Orchestrator reviewed whole required UTF8 budget/receipt reserve, omission digests, exact SHA/base/current criteria, three-attempt durable parking, explicit one-shot consumed resume, original landed/acceptance facts before writes, and no second push. Required evidence never truncated. Follow-up review fixed existing-file600 and shell700 permission ordering before private content; actual preexisting broad-mode controls pass. Current transport permission controls supplement unchanged earlier148 functional cases and reviewer-helper transformation; compiled full host was not launched. Coupled changes share durable parking/ARG_MAX-safe retained facts and are one coherent landing.",
+  "postRebase": {
+    "upstreamBase": "b5e033f2386b2d8b676ef0962a79f621aa0f5617",
+    "incomingCommits": 3,
+    "own12SourcesUnchanged": true,
+    "note": "Incoming TUI target approvals and sandbox typing/docs changes do not change any factory production/test bytes. Re-executed4 actual queue/notes/retained recovery/historical diff controls and4 durable park/resume/terminal state controls on rebased source.",
+    "checks": [
+      {
+        "receipt": "smithers-burndown-20260930-checkpoint14-factory.log",
+        "sha256": "b5651fc3c12946cc92e022583ca35e49f7aaff851937800f45f413df24ba0e5c",
+        "exit": 0,
+        "passed": 4
+      },
+      {
+        "receipt": "smithers-burndown-20260930-checkpoint14-round.log",
+        "sha256": "2b9023b6e8cd983fd451c0a6617331d58b5044caa68499ccad937e0aba5e0a43",
+        "exit": 0,
+        "passed": 4
+      }
+    ],
+    "archiveSha256": "03274f4b3c74c05071773d079885fcfeffc1f187f99843082965e533edd5f2be",
+    "shippedGraphQualification": "Earlier full host compiled, not launched, and its extracted unchanged reviewer helper/class executed. Final private transport permission ordering and rebase are qualified by actual final-source controls; no final full-host launch/coverage claim.",
+    "finalUpstreamBase": "28f0b10d109a2accaa48981aae813fb33e5d1d26",
+    "additionalIncomingCommits": 2,
+    "additionalSourceReview": "Markdown rendering/RPC card and Go model credential changes only; no factory source, reviewer/helper, private transport, engine/runtime or test input changed. Qualified12 source hashes unchanged; prior executed8 rebased controls remain applicable."
+  }
+}
