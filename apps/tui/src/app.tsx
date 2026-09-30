@@ -911,10 +911,16 @@ export function App(props: AppProps) {
     )
   ]
   const actionsKey = JSON.stringify(paletteActions)
+  /** A worker's whole run. */
+  const runOf = (tab: Tab) => Undo.run(workspace.transcript(tab.id))
+  /** `d`: a settled worker with captured changes. */
+  const canDiff = (tab: Tab | undefined): tab is Tab =>
+    tab !== undefined && !Tabs.live(tab.status) && Undo.changes(runOf(tab)).length > 0
   /** Built-in actions that apply now, each beside the key that does it in its own view. */
   const paletteActs = Palette.actions({
     diff: panel !== undefined && workerTab === undefined && !overviewShown,
     tabs: snapshot.tabs,
+    diffs: snapshot.tabs.filter(canDiff),
     runs: flowRuns,
     monitors: monitors.list(),
     views: uiPanels
@@ -1872,11 +1878,6 @@ export function App(props: AppProps) {
       turn: live.current.turn !== undefined
     })
 
-  /** A worker's whole run. */
-  const runOf = (tab: Tab) => Undo.run(workspace.transcript(tab.id))
-  /** `d`: a settled worker with captured changes. */
-  const canDiff = (tab: Tab | undefined): tab is Tab =>
-    tab !== undefined && !Tabs.live(tab.status) && Undo.changes(runOf(tab)).length > 0
   /** `u`: those changes are not all undone, and nothing runs that the writes could race. */
   const canUndo = (tab: Tab | undefined): tab is Tab => canDiff(tab) && !undoBlocked() && Undo.possible(runOf(tab))
   /** The worker's run diff, full height, over the current surface. */
@@ -1915,6 +1916,11 @@ export function App(props: AppProps) {
           latest.prompt === undefined ? "changes" : Summary.sentence(latest.prompt).replace(/[.!?]+$/, ""),
           undefined
         )
+      }
+      case "review": {
+        const tab = workspace.snapshot().tabs.find((each) => each.id === chosen.id)
+        if (canDiff(tab)) openReview(tab)
+        return
       }
       case "diff":
       case "split":

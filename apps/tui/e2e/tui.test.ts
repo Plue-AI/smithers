@@ -1569,6 +1569,37 @@ describe("runtime views", () => {
     await tui.until((screen) => /┃\s+still usable/.test(screen), 5_000, "usable composer")
   }, 180_000)
 
+  it("Ctrl+K Undo from Chat restores the newest coding turn and then has nothing left", async () => {
+    const started = await start({ cwd: repository({ git: true }), replay: codingReplay() })
+    const { tui, cwd } = started
+    await tui.type("node check.mjs fails. Fix it and show it passes.")
+    await tui.press(key.enter)
+    await successfulAnswer(started)
+    expect(readFileSync(join(cwd, "math.js"), "utf8")).toContain("a + b")
+    await tui.press(key.ctrlK)
+    await tui.type("undo")
+    await tui.until((screen) => /Undo…\s+u/.test(screen), 5_000, "undo action")
+    await tui.press(key.enter)
+    await tui.until(
+      (screen) => screen.includes("Undo node check.mjs fails?") && screen.includes("[x] math.js"),
+      5_000,
+      "newest turn checklist"
+    )
+    await tui.press(key.enter)
+    await tui.until(
+      (screen) => readFileSync(join(cwd, "math.js"), "utf8").includes("a - b") && screen.includes("Undid math.js"),
+      10_000,
+      "chat undo receipt"
+    )
+    await tui.press(key.ctrlK)
+    await tui.type("undo")
+    await tui.until((screen) => /Undo…\s+u/.test(screen), 5_000, "second undo action")
+    await tui.press(key.enter)
+    await tui.until((screen) => screen.includes("Nothing to undo"), 5_000, "already undone")
+    await tui.type("still usable")
+    await tui.until((screen) => /┃\s+still usable/.test(screen), 5_000, "usable composer")
+  }, 180_000)
+
   it("u refuses when math.js changed since, and changes nothing", async () => {
     const { tui, cwd } = await editRow()
     writeFileSync(join(cwd, "math.js"), "export const add = (a, b) => b + a\n")
@@ -1722,6 +1753,43 @@ console.log("reverted");`,
     await tui.until((screen) => screen.includes("Fixer  1 file +1 −1 · undone"), 5_000, "undone diff")
     await tui.press(key.escape)
     await tui.until((screen) => screen.includes("Ask Smithers"), 5_000, "back to chat")
+  }, 60_000)
+
+  it("Ctrl+K finds a settled worker's run diff from Chat and undoes that worker", async () => {
+    const cwd = repository()
+    tui = await Tui.start({
+      cwd,
+      command: `bun ${join(app, "e2e", "workspace-fixture.tsx")}`,
+      env: {
+        PATH: process.env.PATH ?? "",
+        HOME: process.env.HOME ?? "",
+        SMITHERS_TUI_SESSION_DIR: mkdtempSync(join(tmpdir(), "tui-palette-run-diff-"))
+      }
+    })
+    await tui.until(drawn, 20_000, "first draw")
+    await tui.type("delegate fix")
+    await tui.press(key.enter)
+    await tui.until((screen) => screen.includes("Fixer finished"), 10_000, "worker done")
+    await tui.press(key.ctrlK)
+    await tui.type("diff fixer")
+    await tui.until((screen) => /Diff\s+d\s+Fixer/.test(screen), 5_000, "worker diff action")
+    await tui.press(key.enter)
+    await tui.until((screen) => screen.includes("Fixer  1 file +1 −1") && screen.includes("a + b"), 5_000, "run diff")
+    await tui.press(key.ctrlK)
+    await tui.type("undo")
+    await tui.until((screen) => /Undo…\s+u/.test(screen), 5_000, "review undo action")
+    await tui.press(key.enter)
+    await tui.until(
+      (screen) => screen.includes("Undo Fixer?") && screen.includes("[x] math.js"),
+      5_000,
+      "worker checklist"
+    )
+    await tui.press(key.enter)
+    await tui.until(
+      (screen) => readFileSync(join(cwd, "math.js"), "utf8").includes("a - b") && screen.includes("Undid math.js"),
+      10_000,
+      "worker undo receipt"
+    )
   }, 60_000)
 
   it("u in a worker tab undoes the worker's edit and records it in the worker file", async () => {

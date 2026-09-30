@@ -77,7 +77,7 @@ describe("the card adapter", () => {
       "├ Ran bun test auth ✗",
       "└ Editing login.ts…"
     ])
-    expect(card.footer.text).toBe("42s · sol")
+    expect(card.footer.text).toBe("42s · GPT-6 Sol")
   })
 
   it("prefers the flow's own verbs and takes counts from captured patches", () => {
@@ -293,11 +293,11 @@ describe("the card grid", () => {
     expect(lines[2]).toContain("├ Read auth/login.ts ✓")
     expect(lines[3]).toContain("└ Editing login.ts…")
     // The rows of the shorter card pad so both footers share a line.
-    expect(lines[4]).toMatch(/▌42s · sol +\[x Stop\] \[s Steer\] ▌42s · sol +waiting/)
+    expect(lines[4]).toMatch(/▌42s · GPT-6 Sol +\[x Stop\] \[s Steer\] ▌42s · GPT-6 Sol +waiting/)
     expect(lines[5]?.trim()).toBe("")
     // A short last row stretches across the width.
     expect(lines[6]).toMatch(/^▌● docs/)
-    expect(lines[7]).toContain("Done 1m 04s · sol")
+    expect(lines[7]).toContain("Done 1m 04s · GPT-6 Sol")
   })
 
   it("stacks cards in one column below two minimum widths", async () => {

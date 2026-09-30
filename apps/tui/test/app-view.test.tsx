@@ -46,7 +46,7 @@ test("composer names the driven worker's seat instead of the chat seat", async (
       <AppView.ComposerModel seat="replay:chat" models={composerModels} worker={{ seat: "openai:gpt-6-sol" }} />
     </text>
   )
-  expect(driven).toContain("sol")
+  expect(driven).toContain("GPT-6 Sol")
   expect(driven).not.toContain("Chat model")
   expect(driven).not.toContain("Replay")
   expect(driven).not.toContain("OpenAI")
@@ -62,7 +62,7 @@ test("composer uses the worker's active routed seat when one is answering", asyn
       />
     </text>
   )
-  expect(frame).toContain("sol")
+  expect(frame).toContain("GPT-6 Sol")
   expect(frame).not.toContain("Chat model")
 })
 

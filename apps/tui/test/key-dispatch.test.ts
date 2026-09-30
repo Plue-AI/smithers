@@ -828,6 +828,7 @@ test.each(
     files: () => calls.push("files"),
     scroll: (step) => calls.push(["scroll", step]),
     workerAction: () => calls.push("worker"),
+    stopMonitor: () => calls.push("stopMonitor"),
     diff: offered ? () => calls.push("diff") : undefined,
     undo: offered ? () => calls.push("undo") : undefined
   })

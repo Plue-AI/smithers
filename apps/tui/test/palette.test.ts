@@ -177,14 +177,27 @@ describe("built-in actions", () => {
 
   it("always offers undo and the wrapped workers, and the diff keys only on a view", () => {
     expect(acts().map((row) => [row.label, row.hint])).toEqual([
-      ["Undo changes…", "u"],
+      ["Undo…", "u"],
       ["Run Claude Code…", undefined],
       ["Run Codex…", undefined]
     ])
     expect(acts({ diff: true }).map((row) => [row.label, row.hint]).slice(1, 3)).toEqual([
-      ["Toggle diff", "d"],
+      ["Diff", "d"],
       ["Split diff", "v"]
     ])
+  })
+
+  it("finds a captured worker run's diff by title and keeps its target and key", () => {
+    const worker = tab("fixer", "Fixer", "done")
+    const listed = acts({ diffs: [worker] })
+    expect(rows("diff fixer", { acts: listed })).toMatchObject([{
+      label: "Diff",
+      detail: "Fixer",
+      hint: "d",
+      value: { kind: "act", act: { act: "review", id: "fixer" } }
+    }])
+    expect(acts().some((row) => row.act.act === "review")).toBe(false)
+    expect(rows("/diff", { acts: listed }).some((row) => row.value.kind === "act")).toBe(false)
   })
 
   it("lists each worker's allowed actions with their keys and no action its status refuses", () => {
@@ -229,7 +242,7 @@ describe("built-in actions", () => {
   it("finds an action by its words or its target in the plain search, never after /", () => {
     const listed = acts({ tabs: [tab("w1", "Investigation", "running")] })
     expect(rows("undo", { acts: listed })[0]).toMatchObject({
-      label: "Undo changes…",
+      label: "Undo…",
       hint: "u",
       value: { kind: "act", act: { act: "undo" } }
     })

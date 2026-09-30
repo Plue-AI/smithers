@@ -67,6 +67,8 @@ export type Act =
   | { readonly act: "undo" }
   /** `d` and `v` on the shown view. */
   | { readonly act: "diff" | "split" }
+  /** A settled worker's captured run, from any surface. */
+  | { readonly act: "review"; readonly id: string }
   | { readonly act: "worker"; readonly id: string; readonly action: Tabs.ActionId }
   | { readonly act: "run"; readonly id: string; readonly action: "retry" | "stop" }
   | { readonly act: "monitor"; readonly id: string }
@@ -90,6 +92,8 @@ const labelOf = (id: string): string => Keys.registry.find((binding) => binding.
 export const actions = (input: {
   /** The shown view navigates rows, so `d` and `v` act on it. */
   readonly diff: boolean
+  /** Settled workers with captured run changes. */
+  readonly diffs?: ReadonlyArray<Tab>
   readonly tabs: ReadonlyArray<Tab>
   readonly runs: ReadonlyArray<Flows.Run>
   readonly monitors: ReadonlyArray<{ readonly id: string; readonly title: string; readonly status: string }>
@@ -102,6 +106,13 @@ export const actions = (input: {
       { key: "act:split", label: labelOf("split"), hint: keyOf("split"), act: { act: "split" } } as const
     ]
     : []),
+  ...(input.diffs ?? []).map((tab): ActRow => ({
+    key: `act:review:${tab.id}`,
+    label: labelOf("diff"),
+    detail: tabTitle(tab),
+    hint: keyOf("diff"),
+    act: { act: "review", id: tab.id }
+  })),
   ...input.tabs.flatMap((tab) =>
     Tabs.actions(tab).map((action): ActRow => ({
       key: `act:worker:${tab.id}:${action.id}`,
