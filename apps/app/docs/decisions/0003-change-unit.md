@@ -123,10 +123,9 @@ because it lands atomically. Land reads as the prefix: `Land 2 ready
 (1 → 2)`. When the bottom change is blocked: `Land blocked · 1 waits on
 typecheck (plue)`. No per-row Land. The change card's Land on a mid-stack change lands the
 prefix up to and including it (the confirm says `lands 1 → 2`); on the
-bottom change it lands that change alone. Partial landing of a changeset
-only through "Split ready members", an action on the changeset's own card
-footer that appears only when the changeset is blocked and at least one
-member is ready; it makes a new change and re-renders the stack.
+bottom change it lands that change alone. A changeset lands whole;
+`/change.split` moves one change's named paths into a new change (#2902
+removed "Split ready members").
 
 ## 3. Revision pins
 
@@ -183,7 +182,6 @@ is the existing transition.
 | `change.diff` | `<changeId> [from] [to] [path]` | user, agent | |
 | `change.stack` | `[changeId\|bookmark]` | user, agent | |
 | `change.land` | `<changeId\|stack>` | user, agent | yes |
-| `change.split-ready` | `<changeId>` | user, agent | yes |
 | `change.resolve` | `<changeId> <path>` | user, agent | yes |
 | `change.revert` | `<changeId>` | user, agent | yes |
 | `change.ops` | `<changeId> [rev]` | user, agent | |

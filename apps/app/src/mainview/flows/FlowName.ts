@@ -91,7 +91,6 @@ export const FLOW_NAMES = [
   "change.resolve",
   "change.revert",
   "change.split",
-  "change.split-ready",
   "change.view",
   "chat",
   "chat.clear",

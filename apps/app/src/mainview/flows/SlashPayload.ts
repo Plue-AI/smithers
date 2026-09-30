@@ -1198,7 +1198,6 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
     })
   },
   "change.land": (args) => required("changeId", args, "change.land needs a change id"),
-  "change.split-ready": (args) => required("changeId", args, "change.split-ready needs a change id"),
   /* plue#489 splits by PATH, and refuses an empty list — so at least one path is the grammar. */
   "change.split": (args) => {
     const parsed = parseFileArgs(args)

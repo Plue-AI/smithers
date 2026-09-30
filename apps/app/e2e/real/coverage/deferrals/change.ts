@@ -1,3 +1,3 @@
 export const change = [
-  "change.request", "change.resolve", "change.revert", "change.split-ready",
+  "change.request", "change.resolve",
 ] as const

@@ -647,7 +647,6 @@ export interface AppController extends IssueFlowsController, RepositorySetupCont
   readonly viewChange: ChangeSeam["viewChange"]
   readonly diffChange: ChangeSeam["diffChange"]
   readonly landChange: ChangeSeam["landChange"]
-  readonly splitReadyChange: ChangeSeam["splitReady"]
   readonly splitChange: ChangeSeam["splitChange"]
   readonly resolveChangeConflict: ChangeSeam["resolveConflict"]
   readonly revertChange: ChangeSeam["revertChange"]
@@ -1950,7 +1949,6 @@ export const createAppController = (
     viewChange: changeSeam.viewChange,
     diffChange: changeSeam.diffChange,
     landChange: changeSeam.landChange,
-    splitReadyChange: changeSeam.splitReady,
     splitChange: changeSeam.splitChange,
     resolveChangeConflict: changeSeam.resolveConflict,
     revertChange: changeSeam.revertChange,

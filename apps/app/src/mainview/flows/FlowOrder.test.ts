@@ -142,7 +142,6 @@ const PRE_SPLIT_BASE: ReadonlyArray<string> = [
   "change.view",
   "change.diff",
   "change.land",
-  "change.split-ready",
   "change.split",
   "change.resolve",
   "change.revert",

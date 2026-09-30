@@ -12,6 +12,7 @@ import { refuseCloudSignIn } from "./CloudSignIn"
  *   POST /api/repos/{o}/{r}/changes/{id}/findings/{fid}/feedback { useful } — records feedback (#487)
  *   POST /api/repos/{o}/{r}/changes/{id}/findings/{fid}/dispatch — 202, the agent session it started (#487)
  *   POST /api/repos/{o}/{r}/changes/{id}/split { paths } — 200 { original, split } (#489)
+ *   POST /api/repos/{o}/{r}/changes/{id}/revert           — 201 { change_id, landing_request_number | changeset_id } (#456)
  *   POST /api/repos/{o}/{r}/landings/{n}/review-requests { reviewer | agent } — 201 (#488)
  *   DELETE /api/repos/{o}/{r}/landings/{n}/review-requests/{id} — 204 (#488)
  *   GET  /api/repos/{o}/{r}/landings?limit=100            — the landing requests: change_ids, landable_prefix, blocked_by, turn (#452, #460)
@@ -23,10 +24,7 @@ import { refuseCloudSignIn } from "./CloudSignIn"
  *   GET  /api/orgs/{org}/changesets                        — the live changeset DTO (ADR 0003)
  *   POST /api/orgs/{org}/changesets/{id}/land              — synchronous; 409 carries failure_reason
  *
- * What still has NO route and is never faked: splitting a CHANGESET's ready
- * members (plue#489 splits one change by path, which is a different act) and
- * a revert's own change. Each refuses with the reason. A field a route omits
- * stays absent — the card renders nothing in its place.
+ * A field a route omits stays absent — the card renders nothing in its place.
  *
  * Reads need only the legacy token's read:repository, so a degraded sign-in
  * reads freely; dispatching an agent or opening a computer refuses it with
@@ -59,13 +57,6 @@ import { SIGN_OUT_REFUSAL } from "./CloudSignIn"
 export const DEGRADED_CHANGE_REFUSAL =
   "This Smithers Cloud sign-in can't dispatch agents — sign in again to enable them."
 
-
-/** The honest refusals for the acts that have no route (lane L1 REPORT names each). */
-export const NO_SPLIT_REFUSAL =
-  "Splitting a changeset's ready members has no route on Smithers Cloud — nothing was split. /change.split moves ONE change's named paths into a new change."
-export const NO_REVERT_REFUSAL =
-  "Smithers doesn't create a revert change yet — Smithers Cloud's revert route exists, but this app has not built the act, so nothing was reverted."
-
 /** Past this many patch lines a file's hunk rides by reference (ADR 0003 step 1), never inline. */
 const INLINE_PATCH_LINE_CAP = 400
 
@@ -84,13 +75,11 @@ export interface ChangeSeam {
   readonly checksAt: (changeId: string, seq: number, repo?: string) => Outcome
   /** `change.land <changeId>`: land the carrying landing request (queued) or the changeset (synchronous). */
   readonly landChange: (changeId: string, repo?: string) => Outcome
-  /** `change.split-ready <changeId>`: a changeset's ready members still have no route; refuses honestly. */
-  readonly splitReady: (changeId: string, repo?: string) => Outcome
   /** `change.split <changeId> <path…>`: move the named paths into a new change (plue#489). */
   readonly splitChange: (changeId: string, paths: ReadonlyArray<string>, repo?: string) => Outcome
   /** `change.resolve <changeId> <path>`: dispatch an agent session on the conflict; a degraded sign-in can't. */
   readonly resolveConflict: (changeId: string, path: string, repo?: string) => Outcome
-  /** `change.revert <changeId>`: only on a landed change; refuses honestly. */
+  /** `change.revert <changeId>`: back a landed change out into a new reviewable change (plue#456). */
   readonly revertChange: (changeId: string, repo?: string) => Outcome
   /** The card's body tab; hidden, card-button scoped. */
   readonly setFacet: (changeId: string, facet: ChangeFacet, repo?: string) => Promise<string | void>
@@ -1525,21 +1514,6 @@ export const createChangeSeam = (ctx: SeamContext, deps: ChangeSeamDeps = {}): C
     return mutationResult(repoId, changeId, `Landing request #${landing.number} is queued — it lands ${scope}; the card tracks it.`, {}, null, current)
   }
 
-  const splitReady: ChangeSeam["splitReady"] = async (changeId, repo) => {
-    const refusal = gate()
-    if (refusal !== undefined) return refusal
-    const resolved = resolveRepo(changeId, repo)
-    if ("error" in resolved) return resolved.error
-    const changesetRead = await loadChangeset(resolved.repo, changeId)
-    if ("unread" in changesetRead) {
-      return `The changesets ${changeId} might belong to weren't read (${changesetRead.unread}).`
-    }
-    if (changesetRead.value === null) {
-      return `Split ready members applies to a changeset — ${changeId} on ${resolved.repo} belongs to none.`
-    }
-    return NO_SPLIT_REFUSAL
-  }
-
   /*
    * plue#489 `POST …/changes/{id}/split { paths }` (200): the listed paths'
    * diff moves into a NEW change and the original keeps every unselected
@@ -1595,34 +1569,34 @@ export const createChangeSeam = (ctx: SeamContext, deps: ChangeSeamDeps = {}): C
     )
   }
 
+  /*
+   * plue#456 `POST …/changes/{id}/revert` (201): Smithers Cloud backs the
+   * landed revision out into a new change and opens its landing request, or,
+   * for a member of a landed changeset, backs out every member into a new
+   * changeset. Smithers Cloud decides whether the change has landed; its
+   * refusal is the answer. The new change renders only when it lives in this
+   * repository (a landing request); a changeset's lives in its superproject.
+   */
   const revertChange: ChangeSeam["revertChange"] = async (changeId, repo) => {
     const refusal = gate()
     if (refusal !== undefined) return refusal
+    const current = captureCloudOwner(ctx)
     const resolved = resolveRepo(changeId, repo)
     if ("error" in resolved) return resolved.error
-    /* Revert is offered only on a landed change: the carrying landing's terminal state, or the changeset's. */
-    const changesetRead = await loadChangeset(resolved.repo, changeId)
-    if ("unread" in changesetRead) {
-      return `The changesets ${changeId} might belong to weren't read (${changesetRead.unread}).`
-    }
-    const changeset = changesetRead.value
-    if (changeset !== null) {
-      if (changeset.state !== "landed") {
-        return `Revert is offered on a landed change — changeset ${changeset.id} is ${changeset.state}.`
-      }
-      return NO_REVERT_REFUSAL
-    }
-    const landingRead = await loadLanding(resolved.repo, changeId)
-    if ("unread" in landingRead) {
-      return `The landing requests of ${resolved.repo} weren't read (${landingRead.unread}).`
-    }
-    const landing = landingRead.value
-    if (landing === null || landing.landing.state !== "merged") {
-      return `Revert is offered on a landed change — ${changeId} has not landed${
-        landing === null ? "" : ` (the landing request is ${landing.landing.state})`
-      }.`
-    }
-    return NO_REVERT_REFUSAL
+    const reverted = await sendJson("POST", changePath(resolved.repo, changeId, "/revert"))
+    if (!current() && "error" in reverted) return SIGN_OUT_REFUSAL
+    if ("error" in reverted) return reverted.error
+    const body = isRecord(reverted.body) ? reverted.body : null
+    const created = body === null ? null : str(body.change_id)
+    if (created === null) return `Smithers Cloud's answer for the revert of ${changeId} named no change.`
+    const changeset = body === null ? null : seqOrNull(body.changeset_id)
+    if (changeset !== null) return `${created} reverts ${changeId} — changeset ${changeset} carries it.`
+    const landing = body === null ? null : seqOrNull(body.landing_request_number)
+    return mutationResult(
+      resolved.repo, created,
+      `${created} reverts ${changeId}${landing === null ? "" : ` — landing request #${landing} carries it`}.`,
+      {}, null, current
+    )
   }
 
   const setFacet: ChangeSeam["setFacet"] = async (changeId, facet, repo) => {
@@ -1787,7 +1761,6 @@ export const createChangeSeam = (ctx: SeamContext, deps: ChangeSeamDeps = {}): C
     sinceMyReview,
     checksAt,
     landChange,
-    splitReady,
     splitChange,
     resolveConflict,
     revertChange,

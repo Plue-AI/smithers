@@ -2,7 +2,7 @@ import type { StorageApi } from "@tanstack/db"
 import { describe, expect, test } from "bun:test"
 import { createAppStore } from "../AppStore"
 import type { AppStore } from "../AppStore"
-import { createChangeSeam, DEGRADED_CHANGE_REFUSAL, NO_REVERT_REFUSAL, NO_SPLIT_REFUSAL } from "./ChangeSeam"
+import { createChangeSeam, DEGRADED_CHANGE_REFUSAL } from "./ChangeSeam"
 import { SIGN_OUT_REFUSAL } from "./CloudSignIn"
 import type { SeamContext } from "./SeamContext"
 
@@ -1542,33 +1542,6 @@ describe("createChangeSeam", () => {
     )
   })
 
-  test("change.split-ready refuses — the ready members aren't recorded (plue#452)", async () => {
-    const changeset = {
-      id: 7,
-      organization: "will",
-      description: "atom",
-      state: "pending",
-      failure_reason: null,
-      superproject: "will/smithers",
-      change_id: "qupxosqw",
-      commit_id: "a03f5f",
-      target_bookmark: "main",
-      members: []
-    }
-    const { seam } = await harness(
-      { "api/orgs/will/changesets": json(200, { changesets: [changeset] }) },
-      { ownerKind: "org" }
-    )
-    expect(textOf(await seam.splitReady("qupxosqw"))).toBe(NO_SPLIT_REFUSAL)
-  })
-
-  test("change.split-ready without a changeset says so", async () => {
-    const { seam } = await harness({})
-    expect(textOf(await seam.splitReady("qupxosqw"))).toBe(
-      "Split ready members applies to a changeset — qupxosqw on will/smithers belongs to none."
-    )
-  })
-
   test("change.resolve refuses a degraded sign-in with the enable wording", async () => {
     const { seam, requests } = await harness({}, { degraded: true })
     expect(textOf(await seam.resolveConflict("qupxosqw", "src/app.ts"))).toBe(DEGRADED_CHANGE_REFUSAL)
@@ -1587,18 +1560,55 @@ describe("createChangeSeam", () => {
     expect(JSON.parse(bodies[`POST ${CHANGE_ROUTE}/conflicts/resolve`] ?? "null")).toEqual({ path: "src/app.ts" })
   })
 
-  test("change.revert refuses on an unlanded change", async () => {
-    const { seam } = await harness({ [`${REPO}/landings?limit=100`]: json(200, { items: [LANDING] }) })
+  test("change.revert POSTs the revert and renders the reverting change (plue#456)", async () => {
+    const revertId = "rvtxnkpo"
+    const { store, seam, requests } = await harness({
+      ...viewRoutes,
+      [`POST ${CHANGE_ROUTE}/revert`]: json(201, { change_id: revertId, landing_request_id: 9, landing_request_number: 43 }),
+      [`${REPO}/changes/${revertId}`]: json(200, { ...CHANGE, change_id: revertId, commit_id: "5eed01" }),
+      [`${REPO}/changes/${revertId}/diff`]: json(200, DIFF),
+      [`${REPO}/changes/${revertId}/findings`]: json(200, FINDINGS),
+      [`${REPO}/changes/${revertId}/walkthrough?rev=2`]: json(404, { message: "walkthrough not found" })
+    })
+
+    const result = await seam.revertChange("qupxosqw")
+
+    expect(requests[0]).toBe(`POST ${CHANGE_ROUTE}/revert`)
+    expect(textOf(result)).toBe(`${revertId} reverts qupxosqw — landing request #43 carries it.`)
+    expect(store.collections.cards.get(`change-will/smithers-${revertId}`)).toBeDefined()
+  })
+
+  test("a changeset revert names the new changeset", async () => {
+    const { store, seam, requests } = await harness({
+      [`POST ${CHANGE_ROUTE}/revert`]: json(201, { change_id: "csrvtabc", changeset_id: 12 })
+    })
+
+    expect(textOf(await seam.revertChange("qupxosqw"))).toBe("csrvtabc reverts qupxosqw — changeset 12 carries it.")
+    expect(requests).toEqual([`POST ${CHANGE_ROUTE}/revert`])
+    expect(store.collections.cards.size).toBe(0)
+  })
+
+  test("a revert Smithers Cloud refuses reads its own sentence and renders no change", async () => {
+    const { store, seam } = await harness({
+      [`POST ${CHANGE_ROUTE}/revert`]: json(409, { message: "change is not landed" })
+    })
+
+    expect(textOf(await seam.revertChange("qupxosqw"))).toBe("change is not landed")
+    expect(store.collections.cards.size).toBe(0)
+  })
+
+  test("a revert answer that names no change says so rather than claiming one", async () => {
+    const { seam } = await harness({ [`POST ${CHANGE_ROUTE}/revert`]: json(201, {}) })
+
     expect(textOf(await seam.revertChange("qupxosqw"))).toBe(
-      "Revert is offered on a landed change — qupxosqw has not landed (the landing request is open)."
+      "Smithers Cloud's answer for the revert of qupxosqw named no change."
     )
   })
 
-  test("change.revert on a landed change refuses honestly — not wired (plue#456)", async () => {
-    const { seam } = await harness({
-      [`${REPO}/landings?limit=100`]: json(200, { items: [{ ...LANDING, state: "merged" }] })
-    })
-    expect(textOf(await seam.revertChange("qupxosqw"))).toBe(NO_REVERT_REFUSAL)
+  test("change.revert signed out calls nothing", async () => {
+    const { seam, requests } = await harness({}, { signedIn: false })
+    await seam.revertChange("qupxosqw")
+    expect(requests).toEqual([])
   })
 
   test("change.facet switches the card's tab without re-reading", async () => {

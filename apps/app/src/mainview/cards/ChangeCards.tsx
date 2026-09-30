@@ -1080,19 +1080,6 @@ export const ChangeCardBody = ({
             Ask {login}
           </Button>
         ))}
-        {/* Split ready is an act on a changeset that can still land; a landed one has nothing left to split. */}
-        {payload.changeset !== null && payload.changeset.state !== "landed" ?
-          (
-            <Button
-              size="sm"
-              variant="outline"
-              aria-label="Split the ready members into a new change"
-              {...flowAction(onRunCommand, "change.split-ready", payload.changeId)}
-            >
-              <Split size={12} aria-hidden="true" /> Split ready
-            </Button>
-          ) :
-          null}
         {landed ?
           (
             <Button

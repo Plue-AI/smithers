@@ -812,22 +812,6 @@ describe("the change card", () => {
     host.remove()
   })
 
-  test("a changeset's change offers Split ready; a plain one doesn't", () => {
-    const plain = renderChange(changeCard())
-    expect(plain.host.textContent ?? "").not.toContain("Split ready")
-    plain.host.remove()
-
-    const { host, commands } = renderChange(changeCard({ changeset: changesetOf() }))
-    click(host, "Split the ready members into a new change")
-    expect(commands).toEqual([{ name: "change.split-ready", args: "qupxosqw" }])
-    host.remove()
-
-    /* Landed: nothing is left to split. */
-    const landed = renderChange(changeCard({ changeset: changesetOf({ state: "landed" }) }))
-    expect(landed.host.textContent ?? "").not.toContain("Split ready")
-    landed.host.remove()
-  })
-
   test("the Land and Full diff acts carry complete invocations", () => {
     const { host, commands } = renderChange(changeCard())
     click(host, "Land 1 → 2")

@@ -472,7 +472,7 @@ describe("launch-law parity: every affordance is a command", () => {
        * review again after requested changes (ad40a699e) — all through
        * onRunCommand with data-flow set.
        */
-      "../cards/ChangeCards.tsx": 24,
+      "../cards/ChangeCards.tsx": 23,
       /*
        * The plan inside a run card: Inspect review feedback and Inspect failed
        * execution (runs.trace.select), Vibe this change (flow.run), Check

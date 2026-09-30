@@ -54,7 +54,7 @@ function joinDefault(root: string, child: string): string {
       "agent.session.list", "agent.session.new", "agent.session.say", "agent.session.stop", "agent.session.view",
       "app.download", "approvals.open", "billing.plans", "billing.portal", "billing.upgrade",
       "branches.list", "change.checks", "change.pins", "change.request", "change.resolve",
-      "change.revert", "change.split", "change.split-ready", "code.definition", "code.diagnostics",
+      "change.revert", "change.split", "code.definition", "code.diagnostics",
       "code.hover", "commits.list", "commits.read", "connect", "desktop",
       "egress.session", "env.remove-token", "env.set", "env.view", "feature.prototype",
       "files.list", "files.open-diff", "integrations.admit", "integrations.list", "issues.comment.react", "issues.comment.retry",

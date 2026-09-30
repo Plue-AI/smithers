@@ -16,7 +16,7 @@ Scope, in order:
    requests; a `changes` collection; the `change` card with the Diff,
    Findings, Checks, Review, History facets exactly as §1, stale tokens as
    "How stale reads"; the `diff` card with the two revision pickers.
-3. Flows `change.view|diff|land|split-ready|resolve|revert` with confirm per
+3. Flows `change.view|diff|land|split|resolve|revert` with confirm per
    the table; slash payloads; registry/parity tests.
 4. Origin chip pin `qupxosqw#5`; `rev N exists · view` line on pinned cards.
 

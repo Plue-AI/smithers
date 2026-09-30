@@ -301,3 +301,44 @@ authenticatedTest("change.split moves a named file out of a real change into a n
     await expect(fileRows(page.getByTestId(`card-change-${change.repo.fullName}-${created}`))).toHaveText(["move.txt"])
   })
 })
+
+authenticatedTest("change.revert backs a landed change out into a new change with its own landing request", scenario("changes.owned-revert", {
+  capabilities: ["identity"],
+  coverage: [
+    "action:change.revert", "action:change.view", "host:local", "path:success", "path:persistence", "path:keyboard",
+    "door:button", "dimension:keyboard", "dimension:reload", "surface:change-card", "evidence:revert-change-landing-api-readback"
+  ],
+  description: "Landing an owned change, then pressing Revert on its card with the keyboard, creates a reverting change whose diff touches the landed file and whose landing request targets main; the reverting change's card survives reload."
+}), async ({ page, request }) => {
+  await withOwnedChange(page, request, [{ "revert.txt": "revert me\n" }], async (change) => {
+    const landed = await realApi(page, request, "PUT", `${change.repo.path}/landings/${change.landing}/land`, { commit_id: change.commits[0] })
+    expect(landed.status(), await landed.text()).toBe(202)
+    await expect.poll(async () => {
+      const response = await realApi(page, request, "GET", `${change.repo.path}/landings/${change.landing}`)
+      expect(response.status()).toBe(200)
+      return (await response.json() as { readonly state?: string }).state
+    }, { timeout: 120_000, intervals: [500, 1_000, 2_000] }).toBe("merged")
+
+    const card = await openChange(page, change)
+    const revert = card.getByRole("button", { name: "Revert the landed change" })
+    const reverted = posted(page, "POST", `/changes/${change.changeId}/revert`)
+    await pressKey(revert)
+    const response = await reverted
+    expect(response.status()).toBe(201)
+    const body = await response.json() as { readonly change_id?: string; readonly landing_request_number?: number }
+    const reverting = body.change_id
+    expect(reverting).toEqual(expect.any(String))
+    expect(reverting).not.toBe(change.changeId)
+    expect(body.landing_request_number).toEqual(expect.any(Number))
+
+    expect(await diffPaths(page, request, change.repo, reverting!)).toEqual(["revert.txt"])
+    const landing = await realApi(page, request, "GET", `${change.repo.path}/landings/${body.landing_request_number}`)
+    expect(landing.status()).toBe(200)
+    expect(await landing.json()).toMatchObject({ change_ids: [reverting], target_bookmark: "main", state: "open" })
+
+    const revertCard = page.getByTestId(`card-change-${change.repo.fullName}-${reverting}`)
+    await expect(fileRows(revertCard)).toHaveText(["revert.txt"])
+    await reloadApp(page)
+    await expect(fileRows(page.getByTestId(`card-change-${change.repo.fullName}-${reverting}`))).toHaveText(["revert.txt"])
+  })
+})

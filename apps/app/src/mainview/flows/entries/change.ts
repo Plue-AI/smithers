@@ -45,10 +45,9 @@ export const changeFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
   /*
    * Lane change (ADR 0003): the change is the unit. `change.view` renders
    * the change card (one card per change, five facets); `change.diff`
-   * renders the from → to pair; the acts ride the one seam. The acts that
-   * have no route yet (resolve, revert, split-ready) refuse with the ADR's
-   * wording rather than fake a backend. The repo resolves from the changes
-   * collection, else the app's target repo — never a guess.
+   * renders the from → to pair; the acts ride the one seam. The repo
+   * resolves from the changes collection, else the app's target repo —
+   * never a guess.
    */
   flow({
     name: "change.view",
@@ -83,16 +82,6 @@ export const changeFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
     requires: ["signed-in"],
     input: Schema.Struct({ changeId: Schema.String }),
     handler: ({ changeId }) => actions.landChange(changeId)
-  }),
-  flow({
-    name: "change.split-ready",
-    summary: "Split a changeset's ready members into a new change",
-    runtime: ["cloud"],
-    confirm: "split the ready members into a new change",
-    args: "<changeId>",
-    requires: ["signed-in"],
-    input: Schema.Struct({ changeId: Schema.String }),
-    handler: ({ changeId }) => actions.splitReadyChange(changeId)
   }),
   flow({
     /*
