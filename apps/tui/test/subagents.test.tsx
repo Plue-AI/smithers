@@ -55,7 +55,10 @@ const cell = (
         identity,
         result: call.outcome === "failure"
           ? { outcome: "failure", message: "exit 1" }
-          : { outcome: "success", value: call.value ?? (call.exitCode === undefined ? {} : { exitCode: call.exitCode }) }
+          : {
+            outcome: "success",
+            value: call.value ?? (call.exitCode === undefined ? {} : { exitCode: call.exitCode })
+          }
       }),
       at + index + 1
     )
@@ -519,6 +522,43 @@ const manyBatches = (count: number, parent?: string) => {
 }
 
 describe("earlier subagent batches (#3033)", () => {
+  it("folds stopped, unchecked and failed outcomes together and restores their real meaning on expansion", async () => {
+    const { rows, transcript, workers } = manyBatches(13)
+    const states: Partial<Tab>[] = [
+      { status: "cancelled" },
+      { unchecked: true },
+      {
+        status: "failed",
+        failure: { headline: "Model call failed", fault: "dependency", line: "", actions: ["resume"] }
+      }
+    ]
+    const changed = workers.map((worker, index) => ({ ...worker, ...states[index] }))
+    const groups = Subagents.batches(transcript, changed)
+    const closed = Subagents.lines(rows, groups)
+    expect(closed.filter((line) => line.kind === "earlier")).toEqual([{
+      kind: "earlier",
+      key: Subagents.earlierKey(),
+      batches: 3
+    }])
+    expect(closed.filter((line) => line.kind === "finished").map((line) => line.tab.id)).toEqual(
+      changed.slice(3).map((worker) => worker.id)
+    )
+    const opened = Subagents.lines(rows, groups, true)
+    const restored = opened.filter((line) => line.kind === "finished").slice(0, 3)
+    expect(restored.map((line) => line.tab)).toEqual(changed.slice(0, 3))
+    const mounted = await mount(
+      <box>{restored.map((line) => <SubagentView.Finished key={line.key} tab={line.tab} tone={color.info} />)}</box>,
+      80,
+      4
+    )
+    expect(mounted.captureCharFrame().split("\n").map((line) => line.trimEnd()).slice(0, 3)).toEqual([
+      "◉ batch-0 stopped",
+      "◉ batch-1 done · unchecked",
+      "◉ batch-2 failed: Model call failed"
+    ])
+    expect(opened.filter((line) => line.kind === "row").map((line) => line.key)).toEqual(rows.map((row) => row.key))
+  })
+
   it("shows ten batches and their finished rows without a disclosure", () => {
     const { rows, groups } = manyBatches(10)
     const lines = Subagents.lines(rows, groups)

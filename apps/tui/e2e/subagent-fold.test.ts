@@ -82,7 +82,7 @@ for (const control of ["ten", "keyboard", "mouse"] as const) {
           await tui.press(prompt)
         } else {
           await tui.until((screen) => screen.includes("1 earlier subagent batch"), 5_000, "earlier batch focus")
-          expect(tui.screen()).not.toContain("Batch 0 finished")
+          expect(tui.screen()).not.toContain("Batch 0 done")
           if (control === "keyboard") {
             // Enter and the complete draft reach the PTY in one write.
             await tui.press(key.enter + prompt)
@@ -91,6 +91,7 @@ for (const control of ["ten", "keyboard", "mouse"] as const) {
             await tui.press(prompt)
           }
           await tui.until((screen) => !screen.includes("earlier subagent batch"), 5_000, "expanded cards")
+          expect(tui.screen()).toContain("Batch 0 done")
         }
         await tui.until((screen) => screen.includes(prompt), 5_000, "native composer retains complete draft")
         expect(readFileSync(file!, "utf8")).toBe(before)

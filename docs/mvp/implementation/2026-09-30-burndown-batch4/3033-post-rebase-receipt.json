@@ -1,0 +1,91 @@
+{
+  "issue": 3033,
+  "status": "READY / FROZEN after post-rebase qualification; three meaningful test updates awaiting parent commit",
+  "head": "6a97d099a531d0090e3ff7d242ded4d3b06137fc",
+  "captured": "2026-09-30T23:28:04Z",
+  "ownedFiles": {
+    "apps/tui/e2e/subagent-fold.test.ts": "72e47c0dd18cac4b8d85a1be95166b6931a821c14457eabf530c8a642599c555",
+    "apps/tui/test/app-session-controls.test.tsx": "b7134c89c41184d9b525e594a1e8612ffd86178dfd2f3a5475740c361d1a99f9",
+    "apps/tui/test/subagents.test.tsx": "bbe34cc698761bdca5ddfa35f2db6f7df85a009c1e6bb9735bbd06d7ed13f712"
+  },
+  "qualificationSources": {
+    "apps/tui/src/app.tsx": "64844c6243ff37580af1e1617a3a050d0a05060ff9810ee85e515b2d99f78500",
+    "apps/tui/src/subagent-view.tsx": "665eef4c320deadd92bf2ea9e13aa717451e3c4b04e18af016d4d150042ef145",
+    "apps/tui/src/subagents.ts": "25f6eb4ee8c24329c194f16fc6356a4ff133e6721c570cc27664e3eb1c989ec7",
+    "apps/tui/src/tabs-view.tsx": "8611ce365c90cb1af96764040a80e1d9fc8a248cc3c073dc0f0955ebc6c74d84",
+    "apps/tui/src/transcript-view.ts": "bd893f06538f0a3293be32c179e1b2de6e26cea37b66e258acdc8552c6ffcefe",
+    "apps/tui/test/app-session-controls.test.tsx": "b7134c89c41184d9b525e594a1e8612ffd86178dfd2f3a5475740c361d1a99f9",
+    "apps/tui/test/subagent-view.test.tsx": "b30b0911209c8ef316299daa7c0ff14c6c1195ab46266e13fc24ad118af11202",
+    "apps/tui/test/subagents.test.tsx": "bbe34cc698761bdca5ddfa35f2db6f7df85a009c1e6bb9735bbd06d7ed13f712",
+    "apps/tui/test/tabs.test.tsx": "91c0bcabb02ed8ffa70ec597b36f2bbe7e3c7ab8fd53d21e0ca3f491561b2d53",
+    "apps/tui/test/transcript-view.test.tsx": "ce9d5ffed4b0257e7e8f1b4c097875779174cffd348215fcccdd5d81ae3016c1",
+    "apps/tui/e2e/subagent-fold.test.ts": "72e47c0dd18cac4b8d85a1be95166b6931a821c14457eabf530c8a642599c555",
+    "packages/rpc/src/SubagentCard.ts": "a280d850cbaba1aa338b3763956119c4fb2ae03bb5e887b4812a0c1b154cd42d",
+    "packages/rpc/src/WorkerControls.ts": "f6a8566c9971193d5c833b5eeb03cd041330dfa45d558c4b63fa68395c379252",
+    "apps/app/src/mainview/App.tsx": "bee4c81308af5267dd3ebe2bcea311ad08af833b10c7bec5aa235a3248c358ef",
+    "apps/app/src/mainview/SubagentGrid.tsx": "a1848a676fb15ea50cb92330ad4601bfaeb5e67f7cd5d408d2488ea4cd12c430",
+    "apps/app/src/mainview/state/ChatTimeline.ts": "157f7b5c4ea2cf1ef26eacba29ae0378e73af9368b9f3bd92a0ce85c3cc62642",
+    "apps/app/src/mainview/state/ChatTimeline.test.ts": "cf8e237633c4139302bb3f0984a113ea0ba0546ac1f6aab1b3af94f6e0c8fc17",
+    "apps/app/src/mainview/state/ChatShell.test.tsx": "bc0037f8c0006f3df9297fd37bc8805b351fb53c3d0538eddc4bf58df2f9a27f"
+  },
+  "productionChanges": false,
+  "review": [
+    "Shared RPC finished now renders done/stopped; TUI Finished preserves Tabs.outcome including unchecked and failure headline.",
+    "Fold suppresses old grid and all its outcome rows before render, irrespective of status. Latest ten keep outcome details, expansion restores the same tab records.",
+    "Updated two formerly vacuous Batch 0 finished absence assertions to current Batch 0 done hidden-then-visible assertions at native App and actual PTY boundaries.",
+    "Added mixed cancelled/done-unchecked/failed older-batch regression: one disclosure, latest ten outcomes, all messages retained, full restored record identity and exact native outcome text.",
+    "GUI uses the same shared earlierBatches and earlierLine plus conversation-scoped open state; actual native button focus/activation and 10/11 controls pass."
+  ],
+  "commands": [
+    {
+      "cwd": ".",
+      "command": "bun test apps/tui/test/subagent-view.test.tsx apps/tui/test/transcript-view.test.tsx apps/tui/test/subagents.test.tsx apps/tui/test/tabs.test.tsx apps/tui/test/key-dispatch.test.ts apps/tui/test/app-session-controls.test.tsx",
+      "exit": 0,
+      "result": "308 pass; 1177 assertions; 6 files; 4.35s"
+    },
+    {
+      "cwd": "apps/app",
+      "command": "bun test src/mainview/state/ChatTimeline.test.ts src/mainview/state/ChatShell.test.tsx",
+      "exit": 0,
+      "result": "23 pass; 152 assertions; 2 files; 1.69s"
+    },
+    {
+      "cwd": "apps/tui",
+      "command": "bun test ./e2e/subagent-fold.test.ts",
+      "exit": 0,
+      "result": "3 pass; 14 assertions; actual production main.tsx PTY and saved journals; 6.60s"
+    },
+    {
+      "cwd": "apps/tui",
+      "command": "node_modules/.bin/tsc -p tsconfig.json --noEmit",
+      "exit": 0
+    },
+    {
+      "cwd": ".",
+      "command": "packages/smithers/node_modules/.bin/dprint check --config apps/tui/dprint.json apps/tui/e2e/subagent-fold.test.ts apps/tui/test/app-session-controls.test.tsx apps/tui/test/subagents.test.tsx",
+      "exit": 0
+    },
+    {
+      "cwd": ".",
+      "command": "git diff --check -- apps/tui/e2e/subagent-fold.test.ts apps/tui/test/app-session-controls.test.tsx apps/tui/test/subagents.test.tsx",
+      "exit": 0
+    }
+  ],
+  "retainedFailure": "Initial new mixed-outcome fixture lacked a failure headline, so expected failed was corrected to a representative full failure record and exact Model call failed text. Production was unchanged; this was fixture preparation, not a product red/green claim.",
+  "limits": [
+    "Full TUI suite was not repeated, as requested; previous aggregate 1921/4 result belongs to prior source and is not called current.",
+    "Actual PTY uses deterministic replayed model response, not live remote subagent execution. Existing absolute native helper was used without rebuild provenance.",
+    "No public declaration or whole-release green claim. Peer core authoring/public source edits remain outside this scope."
+  ],
+  "logs": {
+    "3033-merged-source-start.json": "17d402bd59b9a86fff0d1fec3df7124a852ab621eae6ecd0e0e2b6b99eead26f",
+    "3033-merged-focused.log": "830f4a13e03014177f28514e9f4594090acc725b7717690b347a6e12351ba2bc",
+    "3033-merged-gui.log": "148a2aa1944e376337fd0259ad5d4dc2f27acde1b77be227bea7340b0385ea36",
+    "3033-merged-pty.log": "326c128d43ed58683dd31d3c8b5c0c204f511d8983fa77e064b46994c1acb656",
+    "3033-merged-focused-final.log": "298ba680024d74f87d54a0d1908db7920de4d5c7e8a163a457290027240b8857",
+    "3033-merged-pty-final.log": "e0f884c75de07ff1c3848759786f4e791c2df5e05b0383c945b08b6fd82a4701",
+    "3033-merged-qualified-focused.log": "a2a12945723a4cea8be77ed28545546fba39986316fd6fbabe05a21b7603f6f8",
+    "3033-merged-types-final.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "3033-merged-format.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+}
