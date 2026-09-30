@@ -24,13 +24,13 @@ export const loadApplicationTarget = async (source: RuntimeTargetSource = {}): P
   const document = source.document ?? globalThis.document
   const pageOrigin = source.pageOrigin ?? globalThis.location?.origin
   const native = await source.native?.()
-  const configured = native ?? metaTarget(document) ?? {
+  const configured = native ?? metaTarget(document)
+  return resolveApplicationTarget(configured === undefined ? {
     apiVersion: 1,
     mode: "web-selfhost",
     apiOrigin: "",
     auth: { kind: "session" },
     cors: "same-origin",
     developerExternal: false
-  }
-  return resolveApplicationTarget(configured, pageOrigin)
+  } : configured, pageOrigin)
 }
