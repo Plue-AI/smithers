@@ -25,6 +25,11 @@ repository, and workspace. Polling checks current read access; admission and
 cancellation require write access. Execution rechecks the active account,
 repository permission, and workspace grant before calling the runtime.
 
+A workspace whose provisioning failed runs nothing. A new command on it returns
+409 `workspace_failed` and admits no work; a command admitted before the
+failure settles `failed` before any runtime work, never `uncertain`. An
+operation ID admitted earlier still replays its receipt.
+
 Output becomes available at exit. Stored streams use base64 so NUL bytes survive
 PostgreSQL JSONB; the API decodes them back to strings. Each output stream is bounded to 256 KiB in the
 receipt; runtime adapters may impose a smaller bound. A nonzero command exit

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/jobs"
@@ -61,8 +62,20 @@ func (s *WorkspaceService) AdmitWorkspaceCommand(ctx context.Context, workspaceI
 	if len(input.Args) == 0 || strings.TrimSpace(input.Args[0]) == "" {
 		return jobs.RequestReceipt{}, pkgerrors.BadRequest("command args are required")
 	}
-	if _, err := s.loadWorkspaceWithAccess(ctx, workspaceID, repositoryID, userID, WorkspaceAccessWrite); err != nil {
+	workspace, err := s.loadWorkspaceWithAccess(ctx, workspaceID, repositoryID, userID, WorkspaceAccessWrite)
+	if err != nil {
 		return jobs.RequestReceipt{}, err
+	}
+	// A failed workspace runs nothing: refuse a new command before it becomes
+	// durable work. The same operation_id admitted earlier still replays.
+	if workspace.Status == "failed" {
+		_, lookupErr := s.commandJobs.GetByRequest(ctx, repositoryJobFlowScope(repositoryID, userID), workspaceCommandOperation, workspaceID+":"+input.OperationID)
+		if errors.Is(lookupErr, jobs.ErrNotFound) {
+			return jobs.RequestReceipt{}, errWorkspaceFailed()
+		}
+		if lookupErr != nil {
+			return jobs.RequestReceipt{}, lookupErr
+		}
 	}
 	plaintext, err := json.Marshal(input)
 	if err != nil {
@@ -154,6 +167,8 @@ func commandRunReceipt(operation jobs.Operation) (WorkspaceCommandRun, error) {
 			run.Error = "command exceeded its 60-minute limit"
 		case "invalid_command":
 			run.Error = "command input could not be recovered"
+		case string(pkgerrors.CodeWorkspaceFailed):
+			run.Error = "workspace failed to provision; create a new workspace"
 		}
 		if operation.State == jobs.StateUncertain {
 			run.Error = "command outcome is unknown; it will not be retried"
@@ -192,31 +207,34 @@ func (s *WorkspaceService) RunWorkspaceCommandWorker(ctx context.Context, config
 
 // Recheck account, repository and workspace authority after admission. Runtime
 // adapters own workspace placement; hosted adapters route to the owning VM.
-func (s *WorkspaceService) authorizeWorkspaceCommand(ctx context.Context, input workspaceCommandPayload) error {
+func (s *WorkspaceService) authorizeWorkspaceCommand(ctx context.Context, input workspaceCommandPayload) (db.Workspace, error) {
 	store, ok := s.q.(workspacePreviewAuthorizationQuerier)
 	if !ok {
-		return pkgerrors.Forbidden("command authorization unavailable")
+		return db.Workspace{}, pkgerrors.Forbidden("command authorization unavailable")
 	}
 	user, err := store.GetUserByID(ctx, input.UserID)
 	if err != nil {
-		return err
+		return db.Workspace{}, err
 	}
 	if !user.IsActive || user.ProhibitLogin || user.DeletedAt.Valid {
-		return pkgerrors.Forbidden("access denied")
+		return db.Workspace{}, pkgerrors.Forbidden("access denied")
 	}
 	repo, err := store.GetRepoByID(ctx, input.RepositoryID)
 	if err != nil {
-		return err
+		return db.Workspace{}, err
 	}
 	permission, permissionErr := middleware.ResolveRepoPermission(ctx, store, repo, &user)
 	if permissionErr != nil {
-		return permissionErr
+		return db.Workspace{}, permissionErr
 	}
 	if !permission.Satisfies(middleware.PermissionWrite) {
-		return pkgerrors.Forbidden("access denied")
+		return db.Workspace{}, pkgerrors.Forbidden("access denied")
 	}
-	_, err = s.loadWorkspaceWithAccess(ctx, input.WorkspaceID, input.RepositoryID, input.UserID, WorkspaceAccessWrite)
-	return err
+	return s.loadWorkspaceWithAccess(ctx, input.WorkspaceID, input.RepositoryID, input.UserID, WorkspaceAccessWrite)
+}
+
+func errWorkspaceFailed() error {
+	return pkgerrors.New(pkgerrors.CodeWorkspaceFailed, "workspace failed to provision; create a new workspace")
 }
 
 func (s *WorkspaceService) handleWorkspaceCommand(ctx context.Context, lease *jobs.Lease) error {
@@ -241,12 +259,18 @@ func (s *WorkspaceService) handleWorkspaceCommandWithTimeout(ctx context.Context
 	if decodeErr != nil || json.Unmarshal([]byte(plaintext), &command) != nil || claim.RequestID != input.WorkspaceID+":"+command.OperationID {
 		return fail("invalid_command")
 	}
-	if err := s.authorizeWorkspaceCommand(ctx, input); err != nil {
+	workspace, err := s.authorizeWorkspaceCommand(ctx, input)
+	if err != nil {
 		var apiErr *pkgerrors.APIError
 		if errors.Is(err, pgx.ErrNoRows) || (errors.As(err, &apiErr) && (apiErr.Status == http.StatusForbidden || apiErr.Status == http.StatusNotFound)) {
 			return fail("command_permission_denied")
 		}
 		return err
+	}
+	// A workspace that failed after admission never reaches the runtime, so
+	// the command settles failed rather than uncertain.
+	if workspace.Status == "failed" {
+		return fail(string(pkgerrors.CodeWorkspaceFailed))
 	}
 	// The unsafe fence is persisted before any runtime effect. A crash after
 	// this point becomes uncertain, never a second shell execution.

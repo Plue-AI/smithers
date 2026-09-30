@@ -173,6 +173,7 @@ const (
 	CodeWorkspaceVMMissing            Code = "workspace_vm_missing"
 	CodeWorkspaceRebuildRequired      Code = "workspace_rebuild_required"
 	CodeRepositoryWorkspacePending    Code = "repository_workspace_pending"
+	CodeWorkspaceFailed               Code = "workspace_failed"
 )
 
 // The retired 0.x in-guest agent loop.
@@ -472,6 +473,7 @@ var registry = map[Code]Entry{
 	CodeWorkspaceVMMissing:            {Status: http.StatusConflict, Fault: FaultInfra, RetryAfter: 0, Doc: "The recorded workspace VM no longer exists. An unbound setup may select another compatible workspace within quota; established bindings remain explicit."},
 	CodeWorkspaceRebuildRequired:      {Status: http.StatusConflict, Fault: FaultUser, RetryAfter: 0, Doc: "The workspace or snapshot was built while its repository stored a Claude or ChatGPT subscription token, which may remain on its disk. It is not reused; delete it and create a new workspace."},
 	CodeRepositoryWorkspacePending:    {Status: http.StatusConflict, Fault: FaultWait, RetryAfter: 2, Doc: "The repository workspace or gateway is still starting. Poll the same request; an unverified primary is not an authoritative workspace selection."},
+	CodeWorkspaceFailed:               {Status: http.StatusConflict, Fault: FaultUser, RetryAfter: 0, Doc: "The workspace failed to provision and runs nothing; its failure is on the workspace. Create a new workspace."},
 	// The guest refused the coding request as malformed.
 	CodeCodingInvalidRequest: {Status: http.StatusBadRequest, Fault: FaultUser, RetryAfter: 0, Doc: "The guest refused the coding request as malformed."},
 	// The box's jj is too old for the requested operation.

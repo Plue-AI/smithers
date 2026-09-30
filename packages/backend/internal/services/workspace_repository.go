@@ -20,6 +20,9 @@ import (
 const (
 	workspaceRepositoryReceiptVersion = 1
 	workspaceRepositoryReceiptPath    = ".git/smithers-workspace-initialization.json"
+	// emptyWorkspaceSourceRevision pins a workspace initialized from a
+	// repository that had no refs at all: there is no source commit to verify.
+	emptyWorkspaceSourceRevision = "0000000000000000000000000000000000000000"
 )
 
 // workspaceRepositoryReceipt is durable workspace-local evidence that the
@@ -116,13 +119,8 @@ func (s *WorkspaceService) ensureRuntimeWorkspaceRepositoryWithReceipt(ctx conte
 			if err := s.verifyRuntimeRepositoryOrigin(ctx, row, requesterID, cloneURL); err != nil {
 				return err
 			}
-			if err := s.runRuntimeRepositoryCommand(ctx, row, requesterID, "verify-source-pin", workspaceapi.Command{
-				Args: []string{"git", "cat-file", "-e", receipt.SourceRevision + "^{commit}"},
-			}); err != nil {
-				if lostWorker(err) {
-					return err
-				}
-				return pkgerrors.Conflict("workspace repository source pin is unavailable")
+			if err := s.verifyRuntimeRepositorySourcePin(ctx, row, requesterID, receipt.SourceRevision); err != nil {
+				return err
 			}
 			if receipt.WorkspaceID == row.ID {
 				return nil
@@ -158,13 +156,27 @@ func (s *WorkspaceService) ensureRuntimeWorkspaceRepositoryWithReceipt(ctx conte
 		return pkgerrors.BadRequest("source bookmark is invalid")
 	}
 
+	// A repository with no refs at all (created, never pushed) has no bookmark
+	// to clone. Only the authenticated advertisement can tell it apart from an
+	// interrupted clone of a populated repository, whose local state looks the same.
+	empty, err := s.runtimeRepositorySourceEmpty(ctx, row, requesterID, cloneURL, authEnvironment)
+	if err != nil {
+		return err
+	}
+
 	if !hasGit {
 		args := []string{"git", "clone"}
-		if depth := sandbox.ResolveCloneDepth(s.workspaceCloneDepth(ctx, row.RepositoryID)); depth > 0 {
-			args = append(args, "--depth", strconv.Itoa(depth))
+		if !empty {
+			if depth := sandbox.ResolveCloneDepth(s.workspaceCloneDepth(ctx, row.RepositoryID)); depth > 0 {
+				args = append(args, "--depth", strconv.Itoa(depth))
+			}
+			args = append(args, "--branch", bookmark)
 		}
-		args = append(args, "--branch", bookmark, "--", cloneURL, ".")
+		args = append(args, "--", cloneURL, ".")
 		if err := s.runRuntimeRepositoryCommand(ctx, row, requesterID, "clone", workspaceapi.Command{Args: args, Environment: authEnvironment}); err != nil {
+			if empty {
+				return err
+			}
 			// git writes origin metadata before transferring objects. Continue the
 			// same working copy once so an interrupted clone is repaired without
 			// deleting or recloning it.
@@ -175,6 +187,19 @@ func (s *WorkspaceService) ensureRuntimeWorkspaceRepositoryWithReceipt(ctx conte
 	} else {
 		if err := s.verifyRuntimeRepositoryOrigin(ctx, row, requesterID, cloneURL); err != nil {
 			return err
+		}
+	}
+	if empty {
+		// Refs pushed between the advertisement and the clone make this an
+		// ordinary checkout of the requested bookmark, which fails closed when
+		// the bookmark is missing.
+		if empty, err = s.runtimeRepositoryCloneEmpty(ctx, row, requesterID); err != nil {
+			return err
+		}
+		if !empty {
+			if err := s.continueRuntimeRepositoryCheckout(ctx, row, requesterID, cloneURL, bookmark, authEnvironment); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -192,7 +217,11 @@ func (s *WorkspaceService) ensureRuntimeWorkspaceRepositoryWithReceipt(ctx conte
 			break
 		}
 	}
-	if !hasJJ {
+	if !hasJJ && empty {
+		if err := s.initializeEmptyRuntimeRepository(ctx, row, requesterID, bookmark); err != nil {
+			return err
+		}
+	} else if !hasJJ {
 		if err := s.ensureRuntimeGitHead(ctx, row, requesterID, cloneURL, bookmark, authEnvironment); err != nil {
 			return err
 		}
@@ -207,9 +236,11 @@ func (s *WorkspaceService) ensureRuntimeWorkspaceRepositoryWithReceipt(ctx conte
 	if err := s.verifyRuntimeRepositoryOrigin(ctx, row, requesterID, cloneURL); err != nil {
 		return err
 	}
-	revision, err := s.runtimeRepositoryRevision(ctx, row, requesterID, bookmark)
-	if err != nil {
-		return err
+	revision := emptyWorkspaceSourceRevision
+	if !empty {
+		if revision, err = s.runtimeRepositoryRevision(ctx, row, requesterID, bookmark); err != nil {
+			return err
+		}
 	}
 	// An isolated runtime finishes its prepared environment offline against
 	// the checkout (for example linking dependencies from a prepared store)
@@ -362,6 +393,59 @@ func (s *WorkspaceService) ensureRuntimeGitHead(ctx context.Context, row db.Work
 		return nil
 	}
 	return s.continueRuntimeRepositoryCheckout(ctx, row, requesterID, cloneURL, bookmark, environment)
+}
+
+// runtimeRepositorySourceEmpty asks the product remote, with the workspace's
+// own credential, whether the repository advertises any ref at all.
+func (s *WorkspaceService) runtimeRepositorySourceEmpty(ctx context.Context, row db.Workspace, requesterID int64, cloneURL string, environment map[string]string) (bool, error) {
+	refs, err := s.runtimeRepositoryCommandOutput(ctx, row, requesterID, "advertisement", workspaceapi.Command{
+		Args: []string{"git", "ls-remote", "--", cloneURL}, Environment: environment,
+	})
+	if err != nil {
+		return false, err
+	}
+	return refs == "", nil
+}
+
+// runtimeRepositoryCloneEmpty reports whether the clone received no refs.
+func (s *WorkspaceService) runtimeRepositoryCloneEmpty(ctx context.Context, row db.Workspace, requesterID int64) (bool, error) {
+	refs, err := s.runtimeRepositoryCommandOutput(ctx, row, requesterID, "clone-refs", workspaceapi.Command{
+		Args: []string{"git", "for-each-ref", "--count=1", "--format=%(refname)", "refs/remotes/origin/"},
+	})
+	if err != nil {
+		return false, err
+	}
+	return refs == "", nil
+}
+
+// initializeEmptyRuntimeRepository names the unborn branch after the source
+// bookmark and colocates Jujutsu. Nothing pretends the remote bookmark exists.
+func (s *WorkspaceService) initializeEmptyRuntimeRepository(ctx context.Context, row db.Workspace, requesterID int64, bookmark string) error {
+	if err := s.runRuntimeRepositoryCommand(ctx, row, requesterID, "unborn-head", workspaceapi.Command{
+		Args: []string{"git", "symbolic-ref", "HEAD", "refs/heads/" + bookmark},
+	}); err != nil {
+		return err
+	}
+	return s.runRuntimeRepositoryCommand(ctx, row, requesterID, "jj-init", workspaceapi.Command{
+		Args: []string{"jj", "git", "init", "--colocate", "."},
+	})
+}
+
+// verifyRuntimeRepositorySourcePin checks that the pinned source commit is
+// still present. A workspace initialized from an empty repository has none.
+func (s *WorkspaceService) verifyRuntimeRepositorySourcePin(ctx context.Context, row db.Workspace, requesterID int64, revision string) error {
+	if revision == emptyWorkspaceSourceRevision {
+		return nil
+	}
+	if err := s.runRuntimeRepositoryCommand(ctx, row, requesterID, "verify-source-pin", workspaceapi.Command{
+		Args: []string{"git", "cat-file", "-e", revision + "^{commit}"},
+	}); err != nil {
+		if lostWorker(err) {
+			return err
+		}
+		return pkgerrors.Conflict("workspace repository source pin is unavailable")
+	}
+	return nil
 }
 
 func (s *WorkspaceService) initializeRuntimeJujutsu(ctx context.Context, row db.Workspace, requesterID int64, bookmark string) error {

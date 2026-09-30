@@ -23,6 +23,11 @@ workspace. Names are trimmed; an omitted name reserves the empty-name identity.
 Concurrent requests for one identity share one workspace row before provisioning.
 Explicit forks and snapshot restores create independent resources.
 
+A repository with no commits yet still gets a workspace: its checkout has an
+unborn branch named after the bookmark and a colocated Jujutsu repository, so
+the first change can be committed there. A repository that has commits but
+lacks the bookmark fails provisioning.
+
 ## From a pushed ref
 
 `source_ref` names one of your refs pushed with `smithers repo push --name`
