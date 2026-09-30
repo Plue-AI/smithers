@@ -148,7 +148,8 @@ test("a run that died late names what happened from its stamped fault, never in 
   /* The brake's two halves mean different things since 46fcc61722f5, so they read differently. */
   const unproven = runFailureOf({ workflow: LATE_FLOW, events: journal(UNPROVEN, stamp(HARNESS("claim_unproven"), "factory")) })
   const unjudged = runFailureOf({ workflow: LATE_FLOW, events: journal("completion_unjudged: 503", stamp(HARNESS("completion_unjudged"), "dependency")) })
-  expect(unproven.message).not.toBe(unjudged.message)  for (const failure of [unproven, unjudged]) expect(failure.message).toContain("Not your fault")
+  expect(unproven.message).not.toBe(unjudged.message)
+  for (const failure of [unproven, unjudged]) expect(failure.message).toContain("Not your fault")
 })
 
 /*
