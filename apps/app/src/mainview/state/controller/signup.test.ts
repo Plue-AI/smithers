@@ -2,26 +2,125 @@ import { describe, expect, test } from "bun:test"
 import { createAppStore } from "../AppStore"
 import { resolveTargetRepo } from "../RepoContext"
 import { SIGNUP_QUESTIONS } from "../Signup"
-import { backend, memoryStorage, silentAgent } from "../TestFixtures"
+import { json, memoryStorage, silentAgent, waitFor } from "../TestFixtures"
 import { createControllerContext } from "./context"
 import { createSignupController } from "./signup"
 
-const boot = async () => {
-  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
-  return { store, controller: createSignupController(createControllerContext(store, silentAgent, backend({}))) }
+/** The backend's signup profile route: one saved document, and a switch that makes the store fail. */
+const profileServer = (saved: unknown = null) => {
+  const server = { saved, down: false, writes: [] as unknown[], reads: 0 }
+  const unavailable = () => json(503, { code: "profile_unavailable", fault: "infra", message: "service unavailable" })
+  const fetchImpl = async (input: unknown, init?: RequestInit): Promise<Response> => {
+    const url = new URL(String(input), "https://app.test")
+    if (url.pathname !== "/api/user/settings/signup") return json(404, { status: "error" })
+    if (init?.method === "PUT") {
+      if (server.down) return unavailable()
+      server.saved = JSON.parse(String(init.body))
+      server.writes.push(server.saved)
+      return json(200, { profile: server.saved, updated_at: "2026-09-30T00:00:00Z" })
+    }
+    server.reads += 1
+    return server.down ? unavailable() : json(200, { profile: server.saved })
+  }
+  return { server, fetchImpl }
 }
+
+const boot = async (saved: unknown = null) => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const { server, fetchImpl } = profileServer(saved)
+  return { store, server, controller: createSignupController(createControllerContext(store, silentAgent, { fetchImpl })) }
+}
+
+const signIn = (store: Awaited<ReturnType<typeof createAppStore>>, login: string) =>
+  store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login, allowlisted: true, admin: false, scopesPlain: null }).isPersisted.promise
 
 describe("the signup controller", () => {
   test("the account step needs a name and a valid account, then opens the poll", async () => {
     const { store, controller } = await boot()
     controller.signupChange({ stage: "account" })
-    expect(controller.signupAccount()).toBe("Type your full name.")
+    expect(await controller.signupAccount()).toBe("Type your full name.")
     controller.signupSet("name", "Ada Park")
     controller.signupSet("account", "a")
-    expect(controller.signupAccount()).toBe("An account name is 2–39 lowercase letters, digits or hyphens.")
+    expect(await controller.signupAccount()).toBe("An account name is 2–39 lowercase letters, digits or hyphens.")
     controller.signupSet("account", "Ada Park")
-    expect(controller.signupAccount()).toBeUndefined()
+    expect(await controller.signupAccount()).toBeUndefined()
     expect(store.session().signup).toMatchObject({ stage: "poll", name: "Ada Park", account: "adapark", question: 0 })
+    await store.dispose?.()
+  })
+
+  test("the account step opens the poll only after the server saves the claim; profile_unavailable keeps the typed input for a retry", async () => {
+    const { store, server, controller } = await boot()
+    controller.signupChange({ stage: "account" })
+    controller.signupSet("name", "Ada Park")
+    controller.signupSet("account", "adapark")
+    server.down = true
+    const refused = await controller.signupAccount()
+    expect(refused).toStartWith("profile_unavailable — ")
+    expect(store.session().signup).toMatchObject({ stage: "account", draft: { name: "Ada Park", account: "adapark" } })
+    expect(store.session().signup?.name).toBeUndefined()
+    expect(server.writes).toEqual([])
+
+    server.down = false
+    expect(await controller.signupAccount()).toBeUndefined()
+    expect(server.writes).toEqual([{ name: "Ada Park", account: "adapark", stage: "poll", question: 0, answers: {} }])
+    expect(store.session().signup).toMatchObject({ stage: "poll", name: "Ada Park", account: "adapark", question: 0 })
+    await store.dispose?.()
+  })
+
+  test("an answer advances the poll only after the server saves it; a refused save leaves the question open", async () => {
+    const { store, server, controller } = await boot()
+    controller.signupChange({ stage: "poll", name: "Ada Park", account: "adapark", question: 0 })
+    server.down = true
+    expect(await controller.signupAnswer("2–10")).toStartWith("profile_unavailable — ")
+    expect(store.session().signup).toMatchObject({ stage: "poll", question: 0, answers: {} })
+
+    server.down = false
+    const [first, second] = await Promise.all([controller.signupAnswer("2–10"), controller.signupAnswer("Engineering")])
+    expect([first, second]).toEqual([undefined, undefined])
+    expect(server.writes).toEqual([
+      { name: "Ada Park", account: "adapark", stage: "poll", question: 1, answers: { size: "2–10" } },
+      { name: "Ada Park", account: "adapark", stage: "poll", question: 2, answers: { size: "2–10", role: "Engineering" } }
+    ])
+    expect(store.session().signup).toMatchObject({ question: 2, answers: { size: "2–10", role: "Engineering" } })
+    await store.dispose?.()
+  })
+
+  test("signing in from a fresh browser restores the claim and answers another browser saved", async () => {
+    const saved = { name: "Ada Park", account: "adapark", stage: "poll", question: 4, answers: { size: "2–10", role: "Engineering", know: "Yes" } }
+    const { store, controller } = await boot(saved)
+    expect(store.session().signup).toBeUndefined()
+    await signIn(store, "ada-gh")
+    await waitFor(() => store.session().signup?.stage === "poll")
+    expect(store.session().signup).toMatchObject(saved)
+    expect(store.session().signup?.draft).toEqual({})
+    expect(await controller.signupNext()).toBeUndefined()
+    expect(store.session().signup?.question).toBe(5)
+    await store.dispose?.()
+  })
+
+  test("a claim made where the restore could not read keeps the saved answers", async () => {
+    const saved = { name: "Ada Park", account: "adapark", stage: "poll", question: 2, answers: { size: "2–10", role: "Engineering" } }
+    const { store, server, controller } = await boot(saved)
+    server.down = true
+    await signIn(store, "ada-gh")
+    await waitFor(() => server.reads === 1)
+    expect(store.session().signup).toMatchObject({ stage: "account", account: "ada-gh" })
+    controller.signupSet("name", "Ada P")
+    expect(await controller.signupAccount()).toStartWith("profile_unavailable — ")
+    expect(store.session().signup?.stage).toBe("account")
+
+    server.down = false
+    expect(await controller.signupAccount()).toBeUndefined()
+    expect(server.saved).toEqual({ ...saved, name: "Ada P", account: "ada-gh" })
+    expect(store.session().signup).toMatchObject({ stage: "poll", question: 2, name: "Ada P", account: "ada-gh", answers: saved.answers })
+    await store.dispose?.()
+  })
+
+  test("a person with no saved profile keeps the prefilled account step", async () => {
+    const { store, server } = await boot()
+    await signIn(store, "ada-gh")
+    await waitFor(() => server.reads === 1)
+    expect(store.session().signup).toMatchObject({ stage: "account", account: "ada-gh", draft: { account: "ada-gh" } })
     await store.dispose?.()
   })
 
@@ -29,27 +128,27 @@ describe("the signup controller", () => {
     const { store, controller } = await boot()
     controller.signupChange({ stage: "poll", question: 0 })
     expect(SIGNUP_QUESTIONS.filter(question => question.required)).toEqual([])
-    expect(controller.signupNext()).toBeUndefined()
+    expect(await controller.signupNext()).toBeUndefined()
     expect(store.session().signup?.question).toBe(1)
-    controller.signupBack()
-    expect(controller.signupAnswer("Huge")).toContain("Choose one of")
-    controller.signupAnswer("2–10")
+    await controller.signupBack()
+    expect(await controller.signupAnswer("Huge")).toContain("Choose one of")
+    await controller.signupAnswer("2–10")
     expect(store.session().signup?.question).toBe(1)
-    controller.signupBack()
+    await controller.signupBack()
     expect(store.session().signup?.question).toBe(0)
-    controller.signupAnswer("2–10")
-    controller.signupAnswer("Engineering")
-    controller.signupNext() // heard: optional
-    controller.signupAnswer("Yes")
+    await controller.signupAnswer("2–10")
+    await controller.signupAnswer("Engineering")
+    await controller.signupNext() // heard: optional
+    await controller.signupAnswer("Yes")
     expect(SIGNUP_QUESTIONS[store.session().signup!.question]?.id).toBe("models")
-    controller.signupAnswer("Claude")
-    controller.signupAnswer("Codex")
-    controller.signupAnswer("Claude")
+    await controller.signupAnswer("Claude")
+    await controller.signupAnswer("Codex")
+    await controller.signupAnswer("Claude")
     expect(store.session().signup?.answers.models).toEqual(["Codex"])
-    controller.signupNext()
-    controller.signupRepo("new")
+    await controller.signupNext()
+    await controller.signupRepo("new")
     controller.signupSet("more", "  ship it ")
-    controller.signupNext()
+    await controller.signupNext()
     expect(store.session().signup).toMatchObject({ stage: "ready", repo: "new", answers: { size: "2–10", role: "Engineering", know: "Yes", models: ["Codex"], repo: "new", more: "ship it" } })
     await controller.signupFinish()
     expect(store.session().signup?.stage).toBe("done")

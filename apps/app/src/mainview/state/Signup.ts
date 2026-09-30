@@ -30,6 +30,32 @@ export type Signup = z.infer<typeof SignupSchema>
 
 export const initialSignup = (): Signup => ({ stage: "sign-in", question: 0, answers: {}, draft: {} })
 
+/**
+ * The signup profile the backend keeps for the signed-in person
+ * (`/api/user/settings/signup`, onboarding_answers): the account claim and the
+ * poll answers, so another browser resumes them. It exists once the account
+ * step is saved, so its stage is never before `poll`.
+ */
+export const SIGNUP_PROFILE_PATH = "/api/user/settings/signup"
+export const SignupProfileSchema = z.object({
+  name: z.string().min(1),
+  account: z.string(),
+  stage: z.enum(["poll", "ready", "done"]),
+  question: z.number().int().nonnegative(),
+  answers: z.record(z.string(), z.union([z.string(), z.array(z.string())])),
+  repo: z.string().optional()
+})
+export type SignupProfile = z.infer<typeof SignupProfileSchema>
+
+/** The saved profile of a row, or undefined while nothing is claimed. */
+export const signupProfileOf = (signup: Signup): SignupProfile | undefined => {
+  const parsed = SignupProfileSchema.safeParse({
+    name: signup.name, account: signup.account, stage: signup.stage, question: signup.question, answers: signup.answers,
+    ...(signup.repo === undefined ? {} : { repo: signup.repo })
+  })
+  return parsed.success ? parsed.data : undefined
+}
+
 export interface SignupQuestion {
   readonly id: string
   readonly text: string

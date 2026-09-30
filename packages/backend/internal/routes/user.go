@@ -58,6 +58,8 @@ type UserHandler struct {
 	EmailService   UserEmailService
 	DeviceService  UserDeviceRouteService
 	AuditService   *services.AuditService
+	// SignupProfiles stores the signup account claim and poll answers.
+	SignupProfiles UserSignupProfileService
 }
 
 type patchUserRequest struct {
