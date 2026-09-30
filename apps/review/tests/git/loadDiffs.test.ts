@@ -76,4 +76,32 @@ describe("loadDiffs", () => {
       always.sort(),
     );
   });
+  test("workspace mode keeps every untracked name exactly, spaces, delimiters and quotes included", async () => {
+    const dir = initRepo();
+    write(join(dir, "base.txt"), "base\n");
+    git(dir, ["add", "."]);
+    git(dir, ["commit", "-m", "init"]);
+    const names = [
+      "plain.txt",
+      " leading.txt ",
+      "trailing.txt  ",
+      "   ",
+      "dir/ spaced/inner .txt",
+      "new\nline.txt",
+      "tab\tfile.txt",
+      'q"uo\\te.txt',
+      "bell\u0007.txt",
+      "x b/y.txt",
+      "café 🎉.txt",
+    ];
+    for (const name of names) write(join(dir, name), `after ${JSON.stringify(name)}\n`);
+
+    const diffs = await loadDiffs(dir, { ...normalizeOpenCodeReviewInput({}), repo: dir });
+    expect(diffs.map(effectivePath).sort()).toEqual([...names].sort());
+    for (const name of names) {
+      const record = diffs.find((d) => effectivePath(d) === name)!;
+      expect(record).toMatchObject({ isNew: true, isDeleted: false, insertions: 1, deletions: 0 });
+      expect(record.diff).toContain(`+after ${JSON.stringify(name)}`);
+    }
+  });
 });

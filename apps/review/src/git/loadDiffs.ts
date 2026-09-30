@@ -39,6 +39,32 @@ function readUntrackedBody(fullPath: string): { isSymlink: boolean; text: string
   }
 }
 
+const QUOTED_ESCAPES: Record<string, string> = {
+  "\u0007": "\\a",
+  "\b": "\\b",
+  "\t": "\\t",
+  "\n": "\\n",
+  "\u000b": "\\v",
+  "\f": "\\f",
+  "\r": "\\r",
+  '"': '\\"',
+  "\\": "\\\\",
+};
+
+/**
+ * Spells a path the way `git diff` does under `core.quotePath=false`: bare,
+ * unless it holds a quote, backslash or control character, which Git
+ * C-quotes (other control bytes as octal escapes).
+ */
+function quoteGitPath(path: string) {
+  if (!/["\\\u0000-\u001f\u007f]/.test(path)) return path;
+  const body = path.replace(
+    /["\\\u0000-\u001f\u007f]/g,
+    (char) => QUOTED_ESCAPES[char] ?? `\\${char.charCodeAt(0).toString(8).padStart(3, "0")}`,
+  );
+  return `"${body}"`;
+}
+
 async function workspaceDiffText(repoDir: string) {
   let tracked = "";
   const trackedResult = await runCommand(
@@ -52,21 +78,25 @@ async function workspaceDiffText(repoDir: string) {
     tracked = await runGit(repoDir, ["diff", "--staged", "--no-color", `-U${DIFF_CONTEXT_LINES}`, "--"]);
   }
 
-  const untracked = await runGit(repoDir, ["ls-files", "--others", "--exclude-standard"]);
+  // NUL-delimited: a name may start or end with spaces or hold a newline.
+  const untracked = await runGit(repoDir, ["ls-files", "-z", "--others", "--exclude-standard"]);
   const pieces = [tracked];
-  for (const relPath of untracked
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)) {
+  for (const relPath of untracked.split("\0").filter((path) => path !== "")) {
     const body = readUntrackedBody(join(repoDir, relPath));
     if (body === null) continue;
     const text = body.text;
     const lines = text.endsWith("\n") ? text.slice(0, -1).split("\n") : text.split("\n");
     const lineCount = text.length === 0 ? 0 : lines.length;
     const addedLines = text.length > 0 ? lines.map((line) => `+${line}`) : [];
-    const diffLines = [`diff --git a/${relPath} b/${relPath}`];
+    const newName = quoteGitPath(`b/${relPath}`);
+    const diffLines = [`diff --git ${quoteGitPath(`a/${relPath}`)} ${newName}`];
     if (body.isSymlink) diffLines.push("new file mode 120000");
-    diffLines.push("--- /dev/null", `+++ b/${relPath}`, `@@ -0,0 +1,${lineCount} @@`, ...addedLines);
+    diffLines.push(
+      "--- /dev/null",
+      `+++ ${newName}${newName.includes(" ") && !newName.startsWith('"') ? "\t" : ""}`,
+      `@@ -0,0 +1,${lineCount} @@`,
+      ...addedLines,
+    );
     pieces.push(diffLines.join("\n"));
   }
   return pieces.filter(Boolean).join("\n\n");
