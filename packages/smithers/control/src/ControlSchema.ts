@@ -1105,8 +1105,50 @@ export const FireSummary = Schema.Struct({
 export type FireSummary = typeof FireSummary.Type
 
 /**
+ * An operator's decision on a stored plan.
+ *
+ * @since 1.0.0
+ * @category models
+ */
+export const PlanDecision = Schema.Literals(["pending", "approved", "denied"])
+
+/**
+ * An operator's decision on a stored plan.
+ *
+ * @since 1.0.0
+ * @category models
+ */
+export type PlanDecision = typeof PlanDecision.Type
+
+/**
+ * One stored plan as a listing reports it: the card an approval submits
+ * (`card.approval`), the decoded input it was planned with, and its decision.
+ *
+ * @since 1.0.0
+ * @category models
+ */
+export const PlanSummary = Schema.Struct({
+  card: PlanCard,
+  input: Schema.Json,
+  decision: PlanDecision
+})
+
+/**
+ * One stored plan as a listing reports it.
+ *
+ * @since 1.0.0
+ * @category models
+ */
+export type PlanSummary = typeof PlanSummary.Type
+
+/**
  * A typed listing request for discovered flows, durable runs, registered
- * triggers, or the trigger fire ledger.
+ * triggers, the trigger fire ledger, or stored plans.
+ *
+ * `plans` lists stored plans oldest first, narrowed by flow and decision, so an
+ * operator can find what is waiting for approval: a build target declaring
+ * `approval: "required"` leaves a pending `system/target` plan. Plans are an
+ * operator's to read; a restricted reader lists none.
  *
  * `principalId` selects the runs whose `launchedBy.id` it names. It narrows a
  * listing; it is not an authorization boundary. The server restricts a reader
@@ -1160,12 +1202,20 @@ export const ListRequest = Schema.Union([
     })),
     cursor: Schema.optional(Schema.String),
     limit: Schema.optional(PageLimit)
+  }),
+  Schema.TaggedStruct("plans", {
+    filters: Schema.optional(Schema.Struct({
+      flowId: Schema.optional(FlowId),
+      decision: Schema.optional(PlanDecision)
+    })),
+    cursor: Schema.optional(Schema.String),
+    limit: Schema.optional(PageLimit)
   })
 ])
 
 /**
  * A typed listing request for discovered flows, durable runs, registered
- * triggers, or the trigger fire ledger.
+ * triggers, the trigger fire ledger, or stored plans.
  *
  * @since 0.1.0
  * @category models
@@ -1173,7 +1223,7 @@ export const ListRequest = Schema.Union([
 export type ListRequest = typeof ListRequest.Type
 
 /**
- * A typed page returned for a flow, run, trigger, or fire listing.
+ * A typed page returned for a flow, run, trigger, fire, or plan listing.
  *
  * @since 0.1.0
  * @category models
@@ -1197,11 +1247,15 @@ export const ListResponse = Schema.Union([
   Schema.TaggedStruct("fires", {
     items: Schema.Array(FireSummary),
     nextCursor: Schema.optional(Schema.String)
+  }),
+  Schema.TaggedStruct("plans", {
+    items: Schema.Array(PlanSummary),
+    nextCursor: Schema.optional(Schema.String)
   })
 ])
 
 /**
- * A typed page returned for a flow, run, trigger, or fire listing.
+ * A typed page returned for a flow, run, trigger, fire, or plan listing.
  *
  * @since 0.1.0
  * @category models

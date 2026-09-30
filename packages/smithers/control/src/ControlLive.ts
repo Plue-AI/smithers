@@ -1030,6 +1030,26 @@ export const layer: Layer.Layer<
     const list = (request: ListInput): Effect.Effect<ListResponse, ControlError> =>
       Effect.gen(function*() {
         const bounds = yield* pageBounds(request._tag === "runs" ? undefined : request.cursor, request.limit)
+        if (request._tag === "plans") {
+          // A plan's input and envelope are an operator's to read.
+          if (request.reader !== undefined) return { _tag: "plans", items: [] }
+          const result = yield* runtime.queryPlans({
+            flowId: request.filters?.flowId,
+            decision: request.filters?.decision,
+            after: bounds.start,
+            limit: bounds.size
+          })
+          const items = result.plans.map((plan) => ({
+            card: plan.card,
+            // The JSON form the durable runtime stores, whichever runtime answers.
+            input: JSON.parse(JSON.stringify(plan.decodedInput ?? null)) as Schema.Json,
+            decision: plan.decision
+          }))
+          return result.next === undefined
+            ? { _tag: "plans", items }
+            : { _tag: "plans", items, nextCursor: String(result.next) }
+        }
+
         if (request._tag === "flows") {
           const [registered, warnings] = yield* Effect.all([registry.list(), registry.warnings()])
           const available = registered.length > 0

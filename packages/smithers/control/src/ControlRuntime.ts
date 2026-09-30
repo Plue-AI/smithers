@@ -36,6 +36,7 @@ import type {
   GrantScope,
   IdempotencyKey,
   PlanCard,
+  PlanDecision,
   PlanGraph,
   PlanNode,
   Principal,
@@ -186,6 +187,33 @@ export interface SignalCommand {
 }
 
 /**
+ * A stored-plan page request: plans oldest first, after the insertion position
+ * `after`, narrowed by flow and decision. `limit` must be an integer from 1
+ * through 500.
+ *
+ * @category models
+ * @since 1.0.0
+ */
+export interface PlanQuery {
+  readonly flowId?: FlowId | undefined
+  readonly decision?: PlanDecision | undefined
+  readonly after?: number | undefined
+  readonly limit: number
+}
+
+/**
+ * One page of stored plans. `next` is the insertion position a later page
+ * continues after, present while more plans may match.
+ *
+ * @category models
+ * @since 1.0.0
+ */
+export interface PlanPage {
+  readonly plans: ReadonlyArray<StoredPlan>
+  readonly next?: number | undefined
+}
+
+/**
  * A decoded input and immutable plan stored before execution.
  *
  * @category models
@@ -194,7 +222,7 @@ export interface SignalCommand {
 export interface StoredPlan {
   readonly card: PlanCard
   readonly decodedInput: unknown
-  readonly decision: "pending" | "approved" | "denied"
+  readonly decision: PlanDecision
 }
 
 /**
@@ -452,6 +480,8 @@ export interface Service {
   readonly pagePlanIds: (
     request: IdPageRequest
   ) => Effect.Effect<IdPage, InvalidInput | PersistenceError>
+  /** Stored plans in insertion order, narrowed by flow and decision, one bounded page at a time. */
+  readonly queryPlans: (request: PlanQuery) => Effect.Effect<PlanPage, InvalidInput | PersistenceError>
   readonly lookupApproval: (
     target: ApprovalTarget
   ) => Effect.Effect<
@@ -995,6 +1025,21 @@ export const layerMemory = (options: MemoryOptions = {}): Layer.Layer<ControlRun
             planSequence,
             (position) => plans.has(`plan-${position}`) ? `plan-${position}` : undefined
           )
+        }),
+        queryPlans: Effect.fn("ControlRuntime.queryPlans")(function*(request) {
+          yield* idPageLimit(request.limit)
+          const matched: Array<StoredPlan> = []
+          let position = request.after ?? 0
+          while (position < planSequence && matched.length < request.limit) {
+            position += 1
+            const plan = plans.get(`plan-${position}`)
+            if (
+              plan !== undefined &&
+              (request.flowId === undefined || plan.card.flowId === request.flowId) &&
+              (request.decision === undefined || plan.decision === request.decision)
+            ) matched.push(asStored(plan))
+          }
+          return position < planSequence ? { plans: matched, next: position } : { plans: matched }
         }),
         lookupApproval: Effect.fn("ControlRuntime.lookupApproval")(function*(target) {
           const requested = snapshot(target)

@@ -25,7 +25,7 @@ import {
 } from "../src/ControlError.ts"
 import * as ControlExecutor from "../src/ControlExecutor.ts"
 import { ControlRuntime } from "../src/ControlRuntime.ts"
-import type { Envelope, PlanCard, Principal, Receipt } from "../src/ControlSchema.ts"
+import type { Envelope, ListResponse, PlanCard, Principal, Receipt } from "../src/ControlSchema.ts"
 import { park } from "./Park.ts"
 
 /** Every service a contract test may reach for. */
@@ -929,6 +929,64 @@ export const contract = (name: string, harness: Harness): void => {
         )
 
         expect(events.map((event) => event.kind)).toContain("control.signal.admitted")
+      }))
+
+    test("lists stored plans by flow and decision, oldest first, in bounded pages", () =>
+      Effect.gen(function*() {
+        const control = yield* Control
+        const target = (label: string) =>
+          control.plan({ flowId: "system/target", input: { label, digest: `sha256:${label}` } })
+        const first = yield* target("//a:push")
+        const other = yield* control.plan({ flowId: "system/test", input: { suite: "plans" } })
+        const approved = yield* target("//b:push")
+        const denied = yield* target("//c:push")
+        const last = yield* target("//d:push")
+        yield* control.approve(approval(approved, "approve:plans"))
+        yield* control.deny(approval(denied, "deny:plans"))
+
+        const ids = (listed: ListResponse) =>
+          listed._tag === "plans" ? listed.items.map((item) => item.card.planId) : []
+        const pending = { flowId: "system/target", decision: "pending" } as const
+        const all = yield* control.list({ _tag: "plans" })
+        const firstPage = yield* control.list({ _tag: "plans", filters: pending, limit: 1 })
+        const secondPage = yield* control.list({
+          _tag: "plans",
+          filters: pending,
+          limit: 1,
+          ...(firstPage._tag === "plans" && firstPage.nextCursor !== undefined
+            ? { cursor: firstPage.nextCursor }
+            : {})
+        })
+
+        expect(ids(all)).toEqual([first, other, approved, denied, last].map((card) => card.planId))
+        expect(all._tag === "plans" ? all.items.map((item) => item.decision) : []).toEqual([
+          "pending",
+          "pending",
+          "approved",
+          "denied",
+          "pending"
+        ])
+        expect(all._tag === "plans" ? all.items[0] : undefined).toEqual({
+          card: first,
+          input: { label: "//a:push", digest: "sha256://a:push" },
+          decision: "pending"
+        })
+        expect(ids(firstPage)).toEqual([first.planId])
+        expect(firstPage._tag === "plans" ? firstPage.nextCursor : undefined).toBeDefined()
+        expect(ids(secondPage)).toEqual([last.planId])
+        expect(secondPage._tag === "plans" ? secondPage.nextCursor : "more").toBeUndefined()
+        expect(ids(yield* control.list({ _tag: "plans", filters: { decision: "approved" } }))).toEqual([
+          approved.planId
+        ])
+        expect(ids(yield* control.list({ _tag: "plans", filters: { flowId: "system/test" } }))).toEqual([
+          other.planId
+        ])
+        expect(ids(yield* control.list({ _tag: "plans", filters: { flowId: "system/release" } }))).toEqual([])
+        // Plans are an operator's to read.
+        const reader: Principal = { id: "viewer", kind: "test", stampedAt: 1 }
+        expect(yield* control.list({ _tag: "plans", reader })).toEqual({ _tag: "plans", items: [] })
+        const refused = yield* control.list({ _tag: "plans", cursor: "-1" }).pipe(Effect.flip)
+        expect(refused).toBeInstanceOf(InvalidInput)
       }))
 
     test("unscoped finite watch includes plan-only journal partitions", () =>

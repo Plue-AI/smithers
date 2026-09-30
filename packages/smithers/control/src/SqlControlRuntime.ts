@@ -78,6 +78,8 @@ import type {
   IdPageRequest,
   LaunchResult,
   MemoryFlow,
+  PlanPage,
+  PlanQuery,
   RunCursor,
   RunQuery,
   Service,
@@ -92,6 +94,7 @@ import {
   type IdempotencyKey,
   type PendingWait,
   PlanCard,
+  PlanDecision,
   Principal,
   Receipt,
   type RunId,
@@ -362,7 +365,8 @@ const tokenFromRow = (
     }
   })
 
-const PlanDecision = Schema.Literals(["pending", "approved", "denied"])
+/** Plans read per statement while a filtered plan page fills. */
+const planScanBatch = 200
 
 const CancelRequestPayload = Schema.Struct({
   principal: Schema.optional(Principal),
@@ -1461,6 +1465,40 @@ const makeRuntime = (
     const pagePlanIds = (request: IdPageRequest) => pageByRowId(request, "control_plans", "plan_id", "page plans")
 
     /**
+     * One page of stored plans by `rowid`. The decision narrows in SQL; the flow
+     * is read from the stored card, so a page reads batches until it fills or
+     * the table ends.
+     */
+    const queryPlans = (request: PlanQuery): Effect.Effect<PlanPage, InvalidInput | PersistenceError> =>
+      Effect.gen(function*() {
+        yield* idPageLimit(request.limit)
+        const plans: Array<StoredPlan> = []
+        let after = request.after ?? 0
+        while (true) {
+          const conditions = [
+            sql`rowid > ${after}`,
+            ...(request.decision === undefined ? [] : [sql`decision = ${request.decision}`])
+          ]
+          const rows = yield* sql<PlanRow & { readonly position: number | string }>`
+            SELECT plan_id AS "planId", card_json AS "cardJson",
+                   decoded_input_json AS "decodedInputJson", decision, rowid AS position
+            FROM control_plans WHERE ${sql.and(conditions)}
+            ORDER BY rowid LIMIT ${planScanBatch}
+          `.pipe(query("page plans"))
+          for (const [index, row] of rows.entries()) {
+            after = Number(row.position)
+            const plan = yield* storedPlan(row)
+            if (request.flowId !== undefined && plan.card.flowId !== request.flowId) continue
+            plans.push(plan)
+            if (plans.length === request.limit) {
+              return index < rows.length - 1 || rows.length === planScanBatch ? { plans, next: after } : { plans }
+            }
+          }
+          if (rows.length < planScanBatch) return { plans }
+        }
+      })
+
+    /**
      * The recorded launcher of a run this plane launched. The launch index is
      * written once, so it outlives the control summary the engine replaces in
      * `flows_runs.state_json` when it takes the run over.
@@ -1621,6 +1659,7 @@ const makeRuntime = (
         Effect.flatMap(requirePlan(planId), storedPlan)
       ),
       pagePlanIds,
+      queryPlans,
       lookupApproval: Effect.fn("SqlControlRuntime.lookupApproval")(function*(target: ApprovalTarget) {
         const tokenId = target._tag === "Plan" ? target.planId : target.requestId
         const identity = approvalIdentity(target)

@@ -159,6 +159,47 @@ describe("ControlRuntime.layerMemory", () => {
     expect(new Set(observed.plans).size).toBe(observed.plans.length)
   })
 
+  it("pages stored plans by flow and decision, and refuses page sizes outside 1 through 500", async () => {
+    const observed = await withRuntime((runtime) =>
+      Effect.gen(function*() {
+        for (let index = 0; index < 6; index++) {
+          yield* runtime.plan({
+            flowId: index % 2 === 0 ? "system/target" : "system/test",
+            input: { label: `//t:${index}`, digest: String(index) }
+          })
+        }
+        const { card } = yield* runtime.plan({ flowId: "system/target", input: { label: "//t:6", digest: "6" } })
+        const token = yield* runtime.lookupApproval(card.approval.target)
+        yield* runtime.resolveApproval(token, "approved", principal)
+        const ids = (page: { readonly plans: ReadonlyArray<{ readonly card: { readonly planId: string } }> }) =>
+          page.plans.map((plan) => plan.card.planId)
+        const first = yield* runtime.queryPlans({ flowId: "system/target", decision: "pending", limit: 2 })
+        const rest = yield* runtime.queryPlans({
+          flowId: "system/target",
+          decision: "pending",
+          after: first.next,
+          limit: 2
+        })
+        return {
+          first: { ids: ids(first), next: first.next },
+          rest: { ids: ids(rest), next: rest.next },
+          approved: ids(yield* runtime.queryPlans({ decision: "approved", limit: 500 })),
+          all: (yield* runtime.queryPlans({ limit: 500 })).plans.length,
+          last: yield* runtime.queryPlans({ after: 6, limit: 1 }),
+          refused: yield* Effect.forEach([0, 501, 1.5], (limit) => Effect.flip(runtime.queryPlans({ limit })))
+        }
+      })
+    )
+
+    expect(observed.first).toEqual({ ids: ["plan-1", "plan-3"], next: 3 })
+    expect(observed.rest).toEqual({ ids: ["plan-5"], next: undefined })
+    expect(observed.approved).toEqual(["plan-7"])
+    expect(observed.all).toBe(7)
+    expect(observed.last.plans.map((plan) => plan.decision)).toEqual(["approved"])
+    expect(observed.last.next).toBeUndefined()
+    for (const refused of observed.refused) expect(refused).toBeInstanceOf(InvalidInput)
+  })
+
   it("refuses an inventory page size outside 1 through 500", async () => {
     const observed = await withRuntime((runtime) =>
       Effect.forEach(

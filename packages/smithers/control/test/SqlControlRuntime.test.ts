@@ -79,6 +79,48 @@ const durable = (
   >
 }
 
+it("pages stored plans across scan batches by flow and decision", async () => {
+  const observed = await Effect.runPromise(
+    Effect.gen(function*() {
+      const control = yield* Control
+      const runtime = yield* ControlRuntime
+      const cards = []
+      for (let index = 0; index < 201; index++) {
+        cards.push(
+          yield* control.plan({ flowId: "system/target", input: { label: "//t:push", digest: String(index) } })
+        )
+      }
+      const other = yield* control.plan({ flowId: "system/test", input: { suite: "plans" } })
+      yield* control.approve({ ...cards[0]!.approval, idempotencyKey: "approve:first" })
+      const page = (request: Parameters<ControlRuntimeService["queryPlans"]>[0]) =>
+        Effect.map(runtime.queryPlans(request), (result) => ({
+          ids: result.plans.map((plan) => plan.card.planId),
+          next: result.next
+        }))
+      return {
+        cards,
+        other,
+        targets: yield* page({ flowId: "system/target", limit: 500 }),
+        fullBatch: yield* page({ limit: 200 }),
+        midBatch: yield* page({ flowId: "system/target", limit: 5 }),
+        tail: yield* page({ after: 201, flowId: "system/test", limit: 1 }),
+        approved: yield* page({ decision: "approved", limit: 500 }),
+        pending: yield* page({ decision: "pending", flowId: "system/target", limit: 1 }),
+        refused: yield* Effect.flip(runtime.queryPlans({ limit: 0 }))
+      }
+    }).pipe(Effect.provide(durable()), Effect.scoped, Effect.orDie)
+  )
+
+  const ids = observed.cards.map((card) => card.planId)
+  expect(observed.targets).toEqual({ ids, next: undefined })
+  expect(observed.fullBatch).toEqual({ ids: ids.slice(0, 200), next: 200 })
+  expect(observed.midBatch).toEqual({ ids: ids.slice(0, 5), next: 5 })
+  expect(observed.tail).toEqual({ ids: [observed.other.planId], next: undefined })
+  expect(observed.approved).toEqual({ ids: [ids[0]], next: undefined })
+  expect(observed.pending).toEqual({ ids: [ids[1]], next: 2 })
+  expect(observed.refused._tag).toBe("/control/InvalidInput")
+})
+
 it("reads only the selected durable run page", async () => {
   let reads = 0
   const countedDatabase = Layer.effect(

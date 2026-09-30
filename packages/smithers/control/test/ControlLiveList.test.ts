@@ -63,6 +63,8 @@ const items = (listed: ListResponse): ReadonlyArray<string> => {
       return listed.items.map((item) => item.triggerId)
     case "fires":
       return listed.items.map((item) => `${item.triggerId}@${item.occurrenceAtMs}`)
+    case "plans":
+      return listed.items.map((item) => item.card.planId)
   }
 }
 
