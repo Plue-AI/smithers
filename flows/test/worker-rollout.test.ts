@@ -38,11 +38,13 @@ function fixture(app: WorkerApp, options: {
   beforePublishError?: boolean
   publishingRecordError?: boolean
   input?: WorkerArtifact
+  last?: RolloutReceipt
 } = {}) {
   const events: string[] = []
   const receipts: RolloutReceipt[] = []
   const published: WorkerArtifact[] = []
   const ports: WorkerRolloutPorts = {
+    lastReceipt: async () => options.last ?? null,
     checks: ["service-response"],
     rollbackChecks: ["service-response"],
     capture: async () => {
@@ -98,6 +100,34 @@ function assertRefusedBeforePublication(
 }
 
 for (const app of ["review", "bug-worker"] as const) {
+  test(`${app}: an interrupted publication restores the previous release without qualifying or publishing`, async () => {
+    const last: RolloutReceipt = {
+      startedAt: "2026-09-30T00:00:00.000Z",
+      updatedAt: "2026-09-30T00:00:01.000Z",
+      status: "checking",
+      previous,
+      candidate,
+      baseline: [{ name: "service-response", status: "passed" }],
+      checks: [],
+      failedChecks: [],
+      skippedChecks: [],
+      rollback: "not-needed",
+      reverification: []
+    }
+    const f = fixture(app, { last })
+    const result = await rollout(f.host)
+    assert.equal(result.status, "rolled-back")
+    assert.deepEqual(result.failedChecks, ["interrupted"])
+    assert.deepEqual(result.reverification, [{ name: "service-response", status: "passed" }])
+    assert.deepEqual(f.events, [
+      "record:restoring",
+      "restore:previous-version",
+      "check:restored:service-response",
+      "record:rolled-back"
+    ])
+    assert.deepEqual(f.published, [])
+  })
+
   test(`${app}: a source-matched qualification publishes and records a passed receipt`, async () => {
     const f = fixture(app)
     const result = await rollout(f.host)

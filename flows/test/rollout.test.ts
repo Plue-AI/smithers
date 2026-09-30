@@ -5,12 +5,22 @@ import { rollout, type RolloutHost, type RolloutReceipt } from "../rollout/runti
 const previous = { version: "good-version", revision: "old-sha" }
 const candidate = { version: "bad-version", revision: "new-sha" }
 const fixture = (
-  options: { fail?: string; publishThrows?: boolean; restoreThrows?: boolean; verifyThrows?: boolean } = {}
+  options: {
+    fail?: string
+    publishThrows?: boolean
+    restoreThrows?: boolean
+    verifyThrows?: boolean
+    last?: RolloutReceipt | null
+  } = {}
 ) => {
   const events: string[] = []
   const receipts: RolloutReceipt[] = []
   const host: RolloutHost = {
-    capture: async () => previous,
+    lastReceipt: async () => options.last ?? null,
+    capture: async () => {
+      events.push("capture")
+      return previous
+    },
     publish: async () => {
       events.push("publish")
       if (options.publishThrows) throw Error("secret")
@@ -43,6 +53,7 @@ test("a deliberately red probe restores the captured version and re-verifies the
   assert.equal(result.rollback, "succeeded")
   assert.equal(result.reverification.every((c) => c.status === "passed"), true)
   assert.deepEqual(f.events, [
+    "capture",
     "baseline:CN-1:old-sha",
     "baseline:site:old-sha",
     "publish",
@@ -217,4 +228,105 @@ test("rollback check names cannot silently omit the required check set", async (
     await assert.rejects(rollout(f.host), /checks/)
     assert.deepEqual(f.events, [])
   }
+})
+
+const interruptedAt = (status: RolloutReceipt["status"]): RolloutReceipt => ({
+  startedAt: "2026-09-30T00:00:00.000Z",
+  updatedAt: "2026-09-30T00:01:00.000Z",
+  status,
+  previous,
+  candidate: status === "checking" || status === "restoring" ? candidate : null,
+  baseline: [{ name: "CN-1", status: "passed" }, { name: "site", status: "passed" }],
+  checks: [],
+  failedChecks: [],
+  skippedChecks: [],
+  rollback: "not-needed",
+  reverification: []
+})
+
+test("a runner interrupted mid-publication is restored and re-verified before another rollout is admitted", async () => {
+  // Run one: the runner dies while candidate checks are in flight.
+  const store: RolloutReceipt[] = []
+  const first = fixture()
+  first.host.record = async (r) => {
+    store.push(structuredClone(r))
+  }
+  first.host.check = (_name, _target, phase) =>
+    phase === "candidate" ? new Promise(() => {}) : Promise.resolve({ status: "passed" })
+  void rollout(first.host)
+  await new Promise((resolve) => setTimeout(resolve, 10))
+  const interrupted = store.at(-1)!
+  assert.equal(interrupted.status, "checking")
+
+  // Run two reads the durable store and reconciles instead of publishing.
+  const f = fixture({ last: interrupted })
+  const result = await rollout(f.host)
+  assert.equal(result.status, "rolled-back")
+  assert.equal(result.startedAt, interrupted.startedAt)
+  assert.deepEqual(result.candidate, candidate)
+  assert.deepEqual(result.failedChecks, ["interrupted"])
+  assert.equal(result.rollback, "succeeded")
+  assert.deepEqual(result.reverification, [{ name: "CN-1", status: "passed" }, { name: "site", status: "passed" }])
+  assert.deepEqual(f.events, ["restore:good-version", "restored:CN-1:old-sha", "restored:site:old-sha"])
+  assert.deepEqual(f.receipts.map((r) => [r.startedAt, r.status]), [
+    [interrupted.startedAt, "restoring"],
+    [interrupted.startedAt, "rolled-back"]
+  ])
+})
+
+test("every post-publication interruption restores; a failed restore is never reported as recovery", async () => {
+  for (const status of ["publishing", "checking", "restoring"] as const) {
+    const f = fixture({ last: interruptedAt(status) })
+    assert.equal((await rollout(f.host)).status, "rolled-back")
+    assert.equal(f.events.includes("publish"), false)
+    const failed = fixture({ last: interruptedAt(status), restoreThrows: true })
+    const result = await rollout(failed.host)
+    assert.equal(result.status, "rollback-failed")
+    assert.equal(result.reverification.length, 2)
+    assert.equal(failed.events.some((e) => e === "capture" || e === "publish"), false)
+  }
+})
+
+test("an interruption before publication closes its receipt and the new rollout proceeds", async () => {
+  for (const status of ["captured", "prepared"] as const) {
+    const f = fixture({ last: interruptedAt(status) })
+    const result = await rollout(f.host)
+    assert.equal(result.status, "passed")
+    assert.notEqual(result.startedAt, "2026-09-30T00:00:00.000Z")
+    assert.equal(f.events.some((e) => e.startsWith("restore:")), false)
+    assert.deepEqual(f.receipts[0], {
+      ...interruptedAt(status),
+      status: "refused",
+      failedChecks: ["interrupted"],
+      updatedAt: f.receipts[0]!.updatedAt
+    })
+  }
+})
+
+test("a terminal last receipt admits the rollout unchanged", async () => {
+  for (const status of ["passed", "failed", "refused", "rolled-back", "rollback-failed"] as const) {
+    const f = fixture({ last: interruptedAt(status) })
+    assert.equal((await rollout(f.host)).status, "passed")
+    assert.equal(f.receipts.some((r) => r.startedAt === "2026-09-30T00:00:00.000Z"), false)
+  }
+})
+
+test("an unreadable receipt store refuses before capture, publication or restoration", async () => {
+  const f = fixture()
+  f.host.lastReceipt = async () => {
+    throw Error("secret store path")
+  }
+  const result = await rollout(f.host)
+  assert.equal(result.status, "refused")
+  assert.deepEqual(result.failedChecks, ["receipt"])
+  assert.deepEqual(f.events, [])
+  assert.equal(JSON.stringify(f.receipts).includes("secret"), false)
+})
+
+test("an interrupted receipt without a baseline cannot restore and refuses the rollout", async () => {
+  const f = fixture({ last: { ...interruptedAt("checking"), previous: null } })
+  const result = await rollout(f.host)
+  assert.equal(result.status, "rollback-failed")
+  assert.equal(result.rollback, "failed")
+  assert.deepEqual(f.events, [])
 })
