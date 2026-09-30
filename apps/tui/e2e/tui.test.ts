@@ -1578,6 +1578,39 @@ describe("runtime views", () => {
     expect(readFileSync(join(cwd, "math.js"), "utf8")).toBe("export const add = (a, b) => b + a\n")
   }, 180_000)
 
+  it("u on a turn whose edits cancel out says nothing to undo and stops offering u", async () => {
+    const cwd = repository({ git: true })
+    const started = await start({
+      cwd,
+      replay: replayCells([
+        `await ctx.call("edit", { path: "math.js", oldString: "a - b", newString: "a + b" });
+await ctx.call("edit", { path: "./math.js", oldString: "a + b", newString: "a - b" });
+console.log("reverted");`,
+        `ctx.done("Tried a + b and reverted it.");`
+      ])
+    })
+    const { tui } = started
+    await tui.type("Try a + b in math.js, then put it back.")
+    await tui.press(key.enter)
+    await successfulAnswer(started, "reverted")
+    await tui.type("/summary")
+    await tui.press(key.enter)
+    await tui.until((screen) => screen.includes("u Undo") && screen.includes("Asked:"), 5_000, "summary")
+    for (let step = 0; step < 8 && !/› .*Updated math\.js/.test(tui.screen()); step++) {
+      await tui.type("j")
+      await new Promise((resolve) => setTimeout(resolve, 150))
+    }
+    await tui.until((screen) => /› .*Updated math\.js/.test(screen), 5_000, "edit row")
+    await tui.type("u")
+    await tui.until(
+      (screen) => screen.includes("Nothing to undo") && !screen.includes("u Undo"),
+      10_000,
+      "nothing to undo"
+    )
+    expect(tui.screen()).not.toContain("[x]")
+    expect(readFileSync(join(cwd, "math.js"), "utf8")).toBe("export const add = (a, b) => a - b\n")
+  }, 180_000)
+
   it("space unchecks a file and esc in the undo checklist changes nothing", async () => {
     const { tui, cwd } = await editRow()
     await tui.type("u")

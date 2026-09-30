@@ -1210,12 +1210,32 @@ export function App(props: AppProps) {
       workspace.busy || runs.busy
   }
 
+  /** Marks the undone files of `plan` in the transcript, the session file and the context. */
+  const record = (plan: Undo.Plan, files: ReadonlyArray<Undo.File>, tab: string | undefined) => {
+    const at = Date.now()
+    const paths = Undo.recorded(plan, files)
+    const { calls } = plan
+    if (tab !== undefined) workspace.undone(tab, calls, paths, at)
+    writer.current.append({ type: "undo", at, calls, paths, ...(tab === undefined ? {} : { tab }) })
+    entries.current.push({ kind: "undo", paths })
+    if (tab === undefined) setTranscript((current) => Transcript.undone(current, calls, paths, at))
+  }
+
   /** Reads what undoing `cells` would restore and opens the checklist; a run with nothing to write says why. */
   const startUndo = (cells: ReadonlyArray<Undo.Cell>, title: string, tab: string | undefined) => {
     if (undoBlocked()) return setStatus(Undo.message({ _tag: "Busy" }), "warning")
     void Undo.plan(props.host.cwd, cells).then(
       (plan) => {
         if ("_tag" in plan) return setStatus(Undo.message(plan), "warning")
+        if (plan.entries.length === 0) {
+          // Recorded, so `u` is no longer offered for a run that changed nothing in the end.
+          try {
+            record(plan, [], tab)
+          } catch (error) {
+            return setStatus(Failures.line("undo", error), "danger")
+          }
+          return setStatus(Undo.message({ _tag: "NothingToUndo" }), "warning")
+        }
         const checked = Undo.ready(plan)
         if (checked.size === 0) return setStatus(Undo.refusal(plan), "danger")
         // A dialog the person opened meanwhile stays.
@@ -1254,15 +1274,8 @@ export function App(props: AppProps) {
             failure._tag === "Conflict" || failure._tag === "WriteFailed" ? "danger" : "warning"
           )
         } else {
-          const at = Date.now()
-          const paths = Undo.recorded(open.plan, files)
-          const { calls } = open.plan
-          const tab = open.tab
           try {
-            if (tab !== undefined) workspace.undone(tab, calls, paths, at)
-            writer.current.append({ type: "undo", at, calls, paths, ...(tab === undefined ? {} : { tab }) })
-            entries.current.push({ kind: "undo", paths })
-            if (tab === undefined) setTranscript((current) => Transcript.undone(current, calls, paths, at))
+            record(open.plan, files, open.tab)
             setStatus(Undo.done(files))
             // Back to where the run was opened from, which now reads undone.
             setReview(undefined)

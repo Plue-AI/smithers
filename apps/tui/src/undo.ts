@@ -66,7 +66,10 @@ export interface Entry extends Partial<File> {
 export interface Plan {
   /** Identities of the calls whose patches the plan reverses. */
   readonly calls: ReadonlyArray<string>
-  /** Files that change back, then refused ones, each in the order the run first touched it. */
+  /**
+   * Files that change back, then refused ones, each in the order the run first
+   * touched it. None when every file netted to no change.
+   */
   readonly entries: ReadonlyArray<Entry>
   /** Paths whose patches net to no change: an undo records them too. */
   readonly settled: ReadonlyArray<string>
@@ -140,9 +143,9 @@ export const changes = (cells: ReadonlyArray<Cell>): ReadonlyArray<Change> => {
   })
 }
 
-/** Whether these cells hold a captured change not yet undone. */
+/** Whether these cells hold a captured change not yet undone that undo can reverse: not a binary or large one. */
 export const possible = (cells: ReadonlyArray<Cell>): boolean =>
-  captured(cells).some(({ patch }) => patch.undone !== true)
+  captured(cells).some(({ patch }) => patch.undone !== true && Changes.structured(patch) !== undefined)
 
 /** Whether every captured change of these cells was undone. */
 export const undone = (cells: ReadonlyArray<Cell>): boolean => {
@@ -286,7 +289,7 @@ export const plan = async (
       ...(mode === undefined ? {} : { mode })
     })
   }
-  if (ready.length === 0 && kept.length === 0) return { _tag: "NothingToUndo" }
+  // With no entries, every file netted to no change: recording them leaves nothing to undo.
   return {
     calls: [...new Set(pending.flatMap(({ call }) => call === undefined ? [] : [call]))],
     entries: [...ready, ...kept],

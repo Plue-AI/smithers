@@ -861,17 +861,31 @@ describe("undo", () => {
     expect(statSync(join(cwd, "run.sh")).mode & 0o777).toBe(0o755)
   })
 
-  it("has nothing to undo when a turn's edits net to no change", async () => {
+  it("has nothing to write when a turn's edits net to no change, and recording that leaves nothing to undo", async () => {
     const cwd = scratch()
     put(cwd, "a.ts", "a\n")
     const r = recorder(cwd)
     r.prompt("round trip")
     r.cell()
-    await r.call("write", { path: "a.ts" }, write(cwd, "a.ts", "b\n"))
-    await r.call("write", { path: "a.ts" }, write(cwd, "a.ts", "a\n"))
+    const one = await r.call("write", { path: "a.ts" }, write(cwd, "a.ts", "b\n"))
+    const two = await r.call("write", { path: "a.ts" }, write(cwd, "a.ts", "a\n"))
     r.settle()
-    expect(await Undo.plan(cwd, Undo.run(r.transcript()))).toEqual({ _tag: "NothingToUndo" })
+    expect(Undo.possible(Undo.run(r.transcript()))).toBe(true)
+    const plan = await Undo.plan(cwd, Undo.run(r.transcript())) as Undo.Plan
+    expect(plan).toEqual({ calls: [one.identity, two.identity], entries: [], settled: ["a.ts"] })
     expect(get(cwd, "a.ts")).toBe("a\n")
+    const after = Transcript.undone(r.transcript(), plan.calls, Undo.recorded(plan, []), 9)
+    expect(Undo.possible(Undo.run(after))).toBe(false)
+    expect(Undo.undone(Undo.run(after))).toBe(true)
+    expect(await Undo.plan(cwd, Undo.run(after))).toEqual({ _tag: "NothingToUndo" })
+  })
+
+  it("offers undo only for a change it can reverse, not a binary or large one", () => {
+    const binary = forged("bash", { path: "logo.png", patch: "Binary or large file: logo.png" })
+    const text = { ...forged("edit", Changes.patch("a.ts", "a\n", "b\n")!), identity: "text" }
+    expect(Undo.possible([cellOf(binary)])).toBe(false)
+    expect(Undo.possible([cellOf(binary, text)])).toBe(true)
+    expect(Undo.possible([cellOf(binary, { ...text, patches: [{ ...text.patches![0]!, undone: true }] })])).toBe(false)
   })
 
   it("records a file that netted to no change with any undo of the run", async () => {
