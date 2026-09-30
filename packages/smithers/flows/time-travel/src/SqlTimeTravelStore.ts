@@ -1121,8 +1121,8 @@ export const make: Effect.Effect<
                * the same `(runId, lineageId, seq)` rows and changes nothing.
                */
               yield* sql`
-            INSERT INTO flows_time_travel_snapshots (run_id, lineage_id, seq, change_id, plan_digest)
-            SELECT ${runId}, lineage_id, seq, change_id, plan_digest
+            INSERT INTO flows_time_travel_snapshots (run_id, lineage_id, seq, change_id, operation_id, plan_digest)
+            SELECT ${runId}, lineage_id, seq, change_id, operation_id, plan_digest
             FROM flows_time_travel_snapshots
             WHERE run_id = ${parentRunId} AND seq <= ${frame.seq}
           `

@@ -38,6 +38,18 @@ const program = (
     done()
   }
   const requests = socket()
+  // One process table, published as Linux `/proc` stat lines and as `ps` rows.
+  const table: Array<readonly [pid: number, parent: number, group: number, state: string]> = [
+    [4102, 4101, 4101, "S"],
+    ...(escaped ? [[4103, 4102, 4103, "S"] as const] : [])
+  ]
+  const proc = new Map<string, string | Error>(
+    table.map(([pid, parent, group, state]) => [
+      String(pid),
+      `${pid} (node worker) ${state} ${parent} ${group} ${Array(16).fill(0).join(" ")} 7000 0 0\n`
+    ])
+  )
+  const listing: { error?: Error } = {}
   const target = Object.assign(new EventEmitter(), { pid: 4102 })
   const runtime = Object.assign(new EventEmitter(), {
     pid: 4101,
@@ -53,6 +65,17 @@ const program = (
       openSync: (path: string, flags: string) => {
         replacements.push([path, flags])
         return replacements.length - 1
+      },
+      readdirSync: (path: string) => {
+        expect(path).toBe("/proc")
+        if (listing.error !== undefined) throw listing.error
+        return ["self", "sys", ...proc.keys()]
+      },
+      readFileSync: (path: string, encoding: string) => {
+        expect(encoding).toBe("utf8")
+        const entry = proc.get(/^\/proc\/([0-9]+)\/stat$/.exec(path)![1]!)
+        if (entry instanceof Error) throw entry
+        return entry
       }
     },
     "node:net": { connect: (path: string) => path.endsWith("/s") ? status : requests },
@@ -62,8 +85,9 @@ const program = (
         observations.push(args)
         return identityResult ?? ({
           status: 0,
-          stdout: "4102 4101 4101 S Mon Sep 14 12:00:00 2026\n" +
-            (escaped ? "4103 4102 4103 S Mon Sep 14 12:00:00 2026\n" : "")
+          stdout: table.map(([pid, parent, group, state]) =>
+            `${pid} ${parent} ${group} ${state} Mon Sep 14 12:00:00 2026\n`
+          ).join("")
         })
       }
     }
@@ -102,7 +126,9 @@ const program = (
     replacements,
     statusFrames,
     observations,
-    runtime
+    runtime,
+    proc,
+    listing
   }
 }
 

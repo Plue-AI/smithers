@@ -51,7 +51,35 @@ let escaped = new Map();
 // DirectorySandbox's trusted local explicit-stop contract also covers children
 // that deliberately create another session. This is best-effort positive-pid
 // signalling with identity revalidation, not the atomic own-group guarantee.
-const snapshot = () => {
+// Linux reads its kernel table because slim images ship no procps (and BusyBox
+// ps lacks these columns); other POSIX hosts ask their system ps.
+const procSnapshot = () => {
+  let names;
+  try { names = fs.readdirSync('/proc'); }
+  catch { throw new Error('Descendant observation unavailable'); }
+  const rows = new Map();
+  for (const name of names) {
+    if (!/^[0-9]+$/.test(name)) continue;
+    let text;
+    try { text = fs.readFileSync('/proc/' + name + '/stat', 'utf8'); }
+    catch (error) {
+      // A process that ended after the listing is not an unreadable table.
+      if (error.code === 'ENOENT' || error.code === 'ESRCH') continue;
+      throw new Error('Descendant observation unavailable');
+    }
+    // comm may contain spaces and parentheses; fields follow its last paren.
+    const close = text.lastIndexOf(')');
+    const head = text.slice(0, text.indexOf('(')).trim();
+    const fields = text.slice(close + 1).trim().split(/[ \t]+/);
+    if (close < 0 || head !== name || fields.length < 20) throw new Error('Invalid descendant observation');
+    // Fields 4, 5 and 22: parent, group and start time in clock ticks since boot.
+    const [pid, parent, group, start] = [head, fields[1], fields[2], fields[19]].map(Number);
+    if (![pid, parent, group, start].every(Number.isSafeInteger)) throw new Error('Invalid descendant identity');
+    rows.set(pid, { pid, parent, group, start, zombie: fields[0] === 'Z' });
+  }
+  return rows;
+};
+const psSnapshot = () => {
   const result = cp.spawnSync('/bin/ps', ['-A', '-o', 'pid=,ppid=,pgid=,stat=,lstart='], {
     encoding: 'utf8', timeout: 500, killSignal: 'SIGKILL', maxBuffer: 4 * 1024 * 1024,
     env: { PATH: '/usr/bin:/bin', LC_ALL: 'C' }
@@ -68,6 +96,7 @@ const snapshot = () => {
   }
   return rows;
 };
+const snapshot = process.platform === 'linux' ? procSnapshot : psSnapshot;
 const captureEscaped = () => {
   const rows = snapshot();
   const descendants = new Set([target.pid]);

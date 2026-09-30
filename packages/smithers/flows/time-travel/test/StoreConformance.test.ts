@@ -400,6 +400,85 @@ describe("TimeTravelStore conformance", () => {
       }))
   }
 
+  for (const backend of ["memory", "sqlite"] as const) {
+    it.effect(`${backend} carries each copied anchor's jj operation into a fork`, () =>
+      Effect.gen(function*() {
+        // A whole-repository rewind refuses an anchor with no operation, so a
+        // fork that drops it loses the restoration history it inherited.
+        const exercise = (store: TimeTravelStore.Service) =>
+          Effect.gen(function*() {
+            yield* store.recordSnapshots([
+              { runId: "run", frame: { ...frame, seq: 0 }, changeId: "change-0", operationId: "operation-0" },
+              {
+                runId: "run",
+                frame,
+                changeId: "change-1",
+                operationId: "operation-1",
+                planDigest: "plan-1"
+              },
+              { runId: "run", frame: { ...frame, seq: 2 }, changeId: "change-2", operationId: "operation-2" }
+            ])
+            const child = yield* store.createFork("run", frame, "operation-child")
+            return {
+              latest: yield* store.latestSnapshots(child.runId),
+              atZero: yield* store.snapshotAt(child.runId, { ...frame, seq: 0 }),
+              beyond: yield* store.snapshotAt(child.runId, { ...frame, seq: 2 })
+            }
+          })
+        const expected = {
+          latest: [{
+            runId: "operation-child",
+            frame,
+            changeId: "change-1",
+            operationId: "operation-1",
+            planDigest: "plan-1"
+          }],
+          atZero: {
+            runId: "operation-child",
+            frame: { ...frame, seq: 0 },
+            changeId: "change-0",
+            operationId: "operation-0"
+          },
+          beyond: {
+            runId: "operation-child",
+            frame,
+            changeId: "change-1",
+            operationId: "operation-1",
+            planDigest: "plan-1"
+          }
+        }
+        const actual = backend === "memory"
+          ? yield* exercise(
+            MemoryTimeTravelStore.make({
+              records: [
+                { runId: "run", seq: 0, eventId: "run-0", lineageId: "run/root", payload: {} },
+                { runId: "run", seq: 1, eventId: "run-1", lineageId: "run/root", payload: {} },
+                { runId: "run", seq: 2, eventId: "run-2", lineageId: "run/root", payload: {} }
+              ]
+            })
+          )
+          : yield* withSql((store, sql) =>
+            Effect.gen(function*() {
+              yield* sql`
+                INSERT INTO flows_runs (run_id, status, created_at_ms, state_json)
+                VALUES ('run', 'suspended', 0, ${JSON.stringify({ version: 1, flowName: "Demo", payload: {} })})
+              `
+              for (const seq of [0, 1, 2]) {
+                yield* sql`
+                  INSERT INTO flows_journal_events
+                    (run_id, seq, event_id, source_id, source_seq, emitted_at_ms,
+                     event_type, payload_json, meta_json)
+                  VALUES ('run', ${seq}, ${`run-${seq}`}, 'source', ${seq}, 0, 'test', '{}',
+                          ${JSON.stringify({ lineageId: "run/root" })})
+                `
+              }
+              return yield* exercise(store)
+            })
+          )
+        expect(actual).toEqual(expected)
+      }))
+  }
+
   it.effect("refuses a foreign-owned attached child without changing either journal", () =>
     Effect.gen(function*() {
       const childOwner = { ...owner, nonce: "rewind-child" }

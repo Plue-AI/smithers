@@ -4,7 +4,7 @@ import * as ProcessReaper from "@smthrs/platform-node/ProcessReaper"
 import { Effect, Exit, FileSystem, Layer, Option, Path, PlatformError, Stream } from "effect"
 import { ChildProcess } from "effect/unstable/process"
 import { ChildProcessSpawner, make as makeSpawner } from "effect/unstable/process/ChildProcessSpawner"
-import { spawnSync } from "node:child_process"
+import { spawn, spawnSync } from "node:child_process"
 import { randomUUID } from "node:crypto"
 import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
@@ -54,8 +54,76 @@ const waitFor = (condition: () => boolean, description: string, timeoutMs = 5_00
     }
   })
 
-/** Whether any host process matches; the caller's bracketed pattern keeps the probe from matching itself. */
-const anyProcessMatching = (pattern: string): boolean => spawnSync("pgrep", ["-f", pattern]).status === 0
+/** The process group a live pid leads or joined; `undefined` once it is gone. */
+const groupOf = (pid: number): number | undefined => {
+  const group = Number(ProcessTable.query({ pid, columns: ["pgid"], timeoutMs: 2000 }).trim())
+  return Number.isInteger(group) && group > 0 ? group : undefined
+}
+
+const ownGroup = groupOf(globalThis.process.pid)
+
+/**
+ * The live host processes this test started: the given roots, their
+ * descendants, and every member of a group one of them led. Ownership comes
+ * from pids and groups the test recorded, never from a command line, so a
+ * concurrent run's lookalike `sleep` is neither awaited nor killed. The
+ * runner's own group is excluded in case the spawner shared it.
+ */
+const ownedProcesses = (
+  roots: ReadonlyArray<number>,
+  groups: ReadonlyArray<number>
+): Array<{ readonly pid: number; readonly args: string }> => {
+  const rows = ProcessTable.query({ columns: ["pid", "ppid", "pgid", "args"], timeoutMs: 2000 })
+    .split("\n")
+    .map((line) => line.trim().match(/^(\d+)\s+(\d+)\s+(\d+)\s+(.*)$/))
+    .flatMap((match) =>
+      match === null ? [] : [{ pid: Number(match[1]), ppid: Number(match[2]), pgid: Number(match[3]), args: match[4]! }]
+    )
+  const owned = new Set(roots.filter(Number.isInteger))
+  const ownedGroups = new Set(groups.filter((group) => group !== ownGroup))
+  for (const row of rows) if (ownedGroups.has(row.pgid)) owned.add(row.pid)
+  for (let grew = true; grew;) {
+    grew = false
+    for (const row of rows) {
+      if (owned.has(row.ppid) && !owned.has(row.pid)) {
+        owned.add(row.pid)
+        grew = true
+      }
+    }
+  }
+  owned.delete(globalThis.process.pid)
+  return rows.filter((row) => owned.has(row.pid) && !row.args.startsWith("ps "))
+}
+
+/** Force-ends only what {@link ownedProcesses} attributes to this test. */
+const killOwned = (roots: ReadonlyArray<number>, groups: ReadonlyArray<number>): void => {
+  for (const { pid } of ownedProcesses(roots, groups)) {
+    try {
+      globalThis.process.kill(pid, "SIGKILL")
+    } catch {
+      // Already gone, which is the point.
+    }
+  }
+}
+
+/**
+ * Starts a host `sleep` with the same command line as a fixture but outside
+ * the sandbox, standing in for a concurrent test run's process; the returned
+ * effect checks it survived this test's cleanup and then ends it.
+ */
+const lookalike = (seconds: string) =>
+  Effect.acquireRelease(
+    Effect.sync(() => {
+      const control = spawn("sleep", [seconds], { stdio: "ignore" })
+      return control
+    }),
+    (control) => Effect.sync(() => control.kill("SIGKILL"))
+  ).pipe(Effect.map((control) => ({
+    survived: Effect.sync(() => {
+      expect(control.pid !== undefined && control.exitCode === null && control.signalCode === null).toBe(true)
+      expect(processHasEnded(control.pid!), `the unrelated \`sleep ${seconds}\` survived cleanup`).toBe(false)
+    })
+  })))
 
 const firstLine = (process: RemoteProcess): Effect.Effect<string, ProviderError> =>
   Effect.map(
