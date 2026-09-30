@@ -74,7 +74,10 @@ const recorder = () => {
   return { calls, transport, answer, raw }
 }
 
-const generated = ProductApi as unknown as Record<string, (transport: ProductApi.Transport, input?: unknown) => Promise<unknown>>
+const generated = ProductApi as unknown as Record<
+  string,
+  (transport: ProductApi.Transport, input?: unknown) => Promise<unknown>
+>
 
 describe("the generated product API client", () => {
   it("exports one function per operation with a JSON or empty request body, and nothing else", () => {
@@ -82,7 +85,8 @@ describe("the generated product API client", () => {
       .filter(({ operation }) => operation.requestBody === undefined || jsonBody(operation))
       .map(({ operation }) => functionName(operation.operationId))
       .sort()
-    const exported = Object.entries(ProductApi).filter(([, value]) => typeof value === "function").map(([name]) => name).sort()
+    const exported = Object.entries(ProductApi).filter(([, value]) => typeof value === "function").map(([name]) => name)
+      .sort()
     expect(exported).toEqual(expected)
     expect(expected.length).toBeGreaterThan(500)
   })
@@ -103,7 +107,8 @@ describe("the generated product API client", () => {
       const result = await generated[functionName(operation.operationId)]!(transport, input)
 
       const search = new URLSearchParams(Object.entries(queryValues).map(([key, value]) => [key, String(value)]))
-      const expectedPath = path.replace(/\{([^}]+)\}/g, (_, name: string) => encodeURIComponent(String(pathValues[name]))) +
+      const expectedPath =
+        path.replace(/\{([^}]+)\}/g, (_, name: string) => encodeURIComponent(String(pathValues[name]))) +
         (search.size > 0 ? `?${search}` : "")
       const kind = success(operation)
       expect(calls).toEqual([{
