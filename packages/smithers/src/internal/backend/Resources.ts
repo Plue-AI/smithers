@@ -148,9 +148,15 @@ add("secret set", async (c, a, o) => {
   return c.request("POST", repo(c, o, "/secrets"), {
     name: a.name,
     value,
-    ...(o["main-only"] ? { main_only: true } : {})
+    ...(o["main-only"] ? { main_only: true } : {}),
+    ...(list(o.host).length > 0 || list(o.header).length > 0 ? { hosts: list(o.host), match_headers: list(o.header) } : {})
   })
 })
+add(
+  "secret bind",
+  (c, a, o) =>
+    c.request("PATCH", repo(c, o, `/secrets/${esc(a.name)}`), { hosts: list(o.host), match_headers: list(o.header) })
+)
 add(
   "secret scope",
   (c, a, o) => c.request("PATCH", repo(c, o, `/secrets/${esc(a.name)}`), { main_only: a.scope === "main-only" })

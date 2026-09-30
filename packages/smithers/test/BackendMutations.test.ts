@@ -60,6 +60,33 @@ describe("resource mutations", () => {
     await resources["secret scope"]!(c, { name: "KEY", scope: "all" }, options)
     expect(request).toHaveBeenLastCalledWith("PATCH", "/api/repos/owner/repo/secrets/KEY", { main_only: false })
   })
+  it("binds a secret to hosts and headers on set or on its own", async () => {
+    const { c, request } = await fixture()
+    vi.spyOn(c, "stdin").mockResolvedValue("private-value")
+    const binding = { host: ["registry.npmjs.org"], header: ["authorization"] }
+    await resources["secret set"]!(c, { name: "NPM_TOKEN" }, { ...options, ...binding, "body-stdin": true })
+    expect(request).toHaveBeenLastCalledWith("POST", "/api/repos/owner/repo/secrets", {
+      name: "NPM_TOKEN",
+      value: "private-value",
+      hosts: ["registry.npmjs.org"],
+      match_headers: ["authorization"]
+    })
+    await resources["secret set"]!(c, { name: "NPM_TOKEN" }, { ...options, host: [], header: [], "body-stdin": true })
+    expect(request).toHaveBeenLastCalledWith("POST", "/api/repos/owner/repo/secrets", {
+      name: "NPM_TOKEN",
+      value: "private-value"
+    })
+    await resources["secret bind"]!(c, { name: "NPM TOKEN" }, { ...options, ...binding })
+    expect(request).toHaveBeenLastCalledWith("PATCH", "/api/repos/owner/repo/secrets/NPM%20TOKEN", {
+      hosts: ["registry.npmjs.org"],
+      match_headers: ["authorization"]
+    })
+    await resources["secret bind"]!(c, { name: "NPM_TOKEN" }, { ...options, host: [], header: [] })
+    expect(request).toHaveBeenLastCalledWith("PATCH", "/api/repos/owner/repo/secrets/NPM_TOKEN", {
+      hosts: [],
+      match_headers: []
+    })
+  })
   it("connects Linear with OAuth credentials, rejecting an API-key-shaped payload", async () => {
     const { c, request } = await fixture(), stdin = vi.spyOn(c, "stdin")
     await expect(resources["extension linear install"]!(c, {}, options)).rejects.toThrow("stdin")

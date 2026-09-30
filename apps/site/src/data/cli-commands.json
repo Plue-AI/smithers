@@ -9528,6 +9528,55 @@
       }
     },
     {
+      "name": "secret bind",
+      "description": "Set the hosts and headers a secret may be sent to; none unbinds it",
+      "schema": {
+        "args": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "Secret name"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "additionalProperties": false
+        },
+        "options": {
+          "type": "object",
+          "properties": {
+            "header": {
+              "default": [],
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Request header the value goes in (repeatable)"
+            },
+            "host": {
+              "default": [],
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Host the secret may be sent to (repeatable)"
+            },
+            "repo": {
+              "type": "string",
+              "description": "Repository (OWNER/REPO)"
+            }
+          },
+          "required": [
+            "header",
+            "host"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
       "name": "secret delete",
       "description": "Delete a secret",
       "schema": {
@@ -9640,6 +9689,22 @@
               "type": "boolean",
               "description": "Read the secret value from stdin"
             },
+            "header": {
+              "default": [],
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Request header the value goes in (repeatable, with --host)"
+            },
+            "host": {
+              "default": [],
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Host the secret may be sent to (repeatable, with --header)"
+            },
             "main-only": {
               "default": false,
               "type": "boolean",
@@ -9652,6 +9717,8 @@
           },
           "required": [
             "body-stdin",
+            "header",
+            "host",
             "main-only"
           ],
           "additionalProperties": false
