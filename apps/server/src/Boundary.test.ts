@@ -1,9 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
-import * as Layer from "effect/Layer"
-import * as ManagedRuntime from "effect/ManagedRuntime"
-import * as Ref from "effect/Ref"
 import { CLIENT_DISCONNECTED_STATUS, runRequest, UNEXPECTED_FAILURE_MESSAGE } from "./Boundary"
 
 describe("runRequest, the native fetch boundary", () => {
@@ -62,18 +58,5 @@ describe("runRequest, the native fetch boundary", () => {
     } finally {
       console.error = original
     }
-  })
-
-  test("a runtime carries per-isolate services across requests", async () => {
-    class Counter extends Context.Service<Counter, { readonly next: Effect.Effect<number> }>()("test/Counter") {}
-    const layer = Layer.effect(
-      Counter,
-      Effect.map(Ref.make(0), (ref) => ({ next: Ref.updateAndGet(ref, (n) => n + 1) }))
-    )
-    const runtime = ManagedRuntime.make(layer)
-    const handler = Counter.use((counter) => Effect.map(counter.next, (n) => new Response(String(n))))
-    expect(await (await runRequest(handler, undefined, runtime)).text()).toBe("1")
-    expect(await (await runRequest(handler, undefined, runtime)).text()).toBe("2")
-    expect(await (await runRequest(handler, undefined, ManagedRuntime.make(layer))).text()).toBe("1")
   })
 })

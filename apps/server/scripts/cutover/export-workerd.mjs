@@ -9,7 +9,7 @@ const wrangler = createRequire(require.resolve("wrangler/package.json"))
 const { Miniflare, convertV4MiniflareOptions } = await import(wrangler.resolve("miniflare"))
 let input = ""
 for await (const chunk of process.stdin) input += chunk
-const { legacy, seedLegacy, helper, wrapper, retired = false, legacyMime = "application/javascript+module" } = JSON.parse(input)
+const { legacy, seedLegacy, helper, wrapper, entry, retired = false, legacyMime = "application/javascript+module" } = JSON.parse(input)
 const pair = generateKeyPairSync("rsa", { modulusLength: 2048 })
 const publicJwk = pair.publicKey.export({ format: "jwk" })
 const token = "integration-test-token".repeat(3), migrationId = randomUUID(), sourceVersion = randomUUID()
@@ -18,7 +18,7 @@ const names = { MODEL_VAULTS: "AccountModelVault", CLIENT_ERRORS: "ClientErrorLo
 const state = mkdtempSync(join(tmpdir(), "smithers-export-workerd-"))
 const options = (source, wrapped = true) => convertV4MiniflareOptions({
   modules: [ ...(wrapped ? [{ type: "ESModule", path: "sealed-export-entry.js", contents: wrapper }] : []),
-    { type: ["application/javascript+module", "text/javascript+module"].includes(legacyMime) ? "ESModule" : "CommonJS", path: "index.js", contents: source }, { type: "ESModule", path: "sealed-export-helper.js", contents: helper } ],
+    { type: ["application/javascript+module", "text/javascript+module"].includes(legacyMime) ? "ESModule" : "CommonJS", path: entry, contents: source }, { type: "ESModule", path: "sealed-export-helper.js", contents: helper } ],
   modulesRoot: "/", compatibilityDate: "2026-08-01", compatibilityFlags: ["nodejs_compat"],
   durableObjects: Object.fromEntries(Object.entries(names).map(([name, className]) => [name, { className, useSQLite: true }])),
   durableObjectsPersist: state,

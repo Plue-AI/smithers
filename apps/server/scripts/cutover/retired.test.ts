@@ -5,7 +5,6 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { ALARM_MARKER_TABLE } from "../../src/MaintenanceExport"
 import { recordRetiredAlarm, retiredDurable, RETIRED_MARKER_KEY } from "../../src/RetiredDurableObject"
-import { classifyDurableObject } from "./drain"
 
 const temp = mkdtempSync(join(tmpdir(), "retired-entry-"))
 afterAll(() => rmSync(temp, { recursive: true, force: true }))
@@ -36,9 +35,8 @@ test("retired owner: 410 for requests, a flushed marker then refusal for alarms,
   expect(synced).toBe(2)
   const rows = db.query(`SELECT execution_id, marker FROM ${ALARM_MARKER_TABLE}`).all() as Array<{ execution_id: string; marker: string }>
   expect(rows.map(r => r.execution_id)).toEqual([RETIRED_MARKER_KEY])
-  const classified = classifyDurableObject("TURN_CANCELS", "f".repeat(64), [], null, Date.now(), rows.map(r => r.marker), "smithers-mvp-web")
-  expect(classified.counts.invalidRows).toBe(0)
-  expect(classified.dispositions).toEqual([expect.objectContaining({ reason: "alarm-interrupted", key: "alarm-marker#retired", marker: expect.objectContaining({ observations: 2, lastRetryCount: 1 }) })])
+  expect(JSON.parse(rows[0]!.marker)).toMatchObject({ schema: "smithers-retired-alarm/v1", state: "interrupted-unresolved", worker: "smithers-mvp-web", binding: "TURN_CANCELS",
+    objectId: "f".repeat(64), observations: 2, lastRetryCount: 1 })
   const kv = { id: ctx.id, storage: { get sql(): never { throw new Error("SQL is not enabled") } } }
   expect(recordRetiredAlarm(kv as never, "smithers-mvp-web", "TURN_CANCELS", 0, new Date())).toBeNull()
 })

@@ -58,10 +58,9 @@ let capturedIdentity: Awaited<ReturnType<typeof readLive>> | undefined
  * Cutover interlock (scripts/deployGuard.ts). The first act of a real deploy,
  * before any revision read, build or wrangler spawn: this checkout's entry
  * against the live version's entry and annotations. Normal CI cannot undo a
- * live cutover-installer version and cannot bring the legacy writer back over
- * the shared edge. The edge replaces the live legacy Worker only as the direct
- * switch the committed owner record (cutover/activation.json) admits.
- * Anything unrecognized refuses.
+ * live sealed-inventory export version. The edge replaces a live legacy
+ * version only as the direct switch the committed owner record
+ * (cutover/activation.json) admits. Anything unrecognized refuses.
  */
 const guardRefused = (error: unknown): never => {
   console.error(`[deploy] cutover interlock refused: ${error instanceof DeployGuardRefusal ? error.message : "DEPLOY_GUARD_UNCLASSIFIED"}`)

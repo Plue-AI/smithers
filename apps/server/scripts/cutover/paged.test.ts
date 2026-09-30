@@ -1,6 +1,6 @@
 import { beforeAll, expect, test } from "bun:test"
 import { Effect } from "effect"
-import { encodeStored, sealSnapshot, snapshotDigest, type PageMetadata, type SnapshotFence } from "../../src/SealedSnapshot"
+import { encodeStored, sealSnapshot, snapshotDigest, type PageMetadata } from "../../src/SealedSnapshot"
 import { SnapshotPageChain, type PageExpected } from "./sealed"
 import { memoryStorage } from "../../src/DurableStorage"
 import { EXPORT_PATH, withSealedExport, type MaintenanceEnv } from "../../src/MaintenanceExport"
@@ -10,17 +10,18 @@ beforeAll(async () => {
   const pair = await crypto.subtle.generateKey({ name: "RSA-OAEP", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" }, true, ["wrapKey", "unwrapKey"])
   publicJwk = await crypto.subtle.exportKey("jwk", pair.publicKey); privateJwk = await crypto.subtle.exportKey("jwk", pair.privateKey)
 })
-const expected: PageExpected = { migrationId: crypto.randomUUID(), binding: "ACCOUNTS", objectId: "a".repeat(64), sourceRevision: "sha256:" + "b".repeat(64), sourceVersion: crypto.randomUUID() }
+const expected: PageExpected = { migrationId: crypto.randomUUID(), binding: "TURN_CANCELS", objectId: "a".repeat(64), sourceRevision: "sha256:" + "b".repeat(64), sourceVersion: crypto.randomUUID() }
 const page = async (keys: string[], overrides: Partial<PageMetadata["page"]> = {}, header: Record<string, unknown> = {}) => {
   const metadata: PageMetadata = { version: 2, schema: "smithers-do-storage-page/v2", keyVersion: null, ...expected, capturedAt: new Date().toISOString(),
-    page: { scanId: crypto.randomUUID(), index: 0, previousSHA256: null, entriesBefore: 0, entriesThrough: keys.length, complete: true, consistency: "unfenced", fence: null, ...overrides } }
+    page: { scanId: crypto.randomUUID(), index: 0, previousSHA256: null, entriesBefore: 0, entriesThrough: keys.length, complete: true, consistency: "unfenced", ...overrides } }
   const snapshot = await Effect.runPromise(sealSnapshot(metadata, { entries: keys.map(k => [k, encodeStored(k)]), alarm: null, cutoverAlarmMarkers: [], ...header }, publicJwk))
   return { snapshot, cursor: metadata.page.complete ? null : "opaque-cursor" }
 }
 test("authenticated pages still refuse duplicate keys, wrong order, false counts, empty nonterminal pages and header drift", async () => {
   for (const [keys, overrides, reason] of [
     [["same", "same"], {}, "KEY_ORDER"], [["z", "a"], {}, "KEY_ORDER"], [["one"], { entriesThrough: 2 }, "COUNT"],
-    [[], { complete: false }, "COUNT"], [["one"], { index: 1 }, "CHAIN"], [["one"], { entriesBefore: 1 }, "CHAIN"]
+    [[], { complete: false }, "COUNT"], [["one"], { index: 1 }, "CHAIN"], [["one"], { entriesBefore: 1 }, "CHAIN"],
+    [["one"], { consistency: "object-writers-fenced" } as unknown as Partial<PageMetadata["page"]>, "CONSISTENCY"]
   ] as Array<[string[], Partial<PageMetadata["page"]>, string]>) {
     await expect(new SnapshotPageChain(expected, privateJwk).include(JSON.stringify(await page(keys, overrides)))).rejects.toThrow(reason)
   }
@@ -34,7 +35,7 @@ test("authenticated pages still refuse duplicate keys, wrong order, false counts
   await expect(chain.include(JSON.stringify(first))).rejects.toThrow("AFTER_COMPLETE")
 })
 
-test("bounded object pages refuse changed alarm metadata, source, recipient, expiry and incorrect fence identity", async () => {
+test("bounded object pages refuse changed alarm metadata, source, recipient and expiry", async () => {
   const storage = memoryStorage(Object.fromEntries(Array.from({ length: 300 }, (_, i) => [`key-${String(i).padStart(5, "0")}`, i])))
   let alarm: number | null = null, reads = 0
   const ctx = { id: { toString: () => expected.objectId }, storage: { ...storage, getAlarm: async () => alarm,
@@ -42,7 +43,7 @@ test("bounded object pages refuse changed alarm metadata, source, recipient, exp
   class Original { async fetch() { return new Response("original") } }
   const settings = { SMITHERS_EXPORT_TOKEN: "x".repeat(43), SMITHERS_EXPORT_RECIPIENT: JSON.stringify(publicJwk), SMITHERS_EXPORT_EXPIRES_AT: new Date(Date.now() + 600_000).toISOString(),
     SMITHERS_EXPORT_SOURCE_REVISION: expected.sourceRevision, SMITHERS_EXPORT_SOURCE_VERSION: expected.sourceVersion }
-  const Wrapped = withSealedExport(Original, "ACCOUNTS"), object = new Wrapped(ctx as ConstructorParameters<typeof Wrapped>[0], settings as MaintenanceEnv)
+  const Wrapped = withSealedExport(Original, "TURN_CANCELS"), object = new Wrapped(ctx as ConstructorParameters<typeof Wrapped>[0], settings as MaintenanceEnv)
   const request = (cursor: string | null) => new Request("https://fixture.test" + EXPORT_PATH, { method: "POST", headers: { authorization: "Bearer " + settings.SMITHERS_EXPORT_TOKEN }, body: JSON.stringify({ migrationId: expected.migrationId, objectId: expected.objectId, binding: expected.binding, page: { cursor } }) })
   const first = await (await object.fetch(request(null))).json() as { cursor: string }
   expect(reads).toBe(257)
@@ -57,7 +58,4 @@ test("bounded object pages refuse changed alarm metadata, source, recipient, exp
   const expired = new Wrapped(ctx as ConstructorParameters<typeof Wrapped>[0], { ...settings, SMITHERS_EXPORT_EXPIRES_AT: new Date(0).toISOString() } as MaintenanceEnv)
   const before = reads
   expect((await expired.fetch(request(first.cursor))).status).toBe(404); expect(reads).toBe(before)
-  const fence: SnapshotFence = { executionID: crypto.randomUUID(), sourceVersion: expected.sourceVersion, sourceArtifactSHA256: "b".repeat(64), worker: "fixture", smithersRevision: "a".repeat(40), plueRevision: "b".repeat(40), endpoint: "https://example.test" }
-  const Fenced = withSealedExport(Original, "ACCOUNTS", fence), fenced = new Fenced(ctx as ConstructorParameters<typeof Fenced>[0], settings as MaintenanceEnv)
-  expect(await (await fenced.fetch(request(null))).json()).toEqual({ code: "export_fence_mismatch" })
 })

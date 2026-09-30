@@ -1,23 +1,20 @@
-import { logRequestRefusal } from "./RefusalLog"
 import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
-import * as Fiber from "effect/Fiber"
-import type * as ManagedRuntime from "effect/ManagedRuntime"
 import type { WorkerFailureCode } from "@smthrs/rpc/WorkerFailureCodes"
 
 /*
  * Where an Effect meets a Web callback. Exactly three callers exist: the
- * Worker's `fetch(request, env)` entry (src/index.ts), the native Durable
- * Object classes' `fetch(request)`, and test helpers.
+ * edge's `fetch(request, env)` entry (src/edge.ts), the native Durable Object
+ * classes' `fetch(request)` (src/RetiredDurableObject.ts,
+ * src/MaintenanceExport.ts), and test helpers.
  *
  * The request's AbortSignal interrupts the fiber: a client that disconnects
- * mid-turn interrupts the upstream fetch and runs every finalizer (the cancel
- * registry settles, the provider stream is released) instead of leaving
- * the work running. An interruption that reaches this boundary is answered
- * with 499, never restated as a 500. A defect (a bug, never a typed failure)
- * is logged and answered with a generic 500, so a route can never leak a
- * stack trace or hang the request (docs/worker-errors.md).
+ * mid-request interrupts the upstream fetch and runs every finalizer instead
+ * of leaving the work running. An interruption that reaches this boundary is
+ * answered with 499, never restated as a 500. A defect (a bug, never a typed
+ * failure) is logged and answered with a generic 500, so a route can never
+ * leak a stack trace or hang the request (docs/worker-errors.md).
  */
 
 /** The answer to a request whose caller went away before the response settled. */
@@ -27,8 +24,8 @@ export const CLIENT_DISCONNECTED_STATUS = 499
 export const UNEXPECTED_FAILURE_MESSAGE = "Smithers could not complete this request. Try again in a moment."
 
 /*
- * The boundary's own answers carry the isolation headers every JSON answer of
- * this Worker carries (src/Responses.ts): the app document that made the
+ * The boundary's own answers carry the isolation headers the app document
+ * carries (src/Responses.ts): the app document that made the
  * request is cross-origin isolated, and a 499 or 500 must not read as a
  * different origin's page.
  */
@@ -49,51 +46,23 @@ const clientDisconnected = (): Response =>
  * One request handler's outcome as the Response the caller gets. Success is
  * the route's own answer; an interruption is 499 and never restated as a 500;
  * anything else is a defect, logged once and answered generically.
- *
- * This is the boundary's whole policy, kept pure and exported so the Worker
- * entry (src/index.ts) and the Durable Object classes apply one
- * implementation, and the deployed path and the tested path cannot drift.
  */
-export const responseFromExit = (exit: Exit.Exit<Response, never>): Response => {
+const responseFromExit = (exit: Exit.Exit<Response, never>): Response => {
   if (Exit.isSuccess(exit)) return exit.value
   if (Cause.hasInterruptsOnly(exit.cause)) return clientDisconnected()
   console.error("worker fetch failed:", Cause.squash(exit.cause))
   return answer(500, "unexpected_failure", UNEXPECTED_FAILURE_MESSAGE)
 }
 
-/** The 499 a caller reads when it went away before the response settled. */
-export const clientDisconnectedResponse = (): Response => clientDisconnected()
-
 /**
  * Run a request handler to a `Response`. Typed failures must already be
- * mapped to responses (the handler's error channel is `never`). With a
- * `runtime` the handler runs against that runtime's services, which is how
- * per-isolate state (caches, single-flight) survives across requests.
+ * mapped to responses (the handler's error channel is `never`).
  */
-export const runRequest = <R = never>(
-  effect: Effect.Effect<Response, never, R>,
-  signal?: AbortSignal,
-  runtime?: ManagedRuntime.ManagedRuntime<R, never>
-): Promise<Response> => {
+export const runRequest = (effect: Effect.Effect<Response, never>, signal?: AbortSignal): Promise<Response> => {
   if (signal?.aborted === true) return Promise.resolve(clientDisconnected())
-  const exit = runtime === undefined
-    ? Effect.runPromiseExit(effect as Effect.Effect<Response, never>, { signal })
-    : runtime.runPromiseExit(effect, { signal })
-  return exit.then(responseFromExit)
+  return Effect.runPromiseExit(effect, { signal }).then(responseFromExit)
 }
-
-/**
- * A fiber's completion as the promise the platform's `waitUntil` takes. It
- * never rejects: the exit carries the outcome, and workerd only needs to
- * know when the work is over.
- */
-export const fiberPromise = <A, E>(fiber: Fiber.Fiber<A, E>): Promise<Exit.Exit<A, E>> => Effect.runPromise(Fiber.await(fiber))
 
 /** Run an Effect with no failure channel to a Promise, for a Durable Object's own `fetch`. */
 export const runDurable = <A>(effect: Effect.Effect<A, never>): Promise<A> => Effect.runPromise(effect)
 
-/** The deployed request boundary adds correlation without inspecting response bodies. */
-export const serveRequest = <R = never>(request: Request, effect: Effect.Effect<Response, never, R>, runtime?: ManagedRuntime.ManagedRuntime<R, never>): Promise<Response> => {
-  const started = performance.now()
-  return runRequest(effect, request.signal, runtime).then(response => logRequestRefusal(request, response, started))
-}

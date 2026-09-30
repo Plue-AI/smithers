@@ -5,29 +5,28 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { ACTIVATION_RECORD_PATH, artifactDigest, classifyLive, classifyLocal, decideDeploy, parseActivationRecord, preflightDeploy, readActivationRecord, readLiveFacts, verifyActivated, type LiveFacts } from "./deployGuard"
 import { WORKER_IDENTITY } from "../src/workerIdentity"
-import { FakeCloudflare } from "./cutover/install-fake"
-import { applyPhase, prepareInstall, restoreAll } from "./cutover/install"
+import { FakeCloudflare } from "./fakeCloudflare"
 
 setDefaultTimeout(60_000)
-const roots: string[] = [], saved = { token: process.env.CLOUDFLARE_API_TOKEN, hook: process.env.SMITHERS_CUTOVER_AUTHORIZE }
+const roots: string[] = [], saved = { token: process.env.CLOUDFLARE_API_TOKEN }
 let fake: FakeCloudflare | undefined
 beforeAll(() => { process.env.CLOUDFLARE_API_TOKEN = "fake-control-plane-token" }) // never the real credential
 afterEach(() => { fake?.restore(); fake = undefined })
-afterAll(() => { process.env.CLOUDFLARE_API_TOKEN = saved.token; process.env.SMITHERS_CUTOVER_AUTHORIZE = saved.hook; for (const r of roots) rmSync(r, { recursive: true, force: true }) })
+afterAll(() => { process.env.CLOUDFLARE_API_TOKEN = saved.token; for (const r of roots) rmSync(r, { recursive: true, force: true }) })
 const dir = () => { const d = mkdtempSync(join(tmpdir(), "deploy-interlock-")); chmodSync(d, 0o700); roots.push(d); return d }
 
 // Annotation shapes read from the live account on 2026-09-24 (GET-only).
 const LIVE_LEGACY = { "workers/message": "c05d8861b11fa9559dec239845eaf68031ba9fbd feat(native): contain Windows owners in identity-checked jo", "workers/tag": "c05d8861b11f", "workers/triggered_by": "version_upload" }
 const LIVE_SECRET_ROTATION = { "workers/triggered_by": "secret" }
 const LIVE_EXPORT = { "workers/message": "temporary sealed inventory over ace5abee0acd668a3545c72906fde7356f33b29c", "workers/tag": "sealed-state-inventory", "workers/triggered_by": "upload" }
-const EXECUTION = "2b1f6a1e-7d3c-4e4a-9b9e-0c1d2e3f4a5b"
 const sha256Hex = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex")
 const facts = (entry: string, annotations: Record<string, string>, modules = [entry]): LiveFacts => ({ versionId: randomUUID(), entry, modules, annotations })
 
-test("the checkout names itself unambiguously or refuses", () => {
-  expect(classifyLocal("src/index.ts", "src/index.ts")).toBe("legacy")
+test("the checkout names the edge unambiguously or refuses", () => {
   expect(classifyLocal("src/edge.ts", "src/edge.ts")).toBe("edge")
   expect(() => classifyLocal("src/edge.ts", "src/index.ts")).toThrow("DEPLOY_GUARD_LOCAL_AMBIGUOUS")
+  // The legacy router is deleted; a checkout that names it is no longer a deployable Worker.
+  expect(() => classifyLocal("src/index.ts", "src/index.ts")).toThrow("DEPLOY_GUARD_LOCAL_UNKNOWN")
   expect(() => classifyLocal("src/other.ts", "src/other.ts")).toThrow("DEPLOY_GUARD_LOCAL_UNKNOWN")
 })
 
@@ -35,18 +34,17 @@ test("live identity comes from the entry module and must agree with the version'
   expect(classifyLive(facts("index.js", LIVE_LEGACY))).toBe("legacy")
   expect(classifyLive(facts("index.js", LIVE_SECRET_ROTATION))).toBe("legacy") // a secret rotation carries no message
   expect(classifyLive(facts("sealed-export-entry.js", LIVE_EXPORT, ["sealed-export-entry.js", "sealed-export-helper.js", "index.js"]))).toBe("maintenance-export")
-  expect(classifyLive(facts("cutover-fence-entry.js", { "workers/message": `smithers-cutover ${EXECUTION} fence` }, ["cutover-fence-entry.js", "cutover-fence-helper.js", "index.js"]))).toBe("cutover-fence")
   expect(classifyLive(facts("edge.js", LIVE_LEGACY, ["edge.js", "edge.js.map"]))).toBe("edge")
-  for (const ambiguous of [facts("index.js", { "workers/message": `smithers-cutover ${EXECUTION} fence` }), facts("cutover-fence-entry.js", { "workers/message": `smithers-cutover ${EXECUTION} admission` }),
-    facts("cutover-fence-entry.js", {}), facts("index.js", { "workers/tag": "sealed-state-inventory" }), facts("index.js", LIVE_LEGACY, ["index.js", "cutover-fence-helper.js"])])
+  for (const ambiguous of [facts("index.js", { "workers/tag": "sealed-state-inventory" }), facts("edge.js", { "workers/tag": "sealed-state-inventory" }),
+    facts("index.js", LIVE_LEGACY, ["index.js", "sealed-export-helper.js"]), facts("edge.js", LIVE_LEGACY, ["edge.js", "index.js"])])
     expect(() => classifyLive(ambiguous)).toThrow("DEPLOY_GUARD_LIVE_AMBIGUOUS")
-  expect(() => classifyLive(facts("worker.js", LIVE_LEGACY))).toThrow("DEPLOY_GUARD_LIVE_UNKNOWN")
+  // The retired cutover installer's admission and fence entries are no longer recognized versions.
+  for (const unknown of [facts("worker.js", LIVE_LEGACY), facts("cutover-fence-entry.js", {}), facts("cutover-admission-entry.js", {})])
+    expect(() => classifyLive(unknown)).toThrow("DEPLOY_GUARD_LIVE_UNKNOWN")
 })
 
 const live = () => ({
   legacy: facts("index.js", LIVE_LEGACY), edge: facts("edge.js", LIVE_LEGACY),
-  admission: facts("cutover-admission-entry.js", { "workers/message": `smithers-cutover ${EXECUTION} admission` }),
-  fence: facts("cutover-fence-entry.js", { "workers/message": `smithers-cutover ${EXECUTION} fence` }),
   export: facts("sealed-export-entry.js", LIVE_EXPORT)
 })
 /** The committed owner record, read through the same loader the deploy uses. */
@@ -54,18 +52,13 @@ const committed = () => JSON.parse(readFileSync(ACTIVATION_RECORD_PATH, "utf8"))
 const recordReader = (value: unknown) => () => parseActivationRecord(JSON.stringify(value))
 const neverRead = () => { throw new Error("the activation record must only be read for the legacy-to-edge switch") }
 
-test("decision table: normal only like-for-like; edge over legacy only as the owner-recorded activation; everything else refuses", () => {
+test("decision table: normal over the edge; over legacy only as the owner-recorded activation; the export refuses", () => {
   const states = live()
-  expect(decideDeploy("legacy", states.legacy, neverRead).mode).toBe("normal")
-  expect(decideDeploy("edge", states.edge, neverRead).mode).toBe("normal")
-  const activation = decideDeploy("edge", states.legacy)
+  expect(decideDeploy(states.edge, neverRead).mode).toBe("normal")
+  const activation = decideDeploy(states.legacy)
   expect(activation).toMatchObject({ mode: "activation", local: "edge", live: "legacy", liveVersion: states.legacy.versionId,
     record: { decision: "direct-switch", owner: "Will (roninjin10)", sha256: sha256Hex(readFileSync(ACTIVATION_RECORD_PATH)) } })
-  for (const state of ["admission", "fence", "export"] as const) {
-    expect(() => decideDeploy("legacy", states[state], neverRead)).toThrow("DEPLOY_GUARD_LIVE_CUTOVER")
-    expect(() => decideDeploy("edge", states[state], neverRead)).toThrow("DEPLOY_GUARD_LIVE_CUTOVER")
-  }
-  expect(() => decideDeploy("legacy", states.edge, neverRead)).toThrow("DEPLOY_GUARD_LEGACY_OVER_EDGE")
+  expect(() => decideDeploy(states.export, neverRead)).toThrow("DEPLOY_GUARD_LIVE_CUTOVER")
 })
 
 test("the committed owner record validates and names the no-user disposition, not an import receipt", () => {
@@ -80,8 +73,8 @@ test("the committed owner record validates and names the no-user disposition, no
 
 test("a missing or invalid owner record refuses the legacy-to-edge switch", () => {
   const legacy = live().legacy
-  expect(() => decideDeploy("edge", legacy, () => parseActivationRecord(undefined))).toThrow("DEPLOY_GUARD_EDGE_BEFORE_CUTOVER")
-  expect(() => decideDeploy("edge", legacy, () => parseActivationRecord("{not json"))).toThrow("DEPLOY_GUARD_ACTIVATION_UNAUTHORIZED")
+  expect(() => decideDeploy(legacy, () => parseActivationRecord(undefined))).toThrow("DEPLOY_GUARD_EDGE_BEFORE_CUTOVER")
+  expect(() => decideDeploy(legacy, () => parseActivationRecord("{not json"))).toThrow("DEPLOY_GUARD_ACTIVATION_UNAUTHORIZED")
   const base = committed()
   const disposition = base.importDisposition as Record<string, unknown>
   const invalid: unknown[] = [
@@ -105,8 +98,8 @@ test("a missing or invalid owner record refuses the legacy-to-edge switch", () =
     { ...base, backendBootstrap: { ...(base.backendBootstrap as object), plueRevision: "0453975" } },
     { ...base, override: true }
   ]
-  for (const record of invalid) expect(() => decideDeploy("edge", legacy, recordReader(record))).toThrow("DEPLOY_GUARD_ACTIVATION_UNAUTHORIZED")
-  expect(decideDeploy("edge", legacy, recordReader(base)).mode).toBe("activation")
+  for (const record of invalid) expect(() => decideDeploy(legacy, recordReader(record))).toThrow("DEPLOY_GUARD_ACTIVATION_UNAUTHORIZED")
+  expect(decideDeploy(legacy, recordReader(base)).mode).toBe("activation")
 })
 
 test("the live read refuses a split deployment and a version that changes while it is read", async () => {
@@ -119,7 +112,8 @@ test("the live read refuses a split deployment and a version that changes while 
   await expect(readLiveFacts("smithers-mvp-web", moving, content)).rejects.toThrow("DEPLOY_GUARD_LIVE_CHANGED")
   const split = (async () => ({ result: { deployments: [{ versions: [{ version_id: "a", percentage: 50 }, { version_id: "b", percentage: 50 }] }] } })) as never
   await expect(readLiveFacts("smithers-mvp-web", split, content)).rejects.toThrow("DEPLOY_GUARD_LIVE_SPLIT")
-  await expect(preflightDeploy("smithers-mvp-web", "src/index.ts", "src/index.ts", async () => { throw new Error("network down") })).rejects.toThrow("DEPLOY_GUARD_LIVE_UNREADABLE")
+  await expect(preflightDeploy("smithers-mvp-web", "src/edge.ts", "src/edge.ts", async () => { throw new Error("network down") })).rejects.toThrow("DEPLOY_GUARD_LIVE_UNREADABLE")
+  await expect(preflightDeploy("smithers-mvp-web", "src/index.ts", "src/index.ts", async () => { throw new Error("never read") })).rejects.toThrow("DEPLOY_GUARD_LOCAL_UNKNOWN")
 })
 
 test("after activation the live edge must be exactly the authorized artifact", () => {
@@ -129,35 +123,6 @@ test("after activation the live edge must be exactly the authorized artifact", (
   expect(() => verifyActivated(live, artifactDigest({ "edge.js": "3".repeat(64) }))).toThrow("DEPLOY_GUARD_ARTIFACT_DRIFT")
   expect(() => verifyActivated({ ...live, entry: "index.js", modules: ["index.js"] }, artifactDigest(digests))).toThrow("DEPLOY_GUARD_ARTIFACT_DRIFT")
   expect(() => verifyActivated({ ...live, digests: { ...live.digests, "extra.js": "4".repeat(64) } }, artifactDigest(digests))).toThrow("DEPLOY_GUARD_ARTIFACT_DRIFT")
-})
-
-/** The installer's own phase-authorization hook (scripts/cutover/install.ts), answering as its gate would. */
-const gateHook = (root: string, answer: string, mode = 0o700) => {
-  const path = join(root, `authorize-${randomUUID()}.sh`)
-  writeFileSync(path, `#!/bin/sh\nexec bun -e 'const r=JSON.parse(await Bun.stdin.text());console.log(JSON.stringify(${answer}))'\n`, { mode })
-  chmodSync(path, mode)
-  return path
-}
-test("the guard reads the installer's real admission/fence versions and blocks both entries until restore", async () => {
-  const root = dir()
-  const keys = await crypto.subtle.generateKey({ name: "RSA-OAEP", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" }, true, ["wrapKey", "unwrapKey"]) as CryptoKeyPair
-  const executionID = randomUUID()
-  writeFileSync(join(root, "expected.json"), JSON.stringify({ executionID, smithersRevision: "a".repeat(40), plueRevision: "b".repeat(40), endpoint: "https://api.jjhub.tech" }), { mode: 0o600 })
-  writeFileSync(join(root, "recipient.json"), JSON.stringify({ migrationId: executionID, privateJwk: await crypto.subtle.exportKey("jwk", keys.privateKey), token: "t".repeat(48), expiresAt: new Date(Date.now() + 6 * 3_600_000).toISOString() }), { mode: 0o600 })
-  process.env.SMITHERS_CUTOVER_AUTHORIZE = gateHook(root, `{...r,schema:"smithers-cutover-phase-authorization/v1",decision:"authorized",issuedAt:new Date().toISOString(),deploymentLock:{tag:"t",token:"k"}}`)
-  fake = new FakeCloudflare().install()
-  const guard = (main: string) => preflightDeploy("smithers-mvp-web", main, main)
-  expect((await guard("src/index.ts")).mode).toBe("normal")
-  expect((await guard("src/edge.ts")).mode).toBe("activation")
-  const { planSHA256 } = await prepareInstall(root)
-  await applyPhase(root, planSHA256, "admission")
-  await applyPhase(root, planSHA256, "fence")
-  await expect(guard("src/index.ts")).rejects.toThrow("DEPLOY_GUARD_LIVE_CUTOVER")
-  await expect(guard("src/edge.ts")).rejects.toThrow("DEPLOY_GUARD_LIVE_CUTOVER")
-  await restoreAll(root, planSHA256)
-  // After the exact rollback the fence is still the newest upload, so content/v2 cannot describe
-  // the live version: the guard refuses rather than guess (live-verified 2026-09-24).
-  await expect(guard("src/index.ts")).rejects.toThrow("DEPLOY_GUARD_LIVE_NOT_NEWEST")
 })
 
 test("an upload-only edge build over the live legacy writer never reads as a live edge", async () => {
@@ -177,7 +142,7 @@ test("the real deploy.ts enforces the checkout identity before any subprocess", 
     return { code: run.exitCode, out: run.stdout.toString() + run.stderr.toString(), spawned: existsSync(log) ? readFileSync(log, "utf8").trim().split("\n") : [] }
   }
   expect(WORKER_IDENTITY.entry).toBe("src/edge.ts")
-  for (const [live, code] of [["fence", "DEPLOY_GUARD_LIVE_CUTOVER"], ["admission", "DEPLOY_GUARD_LIVE_CUTOVER"], ["export", "DEPLOY_GUARD_LIVE_CUTOVER"]] as const) {
+  for (const [live, code] of [["fence", "DEPLOY_GUARD_LIVE_UNKNOWN"], ["export", "DEPLOY_GUARD_LIVE_CUTOVER"]] as const) {
     const result = deploy(live)
     expect(result.code).toBe(1)
     expect(result.out).toContain(code)
@@ -211,8 +176,7 @@ test("only a verified rollback receipt admits an older live version, preserving 
   const read = (value: unknown) => readLiveFacts("smithers-mvp-web", get, content, value)
   const live = await read(receipt)
   expect(live).toEqual(target)
-  expect(decideDeploy("edge", live, neverRead).mode).toBe("normal")
-  expect(() => decideDeploy("legacy", live, neverRead)).toThrow("DEPLOY_GUARD_LEGACY_OVER_EDGE")
+  expect(decideDeploy(live, neverRead).mode).toBe("normal")
   for (const bad of [undefined, {}, { ...receipt, rollback: "failed" }, { ...receipt, status: "restoring" },
     { ...receipt, previous: { version: "other", revision: "a".repeat(40) } },
     { ...receipt, reverification: [{ name: "CN-24", status: "failed" }] },

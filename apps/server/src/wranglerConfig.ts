@@ -38,6 +38,3 @@ export const parseWranglerConfig = (source: string): WranglerConfig =>
   JSON.parse(source.replace(/^\s*\/\/.*$/gm, "")) as WranglerConfig
 
 export const readWranglerConfig = (): WranglerConfig => parseWranglerConfig(readFileSync(WRANGLER_CONFIG_PATH, "utf8"))
-
-/** The path prefix a `run_worker_first` entry claims: `/api/*` claims `/api/`. */
-export const workerFirstPrefix = (entry: string): string => entry.replace(/\*$/, "")

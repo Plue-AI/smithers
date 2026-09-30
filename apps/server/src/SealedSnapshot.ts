@@ -44,15 +44,6 @@ export interface SnapshotMetadata extends SnapshotProvenance {
   readonly version: 1
   readonly schema: "smithers-do-storage/v1"
 }
-export interface SnapshotFence {
-  readonly executionID: string
-  readonly worker: string
-  readonly sourceVersion: string
-  readonly sourceArtifactSHA256: string
-  readonly smithersRevision: string
-  readonly plueRevision: string
-  readonly endpoint: string
-}
 export interface PageMetadata extends SnapshotProvenance {
   readonly version: 2
   readonly schema: "smithers-do-storage-page/v2"
@@ -63,9 +54,8 @@ export interface PageMetadata extends SnapshotProvenance {
     readonly entriesBefore: number
     readonly entriesThrough: number
     readonly complete: boolean
-    /** A fenced object is not proof of a global fence or drain. */
-    readonly consistency: "unfenced" | "object-writers-fenced"
-    readonly fence: SnapshotFence | null
+    /** No writer is fenced: a multi-page scan is never an atomic snapshot. */
+    readonly consistency: "unfenced"
   }
 }
 export interface SealedEnvelope<M = SnapshotMetadata> {

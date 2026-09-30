@@ -57,7 +57,7 @@ export const WORKER_IDENTITY = {
   assets: {
     /** Relative to apps/server: the smithers.sh Astro build. */
     directory: "../site/dist",
-    /** The assets binding the router reads (`serveAsset` in src/index.ts). */
+    /** The assets binding the edge reads (`asset` in src/edge.ts). */
     binding: "ASSETS",
     notFoundHandling: "404-page" as const,
     /**
@@ -100,7 +100,7 @@ export const WORKER_IDENTITY = {
     SMITHERS_BACKEND_ORIGIN: "https://api.jjhub.tech"
   } as Readonly<Record<string, string>>,
   /**
-   * Every secret the Worker reads (src/Config.ts). Each is set once on the
+   * Every secret bound to the Worker (the retired legacy router read them). Each is set once on the
    * live script with `wrangler secret put` and kept by every `wrangler deploy`
    * after that: wrangler uploads with `keep_bindings: ["secret_text"]`, so a
    * deploying shell never needs a value. The preflight reports each name as
@@ -143,4 +143,3 @@ export const WORKER_IDENTITY = {
   ] as ReadonlyArray<string>
 } as const
 
-export type WorkerIdentity = typeof WORKER_IDENTITY

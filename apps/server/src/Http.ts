@@ -9,25 +9,22 @@ import type { BodyFailure, UpstreamFailure } from "./Failures"
  * Worker's Effects.
  *
  * `Transport` is the one service that performs `fetch`. Every upstream call
- * (identity, billing, chat, Cloud, GitHub, Cerebras) goes through it, so a
- * test injects a transport instead of patching `globalThis.fetch`, and the
- * live layer resolves `globalThis.fetch` at call time so the existing suites
- * that still patch the global keep working until they are migrated.
+ * (the shared backend, the site assets) goes through it, so a test injects a
+ * transport instead of patching `globalThis.fetch`, and the live layer
+ * resolves `globalThis.fetch` at call time.
  *
  * Interruption is cancellation: `Effect.tryPromise` hands the fiber's
  * AbortSignal to `fetch`, so a deadline that wins, or a client that
  * disconnects, aborts the socket instead of leaking it.
  *
  * A redirect is never followed, whatever the caller or its Request asked for.
- * Every upstream call carries a credential (a Cloud bearer, the identity
- * service token, the admin token, a provider key), and a followed redirect
- * forwards custom headers to whatever host a Location names. A 3xx comes back
- * as the answer; each caller reads it as the refusal it is, and the identity
- * proxy hands the OAuth redirects to the browser. `manual`, not `error`:
- * workerd throws on `error` before the request is sent.
+ * A forwarded request carries the caller's credentials, and a followed
+ * redirect forwards them to whatever host a Location names. A 3xx comes back
+ * as the answer, so the backend's OAuth redirects reach the browser.
+ * `manual`, not `error`: workerd throws on `error` before the request is sent.
  */
 
-export type FetchInput = Request | string | URL
+type FetchInput = Request | string | URL
 
 export interface TransportShape {
   readonly fetch: (seam: string, input: FetchInput, init?: RequestInit) => Effect.Effect<Response, UpstreamUnreachable>
@@ -35,7 +32,7 @@ export interface TransportShape {
 
 export class Transport extends Context.Service<Transport, TransportShape>()("smithers-server/Transport") {}
 
-export type FetchImplementation = (input: FetchInput, init?: RequestInit) => Promise<Response>
+type FetchImplementation = (input: FetchInput, init?: RequestInit) => Promise<Response>
 
 const combineSignals = (incoming: AbortSignal | null | undefined, own: AbortSignal): AbortSignal =>
   incoming == null ? own : AbortSignal.any([incoming, own])
@@ -57,11 +54,8 @@ export const transportFrom = (fetchImpl: FetchImplementation): TransportShape =>
     })
 })
 
-export const transportLayer = (fetchImpl: FetchImplementation): Layer.Layer<Transport> =>
-  Layer.succeed(Transport, transportFrom(fetchImpl))
-
 /** The deployed transport: the platform `fetch`, looked up per call. */
-export const TransportLive: Layer.Layer<Transport> = transportLayer((input, init) => globalThis.fetch(input, init))
+export const TransportLive: Layer.Layer<Transport> = Layer.succeed(Transport, transportFrom((input, init) => globalThis.fetch(input, init)))
 
 /** The default any-upstream deadline, in ms: bounds the wait for HEADERS only. */
 export const DEFAULT_UPSTREAM_TIMEOUT_MS = 20_000
@@ -93,7 +87,7 @@ export const discardBody = (response: Request | Response): Effect.Effect<void> =
  * units: a multi-byte body encodes to up to 4x its string length, and a
  * chunked request declares no length at all.
  */
-export const readBoundedBytes = (
+const readBoundedBytes = (
   body: Request | Response,
   limit: number
 ): Effect.Effect<Uint8Array<ArrayBuffer>, BodyTooLarge | BodyUnreadable> => {
@@ -137,51 +131,10 @@ export const readBoundedBytes = (
 }
 
 /** Read a body whole as text, under a byte ceiling. */
-export const readBoundedText = (body: Request | Response, limit: number): Effect.Effect<string, BodyTooLarge | BodyUnreadable> =>
+const readBoundedText = (body: Request | Response, limit: number): Effect.Effect<string, BodyTooLarge | BodyUnreadable> =>
   Effect.map(readBoundedBytes(body, limit), (bytes) => new TextDecoder().decode(bytes))
 
 /** Read a body whole as JSON, under a byte ceiling. */
 export const readBoundedJson = (body: Request | Response, limit: number): Effect.Effect<unknown, BodyFailure> =>
   Effect.flatMap(readBoundedText(body, limit), (text) =>
     Effect.try({ try: () => JSON.parse(text) as unknown, catch: (cause) => new BodyNotJson({ cause }) }))
-
-/**
- * Read an unbounded body whole (an upstream answer this Worker chose to
- * call). Reader-owned like the bounded read: a body that stalls after its
- * headers arrived is cancelled when the fiber is interrupted or times out,
- * so an abandoned provider response never keeps streaming into nothing.
- */
-export const readBytes = (body: Request | Response): Effect.Effect<Uint8Array<ArrayBuffer>, BodyUnreadable> =>
-  readBoundedBytes(body, Number.POSITIVE_INFINITY).pipe(
-    Effect.catchTag("BodyTooLarge", (failure) => Effect.die(failure))
-  )
-
-/**
- * The most of a refusal body this Worker reads. A refusal is read only to
- * find a code, a retry hint, or a sentence to restate; every one the product
- * relies on fits in a few hundred bytes, so anything past this is not a
- * refusal worth quoting and is not buffered.
- */
-export const REFUSAL_DETAIL_MAX_BYTES = 16 * 1024
-
-/**
- * The detail of an upstream refusal: its body as text, or "" when the body is
- * past `REFUSAL_DETAIL_MAX_BYTES` or cannot be read. The read stops at the
- * ceiling and cancels the rest, and every caller already states the refusal
- * in its own generic words when the detail is empty.
- */
-export const readRefusalDetail = (body: Request | Response): Effect.Effect<string> =>
-  readBoundedText(body, REFUSAL_DETAIL_MAX_BYTES).pipe(Effect.catch(() => Effect.succeed("")))
-
-/** Read an unbounded text body (an upstream answer this Worker chose to call). */
-export const readText = (body: Request | Response): Effect.Effect<string, BodyUnreadable> =>
-  Effect.map(readBytes(body), (bytes) => new TextDecoder().decode(bytes))
-
-/** Read an unbounded JSON body (an upstream answer this Worker chose to call). */
-export const readJson = (body: Request | Response): Effect.Effect<unknown, BodyUnreadable | BodyNotJson> =>
-  Effect.flatMap(readText(body), (text) =>
-    Effect.try({ try: () => JSON.parse(text) as unknown, catch: (cause) => new BodyNotJson({ cause }) }))
-
-/** A JSON body read for its content, where an unreadable one is simply absent. */
-export const readJsonOrUndefined = (body: Request | Response): Effect.Effect<unknown> =>
-  readJson(body).pipe(Effect.catch(() => Effect.succeed(undefined)))

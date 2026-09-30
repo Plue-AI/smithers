@@ -29,8 +29,6 @@ export const DEFAULT_APP_DOCUMENT_PATH = appDocumentPath(AVAILABLE_REPOS[0].name
  * (apps/app/src/mainview/runtime/FrameHistory.ts). A reload or a deep link at
  * such a path is the app, and the assets layer has no file for it.
  */
-export const FRAME_PATH_PREFIX = "/w/"
-
 export const isFramePath = (pathname: string): boolean =>
   /^\/w\/[^/]+\/b\/[^/]+\/f\/[^/]+\/?$/.test(pathname)
 

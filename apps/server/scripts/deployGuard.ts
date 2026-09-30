@@ -1,30 +1,27 @@
 /**
- * Deploy interlock for `smithers-mvp-web` across the one-time switch to the shared edge.
+ * Deploy interlock for `smithers-mvp-web`: the checkout deploys the shared edge
+ * (wrangler `main` = src/edge.ts, bundling to edge.js), never anything else.
  *
  * The one deploy path (scripts/deploy.ts, run on every push to main) asks
  * this module first, before it reads the revision, builds, or spawns wrangler.
- * It compares what the checkout would deploy with what is live, both named by
- * facts the provider and the checkout state directly:
+ * It compares what the checkout would deploy with what is live, named by
+ * facts the provider and the checkout state directly: the entry module of
+ * the single 100% version (content/v2 CF-Entrypoint), cross-checked against
+ * that version's own annotations.
  *
- *   local  legacy  wrangler `main` = src/index.ts (bundles to index.js)
- *          edge    wrangler `main` = src/edge.ts  (bundles to edge.js)
- *   live   the entry module of the single 100% version (content/v2 CF-Entrypoint),
- *          cross-checked against that version's own annotations.
+ * | live   | legacy     | edge   | maintenance export |
+ * |--------|------------|--------|--------------------|
+ * | answer | activation | normal | refuse             |
  *
- * | local \ live | legacy     | edge   | cutover admission / fence / maintenance export |
- * |--------------|------------|--------|------------------------------------------------|
- * | legacy       | normal     | refuse | refuse                                         |
- * | edge         | activation | normal | refuse                                         |
- *
- * Normal CI can therefore never undo a live installer version and never bring
- * the legacy writer back over the edge. The edge replaces the live legacy
- * Worker as a direct switch whenever legacy is live and the committed owner record
- * (cutover/activation.json, ACTIVATION_RECORD_PATH) validates: the owner's
+ * Normal CI can therefore never undo a live sealed-inventory export version.
+ * A live legacy version (the pre-edge Worker, or a `wrangler rollback` to
+ * one) is replaced only as the direct switch the committed owner record
+ * (cutover/activation.json, ACTIVATION_RECORD_PATH) admits: the owner's
  * decision, the no-user import disposition with the legacy Durable Object
  * state retained unmigrated under unchanged identities, and the retroactive
- * record of the backend bootstrap. CI cannot return legacy afterwards, so
- * after the switch every deploy is normal. The record is data in the deployed commit, not an input:
- * there is no override flag or environment switch. Anything unrecognized refuses.
+ * record of the backend bootstrap. The record is data in the deployed
+ * commit, not an input: there is no override flag or environment switch.
+ * Anything unrecognized refuses.
  */
 import { createHash } from "node:crypto"
 import * as Data from "effect/Data"
@@ -34,8 +31,7 @@ import { readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { accountURL, api } from "./cutover/cloudflare"
 
-export type LocalIdentity = "legacy" | "edge"
-export type LiveIdentity = "legacy" | "edge" | "cutover-admission" | "cutover-fence" | "maintenance-export"
+export type LiveIdentity = "legacy" | "edge" | "maintenance-export"
 /** The deploy interlock refused; `code` is the stable DEPLOY_GUARD_* id the operator log prints. */
 export class DeployGuardRefusal extends Data.TaggedError("DeployGuardRefusal")<{ readonly code: string; readonly detail: string }> {
   override get message(): string {
@@ -44,12 +40,11 @@ export class DeployGuardRefusal extends Data.TaggedError("DeployGuardRefusal")<{
 }
 const refuse = (code: string, detail: string): never => { throw new DeployGuardRefusal({ code, detail }) }
 
-/** The checkout's own claim, which must agree with itself. */
-export const classifyLocal = (wranglerMain: string, identityEntry: string): LocalIdentity => {
+/** The checkout's own claim, which must agree with itself and name the edge. */
+export const classifyLocal = (wranglerMain: string, identityEntry: string): "edge" => {
   if (wranglerMain !== identityEntry) refuse("DEPLOY_GUARD_LOCAL_AMBIGUOUS", `wrangler main ${wranglerMain} differs from WORKER_IDENTITY.entry ${identityEntry}`)
-  if (wranglerMain === "src/index.ts") return "legacy"
   if (wranglerMain === "src/edge.ts") return "edge"
-  return refuse("DEPLOY_GUARD_LOCAL_UNKNOWN", `entry ${wranglerMain} is neither the legacy Worker nor the shared edge`)
+  return refuse("DEPLOY_GUARD_LOCAL_UNKNOWN", `entry ${wranglerMain} is not the shared edge`)
 }
 
 export interface LiveFacts {
@@ -58,28 +53,19 @@ export interface LiveFacts {
   readonly modules: ReadonlyArray<string>
   readonly annotations: Readonly<Record<string, string>>
 }
-const CUTOVER_MESSAGE = /^smithers-cutover ([0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}) (admission|fence)$/
 /** The live version's identity. Entry module decides; annotations must not contradict it. */
 export const classifyLive = (facts: LiveFacts): LiveIdentity => {
-  const message = facts.annotations["workers/message"] ?? ""
-  const cutover = CUTOVER_MESSAGE.exec(message)
+  const exporting = facts.annotations["workers/tag"] === "sealed-state-inventory"
   const only = (...names: string[]) => facts.modules.every(m => names.includes(m) || names.some(n => m === `${n}.map`))
   const contradict = () => refuse("DEPLOY_GUARD_LIVE_AMBIGUOUS", `live version ${facts.versionId} entry ${facts.entry} contradicts its annotation`)
   switch (facts.entry) {
-    case "cutover-admission-entry.js":
-    case "cutover-fence-entry.js": {
-      const action = facts.entry === "cutover-fence-entry.js" ? "fence" : "admission"
-      if (!cutover || cutover[2] !== action) return contradict()
-      return action === "fence" ? "cutover-fence" : "cutover-admission"
-    }
     case "sealed-export-entry.js":
-      if (cutover) return contradict()
       return "maintenance-export"
     case "index.js":
-      if (cutover || facts.annotations["workers/tag"] === "sealed-state-inventory" || !only("index.js")) return contradict()
+      if (exporting || !only("index.js")) return contradict()
       return "legacy"
     case "edge.js":
-      if (cutover || !only("edge.js")) return contradict()
+      if (exporting || !only("edge.js")) return contradict()
       return "edge"
     default:
       return refuse("DEPLOY_GUARD_LIVE_UNKNOWN", `live version ${facts.versionId} runs unrecognized entry ${facts.entry}`)
@@ -139,15 +125,14 @@ export const readActivationRecord = (): ActivationRecord => {
 }
 
 export type GuardDecision =
-  | { readonly mode: "normal"; readonly local: LocalIdentity; readonly live: LiveIdentity; readonly liveVersion: string }
+  | { readonly mode: "normal"; readonly local: "edge"; readonly live: "edge"; readonly liveVersion: string }
   | { readonly mode: "activation"; readonly local: "edge"; readonly live: "legacy"; readonly liveVersion: string; readonly record: ActivationRecord }
-export const decideDeploy = (local: LocalIdentity, live: LiveFacts, activationRecord: () => ActivationRecord = readActivationRecord): GuardDecision => {
+export const decideDeploy = (live: LiveFacts, activationRecord: () => ActivationRecord = readActivationRecord): GuardDecision => {
   const identity = classifyLive(live)
-  if (local === identity) return { mode: "normal", local, live: identity, liveVersion: live.versionId }
-  if (identity === "cutover-admission" || identity === "cutover-fence" || identity === "maintenance-export")
-    return refuse("DEPLOY_GUARD_LIVE_CUTOVER", `live ${identity} version ${live.versionId} belongs to the cutover installer; only its own restore may replace it`)
-  if (local === "legacy") return refuse("DEPLOY_GUARD_LEGACY_OVER_EDGE", "the shared edge is live; the legacy writer must never return over it through CI")
-  return { mode: "activation", local, live: "legacy", liveVersion: live.versionId, record: activationRecord() }
+  if (identity === "edge") return { mode: "normal", local: "edge", live: identity, liveVersion: live.versionId }
+  if (identity === "maintenance-export")
+    return refuse("DEPLOY_GUARD_LIVE_CUTOVER", `live ${identity} version ${live.versionId} belongs to the sealed-inventory export; only its own restore may replace it`)
+  return { mode: "activation", local: "edge", live: "legacy", liveVersion: live.versionId, record: activationRecord() }
 }
 
 /** Evidence comes only from the exclusively owned deployment receipt store. */
@@ -230,13 +215,13 @@ export const cloudflareContent: Content = async worker => {
 export const liveFactsFromCloudflare = (worker: string, rollbackReceipt?: unknown) => readLiveFacts(worker, api, cloudflareContent, rollbackReceipt)
 /** First step of every real deploy: nothing is read, built or spawned before this answers. */
 export const preflightDeploy = async (worker: string, wranglerMain: string, identityEntry: string, read = liveFactsFromCloudflare): Promise<GuardDecision> => {
-  const local = classifyLocal(wranglerMain, identityEntry)
+  classifyLocal(wranglerMain, identityEntry)
   let live: LiveFacts
   try { live = await read(worker) } catch (error) {
     if (error instanceof DeployGuardRefusal) throw error
     return refuse("DEPLOY_GUARD_LIVE_UNREADABLE", "the live version could not be read; a guard that cannot see refuses")
   }
-  return decideDeploy(local, live)
+  return decideDeploy(live)
 }
 /** Only JavaScript modules name the artifact; source maps and wrangler's README are not uploaded code. */
 export const codeModules = (digests: Record<string, string>): Record<string, string> =>

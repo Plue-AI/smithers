@@ -1,7 +1,0 @@
-{
-  "name": "smithers-cutover-rehearsal-p1",
-  "main": "probe.js",
-  "compatibility_date": "2026-08-01",
-  "workers_dev": true,
-  "durable_objects": { "bindings": [{ "name": "TARGET", "class_name": "TurnCancelRegistry", "script_name": "smithers-cutover-rehearsal-r1" }] }
-}

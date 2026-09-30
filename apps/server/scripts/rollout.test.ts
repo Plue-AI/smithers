@@ -2,7 +2,7 @@ import { expect, test } from "bun:test"
 import { mkdtempSync, readFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { readLiveFacts, decideDeploy } from "./deployGuard"
+import { artifactDigest, decideDeploy, preflightDeploy, readLiveFacts, verifyActivated } from "./deployGuard"
 import { WORKER_IDENTITY } from "../src/workerIdentity"
 import { dryRunChecks, readPreviousRevision, siteProbeTimeout, workerRolloutHost, writeRolloutReceipt } from "./rollout"
 import { rollout } from "../../../flows/rollout/runtime.ts"
@@ -108,7 +108,7 @@ test("a failed fix-forward writes verified rollback evidence and the next deploy
     const directory = mkdtempSync(join(tmpdir(), "worker-rollback-next-"))
     let live = previous.version
     let newest = previous.version
-    const identity = { versionId: previous.version, entry: "index.js", modules: ["index.js"], annotations: {}, digests: { "index.js": "a".repeat(64) } }
+    const identity = { versionId: previous.version, entry: "edge.js", modules: ["edge.js"], annotations: {}, digests: { "edge.js": "a".repeat(64) } }
     let attempt = 1
     let restores = 0
     const get = async (path: string) => path.endsWith("/deployments")
@@ -132,7 +132,7 @@ test("a failed fix-forward writes verified rollback evidence and the next deploy
       expect(first.reverification.find(c => c.name === "site")?.status).toBe("failed")
       const evidence = JSON.parse(readFileSync(join(directory, "last-rollback.json"), "utf8"))
       const guarded = await readLiveFacts(WORKER_IDENTITY.name, get as never, async () => { throw Error("newest content is not baseline") }, evidence)
-      expect(decideDeploy("legacy", guarded).mode).toBe("normal")
+      expect(decideDeploy(guarded).mode).toBe("normal")
       attempt = 2
       expect((await rollout(workerRolloutHost({ ...options, identity: { ...options.identity, target: guarded } }))).status).toBe("passed")
       expect(live).toBe(next.version)
@@ -141,6 +141,48 @@ test("a failed fix-forward writes verified rollback evidence and the next deploy
       expect(JSON.parse(readFileSync(join(directory, "last-rollback.json"), "utf8"))).toEqual(evidence)
     } finally { rmSync(directory, { recursive: true, force: true }) }
   }
+})
+
+test("an activation whose published edge drifts restores the captured legacy version, and the next preflight is the activation again", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "worker-activation-drift-"))
+  const annotations = { "workers/message": `${previous.revision} legacy`, "workers/tag": previous.revision.slice(0, 12) }
+  // The legacy version the interlock captured before publication (deploy.ts `capturedIdentity`).
+  const legacy = { versionId: previous.version, entry: "index.js", modules: ["index.js"], annotations, digests: { "index.js": "a".repeat(64) } }
+  const authorized = artifactDigest({ "edge.js": "b".repeat(64) })
+  let live = previous.version, newest = previous.version
+  const get = async (path: string) => path.endsWith("/deployments")
+    ? { success: true, result: { deployments: [{ versions: [{ version_id: live, percentage: 100 }] }] } }
+    : path.endsWith("/versions?per_page=1") ? { success: true, result: { items: [{ id: newest }] } }
+    : { success: true, result: { id: path.split("/").at(-1), annotations: path.endsWith(previous.version) ? annotations : {} } }
+  // content/v2 describes the newest upload: the published edge, whose code is not the bundled artifact.
+  const content = async () => ({ entry: "edge.js", modules: ["edge.js"], digests: { "edge.js": "c".repeat(64) } })
+  const commands: string[][] = []
+  try {
+    const receipt = await rollout(workerRolloutHost({
+      previous, serverDir: "/server", accountId: WORKER_IDENTITY.accountId, worker: WORKER_IDENTITY.name, token: "fake",
+      identity: { accountId: WORKER_IDENTITY.accountId, worker: WORKER_IDENTITY.name, target: legacy }, get,
+      publish: async () => {
+        live = next.version; newest = next.version
+        verifyActivated(await readLiveFacts(WORKER_IDENTITY.name, get as never, content), authorized)
+        return next
+      },
+      record: async r => { writeRolloutReceipt(directory, r) },
+      run: async cmd => {
+        commands.push([...cmd])
+        if (cmd.includes("rollback")) live = previous.version
+        return { exitCode: 0, output: "" }
+      }
+    }))
+    expect(receipt).toMatchObject({ status: "rolled-back", rollback: "succeeded", failedChecks: ["publish"], candidate: null })
+    expect(commands.find(c => c.includes("rollback"))).toContain(previous.version)
+    expect(live).toBe(previous.version)
+    const evidence = JSON.parse(readFileSync(join(directory, "last-rollback.json"), "utf8"))
+    expect(evidence.recovery).toMatchObject({ newestVersion: next.version, target: legacy })
+    // The newest upload is the rejected edge; only the receipt lets the guard read the restored legacy version.
+    await expect(preflightDeploy(WORKER_IDENTITY.name, "src/edge.ts", "src/edge.ts", worker => readLiveFacts(worker, get as never, content))).rejects.toThrow("DEPLOY_GUARD_LIVE_NOT_NEWEST")
+    const decision = await preflightDeploy(WORKER_IDENTITY.name, "src/edge.ts", "src/edge.ts", worker => readLiveFacts(worker, get as never, content, evidence))
+    expect(decision).toMatchObject({ mode: "activation", local: "edge", live: "legacy", liveVersion: previous.version, record: { decision: "direct-switch" } })
+  } finally { rmSync(directory, { recursive: true, force: true }) }
 })
 
 test("the sequential site probe gets its own timeout; other checks keep 30 s", async () => {

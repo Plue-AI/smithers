@@ -1,7 +1,6 @@
 import * as Effect from "effect/Effect"
 import { runDurable } from "./Boundary"
-import { ALARM_MARKER_TABLE, sqlOf } from "./MaintenanceExport"
-import type { FencedContext } from "./MaintenanceFence"
+import { ALARM_MARKER_TABLE, sqlOf, type MarkerSql } from "./MaintenanceExport"
 
 /**
  * Inert storage owner for a namespace retired by the shared-backend cutover.
@@ -26,9 +25,14 @@ export interface RetiredAlarmMarker {
   readonly observations: number
   readonly lastRetryCount: number
 }
-/** Row key in the reserved table; cutover executions use their UUID, so this cannot collide. */
+/** The owner's context: an id and, on SQLite-backed storage, the SQL handle the marker is written through. */
+export interface RetiredContext {
+  readonly id?: { readonly toString: () => string }
+  readonly storage?: { readonly sql?: MarkerSql; readonly sync?: () => Promise<void> }
+}
+/** Row key in the reserved table. */
 export const RETIRED_MARKER_KEY = "retired"
-export const recordRetiredAlarm = (ctx: FencedContext | undefined, worker: string, binding: string, retryCount: number, now: Date): RetiredAlarmMarker | null => {
+export const recordRetiredAlarm = (ctx: RetiredContext | undefined, worker: string, binding: string, retryCount: number, now: Date): RetiredAlarmMarker | null => {
   const sql = sqlOf(ctx?.storage)
   if (!sql || !ctx?.id) return null
   sql.exec(`CREATE TABLE IF NOT EXISTS ${ALARM_MARKER_TABLE} (execution_id TEXT PRIMARY KEY, marker TEXT NOT NULL)`)
@@ -44,7 +48,7 @@ export const recordRetiredAlarm = (ctx: FencedContext | undefined, worker: strin
 
 /** `export class TurnCancelRegistry extends retiredDurable("smithers-mvp-web", "TURN_CANCELS") {}` */
 export const retiredDurable = (worker: string, binding: string) => class RetiredDurableObject {
-  constructor(private readonly retiredContext?: FencedContext) {}
+  constructor(private readonly retiredContext?: RetiredContext) {}
   fetch(): Promise<Response> { // effect-policy: boundary
     return runDurable(Effect.succeed(Response.json({ status: "error", code: "authority_retired" }, { status: 410 })))
   }

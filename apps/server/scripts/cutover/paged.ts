@@ -64,7 +64,7 @@ const finishMatches = (a: PagedArchive, result: ReturnType<SnapshotPageChain["fi
 /**
  * Reopen all ciphertext and validate the whole chain, in bounded page memory.
  * onPage is for staging only: callers must not commit an import until this resolves.
- * expected must come from the operator's independently verified plan/fence.
+ * expected must come from the operator's independently verified plan.
  */
 export const validatePagedArchive = async (directory: string, file: string, expected: PageExpected, privateJwk: JsonWebKey, onPage?: OnPage): Promise<PagedArchive> => {
   privateDirectory(directory)

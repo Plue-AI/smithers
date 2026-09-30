@@ -2,16 +2,15 @@ import { Effect } from "effect"
 import { z } from "zod"
 import { runDurable, runRequest } from "./Boundary"
 import { storageFrom, type NativeStorage } from "./DurableStorage"
-import type { WorkerEnv } from "./Environment"
 import { readBoundedJson } from "./Http"
-import { authenticatedExport, compareStorageKeys, CURSOR_BYTES, encodeStored, PAGE_BYTES, PAGE_ENTRIES, sealSnapshot, snapshotCursor, snapshotDigest, SnapshotFailure, type PageMetadata, type SnapshotFence } from "./SealedSnapshot"
-import type { NativeRecommendStorage } from "./recommend"
+import { authenticatedExport, compareStorageKeys, CURSOR_BYTES, encodeStored, PAGE_BYTES, PAGE_ENTRIES, sealSnapshot, snapshotCursor, snapshotDigest, SnapshotFailure, type PageMetadata } from "./SealedSnapshot"
 
 export const EXPORT_PATH = "/__maintenance/state-export"
-/** Reserved maintenance table written only by a fenced alarm. SQLite-only; product KV reads never see it. */
+/** Reserved maintenance table written only by a retired owner's alarm (RetiredDurableObject.ts). SQLite-only; product KV reads never see it. */
 export const ALARM_MARKER_TABLE = "_smithers_cutover_alarm_v1"
 export interface MarkerSql { exec(query: string, ...bindings: unknown[]): { toArray(): Array<Record<string, unknown>> } }
-export const EXPORT_BINDINGS = ["TURN_CANCELS", "GATEWAY_SESSIONS", "TURN_LIMITS", "CLIENT_ERRORS", "RECOMMEND_LOG", "MODEL_VAULTS", "IDENTITY", "ACCOUNTS", "CHAT_HISTORY", "PUSH_SUBSCRIPTIONS", "BRANCH_SYNC", "HOOKS", "OWNERS", "RECO", "GUARDIAN_STORE", "PAIR_DO", "REPO_DO", "WORKSPACE_DO"] as const
+/** The web Worker's retained namespaces (workerIdentity.ts); nothing else is exportable. */
+export const EXPORT_BINDINGS = ["TURN_CANCELS", "GATEWAY_SESSIONS", "TURN_LIMITS", "CLIENT_ERRORS", "RECOMMEND_LOG", "MODEL_VAULTS"] as const
 export interface ExportSettings {
   readonly SMITHERS_EXPORT_TOKEN?: string
   readonly SMITHERS_EXPORT_RECIPIENT?: string
@@ -20,8 +19,8 @@ export interface ExportSettings {
   readonly SMITHERS_EXPORT_SOURCE_VERSION?: string
   readonly MODEL_VAULT_KEY?: string
 }
-export type MaintenanceEnv = WorkerEnv & ExportSettings & { readonly IDENTITY?: ByIdNamespace }
-interface SnapshotStorage extends NativeStorage, NativeRecommendStorage {
+export type MaintenanceEnv = ExportSettings & { readonly [binding: string]: unknown }
+interface SnapshotStorage extends NativeStorage {
   readonly getAlarm: () => Promise<number | null>
   readonly delete: (key: string) => Promise<boolean>
   readonly put: (key: string | Record<string, unknown>, value?: unknown) => Promise<void>
@@ -29,7 +28,7 @@ interface SnapshotStorage extends NativeStorage, NativeRecommendStorage {
   readonly sql?: MarkerSql
   readonly sync?: () => Promise<void>
 }
-/** Read-only: never creates the table, so exporting an object that was never fenced changes nothing. */
+/** Read-only: never creates the table, so exporting an object whose alarm never fired changes nothing. */
 const alarmMarkers = (storage: SnapshotStorage): string[] => {
   const sql = sqlOf(storage)
   if (!sql) return []
@@ -79,11 +78,11 @@ const decode = (request: Request) => readBoundedJson(request, CURSOR_BYTES + 204
   Effect.catch(() => Effect.fail(new SnapshotFailure({ code: "invalid_export_request" })))
 )
 
-const objectSnapshot = (ctx: ExportContext, env: ExportSettings, binding: string, request: Request, fence?: SnapshotFence) => Effect.gen(function* () {
+const objectSnapshot = (ctx: ExportContext, env: ExportSettings, binding: string, request: Request) => Effect.gen(function* () {
   if (!(yield* authorized(request, env))) return response(404, "not_found")
   const input = yield* decode(request)
   if (input.binding !== binding || input.objectId !== ctx.id.toString()) return response(409, "export_object_mismatch")
-  if (input.page) return yield* objectPage(ctx, env, input, fence)
+  if (input.page) return yield* objectPage(ctx, env, input)
   const storage = storageFrom(ctx.storage)
   const alarm = yield* Effect.tryPromise({ try: () => ctx.storage.getAlarm(), catch: () => new SnapshotFailure({ code: "snapshot_read_failed" }) })
   const entries: Array<readonly [string, unknown]> = []
@@ -108,12 +107,10 @@ const objectSnapshot = (ctx: ExportContext, env: ExportSettings, binding: string
 }).pipe(Effect.catch(() => Effect.succeed(response(503, "snapshot_unavailable"))))
 
 /** One bounded, object-serialized page. A cursor never claims a mutable scan is atomic. */
-const objectPage = (ctx: ExportContext, env: ExportSettings, input: ExportInput, fence?: SnapshotFence) => Effect.gen(function* () {
-  if (fence && (fence.executionID !== input.migrationId || fence.sourceVersion !== env.SMITHERS_EXPORT_SOURCE_VERSION ||
-    env.SMITHERS_EXPORT_SOURCE_REVISION !== `sha256:${fence.sourceArtifactSHA256}`)) return response(409, "export_fence_mismatch")
+const objectPage = (ctx: ExportContext, env: ExportSettings, input: ExportInput) => Effect.gen(function* () {
   const provenance = { migrationId: input.migrationId, binding: input.binding, objectId: input.objectId,
     sourceRevision: env.SMITHERS_EXPORT_SOURCE_REVISION!, sourceVersion: env.SMITHERS_EXPORT_SOURCE_VERSION! }
-  const aad = JSON.stringify({ protocol: "smithers-do-storage-page/v2", ...provenance, recipient: env.SMITHERS_EXPORT_RECIPIENT, expires: env.SMITHERS_EXPORT_EXPIRES_AT, fence: fence ?? null })
+  const aad = JSON.stringify({ protocol: "smithers-do-storage-page/v2", ...provenance, recipient: env.SMITHERS_EXPORT_RECIPIENT, expires: env.SMITHERS_EXPORT_EXPIRES_AT })
   const prior = input.page!.cursor === null ? null : yield* snapshotCursor(env.SMITHERS_EXPORT_TOKEN!, aad, { open: input.page!.cursor }).pipe(
     Effect.flatMap(text => Effect.try({ try: () => Cursor.parse(JSON.parse(text)), catch: () => new SnapshotFailure({ code: "invalid_export_cursor" }) })))
   const alarm = yield* Effect.tryPromise({ try: () => ctx.storage.getAlarm(), catch: () => new SnapshotFailure({ code: "snapshot_read_failed" }) })
@@ -121,7 +118,7 @@ const objectPage = (ctx: ExportContext, env: ExportSettings, input: ExportInput,
     ...(input.binding === "MODEL_VAULTS" ? { migrationContext: { keyVersion: "model-vault:v1" as const, modelVaultKey: env.MODEL_VAULT_KEY ?? null } } : {}) }
   const headerJSON = JSON.stringify(header)
   const stateSHA256 = yield* snapshotDigest(headerJSON)
-  // Alarms may be delivered between fenced pages; a changed marker forces a new scan.
+  // Alarms may be delivered between pages; a changed marker forces a new scan.
   if (prior && prior.stateSHA256 !== stateSHA256) return response(409, "snapshot_metadata_changed")
   let bytes = new TextEncoder().encode(headerJSON).byteLength + 16
   if (bytes > PAGE_BYTES / 2) return response(413, "snapshot_metadata_too_large")
@@ -146,7 +143,7 @@ const objectPage = (ctx: ExportContext, env: ExportSettings, input: ExportInput,
   const metadata: PageMetadata = { version: 2, schema: "smithers-do-storage-page/v2", keyVersion: input.binding === "MODEL_VAULTS" ? "model-vault:v1" : null,
     ...provenance, capturedAt: new Date().toISOString(), page: { scanId: prior?.scanId ?? crypto.randomUUID(), index: prior?.index ?? 0,
       previousSHA256: prior?.previousSHA256 ?? null, entriesBefore: prior?.entriesThrough ?? 0, entriesThrough: (prior?.entriesThrough ?? 0) + entries.length,
-      complete, consistency: fence ? "object-writers-fenced" : "unfenced", fence: fence ?? null } }
+      complete, consistency: "unfenced" } }
   const recipient = yield* Effect.try({ try: () => JSON.parse(env.SMITHERS_EXPORT_RECIPIENT!) as JsonWebKey, catch: () => new SnapshotFailure({ code: "invalid_export_recipient" }) })
   const snapshot = yield* sealSnapshot(metadata, { entries, ...header }, recipient)
   const cursor = complete ? null : yield* snapshotCursor(env.SMITHERS_EXPORT_TOKEN!, aad, { seal: JSON.stringify({ scanId: metadata.page.scanId,
@@ -157,13 +154,13 @@ const objectPage = (ctx: ExportContext, env: ExportSettings, input: ExportInput,
   error instanceof SnapshotFailure && error.code === "invalid_export_cursor" ? "invalid_export_cursor" : "snapshot_unavailable"))))
 
 /** Inherit every legacy RPC, WebSocket hook and alarm; override only the temporary fetch path. */
-export const withSealedExport = (Legacy: LegacyClass, binding: typeof EXPORT_BINDINGS[number], fence?: SnapshotFence) => class extends Legacy {
+export const withSealedExport = (Legacy: LegacyClass, binding: typeof EXPORT_BINDINGS[number]) => class extends Legacy {
   constructor(private readonly snapshotContext: ExportContext, private readonly exportEnv: MaintenanceEnv) {
     super(snapshotContext, exportEnv)
   }
   fetch(request: Request): Promise<Response> { // effect-policy: boundary
     if (new URL(request.url).pathname !== EXPORT_PATH) return super.fetch(request)
-    return this.snapshotContext.blockConcurrencyWhile(() => runDurable(objectSnapshot(this.snapshotContext, this.exportEnv, binding, request, fence)))
+    return this.snapshotContext.blockConcurrencyWhile(() => runDurable(objectSnapshot(this.snapshotContext, this.exportEnv, binding, request)))
   }
 }
 

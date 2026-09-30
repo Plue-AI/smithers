@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { WORKER_IDENTITY } from "../../src/workerIdentity"
-import { FakeCloudflare } from "./install-fake"
+import { FakeCloudflare } from "../fakeCloudflare"
 
 /*
  * The sealed-inventory operator CLI (deploy.ts) run as real Bun child

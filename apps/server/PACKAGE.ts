@@ -55,11 +55,11 @@ const unitTests = Smithers.NodeTest({
 })
 
 /**
- * The security review of the Worker gateway: `security` reviews the diff
+ * The security review of the shared edge: `security` reviews the diff
  * against origin/main and `securityAudit` audits every reviewed file. The
- * checks name what this gateway holds: users' Smithers Cloud bearers, the
- * deployment's model, service and admin tokens, and the session gate in
- * front of every route that spends them.
+ * checks name what the edge holds: the caller's credentials on their way to
+ * the pinned backend, the retained legacy Durable Object state, and the
+ * operator-only sealed export of it.
  *
  * @since 0.1.0
  * @category security
@@ -98,155 +98,25 @@ const securityReview = Smithers.SecurityReview({
   }],
   checks: [
     {
-      id: "cloud-bearer-confinement",
-      title: "A user's Cloud bearer only reaches allowlisted paths on the Cloud origin",
-      threat: "A signed-in user or a crafted link aims another user's server-held Smithers Cloud token at a foreign host or an unlisted Cloud route.",
+      id: "edge-forwarding",
+      title: "The edge forwards /api unchanged to the pinned backend and forges no identity",
+      threat: "A browser injects identity or forwarding headers, or steers the backend origin, so the backend attributes a request to another user or origin.",
       lookFor: [
-        "A path joined onto cloudApiBaseUrl from request text without the origin re-check, allowing '//host', '\\', '..' or '%2e%2e' segments.",
-        "A route that mints fetchCloudToken and forwards without passing platformProxyMatch or its own exact regex first.",
-        "A prefix rule in PLATFORM_PROXY_RULES that matches beyond a segment boundary, or a method the owning seam never calls.",
-        "An upstream fetch that follows a redirect, or copies the browser's cookie, Origin, or query into a bearer-carrying request."
+        "A forwarded request that keeps a client-sent x-user-*, x-smithers-user-*, x-forwarded-*, forwarded, x-real-ip, x-smithers-service-token or x-smithers-token-id header.",
+        "A backend origin taken from the request (Host, a header, a path or query) instead of the SMITHERS_BACKEND_ORIGIN binding, or one that equals the incoming origin or carries credentials, a path or a query.",
+        "An upstream fetch that follows a redirect, mints or attaches a credential, or rebuilds an upgrade the backend answered."
       ],
-      paths: [
-        "src/proxies.ts",
-        "src/cloudToken.ts",
-        "src/workflows.ts",
-        "src/repositorySetup.ts",
-        "src/repositoryTriggers.ts",
-        "src/githubAppInstall.ts",
-        "src/terminalRelay.ts",
-        "src/Http.ts"
-      ]
+      paths: ["src/edge.ts", "src/Http.ts", "src/Boundary.ts"]
     },
     {
-      id: "spend-gate",
-      title: "Every route that spends a deployment credential gates on session and ceiling first",
-      threat: "An anonymous caller runs turns, model tests, browser fetches or flows on the deployment's keys and billing account.",
+      id: "retired-state",
+      title: "Retained legacy Durable Objects serve nothing and keep every trace of pending work",
+      threat: "A request reads or writes a retained legacy object's product state, or a fired alarm deletes the only record of work that was pending at retirement.",
       lookFor: [
-        "A route in index.ts that reaches handleTurn, handleModelStream, handleModelTest, handleBrowserFetch or forwardToCloud before requireTurnSession or requireWorkflowSession.",
-        "An anonymous turn path that opens for a repository outside AVAILABLE_REPOS, or spends a model before both anonymous ceilings admit.",
-        "A cloud role, configured-model or front-door turn that spends Cerebras or AI Gateway keys for a signed-out caller outside the anonymous ceilings.",
-        "A turn-limit key built from a client-supplied header other than cf-connecting-ip, letting a caller rotate buckets."
+        "A retained class whose fetch reads or writes storage, or answers anything but 410 authority_retired.",
+        "An alarm that is acknowledged without its marker being recorded and flushed, or a marker written outside the reserved maintenance table."
       ],
-      paths: [
-        "src/index.ts",
-        "src/identity.ts",
-        "src/turns.ts",
-        "src/turnLimit.ts",
-        "src/cloudRoleTurn.ts",
-        "src/configuredModel.ts",
-        "src/frontDoor.ts",
-        "src/recommend.ts",
-        "src/jevRelay.ts",
-        "src/modelProbe.ts",
-        "src/modelPayer.ts"
-      ]
-    },
-    {
-      id: "trusted-caller-headers",
-      title: "Identity headers and service tokens sent upstream come only from the validated session",
-      threat: "A browser injects x-user-login or a service token so the billing, chat or identity worker acts on another user's account.",
-      lookFor: [
-        "A proxy that forwards request headers without strippedHeaders, or a STRIPPED_IDENTITY_HEADERS list missing an x-user-* or x-smithers-* header an upstream trusts.",
-        "x-user-login, x-user-role or x-smithers-service-token set from anything but the validated session or config.",
-        "proxyToBilling forwarding a billing write or metering path with the trusted-caller token, not only the user's own reads.",
-        "siblingAdminRoute bypassed by '//', a missing trailing slash, or case, so /api/identity/admin or /api/billing/admin is reachable."
-      ],
-      paths: ["src/Responses.ts", "src/identity.ts", "src/billing.ts", "src/turns.ts", "src/edge.ts"]
-    },
-    {
-      id: "admin-surface",
-      title: "Admin routes answer only a validated admin and attribute every write",
-      threat: "A non-admin user grants credit or reads other users' client errors and recommendation logs.",
-      lookFor: [
-        "An /api/admin/* branch reached before the session.admin check.",
-        "A grant whose amount is not bounded by ADMIN_GRANT_MAX_USD or whose requester is taken from the body.",
-        "An admin refusal that differs from the canonical 404, enumerating the admin surface to non-admins."
-      ],
-      paths: ["src/admin.ts", "src/clientErrorLog.ts", "src/recommend.ts"]
-    },
-    {
-      id: "turn-ownership",
-      title: "Only a turn's owner or capability holder can cancel, replay, retire or erase it",
-      threat: "One user or visitor cancels, reads the transcript of, or erases another user's agent turn.",
-      lookFor: [
-        "A cancel or journal access that skips the owner comparison, or treats a missing owner as matching any login.",
-        "A journal capability compared by string equality on the raw token rather than its hash, or returned to a retry.",
-        "A client-chosen runId or legId that collides with another user's registration and grants its state."
-      ],
-      paths: ["src/turns.ts", "src/DurableTurn.ts", "src/TurnJournal.ts", "src/TurnJournalClient.ts"]
-    },
-    {
-      id: "cross-origin-guard",
-      title: "State-changing and credential-spending routes refuse another site's requests",
-      threat: "A malicious page drives a signed-in user's browser to run flows, land changes or open a terminal with their cookie.",
-      lookFor: [
-        "An /api route or WebSocket upgrade dispatched before isCrossOriginRequest, or a route outside /api that spends a credential.",
-        "The terminal relay accepting an upgrade whose Origin differs from the app origin or that lacks a validated session."
-      ],
-      paths: ["src/index.ts", "src/terminalRelay.ts"]
-    },
-    {
-      id: "model-binding-pinning",
-      title: "A client model binding can never send a deployment key to a caller-chosen address",
-      threat: "A signed-in user exfiltrates CEREBRAS_API_KEY or AI_GATEWAY_API_KEY by naming their own baseUrl in a turn or model test.",
-      lookFor: [
-        "A planned binding whose URL is not compared to CEREBRAS_CHAT_COMPLETIONS_URL or JEV_EVALUATE_URL before a key is attached.",
-        "Model output or an error returned to the caller without cutModelCredential or with the key in the message."
-      ],
-      paths: ["src/configuredModel.ts", "src/modelProbe.ts", "src/modelVault.ts", "src/jev.ts", "src/recommend.ts", "src/cloudRoleTurn.ts"]
-    },
-    {
-      id: "browser-egress-ssrf",
-      title: "The browser-fetch tool cannot reach internal or metadata addresses",
-      threat: "A signed-in user or a prompt-injected agent reads internal services through the deployment's egress binding.",
-      lookFor: [
-        "handleBrowserFetch passing a URL to BrowserEgress without scheme, host and private-range checks in the egress service.",
-        "Egress failure messages that echo upstream bodies or internal addresses back to the caller."
-      ],
-      paths: ["src/proxies.ts", "src/Environment.ts"]
-    },
-    {
-      id: "upstream-leak",
-      title: "Upstream bodies, headers and secrets never reach the browser or a log",
-      threat: "A visitor reads service tokens, set-cookie headers, or another user's data from a reflected upstream answer or stored report.",
-      lookFor: [
-        "A forwarded response that keeps upstream set-cookie, CORS, or authorization headers, or caches a per-user answer.",
-        "A console line or client-error record that includes a token, cookie, Authorization header, or provider-connection body.",
-        "An auth error page that interpolates a query parameter without escapeHtml."
-      ],
-      paths: [
-        "src/proxies.ts",
-        "src/identity.ts",
-        "src/clientErrorLog.ts",
-        "src/clientErrorTelemetry.ts",
-        "src/publicRepositoryReads.ts",
-        "src/publicRepos.ts",
-        "src/githubApp.ts",
-        "src/Responses.ts"
-      ]
-    },
-    {
-      id: "auth-return-redirect",
-      title: "The OAuth legs redirect only to a same-origin page and forward no attacker state",
-      threat: "A crafted sign-in link sends a user who just authenticated to an attacker's site, or splits a response header on the callback.",
-      lookFor: [
-        "validReturnTo accepting a value that new URL resolves off-origin ('//', '/\\', encoded slashes, tab or newline).",
-        "The return_to cookie read without re-running validReturnTo, or set without HttpOnly, Secure and the /api/auth path.",
-        "returnToLocation copying query parameters from an upstream Location whose origin differs from the request origin."
-      ],
-      paths: ["src/identity.ts", "src/cloudSession.ts", "src/signedInSession.ts"]
-    },
-    {
-      id: "anonymous-public-reads",
-      title: "Anonymous public routes read only catalog repositories and never private metadata",
-      threat: "An anonymous caller uses the Worker's GitHub App token to learn about private repositories or poisons the shared edge cache.",
-      lookFor: [
-        "A /api/public route that fetches a repository not in AVAILABLE_REPOS, or builds the GitHub URL from unvalidated path text.",
-        "parseStats or the activity reader accepting a record whose private flag is not exactly false.",
-        "An edge-cache key derived from a request header or query instead of the catalog name, or a GitHub App token scope wider than metadata read."
-      ],
-      paths: ["src/publicRepos.ts", "src/publicRepoActivity.ts", "src/publicRepoCatalog.ts", "src/githubApp.ts"]
+      paths: ["src/retainedDurableObjects.ts", "src/RetiredDurableObject.ts"]
     },
     {
       id: "maintenance-export",
@@ -256,7 +126,7 @@ const securityReview = Smithers.SecurityReview({
         "An export path reachable when SMITHERS_EXPORT_TOKEN is unset or short, or compared without a fixed-size digest.",
         "Export plaintext kept, logged or returned unencrypted, or a cursor not bound to its source as AAD."
       ],
-      paths: ["src/MaintenanceExport.ts", "src/SealedSnapshot.ts", "src/MaintenanceFence.ts", "src/MaintenanceAdmission.ts"]
+      paths: ["src/MaintenanceExport.ts", "src/SealedSnapshot.ts"]
     },
     {
       id: "deploy-scripts",

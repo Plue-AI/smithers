@@ -2,7 +2,7 @@ import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import { runRequest } from "./Boundary"
-import { discardBody, fetchWithDeadline, TransportLive, transportFrom } from "./Http"
+import { DEFAULT_UPSTREAM_TIMEOUT_MS, discardBody, fetchWithDeadline, TransportLive, transportFrom } from "./Http"
 import type { Transport, TransportShape } from "./Http"
 import { catalogDocumentPath, comingSoonDocumentPath, DEFAULT_APP_DOCUMENT_PATH, isFramePath, isRepositoryPath } from "./appDocument"
 import { withIsolationHeaders } from "./Responses"
@@ -49,7 +49,7 @@ const proxy = (request: Request, url: URL, origin: string): Effect.Effect<Respon
   const forwarded = new Request(upstream, request)
   // The shared host owns authentication, CSRF, capabilities and errors. Do not
   // mint a bearer, interpret a body, follow OAuth redirects, or rebuild a 101.
-  return fetchWithDeadline("shared backend", forwarded, { headers }, 20_000).pipe(
+  return fetchWithDeadline("shared backend", forwarded, { headers }, DEFAULT_UPSTREAM_TIMEOUT_MS).pipe(
     Effect.catch(failure => Effect.succeed(refusal(failure._tag === "UpstreamTimeout" ? 504 : 502,
       failure._tag === "UpstreamTimeout" ? "upstream_timeout" : "upstream_unreachable")))
   )

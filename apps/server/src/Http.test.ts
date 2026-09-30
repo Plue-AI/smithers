@@ -3,18 +3,11 @@ import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Fiber from "effect/Fiber"
 import { BodyNotJson, BodyTooLarge, UpstreamTimeout, UpstreamUnreachable } from "./Failures"
-import { floodStream, FLOOD_CHUNK_BYTES } from "./floodStream"
-import {
-  fetchWithDeadline,
-  readBoundedBytes,
-  readBoundedJson,
-  readRefusalDetail,
-  readText,
-  REFUSAL_DETAIL_MAX_BYTES,
-  transportLayer,
-  TransportLive
-} from "./Http"
-import type { FetchInput } from "./Http"
+import * as Layer from "effect/Layer"
+import { fetchWithDeadline, readBoundedJson, Transport, transportFrom, TransportLive } from "./Http"
+
+type FetchInput = Request | string | URL
+const transportLayer = (impl: (input: FetchInput, init?: RequestInit) => Promise<Response>) => Layer.succeed(Transport, transportFrom(impl))
 
 const encoder = new TextEncoder()
 
@@ -29,12 +22,11 @@ const pendingStream = () => {
   return { stream, cancelled: () => cancelled }
 }
 
-describe("readBoundedBytes owns the body for the read's lifetime", () => {
+describe("readBoundedJson owns the body for the read's lifetime", () => {
   test("a finished body leaves the stream unlocked", async () => {
-    const response = new Response("hello")
+    const response = new Response("\"hello\"")
     const stream = response.body!
-    const bytes = await Effect.runPromise(readBoundedBytes(response, 100))
-    expect(new TextDecoder().decode(bytes)).toBe("hello")
+    expect(await Effect.runPromise(readBoundedJson(response, 100))).toBe("hello")
     expect(stream.locked).toBe(false)
   })
 
@@ -48,7 +40,7 @@ describe("readBoundedBytes owns the body for the read's lifetime", () => {
         cancelled = true
       }
     })
-    const exit = await Effect.runPromiseExit(readBoundedBytes(new Response(stream), 100))
+    const exit = await Effect.runPromiseExit(readBoundedJson(new Response(stream), 100))
     expect(Exit.isFailure(exit)).toBe(true)
     expect(Exit.isFailure(exit) && String(exit.cause)).toContain("BodyTooLarge")
     expect(cancelled).toBe(true)
@@ -58,26 +50,16 @@ describe("readBoundedBytes owns the body for the read's lifetime", () => {
   test("a declared content-length past the ceiling refuses before reading and discards the body", async () => {
     const { stream, cancelled } = pendingStream()
     const response = new Response(stream, { headers: { "content-length": "9999" } })
-    const exit = await Effect.runPromiseExit(readBoundedBytes(response, 100))
+    const exit = await Effect.runPromiseExit(readBoundedJson(response, 100))
     expect(Exit.isFailure(exit) && String(exit.cause)).toContain("BodyTooLarge")
     expect(cancelled()).toBe(true)
   })
 
   test("interrupting a pending read cancels the stream and unlocks it", async () => {
     const { stream, cancelled } = pendingStream()
-    const fiber = Effect.runFork(readBoundedBytes(new Response(stream), 100))
+    const fiber = Effect.runFork(readBoundedJson(new Response(stream), 100))
     await Bun.sleep(10)
     await Effect.runPromise(Fiber.interrupt(fiber))
-    expect(cancelled()).toBe(true)
-    expect(stream.locked).toBe(false)
-  })
-
-  test("an unbounded read of a body that stalls after its headers is cancelled on timeout", async () => {
-    const { stream, cancelled } = pendingStream()
-    const exit = await Effect.runPromiseExit(
-      readText(new Response(stream)).pipe(Effect.timeoutOrElse({ duration: 20, orElse: () => Effect.succeed("timed out") }))
-    )
-    expect(Exit.isSuccess(exit) && exit.value).toBe("timed out")
     expect(cancelled()).toBe(true)
     expect(stream.locked).toBe(false)
   })
@@ -87,30 +69,6 @@ describe("readBoundedBytes owns the body for the read's lifetime", () => {
     expect(Exit.isFailure(notJson) && String(notJson.cause)).toContain(BodyNotJson.name)
     const tooLarge = await Effect.runPromiseExit(readBoundedJson(new Response("x".repeat(101)), 100))
     expect(Exit.isFailure(tooLarge) && String(tooLarge.cause)).toContain(BodyTooLarge.name)
-  })
-})
-
-describe("readRefusalDetail reads an upstream refusal under a ceiling", () => {
-  test("a refusal body within the ceiling is its detail", async () => {
-    expect(await Effect.runPromise(readRefusalDetail(new Response("{\"message\":\"no\"}", { status: 500 })))).toBe("{\"message\":\"no\"}")
-  })
-
-  test("a refusal body past the ceiling is no detail: the read stops at the ceiling and cancels the stream", async () => {
-    const { stream, seen } = floodStream()
-    const detail = await Effect.runPromise(readRefusalDetail(new Response(stream, { status: 500 })))
-    expect(detail).toBe("")
-    expect(seen.cancelled).toBe(true)
-    expect(seen.pulled).toBeLessThanOrEqual(REFUSAL_DETAIL_MAX_BYTES + 2 * FLOOD_CHUNK_BYTES)
-    expect(stream.locked).toBe(false)
-  })
-
-  test("a refusal body that breaks off is no detail", async () => {
-    const stream = new ReadableStream<Uint8Array>({
-      start(controller) {
-        controller.error(new Error("connection reset"))
-      }
-    })
-    expect(await Effect.runPromise(readRefusalDetail(new Response(stream, { status: 502 })))).toBe("")
   })
 })
 

@@ -58,15 +58,3 @@ export class StorageFailure extends Data.TaggedError("StorageFailure")<{
     return this.cause instanceof Error ? this.cause.message : `${this.operation} failed`
   }
 }
-
-/** WebCrypto refused an operation (an unimportable key, an unsupported algorithm). */
-export class CryptoFailure extends Data.TaggedError("CryptoFailure")<{
-  readonly operation: string
-  readonly cause: unknown
-}> {}
-
-/** A seam whose configuration is absent on this deployment. */
-export class NotConfigured extends Data.TaggedError("NotConfigured")<{
-  readonly name: string
-  readonly detail: string
-}> {}

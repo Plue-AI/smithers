@@ -1,9 +1,9 @@
-import { compareStorageKeys, PAGE_BYTES, PAGE_ENTRIES, PAGE_RESPONSE_BYTES, CURSOR_BYTES, type SealedSnapshot, type SealedPage, type PageResponse, type SnapshotProvenance, type SnapshotFence } from "../../src/SealedSnapshot"
+import { compareStorageKeys, PAGE_BYTES, PAGE_ENTRIES, PAGE_RESPONSE_BYTES, CURSOR_BYTES, type SealedSnapshot, type SealedPage, type PageResponse, type SnapshotProvenance } from "../../src/SealedSnapshot"
 
 const bytes = (value: string) => Uint8Array.from(atob(value), char => char.charCodeAt(0))
 export interface SnapshotPayload {
   entries: Array<[string, unknown]>; alarm: number | null; migrationContext?: { keyVersion: "model-vault:v1"; modelVaultKey: string | null }
-  /** Raw rows of the reserved fenced-alarm table; never part of product `entries`. */
+  /** Raw rows of the reserved alarm-marker table (RetiredDurableObject.ts); never part of product `entries`. */
   cutoverAlarmMarkers?: string[]
 }
 const openEnvelope = async (sealed: SealedSnapshot | SealedPage, privateJwk: JsonWebKey): Promise<SnapshotPayload> => {
@@ -22,7 +22,7 @@ export const openSnapshot = async (sealed: SealedSnapshot, privateJwk: JsonWebKe
   if (sealed.metadata.version !== 1 || sealed.metadata.schema !== "smithers-do-storage/v1") throw new Error("Unsupported encrypted snapshot")
   return openEnvelope(sealed, privateJwk)
 }
-export type PageExpected = Pick<SnapshotProvenance, "migrationId" | "binding" | "objectId" | "sourceRevision" | "sourceVersion"> & { fence?: SnapshotFence }
+export type PageExpected = Pick<SnapshotProvenance, "migrationId" | "binding" | "objectId" | "sourceRevision" | "sourceVersion">
 const digest = async (text: string) => [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)))].map(b => b.toString(16).padStart(2, "0")).join("")
 const invalid = (reason: string): never => { throw new Error("SNAPSHOT_PAGE_" + reason) }
 const stable = (v: unknown): string => Array.isArray(v) ? `[${v.map(stable).join(",")}]` : v && typeof v === "object"
@@ -51,9 +51,7 @@ export class SnapshotPageChain {
       p.index !== this.pages || p.previousSHA256 !== this.previousSHA256 || p.entriesBefore !== this.entries ||
       !Number.isSafeInteger(p.entriesThrough) || p.entriesThrough < this.entries || typeof p.complete !== "boolean" ||
       this.scanId !== null && p.scanId !== this.scanId) invalid("CHAIN")
-    if (this.expected.fence ? p.consistency !== "object-writers-fenced" || stable(p.fence) !== stable(this.expected.fence)
-      : p.consistency !== "unfenced" || p.fence !== null) invalid("CONSISTENCY")
-    if (this.expected.fence && (this.expected.fence.executionID !== m.migrationId || this.expected.fence.sourceVersion !== m.sourceVersion)) invalid("FENCE")
+    if (p.consistency !== "unfenced") invalid("CONSISTENCY")
     if (p.complete ? r.cursor !== null : typeof r.cursor !== "string" || r.cursor.length < 1 || r.cursor.length > CURSOR_BYTES) invalid("CURSOR")
     const payload = await openEnvelope(s, this.privateJwk)
     if (payload.entries.length > PAGE_ENTRIES || (!p.complete && payload.entries.length === 0) || p.entriesThrough !== this.entries + payload.entries.length) invalid("COUNT")

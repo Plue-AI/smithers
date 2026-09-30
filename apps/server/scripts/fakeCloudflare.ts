@@ -1,31 +1,21 @@
 /**
- * Test double for the Cloudflare control-plane endpoints the installer uses.
- * Versions are immutable; secret VALUES live only inside the fake and are never
- * returned by any GET, matching the provider. Like the provider (observed live
- * 2026-09-24), script-level /settings and /content/v2 describe the NEWEST UPLOAD,
- * not the deployed version; only /versions/{id} describes one exact version.
+ * Test double for the Cloudflare control-plane endpoints the deploy interlock
+ * and the sealed-inventory CLI (cutover/deploy.ts) read and write, serving the
+ * one web Worker. Versions are immutable; secret VALUES live only inside the
+ * fake and are never returned by any GET, matching the provider. Like the
+ * provider (observed live 2026-09-24), script-level /settings and /content/v2
+ * describe the NEWEST UPLOAD, not the deployed version; only /versions/{id}
+ * describes one exact version.
  */
 import { createHash, randomUUID } from "node:crypto"
 import { writeFileSync } from "node:fs"
 import { join } from "node:path"
-import { accountURL } from "./cloudflare"
-import { CLOUDFLARE_PRODUCERS } from "./fence"
+import { WORKER_IDENTITY } from "../src/workerIdentity"
+import { accountURL } from "./cutover/cloudflare"
 
 export interface FakeModule { name: string; type: string; bytes: Uint8Array }
 export interface FakeVersion { id: string; entry: string; modules: FakeModule[]; bindings: Array<Record<string, unknown>>; secrets: Record<string, string>; settings: Record<string, unknown>; message: string }
 export interface FakeWorker { versions: Map<string, FakeVersion>; live: string; latest: string; deployments: Array<{ id: string; created_on: string; versions: Array<{ version_id: string; percentage: number }> }>; subdomain: { enabled: boolean; previews_enabled: boolean }; routes: string[]; domains: string[]; schedules: string[] }
-export const DURABLE: Record<string, Array<[string, string]>> = {
-  "smithers-mvp-web": [["TURN_CANCELS", "TurnCancelRegistry"], ["GATEWAY_SESSIONS", "GatewaySessionRegistry"]],
-  "smithers-cloud-identity": [["IDENTITY", "IdentityDurableObject"]], "smithers-cloud-billing": [["ACCOUNTS", "AccountDurableObject"]],
-  "smithers-cloud-chat": [["CHAT_HISTORY", "ChatHistory"], ["PUSH_SUBSCRIPTIONS", "PushSubscriptions"]], "smithers-cloud-chat-canary": [["CHAT_HISTORY", "ChatHistory"], ["PUSH_SUBSCRIPTIONS", "PushSubscriptions"]],
-  "smithers-cloud-sync": [["BRANCH_SYNC", "BranchSyncDurableObject"]], "smithers-cloud-webhooks": [["HOOKS", "WebhookHook"], ["OWNERS", "WebhookOwnerBudget"]], "smithers-cloud-reco": [["RECO", "RecoDurableObject"]],
-  "smithers-flows-flows": [["GUARDIAN_STORE", "GuardianStore"]], "smithers-multi-williamcory": [["GUARDIAN_STORE", "GuardianStore"]], "smithers-canary-canary": [["GUARDIAN_STORE", "GuardianStore"]],
-  "smithers-code-prod": [["GUARDIAN_STORE", "GuardianStore"]], "plue-ts": [["REPO_DO", "RepoDO"]]
-}
-export const legacySource = (worker: string, extra = "") => `import { DurableObject } from "cloudflare:workers";
-${(DURABLE[worker] ?? []).map(([, c]) => `export class ${c} extends DurableObject { async fetch() { await this.ctx.storage.put("legacy_write", true); return new Response("legacy"); } }`).join("\n")}
-${extra}
-export default { async fetch() { return new Response("legacy ${worker}"); } };`
 const utf8 = (s: string) => new TextEncoder().encode(s)
 
 export class FakeCloudflare {
@@ -34,42 +24,23 @@ export class FakeCloudflare {
   readonly mutations: string[] = []
   failPut = new Set<string>(); losePutResponse = new Set<string>()
   private realFetch = globalThis.fetch
-  constructor(sources: Record<string, string> = {}, kvBacked: string[] = []) {
-    let n = 0
-    for (const worker of CLOUDFLARE_PRODUCERS) {
-      const bindings: Array<Record<string, unknown>> = [{ type: "plain_text", name: "SMITHERS_CLOUD_API_BASE_URL", text: "https://api.jjhub.tech" }]
-      for (const [binding, className] of DURABLE[worker] ?? []) {
-        const id = (++n).toString(16).padStart(32, "0")
-        bindings.push({ type: "durable_object_namespace", name: binding, class_name: className, namespace_id: id })
-        this.namespaces.push({ id, script: worker, class: className, use_sqlite: !kvBacked.includes(className) })
-      }
-      if (worker === "smithers-cloud-billing") bindings.push({ type: "kv_namespace", name: "BILLING", namespace_id: "kv".padEnd(32, "0") })
-      const flows = worker === "smithers-flows-flows", entry = flows ? "worker.js" : "index.js"
-      const modules: FakeModule[] = [{ name: entry, type: "text/javascript", bytes: utf8(sources[worker] ?? legacySource(worker)) }, ...flows ? [{ name: "worker.js.map", type: "application/json", bytes: utf8("{}") }] : []]
-      const version: FakeVersion = { id: randomUUID(), entry, modules, bindings, secrets: { API_SECRET: `secret-value-${worker}` }, message: `original ${worker}`,
-        settings: { compatibility_date: "2026-08-01", compatibility_flags: [], placement: {}, tags: [], tail_consumers: [], logpush: false, usage_model: "standard", observability: { enabled: true } } }
-      const previews = ["smithers-cloud-identity", "smithers-cloud-chat-canary", "smithers-cloud-cron", "smithers-cloud-reco", "plue-ts"].includes(worker)
-      this.workers.set(worker, { versions: new Map([[version.id, version]]), live: version.id, latest: version.id, deployments: [{ id: randomUUID(), created_on: new Date(Date.now() - 86_400_000).toISOString(), versions: [{ version_id: version.id, percentage: 100 }] }],
-        subdomain: { enabled: !["smithers-mvp-web", "smithers-cloud-billing", "smithers-cloud-chat", "smithers-cloud-sync", "smithers-cloud-webhooks"].includes(worker), previews_enabled: previews }, routes: worker === "smithers-cloud-sync" ? ["sync.smithers.sh/*"] : worker === "smithers-cloud-webhooks" ? ["webhooks.smithers.sh/*"] : [], domains: ["smithers-mvp-web", "smithers-cloud-billing", "smithers-cloud-chat"].includes(worker) ? [`${worker}.smithers.sh`] : [], schedules: worker === "smithers-cloud-cron" ? ["* * * * *"] : [] })
-    }
+  constructor() {
+    const worker = WORKER_IDENTITY.name
+    const bindings: Array<Record<string, unknown>> = [{ type: "plain_text", name: "SMITHERS_BACKEND_ORIGIN", text: "https://api.jjhub.tech" }]
+    WORKER_IDENTITY.durableObjects.forEach(({ binding, className }, index) => {
+      const id = (index + 1).toString(16).padStart(32, "0")
+      bindings.push({ type: "durable_object_namespace", name: binding, class_name: className, namespace_id: id })
+      this.namespaces.push({ id, script: worker, class: className, use_sqlite: true })
+    })
+    const source = `${WORKER_IDENTITY.durableObjects.map(({ className }) => `export class ${className} {}`).join("\n")}\nexport default { fetch() { return new Response("legacy") } }`
+    // Live as the legacy Worker was before the edge activation; a test makes any other version live with setLive.
+    const version: FakeVersion = { id: randomUUID(), entry: "index.js", modules: [{ name: "index.js", type: "text/javascript", bytes: utf8(source) }], bindings,
+      secrets: { API_SECRET: `secret-value-${worker}` }, message: `original ${worker}`,
+      settings: { compatibility_date: "2026-08-01", compatibility_flags: [], placement: {}, tags: [], tail_consumers: [], logpush: false, usage_model: "standard", observability: { enabled: true } } }
+    this.workers.set(worker, { versions: new Map([[version.id, version]]), live: version.id, latest: version.id, deployments: [{ id: randomUUID(), created_on: new Date(Date.now() - 86_400_000).toISOString(), versions: [{ version_id: version.id, percentage: 100 }] }],
+      subdomain: { enabled: false, previews_enabled: false }, routes: [], domains: [`${worker}.smithers.sh`], schedules: [] })
   }
-  /** An isolated scratch Worker carrying every binding type the production authorities use. */
-  addRehearsal(worker: string) {
-    const id = "e".repeat(32)
-    this.namespaces.push({ id, script: worker, class: "TurnCancelRegistry", use_sqlite: true })
-    const bindings: Array<Record<string, unknown>> = [
-      { type: "durable_object_namespace", name: "TURN_CANCELS", class_name: "TurnCancelRegistry", namespace_id: id },
-      { type: "d1", name: "DB", id: "d1d1d1d1-0000-4000-8000-000000000001" }, { type: "r2_bucket", name: "BUCKET", bucket_name: `${worker}-bucket` },
-      { type: "kv_namespace", name: "KV", namespace_id: "f".repeat(32) }, { type: "queue", name: "QUEUE", queue_name: `${worker}-queue` },
-      { type: "ratelimit", name: "LIMITER", namespace_id: "1001", simple: { limit: 10, period: 60 } }, { type: "assets", name: "ASSETS" },
-      { type: "plain_text", name: "MODE", text: "rehearsal" }]
-    const version: FakeVersion = { id: randomUUID(), entry: "index.js", modules: [{ name: "index.js", type: "text/javascript", bytes: utf8(`import { DurableObject } from "cloudflare:workers";\nexport class TurnCancelRegistry extends DurableObject {}\nexport default { fetch() { return new Response("scratch"); } };`) }],
-      bindings, secrets: { REHEARSAL_SECRET: "rehearsal-secret-value" }, message: "rehearsal original", settings: { compatibility_date: "2026-08-01", compatibility_flags: [], placement: {}, tags: [], tail_consumers: [], logpush: false, usage_model: "standard" } }
-    this.workers.set(worker, { versions: new Map([[version.id, version]]), live: version.id, latest: version.id, deployments: [{ id: randomUUID(), created_on: new Date().toISOString(), versions: [{ version_id: version.id, percentage: 100 }] }],
-      subdomain: { enabled: true, previews_enabled: true }, routes: [], domains: [], schedules: [] })
-    return this
-  }
-  /** Makes a crafted version live, e.g. an installer fence or a shared-edge bundle, for interlock tests. */
+  /** Makes a crafted version live, e.g. a maintenance export or a legacy bundle, for interlock tests. */
   setLive(worker: string, entry: string, message: string | null, extraModules: string[] = []) {
     const w = this.workers.get(worker)!, current = this.live(worker)
     const version: FakeVersion = { ...current, id: randomUUID(), entry, message: message ?? "",

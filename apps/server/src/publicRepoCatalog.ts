@@ -44,15 +44,6 @@ export const COMING_SOON_REPOS = [
   { name: "withastro/starlight", title: "Starlight", url: "https://github.com/withastro/starlight" }
 ] as const
 
-/**
- * Resolves a catalog repository name to its Smithers Cloud mirror path.
- * GitHub names are case-insensitive. A name outside the catalog has no mirror.
- */
-export const cloudRepoFor = (name: string): string | undefined => {
-  const lower = name.toLowerCase()
-  return AVAILABLE_REPOS.find((repo) => repo.name.toLowerCase() === lower)?.cloudRepo
-}
-
 export interface PublicRepoStats {
   readonly stars: number
   readonly forks: number

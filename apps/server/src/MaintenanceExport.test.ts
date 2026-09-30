@@ -2,7 +2,7 @@ import { beforeAll, expect, test } from "bun:test"
 import { Effect } from "effect"
 import { memoryStorage } from "./DurableStorage"
 import { encodeStored, sealSnapshot, type SealedSnapshot } from "./SealedSnapshot"
-import { AccountModelVault } from "./modelVault"
+import { AccountModelVault } from "./retainedDurableObjects"
 import { EXPORT_PATH, maintenanceExport, withSealedExport, type MaintenanceEnv } from "./MaintenanceExport"
 import { decodeStored, openSnapshot } from "../scripts/cutover/sealed"
 
@@ -30,7 +30,7 @@ test("ciphertext round-trip preserves storage types and authenticates metadata",
   await expect(openSnapshot({ ...sealed, metadata: { ...metadata, objectId: "b".repeat(64) } }, privateJwk)).rejects.toThrow()
 })
 
-test("real vault contract and retained storage remain unchanged after a sealed gated snapshot", async () => {
+test("the retained vault owner and its storage remain unchanged after a sealed gated snapshot", async () => {
   const original = { version: 1, login: "alice", entries: [], receipts: [] }
   const storage = memoryStorage({ "model-vault:v1": original })
   let locks = 0
@@ -39,7 +39,7 @@ test("real vault contract and retained storage remain unchanged after a sealed g
   const Wrapped = withSealedExport(AccountModelVault, "MODEL_VAULTS")
   const object = new Wrapped(ctx as ConstructorParameters<typeof Wrapped>[0], env() as MaintenanceEnv)
   const productRead = () => new Request("https://vault.internal/vault", { method: "POST", body: JSON.stringify({ op: "read", login: "alice" }) })
-  const before = await new AccountModelVault({ storage }).fetch(productRead())
+  const before = await new AccountModelVault().fetch()
   const beforeStatus = before.status, beforeBody = await before.text()
   const refused = await object.fetch(request("Bearer wrong"))
   expect(refused.status).toBe(404)
@@ -58,6 +58,7 @@ test("real vault contract and retained storage remain unchanged after a sealed g
   expect(second.wrappedKey).not.toBe(sealed.wrappedKey)
   expect(locks).toBe(3)
   const after = await object.fetch(productRead())
+  expect(beforeStatus).toBe(410)
   expect(after.status).toBe(beforeStatus)
   expect(await after.text()).toBe(beforeBody)
 })
