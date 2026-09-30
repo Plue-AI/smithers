@@ -269,11 +269,21 @@ export function PromptInput({
   const onErrorRef = useRef(onError);
   onErrorRef.current = onError;
 
-  const cleanupObjectUrls = useCallback(() => {
-    if (canCreateObjectUrl()) {
-      for (const objectUrl of objectUrlsRef.current.values()) URL.revokeObjectURL(objectUrl);
+  /**
+   * Attachment ids handed to a submission that has not settled, with how many
+   * such submissions hold each. Their URLs are borrowed for the whole handler,
+   * so removal or clearing defers the revoke until the last holder settles.
+   */
+  const leasedIdsRef = useRef<Map<string, number>>(new Map());
+
+  /** Revoke everything (unmount) or, with `keepLeased`, all but pending leases. */
+  const cleanupObjectUrls = useCallback((keepLeased = false) => {
+    const revocable = canCreateObjectUrl();
+    for (const [id, objectUrl] of [...objectUrlsRef.current]) {
+      if (keepLeased && leasedIdsRef.current.has(id)) continue;
+      if (revocable) URL.revokeObjectURL(objectUrl);
+      objectUrlsRef.current.delete(id);
     }
-    objectUrlsRef.current.clear();
   }, []);
 
   /**
@@ -375,8 +385,8 @@ export function PromptInput({
   const removeAttachment = useCallback((id: string) => {
     const target = attachmentsRef.current.find((item) => item.id === id);
     const objectUrl = objectUrlsRef.current.get(id);
-    if (objectUrl && canCreateObjectUrl()) {
-      URL.revokeObjectURL(objectUrl);
+    if (objectUrl && !leasedIdsRef.current.has(id)) {
+      if (canCreateObjectUrl()) URL.revokeObjectURL(objectUrl);
       objectUrlsRef.current.delete(id);
     }
     const next = attachmentsRef.current.filter((item) => item.id !== id);
@@ -386,7 +396,7 @@ export function PromptInput({
   }, []);
 
   const clearAttachments = useCallback(() => {
-    cleanupObjectUrls();
+    cleanupObjectUrls(true);
     attachmentsRef.current = [];
     setAttachmentsRef.current([]);
   }, [cleanupObjectUrls]);
@@ -437,12 +447,34 @@ export function PromptInput({
         cause,
       });
     };
+    const leased = leasedIdsRef.current;
+    for (const id of submittedIds) leased.set(id, (leased.get(id) ?? 0) + 1);
+    /**
+     * End this submission's borrow. A URL whose attachment was removed while
+     * the handler ran is revoked now, once no other submission holds it.
+     */
+    const releaseLeases = (): void => {
+      for (const id of submittedIds) {
+        const holders = (leased.get(id) ?? 1) - 1;
+        if (holders > 0) {
+          leased.set(id, holders);
+          continue;
+        }
+        leased.delete(id);
+        if (attachmentsRef.current.some((item) => item.id === id)) continue;
+        const objectUrl = objectUrlsRef.current.get(id);
+        if (objectUrl === undefined) continue;
+        if (canCreateObjectUrl()) URL.revokeObjectURL(objectUrl);
+        objectUrlsRef.current.delete(id);
+      }
+    };
     let result: ReturnType<typeof onSubmit>;
     let thenable: boolean;
     try {
       result = onSubmit({ text: value, attachments: submitted }, event);
       thenable = typeof (result as PromiseLike<void> | undefined)?.then === "function";
     } catch (cause) {
+      releaseLeases();
       reportFailure(cause);
       return;
     }
@@ -467,11 +499,21 @@ export function PromptInput({
     // attachments it was handed are only readable while those URLs live.
     if (!thenable) {
       accept();
+      releaseLeases();
       return;
     }
     // Promise.resolve adopts the thenable; a `then` getter or method that
     // throws becomes a rejection here, never an escaped exception.
-    void Promise.resolve(result).then(accept, reportFailure);
+    void Promise.resolve(result).then(
+      () => {
+        accept();
+        releaseLeases();
+      },
+      (cause: unknown) => {
+        releaseLeases();
+        reportFailure(cause);
+      },
+    );
   };
 
   const contextValue = useMemo<PromptInputContextValue>(

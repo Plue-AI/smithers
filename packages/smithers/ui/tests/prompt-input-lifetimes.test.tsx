@@ -254,6 +254,113 @@ describe("an async onSubmit borrows attachments for its whole lifetime", () => {
   });
 });
 
+describe("removing an attachment while a submission is pending", () => {
+  type Hook = ReturnType<typeof usePromptInputAttachments>;
+
+  async function pendingSubmission(
+    revoked: string[],
+    settle: { current?: (outcome: "resolve" | "reject") => void },
+    files: File[],
+  ): Promise<() => Hook> {
+    let hook!: Hook;
+    function Harness() {
+      hook = usePromptInputAttachments();
+      return <PromptInputTextarea />;
+    }
+    await render(
+      <PromptInput
+        defaultValue="draft"
+        multiple
+        onSubmit={() =>
+          new Promise<void>((resolve, reject) => {
+            settle.current = (outcome) => (outcome === "resolve" ? resolve() : reject(new Error("boom")));
+          })
+        }
+        onError={() => {}}
+      >
+        <Harness />
+      </PromptInput>,
+    );
+    await act(async () => hook.add(files));
+    await act(async () => pressEnter(textarea()));
+    expect(revoked).toEqual([]);
+    return () => hook;
+  }
+
+  test.each(["resolve", "reject"] as const)("removal defers the revoke until the handler %ss", async (outcome) => {
+    await withObjectUrls(async ({ revoked }) => {
+      const settle: { current?: (outcome: "resolve" | "reject") => void } = {};
+      const hook = await pendingSubmission(revoked, settle, [makeFile("a.png", "image/png"), makeFile("b.png", "image/png")]);
+
+      const [first] = hook().attachments;
+      await act(async () => hook().remove(first!.id));
+      expect(hook().attachments.map((item) => item.name)).toEqual(["b.png"]);
+      expect(revoked).toEqual([]);
+
+      await act(async () => {
+        settle.current!(outcome);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      // Resolve accepts the whole submission; reject keeps the surviving draft
+      // attachment alive and revokes only the one the user removed.
+      expect(revoked).toEqual(outcome === "resolve" ? ["blob:lifetime-0", "blob:lifetime-1"] : ["blob:lifetime-0"]);
+    });
+  });
+
+  test("clearing the draft defers the revoke until the handler settles", async () => {
+    await withObjectUrls(async ({ revoked }) => {
+      const settle: { current?: (outcome: "resolve" | "reject") => void } = {};
+      const hook = await pendingSubmission(revoked, settle, [makeFile("a.png", "image/png")]);
+
+      await act(async () => hook().clear());
+      expect(hook().attachments).toEqual([]);
+      expect(revoked).toEqual([]);
+
+      await act(async () => {
+        settle.current!("resolve");
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(revoked).toEqual(["blob:lifetime-0"]);
+    });
+  });
+
+  test("unmounting revokes even a leased URL", async () => {
+    await withObjectUrls(async ({ revoked }) => {
+      const settle: { current?: (outcome: "resolve" | "reject") => void } = {};
+      await pendingSubmission(revoked, settle, [makeFile("a.png", "image/png")]);
+      const mounted = root!;
+      root = undefined;
+      await act(async () => mounted.unmount());
+      expect(revoked).toEqual(["blob:lifetime-0"]);
+      await act(async () => {
+        settle.current!("resolve");
+        await Promise.resolve();
+      });
+      expect(revoked).toEqual(["blob:lifetime-0"]);
+    });
+  });
+
+  test("with no submission pending, removal revokes immediately", async () => {
+    await withObjectUrls(async ({ revoked }) => {
+      let hook!: Hook;
+      function Harness() {
+        hook = usePromptInputAttachments();
+        return <PromptInputTextarea />;
+      }
+      await render(
+        <PromptInput onSubmit={() => {}}>
+          <Harness />
+        </PromptInput>,
+      );
+      await act(async () => hook.add([makeFile("a.png", "image/png")]));
+      await act(async () => hook.remove(hook.attachments[0]!.id));
+      expect(revoked).toEqual(["blob:lifetime-0"]);
+    });
+  });
+});
+
 describe("disabled and multiple bind every intake path, not just the picker", () => {
   test("a disabled prompt refuses files from the hook and reports the code", async () => {
     const errors: PromptInputError[] = [];

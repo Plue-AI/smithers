@@ -294,8 +294,10 @@ What that means in practice, from `src/prompt/PromptInput.tsx`:
 - A rejected `onSubmit` revokes nothing and clears nothing. The draft, its
   attachments, and their URLs survive, and the rejection is reported as
   `submit-failed`.
-- Removing one attachment revokes that attachment's URL immediately.
-  `clearAttachments` and unmounting revoke every URL the component still holds.
+- Removing one attachment revokes that attachment's URL immediately, unless a
+  pending `onSubmit` was handed it: the revoke then waits until that handler
+  settles. `clearAttachments` follows the same rule; unmounting revokes every
+  URL the component still holds.
 - Anything a consumer needs after the handler settles must be copied from the
   attachment's `file`, which the component does not own, not from `url`. Uploads
   read the `File`; a preview that has to outlive the prompt calls
