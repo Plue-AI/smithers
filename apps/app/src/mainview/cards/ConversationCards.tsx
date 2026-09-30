@@ -125,7 +125,7 @@ export const WorldCardBody = ({
   const controller = useContext(ControllerContext)
   if (card.payload.documents.length === 0) {
     return <div className="world-card-empty"><p>{card.payload.index && card.payload.index.page > 1 ? "No Wiki pages in this view." : "No Wiki yet."}</p>{card.payload.index !== undefined && card.payload.index.page > 1 ?
-      <Button size="sm"  {...flowAction(onRunCommand, "wiki.cloud", flowArgs("wiki.cloud", { repo: card.payload.index!.repo, page: card.payload.index!.page - 1 }))}>Previous page</Button> :
+      <Button size="sm"  {...flowAction(onRunCommand, "wiki.cloud", flowArgs("wiki.cloud", { repo: card.payload.index!.repo, page: card.payload.index!.page - 1, space: card.payload.index!.space ?? "public" }))}>Previous page</Button> :
       <Button size="sm"  {...flowAction(onRunCommand, "wiki.create", card.payload.index?.repo ?? (controller ? activeRepositoryId(controller.store) ?? undefined : undefined))}>Create Wiki</Button>}</div>
   }
   const documents = card.payload.documents.map((entry) => ({ entry, document: worldDocuments.find((document) =>
@@ -159,8 +159,8 @@ export const WorldCardBody = ({
               if (row !== undefined) onRunCommand("wiki.card.select", flowArgs("wiki.card.select", { cardId: card.id, documentId: row.document?.id ?? row.entry.id ?? row.entry.path }))
             }} />}
         {card.payload.index === undefined ? null : <div className="wiki-card-pages">
-          {card.payload.index.page <= 1 ? null : <Button size="sm" variant="ghost"  {...flowAction(onRunCommand, "wiki.cloud", flowArgs("wiki.cloud", { repo: card.payload.index!.repo, page: card.payload.index!.page - 1 }))}>Previous page</Button>}
-          {card.payload.index.hasNext ? <Button size="sm" variant="ghost"  {...flowAction(onRunCommand, "wiki.cloud", flowArgs("wiki.cloud", { repo: card.payload.index!.repo, page: card.payload.index!.page + 1 }))}>Next page</Button> : null}
+          {card.payload.index.page <= 1 ? null : <Button size="sm" variant="ghost"  {...flowAction(onRunCommand, "wiki.cloud", flowArgs("wiki.cloud", { repo: card.payload.index!.repo, page: card.payload.index!.page - 1, space: card.payload.index!.space ?? "public" }))}>Previous page</Button>}
+          {card.payload.index.hasNext ? <Button size="sm" variant="ghost"  {...flowAction(onRunCommand, "wiki.cloud", flowArgs("wiki.cloud", { repo: card.payload.index!.repo, page: card.payload.index!.page + 1, space: card.payload.index!.space ?? "public" }))}>Next page</Button> : null}
         </div>}
       </aside>
       <div className="world-card-doc">
