@@ -216,8 +216,9 @@ run the control plane launched records its launcher; one the engine created
 reader that `ControlRpcs.RunVisibility` does not make an operator to the runs
 its own principal launched: `List` sets `ListInput.reader` and `Watch` sets
 `WatchInput.reader`, neither of which is on the wire. Such a reader lists and
-watches only those runs, sees only the fires that started them, receives
-nothing from a plan partition, and gets `RunNotFound` for any other run.
+watches only those runs, sees only the fires that started them and no
+triggers, receives nothing from a plan partition, and gets `RunNotFound` for
+any other run. A lost-tail watch failure reaches it without partition names.
 
 The `triggers` and `fires` variants are answered through the `DispatchReader`
 port. A host without one refuses both with `InvalidInput` whose issue is

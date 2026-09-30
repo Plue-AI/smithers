@@ -1049,6 +1049,9 @@ export const layer: Layer.Layer<
         }
 
         if (request._tag === "triggers") {
+          // A trigger's input and active run belong to whoever configured it;
+          // like a plan, it is an operator's to read.
+          if (request.reader !== undefined) return { _tag: "triggers", items: [] }
           let triggers: ReadonlyArray<TriggerSummary> = yield* dispatch.list(request)
           if (request.filters?.triggerId !== undefined) {
             triggers = triggers.filter((trigger) => trigger.triggerId === request.filters?.triggerId)
@@ -1506,6 +1509,14 @@ export const layer: Layer.Layer<
       }
       const decided = new Map<string, boolean>()
       return watchAll(unrestricted).pipe(
+        // A lost-tail failure names the partition and sequence it missed,
+        // which may be another principal's; a restricted reader learns only
+        // that its stream ended incomplete.
+        Stream.mapError((error) =>
+          error._tag === "/control/PersistenceError"
+            ? new PersistenceError({ operation: "watch", message: "the watch lost journal entries and ended" })
+            : error
+        ),
         Stream.filterEffect((event) => {
           const partition = event.runId
           if (partition === undefined) return Effect.succeed(false)

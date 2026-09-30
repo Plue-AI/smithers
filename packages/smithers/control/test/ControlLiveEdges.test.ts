@@ -222,7 +222,8 @@ describe("ControlLive listings", () => {
         exact: yield* ids({ _tag: "runs", filters: { runId, principalId: "nobody" } }),
         reader: yield* ids({ _tag: "runs", reader }),
         otherKind: yield* ids({ _tag: "runs", reader: { ...reader, kind: "user" } }),
-        borrowed: yield* ids({ _tag: "runs", reader: { ...reader, id: "other" }, filters: { principalId: "memory" } })
+        borrowed: yield* ids({ _tag: "runs", reader: { ...reader, id: "other" }, filters: { principalId: "memory" } }),
+        triggers: yield* Effect.map(control.list({ _tag: "triggers", reader }), (page) => page.items)
       }
     }))
 
@@ -232,6 +233,7 @@ describe("ControlLive listings", () => {
     expect(observed.reader).toEqual([observed.runId])
     expect(observed.otherKind).toEqual([])
     expect(observed.borrowed).toEqual([])
+    expect(observed.triggers).toEqual([])
   })
 
   it("leaves the steering count absent when the queue cannot answer", async () => {

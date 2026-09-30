@@ -124,8 +124,9 @@ incorrect credential all fail closed with the same `Unauthorized` response.
 Every run the control plane launches records the principal that launched it as
 `RunSummary.launchedBy`. `List` and `Watch` answer an operator with every run
 and every other principal with only the runs it launched: its own run
-summaries, the fires that started them, and their events. A plan's events and
-a run the engine created (a child, a fork, a later round) reach operators only.
+summaries, the fires that started them, and their events. Triggers, a plan's
+events and a run the engine created (a child, a fork, a later round) reach
+operators only.
 Another principal's run answers `RunNotFound`, exactly as a missing one does.
 
 The authentication layer names the operators, because it knows which
