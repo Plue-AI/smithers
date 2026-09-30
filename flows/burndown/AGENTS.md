@@ -36,3 +36,15 @@ prerequisites stay open with concrete issue-backed remaining requirements.
 Missing or contradictory evidence never completes. Persist acceptance before
 push and the confirmed push before issue writes. Receipt failures retain original
 READY work for receipt replay, never a new coding repair or duplicate push.
+
+The dashboard requires an explicit watched run and report directory. Read selected
+engine ancestry and lineage through read-only SQLite; never reconcile stores or
+select a newest run. Report/log evidence requires a matching canonical host/run
+scope receipt. Missing, stale, corrupt or foreign evidence stays unknown; port
+collisions fail and never adopt another dashboard.
+Dashboard snapshots use a short read-only SQLite transaction over the selected
+lineage and close it after each read, including WAL-mode stores. Never write
+logical engine/control data, reconcile through the CLI, checkpoint or change
+journal mode. Normal SQLite shared-memory and read-lock coordination is allowed;
+never use immutable reads or unlocked database/WAL copies for changing stores.
+Busy, corrupt and missing evidence remains visibly unknown.
