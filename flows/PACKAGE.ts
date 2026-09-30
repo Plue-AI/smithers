@@ -186,6 +186,8 @@ const bun = Smithers.Runtime.Bun({ version: ">=1.4.0" })
 const burndown = Smithers.NodeTest({
   runtime: node,
   runner: Smithers.testRunner([
+    Smithers.file("//flows/burndown/test/acceptance-program.test.ts"),
+    Smithers.file("//flows/burndown/test/acceptance.test.ts"),
     Smithers.file("//flows/burndown/test/accounts.test.ts"),
     Smithers.file("//flows/burndown/test/brief.test.ts"),
     Smithers.file("//flows/burndown/test/cloud-export.test.ts"),
