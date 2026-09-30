@@ -288,6 +288,12 @@ describe("ci conformance", () => {
     // delegates to the server workspace. Both are operator aliases, outside
     // the recursive check/test/lint fan-out pinned here.
     //
+    // `docs:check` opens with the backend price generator's `-check` (#2462,
+    // 8d308dcf21): the public model price sheet in apps/site is generated from
+    // packages/backend/modelprice, so the documentation drift gate needs Go.
+    // The Drift job's ubuntu-latest image provides `go`, and go.mod's
+    // `go 1.26.8` line makes it fetch that release.
+    //
     // `release:*` are operator entry points into the `flows` workspace's
     // release-support program (release.yml and release-auth.yml call the same
     // module). They run nothing in CI's package-graph gates and fan nothing
@@ -305,7 +311,7 @@ describe("ci conformance", () => {
       "deploy:dry": "pnpm --filter smithers-server run deploy:dry",
       "docs:build": "pnpm --filter \"@smithers/docs-*\" --filter \"!@smithers/docs-shared\" -r run build",
       "docs:check":
-        "node apps/docs/shared/check-llms.mjs && node apps/docs/shared/gen-sites.mjs --check && node apps/docs/shared/sync-content.mjs --all --check",
+        "go run ./packages/backend/modelprice/cmd/generate -check && node apps/docs/shared/check-llms.mjs && node apps/docs/shared/gen-sites.mjs --check && node apps/docs/shared/sync-content.mjs --all --check",
       "docs:deploy": "pnpm --filter \"@smithers/docs-*\" --filter \"!@smithers/docs-shared\" -r run deploy",
       "docs:sync": "node apps/docs/shared/sync-content.mjs --all",
       dev: "pnpm --filter smithers-app run start",
