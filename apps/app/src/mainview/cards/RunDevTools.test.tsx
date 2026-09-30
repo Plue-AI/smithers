@@ -145,7 +145,10 @@ describe("the DevTools view", () => {
     expect(inspect.querySelector("[data-testid='run-trace-failure']")?.textContent).toContain("This call failed. Not your fault.")
     expect(inspect.querySelector("[aria-label='Output']")).toBeNull()
     expect([...inspect.querySelectorAll("[data-frame]")].map((frame) => frame.getAttribute("data-frame"))).toEqual(["5", "6"])
-    expect(inspect.querySelector("[data-frame='6'] .run-devtools-payload")?.textContent).toContain("\"outcome\":\"failure\"")
+    expect(inspect.querySelector("[data-frame='6'] summary .run-devtools-payload")?.textContent).toContain("\"outcome\":\"failure\"")
+    // The whole record is one Enter away, in a focusable block, never only a hover title.
+    expect(inspect.querySelector("[data-frame='6'] pre[aria-label='Frame 6']")?.textContent).toBe(JSON.stringify(JOURNAL[5]!.payload, null, 2))
+    expect(inspect.querySelector("[data-frame='6'] pre")?.getAttribute("tabindex")).toBe("0")
     const read = renderTrace({ selection: "call-1", liveTail: false })
     const pane = read.host.querySelector("[data-testid='run-devtools-inspect-run-1']")!
     expect(pane.querySelector("[aria-label='Output']")?.textContent).toBe("# Smithers")

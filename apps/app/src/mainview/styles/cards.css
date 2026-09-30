@@ -2066,7 +2066,10 @@
 	font-size: var(--fs-small);
 	line-height: 1.5;
 }
-.run-devtools-frame { display: grid; grid-template-columns: auto auto auto minmax(0, 1fr); gap: var(--sp-2); align-items: baseline; }
+.run-devtools-frame > summary { display: grid; grid-template-columns: auto auto auto minmax(0, 1fr); gap: var(--sp-2); align-items: baseline; cursor: pointer; }
+.run-devtools-frame > summary::-webkit-details-marker { display: none; }
+.run-devtools-frame > summary:focus-visible { outline: 2px solid var(--ring-border); outline-offset: -2px; }
+.run-devtools-frame[open] > .run-trace-code { margin: 0.25rem 0 var(--sp-2); }
 .run-devtools-seq, .run-devtools-at { color: var(--text-muted); }
 .run-devtools-payload { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .run-trace-block { display: flex; flex-direction: column; gap: 0.25rem; }

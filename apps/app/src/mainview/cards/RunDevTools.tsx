@@ -131,11 +131,17 @@ export const DevToolsPane = ({ model, selected, runId, latestSeq, onRunCommand }
           {inspection.frames.length === 0 ? null : (
             <ol className="run-devtools-frames" aria-label="Frames">
               {inspection.frames.map((frame) => (
-                <li key={frame.sequence} className="run-devtools-frame" data-frame={frame.sequence}>
-                  <span className="run-devtools-seq">#{frame.sequence}</span>
-                  <span className="run-devtools-kind">{frame.kind}</span>
-                  <span className="run-devtools-at">{frame.at > 0 ? timeLabel(frame.at) : ""}</span>
-                  <code className="run-devtools-payload" title={json(frame.payload)}>{oneLine(frame.payload)}</code>
+                <li key={frame.sequence} data-frame={frame.sequence}>
+                  {/* A native disclosure: Enter opens the whole record, no state of the card's own. */}
+                  <details className="run-devtools-frame">
+                    <summary>
+                      <span className="run-devtools-seq">#{frame.sequence}</span>
+                      <span className="run-devtools-kind">{frame.kind}</span>
+                      <span className="run-devtools-at">{frame.at > 0 ? timeLabel(frame.at) : ""}</span>
+                      <code className="run-devtools-payload">{oneLine(frame.payload)}</code>
+                    </summary>
+                    <pre className="run-trace-code" tabIndex={0} aria-label={`Frame ${frame.sequence}`}>{json(frame.payload)}</pre>
+                  </details>
                 </li>
               ))}
             </ol>
