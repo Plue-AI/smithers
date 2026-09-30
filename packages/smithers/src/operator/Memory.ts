@@ -4,6 +4,7 @@
  * @since 1.0.0
  */
 
+import { NodeCrypto } from "@effect/platform-node"
 import * as MemoryStore from "@smthrs/memory/MemoryStore"
 import * as Namespace from "@smthrs/memory/Namespace"
 import * as Recall from "@smthrs/memory/Recall"
@@ -14,7 +15,10 @@ import { Cli, z } from "incur"
 import { randomUUID } from "node:crypto"
 import * as Presentation from "../cli/Presentation.ts"
 import * as CliError from "../CliError.ts"
-import { databaseLayer, localFields, type LocalOptions, localRoot } from "./Store.ts"
+import * as ControlDatabase from "../internal/ControlDatabase.ts"
+import * as SupervisorMemory from "../internal/SupervisorMemory.ts"
+import * as NodeControl from "../NodeControl.ts"
+import { localFields, type LocalOptions, localRoot } from "./Store.ts"
 
 /** An operator request this command refuses; the operator fixes the input or the host setup. */
 const refused = (message: string, fault: CliError.Fault = "user"): CliError.Refused =>
@@ -73,7 +77,13 @@ export const withMemory = <A, E>(
   effect: Effect.Effect<A, E, MemoryStore.MemoryStore>
 ): Promise<A> => {
   if (options.namespace !== undefined) namespace({ ...options, namespace: options.namespace })
-  const layer = MemoryStore.layer.pipe(Layer.provide(databaseLayer(localRoot(options))))
+  // The store the executor writes: `SMITHERS_MEMORY_DB` when set, else the control database.
+  const stores = SupervisorMemory.memoryDatabase({
+    environment: process.env,
+    database: (file) => ControlDatabase.layer(file).pipe(Layer.orDie),
+    stores: ControlDatabase.layer(NodeControl.databasePath(localRoot(options))).pipe(Layer.orDie)
+  })
+  const layer = MemoryStore.layer.pipe(Layer.provide(Layer.mergeAll(stores, NodeCrypto.layer)))
   return Effect.runPromise(effect.pipe(Effect.provide(layer)))
 }
 

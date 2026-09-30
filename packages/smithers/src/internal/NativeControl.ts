@@ -182,7 +182,7 @@ export interface ExecutorOptions {
    * shell, and memory. Empty by default: a host that names none behaves
    * exactly as it always has.
    */
-  readonly mcpServers?: ReadonlyArray<McpClient.StdioConnectOptions> | undefined
+  readonly mcpServers?: ReadonlyArray<McpClient.ConnectOptions> | undefined
   /** The store the guarded filesystem and the spawner must both ask. */
   readonly grants?: Layer.Layer<GrantStore.GrantStore> | undefined
   readonly requestExecutor?: Layer.Layer<RequestExecutor.RequestExecutor> | undefined

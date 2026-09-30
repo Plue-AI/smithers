@@ -172,6 +172,21 @@ describe("operator memory", () => {
     expect((await invoke(root, ["list", "--prefix", "set"])).data).toHaveLength(1)
   })
 
+  it("reads and writes the SMITHERS_MEMORY_DB store the executor honors", async () => {
+    const root = fixture()
+    const shared = join(root, "shared", "memory.db")
+    vi.stubEnv("SMITHERS_MEMORY_DB", shared)
+    expect((await invoke(root, ["notes", "add", "override learning", "--note-id", "learned", "--status", "pending"])).code)
+      .toBe(0)
+    expect(existsSync(shared)).toBe(true)
+    expect(existsSync(join(root, ".flows", "control.db"))).toBe(false)
+    expect((await invoke(root, ["notes", "list"])).data).toHaveLength(1)
+    expect((await invoke(root, ["notes", "status", "learned", "accepted"])).code).toBe(0)
+    expect((await invoke(root, ["notes", "get", "learned"])).data.status).toBe("accepted")
+    vi.stubEnv("SMITHERS_MEMORY_DB", undefined)
+    expect((await invoke(root, ["notes", "list"])).data).toEqual([])
+  })
+
   it("recalls accepted notes with keyword and FTS while honoring supersession", async () => {
     const root = fixture()
     expect((await invoke(root, ["notes", "add", "amber deployment guide", "--note-id", "guide"])).code).toBe(0)

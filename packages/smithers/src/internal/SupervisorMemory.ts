@@ -93,6 +93,36 @@ export const stance = (environment: Environment.Source): "careful" | "paranoid" 
 }
 
 /**
+ * The database the memory store lives in: `SMITHERS_MEMORY_DB` opened with a
+ * busy timeout so concurrent writers wait for each other instead of failing,
+ * else the workspace `stores`. The executor and the `memory` CLI both resolve
+ * the store through this, so a note one writes is the note the other lists.
+ *
+ * @since 1.0.0
+ * @private
+ */
+export const memoryDatabase = (input: {
+  readonly environment: Environment.Source
+  readonly database: (filename: string) => Layer.Layer<DurableWriter.DurableWriter | SqlClient>
+  /** The workspace's own stores, used when `SMITHERS_MEMORY_DB` names no file. */
+  readonly stores?: Layer.Layer<DurableWriter.DurableWriter | SqlClient> | undefined
+}): Layer.Layer<DurableWriter.DurableWriter | SqlClient> => {
+  const file = Environment.read(input.environment, "SMITHERS_MEMORY_DB")
+  if (file === undefined && input.stores === undefined) {
+    throw new Error("SupervisorMemory.layer needs SMITHERS_MEMORY_DB or the workspace stores")
+  }
+  return file === undefined ? input.stores! : input.database(file).pipe(
+    Layer.tap((context) =>
+      Context.get(context, SqlClient).onDialectOrElse({
+        pg: () => Effect.void,
+        orElse: () =>
+          Context.get(context, SqlClient).unsafe(`PRAGMA busy_timeout = ${busyTimeoutMs}`).pipe(Effect.orDie)
+      })
+    )
+  )
+}
+
+/**
  * The memory store and the recall that reads it, as one layer.
  *
  * `SMITHERS_MEMORY_DB` moves the store to its own SQLite file, opened with a
@@ -112,19 +142,7 @@ export const layer = (input: {
   /** The workspace's own stores, used when `SMITHERS_MEMORY_DB` names no file. */
   readonly stores?: Layer.Layer<DurableWriter.DurableWriter | SqlClient> | undefined
 }): Layer.Layer<MemoryStore.MemoryStore | Recall.Recall> => {
-  const file = Environment.read(input.environment, "SMITHERS_MEMORY_DB")
-  if (file === undefined && input.stores === undefined) {
-    throw new Error("SupervisorMemory.layer needs SMITHERS_MEMORY_DB or the workspace stores")
-  }
-  const database = file === undefined ? input.stores! : input.database(file).pipe(
-    Layer.tap((context) =>
-      Context.get(context, SqlClient).onDialectOrElse({
-        pg: () => Effect.void,
-        orElse: () =>
-          Context.get(context, SqlClient).unsafe(`PRAGMA busy_timeout = ${busyTimeoutMs}`).pipe(Effect.orDie)
-      })
-    )
-  )
+  const database = memoryDatabase(input)
   const store = MemoryStore.layer.pipe(Layer.provide(database), Layer.provide(input.crypto), Layer.orDie)
   return Layer.provideMerge(Maintenance.layerTtlGc(), Layer.provideMerge(RecallKeyword.layer, store))
 }
