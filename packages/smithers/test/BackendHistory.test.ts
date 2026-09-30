@@ -11,11 +11,13 @@ import {
   mythicalReceiptDuration
 } from "../../rpc/src/Mythical.ts"
 import { issueGroupOf } from "../../rpc/src/StackIssues.ts"
-import { itemStateLabel, settled } from "../../rpc/src/StackView.ts"
+import { accountLabel as cardAccountLabel, itemStateLabel, settled } from "../../rpc/src/StackView.ts"
 import { main } from "../src/cli/Entry.ts"
 import { Client } from "../src/internal/backend/Client.ts"
 import {
+  accountLabel,
   checkDuration,
+  elapsedLabel,
   groupOf,
   history,
   itemLine,
@@ -23,7 +25,9 @@ import {
   outOfLanes,
   receiptLine,
   render,
-  stateLabel
+  spendLabel,
+  stateLabel,
+  workerLine
 } from "../src/internal/backend/History.ts"
 
 const dirs: Array<string> = []
@@ -176,7 +180,64 @@ describe("history rendering", () => {
       "  #12 Fix login · blocked",
       "◐ Working 1",
       "  #12 Fix login · implementing",
+      "    lane 1",
       "    vm · registry/env:abc"
+    ].join("\n"))
+  })
+  it("words a lane's account as @smthrs/rpc does", () => {
+    for (
+      const account of [
+        { provider: "claude", count: 1 },
+        { provider: "codex", count: 3 },
+        { provider: "claude", label: "work@example.com", count: 2 }
+      ] as const
+    ) expect(accountLabel(account)).toBe(cardAccountLabel(account))
+    expect(accountLabel({ provider: "constructor", count: 1 })).toBe("constructor")
+  })
+  // `elapsedLabel` mirrors apps/app/src/mainview/Timestamps.ts, which sits outside this package's rootDir.
+  it("words spend in dollars and a lane's running time as the History card does", () => {
+    expect(spendLabel(420_000_000)).toBe("$0.42")
+    expect(spendLabel(0)).toBe("$0.00")
+    expect(spendLabel(12_345_678_901)).toBe("$12.35")
+    const at = (seconds: number) => new Date(now - seconds * 1000).toISOString()
+    expect(elapsedLabel(at(0), now)).toBe("0:00")
+    expect(elapsedLabel(at(245), now)).toBe("4:05")
+    expect(elapsedLabel(at(3_600 + 125), now)).toBe("1:02:05")
+    expect(elapsedLabel(new Date(now + 5_000).toISOString(), now)).toBe("0:00")
+    expect(elapsedLabel("not a time", now)).toBe("")
+    expect(elapsedLabel(at(2 * 86_400 + 7), now)).toBe("48:00:07")
+  })
+  it("shows who works an issue: its lane, running time, account, seat, box and spend", () => {
+    const lanes = [{
+      index: 1,
+      state: "busy",
+      itemId: ID,
+      workspaceId: "\u001b[31mws1a2b3c4d5e6f",
+      startedAt: new Date(now - 245_000).toISOString(),
+      account: { provider: "claude", label: "work@example.com\u001b]0;x\u0007", count: 2 },
+      seat: "luna\u001b[2J"
+    }]
+    const working = item("running", { lane: 1, costNanos: 420_000_000 })
+    expect(workerLine(working, lanes, now)).toBe("lane 2 · 4:05 · work@example.com +1 · luna · ws1a2b3c · $0.42")
+    // A watch reads the item alone: its lane and spend, and no clock that would reprint every read.
+    expect(workerLine(working)).toBe("lane 2 · $0.42")
+    expect(workerLine(item("running", { lane: 0 }), [{ index: 0, state: "provisioning" }], now)).toBe("lane 1")
+    // A field that is nothing but control bytes leaves no empty slot.
+    expect(workerLine(working, [{ ...lanes[0], seat: "\u0007", workspaceId: "\u0000" }])).toBe(
+      "lane 2 · work@example.com +1 · $0.42"
+    )
+    // A settled item holds no lane; its spend stays.
+    expect(workerLine(item("landed", { lane: 1, costNanos: 1_500_000_000 }), lanes, now)).toBe("$1.50")
+    expect(workerLine(item("proposed", { lane: 1 }), lanes, now)).toBe("")
+    expect(workerLine(item("queued"), lanes, now)).toBe("")
+    expect(render(stack([working, item("landed", { id: "l", costNanos: 90_000_000 })], { lanes }), now)).toBe([
+      "active · 1/2 lanes",
+      "◐ Working 1",
+      "  #12 Fix login · implementing",
+      "    lane 2 · 4:05 · work@example.com +1 · luna · ws1a2b3c · $0.42",
+      "● Done 1",
+      "  #12 Fix login · landed",
+      "    $0.09"
     ].join("\n"))
   })
   it("names a chat item by its stack change, else its id", () => {
@@ -219,7 +280,9 @@ describe("history rendering", () => {
       "  #5 Open PR · PR open",
       "◐ Working 3",
       "  #3 Lane zero · checking",
+      "    lane 1",
       "  #2 Lane one · implementing",
+      "    lane 2",
       "  #1 Queued · queued",
       "● Done 1",
       "  #6 Landed today · landed"
@@ -245,6 +308,7 @@ describe("history rendering", () => {
       "active · 0/1 lanes",
       "◐ Working 3",
       "  #3 Lane · implementing",
+      "    lane 1",
       "  #2 Laneless · retrying",
       "  #1 Queued · queued",
       "● Done 3",
@@ -343,7 +407,7 @@ describe("the factory from the terminal, over a local HTTP server", () => {
     const moves: Array<Array<ReturnType<typeof item>>> = [
       [],
       [item("running", { lane: 0 })],
-      [item("verifying", { lane: 0, checks: { state: "pending", failed: [] } })],
+      [item("verifying", { lane: 0, costNanos: 420_000_000, checks: { state: "pending", failed: [] } })],
       [item("proposed", {
         checks: {
           state: "passed",
@@ -406,7 +470,9 @@ describe("the factory from the terminal, over a local HTTP server", () => {
       expect(watched.error.trim().split("\n")).toEqual([
         "#12 · not in the history yet",
         "#12 Fix login · implementing",
+        "  lane 1",
         "#12 Fix login · checking · checks pending",
+        "  lane 1 · $0.42",
         "#12 Fix login · PR open · checks passed · https://github.com/owner/repo/pull/5",
         "  ✓ affected-lint 1a2b3c4 42s · ✓ affected-test 1a2b3c4 · run run-verify-1"
       ])

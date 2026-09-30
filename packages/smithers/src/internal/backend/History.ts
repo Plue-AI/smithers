@@ -150,9 +150,72 @@ export const machineLine = (item: Values): string => {
     : [str(placement.kind), str(placement.image)].filter(Boolean).map(clean).join(" · ")
 }
 
+const PROVIDERS: Readonly<Record<string, string>> = { claude: "Claude", codex: "Codex" }
+
+/**
+ * The account a lane's latest model call used, and how many more served it
+ * (`accountLabel`): `work@example.com +1`, else the provider's name.
+ * @private
+ * @since 1.0.0
+ */
+export const accountLabel = (account: Values): string => {
+  const count = Number(account.count)
+  const provider = str(account.provider)
+  const name = account.label === undefined
+    ? Object.hasOwn(PROVIDERS, provider) ? PROVIDERS[provider] : provider
+    : str(account.label)
+  return `${name}${count > 1 ? ` +${count - 1}` : ""}`
+}
+
+/**
+ * Model spend in dollars from USD nanos, as the History card shows it: `$0.42`.
+ * @private
+ * @since 1.0.0
+ */
+export const spendLabel = (nanos: number): string => `$${(nanos / 1_000_000_000).toFixed(2)}`
+
+/**
+ * How long a lane has worked its item, as the History card's lane row shows
+ * it: `4:05`, `1:02:05`; "" for an unreadable stamp.
+ * @private
+ * @since 1.0.0
+ */
+export const elapsedLabel = (startedAt: string, now: number): string => {
+  const at = Date.parse(startedAt)
+  if (Number.isNaN(at)) return ""
+  const total = Math.max(0, Math.floor((now - at) / 1000))
+  const hours = Math.floor(total / 3600), minutes = Math.floor((total % 3600) / 60)
+  const seconds = String(total % 60).padStart(2, "0")
+  return hours > 0 ? `${hours}:${String(minutes).padStart(2, "0")}:${seconds}` : `${minutes}:${seconds}`
+}
+
+/**
+ * Who works the item, as the History card's lane row shows it, then its
+ * model spend: `lane 2 · 4:05 · work@example.com +1 · luna · ws1a2b3c · $0.42`.
+ * The lane's running time, account, seat and box come from the snapshot's
+ * `lanes`; without them (or `now`) the line has the lane and spend alone. An
+ * item out of the lanes shows only its spend.
+ * @private
+ * @since 1.0.0
+ */
+export const workerLine = (item: Values, lanes: ReadonlyArray<unknown> = [], now?: number): string => {
+  const laned = typeof item.lane === "number" && !outOfLanes(item)
+  const lane = laned ? lanes.map(object).find((row) => row.index === item.lane) ?? {} : {}
+  const account = object(lane.account)
+  return [
+    laned ? `lane ${Number(item.lane) + 1}` : "",
+    now === undefined || lane.startedAt === undefined ? "" : elapsedLabel(str(lane.startedAt), now),
+    account.provider === undefined ? "" : accountLabel(account),
+    str(lane.seat),
+    clean(str(lane.workspaceId)).trim().slice(0, 8),
+    typeof item.costNanos === "number" ? spendLabel(item.costNanos) : ""
+  ].map((field) => clean(field).trim()).filter(Boolean).join(" · ")
+}
+
 /**
  * The History as lines: the stack's state and lanes, then Needs you, Working
- * and Done (the last 24 hours), ordered as the app lists them.
+ * and Done (the last 24 hours), ordered as the app lists them. Under each
+ * item: its check receipts, who works it and its spend, and its machine.
  * @private
  * @since 1.0.0
  */
@@ -196,7 +259,8 @@ export const render = (value: unknown, now = Date.now()): string => {
       ...rows.map(({ item }) =>
         [
           `  ${itemLine(item, changes)}`,
-          ...[receiptLine(item), machineLine(item)].filter(Boolean).map((line) => `    ${line}`)
+          ...[receiptLine(item), workerLine(item, lanes, now), machineLine(item)].filter(Boolean)
+            .map((line) => `    ${line}`)
         ]
           .join("\n")
       )
@@ -303,10 +367,10 @@ export const history: Record<string, Handler> = {
     try {
       for (;;) {
         const item = await one(c, o, ref)
-        const receipts = item === undefined ? "" : receiptLine(item)
         const line = item === undefined
           ? `${named(ref)} · not in the history yet`
-          : `${itemLine(item)}${receipts === "" ? "" : `\n  ${receipts}`}`
+          : [itemLine(item), ...[receiptLine(item), workerLine(item)].filter(Boolean).map((row) => `  ${row}`)]
+            .join("\n")
         if (line !== last) c.write(`${line}\n`)
         last = line
         if (item !== undefined && outOfLanes(item)) {
