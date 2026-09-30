@@ -33,6 +33,7 @@ import * as FileSystem from "effect/FileSystem"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
+import type * as Scope from "effect/Scope"
 import * as ChildProcess from "effect/unstable/process/ChildProcess"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import * as BoundedOutput from "./internal/boundedOutput.ts"
@@ -705,6 +706,57 @@ const insideRoot = (root: string, candidate: string): boolean => {
   return path === boundary || path.startsWith(boundary.endsWith("/") ? boundary : `${boundary}/`)
 }
 
+/**
+ * Node's `fs` on a host whose `/dev/fd` names open descriptors, else absent.
+ *
+ * Resolved through `getBuiltinModule` so this module stays browser-bundleable.
+ */
+const descriptorFs = (() => {
+  const host = globalThis.process
+  return host?.platform === "darwin" || host?.platform === "linux" ? host.getBuiltinModule?.("node:fs") : undefined
+})()
+
+/**
+ * Opens `path` for a bounded read without ever waiting on a FIFO.
+ *
+ * `effect/FileSystem` names only string open modes, and `"r"` blocks until a
+ * writer appears when the path became a FIFO after its `stat`. Where Node and
+ * `/dev/fd` are available, the path is opened `O_RDONLY | O_NONBLOCK` and
+ * refused unless that descriptor is a regular file; the service then opens the
+ * verified descriptor through `/dev/fd`, never the path again. Elsewhere
+ * (Windows has no FIFOs on ordinary paths) the service opens the path and the
+ * descriptor `stat` that follows decides.
+ */
+const openBounded = (
+  fs: FileSystem.FileSystem,
+  code: ErrorCode,
+  path: string,
+  limit: number
+): Effect.Effect<FileSystem.File, PackageManagerError, Scope.Scope> =>
+  Effect.gen(function*() {
+    const open = (target: string) =>
+      fs.open(target, { flag: "r" }).pipe(Effect.mapError((cause) => unreadable(code, path, cause)))
+    if (descriptorFs === undefined) return yield* open(path)
+    const { O_NONBLOCK, O_RDONLY } = descriptorFs.constants
+    const handle = yield* Effect.acquireRelease(
+      Effect.tryPromise({
+        try: () => descriptorFs.promises.open(path, O_RDONLY | O_NONBLOCK),
+        catch: (cause) => unreadable(code, path, cause)
+      }),
+      (opened) => Effect.promise(() => opened.close().catch(() => undefined))
+    )
+    const info = yield* Effect.tryPromise({
+      try: () => handle.stat(),
+      catch: (cause) => unreadable(code, path, cause)
+    })
+    if (!info.isFile()) {
+      return yield* Effect.fail(
+        unreadable(code, path, new Error(`expected a regular file no larger than ${limit} bytes`))
+      )
+    }
+    return yield* open(`/dev/fd/${handle.fd}`)
+  })
+
 /** Reads one descriptor-stable regular file while enforcing an actual byte limit. */
 const boundedBytes = (
   fs: FileSystem.FileSystem,
@@ -726,17 +778,15 @@ const boundedBytes = (
           unreadable(code, path, new Error(`file resolves outside project root ${canonicalRoot}`))
         )
       }
-      // Reject stable FIFOs, sockets, devices, and directories before open;
-      // opening a FIFO for reading can otherwise wait forever for a writer.
+      // Reject stable FIFOs, sockets, devices, and directories before open.
+      // A FIFO swapped in after this check cannot block `openBounded`.
       const before = yield* fs.stat(path).pipe(Effect.mapError((cause) => unreadable(code, path, cause)))
       if (before.type !== "File" || before.size > BigInt(limit)) {
         return yield* Effect.fail(
           unreadable(code, path, new Error(`expected a regular file no larger than ${limit} bytes`))
         )
       }
-      const file = yield* fs.open(path, { flag: "r" }).pipe(
-        Effect.mapError((cause) => unreadable(code, path, cause))
-      )
+      const file = yield* openBounded(fs, code, path, limit)
       const info = yield* file.stat.pipe(Effect.mapError((cause) => unreadable(code, path, cause)))
       if (info.type !== "File" || info.size > BigInt(limit)) {
         return yield* Effect.fail(

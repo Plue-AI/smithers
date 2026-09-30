@@ -4,6 +4,7 @@ import * as Layer from "effect/Layer"
 import * as PlatformError from "effect/PlatformError"
 import * as Schema from "effect/Schema"
 import { execFileSync } from "node:child_process"
+import * as NodeFs from "node:fs"
 import * as Fs from "node:fs/promises"
 import * as Os from "node:os"
 import * as NodePath from "node:path"
@@ -1629,6 +1630,60 @@ describe("PackageManager file reads", () => {
       const error = await digestOver(fileSystem, root)
       expect(error.code).toBe("lockfile_unreadable")
       expect(error.message).toMatch(/expected a regular file/)
+    })
+  })
+
+  it.skipIf(process.platform === "win32")(
+    "refuses a FIFO swapped in after stat without waiting for a writer",
+    async () => {
+      await withFixture("package-manager-lockfile-fifo-swap", async (root) => {
+        const lockfile = NodePath.join(root, "pnpm-lock.yaml")
+        await Fs.writeFile(lockfile, "lockfileVersion: '9.0'\n", "utf8")
+        // The bound starts once the FIFO exists, so a slow `mkfifo` on a loaded
+        // host cannot be mistaken for a blocked open.
+        let swapped!: () => void
+        const fifoReady = new Promise<void>((resolve) => {
+          swapped = resolve
+        })
+        const fileSystem = await hookedFileSystem({
+          afterStat: async () => {
+            await Fs.rename(lockfile, NodePath.join(root, "regular"))
+            execFileSync("mkfifo", [lockfile], { timeout: 5_000 })
+            swapped()
+          }
+        })
+        const digest = digestOver(fileSystem, root)
+        try {
+          const outcome = await Promise.race([
+            digest,
+            fifoReady.then(() => new Promise<"blocked">((resolve) => setTimeout(() => resolve("blocked"), 2_000)))
+          ])
+          expect(outcome).not.toBe("blocked")
+          const error = outcome as PackageManager.PackageManagerError
+          expect(error.code).toBe("lockfile_unreadable")
+          expect(error.message).toMatch(/expected a regular file/)
+        } finally {
+          // A regressed open waits for a writer: open one without blocking so the
+          // pending read, and this fixture, always finish.
+          await Fs.open(lockfile, NodeFs.constants.O_WRONLY | NodeFs.constants.O_NONBLOCK).then(
+            (writer) => writer.close(),
+            () => undefined
+          )
+          await digest
+        }
+      })
+    },
+    10_000
+  )
+
+  it("refuses a lockfile removed between the stat and the open", async () => {
+    await withFixture("package-manager-lockfile-vanished", async (root) => {
+      const lockfile = NodePath.join(root, "pnpm-lock.yaml")
+      await Fs.writeFile(lockfile, "lockfileVersion: '9.0'\n", "utf8")
+      const fileSystem = await hookedFileSystem({ afterStat: () => Fs.rm(lockfile) })
+      const error = await digestOver(fileSystem, root)
+      expect(error.code).toBe("lockfile_unreadable")
+      expect(error.message).toContain("pnpm-lock.yaml")
     })
   })
 
