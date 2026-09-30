@@ -573,6 +573,8 @@ void disallowedSelection
 // Will's rule (#2916): security, money, merge/landing, unclear root cause and cross-package design never bundle.
 const neverBundleClasses: ReadonlyArray<readonly [string, Array<string>, string]> = [
   ["security label", ["security"], "tighten token check"],
+  // `security` also raises severity past bundling; this label reaches the filter alone.
+  ["security area label", ["area:security"], "tighten token check"],
   ["security title", [], "Security: redact webhook secret"],
   ["billing label", ["billing"], "fix rounding"],
   ["invoice title", [], "fix invoice rounding"],
