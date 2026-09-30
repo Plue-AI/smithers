@@ -3,6 +3,7 @@ package repohostserver
 import (
 	"bytes"
 	"context"
+	"crypto/sha1"
 	"errors"
 	"fmt"
 	"net/http"
@@ -131,30 +132,58 @@ func TestReceivePackRunsNoAutoGCAndQueuesMaintenance(t *testing.T) {
 	require.Equal(t, []string{f.srv.config.RepoPath("alice", "demo")}, f.srv.takeMaintenanceDue())
 }
 
-// writeTaggedBlobs writes 10000 loose blobs, each tagged, so they are
-// reachable. They exceed gc.auto's default of 6700 (git estimates from
-// objects/17, so the margin keeps the estimate above it).
+// taggedBlobCount is how many loose blobs writeTaggedBlobs writes. git
+// estimates loose objects from objects/17 alone: gc --auto runs once that
+// directory holds more than gc.auto/256 (27 for the default 6700). pack-refs
+// --auto packs at 16 loose refs while packed-refs is small.
+const taggedBlobCount = 40
+
+// writeTaggedBlobs writes taggedBlobCount loose blobs, each tagged, so they
+// are reachable, all under objects/17: past both of git's thresholds with a
+// few dozen files rather than the ten thousand a uniform spread would need,
+// which took minutes on a contended filesystem (#2883).
 func writeTaggedBlobs(t *testing.T, gitDir string) {
 	t.Helper()
 	blobs := t.TempDir()
 	var paths strings.Builder
-	for i := range 10000 {
-		path := filepath.Join(blobs, fmt.Sprint(i))
-		require.NoError(t, os.WriteFile(path, []byte(fmt.Sprintf("blob %d\n", i)), 0o644))
+	for i, written := 0, 0; written < taggedBlobCount; i++ {
+		content := fmt.Sprintf("blob %d\n", i)
+		if sum := sha1.Sum([]byte(fmt.Sprintf("blob %d\x00%s", len(content), content))); sum[0] != 0x17 {
+			continue
+		}
+		path := filepath.Join(blobs, fmt.Sprint(written))
+		require.NoError(t, os.WriteFile(path, []byte(content), 0o644))
 		paths.WriteString(path + "\n")
+		written++
 	}
 	hash := exec.Command("git", "--git-dir", gitDir, "hash-object", "-w", "--stdin-paths")
 	hash.Stdin = strings.NewReader(paths.String())
 	out, err := hash.Output()
 	require.NoError(t, err)
 	oids := strings.Fields(string(out))
+	require.Len(t, oids, taggedBlobCount)
 	var refs strings.Builder
 	for i, oid := range oids {
+		require.True(t, strings.HasPrefix(oid, "17"), oid)
 		fmt.Fprintf(&refs, "create refs/tags/b%d %s\n", i, oid)
 	}
 	update := exec.Command("git", "--git-dir", gitDir, "update-ref", "--stdin")
 	update.Stdin = strings.NewReader(refs.String())
 	require.NoError(t, update.Run())
+}
+
+// countObjects is git count-objects -v of gitDir, by field.
+func countObjects(t *testing.T, gitDir string) map[string]int {
+	t.Helper()
+	counts := map[string]int{}
+	for _, line := range strings.Split(gitOut(t, gitDir, "count-objects", "-v"), "\n") {
+		name, value, ok := strings.Cut(line, ": ")
+		require.True(t, ok, line)
+		n, err := strconv.Atoi(value)
+		require.NoError(t, err, line)
+		counts[name] = n
+	}
+	return counts
 }
 
 // Maintenance still reclaims space and packs refs: past git's own thresholds
@@ -169,18 +198,21 @@ func TestMaintenancePacksRefsAndObjects(t *testing.T) {
 	writeTaggedBlobs(t, gitDir)
 	// git's own automatic gc stays off.
 	gitOut(t, gitDir, "gc", "--auto", "--quiet")
-	require.Contains(t, gitOut(t, gitDir, "count-objects", "-v"), "packs: 0")
+	before := countObjects(t, gitDir)
+	require.Zero(t, before["packs"])
+	require.GreaterOrEqual(t, before["count"], taggedBlobCount)
 
 	srv.maintainRepository(context.Background(), repoPath, nil)
-	counts := gitOut(t, gitDir, "count-objects", "-v")
-	require.Contains(t, counts, "in-pack: 10", counts)
-	require.NotContains(t, counts, "packs: 0", counts)
+	after := countObjects(t, gitDir)
+	require.Zero(t, after["count"], after)
+	require.Equal(t, before["count"], after["in-pack"], after)
+	require.NotZero(t, after["packs"], after)
 	loose, err := filepath.Glob(filepath.Join(gitDir, "refs", "tags", "b*"))
 	require.NoError(t, err)
 	require.Empty(t, loose)
 	packed, err := os.ReadFile(filepath.Join(gitDir, "packed-refs"))
 	require.NoError(t, err)
-	require.Contains(t, string(packed), "refs/tags/b9999")
+	require.Contains(t, string(packed), fmt.Sprintf("refs/tags/b%d\n", taggedBlobCount-1))
 	require.NoFileExists(t, filepath.Join(gitDir, "gc.pid"))
 }
 

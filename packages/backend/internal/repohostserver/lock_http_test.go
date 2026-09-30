@@ -119,6 +119,11 @@ func TestWaitingWritesAreFreedWithTheirRequest(t *testing.T) {
 			t.Fatal("a cancelled request kept waiting for the lock")
 		}
 	}
-	require.Equal(t, 1, refs())
+	// jsonTimeout answers a cancelled JSON write 504 as soon as its request
+	// ends, before the drained handler has returned from the lock wait, so a
+	// waiter's lock reference may outlive its response by a moment. Nothing
+	// takes a new reference after cancel, so the count only falls; it must
+	// fall to the holder's one.
+	require.Eventually(t, func() bool { return refs() == 1 }, 5*time.Second, time.Millisecond)
 	require.Eventually(t, func() bool { return runtime.NumGoroutine() < before+waiters/2 }, 5*time.Second, 10*time.Millisecond)
 }
