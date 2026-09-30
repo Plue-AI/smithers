@@ -155,9 +155,30 @@ at top-level declarations, then at lines; each slice reports whole-file line
 numbers. A finding on a file several calls saw is reported once per line and
 check, keeping the most severe.
 
-A review makes at most 64 model calls, so the audit covers at most
-`64 * auditBatchSize` files. Narrow `include` or raise `auditBatchSize` for a
-larger package.
+One invocation makes at most 64 calls. With a finding store, a larger review
+persists the calls it made, fails as incomplete, and the next invocation over
+the same policy and bytes resumes the remaining batches. Without a store, a
+review over 64 calls is refused.
+
+## Finding store
+
+`smithers-build review` persists every run and finding in a private store,
+`smithers/review-findings` in the repository's Git directory by default, or
+`--findings-store <absolute path>`. The directory is owner-only and never
+committed. Each batch's findings and attempts are written when the batch
+completes, so a later failure keeps them. A failed or incomplete run resumes
+from its completed batches; a completed run is never reused, and an unchanged
+rerun reviews everything again.
+
+Each finding has a stable fingerprint from its file, check and flagged line
+text, so moving the line keeps it. A finding the same owner and policy no
+longer reports after reviewing its file becomes `fixed-pending-retest`; it
+closes only through `closeFinding` with a trusted host's receipt of the
+reproduced fix, and reopens if reported again. The review receipt and console
+show only `publicSummary` data: fingerprint, restricted reference, state,
+severity, owner, check and impact, plus the file once the fix is closed. Keep
+exploit details in private advisories and link public issues to the restricted
+reference.
 
 ## Required reviews
 

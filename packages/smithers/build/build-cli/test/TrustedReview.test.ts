@@ -366,5 +366,15 @@ describe("TrustedReview Git boundary", () => {
     expect(receipt).toContain("//:security")
     expect(receipt).toContain("ANTHROPIC_API_KEY")
     expect(receipt).not.toContain("skipped")
+    // The failed run persists in the private default store inside the Git directory.
+    const store = NodePath.join(await Fs.realpath(NodePath.join(root, ".git")), "smithers", "review-findings")
+    expect(receipt).toContain(store)
+    const [run] = await Fs.readdir(NodePath.join(store, "runs"))
+    const record = JSON.parse(await Fs.readFile(NodePath.join(store, "runs", run!), "utf8")) as {
+      status: string
+      owner: string
+    }
+    expect(record).toMatchObject({ status: "failed", owner: "//:security" })
+    expect((await Fs.stat(store)).mode & 0o777).toBe(0o700)
   })
 })

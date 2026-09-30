@@ -1545,6 +1545,9 @@ const makeCommands = (config: RuntimeConfig) =>
         plan: z.boolean().default(false).describe("Show pinned policy and source selection without inference"),
         required: z.boolean().default(false).describe(
           "Fail every selected review that selects no files or cannot run instead of passing it"
+        ),
+        findingsStore: z.string().optional().describe(
+          "Absolute private directory for review runs and findings (default: the Git directory)"
         )
       }),
       alias: { workspace: "w" },
@@ -1557,7 +1560,8 @@ const makeCommands = (config: RuntimeConfig) =>
             revision: context.options.revision,
             patterns: context.args.patterns,
             plan: context.options.plan,
-            required: context.options.required
+            required: context.options.required,
+            findingsStore: context.options.findingsStore
           })
         } catch (cause) {
           return context.error({ code: "review_failed", exitCode: 1, message: Diagnostic.describe(cause) })

@@ -18,11 +18,13 @@ import type * as PlatformError from "effect/PlatformError"
 import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
 import { minimatch } from "minimatch"
+import { createHash } from "node:crypto"
 import * as NodeFs from "node:fs"
 import * as NodeOs from "node:os"
 import * as NodePath from "node:path"
 import { failureMessage } from "./GeneratedFile.ts"
 import * as Input from "./Input.ts"
+import * as PrivateStore from "./internal/PrivateStore.ts"
 import * as ReviewBatches from "./internal/ReviewBatches.ts"
 import { maximumResponseTokens, reviewModel } from "./internal/ReviewModel.ts"
 import { Engine } from "./ModelEngine.ts"
@@ -290,7 +292,10 @@ export const Report = Schema.Struct({
   findings: Schema.Array(Finding).check(Schema.isMaxLength(maximumFindings)),
   attempts: Schema.optional(Schema.Array(ReviewAttempt)),
   /** What a budgeted review spent: model calls and estimated prompt tokens. */
-  usage: Schema.optional(Schema.Struct({ modelCalls: Schema.Int, promptTokens: Schema.Int }))
+  usage: Schema.optional(Schema.Struct({ modelCalls: Schema.Int, promptTokens: Schema.Int })),
+  /** With a finding store: the persisted run and each finding's stable fingerprint, in finding order. */
+  run: Schema.optional(Schema.String),
+  fingerprints: Schema.optional(Schema.Array(Schema.String))
 })
 
 /**
@@ -329,7 +334,7 @@ export class ModelCliMissing extends Schema.TaggedError<ModelCliMissing>()(
 export class LlmReviewError extends Schema.TaggedError<LlmReviewError>()(
   "smithers-build/LlmReviewError",
   {
-    phase: Schema.Literals(["diff", "read", "review", "parse"]),
+    phase: Schema.Literals(["diff", "read", "review", "parse", "store"]),
     attempts: Schema.optional(Schema.Array(ReviewAttempt)),
     message: Schema.NonEmptyString
   }
@@ -348,9 +353,187 @@ export class FindingsError extends Schema.TaggedError<FindingsError>()(
   {
     failOn: Severity,
     attempts: Schema.optional(Schema.Array(ReviewAttempt)),
-    findings: Schema.Array(Finding)
+    findings: Schema.Array(Finding),
+    run: Schema.optional(Schema.String),
+    fingerprints: Schema.optional(Schema.Array(Schema.String))
   }
 ) {}
+
+/**
+ * Where a review persists its run and findings, and who owns them.
+ *
+ * `directory` is an absolute path the review creates readable only by its
+ * owner. `owner` names the responsible target or team on every record.
+ *
+ * @category models
+ * @since 1.0.0
+ */
+export interface FindingStore {
+  readonly directory: string
+  readonly owner?: string | undefined
+}
+
+/**
+ * One persisted finding: its stable fingerprint, owner, remediation state and
+ * the private finding itself. `open` findings were reported by the latest run
+ * of the same owner and policy that reviewed their file; `fixed-pending-retest`
+ * ones were not; only a trusted host's reproduction receipt of the fix closes one.
+ *
+ * @category schemas
+ * @since 1.0.0
+ */
+export const FindingRecord = Schema.Struct({
+  fingerprint: Schema.String,
+  owner: Schema.optional(Schema.String),
+  /** Digest of the prompt, rubric and checks that reported it; only the same policy can retire it. */
+  policy: Schema.String,
+  state: Schema.Literals(["open", "fixed-pending-retest", "closed"]),
+  reproductionSteps: Schema.String,
+  firstSeenRun: Schema.String,
+  lastSeenRun: Schema.String,
+  updatedAt: Schema.String,
+  finding: Finding,
+  closure: Schema.optional(Reproduction)
+})
+
+/**
+ * One persisted finding.
+ *
+ * @category models
+ * @since 1.0.0
+ */
+export type FindingRecord = typeof FindingRecord.Type
+
+/**
+ * One persisted review run. A run records every completed batch as it
+ * finishes; an `incomplete` or `failed` run resumes from them, a `completed`
+ * run never does.
+ *
+ * @category schemas
+ * @since 1.0.0
+ */
+export const RunRecord = Schema.Struct({
+  run: Schema.String,
+  owner: Schema.optional(Schema.String),
+  status: Schema.Literals(["running", "incomplete", "failed", "completed"]),
+  total: Schema.Int,
+  batches: Schema.Array(Schema.Struct({
+    index: Schema.Int,
+    files: Schema.Array(Schema.String),
+    findings: Schema.Array(Finding),
+    attempts: Schema.Array(ReviewAttempt)
+  })),
+  error: Schema.optional(Schema.String),
+  startedAt: Schema.String,
+  updatedAt: Schema.String
+})
+
+/**
+ * One persisted review run.
+ *
+ * @category models
+ * @since 1.0.0
+ */
+export type RunRecord = typeof RunRecord.Type
+
+/**
+ * What a public issue may say about a restricted finding: no message, evidence
+ * or preconditions, and its location only after the fix is reproduced.
+ *
+ * @category models
+ * @since 1.0.0
+ */
+export interface PublicSummary {
+  readonly fingerprint: string
+  readonly reference: string
+  readonly state: FindingRecord["state"]
+  readonly severity: Severity
+  readonly owner?: string
+  readonly checkId?: string
+  readonly impact?: SecurityEvidence["impact"]
+  readonly file?: string
+}
+
+/**
+ * Evidence and receipts a trusted host attaches to a security finding.
+ *
+ * @category models
+ * @since 1.0.0
+ */
+export type SecurityEvidence = typeof SecurityEvidence.Type
+
+/**
+ * The sanitized, disclosable view of one persisted finding.
+ *
+ * @category store
+ * @since 1.0.0
+ */
+export const publicSummary = (record: FindingRecord): PublicSummary => ({
+  fingerprint: record.fingerprint,
+  reference: `restricted-finding:${record.fingerprint}`,
+  state: record.state,
+  severity: record.finding.severity,
+  ...(record.owner === undefined ? {} : { owner: record.owner }),
+  ...(record.finding.security === undefined
+    ? {}
+    : { checkId: record.finding.security.checkId, impact: record.finding.security.impact }),
+  ...(record.state === "closed" ? { file: record.finding.file } : {})
+})
+
+const storeError = (cause: unknown) =>
+  new LlmReviewError({ phase: "store", message: `Review finding store failed: ${failureMessage(cause)}` })
+
+const decodeFindingRecord = Schema.decodeUnknownSync(FindingRecord)
+const decodeRunRecord = Schema.decodeUnknownSync(RunRecord)
+
+/**
+ * Every finding persisted in a store, in fingerprint order.
+ *
+ * @category store
+ * @since 1.0.0
+ */
+export const storedFindings = (directory: string): Effect.Effect<ReadonlyArray<FindingRecord>, LlmReviewError> =>
+  Effect.try({
+    try: () => PrivateStore.list(PrivateStore.ensure(directory), "findings").map((value) => decodeFindingRecord(value)),
+    catch: storeError
+  })
+
+/**
+ * Closes a finding whose fix a trusted host reproduced: the finding must be
+ * `fixed-pending-retest`, and the receipt records the executed retest at an
+ * immutable revision. Model output is never a receipt.
+ *
+ * @category store
+ * @since 1.0.0
+ */
+export const closeFinding = (
+  directory: string,
+  fingerprint: string,
+  receipt: typeof Reproduction.Type
+): Effect.Effect<FindingRecord, LlmReviewError> =>
+  Effect.try({
+    try: () => {
+      const root = PrivateStore.ensure(directory)
+      const name = `findings/${fingerprint}.json`
+      const stored = PrivateStore.read(root, name)
+      if (stored === undefined) throw new Error(`no finding ${fingerprint}`)
+      const record = decodeFindingRecord(stored)
+      if (record.state !== "fixed-pending-retest") {
+        throw new Error(
+          `finding ${fingerprint} is ${record.state}; only a fix a later review no longer reports can close`
+        )
+      }
+      const closed: FindingRecord = {
+        ...record,
+        state: "closed",
+        closure: Schema.decodeUnknownSync(Reproduction)(receipt),
+        updatedAt: new Date().toISOString()
+      }
+      PrivateStore.write(root, name, closed)
+      return closed
+    },
+    catch: storeError
+  })
 
 /**
  * Every failure an llm-review call can produce.
@@ -1987,7 +2170,11 @@ const securityBatch = (
  * Batches source, reviews it, and applies the failOn gate.
  *
  * Hosts may supply an immutable in-memory snapshot. Otherwise this library
- * function reads the trusted caller's workspace. Default inference has no
+ * function reads the trusted caller's workspace. With a {@link FindingStore},
+ * every completed batch persists as it finishes, an unfinished run over the
+ * same policy and bytes resumes, batches past {@link maximumReviewBatches}
+ * wait for the next invocation, and results carry the run and each finding's
+ * fingerprint. Default inference has no
  * tools; `executable` is an explicit trusted-host extension/test seam outside
  * the review command's containment contract.
  *
@@ -2004,6 +2191,7 @@ export const review = (
     readonly executable?: string | undefined
     readonly timeoutMs?: number | undefined
     readonly sensitiveEnv?: ReadonlyArray<string> | undefined
+    readonly store?: FindingStore | undefined
   },
   untrustedPayload: Payload
 ): Effect.Effect<Report, ModelCliMissing | LlmReviewError | FindingsError> =>
@@ -2115,11 +2303,13 @@ export const review = (
       },
       catch: (cause) => new LlmReviewError({ phase: "review", message: failureMessage(cause) })
     })
-    if (plan.length > maximumReviewBatches) {
+    const store = options.store
+    if (plan.length > maximumReviewBatches && store === undefined) {
       return yield* Effect.fail(
         new LlmReviewError({
           phase: "review",
-          message: `LLM review requires ${plan.length} batches, exceeding its limit of ${maximumReviewBatches}`
+          message: `LLM review requires ${plan.length} batches, exceeding its limit of ${maximumReviewBatches} ` +
+            "per invocation; a finding store schedules the rest across invocations"
         })
       )
     }
@@ -2154,102 +2344,259 @@ export const review = (
         )
       )
     }
+    const digest = (text: string) => createHash("sha256").update(text).digest("hex")
+    // The run key covers the policy and every byte a request carries, never budget or gating options.
+    const runKey = digest(JSON.stringify({
+      policy: { ...payload, budget: undefined, required: undefined },
+      context: context.map((file) => [file.path, digest(file.contents)]),
+      batches: loadedBatches.map((batch) => ({
+        changed: batch.changed.map((
+          segment
+        ) => [segment.path, segment.firstLine, segment.lastLine, digest(segment.contents)]),
+        related: batch.related.map((file) => [file.path, digest(file.contents)]),
+        omitted: batch.omittedRelated
+      }))
+    }))
+    const policy = digest(JSON.stringify([payload.prompt, payload.rubric, payload.securityChecks ?? null]))
+    const storeRoot = store === undefined
+      ? undefined
+      : yield* Effect.try({ try: () => PrivateStore.ensure(store.directory), catch: storeError })
+    const runName = `runs/${runKey}.json`
+    const previous = storeRoot === undefined ? undefined : yield* Effect.try({
+      try: () => {
+        const stored = PrivateStore.read(storeRoot, runName)
+        return stored === undefined ? undefined : decodeRunRecord(stored)
+      },
+      catch: storeError
+    })
+    const now = () => new Date().toISOString()
+    // Only an unfinished run resumes; a completed run is never reused as a current verdict.
+    let run: RunRecord = {
+      run: runKey,
+      ...(store?.owner === undefined ? {} : { owner: store.owner }),
+      status: "running",
+      total: loadedBatches.length,
+      batches: previous !== undefined && previous.status !== "completed" && previous.owner === store?.owner
+        ? previous.batches
+        : [],
+      startedAt: now(),
+      updatedAt: now()
+    }
+    let settled = false
+    const persist = (update: Partial<RunRecord>) =>
+      storeRoot === undefined ? Effect.void : Effect.try({
+        try: () => {
+          const { error: _error, ...current } = run
+          run = { ...current, ...update, updatedAt: now() }
+          PrivateStore.write(storeRoot, runName, run)
+        },
+        catch: storeError
+      })
+    const sources = new Map(
+      [...context, ...changed, ...relations.files.values()].map((file) => [file.path, file.contents])
+    )
+    const fingerprintOf = (finding: Finding) =>
+      digest(
+        `${finding.file}\0${finding.security?.checkId ?? ""}\0${
+          mask.sanitize(sources.get(finding.file)!.split("\n")[finding.line - 1]!).trim()
+        }`
+      )
+    const record = (stored: ReadonlyArray<Finding>) =>
+      storeRoot === undefined ? Effect.void : Effect.try({
+        try: () => {
+          for (const finding of stored) {
+            const fingerprint = fingerprintOf(finding)
+            const name = `findings/${fingerprint}.json`
+            const prior = PrivateStore.read(storeRoot, name)
+            const next: FindingRecord = {
+              fingerprint,
+              ...(store?.owner === undefined ? {} : { owner: store.owner }),
+              policy,
+              state: "open",
+              reproductionSteps: finding.security?.nextConfirmationStep ??
+                `Review line ${finding.line} of ${finding.file} against the rubric again.`,
+              firstSeenRun: prior === undefined ? runKey : decodeFindingRecord(prior).firstSeenRun,
+              lastSeenRun: runKey,
+              updatedAt: now(),
+              finding
+            }
+            PrivateStore.write(storeRoot, name, next)
+          }
+        },
+        catch: storeError
+      })
     const reviewed: Array<string> = []
     const findings: Array<Finding> = []
     const attempts: Array<typeof ReviewAttempt.Type> = []
-    let batchIndex = 0
     let findingBytes = 0
-    for (const batch of loadedBatches) {
-      for (const segment of batch.changed) {
-        if (!reviewed.includes(segment.path)) reviewed.push(segment.path)
-      }
-      const batchFindings = yield* (payload.securityChecks === undefined
-        ? reviewBatch(runtime, payload, batch, context, mask, spend).pipe(
-          Effect.mapError((error) =>
-            payload.required === true && error._tag === "smithers-build/ModelCliMissing"
-              ? new LlmReviewError({ phase: "review", message: `Required review cannot run: ${error.message}` })
-              : error
+    let invoked = 0
+    let remaining = 0
+    yield* persist({})
+    const execute = Effect.gen(function*() {
+      for (let batchIndex = 0; batchIndex < loadedBatches.length; batchIndex++) {
+        const batch = loadedBatches[batchIndex]!
+        const stored = run.batches.find((entry) => entry.index === batchIndex)
+        if (stored === undefined && invoked >= maximumReviewBatches) {
+          remaining++
+          continue
+        }
+        const files = [...new Set(batch.changed.map((segment) => segment.path))]
+        for (const path of files) {
+          if (!reviewed.includes(path)) reviewed.push(path)
+        }
+        const before = attempts.length
+        if (stored !== undefined) attempts.push(...stored.attempts)
+        else invoked++
+        const batchFindings = stored !== undefined ? stored.findings : yield* (payload.securityChecks === undefined
+          ? reviewBatch(runtime, payload, batch, context, mask, spend).pipe(
+            Effect.mapError((error) =>
+              payload.required === true && error._tag === "smithers-build/ModelCliMissing"
+                ? new LlmReviewError({ phase: "review", message: `Required review cannot run: ${error.message}` })
+                : error
+            )
           )
-        )
-        : securityBatch(
-          runtime,
-          options.executable,
-          payload,
-          batch,
-          context,
-          batchIndex,
-          attempts,
-          mask,
-          spend
-        ))
-      batchIndex++
-      findings.push(...batchFindings)
-      if (findings.length > maximumFindings) {
+          : securityBatch(
+            runtime,
+            options.executable,
+            payload,
+            batch,
+            context,
+            batchIndex,
+            attempts,
+            mask,
+            spend
+          ))
+        if (stored === undefined) {
+          // Persist each batch as it completes so a later failure never discards it.
+          yield* persist({
+            batches: [...run.batches, {
+              index: batchIndex,
+              files,
+              findings: batchFindings,
+              attempts: attempts.slice(before)
+            }]
+          })
+          yield* record(batchFindings)
+        }
+        findings.push(...batchFindings)
+        if (findings.length > maximumFindings) {
+          return yield* Effect.fail(
+            new LlmReviewError({
+              phase: "parse",
+              message: `model returned more than ${maximumFindings} findings`,
+              ...(payload.securityChecks === undefined ? {} : { attempts })
+            })
+          )
+        }
+        for (const finding of batchFindings) findingBytes += Buffer.byteLength(JSON.stringify(finding), "utf8")
+        if (findingBytes > maximumFindingBytes) {
+          return yield* Effect.fail(
+            new LlmReviewError({
+              phase: "parse",
+              message: `model findings exceed ${maximumFindingBytes} bytes`,
+              ...(payload.securityChecks === undefined ? {} : { attempts })
+            })
+          )
+        }
+      }
+      if (remaining > 0) {
+        yield* persist({ status: "incomplete" })
+        settled = true
         return yield* Effect.fail(
           new LlmReviewError({
-            phase: "parse",
-            message: `model returned more than ${maximumFindings} findings`,
+            phase: "review",
+            message: `Review incomplete: ${remaining} of ${loadedBatches.length} batches remain; ` +
+              "run it again with the same finding store to resume",
             ...(payload.securityChecks === undefined ? {} : { attempts })
           })
         )
       }
-      for (const finding of batchFindings) findingBytes += Buffer.byteLength(JSON.stringify(finding), "utf8")
-      if (findingBytes > maximumFindingBytes) {
-        return yield* Effect.fail(
-          new LlmReviewError({
-            phase: "parse",
-            message: `model findings exceed ${maximumFindingBytes} bytes`,
-            ...(payload.securityChecks === undefined ? {} : { attempts })
-          })
-        )
+      // A file supplied to several requests (shared context, a related file, or a split file) reports each flaw once.
+      const appearances = new Map<string, number>()
+      for (const batch of loadedBatches) {
+        for (const path of new Set([...batch.changed, ...batch.related].map((file) => file.path))) {
+          appearances.set(path, (appearances.get(path) ?? 0) + 1)
+        }
       }
-    }
-    // A file supplied to several requests (shared context, a related file, or a split file) reports each flaw once.
-    const appearances = new Map<string, number>()
-    for (const batch of loadedBatches) {
-      for (const path of new Set([...batch.changed, ...batch.related].map((file) => file.path))) {
-        appearances.set(path, (appearances.get(path) ?? 0) + 1)
-      }
-    }
-    findings.splice(
-      0,
-      findings.length,
-      ...mergeRepeated(findings, (path) => paths.includes(path) || (appearances.get(path) ?? 0) > 1)
-    )
-    for (const location of mask.locations) {
-      findings.push({
-        file: location.file,
-        line: location.line,
-        severity: "error",
-        message: `Rotate ${location.name} privately.`,
-        ...(payload.securityChecks === undefined ? {} : {
-          security: {
-            checkId: "general",
-            impact: "high" as const,
-            verification: "suspected" as const,
-            releaseRecommendation: "block" as const,
-            attackerPreconditions: "An attacker can read the exposed source credential.",
-            evidence: `A ${location.name} credential pattern was detected at this location.`,
-            nextConfirmationStep: "Check credential validity privately; do not disclose it."
-          }
-        })
-      })
-    }
-    const failing = findings.filter((finding) =>
-      payload.securityChecks === undefined
-        ? meets(finding.severity, payload.failOn)
-        : finding.security?.releaseRecommendation === "block"
-    )
-    if (failing.length > 0) {
-      return yield* Effect.fail(
-        new FindingsError({
-          failOn: payload.failOn,
-          findings,
-          ...(payload.securityChecks === undefined ? {} : { attempts })
-        })
+      findings.splice(
+        0,
+        findings.length,
+        ...mergeRepeated(findings, (path) => paths.includes(path) || (appearances.get(path) ?? 0) > 1)
       )
-    }
-    return { files: reviewed, findings, ...(payload.securityChecks === undefined ? {} : { attempts }), ...usage() }
+      for (const location of mask.locations) {
+        findings.push({
+          file: location.file,
+          line: location.line,
+          severity: "error",
+          message: `Rotate ${location.name} privately.`,
+          ...(payload.securityChecks === undefined ? {} : {
+            security: {
+              checkId: "general",
+              impact: "high" as const,
+              verification: "suspected" as const,
+              releaseRecommendation: "block" as const,
+              attackerPreconditions: "An attacker can read the exposed source credential.",
+              evidence: `A ${location.name} credential pattern was detected at this location.`,
+              nextConfirmationStep: "Check credential validity privately; do not disclose it."
+            }
+          })
+        })
+      }
+      const stored = storeRoot === undefined ? {} : { run: runKey, fingerprints: findings.map(fingerprintOf) }
+      if (storeRoot !== undefined) {
+        yield* record(findings)
+        // A finding the latest review of its file no longer reports awaits a reproduced retest.
+        const seen = new Set(stored.fingerprints)
+        yield* Effect.try({
+          try: () => {
+            for (const value of PrivateStore.list(storeRoot, "findings")) {
+              const entry = decodeFindingRecord(value)
+              if (
+                entry.state === "open" && entry.owner === store?.owner && entry.policy === policy &&
+                reviewed.includes(entry.finding.file) &&
+                !seen.has(entry.fingerprint)
+              ) {
+                PrivateStore.write(storeRoot, `findings/${entry.fingerprint}.json`, {
+                  ...entry,
+                  state: "fixed-pending-retest",
+                  updatedAt: now()
+                })
+              }
+            }
+          },
+          catch: storeError
+        })
+        yield* persist({ status: "completed" })
+        settled = true
+      }
+      const failing = findings.filter((finding) =>
+        payload.securityChecks === undefined
+          ? meets(finding.severity, payload.failOn)
+          : finding.security?.releaseRecommendation === "block"
+      )
+      if (failing.length > 0) {
+        return yield* Effect.fail(
+          new FindingsError({
+            failOn: payload.failOn,
+            findings,
+            ...(payload.securityChecks === undefined ? {} : { attempts }),
+            ...stored
+          })
+        )
+      }
+      return {
+        files: reviewed,
+        findings,
+        ...(payload.securityChecks === undefined ? {} : { attempts }),
+        ...usage(),
+        ...stored
+      }
+    })
+    return yield* execute.pipe(
+      Effect.tapError((error) =>
+        settled ? Effect.void : persist({ status: "failed", error: error.message }).pipe(Effect.ignore)
+      )
+    )
   })
 
 /**
@@ -2272,6 +2619,7 @@ export const LlmReviewLive = (options: {
   readonly executable?: string | undefined
   readonly timeoutMs?: number | undefined
   readonly sensitiveEnv?: ReadonlyArray<string> | undefined
+  readonly store?: FindingStore | undefined
 }): Layer.Layer<Action.Requirement<"smithers-build/llm-review">, never, FlowRuntime.FlowRuntime> =>
   LlmReview.toLayer((payload) => review(options, payload))
 

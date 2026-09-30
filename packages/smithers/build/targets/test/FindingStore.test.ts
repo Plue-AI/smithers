@@ -1,0 +1,267 @@
+import * as Effect from "effect/Effect"
+import { execFileSync } from "node:child_process"
+import * as Fs from "node:fs/promises"
+import * as Os from "node:os"
+import * as Path from "node:path"
+import { afterEach, beforeEach, describe, expect, it } from "vitest"
+import * as Input from "../src/Input.ts"
+import * as LlmLint from "../src/LlmLint.ts"
+
+let root: string
+let store: string
+
+const write = async (relative: string, text: string): Promise<void> => {
+  const path = Path.join(root, relative)
+  await Fs.mkdir(Path.dirname(path), { recursive: true })
+  await Fs.writeFile(path, text, "utf8")
+}
+
+beforeEach(async () => {
+  root = await Fs.realpath(await Fs.mkdtemp(Path.join(Os.tmpdir(), "finding-store-")))
+  store = Path.join(root, ".private", "findings")
+  await write("src/a.ts", "export const a = 1\n")
+  await write("src/b.ts", "export const b = 1\n")
+  execFileSync("git", ["init", "-q", "--initial-branch=main"], { cwd: root })
+  await write(".gitignore", ".private/\ncontrol.json\ncalls.log\nengine.mjs\n")
+  execFileSync("git", ["add", "."], { cwd: root })
+  execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-qm", "base"], { cwd: root })
+  await write("src/a.ts", "export const a = 2\ndanger()\n")
+  await write("src/b.ts", "export const b = 2\n")
+})
+
+afterEach(async () => {
+  await Fs.rm(root, { recursive: true, force: true })
+})
+
+interface Control {
+  /** Changed files whose request exits non-zero. */
+  readonly fail?: ReadonlyArray<string>
+  /** Findings answered for each changed file present in a request. */
+  readonly findings?: Record<string, ReadonlyArray<LlmLint.Finding>>
+}
+
+/** A fake claude CLI steered by `control.json`, recording which changed files each call carried. */
+const engine = async (control: Control): Promise<{ executable: string; calls: () => Promise<Array<string>> }> => {
+  await Fs.writeFile(Path.join(root, "control.json"), JSON.stringify(control))
+  const executable = Path.join(root, "engine.mjs")
+  const record = Path.join(root, "calls.log")
+  await Fs.rm(record, { force: true })
+  await Fs.writeFile(
+    executable,
+    [
+      "#!/usr/bin/env node",
+      "import { appendFileSync, readFileSync } from \"node:fs\"",
+      "let prompt = \"\"",
+      "for await (const chunk of process.stdin) prompt += chunk",
+      `const control = JSON.parse(readFileSync(${JSON.stringify(Path.join(root, "control.json"))}, "utf8"))`,
+      "const files = [...prompt.matchAll(/--- CHANGED FILE: \"([^\"]+)\"/g)].map((match) => match[1])",
+      `appendFileSync(${JSON.stringify(record)}, files.join(",") + "\\n")`,
+      "if (files.some((file) => (control.fail ?? []).includes(file))) { process.stderr.write(\"refused\"); process.exit(3) }",
+      "const findings = files.flatMap((file) => (control.findings ?? {})[file] ?? [])",
+      "process.stdout.write(JSON.stringify({ result: JSON.stringify(findings) }))"
+    ].join("\n"),
+    { mode: 0o755 }
+  )
+  return {
+    executable,
+    calls: async () => (await Fs.readFile(record, "utf8").catch(() => "")).split("\n").filter(Boolean)
+  }
+}
+
+const payload = (overrides: Partial<LlmLint.Payload> = {}): LlmLint.Payload => ({
+  base: "HEAD",
+  include: [Input.glob("src/**")],
+  context: [],
+  prompt: "Review",
+  rubric: "Rubric",
+  engine: "claude",
+  model: "test",
+  batchSize: 1,
+  failOn: "error",
+  ...overrides
+})
+
+const danger: LlmLint.Finding = { file: "src/a.ts", line: 2, severity: "warning", message: "danger() is unsafe" }
+
+const review = (executable: string, overrides: Partial<LlmLint.Payload> = {}, owner = "//pkg:security") =>
+  LlmLint.review({ workspaceRoot: root, executable, store: { directory: store, owner } }, payload(overrides))
+
+const runs = async (): Promise<Array<LlmLint.RunRecord>> =>
+  Promise.all(
+    (await Fs.readdir(Path.join(store, "runs"))).map(async (name) =>
+      JSON.parse(await Fs.readFile(Path.join(store, "runs", name), "utf8")) as LlmLint.RunRecord
+    )
+  )
+
+describe("LlmLint.review finding store", () => {
+  it("persists each completed batch so a later failure keeps it, then resumes only the rest", async () => {
+    const failing = await engine({ fail: ["src/b.ts"], findings: { "src/a.ts": [danger] } })
+    const failure = await Effect.runPromise(Effect.flip(review(failing.executable)))
+    expect(failure).toBeInstanceOf(LlmLint.LlmReviewError)
+    const [failed] = await runs()
+    expect(failed).toMatchObject({ status: "failed", total: 2, owner: "//pkg:security" })
+    expect(failed!.error).toContain("exited 3")
+    expect(failed!.batches).toEqual([{ index: 0, files: ["src/a.ts"], findings: [danger], attempts: [] }])
+    const [stored] = await Effect.runPromise(LlmLint.storedFindings(store))
+    expect(stored).toMatchObject({ state: "open", owner: "//pkg:security", finding: danger })
+
+    const fixed = await engine({ findings: { "src/a.ts": [danger] } })
+    const report = await Effect.runPromise(review(fixed.executable))
+    expect(await fixed.calls()).toEqual(["src/b.ts"])
+    expect(report.files).toEqual(["src/a.ts", "src/b.ts"])
+    expect(report.findings).toEqual([danger])
+    expect(report.run).toBe(failed!.run)
+    expect(report.fingerprints).toEqual([stored!.fingerprint])
+    expect((await runs()).map(({ status }) => status)).toEqual(["completed"])
+
+    // A completed run is never reused as a verdict: the same inputs are reviewed again.
+    const repeat = await engine({ findings: { "src/a.ts": [danger] } })
+    await Effect.runPromise(review(repeat.executable))
+    expect(await repeat.calls()).toEqual(["src/a.ts", "src/b.ts"])
+  })
+
+  it("schedules batches past the per-invocation limit across invocations", async () => {
+    for (let index = 0; index <= LlmLint.maximumReviewBatches; index++) {
+      await write(`src/many-${String(index).padStart(2, "0")}.ts`, `export const value${index} = ${index}\n`)
+    }
+    await Fs.rm(Path.join(root, "src/a.ts"))
+    await Fs.rm(Path.join(root, "src/b.ts"))
+    const cli = await engine({})
+    const incomplete = await Effect.runPromise(Effect.flip(review(cli.executable)))
+    expect(incomplete.message).toBe(
+      `Review incomplete: 1 of ${LlmLint.maximumReviewBatches + 1} batches remain; ` +
+        "run it again with the same finding store to resume"
+    )
+    expect((await cli.calls()).length).toBe(LlmLint.maximumReviewBatches)
+    expect((await runs())[0]).toMatchObject({ status: "incomplete" })
+    const next = await engine({})
+    const report = await Effect.runPromise(review(next.executable))
+    expect(await next.calls()).toEqual([`src/many-${LlmLint.maximumReviewBatches}.ts`])
+    expect(report.files).toHaveLength(LlmLint.maximumReviewBatches + 1)
+  }, 300_000)
+
+  it("tracks a fix until a reproduced retest closes it, and reopens a regression", async () => {
+    const first = await engine({ findings: { "src/a.ts": [danger] } })
+    const failure = await Effect.runPromise(Effect.flip(review(first.executable, { failOn: "warning" })))
+    expect(failure).toBeInstanceOf(LlmLint.FindingsError)
+    const fingerprint = (failure as LlmLint.FindingsError).fingerprints![0]!
+    expect((failure as LlmLint.FindingsError).run).toMatch(/^[a-f0-9]{64}$/)
+
+    // The flagged line moves; its fingerprint does not.
+    await write("src/a.ts", "export const a = 3\n\ndanger()\n")
+    const moved = await engine({ findings: { "src/a.ts": [{ ...danger, line: 3 }] } })
+    const again = await Effect.runPromise(review(moved.executable))
+    expect(again.fingerprints).toEqual([fingerprint])
+
+    const receipt = { revision: "a".repeat(40), command: "npm test -- danger", observedResult: "rejects the input" }
+    const early = await Effect.runPromise(Effect.flip(LlmLint.closeFinding(store, fingerprint, receipt)))
+    expect(early).toMatchObject({ phase: "store", message: expect.stringContaining("is open") })
+
+    await write("src/a.ts", "export const a = 4\nsafe()\n")
+    const clean = await engine({})
+    await Effect.runPromise(review(clean.executable))
+    const [pending] = await Effect.runPromise(LlmLint.storedFindings(store))
+    expect(pending).toMatchObject({ fingerprint, state: "fixed-pending-retest" })
+    expect(LlmLint.publicSummary(pending!)).toEqual({
+      fingerprint,
+      reference: `restricted-finding:${fingerprint}`,
+      state: "fixed-pending-retest",
+      severity: "warning",
+      owner: "//pkg:security"
+    })
+    const closed = await Effect.runPromise(LlmLint.closeFinding(store, fingerprint, receipt))
+    expect(closed).toMatchObject({ state: "closed", closure: receipt })
+    expect(LlmLint.publicSummary(closed)).toMatchObject({ state: "closed", file: "src/a.ts" })
+    expect(JSON.stringify(LlmLint.publicSummary(closed))).not.toContain("unsafe")
+
+    await write("src/a.ts", "export const a = 5\ndanger()\n")
+    const regression = await engine({ findings: { "src/a.ts": [danger] } })
+    await Effect.runPromise(review(regression.executable))
+    const [reopened] = await Effect.runPromise(LlmLint.storedFindings(store))
+    expect(reopened).toMatchObject({ state: "open", firstSeenRun: (failure as LlmLint.FindingsError).run })
+    expect(reopened!.closure).toBeUndefined()
+  })
+
+  it("retires a finding only by its own owner and policy after reviewing its file", async () => {
+    const first = await engine({ findings: { "src/a.ts": [danger] } })
+    await Effect.runPromise(review(first.executable, {}, "//other:security"))
+    await write("src/a.ts", "export const a = 9\nsafe()\n")
+    const clean = await engine({})
+    await Effect.runPromise(review(clean.executable, { include: [Input.glob("src/b.ts")] }, "//other:security"))
+    await Effect.runPromise(review(clean.executable))
+    await Effect.runPromise(review(clean.executable, { rubric: "Another rubric" }, "//other:security"))
+    const [record] = await Effect.runPromise(LlmLint.storedFindings(store))
+    expect(record).toMatchObject({ state: "open", owner: "//other:security" })
+    await Effect.runPromise(review(clean.executable, {}, "//other:security"))
+    const [retired] = await Effect.runPromise(LlmLint.storedFindings(store))
+    expect(retired).toMatchObject({ state: "fixed-pending-retest" })
+  })
+
+  it("persists security attempts and derives reproduction steps from the finding", async () => {
+    const evidence = {
+      checkId: "general",
+      impact: "medium" as const,
+      verification: "suspected" as const,
+      releaseRecommendation: "review" as const,
+      attackerPreconditions: "Controls the input.",
+      evidence: "danger() receives it.",
+      nextConfirmationStep: "Call danger() with a synthetic payload."
+    }
+    const completion = JSON.stringify({
+      status: "completed",
+      coverage: [{ checkId: "general", status: "completed", evidence: "Inspected the file." }],
+      missingContext: [],
+      findings: [{ ...danger, security: evidence }]
+    })
+    const executable = Path.join(root, "security.mjs")
+    await Fs.writeFile(
+      executable,
+      "#!/usr/bin/env node\nfor await (const _ of process.stdin) {}\n" +
+        `const answer = ${JSON.stringify(completion)}\n` +
+        "process.stdout.write(process.argv[2] === \"exec\"\n" +
+        "  ? JSON.stringify({ type: \"item.completed\", item: { type: \"agent_message\", text: answer } }) + " +
+        "\"\\n\" + JSON.stringify({ type: \"turn.completed\" }) + \"\\n\"\n" +
+        "  : JSON.stringify({ type: \"result\", subtype: \"success\", is_error: false, result: answer }))\n",
+      { mode: 0o755 }
+    )
+    const report = await Effect.runPromise(
+      review(executable, { securityChecks: ["general"], include: [Input.glob("src/a.ts")] })
+    )
+    const [run] = await runs()
+    expect(run!.batches[0]!.attempts.length).toBe(report.attempts!.length)
+    const [record] = await Effect.runPromise(LlmLint.storedFindings(store))
+    expect(record!.reproductionSteps).toBe("Call danger() with a synthetic payload.")
+    expect(LlmLint.publicSummary(record!)).toMatchObject({ checkId: "general", impact: "medium" })
+  })
+
+  it("keeps the store private and refuses unusable locations and records", async () => {
+    const cli = await engine({ findings: { "src/a.ts": [danger] } })
+    const report = await Effect.runPromise(review(cli.executable))
+    expect(report.findings).toEqual([danger])
+    const { mode } = await Fs.stat(store)
+    expect(mode & 0o777).toBe(0o700)
+    for (const name of await Fs.readdir(Path.join(store, "findings"))) {
+      expect((await Fs.stat(Path.join(store, "findings", name))).mode & 0o777).toBe(0o600)
+    }
+    expect(await Effect.runPromise(Effect.flip(LlmLint.storedFindings("relative/store")))).toMatchObject({
+      phase: "store",
+      message: expect.stringContaining("must be absolute")
+    })
+    const link = Path.join(root, "linked-store")
+    await Fs.symlink(store, link)
+    expect((await Effect.runPromise(Effect.flip(LlmLint.storedFindings(link)))).message).toContain("not a directory")
+    const receipt = { revision: "b".repeat(40), command: "retest", observedResult: "passes" }
+    expect((await Effect.runPromise(Effect.flip(LlmLint.closeFinding(store, "../escape", receipt)))).message)
+      .toContain("not usable")
+    expect((await Effect.runPromise(Effect.flip(LlmLint.closeFinding(store, "c".repeat(64), receipt)))).message)
+      .toContain("no finding")
+    await Fs.mkdir(Path.join(store, "findings", `${"d".repeat(64)}.json`))
+    expect((await Effect.runPromise(Effect.flip(LlmLint.storedFindings(store)))).message).toContain(
+      "not a regular file"
+    )
+    await Fs.rm(store, { recursive: true })
+    await Fs.writeFile(store, "not a directory")
+    const blocked = await Effect.runPromise(Effect.flip(review(cli.executable)))
+    expect(blocked).toMatchObject({ phase: "store" })
+  })
+})

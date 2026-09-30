@@ -95,7 +95,11 @@ export const runTarget = (
       CheckFileLive({ workspaceRoot }),
       CheckDocsLive({ workspaceRoot }),
       FactoryProjectionLive({ workspaceRoot }),
-      LlmReviewLive({ workspaceRoot, sensitiveEnv }),
+      LlmReviewLive({
+        workspaceRoot,
+        sensitiveEnv,
+        store: { directory: NodePath.resolve(workspaceRoot, cacheDirectory, "review-findings") }
+      }),
       SyncPackageJsonLive({ workspaceRoot, cacheDirectory }),
       ScaffoldPackageLive({ workspaceRoot, packageName }),
       Target.layerNotImplemented,

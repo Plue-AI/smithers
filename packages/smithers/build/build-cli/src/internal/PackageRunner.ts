@@ -264,29 +264,59 @@ const sampleLimit = 20
 /** How many model-review findings a status line names before summarizing the rest. */
 const reviewFindingLimit = 200
 
-interface ReviewFinding {
+/**
+ * The finding fields a review status line renders.
+ * @category rendering
+ * @since 1.0.0
+ */
+export interface ReviewFinding {
   readonly file: string
   readonly line: number
   readonly severity: string
   readonly message: string
+  readonly security?: { readonly checkId: string; readonly impact: string }
+}
+
+/**
+ * A model review's findings with their stored fingerprints, as its report or FindingsError carries them.
+ * @category rendering
+ * @since 1.0.0
+ */
+export interface ReviewResult {
+  readonly findings: ReadonlyArray<ReviewFinding>
+  readonly fingerprints?: ReadonlyArray<string>
 }
 
 /** Whether a value carries LlmLint's findings array, as its report or its FindingsError does. */
-const reviewFindingsOf = (value: unknown): ReadonlyArray<ReviewFinding> | undefined => {
+const reviewFindingsOf = (value: unknown): ReviewResult | undefined => {
   if (typeof value !== "object" || value === null || !("findings" in value)) return undefined
-  const findings = (value as { readonly findings: unknown }).findings
-  return Array.isArray(findings) ? findings as ReadonlyArray<ReviewFinding> : undefined
+  const result = value as { readonly findings: unknown; readonly fingerprints?: unknown }
+  if (!Array.isArray(result.findings)) return undefined
+  return {
+    findings: result.findings as ReadonlyArray<ReviewFinding>,
+    ...(Array.isArray(result.fingerprints) ? { fingerprints: result.fingerprints as ReadonlyArray<string> } : {})
+  }
 }
 
 /**
  * Renders model-review findings one per line. A review's findings are its
  * whole result, so a status line that dropped them would report a failed
- * review with no reason and a passing one with its warnings hidden.
+ * review with no reason and a passing one with its warnings hidden. A security
+ * finding names only its severity, check, impact and stored fingerprint: its
+ * description stays in the private finding store, out of the log.
+ * @category rendering
+ * @since 1.0.0
  */
-const renderReviewFindings = (findings: ReadonlyArray<ReviewFinding>): string =>
+export const renderReviewFindings = ({ findings, fingerprints }: ReviewResult): string =>
   findings
     .slice(0, reviewFindingLimit)
-    .map((finding) => `\n  ${finding.file}:${finding.line} ${finding.severity}: ${finding.message}`)
+    .map((finding, index) =>
+      finding.security === undefined
+        ? `\n  ${finding.file}:${finding.line} ${finding.severity}: ${finding.message}`
+        : `\n  ${finding.severity} [${finding.security.checkId}] ${finding.security.impact} impact: restricted finding ${
+          fingerprints?.[index] ?? "(not stored)"
+        }`
+    )
     .join("") + (findings.length > reviewFindingLimit ? `\n  (+${findings.length - reviewFindingLimit} more)` : "")
 
 const sampleRows = (title: string, rows: ReadonlyArray<string>): string =>
@@ -869,10 +899,10 @@ export const executeEffect = (
         typeof value === "object" && value !== null &&
         (value as { readonly _tag?: unknown })._tag === "smithers-build/FindingsError"
       ) {
-        const findings = reviewFindingsOf(value) ?? []
+        const result = reviewFindingsOf(value) ?? { findings: [] }
         const failOn = (value as { readonly failOn?: unknown }).failOn
         return fail(
-          `${findings.length} review finding(s); failing at ${String(failOn)}${renderReviewFindings(findings)}`
+          `${result.findings.length} review finding(s); failing at ${String(failOn)}${renderReviewFindings(result)}`
         )
       }
       if (!engineCliMissing(value)) return fail(Executor.describeFailure(value))
@@ -2882,8 +2912,12 @@ export const executeEffect = (
               const reviewFindings = Target.metadata(node.declaration).target === "LlmLint"
                 ? reviewFindingsOf(exit.value)
                 : undefined
-              if (reviewFindings !== undefined && reviewFindings.length > 0) {
-                log(`${node.label}  ${reviewFindings.length} review finding(s)${renderReviewFindings(reviewFindings)}`)
+              if (reviewFindings !== undefined && reviewFindings.findings.length > 0) {
+                log(
+                  `${node.label}  ${reviewFindings.findings.length} review finding(s)${
+                    renderReviewFindings(reviewFindings)
+                  }`
+                )
               }
               const produced = yield* verifyTargetOutputs(node, exit.value)
               if (produced !== undefined) return fail(produced)

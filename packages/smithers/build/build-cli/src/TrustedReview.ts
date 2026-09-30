@@ -118,6 +118,11 @@ export interface Options {
   readonly plan?: boolean | undefined
   /** Every selected review, policy reviews included, must review something and run. */
   readonly required?: boolean | undefined
+  /**
+   * Absolute private directory persisting runs and findings; defaults to
+   * `smithers/review-findings` in the repository's Git directory, which is never committed.
+   */
+  readonly findingsStore?: string | undefined
 }
 
 /**
@@ -327,6 +332,25 @@ export const prepare = async (options: Options) => {
   return { root, policyRevision, revision, policyChanges, policies, snapshot }
 }
 
+type Restrictable = {
+  readonly findings: ReadonlyArray<LlmLint.Finding>
+  readonly fingerprints?: ReadonlyArray<string> | undefined
+}
+
+/**
+ * Replaces a stored review's findings with their disclosable summaries; the
+ * findings themselves stay in the private store.
+ * @category execution
+ * @since 1.0.0
+ */
+export const restrictFindings = async <A extends Restrictable>(store: string, value: A) => {
+  const records = new Map(
+    (await Effect.runPromise(LlmLint.storedFindings(store))).map((record) => [record.fingerprint, record])
+  )
+  const { fingerprints = [], findings: _findings, ...rest } = value
+  return { ...rest, findings: fingerprints.map((fingerprint) => LlmLint.publicSummary(records.get(fingerprint)!)) }
+}
+
 /**
  * Runs pinned policy against pinned source with tool-free inference.
  * @category execution
@@ -334,6 +358,15 @@ export const prepare = async (options: Options) => {
  */
 export const run = async (options: Options) => {
   const prepared = await prepare(options)
+  const findingsStore = options.findingsStore ??
+    NodePath.join(
+      NodePath.resolve(
+        prepared.root,
+        (await git(prepared.root, ["rev-parse", "--path-format=absolute", "--git-common-dir"])).trim()
+      ),
+      "smithers",
+      "review-findings"
+    )
   const receipt = {
     policyRevision: prepared.policyRevision,
     revision: prepared.revision,
@@ -350,11 +383,13 @@ export const run = async (options: Options) => {
       files: prepared.snapshot.map(({ path }) => path)
     }
   }
+  const restricted = <A extends Restrictable>(value: A) => restrictFindings(findingsStore, value)
   const reviews = []
   for (const { label, payload, snapshot } of prepared.policies) {
     const result = await Effect.runPromise(Effect.result(
       LlmLint.review({
         workspaceRoot: prepared.root,
+        store: { directory: findingsStore, owner: label },
         snapshot: snapshot ??
           prepared.snapshot.filter(({ path }) => matches(path, payload.include) || matches(path, payload.context))
       }, payload)
@@ -363,9 +398,20 @@ export const run = async (options: Options) => {
       label,
       ...(label === "//:proposed-review-index" ? { representation: "review-policy-changes" } : {}),
       ...(result._tag === "Success"
-        ? { status: "completed" as const, ...result.success }
-        : { status: "failed" as const, error: result.failure })
+        ? { status: "completed" as const, ...(await restricted(result.success)) }
+        : {
+          status: "failed" as const,
+          error: result.failure._tag === "smithers-build/FindingsError"
+            ? await restricted(result.failure)
+            : result.failure
+        })
     })
   }
-  return { ...receipt, ok: reviews.every((review) => review.status === "completed"), planned: false as const, reviews }
+  return {
+    ...receipt,
+    findingsStore,
+    ok: reviews.every((review) => review.status === "completed"),
+    planned: false as const,
+    reviews
+  }
 }
