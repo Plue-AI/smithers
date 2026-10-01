@@ -20,6 +20,17 @@
 
 ### Changed
 
+- Sealed model/cell identities changed when the harness added
+  `approval_unavailable` (#3161, #3317). The preceding rc.115 model key
+  `key1_91d1fb4d…` and cell key `key1_425bb2ae…` are preserved as historical
+  vectors; the current keys are `key1_3f683043…` and `key1_1e7f6586…`.
+  Both changes come solely from the error declaration fingerprint. The same
+  Effect lock alone does not preserve these cache addresses: in-flight runs
+  must retain their original producer/declaration snapshot. A current host
+  uses new addresses and must not treat an old recorded call as their answer.
+  SQLite reopen regressions retain each declaration and verify replay without
+  redispatch; unchanged wire schemas still replay through the current agent port.
+
 - **Breaking:** `Seat.auto` routes by the maintainer's routing graph. Jev
   answers phase, size, clarity and binary success (plus the variant) in one
   call, and `SeatRouter.plan`, `backupsOf` and `fit` pick the seat, its

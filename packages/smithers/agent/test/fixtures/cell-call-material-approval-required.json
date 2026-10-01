@@ -1,0 +1,17 @@
+{
+  "boundary": "key1_c11df78aaa4b5d3421904dc2ac221702f120993a126a1419f8049653c4693519",
+  "environment": {
+    "capabilities": {},
+    "layers": [
+      "golden-host-layer",
+      "flows/agent/composition/v1:5a7cbf057443ad66106249bebe80895969e4a5b2c4aa0a46fbbb77b8f80983b8"
+    ]
+  },
+  "form": "declared",
+  "input": {
+    "action": "harness/cell-call/fs/write",
+    "declaration": "key1_49f9892e164de56376f116fe31aca3e1f91167400267df856b87ffde2eb3c85f",
+    "idempotencyKey": "key1_6896594bad61200c4959230649a359bbf2e575421091d7fb01a65641f5993cc0"
+  },
+  "kind": "cache"
+}

@@ -17,12 +17,15 @@ import { join } from "node:path"
 import { DatabaseSync } from "node:sqlite"
 import { expect, it } from "vitest"
 import * as FlowEngineLike from "../src/FlowEngineLike.ts"
+import materialApproval from "./fixtures/cell-call-material-approval-required.json" with { type: "json" }
 import materialV1 from "./fixtures/cell-call-material-effect-rc115.json" with { type: "json" }
 import * as V1 from "./fixtures/CellCallV1.ts"
+import { HarnessErrorBeforeApproval } from "./fixtures/HarnessErrorBeforeApproval.ts"
 import * as Safety from "./Safety.ts"
 
-// This proves wire-declaration compatibility within rc.115. The archived
-// rc.112 material has a different key and requires finishing or archiving runs.
+// Replay requires the same declaration as well as the same Effect lock.
+// Retained prior declarations replay their old key; the current approval-aware
+// declaration replays its own key through the current public agent port.
 const flow = Flow.make("agent/test/cell-call-v1-reopen", {
   payload: {},
   success: Schema.Json,
@@ -31,7 +34,10 @@ const flow = Flow.make("agent/test/cell-call-v1-reopen", {
 })
 const proceed = DurableDeferred.make("agent/test/cell-call-v1-proceed", { success: Schema.Void })
 
-it("resumes a prior wire declaration from reopened SQLite under the same Effect lock", async () => {
+const reopenDeclaration = async (declaration: "retained-prior" | "current"): Promise<void> => {
+  const material = declaration === "retained-prior" ? materialV1 : materialApproval
+  const expectedKey = declaration === "retained-prior" ? V1.effect115Key : V1.approvalRequiredKey
+  const wireError = declaration === "retained-prior" ? HarnessErrorBeforeApproval : HarnessError
   const directory = mkdtempSync(join(tmpdir(), "smithers-m1-cell-key-"))
   const filename = join(directory, "engine.sqlite")
   const dispatched: Array<string> = []
@@ -44,19 +50,19 @@ it("resumes a prior wire declaration from reopened SQLite under the same Effect 
       yield* engine.register(flow, () =>
         Effect.gen(function*() {
           entered++
-          const settled = historical
+          const settled = historical || declaration === "retained-prior"
             ? yield* Action.make({
-              name: materialV1.input.action,
+              name: material.input.action,
               success: V1.CallResult,
-              error: HarnessError,
+              error: wireError,
               tier: "sealed",
-              idempotencyKey: materialV1.input.idempotencyKey,
+              idempotencyKey: material.input.idempotencyKey,
               metadata: { boundaryMode: "hard", readSet: [], writeSet: [] },
               execute: Effect.map(Action.CurrentInvocationKey, (key) => {
                 dispatched.push(key!)
                 return new V1.CallResult({ outcome: "success", value: result })
               })
-            }).pipe(Effect.provideService(Action.CurrentCacheEnvironment, materialV1.environment))
+            }).pipe(Effect.provideService(Action.CurrentCacheEnvironment, material.environment))
             : yield* Effect.gen(function*() {
               const port = yield* FlowEngineLike.make({
                 model: Model.make({ stream: () => Stream.empty }),
@@ -125,7 +131,7 @@ it("resumes a prior wire declaration from reopened SQLite under the same Effect 
       return row
     }).pipe(Effect.provide(host(true)), Effect.scoped, Effect.runPromise)
     expect(first.status).toBe("suspended")
-    expect(dispatched).toEqual([V1.effect115Key])
+    expect(dispatched).toEqual([expectedKey])
 
     // Read with an independent connection after the writer and its pool close.
     const database = new DatabaseSync(filename)
@@ -137,14 +143,17 @@ it("resumes a prior wire declaration from reopened SQLite under the same Effect 
           .all("persisted-v1")
       ).toEqual([{
         // AttemptStore indexes SHA-256 of the complete key, including key1_.
-        // Moves with `V1.effect115Key`, which moved when `HarnessErrorCode`
+        // The prior vector and current approval-aware vector have distinct rows.
+        // The prior `V1.effect115Key` moved when `HarnessErrorCode`
         // gained `completion_unjudged` and again when it gained
         // `claim_unproven`, and moved when CallFailureCode gained
         // flow_withheld (#1929) and when `HarnessError.cause` gained
         // the typed `EvaluatorError` member (#2807), and when that member
         // carried what a failed reading paid (#3010), and when
         // `HarnessErrorCode` gained `completion_incomplete` (#3009).
-        step_key_digest: "324184457f5da0916c2970fdd8d1894ee48713c8042adada8f7620dbfe543a12",
+        step_key_digest: declaration === "retained-prior"
+          ? "324184457f5da0916c2970fdd8d1894ee48713c8042adada8f7620dbfe543a12"
+          : "4d57bd555b001d364c1c33844519654a7132fbacc13291cea7d0136f8b1653d0",
         state: "succeeded"
       }])
     } finally {
@@ -163,8 +172,26 @@ it("resumes a prior wire declaration from reopened SQLite under the same Effect 
     }).pipe(Effect.provide(host(false)), Effect.scoped, Effect.runPromise)
     expect(resumed).toEqual(result)
     expect(entered).toBeGreaterThanOrEqual(2)
-    expect(dispatched).toEqual([V1.effect115Key])
+    expect(dispatched).toEqual([expectedKey])
   } finally {
     rmSync(directory, { recursive: true, force: true })
   }
+}
+
+it("keeps the approval error outside the retained prior declaration", () => {
+  const prior = Schema.encodeSync(HarnessErrorBeforeApproval)(
+    new HarnessErrorBeforeApproval({ code: "assembly_failed", message: "prior failure" })
+  )
+  expect(Schema.decodeUnknownResult(HarnessErrorBeforeApproval)(prior)._tag).toBe("Success")
+  expect(Schema.decodeUnknownResult(HarnessError)(prior)._tag).toBe("Success")
+  const approval = Schema.encodeSync(HarnessError)(
+    new HarnessError({ code: "approval_unavailable", message: "no approval channel" })
+  )
+  expect(Schema.decodeUnknownResult(HarnessError)(approval)._tag).toBe("Success")
+  expect(Schema.decodeUnknownResult(HarnessErrorBeforeApproval)(approval)._tag).toBe("Failure")
 })
+
+it.each(["retained-prior", "current"] as const)(
+  "resumes the %s declaration from reopened SQLite without redispatch",
+  reopenDeclaration
+)

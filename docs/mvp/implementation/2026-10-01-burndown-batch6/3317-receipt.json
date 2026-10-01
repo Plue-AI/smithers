@@ -1,0 +1,99 @@
+{
+  "issue": 3317,
+  "review": "Parent reviewed every owning diff, separate current full SHA preimage, retained old declaration, actual prior/current decode boundary and two durable SQLite reopen tests. Authenticated causal evidence attributes both identity changes solely to approval_unavailable in #3161 commit6206550ccc. No production/digest changes.",
+  "checks": [
+    {
+      "name": "final-vectors-replay",
+      "argv": [
+        "pnpm",
+        "exec",
+        "vitest",
+        "run",
+        "test/StepKeyGolden.test.ts",
+        "test/CellCallIdentity.test.ts",
+        "test/CellCallIdentityReplay.test.ts",
+        "--coverage.enabled=false"
+      ],
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers/agent",
+      "exitCode": 0,
+      "seconds": 1.97,
+      "receipt": "/tmp/smithers-burndown-20260930-receipts/api-batch4/golden-3317/green/final-vectors-replay.log",
+      "sha256": "9a773ca0cf795b61dbc4e16cfc0b10f8014fffbbd838141fdbc88888fcc3c742"
+    },
+    {
+      "name": "final-source-types",
+      "argv": [
+        "pnpm",
+        "exec",
+        "tsc",
+        "-p",
+        "tsconfig.json",
+        "--noEmit"
+      ],
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers/agent",
+      "exitCode": 0,
+      "seconds": 5.43,
+      "receipt": "/tmp/smithers-burndown-20260930-receipts/api-batch4/golden-3317/green/final-source-types.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "final-test-types",
+      "argv": [
+        "pnpm",
+        "exec",
+        "tsc",
+        "-p",
+        "tsconfig.test.json",
+        "--noEmit"
+      ],
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers/agent",
+      "exitCode": 0,
+      "seconds": 7.57,
+      "receipt": "/tmp/smithers-burndown-20260930-receipts/api-batch4/golden-3317/green/final-test-types.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "final-format",
+      "argv": [
+        "pnpm",
+        "exec",
+        "dprint",
+        "check",
+        "test/StepKeyGolden.test.ts",
+        "test/CellCallIdentity.test.ts",
+        "test/CellCallIdentityReplay.test.ts",
+        "test/fixtures/CellCallV1.ts",
+        "test/fixtures/HarnessErrorBeforeApproval.ts",
+        "test/fixtures/cell-call-material-approval-required.json",
+        "CHANGELOG.md"
+      ],
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers/agent",
+      "exitCode": 0,
+      "seconds": 0.3,
+      "receipt": "/tmp/smithers-burndown-20260930-receipts/api-batch4/golden-3317/green/final-format.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "counts": {
+    "owningTestsPassed": 6,
+    "unitGoldenAndSchemaControls": 4,
+    "realSQLiteReopenControls": 2
+  },
+  "owningSourceHashes": {
+    "packages/smithers/agent/test/StepKeyGolden.test.ts": "121d5f766fb8592eedd2b77157a972dd7cba0bf76e93bcda1814d8a5a6db0cd2",
+    "packages/smithers/agent/test/CellCallIdentity.test.ts": "620d019a0ba3af173bf3133821e2cab47de161956dcd7619d78bd11368397452",
+    "packages/smithers/agent/test/CellCallIdentityReplay.test.ts": "b4f5580c51e9f479c02552355c59caeead0434867aa24d780ec2cf669c922b70",
+    "packages/smithers/agent/test/fixtures/CellCallV1.ts": "ba7b511955f5b0fb986b7709e453e4a3d1b0a4f90e2a5b9aa001959bcb4e1dc7",
+    "packages/smithers/agent/test/fixtures/HarnessErrorBeforeApproval.ts": "7f5defef8b7d8c5b10931ac281dd6a206c4f43d18fa7dfdfdc97880f46cc61f7",
+    "packages/smithers/agent/test/fixtures/cell-call-material-approval-required.json": "e034cc41b0d32d326c8c93df78fbaf80c79ffb55024e5b006f477b669e3a468f",
+    "packages/smithers/agent/CHANGELOG.md": "d0437596cae756d9a01b6b6de9d238a2e52e70571a0ecc8776b3bde5a866ca5a"
+  },
+  "limits": [
+    "Test/material/migration-note repair only; no production digest relaxation or public declaration changes",
+    "Coverage disabled for focused tests; no whole-agent100% coverage claim",
+    "Historical full producer build not rerun: authenticated source hunk and exact key/preimage reconstruction are retained",
+    "Existing external model capture retains original2 expected failures and setup-launcher exit127 separately; neither counted as final passing gate",
+    "No source-dependent job remains active; current3315/3235 checkpoint is separately ready"
+  ],
+  "archiveSha256": "42f6b8ab382598a2740d68388487275dd8109b1d76f097f04665b28ba1d916ef"
+}

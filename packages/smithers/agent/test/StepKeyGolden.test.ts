@@ -235,7 +235,12 @@ describe("the sealed model step key", () => {
     // `completion_incomplete` for a completion reporting its own work
     // unfinished (#3009).
     expect(observed.host).not.toBe("key1_4fd148a67a94aaa4ec702d424fa156e78b71935a61c926d4fca4753683a812af")
-    expect(observed.host).toBe("key1_91d1fb4dc2465b267ef74cda2fad8d7d42e3986e293fcd0f642ec2e33b0a80fa")
+    // Moved an eleventh time when required asks without an approval channel
+    // gained the typed `approval_unavailable` failure (#3161). Preserve the
+    // preceding declaration identity; an unchanged Effect lock alone does not
+    // make different harness declarations replay-compatible (#3317).
+    expect(observed.host).not.toBe("key1_91d1fb4dc2465b267ef74cda2fad8d7d42e3986e293fcd0f642ec2e33b0a80fa")
+    expect(observed.host).toBe("key1_3f683043bfe48814c4f4fe4ea219b2f5475539f72142abaef067987e9bf8241e")
     // Sealed means content-addressed: the same declaration through a second
     // port of the same composition is one recorded answer, not two calls.
     expect(observed.again).toBe(observed.host)
@@ -268,7 +273,9 @@ describe("the sealed cell-call key", () => {
     expect(observed.host).not.toBe("key1_88223cc71e3c3ad27cb1dffea61a732b14dcfd48282f61d2253173adbd4d8d7b")
     // Moved when `HarnessErrorCode` gained `completion_incomplete` (#3009).
     expect(observed.host).not.toBe("key1_a839b582877e4aed09963b2cc3aa15af094379d286e83018dd67dd3efb06d4c8")
-    expect(observed.host).toBe("key1_425bb2aeef11571a366804d4700e45def8ac0aceac7c7c585b3e1f9461259283")
+    // The same schema migration for `approval_unavailable` (#3161/#3317).
+    expect(observed.host).not.toBe("key1_425bb2aeef11571a366804d4700e45def8ac0aceac7c7c585b3e1f9461259283")
+    expect(observed.host).toBe("key1_1e7f6586798d0220c9866f7d53e4d17ba33245e13e476b7e59ce3d080ec2fc8e")
     // The composition really is in the key: the same call resolved under a
     // different layer set is a different boundary, not a cache hit.
     expect(observed.other).not.toBe(observed.host)

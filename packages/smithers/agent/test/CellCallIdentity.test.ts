@@ -11,6 +11,7 @@ import { expect, it } from "vitest"
 import * as Budget from "../src/Budget.ts"
 import * as FlowEngineLike from "../src/FlowEngineLike.ts"
 import * as QuotaPolicy from "../src/QuotaPolicy.ts"
+import materialApproval from "./fixtures/cell-call-material-approval-required.json" with { type: "json" }
 import materialV1 from "./fixtures/cell-call-material-effect-rc115.json" with { type: "json" }
 import material112 from "./fixtures/cell-call-material-v1.json" with { type: "json" }
 import * as V1 from "./fixtures/CellCallV1.ts"
@@ -84,8 +85,12 @@ it("pins the complete canonical material delivered to SHA-256", async () => {
   // An Effect upgrade is not transparent replay compatibility.
   expect(`key1_${createHash("sha256").update(V1.canonical(material112)).digest("hex")}`).toBe(V1.key)
   expect(V1.effect115Key).not.toBe(V1.key)
-  const expected = V1.canonical(materialV1)
-  expect(`key1_${createHash("sha256").update(expected).digest("hex")}`).toBe(V1.effect115Key)
+  const archived115 = V1.canonical(materialV1)
+  expect(`key1_${createHash("sha256").update(archived115).digest("hex")}`).toBe(V1.effect115Key)
+  const expected = V1.canonical(materialApproval)
+  expect(`key1_${createHash("sha256").update(expected).digest("hex")}`).toBe(V1.approvalRequiredKey)
+  expect(V1.approvalRequiredKey).not.toBe(V1.effect115Key)
+  expect(material).not.toContain(archived115)
   expect(material).toContain(expected)
-  expect(observed.value).toBe(V1.effect115Key)
+  expect(observed.value).toBe(V1.approvalRequiredKey)
 })

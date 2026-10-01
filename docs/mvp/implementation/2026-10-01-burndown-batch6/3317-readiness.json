@@ -1,0 +1,209 @@
+{
+  "schemaVersion": 1,
+  "readyIssues": [
+    3317
+  ],
+  "sourceFrozen": true,
+  "allSourceDependentJobsCompleted": true,
+  "checkedCandidate": "f0b2b2c0e2d5e4991594d4972a2935f44f039c48",
+  "candidateHeadAfterChecks": "f0b2b2c0e2d5e4991594d4972a2935f44f039c48",
+  "ownedSources": {
+    "packages/smithers/agent/test/StepKeyGolden.test.ts": "121d5f766fb8592eedd2b77157a972dd7cba0bf76e93bcda1814d8a5a6db0cd2",
+    "packages/smithers/agent/test/CellCallIdentity.test.ts": "620d019a0ba3af173bf3133821e2cab47de161956dcd7619d78bd11368397452",
+    "packages/smithers/agent/test/CellCallIdentityReplay.test.ts": "b4f5580c51e9f479c02552355c59caeead0434867aa24d780ec2cf669c922b70",
+    "packages/smithers/agent/test/fixtures/CellCallV1.ts": "ba7b511955f5b0fb986b7709e453e4a3d1b0a4f90e2a5b9aa001959bcb4e1dc7",
+    "packages/smithers/agent/test/fixtures/HarnessErrorBeforeApproval.ts": "7f5defef8b7d8c5b10931ac281dd6a206c4f43d18fa7dfdfdc97880f46cc61f7",
+    "packages/smithers/agent/test/fixtures/cell-call-material-approval-required.json": "e034cc41b0d32d326c8c93df78fbaf80c79ffb55024e5b006f477b669e3a468f",
+    "packages/smithers/agent/CHANGELOG.md": "d0437596cae756d9a01b6b6de9d238a2e52e70571a0ecc8776b3bde5a866ca5a"
+  },
+  "productionSourceChanged": false,
+  "migrationCause": {
+    "commit": "6206550ccc0b4b499bb91cec52c4ae4ae400d942",
+    "issue": 3161,
+    "soleCanonicalDelta": "HarnessErrorCode approval_unavailable literal expands the declaration fingerprint embedded in model/cell identities",
+    "actualCurrentModelKey": "key1_3f683043bfe48814c4f4fe4ea219b2f5475539f72142abaef067987e9bf8241e",
+    "authenticatedPriorModelKey": "key1_91d1fb4dc2465b267ef74cda2fad8d7d42e3986e293fcd0f642ec2e33b0a80fa",
+    "actualCurrentCellKey": "key1_1e7f6586798d0220c9866f7d53e4d17ba33245e13e476b7e59ce3d080ec2fc8e",
+    "authenticatedPriorCellKey": "key1_425bb2aeef11571a366804d4700e45def8ac0aceac7c7c585b3e1f9461259283",
+    "modelProof": {
+      "currentDeclarationDigest": "key1_4ba44e6e7cfd4ad40e8d428419f8ee24e15576d0824e442ae370f7b5aa01e652",
+      "reconstructedPriorDeclarationDigest": "key1_d5375ef77e138e9df5b360dbfdff095d8a338ca2fd17748378857d3f54efb34b",
+      "removedSingleLiteralLocation": [
+        "schema.error.references./harness/HarnessErrorEncoded.propertySignatures[1].type.types"
+      ],
+      "oldModelKey": "key1_91d1fb4dc2465b267ef74cda2fad8d7d42e3986e293fcd0f642ec2e33b0a80fa",
+      "currentModelKey": "key1_3f683043bfe48814c4f4fe4ea219b2f5475539f72142abaef067987e9bf8241e",
+      "exactOldGoldenReconstructed": true,
+      "capturedInputSha256": "1ca5b52fb2719233d5d819cfbd2942958f886999344ba47d028cbd0936ff023f",
+      "sourceCauseCommit": "6206550ccc0b4b499bb91cec52c4ae4ae400d942",
+      "limitations": [
+        "Captured currentCrypto preimages from externally instrumented unchanged golden control",
+        "Prior schema mathematically reconstructed by exact authenticated source hunk; no historical build/replay claimed",
+        "No schema/fixture/golden/source changed"
+      ]
+    },
+    "cellProof": {
+      "currentDeclaration": "key1_49f9892e164de56376f116fe31aca3e1f91167400267df856b87ffde2eb3c85f",
+      "reconstructedPriorDeclaration": "key1_da4593ecd26e2abd9895dd8cabacbcf6ab0371c419ff47e0f33d7b58849c2bc9",
+      "soleChangeRemoved": [
+        {
+          "_tag": "Literal",
+          "checks": [],
+          "literal": {
+            "type": "string",
+            "value": "approval_unavailable"
+          }
+        }
+      ],
+      "reconstructedOldFullMaterialMatchesPinnedFixture": true,
+      "oldFullKey": "key1_425bb2aeef11571a366804d4700e45def8ac0aceac7c7c585b3e1f9461259283",
+      "currentFullKey": "key1_1e7f6586798d0220c9866f7d53e4d17ba33245e13e476b7e59ce3d080ec2fc8e",
+      "sourceCommit": "6206550ccc0b4b499bb91cec52c4ae4ae400d942",
+      "sourceIssue": 3161,
+      "capturedInputSha256": "63478ee9b5375c5294a4d3ad1e1a596a240f2f28a6945c1acc13a6a68c008c9c",
+      "limitations": [
+        "Mathematical preimage reconstruction, not historical compiler replay",
+        "Model-step complete preimage must independently be traced before model vector update",
+        "No source/fixture/golden pin changed"
+      ]
+    }
+  },
+  "checks": [
+    {
+      "name": "final-vectors-replay",
+      "argv": [
+        "pnpm",
+        "exec",
+        "vitest",
+        "run",
+        "test/StepKeyGolden.test.ts",
+        "test/CellCallIdentity.test.ts",
+        "test/CellCallIdentityReplay.test.ts",
+        "--coverage.enabled=false"
+      ],
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers/agent",
+      "exitCode": 0,
+      "seconds": 1.97,
+      "receipt": "/tmp/smithers-burndown-20260930-receipts/api-batch4/golden-3317/green/final-vectors-replay.log",
+      "sha256": "9a773ca0cf795b61dbc4e16cfc0b10f8014fffbbd838141fdbc88888fcc3c742"
+    },
+    {
+      "name": "final-source-types",
+      "argv": [
+        "pnpm",
+        "exec",
+        "tsc",
+        "-p",
+        "tsconfig.json",
+        "--noEmit"
+      ],
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers/agent",
+      "exitCode": 0,
+      "seconds": 5.43,
+      "receipt": "/tmp/smithers-burndown-20260930-receipts/api-batch4/golden-3317/green/final-source-types.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "final-test-types",
+      "argv": [
+        "pnpm",
+        "exec",
+        "tsc",
+        "-p",
+        "tsconfig.test.json",
+        "--noEmit"
+      ],
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers/agent",
+      "exitCode": 0,
+      "seconds": 7.57,
+      "receipt": "/tmp/smithers-burndown-20260930-receipts/api-batch4/golden-3317/green/final-test-types.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "final-format",
+      "argv": [
+        "pnpm",
+        "exec",
+        "dprint",
+        "check",
+        "test/StepKeyGolden.test.ts",
+        "test/CellCallIdentity.test.ts",
+        "test/CellCallIdentityReplay.test.ts",
+        "test/fixtures/CellCallV1.ts",
+        "test/fixtures/HarnessErrorBeforeApproval.ts",
+        "test/fixtures/cell-call-material-approval-required.json",
+        "CHANGELOG.md"
+      ],
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers/agent",
+      "exitCode": 0,
+      "seconds": 0.3,
+      "receipt": "/tmp/smithers-burndown-20260930-receipts/api-batch4/golden-3317/green/final-format.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "counts": {
+    "owningTestsPassed": 6,
+    "unitGoldenAndSchemaControls": 4,
+    "realSQLiteReopenControls": 2
+  },
+  "preservedOriginalFixtures": {
+    "packages/smithers/agent/test/fixtures/cell-call-material-v1.json": "7c28c47ed0031c2d47078e4962006ca8a8f7a1d39ae074cd50f8220f5bfb2eb4",
+    "packages/smithers/agent/test/fixtures/cell-call-material-effect-rc115.json": "33a274a07cc32d72a96cc8c59ed595f05c74c7dcc89763ac4ccb5f25a6ac0696"
+  },
+  "compatibility": "Same Effect lock alone does not preserve differing error declarations. Current schema accepts encoded prior errors; retained prior schema refuses the new approval error. Original in-flight declarations replay without redispatch; current equivalent wire declarations replay their own address through actual FlowEngineLike. New addresses never alias old addresses.",
+  "mockExceptions": [
+    "Reporting model only returns the actual engine invocation key; no provider call is needed to measure durable key material",
+    "Sealed SQLite calls install Jj.layerNoop that dies if snapshot is attempted; the tested calls must not snapshot"
+  ],
+  "inputAudit": {
+    "count": 2046,
+    "changedDuringChecks": []
+  },
+  "limits": [
+    "Test/material/migration-note repair only; no production digest relaxation or public declaration changes",
+    "Coverage disabled for focused tests; no whole-agent100% coverage claim",
+    "Historical full producer build not rerun: authenticated source hunk and exact key/preimage reconstruction are retained",
+    "Existing external model capture retains original2 expected failures and setup-launcher exit127 separately; neither counted as final passing gate",
+    "No source-dependent job remains active; current3315/3235 checkpoint is separately ready"
+  ],
+  "rawReceipts": {
+    "approval-schema-commit.diff": "6a470062a379f47dbd2ef549eb65aaf81d73392819f2ecc97b2689efd95bcc50",
+    "cell-causal-proof.json": "5cd985e21496d98cc12ba46d7b94d2580a154d439e2c464ded31ddbe0f30de80",
+    "cell-schema-before-approval.json": "d66280e2f42edec275eca052f1bd34c16c3b69fac11a33aa4c35afaf9b2fa1dd",
+    "cell-schema-current.json": "14e8a317cea6abca00a1fcd9642a55ed697908eb4c4f37e0f4addd8fe0335d27",
+    "green/final-format-result.json": "3ca616add9d02a57fe4c4cc9c2539ac767c0b59b4d31c7eb88d96cc960a40f73",
+    "green/final-format.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "green/final-inputs-after.json": "9057c1feb1b447df0aed641008797aa335674eb6c4628aa4ca45966915bfbc9b",
+    "green/final-inputs-before.json": "6a0072b58f21cee1d23874c042a9ddf7a51c0fba4a784dd691925b76b5b6a183",
+    "green/final-result.json": "3043b1aed736078c01b753fd84380a5ceb5217f34858d99ee0c8f2f770a171d1",
+    "green/final-source-types-result.json": "a89892d16b15165fe4f72e1d6da5bcd931adc2aa7242c7179873d5b53776fe35",
+    "green/final-source-types.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "green/final-test-types-result.json": "14644748a848051ed7c1c49d2bc6b17be6755f1698adb2be9178fa355fd4c901",
+    "green/final-test-types.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "green/final-vectors-replay-result.json": "2ce48294a0e8f86e0be9ffc3bd1957e41b0d66f178fa7d908e5308f0a8f63f4b",
+    "green/final-vectors-replay.log": "9a773ca0cf795b61dbc4e16cfc0b10f8014fffbbd838141fdbc88888fcc3c742",
+    "green/final.py": "252795e66bf484082129de84e5b61572d9d13719b4e8d357b99057aaec906d2d",
+    "green/owning-vectors-replay.log": "822f2b9d836bcfc1091e6550a9af65394c7a3e767850b00f9df332591f53ec35",
+    "green/qualified-source/packages/smithers/agent/CHANGELOG.md": "d0437596cae756d9a01b6b6de9d238a2e52e70571a0ecc8776b3bde5a866ca5a",
+    "green/qualified-source/packages/smithers/agent/test/CellCallIdentity.test.ts": "620d019a0ba3af173bf3133821e2cab47de161956dcd7619d78bd11368397452",
+    "green/qualified-source/packages/smithers/agent/test/CellCallIdentityReplay.test.ts": "b4f5580c51e9f479c02552355c59caeead0434867aa24d780ec2cf669c922b70",
+    "green/qualified-source/packages/smithers/agent/test/StepKeyGolden.test.ts": "121d5f766fb8592eedd2b77157a972dd7cba0bf76e93bcda1814d8a5a6db0cd2",
+    "green/qualified-source/packages/smithers/agent/test/fixtures/CellCallV1.ts": "ba7b511955f5b0fb986b7709e453e4a3d1b0a4f90e2a5b9aa001959bcb4e1dc7",
+    "green/qualified-source/packages/smithers/agent/test/fixtures/HarnessErrorBeforeApproval.ts": "7f5defef8b7d8c5b10931ac281dd6a206c4f43d18fa7dfdfdc97880f46cc61f7",
+    "green/qualified-source/packages/smithers/agent/test/fixtures/cell-call-material-approval-required.json": "e034cc41b0d32d326c8c93df78fbaf80c79ffb55024e5b006f477b669e3a468f",
+    "green/test-types.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "historical-HarnessError.ts": "0dfbf9b07ec2724e051716ab559d740ac8a09454fe3bd29487639d67f99d0036",
+    "model-causal-proof.json": "4ac5380c3517e235035f4eb8a2646bd68ac5125d1bf2b116043bc2e9cf297542",
+    "model-material-before-approval.json": "4b8b84b0145b4cfde28869b6b49a4a558e21c68195899986345c917f22b62b29",
+    "model-material-current.json": "2090c49621a339f35a1a3ced8168c005a40795cce5002744d1dd389aec6548d8",
+    "model-probe/StepKeyGolden.external.test.ts": "e5f63733e93fcdcb4dd69161415a972999fd1d7ea927b6074f565c29ef708372",
+    "model-probe/all-material.json": "563e01048935a6dd58f37145f636f26fb3c3389c180126fbce267f2db279d1ec",
+    "model-probe/capture-current.log": "0f7eeb415e7575cf61a2db0562e366955f8a133db87214cb5a8041fcbb009824",
+    "model-probe/capture.log": "b1068dfccccb78f3d9cd2de63c3a8e2cd4c9b842f2251ac2e7abff0922149a7d",
+    "model-probe/model-material.json": "1ca5b52fb2719233d5d819cfbd2942958f886999344ba47d028cbd0936ff023f",
+    "model-probe/vitest.config.mjs": "86f70ce5a267acb18aaa92d7a0c916fe05b41cf7420e0ca23e72e55cc9890b85",
+    "model-schema-before-approval.json": "f555c907a757747aaa6d81aa8404654faf87decac663b48882312a47a1fd7321",
+    "model-schema-current.json": "3583709301cd16757619645d75113d443d517839fab2072124d7cb34d0e7af39",
+    "read-only-causal-manifest.json": "940b8d234ea3ab2406a5b3678ad3be6320ad4bc13cd68140f3b1f2b715162265"
+  }
+}

@@ -44,6 +44,10 @@ export const key = "key1_8ab2962732794ee8d8b3bf550657b41d475fd082ec9c8c7073b1d24
 // `HarnessErrorCode` gained `completion_incomplete` (#3009).
 export const effect115Key = "key1_425bb2aeef11571a366804d4700e45def8ac0aceac7c7c585b3e1f9461259283"
 
+// The approval-channel declaration added `approval_unavailable` in
+// 6206550ccc (#3161). Keep the preceding rc.115 vector above unchanged.
+export const approvalRequiredKey = "key1_1e7f6586798d0220c9866f7d53e4d17ba33245e13e476b7e59ce3d080ec2fc8e"
+
 // Independent JSON oracle. This fixture contains only JSON values, no schema
 // classes, undefined, non-finite numbers or other normalization cases.
 export const canonical = (value: unknown): string => {
