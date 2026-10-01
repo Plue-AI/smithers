@@ -88,6 +88,7 @@ const issueSweep = Smithers.NodeTest({
   runner: Smithers.testRunner([
     Smithers.file("//flows/issue-sweep/test/decide.test.ts"),
     Smithers.file("//flows/issue-sweep/test/accounts.test.ts"),
+    Smithers.file("//flows/issue-sweep/test/claude.test.ts"),
     Smithers.file("//flows/issue-sweep/test/land.test.ts"),
     Smithers.file("//flows/issue-sweep/test/land-jj.test.ts"),
     Smithers.file("//flows/issue-sweep/test/work.test.ts"),
@@ -103,7 +104,10 @@ const issueSweep = Smithers.NodeTest({
 })
 // Boots real microVMs; skips itself, naming why, without msb or the snapshot.
 const issueSweepVm = Smithers.NodeTest({
-  runner: Smithers.testRunner([Smithers.file("//flows/issue-sweep/test/vm.real.test.ts")]),
+  runner: Smithers.testRunner([
+    Smithers.file("//flows/issue-sweep/test/vm.real.test.ts"),
+    Smithers.file("//flows/issue-sweep/test/vm.claude.real.test.ts")
+  ]),
   srcs: [sources],
   deps: [],
   cwd

@@ -3,10 +3,15 @@ import { FlowEngine } from "@smthrs/engine"
 import { Action, Interpreter } from "@smthrs/flow"
 import { Effect, Exit, Layer, ManagedRuntime, Schema } from "effect"
 import assert from "node:assert/strict"
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import test from "node:test"
 import {
   capacity,
+  coolAccount,
   cooldownMinutes,
+  cooledPool,
   liveAccounts,
   makeAccountPicker,
   makeReservations,
@@ -99,32 +104,103 @@ test("pickAgent splits issues by parity and moves to the other pool when one is 
 test("local, VM and Cloud reservations share the actual Codex cap with live rotator jobs", () => {
   const picker = makeReservations(3)
   const pools = { codex: { ...pool("codex-1"), active: { "codex-1": 1 } }, claude: none }
-  const local = picker.reserve(pools, 2, false)!
-  const cloud = picker.reserve(pools, 3, true)!
+  const local = picker.reserve(pools, 2)!
+  const cloud = picker.reserve(pools, 3)!
   assert.equal(local.account, "codex-1")
   assert.equal(cloud.account, "codex-1")
-  assert.equal(picker.reserve(pools, 4, true), undefined)
-  assert.equal(picker.reserve(pools, 6, false), undefined)
+  assert.equal(picker.reserve(pools, 4), undefined)
+  assert.equal(picker.reserve(pools, 6), undefined)
   local.release()
   local.release()
-  const vm = picker.reserve(pools, 4, true)!
+  const vm = picker.reserve(pools, 4)!
   assert.equal(vm.account, "codex-1")
-  assert.equal(picker.reserve(pools, 8, false), undefined)
+  assert.equal(picker.reserve(pools, 8), undefined)
   cloud.release()
   vm.release()
-  assert.ok(picker.reserve(pools, 10, false))
-  assert.ok(picker.reserve(pools, 11, true))
-  assert.equal(picker.reserve(pools, 12, true), undefined)
+  assert.ok(picker.reserve(pools, 10))
+  assert.ok(picker.reserve(pools, 11))
+  assert.equal(picker.reserve(pools, 12), undefined)
 })
 
-test("account selection rotates concrete accounts, falls back locally and never sends Claude remotely", () => {
+test("account selection rotates concrete accounts and sends either agent to any placement", () => {
   const picker = makeReservations(1)
   const pools = { codex: pool("codex-1", "codex-2"), claude: pool("claude-1") }
-  assert.equal(picker.reserve(pools, 0, false)?.account, "codex-1")
-  assert.equal(picker.reserve(pools, 1, true)?.account, "codex-2")
-  assert.deepEqual(picker.reserve(pools, 2, false)?.agent, "claude")
-  assert.equal(picker.reserve(pools, 3, true), undefined)
-  assert.equal(picker.reserve({ codex: none, claude: none }, 4, false), undefined)
+  assert.equal(picker.reserve(pools, 0)?.account, "codex-1")
+  assert.equal(picker.reserve(pools, 1)?.account, "claude-1")
+  assert.deepEqual(picker.reserve(pools, 2)?.agent, "codex")
+  assert.equal(picker.reserve(pools, 3), undefined)
+  assert.equal(picker.reserve({ codex: none, claude: none }, 4), undefined)
+})
+
+test("Claude reservations include live work, fall back when a preferred pool is full, and release once", () => {
+  const picker = makeReservations(2)
+  const pools = {
+    codex: { ...pool("codex-1"), active: { "codex-1": 2 } },
+    claude: { ...pool("claude-1", "claude-2"), active: { "claude-1": 1, "claude-2": 2 } }
+  }
+  const vm = picker.reserve(pools, 2)!
+  assert.deepEqual([vm.agent, vm.account], ["claude", "claude-1"])
+  assert.equal(picker.reserve(pools, 3), undefined)
+  vm.release()
+  vm.release()
+  const cloud = picker.reserve(pools, 4)!
+  assert.equal(cloud.account, "claude-1")
+  assert.equal(picker.reserve(pools, 5), undefined)
+  cloud.release()
+  assert.deepEqual(capacity(pools, 2, 8), { _tag: "Available", slots: 1 })
+  assert.equal(
+    capacity({ codex: pools.codex, claude: { ...pool("claude-2"), active: { "claude-2": 2 } } }, 2, 8)._tag,
+    "Exhausted"
+  )
+})
+
+test("cooling filters the selected model and account scope, keeps expired and other-model slots", () => {
+  const input = { ...pool("claude-1", "claude-2", "claude-3", "claude-4"), active: { "claude-4": 1 } }
+  const selected = cooledPool(
+    input,
+    {
+      cool: {
+        "claude-1": { until: 101 },
+        "claude-2@opus": { until: 101 },
+        "claude-3@opus": { until: 100 },
+        "claude-4@sonnet": { until: 500 }
+      }
+    },
+    "opus",
+    100
+  )
+  assert.deepEqual(selected, {
+    ready: ["claude-3", "claude-4"],
+    unavailable: [{ label: "claude-1", state: "cooling (claude-1)" }, {
+      label: "claude-2",
+      state: "cooling (claude-2@opus)"
+    }],
+    active: { "claude-4": 1 }
+  })
+  assert.deepEqual(input.ready, ["claude-1", "claude-2", "claude-3", "claude-4"], "the status pool is not mutated")
+  assert.deepEqual(cooledPool(input, {}, "opus", 100), input)
+  assert.deepEqual(
+    cooledPool(pool("codex-1"), { cool: { "codex-1@gpt-6.1-sol": { until: 101 } } }, "gpt-6.1-sol", 100).ready,
+    []
+  )
+})
+
+test("malformed selected cooldown state fails closed; unrelated model state does not block the selected model", () => {
+  for (
+    const state of [
+      null,
+      [],
+      { cool: null },
+      { cool: [] },
+      { cool: { "claude-1": null } },
+      { cool: { "claude-1@opus": {} } },
+      { cool: { "claude-1@opus": { until: "101" } } },
+      { cool: { "claude-1@opus": { until: Infinity } } }
+    ]
+  ) {
+    assert.throws(() => cooledPool(pool("claude-1"), state, "opus", 100), /invalid account/)
+  }
+  assert.deepEqual(cooledPool(pool("claude-1"), { cool: { "claude-1@sonnet": null } }, "opus", 100).ready, ["claude-1"])
 })
 
 test("rotator accounting discards dead PIDs and refuses malformed state", () => {
@@ -152,7 +228,7 @@ test("account scopes release after failure and cancellation, including cancellat
   })
   const held = Effect.runPromiseExit(
     Effect.scoped(Effect.gen(function*() {
-      yield* pick(2, false)
+      yield* pick(2)
       ready()
       yield* Effect.never
     })),
@@ -160,26 +236,28 @@ test("account scopes release after failure and cancellation, including cancellat
   )
   await started
   const second = new AbortController()
-  const waiting = Effect.runPromiseExit(Effect.scoped(pick(3, true)), { signal: second.signal })
+  const waiting = Effect.runPromiseExit(Effect.scoped(pick(3)), { signal: second.signal })
   await new Promise<void>((resolve) => setImmediate(resolve))
   second.abort()
   assert.ok(Exit.isFailure(await waiting))
   first.abort()
   assert.ok(Exit.isFailure(await held))
-  const failed = await Effect.runPromiseExit(Effect.scoped(Effect.andThen(pick(4, true), Effect.fail("failure"))))
+  const failed = await Effect.runPromiseExit(Effect.scoped(Effect.andThen(pick(4), Effect.fail("failure"))))
   assert.ok(Exit.isFailure(failed))
-  const next = await Effect.runPromise(Effect.scoped(pick(6, false)))
+  const next = await Effect.runPromise(Effect.scoped(pick(6)))
   assert.equal(next.account, "codex-1")
-  assert.equal((await Effect.runPromise(Effect.scoped(pick(8, true)))).account, "codex-1")
+  assert.equal((await Effect.runPromise(Effect.scoped(pick(8)))).account, "codex-1")
 })
 
-test("remote account exhaustion fails instead of borrowing a Claude login", async () => {
+test("a Claude-only ready pool runs remotely and empty pools fail", async () => {
   const pick = makeAccountPicker(1, Effect.succeed({ codex: none, claude: pool("claude-1") }))
-  const result = await Effect.runPromiseExit(Effect.scoped(pick(1, true)))
-  assert.ok(Exit.isFailure(result))
-  if (Exit.isFailure(result)) {
-    assert.match(String(result.cause), /no ready Codex account/)
-  }
+  const result = await Effect.runPromise(Effect.scoped(pick(2)))
+  assert.equal(result.agent, "claude")
+  assert.equal(result.account, "claude-1")
+  const empty = makeAccountPicker(1, Effect.succeed({ codex: none, claude: none }))
+  const failed = await Effect.runPromiseExit(Effect.scoped(empty(1)))
+  assert.ok(Exit.isFailure(failed))
+  if (Exit.isFailure(failed)) assert.match(String(failed.cause), /no ready Codex or Claude account/)
 })
 
 test("placement uses local slots first, independent Cloud cap, and replenishes the host first", () => {
@@ -226,13 +304,13 @@ test("Cloud is disabled by default; VM capacity is capped at 24 and falls to Clo
   assert.equal(defaults.reserve({ repo: "o/r" }, 0), undefined)
 })
 
-test("total sweep capacity allows overflow beyond 32 and keeps Cloud bounded by Codex accounts", () => {
+test("total sweep capacity allows overflow beyond 32 and keeps every placement bounded by both account pools", () => {
   const pools = { codex: pool("a", "b", "c", "d", "e", "f", "g", "h", "i", "j"), claude: pool("k", "l") }
   assert.deepEqual(
     placementCapacity({ repo: "o/r", placement: "vm", maxAgents: 32, cloudAgents: 40 }, pools, 6, minFreeBytes),
     {
       _tag: "Available",
-      slots: 60
+      slots: 64
     }
   )
   assert.deepEqual(
@@ -244,7 +322,7 @@ test("total sweep capacity allows overflow beyond 32 and keeps Cloud bounded by 
     ),
     {
       _tag: "Available",
-      slots: 3
+      slots: 6
     }
   )
   assert.deepEqual(
@@ -258,10 +336,32 @@ test("total sweep capacity allows overflow beyond 32 and keeps Cloud bounded by 
     placementCapacity({ repo: "o/r", maxAgents: 2, cloudAgents: 40 }, { codex: none, claude: pool("a") }, 6, 0),
     {
       _tag: "Available",
-      slots: 2
+      slots: 6
     }
   )
   assert.equal(placementCapacity({ repo: "o/r" }, { codex: none, claude: none }, 6, 0)._tag, "Exhausted")
+})
+
+test("Claude-only VM and Cloud capacity is real headroom after live jobs, including disk-pressure fallback", () => {
+  const pools = { codex: none, claude: { ...pool("claude-1", "claude-2"), active: { "claude-1": 5, "claude-2": 3 } } }
+  assert.deepEqual(
+    placementCapacity({ repo: "o/r", placement: "vm", maxAgents: 24, cloudAgents: 8 }, pools, 6, minFreeBytes),
+    {
+      _tag: "Available",
+      slots: 4
+    }
+  )
+  assert.deepEqual(
+    placementCapacity({ repo: "o/r", placement: "vm", maxAgents: 24, cloudAgents: 2 }, pools, 6, minFreeBytes - 1),
+    {
+      _tag: "Available",
+      slots: 2
+    }
+  )
+  assert.deepEqual(placementCapacity({ repo: "o/r", placement: "local", maxAgents: 2, cloudAgents: 0 }, pools, 6, 0), {
+    _tag: "Available",
+    slots: 2
+  })
 })
 
 test("the sweep payload accepts independent Cloud cap and refuses negatives and non-integers", () => {
@@ -280,6 +380,39 @@ test("direct account runs retain quota and login cooling without mistaking succe
   assert.equal(cooldownMinutes("", "rate limit", -1), undefined)
   assert.equal(cooldownMinutes("", "test failed", 1), undefined)
   assert.equal(cooldownMinutes("", "rate limit\n" + "ordinary line\n".repeat(9), 1), undefined)
+})
+
+test("direct run cooling invokes the rotator with the exhausted model key, and auth/usage cooling with the account", async (t) => {
+  const root = mkdtempSync(join(tmpdir(), "issue-sweep-claude-cool-"))
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  const log = join(root, "calls.jsonl")
+  for (const name of ["claude-rr", "codex-rr"]) {
+    writeFileSync(
+      join(root, name),
+      `#!${process.execPath}\n` +
+        `import{appendFileSync}from'node:fs';appendFileSync(${JSON.stringify(log)},JSON.stringify([${
+          JSON.stringify(name)
+        },...process.argv.slice(2)])+'\\n');\n`,
+      { mode: 0o700 }
+    )
+  }
+  const previous = process.env.PATH
+  process.env.PATH = `${root}:${previous ?? ""}`
+  t.after(() => {
+    if (previous === undefined) delete process.env.PATH
+    else process.env.PATH = previous
+  })
+  await Effect.runPromise(coolAccount("claude", "claude-5", "out of usage credits", "", 1))
+  await Effect.runPromise(coolAccount("codex", "codex-1", "switch to another model", "", 1))
+  await Effect.runPromise(coolAccount("claude", "claude-5", "", "rate limit", 1))
+  await Effect.runPromise(coolAccount("claude", "claude-5", "", "refresh token expired", 1))
+  await Effect.runPromise(coolAccount("claude", "claude-5", "Fixed out of usage credits", "", 0))
+  assert.deepEqual(readFileSync(log, "utf8").trim().split("\n").map((line) => JSON.parse(line)), [
+    ["claude-rr", "cool", "claude-5@opus", "180"],
+    ["codex-rr", "cool", "codex-1@gpt-6.1-sol", "180"],
+    ["claude-rr", "cool", "claude-5", "60"],
+    ["claude-rr", "cool", "claude-5", "1440"]
+  ])
 })
 
 test("a resumed child keeps its journaled Cloud placement even when a local slot becomes free", async (t) => {

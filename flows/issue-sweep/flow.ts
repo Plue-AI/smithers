@@ -189,17 +189,14 @@ export const placementCapacity = (input: typeof Input.Type, pools: Pools, limit:
     (n, account) => n + Math.max(0, limit - (pools.codex.active?.[account] ?? 0)),
     0
   )
-  const claude = input.placement === "vm" ?
-    0 :
-    pools.claude.ready.reduce((n, account) => n + Math.max(0, limit - (pools.claude.active?.[account] ?? 0)), 0)
-  const slots = Math.min(local + cloud, codex + claude, local + codex)
+  const claude = pools.claude.ready.reduce(
+    (n, account) => n + Math.max(0, limit - (pools.claude.active?.[account] ?? 0)),
+    0
+  )
+  const slots = Math.min(local + cloud, codex + claude)
   return slots > 0
     ? Burndown.available(slots)
-    : capacity(
-      input.placement === "vm" ? { codex: pools.codex, claude: { ready: [], unavailable: [] } } : pools,
-      limit,
-      0
-    )
+    : capacity(pools, limit, 0)
 }
 
 /** Reserve a placement atomically, preferring the host whenever its slot is free. */
@@ -286,7 +283,7 @@ const readCapacity = (input: typeof Input.Type) =>
     const result = placementCapacity(input, pools, perAccount, free)
     // Occupied jobs and disk pressure are temporary; retry without an account reset.
     return result._tag === "Exhausted" &&
-        (pools.codex.ready.length + (input.placement === "vm" ? 0 : pools.claude.ready.length)) > 0
+        (pools.codex.ready.length + pools.claude.ready.length) > 0
       ? Burndown.waitUntil((yield* Clock.currentTimeMillis) + 30_000)
       : result
   })

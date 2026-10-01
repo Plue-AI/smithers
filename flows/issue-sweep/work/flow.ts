@@ -19,12 +19,13 @@ import { issue } from "../github.ts"
 import { output, repository, run as onHost, tail, workspaceName, workspaceOf } from "../host.ts"
 import { goCache, install } from "../land.ts"
 import * as LocalVm from "../vm.ts"
+import { assertNoClaudeLogin, claudeInGuest, reserveRemoteAccount } from "./claude.ts"
 
 const Payload = Schema.Struct({
   repo: Schema.String,
   issue: Schema.Number,
-  // local: an agent on this Mac in its own sandbox; vm: Codex in a local
-  // microVM; cloud: Codex in a Smithers Cloud workspace.
+  // local: an agent on this Mac in its own sandbox; vm: an agent in a local
+  // microVM; cloud: an agent in a Smithers Cloud workspace.
   placement: Schema.optional(Schema.Literals(["local", "vm", "cloud"]))
 })
 
@@ -84,7 +85,7 @@ const Workspace = Schema.Struct({ directory: Schema.String, base: Schema.String 
 
 /** What a remote agent answered. Its edits travel beside it as the session's `work`. */
 export const Remote = Schema.Struct({
-  agent: Schema.Literal("codex"),
+  agent: Schema.Literals(["codex", "claude"]),
   account: Schema.String,
   report: Schema.String
 })
@@ -106,7 +107,7 @@ export const PrepareWorkspace = Action.make("issue-sweep/prepare-workspace", {
   idempotencyKey: { workspace: "issue-sweep/v2" }
 })
 
-/** Codex fixes the issue inside an isolated machine: a local microVM or a Cloud workspace. */
+/** Codex or Claude fixes the issue inside a local microVM or a Cloud workspace. */
 export const RemoteFix = Action.make("issue-sweep/remote-fix", {
   payload: Schema.Struct({
     repo: Schema.String,
@@ -449,7 +450,7 @@ const recordChange = (workspace: string, base: string, message: string) =>
 const fix = Fix.toLayer((input) =>
   Effect.scoped(Effect.gen(function*() {
     const { directory, base } = input.workspace
-    const { agent, account } = yield* Effect.mapError(reserveAccount(input.issue, false), agentFailed)
+    const { agent, account } = yield* Effect.mapError(reserveAccount(input.issue), agentFailed)
     const [command, args] = agentCommand(agent, directory, brief(input.repo, input.issue, input.text), account)
     const exited = yield* onHost(command, args, {
       cwd: directory,
@@ -611,17 +612,30 @@ export const codexInGuest = (
 
 const remoteFix = RemoteFix.toLayer((input) =>
   Effect.scoped(Effect.gen(function*() {
-    const { account } = yield* Effect.mapError(reserveAccount(input.issue, true), agentFailed)
-    const login = yield* Effect.tryPromise({
-      try: () => readFile(loginFile(account), "utf8"),
-      catch: () => new AgentFailed({ message: `${account}: no auth.json` })
-    })
+    const { agent, account, login: claudeLogin } = yield* Effect.mapError(
+      reserveRemoteAccount(input.issue),
+      agentFailed
+    )
+    const login = yield* (agent === "claude"
+      ? Effect.succeed(claudeLogin!)
+      : Effect.tryPromise({
+        try: () => readFile(loginFile(account), "utf8"),
+        catch: () => new AgentFailed({ message: `${account}: no auth.json` })
+      }))
     const provider = yield* providerFor(input.placement, input.repo)
-    return yield* fixRemotely(
+    const prompt = brief(input.repo, input.issue, input.text)
+    const remote = yield* fixRemotely(
       provider,
       sessionOf(input.repo, input.issue),
-      codexInGuest(account, login, input.placement, brief(input.repo, input.issue, input.text))
+      agent === "claude"
+        ? claudeInGuest(account, login, input.placement, prompt, (stdout, stderr, code) =>
+          coolAccount(agent, account, stdout, stderr, code)).pipe(Effect.mapError(agentFailed))
+        : codexInGuest(account, login, input.placement, prompt)
     )
+    if (agent === "claude") {
+      yield* assertNoClaudeLogin(remote.work, login).pipe(Effect.mapError(agentFailed))
+    }
+    return remote
   }))
 )
 

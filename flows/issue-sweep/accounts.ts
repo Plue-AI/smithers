@@ -6,8 +6,7 @@ import { Burndown } from "@smthrs/patterns"
 import { Effect } from "effect"
 import { readFile } from "node:fs/promises"
 import { homedir } from "node:os"
-import { HostFailed } from "./host.ts"
-import { output } from "./host.ts"
+import { HostFailed, output } from "./host.ts"
 
 /** One account that cannot take work now, and why. */
 export interface Unavailable {
@@ -103,16 +102,41 @@ export const liveAccounts = (state: unknown, alive: (pid: number) => boolean): R
   )
 }
 
+/** `rr status` omits model cooldowns. Apply both scopes before reserving a slot. */
+export const cooledPool = (pool: Pool, state: unknown, model: string, now = Date.now() / 1000): Pool => {
+  if (typeof state !== "object" || state === null || Array.isArray(state)) throw new Error("invalid account state")
+  const cool = "cool" in state ? state.cool : {}
+  if (typeof cool !== "object" || cool === null || Array.isArray(cool)) throw new Error("invalid account cooldowns")
+  const unavailable = [...pool.unavailable]
+  const ready = pool.ready.filter((account) => {
+    for (const key of [account, `${account}@${model}`]) {
+      if (!(key in cool)) continue
+      const entry: unknown = (cool as Record<string, unknown>)[key]
+      if (
+        typeof entry !== "object" || entry === null || !("until" in entry) ||
+        typeof entry.until !== "number" || !Number.isFinite(entry.until)
+      ) throw new Error("invalid account cooldown")
+      if (entry.until > now) {
+        unavailable.push({ label: account, state: `cooling (${key})` })
+        return false
+      }
+    }
+    return true
+  })
+  return { ...pool, ready, unavailable }
+}
+
 const readPool = (agent: Agent) =>
   Effect.gen(function*() {
     const pool = yield* Effect.map(output(`${agent}-rr`, ["status"]), parsePool)
-    const active = yield* Effect.tryPromise({
+    return yield* Effect.tryPromise({
       try: async () => {
         const text = await readFile(`${homedir()}/.smithers/accounts/${agent}-rr.json`, "utf8").catch((error) => {
           if (error.code === "ENOENT") return "{}"
           throw error
         })
-        return liveAccounts(JSON.parse(text), (pid) => {
+        const state: unknown = JSON.parse(text)
+        const active = liveAccounts(state, (pid) => {
           try {
             process.kill(pid, 0)
             return true
@@ -120,10 +144,10 @@ const readPool = (agent: Agent) =>
             return (error as NodeJS.ErrnoException).code !== "ESRCH"
           }
         })
+        return { ...cooledPool(pool, state, agent === "claude" ? "opus" : "gpt-6.1-sol"), active }
       },
-      catch: () => new HostFailed({ message: `${agent}: could not read active account jobs` })
+      catch: () => new HostFailed({ message: `${agent}: could not read account jobs and cooldowns` })
     })
-    return { ...pool, active }
   })
 
 export interface Reservation {
@@ -136,10 +160,10 @@ export interface Reservation {
 export const makeReservations = (limit: number) => {
   const held = new Map<string, number>()
   let cursor = 0
-  const reserve = (pools: Pools, issue: number, remote: boolean): Reservation | undefined => {
-    const preferred = remote ? "codex" : pickAgent(issue, pools)
+  const reserve = (pools: Pools, issue: number): Reservation | undefined => {
+    const preferred = pickAgent(issue, pools)
     if (preferred === undefined) return undefined
-    const agents: ReadonlyArray<Agent> = remote ? ["codex"] : [preferred, preferred === "codex" ? "claude" : "codex"]
+    const agents: ReadonlyArray<Agent> = [preferred, preferred === "codex" ? "claude" : "codex"]
     for (const agent of agents) {
       const pool = pools[agent]
       for (let offset = 0; offset < pool.ready.length; offset++) {
@@ -169,17 +193,18 @@ export const makeReservations = (limit: number) => {
 /** One host's picker; injection keeps lifecycle and cancellation tests deterministic. */
 export const makeAccountPicker = (limit: number, getPools: Effect.Effect<Pools, HostFailed>) => {
   const reservations = makeReservations(limit)
-  return (issue: number, remote: boolean) =>
+  return (issue: number, eligible?: (pools: Pools) => Effect.Effect<Pools, HostFailed>) =>
     Effect.acquireRelease(
       Effect.gen(function*() {
         for (;;) {
-          const pools = yield* Effect.interruptible(getPools)
-          if ((remote ? pools.codex.ready.length : pools.codex.ready.length + pools.claude.ready.length) === 0) {
+          const current = yield* Effect.interruptible(getPools)
+          const pools = eligible === undefined ? current : yield* Effect.interruptible(eligible(current))
+          if (pools.codex.ready.length + pools.claude.ready.length === 0) {
             return yield* new HostFailed({
-              message: remote ? "no ready Codex account" : "no ready Codex or Claude account"
+              message: "no ready Codex or Claude account"
             })
           }
-          const reserved = reservations.reserve(pools, issue, remote)
+          const reserved = reservations.reserve(pools, issue)
           if (reserved !== undefined) return reserved
           yield* Effect.interruptible(Effect.sleep("1 second"))
         }
@@ -217,5 +242,6 @@ export const cooldownMinutes = (stdout: string, stderr: string, code: number): n
 
 export const coolAccount = (agent: Agent, account: string, stdout: string, stderr: string, code: number) => {
   const minutes = cooldownMinutes(stdout, stderr, code)
-  return minutes === undefined ? Effect.void : Effect.asVoid(output(`${agent}-rr`, ["cool", account, String(minutes)]))
+  const key = minutes === 180 ? `${account}@${agent === "claude" ? "opus" : "gpt-6.1-sol"}` : account
+  return minutes === undefined ? Effect.void : Effect.asVoid(output(`${agent}-rr`, ["cool", key, String(minutes)]))
 }
