@@ -1,0 +1,29 @@
+{
+  "issue": 3235,
+  "status": "Qualified and root reviewed; landing pending incorporation of concurrentmain",
+  "ownedSource": {
+    "packages/smithers/test/Bin.test.ts": "c18aa7b4500194797f0cf134750f67d14bcf2702fc1113cebc1c16fedc20dac1",
+    "packages/smithers/test/EndToEnd.test.ts": "4d4d4bcbf82c5cf8ae91e57681a4e2b1f3941a4ee0c60d57488ef7cefe87905c",
+    "packages/smithers/test/BinStartupFailure.test.ts": "fc6338899d1a06f9e2e500ffa7b59ab4360c51c1ba133eb5ef2d912384f18c6e",
+    "packages/smithers/test/BinTeardown.test.ts": "de2457ce46e6daaa30274ae8843c7fca40d0f89781e2d861dfc4881ddf06694f",
+    "packages/smithers/src/cli/LegacyBin.ts": "4775d5e553a2466ed7618d660dcadc5b75486f7d33859925438e809e9414702b"
+  },
+  "qualification": "Complete named Bin/EndToEnd/BinStartupFailure/BinTeardown acceptance gate with genuine run/delegate journeys; no tests deleted or lifecycle assertions relaxed. Canonical original EndToEnd fixtures already resolved upstream, and3315 owns the sole actual legacy MCP production fix.",
+  "acceptance": null,
+  "limits": [
+    "One existing funded ChatGPT-seat scaffold case skipped by describe.skipIf(!chatgptSeat), Bin.test.ts2276; no funded live-seat/all-platform/native-rebuilt/full releaseSmoke claim",
+    "Coverage disabled for process gate; no whole-package100% coverage claim",
+    "Concurrent TUI app changes are outside these tests: no TUI command invoked and TUI app loading is deferred until that handler runs"
+  ],
+  "readinessSha256": "05a71d92b96d06f32f67eb4c4756121b6d82b1b25e6b555ed9ca754fe6929756",
+  "archive": {
+    "file": "3235-proof.tar.gz",
+    "sha256": "c53ab4a2a7227fb48e1f7f77635e342d3c25d67938081c7e81e4b91f84a464ff"
+  },
+  "counts": {
+    "filesPassed": 4,
+    "testsPassed": 189,
+    "testsSkipped": 1
+  },
+  "rootReview": "Actual complete named4 suite passes189 with one original opt-in funded ChatGPT-seat scaffold skip; source/compiler/test/lock1946 hashes unchanged. Original body_unavailable/missing_delegate regressions resolved,3315 canonicalguard fixes sole remaining actualcase. No acceptance tests deleted, relaxed, cast or newly skipped."
+}

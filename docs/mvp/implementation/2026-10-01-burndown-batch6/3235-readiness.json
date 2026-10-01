@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 1,
+  "readyIssues": [
+    3235
+  ],
+  "sourceFrozen": true,
+  "allSourceDependentJobsCompleted": true,
+  "checkedCandidate": "92a94c7b36f5eed4b426aff043c57cfd7ffd0284",
+  "candidateHeadAfterChecks": "3e0d3cee06ff827acbd85c961cf222833a839551",
+  "headMovementExplanation": "Root committed the byte-identical already-tested3315 guard during this gate; no captured source/config/compiler/test/lock input changed.",
+  "checks": [
+    {
+      "argv": [
+        "pnpm",
+        "exec",
+        "vitest",
+        "run",
+        "test/Bin.test.ts",
+        "test/EndToEnd.test.ts",
+        "test/BinStartupFailure.test.ts",
+        "test/BinTeardown.test.ts",
+        "--coverage.enabled=false"
+      ],
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+      "exitCode": 0,
+      "seconds": 639.14,
+      "checkedCandidate": "92a94c7b36f5eed4b426aff043c57cfd7ffd0284",
+      "headAfterChecks": "3e0d3cee06ff827acbd85c961cf222833a839551",
+      "receipt": "/tmp/smithers-burndown-20260930-receipts/api-batch4/3235-named-final-92a94c7b36/named4.log",
+      "sha256": "4b4ecc44e2c58ac264f5adb93e24d28aaaf33d18737384e6fe9c483c30683e1e",
+      "changedDuringChecks": []
+    }
+  ],
+  "counts": {
+    "filesPassed": 4,
+    "testsPassed": 189,
+    "testsSkipped": 1
+  },
+  "qualification": "Complete named Bin/EndToEnd/BinStartupFailure/BinTeardown acceptance gate with genuine run/delegate journeys; no tests deleted or lifecycle assertions relaxed. Canonical original EndToEnd fixtures already resolved upstream, and3315 owns the sole actual legacy MCP production fix.",
+  "sourceHashes": {
+    "packages/smithers/test/Bin.test.ts": "c18aa7b4500194797f0cf134750f67d14bcf2702fc1113cebc1c16fedc20dac1",
+    "packages/smithers/test/EndToEnd.test.ts": "4d4d4bcbf82c5cf8ae91e57681a4e2b1f3941a4ee0c60d57488ef7cefe87905c",
+    "packages/smithers/test/BinStartupFailure.test.ts": "fc6338899d1a06f9e2e500ffa7b59ab4360c51c1ba133eb5ef2d912384f18c6e",
+    "packages/smithers/test/BinTeardown.test.ts": "de2457ce46e6daaa30274ae8843c7fca40d0f89781e2d861dfc4881ddf06694f",
+    "packages/smithers/src/cli/LegacyBin.ts": "4775d5e553a2466ed7618d660dcadc5b75486f7d33859925438e809e9414702b"
+  },
+  "inputAudit": {
+    "count": 1946,
+    "changedDuringChecks": []
+  },
+  "regressionProgression": "Prior gate188passed/1failed/1skipped -> current189passed/1skipped after canonical MCP guard fix.",
+  "sourceFixReceipt": "/tmp/smithers-burndown-20260930-receipts/api-batch4/mcp-3315/ready-3315.json",
+  "sourceFixReceiptSha256": "608aded977c22e7b0bc12990ae398fd448965caf7613282c8531e37d30971af1",
+  "limits": [
+    "One existing funded ChatGPT-seat scaffold case skipped by describe.skipIf(!chatgptSeat), Bin.test.ts2276; no funded live-seat/all-platform/native-rebuilt/full releaseSmoke claim",
+    "Coverage disabled for process gate; no whole-package100% coverage claim",
+    "Concurrent TUI app changes are outside these tests: no TUI command invoked and TUI app loading is deferred until that handler runs"
+  ],
+  "rawReceipts": {
+    "inputs-after.json": "8866eb5b8c33d4287f3f6059e58fe88b8dd01b8f3d97377d86db7ddf8b6ef644",
+    "inputs-before.json": "ff23699a385dd18a8dad3eaa482994198c722b9dc95361ba71b9501fccfd4213",
+    "named4.log": "4b4ecc44e2c58ac264f5adb93e24d28aaaf33d18737384e6fe9c483c30683e1e",
+    "result.json": "37e55e545aa923f830c0e6f01dac70c5ae745a8cfbf2b111a5d35983e830bdc1",
+    "run.py": "ab7a9c82c0316c7ec6e5229512536f5167d2a411bdd360f180c0b19c257c5859"
+  }
+}
