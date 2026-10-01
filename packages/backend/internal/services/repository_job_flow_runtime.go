@@ -129,6 +129,9 @@ func (s *RepositoryJobService) admitRepositoryJobLaunch(ctx context.Context, reg
 	if err != nil {
 		return jobs.RequestReceipt{}, err
 	}
+	if err := s.repositoryJobCurrentIssueApproval(ctx, registration, dispatch, config); err != nil {
+		return jobs.RequestReceipt{}, err
+	}
 	payload, err := repositoryJobLaunchPayload(registration, dispatch, config, repositoryName)
 	if err != nil {
 		return jobs.RequestReceipt{}, err
@@ -219,6 +222,28 @@ func (resolver *RepositoryJobFlowHostTargetResolver) ResolveFlowHostTarget(ctx c
 	if err != nil {
 		return flowhost.Authority{}, repositoryJobFlowFailure{code: "runtime_binding_unavailable", retryable: !errors.Is(err, pgx.ErrNoRows)}
 	}
+	original, claim, err := resolver.jobs.originalRepositoryJobRegistration(ctx, dispatch, registration)
+	if err != nil {
+		return flowhost.Authority{}, repositoryJobFlowFailure{code: "runtime_binding_unavailable", retryable: true}
+	}
+	continuing := false
+	if claim != nil {
+		operation, readErr := resolver.jobs.q.GetFactoryIssueClaimOperation(ctx, claim.OperationID)
+		if readErr != nil {
+			return flowhost.Authority{}, repositoryJobFlowFailure{code: "runtime_binding_unavailable", retryable: true}
+		}
+		var checkpoint flowdispatch.RuntimeCheckpoint
+		if len(operation.ExternalReceipt) > 0 && json.Unmarshal(operation.ExternalReceipt, &checkpoint) != nil {
+			return flowhost.Authority{}, repositoryJobFlowFailure{code: "runtime_binding_unavailable", retryable: true}
+		}
+		continuing = (!claim.Signal && checkpoint.RunID != "") || (claim.Signal && operation.ExternalStartedAt.Valid) || operation.CancellationRequested
+		if continuing {
+			if operation.TenantID != target.TenantID || operation.PrincipalID != target.PrincipalID {
+				return flowhost.Authority{}, repositoryJobFlowFailure{code: "runtime_target_forbidden"}
+			}
+			registration = original
+		}
+	}
 	if registration.RepositoryID != repositoryID || registration.UserID != userID ||
 		registration.ID != dispatch.RegistrationID || registration.Revision != dispatch.Revision ||
 		registration.Digest != dispatch.Digest || registration.WorkspaceID == "" {
@@ -227,8 +252,13 @@ func (resolver *RepositoryJobFlowHostTargetResolver) ResolveFlowHostTarget(ctx c
 	if target.WorkspaceID != "" && target.WorkspaceID != registration.WorkspaceID {
 		return flowhost.Authority{}, repositoryJobFlowFailure{code: "runtime_workspace_replaced"}
 	}
-	if _, err := resolver.jobs.authorizedRepo(ctx, repositoryID, userID, true); err != nil {
-		return flowhost.Authority{}, repositoryJobFlowFailure{code: "runtime_target_forbidden"}
+	if !continuing {
+		if claim != nil && !registration.Enabled {
+			return flowhost.Authority{}, repositoryJobFlowFailure{code: "runtime_target_forbidden"}
+		}
+		if _, err := resolver.jobs.authorizedRepo(ctx, repositoryID, userID, true); err != nil {
+			return flowhost.Authority{}, repositoryJobFlowFailure{code: "runtime_target_forbidden"}
+		}
 	}
 	return flowhost.Authority{
 		Target: target, RepositoryID: repositoryID, UserID: userID,
@@ -317,17 +347,24 @@ func (s *RepositoryJobService) projectRepositoryJobLaunch(ctx context.Context, p
 		return s.rejectRepositoryJobPlan(ctx, dispatch, registration, update)
 	}
 	if update.State == jobs.StateWaiting && update.Checkpoint.RunID == "" && len(update.Checkpoint.Approval) > 0 {
-		if !registration.Enabled || registration.Revision != dispatch.Revision || registration.Digest != dispatch.Digest ||
+		current, err := s.q.GetRepositoryJobRegistration(ctx, dispatch.RegistrationID)
+		if err != nil {
+			return err
+		}
+		if !current.Enabled || current.Revision != dispatch.Revision || current.Digest != dispatch.Digest || current.UserID != registration.UserID || current.WorkspaceID != registration.WorkspaceID ||
 			!repositoryJobPlanAuthorized(registration, config, update.Checkpoint) {
 			return s.rejectRepositoryJobPlan(ctx, dispatch, registration, update)
 		}
 		if _, err := s.authorizedRepo(ctx, registration.RepositoryID, registration.UserID, true); err != nil {
 			return s.rejectRepositoryJobPlan(ctx, dispatch, registration, update)
 		}
+		if err := s.repositoryJobCurrentIssueApproval(ctx, current, dispatch, config); err != nil {
+			return s.rejectRepositoryJobPlan(ctx, dispatch, registration, update)
+		}
 		if err := s.projectRepositoryJobDispatch(ctx, dispatch, "waiting", "", "", update); err != nil {
 			return err
 		}
-		_, err := s.flowDispatcher.Approve(ctx,
+		_, err = s.flowDispatcher.Approve(ctx,
 			repositoryJobFlowScope(registration.RepositoryID, registration.UserID), update.OperationID,
 			update.OperationID+":repository-auto-approve", repositoryJobFlowAuthorization(registration, dispatch))
 		return err
@@ -455,6 +492,14 @@ func (s *RepositoryJobService) ProjectFlowRuntime(ctx context.Context, update fl
 	if err != nil {
 		return err
 	}
+	original, claim, err := s.originalRepositoryJobRegistration(ctx, dispatch, registration)
+	if err != nil {
+		return err
+	}
+	if claim != nil && claim.OperationID != update.OperationID {
+		return errors.New("repository job Flow projection operation is not the original owner's launch")
+	}
+	registration = original
 	if dispatch.RegistrationID != registration.ID || dispatch.Revision != projection.Revision ||
 		projection.RegistrationID != dispatch.RegistrationID ||
 		update.Scope != repositoryJobFlowScope(registration.RepositoryID, registration.UserID) ||

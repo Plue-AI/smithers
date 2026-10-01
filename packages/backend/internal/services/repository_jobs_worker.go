@@ -165,6 +165,15 @@ func (s *RepositoryJobService) PollOnce(ctx context.Context) error {
 		err := s.dispatch(attemptCtx, claim)
 		cancel()
 		if err != nil {
+			if owner, owned := factoryIssueOwned(err); owned {
+				finalizeCtx, done := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+				deferErr := s.deferRepositoryJobOwner(finalizeCtx, claim, owner)
+				done()
+				if deferErr != nil {
+					return deferErr
+				}
+				continue
+			}
 			finalizeCtx, done := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 			status := "queued"
 			var apiErr *pkgerrors.APIError

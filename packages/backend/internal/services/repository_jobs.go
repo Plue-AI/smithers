@@ -20,6 +20,12 @@ import (
 )
 
 type RepositoryJobStore interface {
+	GetFactoryIssueClaimByOwner(context.Context, db.GetFactoryIssueClaimByOwnerParams) (db.FactoryIssueClaim, error)
+	GetFactoryIssueClaimByContinuation(context.Context, string) (db.FactoryIssueClaim, error)
+	ListFactoryIssueDispatchesForCancellation(context.Context, db.ListFactoryIssueDispatchesForCancellationParams) ([]db.RepositoryJobDispatch, error)
+	DeferFactoryIssueFollower(context.Context, db.DeferFactoryIssueFollowerParams) (int64, error)
+	GetFactoryIssueClaimOperation(context.Context, string) (db.GetFactoryIssueClaimOperationRow, error)
+	GetLatestFactoryIssueEvent(context.Context, db.GetLatestFactoryIssueEventParams) (db.RepositoryJobEvent, error)
 	RepoPermQuerier
 	GetUserByIDNotDeleted(context.Context, int64) (db.User, error)
 	GetRepoByID(context.Context, int64) (db.Repository, error)
@@ -538,14 +544,44 @@ func (s *RepositoryJobService) Pause(ctx context.Context, repoID, userID int64, 
 	if err != nil {
 		return nil, err
 	}
+	owned, err := s.q.ListFactoryIssueDispatchesForCancellation(ctx, db.ListFactoryIssueDispatchesForCancellationParams{RepositoryID: repoID, Job: job})
+	if err != nil {
+		return nil, err
+	}
+	seen := make(map[string]bool, len(dispatches))
+	for _, d := range dispatches {
+		seen[d.ID] = true
+	}
+	for _, d := range owned {
+		if !seen[d.ID] {
+			dispatches = append(dispatches, d)
+			seen[d.ID] = true
+		}
+	}
 	if len(dispatches) > 0 && s.flowDispatcher == nil {
 		return nil, errors.New("repository job Flow dispatcher is unavailable")
 	}
-	scope := repositoryJobFlowScope(repoID, userID)
 	for _, dispatch := range dispatches {
-		_, cancelErr := s.flowDispatcher.CancelRequest(ctx, scope, repositoryJobFlowRequestID(dispatch.ID))
-		if cancelErr != nil && !errors.Is(cancelErr, jobs.ErrNotFound) {
-			return nil, cancelErr
+		registration, readErr := s.q.GetRepositoryJobRegistration(ctx, dispatch.RegistrationID)
+		if readErr != nil {
+			return nil, readErr
+		}
+		original, _, readErr := s.originalRepositoryJobRegistration(ctx, dispatch, registration)
+		if readErr != nil {
+			return nil, readErr
+		}
+		scope := repositoryJobFlowScope(repoID, original.UserID)
+		// Current writers can cancel an old owner; this grants no new launch or
+		// mutation under that owner's retained principal.
+		requestIDs := []string{repositoryJobFlowRequestID(dispatch.ID)}
+		if dispatch.EventType == "issue_comment" {
+			requestIDs = append(requestIDs, repositoryJobSignalRequestID(dispatch.ID, dispatch.SignalAttempt))
+		}
+		for _, requestID := range requestIDs {
+			_, cancelErr := s.flowDispatcher.CancelRequest(ctx, scope, requestID)
+			if cancelErr != nil && !errors.Is(cancelErr, jobs.ErrNotFound) {
+				return nil, cancelErr
+			}
 		}
 	}
 	return registrations, nil

@@ -1,0 +1,340 @@
+{
+  "issue": 2081,
+  "status": "FROZEN_FOR_ROOT_STAGING_INDEPENDENT_BASELINE_GATE_PENDING",
+  "head": "c9d51ce351553ec2282c7791230d2132d885684f",
+  "ownedFiles": [
+    {
+      "path": "packages/backend/db/product/migrations/0102_factory_issue_ownership.sql",
+      "sha256": "bf8384b222fbbea6f5696b80961417410753ef6fbf3a7c92fd0e6c367a894007"
+    },
+    {
+      "path": "packages/backend/db/product/queries/factory_issue_ownership.sql",
+      "sha256": "761255df50487053a32180cc9b4747f8fa37eb877e191b9c638ca85fc08822b3"
+    },
+    {
+      "path": "packages/backend/internal/db/factory_issue_ownership.sql.go",
+      "sha256": "2986b450db162db57c86fdea5ba62f22cc6c5df4822e99021e6cebc87f9799d6"
+    },
+    {
+      "path": "packages/backend/internal/services/factory_issue_ownership.go",
+      "sha256": "54bb2d4da542689207ed939942f88ae7db03bbaa745bbf3f9adc845f5dad93cb"
+    },
+    {
+      "path": "packages/backend/internal/services/factory_issue_ownership_integration_test.go",
+      "sha256": "ee6e2e9230bac31232bec07e65d71e09f5883d3b4cb8cb0406a3ce59dd6dfb61"
+    },
+    {
+      "path": "packages/backend/internal/services/factory_issue_ownership_test.go",
+      "sha256": "1d85e98865536a9d4adb0c5e260cb2285610e015bb6d2a8969d618c633ecc1e7"
+    },
+    {
+      "path": "packages/backend/db/product/factory_issue_ownership_migration_integration_test.go",
+      "sha256": "92ab342b30358adad066844b21c44b47ebbe604f296c9dde34dd991f3886a98f"
+    },
+    {
+      "path": "packages/backend/db/product/migrate.go",
+      "sha256": "6bda620ecd6fb22cb20a42c67b5c429830b4140a99e738d7f9521119063b8805"
+    },
+    {
+      "path": "packages/backend/db/ownership.csv",
+      "sha256": "9b11e1a51ad665a196713edfbe7ad0f2038f7d35ffe18e7cb187cea0036a03fc"
+    },
+    {
+      "path": "packages/backend/internal/db/models.go",
+      "sha256": "5a61d1df0dab60b03cecdc410c69c4e6c85c7c622c8f0d685f7a34009a1375f0"
+    },
+    {
+      "path": "packages/backend/internal/services/repository_jobs.go",
+      "sha256": "4033b3c7294cd95a25e3465fa883556ad3771fc846d1fea550cbf1c3f07ef107"
+    },
+    {
+      "path": "packages/backend/internal/services/repository_jobs_worker.go",
+      "sha256": "8c348e9d344aedb46f9d59d5d373e727b2a26b10ba9de1c34922af9c0d8cc5be"
+    },
+    {
+      "path": "packages/backend/internal/services/repository_job_flow_runtime.go",
+      "sha256": "f661a371d36907577985d1f73004e43eb51d54f8d63d39e89d41f7f4da9db6ca"
+    },
+    {
+      "path": "packages/backend/internal/services/mythical_items.go",
+      "sha256": "d5102d787cbc76caa775ab146de500d3e444eadb3daad64f39a699a15210f201"
+    }
+  ],
+  "separate2271BackendSlice": [
+    {
+      "path": "packages/backend/internal/services/repository_factory.go",
+      "sha256": "18bb52621a89dbc0d04a1450c9229083eecdda38026d7150de82f3e448f4bd3a"
+    },
+    {
+      "path": "packages/backend/internal/services/repository_factory_prompt_test.go",
+      "sha256": "0625cdc392e1e64edb6e1eca0c62509965be827d8ce180b8cefb526b619152fd"
+    },
+    {
+      "path": "packages/backend/internal/services/repository_factory_test.go",
+      "sha256": "a060eb8395f053114792d88c61c9b1dd2614e023da10b56790f16dca8e472569"
+    },
+    {
+      "path": "packages/backend/internal/services/repository_factory_isolation_test.go",
+      "sha256": "71b619208d49a171b01f576cb74b935133529c168c83dcf6a0b18f4c90ce847e"
+    },
+    {
+      "path": "packages/backend/internal/services/mythical_service_test.go",
+      "sha256": "b62a5180695003d0bbb60a43dd37e9fb04da31d9a9aa1ba7c2a98cdb58849528"
+    },
+    {
+      "path": "packages/backend/internal/services/github_main_pull_test.go",
+      "sha256": "7eb26f509a9879b8fed42b335c004715e11c68dc50125d47b67362a3811bc909"
+    }
+  ],
+  "summary": "One SQL admission transaction retains exactly one approved implementation owner per repository issue, defers other factory/mythical work, and authorizes only original observation/cancellation after mutable registration changes.",
+  "eligibility": "Only enabled repository-job GitHub issue/issues/issue_comment dispatches with explicit TODO label configuration participate, alongside approved issue-backed mythical items. Declaration alone, ordinary roles/direct events, trials, schedules and nonfactory jobs do not claim.",
+  "acceptance": {
+    "race": "Real PG simultaneous mythical/role admission, exact expected owner and typed loser, repeated five times; no unrelated precondition failures accepted.",
+    "retention": "Duplicate delivery, independent restarted service, active run after admission completion, disabled/replaced registration, same-text mythical phase gap retain owner/reason.",
+    "handoff": "Canonical terminal or proven no-launch cancellation only; revised approved generation waits until all old mythical operations are quiet.",
+    "authority": "Original user/workspace/run and separate reply operation snapshot permit only observation/cancellation; new/replaced users, registration, scope and fresh approval rejected.",
+    "upgrade": "Actual in-flight canonical admission blocks upgrade before backfill and retains exact operation; legacy ambiguous owners remain fenced, queued followers acquire no owner, migration ledger replay stable.",
+    "independentBoundary": "Authenticated actual HTTP worker launch/cancel/replay and real PG durable receipts alongside separate unit helpers/eligibility/typed errors."
+  },
+  "checks": [
+    {
+      "command": "SMITHERS_TEST_DATABASE_URL='postgres://williamcory@127.0.0.1:55491/postgres?sslmode=disable' SMITHERS_REQUIRE_DATABASE_TESTS=1 PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp go test -json ./packages/backend/internal/services -run '^TestRepositoryJob|^TestFactory|^TestMythical(LocalFactory|FactoryReconciles|ItemsFlowFromIssue|ItemsRebaseVerify|CancelledRunStops|PersonRetries|NonMaintainerEdit)|^TestGitHubMainPull(RecordsFactory|ClearsFactory)' -count=1 -timeout=240s",
+      "log": "final-owning.jsonl",
+      "exitCode": 0,
+      "passedEvents": 157,
+      "topLevelPassed": 72,
+      "failed": 0,
+      "skipped": 0,
+      "seconds": 38.195
+    },
+    {
+      "command": "SMITHERS_TEST_DATABASE_URL='postgres://williamcory@127.0.0.1:55491/postgres?sslmode=disable' SMITHERS_REQUIRE_DATABASE_TESTS=1 PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp go test -json ./packages/backend/internal/services -run '^TestFactoryIssueOwnershipBarrier$' -count=5 -timeout=90s",
+      "log": "barrier-repeated.jsonl",
+      "exitCode": 0,
+      "passed": 5,
+      "seconds": 13.082
+    },
+    {
+      "command": "SMITHERS_TEST_DATABASE_URL='postgres://williamcory@127.0.0.1:55491/postgres?sslmode=disable' SMITHERS_REQUIRE_DATABASE_TESTS=1 PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp go test -v ./packages/backend/db/product -run '^TestFactoryIssueOwnershipMigrationWaitsForInFlightAdmission$' -count=1 -timeout=40s",
+      "log": "migration-upgrade-existing-lock.log",
+      "exitCode": 0,
+      "passed": 1,
+      "seconds": 1.788
+    },
+    {
+      "command": "SMITHERS_TEST_DATABASE_URL='postgres://williamcory@127.0.0.1:55491/postgres?sslmode=disable' SMITHERS_REQUIRE_DATABASE_TESTS=1 PATH=/Users/williamcory/.nvm/versions/node/v26.5.0/bin:$PATH TMPDIR=/private/tmp go test -json ./packages/backend/db/product -run '^TestFactoryIssueOwnershipMigration|^TestMigrationRegistryMatchesMigrationDirectory$|^TestOwnershipManifestMatchesFreshProductSchema$|^TestProductQueriesExcludeClusterTables$' -count=1 -timeout=90s",
+      "log": "product-final.jsonl",
+      "exitCode": 1,
+      "failure": "preexisting repository_registration_reports missing ownership entry"
+    },
+    {
+      "command": "go vet ./packages/backend/internal/services ./packages/backend/db/product ./packages/backend/flowdispatch ./packages/backend/jobs",
+      "log": "vet-final.log",
+      "exitCode": 0
+    },
+    {
+      "command": "go vet ./packages/backend/db/product",
+      "log": "vet-upgrade-supplement.log",
+      "exitCode": 0
+    },
+    {
+      "command": "gofmt -l [all14 owned Go source/tests plus6 separately owned2271 backend slice]",
+      "log": "format-final-supplement.log",
+      "exitCode": 0
+    },
+    {
+      "command": "git diff --check -- [14 issue-owned +6 separate2271 paths]",
+      "log": "diff-check-final.log",
+      "exitCode": 0
+    }
+  ],
+  "limitations": [
+    "No whole backend-services, native runtime, provider execution, or executed coverage percentage claim.",
+    "Existing fresh-schema ownership gate is red only for preexisting repository_registration_reports (0096); root claimed3347 separately.",
+    "Prior affected-owning.log failed on the now-corrected cancelled-context fixture; all failed/raw attempts are preserved.",
+    "SQLC succeeds for the new query, but unrelated preexisting generated bindings drift (3279) was isolated and restored, not blessed.",
+    "The real HTTP worker integration uses a controlled authenticated runtime protocol peer because ownership/cancellation does not require an external provider launch.",
+    "Prior157/72 gate ran with separately uncommitted2271 producer consumer/fixtures. Helper-based2081 fixture now reuses canonical factoryFixture; parent will stash2271 WIP and run unchanged72 gate on independent committed factory contract before landing readiness."
+  ],
+  "productionUnchangedForSupplement": "Production unchanged. Two test refinements: canonical factoryFixture reuse, and real upgrade lock barrier. 3347 adds only its separately owned preexisting table manifest row.",
+  "rawReceipts": [
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch5/ownership-2081/affected-owning.log",
+      "sha256": "068a6ceda7a78f336bdc3c506801fc6ab0dae2943d6c4b1bbe96539cdf3f59b1"
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch5/ownership-2081/barrier-continuations.log",
+      "sha256": "b99422e2e73779c929d82e75af07ab907d4a8cae343e35f47bf8cf14a0a58e76"
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch5/ownership-2081/barrier-green-fifth.log",
+      "sha256": "0ec925591d0886375fab55085cf3d0cca5fcba415a993125c118542d5ce4a3c3"
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch5/ownership-2081/barrier-green-fourth.log",
+      "sha256": "03847f7b5464b68f0cbefdcac47b34ac0947df21421de96d7199fabc4bc5824b"
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch5/ownership-2081/barrier-green-initial.log",
+      "sha256": "e1005d8f7d2374ea0a419545592b9b080501ba626066cdb3bcf4d14a7e84f2f2"
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch5/ownership-2081/barrier-green-second.log",
+      "sha256": "13afb006f4334c928dc26c770bfd2a50e4d2b2973e5e70468fe09490d30208b8"
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch5/ownership-2081/barrier-green-third.log",
+      "sha256": "ecae1b6d4745bd3b3bca764731885ba80616a7562ebcca1a47f4b1329986720e"
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch5/ownership-2081/barrier-red.log",
+      "sha256": "fc42f631fc3d9dc0aa51022237213cf77d14f28e3c3ad704273a20e7c01f39da"
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch5/ownership-2081/barrier-repeated.jsonl",
+      "sha256": "6ae6871b3dcc7ae75efd2071564103b7babab26efd102d1d9eee4083d0623335"
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch5/ownership-2081/barrier-setup-error.log",
+      "sha256": "bbac21120c1d1ba0a161262f9e4cf7c1098068f5ff895f631636cb72b138ae0f"
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch5/ownership-2081/diff-check-final.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch5/ownership-2081/final-inputs-after.json",
+      "sha256": "1818973fa6d1834786b3374987d24453f7cda0dcc71c278002552a70d7eace58"
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch5/ownership-2081/final-inputs-before.json",
+      "sha256": "8bd50e05e1190b79a202ddf75ae61d9fd4bec1f7f7fedaf45b2eaac9c2973047"
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch5/ownership-2081/final-owning.jsonl",
+      "sha256": "551b82521356533f7866df01b90b2a7e61e8d5c9dcc04c4af1c350e65f588775"
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch5/ownership-2081/format-final-supplement.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch5/ownership-2081/format-final.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch5/ownership-2081/migration-fifth.log",
+      "sha256": "23d43ccffcc09629949040aa314142d0faa380b3543e616c99bfd570cfa1392e"
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch5/ownership-2081/migration-fourth.log",
+      "sha256": "ba75a33aeb9139b74048d36e0b5059bac663349e802812d3b5a137d30f9e6797"
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch5/ownership-2081/migration-initial.log",
+      "sha256": "0f8a9a3d78c9a6e677ea600fac8eef3ebfb7a891012ab152c264fcbb3ddddcda"
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch5/ownership-2081/migration-second.log",
+      "sha256": "e88b8680342c6527b41286677460d20a7fe8abc8610ee810bbc3de6e5fcc1286"
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch5/ownership-2081/migration-third.log",
+      "sha256": "69884e94dfb54f2589dd34cc5dc532920e86d778ea99e3effc66da478d3a688d"
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch5/ownership-2081/migration-upgrade-existing-lock.log",
+      "sha256": "42b138e03ca558e8af6966e914234cd55da8e001a125c86e5cedf54c71f8204e"
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch5/ownership-2081/orphan-cleanup.json",
+      "sha256": "712fce84b108883f172ff44250a8646edb084583bff5a726d4163e104b4384aa"
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch5/ownership-2081/ownership-controls-fifth.log",
+      "sha256": "cfbd4f10eeb8b2fbf6c9d77a9533ebb24d27520506bced2152d48a6364a4563d"
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch5/ownership-2081/ownership-controls-fourth.log",
+      "sha256": "10cf4b1e1b1a386cff6993c1da663494cc32cc64de1424b0e236b0b2d4975c20"
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch5/ownership-2081/ownership-controls-initial.log",
+      "sha256": "f74665153df8e20a4cc3e01fbf9a57524a1af0f420ec7af1956b056eac551110"
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch5/ownership-2081/ownership-controls-second.log",
+      "sha256": "32df548b264d63e0f69944c9fcd7a3045f04bee24ae8b7e35080cbcd092ce115"
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch5/ownership-2081/ownership-controls-sixth.log",
+      "sha256": "c4e62607a84d23b9f642d7b75c784d9e713428b70ab74e3c123f77db53c56a09"
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch5/ownership-2081/ownership-controls-third.log",
+      "sha256": "26598242e06856512b56f41174854ccd70428f181d7c9c041d30ee9fa6c5e79c"
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch5/ownership-2081/ownership-expanded.log",
+      "sha256": "2528aa3ab1c4589e8e6f3384215a71ce6807a22e7c589db3def6b51028b0ebbb"
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch5/ownership-2081/ownership-final.log",
+      "sha256": "b4d6aafeda84c086e2e8d4b144f470e05acc0cb865ef1e8d1f6810e9955d8749"
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch5/ownership-2081/product-final.jsonl",
+      "sha256": "42180d554d8ace387b37175d72493839f9bad5fd3de34612ac30aa06bd1bb322"
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch5/ownership-2081/source.diff",
+      "sha256": "40c3c72a94cc20b447149591e377869c9587a276550d0e6d2ae8c4bf86828935"
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch5/ownership-2081/sqlc-cancellation.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch5/ownership-2081/sqlc-continuations.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch5/ownership-2081/sqlc-drift-isolation.json",
+      "sha256": "4c720487c610716c04c3e303b1043f316a4d77e10458e6cfe3e0bbbac4ad24f0"
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch5/ownership-2081/sqlc-final-query-qualified.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch5/ownership-2081/sqlc-final-query.log",
+      "sha256": "5a1eb10c5b1cd057ef6c0734fa86813ff97274e4302c2ea05ffd1dd9981e6137"
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch5/ownership-2081/sqlc-unrelated-drift.patch",
+      "sha256": "699f057376b99d9630b0141bff82c36d1c7ffcab59043ef12597ec8fb94fc87a"
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch5/ownership-2081/sqlc.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch5/ownership-2081/tool-inputs.json",
+      "sha256": "723a26cdcf46a42c70a7d523ba7e8067951da3be11ae5af89a358396f350bb84"
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch5/ownership-2081/vet-final.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "/tmp/smithers-burndown-20260930-receipts/api-batch5/ownership-2081/vet-upgrade-supplement.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "ownershipFileStaging": {
+    "2081OwnsOnlyRow": "factory_issue_claims,product,durable shared implementation ownership",
+    "3347OwnsOnlyRow": "repository_registration_reports,product,product migration 0096",
+    "fullCurrentFileHash": "9b11e1a51ad665a196713edfbe7ad0f2038f7d35ffe18e7cb187cea0036a03fc",
+    "issueOnlyPatch": "source.diff"
+  }
+}

@@ -1679,6 +1679,12 @@ func (st *mythicalItemStep) start(ctx context.Context, item db.MythicalItem) (*d
 	payload, _ := json.Marshal(request)
 	next.State, next.Reason, next.NextAttemptAt = "running", "", pgtype.Timestamptz{}
 	saved, err := st.commit(ctx, next, "request", "coding/request", payload)
+	if owner, owned := factoryIssueOwned(err); owned {
+		deferred := item
+		deferred.Reason = owner.reason()
+		deferred.NextAttemptAt = pgtype.Timestamptz{Time: st.now.Add(10 * time.Second), Valid: true}
+		return &deferred, false, nil
+	}
 	if err == nil {
 		st.held[saved.Lane.Int32] = saved.ID
 	}
