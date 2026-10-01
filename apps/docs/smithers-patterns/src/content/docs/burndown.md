@@ -135,7 +135,10 @@ What each member decides:
 landed row from the work output and what `land` answered.
 
 A settled item (`landed`, `held`, `failed`) is never retried within the
-lineage. Run a new burndown to retry failures.
+lineage. A new burndown with the same `key` reattaches to each child's
+recorded outcome, including a failure, so retry failures under a new `key`
+or a new execution id. Work interrupted from inside, such as a child an
+operator cancelled, settles its item `failed` with `work: interrupted`.
 
 ## Restart without duplicates
 

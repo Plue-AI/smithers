@@ -28,6 +28,7 @@ import * as Node from "@smthrs/plan/Node"
 import type * as Planned from "@smthrs/plan/Planned"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
+import * as Cause from "effect/Cause"
 import * as Exit from "effect/Exit"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
@@ -663,9 +664,11 @@ type Attempt<W> =
  * claim succeeded is released with its final status and detail; a release failure is
  * appended to the row's detail and does not change its status.
  *
- * Members report failures on the typed channel. A member that throws raises a
- * defect, which fails the round; the claims already taken are still released,
- * each with status `failed`.
+ * Members report failures on the typed channel. Work interrupted from inside,
+ * such as a child execution an operator cancelled, settles its item `failed`
+ * with the detail `work: interrupted`. A member that throws raises a defect,
+ * which fails the round; the claims already taken are still released, each
+ * with status `failed`.
  *
  * `round` fails with a `PatternError` before any member runs when `key` is
  * blank, `concurrency` or `slots` is not a positive safe integer, `round` is
@@ -735,7 +738,15 @@ export const round = <I, It extends Item, W, E = never, R = never, L = unknown>(
                   status: "failed",
                   detail: `work: ${detailOf(error)}`
                 })
-              })
+              }),
+              // Work that was interrupted from inside, such as a child execution
+              // someone cancelled, fails its own item. The round's own
+              // interruption never reaches this handler.
+              Effect.catchCause((cause) =>
+                Cause.hasInterruptsOnly(cause)
+                  ? Effect.succeed<Attempt<W>>({ _tag: "Settled", status: "failed", detail: "work: interrupted" })
+                  : Effect.failCause(cause)
+              )
             )
           }
         })

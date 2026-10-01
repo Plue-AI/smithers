@@ -5,6 +5,7 @@ import { Action, DurableDeferred, Flow, Interpreter, Sleep, WaitFor } from "@smt
 import * as Node from "@smthrs/plan/Node"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
+import * as Fiber from "effect/Fiber"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
@@ -163,6 +164,42 @@ describe("Burndown.round", () => {
       { id: "a", status: "failed", detail: "work: boom; release: label a not removed" },
       { id: "b", status: "landed", detail: "release: label b not removed" }
     ])
+  })
+
+  it("fails only the item whose work was interrupted from inside", async () => {
+    const { note, tape } = recorder()
+    const result = await runRound({ items: items("a", "b") }, {
+      ...baseOptions(note),
+      work: ({ item }) => item.id === "a" ? Effect.interrupt : Effect.succeed(`fixed ${item.id}`),
+      detail: (output: string) => output
+    })
+
+    expect(result.rows).toEqual([
+      { id: "a", status: "failed", detail: "work: interrupted" },
+      { id: "b", status: "landed", detail: "fixed b" }
+    ])
+    expect(tape.filter((entry) => entry.startsWith("release:"))).toEqual(["release:a:failed", "release:b:landed"])
+  })
+
+  it("stops the whole round, releasing every claim, when the round itself is interrupted", async () => {
+    const { note, tape } = recorder()
+    const exit = await Effect.runPromiseExit(
+      Effect.gen(function*() {
+        const fiber = yield* Effect.forkChild(
+          Burndown.round({ input: undefined, round: 0, items: items("a") }, {
+            ...baseOptions(note),
+            work: () => Effect.never
+          })
+        )
+        yield* Effect.yieldNow
+        yield* Effect.sleep("5 millis")
+        yield* Fiber.interrupt(fiber)
+        return yield* Fiber.await(fiber)
+      })
+    )
+
+    expect(Exit.isSuccess(exit) && Exit.hasInterrupts(exit.value)).toBe(true)
+    expect(tape).toEqual(["claim:a", "release:a:failed"])
   })
 
   it("still releases every claim when a member dies", async () => {
