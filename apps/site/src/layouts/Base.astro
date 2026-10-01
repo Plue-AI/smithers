@@ -7,7 +7,7 @@ interface Props {
   title: string
   description: string
   header?: boolean
-  footer?: boolean
+  footer?: boolean | "legal"
 }
 const { title, description, header = true, footer = true } = Astro.props
 ---
@@ -51,14 +51,16 @@ const { title, description, header = true, footer = true } = Astro.props
     <slot />
     {footer && (
       <footer class="wrap foot">
+        {footer === true && <>
         <span>© {new Date().getFullYear()} Smithers</span>
         <a href="/docs/" data-astro-prefetch="hover">Documentation</a>
         <a href="/pricing/" data-astro-prefetch="hover">Pricing</a>
         <a href="https://github.com/smithersai/smithers">Source, MIT</a>
         <a href="https://status.smithers.sh">Status</a>
+        </>}
         <a href="/terms/">Terms</a>
         <a href="/privacy/">Privacy</a>
-        <a href="/refunds/">Refunds</a>
+        {footer === true && <a href="/refunds/">Refunds</a>}
       </footer>
     )}
   </body>
