@@ -10,7 +10,7 @@
 import { describe, expect, it } from "@effect/vitest"
 import { Action, DurableDeferred, Flow, FlowRuntime, Graph, Interpreter } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"
-import { Effect, Exit, Layer, Option, Schema } from "effect"
+import { Context, Effect, Exit, Layer, Option, Schema } from "effect"
 import { withCrypto } from "./Crypto.ts"
 import { isComplete, pollUntil } from "./Harness.ts"
 import { layerMemory, layerWired, makeInstance } from "./MemoryFlowRuntime.ts"
@@ -247,6 +247,97 @@ describe("Graph.build placement refusal", () => {
 })
 
 describe("the interpreter drives a child boundary as a real execution", () => {
+  it.effect("registers children with the parent layer's implementation context", () =>
+    Effect.gen(function*() {
+      class Offset extends Context.Service<Offset, number>()("child/registration-offset") {}
+      const Read = Action.make("child/read-registration-offset", { payload: {}, success: Schema.Number })
+      const Inner = Flow.make("child/context-inner", {
+        payload: {},
+        success: Schema.Number,
+        body: () => Read.call({})
+      })
+      const Outer = Flow.make("child/context-outer", {
+        payload: {},
+        success: Schema.Number,
+        body: () => Inner.child({})
+      })
+      const registration = Interpreter.layer(Outer).pipe(Layer.provide(Layer.succeed(Offset)(42)))
+      const implementation = Read.toLayer(() => Offset)
+      const layer = Layer.merge(implementation, registration).pipe(
+        Layer.provideMerge(Action.layerImplementations),
+        Layer.provideMerge(layerMemory)
+      )
+
+      // Offset is supplied by the registered handler's captured context,
+      // rather than by the caller executing this flow.
+      const value = yield* withCrypto(
+        Outer.execute({}, { executionId: "parent-only-context" }).pipe(
+          Effect.provide(layer as Layer.Layer<FlowRuntime.FlowRuntime | Action.Implementations>)
+        )
+      )
+
+      expect(value).toBe(42)
+    }))
+
+  for (const mode of ["boundary", "inline"] as const) {
+    it.effect(`registers transitive children from only the parent layer through ${mode} calls`, () =>
+      Effect.gen(function*() {
+        calls.length = 0
+        const Middle = Flow.make(`child/registered-middle-${mode}`, {
+          payload: { value: Schema.Number },
+          success: Schema.Number,
+          body: ({ value }) => Child.child({ value }).pipe(Node.map((answer) => answer * 2))
+        })
+        const Outer = Flow.make(`child/registered-outer-${mode}`, {
+          payload: { value: Schema.Number },
+          success: Schema.Number,
+          body: ({ value }) =>
+            (mode === "boundary" ? Middle.child({ value }) : Middle.call({ value })).pipe(
+              Node.map((answer) => answer + 3)
+            )
+        })
+
+        const value = yield* withCrypto(
+          Outer.execute({ value: 4 }, { executionId: `parent-only-${mode}` }).pipe(
+            Effect.provide(wired(Interpreter.layer(Outer)))
+          )
+        )
+
+        expect(value).toBe(13)
+        expect(calls).toEqual(["bump:4"])
+      }))
+  }
+
+  it.effect("registers recursive children without expanding their bodies eagerly", () =>
+    Effect.gen(function*() {
+      const Recursive: Flow.Flow<
+        "child/registered-recursive",
+        Schema.Struct<{ depth: typeof Schema.Number }>,
+        typeof Schema.Number,
+        typeof Schema.Never
+      > = Flow.make("child/registered-recursive", {
+        payload: { depth: Schema.Number },
+        success: Schema.Number,
+        body: ({ depth }): Node.Node<number> =>
+          depth === 0
+            ? Node.succeed(0)
+            : Recursive.child({ depth: depth - 1 }).pipe(Node.map((answer) => answer + 1))
+      })
+      const Outer = Flow.make("child/registered-recursive-parent", {
+        payload: {},
+        success: Schema.Number,
+        body: () => Recursive.child({ depth: 3 })
+      })
+
+      const value = yield* withCrypto(
+        Outer.execute({}, { executionId: "parent-only-recursion" }).pipe(
+          Effect.provide(wired(Interpreter.layer(Outer)))
+        )
+      )
+
+      expect(value).toBe(3)
+    }))
+
   it.effect("runs the callee under a derived execution id and settles the node with its success", () =>
     Effect.gen(function*() {
       calls.length = 0
@@ -319,7 +410,6 @@ describe("the interpreter drives a child boundary as a real execution", () => {
       })
       const layer = Layer.mergeAll(
         Await.toLayer(() => DurableDeferred.await(Gate)),
-        Interpreter.layer(Gated),
         Interpreter.layer(Waiting)
       ).pipe(
         Layer.provideMerge(Action.layerImplementations),

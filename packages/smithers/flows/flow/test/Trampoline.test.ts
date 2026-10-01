@@ -202,6 +202,32 @@ describe("Flow.Outcome.isOutcome", () => {
 })
 
 describe("the interpreter settles a body's root outcome", () => {
+  it.effect("registers a handoff target from only the source layer", () =>
+    Effect.gen(function*() {
+      const Target = Flow.make("trampoline/registered-target", {
+        payload: { value: Schema.Number },
+        success: Schema.Number,
+        body: ({ value }) => Increment.call({ value })
+      })
+      const Source = Flow.make("trampoline/registered-source", {
+        payload: { value: Schema.Number },
+        success: Schema.Number,
+        body: ({ value }) => Target.to({ value })
+      })
+
+      const settled = yield* withCrypto(
+        Effect.gen(function*() {
+          const handoff: unknown = yield* Source.execute({ value: 4 }, { executionId: "registered-source" })
+          expect(Flow.isResult(handoff) && handoff._tag).toBe("Handoff")
+          // This fixture returns each round's settlement; drive the next round
+          // explicitly, using the declaration registered by the handoff site.
+          return yield* Target.execute({ value: 4 }, { executionId: "registered-target" })
+        }).pipe(Effect.provide(wired(Interpreter.layer(Source))))
+      )
+
+      expect(settled).toBe(5)
+    }))
+
   it.effect("returns ordinary success data whose shape resembles a park request", () =>
     Effect.gen(function*() {
       const value = { _tag: "Park" as const, reason: { reason: "ordinary data" } }

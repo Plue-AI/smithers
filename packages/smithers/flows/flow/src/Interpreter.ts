@@ -425,7 +425,8 @@ const interpretWithPolicy = (
   flowOrNode: Parameters<typeof Graph.build>[0],
   payload: unknown,
   options: Graph.BuildOptions,
-  requireReusableVersions: boolean
+  requireReusableVersions: boolean,
+  registerReachable?: (flow: AnyWithProps) => Effect.Effect<void>
 ): Effect.Effect<Interpretation, unknown, Services> =>
   Effect.gen(function*() {
     const table = yield* Implementations
@@ -550,6 +551,7 @@ const interpretWithPolicy = (
           )
         }
         handoffDeclarations.set(node.id, declaration as unknown as AnyFlow)
+        if (registerReachable !== undefined) yield* registerReachable(declaration as unknown as AnyWithProps)
         continue
       }
       if (node.ast._tag === "FlowCall" && node.ast.mode === "boundary") {
@@ -567,6 +569,7 @@ const interpretWithPolicy = (
           )
         }
         childDeclarations.set(node.id, declaration as unknown as AnyWithProps)
+        if (registerReachable !== undefined) yield* registerReachable(declaration as unknown as AnyWithProps)
         continue
       }
       if (node.ast._tag !== "ActionCall") continue
@@ -1470,7 +1473,8 @@ const makeLayer = <
 >(
   flow: Flow<Tag, Payload, Success, Error, any>,
   options: Graph.BuildOptions,
-  requireReusableVersions: boolean
+  requireReusableVersions: boolean,
+  reachable?: Set<AnyWithProps>
 ): Layer.Layer<
   never,
   never,
@@ -1485,11 +1489,33 @@ const makeLayer = <
 > =>
   Layer.effectDiscard(Effect.gen(function*() {
     const runtime = yield* FlowRuntime
+    const registered = reachable ?? new Set<AnyWithProps>()
+    if (registered.has(flow)) return
+    registered.add(flow)
+    const scope = yield* Effect.scope
+    const context = yield* Effect.context<Services | Scope.Scope>()
+    // Keep discovered declarations in the host registration scope, rather
+    // than the executing parent's scope: handoffs outlive that parent.
+    // Dynamic declarations erase their codec services, just like execute;
+    // those services still come from the registering host's context.
+    const registerReachable = (declaration: AnyWithProps): Effect.Effect<void> =>
+      Layer.buildWithScope(
+        makeLayer(
+          declaration as Flow<string, AnyStructSchema, Schema.Top, Schema.Top, any>,
+          options,
+          requireReusableVersions,
+          registered
+        ),
+        scope
+      ).pipe(
+        Effect.provide(context),
+        Effect.asVoid
+      ) as Effect.Effect<void>
     yield* runtime.register(
       flow,
       ((payload: Payload["Type"]) =>
         Effect.flatMap(
-          interpretWithPolicy(flow, payload, options, requireReusableVersions),
+          interpretWithPolicy(flow, payload, options, requireReusableVersions, registerReachable),
           (interpretation) => settleOutcome(interpretation.value)
         )) as (payload: Payload["Type"], executionId: string) => Effect.Effect<
           Success["Type"],
