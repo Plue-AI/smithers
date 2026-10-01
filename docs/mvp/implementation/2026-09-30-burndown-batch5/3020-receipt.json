@@ -1,0 +1,104 @@
+{
+  "issue": 3020,
+  "sourceParent": "773fac75dcd1efd5d518bfbe60699b35c8927274",
+  "readinessManifest": "/tmp/smithers-burndown-20260930-receipts/runtime-batch5/3020-readiness.json",
+  "readinessSHA256": "45dffc008664f026cf9a4550712c05e58f3358c3aad1b33e1d853115d6b50359",
+  "sourceFiles": [],
+  "validation": {
+    "focused": {
+      "files": 4,
+      "tests": 73,
+      "exit": 0,
+      "seconds": 20.03
+    },
+    "sourceTypes": {
+      "lane": "types-source",
+      "command": [
+        "pnpm",
+        "exec",
+        "tsc",
+        "-p",
+        "tsconfig.json",
+        "--noEmit"
+      ],
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+      "outerBoundSeconds": 180,
+      "elapsedSeconds": 15.348,
+      "exit": 0,
+      "timedOut": false,
+      "head": "773fac75dcd1efd5d518bfbe60699b35c8927274"
+    },
+    "testTypesFinal": {
+      "lane": "types-tests",
+      "command": [
+        "pnpm",
+        "exec",
+        "tsc",
+        "-p",
+        "tsconfig.test.json",
+        "--noEmit"
+      ],
+      "cwd": "/private/tmp/smithers-burndown-20260930/packages/smithers",
+      "outerBoundSeconds": 180,
+      "elapsedSeconds": 17.013,
+      "exit": 0,
+      "timedOut": false,
+      "head": "773fac75dcd1efd5d518bfbe60699b35c8927274"
+    },
+    "broadFinal": {
+      "files": 26,
+      "tests": 666,
+      "passed": 666,
+      "failed": 0,
+      "skipped": 0,
+      "exit": 0,
+      "seconds": 89.49,
+      "commandReceipt": "3020-broad-command.json",
+      "selectorReceipt": "3020-broad-selector.json"
+    }
+  },
+  "archive": "3020-3299-validation.tar.gz",
+  "archiveSHA256": "0991290ec29c1266c1d06366dcd4391fdd929b8e883a3509f29737b00dfb6225",
+  "limits": [
+    "The approved broad backend/presentation/rendering selection is 26 of 231 default-tag test files. The full 40-minute configured CLI aggregate coverage/release target was not run. Coverage was disabled for scoped behavior selection only; source coverage thresholds remain byte-identical and no executed package coverage percentage is claimed.",
+    "No hosted backend/SSH guest is available. Network endpoint/guest command service and selected SSH executable are controlled fixtures; production credential validator, SSH argv/stdin/process spawner, real POSIX/Bash script, permissions, delayed subprocess startup and timeout behavior execute. No actual user credentials or provider quota used.",
+    "External-peer fixture now has one canonical Node.capture body with explicit Action requirement union and no Stream API usage. The unchanged whole CLI test TypeScript gate is fresh; prior seven-mode native runtime receipts are not represented as freshly executed here.",
+    "No PostgreSQL-dependent test is selected in this CLI backend group. The real local HTTP/Git/jj transport tests execute, with configured native helper; the separate3096 whole routes real-PG receipt is not attributed to3020.",
+    "The initial broad gate failed665/1 on the obsolete public history-land expectation; retained red source inventory/log/JSON is preserved. Its test-only reconciliation belongs separately to3299."
+  ],
+  "upstreamFixes": [
+    {
+      "commit": "ff5b90cd2f",
+      "file": "packages/smithers/test/BackendWorkspaceShell.test.ts",
+      "currentSha256": "dfb91ec2afbe060f7f5eb83046c8524ae744a5763163e7cb167854553ccf8c23",
+      "identicalToLandedVersion": true
+    },
+    {
+      "commit": "886cd857b8",
+      "file": "packages/smithers/test/BackendCopy.test.ts",
+      "currentSha256": "59cb6c0f34254c90b3dae9e8f2e8fe8c44f790db26094b49c0687ae1e34be113",
+      "identicalToLandedVersion": true
+    },
+    {
+      "commit": "9bd496ba46",
+      "file": "packages/smithers/test/fixtures/external-peer-flow.ts",
+      "currentSha256": "4d56b09cdefc84f215e8f6f1102fb1005c3f17f100c72641feabc4ced299aae0",
+      "identicalToLandedVersion": true
+    }
+  ],
+  "owningSourceHashes": {
+    "packages/smithers/test/BackendWorkspaceShell.test.ts": "dfb91ec2afbe060f7f5eb83046c8524ae744a5763163e7cb167854553ccf8c23",
+    "packages/smithers/test/BackendCopy.test.ts": "59cb6c0f34254c90b3dae9e8f2e8fe8c44f790db26094b49c0687ae1e34be113",
+    "packages/smithers/test/BackendWorkspace.test.ts": "f5111edba211b4cc952c6bc019763eaacd34dba14729160ceda60bb056d98df8",
+    "packages/smithers/test/BackendProcess.test.ts": "8f70f45e57aa3f39c241080ba64b5001e60e95dd84afd57111f2e9c236ac6eab",
+    "packages/smithers/test/fixtures/external-peer-flow.ts": "4d56b09cdefc84f215e8f6f1102fb1005c3f17f100c72641feabc4ced299aae0",
+    "packages/smithers/src/internal/backend/Workspaces.ts": "3c7eeda34f77b72982e947d620361fc8630e414bf2191a44a6de706eb7b89d61",
+    "packages/smithers/src/internal/backend/SSH.ts": "dafc2e385ff73eebb6f2fdaecfc7657f59e253e0d56634101f305b1492bf880c",
+    "packages/smithers/src/internal/backend/Process.ts": "3222157373371d9fb04b5fa67795a63c9b0c1e8fe5ed4cf0559040aab3d212cd",
+    "packages/smithers/vitest.config.ts": "df0fd61dedae78d0253024775a4eda7061216ea3631de592ba94cb719cd5ba1e",
+    "packages/smithers/tsconfig.json": "4ac141b70d3467275dc9ebf2eb3a08ce630a70c87c7f2872f7ae1019cac3bedb",
+    "packages/smithers/tsconfig.test.json": "b748052b111770eb5f9f7517690eb88a5367e0de95963213220c828572a0d3dd",
+    "packages/smithers/PACKAGE.ts": "c69dda06e28a2fa26adb33423ea242f7b105dd2002ac6f1a3d99eee7b23e71ea"
+  },
+  "scope": "Source-bound qualification of existing credential-admission, canonical external-peer flow, and cold SSH startup fixes; no duplicate implementation."
+}
