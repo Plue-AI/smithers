@@ -75,9 +75,15 @@ const weather = ModelRequest.ToolDefinition.make({
 /** Skips with the missing credential named, never with a bare skipped count. */
 const requireKey = (ctx: TestContext): void => {
   if (process.env["SMITHERS_LIVE_MODEL_TESTS"] !== "1") {
+    if (process.env["SMITHERS_REQUIRE_LIVE_CREDENTIALS"] === "1") throw new Error("Required live evidence needs SMITHERS_LIVE_MODEL_TESTS=1")
     ctx.skip("live provider tests require SMITHERS_LIVE_MODEL_TESTS=1")
   }
-  if (apiKey === undefined || apiKey === "") ctx.skip("CEREBRAS_API_KEY is unset")
+  if (apiKey === undefined || apiKey === "") {
+    if (process.env["SMITHERS_REQUIRE_LIVE_CREDENTIALS"] === "1") {
+      throw new Error("Live Cerebras evidence requires CEREBRAS_API_KEY")
+    }
+    ctx.skip("CEREBRAS_API_KEY is unset")
+  }
 }
 
 describe("Route.openaiChatCompatible over Cerebras", () => {
@@ -108,57 +114,43 @@ describe("Route.openaiChatCompatible over Cerebras", () => {
     expect(usage.outputTokens).toBeGreaterThan(0)
   }, 180_000)
 
-  it("refuses tools locally instead of taking the provider's 400", async (ctx) => {
+  it("streams a schema-valid answer with tools available", async (ctx) => {
     requireKey(ctx)
-    const failure = await Effect.runPromise(
-      Effect.result(
-        Effect.gen(function*() {
-          const configured = yield* Effect.fromResult(route(capital))
-          return yield* Route.prepare(
-            configured,
-            ModelRequest.ModelRequest.make({
-              modelId: MODEL_ID,
-              system: [],
-              messages: [ModelRequest.Message.user("What is the capital of France?")],
-              tools: [weather],
-              params: ModelRequest.GenerationParams.make({})
-            })
-          )
-        })
-      )
-    )
+    const events = await ask(capital, [weather])
+    const { message } = ModelEvent.ModelEvent.settledMessage(events)
+    expect(message.stopReason).toBe("stop")
+    const text = message.content.filter((part) => part.type === "text").map((part) => part.text).join("")
+    expect(Schema.decodeUnknownSync(Capital)(JSON.parse(text)).city).toContain("Paris")
+  }, 180_000)
 
-    expect(Result.isFailure(failure)).toBe(true)
-    expect(Result.isFailure(failure) ? failure.failure.code : undefined).toBe("invalid_request")
-  })
-
-  // The refusal above is only worth having because the provider really does
-  // reject the combination. This proves the premise on the live endpoint,
-  // through fetch rather than the route, since the route will not build such a
-  // body any more.
-  it("proves the provider rejects tools together with response_format", async (ctx) => {
+  it("supports a required tool call together with response_format", async (ctx) => {
     requireKey(ctx)
     const response = await fetch(`${BASE_URL}/chat/completions`, {
       method: "POST",
       headers: { authorization: `Bearer ${apiKey ?? ""}`, "content-type": "application/json" },
       body: JSON.stringify({
         model: MODEL_ID,
-        messages: [{ role: "user", content: "What is the capital of France?" }],
+        messages: [{ role: "user", content: "Use get_weather to get weather in Paris." }],
+        tool_choice: "required",
         tools: [{
           type: "function",
-          function: { name: "get_weather", description: "weather", parameters: { type: "object", properties: {} } }
+          function: { name: "get_weather", description: "weather", parameters: weather.parameters }
         }],
         response_format: {
           type: "json_schema",
           json_schema: { name: "capital", strict: true, schema: capital.schema }
         },
-        max_tokens: 64
+        max_tokens: 512
       })
     })
 
-    expect(response.status).toBe(400)
-    const body = await response.json() as { readonly message?: string; readonly code?: string }
-    expect(body.message).toContain("incompatible")
-    expect(body.code).toBe("wrong_api_format")
+    expect(response.status).toBe(200)
+    const body = await response.json() as {
+      choices: Array<{ finish_reason: string; message: { tool_calls: Array<{ function: { name: string; arguments: string } }> } }>
+    }
+    expect(body.choices[0]?.finish_reason).toBe("tool_calls")
+    const call = body.choices[0]?.message.tool_calls[0]
+    expect(call?.function.name).toBe("get_weather")
+    expect(JSON.parse(call?.function.arguments ?? "{}")).toMatchObject({ city: "Paris" })
   }, 180_000)
 })

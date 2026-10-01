@@ -137,3 +137,8 @@ them intentionally, set `SMITHERS_LIVE_MODEL_TESTS=1` and the relevant
 `pnpm --filter @smthrs/model test run test/GeminiChatCompletions.integration.test.ts --coverage.enabled=false`
 or the corresponding Cerebras or evaluator test file. Keep credentials out of command
 arguments and test output. The live tier is separate from deterministic coverage.
+
+For required Cerebras and Codex subscription evidence, run
+`bash scripts/ci/provider-live.sh` from the repository root with
+`CEREBRAS_API_KEY` and the selected home's Codex ChatGPT login available.
+The runner fails on missing credentials; it never treats skipped tests as evidence.

@@ -65,10 +65,8 @@ type ChatMessage = typeof ChatMessage.Type
  *
  * Chat Completions deployments that implement it validate the answer against
  * the supplied JSON Schema themselves, so the caller receives a document it can
- * decode rather than prose it has to scan. Measured against a live Cerebras
- * seat on 2026-08-29: `response_format` alone answers `{"city":"Paris"}`, and
- * `response_format` together with `tools` is refused with
- * `"tools" is incompatible with "response_format"` (`wrong_api_format`).
+ * decode rather than prose it has to scan. Compatible providers may also
+ * accept tools together with the output schema.
  *
  * @category schemas
  * @since 0.1.0
@@ -98,11 +96,7 @@ export type ResponseFormat = typeof ResponseFormat.Type
  * `StructuredOutput.instructions`), and a route built with one asks the
  * provider to enforce the schema instead.
  *
- * Such a route refuses a request that declares tools with `invalid_request`,
- * because the provider refuses `tools` and `response_format` together. The one
- * exception is `toolChoice: "none"`: that request forbids tool use, this
- * lowering answers it by omitting `tools`, and the two fields therefore never
- * meet on the wire, so it is lowered rather than refused.
+ * Tools remain available with the schema. `toolChoice: "none"` omits tools.
  *
  * @category models
  * @since 0.1.0
@@ -210,7 +204,7 @@ const buildBody = (
   // `toolChoice: "none"` forbids tool use, and both provider APIs express that
   // by omitting `tools` rather than by a wire field, so the request is lowered
   // as if it declared none.
-  ...(structuredOutput !== undefined || request.toolChoice === "none" || request.tools.length === 0
+  ...(request.toolChoice === "none" || request.tools.length === 0
     ? {}
     : { tools: request.tools.map(functionTool) }),
   ...(structuredOutput === undefined ? {} : { response_format: responseFormat(structuredOutput) }),
@@ -231,21 +225,7 @@ const fromRequest = (structuredOutput: StructuredOutput | undefined) =>
   Effect.fn("OpenAIChatCompletions.fromRequest")((
     request: ModelRequest
   ): Effect.Effect<Body, ModelError> =>
-    // `toolChoice: "none"` is the request saying no tool may be called, and
-    // this lowering already answers it by omitting `tools`, so such a request
-    // never puts `tools` and `response_format` on the wire together and there
-    // is nothing to refuse.
-    structuredOutput !== undefined && request.tools.length > 0 && request.toolChoice !== "none"
-      // Refusing here costs one local failure; sending it costs a provider
-      // round trip that ends in HTTP 400 with the same meaning.
-      ? Effect.fail(
-        new ModelError({
-          code: "invalid_request",
-          message:
-            "A Chat Completions route with native structured output cannot send tools: the provider rejects tools together with response_format"
-        })
-      )
-      : Effect.succeed(buildBody(request, structuredOutput))
+    Effect.succeed(buildBody(request, structuredOutput))
   )
 
 const ChunkToolCall = Schema.Struct({

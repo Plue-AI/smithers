@@ -146,11 +146,8 @@ with `error.bodyTruncated` set when a cap bit. Both fields are
 non-enumerable: they survive for logging, but serializing the error never
 copies a provider body into run state.
 
-## The structured-output refusal
+## Structured output with tools
 
-A Chat Completions route configured with `structuredOutput` refuses a
-request that declares tools, failing preparation as `invalid_request`,
-because providers reject `tools` together with `response_format`. Drop the
-tools, or drop `structuredOutput` and enforce the schema in the prompt. A
-request with `toolChoice: "none"` is the one exception: its lowering omits
-`tools`, so it passes.
+Chat Completions routes preserve tools alongside `response_format`. Cerebras
+accepts schema-valid completions and tool calls with this combination. Use
+`toolChoice: "none"` to omit tools.

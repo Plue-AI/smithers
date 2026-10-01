@@ -71,12 +71,6 @@ The ChatGPT-subscription backend rejects `max_output_tokens` and offers no
 other output cap, so the route refuses the budget locally. Omit
 `params.maxTokens` on `OpenAIChatGPT.make` routes, or use an API-key route.
 
-**`A Chat Completions route with native structured output cannot send
-tools`.** The provider rejects `tools` together with `response_format`, so
-the route refuses the combination locally. Drop the tools, drop
-`structuredOutput`, or declare `toolChoice: "none"`, which lowers without
-`tools`.
-
 **`Anthropic Messages tool-call arguments must be a JSON object`.** A
 historical `ToolCallPart.arguments` in the transcript is not a JSON object.
 Validate tool-call arguments when you execute them, before they re-enter a

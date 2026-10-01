@@ -1,18 +1,6 @@
-/**
- * The native-structured-output toggle on the OpenAI-compatible chat
- * completions route.
- *
- * The behaviour under test was measured against a live Cerebras seat on
- * 2026-08-29: `POST https://api.cerebras.ai/v1/chat/completions` answers
- * `{"message":"\"tools\" is incompatible with \"response_format\"", "code":
- * "wrong_api_format"}` when a body carries both, and answers a schema-valid
- * document when it carries `response_format` alone. The lowering therefore
- * emits `response_format` only when the route is configured for it, and
- * refuses a request that would have been rejected on the wire.
- */
+/** Native structured output preserves tools on compatible providers. */
 import { Effect, Redacted, Result, Schema } from "effect"
 import { describe, expect, it } from "vitest"
-import * as ModelError from "../src/ModelError.ts"
 import * as ModelRequest from "../src/ModelRequest.ts"
 import * as OpenAIChatCompletions from "../src/OpenAIChatCompletions.ts"
 import * as Route from "../src/Route.ts"
@@ -86,14 +74,14 @@ describe("OpenAIChatCompletions native structured output", () => {
     expect((parsed["response_format"] as { json_schema: { strict: boolean } }).json_schema.strict).toBe(true)
   })
 
-  it("refuses a request that declares tools, which the provider rejects on the wire", async () => {
+  it("preserves tools together with native structured output", async () => {
     const prepared = await body(configured(capital) as never, request([weather]))
-
-    expect(Result.isFailure(prepared)).toBe(true)
-    const error = Result.isFailure(prepared) ? prepared.failure : undefined
-    expect(error).toBeInstanceOf(ModelError.ModelError)
-    expect(error?.code).toBe("invalid_request")
-    expect(error?.message).toContain("response_format")
+    expect(Result.isSuccess(prepared)).toBe(true)
+    const parsed = JSON.parse(Result.getOrThrow(prepared).bodyText)
+    expect(parsed.response_format.json_schema.schema).toEqual(capital.schema)
+    expect(parsed.tools).toEqual([{ type: "function", function: {
+      name: weather.name, description: weather.description, parameters: weather.parameters
+    } }])
   })
 
   it("allows declared tools when toolChoice none keeps them off the wire", async () => {
