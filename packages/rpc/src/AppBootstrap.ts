@@ -79,7 +79,14 @@ export const AppBootstrapSchema = z.object({
   host: z.enum(["cloud", "local"]),
   version: z.string(),
   buildSha: z.string(),
-  capabilities: z.array(RuntimeCapabilitySchema),
+  // Capability names are additive within this API version. Validate the wire
+  // shape before filtering so a newer host cannot disable an older client,
+  // while malformed rows still fail and producers retain the strict enum.
+  capabilities: z.array(z.string()).transform((capabilities) =>
+    capabilities.filter(
+      (capability): capability is RuntimeCapability => RuntimeCapabilitySchema.safeParse(capability).success
+    )
+  ),
   authFlow: z.enum(["redirect", "credentials", "native-handoff", "both", "none"]),
   sandbox: z.object({
     platform: z.string(),

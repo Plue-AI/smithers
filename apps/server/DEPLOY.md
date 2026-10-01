@@ -94,6 +94,20 @@ the CI path below. Preserve the existing script,
 domain and migrations. The frontend and API build identities are separate
 receipts and both must name the integrated candidate.
 
+Immediately before publication, `scripts/deploy.ts` reads `/api/bootstrap` from
+the candidate's configured `SMITHERS_BACKEND_ORIGIN` and decodes it with the
+same `AppBootstrapSchema` that the candidate frontend bundles. Network, HTTP,
+JSON or schema failures refuse publication and record `bootstrap-compatibility`
+in the rollout receipt. The deployment receipt records the successful check's
+time, backend origin, backend SHA, API version and decoded capabilities.
+
+Capability names are additive in API version 1. Unknown strings are ignored by
+clients; malformed rows and incompatible required fields still fail. Deploy
+the tolerant frontend from [#3343](https://github.com/smithersai/smithers/issues/3343)
+before adding capabilities served to older strict clients. The frozen released
+input schema at `packages/rpc/contracts/app-bootstrap-v1.schema.json` is the
+backend release contract; keep it independent of candidate schema generation.
+
 ## CI (every push to main)
 
 `.github/workflows/apps-deploy.yml` ("Deploy apps") is the one deploy path.

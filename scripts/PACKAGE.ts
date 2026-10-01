@@ -371,6 +371,14 @@ const driftJob = Smithers.NodeTest({
   deps: []
 })
 
+// Offline fixtures prove the live runner refuses missing login/credentials and
+// preserves launch order; the fake executables never call providers (#2290).
+const providerLiveGuards = Smithers.NodeTest({
+  runner: Smithers.testRunner([Smithers.file("//scripts/ci/provider-live.test.mjs")]),
+  srcs: [...sources, Smithers.file("//scripts/ci/provider-live.sh")],
+  deps: []
+})
+
 /**
  * The review and bug-worker `deploy` scripts refuse to publish outside a
  * qualified Cloud rollout: each exits nonzero, never reaches `alchemy`, and
@@ -975,6 +983,7 @@ export const Package = Smithers.Package({
     conflictMarkersUnit,
     docsDrift,
     driftJob,
+    providerLiveGuards,
     openapiBundle,
     openapiClients,
     nativeWindowsWorkflow,

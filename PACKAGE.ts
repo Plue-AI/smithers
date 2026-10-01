@@ -385,6 +385,7 @@ const backendGo = Smithers.Shell.Test({
     Smithers.file("//apps/model-host/package.json"),
     Smithers.file("//go.mod"),
     Smithers.file("//go.sum"),
+    Smithers.file("//packages/rpc/contracts/app-bootstrap-v1.schema.json"),
     Smithers.glob("//packages/backend/**/*"),
     Smithers.glob("//apps/backend/**/*"),
     Smithers.glob("//distribution/**/*"),

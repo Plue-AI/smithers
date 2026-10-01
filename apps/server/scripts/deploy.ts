@@ -35,7 +35,7 @@
  * read afterwards, so `scripts/canary/build-probe.ts` can hold the deployment
  * to the claim.
  */
-import { rollout, type RolloutReceipt } from "../../../flows/rollout/runtime.ts"
+import { PublicationRefusal, rollout, type RolloutReceipt } from "../../../flows/rollout/runtime.ts"
 import { dryRunChecks, readPreviousRevision, workerRolloutHost, writeRolloutReceipt } from "./rollout"
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
@@ -44,6 +44,7 @@ import { fileURLToPath } from "node:url"
 import { WORKER_IDENTITY } from "../src/workerIdentity"
 import { judgeRevision, readRevisionFacts, wranglerDeployArgs } from "./deployRevision"
 import { readWranglerConfig } from "../src/wranglerConfig"
+import { checkBootstrapCompatibility, type BootstrapCompatibilityReceipt } from "./bootstrapCompatibility"
 import { artifactDigest, classifyLocal, DeployGuardRefusal, liveFactsFromCloudflare, preflightDeploy, sha256, verifyActivated, type GuardDecision } from "./deployGuard"
 
 const dryRun = process.argv.includes("--dry-run")
@@ -179,6 +180,7 @@ let versionId: string | null = null
 let rolloutReceipt: RolloutReceipt | null = null
 let activation: { readonly recordSHA256: string; readonly artifactSHA256: string } | null = null
 let rehearsalChecks: Awaited<ReturnType<typeof dryRunChecks>> | null = null
+let bootstrapCompatibility: BootstrapCompatibilityReceipt | null = null
 
 if (dryRun) {
   const outdir = mkdtempSync(join(tmpdir(), "smithers-mvp-web-dry-run-"))
@@ -236,6 +238,15 @@ if (dryRun) {
       // Baseline verification can take time; reject a moved target before publication.
       if ((await readLive(WORKER_IDENTITY.name)).versionId !== guard!.liveVersion)
         throw new Error("Live deployment changed")
+      // A healthy backend may still emit a bootstrap this candidate cannot
+      // decode. Check its configured upstream with the exact frontend schema.
+      try {
+        bootstrapCompatibility = await checkBootstrapCompatibility(readWranglerConfig().vars.SMITHERS_BACKEND_ORIGIN!)
+      } catch (error) {
+        console.error(`[deploy] ${error instanceof Error ? error.message : "BOOTSTRAP_COMPATIBILITY_FAILED"}`)
+        throw new PublicationRefusal("bootstrap-compatibility")
+      }
+      console.log(`[deploy] bootstrap compatible: backend ${bootstrapCompatibility.backendBuildSha}`)
     },
     publish: async () => {
       const deploy = await run(wrangler(...wranglerDeployArgs(verdict)), { cwd: serverDir, env: wranglerEnv, capture: true })
@@ -265,6 +276,7 @@ const receipt = {
     rolloutReceipt?.status === "rollback-failed" ? null : versionId,
   rollout: rolloutReceipt,
   rehearsalChecks,
+  bootstrapCompatibility,
   versionTag: verdict.tag,
   versionMessage: verdict.message,
   runUrl,

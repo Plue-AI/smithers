@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "apiVersion": {
+      "type": "number",
+      "const": 1
+    },
+    "host": {
+      "type": "string",
+      "enum": [
+        "cloud",
+        "local"
+      ]
+    },
+    "version": {
+      "type": "string"
+    },
+    "buildSha": {
+      "type": "string"
+    },
+    "capabilities": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "authFlow": {
+      "type": "string",
+      "enum": [
+        "redirect",
+        "credentials",
+        "native-handoff",
+        "both",
+        "none"
+      ]
+    },
+    "sandbox": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "platform": {
+              "type": "string"
+            },
+            "mode": {
+              "type": "string",
+              "enum": [
+                "enforced",
+                "trusted-only",
+                "unavailable"
+              ]
+            },
+            "policies": {
+              "type": "object",
+              "properties": {
+                "loader": {
+                  "type": "string",
+                  "enum": [
+                    "enforced",
+                    "unenforced"
+                  ]
+                },
+                "targetRun": {
+                  "type": "string",
+                  "enum": [
+                    "enforced",
+                    "unenforced"
+                  ]
+                }
+              },
+              "required": [
+                "loader",
+                "targetRun"
+              ]
+            }
+          },
+          "required": [
+            "platform",
+            "mode"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "apiVersion",
+    "host",
+    "version",
+    "buildSha",
+    "capabilities",
+    "authFlow",
+    "sandbox"
+  ]
+}

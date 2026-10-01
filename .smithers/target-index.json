@@ -55,6 +55,10 @@
         "path": "go.sum"
       },
       {
+        "kind": "file",
+        "path": "packages/rpc/contracts/app-bootstrap-v1.schema.json"
+      },
+      {
         "kind": "glob",
         "pattern": "packages/backend/**/*",
         "exclude": []
@@ -17395,6 +17399,10 @@
       },
       {
         "kind": "file",
+        "path": "apps/tui/src/catalog.ts"
+      },
+      {
+        "kind": "file",
         "path": "apps/tui/src/changes.ts"
       },
       {
@@ -17551,6 +17559,10 @@
       },
       {
         "kind": "file",
+        "path": "apps/tui/src/print.ts"
+      },
+      {
+        "kind": "file",
         "path": "apps/tui/src/registration-report.ts"
       },
       {
@@ -17560,6 +17572,10 @@
       {
         "kind": "file",
         "path": "apps/tui/src/review-view.tsx"
+      },
+      {
+        "kind": "file",
+        "path": "apps/tui/src/run-history.ts"
       },
       {
         "kind": "file",
@@ -18283,11 +18299,23 @@
       },
       {
         "kind": "file",
+        "path": "packages/smithers/agent/integrations/src/github/Proxy.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/agent/integrations/src/github/RateLimit.ts"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/agent/integrations/src/github/Repository.ts"
       },
       {
         "kind": "file",
         "path": "packages/smithers/agent/integrations/src/github/Sync.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/agent/integrations/src/github/internal/rateBudget.ts"
       },
       {
         "kind": "file",
@@ -18832,6 +18860,14 @@
       {
         "kind": "file",
         "path": "packages/smithers/agent/registry/src/Pack.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/agent/registry/src/Prompt.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/agent/registry/src/Prompt/jsx-runtime.ts"
       },
       {
         "kind": "file",
@@ -20935,6 +20971,10 @@
       },
       {
         "kind": "file",
+        "path": "packages/smithers/flows/engine-store/src/DeferredClockFold.ts"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/flows/engine-store/src/DisasterRecovery.ts"
       },
       {
@@ -21243,6 +21283,10 @@
       },
       {
         "kind": "file",
+        "path": "packages/smithers/flows/engine-store/src/migrations/0009_deferred_clock_facts.ts"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/flows/engine-store/src/test/TestStores.ts"
       },
       {
@@ -21504,6 +21548,10 @@
       {
         "kind": "file",
         "path": "packages/smithers/flows/flow/src/Flow/index.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/flows/flow/src/Flow/internal.ts"
       },
       {
         "kind": "file",
@@ -21952,6 +22000,10 @@
       {
         "kind": "file",
         "path": "packages/smithers/flows/patterns/src/Bounded.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/flows/patterns/src/Burndown.ts"
       },
       {
         "kind": "file",
@@ -22543,6 +22595,10 @@
       },
       {
         "kind": "file",
+        "path": "packages/smithers/flows/sandbox/src/Sandbox/Work.ts"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/flows/sandbox/src/Sandbox/commandProvider.ts"
       },
       {
@@ -22563,6 +22619,10 @@
       },
       {
         "kind": "file",
+        "path": "packages/smithers/flows/sandbox/src/Sandbox/run.ts"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/flows/sandbox/src/SandboxConformance/check.ts"
       },
       {
@@ -22572,6 +22632,10 @@
       {
         "kind": "file",
         "path": "packages/smithers/flows/sandbox/src/SandboxConformance/posixCommands.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/flows/sandbox/src/SandboxConformance/workSeed.ts"
       },
       {
         "kind": "file",
@@ -22628,6 +22692,26 @@
       {
         "kind": "file",
         "path": "packages/smithers/flows/sandbox/src/SandboxHealth/probe.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/flows/sandbox/src/SandboxMerge/Outcome.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/flows/sandbox/src/SandboxMerge/Repository.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/flows/sandbox/src/SandboxMerge/Strategy.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/flows/sandbox/src/SandboxMerge/apply.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/flows/sandbox/src/SandboxMerge/index.ts"
       },
       {
         "kind": "file",
@@ -23687,6 +23771,10 @@
       },
       {
         "kind": "file",
+        "path": "packages/smithers/src/cli/RunActivity.ts"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/src/cli/RunProgress.ts"
       },
       {
@@ -23771,6 +23859,10 @@
       },
       {
         "kind": "file",
+        "path": "packages/smithers/src/history/GatewayHistory.ts"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/src/history/History.ts"
       },
       {
@@ -23780,6 +23872,10 @@
       {
         "kind": "file",
         "path": "packages/smithers/src/history/Projection.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/src/history/StoreCopy.ts"
       },
       {
         "kind": "file",
@@ -23931,6 +24027,10 @@
       },
       {
         "kind": "file",
+        "path": "packages/smithers/src/internal/RegistryWorkspace.ts"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/src/internal/ReleasedChildResume.ts"
       },
       {
@@ -24036,6 +24136,10 @@
       {
         "kind": "file",
         "path": "packages/smithers/src/internal/backend/Stack.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/src/internal/backend/WorkspaceChildren.ts"
       },
       {
         "kind": "file",
@@ -26243,7 +26347,7 @@
     "package": "evals/harbor",
     "name": "security",
     "rule": "LlmLint",
-    "reviewPolicy": "{\"changes\":{\"_tag\":\"GitDiff\",\"base\":\"origin/main\",\"paths\":[\"evals/harbor/*.py\",\"evals/harbor/*.sh\",\"evals/harbor/prompt.md\",\"evals/harbor/fixtures/**\"]},\"include\":[{\"_tag\":\"Glob\",\"pattern\":\"//evals/harbor/*.py\",\"exclude\":[]},{\"_tag\":\"Glob\",\"pattern\":\"//evals/harbor/*.sh\",\"exclude\":[]},{\"_tag\":\"Glob\",\"pattern\":\"//evals/harbor/prompt.md\",\"exclude\":[]},{\"_tag\":\"Glob\",\"pattern\":\"//evals/harbor/fixtures/**\",\"exclude\":[]}],\"context\":[],\"deps\":[],\"prompt\":\"You are the security engineer for this repository, performing an authorized defensive security review commissioned by the repository owner. The owner wants weaknesses in their own code found and fixed before anyone can abuse them; this is the routine application-security review a code owner runs before a release. Read the files as an attacker would, then report each weakness precisely enough for the owner to fix it: the vulnerable location, the attacker's precondition, the impact, and the fix. Do not write exploit code for attacking live systems. Safe local regression tests using synthetic data are permitted; a trusted host can run them in an isolated checkout. This reviewer cannot attest execution; prefer one well-evidenced finding over several speculative ones.\",\"rubric\":\"Checks. Every finding names exactly one check id below.\\n\\n[task-copy-stays-in-environment-dir] Dockerfile COPY sources resolve inside the task's environment directory\\nThreat: A malicious benchmark task uploads the operator's host files (Codex auth.json, SMITHERS_TOKEN config) into a workspace the model controls.\\nFocus: evals/harbor/plue_env.py\\nLook for:\\n- `Path(self.environment_dir) / src` in _plue_start with src taken from a task Dockerfile COPY line and no resolve()+prefix check against environment_dir.\\n- An absolute COPY source (`/home/...`) or `..` segments accepted by _COPY_RE and parse_trivial_dockerfile.\\n- A symlink inside the environment directory followed by `workspace cp` to a host path outside it.\\n\\n[task-dockerfile-shell-injection] Task Dockerfile and task.toml values reach guest shells only as quoted data\\nThreat: A malicious task runs arbitrary root commands in the workspace before the trial starts, or tampers with grading.\\nFocus: evals/harbor/plue_env.py, evals/harbor/plue_docker.py\\nLook for:\\n- `chmod {mode_bits} {target}` built from a RUN chmod line without shlex.quote on either field.\\n- Workdir, cwd, env keys or COPY destinations from the task interpolated into a guest command string rather than passed as separate CLI arguments.\\n- Harbor exec env values merged into `--env KEY=VALUE` without rejecting a key containing `=` or a newline.\\n\\n[operator-token-confinement] SMITHERS_TOKEN and Codex auth.json never reach the task container, logs or the model\\nThreat: A model under test or anyone reading published trial logs obtains the operator's plue token or ChatGPT subscription credentials.\\nFocus: evals/harbor/smithers_agent.py, evals/harbor/plue_docker.py, evals/harbor/plue_env.py, evals/harbor/codex_pool.py, evals/harbor/accounts.py\\nLook for:\\n- plue-docker.json written with a mode other than 0600, or the shim directory placed under logs_dir or the kept workspace.\\n- The full host os.environ passed by cli_environment to the CLI while the bash flow can run a host command without SMITHERS_BASH_CONTAINER set.\\n- smithers-run.json, codex-account.json, requeue.log or trajectory.json recording an email, token, auth.json content or the CLI env.\\n- logger.debug of the full plue argv, which carries `--env KEY=VALUE` pairs, at a level that reaches Harbor's job logs.\\n- PooledCodex uploading auth.json into the container and not deleting it before the verifier or trajectory download runs.\\n- plue_docker.translate copying a bare `-e KEY` from the host environ (SMITHERS_TOKEN, OPENAI_API_KEY) into a guest `--env` pair without an allowlist.\\n\\n[prompt-template-injection] The task instruction is inserted into flow.mdx as inert text\\nThreat: A malicious task instruction rewrites the flow's frontmatter (model, flows, effort) or evaluates MDX expressions on the harness host.\\nFocus: evals/harbor/smithers_agent.py, evals/harbor/prompt.md\\nLook for:\\n- render_prompt replacing {{instruction}} into flow.mdx without escaping `{`, `<`, or a leading `---` that the MDX loader would parse.\\n- A replacement order in render_prompt that lets a substituted value introduce a later placeholder (for example {{commit}} or {{container}}).\\n- prompt.md granting any flow beyond `bash` or omitting the container seal.\\n\\n[container-seal-and-host-audit] The agent's commands run only in the task container and host calls are detected\\nThreat: The model under test reads tests/ or solution/ on the harness host and reward-hacks a benchmark score.\\nFocus: evals/harbor/smithers_agent.py, evals/harbor/audit_host_calls.py, evals/harbor/plue_docker.py, evals/harbor/codex_pool.py\\nLook for:\\n- A run path where SMITHERS_BASH_CONTAINER is unset or names a container other than the trial's.\\n- container_of trusting SMITHERS_BENCH_CONTAINER or a docker ps result that could match another trial's compose project.\\n- audit_host_calls.py classifying a host call as benign when its command or cwd names tests/, solution/ or the dataset cache through a variable or relative path.\\n- The plue docker shim accepting a docker verb other than exec, or an exec flag it passes through unparsed.\\n\\n[registry-fetch-ssrf] Image config fetches reach only the image's registry over HTTPS\\nThreat: A task FROM line or a hostile registry makes the harness host request internal URLs or local files.\\nFocus: evals/harbor/image_config.py\\nLook for:\\n- urlopen of the WWW-Authenticate realm without requiring an https scheme (urllib also opens file:// and http://).\\n- A registry host parsed from the FROM reference (localhost, 169.254.169.254, a private IP) fetched without an allowlist.\\n- A cached image config keyed by a mutable tag and trusted as if digest-pinned.\\n\\n[workspace-reap-scope] Cleanup deletes only workspaces this job created\\nThreat: An operator running requeue.py deletes another concurrent job's or user's workspaces in PLUE_REPO.\\nFocus: evals/harbor/requeue.py, evals/harbor/plue_env.py\\nLook for:\\n- reap matching workspace names with startswith(prefix) and no separator, so trial `x-1` also matches `x-10`.\\n- reap_dead deleting every `-env` or `-verifier-*` workspace in the repo regardless of which job created it.\\n- keep_retried_attempts or requeue moving a directory chosen from untrusted trial names outside `<job>.infra`.\\n\\n[score-classification-integrity] Only real infrastructure faults turn a failed trial into a re-run\\nThreat: A model under test prints a fake SSH or gateway error so its failed trial is classified infra and re-run, inflating the published score.\\nFocus: evals/harbor/outcome.py, evals/harbor/health.py, evals/harbor/requeue.py, evals/harbor/audit_host_calls.py\\nLook for:\\n- outcome.classify matching _TRANSPORT against exception_message text the agent's own output can write.\\n- health.py or requeue.py trusting result.json or smithers-run.json fields from inside the trial directory to pick trials to discard or re-run.\\n- audit_host_calls.py reading container or command fields from trial files the agent can write.\\n\\n[shared-state-files] Pool and slot ledger state files cannot be abused by another local user\\nThreat: Another user on the harness host redirects account leases or corrupts the slot ledger to stall or misattribute trials.\\nFocus: evals/harbor/accounts.py, evals/harbor/plue_env.py\\nLook for:\\n- pool.json, plue-slots.json or plue-leaks.log created world-writable or under a shared /tmp path.\\n- A lock file opened by path without O_NOFOLLOW where the directory is writable by others.\\n\\n[general] Any other vulnerability\\nThreat: Any attacker who controls an input this code reads (a network request, a file, an environment variable, a model or tool output, a dependency) makes it act outside what its caller authorized.\\nFocus: every reviewed file\\nLook for:\\n- Injection: untrusted text reaching a shell, SQL, a template, a regex, HTML, a log line, or an eval.\\n- Authorization: an action or read that skips the ownership, tenancy, or role check its siblings perform.\\n- Secrets: credentials, tokens, or keys hardcoded, logged, returned to a client, or passed to a child process that does not need them.\\n- Path traversal: a caller-controlled path or archive entry that can escape its intended root, including via symlinks.\\n- SSRF: a caller-controlled URL, host, or redirect fetched by the server.\\n- Unsafe deserialization: untrusted bytes decoded into code, prototypes, or unchecked types.\\n- Command execution: a spawn, exec, or shell whose argv or environment an untrusted input shapes.\\n- Crypto misuse: weak or homemade primitives, predictable randomness for secrets, missing constant-time comparison, disabled TLS verification.\\n- Prompt injection: untrusted content placed in an agent prompt or tool result that can steer tool calls, approvals, or data egress.\\n- Supply chain: install scripts, unpinned downloads, or unverified artifacts executed at build or run time.\\n- Denial of service: unbounded reads, allocations, loops, recursion, retries, or regex backtracking on untrusted input.\\n- Information leaks: stack traces, internal paths, other tenants' data, or secrets in errors, logs, or responses.\\n\\nReporting rules:\\n- Include structured security fields: checkId, impact, verification, releaseRecommendation, attackerPreconditions, evidence, and nextConfirmationStep. Message describes the cause and concrete fix.\\n- Impact is low, medium, high, or critical; verification is suspected for every model finding. Only a trusted host receipt of controlled reproduction at an immutable revision can confirm a finding.\\n- Release recommendation is allow, review, or block. High and critical impact always block release, even when suspected. Severity is derived from release recommendation, never verification.\\n- file and line point at the vulnerable operation (the sink or the missing check), not an import.\\n- Report each distinct flaw once; name at most three call sites of the same flaw.\\n- Style, correctness bugs without a security consequence, and missing tests are not findings.\\n- Return the completion envelope requested by the review host, including coverage for every declared check.\",\"engine\":\"claude\",\"model\":\"claude-opus-5-5\",\"batchSize\":4,\"failOn\":\"error\",\"securityChecks\":[\"task-copy-stays-in-environment-dir\",\"task-dockerfile-shell-injection\",\"operator-token-confinement\",\"prompt-template-injection\",\"container-seal-and-host-audit\",\"registry-fetch-ssrf\",\"workspace-reap-scope\",\"score-classification-integrity\",\"shared-state-files\",\"general\"],\"scope\":\"changed\",\"manual\":false}",
+    "reviewPolicy": "{\"changes\":{\"_tag\":\"GitDiff\",\"base\":\"origin/main\",\"paths\":[\"evals/harbor/*.py\",\"evals/harbor/*.sh\",\"evals/harbor/prompt.md\",\"evals/harbor/fixtures/**\"]},\"include\":[{\"_tag\":\"Glob\",\"pattern\":\"//evals/harbor/*.py\",\"exclude\":[]},{\"_tag\":\"Glob\",\"pattern\":\"//evals/harbor/*.sh\",\"exclude\":[]},{\"_tag\":\"Glob\",\"pattern\":\"//evals/harbor/prompt.md\",\"exclude\":[]},{\"_tag\":\"Glob\",\"pattern\":\"//evals/harbor/fixtures/**\",\"exclude\":[]}],\"context\":[],\"deps\":[],\"prompt\":\"You are the security engineer for this repository, performing an authorized defensive security review commissioned by the repository owner. The owner wants weaknesses in their own code found and fixed before anyone can abuse them; this is the routine application-security review a code owner runs before a release. Read the files as an attacker would, then report each weakness precisely enough for the owner to fix it: the vulnerable location, the attacker's precondition, the impact, and the fix. Do not write exploit code for attacking live systems. Safe local regression tests using synthetic data are permitted; a trusted host can run them in an isolated checkout. This reviewer cannot attest execution; prefer one well-evidenced finding over several speculative ones.\",\"rubric\":\"Checks. Every finding names exactly one check id below.\\n\\n[task-copy-stays-in-environment-dir] Dockerfile COPY sources resolve inside the task's environment directory\\nThreat: A malicious benchmark task uploads the operator's host files (Codex auth.json, SMITHERS_TOKEN config) into a workspace the model controls.\\nFocus: evals/harbor/plue_env.py\\nLook for:\\n- `Path(self.environment_dir) / src` in _plue_start with src taken from a task Dockerfile COPY line and no resolve()+prefix check against environment_dir.\\n- An absolute COPY source (`/home/...`) or `..` segments accepted by _COPY_RE and parse_trivial_dockerfile.\\n- A symlink inside the environment directory followed by `workspace cp` to a host path outside it.\\n\\n[task-dockerfile-shell-injection] Task Dockerfile and task.toml values reach guest shells only as quoted data\\nThreat: A malicious task runs arbitrary root commands in the workspace before the trial starts, or tampers with grading.\\nFocus: evals/harbor/plue_env.py, evals/harbor/plue_docker.py\\nLook for:\\n- `chmod {mode_bits} {target}` built from a RUN chmod line without shlex.quote on either field.\\n- Workdir, cwd, env keys or COPY destinations from the task interpolated into a guest command string rather than passed as separate CLI arguments.\\n- Harbor exec env values merged into `--env KEY=VALUE` without rejecting a key containing `=` or a newline.\\n\\n[operator-token-confinement] SMITHERS_TOKEN and Codex auth.json never reach the task container, logs or the model\\nThreat: A model under test or anyone reading published trial logs obtains the operator's plue token or ChatGPT subscription credentials.\\nFocus: evals/harbor/smithers_agent.py, evals/harbor/plue_docker.py, evals/harbor/plue_env.py, evals/harbor/codex_pool.py, evals/harbor/accounts.py\\nLook for:\\n- plue-docker.json written with a mode other than 0600, or the shim directory placed under logs_dir or the kept workspace.\\n- The full host os.environ passed by cli_environment to the CLI while the bash flow can run a host command without SMITHERS_BASH_CONTAINER set.\\n- smithers-run.json, codex-account.json, requeue.log or trajectory.json recording an email, token, auth.json content or the CLI env.\\n- logger.debug of the full plue argv, which carries `--env KEY=VALUE` pairs, at a level that reaches Harbor's job logs.\\n- PooledCodex uploading auth.json into the container and not deleting it before the verifier or trajectory download runs.\\n- plue_docker.translate copying a bare `-e KEY` from the host environ (SMITHERS_TOKEN, OPENAI_API_KEY) into a guest `--env` pair without an allowlist.\\n\\n[prompt-template-injection] The task instruction is inserted into flow.mdx as inert text\\nThreat: A malicious task instruction rewrites the flow's frontmatter (model, flows, effort) or evaluates MDX expressions on the harness host.\\nFocus: evals/harbor/smithers_agent.py, evals/harbor/prompt.md\\nLook for:\\n- render_prompt replacing {{instruction}} into flow.mdx without escaping `{`, `<`, or a leading `---` that the MDX loader would parse.\\n- A replacement order in render_prompt that lets a substituted value introduce a later placeholder (for example {{commit}} or {{container}}).\\n- prompt.md granting any flow beyond `bash` or omitting the container seal.\\n\\n[container-seal-and-host-audit] The agent's commands run only in the task container and host calls are detected\\nThreat: The model under test reads tests/ or solution/ on the harness host and reward-hacks a benchmark score.\\nFocus: evals/harbor/smithers_agent.py, evals/harbor/audit_host_calls.py, evals/harbor/plue_docker.py, evals/harbor/codex_pool.py\\nLook for:\\n- A run path where SMITHERS_BASH_CONTAINER is unset or names a container other than the trial's.\\n- container_of trusting SMITHERS_BENCH_CONTAINER or a docker ps result that could match another trial's compose project.\\n- audit_host_calls.py classifying a host call as benign when its command or cwd names tests/, solution/ or the dataset cache through a variable or relative path.\\n- The plue docker shim accepting a docker verb other than exec, or an exec flag it passes through unparsed.\\n\\n[registry-fetch-ssrf] Image config fetches reach only the image's registry over HTTPS\\nThreat: A task FROM line or a hostile registry makes the harness host request internal URLs or local files.\\nFocus: evals/harbor/image_config.py\\nLook for:\\n- urlopen of the WWW-Authenticate realm without requiring an https scheme (urllib also opens file:// and http://).\\n- A registry host parsed from the FROM reference (localhost, 169.254.169.254, a private IP) fetched without an allowlist.\\n- A cached image config keyed by a mutable tag and trusted as if digest-pinned.\\n\\n[workspace-reap-scope] Cleanup deletes only workspaces this job created\\nThreat: An operator running requeue.py deletes another concurrent job's or user's workspaces in PLUE_REPO.\\nFocus: evals/harbor/requeue.py, evals/harbor/plue_env.py\\nLook for:\\n- reap matching workspace names with startswith(prefix) and no separator, so trial `x-1` also matches `x-10`.\\n- reap_dead deleting every `-env` or `-verifier-*` workspace in the repo regardless of which job created it.\\n- keep_retried_attempts or requeue moving a directory chosen from untrusted trial names outside `<job>.infra`.\\n\\n[score-classification-integrity] Only real infrastructure faults turn a failed trial into a re-run\\nThreat: A model under test prints a fake SSH or gateway error so its failed trial is classified infra and re-run, inflating the published score.\\nFocus: evals/harbor/outcome.py, evals/harbor/health.py, evals/harbor/requeue.py, evals/harbor/audit_host_calls.py, evals/harbor/report.py\\nLook for:\\n- outcome.classify matching _TRANSPORT against exception_message text the agent's own output can write.\\n- health.py or requeue.py trusting result.json or smithers-run.json fields from inside the trial directory to pick trials to discard or re-run.\\n- audit_host_calls.py reading container or command fields from trial files the agent can write.\\n- report.py printing a pass rate while any refusal stands, or scoring a trial its seal or token checks refused.\\n\\n[shared-state-files] Pool and slot ledger state files cannot be abused by another local user\\nThreat: Another user on the harness host redirects account leases or corrupts the slot ledger to stall or misattribute trials.\\nFocus: evals/harbor/accounts.py, evals/harbor/plue_env.py\\nLook for:\\n- pool.json, plue-slots.json or plue-leaks.log created world-writable or under a shared /tmp path.\\n- A lock file opened by path without O_NOFOLLOW where the directory is writable by others.\\n\\n[general] Any other vulnerability\\nThreat: Any attacker who controls an input this code reads (a network request, a file, an environment variable, a model or tool output, a dependency) makes it act outside what its caller authorized.\\nFocus: every reviewed file\\nLook for:\\n- Injection: untrusted text reaching a shell, SQL, a template, a regex, HTML, a log line, or an eval.\\n- Authorization: an action or read that skips the ownership, tenancy, or role check its siblings perform.\\n- Secrets: credentials, tokens, or keys hardcoded, logged, returned to a client, or passed to a child process that does not need them.\\n- Path traversal: a caller-controlled path or archive entry that can escape its intended root, including via symlinks.\\n- SSRF: a caller-controlled URL, host, or redirect fetched by the server.\\n- Unsafe deserialization: untrusted bytes decoded into code, prototypes, or unchecked types.\\n- Command execution: a spawn, exec, or shell whose argv or environment an untrusted input shapes.\\n- Crypto misuse: weak or homemade primitives, predictable randomness for secrets, missing constant-time comparison, disabled TLS verification.\\n- Prompt injection: untrusted content placed in an agent prompt or tool result that can steer tool calls, approvals, or data egress.\\n- Supply chain: install scripts, unpinned downloads, or unverified artifacts executed at build or run time.\\n- Denial of service: unbounded reads, allocations, loops, recursion, retries, or regex backtracking on untrusted input.\\n- Information leaks: stack traces, internal paths, other tenants' data, or secrets in errors, logs, or responses.\\n\\nReporting rules:\\n- Include structured security fields: checkId, impact, verification, releaseRecommendation, attackerPreconditions, evidence, and nextConfirmationStep. Message describes the cause and concrete fix.\\n- Impact is low, medium, high, or critical; verification is suspected for every model finding. Only a trusted host receipt of controlled reproduction at an immutable revision can confirm a finding.\\n- Release recommendation is allow, review, or block. High and critical impact always block release, even when suspected. Severity is derived from release recommendation, never verification.\\n- file and line point at the vulnerable operation (the sink or the missing check), not an import.\\n- Report each distinct flaw once; name at most three call sites of the same flaw.\\n- Style, correctness bugs without a security consequence, and missing tests are not findings.\\n- Return the completion envelope requested by the review host, including coverage for every declared check.\",\"engine\":\"claude\",\"model\":\"claude-opus-5-5\",\"batchSize\":4,\"failOn\":\"error\",\"securityChecks\":[\"task-copy-stays-in-environment-dir\",\"task-dockerfile-shell-injection\",\"operator-token-confinement\",\"prompt-template-injection\",\"container-seal-and-host-audit\",\"registry-fetch-ssrf\",\"workspace-reap-scope\",\"score-classification-integrity\",\"shared-state-files\",\"general\"],\"scope\":\"changed\",\"manual\":false}",
     "kinds": [
       "review"
     ],
@@ -26292,7 +26396,7 @@
     "package": "evals/harbor",
     "name": "securityAudit",
     "rule": "LlmLint",
-    "reviewPolicy": "{\"changes\":{\"_tag\":\"GitDiff\",\"base\":\"HEAD\",\"paths\":[\"evals/harbor/*.py\",\"evals/harbor/*.sh\",\"evals/harbor/prompt.md\",\"evals/harbor/fixtures/**\"]},\"include\":[{\"_tag\":\"Glob\",\"pattern\":\"//evals/harbor/*.py\",\"exclude\":[]},{\"_tag\":\"Glob\",\"pattern\":\"//evals/harbor/*.sh\",\"exclude\":[]},{\"_tag\":\"Glob\",\"pattern\":\"//evals/harbor/prompt.md\",\"exclude\":[]},{\"_tag\":\"Glob\",\"pattern\":\"//evals/harbor/fixtures/**\",\"exclude\":[]}],\"context\":[],\"deps\":[],\"prompt\":\"You are the security engineer for this repository, performing an authorized defensive security review commissioned by the repository owner. The owner wants weaknesses in their own code found and fixed before anyone can abuse them; this is the routine application-security review a code owner runs before a release. Read the files as an attacker would, then report each weakness precisely enough for the owner to fix it: the vulnerable location, the attacker's precondition, the impact, and the fix. Do not write exploit code for attacking live systems. Safe local regression tests using synthetic data are permitted; a trusted host can run them in an isolated checkout. This reviewer cannot attest execution; prefer one well-evidenced finding over several speculative ones.\",\"rubric\":\"Checks. Every finding names exactly one check id below.\\n\\n[task-copy-stays-in-environment-dir] Dockerfile COPY sources resolve inside the task's environment directory\\nThreat: A malicious benchmark task uploads the operator's host files (Codex auth.json, SMITHERS_TOKEN config) into a workspace the model controls.\\nFocus: evals/harbor/plue_env.py\\nLook for:\\n- `Path(self.environment_dir) / src` in _plue_start with src taken from a task Dockerfile COPY line and no resolve()+prefix check against environment_dir.\\n- An absolute COPY source (`/home/...`) or `..` segments accepted by _COPY_RE and parse_trivial_dockerfile.\\n- A symlink inside the environment directory followed by `workspace cp` to a host path outside it.\\n\\n[task-dockerfile-shell-injection] Task Dockerfile and task.toml values reach guest shells only as quoted data\\nThreat: A malicious task runs arbitrary root commands in the workspace before the trial starts, or tampers with grading.\\nFocus: evals/harbor/plue_env.py, evals/harbor/plue_docker.py\\nLook for:\\n- `chmod {mode_bits} {target}` built from a RUN chmod line without shlex.quote on either field.\\n- Workdir, cwd, env keys or COPY destinations from the task interpolated into a guest command string rather than passed as separate CLI arguments.\\n- Harbor exec env values merged into `--env KEY=VALUE` without rejecting a key containing `=` or a newline.\\n\\n[operator-token-confinement] SMITHERS_TOKEN and Codex auth.json never reach the task container, logs or the model\\nThreat: A model under test or anyone reading published trial logs obtains the operator's plue token or ChatGPT subscription credentials.\\nFocus: evals/harbor/smithers_agent.py, evals/harbor/plue_docker.py, evals/harbor/plue_env.py, evals/harbor/codex_pool.py, evals/harbor/accounts.py\\nLook for:\\n- plue-docker.json written with a mode other than 0600, or the shim directory placed under logs_dir or the kept workspace.\\n- The full host os.environ passed by cli_environment to the CLI while the bash flow can run a host command without SMITHERS_BASH_CONTAINER set.\\n- smithers-run.json, codex-account.json, requeue.log or trajectory.json recording an email, token, auth.json content or the CLI env.\\n- logger.debug of the full plue argv, which carries `--env KEY=VALUE` pairs, at a level that reaches Harbor's job logs.\\n- PooledCodex uploading auth.json into the container and not deleting it before the verifier or trajectory download runs.\\n- plue_docker.translate copying a bare `-e KEY` from the host environ (SMITHERS_TOKEN, OPENAI_API_KEY) into a guest `--env` pair without an allowlist.\\n\\n[prompt-template-injection] The task instruction is inserted into flow.mdx as inert text\\nThreat: A malicious task instruction rewrites the flow's frontmatter (model, flows, effort) or evaluates MDX expressions on the harness host.\\nFocus: evals/harbor/smithers_agent.py, evals/harbor/prompt.md\\nLook for:\\n- render_prompt replacing {{instruction}} into flow.mdx without escaping `{`, `<`, or a leading `---` that the MDX loader would parse.\\n- A replacement order in render_prompt that lets a substituted value introduce a later placeholder (for example {{commit}} or {{container}}).\\n- prompt.md granting any flow beyond `bash` or omitting the container seal.\\n\\n[container-seal-and-host-audit] The agent's commands run only in the task container and host calls are detected\\nThreat: The model under test reads tests/ or solution/ on the harness host and reward-hacks a benchmark score.\\nFocus: evals/harbor/smithers_agent.py, evals/harbor/audit_host_calls.py, evals/harbor/plue_docker.py, evals/harbor/codex_pool.py\\nLook for:\\n- A run path where SMITHERS_BASH_CONTAINER is unset or names a container other than the trial's.\\n- container_of trusting SMITHERS_BENCH_CONTAINER or a docker ps result that could match another trial's compose project.\\n- audit_host_calls.py classifying a host call as benign when its command or cwd names tests/, solution/ or the dataset cache through a variable or relative path.\\n- The plue docker shim accepting a docker verb other than exec, or an exec flag it passes through unparsed.\\n\\n[registry-fetch-ssrf] Image config fetches reach only the image's registry over HTTPS\\nThreat: A task FROM line or a hostile registry makes the harness host request internal URLs or local files.\\nFocus: evals/harbor/image_config.py\\nLook for:\\n- urlopen of the WWW-Authenticate realm without requiring an https scheme (urllib also opens file:// and http://).\\n- A registry host parsed from the FROM reference (localhost, 169.254.169.254, a private IP) fetched without an allowlist.\\n- A cached image config keyed by a mutable tag and trusted as if digest-pinned.\\n\\n[workspace-reap-scope] Cleanup deletes only workspaces this job created\\nThreat: An operator running requeue.py deletes another concurrent job's or user's workspaces in PLUE_REPO.\\nFocus: evals/harbor/requeue.py, evals/harbor/plue_env.py\\nLook for:\\n- reap matching workspace names with startswith(prefix) and no separator, so trial `x-1` also matches `x-10`.\\n- reap_dead deleting every `-env` or `-verifier-*` workspace in the repo regardless of which job created it.\\n- keep_retried_attempts or requeue moving a directory chosen from untrusted trial names outside `<job>.infra`.\\n\\n[score-classification-integrity] Only real infrastructure faults turn a failed trial into a re-run\\nThreat: A model under test prints a fake SSH or gateway error so its failed trial is classified infra and re-run, inflating the published score.\\nFocus: evals/harbor/outcome.py, evals/harbor/health.py, evals/harbor/requeue.py, evals/harbor/audit_host_calls.py\\nLook for:\\n- outcome.classify matching _TRANSPORT against exception_message text the agent's own output can write.\\n- health.py or requeue.py trusting result.json or smithers-run.json fields from inside the trial directory to pick trials to discard or re-run.\\n- audit_host_calls.py reading container or command fields from trial files the agent can write.\\n\\n[shared-state-files] Pool and slot ledger state files cannot be abused by another local user\\nThreat: Another user on the harness host redirects account leases or corrupts the slot ledger to stall or misattribute trials.\\nFocus: evals/harbor/accounts.py, evals/harbor/plue_env.py\\nLook for:\\n- pool.json, plue-slots.json or plue-leaks.log created world-writable or under a shared /tmp path.\\n- A lock file opened by path without O_NOFOLLOW where the directory is writable by others.\\n\\n[general] Any other vulnerability\\nThreat: Any attacker who controls an input this code reads (a network request, a file, an environment variable, a model or tool output, a dependency) makes it act outside what its caller authorized.\\nFocus: every reviewed file\\nLook for:\\n- Injection: untrusted text reaching a shell, SQL, a template, a regex, HTML, a log line, or an eval.\\n- Authorization: an action or read that skips the ownership, tenancy, or role check its siblings perform.\\n- Secrets: credentials, tokens, or keys hardcoded, logged, returned to a client, or passed to a child process that does not need them.\\n- Path traversal: a caller-controlled path or archive entry that can escape its intended root, including via symlinks.\\n- SSRF: a caller-controlled URL, host, or redirect fetched by the server.\\n- Unsafe deserialization: untrusted bytes decoded into code, prototypes, or unchecked types.\\n- Command execution: a spawn, exec, or shell whose argv or environment an untrusted input shapes.\\n- Crypto misuse: weak or homemade primitives, predictable randomness for secrets, missing constant-time comparison, disabled TLS verification.\\n- Prompt injection: untrusted content placed in an agent prompt or tool result that can steer tool calls, approvals, or data egress.\\n- Supply chain: install scripts, unpinned downloads, or unverified artifacts executed at build or run time.\\n- Denial of service: unbounded reads, allocations, loops, recursion, retries, or regex backtracking on untrusted input.\\n- Information leaks: stack traces, internal paths, other tenants' data, or secrets in errors, logs, or responses.\\n\\nReporting rules:\\n- Include structured security fields: checkId, impact, verification, releaseRecommendation, attackerPreconditions, evidence, and nextConfirmationStep. Message describes the cause and concrete fix.\\n- Impact is low, medium, high, or critical; verification is suspected for every model finding. Only a trusted host receipt of controlled reproduction at an immutable revision can confirm a finding.\\n- Release recommendation is allow, review, or block. High and critical impact always block release, even when suspected. Severity is derived from release recommendation, never verification.\\n- file and line point at the vulnerable operation (the sink or the missing check), not an import.\\n- Report each distinct flaw once; name at most three call sites of the same flaw.\\n- Style, correctness bugs without a security consequence, and missing tests are not findings.\\n- Return the completion envelope requested by the review host, including coverage for every declared check.\",\"engine\":\"claude\",\"model\":\"claude-opus-5-5\",\"batchSize\":8,\"failOn\":\"error\",\"securityChecks\":[\"task-copy-stays-in-environment-dir\",\"task-dockerfile-shell-injection\",\"operator-token-confinement\",\"prompt-template-injection\",\"container-seal-and-host-audit\",\"registry-fetch-ssrf\",\"workspace-reap-scope\",\"score-classification-integrity\",\"shared-state-files\",\"general\"],\"scope\":\"all\",\"manual\":true}",
+    "reviewPolicy": "{\"changes\":{\"_tag\":\"GitDiff\",\"base\":\"HEAD\",\"paths\":[\"evals/harbor/*.py\",\"evals/harbor/*.sh\",\"evals/harbor/prompt.md\",\"evals/harbor/fixtures/**\"]},\"include\":[{\"_tag\":\"Glob\",\"pattern\":\"//evals/harbor/*.py\",\"exclude\":[]},{\"_tag\":\"Glob\",\"pattern\":\"//evals/harbor/*.sh\",\"exclude\":[]},{\"_tag\":\"Glob\",\"pattern\":\"//evals/harbor/prompt.md\",\"exclude\":[]},{\"_tag\":\"Glob\",\"pattern\":\"//evals/harbor/fixtures/**\",\"exclude\":[]}],\"context\":[],\"deps\":[],\"prompt\":\"You are the security engineer for this repository, performing an authorized defensive security review commissioned by the repository owner. The owner wants weaknesses in their own code found and fixed before anyone can abuse them; this is the routine application-security review a code owner runs before a release. Read the files as an attacker would, then report each weakness precisely enough for the owner to fix it: the vulnerable location, the attacker's precondition, the impact, and the fix. Do not write exploit code for attacking live systems. Safe local regression tests using synthetic data are permitted; a trusted host can run them in an isolated checkout. This reviewer cannot attest execution; prefer one well-evidenced finding over several speculative ones.\",\"rubric\":\"Checks. Every finding names exactly one check id below.\\n\\n[task-copy-stays-in-environment-dir] Dockerfile COPY sources resolve inside the task's environment directory\\nThreat: A malicious benchmark task uploads the operator's host files (Codex auth.json, SMITHERS_TOKEN config) into a workspace the model controls.\\nFocus: evals/harbor/plue_env.py\\nLook for:\\n- `Path(self.environment_dir) / src` in _plue_start with src taken from a task Dockerfile COPY line and no resolve()+prefix check against environment_dir.\\n- An absolute COPY source (`/home/...`) or `..` segments accepted by _COPY_RE and parse_trivial_dockerfile.\\n- A symlink inside the environment directory followed by `workspace cp` to a host path outside it.\\n\\n[task-dockerfile-shell-injection] Task Dockerfile and task.toml values reach guest shells only as quoted data\\nThreat: A malicious task runs arbitrary root commands in the workspace before the trial starts, or tampers with grading.\\nFocus: evals/harbor/plue_env.py, evals/harbor/plue_docker.py\\nLook for:\\n- `chmod {mode_bits} {target}` built from a RUN chmod line without shlex.quote on either field.\\n- Workdir, cwd, env keys or COPY destinations from the task interpolated into a guest command string rather than passed as separate CLI arguments.\\n- Harbor exec env values merged into `--env KEY=VALUE` without rejecting a key containing `=` or a newline.\\n\\n[operator-token-confinement] SMITHERS_TOKEN and Codex auth.json never reach the task container, logs or the model\\nThreat: A model under test or anyone reading published trial logs obtains the operator's plue token or ChatGPT subscription credentials.\\nFocus: evals/harbor/smithers_agent.py, evals/harbor/plue_docker.py, evals/harbor/plue_env.py, evals/harbor/codex_pool.py, evals/harbor/accounts.py\\nLook for:\\n- plue-docker.json written with a mode other than 0600, or the shim directory placed under logs_dir or the kept workspace.\\n- The full host os.environ passed by cli_environment to the CLI while the bash flow can run a host command without SMITHERS_BASH_CONTAINER set.\\n- smithers-run.json, codex-account.json, requeue.log or trajectory.json recording an email, token, auth.json content or the CLI env.\\n- logger.debug of the full plue argv, which carries `--env KEY=VALUE` pairs, at a level that reaches Harbor's job logs.\\n- PooledCodex uploading auth.json into the container and not deleting it before the verifier or trajectory download runs.\\n- plue_docker.translate copying a bare `-e KEY` from the host environ (SMITHERS_TOKEN, OPENAI_API_KEY) into a guest `--env` pair without an allowlist.\\n\\n[prompt-template-injection] The task instruction is inserted into flow.mdx as inert text\\nThreat: A malicious task instruction rewrites the flow's frontmatter (model, flows, effort) or evaluates MDX expressions on the harness host.\\nFocus: evals/harbor/smithers_agent.py, evals/harbor/prompt.md\\nLook for:\\n- render_prompt replacing {{instruction}} into flow.mdx without escaping `{`, `<`, or a leading `---` that the MDX loader would parse.\\n- A replacement order in render_prompt that lets a substituted value introduce a later placeholder (for example {{commit}} or {{container}}).\\n- prompt.md granting any flow beyond `bash` or omitting the container seal.\\n\\n[container-seal-and-host-audit] The agent's commands run only in the task container and host calls are detected\\nThreat: The model under test reads tests/ or solution/ on the harness host and reward-hacks a benchmark score.\\nFocus: evals/harbor/smithers_agent.py, evals/harbor/audit_host_calls.py, evals/harbor/plue_docker.py, evals/harbor/codex_pool.py\\nLook for:\\n- A run path where SMITHERS_BASH_CONTAINER is unset or names a container other than the trial's.\\n- container_of trusting SMITHERS_BENCH_CONTAINER or a docker ps result that could match another trial's compose project.\\n- audit_host_calls.py classifying a host call as benign when its command or cwd names tests/, solution/ or the dataset cache through a variable or relative path.\\n- The plue docker shim accepting a docker verb other than exec, or an exec flag it passes through unparsed.\\n\\n[registry-fetch-ssrf] Image config fetches reach only the image's registry over HTTPS\\nThreat: A task FROM line or a hostile registry makes the harness host request internal URLs or local files.\\nFocus: evals/harbor/image_config.py\\nLook for:\\n- urlopen of the WWW-Authenticate realm without requiring an https scheme (urllib also opens file:// and http://).\\n- A registry host parsed from the FROM reference (localhost, 169.254.169.254, a private IP) fetched without an allowlist.\\n- A cached image config keyed by a mutable tag and trusted as if digest-pinned.\\n\\n[workspace-reap-scope] Cleanup deletes only workspaces this job created\\nThreat: An operator running requeue.py deletes another concurrent job's or user's workspaces in PLUE_REPO.\\nFocus: evals/harbor/requeue.py, evals/harbor/plue_env.py\\nLook for:\\n- reap matching workspace names with startswith(prefix) and no separator, so trial `x-1` also matches `x-10`.\\n- reap_dead deleting every `-env` or `-verifier-*` workspace in the repo regardless of which job created it.\\n- keep_retried_attempts or requeue moving a directory chosen from untrusted trial names outside `<job>.infra`.\\n\\n[score-classification-integrity] Only real infrastructure faults turn a failed trial into a re-run\\nThreat: A model under test prints a fake SSH or gateway error so its failed trial is classified infra and re-run, inflating the published score.\\nFocus: evals/harbor/outcome.py, evals/harbor/health.py, evals/harbor/requeue.py, evals/harbor/audit_host_calls.py, evals/harbor/report.py\\nLook for:\\n- outcome.classify matching _TRANSPORT against exception_message text the agent's own output can write.\\n- health.py or requeue.py trusting result.json or smithers-run.json fields from inside the trial directory to pick trials to discard or re-run.\\n- audit_host_calls.py reading container or command fields from trial files the agent can write.\\n- report.py printing a pass rate while any refusal stands, or scoring a trial its seal or token checks refused.\\n\\n[shared-state-files] Pool and slot ledger state files cannot be abused by another local user\\nThreat: Another user on the harness host redirects account leases or corrupts the slot ledger to stall or misattribute trials.\\nFocus: evals/harbor/accounts.py, evals/harbor/plue_env.py\\nLook for:\\n- pool.json, plue-slots.json or plue-leaks.log created world-writable or under a shared /tmp path.\\n- A lock file opened by path without O_NOFOLLOW where the directory is writable by others.\\n\\n[general] Any other vulnerability\\nThreat: Any attacker who controls an input this code reads (a network request, a file, an environment variable, a model or tool output, a dependency) makes it act outside what its caller authorized.\\nFocus: every reviewed file\\nLook for:\\n- Injection: untrusted text reaching a shell, SQL, a template, a regex, HTML, a log line, or an eval.\\n- Authorization: an action or read that skips the ownership, tenancy, or role check its siblings perform.\\n- Secrets: credentials, tokens, or keys hardcoded, logged, returned to a client, or passed to a child process that does not need them.\\n- Path traversal: a caller-controlled path or archive entry that can escape its intended root, including via symlinks.\\n- SSRF: a caller-controlled URL, host, or redirect fetched by the server.\\n- Unsafe deserialization: untrusted bytes decoded into code, prototypes, or unchecked types.\\n- Command execution: a spawn, exec, or shell whose argv or environment an untrusted input shapes.\\n- Crypto misuse: weak or homemade primitives, predictable randomness for secrets, missing constant-time comparison, disabled TLS verification.\\n- Prompt injection: untrusted content placed in an agent prompt or tool result that can steer tool calls, approvals, or data egress.\\n- Supply chain: install scripts, unpinned downloads, or unverified artifacts executed at build or run time.\\n- Denial of service: unbounded reads, allocations, loops, recursion, retries, or regex backtracking on untrusted input.\\n- Information leaks: stack traces, internal paths, other tenants' data, or secrets in errors, logs, or responses.\\n\\nReporting rules:\\n- Include structured security fields: checkId, impact, verification, releaseRecommendation, attackerPreconditions, evidence, and nextConfirmationStep. Message describes the cause and concrete fix.\\n- Impact is low, medium, high, or critical; verification is suspected for every model finding. Only a trusted host receipt of controlled reproduction at an immutable revision can confirm a finding.\\n- Release recommendation is allow, review, or block. High and critical impact always block release, even when suspected. Severity is derived from release recommendation, never verification.\\n- file and line point at the vulnerable operation (the sink or the missing check), not an import.\\n- Report each distinct flaw once; name at most three call sites of the same flaw.\\n- Style, correctness bugs without a security consequence, and missing tests are not findings.\\n- Return the completion envelope requested by the review host, including coverage for every declared check.\",\"engine\":\"claude\",\"model\":\"claude-opus-5-5\",\"batchSize\":8,\"failOn\":\"error\",\"securityChecks\":[\"task-copy-stays-in-environment-dir\",\"task-dockerfile-shell-injection\",\"operator-token-confinement\",\"prompt-template-injection\",\"container-seal-and-host-audit\",\"registry-fetch-ssrf\",\"workspace-reap-scope\",\"score-classification-integrity\",\"shared-state-files\",\"general\"],\"scope\":\"all\",\"manual\":true}",
     "kinds": [
       "review"
     ],
@@ -27206,7 +27310,7 @@
     "package": "examples",
     "name": "security",
     "rule": "LlmLint",
-    "reviewPolicy": "{\"changes\":{\"_tag\":\"GitDiff\",\"base\":\"origin/main\",\"paths\":[\"examples/src/**\",\"examples/test/**\",\"examples/vitest.config.ts\",\"examples/README.md\"]},\"include\":[{\"_tag\":\"Glob\",\"pattern\":\"//examples/src/**\",\"exclude\":[]},{\"_tag\":\"Glob\",\"pattern\":\"//examples/test/**\",\"exclude\":[]},{\"_tag\":\"Glob\",\"pattern\":\"//examples/vitest.config.ts\",\"exclude\":[]},{\"_tag\":\"Glob\",\"pattern\":\"//examples/README.md\",\"exclude\":[]}],\"context\":[],\"deps\":[],\"prompt\":\"You are the security engineer for this repository, performing an authorized defensive security review commissioned by the repository owner. The owner wants weaknesses in their own code found and fixed before anyone can abuse them; this is the routine application-security review a code owner runs before a release. Read the files as an attacker would, then report each weakness precisely enough for the owner to fix it: the vulnerable location, the attacker's precondition, the impact, and the fix. Do not write exploit code for attacking live systems. Safe local regression tests using synthetic data are permitted; a trusted host can run them in an isolated checkout. This reviewer cannot attest execution; prefer one well-evidenced finding over several speculative ones.\",\"rubric\":\"Checks. Every finding names exactly one check id below.\\n\\n[control-server-auth] The example control server authenticates every HTTP and WebSocket call\\nThreat: A local process or a web page in the user's browser plans, approves, or launches flows on the example control plane.\\nFocus: examples/src/24-control-plane-and-gateway.ts, examples/src/24-project/**, examples/test/24-*.test.ts\\nLook for:\\n- The bearer credential in serve() not drawn from randomBytes(32), or reused, logged, or returned in Summary.\\n- The Host/Origin middleware running after routing or the WebSocket upgrade, or accepting a mismatched Origin.\\n- NodeHttpServer.layer bound to anything other than 127.0.0.1, or a route mounted outside ControlRpcs.layerBearerAuth.\\n\\n[scratch-fs-confinement] Agent file tools reach only the scratch root\\nThreat: A prompt-injected or scripted model cell reads or overwrites host files outside the scratch directory.\\nFocus: examples/src/25-agent-tools-in-sandbox.ts, examples/test/25-*.test.ts\\nLook for:\\n- A confinedFileSystem method that calls host.* without passing the name through resolve().\\n- resolve() accepting an absolute path, a '..' segment, a NUL byte, a symlink component, or a hard-linked file.\\n- confinedFileSystem accepting, on POSIX, a root another user owns or whose mode grants any group or other permission (mode & 0o077).\\n- Read/Write FlowBinding capabilities or effects wider than `${canonicalRoot}/**`, or a capabilityEnvelope without that resource.\\n\\n[provider-key-handling] Provider API keys come only from the environment and stay redacted\\nThreat: A user running a live smoke example leaks their OpenAI, Gemini, or other provider key into logs, argv, the journal, or a test report.\\nFocus: examples/src/12-agent-live-smoke.ts, examples/src/13-agent-live-smoke-local.ts, examples/src/14-agent-live-smoke-gemini.ts, examples/src/15-model-layer-smoke.ts, examples/test/12-*.test.ts, examples/test/13-*.test.ts, examples/test/15-*.test.ts, examples/test/fixtures/live-test-selection.ts, examples/vitest.config.ts, examples/README.md\\nLook for:\\n- An API key accepted as a positional argument, hardcoded, or read from process.env at module load.\\n- A key passed to a route or header without Redacted.make, or printed in an error or console line.\\n- A live smoke test that runs without an explicit opt-in because vitest.config.ts masks only OPENAI_API_KEY.\\n\\n[process-containment-scope] Spawned processes run with the narrowest capability and are reaped\\nThreat: A copied example grants flows unrestricted process spawn on the host or leaves orphaned process groups running after a crash.\\nFocus: examples/src/08-host-adapters.ts, examples/src/19-cancel-and-child-cleanup.ts, examples/src/22-mcp-tools.ts, examples/src/37-host-containment.ts, examples/src/37-host-containment-host.ts, examples/src/40-sandbox-placement.ts, examples/src/41-sandboxed-flow.ts, examples/src/sandboxed-child.ts\\nLook for:\\n- A Capability.Permission.Rule allowing proc:spawn with resource '*' in an engine that registers flows other than the fixed sleep/containment demos of examples 19 and 37.\\n- An MCP tool re-declared under a host grant wider than proc:spawn:mcp/<serverName>, or an MCP server command built from payload text.\\n- A child spawned with a shell string built from payload or argv values.\\n- A sandbox session root or collectDiff result applied to the host workspace without the caller deciding.\\n- A spawned child with no acquireRelease finalizer or ProcessLedger record.\\n\\n[fixture-servers-loopback] Example fixture servers bind loopback and survive malformed input\\nThreat: A host on the network reads or poisons the example action cache, or one malformed request crashes the fixture mid-run.\\nFocus: examples/src/35-remote-cache.ts, examples/src/22-mcp-server.ts, examples/src/22-mcp-tools.ts, examples/src/10-telemetry-export.ts\\nLook for:\\n- server.listen or a telemetry baseUrl bound to a non-loopback address.\\n- decodeURIComponent or JSON.parse on request input with no try/catch in a request or line handler.\\n- A PUT /ac/{key} accepted without a body size limit.\\n\\n[agent-prompt-payload] Payload text in agent prompts cannot widen the tools a cell may call\\nThreat: A flow caller injects instructions through a prompt-interpolated payload field and makes the agent call tools beyond its declared envelope.\\nFocus: examples/src/11-agent-step.ts, examples/src/25-agent-tools-in-sandbox.ts, examples/src/39-agent-policies.ts, examples/src/33-delegation-trellis.ts\\nLook for:\\n- An AgentAction prompt interpolating payload text while the host exposes flows beyond those the example needs.\\n- A scripted model that splices prompt text into cell code without JSON.stringify.\\n- Budget.layerUnbounded or QuotaPolicy.layerUnclassified used in an example that reaches a real provider.\\n\\n[general] Any other vulnerability\\nThreat: Any attacker who controls an input this code reads (a network request, a file, an environment variable, a model or tool output, a dependency) makes it act outside what its caller authorized.\\nFocus: every reviewed file\\nLook for:\\n- Injection: untrusted text reaching a shell, SQL, a template, a regex, HTML, a log line, or an eval.\\n- Authorization: an action or read that skips the ownership, tenancy, or role check its siblings perform.\\n- Secrets: credentials, tokens, or keys hardcoded, logged, returned to a client, or passed to a child process that does not need them.\\n- Path traversal: a caller-controlled path or archive entry that can escape its intended root, including via symlinks.\\n- SSRF: a caller-controlled URL, host, or redirect fetched by the server.\\n- Unsafe deserialization: untrusted bytes decoded into code, prototypes, or unchecked types.\\n- Command execution: a spawn, exec, or shell whose argv or environment an untrusted input shapes.\\n- Crypto misuse: weak or homemade primitives, predictable randomness for secrets, missing constant-time comparison, disabled TLS verification.\\n- Prompt injection: untrusted content placed in an agent prompt or tool result that can steer tool calls, approvals, or data egress.\\n- Supply chain: install scripts, unpinned downloads, or unverified artifacts executed at build or run time.\\n- Denial of service: unbounded reads, allocations, loops, recursion, retries, or regex backtracking on untrusted input.\\n- Information leaks: stack traces, internal paths, other tenants' data, or secrets in errors, logs, or responses.\\n\\nReporting rules:\\n- Include structured security fields: checkId, impact, verification, releaseRecommendation, attackerPreconditions, evidence, and nextConfirmationStep. Message describes the cause and concrete fix.\\n- Impact is low, medium, high, or critical; verification is suspected for every model finding. Only a trusted host receipt of controlled reproduction at an immutable revision can confirm a finding.\\n- Release recommendation is allow, review, or block. High and critical impact always block release, even when suspected. Severity is derived from release recommendation, never verification.\\n- file and line point at the vulnerable operation (the sink or the missing check), not an import.\\n- Report each distinct flaw once; name at most three call sites of the same flaw.\\n- Style, correctness bugs without a security consequence, and missing tests are not findings.\\n- Return the completion envelope requested by the review host, including coverage for every declared check.\",\"engine\":\"claude\",\"model\":\"claude-opus-5-5\",\"batchSize\":4,\"failOn\":\"error\",\"securityChecks\":[\"control-server-auth\",\"scratch-fs-confinement\",\"provider-key-handling\",\"process-containment-scope\",\"fixture-servers-loopback\",\"agent-prompt-payload\",\"general\"],\"scope\":\"changed\",\"manual\":false}",
+    "reviewPolicy": "{\"changes\":{\"_tag\":\"GitDiff\",\"base\":\"origin/main\",\"paths\":[\"examples/src/**\",\"examples/test/**\",\"examples/vitest.config.ts\",\"examples/README.md\"]},\"include\":[{\"_tag\":\"Glob\",\"pattern\":\"//examples/src/**\",\"exclude\":[]},{\"_tag\":\"Glob\",\"pattern\":\"//examples/test/**\",\"exclude\":[]},{\"_tag\":\"Glob\",\"pattern\":\"//examples/vitest.config.ts\",\"exclude\":[]},{\"_tag\":\"Glob\",\"pattern\":\"//examples/README.md\",\"exclude\":[]}],\"context\":[],\"deps\":[],\"prompt\":\"You are the security engineer for this repository, performing an authorized defensive security review commissioned by the repository owner. The owner wants weaknesses in their own code found and fixed before anyone can abuse them; this is the routine application-security review a code owner runs before a release. Read the files as an attacker would, then report each weakness precisely enough for the owner to fix it: the vulnerable location, the attacker's precondition, the impact, and the fix. Do not write exploit code for attacking live systems. Safe local regression tests using synthetic data are permitted; a trusted host can run them in an isolated checkout. This reviewer cannot attest execution; prefer one well-evidenced finding over several speculative ones.\",\"rubric\":\"Checks. Every finding names exactly one check id below.\\n\\n[control-server-auth] The example control server authenticates every HTTP and WebSocket call\\nThreat: A local process or a web page in the user's browser plans, approves, or launches flows on the example control plane.\\nFocus: examples/src/24-control-plane-and-gateway.ts, examples/src/24-project/**, examples/test/24-*.test.ts\\nLook for:\\n- The bearer credential in serve() not drawn from randomBytes(32), or reused, logged, or returned in Summary.\\n- The Host/Origin middleware running after routing or the WebSocket upgrade, or accepting a mismatched Origin.\\n- NodeHttpServer.layer bound to anything other than 127.0.0.1, or a route mounted outside ControlRpcs.layerBearerAuth.\\n\\n[scratch-fs-confinement] Agent file tools reach only the scratch root\\nThreat: A prompt-injected or scripted model cell reads or overwrites host files outside the scratch directory.\\nFocus: examples/src/25-agent-tools-in-sandbox.ts, examples/test/25-*.test.ts\\nLook for:\\n- A confinedFileSystem method that calls host.* without passing the name through resolve().\\n- resolve() accepting an absolute path, a '..' segment, a NUL byte, a symlink component, or a hard-linked file.\\n- confinedFileSystem accepting, on POSIX, a root another user owns or whose mode grants any group or other permission (mode & 0o077).\\n- Read/Write FlowBinding capabilities or effects wider than `${canonicalRoot}/**`, or a capabilityEnvelope without that resource.\\n\\n[provider-key-handling] Provider API keys come only from the environment and stay redacted\\nThreat: A user running a live smoke example leaks their OpenAI, Gemini, or other provider key into logs, argv, the journal, or a test report.\\nFocus: examples/src/12-agent-live-smoke.ts, examples/src/13-agent-live-smoke-local.ts, examples/src/14-agent-live-smoke-gemini.ts, examples/src/15-model-layer-smoke.ts, examples/test/12-*.test.ts, examples/test/13-*.test.ts, examples/test/15-*.test.ts, examples/test/fixtures/live-test-selection.ts, examples/vitest.config.ts, examples/README.md\\nLook for:\\n- An API key accepted as a positional argument, hardcoded, or read from process.env at module load.\\n- A key passed to a route or header without Redacted.make, or printed in an error or console line.\\n- A live smoke test that runs without an explicit opt-in because vitest.config.ts masks only OPENAI_API_KEY.\\n\\n[process-containment-scope] Spawned processes run with the narrowest capability and are reaped\\nThreat: A copied example grants flows unrestricted process spawn on the host or leaves orphaned process groups running after a crash.\\nFocus: examples/src/08-host-adapters.ts, examples/src/19-cancel-and-child-cleanup.ts, examples/src/22-mcp-tools.ts, examples/src/37-host-containment.ts, examples/src/37-host-containment-host.ts, examples/src/40-sandbox-placement.ts, examples/src/41-sandboxed-flow.ts, examples/src/sandboxed-child.ts\\nLook for:\\n- A Capability.Permission.Rule allowing proc:spawn with resource '*' in an engine that registers flows other than the fixed sleep/containment demos of examples 19 and 37.\\n- An MCP tool re-declared under a host grant wider than proc:spawn:mcp/<serverName>, or an MCP server command built from payload text.\\n- A child spawned with a shell string built from payload or argv values.\\n- A sandbox session root or captureWork result applied to the host workspace without the caller deciding.\\n- A spawned child with no acquireRelease finalizer or ProcessLedger record.\\n\\n[fixture-servers-loopback] Example fixture servers bind loopback and survive malformed input\\nThreat: A host on the network reads or poisons the example action cache, or one malformed request crashes the fixture mid-run.\\nFocus: examples/src/35-remote-cache.ts, examples/src/22-mcp-server.ts, examples/src/22-mcp-tools.ts, examples/src/10-telemetry-export.ts\\nLook for:\\n- server.listen or a telemetry baseUrl bound to a non-loopback address.\\n- decodeURIComponent or JSON.parse on request input with no try/catch in a request or line handler.\\n- A PUT /ac/{key} accepted without a body size limit.\\n\\n[agent-prompt-payload] Payload text in agent prompts cannot widen the tools a cell may call\\nThreat: A flow caller injects instructions through a prompt-interpolated payload field and makes the agent call tools beyond its declared envelope.\\nFocus: examples/src/11-agent-step.ts, examples/src/25-agent-tools-in-sandbox.ts, examples/src/39-agent-policies.ts, examples/src/33-delegation-trellis.ts\\nLook for:\\n- An AgentAction prompt interpolating payload text while the host exposes flows beyond those the example needs.\\n- A scripted model that splices prompt text into cell code without JSON.stringify.\\n- Budget.layerUnbounded or QuotaPolicy.layerUnclassified used in an example that reaches a real provider.\\n\\n[general] Any other vulnerability\\nThreat: Any attacker who controls an input this code reads (a network request, a file, an environment variable, a model or tool output, a dependency) makes it act outside what its caller authorized.\\nFocus: every reviewed file\\nLook for:\\n- Injection: untrusted text reaching a shell, SQL, a template, a regex, HTML, a log line, or an eval.\\n- Authorization: an action or read that skips the ownership, tenancy, or role check its siblings perform.\\n- Secrets: credentials, tokens, or keys hardcoded, logged, returned to a client, or passed to a child process that does not need them.\\n- Path traversal: a caller-controlled path or archive entry that can escape its intended root, including via symlinks.\\n- SSRF: a caller-controlled URL, host, or redirect fetched by the server.\\n- Unsafe deserialization: untrusted bytes decoded into code, prototypes, or unchecked types.\\n- Command execution: a spawn, exec, or shell whose argv or environment an untrusted input shapes.\\n- Crypto misuse: weak or homemade primitives, predictable randomness for secrets, missing constant-time comparison, disabled TLS verification.\\n- Prompt injection: untrusted content placed in an agent prompt or tool result that can steer tool calls, approvals, or data egress.\\n- Supply chain: install scripts, unpinned downloads, or unverified artifacts executed at build or run time.\\n- Denial of service: unbounded reads, allocations, loops, recursion, retries, or regex backtracking on untrusted input.\\n- Information leaks: stack traces, internal paths, other tenants' data, or secrets in errors, logs, or responses.\\n\\nReporting rules:\\n- Include structured security fields: checkId, impact, verification, releaseRecommendation, attackerPreconditions, evidence, and nextConfirmationStep. Message describes the cause and concrete fix.\\n- Impact is low, medium, high, or critical; verification is suspected for every model finding. Only a trusted host receipt of controlled reproduction at an immutable revision can confirm a finding.\\n- Release recommendation is allow, review, or block. High and critical impact always block release, even when suspected. Severity is derived from release recommendation, never verification.\\n- file and line point at the vulnerable operation (the sink or the missing check), not an import.\\n- Report each distinct flaw once; name at most three call sites of the same flaw.\\n- Style, correctness bugs without a security consequence, and missing tests are not findings.\\n- Return the completion envelope requested by the review host, including coverage for every declared check.\",\"engine\":\"claude\",\"model\":\"claude-opus-5-5\",\"batchSize\":4,\"failOn\":\"error\",\"securityChecks\":[\"control-server-auth\",\"scratch-fs-confinement\",\"provider-key-handling\",\"process-containment-scope\",\"fixture-servers-loopback\",\"agent-prompt-payload\",\"general\"],\"scope\":\"changed\",\"manual\":false}",
     "kinds": [
       "review"
     ],
@@ -27255,7 +27359,7 @@
     "package": "examples",
     "name": "securityAudit",
     "rule": "LlmLint",
-    "reviewPolicy": "{\"changes\":{\"_tag\":\"GitDiff\",\"base\":\"HEAD\",\"paths\":[\"examples/src/**\",\"examples/test/**\",\"examples/vitest.config.ts\",\"examples/README.md\"]},\"include\":[{\"_tag\":\"Glob\",\"pattern\":\"//examples/src/**\",\"exclude\":[]},{\"_tag\":\"Glob\",\"pattern\":\"//examples/test/**\",\"exclude\":[]},{\"_tag\":\"Glob\",\"pattern\":\"//examples/vitest.config.ts\",\"exclude\":[]},{\"_tag\":\"Glob\",\"pattern\":\"//examples/README.md\",\"exclude\":[]}],\"context\":[],\"deps\":[],\"prompt\":\"You are the security engineer for this repository, performing an authorized defensive security review commissioned by the repository owner. The owner wants weaknesses in their own code found and fixed before anyone can abuse them; this is the routine application-security review a code owner runs before a release. Read the files as an attacker would, then report each weakness precisely enough for the owner to fix it: the vulnerable location, the attacker's precondition, the impact, and the fix. Do not write exploit code for attacking live systems. Safe local regression tests using synthetic data are permitted; a trusted host can run them in an isolated checkout. This reviewer cannot attest execution; prefer one well-evidenced finding over several speculative ones.\",\"rubric\":\"Checks. Every finding names exactly one check id below.\\n\\n[control-server-auth] The example control server authenticates every HTTP and WebSocket call\\nThreat: A local process or a web page in the user's browser plans, approves, or launches flows on the example control plane.\\nFocus: examples/src/24-control-plane-and-gateway.ts, examples/src/24-project/**, examples/test/24-*.test.ts\\nLook for:\\n- The bearer credential in serve() not drawn from randomBytes(32), or reused, logged, or returned in Summary.\\n- The Host/Origin middleware running after routing or the WebSocket upgrade, or accepting a mismatched Origin.\\n- NodeHttpServer.layer bound to anything other than 127.0.0.1, or a route mounted outside ControlRpcs.layerBearerAuth.\\n\\n[scratch-fs-confinement] Agent file tools reach only the scratch root\\nThreat: A prompt-injected or scripted model cell reads or overwrites host files outside the scratch directory.\\nFocus: examples/src/25-agent-tools-in-sandbox.ts, examples/test/25-*.test.ts\\nLook for:\\n- A confinedFileSystem method that calls host.* without passing the name through resolve().\\n- resolve() accepting an absolute path, a '..' segment, a NUL byte, a symlink component, or a hard-linked file.\\n- confinedFileSystem accepting, on POSIX, a root another user owns or whose mode grants any group or other permission (mode & 0o077).\\n- Read/Write FlowBinding capabilities or effects wider than `${canonicalRoot}/**`, or a capabilityEnvelope without that resource.\\n\\n[provider-key-handling] Provider API keys come only from the environment and stay redacted\\nThreat: A user running a live smoke example leaks their OpenAI, Gemini, or other provider key into logs, argv, the journal, or a test report.\\nFocus: examples/src/12-agent-live-smoke.ts, examples/src/13-agent-live-smoke-local.ts, examples/src/14-agent-live-smoke-gemini.ts, examples/src/15-model-layer-smoke.ts, examples/test/12-*.test.ts, examples/test/13-*.test.ts, examples/test/15-*.test.ts, examples/test/fixtures/live-test-selection.ts, examples/vitest.config.ts, examples/README.md\\nLook for:\\n- An API key accepted as a positional argument, hardcoded, or read from process.env at module load.\\n- A key passed to a route or header without Redacted.make, or printed in an error or console line.\\n- A live smoke test that runs without an explicit opt-in because vitest.config.ts masks only OPENAI_API_KEY.\\n\\n[process-containment-scope] Spawned processes run with the narrowest capability and are reaped\\nThreat: A copied example grants flows unrestricted process spawn on the host or leaves orphaned process groups running after a crash.\\nFocus: examples/src/08-host-adapters.ts, examples/src/19-cancel-and-child-cleanup.ts, examples/src/22-mcp-tools.ts, examples/src/37-host-containment.ts, examples/src/37-host-containment-host.ts, examples/src/40-sandbox-placement.ts, examples/src/41-sandboxed-flow.ts, examples/src/sandboxed-child.ts\\nLook for:\\n- A Capability.Permission.Rule allowing proc:spawn with resource '*' in an engine that registers flows other than the fixed sleep/containment demos of examples 19 and 37.\\n- An MCP tool re-declared under a host grant wider than proc:spawn:mcp/<serverName>, or an MCP server command built from payload text.\\n- A child spawned with a shell string built from payload or argv values.\\n- A sandbox session root or collectDiff result applied to the host workspace without the caller deciding.\\n- A spawned child with no acquireRelease finalizer or ProcessLedger record.\\n\\n[fixture-servers-loopback] Example fixture servers bind loopback and survive malformed input\\nThreat: A host on the network reads or poisons the example action cache, or one malformed request crashes the fixture mid-run.\\nFocus: examples/src/35-remote-cache.ts, examples/src/22-mcp-server.ts, examples/src/22-mcp-tools.ts, examples/src/10-telemetry-export.ts\\nLook for:\\n- server.listen or a telemetry baseUrl bound to a non-loopback address.\\n- decodeURIComponent or JSON.parse on request input with no try/catch in a request or line handler.\\n- A PUT /ac/{key} accepted without a body size limit.\\n\\n[agent-prompt-payload] Payload text in agent prompts cannot widen the tools a cell may call\\nThreat: A flow caller injects instructions through a prompt-interpolated payload field and makes the agent call tools beyond its declared envelope.\\nFocus: examples/src/11-agent-step.ts, examples/src/25-agent-tools-in-sandbox.ts, examples/src/39-agent-policies.ts, examples/src/33-delegation-trellis.ts\\nLook for:\\n- An AgentAction prompt interpolating payload text while the host exposes flows beyond those the example needs.\\n- A scripted model that splices prompt text into cell code without JSON.stringify.\\n- Budget.layerUnbounded or QuotaPolicy.layerUnclassified used in an example that reaches a real provider.\\n\\n[general] Any other vulnerability\\nThreat: Any attacker who controls an input this code reads (a network request, a file, an environment variable, a model or tool output, a dependency) makes it act outside what its caller authorized.\\nFocus: every reviewed file\\nLook for:\\n- Injection: untrusted text reaching a shell, SQL, a template, a regex, HTML, a log line, or an eval.\\n- Authorization: an action or read that skips the ownership, tenancy, or role check its siblings perform.\\n- Secrets: credentials, tokens, or keys hardcoded, logged, returned to a client, or passed to a child process that does not need them.\\n- Path traversal: a caller-controlled path or archive entry that can escape its intended root, including via symlinks.\\n- SSRF: a caller-controlled URL, host, or redirect fetched by the server.\\n- Unsafe deserialization: untrusted bytes decoded into code, prototypes, or unchecked types.\\n- Command execution: a spawn, exec, or shell whose argv or environment an untrusted input shapes.\\n- Crypto misuse: weak or homemade primitives, predictable randomness for secrets, missing constant-time comparison, disabled TLS verification.\\n- Prompt injection: untrusted content placed in an agent prompt or tool result that can steer tool calls, approvals, or data egress.\\n- Supply chain: install scripts, unpinned downloads, or unverified artifacts executed at build or run time.\\n- Denial of service: unbounded reads, allocations, loops, recursion, retries, or regex backtracking on untrusted input.\\n- Information leaks: stack traces, internal paths, other tenants' data, or secrets in errors, logs, or responses.\\n\\nReporting rules:\\n- Include structured security fields: checkId, impact, verification, releaseRecommendation, attackerPreconditions, evidence, and nextConfirmationStep. Message describes the cause and concrete fix.\\n- Impact is low, medium, high, or critical; verification is suspected for every model finding. Only a trusted host receipt of controlled reproduction at an immutable revision can confirm a finding.\\n- Release recommendation is allow, review, or block. High and critical impact always block release, even when suspected. Severity is derived from release recommendation, never verification.\\n- file and line point at the vulnerable operation (the sink or the missing check), not an import.\\n- Report each distinct flaw once; name at most three call sites of the same flaw.\\n- Style, correctness bugs without a security consequence, and missing tests are not findings.\\n- Return the completion envelope requested by the review host, including coverage for every declared check.\",\"engine\":\"claude\",\"model\":\"claude-opus-5-5\",\"batchSize\":8,\"failOn\":\"error\",\"securityChecks\":[\"control-server-auth\",\"scratch-fs-confinement\",\"provider-key-handling\",\"process-containment-scope\",\"fixture-servers-loopback\",\"agent-prompt-payload\",\"general\"],\"scope\":\"all\",\"manual\":true}",
+    "reviewPolicy": "{\"changes\":{\"_tag\":\"GitDiff\",\"base\":\"HEAD\",\"paths\":[\"examples/src/**\",\"examples/test/**\",\"examples/vitest.config.ts\",\"examples/README.md\"]},\"include\":[{\"_tag\":\"Glob\",\"pattern\":\"//examples/src/**\",\"exclude\":[]},{\"_tag\":\"Glob\",\"pattern\":\"//examples/test/**\",\"exclude\":[]},{\"_tag\":\"Glob\",\"pattern\":\"//examples/vitest.config.ts\",\"exclude\":[]},{\"_tag\":\"Glob\",\"pattern\":\"//examples/README.md\",\"exclude\":[]}],\"context\":[],\"deps\":[],\"prompt\":\"You are the security engineer for this repository, performing an authorized defensive security review commissioned by the repository owner. The owner wants weaknesses in their own code found and fixed before anyone can abuse them; this is the routine application-security review a code owner runs before a release. Read the files as an attacker would, then report each weakness precisely enough for the owner to fix it: the vulnerable location, the attacker's precondition, the impact, and the fix. Do not write exploit code for attacking live systems. Safe local regression tests using synthetic data are permitted; a trusted host can run them in an isolated checkout. This reviewer cannot attest execution; prefer one well-evidenced finding over several speculative ones.\",\"rubric\":\"Checks. Every finding names exactly one check id below.\\n\\n[control-server-auth] The example control server authenticates every HTTP and WebSocket call\\nThreat: A local process or a web page in the user's browser plans, approves, or launches flows on the example control plane.\\nFocus: examples/src/24-control-plane-and-gateway.ts, examples/src/24-project/**, examples/test/24-*.test.ts\\nLook for:\\n- The bearer credential in serve() not drawn from randomBytes(32), or reused, logged, or returned in Summary.\\n- The Host/Origin middleware running after routing or the WebSocket upgrade, or accepting a mismatched Origin.\\n- NodeHttpServer.layer bound to anything other than 127.0.0.1, or a route mounted outside ControlRpcs.layerBearerAuth.\\n\\n[scratch-fs-confinement] Agent file tools reach only the scratch root\\nThreat: A prompt-injected or scripted model cell reads or overwrites host files outside the scratch directory.\\nFocus: examples/src/25-agent-tools-in-sandbox.ts, examples/test/25-*.test.ts\\nLook for:\\n- A confinedFileSystem method that calls host.* without passing the name through resolve().\\n- resolve() accepting an absolute path, a '..' segment, a NUL byte, a symlink component, or a hard-linked file.\\n- confinedFileSystem accepting, on POSIX, a root another user owns or whose mode grants any group or other permission (mode & 0o077).\\n- Read/Write FlowBinding capabilities or effects wider than `${canonicalRoot}/**`, or a capabilityEnvelope without that resource.\\n\\n[provider-key-handling] Provider API keys come only from the environment and stay redacted\\nThreat: A user running a live smoke example leaks their OpenAI, Gemini, or other provider key into logs, argv, the journal, or a test report.\\nFocus: examples/src/12-agent-live-smoke.ts, examples/src/13-agent-live-smoke-local.ts, examples/src/14-agent-live-smoke-gemini.ts, examples/src/15-model-layer-smoke.ts, examples/test/12-*.test.ts, examples/test/13-*.test.ts, examples/test/15-*.test.ts, examples/test/fixtures/live-test-selection.ts, examples/vitest.config.ts, examples/README.md\\nLook for:\\n- An API key accepted as a positional argument, hardcoded, or read from process.env at module load.\\n- A key passed to a route or header without Redacted.make, or printed in an error or console line.\\n- A live smoke test that runs without an explicit opt-in because vitest.config.ts masks only OPENAI_API_KEY.\\n\\n[process-containment-scope] Spawned processes run with the narrowest capability and are reaped\\nThreat: A copied example grants flows unrestricted process spawn on the host or leaves orphaned process groups running after a crash.\\nFocus: examples/src/08-host-adapters.ts, examples/src/19-cancel-and-child-cleanup.ts, examples/src/22-mcp-tools.ts, examples/src/37-host-containment.ts, examples/src/37-host-containment-host.ts, examples/src/40-sandbox-placement.ts, examples/src/41-sandboxed-flow.ts, examples/src/sandboxed-child.ts\\nLook for:\\n- A Capability.Permission.Rule allowing proc:spawn with resource '*' in an engine that registers flows other than the fixed sleep/containment demos of examples 19 and 37.\\n- An MCP tool re-declared under a host grant wider than proc:spawn:mcp/<serverName>, or an MCP server command built from payload text.\\n- A child spawned with a shell string built from payload or argv values.\\n- A sandbox session root or captureWork result applied to the host workspace without the caller deciding.\\n- A spawned child with no acquireRelease finalizer or ProcessLedger record.\\n\\n[fixture-servers-loopback] Example fixture servers bind loopback and survive malformed input\\nThreat: A host on the network reads or poisons the example action cache, or one malformed request crashes the fixture mid-run.\\nFocus: examples/src/35-remote-cache.ts, examples/src/22-mcp-server.ts, examples/src/22-mcp-tools.ts, examples/src/10-telemetry-export.ts\\nLook for:\\n- server.listen or a telemetry baseUrl bound to a non-loopback address.\\n- decodeURIComponent or JSON.parse on request input with no try/catch in a request or line handler.\\n- A PUT /ac/{key} accepted without a body size limit.\\n\\n[agent-prompt-payload] Payload text in agent prompts cannot widen the tools a cell may call\\nThreat: A flow caller injects instructions through a prompt-interpolated payload field and makes the agent call tools beyond its declared envelope.\\nFocus: examples/src/11-agent-step.ts, examples/src/25-agent-tools-in-sandbox.ts, examples/src/39-agent-policies.ts, examples/src/33-delegation-trellis.ts\\nLook for:\\n- An AgentAction prompt interpolating payload text while the host exposes flows beyond those the example needs.\\n- A scripted model that splices prompt text into cell code without JSON.stringify.\\n- Budget.layerUnbounded or QuotaPolicy.layerUnclassified used in an example that reaches a real provider.\\n\\n[general] Any other vulnerability\\nThreat: Any attacker who controls an input this code reads (a network request, a file, an environment variable, a model or tool output, a dependency) makes it act outside what its caller authorized.\\nFocus: every reviewed file\\nLook for:\\n- Injection: untrusted text reaching a shell, SQL, a template, a regex, HTML, a log line, or an eval.\\n- Authorization: an action or read that skips the ownership, tenancy, or role check its siblings perform.\\n- Secrets: credentials, tokens, or keys hardcoded, logged, returned to a client, or passed to a child process that does not need them.\\n- Path traversal: a caller-controlled path or archive entry that can escape its intended root, including via symlinks.\\n- SSRF: a caller-controlled URL, host, or redirect fetched by the server.\\n- Unsafe deserialization: untrusted bytes decoded into code, prototypes, or unchecked types.\\n- Command execution: a spawn, exec, or shell whose argv or environment an untrusted input shapes.\\n- Crypto misuse: weak or homemade primitives, predictable randomness for secrets, missing constant-time comparison, disabled TLS verification.\\n- Prompt injection: untrusted content placed in an agent prompt or tool result that can steer tool calls, approvals, or data egress.\\n- Supply chain: install scripts, unpinned downloads, or unverified artifacts executed at build or run time.\\n- Denial of service: unbounded reads, allocations, loops, recursion, retries, or regex backtracking on untrusted input.\\n- Information leaks: stack traces, internal paths, other tenants' data, or secrets in errors, logs, or responses.\\n\\nReporting rules:\\n- Include structured security fields: checkId, impact, verification, releaseRecommendation, attackerPreconditions, evidence, and nextConfirmationStep. Message describes the cause and concrete fix.\\n- Impact is low, medium, high, or critical; verification is suspected for every model finding. Only a trusted host receipt of controlled reproduction at an immutable revision can confirm a finding.\\n- Release recommendation is allow, review, or block. High and critical impact always block release, even when suspected. Severity is derived from release recommendation, never verification.\\n- file and line point at the vulnerable operation (the sink or the missing check), not an import.\\n- Report each distinct flaw once; name at most three call sites of the same flaw.\\n- Style, correctness bugs without a security consequence, and missing tests are not findings.\\n- Return the completion envelope requested by the review host, including coverage for every declared check.\",\"engine\":\"claude\",\"model\":\"claude-opus-5-5\",\"batchSize\":8,\"failOn\":\"error\",\"securityChecks\":[\"control-server-auth\",\"scratch-fs-confinement\",\"provider-key-handling\",\"process-containment-scope\",\"fixture-servers-loopback\",\"agent-prompt-payload\",\"general\"],\"scope\":\"all\",\"manual\":true}",
     "kinds": [
       "review"
     ],
@@ -28696,206 +28800,6 @@
     "dependencies": [],
     "source": {
       "file": "flows/wiki/PACKAGE.ts"
-    }
-  },
-  {
-    "label": "//flows:burndown",
-    "package": "flows",
-    "name": "burndown",
-    "rule": "NodeTest",
-    "kinds": [
-      "test"
-    ],
-    "cacheable": false,
-    "inputs": [
-      {
-        "kind": "file",
-        "path": "flows/burndown/test/acceptance-program.test.ts"
-      },
-      {
-        "kind": "file",
-        "path": "flows/burndown/test/acceptance.test.ts"
-      },
-      {
-        "kind": "file",
-        "path": "flows/burndown/test/accounts.test.ts"
-      },
-      {
-        "kind": "file",
-        "path": "flows/burndown/test/brief.test.ts"
-      },
-      {
-        "kind": "file",
-        "path": "flows/burndown/test/closed-guard.test.ts"
-      },
-      {
-        "kind": "file",
-        "path": "flows/burndown/test/cloud-export.test.ts"
-      },
-      {
-        "kind": "file",
-        "path": "flows/burndown/test/cloud-placement.test.ts"
-      },
-      {
-        "kind": "file",
-        "path": "flows/burndown/test/cloud-symlink.test.ts"
-      },
-      {
-        "kind": "file",
-        "path": "flows/burndown/test/dashboard.test.ts"
-      },
-      {
-        "kind": "file",
-        "path": "flows/burndown/test/issues.test.ts"
-      },
-      {
-        "kind": "file",
-        "path": "flows/burndown/test/land.test.ts"
-      },
-      {
-        "kind": "file",
-        "path": "flows/burndown/test/landing-receipt.test.ts"
-      },
-      {
-        "kind": "file",
-        "path": "flows/burndown/test/local-scratch.test.ts"
-      },
-      {
-        "kind": "file",
-        "path": "flows/burndown/test/pacing.test.ts"
-      },
-      {
-        "kind": "file",
-        "path": "flows/burndown/test/run-agent.test.ts"
-      },
-      {
-        "kind": "file",
-        "path": "flows/test/burndown-cloud-handoff.test.ts"
-      },
-      {
-        "kind": "file",
-        "path": "flows/test/burndown-monitor.test.ts"
-      },
-      {
-        "kind": "file",
-        "path": "flows/test/burndown-round.test.ts"
-      },
-      {
-        "kind": "file",
-        "path": "flows/test/burndown-selection.test.ts"
-      },
-      {
-        "kind": "glob",
-        "pattern": "flows/**/*.ts",
-        "exclude": []
-      },
-      {
-        "kind": "glob",
-        "pattern": "flows/**/*.mjs",
-        "exclude": []
-      },
-      {
-        "kind": "glob",
-        "pattern": "flows/coding/**/*.md",
-        "exclude": []
-      },
-      {
-        "kind": "glob",
-        "pattern": "flows/create-flow/**/flow.mdx",
-        "exclude": []
-      },
-      {
-        "kind": "file",
-        "path": "flows/issue/repro/flow.mdx"
-      },
-      {
-        "kind": "file",
-        "path": "flows/issue/poc/flow.mdx"
-      },
-      {
-        "kind": "file",
-        "path": "flows/pr-triage/flow.mdx"
-      },
-      {
-        "kind": "file",
-        "path": "flows/tsconfig.json"
-      },
-      {
-        "kind": "pnpm-workspace",
-        "path": "pnpm-workspace.yaml"
-      },
-      {
-        "kind": "file",
-        "path": "pnpm-lock.yaml"
-      },
-      {
-        "kind": "file",
-        "path": "package.json"
-      },
-      {
-        "kind": "glob",
-        "pattern": "packages/*/package.json",
-        "exclude": []
-      },
-      {
-        "kind": "glob",
-        "pattern": "packages/smithers/*/package.json",
-        "exclude": []
-      },
-      {
-        "kind": "glob",
-        "pattern": "packages/smithers/agent/*/package.json",
-        "exclude": []
-      },
-      {
-        "kind": "glob",
-        "pattern": "packages/smithers/build/*/package.json",
-        "exclude": []
-      },
-      {
-        "kind": "glob",
-        "pattern": "packages/smithers/flows/*/package.json",
-        "exclude": []
-      },
-      {
-        "kind": "glob",
-        "pattern": "packages/smithers/ui/*/package.json",
-        "exclude": []
-      },
-      {
-        "kind": "glob",
-        "pattern": "examples/package.json",
-        "exclude": []
-      },
-      {
-        "kind": "glob",
-        "pattern": "flows/package.json",
-        "exclude": []
-      },
-      {
-        "kind": "glob",
-        "pattern": "apps/*/package.json",
-        "exclude": []
-      },
-      {
-        "kind": "glob",
-        "pattern": "apps/docs/*/package.json",
-        "exclude": []
-      },
-      {
-        "kind": "glob",
-        "pattern": "evals/*/package.json",
-        "exclude": []
-      },
-      {
-        "kind": "file",
-        "path": "pnpm-workspace.yaml"
-      }
-    ],
-    "outputs": [],
-    "dependencies": [],
-    "source": {
-      "file": "flows/PACKAGE.ts"
     }
   },
   {
@@ -31008,6 +30912,102 @@
     }
   },
   {
+    "label": "//flows:issueSweep",
+    "package": "flows",
+    "name": "issueSweep",
+    "rule": "NodeTest",
+    "kinds": [
+      "test"
+    ],
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "flows/issue-sweep/test/decide.test.ts"
+      },
+      {
+        "kind": "file",
+        "path": "flows/issue-sweep/test/accounts.test.ts"
+      },
+      {
+        "kind": "file",
+        "path": "flows/issue-sweep/test/claude.test.ts"
+      },
+      {
+        "kind": "file",
+        "path": "flows/issue-sweep/test/land.test.ts"
+      },
+      {
+        "kind": "file",
+        "path": "flows/issue-sweep/test/land-jj.test.ts"
+      },
+      {
+        "kind": "file",
+        "path": "flows/issue-sweep/test/work.test.ts"
+      },
+      {
+        "kind": "file",
+        "path": "flows/issue-sweep/test/vm.test.ts"
+      },
+      {
+        "kind": "file",
+        "path": "flows/issue-sweep/test/github.test.ts"
+      },
+      {
+        "kind": "file",
+        "path": "flows/issue-sweep/test/host.test.ts"
+      },
+      {
+        "kind": "file",
+        "path": "flows/issue-sweep/test/verdict.test.ts"
+      },
+      {
+        "kind": "file",
+        "path": "flows/issue-sweep/test/land-queue.test.ts"
+      },
+      {
+        "kind": "glob",
+        "pattern": "flows/**/*.ts",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "flows/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//flows:issueSweepVm",
+    "package": "flows",
+    "name": "issueSweepVm",
+    "rule": "NodeTest",
+    "kinds": [
+      "test"
+    ],
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "flows/issue-sweep/test/vm.real.test.ts"
+      },
+      {
+        "kind": "file",
+        "path": "flows/issue-sweep/test/vm.claude.real.test.ts"
+      },
+      {
+        "kind": "glob",
+        "pattern": "flows/**/*.ts",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "flows/PACKAGE.ts"
+    }
+  },
+  {
     "label": "//flows:lint",
     "package": "flows",
     "name": "lint",
@@ -31585,6 +31585,38 @@
       {
         "kind": "glob",
         "pattern": "flows/**/*.ts",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "flows/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//flows:registrationCalibrationReal",
+    "package": "flows",
+    "name": "registrationCalibrationReal",
+    "rule": "NodeTest",
+    "kinds": [
+      "test"
+    ],
+    "exclusive": true,
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "flows/test/registration-calibration-real.test.ts"
+      },
+      {
+        "kind": "glob",
+        "pattern": "flows/**/*.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "flows/register-repository/calibration/*.json",
         "exclude": []
       }
     ],
@@ -32239,7 +32271,19 @@
       },
       {
         "kind": "file",
+        "path": "packages/repo-targets/scripts/private-effect-adapters.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/package.json"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/scripts/compile-commonjs.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/check-single-effect-version.mjs"
       },
       {
         "kind": "file",
@@ -32767,6 +32811,11 @@
         "exclude": []
       },
       {
+        "kind": "glob",
+        "pattern": "packages/rpc/contracts/*.json",
+        "exclude": []
+      },
+      {
         "kind": "file",
         "path": "packages/rpc/vitest.config.ts"
       }
@@ -32950,7 +32999,19 @@
       },
       {
         "kind": "file",
+        "path": "packages/repo-targets/scripts/private-effect-adapters.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/package.json"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/scripts/compile-commonjs.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/check-single-effect-version.mjs"
       },
       {
         "kind": "file",
@@ -33301,7 +33362,19 @@
       },
       {
         "kind": "file",
+        "path": "packages/repo-targets/scripts/private-effect-adapters.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/package.json"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/scripts/compile-commonjs.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/check-single-effect-version.mjs"
       },
       {
         "kind": "file",
@@ -33669,7 +33742,19 @@
       },
       {
         "kind": "file",
+        "path": "packages/repo-targets/scripts/private-effect-adapters.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/package.json"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/scripts/compile-commonjs.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/check-single-effect-version.mjs"
       },
       {
         "kind": "file",
@@ -33996,7 +34081,19 @@
       },
       {
         "kind": "file",
+        "path": "packages/repo-targets/scripts/private-effect-adapters.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/package.json"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/scripts/compile-commonjs.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/check-single-effect-version.mjs"
       },
       {
         "kind": "file",
@@ -34323,7 +34420,19 @@
       },
       {
         "kind": "file",
+        "path": "packages/repo-targets/scripts/private-effect-adapters.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/package.json"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/scripts/compile-commonjs.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/check-single-effect-version.mjs"
       },
       {
         "kind": "file",
@@ -34655,7 +34764,19 @@
       },
       {
         "kind": "file",
+        "path": "packages/repo-targets/scripts/private-effect-adapters.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/package.json"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/scripts/compile-commonjs.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/check-single-effect-version.mjs"
       },
       {
         "kind": "file",
@@ -34990,7 +35111,19 @@
       },
       {
         "kind": "file",
+        "path": "packages/repo-targets/scripts/private-effect-adapters.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/package.json"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/scripts/compile-commonjs.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/check-single-effect-version.mjs"
       },
       {
         "kind": "file",
@@ -35298,7 +35431,19 @@
       },
       {
         "kind": "file",
+        "path": "packages/repo-targets/scripts/private-effect-adapters.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/package.json"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/scripts/compile-commonjs.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/check-single-effect-version.mjs"
       },
       {
         "kind": "file",
@@ -35632,7 +35777,19 @@
       },
       {
         "kind": "file",
+        "path": "packages/repo-targets/scripts/private-effect-adapters.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/package.json"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/scripts/compile-commonjs.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/check-single-effect-version.mjs"
       },
       {
         "kind": "file",
@@ -35983,7 +36140,19 @@
       },
       {
         "kind": "file",
+        "path": "packages/repo-targets/scripts/private-effect-adapters.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/package.json"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/scripts/compile-commonjs.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/check-single-effect-version.mjs"
       },
       {
         "kind": "file",
@@ -36320,7 +36489,19 @@
       },
       {
         "kind": "file",
+        "path": "packages/repo-targets/scripts/private-effect-adapters.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/package.json"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/scripts/compile-commonjs.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/check-single-effect-version.mjs"
       },
       {
         "kind": "file",
@@ -36647,7 +36828,19 @@
       },
       {
         "kind": "file",
+        "path": "packages/repo-targets/scripts/private-effect-adapters.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/package.json"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/scripts/compile-commonjs.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/check-single-effect-version.mjs"
       },
       {
         "kind": "file",
@@ -36982,7 +37175,19 @@
       },
       {
         "kind": "file",
+        "path": "packages/repo-targets/scripts/private-effect-adapters.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/package.json"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/scripts/compile-commonjs.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/check-single-effect-version.mjs"
       },
       {
         "kind": "file",
@@ -37309,7 +37514,19 @@
       },
       {
         "kind": "file",
+        "path": "packages/repo-targets/scripts/private-effect-adapters.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/package.json"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/scripts/compile-commonjs.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/check-single-effect-version.mjs"
       },
       {
         "kind": "file",
@@ -37683,7 +37900,19 @@
       },
       {
         "kind": "file",
+        "path": "packages/repo-targets/scripts/private-effect-adapters.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/package.json"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/scripts/compile-commonjs.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/check-single-effect-version.mjs"
       },
       {
         "kind": "file",
@@ -38017,6 +38246,26 @@
         "kind": "glob",
         "pattern": "packages/smithers/build/build-cli/src/**/*.js",
         "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/scripts/build-library.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/scripts/private-effect-adapters.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/scripts/compile-commonjs.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/check-single-effect-version.mjs"
       },
       {
         "kind": "file",
@@ -39431,7 +39680,19 @@
       },
       {
         "kind": "file",
+        "path": "packages/repo-targets/scripts/private-effect-adapters.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/package.json"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/scripts/compile-commonjs.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/check-single-effect-version.mjs"
       },
       {
         "kind": "file",
@@ -39889,7 +40150,19 @@
       },
       {
         "kind": "file",
+        "path": "packages/repo-targets/scripts/private-effect-adapters.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/package.json"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/scripts/compile-commonjs.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/check-single-effect-version.mjs"
       },
       {
         "kind": "file",
@@ -40224,7 +40497,19 @@
       },
       {
         "kind": "file",
+        "path": "packages/repo-targets/scripts/private-effect-adapters.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/package.json"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/scripts/compile-commonjs.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/check-single-effect-version.mjs"
       },
       {
         "kind": "file",
@@ -40669,7 +40954,19 @@
       },
       {
         "kind": "file",
+        "path": "packages/repo-targets/scripts/private-effect-adapters.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/package.json"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/scripts/compile-commonjs.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/check-single-effect-version.mjs"
       },
       {
         "kind": "file",
@@ -41074,7 +41371,19 @@
       },
       {
         "kind": "file",
+        "path": "packages/repo-targets/scripts/private-effect-adapters.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/package.json"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/scripts/compile-commonjs.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/check-single-effect-version.mjs"
       },
       {
         "kind": "file",
@@ -41432,7 +41741,19 @@
       },
       {
         "kind": "file",
+        "path": "packages/repo-targets/scripts/private-effect-adapters.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/package.json"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/scripts/compile-commonjs.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/check-single-effect-version.mjs"
       },
       {
         "kind": "file",
@@ -41759,7 +42080,19 @@
       },
       {
         "kind": "file",
+        "path": "packages/repo-targets/scripts/private-effect-adapters.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/package.json"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/scripts/compile-commonjs.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/check-single-effect-version.mjs"
       },
       {
         "kind": "file",
@@ -42117,7 +42450,19 @@
       },
       {
         "kind": "file",
+        "path": "packages/repo-targets/scripts/private-effect-adapters.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/package.json"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/scripts/compile-commonjs.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/check-single-effect-version.mjs"
       },
       {
         "kind": "file",
@@ -42523,7 +42868,19 @@
       },
       {
         "kind": "file",
+        "path": "packages/repo-targets/scripts/private-effect-adapters.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/package.json"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/scripts/compile-commonjs.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/check-single-effect-version.mjs"
       },
       {
         "kind": "file",
@@ -42944,7 +43301,19 @@
       },
       {
         "kind": "file",
+        "path": "packages/repo-targets/scripts/private-effect-adapters.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/package.json"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/scripts/compile-commonjs.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/check-single-effect-version.mjs"
       },
       {
         "kind": "file",
@@ -43417,7 +43786,19 @@
       },
       {
         "kind": "file",
+        "path": "packages/repo-targets/scripts/private-effect-adapters.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/package.json"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/scripts/compile-commonjs.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/check-single-effect-version.mjs"
       },
       {
         "kind": "file",
@@ -44315,7 +44696,19 @@
       },
       {
         "kind": "file",
+        "path": "packages/repo-targets/scripts/private-effect-adapters.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/package.json"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/scripts/compile-commonjs.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/check-single-effect-version.mjs"
       },
       {
         "kind": "file",
@@ -44644,7 +45037,19 @@
       },
       {
         "kind": "file",
+        "path": "packages/repo-targets/scripts/private-effect-adapters.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/package.json"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/scripts/compile-commonjs.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/check-single-effect-version.mjs"
       },
       {
         "kind": "file",
@@ -45022,7 +45427,19 @@
       },
       {
         "kind": "file",
+        "path": "packages/repo-targets/scripts/private-effect-adapters.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/package.json"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/scripts/compile-commonjs.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/check-single-effect-version.mjs"
       },
       {
         "kind": "file",
@@ -45380,7 +45797,19 @@
       },
       {
         "kind": "file",
+        "path": "packages/repo-targets/scripts/private-effect-adapters.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/package.json"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/scripts/compile-commonjs.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/check-single-effect-version.mjs"
       },
       {
         "kind": "file",
@@ -45755,7 +46184,19 @@
       },
       {
         "kind": "file",
+        "path": "packages/repo-targets/scripts/private-effect-adapters.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/package.json"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/scripts/compile-commonjs.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/check-single-effect-version.mjs"
       },
       {
         "kind": "file",
@@ -46106,7 +46547,19 @@
       },
       {
         "kind": "file",
+        "path": "packages/repo-targets/scripts/private-effect-adapters.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/package.json"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/scripts/compile-commonjs.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/check-single-effect-version.mjs"
       },
       {
         "kind": "file",
@@ -46165,7 +46618,7 @@
     "package": "packages/smithers/flows/patterns",
     "name": "security",
     "rule": "LlmLint",
-    "reviewPolicy": "{\"changes\":{\"_tag\":\"GitDiff\",\"base\":\"origin/main\",\"paths\":[\"packages/smithers/flows/patterns/src/**\"]},\"include\":[{\"_tag\":\"Glob\",\"pattern\":\"//packages/smithers/flows/patterns/src/**\",\"exclude\":[]}],\"context\":[],\"deps\":[],\"prompt\":\"You are the security engineer for this repository, performing an authorized defensive security review commissioned by the repository owner. The owner wants weaknesses in their own code found and fixed before anyone can abuse them; this is the routine application-security review a code owner runs before a release. Read the files as an attacker would, then report each weakness precisely enough for the owner to fix it: the vulnerable location, the attacker's precondition, the impact, and the fix. Do not write exploit code for attacking live systems. Safe local regression tests using synthetic data are permitted; a trusted host can run them in an isolated checkout. This reviewer cannot attest execution; prefer one well-evidenced finding over several speculative ones.\",\"rubric\":\"Checks. Every finding names exactly one check id below.\\n\\n[approval-fails-closed] A gated step runs only after a decision that decodes as the literal \\\"approved\\\"\\nThreat: A model or approver output that is a denial, malformed, or missing lets a write, deploy, or critical runbook step run without human consent.\\nFocus: packages/smithers/flows/patterns/src/WithApproval.ts, packages/smithers/flows/patterns/src/Intervene.ts, packages/smithers/flows/patterns/src/Runbook.ts\\nLook for:\\n- A path in WithApproval, Intervene, or Runbook where apply or the inner flow is reached before or without decoding the approval output as WithApproval.Approved.\\n- Runbook.run with onDeny \\\"skip\\\" or \\\"fail\\\" treating a thrown or undefined approval result as approval, or a risky/critical step called without an approval call.\\n- Intervene with dryRun true still calling apply, or make and run disagreeing on whether apply is reachable.\\n\\n[accepted-decision-strict] Review and escalation verdicts accept only the exact approved shapes\\nThreat: A reviewer model returning prose, a truthy non-boolean, or an inherited property settles a review, delegation, or escalation that should have been rejected.\\nFocus: packages/smithers/flows/patterns/src/internal/Compose.ts, packages/smithers/flows/patterns/src/ReviewLoop.ts, packages/smithers/flows/patterns/src/DelegationChain.ts, packages/smithers/flows/patterns/src/Escalation.ts, packages/smithers/flows/patterns/src/Supervisor.ts, packages/smithers/flows/patterns/src/Loop.ts, packages/smithers/flows/patterns/src/ScanFixVerify.ts, packages/smithers/flows/patterns/src/DriftDetector.ts\\nLook for:\\n- Compose.accepted accepting anything beyond true, \\\"approved\\\", or an own approved/accepted property strictly equal to true.\\n- Escalation.defaultEscalate settling a result that reports failure through error, failed: true, or ok: false.\\n- A ReviewLoop, DelegationChain, or Escalation call site that re-implements acceptance with truthiness instead of calling Compose.accepted.\\n- A stop verdict (Supervisor allDone, Loop done, ScanFixVerify resolved, DriftDetector drifted) read with the `in` operator, which admits an inherited property, instead of Object.hasOwn plus strict equality to true.\\n\\n[decorator-envelope-no-widening] A decorated or composed flow never declares fewer capabilities or effects than the flows it calls\\nThreat: A flow author wraps a privileged flow (or adds an approval/cache member) so the composite's declared capabilities and effect envelope hide what actually runs, bypassing policy checks keyed on those declarations.\\nFocus: packages/smithers/flows/patterns/src/internal/Decorate.ts, packages/smithers/flows/patterns/src/internal/Compose.ts, packages/smithers/flows/patterns/src/WithApproval.ts, packages/smithers/flows/patterns/src/WithRetry.ts, packages/smithers/flows/patterns/src/WithCache.ts\\nLook for:\\n- Decorate or a decorator (WithApproval, WithRetry, WithCache) copying only the inner flow's capabilities while its body also calls a separately supplied flow such as the approval flow.\\n- Compose.intersectCapabilities or intersectEffects used where a union of called members is required, or an envelope_conflict check that can be skipped when the template declares none.\\n\\n[model-output-bounds] Plans, task lists, and rounds derived from model output stay within declared bounds\\nThreat: A planner or boss model returns an oversized plan, deep tree, or endless revise loop and burns another tenant's shared model budget or runner capacity.\\nFocus: packages/smithers/flows/patterns/src/Supervisor.ts, packages/smithers/flows/patterns/src/Trellis.ts, packages/smithers/flows/patterns/src/DelegationChain.ts, packages/smithers/flows/patterns/src/Recursion.ts, packages/smithers/flows/patterns/src/MapReduce.ts, packages/smithers/flows/patterns/src/Loop.ts, packages/smithers/flows/patterns/src/Optimizer.ts, packages/smithers/flows/patterns/src/ReviewLoop.ts, packages/smithers/flows/patterns/src/internal/Stalling.ts, packages/smithers/flows/patterns/src/Bounded.ts, packages/smithers/flows/patterns/src/MergeQueue.ts\\nLook for:\\n- Supervisor, Trellis, DelegationChain, Recursion, or MapReduce iterating a model-returned task or leaf list without a maxDepth, maxRounds, or width cap checked before dispatch.\\n- Supervisor.run dispatching every task the boss plan returns with no cap on the task count, so one plan multiplies worker calls by maxRounds.\\n- Trellis running a model-authored parallel node with concurrency \\\"unbounded\\\" where fuel does not bound the leaves started at once.\\n- Loop, Optimizer, ReviewLoop, or Stalling where run can exceed the round count make declares, or a bound accepting non-safe-integer or Infinity values.\\n- Bounded or MergeQueue concurrency admitting 0, negative, NaN, or unbounded widths.\\n\\n[untrusted-key-records] Records keyed by model- or input-supplied ids cannot collide with prototype or protocol keys\\nThreat: An item id, task id, or worker type such as __proto__ or constructor supplied by a model routes work to the wrong worker, overwrites another item's result, or pollutes a prototype.\\nFocus: packages/smithers/flows/patterns/src/Kanban.ts, packages/smithers/flows/patterns/src/Supervisor.ts, packages/smithers/flows/patterns/src/Panel.ts, packages/smithers/flows/patterns/src/Bounded.ts, packages/smithers/flows/patterns/src/Quarantine.ts, packages/smithers/flows/patterns/src/Sidecar.ts, packages/smithers/flows/patterns/src/CheckSuite.ts\\nLook for:\\n- A lookup like routes[task.workerType] or members[name] without Object.hasOwn, or a record built by assignment from input ids instead of Object.fromEntries or a null-prototype object.\\n- Quarantine or Sidecar outcome envelopes where a member's own value can be mistaken for the Quarantined or Succeeded protocol tag.\\n\\n[cache-key-isolation] A cached result is served only for the same inputs, version, and scope\\nThreat: A run in one repository or account receives another run's cached model or tool output because WithCache or a pattern leaves input, version, or scope out of key material.\\nFocus: packages/smithers/flows/patterns/src/WithCache.ts, packages/smithers/flows/patterns/src/DriftDetector.ts, packages/smithers/flows/patterns/src/Kanban.ts, packages/smithers/flows/patterns/src/Loop.ts, packages/smithers/flows/patterns/src/MergeQueue.ts\\nLook for:\\n- WithCache accepting a scope wider than the caller asked for, or a blank version or non-positive ttlMs.\\n- A pattern that captures caller options by reference so a later edit changes key material or bypasses validation (DriftDetector, Kanban, Loop, MergeQueue snapshots).\\n\\n[general] Any other vulnerability\\nThreat: Any attacker who controls an input this code reads (a network request, a file, an environment variable, a model or tool output, a dependency) makes it act outside what its caller authorized.\\nFocus: every reviewed file\\nLook for:\\n- Injection: untrusted text reaching a shell, SQL, a template, a regex, HTML, a log line, or an eval.\\n- Authorization: an action or read that skips the ownership, tenancy, or role check its siblings perform.\\n- Secrets: credentials, tokens, or keys hardcoded, logged, returned to a client, or passed to a child process that does not need them.\\n- Path traversal: a caller-controlled path or archive entry that can escape its intended root, including via symlinks.\\n- SSRF: a caller-controlled URL, host, or redirect fetched by the server.\\n- Unsafe deserialization: untrusted bytes decoded into code, prototypes, or unchecked types.\\n- Command execution: a spawn, exec, or shell whose argv or environment an untrusted input shapes.\\n- Crypto misuse: weak or homemade primitives, predictable randomness for secrets, missing constant-time comparison, disabled TLS verification.\\n- Prompt injection: untrusted content placed in an agent prompt or tool result that can steer tool calls, approvals, or data egress.\\n- Supply chain: install scripts, unpinned downloads, or unverified artifacts executed at build or run time.\\n- Denial of service: unbounded reads, allocations, loops, recursion, retries, or regex backtracking on untrusted input.\\n- Information leaks: stack traces, internal paths, other tenants' data, or secrets in errors, logs, or responses.\\n\\nReporting rules:\\n- Include structured security fields: checkId, impact, verification, releaseRecommendation, attackerPreconditions, evidence, and nextConfirmationStep. Message describes the cause and concrete fix.\\n- Impact is low, medium, high, or critical; verification is suspected for every model finding. Only a trusted host receipt of controlled reproduction at an immutable revision can confirm a finding.\\n- Release recommendation is allow, review, or block. High and critical impact always block release, even when suspected. Severity is derived from release recommendation, never verification.\\n- file and line point at the vulnerable operation (the sink or the missing check), not an import.\\n- Report each distinct flaw once; name at most three call sites of the same flaw.\\n- Style, correctness bugs without a security consequence, and missing tests are not findings.\\n- Return the completion envelope requested by the review host, including coverage for every declared check.\",\"engine\":\"claude\",\"model\":\"claude-opus-5-5\",\"batchSize\":4,\"failOn\":\"error\",\"securityChecks\":[\"approval-fails-closed\",\"accepted-decision-strict\",\"decorator-envelope-no-widening\",\"model-output-bounds\",\"untrusted-key-records\",\"cache-key-isolation\",\"general\"],\"scope\":\"changed\",\"manual\":false}",
+    "reviewPolicy": "{\"changes\":{\"_tag\":\"GitDiff\",\"base\":\"origin/main\",\"paths\":[\"packages/smithers/flows/patterns/src/**\"]},\"include\":[{\"_tag\":\"Glob\",\"pattern\":\"//packages/smithers/flows/patterns/src/**\",\"exclude\":[]}],\"context\":[],\"deps\":[],\"prompt\":\"You are the security engineer for this repository, performing an authorized defensive security review commissioned by the repository owner. The owner wants weaknesses in their own code found and fixed before anyone can abuse them; this is the routine application-security review a code owner runs before a release. Read the files as an attacker would, then report each weakness precisely enough for the owner to fix it: the vulnerable location, the attacker's precondition, the impact, and the fix. Do not write exploit code for attacking live systems. Safe local regression tests using synthetic data are permitted; a trusted host can run them in an isolated checkout. This reviewer cannot attest execution; prefer one well-evidenced finding over several speculative ones.\",\"rubric\":\"Checks. Every finding names exactly one check id below.\\n\\n[approval-fails-closed] A gated step runs only after a decision that decodes as the literal \\\"approved\\\"\\nThreat: A model or approver output that is a denial, malformed, or missing lets a write, deploy, or critical runbook step run without human consent.\\nFocus: packages/smithers/flows/patterns/src/WithApproval.ts, packages/smithers/flows/patterns/src/Intervene.ts, packages/smithers/flows/patterns/src/Runbook.ts\\nLook for:\\n- A path in WithApproval, Intervene, or Runbook where apply or the inner flow is reached before or without decoding the approval output as WithApproval.Approved.\\n- Runbook.run with onDeny \\\"skip\\\" or \\\"fail\\\" treating a thrown or undefined approval result as approval, or a risky/critical step called without an approval call.\\n- Intervene with dryRun true still calling apply, or make and run disagreeing on whether apply is reachable.\\n\\n[accepted-decision-strict] Review and escalation verdicts accept only the exact approved shapes\\nThreat: A reviewer model returning prose, a truthy non-boolean, or an inherited property settles a review, delegation, or escalation that should have been rejected.\\nFocus: packages/smithers/flows/patterns/src/internal/Compose.ts, packages/smithers/flows/patterns/src/ReviewLoop.ts, packages/smithers/flows/patterns/src/DelegationChain.ts, packages/smithers/flows/patterns/src/Escalation.ts, packages/smithers/flows/patterns/src/Supervisor.ts, packages/smithers/flows/patterns/src/Loop.ts, packages/smithers/flows/patterns/src/ScanFixVerify.ts, packages/smithers/flows/patterns/src/DriftDetector.ts\\nLook for:\\n- Compose.accepted accepting anything beyond true, \\\"approved\\\", or an own approved/accepted property strictly equal to true.\\n- Escalation.defaultEscalate settling a result that reports failure through error, failed: true, or ok: false.\\n- A ReviewLoop, DelegationChain, or Escalation call site that re-implements acceptance with truthiness instead of calling Compose.accepted.\\n- A stop verdict (Supervisor allDone, Loop done, ScanFixVerify resolved, DriftDetector drifted) read with the `in` operator, which admits an inherited property, instead of Object.hasOwn plus strict equality to true.\\n\\n[decorator-envelope-no-widening] A decorated or composed flow never declares fewer capabilities or effects than the flows it calls\\nThreat: A flow author wraps a privileged flow (or adds an approval/cache member) so the composite's declared capabilities and effect envelope hide what actually runs, bypassing policy checks keyed on those declarations.\\nFocus: packages/smithers/flows/patterns/src/internal/Decorate.ts, packages/smithers/flows/patterns/src/internal/Compose.ts, packages/smithers/flows/patterns/src/WithApproval.ts, packages/smithers/flows/patterns/src/WithRetry.ts, packages/smithers/flows/patterns/src/WithCache.ts\\nLook for:\\n- Decorate or a decorator (WithApproval, WithRetry, WithCache) copying only the inner flow's capabilities while its body also calls a separately supplied flow such as the approval flow.\\n- Compose.intersectCapabilities or intersectEffects used where a union of called members is required, or an envelope_conflict check that can be skipped when the template declares none.\\n\\n[model-output-bounds] Plans, task lists, and rounds derived from model output stay within declared bounds\\nThreat: A planner or boss model returns an oversized plan, deep tree, or endless revise loop and burns another tenant's shared model budget or runner capacity.\\nFocus: packages/smithers/flows/patterns/src/Supervisor.ts, packages/smithers/flows/patterns/src/Trellis.ts, packages/smithers/flows/patterns/src/DelegationChain.ts, packages/smithers/flows/patterns/src/Recursion.ts, packages/smithers/flows/patterns/src/MapReduce.ts, packages/smithers/flows/patterns/src/Loop.ts, packages/smithers/flows/patterns/src/Optimizer.ts, packages/smithers/flows/patterns/src/ReviewLoop.ts, packages/smithers/flows/patterns/src/internal/Stalling.ts, packages/smithers/flows/patterns/src/Bounded.ts, packages/smithers/flows/patterns/src/MergeQueue.ts, packages/smithers/flows/patterns/src/Burndown.ts\\nLook for:\\n- Supervisor, Trellis, DelegationChain, Recursion, or MapReduce iterating a model-returned task or leaf list without a maxDepth, maxRounds, or width cap checked before dispatch.\\n- Supervisor.run dispatching every task the boss plan returns with no cap on the task count, so one plan multiplies worker calls by maxRounds.\\n- Trellis running a model-authored parallel node with concurrency \\\"unbounded\\\" where fuel does not bound the leaves started at once.\\n- Loop, Optimizer, ReviewLoop, or Stalling where run can exceed the round count make declares, or a bound accepting non-safe-integer or Infinity values.\\n- Bounded or MergeQueue concurrency admitting 0, negative, NaN, or unbounded widths.\\n- Burndown launching more items than concurrency or capacity slots allow, or a lineage that continues past maxRounds.\\n\\n[untrusted-key-records] Records keyed by model- or input-supplied ids cannot collide with prototype or protocol keys\\nThreat: An item id, task id, or worker type such as __proto__ or constructor supplied by a model routes work to the wrong worker, overwrites another item's result, or pollutes a prototype.\\nFocus: packages/smithers/flows/patterns/src/Kanban.ts, packages/smithers/flows/patterns/src/Supervisor.ts, packages/smithers/flows/patterns/src/Panel.ts, packages/smithers/flows/patterns/src/Bounded.ts, packages/smithers/flows/patterns/src/Quarantine.ts, packages/smithers/flows/patterns/src/Sidecar.ts, packages/smithers/flows/patterns/src/CheckSuite.ts, packages/smithers/flows/patterns/src/Burndown.ts\\nLook for:\\n- A lookup like routes[task.workerType] or members[name] without Object.hasOwn, or a record built by assignment from input ids instead of Object.fromEntries or a null-prototype object.\\n- Quarantine or Sidecar outcome envelopes where a member's own value can be mistaken for the Quarantined or Succeeded protocol tag.\\n\\n[cache-key-isolation] A cached result is served only for the same inputs, version, and scope\\nThreat: A run in one repository or account receives another run's cached model or tool output because WithCache or a pattern leaves input, version, or scope out of key material.\\nFocus: packages/smithers/flows/patterns/src/WithCache.ts, packages/smithers/flows/patterns/src/DriftDetector.ts, packages/smithers/flows/patterns/src/Kanban.ts, packages/smithers/flows/patterns/src/Loop.ts, packages/smithers/flows/patterns/src/MergeQueue.ts\\nLook for:\\n- WithCache accepting a scope wider than the caller asked for, or a blank version or non-positive ttlMs.\\n- A pattern that captures caller options by reference so a later edit changes key material or bypasses validation (DriftDetector, Kanban, Loop, MergeQueue snapshots).\\n\\n[general] Any other vulnerability\\nThreat: Any attacker who controls an input this code reads (a network request, a file, an environment variable, a model or tool output, a dependency) makes it act outside what its caller authorized.\\nFocus: every reviewed file\\nLook for:\\n- Injection: untrusted text reaching a shell, SQL, a template, a regex, HTML, a log line, or an eval.\\n- Authorization: an action or read that skips the ownership, tenancy, or role check its siblings perform.\\n- Secrets: credentials, tokens, or keys hardcoded, logged, returned to a client, or passed to a child process that does not need them.\\n- Path traversal: a caller-controlled path or archive entry that can escape its intended root, including via symlinks.\\n- SSRF: a caller-controlled URL, host, or redirect fetched by the server.\\n- Unsafe deserialization: untrusted bytes decoded into code, prototypes, or unchecked types.\\n- Command execution: a spawn, exec, or shell whose argv or environment an untrusted input shapes.\\n- Crypto misuse: weak or homemade primitives, predictable randomness for secrets, missing constant-time comparison, disabled TLS verification.\\n- Prompt injection: untrusted content placed in an agent prompt or tool result that can steer tool calls, approvals, or data egress.\\n- Supply chain: install scripts, unpinned downloads, or unverified artifacts executed at build or run time.\\n- Denial of service: unbounded reads, allocations, loops, recursion, retries, or regex backtracking on untrusted input.\\n- Information leaks: stack traces, internal paths, other tenants' data, or secrets in errors, logs, or responses.\\n\\nReporting rules:\\n- Include structured security fields: checkId, impact, verification, releaseRecommendation, attackerPreconditions, evidence, and nextConfirmationStep. Message describes the cause and concrete fix.\\n- Impact is low, medium, high, or critical; verification is suspected for every model finding. Only a trusted host receipt of controlled reproduction at an immutable revision can confirm a finding.\\n- Release recommendation is allow, review, or block. High and critical impact always block release, even when suspected. Severity is derived from release recommendation, never verification.\\n- file and line point at the vulnerable operation (the sink or the missing check), not an import.\\n- Report each distinct flaw once; name at most three call sites of the same flaw.\\n- Style, correctness bugs without a security consequence, and missing tests are not findings.\\n- Return the completion envelope requested by the review host, including coverage for every declared check.\",\"engine\":\"claude\",\"model\":\"claude-opus-5-5\",\"batchSize\":4,\"failOn\":\"error\",\"securityChecks\":[\"approval-fails-closed\",\"accepted-decision-strict\",\"decorator-envelope-no-widening\",\"model-output-bounds\",\"untrusted-key-records\",\"cache-key-isolation\",\"general\"],\"scope\":\"changed\",\"manual\":false}",
     "kinds": [
       "review"
     ],
@@ -46196,7 +46649,7 @@
     "package": "packages/smithers/flows/patterns",
     "name": "securityAudit",
     "rule": "LlmLint",
-    "reviewPolicy": "{\"changes\":{\"_tag\":\"GitDiff\",\"base\":\"HEAD\",\"paths\":[\"packages/smithers/flows/patterns/src/**\"]},\"include\":[{\"_tag\":\"Glob\",\"pattern\":\"//packages/smithers/flows/patterns/src/**\",\"exclude\":[]}],\"context\":[],\"deps\":[],\"prompt\":\"You are the security engineer for this repository, performing an authorized defensive security review commissioned by the repository owner. The owner wants weaknesses in their own code found and fixed before anyone can abuse them; this is the routine application-security review a code owner runs before a release. Read the files as an attacker would, then report each weakness precisely enough for the owner to fix it: the vulnerable location, the attacker's precondition, the impact, and the fix. Do not write exploit code for attacking live systems. Safe local regression tests using synthetic data are permitted; a trusted host can run them in an isolated checkout. This reviewer cannot attest execution; prefer one well-evidenced finding over several speculative ones.\",\"rubric\":\"Checks. Every finding names exactly one check id below.\\n\\n[approval-fails-closed] A gated step runs only after a decision that decodes as the literal \\\"approved\\\"\\nThreat: A model or approver output that is a denial, malformed, or missing lets a write, deploy, or critical runbook step run without human consent.\\nFocus: packages/smithers/flows/patterns/src/WithApproval.ts, packages/smithers/flows/patterns/src/Intervene.ts, packages/smithers/flows/patterns/src/Runbook.ts\\nLook for:\\n- A path in WithApproval, Intervene, or Runbook where apply or the inner flow is reached before or without decoding the approval output as WithApproval.Approved.\\n- Runbook.run with onDeny \\\"skip\\\" or \\\"fail\\\" treating a thrown or undefined approval result as approval, or a risky/critical step called without an approval call.\\n- Intervene with dryRun true still calling apply, or make and run disagreeing on whether apply is reachable.\\n\\n[accepted-decision-strict] Review and escalation verdicts accept only the exact approved shapes\\nThreat: A reviewer model returning prose, a truthy non-boolean, or an inherited property settles a review, delegation, or escalation that should have been rejected.\\nFocus: packages/smithers/flows/patterns/src/internal/Compose.ts, packages/smithers/flows/patterns/src/ReviewLoop.ts, packages/smithers/flows/patterns/src/DelegationChain.ts, packages/smithers/flows/patterns/src/Escalation.ts, packages/smithers/flows/patterns/src/Supervisor.ts, packages/smithers/flows/patterns/src/Loop.ts, packages/smithers/flows/patterns/src/ScanFixVerify.ts, packages/smithers/flows/patterns/src/DriftDetector.ts\\nLook for:\\n- Compose.accepted accepting anything beyond true, \\\"approved\\\", or an own approved/accepted property strictly equal to true.\\n- Escalation.defaultEscalate settling a result that reports failure through error, failed: true, or ok: false.\\n- A ReviewLoop, DelegationChain, or Escalation call site that re-implements acceptance with truthiness instead of calling Compose.accepted.\\n- A stop verdict (Supervisor allDone, Loop done, ScanFixVerify resolved, DriftDetector drifted) read with the `in` operator, which admits an inherited property, instead of Object.hasOwn plus strict equality to true.\\n\\n[decorator-envelope-no-widening] A decorated or composed flow never declares fewer capabilities or effects than the flows it calls\\nThreat: A flow author wraps a privileged flow (or adds an approval/cache member) so the composite's declared capabilities and effect envelope hide what actually runs, bypassing policy checks keyed on those declarations.\\nFocus: packages/smithers/flows/patterns/src/internal/Decorate.ts, packages/smithers/flows/patterns/src/internal/Compose.ts, packages/smithers/flows/patterns/src/WithApproval.ts, packages/smithers/flows/patterns/src/WithRetry.ts, packages/smithers/flows/patterns/src/WithCache.ts\\nLook for:\\n- Decorate or a decorator (WithApproval, WithRetry, WithCache) copying only the inner flow's capabilities while its body also calls a separately supplied flow such as the approval flow.\\n- Compose.intersectCapabilities or intersectEffects used where a union of called members is required, or an envelope_conflict check that can be skipped when the template declares none.\\n\\n[model-output-bounds] Plans, task lists, and rounds derived from model output stay within declared bounds\\nThreat: A planner or boss model returns an oversized plan, deep tree, or endless revise loop and burns another tenant's shared model budget or runner capacity.\\nFocus: packages/smithers/flows/patterns/src/Supervisor.ts, packages/smithers/flows/patterns/src/Trellis.ts, packages/smithers/flows/patterns/src/DelegationChain.ts, packages/smithers/flows/patterns/src/Recursion.ts, packages/smithers/flows/patterns/src/MapReduce.ts, packages/smithers/flows/patterns/src/Loop.ts, packages/smithers/flows/patterns/src/Optimizer.ts, packages/smithers/flows/patterns/src/ReviewLoop.ts, packages/smithers/flows/patterns/src/internal/Stalling.ts, packages/smithers/flows/patterns/src/Bounded.ts, packages/smithers/flows/patterns/src/MergeQueue.ts\\nLook for:\\n- Supervisor, Trellis, DelegationChain, Recursion, or MapReduce iterating a model-returned task or leaf list without a maxDepth, maxRounds, or width cap checked before dispatch.\\n- Supervisor.run dispatching every task the boss plan returns with no cap on the task count, so one plan multiplies worker calls by maxRounds.\\n- Trellis running a model-authored parallel node with concurrency \\\"unbounded\\\" where fuel does not bound the leaves started at once.\\n- Loop, Optimizer, ReviewLoop, or Stalling where run can exceed the round count make declares, or a bound accepting non-safe-integer or Infinity values.\\n- Bounded or MergeQueue concurrency admitting 0, negative, NaN, or unbounded widths.\\n\\n[untrusted-key-records] Records keyed by model- or input-supplied ids cannot collide with prototype or protocol keys\\nThreat: An item id, task id, or worker type such as __proto__ or constructor supplied by a model routes work to the wrong worker, overwrites another item's result, or pollutes a prototype.\\nFocus: packages/smithers/flows/patterns/src/Kanban.ts, packages/smithers/flows/patterns/src/Supervisor.ts, packages/smithers/flows/patterns/src/Panel.ts, packages/smithers/flows/patterns/src/Bounded.ts, packages/smithers/flows/patterns/src/Quarantine.ts, packages/smithers/flows/patterns/src/Sidecar.ts, packages/smithers/flows/patterns/src/CheckSuite.ts\\nLook for:\\n- A lookup like routes[task.workerType] or members[name] without Object.hasOwn, or a record built by assignment from input ids instead of Object.fromEntries or a null-prototype object.\\n- Quarantine or Sidecar outcome envelopes where a member's own value can be mistaken for the Quarantined or Succeeded protocol tag.\\n\\n[cache-key-isolation] A cached result is served only for the same inputs, version, and scope\\nThreat: A run in one repository or account receives another run's cached model or tool output because WithCache or a pattern leaves input, version, or scope out of key material.\\nFocus: packages/smithers/flows/patterns/src/WithCache.ts, packages/smithers/flows/patterns/src/DriftDetector.ts, packages/smithers/flows/patterns/src/Kanban.ts, packages/smithers/flows/patterns/src/Loop.ts, packages/smithers/flows/patterns/src/MergeQueue.ts\\nLook for:\\n- WithCache accepting a scope wider than the caller asked for, or a blank version or non-positive ttlMs.\\n- A pattern that captures caller options by reference so a later edit changes key material or bypasses validation (DriftDetector, Kanban, Loop, MergeQueue snapshots).\\n\\n[general] Any other vulnerability\\nThreat: Any attacker who controls an input this code reads (a network request, a file, an environment variable, a model or tool output, a dependency) makes it act outside what its caller authorized.\\nFocus: every reviewed file\\nLook for:\\n- Injection: untrusted text reaching a shell, SQL, a template, a regex, HTML, a log line, or an eval.\\n- Authorization: an action or read that skips the ownership, tenancy, or role check its siblings perform.\\n- Secrets: credentials, tokens, or keys hardcoded, logged, returned to a client, or passed to a child process that does not need them.\\n- Path traversal: a caller-controlled path or archive entry that can escape its intended root, including via symlinks.\\n- SSRF: a caller-controlled URL, host, or redirect fetched by the server.\\n- Unsafe deserialization: untrusted bytes decoded into code, prototypes, or unchecked types.\\n- Command execution: a spawn, exec, or shell whose argv or environment an untrusted input shapes.\\n- Crypto misuse: weak or homemade primitives, predictable randomness for secrets, missing constant-time comparison, disabled TLS verification.\\n- Prompt injection: untrusted content placed in an agent prompt or tool result that can steer tool calls, approvals, or data egress.\\n- Supply chain: install scripts, unpinned downloads, or unverified artifacts executed at build or run time.\\n- Denial of service: unbounded reads, allocations, loops, recursion, retries, or regex backtracking on untrusted input.\\n- Information leaks: stack traces, internal paths, other tenants' data, or secrets in errors, logs, or responses.\\n\\nReporting rules:\\n- Include structured security fields: checkId, impact, verification, releaseRecommendation, attackerPreconditions, evidence, and nextConfirmationStep. Message describes the cause and concrete fix.\\n- Impact is low, medium, high, or critical; verification is suspected for every model finding. Only a trusted host receipt of controlled reproduction at an immutable revision can confirm a finding.\\n- Release recommendation is allow, review, or block. High and critical impact always block release, even when suspected. Severity is derived from release recommendation, never verification.\\n- file and line point at the vulnerable operation (the sink or the missing check), not an import.\\n- Report each distinct flaw once; name at most three call sites of the same flaw.\\n- Style, correctness bugs without a security consequence, and missing tests are not findings.\\n- Return the completion envelope requested by the review host, including coverage for every declared check.\",\"engine\":\"claude\",\"model\":\"claude-opus-5-5\",\"batchSize\":8,\"failOn\":\"error\",\"securityChecks\":[\"approval-fails-closed\",\"accepted-decision-strict\",\"decorator-envelope-no-widening\",\"model-output-bounds\",\"untrusted-key-records\",\"cache-key-isolation\",\"general\"],\"scope\":\"all\",\"manual\":true}",
+    "reviewPolicy": "{\"changes\":{\"_tag\":\"GitDiff\",\"base\":\"HEAD\",\"paths\":[\"packages/smithers/flows/patterns/src/**\"]},\"include\":[{\"_tag\":\"Glob\",\"pattern\":\"//packages/smithers/flows/patterns/src/**\",\"exclude\":[]}],\"context\":[],\"deps\":[],\"prompt\":\"You are the security engineer for this repository, performing an authorized defensive security review commissioned by the repository owner. The owner wants weaknesses in their own code found and fixed before anyone can abuse them; this is the routine application-security review a code owner runs before a release. Read the files as an attacker would, then report each weakness precisely enough for the owner to fix it: the vulnerable location, the attacker's precondition, the impact, and the fix. Do not write exploit code for attacking live systems. Safe local regression tests using synthetic data are permitted; a trusted host can run them in an isolated checkout. This reviewer cannot attest execution; prefer one well-evidenced finding over several speculative ones.\",\"rubric\":\"Checks. Every finding names exactly one check id below.\\n\\n[approval-fails-closed] A gated step runs only after a decision that decodes as the literal \\\"approved\\\"\\nThreat: A model or approver output that is a denial, malformed, or missing lets a write, deploy, or critical runbook step run without human consent.\\nFocus: packages/smithers/flows/patterns/src/WithApproval.ts, packages/smithers/flows/patterns/src/Intervene.ts, packages/smithers/flows/patterns/src/Runbook.ts\\nLook for:\\n- A path in WithApproval, Intervene, or Runbook where apply or the inner flow is reached before or without decoding the approval output as WithApproval.Approved.\\n- Runbook.run with onDeny \\\"skip\\\" or \\\"fail\\\" treating a thrown or undefined approval result as approval, or a risky/critical step called without an approval call.\\n- Intervene with dryRun true still calling apply, or make and run disagreeing on whether apply is reachable.\\n\\n[accepted-decision-strict] Review and escalation verdicts accept only the exact approved shapes\\nThreat: A reviewer model returning prose, a truthy non-boolean, or an inherited property settles a review, delegation, or escalation that should have been rejected.\\nFocus: packages/smithers/flows/patterns/src/internal/Compose.ts, packages/smithers/flows/patterns/src/ReviewLoop.ts, packages/smithers/flows/patterns/src/DelegationChain.ts, packages/smithers/flows/patterns/src/Escalation.ts, packages/smithers/flows/patterns/src/Supervisor.ts, packages/smithers/flows/patterns/src/Loop.ts, packages/smithers/flows/patterns/src/ScanFixVerify.ts, packages/smithers/flows/patterns/src/DriftDetector.ts\\nLook for:\\n- Compose.accepted accepting anything beyond true, \\\"approved\\\", or an own approved/accepted property strictly equal to true.\\n- Escalation.defaultEscalate settling a result that reports failure through error, failed: true, or ok: false.\\n- A ReviewLoop, DelegationChain, or Escalation call site that re-implements acceptance with truthiness instead of calling Compose.accepted.\\n- A stop verdict (Supervisor allDone, Loop done, ScanFixVerify resolved, DriftDetector drifted) read with the `in` operator, which admits an inherited property, instead of Object.hasOwn plus strict equality to true.\\n\\n[decorator-envelope-no-widening] A decorated or composed flow never declares fewer capabilities or effects than the flows it calls\\nThreat: A flow author wraps a privileged flow (or adds an approval/cache member) so the composite's declared capabilities and effect envelope hide what actually runs, bypassing policy checks keyed on those declarations.\\nFocus: packages/smithers/flows/patterns/src/internal/Decorate.ts, packages/smithers/flows/patterns/src/internal/Compose.ts, packages/smithers/flows/patterns/src/WithApproval.ts, packages/smithers/flows/patterns/src/WithRetry.ts, packages/smithers/flows/patterns/src/WithCache.ts\\nLook for:\\n- Decorate or a decorator (WithApproval, WithRetry, WithCache) copying only the inner flow's capabilities while its body also calls a separately supplied flow such as the approval flow.\\n- Compose.intersectCapabilities or intersectEffects used where a union of called members is required, or an envelope_conflict check that can be skipped when the template declares none.\\n\\n[model-output-bounds] Plans, task lists, and rounds derived from model output stay within declared bounds\\nThreat: A planner or boss model returns an oversized plan, deep tree, or endless revise loop and burns another tenant's shared model budget or runner capacity.\\nFocus: packages/smithers/flows/patterns/src/Supervisor.ts, packages/smithers/flows/patterns/src/Trellis.ts, packages/smithers/flows/patterns/src/DelegationChain.ts, packages/smithers/flows/patterns/src/Recursion.ts, packages/smithers/flows/patterns/src/MapReduce.ts, packages/smithers/flows/patterns/src/Loop.ts, packages/smithers/flows/patterns/src/Optimizer.ts, packages/smithers/flows/patterns/src/ReviewLoop.ts, packages/smithers/flows/patterns/src/internal/Stalling.ts, packages/smithers/flows/patterns/src/Bounded.ts, packages/smithers/flows/patterns/src/MergeQueue.ts, packages/smithers/flows/patterns/src/Burndown.ts\\nLook for:\\n- Supervisor, Trellis, DelegationChain, Recursion, or MapReduce iterating a model-returned task or leaf list without a maxDepth, maxRounds, or width cap checked before dispatch.\\n- Supervisor.run dispatching every task the boss plan returns with no cap on the task count, so one plan multiplies worker calls by maxRounds.\\n- Trellis running a model-authored parallel node with concurrency \\\"unbounded\\\" where fuel does not bound the leaves started at once.\\n- Loop, Optimizer, ReviewLoop, or Stalling where run can exceed the round count make declares, or a bound accepting non-safe-integer or Infinity values.\\n- Bounded or MergeQueue concurrency admitting 0, negative, NaN, or unbounded widths.\\n- Burndown launching more items than concurrency or capacity slots allow, or a lineage that continues past maxRounds.\\n\\n[untrusted-key-records] Records keyed by model- or input-supplied ids cannot collide with prototype or protocol keys\\nThreat: An item id, task id, or worker type such as __proto__ or constructor supplied by a model routes work to the wrong worker, overwrites another item's result, or pollutes a prototype.\\nFocus: packages/smithers/flows/patterns/src/Kanban.ts, packages/smithers/flows/patterns/src/Supervisor.ts, packages/smithers/flows/patterns/src/Panel.ts, packages/smithers/flows/patterns/src/Bounded.ts, packages/smithers/flows/patterns/src/Quarantine.ts, packages/smithers/flows/patterns/src/Sidecar.ts, packages/smithers/flows/patterns/src/CheckSuite.ts, packages/smithers/flows/patterns/src/Burndown.ts\\nLook for:\\n- A lookup like routes[task.workerType] or members[name] without Object.hasOwn, or a record built by assignment from input ids instead of Object.fromEntries or a null-prototype object.\\n- Quarantine or Sidecar outcome envelopes where a member's own value can be mistaken for the Quarantined or Succeeded protocol tag.\\n\\n[cache-key-isolation] A cached result is served only for the same inputs, version, and scope\\nThreat: A run in one repository or account receives another run's cached model or tool output because WithCache or a pattern leaves input, version, or scope out of key material.\\nFocus: packages/smithers/flows/patterns/src/WithCache.ts, packages/smithers/flows/patterns/src/DriftDetector.ts, packages/smithers/flows/patterns/src/Kanban.ts, packages/smithers/flows/patterns/src/Loop.ts, packages/smithers/flows/patterns/src/MergeQueue.ts\\nLook for:\\n- WithCache accepting a scope wider than the caller asked for, or a blank version or non-positive ttlMs.\\n- A pattern that captures caller options by reference so a later edit changes key material or bypasses validation (DriftDetector, Kanban, Loop, MergeQueue snapshots).\\n\\n[general] Any other vulnerability\\nThreat: Any attacker who controls an input this code reads (a network request, a file, an environment variable, a model or tool output, a dependency) makes it act outside what its caller authorized.\\nFocus: every reviewed file\\nLook for:\\n- Injection: untrusted text reaching a shell, SQL, a template, a regex, HTML, a log line, or an eval.\\n- Authorization: an action or read that skips the ownership, tenancy, or role check its siblings perform.\\n- Secrets: credentials, tokens, or keys hardcoded, logged, returned to a client, or passed to a child process that does not need them.\\n- Path traversal: a caller-controlled path or archive entry that can escape its intended root, including via symlinks.\\n- SSRF: a caller-controlled URL, host, or redirect fetched by the server.\\n- Unsafe deserialization: untrusted bytes decoded into code, prototypes, or unchecked types.\\n- Command execution: a spawn, exec, or shell whose argv or environment an untrusted input shapes.\\n- Crypto misuse: weak or homemade primitives, predictable randomness for secrets, missing constant-time comparison, disabled TLS verification.\\n- Prompt injection: untrusted content placed in an agent prompt or tool result that can steer tool calls, approvals, or data egress.\\n- Supply chain: install scripts, unpinned downloads, or unverified artifacts executed at build or run time.\\n- Denial of service: unbounded reads, allocations, loops, recursion, retries, or regex backtracking on untrusted input.\\n- Information leaks: stack traces, internal paths, other tenants' data, or secrets in errors, logs, or responses.\\n\\nReporting rules:\\n- Include structured security fields: checkId, impact, verification, releaseRecommendation, attackerPreconditions, evidence, and nextConfirmationStep. Message describes the cause and concrete fix.\\n- Impact is low, medium, high, or critical; verification is suspected for every model finding. Only a trusted host receipt of controlled reproduction at an immutable revision can confirm a finding.\\n- Release recommendation is allow, review, or block. High and critical impact always block release, even when suspected. Severity is derived from release recommendation, never verification.\\n- file and line point at the vulnerable operation (the sink or the missing check), not an import.\\n- Report each distinct flaw once; name at most three call sites of the same flaw.\\n- Style, correctness bugs without a security consequence, and missing tests are not findings.\\n- Return the completion envelope requested by the review host, including coverage for every declared check.\",\"engine\":\"claude\",\"model\":\"claude-opus-5-5\",\"batchSize\":8,\"failOn\":\"error\",\"securityChecks\":[\"approval-fails-closed\",\"accepted-decision-strict\",\"decorator-envelope-no-widening\",\"model-output-bounds\",\"untrusted-key-records\",\"cache-key-isolation\",\"general\"],\"scope\":\"all\",\"manual\":true}",
     "kinds": [
       "review"
     ],
@@ -46433,7 +46886,19 @@
       },
       {
         "kind": "file",
+        "path": "packages/repo-targets/scripts/private-effect-adapters.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/package.json"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/scripts/compile-commonjs.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/check-single-effect-version.mjs"
       },
       {
         "kind": "file",
@@ -46768,7 +47233,19 @@
       },
       {
         "kind": "file",
+        "path": "packages/repo-targets/scripts/private-effect-adapters.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/package.json"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/scripts/compile-commonjs.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/check-single-effect-version.mjs"
       },
       {
         "kind": "file",
@@ -47126,7 +47603,19 @@
       },
       {
         "kind": "file",
+        "path": "packages/repo-targets/scripts/private-effect-adapters.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/package.json"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/scripts/compile-commonjs.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/check-single-effect-version.mjs"
       },
       {
         "kind": "file",
@@ -47488,7 +47977,19 @@
       },
       {
         "kind": "file",
+        "path": "packages/repo-targets/scripts/private-effect-adapters.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/package.json"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/scripts/compile-commonjs.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/check-single-effect-version.mjs"
       },
       {
         "kind": "file",
@@ -47851,7 +48352,19 @@
       },
       {
         "kind": "file",
+        "path": "packages/repo-targets/scripts/private-effect-adapters.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/package.json"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/scripts/compile-commonjs.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/check-single-effect-version.mjs"
       },
       {
         "kind": "file",
@@ -48178,7 +48691,19 @@
       },
       {
         "kind": "file",
+        "path": "packages/repo-targets/scripts/private-effect-adapters.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/package.json"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/scripts/compile-commonjs.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/check-single-effect-version.mjs"
       },
       {
         "kind": "file",
@@ -48575,7 +49100,19 @@
       },
       {
         "kind": "file",
+        "path": "packages/repo-targets/scripts/private-effect-adapters.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/package.json"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/scripts/compile-commonjs.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/check-single-effect-version.mjs"
       },
       {
         "kind": "file",
@@ -49122,7 +49659,19 @@
       },
       {
         "kind": "file",
+        "path": "packages/repo-targets/scripts/private-effect-adapters.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/package.json"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/scripts/compile-commonjs.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/check-single-effect-version.mjs"
       },
       {
         "kind": "file",
@@ -49512,7 +50061,19 @@
       },
       {
         "kind": "file",
+        "path": "packages/repo-targets/scripts/private-effect-adapters.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/package.json"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/scripts/compile-commonjs.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/check-single-effect-version.mjs"
       },
       {
         "kind": "file",
@@ -49839,7 +50400,19 @@
       },
       {
         "kind": "file",
+        "path": "packages/repo-targets/scripts/private-effect-adapters.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/package.json"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/scripts/compile-commonjs.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/check-single-effect-version.mjs"
       },
       {
         "kind": "file",
@@ -50205,7 +50778,19 @@
       },
       {
         "kind": "file",
+        "path": "packages/repo-targets/scripts/private-effect-adapters.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/package.json"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/scripts/compile-commonjs.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/check-single-effect-version.mjs"
       },
       {
         "kind": "file",
@@ -50556,7 +51141,19 @@
       },
       {
         "kind": "file",
+        "path": "packages/repo-targets/scripts/private-effect-adapters.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/package.json"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/scripts/compile-commonjs.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/check-single-effect-version.mjs"
       },
       {
         "kind": "file",
@@ -51115,7 +51712,19 @@
       },
       {
         "kind": "file",
+        "path": "packages/repo-targets/scripts/private-effect-adapters.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/package.json"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/scripts/compile-commonjs.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/check-single-effect-version.mjs"
       },
       {
         "kind": "file",
@@ -51466,7 +52075,19 @@
       },
       {
         "kind": "file",
+        "path": "packages/repo-targets/scripts/private-effect-adapters.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/package.json"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/scripts/compile-commonjs.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/check-single-effect-version.mjs"
       },
       {
         "kind": "file",
@@ -51793,7 +52414,19 @@
       },
       {
         "kind": "file",
+        "path": "packages/repo-targets/scripts/private-effect-adapters.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/package.json"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/scripts/compile-commonjs.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/check-single-effect-version.mjs"
       },
       {
         "kind": "file",
@@ -52685,7 +53318,19 @@
       },
       {
         "kind": "file",
+        "path": "packages/repo-targets/scripts/private-effect-adapters.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/package.json"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/scripts/compile-commonjs.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/check-single-effect-version.mjs"
       },
       {
         "kind": "glob",
@@ -53094,7 +53739,19 @@
       },
       {
         "kind": "file",
+        "path": "packages/repo-targets/scripts/private-effect-adapters.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/package.json"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/scripts/compile-commonjs.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/check-single-effect-version.mjs"
       },
       {
         "kind": "file",
@@ -53457,7 +54114,19 @@
       },
       {
         "kind": "file",
+        "path": "packages/repo-targets/scripts/private-effect-adapters.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/package.json"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/scripts/compile-commonjs.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/check-single-effect-version.mjs"
       },
       {
         "kind": "file",
@@ -54221,6 +54890,66 @@
         "kind": "glob",
         "pattern": "scripts/fixtures/**/*.json",
         "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/scripts/build-library.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/scripts/private-effect-adapters.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/scripts/compile-commonjs.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/build/build-cli/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/migrate/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/flows/platform-node/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/flows/platform-bun/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/gateway/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/flows/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/create-app/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "package.json"
+      },
+      {
+        "kind": "file",
+        "path": "pnpm-lock.yaml"
+      },
+      {
+        "kind": "file",
+        "path": "pnpm-workspace.yaml"
       }
     ],
     "outputs": [],
@@ -54693,7 +55422,7 @@
     "kinds": [
       "test"
     ],
-    "summary": "Agents claim an issue before work and release it after, through one machine-wide GitHub write throttle; a live claim blocks others and a stale one can be taken over.",
+    "summary": "Agents claim an issue before work and release it after, through the machine's GitHub proxy; a live claim blocks others and a stale one can be taken over.",
     "cacheable": false,
     "inputs": [
       {
@@ -54702,7 +55431,28 @@
       },
       {
         "kind": "file",
+        "path": "scripts/github-proxy.test.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/github-app-auth.test.mjs"
+      },
+      {
+        "kind": "file",
         "path": "scripts/issue-claim.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/github-proxy.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/github-app-auth.mjs"
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/agent/integrations/src/**/*.ts",
+        "exclude": []
       }
     ],
     "outputs": [],
@@ -55193,6 +55943,142 @@
       {
         "kind": "file",
         "path": ".github/workflows/release.yml"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:privateEffectAdapters",
+    "package": "scripts",
+    "name": "privateEffectAdapters",
+    "rule": "NodeTest",
+    "kinds": [
+      "test"
+    ],
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "scripts/private-effect-adapters.test.mjs"
+      },
+      {
+        "kind": "glob",
+        "pattern": "scripts/**/*.mjs",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "scripts/**/*.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "scripts/fixtures/**/*.json",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/scripts/private-effect-adapters.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/scripts/build-library.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/scripts/compile-commonjs.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/build/build-cli/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/migrate/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/flows/platform-node/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/flows/platform-bun/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/gateway/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/flows/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/create-app/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "package.json"
+      },
+      {
+        "kind": "file",
+        "path": "pnpm-lock.yaml"
+      },
+      {
+        "kind": "file",
+        "path": "pnpm-workspace.yaml"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:providerLiveGuards",
+    "package": "scripts",
+    "name": "providerLiveGuards",
+    "rule": "NodeTest",
+    "kinds": [
+      "test"
+    ],
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "scripts/ci/provider-live.test.mjs"
+      },
+      {
+        "kind": "glob",
+        "pattern": "scripts/**/*.mjs",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "scripts/**/*.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "scripts/fixtures/**/*.json",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "scripts/ci/provider-live.sh"
       }
     ],
     "outputs": [],

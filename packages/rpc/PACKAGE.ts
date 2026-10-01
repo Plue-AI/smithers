@@ -24,6 +24,9 @@ const failureCodes = [
   Smithers.glob("//packages/rpc/scripts/*.mjs")
 ]
 
+/** Frozen released-client input contracts read by the compatibility suite. */
+const releasedContracts = Smithers.glob("//packages/rpc/contracts/*.json")
+
 /**
  * Checks the contract against its own tsconfig.
  *
@@ -47,7 +50,7 @@ const check = Smithers.Typecheck({
  */
 const unitTests = Smithers.Vitest({
   tests: [Smithers.glob("test/**/*.test.ts")],
-  sources: [sources, ...failureCodes],
+  sources: [sources, ...failureCodes, releasedContracts],
   deps: [],
   config: Smithers.file("vitest.config.ts"),
   environment: "node",

@@ -172,8 +172,8 @@ export async function rollout(host: RolloutHost): Promise<RolloutReceipt> {
   await record("prepared")
   try {
     await host.beforePublish?.()
-  } catch {
-    receipt.failedChecks = ["deployment-changed"]
+  } catch (error) {
+    receipt.failedChecks = [error instanceof PublicationRefusal ? error.check : "deployment-changed"]
     await record("refused")
     return receipt
   }
@@ -192,4 +192,14 @@ export async function rollout(host: RolloutHost): Promise<RolloutReceipt> {
     receipt.failedChecks.push(receipt.candidate?.version && receipt.candidate.revision ? "receipt" : "publish")
   }
   return restoreBaseline(host, receipt, previous)
+}
+
+/**
+ * A prepublication gate can name its refusal in the durable receipt.
+ *
+ * @since 0.1.0
+ * @category errors
+ */
+export class PublicationRefusal extends Error {
+  constructor(readonly check: string) { super(check) }
 }

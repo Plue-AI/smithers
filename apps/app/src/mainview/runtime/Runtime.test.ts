@@ -64,6 +64,21 @@ describe("runtime composition", () => {
     expect(seen).toEqual([APP_BOOTSTRAP_PATH])
     expect(loaded).toEqual(cloud)
   })
+
+  test("a newer backend's workspace capabilities still boot the app and compose known ports", async () => {
+    const bootstrap = await loadBootstrap(async () => Response.json({
+      ...cloud, capabilities: ["workspace", "agent", "workspace.runtime", "identity", "workspace.deploy", "cloud"]
+    }))
+    const runtime = createRuntime({ bootstrap, http: async () => new Response(null, { status: 204 }) })
+    expect(bootstrap.capabilities).toEqual(cloud.capabilities)
+    expect(runtime.backend.agent?.available).toBe(true)
+    expect(runtime.shell.kind).toBe("browser")
+  })
+
+  test.each([null, 1, false, {}, []].map(row => [row]))("a malformed capability row %j remains an invalid bootstrap", async row => {
+    await expect(loadBootstrap(async () => Response.json({ ...cloud, capabilities: ["agent", row] })))
+      .rejects.toMatchObject({ _tag: "BootstrapFailure", kind: "invalid" })
+  })
 })
 
 for (const [label, response, kind] of [
