@@ -96,6 +96,13 @@ func createWorkspaceSandbox(ctx context.Context, client workspaceCreator, req sa
 	if err != nil {
 		return vm, err
 	}
+	// ctx carries the create's idempotency key (sandboxProvisionContext). The
+	// controller records a key with the digest of its first operation, so an
+	// artifact write or exec sent under the same key is refused 409
+	// idempotency_conflict and the new guest is reaped. Each follow-up
+	// mutation takes its own key instead; the provider keeps one key across
+	// that request's own retries.
+	ctx = sandbox.WithIdempotencyKey(ctx, "")
 	if err := finishWorkspaceArtifacts(ctx, client, vm.ID, req.Files[workspaceClaudeScriptPath].Content); err != nil {
 		return vm, err
 	}

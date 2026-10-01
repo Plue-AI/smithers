@@ -51,6 +51,10 @@ type WorkspaceSessionMetricsRecorder interface {
 // part of the key so an intentional fallback with a different request body
 // (for example golden snapshot -> bare image) does not conflict with the first
 // operation, while retries of either attempt converge on one provider ID.
+// The key names the create or fork request alone: the controller refuses any
+// other mutation sent under it (409 idempotency_conflict), so follow-up calls
+// on the new sandbox, such as createWorkspaceSandbox's artifact writes and
+// execs, must not reuse the returned context's key.
 func sandboxProvisionContext(ctx context.Context, action, resourceKind, resourceID, attempt string) context.Context {
 	payload := strings.Join([]string{action, resourceKind, resourceID, attempt}, "\x00")
 	digest := sha256.Sum256([]byte(payload))
