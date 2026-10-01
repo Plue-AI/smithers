@@ -1,0 +1,205 @@
+{
+  "issue": 3184,
+  "candidate": "be30bf194f60d78b1d2999986638e02aa4b8b94f",
+  "node": "v26.5.0",
+  "qualificationManifestSha256": "57bd153e696b18af07135ebff653877f41373b4e99ea61886bfc30527985cee8",
+  "validationArchive": {
+    "file": "3093-3184-final-validation.tar.gz",
+    "sha256": "49ff26e6c9f9799aad9ff80fe8b2369e56f7ae156e094bd486d01a626f7fef37",
+    "bytes": 3995477
+  },
+  "completeBuilds": 50,
+  "actualPacks": 50,
+  "mandatoryCliClosureOwners": 46,
+  "canonicalAndCompleteBuildSurfaceMatches": 50,
+  "sourceInputsUnchangedDuringQualification": true,
+  "sourceDependentProcessesComplete": true,
+  "freshConsumers": {
+    "npm": {
+      "exit": 0,
+      "soleDependency": {
+        "@smthrs/cli": "1.0.0-rc.1"
+      },
+      "packages": 355,
+      "physicalEffectCopies": 1,
+      "effectFamilyVersions": [
+        "4.0.0-rc.115"
+      ],
+      "absentExternalAdapters": [
+        "@effect/platform-node",
+        "@effect/platform-node-shared",
+        "@effect/platform-bun"
+      ],
+      "mcpServerInfo": {
+        "name": "smthrs",
+        "version": "1.0.0-rc.1"
+      },
+      "strictTypedModes": [
+        "ESM",
+        "CJS",
+        "Node20",
+        "NodeNext"
+      ],
+      "skipLibCheck": false,
+      "nodeAmbientTypesVersion": "26.6.3"
+    },
+    "pnpm": {
+      "exit": 0,
+      "soleDependency": {
+        "@smthrs/cli": "1.0.0-rc.1"
+      },
+      "packages": 352,
+      "physicalEffectCopies": 1,
+      "effectFamilyVersions": [
+        "4.0.0-rc.115"
+      ],
+      "absentExternalAdapters": [
+        "@effect/platform-node",
+        "@effect/platform-node-shared",
+        "@effect/platform-bun"
+      ],
+      "mcpServerInfo": {
+        "name": "smthrs",
+        "version": "1.0.0-rc.1"
+      },
+      "strictTypedModes": [
+        "ESM",
+        "CJS",
+        "Node20",
+        "NodeNext"
+      ],
+      "skipLibCheck": false,
+      "nodeAmbientTypesVersion": "26.6.3"
+    }
+  },
+  "privateAdapterAudit": {
+    "declarations": 848,
+    "owners": 8,
+    "pinnedInputsRehashed": 1658,
+    "cjsNamespaceOnlyExceptions": 8,
+    "sha256": "9649aece8e073e9e178d660831ceed357c1a0f5739a4d0879f604d02eea6dc1b"
+  },
+  "limits": [
+    "No all-platform native/helper #3171 qualification or releaseSmoke-wide green claim",
+    "Historical fixed Node16 module mode previously red; product runtime floor is Node>=26.4, modern Node20/NodeNext compiler modes qualified",
+    "Canonical50 declaration-only proof is separate from actual50 fullJS/CJS pack qualification",
+    "Unit producer coverage configs and owning tests are earlier captured prerequisites; no new full-package coverage claim from this release cohort",
+    "Third-party fresh dependencies resolved by published contracts with no consumer pins/overrides; actual Node ambient root came through installed CLI @types/ws -> @types/node"
+  ],
+  "outcome": "Explicitly admitted the reviewed actual emitted public API; unchanged owning-compiler gate matches all50 packages.",
+  "declarations": 2418,
+  "privateDeclarations": 848,
+  "conditionalMappings": 1143,
+  "changedDeclarationEntries": 1057,
+  "baselineChecks": {
+    "candidate": "be30bf194f60d78b1d2999986638e02aa4b8b94f",
+    "beforeSha256": "c4749827f97a70149476ea38a99ae931fdd4cce18b8ca2ab01a992f0b87e8112",
+    "afterSha256": "0a4b0a7f7a806abd12fb45044a7e438bbb3b7de35f10d8baea879965daf0a722",
+    "results": [
+      {
+        "name": "baseline-update",
+        "argv": [
+          "node",
+          "scripts/check-api-baseline.mjs",
+          "--build-declarations",
+          "--update"
+        ],
+        "exit": 0,
+        "seconds": 86.27,
+        "log": "baseline-update.log",
+        "sha256": "7afdab68076373456baf85c5ac1dc876583717eea7e5123f06fcb3516a8bc824"
+      },
+      {
+        "name": "baseline-check",
+        "argv": [
+          "node",
+          "scripts/check-api-baseline.mjs",
+          "--build-declarations"
+        ],
+        "exit": 0,
+        "seconds": 86.446,
+        "log": "baseline-check.log",
+        "sha256": "56324608e119b18531d44f055873ca2f068ffb218d23fd033c8ae75a17a5f9e2"
+      }
+    ]
+  },
+  "admissionArchive": {
+    "file": "3184-admission-validation.tar.gz",
+    "sha256": "06a6e6f4272b6d2d7003540ee9fa8d380c074e80743b64b9ecb1aec406c3d964"
+  },
+  "releaseNotes": {
+    "file": "3184-release-compatibility.md",
+    "sha256": "14b0831a071d2f894c720a9b519117fdcd82c3355f240ccf7193547bfa126d71"
+  },
+  "rootFinalAdmissionSha256": "9d8715d9ccad5b184c8a0e8c83e14940afce57acf0b9bcb84f8bfb0cce0ce509",
+  "currentAdmission": {
+    "candidate": "8820709eb8d8ef81c21d1c1c31f02a9348edaa68",
+    "baselineChecks": {
+      "candidate": "8820709eb8d8ef81c21d1c1c31f02a9348edaa68",
+      "beforeSha256": "0a4b0a7f7a806abd12fb45044a7e438bbb3b7de35f10d8baea879965daf0a722",
+      "afterSha256": "ebc3f362b935d193c072b03590cd18311b58f4b35ea0dffc87514690df0b0d5f",
+      "results": [
+        {
+          "name": "baseline-update",
+          "argv": [
+            "node",
+            "scripts/check-api-baseline.mjs",
+            "--build-declarations",
+            "--update"
+          ],
+          "exit": 0,
+          "seconds": 84.962,
+          "log": "baseline-update.log",
+          "sha256": "7afdab68076373456baf85c5ac1dc876583717eea7e5123f06fcb3516a8bc824"
+        },
+        {
+          "name": "baseline-check",
+          "argv": [
+            "node",
+            "scripts/check-api-baseline.mjs",
+            "--build-declarations"
+          ],
+          "exit": 0,
+          "seconds": 90.223,
+          "log": "baseline-check.log",
+          "sha256": "56324608e119b18531d44f055873ca2f068ffb218d23fd033c8ae75a17a5f9e2"
+        }
+      ]
+    },
+    "changedPublicDeclarations": 2,
+    "unchangedOtherPublicPackageSurfaces": 48,
+    "privateDeclarationsUnchanged": 848,
+    "focusedTests": 79,
+    "strictPublicSourceConsumerExit": 0,
+    "archive": {
+      "file": "3184-incoming-validation.tar.gz",
+      "sha256": "3790c6fe46ffb4a5efe3e976260954d34c32cbc8f65c77ca68a185bb87b68eda",
+      "bytes": 862376
+    },
+    "sourceInputsPreservedExceptReviewedBaseline": true,
+    "qualificationManifestSha256": "2d9ddd2c6b978192381c721aa01d396d445854be3f4e63ae4fc1ca79b9d9e6d5"
+  },
+  "lastPrivateIncoming": {
+    "before": "7a33e656d485d67107ca8a489d079f3f4dc38b78",
+    "originMain": "334f0909bd822759879991a3695f3668f086760e",
+    "after": "b6408d5c78fb4c74b9f0fe875d1d78bc2bdc39c8",
+    "ownedHashesPreserved": true,
+    "incomingPrivatePaths": [
+      "flows/issue-sweep/test/work.test.ts",
+      "flows/issue-sweep/work/flow.ts"
+    ],
+    "publicPackageDeclarationInputsUnchanged": true,
+    "focusedArgv": [
+      "node",
+      "--test",
+      "flows/issue-sweep/test/work.test.ts"
+    ],
+    "exit": 0,
+    "seconds": 0.396,
+    "logSha256": "78064868a59d929736723d9b0c46efb27db20b94891c0fad1d145efbf1656b38",
+    "archive": {
+      "file": "3184-last-incoming-validation.tar.gz",
+      "sha256": "6cfc77ebdeba3d99242c1ac16e0f624a2b6a4364eb7cbff5742f6b7b2927ca33"
+    }
+  }
+}
