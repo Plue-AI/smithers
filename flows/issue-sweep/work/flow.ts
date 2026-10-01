@@ -50,6 +50,18 @@ export class AgentFailed extends Schema.TaggedError<AgentFailed>()("issue-sweep/
 }) {}
 
 /**
+ * The agent finished and edited nothing. `report` is its whole reply, which
+ * says why; the sweep records it on the issue unless our own infrastructure
+ * caused it.
+ */
+export class NoChange extends Schema.TaggedError<NoChange>()("issue-sweep/NoChange", {
+  message: Schema.String,
+  account: Schema.String,
+  session: Schema.String,
+  report: Schema.String
+}) {}
+
+/**
  * This machine could not prepare a workspace: jj or the dependency install
  * failed before any agent ran. It says nothing about the issue, and every
  * other issue would fail the same way, so the sweep stops on it instead of
@@ -101,7 +113,7 @@ export const RemoteFix = Action.make("issue-sweep/remote-fix", {
     placement: Schema.Literals(["vm", "cloud"])
   }),
   success: Remoted,
-  error: AgentFailed,
+  error: Schema.Union([AgentFailed, NoChange]),
   nondeterministic: true
 })
 
@@ -131,7 +143,7 @@ export const Adopt = Action.make("issue-sweep/adopt", {
     attempt: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1)))
   }),
   success: Report,
-  error: Schema.Union([AgentFailed, WorkspaceFailed, AdoptConflicted]),
+  error: Schema.Union([AgentFailed, NoChange, WorkspaceFailed, AdoptConflicted]),
   idempotencyKey: (payload) => ({ adopt: "issue-sweep/v2", attempt: payload.attempt ?? 1 })
 })
 
@@ -151,7 +163,7 @@ export const Readopt = Flow.make("issue-sweep/readopt", {
 export const Fix = Action.make("issue-sweep/fix", {
   payload: Schema.Struct({ repo: Schema.String, issue: Schema.Number, text: IssueText, workspace: Workspace }),
   success: Report,
-  error: AgentFailed,
+  error: Schema.Union([AgentFailed, NoChange]),
   nondeterministic: true
 })
 
@@ -171,7 +183,7 @@ export default Flow.make("issue-sweep/work", {
   modelInvocable: false,
   payload: Payload,
   success: Report,
-  error: Schema.Union([AgentFailed, WorkspaceFailed, AdoptConflicted]),
+  error: Schema.Union([AgentFailed, NoChange, WorkspaceFailed, AdoptConflicted]),
   body: (input) =>
     Node.succeed(input.placement === "vm" || input.placement === "cloud").pipe(
       Node.branch({
@@ -433,7 +445,12 @@ const fix = Fix.toLayer((input) =>
     }
     const change = yield* recordChange(directory, base, commitMessage(reply, input.issue, input.text.title))
     if (change === undefined) {
-      return yield* new AgentFailed({ message: `${agent} ${account}: no change: ${tail(reply, 3)}` })
+      return yield* new NoChange({
+        message: `${agent} ${account}: no change: ${tail(reply, 3)}`,
+        account,
+        session: directory,
+        report: reply
+      })
     }
     const changed = (yield* jj(directory, ["diff", "--stat", "-r", change])).trim()
     const patch = yield* jj(directory, ["diff", "--git", "-r", change])
@@ -515,7 +532,12 @@ export const fixRemotely = <R>(
     Effect.flatMap((ran) =>
       ran.work._tag === "Unchanged"
         ? Effect.fail(
-          new AgentFailed({ message: `${ran.result.account} on ${session}: no change: ${tail(ran.result.report, 5)}` })
+          new NoChange({
+            message: `${ran.result.account} on ${session}: no change: ${tail(ran.result.report, 5)}`,
+            account: ran.result.account,
+            session,
+            report: ran.result.report
+          })
         )
         : Effect.succeed(ran)
     )
@@ -600,7 +622,12 @@ export const adoptWork = (input: typeof Adopt.payloadSchema.Type, place: Place) 
   Effect.gen(function*() {
     const { result, work } = input.remote
     if (work._tag === "Unchanged") {
-      return yield* new AgentFailed({ message: `${result.account} on ${work.session}: no change` })
+      return yield* new NoChange({
+        message: `${result.account} on ${work.session}: no change: ${tail(result.report, 5)}`,
+        account: result.account,
+        session: work.session,
+        report: result.report
+      })
     }
     const failed = (message: string) => `the ${work.session} work: ${message}`
     const outcome = yield* SandboxMerge.apply(work, {

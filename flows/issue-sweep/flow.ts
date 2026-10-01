@@ -17,7 +17,8 @@ import { capacity, perAccount, readPools } from "./accounts.ts"
 import { api, openIssues } from "./github.ts"
 import { HostFailed, repository, run, tail } from "./host.ts"
 import { landChange, LandFailed } from "./land.ts"
-import Work, { AgentFailed, removeWorkspace, type Report, requeue } from "./work/flow.ts"
+import { infraCaused, noChangeLabel, recordVerdict, requalified } from "./verdict.ts"
+import Work, { AgentFailed, NoChange, removeWorkspace, type Report, requeue } from "./work/flow.ts"
 
 const Input = Schema.Struct({
   repo: Schema.String,
@@ -190,6 +191,7 @@ type Worked = typeof Report.Type
 type Failure =
   | GhFailed
   | AgentFailed
+  | NoChange
   | HostFailed
   | LandFailed
   | Schema.SchemaError
@@ -209,6 +211,23 @@ const ref = (args: Args) => `${repoOf(args)}#${args.item.number}`
  */
 export const releasesClaim = (status: Burndown.Status): boolean => status !== "requeued"
 
+/**
+ * Records a no-change verdict on the issue, then fails with it, so the item
+ * settles `failed` and the label keeps later runs off it. A verdict our own
+ * infrastructure caused is not recorded: the next run retries the issue.
+ */
+const settleNoChange = (repo: string, issue: number, verdict: NoChange) =>
+  Effect.gen(function*() {
+    if (infraCaused(verdict.report) !== undefined) return yield* verdict
+    const at = new Date(yield* Clock.currentTimeMillis).toISOString()
+    yield* github(recordVerdict(repo, issue, verdict.report, at)).pipe(
+      Effect.catch((failed) =>
+        Effect.fail(new AgentFailed({ message: `${verdict.message}; verdict not recorded: ${failed.message}` }))
+      )
+    )
+    return yield* verdict
+  })
+
 const dispatch = Burndown.layer<"issue-sweep/dispatch", Item, Worked, Failure, Engine, string>(Dispatch, {
   key: "issue-sweep",
   // The round's capacity slots bound how many work at once; this is only the
@@ -219,6 +238,9 @@ const dispatch = Burndown.layer<"issue-sweep/dispatch", Item, Worked, Failure, E
     Effect.gen(function*() {
       const parked = parkedFor(args.item)
       if (parked !== undefined) return Burndown.skip(parked)
+      if (args.item.labels.includes(noChangeLabel) && !(yield* github(requalified(repoOf(args), args.item.number)))) {
+        return Burndown.skip("no change; waiting on a human")
+      }
       if (!args.item.labels.includes("in-progress")) return Burndown.ours
       const now = yield* Clock.currentTimeMillis
       const claim = yield* newestClaim(repoOf(args), args.item.number)
@@ -260,7 +282,8 @@ const dispatch = Burndown.layer<"issue-sweep/dispatch", Item, Worked, Failure, E
       ),
       // A workspace this machine cannot prepare would fail every issue the
       // same way: stop the sweep (its claims are released) instead.
-      Effect.catchTag("issue-sweep/WorkspaceFailed", (error) => Effect.die(error))
+      Effect.catchTag("issue-sweep/WorkspaceFailed", (error) => Effect.die(error)),
+      Effect.catchTag("issue-sweep/NoChange", (verdict) => settleNoChange(input.repo, args.item.number, verdict))
     ) as Effect.Effect<Worked, Failure, Engine>
   },
   // An issue someone closed while its agent worked is already settled; landing

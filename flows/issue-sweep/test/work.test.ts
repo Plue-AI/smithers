@@ -26,6 +26,7 @@ import {
   brief,
   commitMessage,
   fixRemotely,
+  NoChange,
   type Place,
   Readopt,
   replyOf,
@@ -269,13 +270,16 @@ test("a remote fix made on a refreshed machine lands as one change on the host's
   assert.equal(jjHost("log", "--no-graph", "-r", `description(exact:"${message}\n")`, "-T", "\"x\""), "x")
 })
 
-test("a machine whose checkout ends where it started fails with no change", async (t) => {
+test("a machine whose checkout ends where it started fails with a typed no-change verdict", async (t) => {
   const { guest } = fixture(t)
   const exit = await Effect.runPromiseExit(fixRemotely(directoryMachine(guest), session, edit("true")))
   assert.ok(Exit.isFailure(exit))
   const error = exit.cause.reasons.find((reason) => reason._tag === "Fail")?.error
-  assert.equal(error?._tag, "issue-sweep/AgentFailed")
-  assert.match(error?.message ?? "", /codex-1 on issue-sweep:o\/r#7: no change: Fixed\./)
+  assert.ok(error instanceof NoChange)
+  assert.equal(error.account, "codex-1")
+  assert.equal(error.session, session)
+  assert.match(error.report, /^Fixed\./)
+  assert.match(error.message, /codex-1 on issue-sweep:o\/r#7: no change: Fixed\./)
 })
 
 /** A remote fix of README.md's `two` whose host `main` meanwhile rewrote the same line. */
