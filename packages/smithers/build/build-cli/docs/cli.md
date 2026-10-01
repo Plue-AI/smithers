@@ -459,6 +459,16 @@ or ambient inputs conservatively select the graph. Any change selects every
 uncacheable target and its dependents, because only a cache key declares
 complete inputs.
 
+`--list` adds `reasonDetails` beside each target's changed-path `reasons`.
+Each detail names the file and selection mechanism; target-local causes also
+name the culprit's label and rule and a shortest `dependencyPath` from the
+selected root to that culprit. Ambient inputs include their declaration, such
+as a `PnpmWorkspace` tag and path. Private `__private_` labels are local to this
+list and may differ from a later plan's labels. `conservative` describes only
+the global/unknown-file fallback; ambient and uncacheable causes can select
+every target while it remains `false`. Incomplete input contracts retain the
+any-change fallback; these diagnostics neither enable caching nor narrow it.
+
 Each Git invocation has a 60-second deadline and a 16 MiB limit on each output
 stream. Cancellation interrupts discovery as well as target execution. A Git
 timeout, invalid output, or nonzero exit fails `affected`; it never becomes an

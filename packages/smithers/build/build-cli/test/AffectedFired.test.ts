@@ -35,6 +35,110 @@ export const Workspace = S.Workspace("fixture", {
 
 const elsewhere = process.platform === "win32" ? "linux" : "win32"
 
+it("affected list explains an unrelated catalog test's incomplete input contract", async () => {
+  const root = await workspace("export const Package = S.Package({ targets: {} })")
+  try {
+    await write(
+      root,
+      "packages/changed/PACKAGE.ts",
+      `import { Smithers as S } from "@smthrs/targets"
+export const Package = S.Package({ targets: { sources: S.Filegroup({ srcs: [S.glob("src/**")] }) } })`
+    )
+    await write(
+      root,
+      "packages/other/PACKAGE.ts",
+      `import { Smithers as S } from "@smthrs/targets"
+export const Package = S.Package({ targets: { test: S.Vitest({
+  tests: [S.glob("test/**/*.test.ts")], sources: [S.glob("src/**")], deps: [],
+  config: null, environment: "node", passWithNoTests: false, cwd: "packages/other"
+}) } })`
+    )
+    const listed = await serve(root, [
+      "affected",
+      "test",
+      "//...",
+      "--files",
+      "packages/changed/src/a.ts",
+      "--list",
+      "--json"
+    ])
+    expect(listed.exitCode, listed.output + listed.logs).toBe(0)
+    expect(JSON.parse(listed.output)).toMatchObject({
+      conservative: false,
+      globalInputs: [],
+      targets: [{
+        label: "//packages/other:test",
+        reasons: ["packages/changed/src/a.ts"],
+        reasonDetails: [{
+          file: "packages/changed/src/a.ts",
+          kind: "uncacheable",
+          label: "//packages/other:test",
+          rule: "Vitest",
+          dependencyPath: ["//packages/other:test"]
+        }]
+      }]
+    })
+  } finally {
+    await Fs.rm(root, { recursive: true, force: true })
+  }
+})
+
+it("affected list retains shared workspace causes alongside an uncacheable catalog cause", async () => {
+  const root = await workspace(`export const Package = S.Package({ targets: {
+  workspace: S.Lockfile({ manifests: [S.pnpmWorkspace("//pnpm-workspace.yaml")], lockfilePath: "pnpm-lock.yaml" })
+} })`)
+  try {
+    await write(
+      root,
+      "packages/changed/PACKAGE.ts",
+      `import { Smithers as S } from "@smthrs/targets"
+export const Package = S.Package({ targets: { sources: S.Filegroup({ srcs: [S.glob("src/**")] }) } })`
+    )
+    await write(
+      root,
+      "packages/other/PACKAGE.ts",
+      `import { Smithers as S } from "@smthrs/targets"
+import { Package as root } from "../../PACKAGE.ts"
+export const Package = S.Package({ targets: { test: S.Vitest({
+  tests: [S.glob("test/**/*.test.ts")], sources: [S.glob("src/**")], deps: [root.workspace],
+  config: null, environment: "node", passWithNoTests: false, cwd: "packages/other"
+}) } })`
+    )
+    const listed = await serve(root, [
+      "affected",
+      "test",
+      "//...",
+      "--files",
+      "packages/changed/src/a.ts",
+      "--list",
+      "--json"
+    ])
+    expect(listed.exitCode, listed.output + listed.logs).toBe(0)
+    const output = JSON.parse(listed.output)
+    expect(output).toMatchObject({ conservative: false, globalInputs: [] })
+    expect(output.targets).toHaveLength(1)
+    expect(output.targets[0].reasonDetails).toEqual(expect.arrayContaining([
+      {
+        file: "packages/changed/src/a.ts",
+        kind: "uncacheable",
+        label: "//packages/other:test",
+        rule: "Vitest",
+        dependencyPath: ["//packages/other:test"]
+      },
+      {
+        file: "packages/changed/src/a.ts",
+        kind: "ambient-input",
+        label: "//:workspace",
+        rule: "Lockfile",
+        input: { _tag: "PnpmWorkspace", path: "//pnpm-workspace.yaml" },
+        dependencyPath: ["//packages/other:test", "//:workspace"]
+      }
+    ]))
+  } finally {
+    await Fs.rm(root, { recursive: true, force: true })
+  }
+})
+
 /** A known-path diff selects part of a wildcard and reaches an exclusive test. */
 const partialExclusiveWorkspace = async () => {
   const root = await workspace("export const Package = S.Package({ targets: {} })")

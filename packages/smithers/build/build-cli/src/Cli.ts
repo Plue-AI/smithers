@@ -1250,7 +1250,7 @@ const makeCommands = (config: RuntimeConfig) =>
             signal: config.signal,
             environment: environmentOf(config)
           })
-          const changed = Affected.select(index, context.args.patterns, files)
+          const changed = Affected.select(index, context.args.patterns, files, { explain: context.options.list })
           const kinds = context.args.verb === "ci" ? ciKinds : [context.args.verb]
           const resolver = RepoResolution.resolver(index, environmentOf(config))
           // A target only bare wildcards select is left out where the wildcard

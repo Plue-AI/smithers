@@ -24,6 +24,7 @@ const target = (
   cacheable = true
 ): Target.AnyTarget =>
   ({
+    target: "Fixture",
     inputs,
     dependencies,
     dependencySelectors: [],
@@ -58,6 +59,45 @@ const fixture = () => {
     } as unknown as PackageIndex
   }
 }
+
+it("explains shared ambient selection through private dependencies without claiming input ownership", () => {
+  const { add, index, owners } = fixture()
+  const workspace = add("", "workspace", target([Input.pnpmWorkspace("//pnpm-workspace.yaml")], [], undefined, false))
+  const privateTarget = {
+    ...target([Input.file("local.txt")], [workspace]),
+    target: "Filegroup",
+    attrs: { cwd: "." }
+  } as Target.AnyTarget
+  owners.set(privateTarget, "other")
+  add("other", "test", target([Input.file("local.txt")], [privateTarget]))
+  add("lib", "src", target([Input.glob("src/**/*.ts")]))
+  const selected = Affected.select(index, ["//other:test"], ["lib/src/a.ts"], { explain: true })
+  expect(selected).toMatchObject({
+    conservative: false,
+    globalInputs: [],
+    targets: [{
+      label: "//other:test",
+      reasons: ["lib/src/a.ts"],
+      reasonDetails: [{
+        file: "lib/src/a.ts",
+        kind: "ambient-input",
+        label: "//:workspace",
+        rule: "Fixture",
+        input: Input.pnpmWorkspace("//pnpm-workspace.yaml"),
+        dependencyPath: ["//other:test", "//other:__private_Filegroup_1", "//:workspace"]
+      }, {
+        file: "lib/src/a.ts",
+        kind: "uncacheable",
+        label: "//:workspace",
+        rule: "Fixture",
+        dependencyPath: ["//other:test", "//other:__private_Filegroup_1", "//:workspace"]
+      }]
+    }]
+  })
+  expect(Affected.select(index, ["//other:test"], ["lib/src/a.ts"]).targets).toEqual([
+    { label: "//other:test", reasons: ["lib/src/a.ts"] }
+  ])
+})
 
 it("preserves owned, declared unowned, and multi-root reasons including excludes and dotfiles", () => {
   const { add, index } = fixture()
@@ -254,6 +294,129 @@ it("propagates through shared private, verb, selector and cyclic dependencies", 
     { label: "//second:build", reasons: paths }
   ])
   expect(resolve).toHaveBeenCalledWith("//first/...:build")
+  const explained = Affected.select(index, ["//selector:build"], ["lib/data.txt"], { explain: true })
+  expect(explained.targets[0]!.reasonDetails).toEqual([
+    {
+      file: "lib/data.txt",
+      kind: "declared-input",
+      label: "//lib:__private_Fixture_1",
+      rule: "Fixture",
+      input: Input.file("//lib/data.txt"),
+      dependencyPath: ["//selector:build", "//first:build", "//lib:__private_Fixture_1"]
+    },
+    {
+      file: "lib/data.txt",
+      kind: "package",
+      label: "//lib:__private_Fixture_1",
+      rule: "Fixture",
+      dependencyPath: ["//selector:build", "//first:build", "//lib:__private_Fixture_1"]
+    }
+  ])
+})
+
+it("explains global and unknown fallbacks without inventing a dependency route", () => {
+  const { add, index } = fixture()
+  add("app", "test", target([Input.file("local.txt")]))
+  for (const [file, kind] of [["pnpm-lock.yaml", "global-input"], ["unowned/a.txt", "unknown-input"]]) {
+    expect(Affected.select(index, ["//..."], [file!], { explain: true }).targets[0]!.reasonDetails).toEqual([
+      { file, kind }
+    ])
+  }
+  expect(Affected.select(index, ["//..."], [], { explain: true }).targets).toEqual([])
+})
+
+it.each(
+  [
+    [Input.gitDiff(), false],
+    [Input.gitDiff(), true],
+    [Input.pnpmWorkspace("//pnpm-workspace.yaml"), false],
+    [Input.pnpmWorkspace("//pnpm-workspace.yaml"), true]
+  ] as const
+)("explains ambient $_tag declarations in base and verb views (%s)", (input, verbOnly) => {
+  const { add, index } = fixture()
+  add("lib", "src", target([Input.glob("src/**")]))
+  add(
+    "app",
+    "test",
+    target(
+      verbOnly ? [Input.file("local.txt")] : [input],
+      [],
+      verbOnly ? { inputs: [input] } : undefined
+    )
+  )
+  expect(Affected.select(index, ["//app:test"], ["lib/src/a.ts"], { explain: true }).targets[0]!.reasonDetails).toEqual(
+    [
+      {
+        file: "lib/src/a.ts",
+        kind: "ambient-input",
+        label: "//app:test",
+        rule: "Fixture",
+        input,
+        dependencyPath: ["//app:test"]
+      }
+    ]
+  )
+})
+
+it("distinguishes declared inputs, package membership, empty contracts and verb-only uncacheability", () => {
+  const { add, index } = fixture()
+  add("app", "test", target([Input.file("//assets/schema.txt")]))
+  add("empty", "test", target())
+  add("verb", "test", target([Input.file("local.txt")], [], { cacheable: false }))
+  add(
+    "go",
+    "test",
+    { ...target([Input.file("local.txt")], [], undefined, false), target: "Go.Test" } as Target.AnyTarget
+  )
+  const paths = ["app/src/a.ts", "assets/schema.txt"]
+  const selected = Affected.select(index, ["//..."], paths, { explain: true })
+  expect(selected.targets.map((row) => row.label)).toEqual(["//app:test", "//empty:test", "//verb:test"])
+  expect(selected.targets[0]!.reasonDetails).toEqual([
+    { file: paths[0], kind: "package", label: "//app:test", rule: "Fixture", dependencyPath: ["//app:test"] },
+    {
+      file: paths[1],
+      kind: "declared-input",
+      label: "//app:test",
+      rule: "Fixture",
+      input: Input.file("//assets/schema.txt"),
+      dependencyPath: ["//app:test"]
+    }
+  ])
+  expect(selected.targets[1]!.reasonDetails).toEqual(paths.map((file) => ({
+    file,
+    kind: "empty",
+    label: "//empty:test",
+    rule: "Fixture",
+    dependencyPath: ["//empty:test"]
+  })))
+  expect(selected.targets[2]!.reasonDetails).toEqual(paths.map((file) => ({
+    file,
+    kind: "uncacheable",
+    label: "//verb:test",
+    rule: "Fixture",
+    dependencyPath: ["//verb:test"]
+  })))
+})
+
+it("uses one shortest route when an ambient source has shared and cyclic dependency paths", () => {
+  const { add, index } = fixture()
+  const dependencies: Array<Target.AnyTarget> = []
+  const source = add("ambient", "diff", target([Input.gitDiff()], dependencies))
+  const intermediate = add("middle", "build", target([Input.file("local.txt")], [source]))
+  const root = add("app", "test", target([Input.file("local.txt")], [intermediate, source]))
+  dependencies.push(root)
+  add("lib", "src", target([Input.glob("src/**")]))
+  const paths = ["lib/src/a.ts", "lib/src/b.ts"]
+  expect(Affected.select(index, ["//app:test"], paths, { explain: true }).targets[0]!.reasonDetails).toEqual(
+    paths.map((file) => ({
+      file,
+      kind: "ambient-input",
+      label: "//ambient:diff",
+      rule: "Fixture",
+      input: Input.gitDiff(),
+      dependencyPath: ["//app:test", "//ambient:diff"]
+    }))
+  )
 })
 
 it("compiles each resolved include and exclude once across ownership and selection", () => {

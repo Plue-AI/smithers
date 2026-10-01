@@ -105,6 +105,22 @@ const globalPath = (path: string): boolean =>
 
 const ambientInput = (input: Input.Declared): boolean => input._tag === "GitDiff" || input._tag === "PnpmWorkspace"
 
+interface ReasonDetail {
+  readonly file: string
+  readonly kind:
+    | "global-input"
+    | "unknown-input"
+    | "ambient-input"
+    | "uncacheable"
+    | "package"
+    | "declared-input"
+    | "empty"
+  readonly label?: string
+  readonly rule?: string
+  readonly input?: Input.Declared
+  readonly dependencyPath?: ReadonlyArray<string>
+}
+
 const compileInput = (
   input: Input.Declared,
   packagePath: string,
@@ -132,7 +148,12 @@ const compileInput = (
  * @category querying
  * @since 0.1.0
  */
-export const select = (index: PackageIndex, patterns: ReadonlyArray<string>, paths: ReadonlyArray<string>) => {
+export const select = (
+  index: PackageIndex,
+  patterns: ReadonlyArray<string>,
+  paths: ReadonlyArray<string>,
+  options: { readonly explain?: boolean } = {}
+) => {
   const normalized = [
     ...new Set(paths.map((path) => {
       const value = path.replaceAll("\\", "/").replace(/^\.\//, "")
@@ -147,6 +168,21 @@ export const select = (index: PackageIndex, patterns: ReadonlyArray<string>, pat
     ...new Map(patterns.flatMap((pattern) => index.resolve(pattern)).map((row) => [row.label, row])).values()
   ]
   const reasons = new Map<string, Set<string>>()
+  const reasonDetails = new Map<Target.AnyTarget, Array<ReasonDetail>>()
+  const labels = new Map(rows.map((row) => [row.target, row.label]))
+  let privateCounter = 0
+  const labelOf = (target: Target.AnyTarget): string => {
+    let label = labels.get(target)
+    if (label === undefined) {
+      // Diagnostic-local names, like the planner's private labels; never exported roots.
+      const metadata = entry(target)
+      label = `//${metadata.packagePath}:__private_${
+        metadata.metadata.target.replace(/[^A-Za-z0-9]/g, "_")
+      }_${++privateCounter}`
+      labels.set(target, label)
+    }
+    return label
+  }
   const globs = new Map<string, Minimatch>()
   const glob = (pattern: string): Minimatch => {
     let compiled = globs.get(pattern)
@@ -200,9 +236,21 @@ export const select = (index: PackageIndex, patterns: ReadonlyArray<string>, pat
   const unknown = normalized.filter((path) => !ownership.some((value) => value.ownsPath(path)))
   const conservative = global.length + unknown.length > 0
   if (conservative) {
-    for (const row of selected) reasons.set(row.label, new Set([...global, ...unknown]))
+    for (const row of selected) {
+      reasons.set(row.label, new Set([...global, ...unknown]))
+      if (options.explain) {
+        reasonDetails.set(
+          row.target,
+          [...new Set([...global, ...unknown])].sort().map((file) => ({
+            file,
+            kind: global.includes(file) ? "global-input" : "unknown-input"
+          }))
+        )
+      }
+    }
   } else if (normalized.length > 0) {
     const direct = new Map<Target.AnyTarget, (path: string) => boolean>()
+    const details = new Map<Target.AnyTarget, (file: string) => ReadonlyArray<ReasonDetail>>()
     const reverse = new Map<Target.AnyTarget, Set<Target.AnyTarget>>()
     const selectors = new Map<string, ReadonlyArray<Target.AnyTarget>>()
     const pending = selected.map((row) => row.target)
@@ -216,14 +264,37 @@ export const select = (index: PackageIndex, patterns: ReadonlyArray<string>, pat
       const viewInputs = views.flatMap((view) => view.inputs)
       // An uncacheable target makes no promise that its inputs are complete: it may import
       // undeclared packages or read files it never declared. Only running it is sound.
-      const everyChange = value.ambient || viewInputs.some(ambientInput) ||
-        RulePolicy.of(metadata.target).cache === undefined &&
-          (!metadata.cacheable || views.some((view) => !view.cacheable))
+      const uncacheable = RulePolicy.of(metadata.target).cache === undefined &&
+        (!metadata.cacheable || views.some((view) => !view.cacheable))
+      const everyChange = value.ambient || viewInputs.some(ambientInput) || uncacheable
       const inputs = viewInputs
         .map((input) => compileInput(input, inputPackage(metadata, value.packagePath), glob))
       direct.set(target, (path) =>
         everyChange || value.ownsPath(path) || inputs.some((input) => input(path)) ||
         metadata.inputs.length === 0 && metadata.dependencies.length === 0)
+      if (options.explain) {
+        const declarations = [...new Set([...metadata.inputs, ...viewInputs])]
+        const declared = declarations.map((input) => ({
+          input,
+          matches: compileInput(input, inputPackage(metadata, value.packagePath), glob)
+        }))
+        details.set(target, (file) => {
+          const source = { file, label: labelOf(target), rule: metadata.target }
+          const causes: Array<ReasonDetail> = []
+          for (const { input, matches } of declared) {
+            if (ambientInput(input)) causes.push({ ...source, kind: "ambient-input", input })
+            else if (matches(file)) causes.push({ ...source, kind: "declared-input", input })
+          }
+          if (uncacheable) causes.push({ ...source, kind: "uncacheable" })
+          if (value.packagePath !== "" && file.startsWith(`${value.packagePath}/`)) {
+            causes.push({ ...source, kind: "package" })
+          }
+          if (metadata.inputs.length === 0 && metadata.dependencies.length === 0) {
+            causes.push({ ...source, kind: "empty" })
+          }
+          return causes
+        })
+      }
       const dependencies = new Set([
         ...metadata.dependencies,
         ...views.flatMap((view) => view.dependencies)
@@ -244,9 +315,27 @@ export const select = (index: PackageIndex, patterns: ReadonlyArray<string>, pat
         pending.push(dependency)
       }
     }
+    const roots = new Set(selected.map((row) => row.target))
     for (const path of normalized) {
       const affected = new Set<Target.AnyTarget>()
       for (const [target, matches] of direct) if (matches(path)) affected.add(target)
+      if (options.explain) {
+        for (const source of affected) {
+          const causes = details.get(source)!(path)
+          // One shortest route per source, including shared/private/cyclic dependencies.
+          const routes = new Map<Target.AnyTarget, ReadonlyArray<string>>([[source, [labelOf(source)]]])
+          for (const [target, route] of routes) {
+            if (roots.has(target)) {
+              let into = reasonDetails.get(target)
+              if (into === undefined) reasonDetails.set(target, into = [])
+              into.push(...causes.map((cause) => ({ ...cause, dependencyPath: [...route].reverse() })))
+            }
+            for (const dependent of reverse.get(target) ?? []) {
+              if (!routes.has(dependent)) routes.set(dependent, [...route, labelOf(dependent)])
+            }
+          }
+        }
+      }
       // Set iteration includes newly added dependents and visits each target/path once,
       // even when several selected roots share dependencies or the graph has a cycle.
       for (const target of affected) {
@@ -267,7 +356,8 @@ export const select = (index: PackageIndex, patterns: ReadonlyArray<string>, pat
     globalInputs: [...new Set([...global, ...unknown])].sort(),
     targets: selected.filter((row) => reasons.has(row.label)).map((row) => ({
       label: row.label,
-      reasons: [...reasons.get(row.label)!].sort()
+      reasons: [...reasons.get(row.label)!].sort(),
+      ...(options.explain ? { reasonDetails: reasonDetails.get(row.target) ?? [] } : {})
     }))
   }
 }
