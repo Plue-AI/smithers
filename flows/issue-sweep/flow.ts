@@ -12,8 +12,9 @@ import { Action, Flow, type FlowRuntime, Interpreter, Sleep, WaitFor } from "@sm
 import { Burndown } from "@smthrs/patterns"
 import { Cause, Clock, Effect, Layer, Schedule, Schema } from "effect"
 import type * as Crypto from "effect/Crypto"
+import { fileURLToPath } from "node:url"
 import { capacity, perAccount, readPools } from "./accounts.ts"
-import { HostFailed, output, repository, run, tail } from "./host.ts"
+import { HostFailed, output, run, tail } from "./host.ts"
 import { landChange, LandFailed } from "./land.ts"
 import Work, { AgentFailed, removeWorkspace, type Report } from "./work/flow.ts"
 
@@ -153,7 +154,9 @@ const newestClaim = (repo: string, issue: number) =>
   ]).pipe(Effect.map((stdout) => stdout.split("\n").filter((line) => line !== "").at(-1)))
 
 // scripts/issue-claim.mjs: exit 0 done, 2 held by someone else, 75 rate limited.
-const claimTool = `${repository}/scripts/issue-claim.mjs`
+// The copy beside this flow, never the shared checkout's: another session's
+// half-made edit there failed every claim and release of a running sweep.
+export const claimTool = fileURLToPath(new URL("../../scripts/issue-claim.mjs", import.meta.url))
 const by = "issue-sweep"
 
 class RateLimited extends Schema.TaggedError<RateLimited>()("issue-sweep/RateLimited", {

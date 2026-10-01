@@ -1,6 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import { decide } from "../flow.ts"
+import { fileURLToPath } from "node:url"
+import { claimTool, decide } from "../flow.ts"
 
 const claim = (host: string, expires: string) =>
   `Claimed by codex-root-3276 on ${host} at 2026-09-30T23:28:42.882Z; expires ${expires}`
@@ -34,4 +35,10 @@ test("a claim line ending in a period still parses", () => {
 
 test("an unparseable expiry is treated as expired", () => {
   assert.equal(decide(claim("Williams-Mac-mini.local", "soon"), at), "ours")
+})
+
+// A peer's half-made edit to the shared checkout's issue-claim.mjs failed every claim of a running sweep.
+test("the claim tool is the copy in this flow's own checkout", () => {
+  const root = fileURLToPath(new URL("../../../", import.meta.url))
+  assert.equal(claimTool, `${root}scripts/issue-claim.mjs`)
 })
